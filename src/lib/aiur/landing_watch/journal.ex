@@ -3,6 +3,7 @@ defmodule Aiur.LandingWatch.Journal do
 
   alias Aiur.Config.Paths
   alias Aiur.JsonStore
+  alias Aiur.LandingWatch.MergeGroupJournal
 
   @spec state(keyword()) :: {:ok, map()} | {:error, term()}
   def state(opts \\ []) do
@@ -86,60 +87,16 @@ defmodule Aiur.LandingWatch.Journal do
   end
 
   @spec claim_merge_group_run(pos_integer(), keyword()) :: {:ok, :new | :already_claimed} | {:error, term()}
-  def claim_merge_group_run(run_id, opts \\ []) when is_integer(run_id) and run_id > 0 do
-    update(opts, fn state ->
-      runs = Map.get(state, "merge_group_runs", %{})
-      run_key = Integer.to_string(run_id)
-
-      if Map.has_key?(runs, run_key) do
-        {:ok, state, :already_claimed}
-      else
-        runs =
-          runs
-          |> Map.put(run_key, System.system_time(:millisecond))
-          |> Enum.sort_by(&elem(&1, 1), :desc)
-          |> Enum.take(500)
-          |> Map.new()
-
-        {:ok, Map.put(state, "merge_group_runs", runs), :new}
-      end
-    end)
-  end
+  def claim_merge_group_run(run_id, opts \\ []), do: MergeGroupJournal.claim_merge_group_run(run_id, opts)
 
   @spec reserve_merge_group_requeue(integer(), keyword()) :: :ok | {:error, :merge_group_requeue_limit_reached | term()}
-  def reserve_merge_group_requeue(now, opts \\ []) when is_integer(now) do
-    update(opts, fn state ->
-      recent = state |> Map.get("merge_group_requeues", []) |> Enum.filter(&(is_integer(&1) and now >= &1 and now - &1 < 15 * 60_000))
-
-      if length(recent) >= 3 do
-        {:error, :merge_group_requeue_limit_reached}
-      else
-        {:ok, Map.put(state, "merge_group_requeues", [now | recent]), :ok}
-      end
-    end)
-  end
+  def reserve_merge_group_requeue(now, opts \\ []), do: MergeGroupJournal.reserve_merge_group_requeue(now, opts)
 
   @spec merge_group_requeues_by_hour(keyword()) :: {:ok, %{optional(String.t()) => non_neg_integer()}} | {:error, term()}
-  def merge_group_requeues_by_hour(opts \\ []) do
-    with {:ok, state} <- state(opts) do
-      counts =
-        state
-        |> Map.get("merge_group_requeues", [])
-        |> Enum.filter(&is_integer/1)
-        |> Enum.frequencies_by(fn timestamp ->
-          hour = div(timestamp, 3_600_000) * 3_600_000
-          DateTime.from_unix!(hour, :millisecond) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-        end)
-
-      {:ok, counts}
-    end
-  end
+  def merge_group_requeues_by_hour(opts \\ []), do: MergeGroupJournal.merge_group_requeues_by_hour(opts)
 
   @spec release_merge_group_run(pos_integer(), keyword()) :: :ok | {:error, term()}
-  def release_merge_group_run(run_id, opts \\ []) when is_integer(run_id) and run_id > 0 do
-    run_key = Integer.to_string(run_id)
-    update(opts, fn state -> {:ok, Map.put(state, "merge_group_runs", Map.delete(Map.get(state, "merge_group_runs", %{}), run_key))} end)
-  end
+  def release_merge_group_run(run_id, opts \\ []), do: MergeGroupJournal.release_merge_group_run(run_id, opts)
 
   @spec retain_current_heads([map()], keyword()) :: :ok | {:error, term()}
   def retain_current_heads(observations, opts \\ [])
@@ -157,7 +114,9 @@ defmodule Aiur.LandingWatch.Journal do
 
   def retain_current_heads(_, _), do: {:error, :invalid_landing_watch_observations}
 
-  defp update(opts, fun) do
+  @doc false
+  @spec update(keyword(), (map() -> term())) :: term()
+  def update(opts, fun) do
     path = path(opts)
     :global.trans({{__MODULE__, path}, self()}, fn -> perform_update(path, opts, fun) end)
   rescue
