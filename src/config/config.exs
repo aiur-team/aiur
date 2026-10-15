@@ -4,6 +4,8 @@ config :aiur, Aiur.Events.Trace, Aiur.Events.DebugLog
 
 config :aiur, env: config_env()
 
+config :aiur, Aiur.Events.SourcePolicy, Aiur.GitHub.EventSourcePolicy
+
 config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
 config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
 

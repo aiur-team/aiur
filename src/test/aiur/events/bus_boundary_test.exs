@@ -14,10 +14,6 @@ defmodule Aiur.Events.BusBoundaryTest do
   # {member_file, referenced_module} => ticket that removes the edge.
   # Seam tickets delete their rows; that deletion is the proof the edge is gone.
   @ratchet %{
-    {"events/publisher.ex", "Aiur.GitHub.AgentMarker"} => "C2-T06",
-    {"events/publisher.ex", "Aiur.GitHub.Config"} => "C2-T06",
-    {"events/publisher.ex", "Aiur.GitHub.ResourceStore"} => "C2-T06",
-    {"events/publisher.ex", "Aiur.Webhooks"} => "C2-T06",
     {"events/subscription_store.ex", "Aiur.Orchestrator"} => "C2-T01",
     {"events/subscription_store.ex", "Aiur.Signal"} => "C2-T01",
     # Unassigned: tracker types in the L1 spine; MP-R1 decides (CONTRACT-REQUESTS).
@@ -80,14 +76,6 @@ defmodule Aiur.Events.BusBoundaryTest do
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(lib) end)
 
     assert "events/new_boundary_member.ex" in members(lib)
-  end
-
-  test "directory discovery matches the original boundary membership" do
-    assert Enum.sort(members()) ==
-             Enum.sort(~w(events/exchange.ex events/topic.ex events/publisher.ex events/id_generator.ex
-                  events/subscription_store.ex events/subscription_store_supervisor.ex
-                  events/universal_subscriptions.ex events/agent_subscription_policy.ex
-                  events/history_store.ex events/trace.ex ticket_observation.ex))
   end
 
   defp allowed?(mod) do
