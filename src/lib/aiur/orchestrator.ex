@@ -37,12 +37,12 @@ defmodule Aiur.Orchestrator do
 
   @impl true
   def handle_info({:tick, tick_token}, %{tick_token: tick_token} = state)
-      when is_reference(tick_token),
+      when is_reference(tick_token) and state.poll_frozen != true,
       do: Lifecycle.handle_tick(state)
 
   def handle_info({:tick, _tick_token}, state), do: {:noreply, state}
 
-  def handle_info(:tick, state), do: Lifecycle.handle_tick(state)
+  def handle_info(:tick, state), do: if(Map.get(state, :poll_frozen), do: {:noreply, state}, else: Lifecycle.handle_tick(state))
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
   # A test freeze (freeze_poll_cycle) sets `poll_frozen` so the one-shot
   # `:run_poll_cycle` the initial tick scheduled (20ms render delay, not

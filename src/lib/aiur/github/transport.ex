@@ -468,7 +468,7 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
-  defp orchestrator_process?, do: self() == GenServer.whereis(Aiur.Orchestrator)
+  defp orchestrator_process?, do: self() == GenServer.whereis(Application.get_env(:aiur, :github_poll_owner))
 
   defp quota_preflight(quota, request), do: Quota.preflight(quota, request)
 

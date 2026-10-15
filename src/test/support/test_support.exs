@@ -274,8 +274,6 @@ defmodule Aiur.TestSupport do
         # `Aiur.TestSupport.isolated_app_env_keys/0`.
         previous_app_env = Aiur.TestSupport.capture_app_env()
 
-        Aiur.TestSupport.reset_global_state!()
-
         File.mkdir_p!(workflow_root)
 
         # Pin the host-pressure probes to a quiet host so admission decisions are
@@ -305,7 +303,7 @@ defmodule Aiur.TestSupport do
         # test's agent runner resume a prior thread (building the "session
         # resumed" continuation prompt) instead of cold-starting — an
         # order-dependent failure that only surfaces when the leaking sibling
-        # test is absent from the run (e.g. `mix test test/aiur/core_test.exs`).
+        # test is absent from the run (e.g. `mix test test/aiur/core/`).
         File.mkdir_p!(Path.join(workflow_root, "log"))
         Application.put_env(:aiur, :log_file, Path.join([workflow_root, "log", "aiur.log"]))
 
@@ -333,9 +331,13 @@ defmodule Aiur.TestSupport do
         # exiting `:shutdown`. Then reload it onto this test's config path.
         Aiur.TestSupport.ensure_runtime_children_running()
         if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
+
+        Aiur.TestSupport.quiesce_live_orchestrator()
+        Aiur.TestSupport.reset_global_state!()
         stop_default_http_server()
 
         on_exit(fn ->
+          Aiur.TestSupport.quiesce_live_orchestrator()
           Aiur.TestSupport.restore_app_env(previous_app_env)
           Application.delete_env(:aiur, :server_port_override)
           Application.delete_env(:aiur, :memory_tracker_issues)
@@ -383,6 +385,40 @@ defmodule Aiur.TestSupport do
   defdelegate ensure_provider_meter_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_subscription_store_supervisor_running(retries \\ 1), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_read_cache_running(retries \\ 1), to: Aiur.TestSupport.RuntimeChildren
+
+  @doc false
+  @spec quiesce_live_orchestrator() :: :ok
+  def quiesce_live_orchestrator do
+    case freeze_live_orchestrator() do
+      pid when is_pid(pid) -> Aiur.TestSupport.await_orchestrator_state(pid, &(map_size(&1.tracker_tasks) == 0))
+      _not_running -> :ok
+    end
+
+    :ok
+  end
+
+  @spec freeze_live_orchestrator() :: pid() | :ok
+  def freeze_live_orchestrator do
+    case Process.whereis(Aiur.Orchestrator) do
+      pid when is_pid(pid) ->
+        :sys.replace_state(pid, fn state ->
+          if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+          %{
+            state
+            | tick_timer_ref: nil,
+              tick_token: make_ref(),
+              next_poll_due_at_ms: nil,
+              poll_check_in_progress: false,
+              poll_frozen: true
+          }
+        end)
+
+      nil ->
+        :ok
+    end
+  end
+
   defdelegate write_workflow_file!(path, overrides \\ []), to: Aiur.TestSupport.WorkflowFiles
   defdelegate write_workflow_file_async!(path, overrides \\ []), to: Aiur.TestSupport.WorkflowFiles
   defdelegate write_workflow_file_atomic!(path, content), to: Aiur.TestSupport.WorkflowFiles

@@ -28,6 +28,7 @@ R-down	Aiur.BuildOrder.EpicOverrides.Override	baseline 22b2fa407c5d4218d25d63b1a
 R-down	Aiur.Commands	#3312 delivery and request callers retain upward Commands dependency until the agent-side port
 R-down	Aiur.Events.DebugLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.ExternalContent	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.FeatureCLI	#3131 daemon-bound feature writer delegates to the shared optional registry command facade
 R-down	Aiur.Opencode.ActiveTurns	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Opencode.ApiClient	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
