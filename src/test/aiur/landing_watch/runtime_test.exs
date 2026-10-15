@@ -149,6 +149,26 @@ defmodule Aiur.LandingWatch.RuntimeTest do
 
     assert_received {:transition, "17", "rework"}
     refute_received {:transition, _, _}
+
+    server = {:global, {__MODULE__, make_ref()}}
+
+    assert {:ok, pid} =
+             LandingWatch.start_link(
+               name: server,
+               interval_ms: 60_000,
+               observe_fun: fn _ -> {:ok, [unlinked, linked]} end,
+               journal_prune_fun: fn _, _ -> :ok end,
+               process_fun: fn observation, _ ->
+                 send(parent, {:watcher_processed, observation.number})
+                 :ok
+               end,
+               queue_reconcile_fun: fn _, _ -> :ok end
+             )
+
+    assert_receive {:watcher_processed, 17}
+    assert eventually(fn -> not is_nil(LandingWatch.state(server).last_poll_at_ms) end)
+    assert LandingWatch.state(server).watcher == :running
+    GenServer.stop(pid)
   end
 
   test "unlinked PRs still get infra reruns" do
@@ -484,5 +504,18 @@ defmodule Aiur.LandingWatch.RuntimeTest do
     path = Path.join(System.tmp_dir!(), "landing-watch-#{System.unique_integer([:positive])}.json")
     ExUnit.Callbacks.on_exit(fn -> File.rm(path) end)
     path
+  end
+
+  defp eventually(fun, attempts \\ 20)
+  defp eventually(fun, 0), do: fun.()
+
+  defp eventually(fun, attempts) do
+    if fun.(),
+      do: true,
+      else:
+        (
+          Process.sleep(10)
+          eventually(fun, attempts - 1)
+        )
   end
 end
