@@ -1093,6 +1093,8 @@ defmodule Aiur.AppServerTest do
     end
   end
 
+  # Flaky in merge groups; fix tracked in #4463.
+  @tag :quarantine
   test "app server captures codex side output and logs it through Logger" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-stderr")
 

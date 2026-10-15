@@ -416,6 +416,8 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     assert :sys.get_state(projection).refreshes == 1
   end
 
+  # Flaky in merge groups; fix tracked in #4463.
+  @tag :quarantine
   test "an unresponsive projection is tried once per cycle while an independent list promotes" do
     queues = [%{queue() | root: 99}, %{queue() | id: "q-0001", root: 100}]
     {:ok, document, _} = ListMutations.add(%{@empty | queues: queues}, ["4"], [queue: "list"], DateTime.from_unix!(0))

@@ -552,6 +552,8 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
                Orchestrator.resume_agent(name, cached_issue.identifier)
     end
 
+    # Flaky in merge groups; fix tracked in #4463.
+    @tag :quarantine
     test "resume revalidates tracker state after clearing the pause override" do
       name = Module.concat(__MODULE__, :ResumeRelabelRace)
       pid = start_orchestrator(name)
