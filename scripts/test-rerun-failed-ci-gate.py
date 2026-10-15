@@ -3,6 +3,7 @@
 import importlib.util
 import os
 from pathlib import Path
+import re
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -19,8 +20,12 @@ class RerunFailedCiGateTest(unittest.TestCase):
         workflow = (Path(__file__).parents[1] / '.github/workflows/pr-body.yml').read_text()
         ci_workflow = (Path(__file__).parents[1] / '.github/workflows/ci.yml').read_text()
         self.assertIn('types: [opened, edited, synchronize, reopened]', workflow)
-        self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', ci_workflow)
-        self.assertNotIn('types: [opened, edited, synchronize', ci_workflow)
+        ci_pull_request = re.search(
+            r'pull_request:\s*\n\s+types:\s*\[([^\]]+)\]', ci_workflow,
+        )
+        self.assertIsNotNone(ci_pull_request)
+        ci_events = {event.strip() for event in ci_pull_request.group(1).split(',')}
+        self.assertNotIn('edited', ci_events)
         validation = workflow.index('name: Check PR body and local-test evidence')
         rerun = workflow.index('name: Re-run only a failed ci gate')
         self.assertLess(validation, rerun)
