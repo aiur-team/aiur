@@ -117,10 +117,12 @@ defmodule AiurWeb.AnalyticsLoadingTest do
     assert html =~ "Loading run analytics"
     receive_barrier({:scan_started, _worker})
 
-    assert eventually(fn -> render(view) =~ "waited 1s" end, 150)
-    assert eventually(fn -> render(view) =~ "Run analytics timed out." end, 150)
-    assert render(view) =~ "within 1.5 seconds"
-    refute render(view) =~ "Loading run analytics"
+    assert eventually(fn -> render(view) =~ "waited 1s" end, 500)
+    assert eventually(fn -> render(view) =~ "Run analytics timed out." end, 500)
+    rendered = render(view)
+    assert rendered =~ "within 1.5 seconds"
+    refute rendered =~ "Loading run analytics"
+    assert length(:binary.matches(rendered, ~s(data-empty-reason="timeout"))) == 1
   end
 
   test "async worker exits become an unavailable state" do

@@ -102,7 +102,8 @@ defmodule AiurWeb.AnalyticsLive do
   def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
 
-  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
+  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
+    do: {:noreply, NavState.restore(socket, collapsed)}
 
   @impl true
   def handle_event("toggle_unit", %{"key" => key}, socket) do
@@ -167,7 +168,7 @@ defmodule AiurWeb.AnalyticsLive do
           elapsed_seconds={@analytics_load_elapsed_seconds}
           timeout_seconds={@analytics_load_timeout_seconds}
         />
-        <div :if={@unavailable && @unavailable != :loading} class="an-empty" data-empty-reason={@unavailable}>
+        <div :if={@unavailable && @unavailable not in [:loading, :timeout]} class="an-empty" data-empty-reason={@unavailable}>
           <div :if={@unavailable == :no_telemetry}>
             <p><b>No run telemetry to analyze yet.</b></p>
             <p>These charts are derived from the durable run-telemetry stream and appear after it records agent or ticket activity.</p>
@@ -645,7 +646,6 @@ defmodule AiurWeb.AnalyticsLive do
   defp pressure_value(nil), do: "—"
   defp pressure_value(value), do: to_string(value)
   defp pressure_values(sample, keys), do: Enum.map_join(keys, " / ", &pressure_value(Map.get(sample, &1)))
-
   defp pressure_seconds(nil), do: "—"
   defp pressure_seconds(value), do: "#{value}s"
 
