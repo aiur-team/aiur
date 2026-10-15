@@ -211,13 +211,14 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call({:release, target}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
     observations = Reconcile.observations(state)
 
-    with {:ok, document} <- Bookkeeping.release(state.document, target, observations, state.clock.(), "#{state.settings.tracker.github.label_prefix}:todo"),
+    with {:ok, document, unobserved} <- Bookkeeping.release(state.document, target, observations, state.clock.(), "#{state.settings.tracker.github.label_prefix}:todo"),
          :ok <- state.store.save(document) do
       Events.saved(state.document, document)
       released = for item <- state.document.items, item.issue_id == target or item.queue_id == target, do: item.issue_id
-      {:reply, :ok, request(%{state | document: document, holds: MapSet.difference(state.holds, MapSet.new(released))})}
+      result = if unobserved == [], do: :ok, else: {:ok, unobserved}
+      {:reply, result, request(%{state | document: document, holds: MapSet.difference(state.holds, MapSet.new(released))})}
     else
-      {:error, reason} when reason in [:not_found, :observation_unavailable] -> {:reply, {:error, reason}, state}
+      {:error, :not_found} = error -> {:reply, error, state}
       {:error, reason} -> {:reply, {:error, reason}, AttentionHealth.store(%{state | status: :store_unavailable})}
     end
   end
