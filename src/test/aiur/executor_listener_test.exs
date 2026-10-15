@@ -1,6 +1,8 @@
 defmodule Aiur.ExecutorListenerTest do
   use Aiur.TestSupport
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Alerts
   alias Aiur.BuildQueue.Attention, as: BuildQueueAttention
   alias Aiur.Decision
@@ -385,6 +387,97 @@ defmodule Aiur.ExecutorListenerTest do
     assert replayed_message =~ "dec-restart-second"
     refute_receive {:event, %{"topic" => "executor.command.requested"}}, 200
     assert eventually(fn -> is_integer(watermark()) and watermark() >= second_id end)
+  end
+
+  # #4567: dec_2043ed93d73bbe63 on #3141 came from a codex agent through
+  # DecisionStore.request, which journals only `executor.decision.requested`.
+  # That path wrote no wake, so the Executor never heard of the Decision.
+  test "a blocking Decision requested through DecisionStore wakes the Executor exactly once" do
+    :ok = Aiur.TestSupport.ensure_id_generator_running()
+    dir = Aiur.TestSupport.tmp_root!("aiur-decision-wake")
+    previous_dir = Application.get_env(:aiur, :decision_state_dir)
+    Application.put_env(:aiur, :decision_state_dir, dir)
+
+    on_exit(fn ->
+      if previous_dir, do: Application.put_env(:aiur, :decision_state_dir, previous_dir), else: Application.delete_env(:aiur, :decision_state_dir)
+    end)
+
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+    start_listener(inbox: @inbox_name, patterns: ["executor.#"], reconcile?: false)
+    store = start_supervised!({Aiur.DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
+    context = [ticket: %{identifier: "3141", title: "Renderer", url: nil}, source: %{agent_id: "codex", session_id: "s-1", event_id: nil}]
+
+    request = fn source_id, blocking ->
+      payload = %{"question" => "Defer composed mobile pixels?", "blocking" => blocking, "authority" => "human_required", "source_id" => source_id}
+      assert {:ok, %{status: :accepted, decision: decision}} = Aiur.DecisionStore.request(payload, context, store)
+      decision
+    end
+
+    _nonblocking = request.("parity-note", false)
+    decision = request.("parity", true)
+
+    assert {:ok, [wake]} = ExecutorWakeInbox.wait(1_000, @inbox_name)
+
+    assert %{
+             "topic" => "ticket.3141.agent.attention.operator-decision",
+             "ticket" => "3141",
+             "needs_attention" => true,
+             "escalation" => "created",
+             "question" => "Defer composed mobile pixels?",
+             "count" => 1
+           } = wake
+
+    assert wake["decision_id"] == decision.decision_id
+    Process.sleep(100)
+    assert [_only] = ExecutorWakeInbox.pending(@inbox_name)
+  end
+
+  # #4575 review: a ladder fault must not crash the process that holds the Executor bindings.
+  describe "decision escalation faults" do
+    test "a raising decision store leaves the listener alive and bound" do
+      assert_survives(decisions_fun: fn -> raise "decision store exploded" end)
+    end
+
+    test "an exiting gate count leaves the listener alive and bound" do
+      {:ok, decision} =
+        Aiur.DecisionValidation.normalize(
+          %{"question" => "Defer composed pixels?", "blocking" => true, "authority" => "human_required", "source_id" => "aged"},
+          ticket: %{identifier: "3141", title: "Renderer", url: nil},
+          source: %{agent_id: "codex", session_id: "s-1", event_id: nil},
+          now: DateTime.add(DateTime.utc_now(), -20 * 60, :second)
+        )
+
+      assert_survives(
+        decisions_fun: fn -> {:ok, [decision]} end,
+        gates_fun: fn _ticket -> exit(:hints_down) end,
+        condition_states_fun: fn topics -> Map.new(topics, &{&1, :unknown}) end
+      )
+    end
+
+    test "the escalation timer re-arms after each pass" do
+      test_pid = self()
+      decisions_fun = fn -> send(test_pid, :escalation_pass) && {:ok, []} end
+      start_listener(escalation_interval_ms: 10, escalation: [decisions_fun: decisions_fun])
+
+      assert_receive :escalation_pass, 1_000
+      assert_receive :escalation_pass, 1_000
+    end
+  end
+
+  defp assert_survives(escalation) do
+    pid = start_listener(escalation_interval_ms: :infinity, escalation: escalation)
+    bindings = ExecutorListener.bindings(@listener_name)
+    assert "executor.#" in bindings
+
+    log =
+      capture_log(fn ->
+        send(pid, :escalate)
+        assert ExecutorListener.backstop(@listener_name) == :ok
+      end)
+
+    assert log =~ "Decision escalation failed"
+    assert Process.alive?(pid)
+    assert ExecutorListener.bindings(@listener_name) == bindings
   end
 
   defp eventually(fun, attempts \\ 100)

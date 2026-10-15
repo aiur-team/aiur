@@ -20,7 +20,6 @@ defmodule Aiur.AgentControlCLI do
     ExecutorCommandCLI,
     ExecutorEvents,
     ExecutorListener,
-    ExecutorWakeInbox,
     GitHubCostCLI,
     GitHubUsageCLI,
     Orchestrator,
@@ -162,7 +161,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
-    print_executor_wake_status()
+    ExecutorAttention.CLI.print_wake_status()
     Commands.print_projection_status()
     print_codeowners_trust()
     ReloadRejection.print_status()
@@ -859,15 +858,6 @@ defmodule Aiur.AgentControlCLI do
       true ->
         IO.puts("LISTENER degraded (#{length(defaults) - length(missing)}/#{length(defaults)} bindings; MISSING: #{Enum.join(missing, ", ")})")
     end
-  end
-
-  defp print_executor_wake_status do
-    case ExecutorWakeInbox.stats() do
-      {:ok, stats} -> IO.puts("WAKES CURSOR #{stats.cursor} PENDING #{stats.pending_count}")
-      {:error, _reason} -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
-    end
-  catch
-    :exit, _reason -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
   end
 
   defp print_codeowners_trust do
