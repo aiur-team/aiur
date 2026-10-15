@@ -130,7 +130,7 @@ test('CSS contains every token once in each of the three theme blocks', () => {
     assert.deepEqual(declarations, Object.keys(definitions).map(name => `--aiur-${name.replaceAll('.', '-')}`));
   }
   const bundle = fs.readFileSync(new URL('../dist/aiur-style.css', import.meta.url), 'utf8');
-  assert.ok(bundle.replace(/\s+/g, ' ').startsWith(css.replace(/\s+/g, ' ')), 'Main stylesheet must include generated tokens');
+  assert.ok(bundle.startsWith(css), 'Main stylesheet must include generated tokens');
   assert.deepEqual(breakpoints, { shell: 960, features2: 720, features1: 440 });
 });
 
