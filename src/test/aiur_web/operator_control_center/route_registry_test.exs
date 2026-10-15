@@ -82,6 +82,22 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     assert RouteRegistry.navigation_mode(units, analytics_route) == :navigate
   end
 
+  test "Experiments capability inserts a separate owner after Analytics" do
+    runtime = %{experiments_available?: true}
+    assert Enum.map(RouteRegistry.routes(runtime), & &1.id) == [:units, :commands, :build_order, :analytics, :experiments, :streamdeck]
+    assert RouteRegistry.route(:experiments, %{}) == :error
+    assert RouteRegistry.route(:experiments, %{experiments_available?: false}) == :error
+    assert {:ok, route} = RouteRegistry.route(:experiments, runtime)
+    assert route.path == "/experiments"
+    assert route.owner == :experiments
+    assert route.active_actions == [:experiments, :experiment]
+    assert RouteRegistry.current_route(:experiments).id == :experiments
+    assert RouteRegistry.current_route(:experiment).id == :experiments
+    assert RouteRegistry.current_route(:index).id == :units
+    assert RouteRegistry.navigation_mode(RouteRegistry.current_route(:analytics), route) == :navigate
+    assert RouteRegistry.navigation_mode(route, route) == :patch
+  end
+
   test "preserves shareable retained-page state without exposing it to non-All filters" do
     assert DecisionPath.inbox(:all, %{search: "AIUR-42", cursor: "opaque", sort: "command-history:result:desc"}) ==
              "/commands?cursor=opaque&search=AIUR-42&sort=command-history%3Aresult%3Adesc"

@@ -64,6 +64,8 @@ defmodule AiurWeb.RouterTableTest do
     {:get, "/post-deploy", Phoenix.LiveView.Plug, :index, [:dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/streamdeck", Phoenix.LiveView.Plug, :streamdeck, [:dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/build-order-documents/:owner/:repository/:root_number/:member_number", AiurWeb.PlanningDocumentController, :show, [:dashboard_auth, :dashboard_pages, :secure_document], :debug},
+    {:get, "/experiments", Phoenix.LiveView.Plug, :experiments, [:dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/experiments/:id", Phoenix.LiveView.Plug, :experiment, [:dashboard_auth, :dashboard_pages, :browser], :debug},
     {:post, "/api/v1/refresh", AiurWeb.ObservabilityApiController, :refresh, [:dashboard_auth, :api_write, :require_writable], :debug},
     {:*, "/api/v1/refresh", AiurWeb.ObservabilityApiController, :method_not_allowed, [:dashboard_auth, :api_write, :require_writable], :debug},
     {:post, "/api/v1/:issue_identifier/messages", AiurWeb.ObservabilityApiController, :send_message, [:dashboard_auth, :api_write, :require_writable], :debug},
