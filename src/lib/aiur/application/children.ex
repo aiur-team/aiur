@@ -197,7 +197,7 @@ defmodule Aiur.Application.Children do
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
-      Aiur.DecisionAttention,
+      {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.OptimisticLedger,
       Aiur.Orchestrator.TrackedSet,
