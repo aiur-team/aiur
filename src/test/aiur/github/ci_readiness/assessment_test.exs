@@ -190,7 +190,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
   test "dispatch reports the operator token required instead of accepting a persisted ready result" do
     path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
-    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path, request_fun: fn _ -> flunk("readiness must not use daemon authentication") end]
     original_token = System.get_env(CiReadiness.operator_token_env())
     System.delete_env(CiReadiness.operator_token_env())
 
