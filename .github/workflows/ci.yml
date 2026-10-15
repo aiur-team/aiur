@@ -471,6 +471,8 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
     timeout-minutes: 15
     steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Run browser smoke shard 1
         uses: ./.github/actions/browser-smoke
         with:
@@ -486,6 +488,8 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
     timeout-minutes: 15
     steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Run browser smoke shard 2
         uses: ./.github/actions/browser-smoke
         with:
@@ -500,6 +504,8 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
     timeout-minutes: 15
     steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Run browser smoke shard 3
         uses: ./.github/actions/browser-smoke
         with:
@@ -513,6 +519,8 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
     timeout-minutes: 15
     steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Run browser smoke shard 4
         uses: ./.github/actions/browser-smoke
         with:

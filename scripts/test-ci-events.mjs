@@ -106,6 +106,7 @@ for (const command of coreCommands) {
 assert.deepEqual([...new Set(shardCommands)].sort(), [...new Set(coreCommands)].sort(), 'shards match npm test:core commands');
 for (const [job, shard] of [['browser', 1], ['browser-2', 2], ['browser-3', 3], ['browser-4', 4]]) {
   assert.ok(jobs.get(job).includes('./.github/actions/browser-smoke'), `${job} uses the shared browser action`);
+  assert.ok(jobs.get(job).includes('actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'), `${job} checks out before the local action`);
   assert.ok(jobs.get(job).includes('timeout-minutes: 15'), `${job} retains its 15-minute timeout`);
   assert.ok(jobs.get(job).includes(`shard: ${shard}`), `${job} selects shard ${shard}`);
 }
