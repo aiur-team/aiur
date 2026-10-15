@@ -3,7 +3,7 @@ defmodule Aiur.DecisionDispatchTasks.Saturation do
 
   require Logger
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
 
   @type state :: map()
 
@@ -31,7 +31,7 @@ defmodule Aiur.DecisionDispatchTasks.Saturation do
   def notify(:saturated) do
     Logger.warning("decision dispatch queue saturated")
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "system.decision_dispatch.saturated",
       "Decision dispatch is saturated; newly answered Decisions are failing durably for explicit retry.",
       needs_attention: true,
@@ -43,7 +43,7 @@ defmodule Aiur.DecisionDispatchTasks.Saturation do
   def notify(:recovered) do
     Logger.info("decision dispatch queue recovered")
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "system.decision_dispatch.saturated.resolved",
       "Decision dispatch capacity recovered.",
       needs_attention: false,

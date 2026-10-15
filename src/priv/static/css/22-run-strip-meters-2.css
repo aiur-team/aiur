@@ -1,0 +1,297 @@
+/* A secondary-limit backoff is a live stoppage, not a statistic: it reads in
+   the same warning colour the meters use as they approach their ceiling. */
+.github-quota-backoff .rs-limit-label,
+.github-quota-backoff .rs-limit-meta {
+  color: var(--warning, #d08a2a);
+}
+
+.rs-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.rs-group-title {
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.rs-group-head::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.rs-group-count {
+  order: 3;
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.63rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Unknown values remain visibly inert without resembling a measured 0%. */
+.rs-meter.is-unknown {
+  background: var(--line-strong);
+}
+
+/* ---- MODELS pane: the Claude design's usage lines (ax-r2 / ax-ln) ----
+   One row per provider: a logo column, then one line per meter reading
+   [tag] percent · bar · reset↻. Every cell owns a grid track and clips its own
+   text, so a label and a value can never overlap at any width (#3751). */
+.rs-models-rows {
+  display: grid;
+  gap: 0.8rem 1.2rem;
+  align-content: start;
+}
+
+.rs-model {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.rs-model > .rs-head {
+  position: relative;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.rs-model .rs-logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+.rs-model[data-provider="deepseek"] .rs-logo,
+.rs-model[data-provider="kimi"] .rs-logo {
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* The logo names the provider; the name stays for assistive technology. */
+.rs-model .rs-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.rs-x {
+  flex: none;
+  padding: 0 0.25rem;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 700 0.56rem/1.4 "JetBrains Mono", "SFMono-Regular", monospace;
+  cursor: help;
+}
+
+.rs-lines { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
+.rs-ln {
+  display: grid;
+  grid-template-columns: 4ch minmax(0, 1fr) 12.5ch;
+  align-items: center;
+  gap: 0.5rem;
+  height: 11px;
+  min-width: 0;
+  font: 600 0.68rem/1 "JetBrains Mono", "SFMono-Regular", monospace;
+  cursor: default;
+}
+
+.rs-ln.has-tag { grid-template-columns: var(--rs-tag-width, 3.4em) 4ch minmax(0, 1fr) 12.5ch; }
+
+.rs-ln > span { min-width: 0; overflow: hidden; white-space: nowrap; }
+
+.rs-tg { font-weight: 500; color: var(--muted); text-overflow: ellipsis; }
+
+.rs-ln.is-stale .rs-tg { color: var(--faint); }
+
+.rs-pc { text-align: right; color: var(--fg); }
+
+.rs-pc.is-caution,
+.rs-pc.is-warning {
+  color: var(--attn-ink);
+}
+
+.rs-pc.is-critical { color: var(--block-ink); }
+
+.rs-ln .rs-meter { height: 5px; }
+
+.rs-ln .rs-meter > i { min-width: 4px; }
+
+.rs-ln:hover .rs-meter { filter: brightness(1.3); }
+
+
+.rs-rs {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.rs-rs > span { overflow: hidden; text-overflow: clip; }
+
+.rs-rs svg { width: 9px; height: 9px; flex: none; color: var(--faint); }
+
+.rs-rs em { margin-left: -0.15rem; font-style: normal; color: var(--faint); }
+
+.rs-usd { font-weight: 600; color: var(--good-ink); }
+
+.rs-no { font-weight: 400; font-size: 0.62rem; color: var(--faint); }
+
+.rs-progress {
+  margin-top: auto;
+}
+
+.rs-progress .rs-limit-top {
+  flex-wrap: wrap;
+}
+
+.rs-progress .rs-limit-meta svg {
+  width: 12px;
+  height: 12px;
+  vertical-align: -2px;
+}
+
+/* Provider cards stay side by side down to phone widths: the set is read
+   together, and stacking them pushed the cards below the fold on exactly the
+   screens where headroom matters most. The cards carry a name, one stat and a
+   meter, so they survive a ~110px column; the head row already wraps its
+   stats. Only below 380px is there genuinely not enough room, and they stack. */
+@media (max-width: 720px) {
+  .run-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .rs-block {
+    padding: 0.7rem 0.6rem;
+  }
+
+  .rs-head {
+    gap: 0.35rem;
+  }
+
+  .rs-head-stats {
+    gap: 0.2rem 0.5rem;
+  }
+
+  .rs-name {
+    font-size: 0.82rem;
+  }
+
+  .rs-apis-rows {
+    gap: 0.55rem 0.55rem;
+  }
+
+  .rs-provider-row > .rs-provider-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.35rem;
+  }
+
+  .rs-provider-row .rs-limit {
+    gap: 0.15rem;
+  }
+
+  .rs-api .rs-limit {
+    grid-template-columns: minmax(0, 1fr) 6.5rem;
+  }
+
+  .rs-provider-row .rs-limit-label,
+  .rs-provider-row .rs-limit-meta {
+    font-size: 0.6rem;
+  }
+
+  .rs-provider-row .rs-limit-meta-wide {
+    display: none;
+  }
+
+  .rs-provider-row .rs-limit-meta-compact {
+    display: inline;
+  }
+}
+
+/* Tablets, split views and phones keep full-width stacked sections. The API
+   pane's compact provider lines are deliberately single-line reference data;
+   below this point a one-third column cannot hold them without clipping. */
+@media (max-width: 1024px) {
+  .run-summary {
+    grid-template-columns: 1fr;
+  }
+
+  /* The two-column models pane degrades to the single stacked column. */
+  .rs-models {
+    grid-column: auto;
+  }
+}
+
+.units-header {
+  align-items: end;
+}
+
+.units-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin-top: 1rem;
+}
+
+.units-filter-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.units-filter-divider {
+  width: 1px;
+  height: 1.55rem;
+  margin-inline: 0.15rem;
+  background: var(--line);
+}
+
+.units-filter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.1rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--pill-bg);
+  color: var(--muted);
+  cursor: pointer;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.73rem;
+  font-weight: 650;
+}
+
+.units-filter:hover {
+  border-color: var(--accent-line);
+  color: var(--fg);
+}
+
+.units-filter.scope.is-selected {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+

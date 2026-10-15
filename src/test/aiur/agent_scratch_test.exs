@@ -6,7 +6,7 @@ defmodule Aiur.AgentScratchTest do
   setup do
     workspace = Aiur.TestSupport.tmp_root!("aiur-scratch-test")
     File.mkdir_p!(workspace)
-    on_exit(fn -> File.rm_rf(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
     {:ok, workspace: workspace}
   end
 

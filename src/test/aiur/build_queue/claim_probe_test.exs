@@ -31,16 +31,19 @@ defmodule Aiur.BuildQueue.ClaimProbeTest do
   test "nil and absent implementations answer unavailable" do
     Application.put_env(:aiur, :build_queue_claim_probe, nil)
     assert ClaimProbe.status(["7"]) == :unavailable
+    assert ClaimProbe.next_set() == :unavailable
     assert ClaimProbe.notify_demand(["7"]) == :unavailable
 
     Application.delete_env(:aiur, :build_queue_claim_probe)
     assert ClaimProbe.status(["7"]) == :unavailable
+    assert ClaimProbe.next_set() == :unavailable
     assert ClaimProbe.notify_demand(["7"]) == :unavailable
   end
 
   test "the facade delegates both calls to the configured implementation" do
     Application.put_env(:aiur, :build_queue_claim_probe, Probe)
     assert ClaimProbe.status(["7", "8"]) == %{"7" => {:declined, :unauthorized}, "8" => {:declined, :unauthorized}}
+    assert ClaimProbe.next_set(Probe) == :unavailable
     assert ClaimProbe.notify_demand(["7", "8"]) == :ok
     assert_received {:demand, ["7", "8"]}
   end

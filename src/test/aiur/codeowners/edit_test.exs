@@ -59,7 +59,7 @@ defmodule Aiur.Codeowners.EditTest do
       File.mkdir_p!(dir)
       path = Path.join(dir, "CODEOWNERS")
       File.write!(path, "* @existing\n")
-      on_exit(fn -> File.rm_rf!(dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
       {:ok, path: path}
     end
 

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from analytics import reduce as reducer
-from analytics import render
+from analytics import render, render_build
 from analytics import sources
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -76,11 +76,12 @@ class RunSummaryKpisTest(unittest.TestCase):
         self.assertGreaterEqual(kpis["cpu_hours"], 0)
         self.assertEqual(kpis["peak_concurrency"], 1)
         self.assertEqual(kpis["cap"], 10)
-        self.assertGreaterEqual(kpis["wasted_slot_hours"], 0)
+        self.assertIsNone(kpis["wasted_slot_hours"])
+        self.assertTrue(kpis["fleet_pressure"]["wasted_slot_hours_partial"])
 
     def test_cpu_seconds_and_concurrency_on_a_bigger_stream(self):
-        # A stream large enough that CPU-hours and wasted slot-hours survive
-        # rounding exercises the real numbers, not just zero-placeholders.
+        # A legacy stream keeps the concurrency and CPU KPIs even without
+        # fleet-capacity samples to support a wasted-capacity total.
         dataset = reducer.reduce_files([SESSION_A, SESSION_B])
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "big.ndjson"
@@ -89,7 +90,8 @@ class RunSummaryKpisTest(unittest.TestCase):
             summary = reducer.boot_summary(big, "boot-x")
         kpis = render.run_summary_kpis(summary, cap=2)
         self.assertGreater(kpis["cpu_hours"], 0)
-        self.assertGreater(kpis["wasted_slot_hours"], 0)
+        self.assertIsNone(kpis["wasted_slot_hours"])
+        self.assertTrue(kpis["fleet_pressure"]["wasted_slot_hours_partial"])
         self.assertEqual(kpis["peak_concurrency"], 2)
 
     def test_top_cost_includes_ticket_actors(self):
@@ -207,6 +209,32 @@ class RunSummaryKpisTest(unittest.TestCase):
         self.assertIn("capacity 2..4 (latest 4)", text)
         self.assertIn("queued 6; capacity 2..4", text)
 
+    def test_wasted_capacity_uses_each_observed_cap_and_marks_missing_samples_partial(self):
+        summary = {
+            "actors": {
+                "_daemon": {
+                    "samples": [
+                        {"timestamp_ms": 1000, "fleet_capacity_status": "current", "fleet_agents_occupied": 1, "fleet_agents_effective": 4},
+                        {"timestamp_ms": 2000, "fleet_capacity_status": "current", "fleet_agents_occupied": 1, "fleet_agents_effective": 2},
+                        {"timestamp_ms": 3000, "fleet_capacity_status": "current", "fleet_agents_occupied": 1},
+                    ]
+                }
+            }
+        }
+
+        cap_2 = render.fleet_pressure(summary, cap=2)
+        cap_16 = render.fleet_pressure(summary, cap=16)
+        self.assertAlmostEqual(cap_2["wasted_slot_hours"], 4 * 5 / 3600)
+        self.assertEqual(cap_2["wasted_slot_hours"], cap_16["wasted_slot_hours"])
+        self.assertTrue(cap_2["wasted_slot_hours_partial"])
+
+        summary["actors"]["_daemon"]["samples"] = [
+            {"timestamp_ms": 1000, "fleet_capacity_status": "current", "fleet_agents_occupied": 1}
+        ]
+        pressure = render.fleet_pressure(summary)
+        self.assertIsNone(pressure["wasted_slot_hours"])
+        self.assertTrue(pressure["wasted_slot_hours_partial"])
+
     def test_missing_peak_concurrency_renders_unavailable_never_zero(self):
         summary = {
             "actors": {
@@ -285,7 +313,7 @@ class RunSummaryKpisTest(unittest.TestCase):
 class BuildReportTest(unittest.TestCase):
     def test_member_rows(self):
         rollup = build_rollup()
-        rows = render.build_report_rows(rollup)
+        rows = render_build.build_report_rows(rollup)
         by_ticket = {row["ticket"]: row for row in rows}
 
         self.assertEqual(len(rows), 3)
@@ -313,14 +341,14 @@ class BuildReportTest(unittest.TestCase):
 
     def test_backends_collected(self):
         rollup = build_rollup()
-        rows = render.build_report_rows(rollup)
+        rows = render_build.build_report_rows(rollup)
         by_ticket = {row["ticket"]: row for row in rows}
         backends = {entry["backend"] for entry in by_ticket["930"]["backends"]}
         self.assertEqual(backends, {"codex", "claude"})
 
     def test_render_build_report(self):
         rollup = build_rollup()
-        text = render.render_build_report(rollup, "test-build")
+        text = render_build.render_build_report(rollup, "test-build")
         self.assertIn("Test build", text)
         self.assertIn("#930", text)
         self.assertIn("Merged: 1/3", text)

@@ -1,0 +1,33 @@
+{
+  "id": "aiur-contracts",
+  "name": "Client contracts",
+  "layer": 5,
+  "kind": "package",
+  "paths": [
+    "packages/aiur-contracts/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Defines shared data contracts for Aiur clients and integrations.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-R1"
+}

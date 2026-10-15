@@ -13,7 +13,7 @@ defmodule Mix.Tasks.Aiur.CostReportTest do
   setup do
     state_dir = Aiur.TestSupport.tmp_root!("aiur-cost-report")
     File.mkdir_p!(state_dir)
-    on_exit(fn -> File.rm_rf(state_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(state_dir) end)
     %{state_dir: state_dir}
   end
 
@@ -163,7 +163,7 @@ defmodule Mix.Tasks.Aiur.CostReportTest do
         Jason.encode!(%{"tickets" => [%{"id" => "TB-001", "ticket" => 930}]})
       )
 
-      on_exit(fn -> File.rm_rf(pack_dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(pack_dir) end)
 
       output =
         capture_io(fn ->
@@ -266,7 +266,7 @@ defmodule Mix.Tasks.Aiur.CostReportTest do
       |> Enum.map(fn {number, index} -> %{"id" => "TB-#{index}", "ticket" => number} end)
 
     File.write!(Path.join(pack_dir, "build-order.json"), Jason.encode!(%{"tickets" => tickets}))
-    on_exit(fn -> File.rm_rf(pack_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(pack_dir) end)
     slug
   end
 end

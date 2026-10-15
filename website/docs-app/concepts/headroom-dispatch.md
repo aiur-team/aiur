@@ -42,6 +42,10 @@ session starts or reports its limits; the background probe runs only while
 every candidate is limited. So a backend that gets no work keeps an old
 reading.
 
+While this policy is on, the daemon refreshes the Claude meters every
+`polling.usage_interval_seconds` whether or not a dashboard is open, so
+dispatch does not depend on someone watching.
+
 A reading older than `agent.headroom_reading_max_age_seconds` (default 1800)
 scores as unknown and is shown with its age, for example
 `codex=unknown (stale, 3d old)`. A current reading older than a minute shows

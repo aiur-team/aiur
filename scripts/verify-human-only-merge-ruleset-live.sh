@@ -10,9 +10,10 @@ set -euo pipefail
 #
 # This script is the CI counterpart. It runs with a read-only GITHUB_TOKEN and
 # verifies every ruleset property a read-only token can see, so a regressed
-# gate -- a ruleset that stops actively protecting main, drops the
-# pull-request approval rule, or loses or weakens the required_status_checks
-# rule -- fails CI visibly instead of silently.
+# gate -- a ruleset that stops actively protecting main, gains or drops a rule,
+# or loses or weakens the required_status_checks rule -- fails CI visibly
+# instead of silently. It also compares the `main` merge-queue ruleset with its
+# own declaration (docs/security/main-merge-queue-ruleset.json).
 #
 # One property is deliberately NOT asserted here and stays in the admin
 # verifier's domain:
@@ -38,13 +39,16 @@ fi
 
 ruleset="$(gh api "repos/$repo/rulesets/$ruleset_id")"
 
-if ! jq -e '
+# The protected branch list is compared with the declaration, so a branch
+# dropped from the live ruleset is drift, not only the loss of main.
+if ! jq -e --argjson expected "$(jq -c '.conditions.ref_name.include | sort' "$declaration")" '
   .target == "branch" and
   .enforcement == "active" and
   (.conditions.ref_name.include | type == "array") and
-  (.conditions.ref_name.include | index("refs/heads/main"))
+  (.conditions.ref_name.include | index("refs/heads/main")) and
+  (.conditions.ref_name.include | sort) == $expected
 ' >/dev/null <<<"$ruleset"; then
-  echo "ruleset must target branches and actively protect main" >&2
+  echo "ruleset must target branches and actively protect main and every declared branch" >&2
   exit 1
 fi
 
@@ -53,16 +57,6 @@ if ! jq -e '
   .conditions.ref_name.exclude == []
 ' >/dev/null <<<"$ruleset"; then
   echo "ruleset ref_name.exclude must be present and exactly empty" >&2
-  exit 1
-fi
-
-if ! jq -e '
-  [.rules[] | select(.type == "pull_request") | .parameters] |
-  length == 1 and
-  .[0].required_approving_review_count >= 1 and
-  .[0].dismiss_stale_reviews_on_push == true
-' >/dev/null <<<"$ruleset"; then
-  echo "ruleset must require one approval and dismiss stale reviews" >&2
   exit 1
 fi
 
@@ -81,20 +75,55 @@ expected_do_not_enforce="$(jq -c '
   [.rules[] | select(.type == "required_status_checks") | .parameters.do_not_enforce_on_create][0]
 ' "$declaration")"
 
+# ponytail: accept the exact legacy full gate during rollout; remove after every open PR has ci gate.
+legacy_checks="$(cat "$root/docs/security/ci-legacy-required-checks.json")"
 if ! jq -e \
   --argjson expected_checks "$expected_checks" \
+  --argjson legacy_checks "$legacy_checks" \
   --argjson expected_strict "$expected_strict" \
   --argjson expected_do_not_enforce "$expected_do_not_enforce" '
   [.rules[] | select(.type == "required_status_checks") | .parameters] |
   length == 1 and
   .[0].do_not_enforce_on_create == $expected_do_not_enforce and
   .[0].strict_required_status_checks_policy == $expected_strict and
-  (.[0].required_status_checks | map(.context) | sort) == ($expected_checks | sort) and
+  ((.[0].required_status_checks | map(.context) | sort) == ($expected_checks | sort) or
+   (.[0].required_status_checks | map(.context) | sort) == ($legacy_checks | sort)) and
   (.[0].required_status_checks | all(.integration_id == 15368))
 ' >/dev/null <<<"$ruleset"; then
   echo "ruleset must require every blocking GitHub Actions status check from the declaration" >&2
   exit 1
 fi
 
+# The rule set itself is compared with the declaration, so a rule added or
+# removed in the GitHub UI (the approval rule was removed on 2026-10-10) is
+# drift until the declaration is reviewed to match.
+if ! jq -e --argjson expected "$(jq -c '[.rules[].type] | sort' "$declaration")" '
+  ([.rules[].type] | sort) == $expected
+' >/dev/null <<<"$ruleset"; then
+  echo "ruleset rule types must match the declaration" >&2
+  exit 1
+fi
+
 echo "ruleset drift check passed: $name matches the declaration for all read-only-visible properties"
 echo "note: bypass_actors is verified by the admin verifier (scripts/verify-human-only-merge-ruleset.sh), not by this read-only check"
+
+# The merge queue lives in a second ruleset, `main`. Every property a read-only
+# token can see is compared with its declaration exactly.
+queue_name="main"
+queue_declaration="$root/docs/security/main-merge-queue-ruleset.json"
+queue_id="$(gh api "repos/$repo/rulesets" --paginate | jq -r --arg name "$queue_name" '.[] | select(.name == $name) | .id')"
+
+if [[ -z "$queue_id" || "$(wc -l <<<"$queue_id")" -ne 1 ]]; then
+  echo "expected exactly one ruleset named: $queue_name" >&2
+  exit 1
+fi
+
+visible='{target, enforcement, conditions, rules: (.rules | sort_by(.type))}'
+
+if ! gh api "repos/$repo/rulesets/$queue_id" |
+  jq -e --argjson expected "$(jq -c "$visible" "$queue_declaration")" "$visible == \$expected" >/dev/null; then
+  echo "merge queue ruleset must match the declaration: $queue_name" >&2
+  exit 1
+fi
+
+echo "ruleset drift check passed: $queue_name matches the declaration for all read-only-visible properties"

@@ -37,6 +37,7 @@ RUN mise trust ./mise.toml && \
     mise exec -- mix local.hex --force && \
     mise exec -- mix local.rebar --force
 
+COPY packages/elixir/ ./packages/elixir/
 COPY src/mix.exs src/mix.lock ./src/
 
 RUN cd src && \

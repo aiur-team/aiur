@@ -17,7 +17,7 @@ defmodule Aiur.Executor.HandoffTest do
         root -> Application.put_env(:aiur, :repo_base_root, root)
       end
 
-      File.rm_rf!(tmp)
+      Aiur.TestCleanup.rm_rf!(tmp)
     end)
 
     {:ok, tmp: tmp}
@@ -55,6 +55,20 @@ defmodule Aiur.Executor.HandoffTest do
     assert :ok = Handoff.ensure(repo, Path.join(tmp, "source"))
     assert File.read!(RepoBase.handoff_path(repo)) == "## Current handoff\n\nKeep this context.\n"
     assert File.read!(source) =~ "## Superseded checkpoint"
+  end
+
+  test "tracked index-form handoff seeds the current section before its archive index", %{tmp: tmp} do
+    repo = "https://github.com/owner/repo.git"
+    source = Path.expand("../../../..", __DIR__)
+
+    # Guards the tracked document ordering; production seeding already supports this shape.
+    assert :ok = RepoBase.setup_state(repo, tmp)
+    assert :ok = Handoff.ensure(repo, source)
+    seeded = File.read!(RepoBase.handoff_path(repo))
+    assert String.starts_with?(seeded, "## New-machine handoff")
+    assert seeded =~ "###"
+    refute seeded =~ "## Archived checkpoints"
+    refute seeded =~ "executor-handoff/"
   end
 
   test "does not overwrite the current handoff on a later init", %{tmp: tmp} do

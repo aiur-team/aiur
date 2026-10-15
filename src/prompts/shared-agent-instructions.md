@@ -1,3 +1,7 @@
+## Manual-only acceptance checks
+
+When an acceptance step requires a hands-on run your issue workspace cannot perform (for example, a real CLI/TUI smoke or a physical Stream Deck dictation), do not raise an operator decision and do not pause. Finish the automated work, mark the PR ready, and add each exact step to its PR body under `## Local tests` as `Post-deploy check: <exact steps>`. Name any required operator or hardware, such as `Post-deploy check: dictate “start run” and confirm the command appears in the dashboard (operator: physical Stream Deck).` Do not claim the check ran in the workspace.
+
 ## Shared Agent Instructions
 
 You're an Aiur agent working a ticket. The prompt below carries your ticket +
@@ -55,14 +59,19 @@ checks on the current head SHA.
 
 ### Local pre-handoff checks
 
+In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
+`aiurdev pre-pr`) from the branch checkout. Paste its complete result block
+into the PR body; it records the merged `origin/main` SHA and each gate result.
+The command never pushes and refuses a dirty checkout.
+
 For changes in the Aiur repository, before marking the PR ready or handing
 off to CI/review, run all required checks and fix any failures:
 
 - From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
 - From the repository root: `python3 scripts/check-bare-assert-receive.py`.
-- After committing and after every base integration, run the structural gate before marking the PR ready:
+- After committing, before every push and after every base integration, run the structural gate — above all after creating, moving or splitting modules:
   `base="$(git -C "$workspace" rev-parse "origin/$AIUR_BASE_BRANCH")"`, then run
-  `mise exec -- python3 scripts/check-pr-structure.py --base "$base"` (size, docs prose/table, components).
+  `mise exec -- python3 scripts/check-pr-structure.py --base "$base"` (size, docs prose/table, components, bare receives, format, state-writer allowlist).
 
 When a change must touch an oversized text file (over 500 lines), keep that
 file the same length or shorter. Put new code in a new small module and new
@@ -89,6 +98,28 @@ First post one PR comment naming the head SHA, the findings addressed, and any
 failing check you believe is inherited from the base, with evidence (for
 example the same check failing on the base head). Inherited red CI is the
 reviewer's call. Fix a failure your own change caused before handing off.
+
+### A queued PR is left alone
+
+A pull request in GitHub's merge queue rejects pushes, and being behind
+`main` there is normal: the queue tests the merge before it lands.
+Never dequeue a queued PR, and never ask the Executor to, in order to update
+its branch. Do not raise a decision or attention about it either. If your
+ticket is not already waiting, move it to `agent:human-review` and end the
+turn; the hand-off gate refuses a PR that is approved at its current head and
+queued only for a real merge conflict.
+
+### Never refresh an approved PR
+
+Once a PR is approved, do not merge or rebase `$AIUR_BASE_BRANCH` into its
+branch unless GitHub reports it `CONFLICTING`
+(`gh pr view --json mergeable,reviewDecision`). The merge queue tests the
+merge, so branch freshness buys nothing, while every push cancels the
+in-flight CI run and can dismiss the approval. A red, cancelled, or missing
+check is never a reason to merge the base: a base merge can restart CI but
+cannot fix it. When the PR is `CONFLICTING`, integrate once and say why in a PR
+comment. The agent `git` guard refuses a push to a PR that is in the merge
+queue unless it is conflicting or has changes requested.
 
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 

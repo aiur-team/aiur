@@ -219,7 +219,7 @@ defmodule Aiur.Orchestrator.ControlLifecycleStoreTest do
       restore_env(:log_file, previous_log_file)
       restore_env(:control_lifecycle_store_path, previous_store_path)
       restore_env(:executor_state_dir, previous_state_dir)
-      File.rm_rf!(state_dir)
+      Aiur.TestCleanup.rm_rf!(state_dir)
     end)
 
     # A pre-PR daemon left its control-request audit journal under the boot log
