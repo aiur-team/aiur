@@ -143,5 +143,44 @@
       "date": null,
       "ref": "https://github.com/aiur-team/aiur/issues/3111#decisions-3"
     }
+  },
+  {
+    "id": "history-page-error",
+    "kind": "copy",
+    "selector": "#bd-vp",
+    "cells": {},
+    "reason": "earlier days could not load \u00b7 scroll up to retry",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "S-34 / #3141"
+    }
+  },
+  {
+    "id": "history-total-unknown",
+    "kind": "copy",
+    "selector": "#bd-vp",
+    "cells": {},
+    "reason": "loaded \u00b7 total unknown",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "S-34 / #3141"
+    }
+  },
+  {
+    "id": "history-unavailable",
+    "kind": "copy",
+    "selector": "#bd-vp",
+    "cells": {},
+    "reason": "History unavailable",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "S-34 / #3141"
+    }
   }
 ]
