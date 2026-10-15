@@ -10,10 +10,10 @@ R-declared	Aiur.Init	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Init.Dotenv	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Linear.Client	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.LiveConversation.Source	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RunTelemetry.Lifecycle	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Tmux	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
 R-declared	Aiur.Workspace	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.GitMetadata	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-down	Aiur.EventHumanizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -22,6 +22,7 @@ R-down	Aiur.Init	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Init.Dotenv	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Orchestrator	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Tmux	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
 R-optional	Aiur.EventHumanizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.EventHumanizerHelpers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Budget	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -38,6 +39,7 @@ R-optional	Aiur.ProviderMeters.HostObservations	baseline 22b2fa407c5d4218d25d63b
 R-optional	Aiur.ProviderMeters.ProbeCrash	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.RunTelemetry.Lifecycle	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Tmux	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
 R-optional	Aiur.TokenUsage	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Usage.Headless.Claude.RequestUsage	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Usage.Headless.Codex.ThreadUsage	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

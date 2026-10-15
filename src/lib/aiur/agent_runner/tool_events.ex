@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.ToolEvents do
 
   require Logger
   alias Aiur.AgentRunner.{DecisionAttention, ToolCoordination, ToolExecutor}
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.AgentTools.EmitEvent
   alias Aiur.Issue
   alias Aiur.Protocol.MapAccess
   alias Aiur.SecretRedactor
@@ -66,7 +66,7 @@ defmodule Aiur.AgentRunner.ToolEvents do
     %{issue: issue} = event_context
     identifier = ToolCoordination.issue_identifier(issue)
 
-    topic = DynamicTool.EmitEvent.topic(identifier, name)
+    topic = EmitEvent.topic(identifier, name)
 
     if durable_decision_topic?(topic) do
       {:error, :decision_requires_durable_publish}

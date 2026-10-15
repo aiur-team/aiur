@@ -21,7 +21,6 @@ defmodule Aiur.Events.DebugLog do
   """
 
   @behaviour Aiur.Events.Trace
-
   @topic "aiur:events:debug"
 
   @type kind :: :publish | :receive | :read

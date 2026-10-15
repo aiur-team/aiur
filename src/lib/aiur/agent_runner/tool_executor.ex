@@ -9,7 +9,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   alias Aiur.{Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.AgentTools.Dispatch
   alias Aiur.Events.Publisher
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
@@ -83,7 +83,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     }
 
     fn tool, arguments ->
-      DynamicTool.execute(
+      Dispatch.execute(
         tool,
         arguments,
         alert_emitter: fn name, message, reason, needs_attention, severity ->

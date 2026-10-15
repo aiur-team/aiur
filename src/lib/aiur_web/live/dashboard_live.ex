@@ -14,7 +14,6 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
   alias Aiur.Conversation.History, as: ConversationHistory
-  alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
   alias Aiur.GitHub.Quota, as: GitHubQuota
   alias Aiur.ProviderMeterRefresh
   alias Aiur.TrackerIdentity
@@ -63,7 +62,7 @@ defmodule AiurWeb.DashboardLive do
   @runtime_tick_ms 1_000
   # Also the payload refresh interval: reloads are otherwise event-driven only (#3937).
   @github_quota_tick_ms 15_000
-  # ElevenLabs credit is a whole-account figure that moves far more slowly than a
+  # Voice credit is a whole-account figure that moves far more slowly than a
   # per-request GitHub budget, so it refreshes on its own, longer tick.
   @elevenlabs_quota_tick_ms 60_000
   @usage_summary_flush_ms 250
@@ -2217,7 +2216,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp github_quota_snapshot, do: GitHubQuota.snapshot()
 
-  defp elevenlabs_quota_snapshot, do: ElevenLabsQuota.snapshot()
+  defp elevenlabs_quota_snapshot, do: Aiur.Voice.quota_snapshot()
 
   defp clear_chat_state(socket, identifier) do
     socket
