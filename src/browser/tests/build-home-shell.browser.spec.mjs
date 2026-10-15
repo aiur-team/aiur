@@ -217,13 +217,15 @@ test('B11 remount resets state and disposes old listeners and intervals', async 
 for (const event of ['pointercancel', 'lostpointercapture']) test(`B12 ${event} ends drag`, async ({ page }) => {
   await ready(page)
   expect(await page.evaluate(async event => {
-    const { ctx } = await import('/build-home/state.js'), { syncSB } = await import('/build-home/shell.js')
+    const { ctx, S } = await import('/build-home/state.js'), { syncSB } = await import('/build-home/shell.js')
+    S.ready = false; ctx.L = null; ctx.vp.replaceChildren() // Isolate the shell from the timeline renderer.
     ctx.vp.append(Object.assign(document.createElement('div'), { style: 'height:4000px' })); syncSB()
+    const before = ctx.vp.scrollTop // Paging may already have restored an anchor.
     const th = document.querySelector('#bd-sb i'); th.setPointerCapture = () => {}
     th.dispatchEvent(new PointerEvent('pointerdown', { clientY: 60, pointerId: 1 }))
     th.dispatchEvent(new PointerEvent(event)); th.dispatchEvent(new PointerEvent('pointermove', { clientY: 160 }))
-    return { drag: document.querySelector('#bd-sb').classList.contains('drag'), top: ctx.vp.scrollTop }
-  }, event)).toEqual({ drag: false, top: 0 })
+    return { drag: document.querySelector('#bd-sb').classList.contains('drag'), delta: ctx.vp.scrollTop - before }
+  }, event)).toEqual({ drag: false, delta: 0 })
 })
 
 test('B13 version mismatch reloads only once', async ({ page }) => {
@@ -276,6 +278,7 @@ test('B18 disconnect releases in-flight guard and ignores old reply', async ({ p
 
 test('B19 scrollbar geometry, track click, active timer and drag', async ({ page }) => {
   await ready(page); await page.clock.install(); await page.clock.pauseAt(new Date())
+  await page.evaluate(async () => { const { ctx, S } = await import('/build-home/state.js'); S.ready = false; ctx.L = null; ctx.vp.replaceChildren() })
   const measure = () => page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js'); (await import('/build-home/shell.js')).syncSB()
     const sb = document.querySelector('#bd-sb'), th = sb.querySelector('i')
@@ -321,6 +324,7 @@ test('store moves rows, removes ids, replaces blocks and merges older pages with
 
 test('destroy cancels timers, frames and late replies without mutating a new mount', async ({ page }) => {
   await ready(page); await page.clock.install(); await page.clock.pauseAt(new Date())
+  await page.evaluate(async () => { const { ctx, S } = await import('/build-home/state.js'); S.ready = false; ctx.L = null; ctx.vp.replaceChildren() })
   expect(await page.evaluate(async () => {
     const { ctx, resetState } = await import('/build-home/state.js'), { resync, createBuildHomeHook } = await import('/build-home/hook.js')
     const { createLife } = await import('/build-home/life.js'); let resolve, calls = 0

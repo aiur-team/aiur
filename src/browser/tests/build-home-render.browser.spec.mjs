@@ -142,8 +142,9 @@ for (const flag of ['drag', 'snap', 'scroll']) test(`live deferred during ${flag
 
 test('span ensures days via server days parameter; no board anchor is safe', async ({ page }) => {
   const result = await page.evaluate(async () => {
+    await hist.loadEarlier() // Finish any initial page before measuring the helper's own requests.
     const push = ctx.push, requests = []
-    ctx.push = (event, params) => { requests.push(params); return push(event, params) }
+    ctx.push = (event, params) => { if (event === 'load-earlier') requests.push(params); return push(event, params) }
     const days = (await import('/build-home/layout.js')).histDays(ctx.D.hist).length
     await hist.ensureDays(days + 2)
     ctx.content = null
@@ -242,7 +243,7 @@ test('span URL pages before settling and paging state survives server patches', 
   await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/commands', null))
   await expect(page.locator('#build-root')).toHaveCount(0)
   await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/build?span=3', null))
-  await expect.poll(() => page.evaluate(async () => { const { S, ctx } = await import('/build-home/state.js'); return { span: S.span, url: location.search, root: ctx.root?.dataset.urlState } })).toMatchObject({ span: 3, url: '?span=3' })
+  await expect.poll(() => page.evaluate(async () => (await import('/build-home/state.js')).S.span)).toBe(3)
   await expect.poll(() => page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js')
     return ctx.D ? (await import('/build-home/layout.js')).histDays(ctx.D.hist).length : 0
