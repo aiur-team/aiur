@@ -17,6 +17,8 @@ defmodule Aiur.DecisionStore.EnrichmentTest do
                  "reversibility" => "reversible"
                })
 
+      decision_id = v1.decision_id
+
       :ok = Exchange.subscribe("ticket.979.agent.decision.enriched")
       :ok = DecisionPubSub.subscribe()
 
@@ -42,6 +44,7 @@ defmodule Aiur.DecisionStore.EnrichmentTest do
       assert_receive {:event,
                       %{
                         "event_id" => "decision-provenance-v1:" <> reserved_event_id,
+                        "decision_id" => ^decision_id,
                         topic: "ticket.979.agent.decision.enriched",
                         id: cursor_event_id
                       }},
@@ -49,8 +52,7 @@ defmodule Aiur.DecisionStore.EnrichmentTest do
 
       assert cursor_event_id > 0
       assert reserved_event_id == Integer.to_string(cursor_event_id)
-      assert_receive {:decision_changed, decision_id, 2}, 500
-      assert decision_id == v1.decision_id
+      assert_receive {:decision_changed, ^decision_id, 2}, 500
 
       persisted = File.read!(Path.join(dir, "decisions.ndjson"))
       assert persisted =~ ~s("event_type":"enriched")

@@ -18,6 +18,7 @@ defmodule Aiur.DecisionStore.NotificationTest do
       assert_receive {:event,
                       %{
                         "question" => "Deploy now?",
+                        "decision_id" => ^decision_id,
                         topic: "ticket.979.agent.decision.requested",
                         digest_source: :orchestrator,
                         id: cursor_event_id
