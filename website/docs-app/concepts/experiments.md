@@ -298,10 +298,20 @@ The default auto pack name `delivery` refers to the built-in `delivery-speed`
 pack. Other names select consumer packs. Missing or disabled packs return an
 availability error rather than creating an experiment without metrics.
 
-Feature lines can supply a baseline ending at the first member merge. The gap
-until go-live is excluded from both windows and carried in change evidence.
-Line detection belongs to the version, release and feature workers.
-
+### Measuring a feature
+Tag a parent with `experiment:feature` (`experiments.auto.feature_label`). Hourly
+polls and webhook deposits arm `auto:feature:<number>`, freeze its baseline, and
+request pre-registration. Leaves report `not_an_epic`. Armed experiments stay draft.
+The first merge ends and refreezes the baseline; late tagging marks it `partial`.
+Rollout from first merge to live is excluded. All members must close, at least one
+must merge, and nothing may change for `feature_quiet_hours` (6). Members refresh
+hourly or sooner after merges, bounded to five minutes. The first 100 are supported
+(`member_limit`); cross-repo and completed members without merged PRs are excluded.
+`feature_live_signal: auto` uses a containing daemon build for the managed repo,
+otherwise merge time. Explicit `daemon_boot` rejects unknown SHAs; `release` waits
+for a containing tag. After `live_signal_max_wait_hours` (72), merge-time fallback
+carries `live_signal_fallback`. All-excluded members or label removal cancel once
+before the line. After it, the line stays fixed. State and latches survive restarts.
 ### Version and release lines
 
 At boot, after recording the deploy ledger, Aiur compares base semver with the

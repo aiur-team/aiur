@@ -231,7 +231,18 @@ defmodule Aiur.Experiments.Auto.LinesTest do
     assert :ok = boot(ctx, "0.0.9", ~U[2026-10-01 00:00:00Z], "old")
     ledger = Keyword.merge(ctx.ledger, aiur_version: "0.0.10", at: ~U[2026-10-10 00:00:00Z], boot_id: "new", name: nil)
     config = %AutoConfig{metric_packs: ["app"], release_line: false}
-    supervisor = start_supervised!({Aiur.Experiments.Auto, name: nil, config: config, ledger_opts: ledger, creator_opts: ctx.creator_opts, version_opts: [name: nil]})
+
+    supervisor =
+      start_supervised!(
+        {Aiur.Experiments.Auto,
+         name: nil,
+         config: config,
+         ledger_opts: ledger,
+         creator_opts: ctx.creator_opts,
+         feature_opts: [name: nil, start_paused?: true, path: Path.join(ctx.root, "features.json")],
+         version_opts: [name: nil]}
+      )
+
     # The call is ordered behind the source's boot continuation.
     [{_id, source, _type, _modules}] = Supervisor.which_children(supervisor) |> Enum.filter(fn {id, _, _, _} -> id == AiurVersionLine end)
     :sys.get_state(source)

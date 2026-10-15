@@ -197,7 +197,7 @@ defmodule Aiur.Application.Children do
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
-      Aiur.DecisionAttention,
+      {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.OptimisticLedger,
       Aiur.Orchestrator.TrackedSet,
@@ -267,7 +267,8 @@ defmodule Aiur.Application.Children do
       cli_children ++
         [Aiur.BackgroundCpu] ++
         Aiur.Experiments.children(recording?) ++
-        Auto.child_specs(recording?: recording?) ++ BuildOrders.child_specs(:label_projection, opts) ++ landing_watch_children() ++ Aiur.Experiments.window_children(recording?)
+        Auto.child_specs(recording?: recording?, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]) ++
+        BuildOrders.child_specs(:label_projection, opts) ++ landing_watch_children() ++ Aiur.Experiments.window_children(recording?)
     )
   end
 
