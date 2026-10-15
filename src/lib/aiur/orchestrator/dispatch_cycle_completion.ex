@@ -26,9 +26,7 @@ defmodule Aiur.Orchestrator.DispatchCycleCompletion do
     state =
       state
       |> DispatchCycleLiveness.complete()
-      |> then(fn completed ->
-        %{completed | poll_check_in_progress: false, last_dispatch_cycle_completed_at_ms: System.system_time(:millisecond)}
-      end)
+      |> Map.put(:poll_check_in_progress, false)
 
     StatusReport.sync_waiting_for_human_episodes(state, DateTime.utc_now())
     |> StatusReport.notify_dashboard()
