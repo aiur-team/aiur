@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { dashboardCredentials } from './support/layout-worker.mjs'
 import { openFixture, expectAuditClean } from './support/browser-helpers.mjs'
 
 test.beforeEach(async ({ page }) => {
@@ -98,6 +99,7 @@ test('tabs and status have complete accessible roles in every view', async ({ pa
 
 test('real LiveView URL history and server diff retain selected view and focused tab', async ({ page }) => {
   await openFixture(page)
+  await page.context().setHTTPCredentials(dashboardCredentials)
   await page.goto('/build-fixture/live')
   await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
   await page.evaluate(async () => {
