@@ -13,7 +13,7 @@ defmodule Aiur.ExecutorListener do
 
   alias Aiur.Events.{Exchange, Topic}
   alias Aiur.Executor.StatePaths
-  alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
+  alias Aiur.{DecisionEscalation, ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
   alias Aiur.Signal
 
   @command_topics ~w(executor.decision.requested executor.decision.deferred)
@@ -181,12 +181,30 @@ defmodule Aiur.ExecutorListener do
     if executor_topic?(event) do
       scrubbed = ExecutorEvents.scrub_untrusted_output(event)
       if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
-      :ok
+      wake_blocking_decision(event, inbox)
     else
       case ExecutorWakeProjection.project(event) do
         {:ok, record} -> ExecutorWakeInbox.enqueue(record, inbox)
         :ignore -> :ok
       end
+    end
+  end
+
+  # A structured Decision reaches the Executor only as `executor.decision.requested`,
+  # and that topic used to stop at the journal: no wake was written and the
+  # Command alert above is off outside Executor mode. A blocking Decision on
+  # #3141 therefore waited 6.2 hours unseen (#4567). Every blocking request now
+  # wakes the Executor the way an agent's `operator_decision` pause does.
+  defp wake_blocking_decision(event, inbox) do
+    issue = value(event, :issue_identifier)
+
+    if event_topic(event) == "executor.decision.requested" and value(event, :blocking) == true and is_binary(issue) do
+      record =
+        DecisionEscalation.wake_record(issue, value(event, :decision_id), value(event, :title), value(event, :recommendation), event_id: event_id(event))
+
+      ExecutorWakeInbox.enqueue(record, inbox)
+    else
+      :ok
     end
   end
 

@@ -10,6 +10,9 @@ defmodule Aiur.DecisionExpiry do
   escalated to the operator is the expected steady state for that Decision,
   not evidence it went stale, and retiring it removes the only surface the
   operator can answer (see #1779).
+
+  Each sweep also advances `Aiur.DecisionEscalation`'s ladder for open
+  blocking Decisions, and `backstop/1` serves the `executor-wait` backstop.
   """
 
   use GenServer
@@ -17,7 +20,7 @@ defmodule Aiur.DecisionExpiry do
   require Logger
 
   alias Aiur.Commands.DeliveryTarget
-  alias Aiur.{Decision, DecisionAttentionSignals, DecisionAuthority, DecisionStore}
+  alias Aiur.{Decision, DecisionAttentionSignals, DecisionAuthority, DecisionEscalation, DecisionStore}
 
   @interval_ms 60_000
   @grace_seconds 300
@@ -59,9 +62,18 @@ defmodule Aiur.DecisionExpiry do
     end
   end
 
+  @doc "Wakes the Executor for aged open blocking Decisions no wake surfaced recently (#4567)."
+  @spec backstop(GenServer.server()) :: :ok
+  def backstop(server \\ __MODULE__) do
+    GenServer.call(server, :backstop, 5_000)
+  catch
+    # A busy or absent sweeper must not stop `executor-wait` from waiting.
+    :exit, _reason -> :ok
+  end
+
   @impl true
   def init(opts) do
-    state = %{opts: opts, interval_ms: Keyword.get(opts, :interval_ms, @interval_ms)}
+    state = %{opts: opts, interval_ms: Keyword.get(opts, :interval_ms, @interval_ms), escalations: %{}}
     schedule_sweep(Keyword.get(opts, :initial_delay_ms, state.interval_ms))
     {:ok, state}
   end
@@ -80,7 +92,12 @@ defmodule Aiur.DecisionExpiry do
     end
 
     schedule_sweep(state.interval_ms)
-    {:noreply, state}
+    {:noreply, %{state | escalations: DecisionEscalation.run(state.escalations, state.opts)}}
+  end
+
+  @impl true
+  def handle_call(:backstop, _from, state) do
+    {:reply, :ok, %{state | escalations: DecisionEscalation.backstop(state.escalations, state.opts)}}
   end
 
   defp active_identifiers(opts) do

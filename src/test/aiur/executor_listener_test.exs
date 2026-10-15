@@ -307,6 +307,49 @@ defmodule Aiur.ExecutorListenerTest do
     assert eventually(fn -> is_integer(watermark()) and watermark() >= second_id end)
   end
 
+  # #4567: dec_2043ed93d73bbe63 on #3141 came from a codex agent through
+  # DecisionStore.request, which journals only `executor.decision.requested`.
+  # That path wrote no wake, so the Executor never heard of the Decision.
+  test "a blocking Decision requested through DecisionStore wakes the Executor exactly once" do
+    :ok = Aiur.TestSupport.ensure_id_generator_running()
+    dir = Aiur.TestSupport.tmp_root!("aiur-decision-wake")
+    previous_dir = Application.get_env(:aiur, :decision_state_dir)
+    Application.put_env(:aiur, :decision_state_dir, dir)
+
+    on_exit(fn ->
+      if previous_dir, do: Application.put_env(:aiur, :decision_state_dir, previous_dir), else: Application.delete_env(:aiur, :decision_state_dir)
+    end)
+
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+    start_listener(inbox: @inbox_name, patterns: ["executor.#"], reconcile?: false)
+    store = start_supervised!({Aiur.DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
+    context = [ticket: %{identifier: "3141", title: "Renderer", url: nil}, source: %{agent_id: "codex", session_id: "s-1", event_id: nil}]
+
+    request = fn source_id, blocking ->
+      payload = %{"question" => "Defer composed mobile pixels?", "blocking" => blocking, "authority" => "human_required", "source_id" => source_id}
+      assert {:ok, %{status: :accepted, decision: decision}} = Aiur.DecisionStore.request(payload, context, store)
+      decision
+    end
+
+    _nonblocking = request.("parity-note", false)
+    decision = request.("parity", true)
+
+    assert {:ok, [wake]} = ExecutorWakeInbox.wait(1_000, @inbox_name)
+
+    assert %{
+             "topic" => "ticket.3141.agent.attention.operator-decision",
+             "ticket" => "3141",
+             "needs_attention" => true,
+             "escalation" => "created",
+             "question" => "Defer composed mobile pixels?",
+             "count" => 1
+           } = wake
+
+    assert wake["decision_id"] == decision.decision_id
+    Process.sleep(100)
+    assert [_only] = ExecutorWakeInbox.pending(@inbox_name)
+  end
+
   defp eventually(fun, attempts \\ 100)
   defp eventually(_fun, 0), do: false
 
