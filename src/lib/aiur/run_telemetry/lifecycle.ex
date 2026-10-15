@@ -34,7 +34,11 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     rework_start
     agent_pause
     agent_resume
-    state_change ci_result pr_ready dependency_cleared ticket_usage
+    state_change
+    ci_result
+    pr_ready
+    dependency_cleared
+    ticket_usage
   )
   @boundaries ~w(
     start
