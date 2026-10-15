@@ -43,13 +43,16 @@ test('required full CI gate rejects failures, cancellations and skipped browser 
 test('browser shards have bounded timeouts and home matrix keeps an independent deadline', () => {
   for (const [job, shard] of [['browser', 1], ['browser-2', 2], ['browser-3', 3], ['browser-4', 4]]) {
     assert.equal(workflow.jobs[job].steps[0].uses, 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd')
-    assert.equal(workflow.jobs[job].steps[1].with.shard, shard)
-    assert.equal(workflow.jobs[job].steps[1].uses, './.github/actions/browser-smoke')
+    assert.equal(workflow.jobs[job].steps[1].name, 'Disclose rerun attempt')
+    assert.match(workflow.jobs[job].steps[1].if, /github.run_attempt > 1/)
+    assert.match(workflow.jobs[job].steps[1].run, /scripts\/report-ci-run-attempt\.sh/)
+    assert.equal(workflow.jobs[job].steps[2].with.shard, shard)
+    assert.equal(workflow.jobs[job].steps[2].uses, './.github/actions/browser-smoke')
     assert.equal(workflow.jobs[job].name, `browser smoke (${shard}/4)`)
     assert.equal(workflow.jobs[job]['timeout-minutes'], 15)
   }
-  assert.equal(workflow.jobs['browser-2'].steps[1].with.visual_regression, 'first')
-  assert.equal(workflow.jobs['browser-4'].steps[1].with.visual_regression, 'second')
+  assert.equal(workflow.jobs['browser-2'].steps[2].with.visual_regression, 'first')
+  assert.equal(workflow.jobs['browser-4'].steps[2].with.visual_regression, 'second')
   assert.equal(browserAction.runs.using, 'composite')
   assert.equal(browserAction.runs.steps.find(step => step.name === 'Run browser smoke shard').run,
     'node scripts/run-browser-smoke-shard.mjs ${{ inputs.shard }}')

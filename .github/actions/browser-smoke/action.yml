@@ -19,10 +19,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Disclose rerun attempt
-      if: ${{ github.run_attempt > 1 }}
-      run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      shell: bash
     - name: Set up browser harness
       uses: ./.github/actions/setup-browser
     - name: Run browser smoke shard
