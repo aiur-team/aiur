@@ -27,10 +27,12 @@ defmodule Aiur.Experiments.Auto.LineMerge do
   def rollback(version, at) do
     with {:ok, details} <- details() do
       details
-      |> Enum.filter(&(version_experiment?(&1) and open_at?(&1.spec, at)))
+      |> Enum.filter(&(version_experiment?(&1) and open_at?(&1.spec, at) and not rollback_seen?(&1, at)))
       |> Enum.reduce_while(:ok, &truncate(&1, version, at, &2))
     end
   end
+
+  defp rollback_seen?(detail, at), do: Enum.any?(detail.annotations, &(&1["auto_line_key"] == "rollback:#{DateTime.to_iso8601(at)}"))
 
   defp truncate(detail, version, at, :ok) do
     windows = put_in(detail.spec["windows"], ["after", "end"], DateTime.to_iso8601(at))

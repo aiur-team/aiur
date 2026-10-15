@@ -83,6 +83,32 @@ defmodule Aiur.Experiments.Auto.LinesTest do
     assert id == spec.id
   end
 
+  test "failed upgrade creation survives another same-version boot with its original line time", ctx do
+    assert :ok = boot(ctx, "0.0.9", ~U[2026-10-01 00:00:00Z], "old")
+    stop_supervised!(Creator)
+    bad = start_supervised!({Creator, Keyword.put(ctx.creator_opts, :config, %AutoConfig{metric_packs: ["missing"]})})
+    assert {:error, {:metric_packs_unavailable, ["missing"]}} = boot(%{ctx | creator: bad}, "0.0.10", ~U[2026-10-09 00:00:00Z], "failed-upgrade")
+    stop_supervised!(Creator)
+    creator = start_supervised!({Creator, ctx.creator_opts})
+    assert {:ok, spec} = boot(%{ctx | creator: creator}, "0.0.10", ~U[2026-10-10 00:00:00Z], "retry-boot")
+    assert spec.design["change"]["time"] == "2026-10-09T00:00:00Z"
+    assert {:ok, %{snapshots: [snapshot]}} = Experiments.fetch(spec.id)
+    assert snapshot["window"]["end"] == "2026-10-09T00:00:00Z"
+    assert :ok = boot(%{ctx | creator: creator}, "0.0.10", ~U[2026-10-10 01:00:00Z], "done")
+    assert {:ok, %{snapshots: [_only]}} = Experiments.fetch(spec.id)
+  end
+
+  test "telemetry-skipped upgrade stays skipped after telemetry is enabled on another boot", ctx do
+    assert :ok = boot(ctx, "0.0.9", ~U[2026-10-01 00:00:00Z], "old")
+    stop_supervised!(Creator)
+    disabled = start_supervised!({Creator, Keyword.put(ctx.creator_opts, :telemetry, fn -> false end)})
+    assert {:ok, :skipped} = boot(%{ctx | creator: disabled}, "0.0.10", ~U[2026-10-09 00:00:00Z], "disabled")
+    stop_supervised!(Creator)
+    enabled = start_supervised!({Creator, ctx.creator_opts})
+    assert {:ok, :skipped} = boot(%{ctx | creator: enabled}, "0.0.10", ~U[2026-10-10 00:00:00Z], "enabled")
+    assert {:ok, []} = Experiments.list()
+  end
+
   test "rollback truncates and annotates the open experiment without a new experiment", ctx do
     assert :ok = boot(ctx, "0.0.9", ~U[2026-10-01 00:00:00Z], "old")
     assert {:ok, spec} = boot(ctx, "0.0.10", ~U[2026-10-08 00:00:00Z], "new")
@@ -91,6 +117,8 @@ defmodule Aiur.Experiments.Auto.LinesTest do
     assert detail.spec["windows"]["after"]["end"] == "2026-10-09T00:00:00Z"
     assert [%{"reason" => "rollback to 0.0.9"}] = detail.annotations
     assert length(detail.snapshots) == 1
+    assert :ok = boot(ctx, "0.0.9", ~U[2026-10-10 00:00:00Z], "after-rollback")
+    assert {:ok, %{annotations: [_only]}} = Experiments.fetch(spec.id)
     assert {:ok, [_only]} = Experiments.list()
   end
 
@@ -224,7 +252,7 @@ defmodule Aiur.Experiments.Auto.LinesTest do
     assert %{status: :pending} = RepoReleaseLine.status(source)
     send(source, :poll)
     assert %{status: :pending} = RepoReleaseLine.status(source)
-    refute_receive {:poll_started, _task}, 50
+    refute_received {:poll_started, _task}
     send(task, :finish)
     assert :ok = wait_status(source, :available)
     assert Jason.decode!(File.read!(ctx.release[:path])) == []
@@ -241,15 +269,26 @@ defmodule Aiur.Experiments.Auto.LinesTest do
     assert {:ok, []} = Experiments.list()
   end
 
-  defp wait_status(source, expected, attempts \\ 100)
-  defp wait_status(_source, _expected, 0), do: flunk("release source status did not settle")
+  defp wait_status(source, expected) do
+    owner = self()
+    token = make_ref()
 
-  defp wait_status(source, expected, attempts) do
-    if RepoReleaseLine.status(source).status == expected do
-      :ok
-    else
-      Process.sleep(10)
-      wait_status(source, expected, attempts - 1)
+    hook = fn state, event, _proc_state ->
+      case event do
+        {:noreply, %{status: ^expected}} ->
+          send(owner, {:poll_finished, token})
+          :done
+
+        _other ->
+          state
+      end
     end
+
+    :ok = :sys.install(source, {hook, :armed})
+    if :sys.get_state(source).status == expected, do: send(owner, {:poll_finished, token})
+    receive_barrier({:poll_finished, ^token})
+    :ok = :sys.remove(source, hook)
+    assert %{status: ^expected} = RepoReleaseLine.status(source)
+    :ok
   end
 end

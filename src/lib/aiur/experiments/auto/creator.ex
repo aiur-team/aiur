@@ -50,6 +50,7 @@ defmodule Aiur.Experiments.Auto.Creator do
     cond do
       not state.telemetry.() -> skip(line, state)
       line.key in state.receipts["completed"] -> {{:ok, :exists}, state}
+      line.key in state.receipts["skipped"] -> {{:ok, :skipped}, state}
       true -> initialize(line, state)
     end
   end

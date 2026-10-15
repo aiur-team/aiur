@@ -33,12 +33,15 @@ defmodule Aiur.Experiments.Auto.AiurVersionLine do
     creator = Keyword.get(opts, :creator, Creator)
 
     with {:ok, current} <- DeployLedger.record_boot(ledger),
-         {:ok, previous} <- DeployLedger.previous(ledger) do
-      compare(previous, current, ledger, creator)
+         {:ok, at, _offset} <- DateTime.from_iso8601(current["at"]),
+         {:ok, rows} <- DeployLedger.list({~U[1970-01-01 00:00:00Z], DateTime.add(at, 1)}, ledger) do
+      groups = rows |> Enum.take_while(&(&1["boot_id"] != current["boot_id"])) |> Kernel.++([current]) |> Enum.chunk_by(& &1["base_version"])
+      transition(Enum.take(groups, -2), ledger, creator)
     end
   end
 
-  defp compare(nil, _current, _ledger, _creator), do: :ok
+  defp transition([previous, current], ledger, creator), do: compare(List.last(previous), List.first(current), ledger, creator)
+  defp transition(_first_version, _ledger, _creator), do: :ok
 
   defp compare(previous, current, ledger, creator) do
     with {:ok, old} <- Version.parse(previous["base_version"] || ""),
@@ -59,7 +62,11 @@ defmodule Aiur.Experiments.Auto.AiurVersionLine do
     with {:ok, rows} <- DeployLedger.list({~U[1970-01-01 00:00:00Z], at}, ledger) do
       floor = rows |> Enum.chunk_by(& &1["base_version"]) |> List.last() |> List.first()
       {:ok, before_floor, _offset} = DateTime.from_iso8601(floor["at"])
-      Creator.create(%Line{source: :aiur_version, key: "auto:version:#{current["base_version"]}", at: at, before_floor: before_floor, evidence: current}, creator)
+
+      case Creator.create(%Line{source: :aiur_version, key: "auto:version:#{current["base_version"]}", at: at, before_floor: before_floor, evidence: current}, creator) do
+        {:ok, :exists} -> :ok
+        result -> result
+      end
     end
   end
 end
