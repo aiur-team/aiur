@@ -6,9 +6,14 @@ and may use an agent with `aiur-monitor` as an assistant. When an agent is told
 to use `aiur-run`, that agent is the Executor.
 
 This role owns the system of work. It receives the requirements, ticket
-contracts, and Build Order from the Feature Planner that used `aiur-build`. At
+contracts, and feature collection from the Feature Planner using `aiur-build`. At
 runtime, GitHub owns ticket facts and Aiur owns agent activity, progress,
 alerts, and events; planning documents preserve approved intent.
+
+Experiment wakes (`experiments:auto`): `system.experiment.<id>.preregister`
+starts analyst pre-registration; `.report_due` starts the report flow (X6).
+Read `report_reason`; report insufficient data honestly. Ignore `.cancelled`.
+Topic IDs encode dots as `%2E`.
 
 ## Contents
 
@@ -26,18 +31,13 @@ alerts, and events; planning documents preserve approved intent.
 
 ## Establish the authority envelope
 
-Before consulting repository documentation, read
-`~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. It is the current machine's
-run-specific handoff; GitHub and Aiur still provide the authoritative live
-ticket and runtime state. Keep this single living document current whenever the
-operator gives a directive, frames the run's request, supplies context that
-cannot be recovered from the repository/history, or changes the Executor's
-role or authority. A directive not written into the handoff has not been
-recorded. When replacing an Executor, rewrite it wholesale with the next
+Before consulting repository documentation, read `~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. It is the current machine's
+run-specific handoff; GitHub and Aiur still provide the authoritative live ticket and runtime state. Keep this single living document current whenever the
+operator gives a directive, frames the run's request, supplies context that cannot be recovered from the repository/history, or changes the Executor's
+role or authority. A directive not written into the handoff has not been recorded. When replacing an Executor, rewrite it wholesale with the next
 Executor's ranked work and hazards; never append another dated checkpoint.
 
-Record these decisions before making the corresponding mutations. Reuse clear
-answers already present in the request or handoff instead of asking again.
+Record these decisions before making the corresponding mutations. Reuse clear answers already present in the request or handoff instead of asking again.
 
 - ticket scope or the GitHub selector that defines it;
 - whether the Executor may create newly discovered tickets;
@@ -78,24 +78,24 @@ Classify every discovered finding before creating work:
   create or dispatch an individual feature-run ticket.
 - **Optimization:** preserve evidence for a separately authorized run.
 
-When creation is authorized, encode that classification in the same creation
-request. Executable work receives the configured lifecycle todo label
-(`agent:todo` in the standard workflow); deferred work receives `needs-triage`
-or `human:todo` and states why. Build Order roots carry `build-order`, while
-explicitly named `Epic:` containers carry `epic`; both are hierarchy and remain
-undispatched. Never split
-issue creation and disposition across two requests: failure of the label edit
-otherwise leaves an invisible ticket that looks complete to the findings
-ledger but can never be claimed.
+## Continuous-build intake
 
-This is mechanical on both filing surfaces. Agent workspaces resolve `gh`
-through Aiur's wrapper, while the repository `PreToolUse` hook checks Executor
-Bash commands before they run. Both refuse an `issue create` with no disposition
-and refuse direct REST or GraphQL issue creation that bypasses the checked label
-flags. The aiur-build publication validator separately refuses a Build Order
-whose executable members are projected undispatched. Use
-`gh issue create --label ...`; keep `gh issue list --search 'no:label'` as the
-independent safety-net audit before treating a queue as empty. An `optimistic_blocker_failed` wake names the dependent, blocker, cause, and action. Choose: wait for a replacement blocker, re-base the dependent on the default branch and resume it, or close it. Aiur keeps the branch and PR; recovery never auto-resumes parked work. Info with action `none` means work keeps running.
+Every authorized new feature, epic, bug batch, or experiment joins the repository's
+single continuous build by default. Follow [the intake procedure](continuous-build-intake.md)
+for feature collection and `feature:<slug>` labels,
+native `blocked_by` links where real, queue membership, and placement read-back.
+New features never create standalone Build Order roots; existing roots remain history.
+Only an explicit operator exclusion leaves filed work outside the build: park it
+with `needs-triage`/`human:todo` and the reason. Unfiled deferred findings remain
+in the ledger under the convergence policy above.
+
+“Prioritize” means place the work ahead of the previous next-up using priority
+labels and queue ordering, then report what it displaced. A label alone is not
+placement. Verify the collection, projected labels, prerequisites, membership,
+and effective start order before reporting intake complete.
+
+Use `agent:queued` in the same creation request for executable members; the queue
+promotes ready members to `agent:todo`. Never create first and label later.
 
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected

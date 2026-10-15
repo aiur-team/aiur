@@ -62,6 +62,7 @@ defmodule Aiur.Experiments.Auto.Creator do
     with {:ok, attrs} <- SpecBuilder.build(line, config, Catalog.load(state.catalog_context)),
          {:ok, experiment} <- merge_or_create(line, attrs, config),
          :ok <- ensure_baseline(experiment.id),
+         :ok <- LineMerge.supersede(experiment.id, line),
          :ok <- ConcurrentChanges.annotate(experiment.id, line),
          {:ok, updated} <- remember(state, "completed", line.key) do
       {{:ok, experiment}, updated}

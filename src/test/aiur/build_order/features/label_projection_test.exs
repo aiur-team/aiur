@@ -174,11 +174,12 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
     assert Enum.find_index(mods, &(&1 == Projection)) > Enum.find_index(mods, &(&1 == Features))
     assert Enum.find_index(mods, &(&1 == Projection)) > Enum.find_index(mods, &(&1 == History))
 
-    if Aiur.LandingWatch in mods do
-      assert Enum.take(mods, -2) == [Projection, Aiur.LandingWatch]
-    else
-      assert List.last(mods) == Projection
-    end
+    tail =
+      [Projection] ++
+        if(Aiur.LandingWatch in mods, do: [Aiur.LandingWatch], else: []) ++
+        [Aiur.Experiments.Auto.Notifier, Aiur.Experiments.Auto.WindowManager]
+
+    assert Enum.take(mods, -length(tail)) == tail
 
     refute Projection in Component.child_specs(:label_projection, recording?: false)
   end

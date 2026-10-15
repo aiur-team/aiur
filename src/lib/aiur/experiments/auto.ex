@@ -3,7 +3,7 @@ defmodule Aiur.Experiments.Auto do
   use Supervisor
   require Logger
 
-  alias Aiur.Experiments.Auto.{AiurVersionLine, Creator, DeployLedger, Line, RepoReleaseLine}
+  alias Aiur.Experiments.Auto.{AiurVersionLine, Creator, DeployLedger, Line, RepoReleaseLine, WindowManager}
 
   @spec child_specs(keyword()) :: [Supervisor.child_spec() | {module(), keyword()}]
   def child_specs(opts \\ []) do
@@ -58,6 +58,14 @@ defmodule Aiur.Experiments.Auto do
 
   @spec deploys({DateTime.t(), DateTime.t()}, keyword()) :: {:ok, [map()]} | {:error, term()}
   def deploys(range, opts \\ []), do: DeployLedger.list(range, opts)
+
+  @spec truncate(String.t(), DateTime.t(), String.t()) :: term()
+  def truncate(id, at, reason) do
+    WindowManager.truncate(id, at, reason)
+  catch
+    :exit, {:noproc, _call} -> {:error, :unavailable}
+    :exit, {:timeout, _call} -> {:error, :outcome_unknown}
+  end
 
   defp configured_sources(config) do
     [{:aiur_version, config.version_line}, {:repo_release, config.release_line}, {:feature, true}]

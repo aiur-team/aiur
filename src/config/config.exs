@@ -7,6 +7,7 @@ config :aiur, env: config_env()
 config :aiur, Aiur.Events.SourcePolicy, Aiur.GitHub.EventSourcePolicy
 
 config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
+config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
 config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
 
 config :aiur, :signal, alert_sink: Aiur.Alerts

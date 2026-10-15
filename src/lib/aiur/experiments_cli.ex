@@ -40,7 +40,10 @@ defmodule Aiur.ExperimentsCLI do
 
   defp dispatch(:list, flags, []) do
     filters = Keyword.take(flags, [:status, :kind])
-    if flags[:status] in [nil, "draft", "active", "concluded", "abandoned"] and flags[:kind] in [nil, "before_after", "ab"], do: result(Experiments.list(filters), flags, :list), else: usage(flags)
+
+    if flags[:status] in [nil, "draft", "active", "concluded", "abandoned", "report_due", "reported", "cancelled"] and flags[:kind] in [nil, "before_after", "ab"],
+      do: result(Experiments.list(filters), flags, :list),
+      else: usage(flags)
   end
 
   defp dispatch(:metrics, flags, []), do: result({:ok, Experiments.metric_catalog()}, flags, :metrics)

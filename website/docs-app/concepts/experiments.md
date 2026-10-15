@@ -33,8 +33,10 @@ Before/after creation freezes the before window immediately;
 per-metric coverage; JSON includes `frozen_snapshot`. A refused baseline leaves
 no new experiment, so the same ID can be retried.
 
-Stored statuses are `draft`, `active`, `concluded` and `abandoned`. Drafts do
+Stored statuses are `draft`, `active`, `report_due`, `reported`, `cancelled`,
+`concluded` and `abandoned`. Drafts do
 not register automatically when the change time passes.
+
 The phase is derived from the change time and window end: `awaiting_change`,
 `collecting` or `window_closed`. A deterministic optional `key` makes repeated
 creation return the existing experiment.
@@ -238,6 +240,41 @@ as hooks; they are not sandboxed against filesystem access.
 Stdout and stderr share the bounded script stream. A nonzero exit reports the
 first non-JSON diagnostic line; this can be a stdout diagnostic if one precedes
 stderr.
+
+## When the report is written
+
+The window manager evaluates every active before/after experiment, manual or
+automatic, hourly and once after a ten-minute burst of merged-PR events.
+`active` is the collecting state. Cohort experiments are left to the analyst.
+This manager runs even when automatic line creation is disabled.
+
+After at least `experiments.auto.after_days` (14 by default), a met X4 sample
+guard moves the experiment to `report_due` with `report_reason: guard_met`.
+
+If the guard is unmet at the window end, the end extends by `after_step_days`
+(7), clamped to `after_max_days` (42). At that maximum it becomes `report_due`
+with `insufficient_data`.
+
+A missing or unavailable X4 guard counts as unmet;
+no statistical result is invented. Open-ended manual windows use the same limits.
+
+Line sources call `Aiur.Experiments.Auto.truncate(id, at, reason)` on a newer
+line or rollback. Truncation closes the after window at that time (never
+lengthening it), with reason `guard_met` if the guard is met, otherwise
+`truncated`. The caller's cause is kept in the journal.
+
+Terminal experiments
+are left unchanged. The analyst owns writing the report and marking it `reported`.
+
+The Executor receives `system.experiment.<id>.preregister`, `.report_due` and
+`.cancelled` wakes under `experiments:auto`. Payloads contain only the experiment
+identifier, reason and line source. Dots in a topic's experiment identifier are
+encoded as `%2E`; the payload keeps the original ID.
+
+`experiments/auto-latches.json` is persisted before publication: a crash can
+miss a wake, but cannot repeat one. A failed latch write publishes nothing and
+is retried on evaluation. Corrupt latches disable notifications and report
+`degraded` through the notifier status; the file is preserved for recovery.
 
 ## Automatic experiments
 
