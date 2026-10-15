@@ -9,7 +9,7 @@ defmodule Aiur.GitHub.IssueState do
   """
 
   alias Aiur.GitHub.Config
-  alias Aiur.GitHub.{Errors, HumanReviewGate, Issues, Labels, StatePolicy, Transport, WriteThrough}
+  alias Aiur.GitHub.{Errors, HumanReviewGate, Issues, Labels, LocalHold, StatePolicy, Transport, WriteThrough}
 
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_number, state_name, opts \\ [])
@@ -18,6 +18,7 @@ defmodule Aiur.GitHub.IssueState do
          {:ok, token} <- Transport.require_token() do
       prefix = Config.label_prefix()
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      request_fun = retry_local_holds(request_fun, opts)
       issue_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
 
       update_context = %{
@@ -207,24 +208,38 @@ defmodule Aiur.GitHub.IssueState do
   end
 
   @spec swap_labels(map(), map(), String.t(), String.t()) :: :ok | {:error, term()}
-  def swap_labels(context, issue_body, state_name, new_label) do
+  def swap_labels(context, _issue_body, state_name, new_label) do
     # Add the new state label BEFORE removing the old ones (#2420). Remove-then-
     # add left the ticket carrying zero `agent:*` state labels between the two
     # calls, and any POST failure stranded it there permanently — invisible to
     # dispatch and unrepaired by any reconciler. Add-first means a failure
     # between the calls leaves *two* state labels (recoverable and detectable)
     # instead of zero, and the removal set excludes the just-added label.
-    with :ok <- add_state_label(context, state_name, new_label) do
+    with :ok <- add_state_label(context, state_name, new_label),
+         {:ok, current_issue_body} <- fetch_current_issue_body(context) do
       remove_state_labels(
         context.request_fun,
         context.token,
         context.owner,
         context.repo,
         context.issue_number,
-        issue_body,
+        current_issue_body,
         context.prefix,
         exclude: [new_label]
       )
+    end
+  end
+
+  # The add can race with another state write, and the cached body read before
+  # it can already be stale. Re-read after adding the target so the removal set
+  # includes every state label currently attached to the issue.
+  defp fetch_current_issue_body(context) do
+    case Issues.fetch_issue_raw_conditional(
+           context.issue_number,
+           issue_read_opts(context) |> Keyword.put(:revalidate, true)
+         ) do
+      {:ok, issue_body, _outcome} -> {:ok, issue_body}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -283,18 +298,40 @@ defmodule Aiur.GitHub.IssueState do
     end
   end
 
-  # Options for the shared issue conditional reader. The token is passed
-  # explicitly so `Transport.require_token/1` never falls through to its
-  # `:request_fun` test seam in production (the caller's real token wins either
-  # way), and `request_fun` is forwarded only when the caller supplied one —
-  # a caller with no override must not be handed the synthetic test token.
-  defp issue_read_opts(%{opts: opts, request_fun: request_fun, token: token}) do
-    if Keyword.has_key?(opts, :request_fun) do
-      [token: token, request_fun: request_fun]
-    else
-      [token: token]
+  # Share the wrapped request function with conditional reads so local holds
+  # retry at the individual request boundary, without replaying the transition.
+  # The already-resolved token avoids a second lookup and stays paired with the
+  # injected request function in tests.
+  defp issue_read_opts(%{request_fun: request_fun, token: token}),
+    do: [token: token, request_fun: request_fun]
+
+  defp retry_local_holds(request_fun, opts) do
+    fn request ->
+      request_fun
+      |> retry_request(request, opts)
+      |> restore_local_hold_error()
     end
   end
+
+  defp retry_request(request_fun, request, opts) do
+    LocalHold.run(fn -> classify_raw_local_hold(request_fun.(request)) end, LocalHold.caller_opts(opts))
+  end
+
+  defp classify_raw_local_hold({:error, {:aiur, :locally_held, _hold}} = error),
+    do: {:error, Errors.classify_error(error)}
+
+  defp classify_raw_local_hold({:error, :github_budget_broker_timeout}),
+    do: {:error, Errors.classify_error({:error, :github_budget_broker_timeout})}
+
+  defp classify_raw_local_hold(response), do: response
+
+  defp restore_local_hold_error({:error, {:github, :local_hold, %{reason: {:aiur, :locally_held, _hold} = reason}}}),
+    do: {:error, reason}
+
+  defp restore_local_hold_error({:error, {:github, :local_hold, %{reason: :github_budget_broker_timeout}}}),
+    do: {:error, :github_budget_broker_timeout}
+
+  defp restore_local_hold_error(response), do: response
 
   @spec remove_state_labels(function(), String.t(), String.t(), String.t(), String.t(), map(), String.t(), keyword()) ::
           :ok | {:error, term()}

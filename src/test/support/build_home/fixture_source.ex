@@ -2,6 +2,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   @moduledoc "Frozen v1 build datasets, bounded to active history days in the socket zone."
   @behaviour AiurWeb.Build.DataSource
 
+  alias Aiur.TestSupport.BuildHome.EarlierControl
   alias AiurWeb.Build.Read
 
   @files ~w(live dense newrepo noqueue offline odd-edges)
@@ -43,10 +44,12 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
 
   @impl true
   def earlier(before, zone, opts) do
-    with {:ok, data} <- full(opts) do
-      {rows, history} = page(data, before, zone, Keyword.get(opts, :days, 1))
-      {:ok, %{"rows" => rows, "history" => history}}
-    end
+    EarlierControl.run(before, fn ->
+      with {:ok, data} <- full(opts) do
+        {rows, history} = page(data, before, zone, Keyword.get(opts, :days, 1))
+        {:ok, %{"rows" => rows, "history" => history}}
+      end
+    end)
   end
 
   def full(opts), do: load(dataset(opts), Keyword.get(opts, :dir, @dir))

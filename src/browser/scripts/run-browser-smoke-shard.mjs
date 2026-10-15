@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 const shards = {
   1: ['test:home-css-ci', 'test:admission', 'check:elk', 'check:build-home-fixtures', 'test:build-home-protocol', 'test:build-home-now-state', 'test:harness', 'test:smoke', 'test:build-home-assets', 'test:shell', 'test:shell-chrome', 'test:tokens', 'test:units', 'test:provider-meters', 'test:meter-row', 'test:models-panel', 'test:build-home', 'test:parity', 'test:build-home-layout'],
   2: ['test:shell-width', 'test:command-history', 'test:build-order', 'test:build-queue', 'test:interaction', 'test:time-brush', 'test:performance', 'test:responsive', 'test:layout', 'test:ticket-context', 'test:shell-parity', 'test:streamdeck', 'test:quota-panel', 'test:streamdeck-flow', 'test:palette'],
-  3: ['test:build-home-motion', 'test:build-home-offline'],
+  3: ['test:build-home-motion', 'test:build-home-offline', 'test:build-home-render'],
   4: ['test:design-parity', 'test:build-home-tools'],
 };
 
