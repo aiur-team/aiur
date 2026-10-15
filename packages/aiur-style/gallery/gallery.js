@@ -62,3 +62,28 @@ toggleBtn.addEventListener('click', () => {
   newUrl.searchParams.set('theme', newTheme);
   window.history.replaceState({}, '', newUrl);
 });
+
+for (const variant of ['filled', 'ghost', 'danger', 'tool']) {
+  for (const size of ['sm', 'default', 'lg']) {
+    const row = document.createElement('div');
+    row.className = 'button-row';
+    const label = document.createElement('code');
+    label.textContent = `${variant} / ${size}`;
+    row.append(label);
+    for (const state of ['rest', 'hover', 'active', 'focus', 'pressed', 'disabled', 'aria-disabled']) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `aiur-button ${variant === 'filled' ? '' : `aiur-button--${variant}`} ${size === 'default' ? '' : `aiur-button--${size}`}`;
+      button.dataset.variant = variant;
+      button.dataset.size = size;
+      button.dataset.state = state;
+      button.textContent = state;
+      if (['hover', 'active', 'focus'].includes(state)) button.classList.add(`is-${state}`);
+      if (state === 'pressed') button.setAttribute('aria-pressed', 'true');
+      if (state === 'disabled') button.disabled = true;
+      if (state === 'aria-disabled') button.setAttribute('aria-disabled', 'true');
+      row.append(button);
+    }
+    document.getElementById('button-matrix').append(row);
+  }
+}

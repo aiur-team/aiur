@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.TurnCompletion do
 
   require Logger
   alias Aiur.AgentCompaction.Handoff
-  alias Aiur.AgentRunner.{NoopWait, TurnAlerts, TurnLoop, TurnProgress}
+  alias Aiur.AgentRunner.{NoopWait, ReworkHandoff, TurnAlerts, TurnLoop, TurnProgress}
   alias Aiur.{Config, Issue}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
@@ -24,7 +24,9 @@ defmodule Aiur.AgentRunner.TurnCompletion do
 
     case TurnLoop.continue_with_issue?(issue, issue_state_fetcher) do
       {:continue, refreshed_issue} when is_nil(max_turns) or turn_number < max_turns ->
-        continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler)
+        ReworkHandoff.after_turn(refreshed_issue, turn_context, fn ->
+          continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler)
+        end)
 
       {:continue, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}")
