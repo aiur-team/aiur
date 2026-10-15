@@ -14,6 +14,8 @@ defmodule Aiur.Voice do
   logs, returns no credential, and never delivers text to an agent.
   """
 
+  alias Aiur.Init.{ElevenLabs, ResumeSummary}
+
   @unconfigured_quota %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
 
   @type reason :: nil | :unconfigured | :not_installed
@@ -38,6 +40,31 @@ defmodule Aiur.Voice do
     case provider() do
       nil -> @unconfigured_quota
       provider -> provider.quota_snapshot()
+    end
+  end
+
+  @doc "The voice setup contribution, omitted when no voice provider is installed."
+  @spec init_contribution() :: map() | nil
+  def init_contribution do
+    if provider() do
+      %{
+        id: :elevenlabs,
+        prompt: &ElevenLabs.prompt_eleven_labs/3,
+        yaml: &ElevenLabs.eleven_labs_section_yaml/1,
+        resume: fn config ->
+          ResumeSummary.optional_section_line("elevenlabs_voice_input", config["elevenlabs"], &ResumeSummary.elevenlabs_key_state/1)
+        end,
+        backfill: fn ->
+          %{
+            key: "elevenlabs",
+            label: "ElevenLabs voice input",
+            prompt: &ElevenLabs.prompt_eleven_labs/3,
+            opted_in?: fn answer -> answer.enabled end,
+            to_yaml: &ElevenLabs.eleven_labs_section_yaml/1,
+            first_run: fn _io, _deps, _target, _tracker, _answer -> :ok end
+          }
+        end
+      }
     end
   end
 

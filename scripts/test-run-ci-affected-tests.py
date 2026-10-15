@@ -27,29 +27,54 @@ else:
 ''')
             mix.chmod(0o755)
             calls = root / 'calls'
+            summary = root / 'summary.md'
             result = subprocess.run(['python3', str(SCRIPT), 'base-sha'], capture_output=True,
                                     env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
-                                             SELECTION=selection, CALLS=str(calls), TEST_STATUS=str(status)))
+                                             SELECTION=selection, CALLS=str(calls), TEST_STATUS=str(status),
+                                             GITHUB_STEP_SUMMARY=str(summary)))
             self.last_stderr = result.stderr
+            self.last_stdout = result.stdout
+            self.last_summary = summary.read_text() if summary.exists() else ''
             self.assertNotIn(b"can't open file", result.stderr)
-            return result.returncode, [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+            invoked = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+            return result.returncode, invoked, result.stdout.decode()
 
     def test_runs_selected_paths_without_shell_evaluation(self):
         self.assertEqual(self.run_selection("cd src && mise exec -- mix test --max-cases 4 'test/a test.exs' 'test/$(bad)_test.exs'"),
-                         (0, [['test', '--max-cases', '4', 'test/a test.exs', 'test/$(bad)_test.exs']]))
+                         (0, [['test', '--max-cases', '4', 'test/a test.exs', 'test/$(bad)_test.exs']],
+                          "cd src && mise exec -- mix test --max-cases 4 'test/a test.exs' 'test/$(bad)_test.exs'\n\n"))
 
-    def test_unsafe_selection_refuses_full_suite_in_fast_job(self):
-        status, calls = self.run_selection(
-            '# full suite recommended: changed files include test support; changed paths: src/test/support/helper.exs\n'
-            'cd src && mise exec -- make ci'
+    def test_unsafe_selection_defers_full_suite_to_merge_queue(self):
+        reason = 'changed files include test support; changed paths: src/test/support/helper.exs'
+        status, calls, output = self.run_selection(
+            f'# full suite recommended: {reason}\ncd src && mise exec -- make ci'
         )
-        self.assertNotEqual(status, 0)
+        notice = f'Unsafe affected selection deferred to full CI in the merge queue: {reason}'
+        self.assertEqual(status, 0)
         self.assertEqual(calls, [])
-        self.assertIn(b"changed files include test support", self.last_stderr)
-        self.assertIn(b"src/test/support/helper.exs", self.last_stderr)
+        self.assertIn(f'::notice::{notice}', output)
+        self.assertIn(notice, self.last_summary)
+
+    def test_selection_over_300_files_is_covered_by_merge_group_suite(self):
+        paths = ' '.join(f'test/file_{index}_test.exs' for index in range(301))
+        status, calls, output = self.run_selection(f'cd src && mise exec -- mix test --max-cases 4 {paths}')
+        notice = 'selection 301 files > 300; covered by the merge_group full suite'
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, [])
+        self.assertIn(notice, output)
+        self.assertIn(notice, self.last_summary)
+
+    def test_selection_at_300_files_runs(self):
+        # Future-regression guard for the inclusive boundary: 300 stays scoped.
+        paths = ' '.join(f'test/file_{index}_test.exs' for index in range(300))
+        status, calls, _output = self.run_selection(f'cd src && mise exec -- mix test --max-cases 4 {paths}')
+        self.assertEqual(status, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls[0][3:]), 300)
 
     def test_no_tests_does_not_run_test_suite(self):
-        self.assertEqual(self.run_selection('# no affected test files detected for the documentation-only change'), (0, []))
+        self.assertEqual(self.run_selection('# no affected test files detected for the documentation-only change'),
+                         (0, [], '# no affected test files detected for the documentation-only change\n\n'))
 
     def test_failure_is_not_reported_as_success(self):
         self.assertNotEqual(self.run_selection('cd src && mise exec -- mix test --max-cases 4 test/a_test.exs', 1)[0], 0)

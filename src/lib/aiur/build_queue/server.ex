@@ -16,6 +16,7 @@ defmodule Aiur.BuildQueue.Server do
     ListCommands,
     Measurement,
     Progress,
+    QueueRanks,
     ReadModel,
     Reconcile,
     Recovery,
@@ -140,6 +141,11 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call(:recover, from, state), do: rebuild(from, state)
 
   def handle_call({:write, _, _}, _from, state), do: {:reply, {:error, state.status}, state}
+
+  def handle_call({:mutate, {:order, name, at}}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
+    {reply, state} = QueueRanks.commit(state, name, at)
+    {:reply, reply, state}
+  end
 
   def handle_call({:mutate, {:clear, opts}}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
     case Clear.prepare(state, opts) do

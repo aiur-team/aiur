@@ -1,6 +1,9 @@
 defmodule Mix.Tasks.Aiur.AffectedTests do
   use Mix.Task
 
+  alias Aiur.AffectedTests.Command
+  alias Aiur.AffectedTests.GitDiff
+
   @shortdoc "Print the scoped `mix test` command for files changed vs the base branch"
 
   @moduledoc """
@@ -10,7 +13,7 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   references deleted from individual source diff hunks, so root-level sibling
   tests are not hidden by topic-directory selections.
 
-      mix aiur.affected_tests [base_ref]
+      mix aiur.affected_tests [base_ref] [--json]
 
   Prints a root-runnable `cd src && mise exec -- mix test ...` line, or advises
   running the full `make ci` suite when the change cannot be scoped safely.
@@ -30,11 +33,24 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   @impl Mix.Task
   def run(args) do
     root = repo_root()
+    json? = "--json" in args
+    args = Enum.reject(args, &(&1 == "--json"))
 
     with {:ok, base} <- requested_or_default_base(root, args),
+         {:ok, lines} <- selection(root, base, json?) do
+      Enum.each(lines, &print_line/1)
+    else
+      {:error, reason} -> Mix.raise("Cannot select affected tests safely: #{reason}")
+    end
+  end
+
+  @doc false
+  @spec selection(String.t(), String.t(), boolean()) :: {:ok, [String.t()]} | {:error, String.t()}
+  def selection(root, base, json? \\ false) do
+    with {:ok, diff_range} <- GitDiff.range(root, base),
          {:ok, changed} <- changed_files(root, base),
          {:ok, dependents} <- xref_dependents(root, changed),
-         {:ok, references} <- deleted_reference_tests(root, base) do
+         {:ok, references} <- deleted_reference_tests(root, diff_range) do
       selected =
         Aiur.AffectedTests.select(changed,
           base_dir: root,
@@ -42,49 +58,36 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
           reference_tests: references
         )
 
-      selected
-      |> case do
-        {:full, reason} -> command({:full, reason, changed})
-        scoped -> command(scoped)
-      end
-      |> Enum.each(fn line -> Mix.shell().info(line) end)
-    else
-      {:error, reason} -> Mix.raise("Cannot select affected tests safely: #{reason}")
+      {:ok, output_lines(selected, json?, changed)}
     end
   end
 
-  @doc false
+  @spec selection_json({:full, String.t()} | {:scoped, [String.t()]}) :: String.t()
+  def selection_json({:full, reason}), do: Jason.encode!(%{status: "full", reason: reason})
+  def selection_json({:scoped, tests}), do: Jason.encode!(%{status: "scoped", tests: tests})
+
   @spec command({:full, String.t()} | {:full, String.t(), [String.t()]} | {:scoped, [String.t()]}) :: [String.t()]
   def command({:full, reason, changed}),
     do: command({:full, "#{reason}; changed paths: #{Enum.join(changed, ", ")}"})
 
   def command({:full, reason}),
-    do: ["# full suite recommended: #{reason}", "cd src && mise exec -- make ci"]
+    do: Command.build({:full, reason})
 
-  def command({:scoped, []}), do: ["# no affected test files detected for the documentation-only change"]
+  def command(selection), do: Command.build(selection)
 
-  def command({:scoped, tests}) do
-    mix_paths =
-      Enum.map(tests, fn path ->
-        path
-        |> String.replace_prefix("src/", "")
-        |> shell_quote()
-      end)
+  defp output_lines(selection, true, _changed), do: [selection_json(selection)]
+  defp output_lines({:full, reason}, false, changed), do: command({:full, reason, changed})
+  defp output_lines(selection, false, _changed), do: command(selection)
 
-    ["cd src && mise exec -- mix test --max-cases 4 " <> Enum.join(mix_paths, " ")]
-  end
-
-  defp shell_quote(value), do: "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
+  defp print_line(line), do: Mix.shell().info(line)
 
   @doc false
   @spec changed_files(String.t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
   def changed_files(root, base) do
     case System.get_env("AIUR_CI_CHANGED_PATHS_B64") do
       nil ->
-        with {:ok, committed} <- git(root, ["diff", "--name-only", base, "--"]),
-             {:ok, working} <- git(root, ["diff", "--name-only", "--"]),
-             {:ok, untracked} <- git(root, ["ls-files", "--others", "--exclude-standard"]) do
-          {:ok, Enum.uniq(committed ++ working ++ untracked)}
+        with {:ok, diff_range} <- GitDiff.range(root, base) do
+          changed_files_for_range(root, diff_range)
         end
 
       encoded ->
@@ -98,22 +101,44 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
     end
   end
 
-  @doc false
-  @spec deleted_reference_tests(String.t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
-  def deleted_reference_tests(root, base) do
-    case git(root, ["diff", "--unified=0", base, "--", "src/lib"]) do
-      {:ok, lines} ->
-        tests =
-          lines
-          |> Enum.join("\n")
-          |> Aiur.AffectedTests.deleted_reference_terms()
-          |> then(&Aiur.AffectedTests.reference_test_files(root, &1))
+  defp changed_files_for_range(root, {base, head}) do
+    with {:ok, committed} <- GitDiff.changed_paths(root, base, head),
+         {:ok, working} <- git(root, ["diff", "--name-only", "--"]),
+         {:ok, untracked} <- git(root, ["ls-files", "--others", "--exclude-standard"]) do
+      {:ok, Enum.uniq(committed ++ working ++ untracked)}
+    end
+  end
 
-        {:ok, tests}
+  @doc false
+  @spec deleted_reference_tests(String.t(), String.t() | {String.t(), String.t()}) ::
+          {:ok, [String.t()]} | {:error, String.t()}
+  def deleted_reference_tests(root, base) when is_binary(base) do
+    case GitDiff.diff(root, ["diff", "--unified=0", base, "--", "src/lib"]) do
+      {:ok, lines} -> deleted_reference_matches(root, lines)
+      error -> error
+    end
+  end
+
+  def deleted_reference_tests(root, {base, head}), do: deleted_reference_diff(root, base, head)
+
+  defp deleted_reference_diff(root, base, head) do
+    case GitDiff.diff(root, ["diff", "--unified=0", base, head, "--", "src/lib"]) do
+      {:ok, lines} ->
+        deleted_reference_matches(root, lines)
 
       error ->
         error
     end
+  end
+
+  defp deleted_reference_matches(root, lines) do
+    tests =
+      lines
+      |> Enum.join("\n")
+      |> Aiur.AffectedTests.deleted_reference_terms()
+      |> then(&Aiur.AffectedTests.reference_test_files(root, &1))
+
+    {:ok, tests}
   end
 
   @doc false

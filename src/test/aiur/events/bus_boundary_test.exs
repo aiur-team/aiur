@@ -7,7 +7,7 @@ defmodule Aiur.Events.BusBoundaryTest do
 
   @members ~w(exchange topic publisher id_generator subscription_store
               subscription_store_supervisor universal_subscriptions
-              agent_subscription_policy debug_log)
+              agent_subscription_policy history_store trace source_policy source_policy/null)
            |> Enum.map(&"events/#{&1}.ex")
            |> Kernel.++(["ticket_observation.ex"])
 
@@ -20,18 +20,8 @@ defmodule Aiur.Events.BusBoundaryTest do
   # {member_file, referenced_module} => ticket that removes the edge.
   # Seam tickets delete their rows; that deletion is the proof the edge is gone.
   @ratchet %{
-    {"events/publisher.ex", "Aiur.GitHub.AgentMarker"} => "C2-T06",
-    {"events/publisher.ex", "Aiur.GitHub.Config"} => "C2-T06",
-    {"events/publisher.ex", "Aiur.GitHub.ResourceStore"} => "C2-T06",
-    {"events/publisher.ex", "Aiur.Webhooks"} => "C2-T06",
-    {"events/publisher.ex", "Aiur.IssueLog"} => "C2-T03",
-    {"events/id_generator.ex", "Aiur.Executor.StatePaths"} => "C2-T07",
-    {"events/id_generator.ex", "Aiur.LaunchStateAdoption"} => "C2-T07",
     {"events/subscription_store.ex", "Aiur.Orchestrator"} => "C2-T01",
     {"events/subscription_store.ex", "Aiur.Signal"} => "C2-T01",
-    {"events/subscription_store.ex", "Aiur.IssueLog"} => "C2-T03",
-    {"events/debug_log.ex", "Phoenix.PubSub"} => "C2-T05",
-    {"events/debug_log.ex", "Aiur.PubSub"} => "C2-T05",
     # Unassigned: tracker types in the L1 spine; MP-R1 decides (CONTRACT-REQUESTS).
     {"ticket_observation.ex", "Aiur.TrackerIdentity"} => "unassigned",
     {"ticket_observation.ex", "Aiur.OpaqueIdentifier"} => "unassigned"
