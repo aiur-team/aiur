@@ -1,9 +1,9 @@
 defmodule Aiur.ExecutorAttention.CLI do
   @moduledoc false
   alias Aiur.ControlCLI.Reasons
-  alias Aiur.DecisionExpiry
   alias Aiur.Executor.{Claims, Roster}
-  alias Aiur.{ExecutorEvents, ExecutorWakeInbox}
+  alias Aiur.ExecutorAttention.DecisionEscalation
+  alias Aiur.{ExecutorEvents, ExecutorListener, ExecutorWakeInbox}
 
   import Aiur.ControlCLI.Protocol, only: [control_error: 1, exit_marker: 1]
 
@@ -90,7 +90,7 @@ defmodule Aiur.ExecutorAttention.CLI do
     try do
       # Backstop (#4567): an aged open blocking Decision wakes this wait even
       # when no event reached the inbox for it.
-      :ok = DecisionExpiry.backstop()
+      :ok = ExecutorListener.backstop()
       result = ExecutorWakeInbox.wait(timeout_ms)
       executor_wait_result(result, consumer_id, renewed_wait_role(role, renewer), json?, timeout_ms)
     after
@@ -417,9 +417,14 @@ defmodule Aiur.ExecutorAttention.CLI do
     end
   end
 
-  @doc "Prints the `status` WAKES line."
+  @doc "Prints the `status` WAKES and DECISIONS lines."
   @spec print_wake_status() :: :ok
   def print_wake_status do
+    print_wakes()
+    DecisionEscalation.print_status()
+  end
+
+  defp print_wakes do
     case ExecutorWakeInbox.stats() do
       {:ok, stats} -> IO.puts("WAKES CURSOR #{stats.cursor} PENDING #{stats.pending_count}")
       {:error, _reason} -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")

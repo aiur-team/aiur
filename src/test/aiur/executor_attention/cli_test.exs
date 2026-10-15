@@ -273,11 +273,6 @@ defmodule Aiur.ExecutorAttention.CLITest do
         now: DateTime.add(DateTime.utc_now(), -20 * 60, :second)
       )
 
-    # The application already runs the sweeper that serves the backstop; point
-    # it at this Decision for the test and restore it afterwards.
-    original = :sys.get_state(Aiur.DecisionExpiry)
-    on_exit(fn -> :sys.replace_state(Aiur.DecisionExpiry, fn _state -> original end) end)
-
     opts = [
       decisions_fun: fn -> {:ok, [decision]} end,
       gates_fun: fn _ticket -> 0 end,
@@ -285,7 +280,8 @@ defmodule Aiur.ExecutorAttention.CLITest do
       alert_fun: fn _topic, _opts -> :ok end
     ]
 
-    :sys.replace_state(Aiur.DecisionExpiry, &%{&1 | opts: opts, escalations: %{}})
+    # The listener serves the backstop; its timer stays off so only the wait drives the ladder.
+    start_supervised!({Aiur.ExecutorListener, patterns: [], reconcile?: false, escalation_interval_ms: :infinity, escalation: opts})
 
     output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 2_000) end)
 

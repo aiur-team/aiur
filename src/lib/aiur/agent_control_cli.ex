@@ -162,7 +162,6 @@ defmodule Aiur.AgentControlCLI do
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
     ExecutorAttention.CLI.print_wake_status()
-    Aiur.DecisionEscalation.print_status()
     Commands.print_projection_status()
     print_codeowners_trust()
     ReloadRejection.print_status()

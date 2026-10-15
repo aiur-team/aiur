@@ -1,7 +1,8 @@
-defmodule Aiur.DecisionEscalationTest do
+defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.{DecisionAttentionSignals, DecisionEscalation, DecisionValidation}
+  alias Aiur.{DecisionAttentionSignals, DecisionValidation}
+  alias Aiur.ExecutorAttention.DecisionEscalation
 
   @now ~U[2026-10-15 12:00:00Z]
   @source %{agent_id: "codex", session_id: "session-1", event_id: nil}

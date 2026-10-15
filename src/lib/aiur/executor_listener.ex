@@ -11,14 +11,15 @@ defmodule Aiur.ExecutorListener do
 
   require Logger
 
-  alias Aiur.DecisionEscalation
   alias Aiur.Events.{Exchange, Topic}
   alias Aiur.Executor.StatePaths
+  alias Aiur.ExecutorAttention.DecisionEscalation
   alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
   alias Aiur.Signal
 
   @command_topics ~w(executor.decision.requested executor.decision.deferred)
   @resubscribe_interval_ms 30_000
+  @escalation_interval_ms 60_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -42,6 +43,15 @@ defmodule Aiur.ExecutorListener do
     Enum.reject(ExecutorBindings.patterns(), &MapSet.member?(bound, &1))
   end
 
+  @doc "The `executor-wait` backstop for aged open blocking Decisions (#4567)."
+  @spec backstop(GenServer.server()) :: :ok
+  def backstop(server \\ __MODULE__) do
+    GenServer.call(server, :backstop, 5_000)
+  catch
+    # A busy or absent listener must not stop `executor-wait` from waiting.
+    :exit, _reason -> :ok
+  end
+
   @impl true
   def init(opts) do
     StatePaths.ensure()
@@ -59,7 +69,10 @@ defmodule Aiur.ExecutorListener do
       watermark: watermark,
       resubscribe_interval_ms: interval,
       health: current_health,
-      inbox: Keyword.get(opts, :inbox, ExecutorWakeInbox)
+      inbox: Keyword.get(opts, :inbox, ExecutorWakeInbox),
+      escalation_interval_ms: Keyword.get(opts, :escalation_interval_ms, @escalation_interval_ms),
+      escalation_opts: Keyword.get(opts, :escalation, []),
+      escalations: %{}
     }
 
     state =
@@ -70,7 +83,8 @@ defmodule Aiur.ExecutorListener do
       end
 
     maybe_report_health(nil, current_health, patterns)
-    schedule_resubscribe(interval)
+    schedule(:resubscribe, interval)
+    schedule(:escalate, state.escalation_interval_ms)
 
     {:ok, state}
   end
@@ -93,11 +107,21 @@ defmodule Aiur.ExecutorListener do
 
     current_health = health(state.patterns)
     maybe_report_health(observed_health, current_health, state.patterns)
-    schedule_resubscribe(state.resubscribe_interval_ms)
+    schedule(:resubscribe, state.resubscribe_interval_ms)
     {:noreply, %{state | health: current_health}}
   end
 
+  def handle_info(:escalate, state) do
+    schedule(:escalate, state.escalation_interval_ms)
+    {:noreply, %{state | escalations: DecisionEscalation.run(state.escalations, state.escalation_opts)}}
+  end
+
   def handle_info(_other, state), do: {:noreply, state}
+
+  @impl true
+  def handle_call(:backstop, _from, state) do
+    {:reply, :ok, %{state | escalations: DecisionEscalation.backstop(state.escalations, state.escalation_opts)}}
+  end
 
   @impl true
   def terminate(_reason, state) do
@@ -314,10 +338,10 @@ defmodule Aiur.ExecutorListener do
 
   # Tests pin the interval to :infinity to keep the resubscribe timer from
   # firing mid-assertion (#2039).
-  defp schedule_resubscribe(:infinity), do: :ok
+  defp schedule(_message, :infinity), do: :ok
 
-  defp schedule_resubscribe(interval) when is_integer(interval) and interval > 0 do
-    Process.send_after(self(), :resubscribe, interval)
+  defp schedule(message, interval) when is_integer(interval) and interval > 0 do
+    Process.send_after(self(), message, interval)
     :ok
   end
 

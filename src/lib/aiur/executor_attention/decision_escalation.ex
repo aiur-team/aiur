@@ -1,20 +1,20 @@
-defmodule Aiur.DecisionEscalation do
+defmodule Aiur.ExecutorAttention.DecisionEscalation do
   @moduledoc """
   Keeps an open blocking Decision from waiting in silence (#4567).
 
-  `Aiur.ExecutorListener` wakes the Executor when the Decision is created. While
-  it stays open, this ladder re-wakes the Executor at 15 and 30 minutes and
+  `Aiur.ExecutorListener` wakes the Executor when the Decision is created and
+  drives this ladder on a timer. While it stays open, the ladder re-wakes the Executor at 15 and 30 minutes and
   raises an operator alert at 45 minutes, then every hour. A Decision that
   gates 10 or more open tickets reaches the operator at 15 minutes.
 
   The ladder is a function of Decision age, so a restart resumes it instead of
   starting it again. The operator alert uses the Decision's durable
   `decision-stale` attention topic: a restart reads that topic to avoid a
-  second alert, and `Aiur.DecisionAttentionSignals` resolves it once the
-  Decision is answered. All inputs are local state; nothing here calls GitHub.
+  second alert, and the Commands component resolves it once the Decision is
+  answered. All inputs are local state; nothing here calls GitHub.
   """
 
-  alias Aiur.{AlertFeed, Decision, DecisionAttentionSignals, DecisionStore, ExecutorWakeInbox, ExecutorWakeProjection, Signal}
+  alias Aiur.{AlertFeed, Commands, Decision, ExecutorWakeInbox, ExecutorWakeProjection, Signal}
   alias Aiur.BuildQueue.Hints
   alias Aiur.Events.Sanitizer
 
@@ -126,7 +126,7 @@ defmodule Aiur.DecisionEscalation do
   @doc "Prints the status line from the local DecisionStore."
   @spec print_status() :: :ok
   def print_status do
-    IO.puts(status_line(DecisionStore.list(), DateTime.utc_now()))
+    IO.puts(status_line(Commands.list_decisions(), DateTime.utc_now()))
   catch
     :exit, _reason -> IO.puts("DECISIONS unavailable (the decision store could not be read)")
   end
@@ -193,7 +193,7 @@ defmodule Aiur.DecisionEscalation do
     )
   end
 
-  defp operator_topic(decision), do: DecisionAttentionSignals.stale_topic(decision)
+  defp operator_topic(decision), do: Commands.decision_stale_topic(decision)
 
   defp condition_states([], _opts), do: %{}
   defp condition_states(topics, opts), do: Keyword.get(opts, :condition_states_fun, &AlertFeed.condition_states/1).(topics)
@@ -201,7 +201,7 @@ defmodule Aiur.DecisionEscalation do
   defp decisions(opts) do
     case Keyword.get(opts, :decisions_fun) do
       fun when is_function(fun, 0) -> fun.()
-      nil -> {:ok, DecisionStore.list()}
+      nil -> {:ok, Commands.list_decisions()}
     end
   catch
     :exit, reason -> {:error, {:decision_store_unavailable, reason}}
