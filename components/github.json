@@ -54,6 +54,7 @@
     "Aiur.GitHub.Errors",
     "Aiur.GitHub.FailureEvidence",
     "Aiur.GitHub.GraphQLCost",
+    "Aiur.GitHub.HoldPressure",
     "Aiur.GitHub.HostCommand",
     "Aiur.GitHub.HumanReviewGate",
     "Aiur.GitHub.IssueDependencies",
