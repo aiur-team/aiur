@@ -36,6 +36,9 @@ else:
             self.last_stdout = result.stdout
             self.last_summary = summary.read_text() if summary.exists() else ''
             self.assertNotIn(b"can't open file", result.stderr)
+            self.assertIn(b'::notice::affected-tests selection duration:', result.stderr)
+            if 'mix test' in selection and len(selection.split()) <= 305:
+                self.assertIn(b'::notice::affected-tests selected tests duration:', result.stderr)
             invoked = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
             return result.returncode, invoked, result.stdout.decode()
 

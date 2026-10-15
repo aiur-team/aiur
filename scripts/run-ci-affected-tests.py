@@ -4,8 +4,21 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 
+
+def run_timed(label, command, **options):
+    started = time.monotonic()
+    try:
+        return subprocess.run(command, check=True, **options)
+    finally:
+        elapsed = time.monotonic() - started
+        print(f'::notice::affected-tests {label} duration: {elapsed:.1f}s', file=sys.stderr, flush=True)
+
+selection_started = time.monotonic()
 selection = subprocess.check_output(['mix', 'aiur.affected_tests', sys.argv[1]], text=True)
+print(f'::notice::affected-tests selection duration: {time.monotonic() - selection_started:.1f}s',
+      file=sys.stderr, flush=True)
 print(selection, flush=True)
 
 
@@ -38,4 +51,4 @@ else:
             notice = f'selection {selected_count} files > 300; covered by the merge_group full suite'
             defer_to_merge_group(notice)
         else:
-            subprocess.run(command, check=True)
+            run_timed('selected tests', command)
