@@ -143,7 +143,7 @@ An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-l
 
 `status`, `agents` and `watch` always print the fleet snapshot age, including fresh snapshots, as in `FLEET SNAPSHOT 2s old` and `CAPACITY OBSERVATION 2s old`. Rows carry their own observation age. A missing observation renders `age unavailable`, never zero. Retry rows read `since daemon start <UTC time>`, because retry state resets on daemon restart.
 
-The JSON `observations` map covers fleet, capacity, per-ticket tracker data, retries and the dispatch sample; each has `observed_at` and `age_ms`. Capacity slot counts use the captured state time; cached load fields use `capacity.dispatch_observation`. Durable launch evidence lives in the run log directory's `<repo>.<ticket>.startup-failures.ndjson`.
+JSON observations report group ages. `per_ticket.oldest_ticket_id` and `oldest_age_ms` identify the oldest retained ticket, which can predate the newest observation after a partial poll. Capacity slots use capture time; cached load uses `capacity.dispatch_observation`. Startup evidence is in `<repo>.<ticket>.startup-failures.ndjson` under run logs.
 
 The status JSON payload adds `waiting: {reason, owner, cause, since, age_ms}` to running, retry and idle rows. Unknown causes use `unknown`; unknown timestamps and ages are `null`. Ages describe the snapshot's observation.
 

@@ -9,9 +9,17 @@ defmodule Aiur.Orchestrator.StatusObservation do
   @spec attach(map(), map(), DateTime.t()) :: map()
   def attach(snapshot, state, now) do
     captured = Map.get(state, :status_observed_at) || now
-    tracker = oldest_observation(Map.values(state.tracker_observations))
+    tracker = newest_observation(Map.values(state.tracker_observations))
+    {oldest_ticket_id, oldest_tracker} = oldest_ticket_observation(state.tracker_observations)
     observations = Map.new(@groups, &{&1, observation(captured, now)})
-    observations = Map.put(observations, :per_ticket, observation(tracker, now))
+
+    per_ticket =
+      observation(tracker, now)
+      |> Map.put(:oldest_ticket_id, oldest_ticket_id)
+      |> Map.put(:oldest_observed_at, iso8601(oldest_tracker))
+      |> Map.put(:oldest_age_ms, observation(oldest_tracker, now).age_ms)
+
+    observations = Map.put(observations, :per_ticket, per_ticket)
     observations = Map.put(observations, :dispatch, observation(state.dispatch_capacity_sample[:observed_at], now))
 
     snapshot
@@ -26,7 +34,9 @@ defmodule Aiur.Orchestrator.StatusObservation do
   def refresh(snapshot, now \\ DateTime.utc_now()) do
     case snapshot[:observations] do
       %{} = groups ->
-        groups = Map.new(groups, fn {key, value} -> {key, observation(value[:observed_at], now)} end)
+        groups =
+          Map.new(groups, fn {key, value} -> {key, refresh_group(key, value, now)} end)
+
         snapshot = Map.put(snapshot, :observations, groups)
         snapshot = Map.update(snapshot, :capacity, nil, &refresh_capacity(&1, now))
         Enum.reduce(@rows, snapshot, &refresh_rows(&1, &2, groups, now))
@@ -43,6 +53,17 @@ defmodule Aiur.Orchestrator.StatusObservation do
   end
 
   defp refresh_capacity(capacity, _now), do: capacity
+
+  defp refresh_group(:per_ticket, value, now) do
+    observation(value[:observed_at], now)
+    |> Map.merge(%{
+      oldest_ticket_id: value[:oldest_ticket_id],
+      oldest_observed_at: value[:oldest_observed_at],
+      oldest_age_ms: observation(value[:oldest_observed_at], now).age_ms
+    })
+  end
+
+  defp refresh_group(_group, value, now), do: observation(value[:observed_at], now)
 
   defp refresh_rows(key, snapshot, groups, now) do
     case snapshot[key] do
@@ -91,17 +112,33 @@ defmodule Aiur.Orchestrator.StatusObservation do
 
   def sample_observed_at(_unavailable), do: nil
 
-  defp oldest_observation([]), do: nil
-  defp oldest_observation(times), do: Enum.min_by(times, &DateTime.to_unix(&1, :microsecond))
+  defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+  defp iso8601(_unknown), do: nil
+
+  defp newest_observation([]), do: nil
+  defp newest_observation(times), do: Enum.max_by(times, &DateTime.to_unix(&1, :microsecond))
+
+  defp oldest_ticket_observation(observations) do
+    Enum.min_by(observations, fn {_id, observed_at} -> DateTime.to_unix(observed_at, :microsecond) end, fn -> {nil, nil} end)
+  end
 
   @spec label(map() | nil) :: String.t()
   defdelegate label(observation), to: Aiur.Protocol.ObservationAge
   @spec row_label(map()) :: String.t()
   defdelegate row_label(row), to: Aiur.Protocol.ObservationAge
 
+  defp oldest_suffix(:per_ticket, %{per_ticket: %{oldest_ticket_id: id, oldest_age_ms: age}}) when not is_nil(id),
+    do: "; oldest retained ##{id} #{label(%{age_ms: age})}"
+
+  defp oldest_suffix(:per_ticket, _groups), do: ""
+  defp oldest_suffix(_group, _groups), do: ""
+
   @spec print_groups(map()) :: :ok
   def print_groups(%{observations: groups}) when is_map(groups) do
-    Enum.each(@groups, &IO.puts("#{&1 |> Atom.to_string() |> String.upcase()} OBSERVATION #{label(groups[&1])}"))
+    Enum.each(@groups, fn group ->
+      suffix = oldest_suffix(group, groups)
+      IO.puts("#{group |> Atom.to_string() |> String.upcase()} OBSERVATION #{label(groups[group])}#{suffix}")
+    end)
   end
 
   def print_groups(_snapshot), do: :ok

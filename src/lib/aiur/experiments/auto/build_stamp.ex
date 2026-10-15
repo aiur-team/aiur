@@ -28,6 +28,14 @@ defmodule Aiur.Experiments.Auto.BuildStamp do
     %{source_sha: sha, dirty: dirty}
   end
 
+  @spec repo_root(Path.t() | nil) :: Path.t() | nil
+  def repo_root(release_dir \\ System.get_env("AIUR_RELEASE_DIR"))
+  def repo_root(nil), do: nil
+
+  def repo_root(release_dir) do
+    with {:ok, text} <- File.read(Path.join(release_dir, "AIUR_BUILD_STAMP")), [_, root] <- Regex.run(~r/^repo_root=(.+)$/m, text), do: root, else: (_ -> nil)
+  end
+
   @spec base_version(String.t()) :: String.t() | :unknown
   def base_version(version) do
     case Version.parse(version) do
