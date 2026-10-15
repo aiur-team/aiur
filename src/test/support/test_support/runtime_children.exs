@@ -98,7 +98,7 @@ defmodule Aiur.TestSupport.RuntimeChildren do
   unregistered for every later test in the suite. Signal-based (`Process.whereis`)
   — never a duration.
   """
-  @spec ensure_pubsub_running() :: :ok | :error
+  @spec ensure_pubsub_running() :: :ok | {:error, term()}
   def ensure_pubsub_running(retries \\ 1) do
     case Process.whereis(Aiur.PubSub) do
       pid when is_pid(pid) ->
@@ -116,8 +116,8 @@ defmodule Aiur.TestSupport.RuntimeChildren do
             ensure_aiur_supervisor_running()
             ensure_pubsub_running(retries - 1)
 
-          _ ->
-            pubsub_status()
+          failure ->
+            pubsub_status(failure)
         end
     end
   end
@@ -190,10 +190,17 @@ defmodule Aiur.TestSupport.RuntimeChildren do
     if Process.whereis(Aiur.GitHub.ReadCache), do: :ok, else: :error
   end
 
-  defp pubsub_status do
+  # Name the failure: a bare `:error` in a setup assert hid that the root
+  # supervisor itself was gone or still shutting down (#4527).
+  defp pubsub_status(failure) do
     case Process.whereis(Aiur.PubSub) do
-      pid when is_pid(pid) -> :ok
-      nil -> :error
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        supervisor = Process.whereis(Aiur.Supervisor)
+
+        {:error, {:pubsub_not_running, restart: failure, aiur_supervisor: supervisor, supervisor_accepting_calls?: supervisor_accepting_calls?(supervisor, 1_000)}}
     end
   end
 
