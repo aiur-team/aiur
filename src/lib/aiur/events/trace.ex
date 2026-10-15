@@ -1,4 +1,6 @@
 defmodule Aiur.Events.Trace do
+  # aiur:event-bus-boundary-member
+
   @moduledoc """
   Optional, best-effort event-bus trace sink. The application config selects
   an implementation; absent configuration or `:none` disables tracing.

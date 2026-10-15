@@ -33,7 +33,7 @@ defmodule Aiur.Events.Publisher do
   GenServer call loop). Default is `fn _ -> true end` — useful in
   tests where the contamination filter is not the focus.
   """
-
+  # aiur:event-bus-boundary-member
   use GenServer
 
   require Logger

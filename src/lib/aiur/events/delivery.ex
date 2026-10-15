@@ -7,6 +7,7 @@ defmodule Aiur.Events.Delivery do
   exceptions propagate, just as failures of the default alert sink do.
   """
 
+  # aiur:event-bus-boundary-member
   @type result :: :ok | {:error, term()}
   @type context :: %{subscribed_to: [Aiur.Events.SubscriptionStore.subscription()]}
   @callback enqueue(identifier :: String.t(), event :: map(), context()) :: result()

@@ -1,4 +1,5 @@
 defmodule Aiur.Events.SourcePolicy.Null do
+  # aiur:event-bus-boundary-member
   @moduledoc "Source-neutral publication policy for a bus with no configured source gates."
   @behaviour Aiur.Events.SourcePolicy
 

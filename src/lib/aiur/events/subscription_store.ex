@@ -45,7 +45,7 @@ defmodule Aiur.Events.SubscriptionStore do
   `terminate/2` flushes pending writes and unsubscribes every binding
   from the Exchange so ETS rows don't accumulate.
   """
-
+  # aiur:event-bus-boundary-member
   use GenServer
 
   require Logger
