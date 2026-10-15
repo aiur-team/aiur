@@ -53,10 +53,9 @@ defmodule Aiur.BuildQueue.ListCommands do
       {:ok, labels, observed_at} ->
         now = state.clock.()
 
-        cond do
-          observed_at > now or now - observed_at > max_age -> {:error, :inputs_unavailable}
-          true -> {:ok, labels, Enum.reject(ids, &Map.has_key?(labels, &1))}
-        end
+        if observed_at > now or now - observed_at > max_age,
+          do: {:error, :inputs_unavailable},
+          else: {:ok, labels, Enum.reject(ids, &Map.has_key?(labels, &1))}
 
       _ ->
         {:error, :inputs_unavailable}
