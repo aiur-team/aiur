@@ -3,18 +3,27 @@ defmodule Aiur.AffectedTests.GitDiff do
 
   @spec range(String.t(), String.t()) :: {:ok, {String.t(), String.t()}} | {:error, String.t()}
   def range(root, base) do
-    if System.get_env("GITHUB_EVENT_NAME") == "pull_request" do
-      case git(root, ["rev-parse", "HEAD^1"]) do
-        {:ok, [first_parent]} -> {:ok, {first_parent, "HEAD"}}
-        {:ok, other} -> {:error, "git rev-parse HEAD^1 returned #{inspect(other)}"}
-        error -> error
-      end
-    else
-      case git(root, ["merge-base", "HEAD", base]) do
-        {:ok, [sha]} -> {:ok, {sha, "HEAD"}}
-        {:ok, other} -> {:error, "git merge-base returned #{inspect(other)}"}
-        error -> error
-      end
+    case git(root, ["rev-list", "--parents", "-n", "1", "HEAD"]) do
+      {:ok, [line]} ->
+        case String.split(line) do
+          [_head, first_parent, _second_parent | _rest] -> {:ok, {first_parent, "HEAD"}}
+          [_head] -> merge_base_range(root, base)
+          other -> {:error, "git rev-list returned #{inspect(other)}"}
+        end
+
+      {:ok, other} ->
+        {:error, "git rev-list returned #{inspect(other)}"}
+
+      error ->
+        error
+    end
+  end
+
+  defp merge_base_range(root, base) do
+    case git(root, ["merge-base", "HEAD", base]) do
+      {:ok, [sha]} -> {:ok, {sha, "HEAD"}}
+      {:ok, other} -> {:error, "git merge-base returned #{inspect(other)}"}
+      error -> error
     end
   end
 
