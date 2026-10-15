@@ -363,8 +363,28 @@ defmodule Aiur.LandingWatch do
 
   defp route_rework(observation, failures, opts) do
     case Keyword.get(opts, :rework_fun) do
-      writer when is_function(writer, 3) -> writer.(observation, failures, opts)
-      _ -> transition_rework(observation, failures, opts)
+      writer when is_function(writer, 3) ->
+        writer.(observation, failures, opts)
+
+      _ ->
+        case transition_rework(observation, failures, opts) do
+          {:error, :pull_request_not_linked_to_ticket_branch} ->
+            log_unlinked_head_once(observation, opts)
+            :ok
+
+          result ->
+            result
+        end
+    end
+  end
+
+  defp log_unlinked_head_once(observation, opts) do
+    case Journal.claim_alert(observation.number, observation.head, "unlinked-rework-skipped", opts) do
+      {:ok, :new} ->
+        Logger.debug("landing watcher skipped rework routing for unlinked PR ##{observation.number} head #{observation.head}")
+
+      _ ->
+        :ok
     end
   end
 

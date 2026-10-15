@@ -62,6 +62,7 @@
     "Aiur.GitHub.Issues",
     "Aiur.GitHub.Labels",
     "Aiur.GitHub.LocalHold",
+    "Aiur.GitHub.MainFixer",
     "Aiur.GitHub.MergeQueue",
     "Aiur.GitHub.OpenIssueListing",
     "Aiur.GitHub.OpenIssueSnapshot",

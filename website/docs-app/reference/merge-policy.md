@@ -12,7 +12,7 @@ The operator merge command enforces this policy, status and capabilities display
 | `merge_policy.attribution_scan` | boolean | false | Enables the premerge AI-attribution scan of the PR title and body. |
 | `merge_policy.main_watch.enabled` | boolean | false | Watches completed CI on the configured base branch through webhooks and polling. |
 | `merge_policy.main_watch.workflows` | array | `[]` | Workflow names to watch; empty means every workflow on the base branch. |
-| `merge_policy.main_watch.on_red` | string | `alert` | `alert` reports failed CI; `dispatch_fixer` requests a fixer ticket and priority dispatch. |
+| `merge_policy.main_watch.on_red` | string | `alert` | `alert` reports failed CI; `dispatch_fixer` files a P1 fixer after confirmed red CI and dispatches it first. |
 | `merge_policy.main_watch.fixer_label` | string | `main-fix` | Label for fixer tickets and their full-CI requirement. |
 | `merge_policy.main_watch.canary_minutes` | integer | 45 | Minutes without a completed watched run before rerunning the newest cancelled run; requires Actions write permission, otherwise raises attention. `0` disables. |
 | `merge_policy.main_watch.red_fallback_minutes` | integer | 0 | Optional full-CI wait after main stays red this many minutes; absent/`0` disables, `60` enables a one-hour threshold; the merge-policy consumer enforces the threshold using the watcher’s retained state. |
@@ -20,6 +20,29 @@ The operator merge command enforces this policy, status and capabilities display
 Premerge commands execute PR-authored code as the operator's Unix user. Token environment variables are removed, but that user can still read the stored `gh` credential. The default command list is empty; configure only checks for code you trust to execute.
 
 `on_red: dispatch_fixer` requires `fixer_label` in `full_ci_labels`. Lists reject blank entries; canary and red-fallback minutes must be nonnegative integers. Invalid values name the dotted config path.
+
+Fixer filing is opt-in: the default `on_red: alert` never files tickets. With
+`on_red: dispatch_fixer`, a first-time failure alerts only. Red is confirmed when
+the failed run fails again on a rerun attempt, or the next base commit fails the same job.
+
+Confirmed red files a `priority:1`, `complexity:1` ticket with the fixer label.
+The body includes run links, classified failures, red/last-green commits,
+suspect merges and local reproduction commands. Known flakes alone file no fixer.
+
+Repeated signatures and overlapping test failures update the existing ticket;
+a separate ticket requires proven disjoint tests. A persisted creation receipt
+per signature and red SHA prevents another ticket after the original is closed.
+
+App-authored fixer tickets carrying the main-watch marker are authorized by this
+config while `dispatch_fixer` remains enabled. Under PAT auth (or a shared daemon
+and agent identity), tickets instead get `needs-triage` and an Executor attention.
+
+Fixers take the next free slot first, within max-agents and the same CPU, memory,
+explicit state limits and pause gates as other workers. After five minutes awaiting
+first dispatch, `system.main.fixer.stalled` reports the observed hold reason or `unknown`.
+
+Recovery comments on the open ticket without closing it; a missing open PR raises
+attention. Fixer PRs require full CI.
 
 Every PR must include a `## Local tests` section with `Policy`, `Tested head`
 (the full 40-character pushed SHA), `Base` ref and SHA, `Selection`, and command

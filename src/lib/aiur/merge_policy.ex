@@ -8,6 +8,12 @@ defmodule Aiur.MergePolicy do
     policy |> Map.from_struct() |> Map.put(:main_watch, Map.from_struct(policy.main_watch))
   end
 
+  @doc "Whether the configured base-CI policy gives a ticket fixer priority."
+  @spec fixer_ticket?(term(), map()) :: boolean()
+  def fixer_ticket?(issue, watch \\ current().main_watch)
+  def fixer_ticket?(%{labels: labels}, watch) when is_list(labels), do: watch.on_red == "dispatch_fixer" and Enum.any?(labels, &(String.downcase(&1) == String.downcase(watch.fixer_label)))
+  def fixer_ticket?(_issue, _watch), do: false
+
   @doc "Whether labels or changed repository paths require the full CI gate."
   @spec requires_full_ci?([String.t()], [String.t()]) :: boolean()
   def requires_full_ci?(labels, changed_paths) do

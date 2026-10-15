@@ -50,14 +50,13 @@ defmodule Aiur.AgentControlCLI do
       report_control_query_failure: 3
     ]
 
+  @spec prepare_handoff(keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate prepare_handoff(opts \\ []), to: Aiur.Handoff, as: :prepare
   @status_timeout_ms 5_000
-  # Leave room to render the daemon timeout before the shared 10-second watchdog edge. Eight
-  # seconds lost the race: ~2s RPC startup plus a 10335ms saturated snapshot meant the launcher killed it, and the
-  # operator got a truncated fleet listing plus exit 124 instead of one honest
-  # "agents query timed out after 8s" line (#1684).
+  # Leave room to render the daemon timeout before the 10-second watchdog edge (#1684).
   @agents_timeout_ms 6_000
-  # RepoBase phases that mean the warm base is still becoming dispatchable
-  # (the gate holds new work). Anything else with prewarm enabled — :ready
+  # RepoBase phases that mean the warm base is still becoming dispatchable.
+  # Anything else with prewarm enabled — :ready
   # (normal), {:error, _} (fail-open cold clone), :idle — is not a "warming"
   # state and is handled separately.
   @prewarm_warming_phases [:cloning, :fetching, :building, :checking]

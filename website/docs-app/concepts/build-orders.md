@@ -1,6 +1,12 @@
 # Build Orders
 
-A Build Order turns a large feature into typed members, lanes, phases, dependencies, complexity, and optional icons.
+The repository has one [continuous build](./build-history), with feature
+collections added over time. New features join it through collection membership,
+native prerequisites, and the build queue; they do not create standalone roots.
+
+Existing Build Orders retain their typed members, lanes, phases, dependencies,
+complexity, and optional icons as readable planning history. The pack and root
+commands below describe those legacy artifacts.
 
 ## Pack contents
 

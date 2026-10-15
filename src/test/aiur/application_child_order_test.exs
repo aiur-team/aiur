@@ -129,7 +129,8 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.AgentPubSub.FleetRefresh => "Create the subscriber table after PubSub and before channels can register",
     Aiur.Orchestrator.SnapshotCache => "Create the snapshot table before SnapshotStore or SnapshotPublisher can write",
     # The first CI poll and queue reconcile need the seeded progress table before they run.
-    Aiur.StartTrigger.ProgressStore => "Seed the ETS table before Orchestrator and BuildQueue start observing PR progress"
+    Aiur.StartTrigger.ProgressStore => "Seed the ETS table before Orchestrator and BuildQueue start observing PR progress",
+    Aiur.PostDeployChecklist => "Subscribe before Orchestrator's initial poll so merged PR checklist events are not missed"
   }
   @flags [
     :interactive_cli?,

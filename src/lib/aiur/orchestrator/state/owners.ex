@@ -143,6 +143,8 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.Slots
     ],
     lifecycle: [
+      Aiur.Handoff.Adopter,
+      Aiur.Handoff.Fallback,
       Aiur.Orchestrator.TicketTransition,
       Aiur.Orchestrator.Lifecycle,
       Aiur.Orchestrator.MembershipLifecycle,

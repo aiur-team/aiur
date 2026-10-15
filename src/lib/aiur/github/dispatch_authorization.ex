@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.GitHub.{Config, Errors, ReadCache, StatePolicy, Transport}
+  alias Aiur.GitHub.{Config, Errors, MainFixer, ReadCache, StatePolicy, Transport}
   alias Aiur.{Issue, Signal}
 
   @cache_key {__MODULE__, :timeline_cache}
@@ -52,8 +52,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     deny_ambiguous(issue, {:contradictory_state_labels, state_labels})
   end
 
-  # SECURITY INVARIANT — provenance of the TRIGGER LABEL is the only thing that
-  # authorizes dispatch. There is deliberately no creator short-circuit.
+  # Trigger-label provenance authorizes dispatch; configured App fixers are the narrow exception.
   #
   # There used to be one: an issue whose creator was in `allowed_users` was
   # dispatched with no label check at all. Agents create issues with that same
@@ -66,8 +65,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # run. Requiring the verified label applier costs one timeline fetch per
   # issue — verified decisions are cached per `{id, label, updated_at}` — and makes "an actor
   # in `allowed_users` moved this into a dispatch state" the single, auditable
-  # precondition. If you reintroduce a short-circuit, agent-filed work becomes
-  # self-authorizing again.
+  # precondition; agent-authored markers never confer authority.
   def authorize(%Issue{} = issue, owner, repo, prefix, opts) do
     authorize_label_applier(issue, owner, repo, prefix, allowed_users(opts), opts)
   end
@@ -129,6 +127,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
     {authorized?, source} =
       cond do
+        MainFixer.authorized?(issue, opts) and aiur_actor?(actor, opts) -> {true, "main_watch_fixer"}
         member?(allowed_users, actor) -> {true, "label_applier"}
         aiur_actor?(actor, opts) and not is_nil(triaged_by) -> {true, "prior_triage:#{triaged_by}"}
         true -> {false, "label_applier"}

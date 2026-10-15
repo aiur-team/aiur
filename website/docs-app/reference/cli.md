@@ -485,3 +485,10 @@ Clear persists unmark intents before paced writes; crashes resume on restart. A 
 Gates cover head, draft, approval, requested changes, CI, conflicts, attribution and merge-result prechecks (ten minutes each); the checkout and PR branch stay unchanged. Only `ci: wait` is accepted and all required checks must pass; see [merge policy](/reference/merge-policy). Unknown branch rules refuse. Other bases use pinned squash merge.
 
 A merge-queue rule reports `ENQUEUED`, never a direct merge; rerun after GitHub merges to record the result. Exit codes: `0` merged, enqueued, observed merged or dry run; `2` policy refusal; `1` tool/network error. Records, logs: `~/.aiur/logs/pr-merge/`. Only observed merges notify `system.pr.merged`, daemon-verified. Ledger/notification failures only warn.
+
+## Offline experiment statistics
+
+`analytics/experiment-stats --experiment-dir DIR [--check] [--now TIME]` analyzes
+frozen experiment JSON. `--check` verifies the computed result body; `--now`
+overrides its external timestamp. See [Experiment statistics](./experiment-statistics)
+for inputs, methods, defaults and exit codes.
