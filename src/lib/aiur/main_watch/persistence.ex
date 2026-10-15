@@ -33,7 +33,7 @@ defmodule Aiur.MainWatch.Persistence do
 
   @spec empty() :: map()
   def empty do
-    %{state: State.new(), pending: [], commits: [], early_merges: [], canary_at: nil, unavailable: false, last_completed_at: nil, started_at: System.system_time(:millisecond)}
+    %{state: State.new(), pending: [], commits: [], early_merges: [], canary_at: nil, unavailable: false, last_error: nil, last_completed_at: nil, started_at: System.system_time(:millisecond)}
   end
 
   defp key(repo, branch), do: ResourceStore.key_for_repo(:main_watch, repo, branch)

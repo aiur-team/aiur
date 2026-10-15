@@ -9,6 +9,7 @@
     "src/lib/aiur/config/**",
     "src/lib/aiur/env.ex",
     "src/lib/aiur/env/**",
+    "src/lib/aiur/handoff/record.ex",
     "src/lib/aiur/merge_policy.ex",
     "src/lib/aiur/workflow.ex",
     "src/lib/aiur/workflow_store.ex",

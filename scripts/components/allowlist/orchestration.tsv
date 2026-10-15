@@ -4,9 +4,6 @@ R-declared	Aiur.Accounts.UsageReadings	baseline 4aba33f8aae03cdaec432d6614e70a57
 R-declared	Aiur.AlertFeed	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CIApprovalStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Claude.RemoteControl	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Claude.ReplAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ControlCLI.Protocol	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
 R-declared	Aiur.ControlCLI.Reasons	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
 R-declared	Aiur.Executor.StatePaths	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -28,7 +25,6 @@ R-declared	Aiur.GitHub.StatePolicy	baseline 4aba33f8aae03cdaec432d6614e70a57c9ad
 R-declared	Aiur.GitHub.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.HttpServer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Init.AgentCli	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.ModelAvailability	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.ActiveTurns	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.SlotRegistry	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.OperatorWaitLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839

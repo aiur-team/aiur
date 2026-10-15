@@ -409,8 +409,11 @@ instead of issuing the same directive indefinitely. Once all conditions hold:
    rules — live in the repo's `AGENTS.md` (`Tests must fail without the
    production change they guard` and `Computed ages and collapsed causes`);
    cross-reference those sections rather than restating them;
-4. use `ce-code-review` when Compound Engineering is available, adding the
-   relevant security, data, frontend, backend, or design lens for the change;
+4. check `Local tests`: policy matches `aiur status`, `Tested head` is current,
+   `Base` and `Selection` cover the diff, and command results prove what ran;
+   stale, incomplete or failed evidence blocks approval. Use `ce-code-review`
+   when available, adding the relevant security, data, frontend, backend or
+   design lens for the change;
 5. reconcile duplicates and contradictions, classifying each finding under the
    convergence policy before routing it;
 6. return contained findings to the existing ticket as rework; create a new
@@ -477,24 +480,17 @@ invent a GitHub message. The normal attempt is what creates the failed suite,
 so this path surfaces the reason immediately after the first refusal instead of
 requiring a second `--admin` attempt.
 
-The declaration requires every blocking CI job as required status checks,
-including `build`, `test`, and `workflow security`, with strict status checks
-enabled, and the gate is enforced once that declaration is applied to the live
-ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
-that declaration on every PR and merge, so a regressed gate fails CI visibly.
-Before every merge, run `scripts/check-stack-order.sh <pr>` (see `merge-order-gate.md`).
-Wait for required checks and review; never merge a pending, failing, or stale head.
-
-A solo operator cannot merge a branch they authored through the gate
-(issue #1437). This used to bite hardest on the periodic `develop` -> `main`
-promotion; that promotion is retired now that `main` is the integration branch,
-but the rule still governs any Executor-authored branch.
-With a two-owner CODEOWNERS entry plus `require_code_owner_review`
-and `require_last_push_approval`, the only in-gate path is a bot approval, which
-defeats the gate; `--admin` does not bypass it. Any approved maintenance window
-must change only the review-side rules while leaving the required-status-check
-rule active. Back up and re-read the ruleset to confirm the review-side change
-rather than trusting the write.
+Read the active `merge_policy` from `aiur status`, not memory or a reviewer
+brief. Before every merge run `scripts/check-stack-order.sh <pr>` (see
+`merge-order-gate.md`), then use only
+`aiur pr merge <N> --reviewed-sha <full-reviewed-head-sha>`.
+Never replace it with `gh pr merge`, `--admin`, or scratch scripts.
+With `ci: wait`, all required checks must pass on the reviewed head.
+With `pending_ok`, reviewed local-test evidence for that head and configured
+mode plus enabled main watching may permit pending CI; failed checks and
+full-CI labels/paths still block. Respect command refusals and queue routing.
+On `system.main.ci.failed`, inspect the watcher’s fixer ticket and progress.
+Do not fix main by hand unless the fixer is stalled and takeover is authorized.
 
 ## Ticket close-out
 

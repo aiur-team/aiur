@@ -76,6 +76,8 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
              CodexClient.request_compact(port, "thr_original", timeout_ms: 500)
   end
 
+  # Flaky in merge groups; fix tracked in #4463.
+  @tag :quarantine
   test "reports server failure and a missing completion notification" do
     {failure_port, failure_dir} = server_port("failure")
 

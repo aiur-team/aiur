@@ -643,6 +643,8 @@ defmodule Aiur.Orchestrator do
   def fleet_view(server \\ __MODULE__, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
 
   @impl true
+  def handle_call(:prepare_handoff_snapshot, _from, state), do: Aiur.Handoff.hold_dispatch(state)
+  def handle_call(:cancel_handoff, _from, state), do: Aiur.Handoff.release_dispatch(state)
   def handle_call({:enqueue_event_digest, identifier, event}, _from, state), do: OM.enqueue_event_digest_call(state, identifier, event)
   def handle_call({:enqueue_event_digest, id, event, %{subscribed_to: subs}}, _from, state) when is_list(subs), do: OM.enqueue_event_digest_call(state, id, event, subscribed_to: subs)
 
@@ -822,25 +824,23 @@ defmodule Aiur.Orchestrator do
       when is_binary(key) and is_binary(text),
       do: OM.lookup_operator_message_call(state, lookup, expected)
 
-  def handle_call({:claim_next_queue_item, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: OM.claim_next_queue_item_call(state, issue_identifier)
+  def handle_call({:claim_next_queue_item, id}, _from, state) when is_binary(id), do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_queue_item_call(state, id) end)
 
   def handle_call({:claim_next_checkpoint_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: OM.claim_next_checkpoint_queue_item_call(state, issue_identifier)
+      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_checkpoint_queue_item_call(state, issue_identifier) end)
 
   def handle_call({:claim_blocker_critical_events_digest, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: OM.claim_blocker_critical_events_digest_call(state, issue_identifier)
+      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_blocker_critical_events_digest_call(state, issue_identifier) end)
 
   def handle_call({:claim_next_operator_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
-      do: OM.claim_next_operator_queue_item_call(state, issue_identifier)
+      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_operator_queue_item_call(state, issue_identifier) end)
 
   def handle_call({:claim_operator_response, identifier, command}, _from, state)
       when is_binary(identifier) and is_binary(command) and command != "",
-      do: OM.claim_operator_response_call(state, identifier, command)
+      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_operator_response_call(state, identifier, command) end)
 
   def handle_call({:mark_queue_item_consumed, item_id}, _from, state)
       when is_integer(item_id),

@@ -428,7 +428,7 @@ Dismissing a Command closes it and moves it to history. If the Command's agent i
 | --- | --- |
 | **Dispatch needs `agent:todo`.** | `AGENTS 0/32 (binding: ticket supply)` means a recent poll found no queued ticket. If it instead reads `idle backoff active (... polling.idle_widen_factor=5.0, next poll in ...)`, the daemon has not looked since its last idle poll — run `aiur --todo <id>` (which wakes a prompt poll and keeps the base cadence until the ticket is seen), add the label, or trigger a refresh so the work is seen. `has not polled yet` means the last tracker fetch failed. |
 | **Global pause is durable.** | Use `aiur status` and `aiur resume` before treating a silent restarted fleet as broken. |
-| **CI readiness uses an operator-only token.** | Run `aiur init` with `AIUR_CI_READINESS_TOKEN` that can read repository contents, Actions, and administration settings. Init saves a non-secret assessment beside `.aiur/config`; the normal launcher removes the token before starting the daemon and agents. Repeat init when the assessment expires or the repository's CI rules change. |
+| **CI readiness uses an operator-only token.** | Set `AIUR_CI_READINESS_TOKEN` with access to repository contents, Actions, and administration settings. The daemon uses it to refresh CI readiness at startup; child agents do not inherit it. `aiur init` can also save a non-secret assessment beside `.aiur/config`. |
 | **A base refresh affects approval ownership.** | With `require_last_push_approval`, route a base refresh through the ticket agent so the Executor does not become the ineligible last pusher. |
 
 ## `aiurdev`, for developing Aiur itself
@@ -485,3 +485,10 @@ Clear persists unmark intents before paced writes; crashes resume on restart. A 
 Gates cover head, draft, approval, requested changes, CI, conflicts, attribution and merge-result prechecks (ten minutes each); the checkout and PR branch stay unchanged. Only `ci: wait` is accepted and all required checks must pass; see [merge policy](/reference/merge-policy). Unknown branch rules refuse. Other bases use pinned squash merge.
 
 A merge-queue rule reports `ENQUEUED`, never a direct merge; rerun after GitHub merges to record the result. Exit codes: `0` merged, enqueued, observed merged or dry run; `2` policy refusal; `1` tool/network error. Records, logs: `~/.aiur/logs/pr-merge/`. Only observed merges notify `system.pr.merged`, daemon-verified. Ledger/notification failures only warn.
+
+## Offline experiment statistics
+
+`analytics/experiment-stats --experiment-dir DIR [--check] [--now TIME]` analyzes
+frozen experiment JSON. `--check` verifies the computed result body; `--now`
+overrides its external timestamp. See [Experiment statistics](./experiment-statistics)
+for inputs, methods, defaults and exit codes.

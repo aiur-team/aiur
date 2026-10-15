@@ -28,12 +28,8 @@ defmodule Aiur.AiurAgentSkillTest do
     stub-then-fetch.md
     dictated-input.md
   )
-  # Every model gets every skill (operator directive 2026-10-14): Executor skills
-  # are exposed to Codex too, and Codex-origin skills are linked into Claude.
-  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-handoff aiur-intro aiur-meta aiur-monitor aiur-run design-import release)
-  @codex_origin_skills ~w(commit land linear pull push)
-  # Executor skills are visible to every model but never installed into issue-worker workspaces.
-  @executor_skills ~w(aiur-handoff aiur-meta release)
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-intro aiur-monitor aiur-run design-import)
+  @claude_executor_only_skills ~w(aiur-handoff aiur-meta release)
 
   # Every skill that can reach a ticket-creation command. Each states the rule
   # once, in a block located by this marker.
@@ -336,7 +332,7 @@ defmodule Aiur.AiurAgentSkillTest do
            "Aiur-authored issue-worker skills must be a subset of @codex_exposed_aiur_skills"
 
     for skill <- issue_worker do
-      refute skill in @executor_skills,
+      refute skill in @claude_executor_only_skills,
              "Executor-only skill #{skill} must not be installed into issue workers"
 
       assert File.dir?(Path.join([@repo_root, ".claude", "skills", skill])),
@@ -357,10 +353,14 @@ defmodule Aiur.AiurAgentSkillTest do
       |> Kernel.--(Aiur.AgentSkills.compound_engineering_skills())
       |> Enum.sort()
 
-    assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @codex_origin_skills)
+    assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @claude_executor_only_skills)
 
-    for skill <- @codex_exposed_aiur_skills ++ @codex_origin_skills do
-      assert File.exists?(Path.join([@repo_root, ".codex", "skills", skill, "SKILL.md"])), "#{skill} is not exposed to Codex"
+    # This is a Claude-only Executor workflow, not a shared operating skill
+    # injected into Codex agents. Codex-facing Executor skills remain excluded
+    # from issue-worker installation by Aiur.AgentSkills.
+    for skill <- @claude_executor_only_skills do
+      assert File.exists?(Path.join([@repo_root, ".claude", "skills", skill, "SKILL.md"]))
+      refute File.exists?(Path.join([@repo_root, ".codex", "skills", skill]))
     end
   end
 

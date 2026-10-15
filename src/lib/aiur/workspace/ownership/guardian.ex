@@ -1,11 +1,11 @@
 defmodule Aiur.Workspace.Ownership.Guardian do
   @moduledoc false
 
-  alias Aiur.ProcessTree
-  alias Aiur.Workspace.{HostBoot, HostLock}
+  alias Aiur.Handoff.Protection
+  alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
-  alias Aiur.Workspace.Ownership.{AuditLog, Retention, Store}
   alias Aiur.Workspace.Ownership.Guardian.{Provider, Reaper, Receipt}
+  alias Aiur.Workspace.Ownership.{Initializer, Retention, Store}
 
   @reap_retry_ms 1_000
 
@@ -29,29 +29,17 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   end
 
   defp init(owner, ticket, generation, registry, opts) do
-    lease = %{
-      ticket: ticket,
-      generation: generation,
-      owner_id: "workspace:#{generation}",
-      phase: :provisioning,
-      guardian: self()
-    }
+    lease = Initializer.lease(ticket, generation, opts)
 
     case Registry.register(registry, ticket, lease) do
       {:ok, _value} ->
         state =
           registry
-          |> runtime_state(
+          |> Initializer.runtime_state(
             lease,
             Process.monitor(owner),
             false,
-            %{
-              provider_expected?: false,
-              provider: nil,
-              provider_cleanup: :not_started,
-              provider_scope: :unknown,
-              provider_boot_id: nil
-            },
+            Initializer.receipt(opts),
             opts
           )
 
@@ -88,7 +76,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
     case Registry.register(registry, lease.ticket, lease) do
       {:ok, _value} ->
-        state = runtime_state(registry, lease, nil, true, receipt, opts)
+        state = Initializer.runtime_state(registry, lease, nil, true, receipt, opts)
         send(caller, {:workspace_guardian_restored, self(), {:ok, lease}})
         maybe_release_or_reap(state)
 
@@ -97,37 +85,6 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     end
   rescue
     error -> send(caller, {:workspace_guardian_restored, self(), {:error, {:invalid_workspace_receipt, error}}})
-  end
-
-  defp runtime_state(registry, lease, owner_ref, owner_dead?, receipt, opts) do
-    %{
-      owner_ref: owner_ref,
-      owner_dead?: owner_dead?,
-      registry: registry,
-      store: Keyword.get(opts, :store, Store),
-      lease: lease,
-      provider_expected?: Map.get(receipt, :provider_expected?, false),
-      provider: Map.get(receipt, :provider),
-      provider_cleanup: Map.get(receipt, :provider_cleanup, :unresolved),
-      provider_scope: Map.get(receipt, :provider_scope, :unknown),
-      provider_boot_id: Map.get(receipt, :provider_boot_id),
-      host_boot_id_fun: Keyword.get(opts, :host_boot_id_fun, &HostBoot.id/0),
-      before_notify_fun: Keyword.get(opts, :before_notify_fun, fn _waiter -> :ok end),
-      waiters: MapSet.new(),
-      release_waiters: [],
-      reap_fun: Keyword.get(opts, :reap_fun, &ProcessTree.reap_process_group/2),
-      group_alive_fun: Keyword.get(opts, :group_alive_fun, &ProcessTree.process_group_alive?/1),
-      root_reap_fun: Keyword.get(opts, :root_reap_fun, &ProcessTree.reap_process_tree/2),
-      root_alive_fun: Keyword.get(opts, :root_alive_fun, &ProcessTree.process_alive?/1),
-      process_reap_fun: Keyword.get(opts, :process_reap_fun, &ProcessTree.reap_process/2),
-      process_alive_fun: Keyword.get(opts, :process_alive_fun, &ProcessTree.process_alive?/1),
-      process_identity_fun: Keyword.get(opts, :process_identity_fun, &ProcessTree.process_identity/1),
-      telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
-      audit_fun: Keyword.get(opts, :audit_fun, &AuditLog.write/1),
-      host_lock: Map.get(receipt, :host_lock),
-      reaping?: false,
-      release_requested?: false
-    }
   end
 
   @doc false
@@ -231,7 +188,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
       {:DOWN, owner_ref, :process, _owner, _reason} when owner_ref == state.owner_ref ->
         Registry.unregister(state.registry, holder_key(state.lease.ticket))
-        maybe_release_or_reap(%{state | owner_dead?: true})
+        if Protection.protected?(state.lease.ticket), do: :ok, else: maybe_release_or_reap(%{state | owner_dead?: true})
 
       {:workspace_guardian_reaped, kind, identifier} ->
         continue_after_reap(state, kind, identifier)

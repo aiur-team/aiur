@@ -96,7 +96,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert do
       message =
         "Pull request ##{pr_number} is approved, ready, and mergeable but has no auto-merge request, " <>
           "so it will not re-enter the merge queue on its own. Re-arm it with " <>
-          "`gh pr merge ##{pr_number} --squash --delete-branch --auto` or merge it directly."
+          "`aiur pr merge #{pr_number} --reviewed-sha #{Map.get(result, :head_sha)}`."
 
       case alert_emitter(opts).(topic,
              issue: issue,

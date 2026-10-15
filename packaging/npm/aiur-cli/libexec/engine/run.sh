@@ -338,7 +338,6 @@ run_session_write_pane_launcher() {
   {
     printf '#!/usr/bin/env bash\n'
     printf 'set -o pipefail\n'
-    printf 'unset AIUR_CI_READINESS_TOKEN\n'
     printf 'cd %q || exit 1\n' "$PWD"
     local v
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
@@ -347,7 +346,7 @@ run_session_write_pane_launcher() {
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE AIUR_ALERT_LEDGER_PATH_FILE \
       ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG AIUR_DEV_TEST_TICKET_IDS \
       AIUR_OPERATOR_PID AIUR_LAUNCHER_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS \
-      AIUR_BG_STATE_DIR AIUR_INSTANCE_KEY AIUR_CLI_VERSION; do
+      AIUR_BG_STATE_DIR AIUR_INSTANCE_KEY AIUR_CLI_VERSION AIUR_CI_READINESS_TOKEN; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
