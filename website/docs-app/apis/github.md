@@ -652,7 +652,7 @@ every request a determined agent could make.
 | Any direct-HTTP client — `curl`, `Req`, a Python script, a Node fetch | No — unauthenticated from an agent workspace. |
 | The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
 
-Human-review state writes compare the open PR with the configured base. Stale heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
+Human-review state writes compare the open PR with the configured base; stale heads also read fresh `mergeable` data for the exact PR head. State-label swaps add the target, revalidate current labels, then remove other state labels. Writes retry short local GitHub budget holds within the bounded wait policy.
 
 Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check changes in both directions; rename checks include old and new paths.
 
@@ -661,8 +661,6 @@ A stale head approved at its current commit, and either in the merge queue or ar
 Otherwise a stale head passes when it has no conflicts and no changed-file overlap with the base since their merge base.
 Conflicts or overlap return `stale_review_base`. GitHub can lag its base SHA or report `UNKNOWN` while recalculating
 mergeability; those observations permit disjoint paths. A matching head's `CONFLICTING` verdict blocks the write.
-
-State-label swaps add the target label first, then revalidate the issue's current labels before removing other state labels. This catches labels changed since the cached observation. State writes also retry short local GitHub budget holds within the shared bounded wait policy.
 
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
