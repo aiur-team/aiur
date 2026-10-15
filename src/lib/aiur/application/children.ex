@@ -5,6 +5,7 @@ defmodule Aiur.Application.Children do
 
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{BlockerProgress, Config}
 
   @doc """
@@ -262,7 +263,10 @@ defmodule Aiur.Application.Children do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu] ++ Aiur.Experiments.children(recording?) ++ BuildOrders.child_specs(:label_projection, opts) ++ landing_watch_children())
+    |> Kernel.++(
+      cli_children ++
+        [Aiur.BackgroundCpu] ++ Aiur.Experiments.children(recording?) ++ Auto.child_specs(recording?: recording?) ++ BuildOrders.child_specs(:label_projection, opts) ++ landing_watch_children()
+    )
   end
 
   defp landing_watch_children do

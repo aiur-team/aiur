@@ -38,7 +38,7 @@ defmodule Aiur.Events.Publisher do
 
   require Logger
 
-  alias Aiur.Events.{DebugLog, Exchange, HistoryStore, IdGenerator}
+  alias Aiur.Events.{Exchange, HistoryStore, IdGenerator, Trace}
   alias Aiur.GitHub.AgentMarker
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.ResourceStore
@@ -229,7 +229,7 @@ defmodule Aiur.Events.Publisher do
     # first would make the same crash suppress the event permanently,
     # because this store is the sweep's own source of suppression.
     mark_resource_processed(opts)
-    DebugLog.broadcast(:publish, topic, id: id, body: payload)
+    Trace.trace(:publish, topic, id: id, body: payload)
     {:ok, id, subscribers}
   end
 
@@ -265,7 +265,7 @@ defmodule Aiur.Events.Publisher do
 
       subscribers = Exchange.publish(topic, event)
       record_emit_marker(topic, event, opts)
-      DebugLog.broadcast(:publish, topic, id: id, body: payload)
+      Trace.trace(:publish, topic, id: id, body: payload)
       {:ok, id, subscribers}
     end
   end

@@ -1,5 +1,7 @@
 import Config
 
+config :aiur, Aiur.Events.Trace, Aiur.Events.DebugLog
+
 config :aiur, env: config_env()
 
 config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
@@ -17,7 +19,7 @@ config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
 
 # The agent sandbox sits below the TUI and the orchestrator, so it reaches both
 # through these names instead of referencing them.
-config :aiur, :process_reaper_pane_killer, {Aiur.Tmux, :kill_pane}
+config :aiur, :process_reaper_pane_killer, {Aiur.Tmux.Socket, :kill_pane}
 config :aiur, :pause_containment_result_target, Aiur.Orchestrator
 
 config :aiur, :turn_sandbox_root_contributors, [
@@ -38,6 +40,8 @@ config :aiur, :env_startup_checks, [Aiur.Commands]
 config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
 config :aiur, :experiment_metric_packs, [Aiur.Experiments.Packs.DeliverySpeed]
+
+config :aiur, :init_contributions, [Aiur.Voice]
 
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,

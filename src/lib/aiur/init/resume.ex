@@ -4,7 +4,7 @@ defmodule Aiur.Init.Resume do
   """
 
   alias Aiur.Config
-  alias Aiur.Init.{ElevenLabs, Format, Prewarm, Questions, ResumeSummary}
+  alias Aiur.Init.{Contributions, Format, Prewarm, Questions, ResumeSummary}
 
   @spec print_saved_summary(Aiur.Init.io(), map()) :: :ok
   def print_saved_summary(io, config) do
@@ -36,8 +36,10 @@ defmodule Aiur.Init.Resume do
          "pre_warmed_sessions: #{config["pre_warmed_sessions"]}",
          "polling_interval_seconds: #{polling["interval_seconds"]}",
          ResumeSummary.prewarm_line(config["prewarm"]),
-         ResumeSummary.alerts_line(config),
-         ResumeSummary.optional_section_line("elevenlabs_voice_input", config["elevenlabs"], &ResumeSummary.elevenlabs_key_state/1),
+         ResumeSummary.alerts_line(config)
+       ] ++
+       Contributions.summary_lines(config) ++
+       [
          config["prompt_file"] && "prompt_file: #{config["prompt_file"]}"
        ])
     |> Enum.reject(&is_nil/1)
@@ -131,16 +133,8 @@ defmodule Aiur.Init.Resume do
         opted_in?: fn answer -> answer.enabled end,
         to_yaml: &Prewarm.prewarm_section_yaml/1,
         first_run: &Prewarm.first_prewarm_backfill/5
-      },
-      %{
-        key: "elevenlabs",
-        label: "ElevenLabs voice input",
-        prompt: &ElevenLabs.prompt_eleven_labs/3,
-        opted_in?: fn answer -> answer.enabled end,
-        to_yaml: &ElevenLabs.eleven_labs_section_yaml/1,
-        first_run: fn _io, _deps, _target, _tracker, _answer -> :ok end
       }
-    ]
+    ] ++ Enum.map(Contributions.registered!(), & &1.backfill.())
   end
 
   # For each registered section the saved config lacks, reuse its fresh-setup
