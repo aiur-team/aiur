@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.CompetingWritersTest do
   @moduledoc "Integration coverage for queue and tracker writers racing over ticket state."
   use ExUnit.Case, async: false
-  alias Aiur.BuildQueue.{Hints, Model, Server}
+  alias Aiur.BuildQueue.{Bookkeeping, Hints, Model, Server}
   alias Aiur.Config.Schema
   alias Aiur.Events.Exchange
 
@@ -242,6 +242,14 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     assert hd(document().queues).held == false
     assert item("1").hold == nil
     assert item("2").hold == nil
+  end
+
+  test "bookkeeping reports only the set members missing from a partial snapshot" do
+    document = %{document() | queues: Enum.map(document().queues, &%{&1 | held: true})}
+    observation = %Model.Observation{issue_id: "1", open?: true, labels: ["agent:todo"], state_reason: nil, pr: nil, observed_at_ms: 1_000}
+
+    assert {:ok, released, ["2"]} = Bookkeeping.release(document, "q", %{"1" => observation}, 1_000, "agent:todo")
+    assert hd(released.queues).held == false
   end
 
   test "releasing an unobserved closed member succeeds as a no-op with a notice" do

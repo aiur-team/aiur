@@ -32,7 +32,7 @@ defmodule Aiur.BuildQueue.Bookkeeping do
     if selected == [] and not queue? do
       {:error, :not_found}
     else
-      unobserved = if map_size(observations) == 0, do: Enum.map(selected, & &1.issue_id), else: []
+      unobserved = for item <- selected, is_nil(observations[item.issue_id]), do: item.issue_id
       {:ok, released(document, target, selected, observations, now, todo), unobserved}
     end
   end
