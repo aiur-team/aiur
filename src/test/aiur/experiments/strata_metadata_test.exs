@@ -68,6 +68,7 @@ defmodule Aiur.Experiments.StrataMetadataTest do
 
     original = Path.join(__DIR__, "fixtures/valid_ab.json") |> File.read!() |> Jason.decode!() |> Map.fetch!("spec")
     spec = put_in(original, ["metrics", Access.at(0), "ref"], @ref)
+    File.mkdir_p!(Paths.file(spec["id"], "report"))
     :ok = Persistence.write_json(Paths.file(spec["id"], "spec.json"), spec)
     assert {:ok, expected_spec, false} = Reader.spec(spec["id"])
 
