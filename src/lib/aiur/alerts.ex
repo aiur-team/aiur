@@ -316,7 +316,7 @@ defmodule Aiur.Alerts do
 
     Publisher.publish(topic, payload,
       issue_number: issue_number_for(opts),
-      bypass_contamination: Keyword.get(opts, :bypass_contamination, false),
+      bypass_contamination: Keyword.get(opts, :bypass_contamination, false) or Aiur.ExecutorBindings.attention_topic?(topic),
       identity: Keyword.get(opts, :observation_identity),
       resource: Keyword.get(opts, :resource),
       resource_version: Keyword.get(opts, :resource_version),
