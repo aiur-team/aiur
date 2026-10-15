@@ -34,7 +34,7 @@ defmodule Aiur.MainWatch.GitHubTest do
       end
     end
 
-    assert {:ok, result} = GitHub.poll("main", ["ci"], request_fun: request, actions_write: false)
+    assert {:ok, result} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
     assert Enum.map(result.observations, & &1.sha) == ["old", "new"]
     assert Enum.map(result.runs, & &1.sha) == ["new", "pending", "cancelled", "old"]
     assert Enum.map(result.observations, & &1.checks) == List.duplicate([%{name: "test", conclusion: "success"}], 2)
@@ -42,50 +42,23 @@ defmodule Aiur.MainWatch.GitHubTest do
     assert hd(result.observations).completed_at == DateTime.to_unix(~U[2026-10-10 00:00:00Z], :millisecond)
   end
 
-  test "refreshes a rejected App installation token once and retries the poll" do
-    attempts = :atomics.new(1, [])
-    refreshes = :atomics.new(1, [])
-
-    request = fn %{url: url} ->
-      cond do
-        String.contains?(url, "/commits?") and :atomics.add_get(attempts, 1, 1) == 1 ->
-          {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}}
-
-        String.contains?(url, "/commits?") ->
-          ok([])
-
-        String.contains?(url, "/actions/runs?") ->
-          ok(%{"workflow_runs" => []})
-
-        true ->
-          flunk("unexpected request #{url}")
-      end
-    end
-
-    assert {:ok, %{commits: []}} =
-             GitHub.poll("main", [],
-               request_fun: request,
-               actions_write: false,
-               credential_source: fn -> :github_app end,
-               refresh_app_token_fun: fn ->
-                 :atomics.add_get(refreshes, 1, 1)
-                 :ok
-               end
-             )
-
-    assert :atomics.get(attempts, 1) == 2
-    assert :atomics.get(refreshes, 1) == 1
-  end
-
   test "reports the failing caller and credential class on an unrecoverable 401" do
     request = fn _request -> {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}} end
 
     assert {:error, {:github, :auth, %{status: 401, caller: "main_watch_commits", credential: "github_app_installation"}}} =
              GitHub.poll("main", [],
+               token: "test-gh-token",
                request_fun: request,
                credential_source: fn -> :github_app end,
                refresh_app_token_fun: fn -> {:error, :refresh_failed} end
              )
+  end
+
+  test "reports the credential applied by transport rather than configured source" do
+    request = fn _request -> {:ok, %{status: 401, credential: "github_app_installation"}} end
+
+    assert {:error, {:github, :auth, %{caller: "main_watch_commits", credential: "github_app_installation"}}} =
+             GitHub.poll("main", [], token: "test-gh-token", request_fun: request, credential_source: fn -> :env end)
   end
 
   test "missing configured workflows stay pending while older complete SHA remains observable" do
@@ -108,7 +81,7 @@ defmodule Aiur.MainWatch.GitHubTest do
       end
     end
 
-    assert {:ok, result} = GitHub.poll("main", ["ci", "deploy"], request_fun: request, actions_write: false)
+    assert {:ok, result} = GitHub.poll("main", ["ci", "deploy"], token: "test-gh-token", request_fun: request, actions_write: false)
     assert Enum.map(result.observations, & &1.sha) == ["old"]
   end
 
@@ -126,7 +99,7 @@ defmodule Aiur.MainWatch.GitHubTest do
       end
     end
 
-    assert {:ok, %{observations: [observation]}} = GitHub.poll("main", ["ci"], request_fun: request, actions_write: false)
+    assert {:ok, %{observations: [observation]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
     assert [%{id: 1, name: "test", tests: [%{identity: "ExampleTest :: regression", classification: :new_failure, path: nil}]}] = observation.digest.checks
     assert observation.digest.tests == [%{identity: "ExampleTest :: regression", classification: :new_failure, path: nil}]
     refute observation.digest.flake_only
@@ -147,7 +120,7 @@ defmodule Aiur.MainWatch.GitHubTest do
       end
     end
 
-    assert {:ok, %{observations: [observation]}} = GitHub.poll("main", ["ci"], request_fun: request, actions_write: false)
+    assert {:ok, %{observations: [observation]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
     assert observation.failed_workflow
     assert Enum.sort(Enum.map(observation.checks, & &1.conclusion)) == ["cancelled", "failure"]
     assert Enum.map(observation.digest.checks, & &1.id) == [1, 2]
@@ -166,7 +139,7 @@ defmodule Aiur.MainWatch.GitHubTest do
       end
     end
 
-    assert {:ok, %{observations: [observation]}} = GitHub.poll("main", ["ci"], request_fun: request, actions_write: false)
+    assert {:ok, %{observations: [observation]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
     assert observation.checks == [%{name: "test", conclusion: "success"}]
     assert observation.digest.checks == []
   end
@@ -199,7 +172,7 @@ defmodule Aiur.MainWatch.GitHubTest do
       end
     end
 
-    opts = [request_fun: request, actions_write: false]
+    opts = [token: "test-gh-token", request_fun: request, actions_write: false]
     assert {:ok, cold} = GitHub.poll("main", ["ci"], opts)
     assert Enum.map(cold.observations, & &1.sha) == Enum.reverse(shas)
     assert length(Agent.get(calls, & &1.requests)) == 43
@@ -231,7 +204,7 @@ defmodule Aiur.MainWatch.GitHubTest do
     older = Map.put(run(100, "outside-window", "ci", "completed", "success"), "created_at", "2026-08-31T00:00:00Z")
 
     for workflows <- [["ci"], []] do
-      assert {:ok, result} = GitHub.poll("main", workflows, request_fun: census_request(commits, runs ++ [older]), actions_write: false)
+      assert {:ok, result} = GitHub.poll("main", workflows, token: "test-gh-token", request_fun: census_request(commits, runs ++ [older]), actions_write: false)
       assert result.commits == Enum.map(commits, & &1["sha"])
       assert Enum.map(result.observations, & &1.sha) == Enum.map(Enum.reverse(push_commits), & &1["sha"])
       assert length(result.runs) == 13
@@ -243,7 +216,7 @@ defmodule Aiur.MainWatch.GitHubTest do
     newer = Map.put(run(1, "new", "ci", "completed", "success"), "created_at", "2026-10-10T00:00:00Z")
 
     for workflows <- [["ci"], []] do
-      assert {:error, :main_runs_incomplete} = GitHub.poll("main", workflows, request_fun: census_request(commits, [newer]), actions_write: false)
+      assert {:error, :main_runs_incomplete} = GitHub.poll("main", workflows, token: "test-gh-token", request_fun: census_request(commits, [newer]), actions_write: false)
     end
   end
 
@@ -252,15 +225,17 @@ defmodule Aiur.MainWatch.GitHubTest do
     run = Map.put(run(1, "new", "ci", "completed", "success"), "created_at", "2026-10-10T00:00:00Z")
 
     for invalid <- [nil, "not-a-date", 123] do
-      assert {:error, :main_runs_incomplete} = GitHub.poll("main", ["ci"], request_fun: census_request([put_in(commit, ["commit", "committer", "date"], invalid)], [run]), actions_write: false)
-      assert {:error, :main_runs_incomplete} = GitHub.poll("main", ["ci"], request_fun: census_request([commit], [Map.put(run, "created_at", invalid)]), actions_write: false)
+      assert {:error, :main_runs_incomplete} =
+               GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: census_request([put_in(commit, ["commit", "committer", "date"], invalid)], [run]), actions_write: false)
+
+      assert {:error, :main_runs_incomplete} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: census_request([commit], [Map.put(run, "created_at", invalid)]), actions_write: false)
     end
   end
 
   test "pagination and provider errors cannot produce a partial green verdict" do
     for response <- [{:ok, %{status: 200, body: %{"workflow_runs" => []}, headers: [{"link", "<https://api.github.com/next>; rel=\"next\""}]}}, {:ok, %{status: 403, body: %{}}}] do
       request = fn %{url: url} -> if String.contains?(url, "/commits?"), do: ok([%{"sha" => "abc"}]), else: response end
-      assert {:error, _} = GitHub.poll("main", [], request_fun: request, actions_write: false)
+      assert {:error, _} = GitHub.poll("main", [], token: "test-gh-token", request_fun: request, actions_write: false)
     end
   end
 
@@ -272,9 +247,9 @@ defmodule Aiur.MainWatch.GitHubTest do
       {:ok, %{status: 201, body: %{}}}
     end
 
-    assert :ok = GitHub.rerun(42, request_fun: request)
+    assert :ok = GitHub.rerun(42, token: "test-gh-token", request_fun: request)
     assert_received %{method: :post, url: "https://api.github.com/repos/owner/repo/actions/runs/42/rerun", caller: "main_watch_canary", body: %{}}
-    assert {:error, {:github, :http, %{status: 403}}} = GitHub.rerun(42, request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
+    assert {:error, {:github, :http, %{status: 403}}} = GitHub.rerun(42, token: "test-gh-token", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
   end
 
   test "probe checks actual App installation permissions and fails closed on PAT and errors" do
@@ -282,23 +257,23 @@ defmodule Aiur.MainWatch.GitHubTest do
     previous = Map.new(vars, &{&1, System.get_env(&1)})
     on_exit(fn -> Enum.each(previous, fn {key, value} -> if value, do: System.put_env(key, value), else: System.delete_env(key) end) end)
     Enum.each(vars, &System.delete_env/1)
-    refute GitHub.actions_write?(request_fun: fn _ -> flunk("PAT must not be probed as App") end)
+    refute GitHub.actions_write?(token: "test-gh-token", request_fun: fn _ -> flunk("PAT must not be probed as App") end)
     key = JOSE.JWK.generate_key({:rsa, 2048})
     {_, pem} = JOSE.JWK.to_pem(key)
     System.put_env(%{"GITHUB_APP_ID" => "123", "GITHUB_APP_INSTALLATION_ID" => "456", "GITHUB_APP_PRIVATE_KEY" => pem})
 
     for permission <- ["read", "write", nil] do
-      request = fn %{token: jwt, url: url, caller: "main_watch_permissions", credential_pinned?: true} ->
+      request = fn %{token: jwt, url: url, caller: "main_watch_permissions", credential_pinned?: true, credential_id: "github_app", credential_class: "github_app_jwt"} ->
         assert url == "https://api.github.com/app/installations/456"
         assert JOSE.JWT.verify_strict(key, ["RS256"], jwt) |> elem(0)
         ok(%{"permissions" => %{"actions" => permission}})
       end
 
-      assert GitHub.actions_write?(request_fun: request) == (permission == "write")
+      assert GitHub.actions_write?(token: "test-gh-token", request_fun: request) == (permission == "write")
     end
 
-    refute GitHub.actions_write?(request_fun: fn _ -> {:error, :closed} end)
-    refute GitHub.actions_write?(request_fun: fn _ -> ok(%{"permissions" => "unknown"}) end)
+    refute GitHub.actions_write?(token: "test-gh-token", request_fun: fn _ -> {:error, :closed} end)
+    refute GitHub.actions_write?(token: "test-gh-token", request_fun: fn _ -> ok(%{"permissions" => "unknown"}) end)
   end
 
   defp census_request(commits, runs) do

@@ -1,17 +1,11 @@
 defmodule Aiur.MainWatch.GitHub do
   @moduledoc "Bounded base-branch Actions observations through the governed GitHub transport."
   alias Aiur.CI.FailureDigest
-  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, Config, Errors, PullRequests, Transport}
+  alias Aiur.GitHub.{AppCredentials, AppToken, Config, Errors, PullRequests, Transport}
 
   @spec poll(String.t(), [String.t()], keyword()) :: {:ok, map()} | {:error, term()}
   def poll(branch, workflows, opts \\ []) do
-    case poll_once(branch, workflows, opts) do
-      {:error, {:github, :auth, %{status: 401}} = reason} ->
-        retry_after_app_refresh(branch, workflows, opts, reason)
-
-      result ->
-        result
-    end
+    poll_once(branch, workflows, opts)
   end
 
   defp poll_once(branch, workflows, opts) do
@@ -25,34 +19,21 @@ defmodule Aiur.MainWatch.GitHub do
     end
   end
 
-  defp retry_after_app_refresh(branch, workflows, opts, reason) do
-    if Keyword.get(opts, :app_token_refreshed?, false) do
-      {:error, reason}
-    else
-      refresh_if_app_token(branch, workflows, opts, reason)
-    end
-  end
-
-  defp refresh_if_app_token(branch, workflows, opts, reason) do
-    if credential_source(opts) == "github_app_installation" do
-      refresh = Keyword.get(opts, :refresh_app_token_fun, &AppTokenRefresher.refresh_now/0)
-
-      case refresh.() do
-        :ok -> poll_once(branch, workflows, Keyword.put(opts, :app_token_refreshed?, true))
-        _ -> {:error, reason}
-      end
-    else
-      {:error, reason}
-    end
-  end
-
   @spec actions_write?(keyword()) :: boolean()
   def actions_write?(opts \\ []) do
     with true <- AppCredentials.configured?(),
          {:ok, key} <- AppCredentials.parse_private_key(),
          jwt = AppToken.app_jwt(key, AppCredentials.app_id()),
          url = "#{Transport.base_url()}/app/installations/#{AppCredentials.installation_id()}",
-         request = %{method: :get, url: url, token: jwt, caller: "main_watch_permissions", credential_pinned?: true},
+         request = %{
+           method: :get,
+           url: url,
+           token: jwt,
+           caller: "main_watch_permissions",
+           credential_pinned?: true,
+           credential_id: "github_app",
+           credential_class: "github_app_jwt"
+         },
          {:ok, %{status: 200, body: installation}} when is_map(installation) <- request_fun(opts).(request) do
       permissions = installation["permissions"]
       is_map(permissions) and permissions["actions"] == "write"
@@ -82,7 +63,7 @@ defmodule Aiur.MainWatch.GitHub do
   defp commits(owner, repo, branch, token, opts) do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits?" <> URI.encode_query(%{sha: branch, per_page: 20})
 
-    case request_fun(opts).(%{method: :get, url: url, token: token, caller: "main_watch_commits"}) do
+    case request_fun(opts).(github_request(token, "main_watch_commits", opts) |> Map.put(:url, url)) do
       {:ok, %{status: 200, body: commits}} when is_list(commits) ->
         if Enum.all?(commits, &(is_map(&1) and is_binary(&1["sha"]))) do
           window = Enum.take(commits, 20)
@@ -112,7 +93,7 @@ defmodule Aiur.MainWatch.GitHub do
   end
 
   defp runs_page(url, token, dates, opts) do
-    case request_fun(opts).(%{method: :get, url: url, token: token, caller: "main_watch_runs"}) do
+    case request_fun(opts).(github_request(token, "main_watch_runs", opts) |> Map.put(:url, url)) do
       {:ok, %{status: 200, body: %{"workflow_runs" => runs}} = response} when is_list(runs) ->
         incomplete = Transport.parse_next_page_url(Map.get(response, :headers, [])) && not window_covered?(runs, dates)
         if incomplete, do: {:error, :main_runs_incomplete}, else: {:ok, runs}
@@ -233,8 +214,13 @@ defmodule Aiur.MainWatch.GitHub do
 
   defp request_fun(opts), do: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
-  defp request_error(%{status: 401}, caller, opts) do
-    {:github, :auth, %{status: 401, message: "Bad credentials", caller: caller, credential: credential_source(opts)}}
+  defp github_request(token, caller, _opts) do
+    %{method: :get, token: token, caller: caller}
+  end
+
+  defp request_error(%{status: 401} = response, caller, opts) do
+    credential = Map.get(response, :credential, credential_source(opts))
+    {:github, :auth, %{status: 401, message: "Bad credentials", caller: caller, credential: credential}}
   end
 
   defp request_error(response, _caller, _opts), do: Errors.github_status_error(response)
