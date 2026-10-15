@@ -54,7 +54,8 @@ try {
   const cssContent = tokenCss + cssFiles
     .map(file => {
       const content = fs.readFileSync(path.join(srcCssDir, file), 'utf8');
-      return content.replace(/\r\n/g, '\n');
+      // Keep the generated bundle below the repository's text-file size limit.
+      return content.replace(/\r?\n\s*/g, ' ');
     })
     .join('\n');
 
