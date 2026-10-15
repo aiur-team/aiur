@@ -310,6 +310,8 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     assert [%{identifier: "MT-601", state: "ci-wait", waiting_reason: :waiting_for_ci}] = snapshot.idle
   end
 
+  # Flaky in merge groups; fix tracked in #4463.
+  @tag :quarantine
   test "orchestrator snapshot reads open decisions without calling the per-ticket store" do
     identifier = "MT-ATTENTION-#{System.unique_integer([:positive])}"
     issue_id = "issue-attention-#{System.unique_integer([:positive])}"

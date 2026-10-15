@@ -7,8 +7,8 @@ defmodule Aiur.BuildQueue.ListCommands do
     observations = Reconcile.observations(state)
 
     with {:ok, document, actions} <- edit(state.document, command, state.clock.()),
-         :ok <- open_members(state, command) do
-      {:ok, record(state, document, actions, observations), actions, observations}
+         {:ok, current_labels} <- open_members(state, command) do
+      {:ok, record(state, document, actions, observations, current_labels), actions, observations}
     end
   end
 
@@ -16,8 +16,9 @@ defmodule Aiur.BuildQueue.ListCommands do
   defdelegate queue_id(document), to: ListMutations
 
   @spec record(map(), map(), list(), map()) :: map()
-  def record(state, document, actions, observations) do
-    intents = Enum.map(actions, &intent(&1, observations, state))
+  @spec record(map(), map(), list(), map(), map()) :: map()
+  def record(state, document, actions, observations, current_labels \\ %{}) do
+    intents = Enum.map(actions, &intent(&1, observations, current_labels, state))
     %{document | intents: document.intents ++ intents}
   end
 
@@ -55,7 +56,7 @@ defmodule Aiur.BuildQueue.ListCommands do
         cond do
           observed_at > now or now - observed_at > max_age -> {:error, :inputs_unavailable}
           Enum.any?(ids, &(not Map.has_key?(labels, &1))) -> {:error, :closed}
-          true -> :ok
+          true -> {:ok, labels}
         end
 
       _ ->
@@ -63,13 +64,14 @@ defmodule Aiur.BuildQueue.ListCommands do
     end
   end
 
-  defp open_members(_state, _command), do: :ok
+  defp open_members(_state, _command), do: {:ok, %{}}
 
-  defp intent({action, id}, observations, state) do
+  defp intent({action, id}, observations, current_labels, state) do
     marker = "#{state.settings.tracker.github.label_prefix}:queued"
     labels = if observations[id], do: observations[id].labels, else: []
     targets = if action == :mark, do: Enum.uniq(labels ++ [marker]), else: Enum.reject(labels, &(&1 == marker))
     # Persist the request as well as each attempt, so pacing or a crash cannot lose marker work.
-    %Intent{id: Ecto.UUID.generate(), issue_id: id, action: action, target_labels: targets, recorded_at_ms: state.clock.(), outcome: nil}
+    preexisting_todo? = action == :mark and "#{state.settings.tracker.github.label_prefix}:todo" in (get_in(current_labels, [id, :labels]) || [])
+    %Intent{id: Ecto.UUID.generate(), issue_id: id, action: action, target_labels: targets, recorded_at_ms: state.clock.(), preexisting_todo?: preexisting_todo?, outcome: nil}
   end
 end

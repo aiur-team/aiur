@@ -2,12 +2,13 @@ defmodule Aiur.AgentRunner.TurnLoop do
   @moduledoc false
 
   require Logger
-  alias Aiur.AgentRunner.{MessageHandler, NoopWait, QueueDrain, SessionLifecycle, TurnCallbacks, TurnCompletion}
+  alias Aiur.AgentRunner.{Handoff, MessageHandler, NoopWait, QueueDrain, SessionLifecycle, TurnCallbacks, TurnCompletion}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnPrompt, TurnStreams}
   alias Aiur.AgentTools.Dispatch
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Issue
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace
   alias Aiur.Workspace.WipPreservation
@@ -60,10 +61,9 @@ defmodule Aiur.AgentRunner.TurnLoop do
       max_turns: max_turns
     }
 
-    # #2697: never start a turn (first, continuation or post-resume) while the
-    # workspace lacks the gh shim, gh config or quota dir the agent env names.
-    # Repair happens here; a refused turn never reaches the provider.
-    case Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host) do
+    Handoff.before_turn(app_session, turn_context)
+
+    case if(Handoff.active_resume?(), do: :ok, else: Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host)) do
       :ok -> run_supported_turn(turn_context, app_session)
       {:error, _reason} = error -> refuse_unsupported_turn(turn_context, error)
     end
@@ -89,17 +89,13 @@ defmodule Aiur.AgentRunner.TurnLoop do
     # Work that Aiur saved before it recreated this workspace (#2743) is
     # announced at the top of the next turn, with the restore commands.
     # The notice stays pending until a turn that carried it completes.
-    {prompt, wip_notices} =
-      WipPreservation.with_pending_notices(
-        workspace,
-        issue.identifier,
-        build_turn_prompt(issue, workspace, opts, turn_number, max_turns)
-      )
+    {prompt, wip_notices} = Handoff.turn_prompt(turn_context)
 
-    # The prompt is one of the three no-op witnesses (#2806): two consecutive
+    # The prompt is a no-op witness: two consecutive
     # continuation prompts differ only in `#N`, so an unchanged prompt means the
     # agent was handed no new input for this turn.
     turn_context = Map.put(turn_context, :prompt, prompt)
+    Process.put(:handoff_turn_context, turn_context)
 
     callbacks =
       TurnCallbacks.build(
@@ -133,11 +129,12 @@ defmodule Aiur.AgentRunner.TurnLoop do
         app_session,
         prompt,
         issue,
+        handoff_orchestrator: orchestrator,
         on_message: message_handler,
         on_safe_checkpoint: callbacks.on_safe_checkpoint,
         on_operator_message: callbacks.on_operator_message,
         on_operator_response: callbacks.on_operator_response,
-        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id)
+        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id, rework_head_sha: Keyword.get(opts, :rework_head_sha))
       )
 
     record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
@@ -439,8 +436,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
   defp active_issue_state?(state_name) when is_binary(state_name) do
     normalized_state = normalize_issue_state(state_name)
 
-    Config.settings!().tracker.active_states
-    |> Enum.any?(fn active_state -> normalize_issue_state(active_state) == normalized_state end)
+    not DispatchPolicy.no_agent_work_state?(normalized_state) and
+      Enum.any?(Config.settings!().tracker.active_states, &(normalize_issue_state(&1) == normalized_state))
   end
 
   defp active_issue_state?(_state_name), do: false

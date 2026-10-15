@@ -5,6 +5,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   alias Aiur.Accounts.UsageReadings
   alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, ModelDiscovery, ProcessTree, Signal, Tracker}
   alias Aiur.AgentRunner.{CodexUpdateRelay, DispatchSelectionEvent, MessageHandler, ModelLabelRefresh, SessionResume, TurnBudget, TurnLoop}
+  alias Aiur.AgentRunner.SessionCleanup
   alias Aiur.Claude.{DisplayTailer, Telemetry}
   alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.LiveConversation.Source
@@ -460,6 +461,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       |> maybe_put_display_authority(display_authority?)
 
     display_tailer = maybe_start_display_tailer(session, issue, session_context.rc?, opts)
+    Process.put(:handoff_display_tailer, display_tailer)
     opts = maybe_put_display_source_resolver(opts, display_tailer)
 
     # A resumed thread already carries the original task + full prior turn
@@ -550,27 +552,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @spec stop_session_with_ownership(map(), Ownership.lease() | nil, (map() -> term())) :: term()
   def stop_session_with_ownership(session, ownership, stop_fun \\ &CodingAgent.stop_session/1)
       when is_map(session) and is_function(stop_fun, 1) do
-    try do
-      case stop_fun.(session) do
-        {:ok, :cleanup_proven} ->
-          _ = Ownership.mark_provider_cleanup_succeeded(ownership)
-          :ok
-
-        :ok ->
-          _ = Ownership.mark_provider_cleanup_unknown(ownership)
-          :ok
-
-        cleanup_failure ->
-          _ = Ownership.mark_provider_cleanup_unknown(ownership)
-          cleanup_failure
-      end
-    after
-      Telemetry.revoke(Map.get(session, :telemetry_launch))
-    end
-  catch
-    kind, reason ->
-      _ = Ownership.mark_provider_cleanup_unknown(ownership)
-      :erlang.raise(kind, reason, __STACKTRACE__)
+    SessionCleanup.stop(session, ownership, stop_fun)
   end
 
   defp record_session_start_failure(issue, session_context, reason) do
@@ -1002,9 +984,22 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     rc? and CodingAgent.rc_display_tail?(backend) and is_binary(identifier)
   end
 
-  defp stop_display_tailer(nil), do: :ok
+  @doc false
+  @spec start_adopted_display(map(), Issue.t(), keyword()) :: {pid() | nil, keyword()}
+  def start_adopted_display(session, issue, opts) do
+    rc? = Map.get(session, :remote_control, false)
+    opts = opts |> put_live_conversation_session_id(session) |> maybe_put_display_authority(should_display_tail?(session_backend!(session), rc?, issue.identifier))
+    tailer = maybe_start_display_tailer(session, issue, rc?, opts)
+    if tailer, do: DisplayTailer.restore_handoff(tailer, Keyword.get(opts, :handoff_display_state))
+    Process.put(:handoff_display_tailer, tailer)
+    {tailer, maybe_put_display_source_resolver(opts, tailer)}
+  end
 
-  defp stop_display_tailer(pid) do
+  @doc false
+  @spec stop_display_tailer(pid() | nil) :: :ok
+  def stop_display_tailer(nil), do: :ok
+
+  def stop_display_tailer(pid) do
     if Process.alive?(pid), do: GenServer.stop(pid, :normal, 1_000)
     :ok
   catch

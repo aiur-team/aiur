@@ -134,6 +134,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
 
     %{
       issue_id: issue_id,
+      adopted_from: Map.get(metadata, :adopted_from),
       identifier: metadata.identifier,
       tracker_identity: Issue.tracker_identity(metadata.issue),
       state: metadata.issue.state,

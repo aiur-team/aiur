@@ -76,7 +76,7 @@ defmodule Aiur.BuildQueue.Model do
   defmodule Intent do
     @moduledoc "A durable label write intent and its outcome."
     @enforce_keys [:id, :issue_id, :action, :target_labels, :recorded_at_ms, :outcome]
-    defstruct @enforce_keys
+    defstruct @enforce_keys ++ [preexisting_todo?: false]
 
     @type t :: %__MODULE__{
             id: String.t(),
@@ -84,6 +84,7 @@ defmodule Aiur.BuildQueue.Model do
             action: :promote | :withdraw | :mark | :unmark,
             target_labels: [String.t()],
             recorded_at_ms: non_neg_integer(),
+            preexisting_todo?: boolean(),
             outcome: nil | :ok | {:error, term()}
           }
   end

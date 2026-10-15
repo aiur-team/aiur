@@ -79,6 +79,7 @@ usage-aggregate checkpoint and price table that the daemon already maintains.
 
 | Tool | Purpose |
 |------|---------|
+| `analytics/experiment-stats --experiment-dir DIR [--check] [--now TIME]` | Analyze frozen inputs or verify the result body; see [methods](../website/docs-app/reference/experiment-statistics.md). |
 | `analytics/reduce` | Materialize run-summaries (and optional build rollups). Idempotent, cron/post-run safe. |
 | `analytics/ledger-backfill --since DATE` | Rebuild durable ticket facts from retained launches; print observed-milestone coverage. |
 | `analytics/run-summary [<boot-id>|--current]` | One boot: dispatched/merged/open, CPU-hours, peak concurrency vs cap, wasted slot-hours, top-5 by cost (CPU-seconds). `--json` for machines. |

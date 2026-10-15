@@ -187,7 +187,8 @@ defmodule Aiur.AgentRunner.TurnPrompt do
 
   defp continuation_orientation(:rework),
     do:
-      "Read the existing `## Agent Workpad` and the unresolved PR review feedback, then make the specific changes the review asks for. " <>
+      "Read the existing `## Agent Workpad`, the latest Executor rework comment on the ticket, and the failing required checks on the PR's current head, then make the requested changes. " <>
+        "Treat the ticket comment and failing checks as rework instructions even when the PR is approved and has no open review threads. " <>
         "If every finding is already addressed, there is nothing to rework: say so in the workpad, reply on the threads that are already satisfied, and end the turn. " <>
         "Do NOT push a commit to prove liveness — a merge of the base with no substantive change is not progress, and on a branch ruleset that dismisses stale approvals the push destroys the very approval that would have released the ticket (#1756)."
 

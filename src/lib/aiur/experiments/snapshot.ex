@@ -22,7 +22,7 @@ defmodule Aiur.Experiments.Snapshot do
 
   @spec prepare_spec(map(), String.t(), map() | nil, map(), keyword()) :: {:ok, map()} | {:error, term()}
   def prepare_spec(spec, name, old, data, opts) do
-    data = retain_old(old, data)
+    data = retain_old(old, data, spec["design"]["assign_by"] || "start")
     with :ok <- reason(old, opts), :ok <- size_guard(data.metrics, opts), do: {:ok, build(spec, name, old, data, opts)}
   end
 
@@ -57,12 +57,12 @@ defmodule Aiur.Experiments.Snapshot do
   defp reason(nil, _opts), do: :ok
   defp reason(old, opts), do: if(is_binary(opts[:reason]) and String.trim(opts[:reason]) != "", do: :ok, else: {:error, {:reason_required, old["revision"]}})
 
-  defp retain_old(nil, data), do: data
+  defp retain_old(nil, data, _assign_by), do: data
 
-  defp retain_old(old, data) do
+  defp retain_old(old, data, assign_by) do
     metrics =
       Map.new(data.metrics, fn {ref, result} ->
-        saved = get_in(old, ["metrics", ref, "observations"]) || []
+        saved = (get_in(old, ["metrics", ref, "observations"]) || []) |> Enum.filter(&retained?(&1, data.window, assign_by))
         completed = Enum.reject(saved, & &1["censored"])
         pending = Enum.filter(saved, & &1["censored"])
         rows = (completed ++ result["observations"] ++ pending) |> Enum.uniq_by(& &1["unit_id"]) |> Enum.sort_by(& &1["unit_id"])
@@ -70,6 +70,16 @@ defmodule Aiur.Experiments.Snapshot do
       end)
 
     %{data | metrics: metrics}
+  end
+
+  defp retained?(row, window, assign_by) do
+    alias Aiur.Experiments.Sources.Common
+    at = if assign_by == "finish", do: row["finished_at"] || row["at"], else: row["started_at"] || row["at"]
+
+    case Common.timestamp(at) do
+      %DateTime{} = time -> Common.in_window?(time, %{start: Common.timestamp(window["start"]), end: Common.timestamp(window["end"])})
+      _unknown -> false
+    end
   end
 
   defp size_guard(metrics, opts) do
