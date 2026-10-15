@@ -93,12 +93,11 @@ Dispatch denies an issue carrying two or more state labels. Agents use
 read (`GitHub.IssueState.swap_labels/4`); naming an old label to remove can race
 with an orchestrator transition and leave contradictory labels behind.
 
-For `human-review`, the writer also checks review threads and the exact PR head
+For `human-review`, the writer checks review threads and the exact PR head
 against `tracker.base_branch`. An approved exact head tolerates overlap-only
-staleness; an unapproved stale head passes only with no conflicts or
-changed-file overlap since the merge base, including both paths of renames.
-Incomplete evidence, mismatched heads or bases, and genuine conflicts leave
-labels unchanged.
+staleness. Unapproved stale heads need no conflicts or changed-file overlap
+since the merge base, including both paths of renames. Incomplete evidence or
+genuine conflicts leave labels unchanged.
 
 Harmless base movement needs no merge or CI rerun. Workers check before handoff
 and after CI. Up to three integrations per handoff
