@@ -1223,7 +1223,7 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp notify_orchestrator_recovery do
-    case Process.whereis(Aiur.Orchestrator) do
+    case GenServer.whereis(Application.get_env(:aiur, :github_quota_recovery_target)) do
       pid when is_pid(pid) -> send(pid, :github_quota_recovered)
       nil -> :ok
     end

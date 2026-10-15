@@ -87,6 +87,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/current_run_summary/status.ex",
     "aiur/orchestrator/status_report/progress.ex",
     "aiur/progress_retention.ex",
+    "aiur/progress_retention/checkpoint.ex",
     "aiur/ticket_activity.ex",
     "aiur/ticket_activity/projection.ex",
     "aiur/ticket_activity/projection/snapshot.ex",

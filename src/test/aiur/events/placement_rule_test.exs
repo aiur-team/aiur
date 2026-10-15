@@ -10,14 +10,14 @@ defmodule Aiur.Events.PlacementRuleTest do
 
   @lib_root Path.expand("../../../lib", __DIR__)
   @known_violations [
-    {"aiur/decision_store.ex", "decision_store.unrecognized_event_types"},
-    {"aiur/decision_store.ex", "decision_store.corrupted"},
+    {"aiur/decision_store/boot.ex", "decision_store.unrecognized_event_types"},
+    {"aiur/decision_store/boot.ex", "decision_store.corrupted"},
     {"aiur/decision_store/projection_recovery.ex", "decision_store.repair_failed"},
-    {"aiur/decision_store.ex", "decision_store.append_ambiguous"},
+    {"aiur/decision_store/persistence.ex", "decision_store.append_ambiguous"},
     {"aiur/executor_events.ex", "executor_events.corrupted"},
     {"aiur/github/dispatch_authorization.ex", "github.dispatch_authorization.ambiguous"},
     {"aiur/github/dispatch_authorization.ex", "github.dispatch_authorization.timeline_unreadable"},
-    {"aiur/orchestrator/retry_engine.ex", "orchestrator.claim_released"}
+    {"aiur/orchestrator/retry_engine/poll_failure.ex", "orchestrator.claim_released"}
   ]
   @bridges ["aiur/ticket_activity.ex", "aiur/build_order/ticket_history_provider.ex", "aiur/decision_metrics.ex", "aiur/build_queue/server.ex"]
   @reverse_bridges []

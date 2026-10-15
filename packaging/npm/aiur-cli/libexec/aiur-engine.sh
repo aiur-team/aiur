@@ -63,7 +63,7 @@ engine_source="${BASH_SOURCE[0]}"
 
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session control commands executor_commands report_commands lifecycle upgrade"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session control commands executor_commands report_commands lifecycle upgrade pre_pr"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -89,16 +89,24 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
        aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
-       aiur queue show [--queue NAME] [--json]  read queue; add/remove/reorder/hold/release/recover/clear steer it
+       aiur queue show [--queue NAME] [--json]  read queue; add/remove/reorder/order/hold/release/recover/clear steer it
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur epic clear <ids...> [--as <who>] [--json]
        aiur epic show [<ids...>] [--json]
        aiur epic list [--json]
+       aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label>]... [--as <who>] [--json]
+       aiur feature add <slug> <ids...> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]
+       aiur feature remove <slug> <ids...> [--as <who>] [--json]
+       aiur feature also <slug> <ids...> [--remove] [--as <who>] [--json]
+       aiur feature baseline <slug> [--replace] [--as <who>] [--json]
+       aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-epic <key>=<label>]... [--as <who>] [--json]
+       aiur feature show [<slug>] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
        aiur experiments show <id> [--json] | freeze <id> [--window before|after|observation] [--reason <text>] [--json]
+       aiur experiments events <id> [--json] [--refresh]
        aiur experiments create --from <file|-> | --title <title> --line <type>:<ref>[@time] --metric <pack>/<metric>[:direction] [--draft] [--no-freeze] [--json]
        aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
@@ -131,6 +139,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
        aiur doctor [--repair]         check mise shims; repair only with consent
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
+       aiur pre-pr           merge origin/main locally and run cheap PR gates
        aiur --version
 Bare aiur: start or attach to this directory's interactive session.
 EOF
@@ -252,6 +261,7 @@ aiur_engine_main() {
       cmd_queue "$@"
       ;;
     epic) shift; cmd_epic "$@" ;;
+    feature) shift; cmd_feature "$@" ;;
     build-orders)
       shift
       cmd_build_orders "$@"
@@ -341,6 +351,10 @@ aiur_engine_main() {
       shift
       cmd_cleanup_stale "$@"
       ;;
+    pre-pr)
+      shift
+      cmd_pre_pr "$@"
+      ;;
     stop)
       cmd_stop
       ;;
@@ -371,6 +385,7 @@ aiur_engine_main() {
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-daemon-supervisor.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-feature.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-experiments.sh"
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then

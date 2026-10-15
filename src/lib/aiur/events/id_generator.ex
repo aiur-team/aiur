@@ -61,9 +61,7 @@ defmodule Aiur.Events.IdGenerator do
   require Logger
 
   alias Aiur.Config.Paths
-  alias Aiur.Executor.StatePaths
   alias Aiur.JsonStore
-  alias Aiur.LaunchStateAdoption
 
   @default_batch_size 50
   @cold_boot_safety_margin_us 1_000_000
@@ -112,7 +110,8 @@ defmodule Aiur.Events.IdGenerator do
     batch_size = Keyword.get(opts, :batch_size, @default_batch_size)
     path = Keyword.get(opts, :path) || default_path()
     clock = Keyword.get(opts, :clock, fn -> System.system_time(:microsecond) end)
-    legacy_counter_files = Keyword.get(opts, :legacy_counter_files, &legacy_counter_files/0)
+    legacy_counter_files = Keyword.get(opts, :legacy_counter_files, fn -> [] end)
+    floor_files = Keyword.get(opts, :floor_files, fn -> [] end)
 
     {:ok,
      %{
@@ -123,7 +122,8 @@ defmodule Aiur.Events.IdGenerator do
        persist_warning_emitted: false,
        durable?: false,
        clock: clock,
-       legacy_counter_files: legacy_counter_files
+       legacy_counter_files: legacy_counter_files,
+       floor_files: floor_files
      }, {:continue, :load}}
   end
 
@@ -213,7 +213,7 @@ defmodule Aiur.Events.IdGenerator do
   end
 
   defp cold_boot_seed(state, reason) do
-    disk_max = max(scan_durable_event_logs_for_max_id(), legacy_counter_max(state.legacy_counter_files.()))
+    disk_max = max(scan_durable_event_logs_for_max_id(state), legacy_counter_max(state.legacy_counter_files.()))
     wall_clock_floor = state.clock.()
 
     seed = max(disk_max, wall_clock_floor) + @cold_boot_safety_margin_us
@@ -291,12 +291,6 @@ defmodule Aiur.Events.IdGenerator do
 
   defp legacy_file_name, do: "#{Paths.repo_name()}.event_id"
 
-  defp legacy_counter_files do
-    LaunchStateAdoption.legacy_files(legacy_file_name())
-  rescue
-    _ -> []
-  end
-
   # The highest ID any earlier counter file had issued or reserved. Every
   # earlier launch left its own counter, so all of them are read, not only the
   # newest: under a clock that stepped back, the newest file by mtime need not
@@ -317,20 +311,11 @@ defmodule Aiur.Events.IdGenerator do
     end)
   end
 
-  defp scan_durable_event_logs_for_max_id do
-    # Best-effort: walk per-issue log files and the Executor journal for the
-    # largest event ID ever emitted. Issue logs use `[event:*] id=<int>`;
-    # executor events are newline-delimited JSON with an `id` field.
-    #
-    # The Executor journal no longer lives in the boot log directory: it is
-    # durable per-repository state that outlives this boot, which makes it the
-    # one file here that can hold an id higher than anything this boot wrote.
-    # Missing it would let a fresh counter re-issue ids the journal already
-    # records, so it is scanned explicitly rather than by directory listing.
-    log_dir = Paths.log_root_dir()
-
-    scan_log_directory_for_max_id(log_dir)
-    |> max(scan_file_for_max_id(StatePaths.journal_path()))
+  defp scan_durable_event_logs_for_max_id(state) do
+    # Issue logs use `[event:*] id=<int>`; injected durable journals use JSON ids.
+    Enum.reduce(state.floor_files.(), scan_log_directory_for_max_id(Paths.log_root_dir()), fn path, acc ->
+      max(acc, scan_file_for_max_id(path))
+    end)
   rescue
     _ -> 0
   end

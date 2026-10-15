@@ -181,8 +181,10 @@ cmd_stop() {
   local session="${AIUR_ADOPTED_TMUX_SESSION:-${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default}"
   local socket="${AIUR_ADOPTED_TMUX_SOCKET:-${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}}"
 
+  load_aiur_instance_record "$(aiur_instance_record_path)" >/dev/null 2>&1 || true
+  local AIUR_AGENT_TMUX_SOCKET="${AIUR_RECORD_AGENT_SOCKET:-${socket}-agents}"
   local has_session=0
-  if [ -n "$tmux_bin" ] && "$tmux_bin" -L "$socket" has-session -t "$session" 2>/dev/null; then
+  if [ -n "$tmux_bin" ] && "$tmux_bin" -L "$socket" has-session -t "$session" 2>/dev/null || { [ -n "$tmux_bin" ] && "$tmux_bin" -L "$AIUR_AGENT_TMUX_SOCKET" has-session 2>/dev/null; }; then
     has_session=1
   fi
 
@@ -231,6 +233,7 @@ cmd_stop() {
   # windows dies and no live aiur tmux server is left behind.
   if [ -n "$tmux_bin" ]; then
     "$tmux_bin" -L "$socket" kill-server 2>/dev/null || true
+    "$tmux_bin" -L "$AIUR_AGENT_TMUX_SOCKET" kill-server 2>/dev/null || true
   fi
 
   # Belt-and-suspenders for this run's headless agents after the BEAM exits.

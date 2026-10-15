@@ -104,6 +104,21 @@ defmodule Aiur.Experiments.StoreEvaluationTest do
     assert {:ok, nil} = Snapshot.latest(spec.id, "before")
   end
 
+  test "create runs under task supervision and timeout leaves no experiment", %{controller: controller, writer: writer} do
+    Agent.update(controller, fn _ -> :hold end)
+    create = Task.async(fn -> Experiments.create(attrs()) end)
+    assert_receive {:evaluating, evaluator}, 1_000
+    assert evaluator in Task.Supervisor.children(Aiur.TaskSupervisor)
+    refute evaluator == writer
+    refute File.exists?(Paths.experiment("freeze-fixture"))
+    state = :sys.get_state(writer)
+    send(writer, {:evaluation_timeout, state.evaluation.token})
+    assert Task.await(create) == {:error, :evaluation_timeout}
+    refute File.exists?(Paths.experiment("freeze-fixture"))
+    assert {:ok, []} = Paths.ids()
+    assert Process.alive?(writer)
+  end
+
   test "deadline kills the evaluator and refuses late persistence", %{controller: controller, writer: writer} do
     assert {:ok, spec} = Experiments.create(attrs(), freeze: false)
     Agent.update(controller, fn _ -> :hold end)

@@ -28,6 +28,11 @@ defmodule Aiur.Tmux.Server do
   end
 
   @impl true
+  def handle_call({:on_socket, socket, message}, from, state) do
+    {:reply, reply, next} = handle_call(message, from, Map.put(state, :socket, socket))
+    {:reply, reply, next |> Map.delete(:socket) |> Map.merge(Map.take(state, [:socket]))}
+  end
+
   def handle_call({:command, cmd}, _from, state) do
     {:reply, Exec.run_command(state, cmd), state}
   end

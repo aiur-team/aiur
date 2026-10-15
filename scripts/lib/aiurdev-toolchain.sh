@@ -38,7 +38,7 @@ requires_pinned_opencode() {
   case "$cmd" in
     "" | run | restart | --bg) return 0 ;;
     help | -h | -help | --h | --help | --version | --todo | --only | init | findings) return 1 ;;
-    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch | reset-budget | epic) return 1 ;;
+    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch | reset-budget | epic | pre-pr) return 1 ;;
     -*) return 0 ;;
     *) [ -e "$cmd" ] ;;
   esac

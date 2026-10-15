@@ -37,6 +37,9 @@ defmodule Aiur.BuildQueue.SetWaitingTest do
     model = ReadModel.build(%{status: :running, clock: fn -> now end, document: document, settings: settings, projections: [projection], observations: input.observations})
     assert hd(hd(model.queues).items).reason == reason
     assert hd(model.queues).set_rank == 1
+    assert hd(model.queues).state == :waiting
+    assert hd(model.queues).waiting_reason == reason
+    assert hd(model.queues).counts == %{ready: 1, started: 0, done: 0}
     pid = start_supervised!({Reader, model})
     output = capture_io(fn -> assert BuildQueueCLI.run(server: pid) == 0 end)
     assert output =~ "#3  promoted  #{reason}"
