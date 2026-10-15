@@ -55,6 +55,7 @@
     "created_at": "2026-10-09T00:00:00Z",
     "updated_at": "2026-10-09T00:00:00Z",
     "registered_at": null,
-    "confounder_sources": {}
+    "confounder_sources": {},
+    "report_reason": null
   }
 }

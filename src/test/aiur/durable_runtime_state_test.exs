@@ -287,13 +287,17 @@ defmodule Aiur.DurableRuntimeStateTest do
     end
   end
 
-  test "fresh durable stores ignore legacy sessions and subscriptions", %{logs_parent: logs_parent, state_dir: state_dir} do
+  test "fresh session and subscription stores ignore legacy snapshots alongside an alert ledger", %{logs_parent: logs_parent, state_dir: state_dir} do
     use_runtime_state_dir(state_dir)
     legacy = launch(logs_parent, "20260101T000000Z-100")
     write_snapshot!(legacy, "stale-thread", "ticket.2722.stale")
     record_owner!(legacy)
     launch(logs_parent, "20260101T010000Z-200")
-    refute File.exists?(state_dir)
+    # Background alerts may initialize the shared root before either store is used.
+    _ = AlertLedger.paths()
+    assert File.dir?(state_dir)
+    refute File.exists?(SessionHandle.path_for("2722"))
+    refute File.exists?(SubscriptionStore.path_for("2722"))
 
     assert SessionHandle.load("2722", "codex", hostname: @host) == :none
     :ok = SubscriptionStore.attach("2722")

@@ -14,8 +14,6 @@ defmodule Aiur.Events.BusBoundaryTest do
   # {member_file, referenced_module} => ticket that removes the edge.
   # Seam tickets delete their rows; that deletion is the proof the edge is gone.
   @ratchet %{
-    {"events/subscription_store.ex", "Aiur.Orchestrator"} => "C2-T01",
-    {"events/subscription_store.ex", "Aiur.Signal"} => "C2-T01",
     # Unassigned: tracker types in the L1 spine; MP-R1 decides (CONTRACT-REQUESTS).
     {"ticket_observation.ex", "Aiur.TrackerIdentity"} => "unassigned",
     {"ticket_observation.ex", "Aiur.OpaqueIdentifier"} => "unassigned"

@@ -5,13 +5,14 @@ defmodule Aiur.Experiments.SpecValidation do
 
   @spec validate(map()) :: [map()]
   def validate(map) do
-    object(map, Map.keys(Spec.to_map(%Spec{})), "", Map.keys(Spec.to_map(%Spec{})) -- ["confounder_sources"]) ++
+    object(map, Map.keys(Spec.to_map(%Spec{})), "", Map.keys(Spec.to_map(%Spec{})) -- ["confounder_sources", "report_reason"]) ++
       field(map, "schema_version", &(&1 == 1), "must equal 1") ++
       field(map, "id", &(is_nil(&1) or Paths.valid_id?(&1)), "invalid experiment id") ++
       field(map, "key", &(is_nil(&1) or text?(&1)), "must be a nonempty string or null") ++
       field(map, "title", &text?/1, "must be a nonempty string") ++
       Enum.flat_map(~w(hypothesis notes), &field(map, &1, fn value -> is_binary(value) end, "must be a string")) ++
-      field(map, "status", &(&1 in ~w(draft active concluded abandoned)), "unknown status") ++
+      field(map, "status", &(&1 in ~w(draft active concluded abandoned report_due reported cancelled)), "unknown status") ++
+      field(map, "report_reason", &(&1 in [nil, "guard_met", "insufficient_data", "truncated"]), "unknown report reason") ++
       field(map, "min_samples", &positive?/1, "must be a positive integer") ++
       Enum.flat_map(~w(alpha power_target), &field(map, &1, fn value -> probability?(value) end, "must be between 0 and 1")) ++
       Enum.flat_map(~w(created_at updated_at), &field(map, &1, fn value -> timestamp?(value) end, "must be an ISO-8601 timestamp with an offset")) ++
