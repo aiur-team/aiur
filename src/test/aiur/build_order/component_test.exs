@@ -131,6 +131,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
     Aiur.Experiments.Checkpointer,
+    {Aiur.Experiments.Auto, [recording?: true]},
     Aiur.BuildOrder.Features.LabelProjection
   ]
 
