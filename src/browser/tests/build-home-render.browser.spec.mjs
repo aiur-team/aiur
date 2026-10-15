@@ -112,7 +112,7 @@ test('headers keep design count formatting and empty strings', async ({ page }) 
 
 test('live keeps focus and unchanged DOM identity; focused card stays outside render window', async ({ page }) => {
   const id = await page.evaluate(() => {
-    const el = [...ctx.R.values()].find(el => el.closest('#bd-sec-hist')); el.focus(); window.unchanged = [...ctx.R.values()].find(other => other !== el)
+    const el = [...ctx.R.values()].find(el => el.closest('#bd-sec-hist')); window.focusedBefore = el; el.focus(); window.unchanged = [...ctx.R.values()].find(other => other !== el)
     window.unchangedId = unchanged.dataset.id; return el.dataset.id
   })
   await page.request.get(`/build-control/diff?op=title&id=${encodeURIComponent(id)}`)
@@ -120,6 +120,7 @@ test('live keeps focus and unchanged DOM identity; focused card stays outside re
   await expect.poll(() => page.evaluate(id => ctx.D.byId[id].title.endsWith(' updated'), id)).toBe(true)
   await expect.poll(() => page.evaluate(() => performance.getEntriesByName('build-home-live-pass').length)).toBeGreaterThan(0)
   expect(await page.evaluate(() => [...ctx.R.values()].find(el => el.dataset.id === unchangedId) === unchanged)).toBe(true)
+  expect(await page.evaluate(() => document.activeElement !== focusedBefore)).toBe(true)
   expect(await page.evaluate(id => { ctx.vp.scrollTop = ctx.vp.scrollHeight; ren.update(); return { rendered: [...ctx.R.values()].some(el => el.dataset.id === id), focus: ctx.a11y.focusId } }, id)).toEqual({ rendered: true, focus: id })
 })
 
@@ -233,4 +234,15 @@ test('performance regression guard: dense scroll stays bounded', async ({ page }
     return { rendered: ctx.R.size, fits: Math.ceil(ctx.vp.clientHeight / ctx.L.pitch) * Math.max(1, ctx.cols.length) }
   })
   expect(counts.rendered).toBeLessThanOrEqual(3 * counts.fits)
+})
+
+test('span URL pages before settling and paging state survives server patches', async ({ page }) => {
+  await page.goto('/build-fixture/dense?span=3')
+  await expect.poll(() => page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    return ctx.D ? (await import('/build-home/layout.js')).histDays(ctx.D.hist).length : 0
+  })).toBeGreaterThanOrEqual(3)
+  await page.locator('#ax-drag').evaluate(el => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })))
+  await expect(page.locator('#ax-drag')).toHaveAttribute('data-nav-collapsed', 'true')
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
 })
