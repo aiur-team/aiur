@@ -37,14 +37,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
 
           # State swaps re-read labels after adding the target.
           {:get, 2} ->
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [%{"name" => "sym:todo"}, %{"name" => "sym:done"}, %{"name" => "other"}]
-               }
-             }}
+            open_issue_response(["sym:todo", "sym:done", "other"])
 
           # DELETE old label (new label excluded)
           {:delete, 3} ->
@@ -111,20 +104,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
           # state writes are included in the removal set.
           {:get, 3} ->
             assert req.url =~ "/issues/42"
-
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [
-                   %{"name" => "sym:paused"},
-                   %{"name" => "sym:todo"},
-                   %{"name" => "sym:rework"},
-                   %{"name" => "sym:watch"}
-                 ]
-               }
-             }}
+            open_issue_response(["sym:paused", "sym:todo", "sym:rework", "sym:watch"])
 
           {:delete, 4} ->
             assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
@@ -350,15 +330,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
 
           {:get, 6} ->
             assert req.url =~ "/issues/42"
-
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [%{"name" => "sym:in-progress"}, %{"name" => "sym:human-review"}]
-               }
-             }}
+            open_issue_response(["sym:in-progress", "sym:human-review"])
 
           {:delete, 7} ->
             assert req.url =~ "sym:in-progress" or req.url =~ "sym%3Ain-progress"
@@ -506,5 +478,9 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
       refute_receive {:github_request, %{method: :post}}, 100
       refute_receive {:github_request, %{method: :patch}}, 100
     end
+  end
+
+  defp open_issue_response(labels) do
+    {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}}}
   end
 end
