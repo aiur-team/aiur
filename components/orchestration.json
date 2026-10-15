@@ -11,6 +11,8 @@
     "src/lib/aiur/current_run_membership.ex",
     "src/lib/aiur/current_run_membership/**",
     "src/lib/aiur/dispatch_budget_store.ex",
+    "src/lib/aiur/landing_watch.ex",
+    "src/lib/aiur/landing_watch/**",
     "src/lib/aiur/orchestrator.ex",
     "src/lib/aiur/orchestrator/**",
     "src/lib/aiur/pr_ready_ledger_store.ex",

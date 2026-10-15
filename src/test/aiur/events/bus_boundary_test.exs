@@ -5,12 +5,6 @@ defmodule Aiur.Events.BusBoundaryTest do
 
   @lib Path.expand("../../../lib/aiur", __DIR__)
 
-  @members ~w(exchange topic publisher id_generator subscription_store
-              subscription_store_supervisor universal_subscriptions
-              agent_subscription_policy history_store trace source_policy source_policy/null)
-           |> Enum.map(&"events/#{&1}.ex")
-           |> Kernel.++(["ticket_observation.ex"])
-
   # Bus modules that are not scanned members, plus kernel/config. Deliberately
   # not the whole `Aiur.Events` namespace: Sanitizer, BranchRefStore and
   # CommentFilter belong to github-listeners (CR-R2-1(b)).
@@ -56,10 +50,32 @@ defmodule Aiur.Events.BusBoundaryTest do
     (expanded ++ scanned) |> Enum.uniq() |> Enum.sort()
   end
 
-  defp member_modules do
-    for file <- @members do
-      "Aiur." <> (file |> String.trim_trailing(".ex") |> Path.split() |> Enum.map_join(".", &Macro.camelize/1))
-    end
+  defp members(lib \\ @lib) do
+    marked_members =
+      lib
+      |> Path.join("**/*.ex")
+      |> Path.wildcard()
+      |> Enum.filter(&member_file?/1)
+
+    Enum.map(marked_members, &Path.relative_to(&1, lib))
+  end
+
+  defp member_file?(path) do
+    path
+    |> File.read!()
+    |> String.contains?("# aiur:event-bus-boundary-member")
+  end
+
+  test "a boundary-member marker discovers a newly added event module" do
+    lib = Path.join(System.tmp_dir!(), "aiur-boundary-#{System.unique_integer([:positive])}")
+    events = Path.join(lib, "events")
+    File.mkdir_p!(events)
+    path = Path.join(events, "new_boundary_member.ex")
+    File.write!(path, "# aiur:event-bus-boundary-member\ndefmodule Aiur.Events.NewBoundaryMember do\nend\n")
+
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(lib) end)
+
+    assert "events/new_boundary_member.ex" in members(lib)
   end
 
   defp allowed?(mod) do
@@ -67,8 +83,14 @@ defmodule Aiur.Events.BusBoundaryTest do
       Enum.any?(~w(Aiur.Config Aiur.JsonStore), &String.starts_with?(mod, &1 <> "."))
   end
 
+  defp member_modules do
+    for file <- members() do
+      "Aiur." <> (file |> String.trim_trailing(".ex") |> Path.split() |> Enum.map_join(".", &Macro.camelize/1))
+    end
+  end
+
   defp edges do
-    for file <- @members,
+    for file <- members(),
         mod <- @lib |> Path.join(file) |> File.read!() |> references(),
         not allowed?(mod),
         do: {file, mod}
