@@ -10,7 +10,6 @@ R-declared	Aiur.GitHub.PollSnapshots	baseline 4aba33f8aae03cdaec432d6614e70a57c9
 R-declared	Aiur.GitHub.ReadCache	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.ResourceStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Transport	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.IssueLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.LaunchStateAdoption	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Signal	MP-R1-C5-T05: alert emitter moved to the signal port; component cannot require signal (layer/cycle)
@@ -28,7 +27,6 @@ R-down	Aiur.GitHub.PollSnapshots	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51f
 R-down	Aiur.GitHub.ReadCache	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.GitHub.ResourceStore	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.GitHub.Transport	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-down	Aiur.IssueLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.LaunchStateAdoption	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Orchestrator	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.TicketBranch	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

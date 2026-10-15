@@ -12,6 +12,7 @@
     "src/lib/aiur/current_run_summary.ex",
     "src/lib/aiur/current_run_summary/**",
     "src/lib/aiur/progress_retention.ex",
+    "src/lib/aiur/progress_retention/**",
     "src/lib/aiur/progress_tracker.ex",
     "src/lib/aiur/projections/**",
     "src/lib/aiur/ticket_activity.ex",

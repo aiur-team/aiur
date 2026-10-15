@@ -8,7 +8,7 @@ Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
       route_shell_live graph_live ticket_context_live units_live_data units_live
-      support build_order_source meters_live optimistic_control
+      support voice_provider build_order_source meters_live optimistic_control
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
 end
@@ -145,7 +145,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.{FixtureEndpoint, VoiceSTT}
+  alias Aiur.BrowserHarness.FixtureEndpoint
   alias Aiur.BrowserHarness.FixtureEndpointStart
   alias Aiur.IssueLog
   alias Aiur.TestSupport.BuildHome.FixtureSource
@@ -400,30 +400,12 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,
-        agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1,
-        voice_stt_start_fun: fn socket ->
-          case VoiceSTT.start_link(socket.channel_pid) do
-            {:ok, pid} -> {:ok, %{pid: pid}}
-            {:error, reason} -> {:error, inspect(reason)}
-          end
-        end,
-        voice_tts_start_fun: fn socket, text ->
-          {:ok, pid} =
-            Task.start(fn ->
-              if text == "Voice reply from the agent." do
-                send(socket.channel_pid, {:voice_audio, :chunk, <<0, 0, 255, 127, 0, 0, 1, 128>>})
-                send(socket.channel_pid, {:voice_audio, :done})
-              else
-                send(socket.channel_pid, {:voice_audio, :error, "fixture received an incomplete reply"})
-              end
-            end)
-
-          {:ok, pid}
-        end
+        agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1
       )
       |> Keyword.delete(:streamdeck_logs_fun)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
+    Application.put_env(:aiur, :voice_provider, Aiur.BrowserHarness.VoiceProvider)
   end
 
   defp streamdeck_agent(identifier, title, backend, attrs \\ []) do
