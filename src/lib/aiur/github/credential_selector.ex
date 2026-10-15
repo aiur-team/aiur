@@ -298,6 +298,7 @@ defmodule Aiur.GitHub.CredentialSelector do
     if Credential.token(credential) == Map.get(request, :token),
       do:
         request
+        |> Map.put(:credential_id, credential.id)
         |> Map.put(:credential_class, credential_class(credential))
         |> Map.put(:credential_key, Credential.identity_key(credential)),
       else: request

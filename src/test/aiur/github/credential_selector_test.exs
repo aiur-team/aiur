@@ -41,7 +41,7 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
       assert assigned.token == request.token
       assert assigned.credential_class == "github_token"
       assert assigned.credential_key == Credential.token_key(only)
-      refute Map.has_key?(assigned, :credential_id)
+      assert assigned.credential_id == "solo"
     end
 
     test "choose/3 returns the only credential for both budgets and both intents" do

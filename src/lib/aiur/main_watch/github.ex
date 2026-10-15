@@ -25,7 +25,15 @@ defmodule Aiur.MainWatch.GitHub do
          {:ok, key} <- AppCredentials.parse_private_key(),
          jwt = AppToken.app_jwt(key, AppCredentials.app_id()),
          url = "#{Transport.base_url()}/app/installations/#{AppCredentials.installation_id()}",
-         request = %{method: :get, url: url, token: jwt, caller: "main_watch_permissions", credential_pinned?: true},
+         request = %{
+           method: :get,
+           url: url,
+           token: jwt,
+           caller: "main_watch_permissions",
+           credential_pinned?: true,
+           credential_id: "github_app",
+           credential_class: "github_app_jwt"
+         },
          {:ok, %{status: 200, body: installation}} when is_map(installation) <- request_fun(opts).(request) do
       permissions = installation["permissions"]
       is_map(permissions) and permissions["actions"] == "write"

@@ -130,10 +130,27 @@ defmodule Aiur.MainWatch do
   defp bounded_requests(opts) do
     count = :atomics.new(1, [])
     request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    opts = put_configured_token(opts)
 
     Keyword.put(opts, :request_fun, fn call ->
       if :atomics.add_get(count, 1, 1) <= @request_limit, do: request.(call), else: {:error, :main_watch_request_limit}
     end)
+  end
+
+  # `bounded_requests/1` adds a request_fun in production. `Transport.require_token/1`
+  # treats that option as a test seam, so keep the real configured token explicit
+  # before wrapping the transport function.
+  defp put_configured_token(opts) do
+    case Keyword.get(opts, :token) do
+      token when is_binary(token) and token != "" ->
+        opts
+
+      _missing ->
+        case Transport.require_token([]) do
+          {:ok, token} -> Keyword.put(opts, :token, token)
+          {:error, _missing_token} -> opts
+        end
+    end
   end
 
   defp prepare(result, server) do

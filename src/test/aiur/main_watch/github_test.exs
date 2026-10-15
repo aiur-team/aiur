@@ -260,7 +260,7 @@ defmodule Aiur.MainWatch.GitHubTest do
     System.put_env(%{"GITHUB_APP_ID" => "123", "GITHUB_APP_INSTALLATION_ID" => "456", "GITHUB_APP_PRIVATE_KEY" => pem})
 
     for permission <- ["read", "write", nil] do
-      request = fn %{token: jwt, url: url, caller: "main_watch_permissions", credential_pinned?: true} ->
+      request = fn %{token: jwt, url: url, caller: "main_watch_permissions", credential_pinned?: true, credential_id: "github_app", credential_class: "github_app_jwt"} ->
         assert url == "https://api.github.com/app/installations/456"
         assert JOSE.JWT.verify_strict(key, ["RS256"], jwt) |> elem(0)
         ok(%{"permissions" => %{"actions" => permission}})

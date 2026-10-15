@@ -30,11 +30,10 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.Budget
   alias Aiur.GitHub.CredentialHeadroom
-  alias Aiur.GitHub.CredentialSelector
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
-  alias Aiur.GitHub.{QueueCost, Quota, ReadFallback}
+  alias Aiur.GitHub.{QueueCost, Quota, Transport.AuthDiagnostic}
   alias Aiur.GitHub.ReadCache
 
   require Logger
@@ -114,11 +113,9 @@ defmodule Aiur.GitHub.Transport do
   members had different visibility would need the credential in the cache key.
   """
   @spec default_request_fun(map()) :: {:ok, map()} | {:error, term()}
-  def default_request_fun(%{token: token} = req) when is_binary(token) do
-    req |> QueueCost.tag() |> CredentialSelector.assign() |> ReadFallback.run(&do_request/1)
-  end
+  def default_request_fun(%{token: token} = req) when is_binary(token), do: AuthDiagnostic.run(req, &do_request/1)
 
-  def default_request_fun(req), do: req |> QueueCost.tag() |> ReadFallback.run(&do_request/1)
+  def default_request_fun(req), do: req |> QueueCost.tag() |> do_request()
 
   defp do_request(%{method: :get, url: url, token: token} = req) do
     headers =
