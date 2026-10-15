@@ -123,6 +123,14 @@ test('real LiveView URL history and server diff retain selected view and focused
   await page.request.get('/build-control/diff')
   await expect(page.locator('#build-root')).not.toHaveAttribute('data-build-generation', generation)
   expect(await page.evaluate(() => document.activeElement === savedFocus)).toBe(true)
+  // The fixture's HTTP diff has an empty set; exercise the chrome redraw path too.
+  await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    const { receive } = await import('/build-home/hook.js')
+    receive({ v: 1, kind: 'diff', epoch: ctx.proto.epoch, generation: ctx.proto.generation + 1,
+      now: ctx.snap.now, set: { daemon: ctx.snap.daemon }, upsert: [], remove: [] })
+  })
+  expect(await page.evaluate(() => document.activeElement === savedFocus)).toBe(true)
 })
 
 test('default daemon helper remains unknown before offline module registration', async ({ browser }) => {
