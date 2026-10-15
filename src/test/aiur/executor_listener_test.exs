@@ -1,8 +1,10 @@
 defmodule Aiur.ExecutorListenerTest do
   use Aiur.TestSupport
 
+  alias Aiur.Alerts
   alias Aiur.Decision
   alias Aiur.Events.Exchange
+  alias Aiur.Events.Publisher
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorEvents
@@ -240,6 +242,35 @@ defmodule Aiur.ExecutorListenerTest do
             ]} = ExecutorWakeInbox.wait(500, @inbox_name)
 
     assert watermark() == nil
+  end
+
+  test "attention alerts wake the Executor when their ticket has no running agent" do
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+    start_listener(inbox: @inbox_name, patterns: ["ticket.*.agent.attention.*"], reconcile?: false)
+    Publisher.set_tracked_fn(fn _ticket -> false end)
+
+    on_exit(fn -> Publisher.set_tracked_fn(fn _ticket -> true end) end)
+
+    assert :ok =
+             Alerts.emit_system("ticket.3141.agent.attention.waiting_for_human",
+               issue: "3141",
+               reason: "Agent has been waiting for Executor input.",
+               needs_attention: true,
+               severity: "warning",
+               central: true
+             )
+
+    assert {:ok,
+            [
+              %{
+                "topic" => "ticket.3141.agent.attention.waiting_for_human",
+                "topic_class" => "ticket.agent.attention.waiting_for_human",
+                "ticket" => "3141",
+                "needs_attention" => true
+              }
+            ]} = ExecutorWakeInbox.wait(500, @inbox_name)
+
+    assert [%{"topic" => "ticket.3141.agent.attention.waiting_for_human"}] = ExecutorWakeInbox.pending(@inbox_name)
   end
 
   test "reports a degraded binding transition once and resolves it after repair" do
