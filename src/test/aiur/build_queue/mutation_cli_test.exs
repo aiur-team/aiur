@@ -14,7 +14,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
       end)
     end
 
-    def open_issue_labels(_), do: Agent.get(__MODULE__, &{:ok, &1.labels, 1_000})
+    def open_issue_labels(_), do: Agent.get(__MODULE__, &if(Map.get(&1, :observation_unavailable?, false), do: {:error, :offline}, else: {:ok, Map.get(&1, :observation_labels, &1.labels), 1_000}))
     def blocked_by(id), do: Agent.get(__MODULE__, &{:ok, Map.get(Map.get(&1, :dependencies, %{}), id, [])})
 
     def ticket_pull_request(id) do
@@ -148,6 +148,18 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     run(restarted, :release, ids: ["1"])
     assert %{hold: nil, override: nil} = Enum.find(document().items, &(&1.issue_id == "1"))
     assert %{hold: :external, override: :manual_promotion} = Enum.find(document().items, &(&1.issue_id == "2"))
+  end
+
+  test "unobserved release results render a successful notice", %{server: pid} do
+    run(pid, :add, ids: ["2"], queue: "default")
+    Agent.update(Boundary, &Map.put(&1, :observation_unavailable?, true))
+
+    output = capture_io(fn -> send(self(), {:release_result, Aiur.BuildQueueCLI.run(verb: :release, queue: "default", server: pid)}) end)
+    assert_received {:release_result, result}
+
+    assert result == 0, output
+    assert output =~ "default: released; no observation for #2"
+    assert Enum.all?(document().items, &is_nil(&1.hold))
   end
 
   test "a persisted hold prevents real promotion and publishes the dispatch hold", %{server: pid} do
