@@ -115,4 +115,6 @@ These manual test modes are blocked inside agent issue workspaces because they m
 
 After CI passes, Aiur persists the approved PR head before handing the ticket back to its agent. A later CI observation for that exact SHA cannot return the ticket from human review to rework, even when the poll retained a stale `ci-wait` issue snapshot from before the handoff.
 
+The landing watcher separately owns approved PRs through the queue. A fresh required-check failure on the currently approved head can route its ticket to rework; stale `ci-wait` snapshots remain suppressed by the handoff guard.
+
 A CI failure for a different SHA supersedes the approval and remains eligible for the normal rework path. Check runs whose names end in `(non-blocking)` are advisory and do not affect the lifecycle decision.

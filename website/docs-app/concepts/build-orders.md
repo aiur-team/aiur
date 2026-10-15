@@ -1,6 +1,12 @@
 # Build Orders
 
-A Build Order turns a large feature into typed members, lanes, phases, dependencies, complexity, and optional icons.
+The repository has one [continuous build](./build-history), with feature
+collections added over time. New features join it through collection membership,
+native prerequisites, and the build queue; they do not create standalone roots.
+
+Existing Build Orders retain their typed members, lanes, phases, dependencies,
+complexity, and optional icons as readable planning history. The pack and root
+commands below describe those legacy artifacts.
 
 ## Pack contents
 
@@ -78,6 +84,7 @@ Aiur separates the repository's tracked code from daemon-owned state under `~/.a
 | --- | --- |
 | `latest/` | Aiur-managed warm clone of the configured base branch. |
 | `builds/` | State-node Build Order packs, daemon status projections, and cross-boot build summaries. |
+| `experiments/` | Experiment specs, snapshots and the capped `deploys.ndjson` boot ledger. |
 | `analytics/` | Run summaries, durable `tickets/<ticket>.json`, and `repo-timeline.ndjson` facts when captured. |
 | `meta/` | Executor findings at `findings.ndjson` and narrative retrospectives at `retros/<boot-id>.md`. |
 

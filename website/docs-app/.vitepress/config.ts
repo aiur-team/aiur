@@ -150,6 +150,7 @@ export default withMermaid(defineConfig({
             { text: 'Executor', link: '/concepts/executor' },
             { text: 'Units', link: '/concepts/units' },
             { text: 'Commands', link: '/concepts/commands' },
+            { text: 'Continuous build history', link: '/concepts/build-history' },
             { text: 'Build Orders', link: '/concepts/build-orders' },
             { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
             { text: 'Ticket flow: steps 0–8', link: '/concepts/ticket-lifecycle-steps' },
@@ -178,6 +179,7 @@ export default withMermaid(defineConfig({
             { text: 'Configuration: build_order', link: '/reference/configuration-build-order' },
             { text: 'Configuration notes', link: '/reference/configuration-notes' },
             { text: 'Merge Policy', link: '/reference/merge-policy' },
+            { text: 'Experiment Statistics', link: '/reference/experiment-statistics' },
             { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
           ]
         }

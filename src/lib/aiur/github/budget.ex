@@ -200,23 +200,11 @@ defmodule Aiur.GitHub.Budget do
 
   def release(_lease, _opts), do: :ok
 
-  # `release/2` runs in the request's `after` block and is charged to the same
-  # absolute deadline as the request it closes, so it can be abandoned before
-  # the broker acknowledges it. That distinction is operationally real: an
-  # abandoned release leaves the lease inflight, holding shared budget headroom
-  # until the broker expires it on its own, while an acknowledged one returns
-  # the headroom immediately. Until now the broker result was discarded
-  # outright, so the only way to tell the two apart — in production or in a
-  # test — was to time the call and guess from elapsed wall-clock, which is a
-  # function of machine load rather than of the behaviour. Naming the outcome
-  # makes it assertable directly.
-  # `budget_ms` travels with the outcome because the two answer different
-  # questions. The outcome says whether the broker acknowledged the release;
-  # `budget_ms` says how long the release was ever *willing* to wait, which is
-  # decided by the caller's deadline and not by how loaded the machine is. A
-  # release that grants itself more than the request deadline is the bug — it
-  # parks the caller on the broker's SQLite lock — and that is visible in
-  # `budget_ms` alone, without timing anything.
+  # `release/2` shares the request deadline and may be abandoned before broker
+  # acknowledgment. An abandoned release holds headroom until broker expiry;
+  # an acknowledged one returns it immediately. Keep outcome and caller budget
+  # explicit instead of inferring acknowledgment from load-sensitive timing.
+  # `budget_ms` also exposes a release budget that exceeds the request deadline.
   defp publish_release(lease_id, token_key, budget_ms, result) do
     event = %{lease_id: lease_id, token_key: token_key, budget_ms: budget_ms, outcome: release_outcome(result)}
 
@@ -340,12 +328,8 @@ defmodule Aiur.GitHub.Budget do
       {:ok, "wait " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :shared_budget)
 
-      # The deadline expired before the broker answered at all. That is
-      # distinguishable from a malformed reply: the broker may still be
-      # starting up (a `python3` subprocess that races the deadline under load)
-      # rather than having said something unintelligible, so a caller that
-      # wants a verdict — the ceiling-hold tests above all — can retry the
-      # former without retrying a genuinely broken broker (#2286).
+      # Deadline expiry differs from malformed output: Python startup can race
+      # the deadline under load, so callers may retry it (#2286).
       {:error, :github_budget_broker_timeout} ->
         {:error, :github_budget_broker_timeout}
 
@@ -540,49 +524,59 @@ defmodule Aiur.GitHub.Budget do
   end
 
   defp broker_command(python, [broker | args] = command_args, deadline_at, opts) do
-    # Explicit executable/script injection retains the one-shot interface for
-    # diagnostic fixtures and older broker variants. The supervised production
-    # daemon always uses its single resident broker.
+    # Explicit injection retains the one-shot path; production uses the resident broker.
     server = Keyword.get(opts, :broker_server, BudgetBroker)
 
     if (Keyword.has_key?(opts, :broker_server) || Process.whereis(BudgetBroker)) && not Keyword.has_key?(opts, :broker_path) && python == System.find_executable("python3") do
       BudgetBroker.command(server, broker, args, deadline_at)
     else
-      port_command(python, command_args, deadline_at)
+      port_command(python, command_args, deadline_at, Keyword.get(opts, :kill_fun))
     end
   end
 
-  defp port_command(executable, args, deadline_at) do
+  defp port_command(executable, args, deadline_at, kill_fun) do
     remaining_ms = max(deadline_at - System.monotonic_time(:millisecond), 0)
 
     if remaining_ms == 0 do
       :timeout
     else
       caller = self()
-      result_ref = make_ref()
+      result_ref = Process.alias()
 
       {guardian, guardian_ref} =
         spawn_monitor(fn ->
-          result = owned_port_command(caller, executable, args, deadline_at)
-          send(caller, {result_ref, self(), result})
+          result = owned_port_command(caller, executable, args, deadline_at, kill_fun)
+          send(result_ref, {result_ref, self(), result})
         end)
 
       receive do
         {^result_ref, ^guardian, result} ->
-          Process.demonitor(guardian_ref, [:flush])
+          Process.unalias(result_ref) && Process.demonitor(guardian_ref, [:flush])
           result
 
         {:DOWN, ^guardian_ref, :process, ^guardian, reason} ->
           {:error, reason}
       after
         remaining_ms ->
-          Process.exit(guardian, :kill)
-          :timeout
+          Process.unalias(result_ref)
+
+          receive do
+            {^result_ref, ^guardian, result} ->
+              Process.demonitor(guardian_ref, [:flush])
+              result
+
+            {:DOWN, ^guardian_ref, :process, ^guardian, reason} ->
+              {:error, reason}
+          after
+            0 ->
+              Process.demonitor(guardian_ref, [:flush])
+              :timeout
+          end
       end
     end
   end
 
-  defp owned_port_command(caller, executable, args, deadline_at) do
+  defp owned_port_command(caller, executable, args, deadline_at, kill_fun) do
     caller_ref = Process.monitor(caller)
 
     port =
@@ -591,34 +585,34 @@ defmodule Aiur.GitHub.Budget do
         [:binary, :exit_status, :stderr_to_stdout, :use_stdio, args: Enum.map(args, &String.to_charlist/1)]
       )
 
-    await_port(port, caller, caller_ref, deadline_at, [])
+    await_port(port, caller, caller_ref, deadline_at, [], kill_fun)
   end
 
-  defp await_port(port, caller, caller_ref, deadline_at, output) do
+  defp await_port(port, caller, caller_ref, deadline_at, output, kill_fun) do
     remaining_ms = max(deadline_at - System.monotonic_time(:millisecond) - @command_cleanup_ms, 0)
 
     receive do
       {^port, {:data, data}} ->
-        await_port(port, caller, caller_ref, deadline_at, [data | output])
+        await_port(port, caller, caller_ref, deadline_at, [data | output], kill_fun)
 
       {^port, {:exit_status, status}} ->
         Process.demonitor(caller_ref, [:flush])
         {:ok, output |> Enum.reverse() |> IO.iodata_to_binary(), status}
 
       {:DOWN, ^caller_ref, :process, ^caller, _reason} ->
-        terminate_port(port, min(deadline_at, System.monotonic_time(:millisecond) + @command_cleanup_ms))
+        terminate_port(port, min(deadline_at, System.monotonic_time(:millisecond) + @command_cleanup_ms), kill_fun)
         :timeout
     after
       remaining_ms ->
         Process.demonitor(caller_ref, [:flush])
-        terminate_port(port, deadline_at)
+        terminate_port(port, deadline_at, kill_fun)
         :timeout
     end
   end
 
-  defp terminate_port(port, deadline_at) do
+  defp terminate_port(port, deadline_at, kill_fun) do
     case Port.info(port, :os_pid) do
-      {:os_pid, os_pid} -> System.cmd("kill", ["-KILL", Integer.to_string(os_pid)], stderr_to_stdout: true)
+      {:os_pid, os_pid} -> if is_function(kill_fun, 1), do: kill_fun.(os_pid), else: System.cmd("kill", ["-KILL", Integer.to_string(os_pid)], stderr_to_stdout: true)
       nil -> :ok
     end
 

@@ -4,63 +4,39 @@ The planning pack records approved intent and evidence. It is not a second
 ticket tracker: GitHub owns facts for promoted tickets and Aiur owns current
 runtime facts.
 
-Pack JSON uses `scripts/publication/pack_format.py`: top-level keys and array records each occupy one line; the publisher and CI share this formatter.
+Legacy pack JSON uses `scripts/publication/pack_format.py`: top-level keys and
+array records each occupy one line; the publisher and CI share this formatter.
 
-## Runtime artifact tree
+## Collection and evidence contract
 
-```text
-~/.aiur/repo/<owner>/<repo>/builds/<slug>/
-  build-order.json
-  status.json                 # daemon-owned runtime projection
-  tickets/<ID>.md             # draft issue body until promoted
-```
+A new feature outputs a collection into the repository's single continuous build.
+Record its stable feature slug, display label, optional epics, logical members,
+real prerequisites to new and existing tickets, proposed queue placement, and
+`plan_version`. Do not create a standalone Build Order root or publish a new
+legacy runtime pack. Existing packs remain readable history.
 
-The state node is host-local canonical runtime storage. Aiur also reads the
-materialized repository discovery mirror that successful publication writes to
-`.aiur/build_orders/<slug>.json`; a copied plan under `docs/` remains inert.
-
-## Canonical pack
-
-Each `build-order.json` member has the following fields:
-
-```json
-{
-  "id": "AS-101",
-  "title": "Wire the stream",
-  "lane": "runtime",
-  "phase": 1,
-  "complexity": 2,
-  "depends_on": [],
-  "ticket": null,
-  "doc": "tickets/AS-101.md",
-  "icon": "bolt"
-}
-```
-
-`ticket` is either `null` or a positive tracker issue number. `doc` must be a
-safe relative path under `tickets/`. While `ticket` is `null`, the document is
-the draft body and the pack supplies the planned state. Once a ticket exists,
-its tracker state and labels are authoritative; `status.json` supplies only
-known runtime state where the tracker projection lacks it.
-
-An optional top-level `icon` chooses the Build Order icon. Without one, Aiur
-selects a deterministic generic icon that is distinct from the other Build
-Orders in that repository list. There is no converter: existing packs are
-hand-converted once by the Executor.
+Preserve requirements, versioned design evidence, decisions, typed scheduling
+graph, wave/critical-path analysis, `tickets/<ID>.md`, validation report, and
+approved planning commit. Planning documents describe approved intent; they do
+not supply current ticket state or progress.
 
 ## Executor-owned promotion
 
-Promotion happens only when the user asks to create tickets. The Executor
-should encourage promotion of all researched tickets that are ready to begin;
-per-phase promotion is an optional user choice, not an Aiur workflow rule.
+Promotion requires issue-creation authority. Encourage all researched members
+ready to begin together; per-phase promotion is optional. Follow `SKILL.md`
+§ Optional GitHub promotion and its continuous-build intake procedure.
 
-For every promoted member, create the issue using `tickets/<ID>.md` verbatim and
-apply the waiting marker or todo label in that same creation request, following
-the queue-status and adoption convention in `SKILL.md` § Optional GitHub promotion.
-Write the returned issue number to `ticket`, and freeze the document. **After promotion, edits go to the ticket,
-never the doc.** The Build Order root and explicit `Epic:` containers remain
-undispatched hierarchy. No publication manifest, receipt, or automatic
-materialization machinery is part of this flow.
+Create each issue from its ticket document verbatim with feature and disposition
+labels in the creation request. Record tracker-number mappings; freeze promoted
+documents and edit the tickets thereafter. Join registry ownership with
+`aiur feature add`, write native `blocked_by` links for real prerequisites,
+and enqueue all executable members. A feature label alone does not schedule work.
+
+Read back collection ownership, projected labels, native links, and queue order
+in the continuous Build view or `aiur feature show` plus `aiur queue show`.
+“Prioritize” requires priority labels and a queue position before the previous
+next-up, naming the displaced work. Explicitly excluded work is parked with
+`needs-triage`/`human:todo` and its reason. Partial promotion is incomplete.
 
 ## Ticket document template
 
@@ -107,21 +83,22 @@ Agent, CI, and named human/manual evidence as required by repository policy.
 
 ## Validation invariants
 
-Before handoff, validate unique IDs, safe document paths, ticket values,
+Before handoff, validate unique IDs, safe document paths, tracker mappings,
 resolved dependencies, and the planned phase/complexity metadata. Review the
 graph for real prerequisites, one owner per public contract, bounded safety
 conflicts, and explicit feature acceptance. Do not infer progress when live
-membership or `status.json` cannot establish it.
+membership or runtime evidence cannot establish it.
 
-Planning is complete only after the daemon's Build Order page renders the pack
-title and members. This is the required verification rung.
+For promoted packs, completion requires collection and placement read-back.
+Unpromoted packs record proposed membership and ordering without claiming live
+verification; the Executor performs that rung during authorized promotion.
 
 ## Source-state rules
 
 - A promoted ticket's tracker state and labels outrank the pack.
-- A draft member renders planned from its pack and draft document.
+- A draft member remains proposed in its planning pack.
 - Missing/stale Aiur progress is `unknown`, never `0%`.
 - Provider failure preserves last-known-good data with visible health; unknown
   dependencies never become an empty or unblocked graph.
-- Phase is authored planning metadata; topological layers and summaries are
-  derived views.
+- Phases are computed antichains of the hard-dependency graph; lanes and epics
+  carry thematic grouping, and summaries remain derived views.

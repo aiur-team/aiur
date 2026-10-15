@@ -78,11 +78,15 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   @doc false
   @spec do_dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts) when is_list(opts) do
-    with {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
+    with false <- Aiur.Handoff.dispatch_held?(),
+         {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
          {:ok, selected_issue} <- CodingAgent.select_for_dispatch(prepared) do
       state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
       dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts)
     else
+      true ->
+        state
+
       {:error, reason} ->
         Candidates.emit_dispatch_attempt_decline(state, issue, reason, false)
 

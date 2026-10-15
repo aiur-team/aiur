@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import test from 'node:test'
@@ -23,7 +26,7 @@ test('required full CI gate rejects failures, cancellations and skipped browser 
   for (const browser of ['success', 'failure', 'cancelled', 'skipped']) {
     for (const css of ['success', 'failure', 'cancelled', 'skipped']) {
       const needs = Object.fromEntries(gate.needs.map(job => [job, { result: 'success' }]))
-      needs.changes.outputs = { full_ci: 'true' }
+      needs.changes.outputs = { full_ci: 'true', dialyzer: 'false' }
       needs.browser.result = browser
       needs['home-css'].result = css
       const result = spawnSync('bash', ['-c', step.run], {
@@ -34,8 +37,10 @@ test('required full CI gate rejects failures, cancellations and skipped browser 
   }
 })
 
-test('home matrix has an independent deadline and stays in the local full suite', () => {
-  assert.equal(workflow.jobs.browser['timeout-minutes'], 30)
+test('browser shards have bounded timeouts and home matrix keeps an independent deadline', () => {
+  for (const job of ['browser', 'browser-2', 'browser-3']) {
+    assert.equal(workflow.jobs[job]['timeout-minutes'], 15)
+  }
   assert.match(workflow.jobs['home-css'].if, /outputs.full_ci == 'true'/)
   assert.equal(workflow.jobs['home-css']['timeout-minutes'], 25)
   assert.equal(workflow.jobs['home-css'].steps.at(-1).uses, './.github/actions/verify-home-css')
@@ -43,6 +48,28 @@ test('home matrix has an independent deadline and stays in the local full suite'
     'npm run fixture:preflight && npm run test:home-css')
   assert.equal(home.runs.steps.at(-1).if, '${{ always() }}')
   assert.equal(scripts.test, 'npm run test:core && npm run test:home-css')
-  assert.ok(!scripts['test:core'].includes('npm run test:home-css'))
+  assert.doesNotMatch(scripts['test:core'], /npm run test:home-css(?:\s|$)/)
   assert.match(scripts['test:home-css'], /home-css-census\.browser\.spec\.mjs tests\/home-css-parity\.browser\.spec\.mjs/)
+})
+
+test('browser shards execute every core suite exactly once', () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'browser-shard-collection-'))
+  try {
+    const bin = join(scratch, 'bin'), calls = join(scratch, 'calls')
+    mkdirSync(bin)
+    // Stub only npm: execute the real shard runner and record its selected suites.
+    writeFileSync(join(bin, 'npm'), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$BROWSER_SHARD_CALLS"\n', { mode: 0o755 })
+    for (const shard of [1, 2, 3]) {
+      const result = spawnSync(process.execPath, [fileURLToPath(new URL('./run-browser-smoke-shard.mjs', import.meta.url)), String(shard)], {
+        cwd: new URL('../', import.meta.url), encoding: 'utf8',
+        env: { ...process.env, PATH: bin + ':' + process.env.PATH, BROWSER_SHARD_CALLS: calls }
+      })
+      assert.equal(result.status, 0, result.stderr)
+    }
+    const expected = [...scripts['test:core'].matchAll(/npm run ([\w:-]+)/g)].map(match => match[1])
+      .filter(name => name !== 'fixture:preflight').sort()
+    const selected = readFileSync(calls, 'utf8').trim().split('\n').map(line => line.replace(/^run /, ''))
+      .filter(name => name !== 'fixture:preflight').sort()
+    assert.deepEqual(selected, expected)
+  } finally { rmSync(scratch, { recursive: true, force: true }) }
 })

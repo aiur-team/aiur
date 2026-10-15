@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.IssueDependencies do
 
   ## Why a separate module
 
-  `Aiur.Codex.DynamicTool` stays thin: the `aiur_declare_blocker` and
+  `Aiur.AgentTools.Dispatch` stays thin: the `aiur_declare_blocker` and
   `aiur_unblock` tools become 5-line shims that delegate here, the same
   way `execute_linear_graphql/2` delegates to `Aiur.Linear.Client.graphql/3`.
 

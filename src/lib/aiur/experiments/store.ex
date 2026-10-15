@@ -4,6 +4,7 @@ defmodule Aiur.Experiments.Store do
   require Logger
 
   alias Aiur.Experiments.{AnalysisInput, Catalog, Checkpoint, Evaluation, Journal, Paths, Persistence, Reader, Registration, Schema, Snapshot, SnapshotPersistence, Spec, WindowData, WindowEvents}
+  alias Aiur.Experiments.Auto.WindowTransition
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -48,6 +49,18 @@ defmodule Aiur.Experiments.Store do
   def handle_call({:annotate, id, annotation, actor}, _from, state) do
     {:reply, annotate(id, annotation, actor), state}
   end
+
+  def handle_call({:manage_window, id, samples, config, now, truncation}, _from, state) do
+    result =
+      case WindowTransition.prepare(id, samples, config, now, truncation) do
+        {:ok, changes, kind} -> amend(id, changes, "window_manager", kind, state)
+        result -> result
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:window_spec, id}, _from, state), do: {:reply, Reader.spec(id), state}
 
   def handle_call({:events_snapshot, id, snapshot, refresh?}, _from, state) do
     {:reply, WindowEvents.freeze(id, snapshot, refresh?), state}
@@ -223,6 +236,9 @@ defmodule Aiur.Experiments.Store do
   end
 
   defp status_transition(status, status), do: :ok
+  defp status_transition("active", "report_due"), do: :ok
+  defp status_transition("report_due", "reported"), do: :ok
+  defp status_transition(from, "cancelled") when from in ~w(draft active), do: :ok
   defp status_transition(_status, "abandoned"), do: :ok
   defp status_transition("draft", "active"), do: :ok
   defp status_transition("active", "concluded"), do: :ok
