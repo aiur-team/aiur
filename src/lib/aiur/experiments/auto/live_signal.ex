@@ -1,8 +1,8 @@
 defmodule Aiur.Experiments.Auto.LiveSignal do
   @moduledoc false
+  alias Aiur.Experiments.Auto.{BuildStamp, DeployLedger, RepoReleaseLine, TagReader}
   alias Aiur.Experiments.Paths
   alias Aiur.RepoBase
-  alias Aiur.Experiments.Auto.{BuildStamp, DeployLedger, RepoReleaseLine, TagReader}
   alias Aiur.Workspace.WipPreservation.Command
 
   @spec resolve(map(), map(), DateTime.t(), keyword()) :: {:ok, map()} | :pending | {:error, term()}

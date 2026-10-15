@@ -1,10 +1,11 @@
 defmodule Aiur.Experiments.Auto.FeaturePollTest do
   use Aiur.TestSupport
   alias Aiur.Config.Schema.Experiments.Auto, as: Config
+  alias Aiur.Events.Exchange
   alias Aiur.Experiments
   alias Aiur.Experiments.Auto.{Creator, FeatureLine, FeaturePoll, Notifier, WindowRules}
-  alias Aiur.GitHub.ResourceStore
   alias Aiur.Experiments.Store
+  alias Aiur.GitHub.ResourceStore
 
   setup do
     root = Path.join(System.tmp_dir!(), "feature-poll-#{System.unique_integer([:positive])}")
@@ -210,7 +211,7 @@ defmodule Aiur.Experiments.Auto.FeaturePollTest do
 
     assert %{epics: %{"42" => %{"member_numbers" => [1, 2]}}} = FeatureLine.status(worker)
     Agent.update(upstream, &%{&1 | now: ~U[2026-10-13 00:00:00Z], merged: true, members: [%{member(1) | "state" => "closed"}, member(2)]})
-    worker_poll(worker, fn -> Aiur.Events.Exchange.publish("ticket.1.pr.merged", %{topic: "ticket.1.pr.merged"}) end)
+    worker_poll(worker, fn -> Exchange.publish("ticket.1.pr.merged", %{topic: "ticket.1.pr.merged"}) end)
     assert %{epics: %{"42" => %{"phase" => "merging"}}} = FeatureLine.status(worker)
     worker_poll(worker, fn -> ResourceStore.put_resource(ResourceStore.key(:issue_labels, "owner", "repo", 42), [], version: "2026-10-13T00:01:00Z") end)
     assert %{epics: %{"42" => %{"phase" => "cancelled"}}} = FeatureLine.status(worker)

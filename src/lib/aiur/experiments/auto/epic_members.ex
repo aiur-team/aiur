@@ -1,6 +1,6 @@
 defmodule Aiur.Experiments.Auto.EpicMembers do
   @moduledoc false
-  alias Aiur.GitHub.{ResourceStore, Transport}
+  alias Aiur.GitHub.{Errors, ResourceStore, Transport}
 
   @merges """
   query FeatureMemberMerge($owner: String!, $name: String!, $number: Int!) {
@@ -15,7 +15,7 @@ defmodule Aiur.Experiments.Auto.EpicMembers do
 
   @spec read(String.t(), integer(), keyword()) :: {:ok, map()} | {:error, term()}
   def read(repo, number, opts) do
-    with {:ok, rows} <- get(repo, "/issues/#{number}/sub_issues?per_page=100", opts),
+    with {:ok, rows} <- get(repo, "/issues/#{number}/sub_issues?per_page=100", Keyword.put(opts, :first_page?, true)),
          {members, foreign} <- Enum.split_with(rows, &(String.downcase(&1["repository_url"] || "https://api.github.com/repos/#{repo}") == String.downcase("https://api.github.com/repos/#{repo}"))),
          {:ok, merges} <- merges(repo, members, opts) do
       {:ok,
@@ -38,7 +38,17 @@ defmodule Aiur.Experiments.Auto.EpicMembers do
   def get(repo, suffix, opts) do
     with {:ok, token} <- Transport.require_token(opts) do
       request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      Transport.fetch_json_list(request, token, Transport.base_url() <> "/repos/" <> repo <> suffix, caller: :experiments_auto)
+      url = Transport.base_url() <> "/repos/" <> repo <> suffix
+      if opts[:first_page?], do: first_page(request, token, url), else: Transport.fetch_json_list(request, token, url, caller: :experiments_auto)
+    end
+  end
+
+  # Membership deliberately supports the first 100, unlike complete label discovery.
+  defp first_page(request, token, url) do
+    case request.(%{method: :get, url: url, token: token, caller: "experiments_auto"}) do
+      {:ok, %{status: 200, body: rows}} when is_list(rows) -> {:ok, Enum.take(rows, 100)}
+      {:ok, response} -> {:error, Errors.github_status_error(response)}
+      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
     end
   end
 
