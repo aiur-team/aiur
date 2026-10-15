@@ -53,15 +53,17 @@ defmodule Aiur.AgentEnvironment.GitIdentityTest do
 
     assert {_out, 0} =
              commit.(
-               "Add more\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nCo-authored-by: its-everdred <kevinweaver2@gmail.com>\nGenerated with Claude Code\nhttps://claude.ai/code/session/abc"
+               "Add more\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nCo-authored-by: its-everdred <kevinweaver2@gmail.com>\nGenerated with Claude Code\nhttps://claude.ai/code/session_abc\nSee src/lib/aiur/session/store.ex\nGenerated with protoc"
              )
 
     assert {message, 0} = git(workspace, home, env, ["show", "-s", "--format=%B", "HEAD"])
     refute message =~ "Claude"
     refute message =~ "anthropic.com"
-    refute message =~ "Generated with"
+    refute message =~ "Generated with Claude"
     refute message =~ "claude.ai"
     assert message =~ "Co-authored-by: its-everdred <kevinweaver2@gmail.com>"
+    assert message =~ "See src/lib/aiur/session/store.ex"
+    assert message =~ "Generated with protoc"
     assert {"2\n", 0} = git(workspace, home, env, ["rev-list", "--count", "HEAD"])
 
     settings =
@@ -98,7 +100,6 @@ defmodule Aiur.AgentEnvironment.GitIdentityTest do
     ])
 
     sha = String.trim(elem(git(workspace, home, [], ["rev-parse", "HEAD"]), 0))
-    hook = Path.join(workspace, ".git/hooks/pre-push")
 
     push_input =
       "refs/heads/main #{sha} refs/heads/main 0000000000000000000000000000000000000000\n"
@@ -161,20 +162,38 @@ defmodule Aiur.AgentEnvironment.GitIdentityTest do
              {"Apple Kid", "kid@example.com"}
   end
 
-  test "install leaves a repository-owned commit-msg hook and tracked settings alone", %{
+  test "install chains repository-owned Git hooks and leaves tracked settings alone", %{
     workspace: workspace,
     home: home
   } do
     hook = Path.join(workspace, ".git/hooks/commit-msg")
     File.mkdir_p!(Path.dirname(hook))
-    File.write!(hook, "#!/bin/sh\nexit 0\n")
+    File.write!(hook, "#!/bin/sh\necho called > commit-hook-called\n")
+    File.chmod!(hook, 0o755)
+    pre_push = Path.join(workspace, ".git/hooks/pre-push")
+    File.write!(pre_push, "#!/bin/sh\ncat > pre-push-input\n")
+    File.chmod!(pre_push, 0o755)
     File.mkdir_p!(Path.join(workspace, ".claude"))
     File.write!(Path.join(workspace, ".claude/settings.local.json"), "{\"model\": \"x\"}\n")
     {_out, 0} = git(workspace, home, [], ["add", "-f", ".claude/settings.local.json"])
 
     assert :ok = AttributionGuard.install(workspace)
 
-    assert File.read!(hook) == "#!/bin/sh\nexit 0\n"
+    assert File.read!(hook <> ".aiur-original") == "#!/bin/sh\necho called > commit-hook-called\n"
+    assert File.read!(pre_push <> ".aiur-original") == "#!/bin/sh\ncat > pre-push-input\n"
+
+    message_path = Path.join(workspace, "message")
+    File.write!(message_path, "subject\n\nCo-authored-by: Claude <noreply@anthropic.com>\n")
+    {output, 0} = System.cmd(hook, [message_path], cd: workspace, stderr_to_stdout: true)
+    assert output == ""
+    refute File.read!(message_path) =~ "Claude"
+    assert File.exists?(Path.join(workspace, "commit-hook-called"))
+
+    sha = String.trim(elem(git(workspace, home, [], ["rev-parse", "HEAD"]), 0))
+    push_input = "refs/heads/main #{sha} refs/heads/main 0000000000000000000000000000000000000000\n"
+    {output, 0} = System.cmd("sh", ["-c", "printf '%s' \"$1\" | .git/hooks/pre-push", "sh", push_input], cd: workspace, stderr_to_stdout: true)
+    assert output == ""
+    assert File.read!(Path.join(workspace, "pre-push-input")) == push_input
 
     assert File.read!(Path.join(workspace, ".claude/settings.local.json")) ==
              "{\"model\": \"x\"}\n"
