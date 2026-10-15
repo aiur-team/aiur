@@ -25,10 +25,12 @@ def main():
     outputs = needs.get('changes', {}).get('outputs', {})
     full = outputs.get('full_ci')
     if full not in ('true', 'false'):
-        raise ValueError('missing full_ci classification')
+        print('CI gate failed: missing or invalid full_ci classification', file=sys.stderr)
+        return 1
     dialyzer = outputs.get('dialyzer')
     if dialyzer not in ('true', 'false'):
-        raise ValueError('missing dialyzer classification')
+        print('CI gate failed: missing or invalid dialyzer classification', file=sys.stderr)
+        return 1
     required = required_jobs(os.environ['EVENT_NAME'], full == 'true', dialyzer == 'true')
     failed = [job for job in required if needs.get(job, {}).get('result') != 'success']
     if failed:

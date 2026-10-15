@@ -74,6 +74,7 @@ for (const [event, full, required] of [
   }
 }
 assert.equal(gate('pull_request', false, false).status, 0, 'fast docs PR passes with skipped dialyzer');
+assert.equal(gate('pull_request', false, true).status, 0, 'fast source PR passes when dialyzer succeeds');
 for (const result of ['failure', 'skipped', 'cancelled', '']) {
   const run = gate('pull_request', false, true, 'dialyzer', result);
   assert.notEqual(run.status, 0, `fast source PR rejects dialyzer=${result}`);
