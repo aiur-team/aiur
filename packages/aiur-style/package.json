@@ -23,7 +23,11 @@
       "default": "./dist/tokens.js"
     },
     "./tokens.css": "./dist/tokens.css",
-    "./theme-init.js": "./dist/init/theme-init.js"
+    "./theme-init.js": "./dist/init/theme-init.js",
+    "./banner": {
+      "types": "./dist/js/banner.d.ts",
+      "default": "./dist/js/banner.js"
+    }
   },
   "files": [
     "dist",

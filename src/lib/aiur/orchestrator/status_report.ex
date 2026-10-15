@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
   alias Aiur.Orchestrator.ControlLifecycle
+  alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.SnapshotPublisher
   alias Aiur.Orchestrator.SnapshotStore
@@ -120,6 +121,19 @@ defmodule Aiur.Orchestrator.StatusReport do
       end
     else
       []
+    end
+  end
+
+  @spec has_live_owner_api(GenServer.server(), String.t(), timeout()) :: boolean() | :unknown
+  def has_live_owner_api(server, identifier, timeout) do
+    if State.alive?(server) do
+      try do
+        GenServer.call(server, {:has_live_owner, identifier}, timeout)
+      catch
+        :exit, _ -> :unknown
+      end
+    else
+      :unknown
     end
   end
 
@@ -309,6 +323,23 @@ defmodule Aiur.Orchestrator.StatusReport do
       |> Enum.reject(&is_nil/1)
 
     {:reply, identifiers, state}
+  end
+
+  @spec has_live_owner(State.t(), String.t()) :: {:reply, boolean(), State.t()}
+  def has_live_owner(%State{} = state, identifier) do
+    issue_id =
+      state.last_polled_issues
+      |> Map.values()
+      |> Enum.find_value(identifier, fn issue -> if issue.identifier == identifier, do: issue.id end)
+
+    ownership = state.dispatch_recovery.workspace_ownership
+
+    live? =
+      not is_nil(State.find_running_by_identifier(state.running, identifier)) or
+        IssueSync.owned_or_scheduled?(state, issue_id) or
+        Map.has_key?(ownership.waits, identifier) or Map.has_key?(ownership.ready, issue_id)
+
+    {:reply, live?, state}
   end
 
   @spec status(State.t()) :: {:reply, [map()], State.t()}

@@ -15,6 +15,7 @@ defmodule Aiur.Experiments.Auto.SpecBuilder do
        %{
          key: line.key,
          title: "#{line.source}: #{ref(line)}",
+         status: if(line.source == :feature and line.evidence[:armed] == true, do: "draft", else: "active"),
          owner: %{kind: "agent", id: "auto"},
          origin: %{kind: type, ref: ref(line)},
          design: %{kind: "before_after", change: %{type: type, ref: ref(line), time: at, evidence: evidence}, assign_by: "start"},

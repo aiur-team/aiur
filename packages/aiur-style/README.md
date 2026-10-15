@@ -38,7 +38,7 @@ import 'aiur-style/aiur-style.css';
 
 ### JavaScript
 
-Theme behaviors are exported from the package root.
+Theme and banner behaviors are exported from the package root.
 
 ```javascript
 import { getTheme, setTheme, onThemeChange, initThemeToggle } from 'aiur-style';
@@ -87,6 +87,25 @@ changes while the attribute is absent, and returns an unsubscribe function.
 bind once; the first call's `{destroy}` removes the listeners and permits
 initialization again. Supply `type="button"`, an accessible label, and
 `aria-hidden="true"` on decorative icons in your markup.
+
+## Announcement banner
+
+Use `markup/banner.html` as the server-rendered pattern and load the shared CSS.
+Match its `data-aiur-banner` campaign id to the initializer's `data-banner`.
+Initialize it from an external module:
+
+```javascript
+import { initBanner } from 'aiur-style/banner';
+const banner = initBanner(document.querySelector('[data-aiur="banner"]'));
+// When the element is removed:
+banner.destroy();
+```
+
+Alternatively, load `dist/js/auto.js` as an external module to initialize
+`data-aiur="banner"` elements. Closing saves `aiur-banner:<id>=dismissed`,
+hides the banner, moves focus to the next control (or `main`/`body`), and
+emits a bubbling `aiur:bannerdismiss` event. Storage failures still allow
+closing for the current page. Choose a new campaign id to show a new message.
 
 ## Tokens
 

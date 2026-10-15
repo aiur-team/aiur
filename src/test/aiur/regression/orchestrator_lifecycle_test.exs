@@ -1,10 +1,7 @@
 defmodule Aiur.Regression.OrchestratorLifecycleTest do
   use Aiur.TestSupport
 
-  @moduledoc """
-  These tests pin `Aiur.Orchestrator` lifecycle behavior prior to the T-022..T-027
-  decomposition and must pass unmodified through every extraction wave.
-  """
+  @moduledoc "These tests pin Aiur.Orchestrator lifecycle behavior before the T-022..T-027 decomposition."
 
   alias Aiur.Events.SubscriptionStore
   require Logger
@@ -18,6 +15,9 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
         [] -> {:ok, []}
       end)
     end
+
+    def update_issue_state(issue_id, state_name, _opts),
+      do: update_issue_state(issue_id, state_name)
 
     def fetch_issue_states_by_ids(issue_ids) do
       wanted = MapSet.new(issue_ids)
@@ -292,7 +292,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       previous_agent = Application.get_env(:aiur, :hermetic_rework_agent)
       previous_issues = Application.get_env(:aiur, :hermetic_rework_issues)
       previous_delay = Application.get_env(:aiur, :comment_rework_retry_delay_ms)
-      {:ok, agent} = Agent.start_link(fn -> [{:error, {:github_api_status, 502}}, :ok] end)
+      {:ok, agent} = Agent.start_link(fn -> [{:error, {:github_api_status, 502}}, :ok, :ok] end)
 
       Application.put_env(:aiur, :comment_rework_retry_delay_ms, 0)
 

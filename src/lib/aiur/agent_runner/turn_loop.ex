@@ -134,7 +134,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
         on_safe_checkpoint: callbacks.on_safe_checkpoint,
         on_operator_message: callbacks.on_operator_message,
         on_operator_response: callbacks.on_operator_response,
-        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id)
+        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id, rework_head_sha: Keyword.get(opts, :rework_head_sha))
       )
 
     record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
