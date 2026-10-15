@@ -45,6 +45,7 @@
     }
   },
   "scripts": {
+    "prepare": "npm run build",
     "build": "node scripts/build.mjs",
     "check-dist": "node scripts/check-dist.mjs",
     "sync": "node scripts/sync.mjs",
