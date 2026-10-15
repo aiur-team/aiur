@@ -49,14 +49,14 @@ try {
     console.warn('⚠ No CSS files found in src/css/');
   }
 
-  // Concatenate all CSS into main file with LF line endings
+  // Keep tokens verbatim; compact component closing braces to bound bundle size.
   const tokenCss = buildTokens(distDir);
   const cssContent = tokenCss + cssFiles
     .map(file => {
       const content = fs.readFileSync(path.join(srcCssDir, file), 'utf8');
       return content.replace(/\r\n/g, '\n');
     })
-    .join('\n');
+    .join('\n').replace(/\n[ \t]*}/g, ' }');
 
   const mainCssPath = path.join(distDir, 'aiur-style.css');
   fs.writeFileSync(mainCssPath, cssContent, { encoding: 'utf8' });

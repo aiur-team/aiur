@@ -3,6 +3,7 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
 
   alias Aiur.RunTelemetry.Cohort
   alias Aiur.RunTelemetry.Dataset.Source
+  alias Aiur.RunTelemetry.EventFields
 
   @default_review_resume_grace_seconds 300
 
@@ -80,6 +81,7 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
           source_line: record.source_line
         }
         |> Map.merge(Cohort.event_fields(attributes))
+        |> Map.merge(EventFields.take(attributes))
       ]
     else
       _other -> []

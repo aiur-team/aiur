@@ -24,7 +24,11 @@
     },
     "./tokens.css": "./dist/tokens.css",
     "./theme-init.js": "./dist/init/theme-init.js",
-    "./vitepress.css": "./dist/vitepress.css"
+    "./vitepress.css": "./dist/vitepress.css",
+    "./banner": {
+      "types": "./dist/js/banner.d.ts",
+      "default": "./dist/js/banner.js"
+    }
   },
   "files": [
     "dist",
