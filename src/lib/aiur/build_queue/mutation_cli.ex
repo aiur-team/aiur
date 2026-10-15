@@ -10,7 +10,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
 
         cond do
           Enum.any?(results, &match?({_, {:error, :outcome_unknown}}, &1)) -> 124
-          Enum.all?(results, &match?({_, :ok}, &1)) -> 0
+          Enum.all?(results, &successful?/1) -> 0
           true -> 1
         end
 
@@ -20,7 +20,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
     end
   end
 
-  @spec execute(keyword()) :: {:ok, [{String.t(), :ok | {:error, term()}}]} | {:error, term()}
+  @spec execute(keyword()) :: {:ok, [{String.t(), :ok | {:ok, [String.t()]} | {:error, term()}}]} | {:error, term()}
   def execute(opts) do
     with :ok <- guard_workspace(opts), :ok <- validate(opts), {:ok, opts} <- trigger(opts), :ok <- confirm(opts) do
       if opts[:build_order], do: adopt(opts), else: dispatch(Keyword.fetch!(opts, :verb), opts)
@@ -148,6 +148,10 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp inserted?({:error, {:marker_write_failed, _}}), do: true
   defp inserted?(_), do: false
 
+  defp successful?({_id, :ok}), do: true
+  defp successful?({_id, {:ok, unobserved}}) when is_list(unobserved), do: true
+  defp successful?(_), do: false
+
   defp target(opts) do
     if opts[:queue] do
       model = BuildQueue.show(server(opts))
@@ -189,6 +193,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp message({:error, {:already_queued, name}}), do: "already in queue #{name}"
   defp message({:error, :agent_workspace}), do: "blocked in agent workspace"
   defp message({:error, :outcome_unknown}), do: "outcome unknown; run aiur queue show before retrying"
+  defp message({:ok, unobserved}) when is_list(unobserved), do: "released; no observation for ##{Enum.join(unobserved, ", #")}"
   defp message({:error, reason}) when is_atom(reason), do: reason |> Atom.to_string() |> String.replace("_", " ")
   defp message({:error, reason}), do: inspect(reason)
 end
