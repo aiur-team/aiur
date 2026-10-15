@@ -17,6 +17,7 @@
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
     "event-bus",
+    "identity",
     "kernel",
     "orchestration",
     "projections",

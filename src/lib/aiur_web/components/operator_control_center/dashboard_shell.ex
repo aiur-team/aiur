@@ -245,6 +245,10 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     )
   end
 
+  defp nav_icon(:experiments) do
+    Phoenix.HTML.raw(~s(<svg #{@nav_svg_attrs}><path d="M9 3h6M10 3v6l-6 10a2 2 0 0 0 2 3h12a2 2 0 0 0 2-3L14 9V3M7 15h10"/></svg>))
+  end
+
   defp nav_icon(:streamdeck) do
     Phoenix.HTML.raw(
       ~s(<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2.5"/><circle cx="7" cy="9" r="1.7"/><circle cx="12" cy="9" r="1.7"/><circle cx="17" cy="9" r="1.7"/><circle cx="7" cy="15" r="1.7"/><circle cx="12" cy="15" r="1.7"/><circle cx="17" cy="15" r="1.7"/></svg>)

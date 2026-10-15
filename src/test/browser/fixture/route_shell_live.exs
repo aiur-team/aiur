@@ -117,10 +117,10 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
   end
 
   defp analytics(%{"analytics" => "unavailable"}) do
-    %{available?: false, path: nil, message: "Telemetry analytics are unavailable in this fixture."}
+    %{experiments_available?: true, available?: false, path: nil, message: "Telemetry analytics are unavailable in this fixture."}
   end
 
   defp analytics(_params) do
-    %{available?: true, path: "/analytics", message: "Open fixture analytics."}
+    %{experiments_available?: true, available?: true, path: "/analytics", message: "Open fixture analytics."}
   end
 end
