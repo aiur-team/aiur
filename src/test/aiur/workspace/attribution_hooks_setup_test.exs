@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.AttributionHooksSetupTest do
   use ExUnit.Case, async: true
 
   @hooks_path Path.expand("../../../.aiur/hooks", __DIR__)
-  @installer_path Path.expand("../../../scripts/install-attribution-hooks", __DIR__)
+  @installer_path Path.expand("../../../../scripts/install-attribution-hooks", __DIR__)
 
   test "after_create installs hooks that strip AI trailers and preserve human co-authors" do
     root = Aiur.TestSupport.tmp_root!("attribution-hooks-setup")
