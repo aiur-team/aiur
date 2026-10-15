@@ -167,8 +167,6 @@ defmodule Aiur.Orchestrator.IssueSync.LabelHeal do
     end
   end
 
-  defp running_state_claim(_state, _issue_id), do: nil
-
   defp last_polled_state_claim(%State{last_polled_issues: polled}, issue_id) when is_map(polled) do
     case Map.get(polled, issue_id) do
       %Issue{state_labels: [single]} ->
@@ -181,8 +179,6 @@ defmodule Aiur.Orchestrator.IssueSync.LabelHeal do
         nil
     end
   end
-
-  defp last_polled_state_claim(_state, _issue_id), do: nil
 
   defp normalized_state_labels(state_labels) when is_list(state_labels) do
     state_labels
