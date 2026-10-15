@@ -93,6 +93,12 @@ class StrataTest(unittest.TestCase):
                                            "null": null, "method": "percentile_stratified",
                                            "resamples": 50, "mc_se": 0})
 
+        # A different within-stratum treatment effect makes the pooled weight
+        # observable: baseline weights (.8,.2) would give difference 1, not 5.
+        shifted = {"one": cell([1] * 8, [2] * 2), "two": cell([9] * 2, [18] * 8)}
+        effect = standardized(shifted, ["a", "b"], resamples=50)["median_difference"]
+        self.assertEqual((effect["estimate"], effect["lo"], effect["hi"]), (5, 5, 5))
+
     def test_standardized_direction_and_non_degenerate_bootstrap(self):
         data = {"one": cell([1, 2, 3, 4], [4, 5, 6, 7]),
                 "two": cell([9, 10], [12, 13])}
