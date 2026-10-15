@@ -165,7 +165,7 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                queue_reconcile_fun: fn _, _ -> :ok end
              )
 
-    assert_receive {:watcher_processed, 17}
+    assert_receive {:watcher_processed, 17}, 1_000
     assert eventually(fn -> not is_nil(LandingWatch.state(server).last_poll_at_ms) end)
     assert LandingWatch.state(server).watcher == :running
     GenServer.stop(pid)
