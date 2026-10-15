@@ -1,6 +1,7 @@
 defmodule Aiur.Experiments.Auto.EpicMembersTest do
   use ExUnit.Case, async: true
-  alias Aiur.Experiments.Auto.{EpicMembers, FeatureEpics}
+  alias Aiur.Config.Schema.Experiments.Auto, as: Config
+  alias Aiur.Experiments.Auto.{EpicMembers, FeatureEpics, FeatureState}
 
   test "membership deliberately accepts a capped page while labelled discovery requires completeness" do
     rows = for n <- 1..100, do: %{"number" => n, "state" => "open", "state_reason" => nil}
@@ -40,5 +41,19 @@ defmodule Aiur.Experiments.Auto.EpicMembersTest do
     end
 
     assert {:error, :incomplete_member_merge} = EpicMembers.read("owner/repo", 42, request_fun: request, recent_merges: [])
+  end
+
+  test "completed without code has no merge and is identified as excluded" do
+    member = %{"number" => 2, "state" => "closed", "state_reason" => "completed"}
+
+    request = fn req ->
+      body = if req.method == :get, do: [member], else: %{"data" => %{"repository" => %{"issue" => %{"closedByPullRequestsReferences" => %{"nodes" => [], "pageInfo" => %{"hasNextPage" => false}}}}}}
+      {:ok, %{status: 200, body: body, headers: []}}
+    end
+
+    assert {:ok, observation} = EpicMembers.read("owner/repo", 42, request_fun: request, recent_merges: [])
+    assert observation["merges"] == []
+    {state, [:arm]} = FeatureState.transition(nil, Map.put(observation, "labelled", true), %Config{}, ~U[2026-10-10 00:00:00Z])
+    assert state["excluded_completed"] == [2]
   end
 end

@@ -11,7 +11,7 @@ defmodule Aiur.Experiments.Auto.FeatureExperiment do
       key: "auto:feature:#{number}",
       at: time(state["before_end"]),
       before_window: {time(state["before_start"]), time(state["before_end"])},
-      evidence: %{armed: true, epic: number, baseline_coverage: state["baseline_coverage"]}
+      evidence: Map.merge(exclusion_evidence(state), %{armed: true, epic: number, baseline_coverage: state["baseline_coverage"]})
     }
 
     with {:ok, _created} <- Creator.create(line, Keyword.get(opts, :creator, Creator)),
@@ -45,7 +45,8 @@ defmodule Aiur.Experiments.Auto.FeatureExperiment do
     id = state["experiment_id"]
 
     with {:ok, spec, false} <- Reader.spec(id),
-         {:ok, updated} <- amend(id, spec, %{"status" => "cancelled"}),
+         design = put_in(spec["design"], ["change", "evidence"], Map.merge(spec["design"]["change"]["evidence"], exclusion_evidence(state))),
+         {:ok, updated} <- amend(id, spec, %{"status" => "cancelled", "design" => design}),
          :ok <- Notifier.notify(Spec.to_map(updated), "cancelled", Keyword.get(opts, :notifier, Notifier)) do
       {:ok, state}
     end
@@ -70,6 +71,7 @@ defmodule Aiur.Experiments.Auto.FeatureExperiment do
     with {:ok, spec, false} <- Reader.spec(id) do
       evidence =
         Map.merge(spec["design"]["change"]["evidence"], live)
+        |> Map.merge(exclusion_evidence(state))
         |> Map.merge(%{"armed" => false, "merge_sha" => state["last_merge"]["sha"], "excluded" => %{"start" => state["first_merge"]["at"], "end" => live["at"]}})
 
       design = spec["design"] |> put_in(["change", "time"], live["at"]) |> put_in(["change", "evidence"], evidence)
@@ -116,6 +118,8 @@ defmodule Aiur.Experiments.Auto.FeatureExperiment do
       _other -> nil
     end
   end
+
+  defp exclusion_evidence(state), do: Map.take(state, ~w(excluded_completed cross_repo_excluded member_limit))
 
   defp before(state), do: %{"start" => state["before_start"], "end" => state["before_end"]}
   defp time(value), do: value |> DateTime.from_iso8601() |> elem(1)

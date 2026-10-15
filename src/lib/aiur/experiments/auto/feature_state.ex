@@ -13,6 +13,8 @@ defmodule Aiur.Experiments.Auto.FeatureState do
   def transition(%{"phase" => "not_an_epic"}, observation, config, now), do: discover(observation, config, now)
 
   def transition(state, observation, config, now) do
+    state = Map.merge(state, exclusions(observation))
+
     cond do
       not observation["labelled"] -> {Map.put(state, "phase", "cancelled"), [:cancel]}
       all_excluded?(observation) -> {Map.put(state, "phase", "cancelled"), [:cancel]}
@@ -47,7 +49,7 @@ defmodule Aiur.Experiments.Auto.FeatureState do
       "cross_repo_excluded" => observation["cross_repo_excluded"] || []
     }
 
-    {state, [:arm]}
+    {Map.merge(state, exclusions(observation)), [:arm]}
   end
 
   defp advance(state, observation, config, now) do
@@ -75,6 +77,12 @@ defmodule Aiur.Experiments.Auto.FeatureState do
       Enum.all?(observation["members"], &(&1["state"] == "closed")) and DateTime.diff(now, time(state["changed_at"])) >= config.feature_quiet_hours * 3_600 -> "awaiting_live"
       true -> "merging"
     end
+  end
+
+  defp exclusions(observation) do
+    merged = Enum.map(observation["merges"], & &1["number"])
+    completed = for member <- observation["members"], member["state"] == "closed" and member["state_reason"] == "completed" and member["number"] not in merged, do: member["number"]
+    %{"excluded_completed" => completed, "cross_repo_excluded" => observation["cross_repo_excluded"] || [], "member_limit" => observation["member_limit"] || false}
   end
 
   defp all_excluded?(observation), do: observation["members"] != [] and observation["merges"] == [] and Enum.all?(observation["members"], &(&1["state"] == "closed"))
