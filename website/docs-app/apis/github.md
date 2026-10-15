@@ -817,3 +817,13 @@ Reviews use each reviewer's latest decision. An approval must match the current 
 A merge-queue rule routes the pinned head through GraphQL enqueueing; it never authorizes a direct bypass merge. Without a queue, squash merge pins the reviewed head. The ledger distinguishes enqueueing from observed merges.
 
 The daemon independently verifies the configured repository, PR head, base and merge SHA against GitHub before publishing `system.pr.merged`; caller-supplied actor data is replaced with GitHub's merge attribution. See [the command reference](/reference/cli#pr-merge).
+
+## Measured feature epics
+
+The feature worker uses the quota-accounted transport as `experiments_auto`:
+one labelled-issue page hourly (100 rows; a full page reports incomplete discovery),
+and one `/issues/{number}/sub_issues` page per tracked epic hourly. Merge and
+membership deposits can bring the member refresh forward, bounded to five minutes.
+ResourceStore label deposits discover epics between polls. Closed completed members
+missing RecentMergeStore evidence use a bounded linked-PR GraphQL read for merge
+time and SHA. Incomplete or refused reads preserve state for retry. No saving is claimed.
