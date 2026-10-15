@@ -315,6 +315,10 @@ defmodule AiurWeb.StreamdeckChannelVoiceTest do
     def synthesizer, do: nil
     @impl true
     def configured?, do: true
+    @impl true
+    def child_specs, do: []
+    @impl true
+    def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
   end
 
   defmodule UnconfiguredVoiceProvider do
@@ -325,6 +329,10 @@ defmodule AiurWeb.StreamdeckChannelVoiceTest do
     def synthesizer, do: nil
     @impl true
     def configured?, do: false
+    @impl true
+    def child_specs, do: []
+    @impl true
+    def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
   end
 
   defmodule FakeVoiceSession do
