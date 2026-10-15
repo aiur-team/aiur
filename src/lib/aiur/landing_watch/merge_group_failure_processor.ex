@@ -101,7 +101,6 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
       id when is_integer(id) ->
         case CIRecovery.read("/actions/jobs/#{id}/logs", opts) do
           {:ok, %{"log" => log}} when is_binary(log) -> {:ok, log}
-          {:ok, log} when is_binary(log) -> {:ok, log}
           {:error, reason} -> {:error, reason}
           _ -> {:error, :invalid_actions_job_log}
         end

@@ -5,13 +5,13 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
   @page_limit 5
 
-  @spec recent_main_paths(binary(), keyword()) :: MapSet.t()
+  @spec recent_main_paths(binary(), keyword()) :: MapSet.t(String.t())
   def recent_main_paths(base, opts) do
     case Keyword.get(opts, :recent_main_failure_paths_fun, &fetch_recent_main_failure_paths/2).(
            base,
            opts
          ) do
-      {:ok, paths} when is_list(paths) -> MapSet.new(paths)
+      {:ok, paths} when is_list(paths) -> paths |> Enum.filter(&is_binary/1) |> MapSet.new()
       _ -> MapSet.new()
     end
   end
@@ -66,7 +66,6 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
       id when is_integer(id) ->
         case CIRecovery.read("/actions/jobs/#{id}/logs", opts) do
           {:ok, %{"log" => log}} when is_binary(log) -> {:ok, log}
-          {:ok, log} when is_binary(log) -> {:ok, log}
           {:error, reason} -> {:error, reason}
           _ -> {:error, :invalid_actions_job_log}
         end
