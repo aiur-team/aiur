@@ -9,7 +9,8 @@ defmodule Aiur.MergePolicyCLI do
     state = Aiur.MainWatch.state()
     landing = Aiur.LandingWatch.state()
     main = if policy.main_watch.enabled or state.watcher != :not_running, do: " " <> main_state(state), else: ""
-    IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher} landing_watcher=#{landing.watcher}#{main}")
+    watch_error = if is_binary(state[:last_error]), do: " watcher_error=#{state.last_error}", else: ""
+    IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher}#{watch_error} landing_watcher=#{landing.watcher}#{main}")
   end
 
   @spec main_state(map(), integer()) :: String.t()

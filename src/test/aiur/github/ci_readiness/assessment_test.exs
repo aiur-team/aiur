@@ -187,6 +187,25 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     assert_received {:readiness_request, "workflow-content?ref=develop"}
   end
 
+  test "dispatch reports the operator token required instead of accepting a persisted ready result" do
+    path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
+    original_token = System.get_env(CiReadiness.operator_token_env())
+    System.delete_env(CiReadiness.operator_token_env())
+
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+      if original_token, do: System.put_env(CiReadiness.operator_token_env(), original_token), else: System.delete_env(CiReadiness.operator_token_env())
+    end)
+
+    assert :ok = CiReadiness.persist_assessment(readiness, opts)
+    assert {:ok, %{ready?: false} = unavailable} = CiReadiness.dispatch_check(opts)
+    assert {:unavailable, :ci_readiness_operator_token_required} in unavailable.issues
+    assert CiReadiness.format(unavailable) =~ CiReadiness.operator_token_env()
+  end
+
   test "dispatch re-assesses when the live required check set changes" do
     path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     old = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
@@ -257,17 +276,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
 
     assert :ok = CiReadiness.persist_assessment(readiness, Keyword.put(opts, :now, DateTime.add(now, -3_601, :second)))
 
-    request_fun = fn %{url: url} ->
-      cond do
-        String.ends_with?(url, "/branches/develop") -> {:ok, %{status: 200, body: %{}}}
-        String.ends_with?(url, "/repos/owner/repo") -> {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
-        url =~ "/contents/.github/workflows" -> {:ok, %{status: 200, body: []}}
-        true -> flunk("unexpected request: #{url}")
-      end
-    end
-
-    assert {:ok, %{issues: [:no_pr_workflow, :no_required_check]}} =
-             CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, request_fun))
+    assert {:ok, %{issues: [{:unavailable, :ci_readiness_operator_token_required}]}} = CiReadiness.dispatch_check(opts)
   end
 
   test "a newer persisted operator assessment replaces the live memory result" do
@@ -411,6 +420,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
 
     assert %{issues: [{:unavailable, reason}]} = CiReadiness.cached_result(opts)
     assert reason =~ "ci_readiness_operator_token_required"
+    assert CiReadiness.format(CiReadiness.cached_result(opts)) =~ CiReadiness.operator_token_env()
   end
 
   test "reports an unknown persisted issue instead of silently dropping the assessment" do
