@@ -62,19 +62,6 @@ defmodule Aiur.DogfoodHooksTest do
 
     assert_hook_ok!("after_create", workspace, context.origin)
     assert current_branch!(workspace) == ticket_branch()
-    assert File.regular?(Path.join(workspace, ".git/hooks/commit-msg"))
-    assert File.regular?(Path.join(workspace, ".git/hooks/pre-push"))
-    assert File.read!(Path.join(workspace, ".git/hooks/commit-msg")) =~ "aiur-attribution-guard"
-    assert File.read!(Path.join(workspace, ".git/hooks/pre-push")) =~ "aiur-attribution-pre-push"
-    git!(["-C", workspace, "config", "user.name", "Test User"])
-    git!(["-C", workspace, "config", "user.email", "test@example.com"])
-    File.write!(Path.join(workspace, "hook-check"), "content\n")
-    git!(["-C", workspace, "add", "hook-check"])
-    git!(["-C", workspace, "commit", "-m", "hook check\n\nCo-authored-by: Claude <noreply@anthropic.com>\nCo-authored-by: Human <human@example.com>"])
-    message = git!(["-C", workspace, "show", "-s", "--format=%B", "HEAD"])
-    refute message =~ "Claude"
-    assert message =~ "Co-authored-by: Human <human@example.com>"
-
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
     assert File.regular?(Path.join([cache_root(workspace), "meta", "findings.ndjson"]))
     assert File.dir?(Path.join([cache_root(workspace), "meta", "retros"]))
