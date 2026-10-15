@@ -90,10 +90,11 @@ class StratificationTest(unittest.TestCase):
         spec['metrics'].append({'id': 'missing', 'kind': 'duration'})
         spec['primary_metrics'].append('missing')
         result = analyze(snapshot, spec)['metrics']['latency']
-        self.assertAlmostEqual(result['p_adj'], min(1, 2 * result['stratified']['p_value']))
+        expected_holm = min(1, 2 * result['stratified']['p_value'])
+        self.assertAlmostEqual(result['p_adj'], expected_holm, delta=expected_holm * 1e-8)
         expected = adjust({k: r.get('p_raw', 1) for k, r in result['strata'].items()}, 'bh')
         for key, child in result['strata'].items():
-            self.assertAlmostEqual(child['p_adj'], expected[key])
+            self.assertAlmostEqual(child['p_adj'], expected[key], delta=expected[key] * 1e-8)
             self.assertEqual(child['adjustment'], 'bh')
             self.assertIn('95% CI', child['summary_text'])
 
