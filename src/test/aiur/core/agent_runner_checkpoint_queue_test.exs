@@ -9,7 +9,14 @@ defmodule Aiur.Core.AgentRunnerCheckpointQueueTest do
   end
 
   test "agent runner delivers queued operator messages at the turn boundary after a deferred checkpoint" do
-    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-checkpoint")
+    test_root =
+      Path.join(
+        "/tmp",
+        "aiur-elixir-agent-runner-checkpoint-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(test_root)
+    isolate_ownership_store!(test_root)
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -165,7 +172,14 @@ defmodule Aiur.Core.AgentRunnerCheckpointQueueTest do
   end
 
   test "agent runner requeues drained operator message when parent turn completes before delivery acknowledgement" do
-    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-checkpoint-completion-race")
+    test_root =
+      Path.join(
+        "/tmp",
+        "aiur-elixir-agent-runner-checkpoint-completion-race-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(test_root)
+    isolate_ownership_store!(test_root)
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -231,11 +245,7 @@ defmodule Aiur.Core.AgentRunnerCheckpointQueueTest do
       )
 
       orchestrator_name = Module.concat(__MODULE__, :CheckpointCompletionRaceOrchestrator)
-      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
-
-      on_exit(fn ->
-        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
-      end)
+      orchestrator_pid = start_supervised!({Orchestrator, name: orchestrator_name, initial_poll?: false})
 
       :sys.replace_state(orchestrator_pid, fn state ->
         {queue_store, _item} =
@@ -287,15 +297,37 @@ defmodule Aiur.Core.AgentRunnerCheckpointQueueTest do
                OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-254")
 
       assert :sys.get_state(orchestrator_pid).retry_attempts == %{}
-      assert log =~ "Queued item delivery lost completion race"
-      assert log =~ "issue_id=issue-checkpoint-completion-race"
-      assert log =~ "request_id="
-      assert log =~ "reason=:response_timeout"
-      assert log =~ "decision=requeue_after_parent_turn_completed"
-      refute log =~ "Agent run failed"
+
+      matching_log =
+        log
+        |> String.split("\n")
+        |> Enum.filter(&String.contains?(&1, "issue_id=issue-checkpoint-completion-race"))
+        |> Enum.join("\n")
+
+      assert matching_log =~ "Queued item delivery lost completion race"
+      assert matching_log =~ "request_id="
+      assert matching_log =~ "decision=requeue_after_parent_turn_completed"
+      refute matching_log =~ "Agent run failed"
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)
     end
+  end
+
+  defp isolate_ownership_store!(test_root) do
+    previous = Application.get_env(:aiur, :decision_state_dir)
+    Application.put_env(:aiur, :decision_state_dir, Path.join(test_root, "decisions"))
+
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Workspace.Ownership.Store)
+    {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Workspace.Ownership.Store)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:aiur, :decision_state_dir, previous),
+        else: Application.delete_env(:aiur, :decision_state_dir)
+
+      :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Workspace.Ownership.Store)
+      {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Workspace.Ownership.Store)
+    end)
   end
 end

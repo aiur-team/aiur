@@ -1151,13 +1151,13 @@ defmodule Aiur.AppServerTest do
       on_message = fn message -> send(test_pid, {:app_server_message, message}) end
 
       log =
-        capture_log(fn ->
+        capture_log([level: :warning], fn ->
           assert {:ok, _result} = AppServer.run(workspace, "Capture stderr log", issue, on_message: on_message) |> tap(fn _result -> Logger.flush() end)
         end)
 
       assert_received {:app_server_message, %{event: :turn_completed}}
       refute_received {:app_server_message, %{event: :malformed}}
-      assert log =~ "Codex turn stream output: warning: this is stderr noise"
+      assert Enum.any?(String.split(log, "\n"), &String.contains?(&1, "Codex turn stream output: warning: this is stderr noise"))
     after
       File.rm_rf(test_root)
     end

@@ -111,6 +111,7 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
 
     File.write!(path, """
     import json, sys
+    print("READY", flush=True)
     request = json.loads(sys.stdin.readline())
     thread_id = request["params"]["threadId"]
     response = {"id": request["id"], "result": {}}
@@ -130,6 +131,16 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
 
     executable = System.find_executable("python3") || raise "python3 is required for JSON-RPC wire tests"
     port = Port.open({:spawn_executable, executable}, [:binary, :exit_status, :use_stdio, {:line, 65_536}, args: [path]])
+
+    receive do
+      {^port, {:data, {:eol, "READY"}}} -> :ok
+      {^port, {:exit_status, status}} -> raise "fake Codex server exited before ready (#{status})"
+    after
+      5_000 ->
+        Port.close(port)
+        raise "fake Codex server did not become ready within 5 seconds"
+    end
+
     {port, dir}
   end
 

@@ -93,6 +93,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     original_override = Application.get_env(:aiur, :decision_state_dir)
     dir = Aiur.TestSupport.tmp_root!("aiur-revision-integration")
     Application.put_env(:aiur, :decision_state_dir, dir)
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
     :ok = DecisionPubSub.subscribe()
 
     on_exit(fn ->
