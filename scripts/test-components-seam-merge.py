@@ -35,7 +35,9 @@ with tempfile.TemporaryDirectory(prefix='components-seam-merge-') as directory:
     git('add', '.')
     git('commit', '-q', '-m', 'base')
     before = len(checker.load_manifest(root)['seams'])
-    assert before == 44, f'expected all main seams in the split registry, found {before}'
+    expected = len(list((REPO / SEAMS).glob('*.json')))
+    assert before == expected, f'expected every seam file to load ({expected}), found {before}'
+    assert before >= 44, f'expected the current main seam baseline, found {before}'
     for branch in ('left', 'right'):
         git('switch', '-q', '-c', branch, 'base')
         seam = {'from': 'orchestration', 'to_module': f'Aiur.Fixture.{branch.title()}', 'kind': 'reference',
