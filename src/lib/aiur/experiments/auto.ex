@@ -3,7 +3,7 @@ defmodule Aiur.Experiments.Auto do
   use Supervisor
   require Logger
 
-  alias Aiur.Experiments.Auto.{AiurVersionLine, Creator, DeployLedger, Line, RepoReleaseLine, WindowManager}
+  alias Aiur.Experiments.Auto.{AiurVersionLine, Creator, DeployLedger, FeatureLine, Line, RepoReleaseLine, WindowManager}
 
   @spec child_specs(keyword()) :: [Supervisor.child_spec() | {module(), keyword()}]
   def child_specs(opts \\ []) do
@@ -35,7 +35,8 @@ defmodule Aiur.Experiments.Auto do
   defp source_children(config, opts) do
     version = Keyword.get(opts, :version_opts, []) |> Keyword.put_new(:ledger_opts, Keyword.get(opts, :ledger_opts, []))
     release = Keyword.get(opts, :release_opts, []) |> Keyword.put_new(:config, config)
-    if(config.version_line, do: [{AiurVersionLine, version}], else: []) ++ if(config.release_line, do: [{RepoReleaseLine, release}], else: [])
+    feature = Keyword.get(opts, :feature_opts, []) |> Keyword.put_new(:config, config)
+    if(config.version_line, do: [{AiurVersionLine, version}], else: []) ++ if(config.release_line, do: [{RepoReleaseLine, release}], else: []) ++ [{FeatureLine, feature}]
   end
 
   @spec create(Line.t()) :: {:ok, term()} | {:error, term()}
@@ -75,6 +76,10 @@ defmodule Aiur.Experiments.Auto do
 
   defp source_status(:repo_release) do
     if Process.whereis(RepoReleaseLine), do: RepoReleaseLine.status(), else: %{status: :unavailable}
+  end
+
+  defp source_status(:feature) do
+    if Process.whereis(FeatureLine), do: FeatureLine.status(), else: %{status: :unavailable}
   end
 
   defp source_status(_source), do: %{}
