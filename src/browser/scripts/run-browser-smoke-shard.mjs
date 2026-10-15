@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
 
 const shards = {
-  1: ['test:home-css-ci', 'test:admission', 'check:elk', 'check:build-home-fixtures', 'test:build-home-protocol', 'test:build-home-now-state', 'test:harness', 'test:smoke', 'test:build-home-assets', 'test:shell', 'test:shell-chrome', 'test:design-parity', 'test:tokens'],
+  1: ['test:home-css-ci', 'test:admission', 'check:elk', 'check:build-home-fixtures', 'test:build-home-protocol', 'test:build-home-now-state', 'test:harness', 'test:smoke', 'test:build-home-assets', 'test:shell', 'test:shell-chrome', 'test:design-parity', 'test:tokens', 'test:units', 'test:provider-meters', 'test:meter-row', 'test:models-panel'],
   2: ['test:shell-width', 'test:command-history', 'test:build-order', 'test:build-queue', 'test:interaction', 'test:time-brush', 'test:performance', 'test:responsive', 'test:layout', 'test:ticket-context', 'test:shell-parity', 'test:streamdeck'],
-  3: ['test:units', 'test:provider-meters', 'test:meter-row', 'test:models-panel', 'test:quota-panel', 'test:parity', 'test:streamdeck-flow', 'test:palette', 'test:build-home', 'test:build-home-motion'],
+  3: ['test:quota-panel', 'test:parity', 'test:streamdeck-flow', 'test:palette', 'test:build-home', 'test:build-home-motion'],
 };
 
 const shard = Number(process.argv[2]);
