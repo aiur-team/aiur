@@ -1,6 +1,8 @@
 defmodule Aiur.ExecutorListenerTest do
   use Aiur.TestSupport
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Decision
   alias Aiur.Events.Exchange
   alias Aiur.Executor.StatePaths
@@ -348,6 +350,54 @@ defmodule Aiur.ExecutorListenerTest do
     assert wake["decision_id"] == decision.decision_id
     Process.sleep(100)
     assert [_only] = ExecutorWakeInbox.pending(@inbox_name)
+  end
+
+  # #4575 review: a ladder fault must not crash the process that holds the Executor bindings.
+  describe "decision escalation faults" do
+    test "a raising decision store leaves the listener alive and bound" do
+      assert_survives(decisions_fun: fn -> raise "decision store exploded" end)
+    end
+
+    test "an exiting gate count leaves the listener alive and bound" do
+      {:ok, decision} =
+        Aiur.DecisionValidation.normalize(
+          %{"question" => "Defer composed pixels?", "blocking" => true, "authority" => "human_required", "source_id" => "aged"},
+          ticket: %{identifier: "3141", title: "Renderer", url: nil},
+          source: %{agent_id: "codex", session_id: "s-1", event_id: nil},
+          now: DateTime.add(DateTime.utc_now(), -20 * 60, :second)
+        )
+
+      assert_survives(
+        decisions_fun: fn -> {:ok, [decision]} end,
+        gates_fun: fn _ticket -> exit(:hints_down) end,
+        condition_states_fun: fn topics -> Map.new(topics, &{&1, :unknown}) end
+      )
+    end
+
+    test "the escalation timer re-arms after each pass" do
+      test_pid = self()
+      decisions_fun = fn -> send(test_pid, :escalation_pass) && {:ok, []} end
+      start_listener(escalation_interval_ms: 10, escalation: [decisions_fun: decisions_fun])
+
+      assert_receive :escalation_pass, 1_000
+      assert_receive :escalation_pass, 1_000
+    end
+  end
+
+  defp assert_survives(escalation) do
+    pid = start_listener(escalation_interval_ms: :infinity, escalation: escalation)
+    bindings = ExecutorListener.bindings(@listener_name)
+    assert "executor.#" in bindings
+
+    log =
+      capture_log(fn ->
+        send(pid, :escalate)
+        assert ExecutorListener.backstop(@listener_name) == :ok
+      end)
+
+    assert log =~ "Decision escalation failed"
+    assert Process.alive?(pid)
+    assert ExecutorListener.bindings(@listener_name) == bindings
   end
 
   defp eventually(fun, attempts \\ 100)

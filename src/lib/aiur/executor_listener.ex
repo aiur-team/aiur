@@ -46,7 +46,8 @@ defmodule Aiur.ExecutorListener do
   @doc "The `executor-wait` backstop for aged open blocking Decisions (#4567)."
   @spec backstop(GenServer.server()) :: :ok
   def backstop(server \\ __MODULE__) do
-    GenServer.call(server, :backstop, 5_000)
+    # Bounded so a slow decision store delays `executor-wait` by at most a second.
+    GenServer.call(server, :backstop, 1_000)
   catch
     # A busy or absent listener must not stop `executor-wait` from waiting.
     :exit, _reason -> :ok
@@ -113,14 +114,25 @@ defmodule Aiur.ExecutorListener do
 
   def handle_info(:escalate, state) do
     schedule(:escalate, state.escalation_interval_ms)
-    {:noreply, %{state | escalations: DecisionEscalation.run(state.escalations, state.escalation_opts)}}
+    {:noreply, escalate(state, &DecisionEscalation.run/2)}
   end
 
   def handle_info(_other, state), do: {:noreply, state}
 
   @impl true
   def handle_call(:backstop, _from, state) do
-    {:reply, :ok, %{state | escalations: DecisionEscalation.backstop(state.escalations, state.escalation_opts)}}
+    {:reply, :ok, escalate(state, &DecisionEscalation.backstop/2)}
+  end
+
+  # This process holds the Executor bindings, so a ladder fault (a raise, exit
+  # or throw from the store, gate counts or alerting) must not crash it. The
+  # ladder keeps its last state and the next pass retries.
+  defp escalate(state, fun) do
+    %{state | escalations: fun.(state.escalations, state.escalation_opts)}
+  catch
+    kind, reason ->
+      Logger.warning("Decision escalation failed: #{Exception.format_banner(kind, reason)}")
+      state
   end
 
   @impl true
