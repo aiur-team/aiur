@@ -4,12 +4,18 @@
   /* Dashboard chrome differs from the site hairline/pill tokens. */
   .aiur-shell {
     --aiur-shell-measure: 75rem;
-    --aiur-shell-hairline: rgba(221, 226, 235, 0.08);
-    --aiur-shell-pill-bg: rgba(221, 226, 235, 0.04);
-  }
-  html[data-theme="light"] .aiur-shell {
     --aiur-shell-hairline: rgba(42, 37, 26, 0.1);
     --aiur-shell-pill-bg: rgba(42, 37, 26, 0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme="light"]) .aiur-shell {
+      --aiur-shell-hairline: rgba(221, 226, 235, 0.08);
+      --aiur-shell-pill-bg: rgba(221, 226, 235, 0.04);
+    }
+  }
+  html[data-theme="dark"] .aiur-shell {
+    --aiur-shell-hairline: rgba(221, 226, 235, 0.08);
+    --aiur-shell-pill-bg: rgba(221, 226, 235, 0.04);
   }
   .aiur-shell__pause[aria-pressed="true"] {
     border-color: var(--aiur-color-warning, #d08a2a);

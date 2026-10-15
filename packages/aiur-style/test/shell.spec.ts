@@ -53,6 +53,10 @@ for (const theme of ['light', 'dark']) {
       await expect(page.locator('.aiur-shell__nav--sidebar [aria-disabled]')).toHaveText('GitHub cacheComing soon');
       expect(await page.locator('.aiur-shell__nav--sidebar .aiur-shell__item').allTextContents())
         .toEqual(await page.locator('.aiur-shell__nav--pill .aiur-shell__item').allTextContents());
+      await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' });
+      await page.locator('html').evaluate(element => element.removeAttribute('data-theme'));
+      await expect(page.locator('.aiur-shell__topbar')).toHaveCSS('border-bottom-color',
+        theme === 'light' ? 'rgba(42, 37, 26, 0.1)' : 'rgba(221, 226, 235, 0.08)');
     });
 
     test('sidebar switches to the pill precisely at 960px', async ({ page }) => {
