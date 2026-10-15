@@ -380,12 +380,14 @@ The Elixir examples below apply only to Aiur's Elixir core.
     A fetch/probe error or incomplete path list does not permit handoff.
 
     **An approved PR is exempt from integration** (`reviewDecision` is
-    `APPROVED`): never merge or rebase the base into it unless GitHub reports
-    `mergeable: CONFLICTING`, and say why in a PR comment when it does. The
-    merge queue tests the merge; a refresh push only cancels in-flight CI and
-    risks the approval, and it cannot fix a red or cancelled check. The agent
-    `git` guard refuses a push to a PR in the merge queue unless it is
-    conflicting or has changes requested.
+    `APPROVED` at the exact current head): never merge or rebase the base into
+    it solely for overlap or staleness. A genuine `mergeable: CONFLICTING`
+    verdict still requires integration; say why in a PR comment. The merge
+    queue tests the merge; a refresh push only cancels in-flight CI and risks
+    the approval, and it cannot fix a red or cancelled check. The state writer
+    still requires the exact head's full required-check gate before handoff.
+    The agent `git` guard refuses a push to a PR in the merge queue unless it
+    is conflicting or has changes requested.
 
     If paths overlap or the merge conflicts, allow up to 3 integrations per
     handoff without asking, recording the pre-merge head and rescue ref first.
