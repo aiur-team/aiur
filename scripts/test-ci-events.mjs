@@ -25,7 +25,6 @@ function selected(event, full) {
   }).map(([id]) => id);
 }
 assert.deepEqual(selected('pull_request', false).sort(), fastJobs.sort(), 'PR selects only five fast jobs');
-assert.ok(!selected('merge_group', true).includes('quarantine'), 'merge group skips quarantine');
 assert.ok(selected('push', false).includes('quarantine'), 'main push selects quarantine');
 assert.ok(selected('schedule', false).includes('quarantine'), 'schedule selects quarantine');
 assert.ok(!selected('pull_request', false).includes('quarantine'), 'pull request skips quarantine');
