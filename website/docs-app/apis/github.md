@@ -662,6 +662,8 @@ Otherwise a stale head passes when it has no conflicts and no changed-file overl
 Conflicts or overlap return `stale_review_base`. GitHub can lag its base SHA or report `UNKNOWN` while recalculating
 mergeability; those observations permit disjoint paths. A matching head's `CONFLICTING` verdict blocks the write.
 
+State-label swaps add the target label first, then revalidate the issue's current labels before removing other state labels. This catches labels changed since the cached observation. State writes also retry short local GitHub budget holds within the shared bounded wait policy.
+
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
 

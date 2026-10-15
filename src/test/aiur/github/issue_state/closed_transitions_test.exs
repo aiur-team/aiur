@@ -53,10 +53,17 @@ defmodule Aiur.GitHub.IssueState.ClosedTransitionsTest do
             assert req.body == %{"labels" => ["sym:done"]}
             {:ok, %{status: 200}}
 
-          {:delete, 2} ->
+          {:get, 2} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "open", "labels" => [%{"name" => "sym:done"}, %{"name" => "sym:in-progress"}]}
+             }}
+
+          {:delete, 3} ->
             {:ok, %{status: 200}}
 
-          {:patch, 3} ->
+          {:patch, 4} ->
             assert req.body == %{"state" => "closed"}
             {:ok, %{status: 200}}
 

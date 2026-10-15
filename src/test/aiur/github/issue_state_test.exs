@@ -33,6 +33,50 @@ defmodule Aiur.GitHub.IssueStateTest do
   end
 
   describe "update_issue_state/3" do
+    test "removes concurrent labels discovered after stale cached reads" do
+      key = ResourceStore.key_for_repo(:issue, "owner/repo", "42")
+      stale = %{"state" => "open", "labels" => [%{"name" => "sym:ci-wait"}]}
+      live = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}, %{"name" => "sym:human-review"}]}
+      :ok = ResourceStore.put_resource(key, stale, etag: ~s("stale"))
+      parent = self()
+      reads = :ets.new(:issue_state_reads, [:set, :public])
+      :ets.insert(reads, {:count, 0})
+
+      request_fun = fn request ->
+        send(parent, {:request, request})
+
+        case request.method do
+          :get ->
+            assert request.etag == ~s("stale")
+            read = :ets.update_counter(reads, :count, 1)
+
+            if read < 3 do
+              {:ok, %{status: 304}}
+            else
+              {:ok, %{status: 200, body: live, headers: [{"etag", ~s("live")}]}}
+            end
+
+          :post ->
+            assert request.body == %{"labels" => ["sym:in-progress"]}
+            {:ok, %{status: 200}}
+
+          :delete ->
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "in-progress", request_fun: request_fun)
+
+      assert_receive {:request, %{method: :get, etag: ~s("stale")}}, 1000
+      assert_receive {:request, %{method: :get, etag: ~s("stale")}}, 1000
+      assert_receive {:request, %{method: :post, body: %{"labels" => ["sym:in-progress"]}}}, 1000
+      assert_receive {:request, %{method: :get, etag: ~s("stale")}}, 1000
+      assert_receive {:request, %{method: :delete, url: rework_url}}, 1000
+      assert rework_url =~ "sym%3Arework" or rework_url =~ "sym:rework"
+      assert_receive {:request, %{method: :delete, url: review_url}}, 1000
+      assert review_url =~ "sym%3Ahuman-review" or review_url =~ "sym:human-review"
+    end
+
     test "swap keeps the queued marker" do
       test_pid = self()
 
@@ -87,8 +131,8 @@ defmodule Aiur.GitHub.IssueStateTest do
 
       assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
 
-      # Both issue reads on the transition (the initial and the active-label
-      # re-check) carried the stored validator.
+      # All issue reads on the transition carry the stored validator.
+      assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}, 1000
       assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}, 1000
       assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}, 1000
     end
@@ -142,7 +186,7 @@ defmodule Aiur.GitHub.IssueStateTest do
       [{:requests, seen}] = :ets.lookup(calls, :requests)
       methods = Enum.map(seen, & &1.method)
 
-      assert Enum.count(methods, &(&1 == :get)) == 2
+      assert Enum.count(methods, &(&1 == :get)) == 3
       assert Enum.count(methods, &(&1 == :delete)) == 1
       assert Enum.count(methods, &(&1 == :post)) == 1
       refute :patch in methods
@@ -195,7 +239,7 @@ defmodule Aiur.GitHub.IssueStateTest do
       methods = Enum.map(seen, & &1.method)
       deleted_urls = Enum.map(Enum.filter(seen, &(&1.method == :delete)), & &1.url)
 
-      assert Enum.count(methods, &(&1 == :get)) == 2
+      assert Enum.count(methods, &(&1 == :get)) == 3
       assert Enum.count(methods, &(&1 == :delete)) == 2
       assert Enum.count(methods, &(&1 == :post)) == 1
       refute :patch in methods
@@ -288,6 +332,13 @@ defmodule Aiur.GitHub.IssueStateTest do
             assert req.body == %{"labels" => ["sym:rework"]}
             {:ok, %{status: 200}}
 
+          {:get, 3} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+             }}
+
           _ ->
             flunk("unexpected request after the target label was already present: #{inspect(req)}")
         end
@@ -298,6 +349,7 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert_receive {:request, %{method: :get}}, 1000
       assert_receive {:request, %{method: :get}}, 1000
       assert_receive {:request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}, 1000
+      assert_receive {:request, %{method: :get}}, 1000
       # The just-added (already-present) label is excluded from the removal set,
       # so no DELETE ever fires and the ticket keeps exactly one state label.
       refute_receive {:request, %{method: :delete}}, 100

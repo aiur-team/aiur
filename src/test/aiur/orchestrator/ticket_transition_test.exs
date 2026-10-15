@@ -16,7 +16,15 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
   defmodule Client do
     def update_issue_state(id, state, opts) do
       send(self(), {:adapter_state, id, state, opts})
-      Process.get(:transition_result, :ok)
+
+      case Process.get(:transition_results) do
+        [result | rest] ->
+          Process.put(:transition_results, rest)
+          result
+
+        _ ->
+          Process.get(:transition_result, :ok)
+      end
     end
 
     def add_label(id, label), do: marker(:add, id, label)
@@ -111,6 +119,23 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
       assert_received {[:aiur, :ticket_transition], _, %{outcome: :unknown}}
       assert log =~ "outcome=:unknown"
     end
+  end
+
+  test "retries a state write held by the local GitHub budget" do
+    use_client()
+    reset_at = DateTime.add(DateTime.utc_now(), -1, :second)
+    Process.put(:transition_results, [{:error, {:github, :local_hold, %{hold: %{reset_at: reset_at}}}}, :ok])
+
+    assert :ok =
+             TicketTransition.write_state("7", "in-progress",
+               writer: :dispatcher,
+               expected_state: "rework",
+               local_hold_sleep_fun: fn _ -> flunk("an expired hold must retry immediately") end
+             )
+
+    assert_received {:adapter_state, "7", "in-progress", [expected_state: "rework"]}
+    assert_received {:adapter_state, "7", "in-progress", [expected_state: "rework"]}
+    assert_received {[:aiur, :ticket_transition], _, %{writer: :dispatcher, outcome: :ok}}
   end
 
   test "marker writes record action and label, including failures" do

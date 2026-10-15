@@ -207,24 +207,38 @@ defmodule Aiur.GitHub.IssueState do
   end
 
   @spec swap_labels(map(), map(), String.t(), String.t()) :: :ok | {:error, term()}
-  def swap_labels(context, issue_body, state_name, new_label) do
+  def swap_labels(context, _issue_body, state_name, new_label) do
     # Add the new state label BEFORE removing the old ones (#2420). Remove-then-
     # add left the ticket carrying zero `agent:*` state labels between the two
     # calls, and any POST failure stranded it there permanently — invisible to
     # dispatch and unrepaired by any reconciler. Add-first means a failure
     # between the calls leaves *two* state labels (recoverable and detectable)
     # instead of zero, and the removal set excludes the just-added label.
-    with :ok <- add_state_label(context, state_name, new_label) do
+    with :ok <- add_state_label(context, state_name, new_label),
+         {:ok, current_issue_body} <- fetch_current_issue_body(context) do
       remove_state_labels(
         context.request_fun,
         context.token,
         context.owner,
         context.repo,
         context.issue_number,
-        issue_body,
+        current_issue_body,
         context.prefix,
         exclude: [new_label]
       )
+    end
+  end
+
+  # The add can race with another state write, and the cached body read before
+  # it can already be stale. Re-read after adding the target so the removal set
+  # includes every state label currently attached to the issue.
+  defp fetch_current_issue_body(context) do
+    case Issues.fetch_issue_raw_conditional(
+           context.issue_number,
+           issue_read_opts(context) |> Keyword.put(:revalidate, true)
+         ) do
+      {:ok, issue_body, _outcome} -> {:ok, issue_body}
+      {:error, _reason} = error -> error
     end
   end
 
