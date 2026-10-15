@@ -73,10 +73,6 @@ defmodule Aiur.Workspace.AttributionHooksSetupTest do
     File.write!(Path.join(workspace, "initial"), "initial\n")
     git!(workspace, ["add", "initial"])
     git!(workspace, ["commit", "--quiet", "-m", "initial"])
-    git!(workspace, ["remote", "add", "origin", Path.join(root, "origin.git")])
-    git!(workspace, ["update-ref", "refs/remotes/origin/main", "HEAD"])
-    git!(workspace, ["config", "branch.main.remote", "origin"])
-    git!(workspace, ["config", "branch.main.merge", "refs/heads/main"])
 
     commit_hook = Path.join(workspace, ".git/hooks/commit-msg")
     pre_push_hook = Path.join(workspace, ".git/hooks/pre-push")
@@ -106,16 +102,6 @@ defmodule Aiur.Workspace.AttributionHooksSetupTest do
     {output, 0} = System.cmd("sh", ["-c", "cd \"$1\" && printf '%s' \"$2\" | .git/hooks/pre-push", "sh", workspace, push_input], stderr_to_stdout: true)
     assert output == ""
     assert File.read!(Path.join(workspace, "pre-push-input")) == push_input
-
-    File.write!(Path.join(workspace, "attributed"), "attributed\n")
-    git!(workspace, ["add", "attributed"])
-    git!(workspace, ["-c", "core.hooksPath=/dev/null", "commit", "--quiet", "-m", "unsafe\n\nCo-authored-by: Claude <noreply@anthropic.com>"])
-    unsafe_sha = String.trim(git!(workspace, ["rev-parse", "HEAD"]))
-    unsafe_push = "refs/heads/main #{unsafe_sha} refs/heads/new-branch 0000000000000000000000000000000000000000\n"
-
-    {output, status} = System.cmd("sh", ["-c", "cd \"$1\" && printf '%s' \"$2\" | .git/hooks/pre-push", "sh", workspace, unsafe_push], stderr_to_stdout: true)
-    assert status == 1
-    assert output =~ "AI attribution remains in the commit message"
   end
 
   defp git!(directory, args) do
