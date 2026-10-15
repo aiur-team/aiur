@@ -74,6 +74,18 @@ async function ready(page) {
   await open(page)
   await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
 }
+async function pauseHistory(page) {
+  // Stop new near-top pages, then drain any reply already repainting the board.
+  await page.evaluate(async () => { (await import('/build-home/state.js')).S.ready = false })
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
+}
+async function isolateScrollbar(page) {
+  await pauseHistory(page)
+  await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    ctx.L = null; ctx.vp.replaceChildren()
+  })
+}
 const state = page => page.evaluate(async () => {
   const { S, ctx } = await import('/build-home/state.js')
   return { loading: S.loading, view: S.view, generation: ctx.proto.generation }
@@ -146,6 +158,7 @@ test('B5 gaps single-flight; B6 invalid diff leaves all data unchanged', async (
 
 test('B7 reconnect requests new epoch and repaints without viewport', async ({ page }) => {
   await ready(page)
+  await pauseHistory(page)
   const epoch = await page.locator('#build-root').getAttribute('data-build-epoch')
   await page.evaluate(async () => {
     const { fx } = await import('/build-home/state.js'); window.paint = { viewport: 0, relayout: 0 }
@@ -216,16 +229,16 @@ test('B11 remount resets state and disposes old listeners and intervals', async 
 
 for (const event of ['pointercancel', 'lostpointercapture']) test(`B12 ${event} ends drag`, async ({ page }) => {
   await ready(page)
+  await isolateScrollbar(page)
   expect(await page.evaluate(async event => {
-    const { ctx, S } = await import('/build-home/state.js'), { syncSB } = await import('/build-home/shell.js')
-    S.ready = false; ctx.L = null; ctx.vp.replaceChildren() // Isolate the shell from the timeline renderer.
+    const { ctx } = await import('/build-home/state.js'), { syncSB } = await import('/build-home/shell.js')
     ctx.vp.append(Object.assign(document.createElement('div'), { style: 'height:4000px' })); syncSB()
-    const before = ctx.vp.scrollTop // Paging may already have restored an anchor.
+    ctx.vp.scrollTop = 0
     const th = document.querySelector('#bd-sb i'); th.setPointerCapture = () => {}
     th.dispatchEvent(new PointerEvent('pointerdown', { clientY: 60, pointerId: 1 }))
     th.dispatchEvent(new PointerEvent(event)); th.dispatchEvent(new PointerEvent('pointermove', { clientY: 160 }))
-    return { drag: document.querySelector('#bd-sb').classList.contains('drag'), delta: ctx.vp.scrollTop - before }
-  }, event)).toEqual({ drag: false, delta: 0 })
+    return { drag: document.querySelector('#bd-sb').classList.contains('drag'), top: ctx.vp.scrollTop }
+  }, event)).toEqual({ drag: false, top: 0 })
 })
 
 test('B13 version mismatch reloads only once', async ({ page }) => {
@@ -277,8 +290,7 @@ test('B18 disconnect releases in-flight guard and ignores old reply', async ({ p
 })
 
 test('B19 scrollbar geometry, track click, active timer and drag', async ({ page }) => {
-  await ready(page); await page.clock.install(); await page.clock.pauseAt(new Date())
-  await page.evaluate(async () => { const { ctx, S } = await import('/build-home/state.js'); S.ready = false; ctx.L = null; ctx.vp.replaceChildren() })
+  await ready(page); await isolateScrollbar(page); await page.clock.install(); await page.clock.pauseAt(new Date())
   const measure = () => page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js'); (await import('/build-home/shell.js')).syncSB()
     const sb = document.querySelector('#bd-sb'), th = sb.querySelector('i')
@@ -323,8 +335,7 @@ test('store moves rows, removes ids, replaces blocks and merges older pages with
 })
 
 test('destroy cancels timers, frames and late replies without mutating a new mount', async ({ page }) => {
-  await ready(page); await page.clock.install(); await page.clock.pauseAt(new Date())
-  await page.evaluate(async () => { const { ctx, S } = await import('/build-home/state.js'); S.ready = false; ctx.L = null; ctx.vp.replaceChildren() })
+  await ready(page); await isolateScrollbar(page); await page.clock.install(); await page.clock.pauseAt(new Date())
   expect(await page.evaluate(async () => {
     const { ctx, resetState } = await import('/build-home/state.js'), { resync, createBuildHomeHook } = await import('/build-home/hook.js')
     const { createLife } = await import('/build-home/life.js'); let resolve, calls = 0

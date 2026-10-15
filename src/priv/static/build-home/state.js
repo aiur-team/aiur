@@ -52,7 +52,7 @@ export const fx = {
   drawEdgesSoon() {}, openFromURL() {}, flushLive() {}, renderHeads() {},
   makeCard: it => { const el = document.createElement('div'); el.className = 'bd-card'; el.dataset.id = it.t.id; el.tabIndex = -1; return el; },
   visibleCols: () => S.flow ? Array.from({ length: S.K }, (_, i) => 's' + i) : [...new Set([...ctx.D.order, 'unsorted'])],
-  applyCols: keys => { ctx.cols = keys; const w = (ctx.content.offsetWidth - gutW() - 14) / Math.max(1, keys.length); ctx.colMap = Object.fromEntries(keys.map((key, i) => [key, { x: gutW() + i * w, w }])); },
+  applyCols: keys => { ctx.content.style.width = ctx.vp.clientWidth + 'px'; ctx.cols = keys; const w = (ctx.content.offsetWidth - gutW() - 14) / Math.max(1, keys.length); ctx.colMap = Object.fromEntries(keys.map((key, i) => [key, { x: gutW() + i * w, w }])); },
   drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
   lockTree() {}, fitTree() {}, openTree() {}, filtersChanged() {},
 };

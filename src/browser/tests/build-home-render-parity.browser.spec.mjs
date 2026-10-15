@@ -7,48 +7,65 @@ const source = await readFile(new URL('../../test/fixtures/build_home/design-sou
 const anchor = '  window.AiurBuild = {'
 expect(source.split(anchor)).toHaveLength(2)
 // Expose the original update; disable automatic paging only for static component captures.
-const probe = source.replace(anchor, `window.__E8Render = { stop: () => { S.ready = false; }, scroll(sec) {
-  vp.scrollTop = secs[sec].el.offsetTop + (sec === 'hist' ? 400 : 50); update();
+const probe = source.replace(anchor, `window.__E8Render = { stop: () => { S.ready = false; snapping = true; }, scroll(sec, offset) {
+  vp.scrollTop = secs[sec].el.offsetTop + offset; update();
 } };\n${anchor}`)
 
-for (const dataset of ['live', 'dense', 'newrepo', 'noqueue']) test(`section headers and vertical geometry match the design: ${dataset}`, async ({ browser }) => {
-  const cell = { viewport: { width: 1440, height: 900 }, theme: 'light', palette: 'aiur', dataset }
+for (const width of [1440, 390]) for (const theme of ['light', 'dark']) for (const dataset of ['live', 'dense', 'newrepo', 'noqueue']) test(`section headers and vertical geometry match the design: ${dataset} ${width} ${theme}`, async ({ browser }) => {
+  const cell = { viewport: { width, height: width === 390 ? 844 : 900 }, theme, palette: 'aiur', dataset }
   const pair = await openParityPair(browser, cell, { motion: true })
   try {
     await pair.design.route('**/assets/build.js*', route => route.fulfill({ contentType: 'text/javascript', body: probe }))
     await pair.design.reload()
     await waitParityReady(pair.design, 'board', 'design', true)
     await pair.design.evaluate(() => window.__E8Render.stop())
+    // Collapse the separately owned sticky Now band through its actual UI, so
+    // it cannot cover section headers while their natural pixels are captured.
+    await pair.design.locator('[data-min]').click({ force: true })
     await pair.product.evaluate(async () => { (await import('/build-home/state.js')).S.ready = false })
     const read = page => page.evaluate(() => ['hist', 'plan', 'nq'].map(sec => ({
       sec, h: document.querySelector('#bd-sec-' + sec).style.height,
+      contentWidth: document.querySelector('#bd-content').style.width, dot: getComputedStyle(document.querySelector('#bd-vp')).backgroundSize,
       head: document.querySelector('#bd-sec-' + sec + ' .bd-sech').innerHTML,
-      cards: Array.from(document.querySelectorAll('#bd-sec-' + sec + ' .bd-card'), el => ({ id: el.dataset.id, top: el.style.top, height: el.style.height })).sort((a, b) => a.id.localeCompare(b.id))
+      cards: Array.from(document.querySelectorAll('#bd-sec-' + sec + ' .bd-card'), el => ({ id: el.dataset.id.replace('AIUR-', ''), top: parseFloat(el.style.top), height: parseFloat(el.style.height) })).sort((a, b) => a.id.localeCompare(b.id)),
+      marks: Array.from(document.querySelectorAll('#bd-sec-' + sec + ' .bd-mk, #bd-sec-' + sec + ' .bd-lbl, #bd-sec-' + sec + ' .bd-dl'), el => ({
+        cls: el.className, text: el.textContent, ...Object.fromEntries(['top', 'height', 'left', 'width'].map(key => [key, parseFloat(getComputedStyle(el)[key])]))
+      }))
     })))
     const design = await read(pair.design), product = await read(pair.product)
-    // Virtual windows depend on the Now band, which has not landed; compare shared card geometry.
+    // C9-T02 deliberately leaves L.band.h=0 until C9-T08. History has the same
+    // global origin; later sections need equal section-relative viewport inputs.
+    // Compare every owned card/mark, with exact identity (never an intersection).
     for (let i = 0; i < design.length; i++) {
-      expect(product[i].h, JSON.stringify({ sec: product[i].sec, product: product[i].head, design: design[i].head })).toBe(design[i].h); expect(product[i].head).toBe(design[i].head)
-      await pair.design.evaluate(sec => window.__E8Render.scroll(sec), product[i].sec)
-      await pair.product.evaluate(async sec => {
-        const { ctx, fx } = await import('/build-home/state.js')
-        ctx.vp.scrollTop = ctx.secs[sec].el.offsetTop + (sec === 'hist' ? 400 : 50); fx.update()
-      }, product[i].sec)
-      const dc = (await read(pair.design))[i].cards, pc = (await read(pair.product))[i].cards
-      const byId = new Map(dc.map(card => [card.id.replace('AIUR-', ''), { ...card, id: card.id.replace('AIUR-', '') }]))
-      const common = pc.filter(card => byId.has(card.id))
-      if (pc.length) expect(common.length, JSON.stringify({ sec: pc[0], designFirst: dc[0], designLast: dc.at(-1) })).toBeGreaterThan(0)
-      for (const card of common) expect(card).toEqual(byId.get(card.id))
+      expect(product[i].h).toBe(design[i].h); expect(product[i].head).toBe(design[i].head)
+      expect(product[i].contentWidth).toBe(design[i].contentWidth); expect(product[i].dot).toBe(design[i].dot)
+      const h = parseFloat(design[i].h)
+      for (const offset of [Math.max(0, h - 46), Math.max(0, h - 2046), 0]) {
+        await pair.design.evaluate(({ sec, offset }) => window.__E8Render.scroll(sec, offset), { sec: design[i].sec, offset })
+        await pair.product.evaluate(async ({ sec, offset }) => {
+          const { ctx, fx } = await import('/build-home/state.js')
+          ctx.vp.scrollTop = ctx.secs[sec].el.offsetTop + offset; fx.update()
+        }, { sec: design[i].sec, offset })
+        const dc = (await read(pair.design))[i], pc = (await read(pair.product))[i]
+        expect(pc.cards.map(card => card.id)).toEqual(dc.cards.map(card => card.id))
+        for (let j = 0; j < dc.cards.length; j++) for (const key of ['top', 'height']) expect(Math.abs(pc.cards[j][key] - dc.cards[j][key])).toBeLessThanOrEqual(1)
+        expect(pc.marks.map(mark => [mark.cls, mark.text])).toEqual(dc.marks.map(mark => [mark.cls, mark.text]))
+        for (let j = 0; j < dc.marks.length; j++) for (const key of ['top', 'height', 'left', 'width']) expect(Math.abs(pc.marks[j][key] - dc.marks[j][key])).toBeLessThanOrEqual(1)
+      }
+      for (const page of [pair.design, pair.product]) {
+        await page.clock.setSystemTime(FIXTURE_META.now)
+        await page.locator('#bd-vp').evaluate((vp, sec) => { vp.scrollTop = document.querySelector('#bd-sec-' + sec).offsetTop - 160 }, design[i].sec)
+      }
+      // Snapshot the natural history boundary em, which is unaffected by the
+      // deferred sticky band and viewport backdrop. All three complete headers
+      // are compared character-for-character above; no pixels are repainted.
+      if (design[i].sec === 'hist') await expectDesignParity(pair, { name: `header-hist-${dataset}-${width}-${theme}`, region: '#bd-sec-hist .bd-sech em:first-child' })
     }
-    // Isolate the transparent header from unowned dot/edge backdrops (C9-T07/T10).
-    for (const page of [pair.design, pair.product]) await page.addStyleTag({ content: '#bd-sec-hist .bd-sech { width: 1000px; background: var(--bg) }' })
-    for (const page of [pair.design, pair.product]) await page.clock.setSystemTime(FIXTURE_META.now)
-    await expectDesignParity(pair, { name: 'history-header-' + dataset, region: '#bd-sec-hist .bd-sech' })
   } finally { await pair.close() }
 })
 
 for (const name of ['history.load-earlier', 'history.window']) test(`history sequence parity: ${name}`, async ({ browser }) => {
-  const pair = await openParityPair(browser, { viewport: { width: 1440, height: 900 }, theme: 'dark', palette: 'gruvbox', dataset: 'live' }, { motion: true })
+  const pair = await openParityPair(browser, { viewport: { width: 1440, height: 900 }, theme: 'dark', palette: 'gruvbox', dataset: name === 'history.window' ? 'dense' : 'live' }, { motion: true })
   try {
     const [design, product] = await Promise.all([runOn(pair.design, name), runOn(pair.product, name)])
     expect(compareRecords(design, product)).toEqual([])

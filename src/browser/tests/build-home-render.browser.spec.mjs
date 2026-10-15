@@ -95,7 +95,7 @@ for (const mode of ['epoch', 'destroy', 'reject']) test(`paging late reply: ${mo
 for (const mode of ['total', 'start', 'source']) test(`header unknown branch: ${mode}`, async ({ page }) => {
   const result = await page.evaluate(mode => {
     const D = structuredClone(ctx.D), H = { ...hist.H, more: false }, sources = structuredClone(ctx.snap.sources)
-    if (mode === 'total') H.total = null
+    if (mode === 'total') { H.total = null; H.more = true }
     if (mode === 'start') D.hist.forEach(row => { row.start = null })
     if (mode === 'source') { D.hist = []; H.total = 0; sources.history.state = 'unavailable' }
     return heads.headHTML(D, H, sources, S.histFrom).hist
@@ -108,6 +108,27 @@ for (const mode of ['total', 'start', 'source']) test(`header unknown branch: ${
 test('headers keep design count formatting and empty strings', async ({ page }) => {
   const result = await page.evaluate(() => heads.headHTML({ hist: [], plan: Array(1000), nq: Array(1000) }, { total: 0, more: false }, { history: { state: 'ok' } }, 0))
   expect(result).toEqual({ hist: 'History <em>empty</em>', plan: 'Planned <em>1000 in build-queue order · dependency waves</em>', nq: 'Not queued <em>1000 open · not in the queue</em>' })
+})
+
+test('complete history header uses earliest finite start and keeps shown count', async ({ page }) => {
+  const result = await page.evaluate(() => heads.headHTML({
+    hist: [
+      { start: null, end: new Date(2026, 9, 12).getTime() },
+      { start: new Date(2026, 9, 11).getTime(), end: new Date(2026, 9, 13).getTime() },
+      { start: new Date(2026, 9, 9).getTime(), end: new Date(2026, 9, 14).getTime() },
+    ], plan: [], nq: [],
+  }, { total: 3, more: false }, { history: { state: 'ok' } }, new Date(2026, 9, 14).getTime()).hist)
+  expect(result).toBe('History <em>all 3 from Oct 9</em><em style="margin-left:auto;padding-right:14px">1 of 3 loaded</em>')
+})
+
+test('complete history header counts loaded rows when server total is unknown', async ({ page }) => {
+  const result = await page.evaluate(() => heads.headHTML({ hist: [{ start: null, end: 1 }, { start: null, end: 2 }], plan: [], nq: [] }, { total: null, more: false }, { history: { state: 'ok' } }, 2).hist)
+  expect(result).toBe('History <em>all 2</em><em style="margin-left:auto;padding-right:14px">1 of 2 loaded</em>')
+})
+
+test('complete available history header is empty with zero rows and unknown total', async ({ page }) => {
+  const result = await page.evaluate(() => heads.headHTML({ hist: [], plan: [], nq: [] }, { total: null, more: false }, { history: { state: 'ok' } }, 0).hist)
+  expect(result).toBe('History <em>empty</em>')
 })
 
 test('live keeps focus and unchanged DOM identity; focused card stays outside render window', async ({ page }) => {
