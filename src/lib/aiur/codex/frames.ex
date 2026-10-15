@@ -3,7 +3,7 @@ defmodule Aiur.Codex.Frames do
   Codex-specific request frame builders.
   """
 
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.AgentTools.Catalog
 
   @thread_start_id 2
   @turn_start_id 3
@@ -49,7 +49,7 @@ defmodule Aiur.Codex.Frames do
         "approvalPolicy" => approval_policy,
         "sandbox" => thread_sandbox,
         "cwd" => workspace,
-        "dynamicTools" => DynamicTool.tool_specs()
+        "dynamicTools" => Catalog.specs()
       }
     }
   end

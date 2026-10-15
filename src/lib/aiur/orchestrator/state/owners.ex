@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.State.Owners do
   @moduledoc """
   Field ownership within orchestration; readers may cross these boundaries.
 
-  `:lifecycle` is the transition-owner placeholder until U2 resolves it.
+  `:lifecycle` includes U2's authoritative transition owner, TicketTransition.
   Listener fields remain here until their extraction. `codex_totals` and
   `codex_rate_limits` are dead fields retained for the later removal ticket.
   This table has no runtime callers.
@@ -143,6 +143,7 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.Slots
     ],
     lifecycle: [
+      Aiur.Orchestrator.TicketTransition,
       Aiur.Orchestrator.Lifecycle,
       Aiur.Orchestrator.MembershipLifecycle,
       Aiur.Orchestrator.Parking,

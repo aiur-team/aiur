@@ -10,7 +10,8 @@
     "title": {"type": "string", "minLength": 1},
     "hypothesis": {"type": "string"},
     "owner": {"type": "object", "properties": {"kind": {"enum": ["human", "agent"]}, "id": {"type": "string", "minLength": 1}}, "required": ["kind", "id"], "additionalProperties": false},
-    "status": {"enum": ["draft", "active", "concluded", "abandoned"]},
+    "status": {"enum": ["draft", "active", "concluded", "abandoned", "report_due", "reported", "cancelled"]},
+    "report_reason": {"enum": [null, "guard_met", "insufficient_data", "truncated"]},
     "origin": {
       "type": "object",
       "properties": {"kind": {"enum": ["manual", "release", "epic_merge", "analyst"]}, "ref": {"type": ["string", "null"]}},

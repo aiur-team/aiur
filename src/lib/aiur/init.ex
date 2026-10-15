@@ -9,7 +9,7 @@ defmodule Aiur.Init do
   # credo:disable-for-this-file Credo.Check.Design.AliasUsage
   alias Aiur.Init.Alerts
   alias Aiur.Init.BackendConfigs
-  alias Aiur.Init.ElevenLabs
+  alias Aiur.Init.Contributions
   alias Aiur.Init.Format
   alias Aiur.Init.GitHubApp
   alias Aiur.Init.Prewarm
@@ -36,6 +36,7 @@ defmodule Aiur.Init do
 
   @spec run(%{force: boolean()}, io(), deps()) :: :ok | {:error, String.t()}
   def run(opts, io, deps) do
+    Contributions.registered!()
     io.puts.(init_warning())
 
     case existing_config_target(opts, deps) do
@@ -168,7 +169,7 @@ defmodule Aiur.Init do
         prewarm = Prewarm.prompt_prewarm(io, deps, location)
         Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
         alerts = Alerts.prompt_alerts(io, deps, target)
-        elevenlabs = ElevenLabs.prompt_eleven_labs(io, deps, location)
+        contributions = Contributions.prompt(io, deps, location)
 
         fills =
           Templates.build_fills(%{
@@ -186,7 +187,7 @@ defmodule Aiur.Init do
             prompt_file: prompt_file,
             prewarm: prewarm,
             alerts: alerts,
-            elevenlabs: elevenlabs
+            contributions: contributions
           })
 
         config_yaml = Templates.fill_template(deps.read_example.(), fills)

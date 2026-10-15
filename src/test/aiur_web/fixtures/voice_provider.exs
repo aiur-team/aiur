@@ -77,6 +77,10 @@ defmodule AiurWeb.VoiceChannelTest.FakeVoiceProvider do
   def synthesizer, do: AiurWeb.VoiceChannelTest.FakeSpeech
   @impl true
   def configured?, do: true
+  @impl true
+  def child_specs, do: []
+  @impl true
+  def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
 end
 
 defmodule AiurWeb.VoiceChannelTest.UnconfiguredProvider do
@@ -87,6 +91,10 @@ defmodule AiurWeb.VoiceChannelTest.UnconfiguredProvider do
   def synthesizer, do: AiurWeb.VoiceChannelTest.FakeSpeech
   @impl true
   def configured?, do: false
+  @impl true
+  def child_specs, do: []
+  @impl true
+  def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
 end
 
 defmodule AiurWeb.VoiceChannelTest.FakeSpeech do

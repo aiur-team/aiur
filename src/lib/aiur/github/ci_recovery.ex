@@ -28,6 +28,29 @@ defmodule Aiur.GitHub.CIRecovery do
   @spec rerun(integer(), keyword()) :: {:ok, map()} | {:error, term()}
   def rerun(run, opts), do: request(:post, "/actions/runs/#{run}/rerun-failed-jobs", %{}, opts)
 
+  @spec jobs(integer(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def jobs(run, opts) when is_integer(run) and run > 0 do
+    with {:ok, body} <- read("/actions/runs/#{run}/jobs?per_page=100", opts),
+         jobs when is_list(jobs) <- body["jobs"] do
+      {:ok, jobs}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_actions_jobs_response}
+    end
+  end
+
+  def jobs(_, _), do: {:error, :invalid_actions_run_id}
+
+  @spec cancel(integer(), keyword()) :: :ok | {:error, term()}
+  def cancel(run, opts) when is_integer(run) and run > 0 do
+    case request(:post, "/actions/runs/#{run}/cancel", %{}, opts) do
+      {:ok, _} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  def cancel(_, _), do: {:error, :invalid_actions_run_id}
+
   defp request(method, path, body, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do

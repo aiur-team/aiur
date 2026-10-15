@@ -33,8 +33,10 @@ Before/after creation freezes the before window immediately;
 per-metric coverage; JSON includes `frozen_snapshot`. A refused baseline leaves
 no new experiment, so the same ID can be retried.
 
-Stored statuses are `draft`, `active`, `concluded` and `abandoned`. Drafts do
+Stored statuses are `draft`, `active`, `report_due`, `reported`, `cancelled`,
+`concluded` and `abandoned`. Drafts do
 not register automatically when the change time passes.
+
 The phase is derived from the change time and window end: `awaiting_change`,
 `collecting` or `window_closed`. A deterministic optional `key` makes repeated
 creation return the existing experiment.
@@ -61,8 +63,10 @@ to disable the writer. The capability report exposes `experiments` and
 `experiments.metric_packs`. Invalid pack files report `degraded/pack_invalid`;
 other packs remain usable. Disabling experiments reports `unavailable/disabled`.
 
-Storage failures leave the daemon running and report the experiments store as
+Store failures leave the daemon running and report the experiments store as
 unavailable; writes return the storage failure while disk reads remain usable.
+An automatic-worker startup failure is logged; automatic creation remains
+unavailable while the daemon continues.
 
 
 ## Baselines and retention
@@ -237,6 +241,103 @@ Stdout and stderr share the bounded script stream. A nonzero exit reports the
 first non-JSON diagnostic line; this can be a stdout diagnostic if one precedes
 stderr.
 
+## When the report is written
+
+The window manager evaluates every active before/after experiment, manual or
+automatic, hourly and once after a ten-minute burst of merged-PR events.
+`active` is the collecting state. Cohort experiments are left to the analyst.
+This manager runs even when automatic line creation is disabled.
+
+After at least `experiments.auto.after_days` (14 by default), a met X4 sample
+guard moves the experiment to `report_due` with `report_reason: guard_met`.
+
+If the guard is unmet at the window end, the end extends by `after_step_days`
+(7), clamped to `after_max_days` (42). At that maximum it becomes `report_due`
+with `insufficient_data`.
+
+A missing or unavailable X4 guard counts as unmet;
+no statistical result is invented. Open-ended manual windows use the same limits.
+
+Line sources call `Aiur.Experiments.Auto.truncate(id, at, reason)` on a newer
+line or rollback. Truncation closes the after window at that time (never
+lengthening it), with reason `guard_met` if the guard is met, otherwise
+`truncated`. The caller's cause is kept in the journal.
+
+Terminal experiments
+are left unchanged. The analyst owns writing the report and marking it `reported`.
+
+The Executor receives `system.experiment.<id>.preregister`, `.report_due` and
+`.cancelled` wakes under `experiments:auto`. Payloads contain only the experiment
+identifier, reason and line source. Dots in a topic's experiment identifier are
+encoded as `%2E`; the payload keeps the original ID.
+
+`experiments/auto-latches.json` is persisted before publication: a crash can
+miss a wake, but cannot repeat one. A failed latch write publishes nothing and
+is retried on evaluation. Corrupt latches disable notifications and report
+`degraded` through the notifier status; the file is preserved for recovery.
+
+## Automatic experiments
+
+`experiments.auto` configures version, release and feature lines. The deploy
+ledger records each recording daemon boot at `experiments/deploys.ndjson` under
+the repository state node. It retains the latest 5,000 boots, including version,
+base semver, boot time and build-stamp SHA and dirty flag when available.
+
+Missing build evidence stays null. Deploys alone never create experiments.
+Automatic line creation uses the experiment store's baseline-freezing transaction.
+Repeated keys create neither another experiment nor another baseline; completion
+receipts survive restarts. Concurrent lines annotate other open windows once.
+
+Read-only experiments are left unchanged and log one warning per Creator lifetime while new lines still complete.
+
+With telemetry disabled, a line creates nothing and logs its skip once per key.
+If automatic experiment storage cannot start, Aiur logs its unavailability and
+continues running.
+
+The default auto pack name `delivery` refers to the built-in `delivery-speed`
+pack. Other names select consumer packs. Missing or disabled packs return an
+availability error rather than creating an experiment without metrics.
+
+Feature lines can supply a baseline ending at the first member merge. The gap
+until go-live is excluded from both windows and carried in change evidence.
+Line detection belongs to the version, release and feature workers.
+
+### Version and release lines
+
+At boot, after recording the deploy ledger, Aiur compares base semver with the
+previous boot. A higher version creates `auto:version:<x.y.z>` at boot time and
+freezes its baseline immediately, clipped at the start of the previous version.
+
+Repeated restarts, nightly suffix changes, unknown versions and the first boot
+create nothing. A downgrade truncates the open version experiment's after
+window and adds a rollback annotation.
+
+Failed version creation retries during the boot and after later same-version
+restarts, preserving the original line time. Telemetry-skipped lines stay skipped.
+
+Release detection runs at boot and hourly using `git ls-remote --tags --refs
+origin` in the warm clone, with the same credentials as its fetch. The first
+successful census marks existing tags seen without creating experiments.
+
+New
+semver tags matching `experiments.auto.release_tag_pattern` are fetched; the
+line uses the tagger date, or commit date for a lightweight tag. Prereleases
+are skipped unless `release_include_prereleases` is true, and tags older than
+14 days at detection are ignored.
+
+Failed remote reads leave seen state unchanged
+and retry on the next tick; a missing warm clone reports unavailable.
+
+Tags less than `release_min_interval_days` (default 7) after a release line
+annotate that experiment.
+
+A version and tag with the same base semver within
+14 days share one experiment, in either detection order; the second source is
+attached as evidence. These receipts and seen tags survive daemon restarts.
+
+`version_line: false` or `release_line: false` disables the corresponding source.
+Release lines also select consumer packs with top-level `"auto": true` in their
+pack JSON, alongside the configured metric packs.
 
 ## Delivery-speed metrics
 

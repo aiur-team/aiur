@@ -13,7 +13,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert is_function(executor, 2)
     end
 
-    test "delegates unknown tools to DynamicTool failure response" do
+    test "delegates unknown tools to Dispatch failure response" do
       issue = %Issue{id: "gid-te-02", identifier: "TE-02"}
       executor = ToolExecutor.build(issue, nil, nil)
 

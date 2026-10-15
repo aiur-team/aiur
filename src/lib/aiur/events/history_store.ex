@@ -6,7 +6,7 @@ defmodule Aiur.Events.HistoryStore do
   An absent setting or `:none` disables writes. Implementations must not raise
   or block; readers remain owned by the backing history implementation.
   """
-
+  # aiur:event-bus-boundary-member
   @type kind :: :emit | :emit_alert | :consumed | :self
   @callback record(identifier :: String.t(), kind :: kind(), event :: map()) :: :ok
 

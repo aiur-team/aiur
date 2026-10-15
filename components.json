@@ -3,6 +3,24 @@
   "directory_published": false,
   "seams": [
     {
+      "from": "voice-stt",
+      "to_module": "Aiur.Init.ElevenLabs",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/voice.ex"
+      ],
+      "reason": "MP-R5-C2-T02 reuses wizard bodies until C3 relocates them"
+    },
+    {
+      "from": "voice-stt",
+      "to_module": "Aiur.Init.ResumeSummary",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/voice.ex"
+      ],
+      "reason": "MP-R5-C2-T02 reuses the saved voice summary until C3 relocates it"
+    },
+    {
       "from": "control-cli",
       "to_module": "Aiur.FeatureCLI",
       "kind": "reference",
@@ -106,6 +124,11 @@
       "to_module": "Aiur.GitHub.Transport",
       "kind": "reference",
       "only_paths": [
+        "src/lib/aiur/landing_watch.ex",
+        "src/lib/aiur/landing_watch/attribution.ex",
+        "src/lib/aiur/landing_watch/flake_recorder.ex",
+        "src/lib/aiur/landing_watch/merge_groups.ex",
+        "src/lib/aiur/landing_watch/observer.ex",
         "src/lib/aiur/orchestrator/merge_attribution.ex"
       ],
       "reason": "#3777: merge tracker task resolves missing GitHub merger attribution through the governed transport"
@@ -253,6 +276,24 @@
       "reason": "#3880: daemon independently verifies the claimed merge through the governed GitHub read transport"
     },
     {
+      "from": "harness-adapters",
+      "to_module": "Aiur.SessionHandle",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/claude/hook_spool.ex"
+      ],
+      "reason": "#3843: replay persists the processed hook offset and dedup IDs through the runner-owned session handle"
+    },
+    {
+      "from": "harness-adapters",
+      "to_module": "Aiur.LiveConversation.Source",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/claude/display_tailer.ex"
+      ],
+      "reason": "Base integration: display tailer uses the runner-owned pure opaque-session formatter to redact diagnostic session IDs"
+    },
+    {
       "from": "control-cli",
       "to_module": "Aiur.GitHubCostCLI",
       "kind": "reference",
@@ -269,6 +310,71 @@
         "src/lib/aiur/agent_control_cli.ex"
       ],
       "reason": "MP-R1-C7-T06 (#3301): CLI routes into the existing GitHub-owned command facade"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.Events.GithubCIPoller.Evaluation",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/landing_watch/classifier.ex"
+      ],
+      "reason": "#4457: classify approved-head checks using the existing required-check verdict policy"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.GitHub.AgentMarker",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/landing_watch/flake_recorder.ex"
+      ],
+      "reason": "#4457: stamp idempotency markers on deduplicated flake issue comments"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.GitHub.CIRecovery",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/landing_watch.ex",
+        "src/lib/aiur/landing_watch/merge_groups.ex"
+      ],
+      "reason": "#4457: reuse governed CI jobs and bounded failed-job recovery"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.GitHub.FailureEvidence",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/landing_watch/merge_groups.ex"
+      ],
+      "reason": "#4457: classify merge-group failures against required test evidence"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.GitHub.HumanReviewGate",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/landing_watch.ex"
+      ],
+      "reason": "#4457: recheck the latest approval at the observed pull request head"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.PrMerge.Queue",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/landing_watch.ex",
+        "src/lib/aiur/landing_watch/merge_groups.ex"
+      ],
+      "reason": "#4457: enqueue eligible reviewed heads through the shared GitHub queue mutation"
+    },
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.PrMerge.Queue",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/pr_merge.ex"
+      ],
+      "reason": "#4457: PR merge command reuses the shared GitHub merge-queue mutation"
     }
   ],
   "ports": [

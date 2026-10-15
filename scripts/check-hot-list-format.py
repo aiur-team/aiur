@@ -51,7 +51,8 @@ def check(root):
         text = path.read_text()
         entries = re.findall(r'^  \{([^,]+),\s*(:[^,]+),', text, re.M)
         total = len(re.findall(r'\{\s*[A-Z][\w.]*\s*,', text))
-        if len(entries) != total or entries != sorted(set(entries)):
+        keys = [tuple(part.strip() for part in entry) for entry in entries]
+        if len(entries) != total or keys != sorted(set(keys)):
             errors.append(f'{path.relative_to(root)}: writers need one tuple per line, with sorted unique keys')
     except (OSError, ValueError, KeyError, TypeError) as error:
         errors.append(str(error))

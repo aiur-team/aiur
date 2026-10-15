@@ -10,6 +10,11 @@ contracts, and Build Order from the Feature Planner that used `aiur-build`. At
 runtime, GitHub owns ticket facts and Aiur owns agent activity, progress,
 alerts, and events; planning documents preserve approved intent.
 
+Experiment wakes (`experiments:auto`): `system.experiment.<id>.preregister`
+starts analyst pre-registration; `.report_due` starts the report flow (X6).
+Read `report_reason`; report insufficient data honestly. Ignore `.cancelled`.
+Topic IDs encode dots as `%2E`.
+
 ## Contents
 
 - Establish the authority envelope
@@ -26,18 +31,13 @@ alerts, and events; planning documents preserve approved intent.
 
 ## Establish the authority envelope
 
-Before consulting repository documentation, read
-`~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. It is the current machine's
-run-specific handoff; GitHub and Aiur still provide the authoritative live
-ticket and runtime state. Keep this single living document current whenever the
-operator gives a directive, frames the run's request, supplies context that
-cannot be recovered from the repository/history, or changes the Executor's
-role or authority. A directive not written into the handoff has not been
-recorded. When replacing an Executor, rewrite it wholesale with the next
+Before consulting repository documentation, read `~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. It is the current machine's
+run-specific handoff; GitHub and Aiur still provide the authoritative live ticket and runtime state. Keep this single living document current whenever the
+operator gives a directive, frames the run's request, supplies context that cannot be recovered from the repository/history, or changes the Executor's
+role or authority. A directive not written into the handoff has not been recorded. When replacing an Executor, rewrite it wholesale with the next
 Executor's ranked work and hazards; never append another dated checkpoint.
 
-Record these decisions before making the corresponding mutations. Reuse clear
-answers already present in the request or handoff instead of asking again.
+Record these decisions before making the corresponding mutations. Reuse clear answers already present in the request or handoff instead of asking again.
 
 - ticket scope or the GitHub selector that defines it;
 - whether the Executor may create newly discovered tickets;

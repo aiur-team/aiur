@@ -7,6 +7,10 @@ defmodule Aiur.BrowserHarness.VoiceProvider do
   def synthesizer, do: Aiur.BrowserHarness.VoiceSpeech
   @impl true
   def configured?, do: true
+  @impl true
+  def child_specs, do: []
+  @impl true
+  def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
 end
 
 defmodule Aiur.BrowserHarness.VoiceTranscriber do

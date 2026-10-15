@@ -7,6 +7,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.Config.Schema
   alias Aiur.Issue
+  alias Aiur.ModelAvailability
 
   @now ~U[2026-10-10 06:00:00Z]
   @future "2999-01-01T00:00:00Z"
@@ -37,6 +38,11 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   @healthy %{"default" => {0, 0}, "everdred" => {36, 10}}
 
   defp opts(overrides) do
+    ledger_path = Path.join(Aiur.TestSupport.tmp_root!("headroom-ledger"), "model-usage.json")
+    File.mkdir_p!(Path.dirname(ledger_path))
+    File.write!(ledger_path, Jason.encode!(%{"backends" => %{}}))
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(ledger_path)) end)
+
     Keyword.merge(
       [
         account_selection: "headroom",
@@ -55,6 +61,8 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
         end,
         usage_snapshot: meters(@healthy),
         state: @ledger,
+        path: ledger_path,
+        probe_fun: fn _backend, _options -> :ok end,
         avoid_peak_pricing: false,
         now: @now
       ],
@@ -159,27 +167,58 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
                %{windows: %{"weekly" => 95.0}, source: "ledger", age_seconds: 30}
     end
 
-    # Review of #3969: the probe runs only while every candidate is limited, so
-    # a backend that gets no work keeps a ledger reading that can be days old.
-    test "a reading older than the freshness bound ranks as unknown and shows its age" do
+    test "stale Codex remains unknown until its probe refreshes it, then wins the next claim" do
       old = put_in(@ledger, ["backends", "codex", "observed_at"], "2026-10-07T06:00:00Z")
+      path = Path.join(Aiur.TestSupport.tmp_root!("headroom-lock"), "model-usage.json")
+      File.mkdir_p!(Path.dirname(path))
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(path)) end)
+      assert :ok = File.write(path, Jason.encode!(old))
+      test_pid = self()
 
-      assert HeadroomDispatch.backend_reading("codex", state: old, now: @now, max_reading_age_seconds: 1800) ==
-               %{stale: true, age_seconds: 259_200, source: "ledger"}
+      probe = fn backend, options ->
+        send(test_pid, {:probe, backend, options})
+        :ok
+      end
 
-      # Codex at "5%" would lose to unknown anyway; make the old number look generous instead.
-      generous = put_in(old, ["backends", "codex", "weekly", "used"], 1)
-      exhausted_ish = meters(%{"default" => {100, 0}, "everdred" => {95, 0}})
+      claude_at_29 = meters(%{"default" => {71, 0}, "everdred" => {100, 0}})
 
-      assert {:ok, issue} = select(ticket(), state: generous, usage_snapshot: exhausted_ish, max_reading_age_seconds: 1800)
-      assert [%{name: "codex", status: :unknown, stale: true, age_seconds: 259_200} | _] = issue.dispatch_selection.candidates
-      assert issue.dispatch_selection.summary =~ "codex=unknown (stale, 3d old)"
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"} = first} =
+               select(ticket(), state: ModelAvailability.load(path), path: path, usage_snapshot: claude_at_29, probe_fun: probe)
 
-      fresh_claude = meters(%{"default" => {20, 0}, "everdred" => {95, 0}})
-      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"}} = select(ticket(), state: generous, usage_snapshot: fresh_claude, max_reading_age_seconds: 1800)
+      assert_receive {:probe, "codex", [path: _, now: @now]}, 100
+      assert Enum.any?(first.dispatch_selection.candidates, &(&1.name == "codex" and &1.status == :unknown and &1.stale and &1.age_seconds == 259_200))
+
+      assert :ok = ModelAvailability.observe("codex", %{"weekly" => %{"used" => 20, "limit" => 100, "reset_at" => @future}}, path: path, now: @now)
+      assert :ok = ModelAvailability.clear_retry_schedule("codex", path: path)
+
+      assert {:ok, %Issue{selected_backend: "codex"} = second} =
+               select(ticket(), state: ModelAvailability.load(path), path: path, usage_snapshot: claude_at_29, probe_fun: probe)
+
+      assert Enum.any?(second.dispatch_selection.candidates, &(&1.name == "codex" and &1.status == :known and &1.remaining_percent == 80))
     end
 
-    test "an old per-account meter reading is unknown too, and a current one shows its age" do
+    test "a missing Codex observation does not bypass the probe retry window" do
+      path = Path.join(Aiur.TestSupport.tmp_root!("headroom-probe-retry"), "model-usage.json")
+      File.mkdir_p!(Path.dirname(path))
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(path)) end)
+      assert :ok = File.write(path, Jason.encode!(%{"backends" => %{}}))
+      test_pid = self()
+
+      probe = fn backend, _options ->
+        send(test_pid, {:probe, backend})
+        :ok
+      end
+
+      empty = %{"backends" => %{}}
+      assert {:ok, _} = select(ticket(), state: empty, path: path, probe_fun: probe)
+      assert_receive {:probe, "codex"}, 100
+
+      within_retry_window = DateTime.add(@now, 119, :second)
+      assert {:ok, _} = select(ticket(), state: ModelAvailability.load(path), path: path, now: within_retry_window, probe_fun: probe)
+      refute_receive {:probe, "codex"}, 100
+    end
+
+    test "an old per-account meter reading is unknown and shows its age" do
       stale_meter = fn
         "claude", _names ->
           %{

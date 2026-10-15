@@ -104,6 +104,10 @@ defmodule Aiur.Claude.Repl.HookTurn do
 
       true ->
         receive do
+          {:claude_hook_available, _identifier} ->
+            replay_hooks(loop.identifier)
+            await_hook_turn(loop, deadline, acc)
+
           {:claude_hook, _id, %{event: :stop} = event} ->
             delivered_acc =
               acc
@@ -167,8 +171,17 @@ defmodule Aiur.Claude.Repl.HookTurn do
             interrupt_for_pause(loop.session, %{request_id: request_id})
         after
           loop.poll_ms ->
+            replay_hooks(loop.identifier)
+
             await_hook_turn(loop, deadline, acc)
         end
+    end
+  end
+
+  defp replay_hooks(identifier) do
+    case HookEvents.replay(identifier, 0) do
+      {:ok, _offset} -> :ok
+      {:error, reason} -> Logger.warning("repl_hook_turn replay_failed identifier=#{identifier} reason=#{inspect(reason)}")
     end
   end
 
