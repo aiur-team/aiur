@@ -34,7 +34,7 @@ export function renderChrome() {
   fx.renderUsage(); fx.renderOffline(); fx.renderFeatures(); fx.renderFilters(); fx.renderTools();
 }
 function defaultDataChanged(msg) {
-  if (Object.keys(msg.set ?? {}).length) renderChrome();
+  if (Object.keys(msg.set ?? {}).length) renderChrome(); else fx.renderOffline();
   fx.relayout(); fx.update();
 }
 function defaultUnavailable(reason) {

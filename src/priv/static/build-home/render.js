@@ -156,7 +156,7 @@ function deferred() {
   return H.state === 'loading' || ctx.snapping || ctx.content?.classList.contains('scrolling') || ctx.root.querySelector('.bd-sb.drag');
 }
 export function onDataChanged(msg) {
-  if (Object.keys(msg.set ?? {}).length) renderChrome();
+  if (Object.keys(msg.set ?? {}).length) renderChrome(); else fx.renderOffline();
   msg.upsert.forEach(row => pendingLive.changed.add(row.id));
   msg.remove.forEach(id => pendingLive.removed.add(id));
   pendingLive.dirty = true;

@@ -7,6 +7,7 @@ import { H } from './history.js';
 import { fromServer, flushURL } from './url.js';
 import './clock.js';
 import './render.js';
+import './offline.js';
 
 export function writeOwnData() {
   Object.assign(ctx.root.dataset, { buildHomeHook: 'mounted', bdMounted: '', bdPaging: H.state, buildSocket: ctx.socket });
@@ -73,7 +74,7 @@ export function createBuildHomeHook() {
       let urlState;
       try { urlState = JSON.parse(this.el.dataset.urlState || '{}'); } catch { urlState = {}; }
       resetState(urlState);
-      ctx.root = this.el; ctx.life = createLife();
+      ctx.root = this.el; ctx.life = createLife(); ctx.resync = resync;
       ctx.push = (e, p) => this.pushEvent(e, p); ctx.reload = () => location.reload();
       this.buildLife = ctx.life;
       this.buildActive = shell();
@@ -85,11 +86,11 @@ export function createBuildHomeHook() {
     updated() { if (this.buildActive) { writeOwnData(); showServerState(this.el.dataset); } },
     disconnected() {
       if (!this.buildActive) return;
-      ctx.socket = 'down'; ctx.proto.inFlight = false; ctx.resyncSeq++; writeOwnData();
+      ctx.socket = 'down'; ctx.proto.inFlight = false; ctx.resyncSeq++; writeOwnData(); fx.renderOffline();
     },
     reconnected() {
       if (!this.buildActive) return;
-      ctx.socket = 'up'; writeOwnData(); resync(); flushURL();
+      ctx.socket = 'up'; writeOwnData(); resync(); flushURL(); fx.renderOffline();
     },
     destroyed() {
       this.buildLife?.dispose();

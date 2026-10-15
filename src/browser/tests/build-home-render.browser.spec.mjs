@@ -238,7 +238,10 @@ test('performance regression guard: dense scroll stays bounded', async ({ page }
 
 test('span URL pages before settling and paging state survives server patches', async ({ page }) => {
   await page.request.get('/build-fixture/dense')
-  await page.goto('/build?span=3')
+  // Nested harness HTTP routes drop queries; mount with a real LiveView navigation.
+  await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/commands', null))
+  await expect(page.locator('#build-root')).toHaveCount(0)
+  await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/build?span=3', null))
   await expect.poll(() => page.evaluate(async () => { const { S, ctx } = await import('/build-home/state.js'); return { span: S.span, url: location.search, root: ctx.root?.dataset.urlState } })).toMatchObject({ span: 3, url: '?span=3' })
   await expect.poll(() => page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js')
