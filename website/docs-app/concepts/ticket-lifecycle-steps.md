@@ -436,7 +436,7 @@ Failed CI in `agent:human-review` routes to rework when that head already passed
 CI or the head changed. An inherited failure on a dismissed head remains held;
 the existing test-only one-poll retry still applies.
 
-An operator comment directs the same agent.
+An operator comment directs the same agent. After rework, the slot is released only when a known dispatch head differs from the open PR head and no operator message is queued; unknown or unchanged heads keep it working. Pending checks go to `agent:ci-wait`; completed checks, including failures, go to `agent:human-review` for CI lifecycle handling.
 
 One precondition is worth naming: **`agent:rework` is gated.**
 `ReworkGate.verify_open_pr/2` (`src/lib/aiur/orchestrator/rework_gate.ex:23-34`)

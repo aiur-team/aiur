@@ -8,6 +8,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Issue
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace
   alias Aiur.Workspace.WipPreservation
@@ -435,8 +436,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
   defp active_issue_state?(state_name) when is_binary(state_name) do
     normalized_state = normalize_issue_state(state_name)
 
-    Config.settings!().tracker.active_states
-    |> Enum.any?(fn active_state -> normalize_issue_state(active_state) == normalized_state end)
+    not DispatchPolicy.no_agent_work_state?(normalized_state) and
+      Enum.any?(Config.settings!().tracker.active_states, &(normalize_issue_state(&1) == normalized_state))
   end
 
   defp active_issue_state?(_state_name), do: false
