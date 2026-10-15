@@ -104,10 +104,7 @@ defmodule Aiur.AgentEnvironment.GitIdentityTest do
       "refs/heads/main #{sha} refs/heads/main 0000000000000000000000000000000000000000\n"
 
     {output, status} =
-      System.cmd("sh", ["-c", "printf '%s' \"$1\" | \"$2\"", "sh", push_input, hook],
-        cd: workspace,
-        stderr_to_stdout: true
-      )
+      System.cmd("sh", ["-c", "cd \"$1\" && printf '%s' \"$2\" | .git/hooks/pre-push", "sh", workspace, push_input], stderr_to_stdout: true)
 
     assert status == 1, output
     assert output =~ sha
