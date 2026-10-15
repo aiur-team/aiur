@@ -15,7 +15,7 @@ defmodule AiurWeb.MarkdownTableTest do
 
   test "cells share escaping and link policy with paragraphs" do
     html = html("| Content | Link |\n| --- | --- |\n| <script>alert(1)</script> | [x](javascript:alert(1)) |\n| **bold** `code` | [ok](https://example.com) |")
-    assert html =~ "&lt;script&gt;alert(1)&lt;/script&gt;"
+    assert html =~ ~s(<td class="md-al-l">&lt;script&gt;alert(1)&lt;/script&gt;</td>)
     refute html =~ "<script>"
     refute html =~ ~s(href="javascript:)
     assert html =~ "[x](javascript:alert(1))"
