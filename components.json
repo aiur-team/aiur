@@ -2,6 +2,9 @@
   "manifest_version": 1,
   "directory_published": false,
   "seams": [
+    {"from": "orchestration", "to_module": "Aiur.RunTelemetry", "kind": "reference", "reason": "#3796: terminal membership schedules optional fail-open usage capture through the telemetry facade"},
+    {"from": "telemetry", "to_module": "Aiur.UsageAggregate", "kind": "reference", "only_paths": ["src/lib/aiur/run_telemetry/usage_capture.ex"], "reason": "#3796: off-path fail-open terminal capture queries optional accounting totals"},
+    {"from": "orchestration", "to_module": "Aiur.RunTelemetry.Lifecycle", "kind": "reference", "reason": "#3796: orchestration emits sanitized observed poll transitions through telemetry lifecycle"},
     {"from": "orchestration", "to_module": "Aiur.RunTelemetry.RunContext", "kind": "reference", "only_paths": ["src/lib/aiur/handoff.ex"], "reason": "#3844 reuse build-stamp identity for versioned daemon handoffs"},
     {"from": "harness-adapters", "to_module": "Aiur.AgentRunner.Handoff", "kind": "reference", "only_paths": ["src/lib/aiur/app_server/turn_loop.ex", "src/lib/aiur/claude/repl/hook_turn.ex"], "reason": "#3844 provider loops service the runner snapshot barrier at a safe checkpoint"},
     {"from": "agent-runner", "to_module": "Aiur.ProviderAccountGeneration", "kind": "reference", "only_paths": ["src/lib/aiur/agent_runner/handoff/provider_state.ex"], "reason": "#3844 restore daemon-local account bindings; unavailable accounting keeps existing unknown semantics"},
