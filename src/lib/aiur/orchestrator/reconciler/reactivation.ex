@@ -3,8 +3,8 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
 
   require Logger
 
-  alias Aiur.{Issue, Orchestrator}
-  alias Aiur.Orchestrator.{CiLifecycle, Parking, PauseResume, State}
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.{CiLifecycle, Parking, PauseResume, State, TicketTransition}
 
   # A before_run hook failure parks the agent alive in
   # `AgentRunner.wait_for_before_run_resume/3`; resuming re-runs the hook inside
@@ -45,7 +45,7 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
   defp reactivate_deactivated_issue(state, running_entry, issue) do
     new_entry = Map.put(running_entry, :issue, issue)
     state = %{state | running: Map.put(state.running, issue.id, new_entry)}
-    {_result, next_state} = Orchestrator.reactivate_issue(state, new_entry)
+    {_result, next_state} = TicketTransition.apply_effect(state, {:reactivate, new_entry})
     next_state
   end
 
@@ -58,7 +58,7 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
         do: CiLifecycle.cancel_ci_wait_rewake(state, issue.id),
         else: state
 
-    case Orchestrator.resume_paused_issue(state, new_entry, false) do
+    case TicketTransition.apply_effect(state, {:resume_paused, new_entry, false}) do
       {{:ok, :resumed}, next_state} ->
         next_state
 
@@ -83,7 +83,7 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
         new_entry = Map.put(running_entry, :issue, issue)
         state = %{state | running: Map.put(state.running, issue.id, new_entry)}
 
-        case Orchestrator.resume_paused_issue(state, new_entry, false) do
+        case TicketTransition.apply_effect(state, {:resume_paused, new_entry, false}) do
           {{:ok, :resumed}, next_state} ->
             bump_before_run_resume_attempts(next_state, issue.id)
 

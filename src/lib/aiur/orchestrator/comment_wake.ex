@@ -14,8 +14,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.GitHub.Issues, as: GitHubIssues
   alias Aiur.{Issue, Tracker}
-  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TicketTransition, TrackerTasks}
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, OptimisticLedger, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
@@ -63,7 +62,7 @@ defmodule Aiur.Orchestrator.CommentWake do
       Keyword.get(opts, :observe_membership_fun, &MembershipLifecycle.observe/2)
 
     terminate_running_issue_fun =
-      Keyword.get(opts, :terminate_running_issue_fun, &Orchestrator.terminate_running_issue/3)
+      Keyword.get(opts, :terminate_running_issue_fun, &TicketTransition.apply_effect(&1, {:terminate, &2, &3}))
 
     mark_reconciled_fun =
       Keyword.get(opts, :mark_reconciled_fun, &CurrentRunMembership.mark_reconciled/1)
@@ -1486,7 +1485,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     Logger.info("#{source} reactivating: issue_id=#{issue_id} issue_identifier=#{issue_number}")
 
-    case Orchestrator.reactivate_issue(state, refreshed_entry) do
+    case TicketTransition.apply_effect(state, {:reactivate, refreshed_entry}) do
       {{:ok, :reactivated}, next_state} ->
         next_state
 
