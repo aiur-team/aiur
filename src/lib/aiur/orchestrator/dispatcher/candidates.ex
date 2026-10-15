@@ -8,8 +8,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Alerts
   alias Aiur.Commands
   alias Aiur.Config
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.GitHub.LocalHold
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher.Launch
   alias Aiur.Orchestrator.DispatchPolicy

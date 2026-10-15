@@ -22,6 +22,7 @@ defmodule Aiur.GitHub.HoldPressure do
 
   alias Aiur.Config
   alias Aiur.Config.Schema.Agent, as: AgentConfig
+  alias Aiur.GitHub.ResourceStore.Memory
 
   @rate_window_ms 60_000
   @resources ["core", "graphql", "search"]
@@ -61,7 +62,7 @@ defmodule Aiur.GitHub.HoldPressure do
   @doc false
   @spec print_status() :: :ok
   def print_status do
-    Aiur.GitHub.ResourceStore.Memory.print_status()
+    Memory.print_status()
     IO.puts(status_line())
   end
 
