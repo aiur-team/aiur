@@ -44,6 +44,20 @@ defmodule Aiur.MainWatchTest do
     refute_received {:emitted, _, _}
   end
 
+  test "unavailable watcher keeps a sanitized auth diagnostic through restart" do
+    reason = {:github, :auth, %{status: 401, caller: "main_watch_commits", credential: "github_app_installation"}}
+    server = launch(Persistence.empty())
+    persisted = finish_poll(server, {:error, reason})
+    assert %{watcher: :unavailable, last_error: "GitHub rejected github_app_installation with HTTP 401 during main_watch_commits"} = MainWatch.state(server)
+    stop_supervised!(MainWatch)
+    server = launch(persisted)
+    assert MainWatch.state(server).last_error == "GitHub rejected github_app_installation with HTTP 401 during main_watch_commits"
+    green = %{observation("recovered", 2) | checks: [%{name: "test", conclusion: "success"}]}
+    finish_poll(server, {:ok, result([green])})
+    assert %{watcher: :running, status: :green, sha: "recovered", last_error: nil} = MainWatch.state(server)
+    stop_supervised!(MainWatch)
+  end
+
   test "known flake without Actions write raises capability attention once" do
     digest = %FailureDigest{signature: "flake", flake_only: true, tests: [%{identity: "flaky", classification: :known_flake}]}
     observation = %{observation("flake", 1) | digest: digest}

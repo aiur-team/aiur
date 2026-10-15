@@ -62,6 +62,8 @@ sandbox resets from issue workspaces, not ordinary repository tests.
 
 These stay with the Executor and are not copied into ticket workspaces.
 
+`aiur-run` follows the status-reported merge policy and local-test evidence through `aiur pr merge`; `aiur-handoff` records that policy and watcher state.
+
 | Skill | Trigger | Covers |
 | --- | --- | --- |
 | [aiur-intro](../../.claude/skills/aiur-intro/SKILL.md) | First contact or installation | Operating modes, setup, and first run. |
