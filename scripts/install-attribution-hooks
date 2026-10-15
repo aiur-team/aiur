@@ -1,0 +1,48 @@
+#!/bin/sh
+set -eu
+
+repo=${1:-.}
+git_dir=$(git -C "$repo" rev-parse --git-dir)
+case "$git_dir" in
+  /*) ;;
+  *) git_dir="$repo/$git_dir" ;;
+esac
+mkdir -p "$git_dir/hooks"
+
+cat > "$git_dir/hooks/commit-msg" <<'AIUR_COMMIT_MSG'
+#!/bin/sh
+# aiur-attribution-guard: strips AI attribution, retaining human co-authors.
+tmp="$1.aiur-tmp.$$"
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+awk '
+  BEGIN { IGNORECASE = 1 }
+  /^co-authored-by:/ {
+    line = tolower($0)
+    if (line ~ /(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor|opencode|deepseek|kimi|noreply@anthropic\.com)/) next
+  }
+  /generated with/ || /claude\.ai/ || /claude code session/ { next }
+  { print }
+' "$1" > "$tmp"
+cat "$tmp" > "$1"
+rm -f "$tmp"
+trap - EXIT HUP INT TERM
+AIUR_COMMIT_MSG
+
+cat > "$git_dir/hooks/pre-push" <<'AIUR_PRE_PUSH'
+#!/bin/sh
+# aiur-attribution-pre-push: refuses commits that still carry AI attribution.
+zero=0000000000000000000000000000000000000000
+while read local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue
+  if [ "$remote_sha" = "$zero" ]; then range="$local_sha"; else range="$remote_sha..$local_sha"; fi
+  for commit in $(git rev-list "$range" 2>/dev/null); do
+    if git show -s --format=%B "$commit" | grep -Eiq '^(co-authored-by:.*(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor|opencode|deepseek|kimi|noreply@anthropic\.com)|.*generated with.*|.*claude\.ai.*)$'; then
+      subject=$(git show -s --format=%s "$commit")
+      echo "aiur: refusing to push commit $commit ($subject): AI attribution remains in the commit message" >&2
+      exit 1
+    fi
+  done
+done
+exit 0
+AIUR_PRE_PUSH
+chmod 755 "$git_dir/hooks/commit-msg" "$git_dir/hooks/pre-push"

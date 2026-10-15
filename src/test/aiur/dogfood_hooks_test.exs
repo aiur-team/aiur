@@ -62,6 +62,10 @@ defmodule Aiur.DogfoodHooksTest do
 
     assert_hook_ok!("after_create", workspace, context.origin)
     assert current_branch!(workspace) == ticket_branch()
+    assert File.regular?(Path.join(workspace, ".git/hooks/commit-msg"))
+    assert File.regular?(Path.join(workspace, ".git/hooks/pre-push"))
+    assert File.read!(Path.join(workspace, ".git/hooks/commit-msg")) =~ "aiur-attribution-guard"
+    assert File.read!(Path.join(workspace, ".git/hooks/pre-push")) =~ "aiur-attribution-pre-push"
 
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
     assert File.regular?(Path.join([cache_root(workspace), "meta", "findings.ndjson"]))
