@@ -45,7 +45,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   end
 
   setup do
-    boundary = start_supervised!({Agent, fn -> %{document: @empty, labels: Map.new(["1", "2", "3"], &{&1, %{labels: ["agent:queued"]}}), save_result: :ok, marker_result: :ok} end})
+    boundary = start_supervised!({Agent, fn -> %{document: @empty, labels: Map.new(["1", "2", "3", "9"], &{&1, %{labels: ["agent:queued"]}}), save_result: :ok, marker_result: :ok} end})
     Process.register(boundary, Boundary)
     owner = self()
     settings = %Schema{build_queue: %Schema.BuildQueue{}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
@@ -79,14 +79,16 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     assert document() == @empty
   end
 
-  test "add prints owning queue and closed IDs while retaining partial successes", %{server: pid} do
+  test "add queues unobserved IDs pending while retaining partial successes", %{server: pid} do
     assert {:ok, [{"#1", :ok}]} = MutationCLI.execute(verb: :add, ids: ["1"], queue: "paseo", server: pid)
+    Agent.update(Boundary, fn state -> Map.put(state, :observation_labels, Map.delete(state.labels, "9")) end)
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["1", "2", "9"], queue: "other", server: pid) == 1 end)
     assert output =~ "#1: already in queue paseo"
     assert output =~ "#2: ok"
-    assert output =~ "#9: closed"
-    assert Enum.map(document().items, & &1.issue_id) == ["1", "2"]
-    assert document().intents |> Enum.map(&{&1.issue_id, &1.action}) |> Enum.uniq() == [{"1", :mark}, {"2", :mark}]
+    assert output =~ "#9: not yet observed (retry after next poll) for #9; queued pending"
+    refute output =~ "#9: closed"
+    assert Enum.map(document().items, & &1.issue_id) == ["1", "2", "9"]
+    assert document().intents |> Enum.map(&{&1.issue_id, &1.action}) |> Enum.uniq() == [{"1", :mark}, {"2", :mark}, {"9", :mark}]
   end
 
   test "batch insertion order survives marker-write failure after membership is saved", %{server: pid} do
