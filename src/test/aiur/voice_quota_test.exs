@@ -68,7 +68,8 @@ defmodule Aiur.VoiceQuotaTest do
     Application.delete_env(:aiur, :voice_provider)
     children = children()
     index = Enum.find_index(children, &(&1 == Aiur.GitHub.BudgetBroker))
-    assert Enum.at(children, index - 1) == Aiur.GitHub.BrokerTimeout
+    assert Enum.at(children, index - 2) == Aiur.GitHub.BrokerTimeout
+    assert Enum.at(children, index - 1) == Aiur.GitHub.HoldPressure
     assert Enum.at(children, index + 1) == Aiur.ElevenLabs.Quota
 
     Application.put_env(:aiur, :voice_provider, Provider)
