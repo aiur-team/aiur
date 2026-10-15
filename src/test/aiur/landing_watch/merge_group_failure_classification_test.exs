@@ -31,7 +31,15 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
                timeout_minutes_by_job: %{"browser smoke (3/3)" => 15}
              )
 
-    assert String.contains?(fixture("run-38729249620-browser.log"), "The operation was canceled")
+    unverified_cancellation = fixture("run-38729249620-browser.log")
+
+    assert {:ok, {:pr_caused, _}} =
+             MergeFailureClassifier.classify(
+               group_run(305, "failure", "pr-17-a"),
+               [%{"name" => "browser smoke", "conclusion" => "cancelled"}],
+               [],
+               job_log_fun: fn _, _ -> {:ok, unverified_cancellation} end
+             )
   end
 
   test "only a cancellation that reaches its timeout is infrastructure" do
