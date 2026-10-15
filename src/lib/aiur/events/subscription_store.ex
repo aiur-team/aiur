@@ -253,7 +253,7 @@ defmodule Aiur.Events.SubscriptionStore do
 
   @doc false
   # Provided so tests can stub the enqueue call without invoking the
-  # full orchestrator. Default behaviour: route to Aiur.Orchestrator.
+  # full orchestrator. Default behaviour: route to the configured delivery sink.
   @spec set_enqueue_fn((String.t(), map() -> :ok | {:error, term()}) | nil) :: :ok
   def set_enqueue_fn(fun) when is_function(fun, 2) or is_nil(fun) do
     :persistent_term.put({__MODULE__, :enqueue_fn}, fun)
@@ -266,6 +266,7 @@ defmodule Aiur.Events.SubscriptionStore do
 
     state = %{
       identifier: identifier,
+      delivery: Application.fetch_env!(:aiur, Aiur.Events.Delivery),
       path: path,
       subscribed_to: [],
       last_seen_event_id: nil,
@@ -424,7 +425,7 @@ defmodule Aiur.Events.SubscriptionStore do
 
         {:error, reason} ->
           if attempt >= @max_stall_attempts or error_kind(reason) == :permanent do
-            emit_dead_letter_alert(state.identifier, event_id, topic, reason, attempt)
+            state.delivery.dead_letter(state.identifier, event_id, topic, reason, attempt)
             resolve_stall(state, event_id)
           else
             next_attempt = attempt + 1
@@ -450,7 +451,7 @@ defmodule Aiur.Events.SubscriptionStore do
       {:error, reason} ->
         case error_kind(reason) do
           :permanent ->
-            emit_dead_letter_alert(state.identifier, event_id, topic, reason, 1)
+            state.delivery.dead_letter(state.identifier, event_id, topic, reason, 1)
             advance_cursor_inline(state, event_id)
 
           :transient ->
@@ -490,22 +491,6 @@ defmodule Aiur.Events.SubscriptionStore do
   defp error_kind({:exit, _}), do: :transient
   defp error_kind({:raised, _}), do: :permanent
   defp error_kind(_), do: :transient
-
-  defp emit_dead_letter_alert(identifier, event_id, topic, reason, attempts) do
-    Logger.warning(
-      "SubscriptionStore(#{identifier}): giving up on event #{inspect(event_id)} " <>
-        "on topic #{topic} after #{attempts} attempt(s): #{inspect(reason)}; " <>
-        "advancing cursor past failed event"
-    )
-
-    _ =
-      Aiur.Signal.alert(
-        "system.subscription_store.event_dead_lettered",
-        reason: "enqueue failed after #{attempts} attempt(s) for event #{inspect(event_id)} on #{topic}: #{inspect(reason)}",
-        needs_attention: true,
-        severity: "warning"
-      )
-  end
 
   defp advance_cursor_inline(state, event_id) when is_integer(event_id) do
     new_cursor = max(state.last_seen_event_id || 0, event_id)
@@ -571,7 +556,7 @@ defmodule Aiur.Events.SubscriptionStore do
   defp enqueue_event(state, event) do
     case :persistent_term.get({__MODULE__, :enqueue_fn}, nil) do
       fun when is_function(fun, 2) -> call_enqueue_fn(fun, state.identifier, event)
-      _ -> call_orchestrator_enqueue(state, event)
+      _ -> call_enqueue_fn(fn id, event -> state.delivery.enqueue(id, event, %{subscribed_to: state.subscribed_to}) end, state.identifier, event)
     end
   end
 
@@ -583,24 +568,6 @@ defmodule Aiur.Events.SubscriptionStore do
     end
   rescue
     e -> {:error, {:raised, e}}
-  end
-
-  defp call_orchestrator_enqueue(state, event) do
-    case Process.whereis(Aiur.Orchestrator) do
-      nil ->
-        {:error, :no_orchestrator}
-
-      pid ->
-        try do
-          case GenServer.call(pid, {:enqueue_event_digest, state.identifier, event, %{subscribed_to: state.subscribed_to}}, 1_000) do
-            :ok -> :ok
-            {:error, _} = err -> err
-            other -> {:error, {:unexpected_return, other}}
-          end
-        catch
-          :exit, reason -> {:error, {:exit, reason}}
-        end
-    end
   end
 
   @impl true

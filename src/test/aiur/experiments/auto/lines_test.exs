@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.Auto.LinesTest do
   use Aiur.TestSupport
   alias Aiur.Config.Schema.Experiments.Auto, as: AutoConfig
   alias Aiur.Experiments
-  alias Aiur.Experiments.Auto.{AiurVersionLine, Creator, DeployLedger, Line, RepoReleaseLine}
+  alias Aiur.Experiments.Auto.{AiurVersionLine, Creator, DeployLedger, Line, RepoReleaseLine, WindowManager}
   alias Aiur.Experiments.Store
 
   setup do
@@ -29,6 +29,7 @@ defmodule Aiur.Experiments.Auto.LinesTest do
     File.write!(Path.join(repo, ".aiur/experiments/packs/app.json"), Jason.encode!(pack))
     ctx = %{repo_path: repo, capture_root: Path.join(root, "capture"), clock: ~U[2026-10-10 00:00:00Z]}
     start_supervised!({Store, catalog_context: ctx})
+    start_supervised!({WindowManager, start_paused?: true, clock: fn -> ~U[2026-10-18 00:00:00Z] end, notify: fn _spec, _event -> :ok end})
     config = %AutoConfig{metric_packs: ["app"]}
     creator_opts = [catalog_context: ctx, config: config, telemetry: fn -> true end, path: Path.join(root, "creator.json")]
     creator = start_supervised!({Creator, creator_opts})
@@ -115,11 +116,30 @@ defmodule Aiur.Experiments.Auto.LinesTest do
     assert :ok = boot(ctx, "0.0.9", ~U[2026-10-09 00:00:00Z], "rollback")
     assert {:ok, detail} = Experiments.fetch(spec.id)
     assert detail.spec["windows"]["after"]["end"] == "2026-10-09T00:00:00Z"
+    assert detail.spec["status"] == "report_due"
+    assert detail.spec["report_reason"] == "truncated"
     assert [%{"reason" => "rollback to 0.0.9"}] = detail.annotations
     assert length(detail.snapshots) == 1
     assert :ok = boot(ctx, "0.0.9", ~U[2026-10-10 00:00:00Z], "after-rollback")
     assert {:ok, %{annotations: [_only]}} = Experiments.fetch(spec.id)
     assert {:ok, [_only]} = Experiments.list()
+  end
+
+  for source <- [:aiur_version, :repo_release] do
+    test "newer #{source} line closes the previous window permanently", ctx do
+      source = unquote(source)
+      assert {:ok, previous} = Creator.create(line(source, "0.0.10", ~U[2026-10-09 00:00:00Z]), ctx.creator)
+      assert {:ok, current} = Creator.create(line(source, "0.0.11", ~U[2026-10-17 00:00:00Z]), ctx.creator)
+      assert current.id != previous.id
+      send(WindowManager, :hourly)
+      :sys.get_state(WindowManager)
+      assert {:ok, detail} = Experiments.fetch(previous.id)
+      assert detail.spec["status"] == "report_due"
+      assert detail.spec["report_reason"] == "truncated"
+      assert detail.spec["windows"]["after"]["end"] == "2026-10-17T00:00:00Z"
+      assert {:ok, active} = Experiments.fetch(current.id)
+      assert active.spec["status"] == "active"
+    end
   end
 
   for {first, second} <- [{:aiur_version, :repo_release}, {:repo_release, :aiur_version}] do
