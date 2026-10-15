@@ -47,23 +47,30 @@ defmodule Aiur.BuildQueue.UnauthorizedTest do
     :ok = Exchange.subscribe(@topic <> ".#")
     owner = self()
 
-    pid =
-      start_supervised!(
-        {Server,
-         name: nil,
-         tracker: Boundary,
-         store: Boundary,
-         claim_probe: Boundary,
-         clock: fn -> 10_000 end,
-         settings: {:ok, %Schema{build_queue: %Schema.BuildQueue{enabled: true}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}},
-         schedule: fn server, message, _delay ->
-           send(owner, {:scheduled, server, message})
-           make_ref()
-         end}
-      )
+    server_opts = [
+      name: nil,
+      tracker: Boundary,
+      store: Boundary,
+      claim_probe: Boundary,
+      clock: fn -> 10_000 end,
+      settings: {:ok, %Schema{build_queue: %Schema.BuildQueue{enabled: true}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}},
+      schedule: fn server, message, _delay ->
+        send(owner, {:scheduled, server, message})
+        make_ref()
+      end
+    ]
+
+    supervisor =
+      start_supervised!(%{
+        id: :unauthorized_queue_supervisor,
+        type: :supervisor,
+        start: {Supervisor, :start_link, [[Supervisor.child_spec({Server, server_opts}, id: Server)], [strategy: :one_for_one]]}
+      })
+
+    pid = server_pid(supervisor)
 
     assert_received {:scheduled, ^pid, :tick}
-    {:ok, pid: pid, root: root, previous: previous}
+    {:ok, pid: pid, supervisor: supervisor, root: root, previous: previous}
   end
 
   test "fixture leaves the application state directory unchanged", %{root: root, previous: previous} do
@@ -94,12 +101,21 @@ defmodule Aiur.BuildQueue.UnauthorizedTest do
     end
   end
 
-  test "cold authorization check resolves a persisted unauthorized alert without reopening it", %{pid: pid} do
+  test "cold authorization check after restart resolves persisted alert without reopening it", %{pid: pid, supervisor: supervisor} do
     assert %{state: :promoted_unauthorized} = reconcile(pid)
     assert_received {:event, %{topic: @topic}}
 
     claims(%{"1" => :authorization_pending})
-    assert %{state: :held, reason: :authorization_pending} = reconcile(pid)
+    monitor = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}, 1_000
+
+    restarted = restarted_server(supervisor, pid)
+    assert_receive {:scheduled, ^restarted, :tick}
+    assert_receive {:scheduled, ^restarted, {:reconcile, token}}
+    send(restarted, {:reconcile, token})
+    assert {:ok, %{projections: [%{state: :held, reason: :authorization_pending}]}} = GenServer.call(restarted, :show)
+
     resolved = @topic <> ".resolved"
     assert_received {:event, %{topic: ^resolved}}
     refute_received {:event, %{topic: @topic}}
@@ -107,7 +123,7 @@ defmodule Aiur.BuildQueue.UnauthorizedTest do
     assert %{state: :promoted_unauthorized} =
              (
                claims(%{"1" => {:declined, :unauthorized}})
-               reconcile(pid)
+               reconcile(restarted)
              )
 
     assert_received {:event, %{topic: @topic}}
@@ -179,6 +195,23 @@ defmodule Aiur.BuildQueue.UnauthorizedTest do
   end
 
   defp claims(value), do: Agent.update(Boundary, &%{&1 | claims: value})
+
+  defp server_pid(supervisor) do
+    case Supervisor.which_children(supervisor) do
+      [{Server, pid, :worker, _}] when is_pid(pid) -> pid
+    end
+  end
+
+  defp restarted_server(supervisor, old_pid) do
+    case Supervisor.which_children(supervisor) do
+      [{Server, pid, :worker, _}] when is_pid(pid) and pid != old_pid ->
+        pid
+
+      _ ->
+        Process.sleep(10)
+        restarted_server(supervisor, old_pid)
+    end
+  end
 
   defp reconcile(pid) do
     :ok = GenServer.call(pid, :reconcile_now)
