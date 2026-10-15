@@ -8,6 +8,10 @@ parser="$repo_root/src/lib/aiur/cli.ex"
 dev_shim="$repo_root/scripts/aiurdev"
 dev_harness="$repo_root/scripts/lib/aiurdev-harness.sh"
 page="$docs_dir/reference/cli.md"
+cli_reference_pages=("$page")
+for command_page in "$docs_dir"/reference/*commands*.md; do
+  [ -f "$command_page" ] && cli_reference_pages+=("$command_page")
+done
 source_dev_commands="$(sed -n 's/^if \[ "${1:-}" = "\([a-z-]*\)" \]; then$/\1/p' "$dev_shim" "$dev_harness" | sort -u)"
 
 fail=0
@@ -87,18 +91,18 @@ has_complete_table_row() {
     $2 ~ "(^|[^[:alnum:]-])" token "([^[:alnum:]-]|$)" && NF >= 5 && $2 !~ /^[[:space:]-]*$/ &&
       $3 !~ /^[[:space:]-]*$/ && $4 !~ /^[[:space:]-]*$/ { found = 1 }
     END { exit found ? 0 : 1 }
-  ' "$page"
+  ' "${cli_reference_pages[@]}"
 }
 
-rendered_flags="$(awk -F '|' 'NF >= 5 { print $2 }' "$page" | grep -oE -- '--[a-z][a-z0-9-]*' | sort -u)"
+rendered_flags="$(cat "${cli_reference_pages[@]}" | awk -F '|' 'NF >= 5 { print $2 }' | grep -oE -- '--[a-z][a-z0-9-]*' | sort -u)"
 source_word_commands="$(printf '%s\n' "$source_commands" | grep -E '^[a-z][a-z-]*$')"
-rendered_commands="$(awk -F '|' 'NF >= 5 { print $2 }' "$page" | grep -oE -- 'aiur[[:space:]]+[a-z][a-z-]*' | sed 's/^aiur[[:space:]]*//' | sort -u)"
-rendered_dev_commands="$(awk -F '|' 'NF >= 5 { print $2 }' "$page" | grep -oE -- 'scripts/aiurdev[[:space:]]+[a-z][a-z-]*' | sed 's|^scripts/aiurdev[[:space:]]*||' | sort -u)"
+rendered_commands="$(cat "${cli_reference_pages[@]}" | awk -F '|' 'NF >= 5 { print $2 }' | grep -oE -- 'aiur[[:space:]]+[a-z][a-z-]*' | sed 's/^aiur[[:space:]]*//' | sort -u)"
+rendered_dev_commands="$(cat "${cli_reference_pages[@]}" | awk -F '|' 'NF >= 5 { print $2 }' | grep -oE -- 'scripts/aiurdev[[:space:]]+[a-z][a-z-]*' | sed 's|^scripts/aiurdev[[:space:]]*||' | sort -u)"
 source_flag_tokens="$(printf '%s\n%s\n' "$source_flags" "$source_commands" | grep -E '^--' | sort -u)"
 source_prose_commands="$source_word_commands"
-prose_flags="$(grep -oE -- '--[a-z][a-z0-9-]*' "$page" | sort -u)"
-prose_commands="$(grep -oE -- 'aiur[[:space:]]+[a-z][a-z-]*' "$page" | sed 's/^aiur[[:space:]]*//' | sort -u)"
-prose_dev_commands="$(grep -oE -- 'scripts/aiurdev[[:space:]]+[a-z][a-z-]*' "$page" | sed 's|^scripts/aiurdev[[:space:]]*||' | sort -u)"
+prose_flags="$(cat "${cli_reference_pages[@]}" | grep -oE -- '--[a-z][a-z0-9-]*' | sort -u)"
+prose_commands="$(cat "${cli_reference_pages[@]}" | grep -oE -- 'aiur[[:space:]]+[a-z][a-z-]*' | sed 's/^aiur[[:space:]]*//' | sort -u)"
+prose_dev_commands="$(cat "${cli_reference_pages[@]}" | grep -oE -- 'scripts/aiurdev[[:space:]]+[a-z][a-z-]*' | sed 's|^scripts/aiurdev[[:space:]]*||' | sort -u)"
 
 compare_source_to_docs() {
   local kind="$1" source="$2" documented="$3" missing stale
