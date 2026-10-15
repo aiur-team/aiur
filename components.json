@@ -271,6 +271,24 @@
       "reason": "#3880: daemon independently verifies the claimed merge through the governed GitHub read transport"
     },
     {
+      "from": "harness-adapters",
+      "to_module": "Aiur.SessionHandle",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/claude/hook_spool.ex"
+      ],
+      "reason": "#3843: replay persists the processed hook offset and dedup IDs through the runner-owned session handle"
+    },
+    {
+      "from": "harness-adapters",
+      "to_module": "Aiur.LiveConversation.Source",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/claude/display_tailer.ex"
+      ],
+      "reason": "Base integration: display tailer uses the runner-owned pure opaque-session formatter to redact diagnostic session IDs"
+    },
+    {
       "from": "control-cli",
       "to_module": "Aiur.GitHubCostCLI",
       "kind": "reference",

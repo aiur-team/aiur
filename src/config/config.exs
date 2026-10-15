@@ -19,7 +19,7 @@ config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
 
 # The agent sandbox sits below the TUI and the orchestrator, so it reaches both
 # through these names instead of referencing them.
-config :aiur, :process_reaper_pane_killer, {Aiur.Tmux, :kill_pane}
+config :aiur, :process_reaper_pane_killer, {Aiur.Tmux.Socket, :kill_pane}
 config :aiur, :pause_containment_result_target, Aiur.Orchestrator
 
 config :aiur, :turn_sandbox_root_contributors, [
