@@ -117,3 +117,19 @@ test('real LiveView URL history and server diff retain selected view and focused
   await expect(page.locator('#build-root')).not.toHaveAttribute('data-build-generation', generation)
   expect(await page.evaluate(() => document.activeElement === savedFocus)).toBe(true)
 })
+
+test('default daemon helper remains unknown before offline module registration', async ({ browser }) => {
+  const page = await browser.newPage()
+  try {
+    await openFixture(page)
+    await page.route('**/tools-default', route => route.fulfill({ contentType: 'text/html', body: '<main id="build-root"><div id="bd-status"></div></main>' }))
+    await page.goto('/tools-default')
+    await page.evaluate(async () => {
+      const { ctx, resetState } = await import('/build-home/state.js')
+      const { renderStatus } = await import('/build-home/tools.js')
+      resetState(); ctx.root = document.querySelector('#build-root'); renderStatus()
+    })
+    await expect(page.locator('.bd-daemon')).toHaveText('Daemon status unknown')
+    await expect(page.locator('.bd-daemon')).toHaveClass('bd-daemon off')
+  } finally { await page.close() }
+})
