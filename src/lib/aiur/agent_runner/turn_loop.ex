@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   @moduledoc false
 
   require Logger
-  alias Aiur.AgentRunner.{MessageHandler, NoopWait, QueueDrain, SessionLifecycle, TurnCallbacks, TurnCompletion}
+  alias Aiur.AgentRunner.{Handoff, MessageHandler, NoopWait, QueueDrain, SessionLifecycle, TurnCallbacks, TurnCompletion}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnPrompt, TurnStreams}
   alias Aiur.AgentTools.Dispatch
   alias Aiur.CodingAgent
@@ -60,9 +60,9 @@ defmodule Aiur.AgentRunner.TurnLoop do
       max_turns: max_turns
     }
 
-    Aiur.AgentRunner.Handoff.before_turn(app_session, turn_context)
+    Handoff.before_turn(app_session, turn_context)
 
-    case if(Aiur.AgentRunner.Handoff.active_resume?(), do: :ok, else: Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host)) do
+    case if(Handoff.active_resume?(), do: :ok, else: Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host)) do
       :ok -> run_supported_turn(turn_context, app_session)
       {:error, _reason} = error -> refuse_unsupported_turn(turn_context, error)
     end
@@ -88,7 +88,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     # Work that Aiur saved before it recreated this workspace (#2743) is
     # announced at the top of the next turn, with the restore commands.
     # The notice stays pending until a turn that carried it completes.
-    {prompt, wip_notices} = Aiur.AgentRunner.Handoff.turn_prompt(turn_context)
+    {prompt, wip_notices} = Handoff.turn_prompt(turn_context)
 
     # The prompt is a no-op witness: two consecutive
     # continuation prompts differ only in `#N`, so an unchanged prompt means the
