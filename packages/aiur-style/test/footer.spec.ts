@@ -50,6 +50,8 @@ for (const theme of ['light', 'dark']) {
     test(`footer ${variant} screenshot ${theme}`, async ({ page }) => {
       await page.goto(`./?theme=${theme}`);
       await page.evaluate(() => document.fonts.ready);
+      // Isolate component shots from the position of other gallery sections.
+      await page.locator('#footer').evaluate(section => document.getElementById('tokens')!.after(section));
       await expect(page.locator('#footer .aiur-footer').nth(index)).toHaveScreenshot(`footer-${variant}-${theme}.png`);
     });
   }
