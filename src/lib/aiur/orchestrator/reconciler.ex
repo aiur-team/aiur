@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   require Logger
 
-  alias Aiur.{CurrentRunMembership, Issue, Orchestrator, Tracker, TrackerIdentity}
+  alias Aiur.{CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator.Reconciler.{Divergence, Nonterminal, Reactivation}
 
   alias Aiur.Orchestrator.{LifecycleFenceExpiry, PushRouting, RuntimeWatchdog}
@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.Reconciler do
     MembershipLifecycle,
     RateLimitFallback,
     State,
+    TicketTransition,
     TrackerTasks
   }
 
@@ -196,12 +197,8 @@ defmodule Aiur.Orchestrator.Reconciler do
   def reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
 
   def reconcile_running_issue_states([issue | rest], state, active_states, terminal_states) do
-    reconcile_running_issue_states(
-      rest,
-      reconcile_issue_state(issue, state, active_states, terminal_states),
-      active_states,
-      terminal_states
-    )
+    {next, effects} = reconcile_issue_effects(issue, state, active_states, terminal_states, &MembershipLifecycle.observe/2, &CurrentRunMembership.mark_reconciled/1)
+    reconcile_running_issue_states(rest, TicketTransition.apply_effects(next, effects), active_states, terminal_states)
   end
 
   @spec reconcile_issue_state(Issue.t() | term(), State.t(), MapSet.t(), MapSet.t()) :: State.t()
@@ -251,16 +248,15 @@ defmodule Aiur.Orchestrator.Reconciler do
       ),
       do: state
 
-  @doc false
-  @spec reconcile_issue_state(
-          Issue.t() | term(),
-          State.t(),
-          MapSet.t(),
-          MapSet.t(),
-          (TrackerIdentity.t(), atom() -> term()),
-          (:fresh | :unavailable -> term())
-        ) :: State.t()
-  def reconcile_issue_state(
+  @spec reconcile_issue_state(term(), State.t(), MapSet.t(), MapSet.t(), function(), function()) :: State.t()
+  def reconcile_issue_state(issue, state, active, terminal, observe, mark) do
+    {next, effects} = reconcile_issue_effects(issue, state, active, terminal, observe, mark)
+    TicketTransition.apply_effects(next, effects)
+  end
+
+  @doc "Return deferred transitions; outcome-sensitive effects apply before their dependent actions."
+  @spec reconcile_issue_effects(term(), State.t(), MapSet.t(), MapSet.t(), function(), function()) :: {State.t(), [Aiur.Orchestrator.Effect.t()]}
+  def reconcile_issue_effects(
         %Issue{} = issue,
         state,
         active_states,
@@ -269,44 +265,42 @@ defmodule Aiur.Orchestrator.Reconciler do
         mark_reconciled_fun
       )
       when is_function(observe_membership_fun, 2) and is_function(mark_reconciled_fun, 1) do
-    if DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) do
-      case LifecycleFence.reconcile_observed_state(state, issue, terminal_states) do
-        :admit ->
-          # Resolve any open divergence attention before the entry is removed,
-          # so a terminal ticket never leaves a stuck alert behind. A fenced
-          # issue is still running, so its divergence state is left intact.
-          state
-          |> Divergence.clear_reported_divergence(issue.id, issue.identifier)
-          |> Nonterminal.reconcile_terminal_issue_state(
-            issue,
-            observe_membership_fun,
-            mark_reconciled_fun
-          )
+    result =
+      if DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) do
+        case LifecycleFence.reconcile_observed_state(state, issue, terminal_states) do
+          :admit ->
+            # Resolve any open divergence attention before the entry is removed,
+            # so a terminal ticket never leaves a stuck alert behind. A fenced
+            # issue is still running, so its divergence state is left intact.
+            state
+            |> Divergence.clear_reported_divergence(issue.id, issue.identifier)
+            |> Nonterminal.reconcile_terminal_issue_state(
+              issue,
+              observe_membership_fun,
+              mark_reconciled_fun
+            )
 
-        {:fenced, next_state} ->
-          next_state
+          {:fenced, next_state} ->
+            next_state
+        end
+      else
+        state
+        |> report_label_divergence(issue)
+        |> Nonterminal.reconcile_nonterminal_issue_state(
+          issue,
+          active_states,
+          terminal_states,
+          observe_membership_fun
+        )
       end
-    else
-      state
-      |> report_label_divergence(issue)
-      |> Nonterminal.reconcile_nonterminal_issue_state(
-        issue,
-        active_states,
-        terminal_states,
-        observe_membership_fun
-      )
+
+    case result do
+      %State{} = next -> {next, []}
+      {next, effects} -> {next, effects}
     end
   end
 
-  def reconcile_issue_state(
-        _issue,
-        state,
-        _active_states,
-        _terminal_states,
-        _observe_membership_fun,
-        _mark_reconciled_fun
-      ),
-      do: state
+  def reconcile_issue_effects(_issue, state, _active_states, _terminal_states, _observe_membership_fun, _mark_reconciled_fun), do: {state, []}
 
   @doc false
   @spec report_label_divergence(State.t(), Issue.t()) :: State.t()
@@ -341,16 +335,19 @@ defmodule Aiur.Orchestrator.Reconciler do
       if MapSet.member?(visible_issue_ids, issue_id) do
         state_acc
       else
-        log_missing_running_issue(state_acc, issue_id)
-
-        state_acc
-        |> Divergence.clear_reported_divergence(issue_id)
-        |> Orchestrator.terminate_running_issue(issue_id, false)
+        {next, effects} = missing_running_issue_effects(state_acc, issue_id)
+        TicketTransition.apply_effects(next, effects)
       end
     end)
   end
 
   def reconcile_missing_running_issue_ids(state, _requested_issue_ids, _issues), do: state
+
+  @spec missing_running_issue_effects(State.t(), String.t()) :: {State.t(), [Aiur.Orchestrator.Effect.t()]}
+  def missing_running_issue_effects(state, issue_id) do
+    log_missing_running_issue(state, issue_id)
+    {Divergence.clear_reported_divergence(state, issue_id), [{:terminate, issue_id, false}]}
+  end
 
   @spec refresh_running_issue_state(State.t(), Issue.t()) :: State.t()
   def refresh_running_issue_state(%State{} = state, %Issue{} = issue) do

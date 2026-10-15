@@ -16,6 +16,10 @@ defmodule AiurWeb.StreamdeckProjectionTest do
     def synthesizer, do: nil
     @impl true
     def configured?, do: false
+    @impl true
+    def child_specs, do: []
+    @impl true
+    def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
   end
 
   defmodule ConfiguredVoiceProvider do
@@ -26,6 +30,10 @@ defmodule AiurWeb.StreamdeckProjectionTest do
     def synthesizer, do: nil
     @impl true
     def configured?, do: true
+    @impl true
+    def child_specs, do: []
+    @impl true
+    def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
   end
 
   setup do

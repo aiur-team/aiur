@@ -3,8 +3,8 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
 
   require Logger
 
-  alias Aiur.{CurrentRunMembership, Issue, Orchestrator, TrackerIdentity}
-  alias Aiur.Orchestrator.{DispatchPolicy, LifecycleFence, MembershipLifecycle, PauseResume, State}
+  alias Aiur.{CurrentRunMembership, Issue, TrackerIdentity}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, HumanReview, LifecycleFence, MembershipLifecycle, PauseResume, State}
   alias Aiur.Orchestrator.Reconciler.{Divergence, Reactivation}
 
   @doc false
@@ -13,7 +13,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
           Issue.t(),
           (TrackerIdentity.t(), atom() -> term()),
           (:fresh | :unavailable -> term())
-        ) :: State.t()
+        ) :: State.t() | {State.t(), [Aiur.Orchestrator.Effect.t()]}
   def reconcile_terminal_issue_state(state, issue, observe_membership_fun, mark_reconciled_fun) do
     Logger.info([
       "Issue moved to terminal state: ",
@@ -38,7 +38,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
 
   defp terminate_recorded_terminal_issue(state, issue, mark_reconciled_fun) do
     if CurrentRunMembership.set_terminal_verification_pending(&CurrentRunMembership.set_terminal_verification_pending/2, issue.tracker_identity, false) in [:ok, :skipped] do
-      Orchestrator.terminate_running_issue(state, issue.id, true)
+      {state, [{:terminate, issue.id, true}]}
     else
       mark_membership_unavailable(state, mark_reconciled_fun, issue.tracker_identity)
     end
@@ -51,7 +51,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
           MapSet.t(),
           MapSet.t(),
           (TrackerIdentity.t(), atom() -> term())
-        ) :: State.t()
+        ) :: State.t() | {State.t(), [Aiur.Orchestrator.Effect.t()]}
   def reconcile_nonterminal_issue_state(
         state,
         issue,
@@ -73,7 +73,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
 
         state
         |> Divergence.clear_reported_divergence(issue.id)
-        |> Orchestrator.terminate_running_issue(issue.id, false)
+        |> then(&{&1, [{:terminate, issue.id, false}]})
 
       !DispatchPolicy.issue_dispatch_authorized?(issue) and
           not DispatchPolicy.issue_dispatch_authorization_deferred?(issue) ->
@@ -87,7 +87,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
 
         state
         |> Divergence.clear_reported_divergence(issue.id)
-        |> Orchestrator.terminate_running_issue(issue.id, false)
+        |> then(&{&1, [{:terminate, issue.id, false}]})
 
       # Authorization could not be *checked* this cycle — a transient budget
       # hold, rate limit, or transport failure on the provenance fetch — as
@@ -129,7 +129,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
 
         state
         |> Divergence.clear_reported_divergence(issue.id)
-        |> Orchestrator.terminate_running_issue(issue.id, false)
+        |> then(&{&1, [{:terminate, issue.id, false}]})
 
       Issue.paused?(issue) ->
         PauseResume.pause_issue_for_label_override(state, issue)
@@ -176,14 +176,14 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
       DispatchPolicy.active_issue_state?(issue.state, active_states) ->
         Reactivation.maybe_reactivate_or_refresh(state, issue)
 
-      Orchestrator.ci_wait_state?(issue.state) ->
-        Orchestrator.pause_issue_for_ci_wait(state, issue)
+      CiLifecycle.ci_wait_state?(issue.state) ->
+        {state, [{:pause_for_ci_wait, issue}]}
 
-      Orchestrator.human_review_state?(issue.state) ->
-        Orchestrator.maybe_deactivate_human_review_issue(state, issue)
+      HumanReview.human_review_state?(issue.state) ->
+        {state, [{:maybe_deactivate_human_review, issue}]}
 
-      Orchestrator.error_issue_state?(issue.state) ->
-        Orchestrator.preserve_running_issue_on_external_error(state, issue)
+      DispatchPolicy.normalize_issue_state(issue.state) == "error" ->
+        {state, [{:preserve_on_external_error, issue}]}
 
       true ->
         Logger.info([
@@ -198,7 +198,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
 
         state
         |> Divergence.clear_reported_divergence(issue.id)
-        |> Orchestrator.terminate_running_issue(issue.id, false)
+        |> then(&{&1, [{:terminate, issue.id, false}]})
     end
   end
 
