@@ -5,7 +5,7 @@ import { decide } from './protocol.js';
 import { acceptSnapshot, applyDiff } from './store.js';
 import { fromServer, flushURL } from './url.js';
 import './clock.js';
-import './layout.js';
+import './render.js';
 
 export function writeOwnData() {
   Object.assign(ctx.root.dataset, { buildHomeHook: 'mounted', bdMounted: '', buildSocket: ctx.socket });

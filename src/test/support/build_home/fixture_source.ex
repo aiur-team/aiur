@@ -3,6 +3,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   @behaviour AiurWeb.Build.DataSource
 
   alias AiurWeb.Build.Read
+  alias Aiur.TestSupport.BuildHome.EarlierControl
 
   @files ~w(live dense newrepo noqueue offline odd-edges)
   @dir Path.expand("../../fixtures/build_home", __DIR__)
@@ -43,10 +44,12 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
 
   @impl true
   def earlier(before, zone, opts) do
-    with {:ok, data} <- full(opts) do
-      {rows, history} = page(data, before, zone, Keyword.get(opts, :days, 1))
-      {:ok, %{"rows" => rows, "history" => history}}
-    end
+    EarlierControl.run(before, fn ->
+      with {:ok, data} <- full(opts) do
+        {rows, history} = page(data, before, zone, Keyword.get(opts, :days, 1))
+        {:ok, %{"rows" => rows, "history" => history}}
+      end
+    end)
   end
 
   def full(opts), do: load(dataset(opts), Keyword.get(opts, :dir, @dir))

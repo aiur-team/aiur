@@ -1,11 +1,11 @@
 Code.require_file("../support/browser_harness/fixture_endpoint_start.ex", __DIR__)
+Code.require_file("../support/build_home/earlier_control.ex", __DIR__)
 Code.require_file("../support/build_home/fixture_source.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
 Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
 Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
-
 for file <- ~w(
       route_shell_live graph_live ticket_context_live units_live_data units_live
       support voice_provider build_order_source meters_live optimistic_control
