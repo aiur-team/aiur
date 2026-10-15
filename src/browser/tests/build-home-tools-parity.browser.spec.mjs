@@ -12,13 +12,19 @@ async function compareRegion(pair, options) {
   const demo = pair.allowlist.find(entry => entry.id === 'demo-data-select')
   await pair.design.locator(demo.selector).evaluateAll(nodes => nodes.forEach(node => node.remove()))
   const styles = []
-  for (const side of ['design', 'product']) styles.push(await pair[side].locator(options.region).evaluate(el => {
+  for (const side of ['design', 'product']) {
+    await pair[side].evaluate(() => {
+      window.scrollTo(0, 0)
+      document.getAnimations().forEach(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime) ? animation.finish() : animation.cancel())
+    })
+    styles.push(await pair[side].locator(options.region).evaluate(el => {
     const original = el.getAttribute('style'), box = el.getBoundingClientRect()
     Object.assign(el.style, { position: 'relative', left: Math.round(box.x) - box.x + 'px',
       top: Math.round(box.y) - box.y + 'px', transform: 'none' })
     return original
-  }))
-  try { await expectDesignParity(pair, options) }
+    }))
+  }
+  try { await expectDesignParity(pair, { ...options, preserveAnimations: true }) }
   finally {
     for (const [index, side] of ['design', 'product'].entries()) await pair[side].locator(options.region).evaluate((el, style) => {
       if (style === null) el.removeAttribute('style'); else el.setAttribute('style', style)
@@ -35,6 +41,7 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
       expect(await pair.product.locator('#bd-tools-l .bd-seg.vw').count()).toBe(1)
       for (const view of ['graph', 'gantt', 'list']) {
         for (const side of ['design', 'product']) {
+          await pair[side].evaluate(() => window.scrollTo(0, 0))
           await pair[side].locator(`[data-v="${view}"]`).click()
           await pair[side].evaluate(() => document.fonts.ready)
         }
