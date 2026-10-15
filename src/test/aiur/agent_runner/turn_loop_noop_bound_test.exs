@@ -22,9 +22,9 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
 
     @impl true
     def init(report), do: {:ok, report}
-
     @impl true
     def handle_call({:claim_next_queue_item, _identifier}, _from, report), do: {:reply, :empty, report}
+    def handle_call({:control_capabilities, _identifier}, _from, report), do: {:reply, {:ok, %{queue_depth: 0}}, report}
 
     def handle_call({:consume_delivered_queue_items, _identifier}, _from, report), do: {:reply, :ok, report}
     def handle_call({:restore_delivered_queue_items, _identifier}, _from, report), do: {:reply, :ok, report}

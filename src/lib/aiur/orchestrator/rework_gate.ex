@@ -27,7 +27,16 @@ defmodule Aiur.Orchestrator.ReworkGate do
   alias Aiur.Alerts
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
-  alias Aiur.Orchestrator.{ReviewFindings, State}
+  alias Aiur.Orchestrator.{OperatorMessages, ReviewFindings, State}
+
+  @doc false
+  @spec operator_queue_empty?(GenServer.server(), String.t()) :: boolean()
+  def operator_queue_empty?(orchestrator, issue_identifier) do
+    case OperatorMessages.control_capabilities(orchestrator, issue_identifier) do
+      {:ok, %{queue_depth: 0}} -> true
+      _queued_or_unavailable -> false
+    end
+  end
 
   @doc """
   Returns the open pull request for the rework target.
@@ -305,6 +314,19 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
       {:skip, :no_open_pr} ->
         :none
+    end
+  end
+
+  @doc "Returns a handoff only when a completed turn pushed a new open-PR head."
+  @spec completed_agent_handoff(String.t(), term(), keyword()) :: :none | {:handoff, String.t()}
+  def completed_agent_handoff(issue_key, original_head, opts \\ []) do
+    with original when is_binary(original) and original != "" <- original_head,
+         {:ok, pr} <- open_pr(issue_key, opts),
+         head when is_binary(head) and head != "" <- head_sha(pr),
+         true <- head != original do
+      {:handoff, ci_handoff_state(head, opts)}
+    else
+      _ -> :none
     end
   end
 
