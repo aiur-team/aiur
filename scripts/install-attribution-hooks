@@ -18,7 +18,7 @@ awk '
   {
     lower = tolower($0)
     if (lower ~ /^co-authored-by:/ && lower ~ /(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor|opencode|deepseek|kimi|noreply@anthropic\.com)/) next
-    if (lower ~ /generated with/ || lower ~ /claude\.ai/ || lower ~ /claude code session/) next
+    if (lower ~ /generated with/ || lower ~ /claude\.ai/ || lower ~ /claude code session/ || lower ~ /session\/[[:alnum:]_-]+/) next
     print
   }
 ' "$1" > "$tmp"

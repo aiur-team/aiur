@@ -25,7 +25,7 @@ defmodule Aiur.Workspace.AttributionGuard do
       line = tolower($0)
       if (line ~ /(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor|opencode|deepseek|kimi|noreply@anthropic\.com)/) next
     }
-    /generated with/ || /claude\.ai/ || /claude code session/ { next }
+    /generated with/ || /claude\.ai/ || /claude code session/ || /session\/[[:alnum:]_-]+/ { next }
     { print }
   ' "$1" > "$tmp"
   cat "$tmp" > "$1"
