@@ -47,6 +47,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
@@ -110,6 +111,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end,
           review_pull_request_fetcher: fn "57" -> {:ok, %{"number" => 61, "updated_at" => pr_updated_at}} end
@@ -170,6 +172,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, issues} end,
           human_review_comment_target_limit: 1,
@@ -253,6 +256,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [human_review_issue]} end,
           max_concurrency: 1
@@ -316,6 +320,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:error, :tracker_down} end
         )
