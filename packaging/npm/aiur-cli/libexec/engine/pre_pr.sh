@@ -156,7 +156,7 @@ cmd_pre_pr() {
 # Refresh Local-tests refs only once GitHub has acknowledged the final pushed HEAD.
 # The checker intentionally consumes exact plain text, so preserve that format.
 refresh_pr_body_evidence() {
-  local json_file="$1" base_ref="$2" base_sha="$3" merge_base number pushed_sha live_sha pr_json body_file
+  local json_file="$1" base_ref="$2" base_sha="$3" merge_base number pushed_sha live_sha pr_json body_file update_json
   number="$(jq -er '.number' "$json_file")" || return 1
   pushed_sha="$(git rev-parse HEAD)" || return 1
   merge_base="$(git merge-base HEAD "$base_sha")" || return 1
@@ -184,7 +184,16 @@ PY
     return 1
   fi
   body_file="$(dirname "$json_file")/body.md"
-  gh pr edit "$number" --body-file "$body_file" >/dev/null || return 1
+  update_json="$(dirname "$json_file")/body-update.json"
+  if ! python3 - "$body_file" "$update_json" <<'PY'
+import json, pathlib, sys
+body = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+pathlib.Path(sys.argv[2]).write_text(json.dumps({"body": body}), encoding="utf-8")
+PY
+  then
+    return 1
+  fi
+  gh api "repos/{owner}/{repo}/pulls/$number" --method PATCH --input "$update_json" >/dev/null || return 1
   pr_json="$(gh pr view "$number" --json createdAt,body,headRefOid --jq '{created_at: .createdAt, body: .body, head: {sha: .headRefOid}}')" || return 1
   printf '%s\n' "$pr_json" >"$json_file"
   [ "$(jq -r '.head.sha' "$json_file")" = "$pushed_sha" ] || { echo "PR #$number head moved during evidence refresh" >&2; return 1; }

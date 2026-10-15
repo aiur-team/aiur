@@ -48,10 +48,13 @@ defmodule AiurEnginePrePrTest do
         jq -n --arg sha "#{sha}" --arg body "$(cat "#{fixture}/edited-body.md")" --arg created_at "2026-01-01T00:00:00Z" '{created_at: $created_at, body: $body, head: {sha: $sha}}'
       elif [[ "$*" == *headRefOid* ]]; then
         echo '{"head":{"sha":"#{sha}"}}'
-      elif [[ "$*" == *edit* ]]; then
+      elif [[ "$*" == *pulls/123* ]]; then
         [[ "${FAIL_EDIT:-0}" == 1 ]] && exit 7
         while (($#)); do
-          if [[ "$1" == --body-file ]]; then cp "$2" "#{fixture}/edited-body.md"; exit 0; fi
+          if [[ "$1" == --input ]]; then
+            command python3 -c 'import json, pathlib, sys; pathlib.Path(sys.argv[2]).write_text(json.load(open(sys.argv[1]))["body"])' "$2" "#{fixture}/edited-body.md"
+            exit $?
+          fi
           shift
         done
         exit 8
