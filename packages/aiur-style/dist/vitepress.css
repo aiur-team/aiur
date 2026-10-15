@@ -1,0 +1,185 @@
+@layer aiur.tokens {
+  html.dark {
+    color-scheme: dark;
+    --aiur-color-bg: #1a1b1e;
+    --aiur-color-bg-2: #161719;
+    --aiur-color-bg-app: #16171a;
+    --aiur-color-surface: #1e2025;
+    --aiur-color-surface-2: #23262c;
+    --aiur-color-surface-3: #292d34;
+    --aiur-color-fg: #edeef0;
+    --aiur-color-muted: #8c8d93;
+    --aiur-color-muted-app: #969aa4;
+    --aiur-color-faint: #8b8f99;
+    --aiur-color-hairline: rgba(221,226,235,.10);
+    --aiur-color-line: rgba(221,226,235,.12);
+    --aiur-color-line-strong: rgba(221,226,235,.20);
+    --aiur-color-pill-bd: rgba(221,226,235,.13);
+    --aiur-color-pill-bg: rgba(221,226,235,.03);
+    --aiur-color-field-line: rgba(221,226,235,.14);
+    --aiur-color-accent: #2f86ff;
+    --aiur-color-accent-ink: #8fbcff;
+    --aiur-color-accent-soft: rgba(47,134,255,.15);
+    --aiur-color-focus: #2f86ff;
+    --aiur-color-fill: #1f57c4;
+    --aiur-color-good: #3fb950;
+    --aiur-color-good-ink: #74d47f;
+    --aiur-color-good-soft: rgba(63, 185, 80, 0.14);
+    --aiur-color-good-line: rgba(63, 185, 80, 0.32);
+    --aiur-color-attention: #e3b341;
+    --aiur-color-attention-ink: #f1cf6f;
+    --aiur-color-attention-soft: rgba(227, 179, 65, 0.15);
+    --aiur-color-attention-line: rgba(227, 179, 65, 0.34);
+    --aiur-color-blocking: #ff7b72;
+    --aiur-color-blocking-ink: #ffa39c;
+    --aiur-color-blocking-soft: rgba(255, 123, 114, 0.14);
+    --aiur-color-blocking-line: rgba(255, 123, 114, 0.34);
+    --aiur-color-super: #c69bff;
+    --aiur-color-super-ink: #d8bcff;
+    --aiur-color-super-soft: rgba(198, 155, 255, 0.15);
+    --aiur-color-super-line: rgba(198, 155, 255, 0.34);
+    --aiur-color-on-blocking: #2a0906;
+    --aiur-color-ack: #4fd6c4;
+    --aiur-font-display: "Bungee", system-ui, sans-serif;
+    --aiur-font-body: "Space Grotesk", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --aiur-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+    --aiur-text-banner: clamp(11px, 1.5vw, 13px);
+    --aiur-text-summary: clamp(25px, 3.6vw, 42px);
+    --aiur-text-signoff: clamp(27px, 4.4vw, 52px);
+    --aiur-radius-sm: 7px;
+    --aiur-radius-md: 10px;
+    --aiur-radius-box: 11px;
+    --aiur-radius-lg: 16px;
+    --aiur-radius-xl: 24px;
+    --aiur-radius-pill: 999px;
+    --aiur-motion-fast: .2s;
+    --aiur-ease-rise: cubic-bezier(.2,.85,.3,1);
+    --aiur-ease-standard: cubic-bezier(.4,0,.2,1);
+    --aiur-layout-nav: 15rem;
+    --aiur-layout-nav-collapsed: 2.6rem;
+    --aiur-layout-measure: 75rem;
+    --aiur-layout-page-max: 1440px;
+    --aiur-z-topbar: 20;
+    --aiur-z-banner: 3;
+    --aiur-z-stage: 6;
+    --aiur-text-xs: 12px;
+    --aiur-text-sm: 13px;
+    --aiur-text-md: 15px;
+    --aiur-text-lg: 17px;
+    --aiur-space-1: 4px;
+    --aiur-space-2: 8px;
+    --aiur-space-3: 12px;
+    --aiur-space-4: 16px;
+    --aiur-space-5: 20px;
+    --aiur-space-6: 24px;
+    --aiur-space-7: 32px;
+    --aiur-space-8: 48px;
+    --aiur-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --aiur-shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.55);
+    --aiur-shadow-lg: 0 40px 90px -40px rgba(0, 0, 0, 0.7);
+    --aiur-color-faint-on-bg: #8b8f99;
+    --aiur-color-faint-on-bg-2: #8b8f99;
+    --aiur-color-faint-on-bg-app: #8b8f99;
+    --aiur-color-accent-on-bg-2: #2f86ff;
+    --aiur-color-accent-on-surface-2: #8fbcff;
+    --aiur-color-accent-line: rgba(47,134,255,.34);
+    --aiur-color-on-fill: #ffffff;
+    --aiur-color-fill-hover: #1a4aa8;
+    --aiur-color-fill-pressed: #163e8c;
+  }
+}
+/* Import after VitePress's default theme and aiur-style/tokens.css + css/base.css.
+   Unlayered mappings override VitePress's unlayered defaults. */
+:root,
+html.dark,
+[data-theme="dark"] {
+  --vp-font-family-base: var(--aiur-font-body);
+  --vp-font-family-mono: var(--aiur-font-mono);
+  --vp-c-bg: var(--aiur-color-bg);
+  --vp-c-bg-alt: var(--aiur-color-bg-2);
+  --vp-c-bg-elv: var(--aiur-color-surface);
+  --vp-c-bg-soft: var(--aiur-color-pill-bg);
+  --vp-c-text-1: var(--aiur-color-fg);
+  --vp-c-text-2: var(--aiur-color-muted);
+  --vp-c-text-3: var(--aiur-color-muted);
+  --vp-c-divider: var(--aiur-color-line);
+  --vp-c-gutter: var(--aiur-color-line);
+  --vp-c-brand-1: var(--aiur-color-accent);
+  --vp-c-brand-2: var(--aiur-color-accent-ink);
+  --vp-c-brand-3: var(--aiur-color-fill);
+  --vp-c-brand-soft: var(--aiur-color-accent-soft);
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-bg: var(--aiur-color-fill);
+  --vp-button-brand-text: var(--aiur-color-on-fill);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-bg: var(--aiur-color-fill-hover);
+  --vp-button-brand-hover-text: var(--aiur-color-on-fill);
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-bg: var(--aiur-color-fill-pressed);
+  --vp-button-brand-active-text: var(--aiur-color-on-fill);
+  --vp-button-alt-border: transparent;
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-text: var(--aiur-color-muted);
+  --vp-button-alt-hover-border: transparent;
+  --vp-button-alt-hover-bg: color-mix(in srgb, var(--aiur-color-fg) 8%, transparent);
+  --vp-button-alt-hover-text: var(--aiur-color-fg);
+  --vp-button-alt-active-border: transparent;
+  --vp-button-alt-active-bg: var(--vp-button-alt-hover-bg);
+  --vp-button-alt-active-text: var(--aiur-color-fg);
+  --vp-code-block-bg: var(--aiur-color-bg-2);
+  --vp-code-lang-color: var(--aiur-color-muted);
+  --vp-code-line-highlight-color: var(--aiur-color-accent-soft);
+  --vp-home-hero-name-color: var(--aiur-color-fg);
+  --vp-nav-bg-color: color-mix(in srgb, var(--aiur-color-bg) 86%, transparent);
+  --vp-sidebar-bg-color: var(--aiur-color-bg);
+  --vp-local-search-bg: var(--aiur-color-bg);
+}
+
+/* VitePress's unlayered reset masks base.css's layered ring. */
+.VPButton:focus-visible {
+  outline: 2px solid var(--aiur-color-focus);
+  outline-offset: 3px;
+}
+
+.aiur-lines,
+.VPHomeHero::before {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  width: min(780px, 92vw);
+  height: min(420px, 60vw);
+  border: 1px solid var(--aiur-color-line);
+  border-radius: 50%;
+  background: repeating-linear-gradient(112deg, transparent 0 28px, var(--aiur-color-field-line) 29px, transparent 30px 58px);
+  content: "";
+  opacity: .65;
+  transform: translate(-50%, -50%) rotate(-8deg);
+  pointer-events: none;
+  mask-image: radial-gradient(ellipse, #000 12%, transparent 72%);
+}
+
+.VPButton.brand[aria-pressed="true"] {
+  --vp-button-brand-bg: var(--aiur-color-fill-pressed);
+  --vp-button-brand-hover-bg: var(--aiur-color-fill-pressed);
+}
+
+.VPButton:disabled,
+.VPButton[aria-disabled="true"] {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.VPButton.brand:disabled,
+.VPButton.brand[aria-disabled="true"] {
+  --vp-button-brand-bg: var(--aiur-color-fill);
+  --vp-button-brand-hover-bg: var(--aiur-color-fill);
+  --vp-button-brand-active-bg: var(--aiur-color-fill);
+}
+
+.VPButton.alt:disabled,
+.VPButton.alt[aria-disabled="true"] {
+  --vp-button-alt-hover-bg: transparent;
+  --vp-button-alt-active-bg: transparent;
+  --vp-button-alt-hover-text: var(--aiur-color-muted);
+  --vp-button-alt-active-text: var(--aiur-color-muted);
+}
