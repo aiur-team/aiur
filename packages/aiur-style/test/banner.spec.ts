@@ -43,7 +43,7 @@ test('keyboard dismisses, persists the campaign, emits once and focuses the next
       document.body.dataset.dismissed = String(Number(document.body.dataset.dismissed ?? 0) + 1);
     });
   });
-  await page.locator('#focus-tabindex').focus();
+  await page.locator('#theme-toggle').focus();
   await page.keyboard.press('Tab');
   await expect(page.locator('.aiur-banner__link')).toBeFocused();
   await page.keyboard.press('Tab');
@@ -89,6 +89,7 @@ for (const fallback of ['main', 'body']) {
     await page.goto('./');
     await page.evaluate(useMain => {
       document.getElementById('after-banner')!.remove();
+      document.getElementById('buttons')!.remove();
       if (useMain) document.body.append(document.createElement('main'));
     }, fallback === 'main');
     await page.locator('.aiur-banner__close').click();

@@ -105,6 +105,7 @@
   {Aiur.Orchestrator.RetryEngine.AgentDown, :queue_store, "Baseline messaging write in Aiur.Orchestrator.RetryEngine; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.RetryEngine.Exhaustion, :observed_error_alert_causes, "Baseline dispatch write in Aiur.Orchestrator.RetryEngine; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.RetryEngine.Exhaustion, :observed_error_alerts, "Baseline dispatch write in Aiur.Orchestrator.RetryEngine; retain until this responsibility moves to its field owner."},
+  {Aiur.Orchestrator.ReworkDispatchClaim, :claimed, "Rework admission reserves the ticket while its guarded tracker transition is pending."},
   {Aiur.Orchestrator.RuntimeWatchdog, :running, "Baseline lifecycle write in Aiur.Orchestrator.RuntimeWatchdog; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.SnapshotStore, :global_pause, "False positive: SnapshotStore overlays the cached snapshot payload, not State."},
   {Aiur.Orchestrator.SnapshotStore, :globally_paused, "Baseline control write in Aiur.Orchestrator.SnapshotStore; retain until this responsibility moves to its field owner."},
