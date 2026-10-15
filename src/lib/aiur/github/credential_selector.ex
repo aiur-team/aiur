@@ -127,9 +127,7 @@ defmodule Aiur.GitHub.CredentialSelector do
   # resolve. A pool whose legacy token was missing could hand a write to a human.
   defp select_from([], _resource, _opts), do: nil
   defp select_from([only], _resource, _opts), do: only
-
-  defp select_from(eligible, resource, opts),
-    do: best(eligible, resource, fallback(eligible), opts)
+  defp select_from(eligible, resource, opts), do: best(eligible, resource, fallback(eligible), opts)
 
   defp fallback(eligible), do: Enum.find(eligible, & &1.primary?) || List.first(eligible)
 
@@ -209,10 +207,7 @@ defmodule Aiur.GitHub.CredentialSelector do
   # expired. `snapshot/1` above drops expired windows; this keeps the last one
   # so a stale meter can carry how long ago the credential was observed.
   defp last_observed(token_key) do
-    Map.new(
-      CredentialHeadroom.resources(),
-      &{&1, CredentialHeadroom.last_observed(token_key, &1)}
-    )
+    Map.new(CredentialHeadroom.resources(), &{&1, CredentialHeadroom.last_observed(token_key, &1)})
   end
 
   # A document we cannot read is a write. Misreading a read as a write only
@@ -252,12 +247,9 @@ defmodule Aiur.GitHub.CredentialSelector do
   defp pick(candidates, primary) do
     {best_credential, best_score} = Enum.max_by(candidates, fn {_credential, score} -> score end)
 
-    if primary &&
-         Enum.any?(candidates, fn {credential, score} ->
-           credential.id == primary.id and score == best_score
-         end),
-       do: primary,
-       else: best_credential
+    if primary && Enum.any?(candidates, fn {credential, score} -> credential.id == primary.id and score == best_score end),
+      do: primary,
+      else: best_credential
   end
 
   # `:blocked` when the credential's own window says it has nothing left and has

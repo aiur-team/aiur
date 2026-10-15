@@ -389,6 +389,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
             human_review_comment_target_limit: 1,
             watch_comment_target_limit: 1,
             comment_batch_fetcher: fn _targets, _opts -> {:ok, %{"57" => %{open_pull_request: nil}}} end,
+            token: "test-gh-token",
             request_fun: request_fun
           ]
 
@@ -492,7 +493,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
         end)
       end
 
-      opts = Keyword.put(comment_poll_opts(fn _states -> {:ok, []} end), :request_fun, request_fun)
+      opts = Keyword.merge(comment_poll_opts(fn _states -> {:ok, []} end), token: "test-gh-token", request_fun: request_fun)
       state = %Aiur.Orchestrator.State{running: %{"57" => %{identifier: "57"}}}
 
       first_state = CommentPolling.start_async(state, opts)
@@ -864,6 +865,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
     opts =
       comment_poll_opts(fn _states -> {:ok, []} end)
+      |> Keyword.put(:token, "test-gh-token")
       |> Keyword.put(:request_fun, request_fun)
 
     :sys.replace_state(orchestrator, fn state ->

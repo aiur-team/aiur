@@ -82,11 +82,7 @@ defmodule Aiur.GitHub.Transport do
         {:ok, token}
 
       _ ->
-        if Keyword.has_key?(opts, :request_fun) do
-          {:ok, "test-gh-token"}
-        else
-          require_token()
-        end
+        require_token()
     end
   end
 

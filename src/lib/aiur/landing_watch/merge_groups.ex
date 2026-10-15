@@ -317,7 +317,10 @@ defmodule Aiur.LandingWatch.MergeGroups do
     Queue.enqueue(api, %{node_id: node_id, head: head})
   end
 
-  defp read_pages(_request, _token, _url, _acc, @page_limit), do: {:error, :merge_group_run_list_too_large}
+  # GitHub lists runs newest first, so the first pages hold every run a live queue
+  # entry or a recent failure can own. The completed history grows without bound;
+  # past the cap, keep what was read instead of failing the whole poll (#4556).
+  defp read_pages(_request, _token, _url, acc, @page_limit), do: {:ok, acc}
 
   defp read_pages(request, token, url, acc, page) do
     case request.(%{method: :get, url: url, token: token, caller: "landing_watch_merge_group_runs"}) do

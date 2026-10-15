@@ -24,7 +24,7 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
 
     observations = [%{number: 3, base: "main", merge_queue_entry: %{"id" => "entry-3"}}]
 
-    assert :ok = MergeGroups.cancel_stale(observations, base_branch: "main", request_fun: request, live_observations_fun: fn _, _ -> {:ok, observations} end)
+    assert :ok = MergeGroups.cancel_stale(observations, base_branch: "main", token: "test-gh-token", request_fun: request, live_observations_fun: fn _, _ -> {:ok, observations} end)
     assert_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/32/cancel"}
     assert_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/34/cancel"}
     refute_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/31/cancel"}
@@ -51,7 +51,7 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
       %{number: 3, base: "main", head: "head-current", head_committed_at: "2026-10-14T00:00:00Z", merge_queue_entry: %{"id" => "entry-new", "pullRequest" => %{"headRefOid" => "head-current"}}}
     ]
 
-    assert :ok = MergeGroups.cancel_stale(observations, base_branch: "main", request_fun: request, live_observations_fun: fn _, _ -> {:ok, observations} end)
+    assert :ok = MergeGroups.cancel_stale(observations, base_branch: "main", token: "test-gh-token", request_fun: request, live_observations_fun: fn _, _ -> {:ok, observations} end)
     assert_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/41/cancel"}
     refute_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/42/cancel"}
   end
@@ -76,7 +76,7 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
         {:ok, %{status: 202, body: %{}}}
     end
 
-    assert :ok = MergeGroups.cancel_stale([], base_branch: "main", request_fun: request, live_observations_fun: fn _, _ -> {:ok, []} end)
+    assert :ok = MergeGroups.cancel_stale([], base_branch: "main", token: "test-gh-token", request_fun: request, live_observations_fun: fn _, _ -> {:ok, []} end)
 
     urls =
       for _ <- 1..5 do
@@ -94,6 +94,35 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
     refute_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/501/cancel"}
   end
 
+  test "a run list longer than the page limit keeps the read pages instead of failing the poll" do
+    parent = self()
+    stale = %{"id" => 77, "event" => "merge_group", "status" => "in_progress", "head_branch" => "gh-readonly-queue/main/pr-7-old"}
+
+    request = fn
+      %{method: :get, url: url} ->
+        if String.contains?(url, "status=completed"), do: send(parent, :completed_page)
+        runs = if String.contains?(url, "status=in_progress"), do: [stale], else: [group_run(System.unique_integer([:positive]), "success", "pr-1-a")]
+        next = if String.contains?(url, "status=in_progress"), do: [], else: [{"link", "<#{url}&page=n>; rel=\"next\""}]
+        {:ok, %{status: 200, body: %{"workflow_runs" => runs}, headers: next}}
+
+      %{method: :post, url: url} ->
+        send(parent, {:cancel, url})
+        {:ok, %{status: 202, body: %{}}}
+    end
+
+    assert :ok =
+             MergeGroups.cancel_stale([],
+               base_branch: "main",
+               token: "test-gh-token",
+               request_fun: request,
+               live_observations_fun: fn _, _ -> {:ok, []} end
+             )
+
+    assert_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/77/cancel"}
+    for _ <- 1..5, do: assert_received(:completed_page)
+    refute_received :completed_page
+  end
+
   test "queue is re-observed after the active-run census before cancelling" do
     parent = self()
     runs = [%{"id" => 91, "event" => "merge_group", "status" => "in_progress", "head_branch" => "gh-readonly-queue/main/pr-9-abc", "created_at" => "2026-10-14T00:01:00Z"}]
@@ -109,7 +138,7 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
 
     newly_enqueued = [%{number: 9, base: "main", head: "head-now", head_committed_at: "2026-10-14T00:00:00Z", merge_queue_entry: %{"id" => "entry", "pullRequest" => %{"headRefOid" => "head-now"}}}]
 
-    assert :ok = MergeGroups.cancel_stale([], base_branch: "main", request_fun: request, live_observations_fun: fn _, _ -> {:ok, newly_enqueued} end)
+    assert :ok = MergeGroups.cancel_stale([], base_branch: "main", token: "test-gh-token", request_fun: request, live_observations_fun: fn _, _ -> {:ok, newly_enqueued} end)
     refute_received {:cancel, _}
   end
 
@@ -126,6 +155,7 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
     assert :ok =
              MergeGroups.cancel_stale([],
                base_branch: "main",
+               token: "test-gh-token",
                request_fun: request,
                live_observations_fun: fn _, _ -> {:ok, []} end,
                jobs_fun: fn
@@ -158,6 +188,7 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
 
     options = [
       base_branch: "main",
+      token: "test-gh-token",
       request_fun: request,
       journal_path: journal,
       live_observations_fun: fn _, _ -> {:ok, []} end,
@@ -196,6 +227,7 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
 
     options = [
       base_branch: "main",
+      token: "test-gh-token",
       request_fun: request,
       journal_path: journal,
       live_observations_fun: fn _, _ -> {:ok, []} end,
@@ -233,6 +265,7 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
 
     options = [
       base_branch: "main",
+      token: "test-gh-token",
       request_fun: request,
       journal_path: journal,
       live_observations_fun: fn _, _ -> {:ok, [pr]} end,
