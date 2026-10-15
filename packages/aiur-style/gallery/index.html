@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script src="../dist/init/theme-init.js" data-default="dark"></script>
+  <script src="../dist/init/theme-init.js" data-default="dark" data-banner="gallery"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>aiur-style Gallery</title>
@@ -66,7 +66,7 @@
       margin-bottom: 1rem;
     }
 
-    .section p {
+    .section > p {
       color: var(--aiur-color-muted);
       font-size: 0.9rem;
     }
@@ -99,6 +99,17 @@
       <p>Switch themes to inspect the fixed palette. Text samples use readable-text tokens where required.</p>
       <div class="swatches" id="swatches"></div>
     </section>
+    <section class="section" id="banner">
+      <h2>Announcement banner</h2>
+<aside class="aiur-banner" data-aiur="banner" data-aiur-banner="gallery" aria-label="Announcement">
+  <p class="aiur-banner__text"><strong>Introducing Archon:</strong> Always-on Architecture Docs.</p>
+  <a class="aiur-banner__link" href="https://archon.aiur.team">Learn More</a>
+  <button type="button" class="aiur-banner__close" aria-label="Dismiss announcement">
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+</aside>
+      <a href="#buttons" id="after-banner">Continue to buttons</a>
+    </section>
     <section class="section" id="buttons">
       <h2>Buttons</h2>
       <p>Each row: rest, hover, pressed, focus, toggled, disabled, aria-disabled. Toggle the theme to compare.</p>
@@ -119,6 +130,7 @@
     </div>
   </div>
 
+  <script type="module" src="../dist/js/auto.js"></script>
   <script type="module" src="./gallery.js"></script>
 </body>
 </html>

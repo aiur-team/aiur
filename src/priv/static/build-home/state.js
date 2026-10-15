@@ -20,7 +20,7 @@ export function resetState(urlState = {}) {
     root: null, vp: null, content: null, lanesEl: null, guidesEl: null,
     svg: null, bandEl: null, secs: {}, R: new Map(), RL: new Map(),
     laneEls: new Map(), guideEls: new Map(), cols: [], colMap: {}, bandMap: {},
-    lockId: null, hoverId: null, inited: false, D: null, L: null, snap: null,
+    a11y: { focusId: null }, lockId: null, hoverId: null, inited: false, D: null, L: null, snap: null,
     proto: { epoch: null, generation: null, inFlight: false }, resyncSeq: 0,
     socket: 'up', offline: false, urlPending: false, life: null, push: null, reload: null,
   });
@@ -51,5 +51,10 @@ export const fx = {
   spanToolsHTML: () => '', wireSpanTools() {}, renderStatus() {},
   daemonView: () => ({ dotOff: true, dotText: 'Daemon status unknown' }),
   renderLoading() {}, renderUnavailable: defaultUnavailable, dataChanged: defaultDataChanged,
-  drawEdgesSoon() {}, openFromURL() {},
+  drawEdgesSoon() {}, openFromURL() {}, flushLive() {}, renderHeads() {},
+  makeCard: it => { const el = document.createElement('div'); el.className = 'bd-card'; el.dataset.id = it.t.id; el.tabIndex = -1; return el; },
+  visibleCols: () => S.flow ? Array.from({ length: S.K }, (_, i) => 's' + i) : [...new Set([...ctx.D.order, 'unsorted'])],
+  applyCols: keys => { ctx.content.style.width = ctx.vp.clientWidth + 'px'; ctx.cols = keys; const w = (ctx.content.offsetWidth - gutW() - 14) / Math.max(1, keys.length); ctx.colMap = Object.fromEntries(keys.map((key, i) => [key, { x: gutW() + i * w, w }])); },
+  drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
+  lockTree() {}, fitTree() {}, openTree() {}, filtersChanged() {},
 };

@@ -114,6 +114,14 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :promoted}], [{:attention_resolve, {:promoted_unauthorized, "1"}}]} = Planner.plan(%{input | claims: %{"1" => :unclaimed}})
   end
 
+  test "cold authorization evidence holds a promoted ticket without unauthorized attention" do
+    input = %{(F.input() |> F.promoted()) | claims: %{"1" => :authorization_pending}}
+    latch = %Aiur.BuildQueue.Model.Latch{key: {:promoted_unauthorized, "1"}, opened_at_ms: 9_000, emitted?: true}
+    input = %{input | latches: [latch]}
+
+    assert {[%{state: :held, reason: :authorization_pending}], [{:attention_resolve, {:promoted_unauthorized, "1"}}]} = Planner.plan(input)
+  end
+
   test "marker removal, closure, claims and saved overrides take precedence" do
     input = F.input() |> F.waiting() |> F.promoted()
     assert {[%{state: :removed}], [{:dequeue, "1"}]} = input |> F.update_observation(labels: []) |> Planner.plan()

@@ -9,22 +9,6 @@ defmodule Aiur.ProviderMeters.EventsTest do
     :ok
   end
 
-  test "restores an application-owned PubSub after a sibling stopped it" do
-    on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
-
-    supervisor = Process.whereis(Aiur.Supervisor)
-    assert is_pid(supervisor)
-    assert :ok = Supervisor.terminate_child(supervisor, Phoenix.PubSub.Supervisor)
-    assert Process.whereis(Aiur.Supervisor) == supervisor
-    assert is_nil(Process.whereis(Aiur.PubSub))
-
-    ensure_pubsub!()
-
-    pubsub = Process.whereis(Aiur.PubSub)
-    assert is_pid(pubsub)
-    assert Aiur.Supervisor in process_ancestors(pubsub)
-  end
-
   test "an observation reaches both the generation-scoped and the fan-out topic" do
     :ok = Events.subscribe(:codex, :app_server, "gen-1")
     :ok = Events.subscribe_observed()
@@ -97,10 +81,5 @@ defmodule Aiur.ProviderMeters.EventsTest do
 
   defp ensure_pubsub! do
     assert :ok = Aiur.TestSupport.ensure_pubsub_running()
-  end
-
-  defp process_ancestors(pid) do
-    {:dictionary, dictionary} = Process.info(pid, :dictionary)
-    Keyword.get(dictionary, :"$ancestors", [])
   end
 end

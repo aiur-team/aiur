@@ -73,6 +73,9 @@ jobs:
       - name: Install docs deps
         working-directory: website/docs-app
         run: bun install --frozen-lockfile
+      - name: Check CLI reference
+        working-directory: website/docs-app
+        run: npm run check:cli-reference && bash scripts/test-check-cli-reference.sh
       - name: Build docs
         working-directory: website/docs-app
         run: bun run build
