@@ -1,0 +1,18 @@
+{
+  "metrics": [
+    {
+      "id": "latency",
+      "kind": "duration",
+      "direction": "lower_is_better",
+      "mde": 0.2,
+      "unit": "h",
+      "label": "Latency"
+    }
+  ],
+  "primary_metrics": [
+    "latency"
+  ],
+  "bootstrap_primary": 400,
+  "bootstrap_exploratory": 200,
+  "permutation_resamples": 500
+}

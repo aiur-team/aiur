@@ -35,9 +35,9 @@ Aiur also coordinates request *shape* across all local instances that share a cr
 
 A primary exhaustion holds its resource globally; a secondary-limit response or `Retry-After` holds every consumer of that token, including separately started daemons and agent `gh` commands.
 
-The broker is an optimization, not a dependency: on a box without `python3` the
-broker cannot run, so metering fails open to unmetered requests (announced once
-at boot) rather than failing every GitHub request.
+The broker is optional: without `python3`, metering fails open to unmetered
+requests (announced once at boot). `claude-repl` agents require `python3` for
+their durable lifecycle-hook spool, independently of the broker.
 
 The defaults are deliberately conservative and can be tuned per workflow:
 
@@ -147,3 +147,7 @@ The binding admission signal (which host-pressure gate is holding dispatch) and 
 Because reading the build gate scans its lock files, that probe runs on a reduced cadence and carries the last observation forward, so telemetry never disturbs a real build acquisition. `/analytics`, `aiurdev analytics` (including `--json`), and the self-contained HTML report expose the same pressure evidence.
 
 This telemetry is measurement-only; it does not adapt `max_concurrent_agents` automatically.
+
+### Post-deploy checks
+
+The `/post-deploy` page lists manual checks from merged PRs. Add `Post-deploy check: <exact steps>` under `## Local tests`; name required operators, such as `(operator: physical Stream Deck)`. Checks stay pending until an Executor marks them done. Run them after rebuilding the runtime.

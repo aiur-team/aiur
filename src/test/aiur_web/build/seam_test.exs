@@ -40,7 +40,11 @@ defmodule AiurWeb.Build.SeamTest do
     files = [Path.join(@root, "lib/aiur_web/live/build_live.ex")] ++ Path.wildcard(Path.join(@root, "lib/aiur_web/build/**/*.ex"))
     assert [_ | _] = files
     assert Enum.all?(files, &File.regular?/1)
-    assert offenders(files, &allowed?/1) == []
+    # C8-T03 reads the existing nonblocking snapshot facade with cadence-aware tolerance.
+    # Keep these reader dependencies confined to Freshness, not the rest of the web seam.
+    freshness = Path.join(@root, "lib/aiur_web/build/freshness.ex")
+    assert offenders(files -- [freshness], &allowed?/1) == []
+    assert offenders([freshness], &(allowed?(&1) or &1 in ~w(Aiur.Orchestrator Aiur.PollCadence))) == []
   end
 
   test "stores do not reference AiurWeb (future regression guard)" do

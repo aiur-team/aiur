@@ -150,6 +150,19 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     do: clear_dispatch_decline(state, issue)
 
   @doc false
+  @spec hold_cached_dependencies(State.t(), [Issue.t()], term(), term()) :: State.t()
+  def hold_cached_dependencies(%State{globally_paused: true} = state, _held, _active, _terminal), do: state
+
+  def hold_cached_dependencies(state, held, active, terminal) do
+    Enum.reduce(held, state, fn issue, state ->
+      case Launch.recover_orphaned_claim(state, %{issue | blocked_by: []}, active, terminal) do
+        {state, :dispatch} -> emit_dispatch_attempt_decline(state, issue, :dependency, false)
+        {state, {:skip, reason}} -> maybe_emit_dispatch_decline(state, issue, reason)
+      end
+    end)
+  end
+
+  @doc false
   @spec start_dispatch_validation(State.t(), term(), term(), term(), keyword()) :: State.t()
   def start_dispatch_validation(state, issue, attempt, preferred_worker_host, opts) do
     expected = dispatch_input(state, issue.id)

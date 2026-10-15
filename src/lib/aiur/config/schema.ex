@@ -42,6 +42,7 @@ defmodule Aiur.Config.Schema do
   require Agent
   require Tracker
   require BuildQueue
+  require Experiments
 
   @primary_key false
 

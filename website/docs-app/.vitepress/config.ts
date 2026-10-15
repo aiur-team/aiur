@@ -137,6 +137,7 @@ export default withMermaid(defineConfig({
           items: [
             { text: 'TUI', link: '/guide/tui' },
             { text: 'CLI', link: '/reference/cli' },
+            { text: 'Build History Commands', link: '/reference/build-history-commands' },
             { text: 'Plan refresh tool', link: '/reference/plan-refresh' },
             { text: 'GUI', link: '/guide/gui' },
             { text: 'Dashboard and telemetry', link: '/guide/dashboard-and-telemetry' },
@@ -149,6 +150,7 @@ export default withMermaid(defineConfig({
             { text: 'Executor', link: '/concepts/executor' },
             { text: 'Units', link: '/concepts/units' },
             { text: 'Commands', link: '/concepts/commands' },
+            { text: 'Continuous build history', link: '/concepts/build-history' },
             { text: 'Build Orders', link: '/concepts/build-orders' },
             { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
             { text: 'Ticket flow: steps 0–8', link: '/concepts/ticket-lifecycle-steps' },
@@ -177,6 +179,7 @@ export default withMermaid(defineConfig({
             { text: 'Configuration: build_order', link: '/reference/configuration-build-order' },
             { text: 'Configuration notes', link: '/reference/configuration-notes' },
             { text: 'Merge Policy', link: '/reference/merge-policy' },
+            { text: 'Experiment Statistics', link: '/reference/experiment-statistics' },
             { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
           ]
         }

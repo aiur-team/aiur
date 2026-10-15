@@ -10,6 +10,7 @@
   ],
   "facades": [
     "Aiur.Experiments",
+    "Aiur.Experiments.Auto",
     "Aiur.Experiments.CapabilityProvider",
     "Aiur.Experiments.MetricPack",
     "Aiur.Experiments.Observation",

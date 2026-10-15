@@ -5,6 +5,7 @@ defmodule Aiur.Application.Children do
 
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{BlockerProgress, Config}
 
   @doc """
@@ -132,14 +133,14 @@ defmodule Aiur.Application.Children do
       # owns the sliding-window rate and alert latch.
       Aiur.GitHub.BrokerTimeout,
       Aiur.GitHub.BudgetBroker,
-      # The ElevenLabs account credit quota, read on its own schedule. Absent an
-      # API key it observes nothing at all, so an unconfigured account costs a
-      # boot-time config read and never a request.
-      Aiur.ElevenLabs.Quota,
+      Aiur.Voice.child_specs(),
       Aiur.TicketContext.child_specs(:early, opts),
       BuildOrders.child_specs(:early, opts),
-      Aiur.Events.IdGenerator,
+      {Aiur.Events.IdGenerator, floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
+      # Subscribe before the orchestrator's immediate first poll so a merge
+      # observed during startup also reaches the durable checklist.
+      Aiur.PostDeployChecklist,
       Aiur.Events.BranchRefStore,
       # Restart-durable GitHub state keyed by resource identity. Starts before
       # the Publisher and before anything that polls or receives, so the first
@@ -262,7 +263,16 @@ defmodule Aiur.Application.Children do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu] ++ Aiur.Experiments.children(recording?) ++ BuildOrders.child_specs(:label_projection, opts))
+    |> Kernel.++(
+      cli_children ++
+        [Aiur.BackgroundCpu] ++
+        Aiur.Experiments.children(recording?) ++
+        Auto.child_specs(recording?: recording?) ++ BuildOrders.child_specs(:label_projection, opts) ++ landing_watch_children() ++ Aiur.Experiments.window_children(recording?)
+    )
+  end
+
+  defp landing_watch_children do
+    if AiurConfig.tracker_kind() == "github", do: [Aiur.LandingWatch], else: []
   end
 
   defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil

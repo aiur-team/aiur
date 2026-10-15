@@ -20,6 +20,8 @@ export const KNOWN_CAPABILITY_IDS = [
   "executor.conversation",
   "executor.background_agents",
   "events.export",
+  "experiments",
+  "experiments.metric_packs",
   "listener_modes",
   "voice.stt",
   "voice.tts",
