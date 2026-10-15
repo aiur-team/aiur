@@ -15,7 +15,10 @@ defmodule Aiur.RunTelemetry.EpicMembers do
 
   @spec read(String.t(), integer(), keyword()) :: {:ok, map()} | {:error, term()}
   def read(repo, number, opts) do
+    repo = String.downcase(repo)
+
     with {:ok, rows} <- get(repo, "/issues/#{number}/sub_issues?per_page=100", Keyword.put(opts, :first_page?, true)),
+         opts = Keyword.put(opts, :recent_merges, recent(opts)),
          {members, foreign} <- Enum.split_with(rows, &(String.downcase(&1["repository_url"] || "https://api.github.com/repos/#{repo}") == String.downcase("https://api.github.com/repos/#{repo}"))),
          {:ok, merges} <- merges(repo, members, opts) do
       {:ok,
@@ -54,20 +57,29 @@ defmodule Aiur.RunTelemetry.EpicMembers do
 
   defp merges(repo, rows, opts) do
     rows
-    |> Enum.filter(&(&1["state"] == "closed" and &1["state_reason"] != "not_planned"))
+    |> Enum.reject(&(&1["state_reason"] == "not_planned"))
     |> Enum.reduce_while({:ok, []}, fn row, {:ok, acc} ->
       case merge(repo, row, opts) do
-        {:ok, nil} -> {:cont, {:ok, acc}}
-        {:ok, fact} -> {:cont, {:ok, [fact | acc]}}
+        {:ok, facts} -> {:cont, {:ok, acc ++ facts}}
         error -> {:halt, error}
       end
     end)
   end
 
   defp merge(repo, row, opts) do
-    recent = Keyword.get_lazy(opts, :recent_merges, &recent/0)
-    fact = Enum.find(recent, &(&1.repository == repo and &1.ticket_id == to_string(row["number"])))
-    if fact, do: {:ok, %{"number" => row["number"], "at" => DateTime.to_iso8601(fact.merged_at), "sha" => fact.merge_commit_sha}}, else: linked(repo, row["number"], opts)
+    recent = Keyword.fetch!(opts, :recent_merges)
+    known = Enum.filter(recent, &(&1.repository == repo and &1.ticket_id == to_string(row["number"])))
+
+    cond do
+      known != [] -> {:ok, Enum.map(known, &%{"number" => row["number"], "at" => DateTime.to_iso8601(&1.merged_at), "sha" => &1.merge_commit_sha})}
+      row["state"] == "closed" -> linked(repo, row["number"], opts)
+      true -> {:ok, []}
+    end
+  end
+
+  defp recent(opts) do
+    source = Keyword.get(opts, :recent_merges, [])
+    if is_function(source, 0), do: source.(), else: source
   end
 
   defp linked(repo, number, opts) do
@@ -77,16 +89,12 @@ defmodule Aiur.RunTelemetry.EpicMembers do
     with {:ok, token} <- Transport.require_token(opts),
          {:ok, data, _response} <- Transport.github_graphql_response(request, token, @merges, %{"owner" => owner, "name" => name, "number" => number}, caller: :experiments_auto),
          %{"nodes" => nodes, "pageInfo" => %{"hasNextPage" => false}} <- get_in(data, ["data", "repository", "issue", "closedByPullRequestsReferences"]) do
-      fact = nodes |> Enum.filter(&is_binary(&1["mergedAt"])) |> Enum.sort_by(& &1["mergedAt"]) |> List.last()
-      {:ok, if(fact, do: %{"number" => number, "at" => fact["mergedAt"], "sha" => get_in(fact, ["mergeCommit", "oid"])})}
+      facts = for fact <- nodes, is_binary(fact["mergedAt"]), do: %{"number" => number, "at" => fact["mergedAt"], "sha" => get_in(fact, ["mergeCommit", "oid"])}
+      {:ok, facts}
     else
       {:error, reason, _response} -> {:error, reason}
       {:error, _reason} = error -> error
       _incomplete -> {:error, :incomplete_member_merge}
     end
-  end
-
-  defp recent do
-    if Process.whereis(Aiur.RecentMergeStore), do: Aiur.RecentMergeStore.list(), else: []
   end
 end

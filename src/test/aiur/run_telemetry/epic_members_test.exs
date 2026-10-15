@@ -57,4 +57,34 @@ defmodule Aiur.RunTelemetry.EpicMembersTest do
     {state, [:arm]} = FeatureState.transition(nil, Map.put(observation, "labelled", true), %Config{}, ~U[2026-10-10 00:00:00Z])
     assert state["excluded_completed"] == [2]
   end
+
+  test "partial member merges preserve the first baseline and latest live boundary" do
+    member = %{"number" => 2, "state" => "open", "state_reason" => nil}
+    first = %{repository: "owner/repo", ticket_id: "2", merged_at: ~U[2026-10-10 01:00:00Z], merge_commit_sha: "abc"}
+    last = %{first | merged_at: ~U[2026-10-10 02:00:00Z], merge_commit_sha: "def"}
+    owner = self()
+
+    request = fn req ->
+      assert req.method == :get
+      {:ok, %{status: 200, body: [member], headers: []}}
+    end
+
+    assert {:ok, observation} =
+             EpicMembers.read("Owner/Repo", 42,
+               request_fun: request,
+               recent_merges: fn ->
+                 send(owner, :recent_read)
+                 [last, first]
+               end
+             )
+
+    assert Enum.sort_by(observation["merges"], & &1["at"]) == [%{"number" => 2, "at" => "2026-10-10T01:00:00Z", "sha" => "abc"}, %{"number" => 2, "at" => "2026-10-10T02:00:00Z", "sha" => "def"}]
+    assert_received :recent_read
+    observation = Map.put(observation, "labelled", true)
+    {armed, [:arm]} = FeatureState.transition(nil, observation, %Config{}, ~U[2026-10-11 00:00:00Z])
+    assert armed["before_end"] == "2026-10-10T01:00:00Z"
+    assert armed["last_merge"]["sha"] == "def"
+    {still_open, []} = FeatureState.transition(armed, observation, %Config{}, ~U[2026-10-12 00:00:00Z])
+    assert still_open["phase"] == "merging"
+  end
 end
