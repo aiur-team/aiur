@@ -9,8 +9,8 @@ defmodule Aiur.GitHub.HumanReviewContribution do
   def unchanged?(approved_head, head, base_sha, current_comparison, compare_fun) do
     with {:ok, approved_comparison} <- compare_fun.(base_sha, approved_head, 100),
          {:ok, approved_merge_base} <- merge_base_sha(approved_comparison),
-         {:ok, base_comparison} = base_result <- compare_fun.(approved_merge_base, base_sha, 100),
-         {:ok, base_commits} <- comparison_commit_shas(base_result),
+         {:ok, base_comparison} <- compare_fun.(approved_merge_base, base_sha, 100),
+         {:ok, base_commits} <- comparison_commit_shas(base_comparison),
          {:ok, post_approval_comparison} <- compare_fun.(approved_head, head, 100),
          {:ok, true} <- only_base_merges(post_approval_comparison, approved_head, [approved_merge_base, base_sha | base_commits]),
          {:ok, approved_diff} <- compare_fun.(approved_merge_base, approved_head, 100),
@@ -28,13 +28,11 @@ defmodule Aiur.GitHub.HumanReviewContribution do
     end
   end
 
-  defp comparison_commit_shas({:ok, comparison}) do
+  defp comparison_commit_shas(comparison) do
     with {:ok, commits} <- comparison_commits(comparison) do
       {:ok, Enum.map(commits, & &1["sha"])}
     end
   end
-
-  defp comparison_commit_shas(_comparison), do: {:error, :review_base_ancestry_unavailable}
 
   defp comparison_commits(%{"commits" => commits, "total_commits" => total})
        when is_list(commits) and is_integer(total) and total == length(commits) and total <= 100 do
@@ -242,7 +240,6 @@ defmodule Aiur.GitHub.HumanReviewContribution do
     end
   end
 
-  defp hunk_count(nil, default), do: default
   defp hunk_count("", default), do: default
   defp hunk_count(value, _default), do: String.to_integer(value)
 
