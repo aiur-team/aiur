@@ -13,7 +13,7 @@ const root = new URL('../../../', import.meta.url)
 const read = path => readFileSync(new URL(path, root), 'utf8')
 const workflow = yaml.parse(read('.github/workflows/ci.yml'))
 const home = yaml.parse(read('.github/actions/verify-home-css/action.yml'))
-const browserWorkflow = yaml.parse(read('.github/workflows/browser-smoke.yml'))
+const browserAction = yaml.parse(read('.github/actions/browser-smoke/action.yml'))
 const scripts = JSON.parse(read('src/browser/package.json')).scripts
 
 test('required full CI gate rejects failures, cancellations and skipped browser jobs', () => {
@@ -21,6 +21,7 @@ test('required full CI gate rejects failures, cancellations and skipped browser 
   assert.ok(gate.needs.includes('browser'))
   assert.ok(gate.needs.includes('browser-4'))
   assert.ok(gate.needs.includes('home-css'))
+  for (const job of ['browser', 'browser-2', 'browser-3', 'browser-4']) assert.ok(gate.needs.includes(job))
   assert.match(gate.if, /always\(\)/)
   const step = gate.steps.find(step => step.name === "Require the event's selected jobs")
   assert.equal(step.env.EVENT_NAME, '${{ github.event_name }}')
@@ -41,13 +42,16 @@ test('required full CI gate rejects failures, cancellations and skipped browser 
 
 test('browser shards have bounded timeouts and home matrix keeps an independent deadline', () => {
   for (const [job, shard] of [['browser', 1], ['browser-2', 2], ['browser-3', 3], ['browser-4', 4]]) {
-    assert.equal(workflow.jobs[job].with.shard, shard)
-    assert.equal(workflow.jobs[job].uses, './.github/workflows/browser-smoke.yml')
+    assert.equal(workflow.jobs[job].steps[0].with.shard, shard)
+    assert.equal(workflow.jobs[job].steps[0].uses, './.github/actions/browser-smoke')
     assert.equal(workflow.jobs[job].name, `browser smoke (${shard}/4)`)
+    assert.equal(workflow.jobs[job]['timeout-minutes'], 15)
   }
-  assert.equal(workflow.jobs['browser-2'].with.visual_regression, 'first')
-  assert.equal(workflow.jobs['browser-4'].with.visual_regression, 'second')
-  assert.equal(browserWorkflow.jobs['browser-smoke']['timeout-minutes'], 15)
+  assert.equal(workflow.jobs['browser-2'].steps[0].with.visual_regression, 'first')
+  assert.equal(workflow.jobs['browser-4'].steps[0].with.visual_regression, 'second')
+  assert.equal(browserAction.runs.using, 'composite')
+  assert.equal(browserAction.runs.steps.find(step => step.name === 'Run browser smoke shard').run,
+    'node scripts/run-browser-smoke-shard.mjs ${{ inputs.shard }}')
   assert.match(workflow.jobs['home-css'].if, /outputs.full_ci == 'true'/)
   assert.equal(workflow.jobs['home-css']['timeout-minutes'], 25)
   assert.equal(workflow.jobs['home-css'].steps.at(-1).uses, './.github/actions/verify-home-css')

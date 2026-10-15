@@ -466,34 +466,58 @@ jobs:
     name: browser smoke (1/4)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    uses: ./.github/workflows/browser-smoke.yml
-    with:
-      shard: 1
-      verify_fixtures: true
-      upload_evidence: true
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    timeout-minutes: 15
+    steps:
+      - name: Run browser smoke shard 1
+        uses: ./.github/actions/browser-smoke
+        with:
+          shard: 1
+          verify_fixtures: true
+          upload_evidence: true
   browser-2:
     name: browser smoke (2/4)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    uses: ./.github/workflows/browser-smoke.yml
-    with:
-      shard: 2
-      visual_regression: first
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    timeout-minutes: 15
+    steps:
+      - name: Run browser smoke shard 2
+        uses: ./.github/actions/browser-smoke
+        with:
+          shard: 2
+          visual_regression: first
   browser-3:
     name: browser smoke (3/4)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    uses: ./.github/workflows/browser-smoke.yml
-    with:
-      shard: 3
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    timeout-minutes: 15
+    steps:
+      - name: Run browser smoke shard 3
+        uses: ./.github/actions/browser-smoke
+        with:
+          shard: 3
   browser-4:
     name: browser smoke (4/4)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    uses: ./.github/workflows/browser-smoke.yml
-    with:
-      shard: 4
-      visual_regression: second
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    timeout-minutes: 15
+    steps:
+      - name: Run browser smoke shard 4
+        uses: ./.github/actions/browser-smoke
+        with:
+          shard: 4
+          visual_regression: second
   streamdeck:
     name: streamdeck
     needs: changes
