@@ -21,9 +21,9 @@ R-optional	Aiur.ExecutorWakeInbox	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51
 R-optional	Aiur.GitHub.CiReadiness	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.CodeOwners	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.HoldPressure	#4067 status reports local GitHub budget holds; gated on the GitHub tracker
 R-optional	Aiur.GitHub.HostCommand	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Labels	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.ResourceStore.Memory	#3997 status prints the GitHub resource store size; gated on the GitHub tracker like CiReadiness
 R-optional	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.OpencodeTheme	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ProviderMeterProjection	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

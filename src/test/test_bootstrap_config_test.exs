@@ -29,6 +29,26 @@ defmodule Aiur.TestBootstrapConfigTest do
     assert_disposable_fixture(workflow_file_path)
   end
 
+  test "test runner bounds Git discovery at TMPDIR without hiding fixture repositories" do
+    tmp_dir = System.tmp_dir!()
+    suffix = System.unique_integer([:positive])
+    non_git = Path.join(tmp_dir, "git-discovery-non-repository-#{suffix}")
+    repository = Path.join(tmp_dir, "git-discovery-repository-#{suffix}")
+    File.mkdir_p!(non_git)
+    File.mkdir_p!(repository)
+
+    on_exit(fn ->
+      Aiur.TestCleanup.rm_rf!(non_git)
+      Aiur.TestCleanup.rm_rf!(repository)
+    end)
+
+    assert System.get_env("GIT_CEILING_DIRECTORIES") == tmp_dir
+    assert git_toplevel(non_git) == {:error, 128}
+
+    {_, 0} = System.cmd("git", ["-C", repository, "init", "--quiet"], stderr_to_stdout: true)
+    assert git_toplevel(repository) == {:ok, Path.expand(repository)}
+  end
+
   test "test config cannot discover repository workflow files" do
     config_source = File.read!(@config_path)
 
@@ -78,5 +98,12 @@ defmodule Aiur.TestBootstrapConfigTest do
     workspace_root = Path.join(Path.dirname(path), "workspaces")
     assert get_in(disposable, ["workspace", "root"]) == workspace_root
     assert put_in(disposable, ["workspace", "root"], original["workspace"]["root"]) == original
+  end
+
+  defp git_toplevel(path) do
+    case System.cmd("git", ["-C", path, "rev-parse", "--show-toplevel"], stderr_to_stdout: true) do
+      {output, 0} -> {:ok, String.trim(output)}
+      {_output, status} -> {:error, status}
+    end
   end
 end

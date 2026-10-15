@@ -15,6 +15,7 @@ R-declared	Aiur.GitHub.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Connectivity	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.CycleFetchCache	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Errors	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.GitHub.HoldPressure	#4067 holds are tracked by the GitHub budget monitor during dispatch validation
 R-declared	Aiur.GitHub.Issues	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.LocalHold	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.MergeQueue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -67,6 +68,7 @@ R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Connectivity	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.CycleFetchCache	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Errors	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.HoldPressure	#4067 dispatch declines consult the GitHub hold counter
 R-optional	Aiur.GitHub.Issues	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.LocalHold	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.MergeQueue	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
