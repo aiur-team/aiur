@@ -82,7 +82,7 @@ Classify every discovered finding before creating work:
 
 Every authorized new feature, epic, bug batch, or experiment joins the repository's
 single continuous build by default. Follow [the intake procedure](continuous-build-intake.md)
-in the same filing operation: feature collection and `feature:<slug>` labels,
+for feature collection and `feature:<slug>` labels,
 native `blocked_by` links where real, queue membership, and placement read-back.
 New features never create standalone Build Order roots; existing roots remain history.
 Only an explicit operator exclusion leaves filed work outside the build: park it
@@ -93,6 +93,9 @@ in the ledger under the convergence policy above.
 labels and queue ordering, then report what it displaced. A label alone is not
 placement. Verify the collection, projected labels, prerequisites, membership,
 and effective start order before reporting intake complete.
+
+Use `agent:queued` in the same creation request for executable members; the queue
+promotes ready members to `agent:todo`. Never create first and label later.
 
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected

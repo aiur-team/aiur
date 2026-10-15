@@ -188,6 +188,9 @@ asks to create tickets or has already granted that authority; encourage
 creating every researched, ready-to-begin ticket together. Per-phase promotion
 is optional user complexity, never a hardcoded Aiur workflow.
 
+Use `agent:queued` in the same creation request for executable members; the queue
+promotes ready members to `agent:todo`. Never create first and label later.
+
 Promotion is deliberately not machinery: the Executor creates each issue with
 the corresponding `tickets/<ID>.md` content verbatim, records the returned
 issue number in the pack's logical-to-tracker mapping, and freezes the document. **After

@@ -225,12 +225,12 @@ Ask only for a material permission that is neither stated nor safely
 discoverable. Never infer merge, destructive-change, or external issue-creation
 authority.
 
-Every authorized feature, epic, bug batch, or experiment joins the continuous build:
-feature collection and labels, native blockers, queue membership, and verified placement.
-Follow [continuous-build intake](references/continuous-build-intake.md). “Prioritize” means
-priority labels and queue order before the previous next-up; report what it displaced.
-New features create collections, never roots. Only explicit exclusion parks filed work
-with `needs-triage`/`human:todo` and a reason. Preserve finite scope and deferred findings.
+Every authorized feature, epic, bug batch, or experiment joins the continuous build.
+Use `agent:queued` in the same creation request; the queue promotes ready members to `agent:todo`.
+Follow [continuous-build intake](references/continuous-build-intake.md): collection, labels, native blockers, queue, read-back.
+“Prioritize” means labels and queue order before the previous next-up; report what it displaced.
+New features create collections, never roots. Only explicit exclusion parks filed work with
+`needs-triage`/`human:todo` and a reason. Preserve finite scope and deferred findings.
 Act on authorized reversible fixes and report; escalate irreversible actions, spend, external publication and product direction.
 
 ### Build queue
