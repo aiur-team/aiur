@@ -847,7 +847,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   # file, so it is stated here; the property under test is the fan-out, not the
   # gate in front of it.
   defp comment_poll_opts(review_issue_fetcher) do
-    [tracker_kind: "github", repo: "owner/repo", review_issue_fetcher: review_issue_fetcher]
+    [tracker_kind: "github", repo: "owner/repo", token: "test-gh-token", review_issue_fetcher: review_issue_fetcher]
   end
 
   defp start_blocked_comment_poll(orchestrator) do

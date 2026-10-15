@@ -7,10 +7,10 @@ defmodule Aiur.RunTelemetry.EpicMembersTest do
   test "membership deliberately accepts a capped page while labelled discovery requires completeness" do
     rows = for n <- 1..100, do: %{"number" => n, "state" => "open", "state_reason" => nil}
     request = fn _req -> {:ok, %{status: 200, body: rows, headers: [{"link", "<https://api.github.com/next>; rel=\"next\""}]}} end
-    assert {:ok, observation} = EpicMembers.read("owner/repo", 42, request_fun: request)
+    assert {:ok, observation} = EpicMembers.read("owner/repo", 42, token: "test-gh-token", request_fun: request)
     assert Enum.map(observation["members"], & &1["number"]) == Enum.to_list(1..100)
     assert observation["member_limit"] == true
-    assert {:error, :pagination_unexpected} = FeatureEpics.discover("owner/repo", "experiment:feature", request_fun: request)
+    assert {:error, :pagination_unexpected} = FeatureEpics.discover("owner/repo", "experiment:feature", token: "test-gh-token", request_fun: request)
   end
 
   test "foreign members are excluded before merge lookup and incomplete linked evidence fails closed" do
@@ -27,7 +27,7 @@ defmodule Aiur.RunTelemetry.EpicMembersTest do
       {:ok, %{status: 200, body: [foreign], headers: []}}
     end
 
-    assert {:ok, observation} = EpicMembers.read("owner/repo", 42, request_fun: request)
+    assert {:ok, observation} = EpicMembers.read("owner/repo", 42, token: "test-gh-token", request_fun: request)
     assert observation["members"] == []
     assert observation["merges"] == []
     assert observation["cross_repo_excluded"] == [foreign["html_url"]]
@@ -41,7 +41,7 @@ defmodule Aiur.RunTelemetry.EpicMembersTest do
       {:ok, %{status: 200, body: body, headers: []}}
     end
 
-    assert {:error, :incomplete_member_merge} = EpicMembers.read("owner/repo", 42, request_fun: request, recent_merges: [])
+    assert {:error, :incomplete_member_merge} = EpicMembers.read("owner/repo", 42, token: "test-gh-token", request_fun: request, recent_merges: [])
   end
 
   test "completed without code has no merge and is identified as excluded" do
@@ -52,7 +52,7 @@ defmodule Aiur.RunTelemetry.EpicMembersTest do
       {:ok, %{status: 200, body: body, headers: []}}
     end
 
-    assert {:ok, observation} = EpicMembers.read("owner/repo", 42, request_fun: request, recent_merges: [])
+    assert {:ok, observation} = EpicMembers.read("owner/repo", 42, token: "test-gh-token", request_fun: request, recent_merges: [])
     assert observation["merges"] == []
     {state, [:arm]} = FeatureState.transition(nil, Map.put(observation, "labelled", true), %Config{}, ~U[2026-10-10 00:00:00Z])
     assert state["excluded_completed"] == [2]
@@ -71,6 +71,7 @@ defmodule Aiur.RunTelemetry.EpicMembersTest do
 
     assert {:ok, observation} =
              EpicMembers.read("Owner/Repo", 42,
+               token: "test-gh-token",
                request_fun: request,
                recent_merges: fn ->
                  send(owner, :recent_read)

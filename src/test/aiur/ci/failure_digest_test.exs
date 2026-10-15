@@ -25,7 +25,7 @@ defmodule Aiur.CI.FailureDigestTest do
       end
     end
 
-    assert {:ok, %{__struct__: FailureDigest, checks: [], tests: [], flake_only: false}} = FailureDigest.build("abc", request_fun: request)
+    assert {:ok, %{__struct__: FailureDigest, checks: [], tests: [], flake_only: false}} = FailureDigest.build("abc", token: "test-gh-token", request_fun: request)
   end
 
   test "lint without test annotations is a check-level failure" do
@@ -164,7 +164,7 @@ defmodule Aiur.CI.FailureDigestTest do
       end
     end
 
-    FailureDigest.build("abc", request_fun: request)
+    FailureDigest.build("abc", token: "test-gh-token", request_fun: request)
   end
 
   defp annotation_response(url, annotations, opts) do
