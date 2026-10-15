@@ -12,7 +12,7 @@ export function headHTML(D, history, sources, from, state = 'idle') {
   else if (history.more) label = 'since ' + fmtD(from) + (state === 'error' ? ' — earlier days could not load · scroll up to retry' : ' — scroll up to load earlier days');
   else if (hc === 0) label = 'empty';
   else label = 'all ' + (total ?? '—') + (Number.isFinite(first) ? ' from ' + fmtD(first) : '');
-  const count = hc === 0 && available ? '' : '<em style="margin-left:auto;padding-right:14px">' + shown.toLocaleString() + (total === null ? ' loaded · total unknown' : ' of ' + total + ' loaded') + '</em>';
+  const count = hc === 0 || (!available && !D.hist.length) ? '' : '<em style="margin-left:auto;padding-right:14px">' + shown.toLocaleString() + (total === null ? ' loaded · total unknown' : ' of ' + total + ' loaded') + '</em>';
   return {
     hist: 'History <em>' + label + '</em>' + count,
     plan: 'Planned <em>' + (D.plan.length ? D.plan.length + ' in build-queue order · dependency waves' : 'queue empty') + '</em>',

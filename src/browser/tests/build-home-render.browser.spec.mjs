@@ -102,7 +102,7 @@ for (const mode of ['total', 'start', 'source']) test(`header unknown branch: ${
   }, mode)
   if (mode === 'total') { expect(result).toContain('loaded · total unknown'); expect(result).not.toContain('of 0') }
   if (mode === 'start') { expect(result).not.toContain(' from '); expect(result).toContain('all ') }
-  if (mode === 'source') { expect(result).toContain('unavailable'); expect(result).not.toContain('empty') }
+  if (mode === 'source') expect(result).toBe('History <em>unavailable</em>')
 })
 
 test('headers keep design count formatting and empty strings', async ({ page }) => {
