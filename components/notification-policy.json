@@ -1,8 +1,8 @@
 {
   "id": "notification-policy",
-  "name": "Notification policy and per-device preferences store (MP-N5)",
+  "name": "Notification preferences",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [],
   "facades": [
     "*"
@@ -24,5 +24,16 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Applies per-device preferences to decide which events produce notifications.",
+  "status": "planned",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-N5"
 }

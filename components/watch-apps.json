@@ -1,8 +1,8 @@
 {
   "id": "watch-apps",
-  "name": "Apple Watch and Android watch targets (MP-N7)",
+  "name": "Watch apps",
   "layer": 5,
-  "kind": "optional",
+  "kind": "client",
   "paths": [],
   "facades": [
     "*"
@@ -16,5 +16,16 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Shows compact instance status and lets operators respond to Commands from a watch.",
+  "status": "planned",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-N7"
 }

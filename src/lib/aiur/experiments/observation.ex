@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments.Observation do
   @moduledoc "One numeric sample, its unit, timestamp and declared attributes."
   @derive Jason.Encoder
-  defstruct [:unit_id, :value, :at, attrs: %{}]
+  defstruct [:unit_id, :value, :at, :started_at, :finished_at, censored: false, attrs: %{}]
   @type t :: %__MODULE__{}
 
   @spec new(term()) :: {:ok, t()} | {:error, atom()}
@@ -13,8 +13,12 @@ defmodule Aiur.Experiments.Observation do
     with true <- is_binary(unit) and unit != "",
          true <- is_number(value),
          true <- is_map(attrs),
-         {:ok, at} <- timestamp(get(map, :at)) do
-      {:ok, %__MODULE__{unit_id: unit, value: value, at: at, attrs: attrs}}
+         {:ok, at} <- timestamp(get(map, :at)),
+         {:ok, started} <- optional_timestamp(get(map, :started_at)),
+         {:ok, finished} <- optional_timestamp(get(map, :finished_at)),
+         censored = get(map, :censored) || false,
+         true <- is_boolean(censored) do
+      {:ok, %__MODULE__{unit_id: unit, value: value, at: at, started_at: started, finished_at: finished, censored: censored, attrs: attrs}}
     else
       _ -> {:error, :invalid_observation}
     end
@@ -22,6 +26,8 @@ defmodule Aiur.Experiments.Observation do
 
   def new(_), do: {:error, :invalid_observation}
   defp get(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
+  defp optional_timestamp(nil), do: {:ok, nil}
+  defp optional_timestamp(at), do: timestamp(at)
   defp timestamp(%DateTime{} = at), do: {:ok, at}
 
   defp timestamp(at) when is_binary(at) do

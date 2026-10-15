@@ -1,6 +1,34 @@
 {
   "manifest_version": 1,
+  "directory_published": false,
   "seams": [
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.FeatureCLI",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/agent_control_cli.ex"
+      ],
+      "reason": "#3131 bound feature commands delegate to the optional registry facade; unavailable registry returns an explicit error"
+    },
+    {
+      "from": "agent-runner",
+      "to_module": "Aiur.FeatureCLI",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/agent_runner/feature_writer.ex"
+      ],
+      "reason": "#3131 bound feature commands delegate to the optional registry facade; unavailable registry returns an explicit error"
+    },
+    {
+      "from": "orchestration",
+      "to_module": "Aiur.BuildQueue",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/orchestrator/optimistic_guard_effects.ex"
+      ],
+      "reason": "#3761 serialize guard attentions through the optional queue facade; disabled queues use journaled transient publication"
+    },
     {
       "from": "control-cli",
       "to_module": "Aiur.ExperimentsCLI",
@@ -195,21 +223,11 @@
       "reason": "#3772: merge-order audit reuses the pure blocker-containment verdict"
     },
     {
-      "from": "github",
-      "to_module": "Aiur.BuildOrder.History",
-      "kind": "reference",
-      "only_paths": [
-        "src/lib/aiur/github/tracker.ex"
-      ],
-      "allow_forbidden": true,
-      "reason": "MP-E8-C4-T04 (#3123): nonblocking start journal is a no-op without the optional history store"
-    },
-    {
       "from": "orchestration",
       "to_module": "Aiur.BuildOrder.History",
       "kind": "reference",
       "only_paths": [
-        "src/lib/aiur/orchestrator/dispatcher.ex"
+        "src/lib/aiur/orchestrator/dispatcher/launch.ex"
       ],
       "allow_forbidden": true,
       "reason": "MP-E8-C4-T04 (#3123): nonblocking start journal is a no-op without the optional history store"
@@ -219,11 +237,38 @@
       "to_module": "Aiur.MainWatch",
       "kind": "reference",
       "only_paths": [
-        "src/lib/aiur.ex",
         "src/lib/aiur/agent_control_cli.ex",
+        "src/lib/aiur/application/children.ex",
         "src/lib/aiur/merge_policy_cli.ex"
       ],
       "reason": "#3881: control RPC exposes optional watcher state and inherited-failure queries; absent watcher returns unknown"
+    },
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.GitHub.Transport",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/pr_merge/record.ex"
+      ],
+      "reason": "#3880: daemon independently verifies the claimed merge through the governed GitHub read transport"
+    },
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.GitHubCostCLI",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/agent_control_cli.ex"
+      ],
+      "reason": "MP-R1-C7-T06 (#3301): CLI routes into the existing GitHub-owned command facade"
+    },
+    {
+      "from": "control-cli",
+      "to_module": "Aiur.GitHubUsageCLI",
+      "kind": "reference",
+      "only_paths": [
+        "src/lib/aiur/agent_control_cli.ex"
+      ],
+      "reason": "MP-R1-C7-T06 (#3301): CLI routes into the existing GitHub-owned command facade"
     }
   ],
   "ports": [
@@ -245,6 +290,22 @@
       "kind": "reference",
       "reason": "RC-39: downward composition of optional component sockets"
     }
+  ],
+  "features": [
+    {"id": "MP-E1", "name": "Build queue", "summary": "Order tickets and hold them until their prerequisites are ready.", "extends": ["build-orders", "build-queue", "orchestration", "tracker"], "adds": [], "public": false, "shipped_in": null},
+    {"id": "MP-E2", "name": "Native question capture", "summary": "Turn native agent questions into Commands that reach the right responder.", "extends": ["commands", "executor-attention", "harness-adapters"], "adds": [], "public": false, "shipped_in": null},
+    {"id": "MP-E3", "name": "Executor communication", "summary": "Read the Executor conversation and send it messages from operator surfaces.", "extends": ["conversations", "executor-attention", "harness-adapters"], "adds": [], "public": false, "shipped_in": null},
+    {"id": "MP-E4", "name": "Dashboard conversations", "summary": "Read full agent conversations and jump from events to their context.", "extends": ["commands", "conversations", "dashboard-ui"], "adds": [], "public": false, "shipped_in": null},
+    {"id": "MP-E5", "name": "Dashboard voice input", "summary": "Dictate messages and Command responses in worker and Executor views.", "extends": ["commands", "dashboard-ui", "voice-stt"], "adds": [], "public": false, "shipped_in": null},
+    {"id": "MP-E6", "name": "Conversational voice", "summary": "Talk with a worker agent or the Executor using a shared voice assistant.", "extends": ["commands", "conversations", "voice-stt"], "adds": ["voice-conversation"], "public": false, "shipped_in": null},
+    {"id": "MP-E7", "name": "Agent listener modes", "summary": "Choose steer, synchronous or asynchronous message delivery for each agent.", "extends": ["harness-adapters", "orchestration"], "adds": ["listener-modes", "listener-spec"], "public": false, "shipped_in": null},
+    {"id": "MP-N1", "name": "Mobile app architecture", "summary": "Use a shared phone app to access Aiur on iOS and Android.", "extends": ["aiur-contracts", "web-shell"], "adds": ["mobile-app"], "public": false, "shipped_in": null},
+    {"id": "MP-N2", "name": "Pairing and discovery", "summary": "Pair a phone with a machine and discover its instances with revocable access.", "extends": ["identity", "launcher", "web-shell"], "adds": ["machine-gateway", "pairing-discovery"], "public": false, "shipped_in": null},
+    {"id": "MP-N3", "name": "Instance overview", "summary": "See instance status and pending Commands before opening an instance dashboard.", "extends": ["build-orders", "executor-attention", "mobile-app", "projections"], "adds": [], "public": false, "shipped_in": null},
+    {"id": "MP-N4", "name": "Encrypted notifications", "summary": "Receive encrypted event notifications that only paired devices can read.", "extends": ["commands", "event-bus", "identity", "pairing-discovery"], "adds": ["push-relay", "relay-service"], "public": false, "shipped_in": null},
+    {"id": "MP-N5", "name": "Notification preferences", "summary": "Choose which events notify each device and suppress duplicate notifications.", "extends": ["build-orders", "commands", "push-relay"], "adds": ["notification-policy"], "public": false, "shipped_in": null},
+    {"id": "MP-N6", "name": "Contextual Command responses", "summary": "Open a notification in context and answer a Command with options or voice.", "extends": ["commands", "conversations", "mobile-app", "voice-stt"], "adds": [], "public": false, "shipped_in": null},
+    {"id": "MP-N7", "name": "Watch apps", "summary": "Read compact status and respond to Commands from Apple and Android watches.", "extends": ["commands", "mobile-app", "voice-stt"], "adds": ["watch-apps"], "public": false, "shipped_in": null}
   ],
   "component_files": [
     "components/accounting.json",

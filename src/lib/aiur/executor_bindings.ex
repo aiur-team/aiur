@@ -19,6 +19,7 @@ defmodule Aiur.ExecutorBindings do
     {"system.fleet.contradictory_state_labels", "dispatch:auto"},
     {"system.fleet.contradictory_state_labels.resolved", "dispatch:auto"},
     {"system.github.connectivity_lost", "dispatch:auto"},
+    {"system.pr.merged", "pr:auto"},
     {"ticket.*.pr.opened", "pr:auto"},
     {"ticket.*.branch.push", "rework:auto"},
     {"ticket.*.pr.merged", "pr:auto"},

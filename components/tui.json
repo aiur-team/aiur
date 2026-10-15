@@ -1,8 +1,8 @@
 {
   "id": "tui",
-  "name": "tmux agent list, pane manager, opencode chat panes",
+  "name": "Terminal interface",
   "layer": 4,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/agent_list/**",
     "src/lib/aiur/conversations.ex",
@@ -45,5 +45,26 @@
   "prior": [
     "OC",
     "TUI"
-  ]
+  ],
+  "dependency_kind": "optional",
+  "summary": "Shows live agent activity and opens chat panes for operator messages.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "guide/tui.md"
+  ],
+  "config": [
+    "opencode"
+  ],
+  "env": [
+    "AIUR_TMUX_SESSION",
+    "AIUR_TMUX_SOCKET",
+    "COLORTERM",
+    "COLUMNS",
+    "LINES",
+    "TMUX_PANE"
+  ],
+  "capabilities": []
 }

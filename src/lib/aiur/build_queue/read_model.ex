@@ -1,6 +1,6 @@
 defmodule Aiur.BuildQueue.ReadModel do
   @moduledoc "Version 1 queue view from held reconciliation evidence; never performs tracker reads."
-  alias Aiur.BuildQueue.{Progress, Readiness, Settings}
+  alias Aiur.BuildQueue.{Progress, Readiness, SetSummary, Settings}
   alias Aiur.BuildQueue.Sources.{BuildOrder, ProjectionRead}
 
   @spec build(map()) :: map()
@@ -11,7 +11,8 @@ defmodule Aiur.BuildQueue.ReadModel do
     build_orders = Map.new(document.queues |> Enum.filter(&(&1.kind == :build_order)), &{&1.root, ProjectionRead.read(&1.root, now, projection)})
     context = %{cycles: Readiness.cyclic_items(document.edges), build_orders: build_orders, state: state, document: document, now: now, observations: Map.get(state, :observations, %{})}
     context = Map.put(context, :tracker_source, tracker_source(context))
-    queues = Enum.map(document.queues, &queue(&1, context))
+    unavailable = for q <- document.queues, context.tracker_source.freshness != :current or (q.kind == :build_order and build_orders[q.root].source.freshness != :current), do: q.id
+    queues = Enum.map(document.queues, &queue(&1, context)) |> SetSummary.decorate(unavailable)
     sources = Map.new(document.queues |> Enum.filter(&(&1.kind == :build_order)), &{"build_order:#{&1.root}", build_orders[&1.root].source})
 
     %{
@@ -56,6 +57,7 @@ defmodule Aiur.BuildQueue.ReadModel do
 
     %{
       queue_id: queue.id,
+      set_rank: queue.rank,
       kind: queue.kind,
       root: queue.root,
       name: queue.name,

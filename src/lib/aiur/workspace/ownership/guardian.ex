@@ -113,6 +113,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       provider_scope: Map.get(receipt, :provider_scope, :unknown),
       provider_boot_id: Map.get(receipt, :provider_boot_id),
       host_boot_id_fun: Keyword.get(opts, :host_boot_id_fun, &HostBoot.id/0),
+      before_notify_fun: Keyword.get(opts, :before_notify_fun, fn _waiter -> :ok end),
       waiters: MapSet.new(),
       release_waiters: [],
       reap_fun: Keyword.get(opts, :reap_fun, &ProcessTree.reap_process_group/2),
@@ -643,6 +644,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
         Retention.resolve(final_lease)
 
         Enum.each(state.waiters, fn waiter ->
+          state.before_notify_fun.(waiter)
           send(waiter, {:workspace_ownership_available, state.lease.ticket, self(), state.lease.generation})
         end)
 
@@ -711,9 +713,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     safe_audit(state.audit_fun, record)
   end
 
-  defp persist_state(state) do
-    Store.put(state.lease.ticket, receipt(state), state.store)
-  end
+  defp persist_state(state), do: Store.put(state.lease.ticket, receipt(state), state.store)
 
   defp receipt(state) do
     %{

@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   alias Aiur.BuildQueue.Hints
   alias Aiur.{Issue, SystemCpu, SystemFileDescriptors}
   alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
-  alias Aiur.Orchestrator.{OptimisticSlots, Slots, State}
+  alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
   @type admission_reason :: Gates.admission_reason()
 
@@ -181,6 +181,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :state_capacity
           | :worker_capacity
           | :optimistic_share
+          | :queue_set_order
           | :fleet_capacity
 
   # The single list of every reason `dispatch_decision/5` and
@@ -211,6 +212,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     :state_capacity,
     :worker_capacity,
     :optimistic_share,
+    :queue_set_order,
     :fleet_capacity
   ]
 
@@ -405,6 +407,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   defp dispatch_capacity_decision(issue, state, terminal_states) do
     cond do
+      QueueSetSlots.reason(issue.id, state) != nil -> {:skip, :queue_set_order}
       not OptimisticSlots.available?(issue, state, terminal_states) -> {:skip, :optimistic_share}
       not state_slots_available?(issue, state) -> {:skip, :state_capacity}
       not Slots.worker_slots_available?(state) -> {:skip, :worker_capacity}

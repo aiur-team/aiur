@@ -91,9 +91,22 @@ agent:
     approval_policy: never
     thread_sandbox: workspace-write
 prompt_file: linear-codex.prompt.md
+compaction:
+  # Opt in only when you want synchronous native compaction at handoff.
+  # Codex's app-server API has no threshold trigger; other providers are unsupported.
+  enabled: false
+  backends: [codex]
+  manual_approval: false
+  auto_trigger:
+    enabled: false
+    token_threshold: 50000
+  timeout_ms: 30000
 
 # Build queue is unsupported on Linear; no queue label writes.
 # build_queue:
+#   set_order: ranked                  # opt in to set rank order; default none preserves ordinary dispatch
+#   max_active_sets: null              # unfinished started sets; held sets do not count
+#   spill_reserve_slots: 0             # leave slots free for the earliest unfinished set
 #   optimistic_slot_share: 0.5         # 0..1 of effective slots; 0 disables optimistic starts
 #   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
@@ -101,6 +114,8 @@ prompt_file: linear-codex.prompt.md
 #   max_writes_per_minute: 20           # 1..60 writes
 #   observation_max_age_seconds: null  # 2 x polling.interval_seconds; explicit 10..3600
 #   merged_open_grace_seconds: 600      # 60..86400 seconds
+#   optimistic_failure_grace_seconds: 600 # Replacement grace, 60..86400 seconds
+#   optimistic_churn_attention_threshold: 3 # Conflicts, 0 disables (0..50)
 
 # Experiment specs and audit history are stored under the repo state node.
 # experiments:

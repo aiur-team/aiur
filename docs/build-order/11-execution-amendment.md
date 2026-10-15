@@ -91,9 +91,9 @@ The existing BO-016 → BO-018 native edge provides the gate; no graph edit is
 required.
 
 The refreshed design is preserved at
-`prototype/Aiur Operator Control Center.2026-07-13-refresh.html` and supplies
+[retired Aiur Operator Control Center.2026-07-13-refresh.html](https://github.com/aiur-team/aiur/blob/a58b309a80301aa6823e6f9f6e9af9025bc18afe/docs/build-order/prototype/Aiur%20Operator%20Control%20Center.2026-07-13-refresh.html) and supplies
 the complexity-weighted phase-progress reference. The immutable DESIGN-001
-artifact remains at its approved canonical path. Analytics remains excluded.
+artifact remains available through the [pinned manifest](design-manifest.md). Analytics remains excluded.
 
 ## Individually owned pre-lane contracts
 

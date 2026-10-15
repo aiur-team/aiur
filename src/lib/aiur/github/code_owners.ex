@@ -76,7 +76,7 @@ defmodule Aiur.GitHub.CodeOwners do
       codeowners_path: Keyword.get(opts, :path, default_codeowners_path()),
       request_fun: Keyword.get(opts, :request_fun),
       allowed_users_fun: Keyword.get(opts, :allowed_users_fun, &configured_allowed_users/0),
-      alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Alerts.emit_custom/3),
+      alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Signal.agent_alert/3),
       refresh_seconds: Keyword.get(opts, :refresh_seconds, @default_refresh_seconds),
       timer_ref: nil,
       degradation: nil,

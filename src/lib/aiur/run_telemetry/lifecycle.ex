@@ -15,6 +15,11 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   @events ~w(
     dispatch
     optimistic_start
+    blocker_push
+    blocker_integrate
+    optimistic_park
+    optimistic_resume
+    optimistic_outcome
     prewarm
     workspace_setup
     workspace_ownership
@@ -23,6 +28,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     build_test
     pr_opened
     pr_merged
+    pr_facts
     review_pause
     comment_received
     rework_start
@@ -73,7 +79,31 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     start_mode
     start_trigger
     blocker_prs
+    coverage
+    pr_created_at
+    pr_ready_at
+    first_review_at
+    first_review_state
+    first_approval_at
+    merged_at
+    review_count
+    commented_count
+    changes_requested_count
+    approval_count
+    dismissed_count
+    reviewers_distinct
+    reviewer_classes
+    additions
+    deletions
+    changed_files
+    commit_count
+    merge_commit_sha
+    blocker
+    non_ff
+    head_start_ms
+    waste_ms
   )a
+
   @doc "Creates an opaque identity for one dispatched worker attempt."
   @spec new_attempt_id(String.t()) :: String.t()
   def new_attempt_id(ticket) when is_binary(ticket) do
@@ -116,6 +146,17 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   def record(_ticket, _attempt_id, _event, _boundary, _metadata, _opts), do: :ok
+
+  @doc false
+  @spec terminal_capture(Aiur.TrackerIdentity.t(), atom()) :: :ok
+  defdelegate terminal_capture(identity, lifecycle), to: Aiur.RunTelemetry.FactsCapture, as: :terminal
+
+  @doc false
+  @spec facts_attributes(String.t(), map()) :: map()
+  def facts_attributes(ticket, facts) do
+    source_id = {Map.get(facts, :pr_number) || Map.get(facts, "pr_number"), Map.get(facts, :merged_at) || Map.get(facts, "merged_at"), Map.get(facts, :coverage) || Map.get(facts, "coverage")}
+    attributes(ticket, nil, "pr_facts", "point", Map.put(facts, :source_id, event_key(source_id)))
+  end
 
   @doc false
   @spec reason_class(term()) :: String.t()
@@ -219,6 +260,8 @@ defmodule Aiur.RunTelemetry.Lifecycle do
       started_at: Cohort.normalize_metadata_value(:started_at, started_at)
     }
   end
+
+  defp normalize_field(:reviewer_classes, value) when is_list(value), do: Enum.filter(value, &(&1 in ["trusted", "bot", "other"]))
 
   defp normalize_field(key, value), do: Cohort.normalize_metadata_value(key, value)
 

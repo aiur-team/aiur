@@ -66,6 +66,10 @@ Draft members carry local ticket document paths and no invented GitHub issue URL
 
 <img src="/images/dashboard/build-orders-dark.png" alt="Desktop Build Order graph with synthetic example member tickets">
 
+The Analytics pane shows an **Optimistic starts** tile when member telemetry records early starts. It counts redone and discarded work and reports head start (the interval from dependent start to blocker merge, floored at zero), never time saved.
+
+Missing head-start evidence is shown as unknown. A parked optimistic member stays `optimistic_parked` in the lifecycle chart until it resumes.
+
 ## The repository state node
 
 Aiur separates the repository's tracked code from daemon-owned state under `~/.aiur/repo/<owner>/<repo>/`.
@@ -74,8 +78,13 @@ Aiur separates the repository's tracked code from daemon-owned state under `~/.a
 | --- | --- |
 | `latest/` | Aiur-managed warm clone of the configured base branch. |
 | `builds/` | State-node Build Order packs, daemon status projections, and cross-boot build summaries. |
-| `analytics/` | Telemetry summaries, including `runs/<boot-id>/run-summary.json`. |
+| `analytics/` | Run summaries, durable `tickets/<ticket>.json`, and `repo-timeline.ndjson` facts when captured. |
 | `meta/` | Executor findings at `findings.ndjson` and narrative retrospectives at `retros/<boot-id>.md`. |
+
+From a checkout, `analytics/ledger-backfill --since 2026-09-15 --repo owner/name`
+rebuilds durable ticket records from retained launches and fetches missing PR facts.
+Use `--no-facts` for offline replay. Missing milestones stay unavailable; records
+already materialized survive raw-log retention.
 
 These paths are machine-local. Do not commit them, and do not expect copying a repository to copy its run state.
 
@@ -124,6 +133,12 @@ For a list queue, if `queue add` finds `agent:todo` already present, the saved m
 Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
 
 Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
+
+### Feature sets
+
+A queue is a feature set: dispatch fills capacity in set rank order. Spare capacity spreads into the next set so one deliverable can finish while another starts.
+
+`build_queue.set_order` selects `ranked` or `none` (default); `build_queue.max_active_sets` optionally caps unfinished active sets; `build_queue.spill_reserve_slots` keeps slots for the earliest unfinished set (default 0). `aiur queue order` adjusts ranks, and holds still stop a set. `NEXT` marks dispatch's selected set, including one already active.
 
 The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
 
@@ -207,7 +222,8 @@ Queue faults emit once per cause and subject, then emit `.resolved` when cleared
 | Cause | Opens | Clears |
 | --- | --- | --- |
 | `prerequisite_failed` | Agent error, closed-unmerged PR, not-planned or duplicate closure | No dependent edge still has that cause; unknown evidence retains the latch |
-| `dependency_changed_after_start` | A promoted, claimed ticket becomes unready | Readiness returns or the ticket completes |
+| `dependency_changed_after_start` | A promoted, claimed non-optimistic ticket becomes unready | Readiness returns or the ticket completes |
+| `optimistic_blocker_failed` | An optimistic blocker fails terminally; persistent trouble or integration churn emits info only | Executor unparks/closes the dependent, its ledger record closes, or non-terminal trouble recovers |
 | `promoted_unauthorized` | Dispatch declines authorization (requires a free slot) | Decline clears or ticket is claimed; an unavailable probe retains it |
 | `write_failed` | Five consecutive queue-label write failures | Next successful write |
 | `merged_issue_open` | An `issue_closed` prerequisite PR merged and its issue remains open past grace | Issue closes or no dependent requires `issue_closed` |
@@ -217,6 +233,16 @@ Queue faults emit once per cause and subject, then emit `.resolved` when cleared
 A prerequisite failure names the prerequisite and lists direct dependents before
 transitive dependents. Changing that set does not re-fire; changing the failure
 cause does. Durable latches survive restarts.
+
+For optimistic dependents, terminal blocker failure pauses running work, parks the dependent, and marks its PR draft while keeping its branch and PR. Parked dependents release their fleet slot and their place in the optimistic share.
+
+A closed-unmerged blocker PR has a replacement grace of `build_queue.optimistic_failure_grace_seconds` (600 seconds by default); not-planned/duplicate closure or removal of the dependency edge parks immediately.
+
+This works without an adopted queue. Reopening or replacing the blocker within the grace updates the ledger without parking. Recovery after parking never auto-resumes work: the Executor chooses to wait for a replacement, re-base on the default branch and resume, or close the dependent.
+
+Agent error, pause, parking, or a reset to todo keeps optimistic dependents running; persistent trouble past the grace raises an informational attention. `build_queue.optimistic_churn_attention_threshold` (default 3, 0 disables) raises info after repeated conflicting integrations.
+
+`prerequisite_failed` lists ledgered dependents as already started; `dependency_changed_after_start` is suppressed for ledgered optimistic starts. The guard owns the new attention, so queue readiness alone cannot clear a terminal park.
 
 Ticket topics use `ticket.<id>.queue.attention.<cause>`; input and store faults
 use `system.queue.attention.<cause>`. The store fault uses an in-memory latch:
@@ -258,10 +284,10 @@ Run telemetry joins the `optimistic_start` point to the dispatch using the same 
 
 ### Cascading blocker pushes
 
-With `tracker.propagate_blocker_pushes`, an idle dependent incorporates only its direct blocker’s new push. The default enables this for members of queues with optimistic start triggers (`pr_opened`, `pr_ci_green`, `pr_approved`); an explicit boolean overrides it. 
+With `tracker.propagate_blocker_pushes`, an idle dependent incorporates only its direct blocker’s new push. The default enables this for members of queues with optimistic start triggers (`pr_opened`, `pr_ci_green`, `pr_approved`); an explicit boolean overrides it.
 
-In A ← B ← C, C updates only after B pushes. A live dependent pulls itself. Every blocker history rewrite dispatches agent rework (`upstream_rewrite`); the daemon never rebases draft or reviewed dependents. 
+In A ← B ← C, C updates only after B pushes. A live dependent pulls itself. Every blocker history rewrite dispatches agent rework (`upstream_rewrite`); the daemon never rebases draft or reviewed dependents.
 
-A conflict dispatches rework with `upstream_conflict`, the blocker PR and paths, and leaves descendants untouched until the fixed branch pushes. 
+A conflict dispatches rework with `upstream_conflict`, the blocker PR and paths, and leaves descendants untouched until the fixed branch pushes.
 
 Pushes coalesce per dependent for two seconds, with two propagations at most in flight; a newer dependent push supersedes older pending work. Every successful propagation may trigger CI on its PR; existing draft workflow rules still apply.

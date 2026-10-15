@@ -34,6 +34,10 @@ try {
   process.exit(1);
 }
 
+// Ship the hand-written pre-paint script as-is
+fs.mkdirSync(path.join(distDir, 'init'), { recursive: true });
+fs.copyFileSync(path.join(packageRoot, 'src', 'init', 'theme-init.js'), path.join(distDir, 'init', 'theme-init.js'));
+
 // Concatenate CSS files in sorted order
 console.log('Building CSS...');
 try {

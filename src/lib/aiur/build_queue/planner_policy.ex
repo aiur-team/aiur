@@ -153,9 +153,18 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   defp held?(f), do: f.item.hold != nil or Map.fetch!(f.context.queues, f.item.queue_id).held
   defp withdrawing?(f), do: MapSet.member?(Keyword.get(f.context.opts, :withdrawal_holds, MapSet.new()), f.item.issue_id)
 
+  defp promoted(%{claim: {:declined, {:queue_set_order, reason}}} = f), do: set_wait(f, reason)
+
   defp promoted(%{claim: {:declined, :unauthorized}}), do: result(:promoted_unauthorized, :unauthorized)
 
-  defp promoted(f) do
+  defp promoted(f), do: promoted_ready_or_withdraw(f)
+
+  defp set_wait(f, reason) do
+    {state, existing_reason, actions} = promoted_ready_or_withdraw(f)
+    {state, existing_reason || reason, actions}
+  end
+
+  defp promoted_ready_or_withdraw(f) do
     cond do
       unavailable_unauthorized?(f) -> result(:promoted_unauthorized, :unauthorized)
       f.verdict == :ready and not held?(f) -> promoted_ready(f)
