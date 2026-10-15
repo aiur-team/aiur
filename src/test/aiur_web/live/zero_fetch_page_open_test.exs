@@ -76,7 +76,25 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     # Clear prior comment work and finish startup cleanup before counting.
     :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
     {:ok, orchestrator} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator)
-    Aiur.TestSupport.await_orchestrator_state(orchestrator, &(map_size(&1.tracker_tasks) == 0))
+
+    # The GitHub comment poll's pull-request discovery uses CommentPollBatch and
+    # POSTs /graphql. It is an Orchestrator poll, but its owned async task is not
+    # in tracker_tasks, so waiting on that map alone can leave it racing this
+    # transport counter. Freeze the source poll cycle and drain its outstanding
+    # comment batch before installing the counter below. The delayed startup
+    # cycle is fenced by poll_frozen too.
+    _frozen_state = Aiur.TestSupport.freeze_live_orchestrator()
+
+    Aiur.TestSupport.await_orchestrator_state(orchestrator, fn state ->
+      map_size(state.tracker_tasks) == 0 and is_nil(state.github_comment_poll)
+    end)
+
+    if context[:comment_poll_leak_probe] do
+      # This test sends a poll-cycle message while the page is held open. Make
+      # the real GitHub comment-poll path eligible only after the Orchestrator
+      # has been frozen, so the message deterministically proves the fence.
+      :ok = Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github")
+    end
 
     # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
     # and asserts it reaches the transport. That URL is now cacheable
@@ -112,17 +130,22 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     Aiur.TestSupport.start_owned_endpoint!()
 
     {:ok, counter} = Agent.start_link(fn -> [] end)
+    {:ok, request_details} = Agent.start_link(fn -> [] end)
     previous_options = Application.get_env(:aiur, :github_transport_test_options)
     test_pid = self()
 
     Application.put_env(:aiur, :github_transport_test_options,
+      request_observer: fn request ->
+        path = URI.parse(request.url).path
+        Agent.update(request_details, &[{request.method, path, Map.get(request, :caller)} | &1])
+      end,
       plug: fn conn ->
         Agent.update(counter, &[{conn.method, conn.request_path} | &1])
         send(test_pid, {:github_request, conn.method, conn.request_path})
 
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.resp(200, "{}")
+        |> Plug.Conn.resp(200, if(conn.method == "GET", do: "[]", else: "{}"))
       end
     )
 
@@ -133,7 +156,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       end
     end)
 
-    {:ok, counter: counter, inherited_task: inherited_task}
+    {:ok, counter: counter, request_details: request_details, inherited_task: inherited_task}
   end
 
   describe "opening a dashboard page" do
@@ -245,18 +268,28 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       assert_egress_open!(counter)
     end
 
-    test "holding a page open past its refresh ticks reaches GitHub zero times", %{counter: counter} do
+    @tag :comment_poll_leak_probe
+    test "holding a page open past its refresh ticks reaches GitHub zero times", %{counter: counter, request_details: request_details} do
       assert {:ok, view, html} = live(build_conn(), "/")
       assert html =~ "dashboard-shell"
 
-      # This env runs a Linear tracker, so the dashboard's open-time
-      # OpenTicketSource refresh is gated to :unsupported and makes no request;
-      # the `/` deliberate-exception test covers that one request under a github
-      # tracker. What this test asserts is narrower: the dashboard's own
-      # periodic ticks — a 1s clock, a 15s GitHub-quota snapshot and a 60s
-      # ElevenLabs read — never fetch. Driving them directly is deterministic
-      # where sleeping for 60s would be slow and still racy. If any of them ever
-      # starts fetching rather than reading local GenServer state, this fails.
+      # Exercise the real Orchestrator poll-cycle entry point while the page is
+      # open. Seed one reconcile target so an unfrozen cycle reaches the
+      # CommentPollBatch GraphQL lookup; when the source is fenced, this message
+      # is discarded before any GitHub request can start.
+      :sys.replace_state(Aiur.Orchestrator, fn state ->
+        %{state | github_comment_reconcile_targets: MapSet.new(["4584"])}
+      end)
+
+      send(Aiur.Orchestrator, :run_poll_cycle)
+
+      Aiur.TestSupport.await_orchestrator_state(Aiur.Orchestrator, fn state ->
+        map_size(state.tracker_tasks) == 0 and is_nil(state.github_comment_poll)
+      end)
+
+      # The page's own periodic ticks — a 1s clock, a 15s GitHub-quota snapshot
+      # and a 60s ElevenLabs read — never fetch. Driving them directly is
+      # deterministic where sleeping for 60s would be slow and still racy.
       Enum.each([:runtime_tick, :github_quota_tick, :elevenlabs_quota_tick], fn tick ->
         send(view.pid, tick)
         _rendered = render(view)
@@ -272,7 +305,28 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       requests = Agent.get(counter, & &1)
 
       assert requests == [],
-             "holding the dashboard open made #{length(requests)} GitHub requests: #{inspect(requests)}"
+             "holding the dashboard open made #{length(requests)} GitHub requests: " <>
+               "#{inspect(requests)}; method/path/caller: #{inspect(Enum.reverse(Agent.get(request_details, & &1)))}"
+
+      # Positive control through the real comment-poll source. It deliberately
+      # runs after the zero assertion, while the LiveView remains open, and
+      # proves both that this counter is open and that the background lookup is
+      # CommentPollBatch's POST /graphql. The poll-cycle trigger above must not
+      # reach this call while the test owns the counter.
+      probe_state =
+        struct(Aiur.Orchestrator.State,
+          running: %{"4584" => %{identifier: "4584", issue: %{title: "comment poll probe"}}}
+        )
+
+      _poll_result =
+        Aiur.Orchestrator.CommentPolling.poll_github_comments(probe_state,
+          review_issue_fetcher: fn _states -> {:ok, []} end
+        )
+
+      observed_details = Enum.reverse(Agent.get(request_details, & &1))
+
+      assert Enum.any?(observed_details, &(&1 == {:post, "/graphql", "comment_poll_batch"})),
+             "CommentPolling did not expose its expected GraphQL request to the test counter: #{inspect(observed_details)}"
 
       assert_egress_open!(counter)
     end

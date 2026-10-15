@@ -491,6 +491,7 @@ defmodule Aiur.GitHub.Transport do
   defp request_options(headers, req) do
     options = Application.get_env(:aiur, :github_transport_test_options, [])
     options = if is_list(options) and Keyword.keyword?(options), do: options, else: []
+    options = notify_test_request_observer(options, req)
     timeout_ms = Map.get(req, :timeout_ms, @default_request_timeout_ms)
 
     options
@@ -500,6 +501,17 @@ defmodule Aiur.GitHub.Transport do
     # response that establishes the fleet-wide cooldown.
     |> Keyword.merge(headers: headers, connect_options: [timeout: timeout_ms], receive_timeout: timeout_ms, retry: false)
     |> maybe_bound_response(req)
+  end
+
+  defp notify_test_request_observer(options, request) do
+    case Keyword.pop(options, :request_observer) do
+      {observer, remaining} when is_function(observer, 1) ->
+        observer.(request)
+        remaining
+
+      {_invalid_observer, remaining} ->
+        remaining
+    end
   end
 
   defp maybe_bound_response(options, %{max_response_bytes: limit})
