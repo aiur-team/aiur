@@ -6,7 +6,7 @@ defmodule Aiur.MainWatch do
   alias Aiur.Events.Exchange
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.{ResourceStore, Transport}
-  alias Aiur.MainWatch.{Canary, GitHub, Persistence, State, Suspects}
+  alias Aiur.MainWatch.{Canary, Fixer, GitHub, Persistence, State, Suspects}
   alias Aiur.MergePolicy
 
   @request_limit 64
@@ -150,6 +150,10 @@ defmodule Aiur.MainWatch do
           Map.put(observation, :suspect_merges, suspects.(state.last_green_sha, observation.sha, result.commits, server.data.early_merges, server.opts))
         end
       end)
+
+    fixer_latest = Enum.map(latest, &Map.put(&1, :last_green_sha, state.last_green_sha))
+    # Filing errors raise their own attention and retry next poll; CI observations still advance.
+    Fixer.reconcile(older ++ fixer_latest, server.config, server.opts)
 
     completed = completed_at(result, server.data)
 

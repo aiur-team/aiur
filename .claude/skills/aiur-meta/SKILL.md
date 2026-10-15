@@ -254,6 +254,42 @@ now, and advance it. States that repeatedly sit unnoticed here:
 of ten tickets recovered this way already had one; a blanket re-dispatch would
 have duplicated all nine.
 
+### 3a. Sweep the landing path every pass
+
+The path from "approved" to "merged" is where finished work goes to wait unseen.
+On 2026-10-14 the Executor found **24 approved PRs** sitting on a red `ci gate`
+that came only from concurrency-cancelled runs, plus **12 merge-group runs** for
+5 build slots, because nobody swept this path. Run these queries on every pass
+and act on each hit:
+
+- **Approved, not landing:** every APPROVED PR at its current head that is
+  neither in the merge queue nor auto-merging, or whose required check is red or
+  cancelled. Classify each failure as infrastructure (cancelled or superseded run,
+  jobs that failed with no steps at 0 s, runner errors) or real; rerun the first,
+  route the second to rework.
+- **Queue health:** queue entries in `UNMERGEABLE`, failed merge-group runs, and
+  merge-group runs whose PR and base no longer match a live entry (cancel those —
+  they hold runners). Before routing a group failure to rework, check whether
+  another group containing the same PR passed the same tests (flake, not the PR).
+- **Attribution:** commits of every PR about to be enqueued, for AI
+  `Co-authored-by` trailers (the queue squash copies them into `main`).
+- **Idle capacity:** agents running vs the ceiling, against held queue sets and
+  ready tickets. A held set while slots sit idle is a finding.
+- **Loops:** the same ticket handing back an unchanged PR, or re-raising the same
+  decision, more than twice.
+
+### 3b. Every manual step is a finding
+
+The goal is that the operator never has to point out what fell through the cracks.
+So ask, every pass, **"what did I do by hand since the last pass?"** — each
+re-run, re-label, re-queue, dequeue, cancel, decision answer, or message that the
+daemon could have done itself. Any action you repeated, or any wait that a rule
+could have shortened, gets an automation ticket in the same pass, with the counts
+as evidence (how many PRs, how long they waited, how often you intervened). Do not
+wait to be asked: a gap you work around silently is a gap the operator finds later.
+Name the time it costs a ticket (minutes from approval to merge, from merge-group
+start to merge, from handback to review) and say which automation would cut it.
+
 ## 4. File what is broken
 
 Every finding becomes a ticket, linked to the run's meta epic. Not a note, not a

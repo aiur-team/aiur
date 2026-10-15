@@ -77,6 +77,7 @@ defmodule Aiur.Events.Sanitizer do
     payload
     |> scrub_commits()
     |> scrub_pr()
+    |> scrub_post_deploy_checks()
     |> scrub_comment()
     |> scrub_review()
     |> scrub_ci_failure()
@@ -236,6 +237,13 @@ defmodule Aiur.Events.Sanitizer do
   end
 
   defp scrub_pr(payload), do: payload
+
+  defp scrub_post_deploy_checks(%{post_deploy_checks: checks} = payload) when is_list(checks) do
+    checks = checks |> Enum.filter(&is_binary/1) |> Enum.take(20) |> Enum.map(&clean(&1, :issue_body))
+    Map.put(payload, :post_deploy_checks, checks)
+  end
+
+  defp scrub_post_deploy_checks(payload), do: payload
 
   defp scrub_comment(%{comment: comment} = payload) when is_map(comment) do
     comment = update_string(comment, "body", &clean(&1, :comment_body))

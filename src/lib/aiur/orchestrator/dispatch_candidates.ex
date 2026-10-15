@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.DispatchCandidates do
   @moduledoc "Orders ready, optimistic, then held candidates using cached dependency evidence only."
 
   alias Aiur.BuildQueue.Hints
-  alias Aiur.{Config, Issue}
+  alias Aiur.{Config, Issue, MergePolicy}
   alias Aiur.GitHub.Tracker
   alias Aiur.Orchestrator.{DependencyGate, DispatchPolicy, QueueSetSlots}
   alias Aiur.StartTrigger.CriticalPath
@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.DispatchCandidates do
 
     ordering = QueueSetSlots.ordering()
 
-    Enum.sort_by(Map.get(groups, :ready, []), &QueueSetSlots.sort_key(&1.id, ordering)) ++
+    Enum.sort_by(Map.get(groups, :ready, []), &{if(MergePolicy.fixer_ticket?(&1), do: 0, else: 1), QueueSetSlots.sort_key(&1.id, ordering)}) ++
       Enum.sort_by(optimistic, fn issue ->
         {member, rank, _position} = QueueSetSlots.sort_key(issue.id, ordering)
         {member, rank}
