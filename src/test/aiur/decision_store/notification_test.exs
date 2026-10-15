@@ -13,6 +13,7 @@ defmodule Aiur.DecisionStore.NotificationTest do
 
       payload = %{"question" => "Deploy now?", "blocking" => true, "source_id" => "retry-1"}
       assert {:ok, %{status: :accepted, decision: decision}} = request(pid, payload)
+      decision_id = decision.decision_id
 
       assert_receive {:event,
                       %{
@@ -29,14 +30,12 @@ defmodule Aiur.DecisionStore.NotificationTest do
       assert_receive {:event,
                       %{
                         topic: "executor.decision.requested",
-                        decision_id: decision_id,
+                        decision_id: ^decision_id,
                         decision_version: 1,
                         issue_identifier: "979",
                         provenance: :decision_store
                       }},
                      500
-
-      assert decision_id == decision.decision_id
 
       [persisted] =
         dir
@@ -46,8 +45,7 @@ defmodule Aiur.DecisionStore.NotificationTest do
         |> Enum.map(&Jason.decode!/1)
 
       assert persisted["event_id"] == "decision-provenance-v1:" <> Integer.to_string(cursor_event_id)
-      assert_receive {:decision_changed, decision_id, 1}, 500
-      assert decision_id == decision.decision_id
+      assert_receive {:decision_changed, ^decision_id, 1}, 500
     end
 
     test "a duplicate does not fan out again", %{dir: dir} do
@@ -109,10 +107,12 @@ defmodule Aiur.DecisionStore.NotificationTest do
       assert {:ok, %{status: :accepted}} =
                DecisionStore.expire(decision.decision_id, "agent_not_running", [], pid)
 
+      decision_id = decision.decision_id
+
       assert_receive {:event,
                       %{
                         "event_type" => "decision_expired",
-                        "decision_id" => decision_id,
+                        "decision_id" => ^decision_id,
                         "decision_version" => 1,
                         "data" => %{"reason_class" => "agent_not_running"},
                         topic: "ticket.979.agent.decision.expired",
@@ -120,7 +120,6 @@ defmodule Aiur.DecisionStore.NotificationTest do
                       } = expired_event},
                      500
 
-      assert decision_id == decision.decision_id
       assert EventsDigest.render([expired_event], "979") =~ "ticket.979.agent.decision.expired"
     end
   end
