@@ -17,15 +17,15 @@ defmodule ScriptsAiurdevLayoutAssetsTest do
   test "npm failure stops the build despite existing assets and names the recovery command" do
     for failed_step <- ["ci", "run"] do
       root = fake_repo()
-      compile_log = Path.join(root, "compile.log")
-      env = build_env(root, Path.join(root, "npm.log")) ++ [{"AIUR_FAKE_NPM_FAIL", failed_step}, {"AIUR_FAKE_MISE_COMPILE_LOG", compile_log}]
+      release_log = Path.join(root, "release.log")
+      env = build_env(root, Path.join(root, "npm.log")) ++ [{"AIUR_FAKE_NPM_FAIL", failed_step}, {"AIUR_FAKE_MISE_RELEASE_LOG", release_log}]
 
       {out, 1} = run_shim(["build"], env)
 
       assert out =~ "ELK asset generation failed; release build stopped"
       assert out =~ "npm ci --ignore-scripts && npm run vendor:elk -- --check"
       assert out =~ "offline first build"
-      refute File.exists?(compile_log)
+      refute File.exists?(release_log)
       refute File.exists?(release_stamp_path(root))
       assert File.read!(asset_path(root)) == "fixture"
     end
