@@ -17,6 +17,7 @@ R-declared	Aiur.GitHub.CycleFetchCache	baseline 4aba33f8aae03cdaec432d6614e70a57
 R-declared	Aiur.GitHub.Errors	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Issues	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.LocalHold	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.GitHub.HoldPressure	#4067 holds are tracked by the GitHub budget monitor during dispatch validation
 R-declared	Aiur.GitHub.MergeQueue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Quota	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.ResourceStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
