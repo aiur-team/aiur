@@ -96,6 +96,7 @@ defmodule Aiur.Events.GithubFirehose do
 
     client_opts =
       [etag: Keyword.get(opts, :etag), page: 1, per_page: @repo_events_per_page]
+      |> maybe_put(:token, Keyword.get(opts, :token))
       |> maybe_put(:request_fun, Keyword.get(opts, :request_fun))
 
     case Client.fetch_repo_events(client_opts) do
