@@ -48,6 +48,8 @@ export const fx = {
   viewport() {}, relayout() {}, update() {}, jumpNow() {}, liveGuard() {}, markScrolling() {},
   unlock() {}, closeTree() {}, chainOf: () => new Set(), renderFilters() {},
   renderUsage() {}, renderOffline() {}, renderFeatures() {}, renderTools() {},
+  spanToolsHTML: () => '', wireSpanTools() {}, renderStatus() {},
+  daemonView: () => ({ dotOff: true, dotText: 'Daemon status unknown' }),
   renderLoading() {}, renderUnavailable: defaultUnavailable, dataChanged: defaultDataChanged,
   drawEdgesSoon() {}, openFromURL() {},
 };
