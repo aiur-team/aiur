@@ -8,6 +8,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Issue
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace
   alias Aiur.Workspace.WipPreservation
