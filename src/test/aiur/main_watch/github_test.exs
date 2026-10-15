@@ -46,12 +46,14 @@ defmodule Aiur.MainWatch.GitHubTest do
     attempts = :atomics.new(1, [])
     refreshes = :atomics.new(1, [])
 
-    request = fn %{url: url} ->
+    request = fn %{url: url, token: token} ->
       cond do
         String.contains?(url, "/commits?") and :atomics.add_get(attempts, 1, 1) == 1 ->
+          send(self(), {:used_token, token})
           {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}}
 
         String.contains?(url, "/commits?") ->
+          send(self(), {:used_token, token})
           ok([])
 
         String.contains?(url, "/actions/runs?") ->
@@ -77,6 +79,8 @@ defmodule Aiur.MainWatch.GitHubTest do
 
     assert :atomics.get(attempts, 1) == 2
     assert :atomics.get(refreshes, 1) == 1
+    assert_received {:used_token, "old-app-token"}
+    assert_received {:used_token, "new-app-token"}
   end
 
   test "does not retry a rejected App token when refresh leaves the token unchanged" do
