@@ -33,7 +33,7 @@ defmodule Aiur.BuildQueue.UnauthorizedTest do
     root = Aiur.TestSupport.tmp_root!("queue-unauthorized")
 
     on_exit(fn ->
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
       refute File.exists?(root)
     end)
 

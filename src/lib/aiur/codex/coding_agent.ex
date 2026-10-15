@@ -23,7 +23,7 @@ defmodule Aiur.Codex.CodingAgent do
   alias Aiur.Config
 
   @type session :: %{
-          port: port(),
+          port: port() | pid(),
           metadata: map(),
           approval_policy: String.t() | map(),
           auto_approve_requests: boolean(),
@@ -168,6 +168,13 @@ defmodule Aiur.Codex.CodingAgent do
     collect_startup_exit(port, System.monotonic_time(:millisecond) + 100, "")
   end
 
+  defp recover_startup_exit(port, {:response_error, _} = reason) when is_pid(port) do
+    case collect_startup_exit(port, System.monotonic_time(:millisecond) + 100, "") do
+      :port_closed -> reason
+      exit -> exit
+    end
+  end
+
   defp recover_startup_exit(_port, reason), do: reason
 
   defp collect_startup_exit(port, deadline, pending) do
@@ -206,7 +213,7 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   @impl Aiur.CodingAgent.Backend
-  def stop_session(%{port: port} = session) when is_port(port) do
+  def stop_session(%{port: port} = session) when is_port(port) or is_pid(port) do
     AccountGeneration.process_stopped(session)
   after
     try do

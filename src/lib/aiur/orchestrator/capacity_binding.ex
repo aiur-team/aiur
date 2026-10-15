@@ -236,6 +236,9 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   config-sourced rather than as the operator's last command (#2138).
   """
   @spec ceiling_label(map()) :: String.t()
+  def ceiling_label(%{effective: effective, max: max}) when is_integer(effective) and effective < max,
+    do: "AIMD envelope #{effective}"
+
   def ceiling_label(%{session_override?: true}), do: "session max_concurrent_agents"
   def ceiling_label(_capacity), do: "config max_concurrent_agents"
 

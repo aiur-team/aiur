@@ -20,17 +20,14 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   require Logger
   alias Aiur.Accounts.UsageReadings
   alias Aiur.{CodingAgent, Config, Issue, ModelAvailability}
-  alias Aiur.Init.AgentCli
+  alias Aiur.Orchestrator.RateLimitFallback.Redispatch
 
   alias Aiur.Orchestrator.{
     ControlLifecycle,
-    Dispatcher,
     PauseResume,
     RateLimitFallbackTransition,
     RemoteControlMode,
-    RetryEngine,
-    State,
-    TicketTransition
+    State
   }
 
   @marker_label_suffix "rate-limit-fallback"
@@ -292,10 +289,10 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     fallback_backend = fallback_backend(opts)
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
     relabeled = engage_issue(issue, fallback_backend, marker_label)
-    context = transition_context(state, running_entry, issue, relabeled, opts)
+    context = Redispatch.transition_context(state, running_entry, issue, relabeled, opts)
 
-    if fallback_backend_ready?(fallback_backend, running_entry, opts) do
-      case redispatch_admission(state, relabeled, running_entry, opts) do
+    if Redispatch.backend_ready?(fallback_backend, running_entry, opts) do
+      case Redispatch.admission(state, relabeled, running_entry, opts) do
         {:ok, admitted_state} ->
           engage_after_preflight(%{context | state: admitted_state}, fallback_backend, marker_label)
 
@@ -320,7 +317,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
     with {:ok, destination} <- Aiur.Accounts.select("claude", candidates, config.account_selection || "balance", usages),
          :ok <- move_session.("claude", session.account_name, destination, session.session_id, session.cwd, Keyword.get(opts, :move_opts, [])) do
-      handoff(opts, state, running_entry, issue, destination, session)
+      Redispatch.handoff(opts, state, running_entry, issue, destination, session)
     else
       {:error, reason} ->
         Logger.warning("Claude account handoff deferred: #{log_context(running_entry, issue)} reason=#{inspect(reason)}")
@@ -332,9 +329,9 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
     engaged = engaged_fallback(issue, opts)
     relabeled = revert_issue(issue, marker_label, engaged, opts)
-    context = Map.put(transition_context(state, running_entry, issue, relabeled, opts), :engaged_fallback, engaged)
+    context = Map.put(Redispatch.transition_context(state, running_entry, issue, relabeled, opts), :engaged_fallback, engaged)
 
-    case redispatch_admission(state, relabeled, running_entry, opts) do
+    case Redispatch.admission(state, relabeled, running_entry, opts) do
       {:ok, admitted_state} ->
         revert_after_preflight(%{context | state: admitted_state}, marker_label)
 
@@ -348,7 +345,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     relabeled = revert_issue(issue, marker_label, engaged_fallback(issue, opts), opts)
     pause = Keyword.get(opts, :pause_fun, &PauseResume.send_pause_control_message/2)
 
-    case redispatch_admission(state, relabeled, running_entry, opts) do
+    case Redispatch.admission(state, relabeled, running_entry, opts) do
       {:ok, admitted_state} ->
         case pause.(admitted_state, Map.get(running_entry, :identifier)) do
           {:ok, _request_id} ->
@@ -405,209 +402,15 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     end
   end
 
-  defp handoff(opts, state, running_entry, issue, destination, session) do
-    teardown = Keyword.get(opts, :teardown_fun, &RemoteControlMode.teardown_for_redispatch/3)
-    event = Keyword.get(opts, :handoff_event_fun, &emit_account_handoff/4)
-    event.(issue, session.account_name, destination, session.session_id)
-    staged_state = teardown.(state, running_entry, :account_handoff)
-    staged_entry = Map.get(staged_state.running, issue.id, running_entry)
-    safe_entry = redispatch_safety_entry(staged_entry, issue) |> Map.put(:session_execution, %{backend: session.backend, account: destination})
-    staged_state = put_running_entry(staged_state, issue.id, safe_entry)
-
-    next_state =
-      case Keyword.get(opts, :dispatch_fun) do
-        dispatch when is_function(dispatch, 5) ->
-          dispatch.(staged_state, issue, nil, Map.get(running_entry, :worker_host),
-            account_name: destination,
-            resume_thread_id: session.session_id
-          )
-
-        _ ->
-          Dispatcher.do_dispatch_issue(staged_state, issue, nil, Map.get(running_entry, :worker_host),
-            prior_work: Config.agent_prior_work_continuation?(),
-            account_name: destination,
-            resume_thread_id: session.session_id
-          )
-      end
-
-    {retain_redispatch_safety(next_state, safe_entry, issue), true}
-  end
-
-  defp emit_account_handoff(issue, source, destination, session_id) do
-    Aiur.Alerts.emit_system("ticket.#{issue.identifier}.agent.account_handoff",
-      issue: issue,
-      reason: "Claude session #{session_id} moved from account #{source} to #{destination} and resumed.",
-      needs_attention: false,
-      severity: "info"
-    )
-  end
-
-  defp transition_context(state, running_entry, issue, relabeled, opts) do
-    %{
-      add_label: Keyword.get(opts, :add_label_fun, &TicketTransition.write_marker(&1, :add, &2, writer: :rate_limit_fallback)),
-      identifier: Map.get(running_entry, :identifier),
-      issue: issue,
-      opts: opts,
-      relabeled: relabeled,
-      remove_label: Keyword.get(opts, :remove_label_fun, &TicketTransition.write_marker(&1, :remove, &2, writer: :rate_limit_fallback)),
-      running_entry: running_entry,
-      state: state
-    }
-  end
-
   defp engage_after_preflight(context, backend, marker),
-    do: RateLimitFallbackTransition.run(context, :engage, backend, marker, &redispatch/4)
+    do: RateLimitFallbackTransition.run(context, :engage, backend, marker, &Redispatch.redispatch/4)
 
   defp revert_after_preflight(context, marker),
-    do: RateLimitFallbackTransition.run(context, :revert, context.engaged_fallback, marker, &redispatch/4)
-
-  # Keep the issue on the worker that owns its workspace and session rollout.
-  defp redispatch(state, running_entry, relabeled_issue, opts) do
-    issue_id = relabeled_issue.id
-    worker_host = Map.get(running_entry, :worker_host)
-    teardown = Keyword.get(opts, :teardown_fun, &RemoteControlMode.teardown_for_redispatch/3)
-    dispatch = Keyword.get(opts, :dispatch_fun, &dispatch_prior_work/4)
-
-    # The old entry is the sole owner of the lifecycle fence. Keep a parked
-    # copy in `running` until the replacement Task is actually admitted, so a
-    # failed fallback never turns an authoritative queue claim into an
-    # unfenced, unrecoverable ticket. Dispatcher also carries this context
-    # through retries that start after this reconciliation tick.
-    staged_entry = redispatch_safety_entry(running_entry, relabeled_issue)
-
-    state =
-      state
-      |> teardown.(running_entry, :rate_limit_fallback)
-      |> put_running_entry(issue_id, staged_entry)
-
-    state = dispatch.(state, relabeled_issue, nil, worker_host)
-    state = retain_redispatch_safety(state, staged_entry, relabeled_issue)
-
-    ensure_redispatch_started(state, running_entry, relabeled_issue, worker_host, opts)
-  end
-
-  defp redispatch_safety_entry(running_entry, relabeled_issue) do
-    safety = %{workspace_path: Map.get(running_entry, :workspace_path)}
-
-    # Do not park a copy of session, pane, or provider-process metadata after
-    # teardown: those describe the stopped primary worker, not a retryable
-    # fallback entry. Only durable redispatch context is retained.
-    running_entry
-    |> Map.take([:identifier, :worker_host, :retry_attempt, :prior_work])
-    |> Map.merge(%{
-      issue: relabeled_issue,
-      started_at: Map.get(running_entry, :started_at) || DateTime.utc_now(),
-      completion_totals_recorded: false,
-      pid: nil,
-      ref: nil,
-      control: %{status: :completed},
-      rate_limit_fallback_replacement: true,
-      redispatch_safety: safety
-    })
-    |> maybe_put_lifecycle_fence(Map.get(running_entry, :lifecycle_fence))
-    |> maybe_put_workspace_path(Map.get(safety, :workspace_path))
-  end
-
-  # A Task pid is the synchronous admission proof available at this layer.
-  # Copy the exact fence, including its generation and concrete queue IDs, to
-  # the new entry. If dispatch did not produce a live Task, park the staged
-  # entry as completed so it does not consume a slot while RetryEngine retains
-  # its claim and retries it.
-  defp retain_redispatch_safety(state, staged_entry, relabeled_issue) do
-    case Map.get(state.running, relabeled_issue.id) do
-      %{pid: pid} = replacement when is_pid(pid) ->
-        put_running_entry(state, relabeled_issue.id, inherit_redispatch_safety(replacement, staged_entry))
-
-      _other ->
-        put_running_entry(state, relabeled_issue.id, staged_entry)
-    end
-  end
-
-  defp inherit_redispatch_safety(replacement, staged_entry) do
-    replacement
-    |> Map.put(:rate_limit_fallback_replacement, true)
-    |> Map.put(:redispatch_safety, Map.fetch!(staged_entry, :redispatch_safety))
-    |> Map.put(:session_execution, Map.get(replacement, :session_execution) || Map.get(staged_entry, :session_execution))
-    |> maybe_put_lifecycle_fence(Map.get(staged_entry, :lifecycle_fence))
-    |> maybe_put_workspace_path(Map.get(staged_entry, :workspace_path))
-  end
-
-  defp maybe_put_lifecycle_fence(entry, fence) when is_map(fence), do: Map.put(entry, :lifecycle_fence, fence)
-  defp maybe_put_lifecycle_fence(entry, _fence), do: entry
-
-  defp maybe_put_workspace_path(entry, path) when is_binary(path), do: Map.put(entry, :workspace_path, path)
-  defp maybe_put_workspace_path(entry, _path), do: entry
-
-  defp dispatch_prior_work(state, issue, attempt, worker_host) do
-    prior_work? = Config.agent_prior_work_continuation?()
-    Dispatcher.do_dispatch_issue(state, issue, attempt, worker_host, prior_work: prior_work?)
-  end
-
-  defp ensure_redispatch_started(state, running_entry, issue, worker_host, opts) do
-    if live_running_entry?(Map.get(state.running, issue.id)) or
-         Map.has_key?(state.retry_attempts, issue.id) do
-      state
-    else
-      schedule_retry = Keyword.get(opts, :schedule_retry_fun, &RetryEngine.schedule_issue_retry/4)
-      next_attempt = RetryEngine.next_retry_attempt_from_running(running_entry)
-
-      schedule_retry.(state, issue.id, next_attempt, %{
-        identifier: issue.identifier,
-        tracker_identity: Issue.tracker_identity(issue),
-        error: "backend redispatch did not start",
-        prior_work: Config.agent_prior_work_continuation?(),
-        worker_host: worker_host,
-        workspace_path: Map.get(running_entry, :workspace_path)
-      })
-    end
-  end
-
-  defp live_running_entry?(%{pid: pid}) when is_pid(pid), do: true
-  defp live_running_entry?(_entry), do: false
-
-  defp redispatch_admission(state, issue, running_entry, opts) do
-    ready = Keyword.get(opts, :dispatch_ready_fun, &Dispatcher.admit_redispatch/3)
-
-    case ready.(state, issue, Map.get(running_entry, :worker_host)) do
-      {:ok, admitted_state} -> {:ok, admitted_state}
-      :ok -> {:ok, state}
-      {:error, reason, rejected_state} -> {:error, reason, rejected_state}
-      {:error, reason} -> {:error, reason, state}
-    end
-  end
+    do: RateLimitFallbackTransition.run(context, :revert, context.engaged_fallback, marker, &Redispatch.redispatch/4)
 
   defp log_recovery_checkpoint_deferred(running_entry, issue, reason) do
     Logger.info("Rate-limit fallback recovery checkpoint deferred: #{log_context(running_entry, issue)} reason=#{inspect(reason)}")
   end
-
-  defp fallback_backend_ready?(backend, running_entry, opts) do
-    worker_host = Map.get(running_entry, :worker_host)
-
-    ready =
-      Keyword.get(opts, :backend_ready_fun, fn candidate, host ->
-        default_backend_ready?(candidate, host, opts)
-      end)
-
-    is_binary(backend) and backend in CodingAgent.known_backends() and
-      ready.(backend, worker_host)
-  end
-
-  # A headless fallback spawns on the orchestrator host and cannot use an SSH
-  # worker's remote-only workspace, so readiness is only checked there; a
-  # worker-hosted entry is left parked rather than moved to a backend that
-  # cannot start on that worker. The executable is resolved from the backend's
-  # own config (`agent_executable/1`), so any eligible registered fallback works, not
-  # just headless claude.
-  defp default_backend_ready?(backend, nil, opts) when is_binary(backend) do
-    find_executable = Keyword.get(opts, :find_executable_fun, &System.find_executable/1)
-
-    case AgentCli.agent_executable(backend) do
-      executable when is_binary(executable) -> is_binary(find_executable.(executable))
-      _ -> false
-    end
-  end
-
-  defp default_backend_ready?(_backend, _worker_host, _opts), do: false
 
   defp engage_issue(issue, backend, marker_label) do
     issue
@@ -669,7 +472,9 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
       else: entry
   end
 
-  defp put_running_entry(state, issue_id, entry),
+  @doc false
+  @spec put_running_entry(State.t(), String.t(), map()) :: State.t()
+  def put_running_entry(state, issue_id, entry),
     do: %{state | running: Map.put(state.running, issue_id, entry)}
 
   defp max_transitions_per_tick(opts) do

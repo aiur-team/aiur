@@ -43,7 +43,7 @@ defmodule Aiur.Config.Schema.Agent do
   import Ecto.Changeset
 
   alias Aiur.Config.RoutingValue
-  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, PricingPolicy, Rtk}
+  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, GitIdentity, PricingPolicy, Rtk}
 
   @primary_key false
   embedded_schema do
@@ -56,6 +56,8 @@ defmodule Aiur.Config.Schema.Agent do
     # resolved backend is RC-capable. This default is the single flip point
     # for always-remote: change `false` here and every dispatch attaches RC.
     field(:remote_control, :boolean, default: false)
+    field(:relay, :boolean, default: true)
+    field(:relay_orphan_timeout_seconds, :integer, default: 1_800)
     # When true, a re-dispatch of a ticket the orchestrator already ran (a
     # max_turns recycle or completed-entry replacement) whose codex thread could
     # not be resumed gets continuation guidance instead of the cold-start prompt,
@@ -159,13 +161,14 @@ defmodule Aiur.Config.Schema.Agent do
     # A CI-wait pause releases its dispatch slot. If no terminal CI event is
     # observed in this window, wake the agent for one recovery check.
     field(:ci_wait_rewake_minutes, :integer, default: 5)
-    # Per-scheduler 1-min load ceiling for dispatch admission (#465). Exceeded
-    # load is corroborated with short-window reclaimable CPU before holding.
-    # Explicit YAML null disables it.
+    field(:ci_recovery_enabled, :boolean, default: true)
+    field(:ci_recovery_max_per_poll, :integer, default: 5)
+    field(:ci_recovery_max_per_hour, :integer, default: 20)
+    # Linux CPU PSI some avg60 percentages; explicit null disables each.
+    field(:max_cpu_pressure, :float, default: 20.0)
+    field(:target_cpu_pressure, :float, default: 10.0)
+    # Per-scheduler load settings apply only when CPU PSI is unavailable.
     field(:max_load_average, :float, default: 1.5)
-    # Per-scheduler 1-min load target for the adaptive concurrency envelope.
-    # It ramps capacity while below target and backs off before the separate
-    # max_load_average hard gate is reached.
     field(:target_load_average, :float, default: 1.0)
     field(:load_resume_max_age_seconds, :integer, default: 21_600)
     field(:load_ramp_step, :integer, default: 1)
@@ -173,6 +176,8 @@ defmodule Aiur.Config.Schema.Agent do
     # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
     # load-generator guard; positive integers cap known generators per agent.
     field(:synthetic_load_process_cap, :integer)
+    # false = busy-loop-detected and orphaned generators are reported, not killed.
+    field(:synthetic_load_kill_detected, :boolean, default: false)
     # Cap ERTS scheduler threads on agent-spawned Mix BEAMs via
     # ELIXIR_ERL_OPTIONS="+S N:N". ExUnit defaults max_cases to this value, so
     # four bounds every agent test shape without relying on prompt compliance.
@@ -210,6 +215,7 @@ defmodule Aiur.Config.Schema.Agent do
 
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:git_identity, GitIdentity, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pricing_policy, PricingPolicy, on_replace: :update, defaults_to_struct: true)
     embeds_one(:rtk, Rtk, on_replace: :update, defaults_to_struct: true)
   end
@@ -223,6 +229,8 @@ defmodule Aiur.Config.Schema.Agent do
         :kind,
         :priority,
         :remote_control,
+        :relay,
+        :relay_orphan_timeout_seconds,
         :prior_work_continuation,
         :max_dispatches_per_ticket,
         :max_concurrent_agents,
@@ -251,12 +259,18 @@ defmodule Aiur.Config.Schema.Agent do
         :stall_timeout_ms,
         :max_agent_duration_minutes,
         :ci_wait_rewake_minutes,
+        :ci_recovery_enabled,
+        :ci_recovery_max_per_poll,
+        :ci_recovery_max_per_hour,
+        :max_cpu_pressure,
+        :target_cpu_pressure,
         :max_load_average,
         :target_load_average,
         :load_resume_max_age_seconds,
         :load_ramp_step,
         :load_cooldown_seconds,
         :synthetic_load_process_cap,
+        :synthetic_load_kill_detected,
         :mix_scheduler_cap,
         :saturation_log_enabled,
         :capacity_starvation_alert_after_seconds,
@@ -266,6 +280,7 @@ defmodule Aiur.Config.Schema.Agent do
       ],
       empty_values: []
     )
+    |> validate_number(:relay_orphan_timeout_seconds, greater_than: 0)
     |> validate_number(:max_concurrent_agents, greater_than: 0)
     |> validate_inclusion(:account_selection, ["balance", "priority", "headroom"])
     |> validate_number(:headroom_reading_max_age_seconds, greater_than: 0)
@@ -286,6 +301,10 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
     |> validate_number(:ci_wait_rewake_minutes, greater_than: 0)
+    |> validate_number(:ci_recovery_max_per_poll, greater_than: 0)
+    |> validate_number(:ci_recovery_max_per_hour, greater_than: 0)
+    |> validate_number(:max_cpu_pressure, greater_than: 0, less_than_or_equal_to: 100)
+    |> validate_number(:target_cpu_pressure, greater_than: 0, less_than_or_equal_to: 100)
     |> validate_number(:max_load_average, greater_than: 0)
     |> validate_number(:target_load_average, greater_than: 0)
     |> validate_number(:load_resume_max_age_seconds, greater_than_or_equal_to: 0)
@@ -328,6 +347,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
+    |> cast_embed(:git_identity, with: &GitIdentity.changeset/2)
     |> cast_embed(:pricing_policy, with: &PricingPolicy.changeset/2)
     |> cast_embed(:rtk, with: &Rtk.changeset/2)
   end

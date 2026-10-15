@@ -21,7 +21,7 @@ The timer keeps the audit from being lost during a busy merge queue.
 | --- | --- |
 | Units, Commands, Build Orders, Analytics | Confident but incorrect operator projections and stalled work. |
 | Interactive CLI timing | Empty or timed-out responses hidden by static status. |
-| Host load | Capacity pressure against the configured admission gate. |
+| Host pressure | CPU PSI and free memory against configured admission thresholds; load is the PSI-unavailable fallback. |
 | PR backlog | Review, conflict, and merge-queue snags. |
 | Bottleneck choice | The single largest current wall-clock constraint. |
 
@@ -44,6 +44,8 @@ After each check, inspect its durable follow-up with `aiur findings`.
 | `emit_alert` | Lets agents raise milestone alerts for the Executor. |
 | Dashboard and TUI | Show active attention and failure states. |
 | Completed BEAM crash dump | An unexpected daemon exit raises a `system.beam.crash_dump` needs-attention alert carrying the bounded dump slogan. |
+
+An idle ticket absent from the active poll is retained for at most five unresolved refresh attempts. Then `ticket.<id>.terminal_verification_abandoned` raises one attention with its identifier and cause. A returned ticket resets the counter; deferred batches and in-flight reads do not consume attempts. Restart resets these in-memory counters.
 
 Automatic fallback label writes back off per ticket from one dispatch poll, doubling up to ten minutes. Other tickets remain eligible. The third consecutive failure raises `rate_limit_fallback_write_failed` once; a successful write clears the backoff. Backoff is in memory and resets on restart.
 

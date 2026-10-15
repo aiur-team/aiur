@@ -1,8 +1,29 @@
 import Config
 
+config :aiur, Aiur.Events.Trace, Aiur.Events.DebugLog
+
 config :aiur, env: config_env()
 
+config :aiur, Aiur.Events.SourcePolicy, Aiur.GitHub.EventSourcePolicy
+
+config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
+config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
+config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
+
 config :aiur, :signal, alert_sink: Aiur.Alerts
+
+config :aiur, :github_poll_owner, Aiur.Orchestrator
+config :aiur, :github_quota_recovery_target, Aiur.Orchestrator
+config :aiur, :github_activity_recorder, {Aiur.Webhooks, :record_activity}
+config :aiur, :github_state_start_recorder, {Aiur.BuildOrder.History, :note_start}
+
+# Sources are named here so the sweep's complete set is readable in one place.
+config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
+
+# The agent sandbox sits below the TUI and the orchestrator, so it reaches both
+# through these names instead of referencing them.
+config :aiur, :process_reaper_pane_killer, {Aiur.Tmux.Socket, :kill_pane}
+config :aiur, :pause_containment_result_target, Aiur.Orchestrator
 
 config :aiur, :turn_sandbox_root_contributors, [
   Aiur.AgentEnvironment.SandboxRoots,
@@ -21,9 +42,15 @@ config :aiur, :tracker_fallback_kind, "linear"
 config :aiur, :env_startup_checks, [Aiur.Commands]
 config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
+config :aiur, :experiment_metric_packs, [Aiur.Experiments.Packs.DeliverySpeed]
+
+config :aiur, :init_contributions, [Aiur.Voice]
+
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,
+  Aiur.Capabilities.MergePolicyProvider,
   Aiur.BuildQueue.CapabilityProvider,
+  Aiur.Experiments.CapabilityProvider,
   Aiur.HttpServer.CapabilityProvider,
   Aiur.Orchestrator.CapabilityProvider,
   Aiur.Commands,
@@ -67,6 +94,10 @@ config :aiur, AiurWeb.Endpoint,
   secret_key_base: String.duplicate("s", 64),
   check_origin: false,
   server: false
+
+# Composition: orchestration implements the Commands delivery port, so the
+# commands component never references orchestration itself.
+config :aiur, :commands_delivery_target, Aiur.Orchestrator.CommandDeliveryTarget
 
 # Demo / pre-ticket planning mode: render a Build Order in the spatial dashboard
 # straight from a local planning pack (no GitHub issues). Enable at build time

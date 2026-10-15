@@ -8,7 +8,7 @@ defmodule Aiur.AlertsBroadcastTest do
       Aiur.TestSupport.tmp_root!("aiur-alerts-bc")
 
     File.mkdir_p!(workspace_root)
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
     :ok = AgentPubSub.subscribe_agent("MT-ALERT-BC")
@@ -32,7 +32,7 @@ defmodule Aiur.AlertsBroadcastTest do
       Aiur.TestSupport.tmp_root!("aiur-alerts-nobc")
 
     File.mkdir_p!(workspace_root)
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace_root) end)
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
     :ok = AgentPubSub.subscribe_agent("MT-ALERT-OTHER")

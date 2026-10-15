@@ -14,14 +14,52 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
 
   defp derive(f) do
     cond do
-      Map.has_key?(Keyword.get(f.context.opts, :source_verdicts, %{}), f.item.issue_id) -> result(:unknown, elem(f.verdict, 1))
-      is_nil(f.observation) -> result(:unknown, :observation_unavailable)
-      awaiting_marker?(f) -> result(:unknown, :marker_pending)
-      "#{f.prefix}:queued" not in f.labels -> result(:removed, nil, {:dequeue, f.item.issue_id})
-      f.observation.open? == false -> closed(f.observation)
-      f.observation.open? == :unknown -> result(:unknown, :observation_unavailable)
-      claimed?(f) -> claimed(f)
-      true -> managed(f)
+      is_nil(f.observation) ->
+        result(:unknown, :observation_unavailable)
+
+      completed?(f) ->
+        completed(f)
+
+      source_or_pending?(f) ->
+        source_or_pending(f)
+
+      "#{f.prefix}:queued" not in f.labels or f.observation.open? == false ->
+        closed_or_removed(f)
+
+      f.observation.open? == :unknown ->
+        result(:unknown, :observation_unavailable)
+
+      claimed?(f) ->
+        claimed(f)
+
+      true ->
+        managed(f)
+    end
+  end
+
+  defp completed?(%{observation: %Observation{open?: false, state_reason: "completed"}}), do: true
+  defp completed?(_), do: false
+
+  defp completed(f) do
+    if unmarked?(f), do: result(:completed, nil), else: result(:completed, nil, {:unmark, f.item.issue_id})
+  end
+
+  defp source_verdict?(f), do: Map.has_key?(Keyword.get(f.context.opts, :source_verdicts, %{}), f.item.issue_id)
+
+  defp source_or_pending(f) do
+    if source_verdict?(f), do: result(:unknown, elem(f.verdict, 1)), else: result(:unknown, :marker_pending)
+  end
+
+  defp source_or_pending?(f), do: source_verdict?(f) or awaiting_marker?(f)
+
+  defp closed_or_removed(f) do
+    if "#{f.prefix}:queued" in f.labels, do: closed(f.observation), else: result(:removed, nil, {:dequeue, f.item.issue_id})
+  end
+
+  defp unmarked?(f) do
+    case Enum.find(Enum.reverse(f.context.input.intents), &(&1.issue_id == f.item.issue_id and &1.action in [:mark, :unmark])) do
+      %{action: :unmark, outcome: :ok} -> true
+      _ -> false
     end
   end
 
@@ -57,7 +95,7 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   defp prequeued_mark?(f) do
     Enum.any?(f.context.input.intents, fn intent ->
       intent.issue_id == f.item.issue_id and intent.action == :mark and intent.outcome in [nil, :ok] and
-        "#{f.prefix}:todo" in intent.target_labels and intent.recorded_at_ms <= f.observation.observed_at_ms
+        "#{f.prefix}:queued" in intent.target_labels and intent.preexisting_todo? and intent.recorded_at_ms <= f.observation.observed_at_ms
     end)
   end
 
@@ -115,9 +153,18 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   defp held?(f), do: f.item.hold != nil or Map.fetch!(f.context.queues, f.item.queue_id).held
   defp withdrawing?(f), do: MapSet.member?(Keyword.get(f.context.opts, :withdrawal_holds, MapSet.new()), f.item.issue_id)
 
+  defp promoted(%{claim: {:declined, {:queue_set_order, reason}}} = f), do: set_wait(f, reason)
+
   defp promoted(%{claim: {:declined, :unauthorized}}), do: result(:promoted_unauthorized, :unauthorized)
 
-  defp promoted(f) do
+  defp promoted(f), do: promoted_ready_or_withdraw(f)
+
+  defp set_wait(f, reason) do
+    {state, existing_reason, actions} = promoted_ready_or_withdraw(f)
+    {state, existing_reason || reason, actions}
+  end
+
+  defp promoted_ready_or_withdraw(f) do
     cond do
       unavailable_unauthorized?(f) -> result(:promoted_unauthorized, :unauthorized)
       f.verdict == :ready and not held?(f) -> promoted_ready(f)

@@ -8,9 +8,9 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
   alias Aiur.AgentPubSub
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{CiLifecycle, LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, TrackedSet, WorkspaceCleanup}
   alias Aiur.ProcessTree
+  alias Aiur.Tmux.Socket
 
   # Broadcast `aiur_turn_done` for every currently-active aiur turn on
   # `identifier`. The opencode bridge's chat-completion SSE handlers
@@ -38,7 +38,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
   def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
-    state = Orchestrator.cancel_ci_wait_rewake(state, issue_id)
+    state = CiLifecycle.cancel_ci_wait_rewake(state, issue_id)
 
     case Map.get(state.running, issue_id) do
       nil ->
@@ -162,7 +162,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # Drop the id from the publisher's tracked set so in-flight events
         # from the just-killed codex task don't pass the gate and overwrite
         # the synthetic 100 bar sample U4 seeds.
-        Orchestrator.refresh_tracked_set(new_state)
+        TrackedSet.refresh(new_state)
     end
   end
 
@@ -198,7 +198,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
     pane_id = Map.get(running_entry, :repl_pane_id)
     os_pid = Map.get(running_entry, :repl_os_pid)
 
-    if is_binary(pane_id), do: Aiur.Tmux.kill_pane(pane_id)
+    if is_binary(pane_id), do: Aiur.Tmux.kill_pane(Socket.agents(), pane_id)
 
     # The REPL pane's `exec claude` can spawn tool/MCP children that would
     # orphan and keep working on a single-pid kill, so reap the subtree.

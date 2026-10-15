@@ -13,7 +13,7 @@ import tempfile
 source = Path(sys.argv[1])
 checker = source / 'scripts/check-file-size.py'
 workflow = (source / '.github/workflows/ci.yml').read_text()
-job = workflow.split('  workflow-security:', 1)[1].split('  merge-ruleset-drift:', 1)[0]
+job = workflow.split('  workflow-security:', 1)[1].split('  build:', 1)[0]
 assert 'docs_only' not in job
 assert 'fetch-depth: 0' in job
 assert 'run: bash scripts/test-check-file-size.sh' in job
@@ -38,7 +38,7 @@ def write(repo, files):
     for name, data in files.items():
         path = repo / name
         if data is None:
-            path.unlink()
+            path.unlink(missing_ok=True)
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
@@ -60,6 +60,8 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     repo = root / 'repo'
     repo.mkdir()
     git(repo, 'init', '-q', '-b', 'feature')
+    for key, value in [('gc.auto', '0'), ('maintenance.auto', 'false'), ('gc.autoDetach', 'false')]:
+        git(repo, 'config', key, value)
     git(repo, 'config', 'user.email', 'fixture@example.invalid')
     git(repo, 'config', 'user.name', 'Fixture')
     cases = [
@@ -112,6 +114,7 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     git(repo, 'update-ref', 'refs/remotes/origin/main', head)
     (repo / 'scripts').mkdir()
     (repo / 'scripts/check-file-size.py').write_bytes(checker.read_bytes())
+    (repo / 'scripts/file_size_census.py').write_bytes((checker.parent / 'file_size_census.py').read_bytes())
     env = dict(os.environ, PR_BASE=base, MERGE_BASE=base, PUSH_BEFORE=base)
     for event, before in [('pull_request', base), ('merge_group', base), ('push', base), ('push', '0' * 40)]:
         result = subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', script], cwd=repo,
@@ -150,4 +153,116 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
                             env=dict(env, EVENT_NAME='pull_request', PR_BASE=base), capture_output=True, text=True)
     assert result.returncode == 1 and 'website/docs-app/oversized.md: base 0 -> head 501' in result.stdout, result
     print('PASS: website-only PR fixture runs the workflow gate')
+
+    # Lockfile class: a fake npm "regenerates" whatever FAKE_LOCK holds, so each case controls the tool's output.
+    tools = root / 'tools'
+    tools.mkdir()
+    (tools / 'npm').write_text('#!/bin/sh\ncp "$FAKE_LOCK" package-lock.json\n')
+    (tools / 'npm').chmod(0o755)
+    generated = lines(3028)
+    (root / 'generated').write_bytes(generated)
+    lock_env = dict(os.environ, FAKE_LOCK=str(root / 'generated'))
+
+    def lock_case(title, files, expected, snippet, env):
+        write(repo, {'pkg/package.json': b'{}\n', 'pkg/package-lock.json': None, 'pkg/data.json': None})
+        base = commit(repo)
+        write(repo, files)
+        head = commit(repo)
+        result = subprocess.run(['python3', str(checker), '--base', base, '--head', head], cwd=repo,
+                                env=env, capture_output=True, text=True)
+        assert result.returncode == expected and snippet in result.stdout, (title, result)
+        print(f'PASS: {title}')
+
+    with_tools = dict(lock_env, PATH=f'{tools}:{os.environ["PATH"]}')
+    offline = root / 'offline'
+    offline.mkdir()
+    (offline / 'npm').write_text('#!/bin/sh\nexit 1\n')
+    (offline / 'npm').chmod(0o755)
+    no_tools = dict(lock_env, PATH=f'{offline}:{os.environ["PATH"]}')
+    lock_case('generated lockfile above 500 lines is exempt', {'pkg/package-lock.json': generated}, 0,
+              'pkg/package-lock.json: 3028 lines; exempt', with_tools)
+    lock_case('hand-edited lockfile fails', {'pkg/package-lock.json': generated.replace(b'x', b'y', 1)}, 1,
+              'pkg/package-lock.json: base 0 -> head 3028', with_tools)
+    lock_case('lockfile fails closed when the registry is unreachable', {'pkg/package-lock.json': generated}, 1,
+              'lockfile unverified', no_tools)
+    lock_case('501-line non-lockfile JSON still fails', {'pkg/data.json': lines(501)}, 1,
+              'pkg/data.json: base 0 -> head 501', with_tools)
+
+    # Census fixtures use unique lines so rename similarity and edit churn are real.
+    import json
+    content = b''.join(f'line {i}\n'.encode() for i in range(100))
+    edited = content.replace(b'line ', b'edit ', 10)
+    census_cases = [
+        ('delete source', {'src/lib/a.ex': content}, {'src/lib/a.ex': None},
+         {'source': (100, 0, 0, 100, 0)}, 0),
+        ('unchanged rename', {'src/lib/a.ex': content}, {'src/lib/a.ex': None, 'src/lib/b.ex': content},
+         {'source': (100, 100, 0, 0, 100)}, 0),
+        ('rename with edits', {'src/lib/a.ex': content}, {'src/lib/a.ex': None, 'src/lib/b.ex': edited},
+         {'source': (100, 100, 10, 10, 90)}, 0),
+        ('cross-area rename', {'src/lib/a.ex': content}, {'src/lib/a.ex': None, 'src/test/a_test.exs': content},
+         {'source': (100, 0, 0, 0, 100), 'test': (0, 100, 0, 0, 0)}, 0),
+        ('unchanged copy', {'src/lib/a.ex': content}, {'src/lib/b.ex': content},
+         {'source': (100, 200, 0, 0, 100)}, 0),
+        ('copy with edits', {'src/lib/a.ex': content}, {'src/lib/b.ex': edited},
+         {'source': (100, 200, 10, 10, 90)}, 0),
+        ('areas and counter', {}, {'vendor/a.min.js': b'x', 'src/priv/static/vendor/a.js': b'v\n',
+                                  'pkg/package-lock.json': b'{}\n', 'mix.lock': b'{}\n',
+                                  'pkg/pnpm-lock.yaml': b'p\n', 'pkg/bun.lockb': b'b\n',
+                                  'spec/widget.test.js': b't\n', 'docs/a.txt': b'd\n',
+                                  'website/docs-app/a.txt': b'w\n', 'README.md': b'r\n', 'misc': b'm\r\n'},
+         {'generated/vendor': (0, 6, 6, 0, 0), 'test': (0, 1, 1, 0, 0),
+          'docs': (0, 3, 3, 0, 0), 'other': (0, 1, 1, 0, 0)}, 0),
+        ('binary changes', {'image': b'\0old', 'src/lib/a.ex': b'x\n'},
+         {'image': b'\0new', 'src/lib/a.ex': b'\xff', 'new.bin': b'\0'},
+         {'source': (1, 0, 0, 1, 0)}, 3),
+        ('binary to text', {'misc': b'\0'}, {'misc': b'x'}, {'other': (0, 1, 1, 0, 0)}, 1),
+        ('text with binary Git attribute', {'.gitattributes': b'*.ex -diff\n', 'src/lib/a.ex': content},
+         {'src/lib/a.ex': edited}, {'source': (100, 100, 10, 10, 0), 'other': (1, 1, 0, 0, 0)}, 0),
+        ('add text with binary Git attribute', {'.gitattributes': b'*.ex -diff\n'},
+         {'src/lib/a.ex': content}, {'source': (0, 100, 100, 0, 0), 'other': (1, 1, 0, 0, 0)}, 0),
+        ('delete text with binary Git attribute', {'.gitattributes': b'*.ex -diff\n', 'src/lib/a.ex': content},
+         {'src/lib/a.ex': None}, {'source': (100, 0, 0, 100, 0), 'other': (1, 1, 0, 0, 0)}, 0),
+        ('unusual rename paths', {'src/lib/tab\tline\na.ex': content},
+         {'src/lib/tab\tline\na.ex': None, 'docs/tab\tline\nb.md': content},
+         {'source': (100, 0, 0, 0, 100), 'docs': (0, 100, 0, 0, 0)}, 0),
+    ]
+    for index, (title, before, after, expected_rows, binary) in enumerate(census_cases):
+        fixture = root / f'census-{index}'
+        fixture.mkdir()
+        git(fixture, 'init', '-q')
+        git(fixture, 'config', 'user.email', 'fixture@example.invalid')
+        git(fixture, 'config', 'user.name', 'Fixture')
+        write(fixture, before)
+        base = commit(fixture)
+        write(fixture, after)
+        head = commit(fixture)
+        report = json.loads(run(fixture, 0, '', '--census', base, head, '--json'))
+        assert report['binary_changes'] == binary, (title, report)
+        for label, row in report['areas'].items():
+            values = tuple(row[key] for key in ('base', 'head', 'added', 'removed', 'moved'))
+            assert values == expected_rows.get(label, (0, 0, 0, 0, 0)), (title, label, values)
+        markdown = run(fixture, 0, '| Area | Base | Head | Added | Removed | Moved |', '--census', base, head)
+        assert f'Binary changes: {binary} (files, not lines).' in markdown
+        print(f'PASS: census {title}')
+
+    # Symlink target content is excluded; changing it to regular text counts that text.
+    fixture = root / 'census-link'
+    fixture.mkdir()
+    git(fixture, 'init', '-q')
+    git(fixture, 'config', 'user.email', 'fixture@example.invalid')
+    git(fixture, 'config', 'user.name', 'Fixture')
+    base = commit(fixture)
+    (fixture / 'link').symlink_to(root / 'outside')
+    head = commit(fixture)
+    report = json.loads(run(fixture, 0, '', '--census', base, head, '--json'))
+    assert all(value == 0 for row in report['areas'].values() for value in row.values()), report
+    assert report['binary_changes'] == 0
+    (fixture / 'link').unlink()
+    write(fixture, {'link': b'x\n'})
+    text_head = commit(fixture)
+    report = json.loads(run(fixture, 0, '', '--census', head, text_head, '--json'))
+    assert report['areas']['other'] == dict(base=0, head=1, added=1, removed=0, moved=0), report
+    run(fixture, 1, 'base not available', '--census', 'missing', text_head)
+    run(fixture, 2, '--json requires --census', '--json')
+    print('PASS: census symlink exclusion, text transition and invalid arguments')
 PY

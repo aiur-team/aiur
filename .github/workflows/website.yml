@@ -1,19 +1,30 @@
 name: website
 
 on:
+  workflow_dispatch:
+    inputs:
+      deployed_sha:
+        description: Full commit SHA just published to production (does not deploy)
+        required: true
+        type: string
   pull_request:
     paths:
       - "website/**"
+      - "components.json"
+      - "components/**"
+      - "components.schema.json"
       - "scripts/check-docs-prose.mjs"
       - ".github/workflows/website.yml"
   push:
     # Validate the website/docs build on main itself (PR branches alone let a
-    # broken main build go unnoticed) and run the post-deploy docs smoke check.
-    # See #1921: the published docs were stale for days with no CI signal.
+    # broken main build go unnoticed). Production deploys are manual.
     branches:
       - main
     paths:
       - "website/**"
+      - "components.json"
+      - "components/**"
+      - "components.schema.json"
       - "scripts/check-docs-prose.mjs"
       - ".github/workflows/website.yml"
 
@@ -30,8 +41,16 @@ jobs:
       run:
         working-directory: website
     steps:
+      - name: Validate deployed SHA
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: .
+        env:
+          DEPLOYED_SHA: ${{ inputs.deployed_sha }}
+        run: '[[ "$DEPLOYED_SHA" =~ ^[0-9a-f]{40}$ ]]'
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.deployed_sha || github.sha }}
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -44,6 +63,9 @@ jobs:
         run: npm run typecheck
       - name: Golden snapshot assert
         run: npm run assert
+      - name: Test post-deploy smoke gate
+        if: github.event_name != 'workflow_dispatch'
+        run: node scripts/test-published-docs.mjs
       - name: Build
         run: npm run build
       - name: Set up Bun
@@ -69,9 +91,14 @@ jobs:
           path: website/test-results/
           retention-days: 7
       - name: Post-deploy docs smoke check
-        if: github.event_name == 'push'
-        # Runs only after a push to main (the merged commit is what Netlify
-        # deploys), once the guards build above has produced dist/docs. Fails
-        # when https://aiur.team/docs/guide/stream-deck.html does not return
-        # 200 or when its content lags the merged commit (#1921).
-        run: bash scripts/smoke-published-docs.sh
+        if: github.event_name != 'pull_request'
+        env:
+          DEPLOYED_SHA: ${{ inputs.deployed_sha }}
+        # Pushes do not deploy. Dispatch after a manual production publish,
+        # rebuilding that exact SHA so stale/unreachable deploys still fail.
+        run: |
+          if [[ -z "$DEPLOYED_SHA" ]]; then
+            echo "SKIP: no production deploy triggered for this SHA (production deploys are manual)"
+            exit 0
+          fi
+          bash scripts/smoke-published-docs.sh

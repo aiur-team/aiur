@@ -1,6 +1,5 @@
 defmodule Aiur.Events.Sanitizer do
   alias Aiur.GitHub.AgentMarker
-  alias Aiur.GitHub.CodeOwners
   alias Aiur.SecretRedactor
 
   @moduledoc """
@@ -25,9 +24,9 @@ defmodule Aiur.Events.Sanitizer do
        so a comment body containing `</external-content>` can't break
        out of the wrapper the digest renderer adds at presentation
        time.
-    5. **CODEOWNERS trust flag** — `author_trusted?` boolean added to
-       the payload based on `Aiur.GitHub.CodeOwners.allowed?/1`. Events
-       from non-CODEOWNERS authors stay visible to the Executor (log +
+    5. **Trust flag** — `author_trusted?` boolean added to the payload
+       via the `Aiur.Events.TrustClassifier` port (default adapter onto
+       the CODEOWNERS trust authority). Events from untrusted authors stay visible to the Executor (log +
        dashboard) but the agent-digest renderer skips them.
     6. **`<external-content>` wrapper** — applied at render time
        (see `Aiur.AgentRunner.render_events_digest/2`); not part of
@@ -78,6 +77,7 @@ defmodule Aiur.Events.Sanitizer do
     payload
     |> scrub_commits()
     |> scrub_pr()
+    |> scrub_post_deploy_checks()
     |> scrub_comment()
     |> scrub_review()
     |> scrub_ci_failure()
@@ -183,10 +183,9 @@ defmodule Aiur.Events.Sanitizer do
 
   @doc """
   Add an `author_trusted?` flag to the payload based on whether
-  `author` (a GitHub login) is currently in the resolved CODEOWNERS
-  trust set. No-op when CodeOwners isn't running (test harnesses,
-  early boot) — flag is set to `false` so the conservative default is
-  "filter out of agent digest".
+  `author` (a GitHub login) is trusted per the configured
+  `Aiur.Events.TrustClassifier`. Any classifier failure sets the flag to
+  `false`, so the conservative default is "filter out of agent digest".
   """
   @spec stamp_author_trust(map(), keyword()) :: map()
   def stamp_author_trust(payload, opts \\ []) when is_map(payload) do
@@ -198,16 +197,16 @@ defmodule Aiur.Events.Sanitizer do
   defp author_trusted?(nil), do: false
 
   defp author_trusted?(author) when is_binary(author) do
-    if Process.whereis(CodeOwners) do
-      CodeOwners.allowed?(author)
-    else
-      false
-    end
+    classifier().trusted?(author)
+  rescue
+    _ -> false
   catch
     :exit, _ -> false
   end
 
   defp author_trusted?(_), do: false
+
+  defp classifier, do: Application.get_env(:aiur, Aiur.Events.TrustClassifier)
 
   defp scrub_commits(%{commits: commits} = payload) when is_list(commits) do
     scrubbed = Enum.map(commits, &scrub_commit/1)
@@ -238,6 +237,13 @@ defmodule Aiur.Events.Sanitizer do
   end
 
   defp scrub_pr(payload), do: payload
+
+  defp scrub_post_deploy_checks(%{post_deploy_checks: checks} = payload) when is_list(checks) do
+    checks = checks |> Enum.filter(&is_binary/1) |> Enum.take(20) |> Enum.map(&clean(&1, :issue_body))
+    Map.put(payload, :post_deploy_checks, checks)
+  end
+
+  defp scrub_post_deploy_checks(payload), do: payload
 
   defp scrub_comment(%{comment: comment} = payload) when is_map(comment) do
     comment = update_string(comment, "body", &clean(&1, :comment_body))

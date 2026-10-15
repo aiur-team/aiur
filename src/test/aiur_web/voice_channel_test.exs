@@ -1,3 +1,5 @@
+Code.require_file("fixtures/voice_provider.exs", __DIR__)
+
 defmodule AiurWeb.VoiceChannelTest do
   use ExUnit.Case, async: false
 
@@ -8,76 +10,20 @@ defmodule AiurWeb.VoiceChannelTest do
   alias AiurWeb.{Endpoint, FinancialDataAccess, VoiceSessionLimiter, VoiceSocket}
   alias AiurWeb.FinancialDataAccess.Generation
 
+  alias __MODULE__.{FakeSTT, FakeVoiceProvider, UnconfiguredProvider}
+
   @endpoint Endpoint
-
-  # A fake STT session the channel drives. It records pushes/commits and can
-  # push transcript and error frames back to the channel process, exactly the
-  # messages `Aiur.ElevenLabs.Realtime` sends its owner.
-  defmodule FakeSTT do
-    use GenServer
-
-    # Unlinked on purpose: the channel's terminate stops the session, and the
-    # test needs to query `stopped?` after the channel has exited without the
-    # session dying with it first.
-    def start(opts), do: GenServer.start(__MODULE__, opts)
-
-    def init(opts) do
-      {:ok,
-       %{
-         channel: Keyword.fetch!(opts, :channel),
-         observer: Keyword.fetch!(opts, :observer),
-         pushes: [],
-         committed?: false,
-         stopped?: false
-       }}
-    end
-
-    def push(pid, audio_base64), do: GenServer.cast(pid, {:push, audio_base64})
-    def commit(pid), do: GenServer.cast(pid, :commit)
-    def stop(pid), do: GenServer.cast(pid, :stop)
-
-    def transcript(pid, kind, text), do: GenServer.call(pid, {:transcript, kind, text})
-    def error(pid, reason), do: GenServer.call(pid, {:error, reason})
-
-    def pushes(pid), do: GenServer.call(pid, :pushes)
-    def committed?(pid), do: GenServer.call(pid, :committed?)
-    def stopped?(pid), do: GenServer.call(pid, :stopped?)
-
-    def handle_cast({:push, pcm}, state) do
-      send(state.observer, {:fake_stt_push, self(), pcm})
-      {:noreply, %{state | pushes: [pcm | state.pushes]}}
-    end
-
-    def handle_cast(:commit, state) do
-      send(state.observer, {:fake_stt_commit, self()})
-      {:noreply, %{state | committed?: true}}
-    end
-
-    def handle_cast(:stop, state) do
-      send(state.observer, {:fake_stt_stop, self()})
-      {:noreply, %{state | stopped?: true}}
-    end
-
-    def handle_call({:transcript, kind, text}, _from, state) do
-      send(state.channel, {:elevenlabs_transcript, kind, text})
-      {:reply, :ok, state}
-    end
-
-    def handle_call({:error, reason}, _from, state) do
-      send(state.channel, {:elevenlabs_error, reason})
-      {:reply, :ok, state}
-    end
-
-    def handle_call(:pushes, _from, state), do: {:reply, Enum.reverse(state.pushes), state}
-    def handle_call(:committed?, _from, state), do: {:reply, state.committed?, state}
-    def handle_call(:stopped?, _from, state), do: {:reply, state.stopped?, state}
-  end
 
   setup do
     # The channel process is linked to this test process; trap its exit so the
     # leave/disconnect path can be asserted without the link crashing the test.
     Process.flag(:trap_exit, true)
     {:ok, _started} = Application.ensure_all_started(:phoenix_pubsub)
+
+    previous_provider = Application.fetch_env(:aiur, :voice_provider)
+    previous_fake = Application.fetch_env(:aiur, FakeVoiceProvider)
+    Application.put_env(:aiur, :voice_provider, FakeVoiceProvider)
+    Application.put_env(:aiur, FakeVoiceProvider, observer: self())
 
     previous_endpoint = Application.get_env(:aiur, Endpoint)
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
@@ -92,9 +38,7 @@ defmodule AiurWeb.VoiceChannelTest do
         server: false,
         secret_key_base: String.duplicate("s", 64),
         dashboard_auth_required: true,
-        dashboard_writable: true,
-        voice_stt_start_fun: fake_stt_start_fun(),
-        voice_tts_start_fun: fake_tts_start_fun()
+        dashboard_writable: true
       )
 
     Application.put_env(:aiur, Endpoint, config)
@@ -107,6 +51,8 @@ defmodule AiurWeb.VoiceChannelTest do
     Endpoint.config_change([{Endpoint, config}], [])
 
     on_exit(fn ->
+      restore_app_env(:voice_provider, previous_provider)
+      restore_app_env(FakeVoiceProvider, previous_fake)
       Application.put_env(:aiur, Endpoint, previous_endpoint)
       restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
       restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
@@ -154,17 +100,28 @@ defmodule AiurWeb.VoiceChannelTest do
   end
 
   test "unconfigured dictation explains in the rejected join" do
-    # Drop the injected fake from the live endpoint config. `config_change`
-    # expects `{Endpoint, full_config}` so the absent key is deleted from the
-    # endpoint's cached ETS config without wiping the other keys.
-    config = Keyword.delete(Application.get_env(:aiur, Endpoint), :voice_stt_start_fun)
-    Application.put_env(:aiur, Endpoint, config)
-    :ok = Endpoint.config_change([{Endpoint, config}], [])
+    Application.put_env(:aiur, :voice_provider, UnconfiguredProvider)
 
     {socket, _client} = voice_socket()
 
     assert {:error, %{reason: reason}} = subscribe_and_join(socket, "voice:dictation")
     assert reason =~ "not configured"
+  end
+
+  test "dictation without a voice provider is refused and releases its lease" do
+    # Keep the failed join owner alive so its monitor cannot hide a leaked lease.
+    Application.put_env(:aiur, :voice_provider, nil)
+    {socket, _client} = voice_socket()
+
+    assert {:error, %{reason: "Speech-to-text could not start. Check the daemon log and retry."}} =
+             AiurWeb.VoiceChannel.join("voice:dictation", %{}, socket)
+
+    Application.put_env(:aiur, :voice_provider, FakeVoiceProvider)
+
+    for _ <- 1..2 do
+      {socket, _client} = voice_socket()
+      assert {:ok, _reply, _joined} = subscribe_and_join(socket, "voice:dictation")
+    end
   end
 
   test "rejects a credential rotation between socket connect and channel join" do
@@ -204,7 +161,7 @@ defmodule AiurWeb.VoiceChannelTest do
   test "conversation mode streams an agent reply as browser PCM" do
     {socket, _client} = voice_socket()
     assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:conversation")
-    send(joined.channel_pid, {:elevenlabs_closed})
+    send(joined.channel_pid, {:voice_closed})
     assert_push("stopped", %{})
 
     push(joined, "speak", %{"text" => "Agent reply"})
@@ -220,17 +177,11 @@ defmodule AiurWeb.VoiceChannelTest do
   end
 
   test "conversation mode reports a text-to-speech startup failure" do
-    config =
-      Keyword.put(Application.get_env(:aiur, Endpoint), :voice_tts_start_fun, fn _socket, _text ->
-        {:error, :unavailable}
-      end)
-
-    Application.put_env(:aiur, Endpoint, config)
-    :ok = Endpoint.config_change([{Endpoint, config}], [])
+    Application.put_env(:aiur, FakeVoiceProvider, observer: self(), speech: :unavailable)
 
     {socket, _client} = voice_socket()
     assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:conversation")
-    send(joined.channel_pid, {:elevenlabs_closed})
+    send(joined.channel_pid, {:voice_closed})
     assert_push("stopped", %{})
 
     push(joined, "speak", %{"text" => "Agent reply"})
@@ -249,22 +200,13 @@ defmodule AiurWeb.VoiceChannelTest do
   end
 
   test "bounds concurrent text-to-speech streams while conversations await replies" do
-    observer = self()
-
-    config =
-      Keyword.put(Application.get_env(:aiur, Endpoint), :voice_tts_start_fun, fn _socket, text ->
-        send(observer, {:blocking_tts_started, text})
-        {:ok, spawn(fn -> Process.sleep(:infinity) end)}
-      end)
-
-    Application.put_env(:aiur, Endpoint, config)
-    :ok = Endpoint.config_change([{Endpoint, config}], [])
+    Application.put_env(:aiur, FakeVoiceProvider, observer: self(), speech: :blocking)
 
     joined =
       for index <- 1..3 do
         {socket, _client} = voice_socket()
         assert {:ok, _reply, channel} = subscribe_and_join(socket, "voice:conversation")
-        send(channel.channel_pid, {:elevenlabs_closed})
+        send(channel.channel_pid, {:voice_closed})
         assert_push("stopped", %{})
         {index, channel}
       end
@@ -302,7 +244,7 @@ defmodule AiurWeb.VoiceChannelTest do
     assert {:error, %{reason: reason}} = subscribe_and_join(third_socket, "voice:conversation")
     assert reason =~ "Too many dashboard dictation sessions"
 
-    send(first.channel_pid, {:elevenlabs_closed})
+    send(first.channel_pid, {:voice_closed})
     assert_push("stopped", %{})
 
     assert {:ok, _reply, _third} = subscribe_and_join(third_socket, "voice:conversation")
@@ -446,30 +388,8 @@ defmodule AiurWeb.VoiceChannelTest do
      }, csrf_token}
   end
 
-  defp fake_stt_start_fun do
-    observer = self()
-
-    fn socket ->
-      {:ok, pid} = FakeSTT.start(channel: socket.channel_pid, observer: observer)
-      {:ok, %{pid: pid}}
-    end
-  end
-
-  defp fake_tts_start_fun do
-    observer = self()
-
-    fn socket, text ->
-      send(observer, {:fake_tts_request, text})
-
-      pid =
-        spawn(fn ->
-          send(socket.channel_pid, {:elevenlabs_audio, :chunk, <<1, 2, 3, 4>>})
-          send(socket.channel_pid, {:elevenlabs_audio, :done})
-        end)
-
-      {:ok, pid}
-    end
-  end
+  defp restore_app_env(key, {:ok, value}), do: Application.put_env(:aiur, key, value)
+  defp restore_app_env(key, :error), do: Application.delete_env(:aiur, key)
 
   defp restore_env(name, nil), do: System.delete_env(name)
   defp restore_env(name, value), do: System.put_env(name, value)

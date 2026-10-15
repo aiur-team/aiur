@@ -92,14 +92,16 @@ defmodule Aiur.CodexProberTest do
                      os.close(0)
                      print(child.pid)
                      time.sleep(600)'
-                     """
+                     """,
+                     fn _port -> :ok end,
+                     relay: false
                    )
 
                  {:os_pid, pid} = Port.info(port, :os_pid)
 
                  on_exit(fn ->
                    RemoteControl.graceful_kill_tree(pid)
-                   File.rm_rf!(workspace)
+                   Aiur.TestCleanup.rm_rf!(workspace)
                  end)
 
                  send(parent, {:probe_child, port, pid})
@@ -124,7 +126,7 @@ defmodule Aiur.CodexProberTest do
 
   test "failed child launch removes the probe workspace and restores exit handling" do
     workspace = Aiur.TestSupport.tmp_root!("codex-launch-failure")
-    on_exit(fn -> File.rm_rf!(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
     trapping_exits? = elem(Process.info(self(), :trap_exit), 1)
 
     assert {:error, :bash_not_found} =

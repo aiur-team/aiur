@@ -18,7 +18,7 @@ defmodule Aiur.Webhooks.EventSource do
   every consumer test against both implementations unchanged.
   """
 
-  alias Aiur.Events.Exchange
+  alias Aiur.Events.Publisher
 
   @typedoc "Normalized event published onto the bus, identical across transports."
   @type event :: %{topic: String.t(), payload: map()}
@@ -29,7 +29,7 @@ defmodule Aiur.Webhooks.EventSource do
   Options are implementation-shared:
 
     * `:publish_fun` — 1-arity sink for the normalized event (test injection;
-      defaults to the exchange publish path)
+      defaults to the `Aiur.Events.Publisher` boundary)
     * `:at` — delivery timestamp, for the webhook implementation's proof
     * `:server` — mode registry, for the webhook implementation's proof
   """
@@ -51,7 +51,7 @@ defmodule Aiur.Webhooks.EventSource do
   def publish(%{topic: topic, payload: payload} = event, opts) do
     case Keyword.get(opts, :publish_fun) do
       fun when is_function(fun, 1) -> fun.(event)
-      _default -> Exchange.publish(topic, payload)
+      _default -> Publisher.publish(topic, payload, [])
     end
 
     {:ok, event}

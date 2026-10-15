@@ -33,10 +33,21 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.TicketRow do
 
     cond do
       merged_at -> :merged
+      optimistic_parked?(intervals) -> :optimistic_parked
       MapSet.member?(phases, "rework_start") -> :rework
       MapSet.member?(phases, "agent_pause") -> :paused
       MapSet.member?(phases, "pr_opened") -> :in_review
       true -> :active
+    end
+  end
+
+  defp optimistic_parked?(intervals) do
+    intervals
+    |> Enum.filter(&(&1.phase in ["optimistic_park", "optimistic_resume"]))
+    |> Enum.max_by(& &1.start_ms, fn -> nil end)
+    |> case do
+      %{phase: "optimistic_park"} -> true
+      _other -> false
     end
   end
 

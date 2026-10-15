@@ -88,7 +88,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRunTest do
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     path
   end
 

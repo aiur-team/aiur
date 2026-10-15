@@ -37,8 +37,8 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       # sees a non-empty dir and fails with :eexist. The dir is unique per
       # test under the system tmp dir, so a rare leftover is harmless —
       # tolerate the race instead of crashing an unrelated run. Matches the
-      # `File.rm_rf/1` teardown convention in `Aiur.TestSupport`.
-      File.rm_rf(tmp_dir)
+      # `Aiur.TestCleanup.rm_rf!/1` teardown convention in `Aiur.TestSupport`.
+      Aiur.TestCleanup.rm_rf!(tmp_dir)
     end)
 
     %{tmp_dir: tmp_dir, identifier: identifier}

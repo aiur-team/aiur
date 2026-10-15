@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
+  <script src="../dist/init/theme-init.js" data-default="dark"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>aiur-style Gallery</title>
@@ -8,29 +9,12 @@
   <style>
     * {
       margin: 0;
-      padding: 0;
       box-sizing: border-box;
     }
 
-    html {
-      --aiur-bg: #1a1b1e;
-      --aiur-fg: #ffffff;
-      color-scheme: dark light;
-    }
-
-    html[data-theme="light"] {
-      --aiur-bg: #ffffff;
-      --aiur-fg: #1a1b1e;
-    }
-
-    html[data-theme="dark"] {
-      --aiur-bg: #1a1b1e;
-      --aiur-fg: #ffffff;
-    }
-
     body {
-      background-color: var(--aiur-bg);
-      color: var(--aiur-fg);
+      background-color: var(--aiur-color-bg);
+      color: var(--aiur-color-fg);
       font: 16px system-ui, -apple-system, sans-serif;
       line-height: 1.5;
       padding: 2rem;
@@ -42,7 +26,7 @@
       align-items: center;
       margin-bottom: 3rem;
       padding-bottom: 1rem;
-      border-bottom: 1px solid var(--aiur-fg);
+      border-bottom: 1px solid var(--aiur-color-fg);
     }
 
     h1 {
@@ -53,16 +37,16 @@
     .theme-toggle {
       cursor: pointer;
       padding: 0.5rem 1rem;
-      border: 1px solid var(--aiur-fg);
+      border: 1px solid var(--aiur-color-fg);
       border-radius: 4px;
       background: transparent;
-      color: var(--aiur-fg);
+      color: var(--aiur-color-fg);
       font: inherit;
     }
 
     .theme-toggle:hover {
-      background-color: var(--aiur-fg);
-      color: var(--aiur-bg);
+      background-color: var(--aiur-color-fg);
+      color: var(--aiur-color-bg);
     }
 
     .gallery-sections {
@@ -72,7 +56,7 @@
 
     .section {
       padding: 2rem;
-      border: 1px solid var(--aiur-fg);
+      border: 1px solid var(--aiur-color-fg);
       border-radius: 8px;
       background-color: rgba(255, 255, 255, 0.02);
     }
@@ -83,9 +67,22 @@
     }
 
     .section p {
-      color: rgba(255, 255, 255, 0.7);
+      color: var(--aiur-color-muted);
       font-size: 0.9rem;
     }
+    .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .swatch { min-width: 0; border: 1px solid var(--aiur-color-line-strong); border-radius: 7px; overflow: hidden; }
+    .swatch-color { height: 48px; border-bottom: 1px solid var(--aiur-color-line); }
+    .swatch-info { padding: 12px; }
+    .swatch code { display: block; overflow-wrap: anywhere; font-size: 12px; }
+    .swatch-value { color: var(--aiur-color-muted); margin: 4px 0 8px; }
+    .swatch-sample { padding: 8px; border-radius: 4px; }
+    .swatch-note { margin-top: 8px; font-size: 12px; }
+    .button-matrix { display: grid; gap: 18px; margin-top: 20px; }
+    .button-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .button-row code { flex: 0 0 150px; font-size: 12px; }
+    .button-shapes { display: flex; align-items: center; gap: 16px; margin-top: 24px; flex-wrap: wrap; }
+    @media (max-width: 480px) { body { padding: 16px; } .section { padding: 16px; } .gallery-header { gap: 16px; } }
   </style>
 </head>
 <body>
@@ -97,35 +94,31 @@
   </div>
 
   <div class="gallery-sections">
-    <!-- Components will be added here in future tickets -->
-    <div class="section">
+    <section class="section" id="tokens">
+      <h2>Color tokens</h2>
+      <p>Switch themes to inspect the fixed palette. Text samples use readable-text tokens where required.</p>
+      <div class="swatches" id="swatches"></div>
+    </section>
+    <section class="section" id="buttons">
+      <h2>Buttons</h2>
+      <p>Each row: rest, hover, pressed, focus, toggled, disabled, aria-disabled. Toggle the theme to compare.</p>
+      <div class="button-matrix" id="button-matrix"></div>
+      <div class="button-shapes">
+        <button type="button" class="aiur-button aiur-button--rounded">Rounded</button>
+        <button type="button" class="aiur-button aiur-button--icon" aria-label="Copy">
+          <svg class="aiur-button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/></svg>
+        </button>
+        <a class="aiur-button aiur-button--lg" href="#buttons" id="button-cta">Example Doc <svg class="aiur-button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></a>
+        <a href="#buttons" id="focus-link">Plain link</a>
+        <span tabindex="0" id="focus-tabindex">Focusable element</span>
+      </div>
+    </section>
+    <div class="section" id="coming-soon">
       <h2>Components Coming Soon</h2>
       <p>This gallery scaffolding will be populated with component examples as they are added to the package.</p>
     </div>
   </div>
 
-  <script>
-    // Parse theme from URL query parameter
-    const params = new URLSearchParams(window.location.search);
-    const urlTheme = params.get('theme');
-    if (urlTheme === 'light' || urlTheme === 'dark') {
-      document.documentElement.setAttribute('data-theme', urlTheme);
-    }
-
-    // Theme toggle button
-    const toggleBtn = document.getElementById('theme-toggle');
-    const html = document.documentElement;
-
-    toggleBtn.addEventListener('click', () => {
-      const currentTheme = html.getAttribute('data-theme') || 'dark';
-      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-      html.setAttribute('data-theme', newTheme);
-
-      // Update URL
-      const newUrl = new URL(window.location);
-      newUrl.searchParams.set('theme', newTheme);
-      window.history.replaceState({}, '', newUrl);
-    });
-  </script>
+  <script type="module" src="./gallery.js"></script>
 </body>
 </html>

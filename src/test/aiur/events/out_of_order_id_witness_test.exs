@@ -3,6 +3,7 @@ defmodule Aiur.Events.OutOfOrderIdWitnessTest do
 
   alias Aiur.Events.{Exchange, IdGenerator, SubscriptionStore}
   alias Aiur.{ExecutorListener, ExecutorWakeInbox}
+  alias Aiur.TestSupport.WakeInboxAck
 
   # Witness, deliberately green on main: not a fix or change coverage.
   # A delivery fix belongs to U3 (contract O-4).
@@ -55,7 +56,7 @@ defmodule Aiur.Events.OutOfOrderIdWitnessTest do
     observe = fn id ->
       send(inbox, :flush)
       assert {:ok, [%{"event_id" => ^id, "topic" => ^topic, "ticket" => ^ticket} = record]} = ExecutorWakeInbox.wait(0, inbox)
-      :ok = ExecutorWakeInbox.acknowledge([record], inbox)
+      :ok = WakeInboxAck.ack_as_owner([record], inbox)
     end
 
     interleave(fn id -> %{"id" => id, "topic" => topic} end, consumer, observe)
