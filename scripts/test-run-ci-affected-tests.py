@@ -3,15 +3,17 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
 
 SCRIPT = Path(__file__).with_name('run-ci-affected-tests.py')
+SELECTED_TEST = 'cd src && mise exec -- mix test --max-cases 4 test/slow_test.exs'
 
 
 class AffectedRunnerTest(unittest.TestCase):
-    def run_selection(self, selection, status=0):
+    def run_selection(self, selection, status=0, test_delay=0):
         with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
             root = Path(scratch)
             mix = root / 'mix'
@@ -21,6 +23,8 @@ if sys.argv[1] == 'aiur.affected_tests':
     assert sys.argv[2] == 'base-sha'
     print(os.environ['SELECTION'])
 else:
+    import time
+    time.sleep(float(os.environ['TEST_DELAY']))
     with open(os.environ['CALLS'], 'a') as out:
         out.write(json.dumps(sys.argv[1:]) + '\\n')
     sys.exit(int(os.environ['TEST_STATUS']))
@@ -31,6 +35,7 @@ else:
             result = subprocess.run(['python3', str(SCRIPT), 'base-sha'], capture_output=True,
                                     env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
                                              SELECTION=selection, CALLS=str(calls), TEST_STATUS=str(status),
+                                             TEST_DELAY=str(test_delay),
                                              GITHUB_STEP_SUMMARY=str(summary)))
             self.last_stderr = result.stderr
             self.last_stdout = result.stdout
@@ -46,6 +51,14 @@ else:
         self.assertEqual(self.run_selection("cd src && mise exec -- mix test --max-cases 4 'test/a test.exs' 'test/$(bad)_test.exs'"),
                          (0, [['test', '--max-cases', '4', 'test/a test.exs', 'test/$(bad)_test.exs']],
                           "cd src && mise exec -- mix test --max-cases 4 'test/a test.exs' 'test/$(bad)_test.exs'\n\n"))
+
+    def test_selected_test_duration_includes_slow_test_runtime(self):
+        status, calls, _output = self.run_selection(SELECTED_TEST, test_delay=1.1)
+        match = re.search(rb'::notice::affected-tests selected tests duration: ([0-9.]+)s', self.last_stderr)
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, [['test', '--max-cases', '4', 'test/slow_test.exs']])
+        self.assertIsNotNone(match)
+        self.assertGreaterEqual(float(match.group(1)), 1.0)
 
     def test_unsafe_selection_defers_full_suite_to_merge_queue(self):
         reason = 'changed files include test support; changed paths: src/test/support/helper.exs'

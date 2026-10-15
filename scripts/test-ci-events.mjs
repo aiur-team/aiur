@@ -90,6 +90,10 @@ assert.ok(jobs.get('quarantine').includes("github.event_name == 'push' && github
 assert.ok(jobs.get('workflow-security').includes('Set up Elixir for evidence and classifier tests'));
 assert.ok(!jobs.get('workflow-security').includes("Set up Elixir for PR evidence\n        if:"));
 const affected = jobs.get('affected-tests');
+const affectedTimeout = Number(affected.match(/^    timeout-minutes: (\d+)$/m)?.[1]);
+assert.ok(affectedTimeout >= 30, 'affected-tests job has headroom beyond its former 15-minute limit');
+assert.ok(affected.includes('affected-tests dependency setup duration: $((SECONDS - started))s'),
+  'affected-tests logs dependency setup duration');
 for (const guard of ['base_branch_literal_guard', 'state_owners', 'placement_rule', 'non_transition_facade', 'waiting_descriptor', 'application_child_order', 'health_scanner_child_order']) {
   assert.ok(affected.includes(`${guard}_test.exs`), `fast CI includes ${guard}`);
 }
