@@ -77,6 +77,20 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     {:ok, orchestrator} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator)
     Aiur.TestSupport.await_orchestrator_state(orchestrator, &(map_size(&1.tracker_tasks) == 0))
 
+    # PRHealthScanner owns its timer independently of Orchestrator.tracker_tasks.
+    # If its opt-in scan becomes due during this test, its repo-wide open-PR
+    # listing is counted as though the dashboard had fetched it. Park that
+    # periodic worker for the test and restore it on exit.
+    scanner_was_running? = is_pid(Process.whereis(Aiur.PRLifecycle.HealthScanner))
+    if scanner_was_running?, do: :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.PRLifecycle.HealthScanner)
+    refute Process.whereis(Aiur.PRLifecycle.HealthScanner), "PR health polling must not share the dashboard's GitHub counter"
+
+    on_exit(fn ->
+      if scanner_was_running? and Process.whereis(Aiur.PRLifecycle.HealthScanner) == nil do
+        {:ok, _scanner} = Supervisor.restart_child(Aiur.Supervisor, Aiur.PRLifecycle.HealthScanner)
+      end
+    end)
+
     # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
     # and asserts it reaches the transport. That URL is now cacheable
     # (`:issue`, #2352), and the read cache is a shared application child, so a
@@ -250,7 +264,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       # OpenTicketSource refresh is gated to :unsupported and makes no request;
       # the `/` deliberate-exception test covers that one request under a github
       # tracker. What this test asserts is narrower: the dashboard's own
-      # periodic ticks — a 1s clock, a 15s GitHub-quota read and a 60s
+      # periodic ticks — a 1s clock, a 15s GitHub-quota snapshot and a 60s
       # ElevenLabs read — never fetch. Driving them directly is deterministic
       # where sleeping for 60s would be slow and still racy. If any of them ever
       # starts fetching rather than reading local GenServer state, this fails.
