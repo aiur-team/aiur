@@ -38,6 +38,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.AlertsTest do
       assert_received {:parked_alert, ^ref, ^topic, opts}
       assert Keyword.get(opts, :needs_attention) == true
       assert Keyword.get(opts, :central) == true
+      assert Keyword.fetch!(opts, :message) =~ "`aiur pr merge 77 --reviewed-sha parked-head`"
+      refute Keyword.fetch!(opts, :message) =~ "gh pr merge"
       assert MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
     end
 
