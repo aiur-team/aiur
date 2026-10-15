@@ -293,7 +293,7 @@ test('B18 disconnect releases in-flight guard and ignores old reply', async ({ p
 
 test('B19 scrollbar geometry, track click, active timer and drag', async ({ page }) => {
   await ready(page); await isolateScrollbar(page)
-  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') }); await page.clock.pauseAt(new Date('2030-01-01T00:00:01Z'))
+  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') }); await page.clock.pauseAt(new Date('2030-01-02T00:00:00Z'))
   const measure = () => page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js'); (await import('/build-home/shell.js')).syncSB()
     const sb = document.querySelector('#bd-sb'), th = sb.querySelector('i')
@@ -339,7 +339,7 @@ test('store moves rows, removes ids, replaces blocks and merges older pages with
 
 test('destroy cancels timers, frames and late replies without mutating a new mount', async ({ page }) => {
   await ready(page); await isolateScrollbar(page)
-  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') }); await page.clock.pauseAt(new Date('2030-01-01T00:00:01Z'))
+  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') }); await page.clock.pauseAt(new Date('2030-01-02T00:00:00Z'))
   expect(await page.evaluate(async () => {
     const { ctx, resetState } = await import('/build-home/state.js'), { resync, createBuildHomeHook } = await import('/build-home/hook.js')
     const { createLife } = await import('/build-home/life.js'); let resolve, calls = 0
