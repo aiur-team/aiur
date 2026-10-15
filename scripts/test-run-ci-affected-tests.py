@@ -48,6 +48,13 @@ else:
         self.assertIn(b"changed files include test support", self.last_stderr)
         self.assertIn(b"src/test/support/helper.exs", self.last_stderr)
 
+    def test_selection_over_300_files_fails_before_running_tests(self):
+        paths = ' '.join(f'test/file_{index}_test.exs' for index in range(301))
+        status, calls = self.run_selection(f'cd src && mise exec -- mix test --max-cases 4 {paths}')
+        self.assertNotEqual(status, 0)
+        self.assertEqual(calls, [])
+        self.assertIn(b'affected selection exceeds 300 test files; full CI is required', self.last_stderr)
+
     def test_no_tests_does_not_run_test_suite(self):
         self.assertEqual(self.run_selection('# no affected test files detected for the documentation-only change'), (0, []))
 

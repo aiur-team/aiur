@@ -21,4 +21,6 @@ else:
         raise ValueError(f'unsafe affected selection requires full CI: {reason}')
     if command[:4] != ['mix', 'test', '--max-cases', '4']:
         raise ValueError('unsupported selector command')
+    if len(command[4:]) > 300:
+        raise ValueError('affected selection exceeds 300 test files; full CI is required')
     subprocess.run(command, check=True)

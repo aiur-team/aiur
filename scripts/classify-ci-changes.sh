@@ -29,7 +29,7 @@ if grep -qx 'full_ci=false' "$scratch/classification" && ! grep -qx 'docs_only=t
     scoped:*)
       selected_tests="${selection#scoped:}"
       # A 525-file selection reached 7,840 tests; keep that size on full CI.
-      if (( selected_tests > 400 )); then
+      if (( selected_tests > 300 )); then
         printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification"
       fi
       ;;
