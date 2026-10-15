@@ -253,3 +253,19 @@ test('span URL pages before settling and paging state survives server patches', 
   await expect(page.locator('#ax-drag')).toHaveAttribute('data-nav-collapsed', 'true')
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
 })
+
+test('replaced cards release noanim after two frames', async ({ page }) => {
+  await page.clock.install(); await page.clock.pauseAt(new Date())
+  expect(await page.evaluate(() => {
+    const [uid, el] = [...ctx.R][0], row = ctx.D.byId[el.dataset.id]
+    for (let i = 0; i < 2; i++) {
+      hook.receive({ v: 1, kind: 'diff', epoch: ctx.proto.epoch, generation: ctx.proto.generation + 1,
+        now: ctx.snap.now, upsert: [{ ...row, title: 'replacement ' + i }], remove: [], set: {} })
+      ren.flushLive()
+    }
+    window.replacedCard = ctx.R.get(uid)
+    return replacedCard !== el && replacedCard.classList.contains('noanim')
+  })).toBe(true)
+  await page.clock.runFor(48)
+  expect(await page.evaluate(() => replacedCard.isConnected && !replacedCard.classList.contains('noanim'))).toBe(true)
+})

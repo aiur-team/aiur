@@ -46,9 +46,9 @@ export function viewport() {
     });
   }
 
-function noanim(el, uid) {
+function noanim(el) {
   el.classList.add('noanim');
-  ctx.life.frame('noanim1:' + uid, () => ctx.life.frame('noanim2:' + uid, () => el.classList.remove('noanim')));
+  ctx.life.frame(el, () => ctx.life.frame(el, () => el.classList.remove('noanim')));
 }
 function focusId() { return document.activeElement?.closest('.bd-card')?.dataset.id ?? null; }
 function restoreFocus(id) {
@@ -72,7 +72,7 @@ export function relayout({ live = false } = {}) {
   for (const [uid, el] of ctx.R) {
     const id = el.dataset.id;
     if (!live || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
-    else noanim(el, uid);
+    else noanim(el);
   }
   ctx.RL.forEach(el => el.remove()); ctx.RL.clear();
   renderHeads();
@@ -113,7 +113,7 @@ function renderSection(s, keep, keepL, focused) {
     if (!overlaps(it.y, it.h) && it.t.id !== focused) continue;
     const uid = s + ':' + it.t.id; keep.add(uid);
     let el = ctx.R.get(uid);
-    if (!el) { el = fx.makeCard(it); noanim(el, uid); sec.layer.appendChild(el); ctx.R.set(uid, el); }
+    if (!el) { el = fx.makeCard(it); noanim(el); sec.layer.appendChild(el); ctx.R.set(uid, el); }
     place(el, it);
   }
   lay.marks.forEach((m, i) => {
