@@ -66,9 +66,7 @@ defmodule Aiur.Workspace.AttributionGuard do
             claude_settings: install_claude_settings(workspace)
           ],
           result != :ok do
-        Logger.warning(
-          "agent attribution guard install failed workspace=#{workspace} step=#{step} reason=#{inspect(result)}"
-        )
+        Logger.warning("agent attribution guard install failed workspace=#{workspace} step=#{step} reason=#{inspect(result)}")
       end
     end
 
@@ -150,9 +148,7 @@ defmodule Aiur.Workspace.AttributionGuard do
   defp tracked?(workspace) do
     match?(
       {_out, 0},
-      System.cmd("git", ["-C", workspace, "ls-files", "--error-unmatch", @claude_settings],
-        stderr_to_stdout: true
-      )
+      System.cmd("git", ["-C", workspace, "ls-files", "--error-unmatch", @claude_settings], stderr_to_stdout: true)
     )
   rescue
     _git_unavailable -> false
