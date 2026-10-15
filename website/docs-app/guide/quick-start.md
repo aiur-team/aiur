@@ -17,7 +17,7 @@ npm install -g aiur-cli
 | `tmux` | The launcher runs each Aiur daemon in its own detached tmux session. |
 | A tracker repository | The repository `aiur init` is pointed at, with issues carrying `agent:todo`. |
 
-`python3` is optional: it powers the local budget broker, and without it the daemon runs GitHub requests unmetered. Everything below the baseline is optional — see [Optional Optimizations](/reference/optional-optimizations) for what you can turn on and what it costs.
+`python3` is required for `claude-repl` agents to durably spool lifecycle hooks. For other agents it is optional: it powers the local budget broker, and without it the daemon runs GitHub requests unmetered. See [Optional Optimizations](/reference/optional-optimizations) for other optional features.
 
 ### Codex on Linux
 

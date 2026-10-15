@@ -61,8 +61,10 @@ to disable the writer. The capability report exposes `experiments` and
 `experiments.metric_packs`. Invalid pack files report `degraded/pack_invalid`;
 other packs remain usable. Disabling experiments reports `unavailable/disabled`.
 
-Storage failures leave the daemon running and report the experiments store as
+Store failures leave the daemon running and report the experiments store as
 unavailable; writes return the storage failure while disk reads remain usable.
+An automatic-worker startup failure is logged; automatic creation remains
+unavailable while the daemon continues.
 
 
 ## Baselines and retention
@@ -237,6 +239,68 @@ Stdout and stderr share the bounded script stream. A nonzero exit reports the
 first non-JSON diagnostic line; this can be a stdout diagnostic if one precedes
 stderr.
 
+## Automatic experiments
+
+`experiments.auto` configures version, release and feature lines. The deploy
+ledger records each recording daemon boot at `experiments/deploys.ndjson` under
+the repository state node. It retains the latest 5,000 boots, including version,
+base semver, boot time and build-stamp SHA and dirty flag when available.
+
+Missing build evidence stays null. Deploys alone never create experiments.
+Automatic line creation uses the experiment store's baseline-freezing transaction.
+Repeated keys create neither another experiment nor another baseline; completion
+receipts survive restarts. Concurrent lines annotate other open windows once.
+
+Read-only experiments are left unchanged and log one warning per Creator lifetime while new lines still complete.
+
+With telemetry disabled, a line creates nothing and logs its skip once per key.
+If automatic experiment storage cannot start, Aiur logs its unavailability and
+continues running.
+
+The default auto pack name `delivery` refers to the built-in `delivery-speed`
+pack. Other names select consumer packs. Missing or disabled packs return an
+availability error rather than creating an experiment without metrics.
+
+Feature lines can supply a baseline ending at the first member merge. The gap
+until go-live is excluded from both windows and carried in change evidence.
+Line detection belongs to the version, release and feature workers.
+
+### Version and release lines
+
+At boot, after recording the deploy ledger, Aiur compares base semver with the
+previous boot. A higher version creates `auto:version:<x.y.z>` at boot time and
+freezes its baseline immediately, clipped at the start of the previous version.
+
+Repeated restarts, nightly suffix changes, unknown versions and the first boot
+create nothing. A downgrade truncates the open version experiment's after
+window and adds a rollback annotation.
+
+Failed version creation retries during the boot and after later same-version
+restarts, preserving the original line time. Telemetry-skipped lines stay skipped.
+
+Release detection runs at boot and hourly using `git ls-remote --tags --refs
+origin` in the warm clone, with the same credentials as its fetch. The first
+successful census marks existing tags seen without creating experiments.
+
+New
+semver tags matching `experiments.auto.release_tag_pattern` are fetched; the
+line uses the tagger date, or commit date for a lightweight tag. Prereleases
+are skipped unless `release_include_prereleases` is true, and tags older than
+14 days at detection are ignored.
+
+Failed remote reads leave seen state unchanged
+and retry on the next tick; a missing warm clone reports unavailable.
+
+Tags less than `release_min_interval_days` (default 7) after a release line
+annotate that experiment.
+
+A version and tag with the same base semver within
+14 days share one experiment, in either detection order; the second source is
+attached as evidence. These receipts and seen tags survive daemon restarts.
+
+`version_line: false` or `release_line: false` disables the corresponding source.
+Release lines also select consumer packs with top-level `"auto": true` in their
+pack JSON, alongside the configured metric packs.
 
 ## Delivery-speed metrics
 

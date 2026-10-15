@@ -37,19 +37,19 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     root = Path.expand("../../../../..", __DIR__)
     workflow = File.read!(Path.join(root, ".github/workflows/ci.yml"))
     parsed = YamlElixir.read_from_string!(workflow)
-    assert parsed["on"]["pull_request"]["types"] == ~w(opened synchronize reopened ready_for_review)
+    assert parsed["on"]["pull_request"]["types"] == ~w(opened synchronize reopened ready_for_review labeled)
     assert Map.has_key?(parsed["on"], "merge_group")
-    assert parsed["on"]["push"]["branches"] == ["v2"]
+    assert parsed["on"]["push"]["branches"] == ["main", "v2"]
     gate = "needs.changes.outputs.full_ci == 'true'"
     fast = ~w(affected-tests changes ci-gate lint workflow-security)
-    selected = for {id, job} <- parsed["jobs"], not String.contains?(Map.get(job, "if", ""), gate), do: id
+    selected = for {id, job} <- parsed["jobs"], id != "quarantine", not String.contains?(Map.get(job, "if", ""), gate), do: id
     assert Enum.sort(selected) == fast
 
-    for {id, job} <- parsed["jobs"], id not in fast do
+    for {id, job} <- parsed["jobs"], id not in fast and id != "quarantine" do
       assert String.contains?(job["if"], gate)
     end
 
-    assert parsed["jobs"]["ci-gate"]["if"] == "${{ always() }}"
+    assert parsed["jobs"]["ci-gate"]["if"] =~ "always()"
     declaration = root |> Path.join("docs/security/human-only-merge-ruleset.json") |> File.read!() |> Jason.decode!()
     checks = declaration["rules"] |> Enum.find(&(&1["type"] == "required_status_checks")) |> get_in(["parameters", "required_status_checks"])
     readiness = CiReadiness.evaluate("main", [{".github/workflows/ci.yml", workflow}], checks)

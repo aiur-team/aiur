@@ -10,10 +10,10 @@ defmodule Aiur.Events.PlacementRuleTest do
 
   @lib_root Path.expand("../../../lib", __DIR__)
   @known_violations [
-    {"aiur/decision_store.ex", "decision_store.unrecognized_event_types"},
-    {"aiur/decision_store.ex", "decision_store.corrupted"},
+    {"aiur/decision_store/boot.ex", "decision_store.unrecognized_event_types"},
+    {"aiur/decision_store/boot.ex", "decision_store.corrupted"},
     {"aiur/decision_store/projection_recovery.ex", "decision_store.repair_failed"},
-    {"aiur/decision_store.ex", "decision_store.append_ambiguous"},
+    {"aiur/decision_store/persistence.ex", "decision_store.append_ambiguous"},
     {"aiur/executor_events.ex", "executor_events.corrupted"},
     {"aiur/github/dispatch_authorization.ex", "github.dispatch_authorization.ambiguous"},
     {"aiur/github/dispatch_authorization.ex", "github.dispatch_authorization.timeline_unreadable"},

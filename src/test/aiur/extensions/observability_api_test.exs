@@ -68,6 +68,7 @@ defmodule Aiur.Extensions.ObservabilityApiTest do
                  "worker_host" => nil,
                  "workspace_path" => nil,
                  "session_id" => "thread-http",
+                 "repl_attach_command" => nil,
                  "turn_count" => 7,
                  "runtime_seconds" => 0,
                  "work_state" => "working",
