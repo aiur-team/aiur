@@ -26,7 +26,7 @@ test('required full CI gate rejects failures, cancellations and skipped browser 
   for (const browser of ['success', 'failure', 'cancelled', 'skipped']) {
     for (const css of ['success', 'failure', 'cancelled', 'skipped']) {
       const needs = Object.fromEntries(gate.needs.map(job => [job, { result: 'success' }]))
-      needs.changes.outputs = { full_ci: 'true' }
+      needs.changes.outputs = { full_ci: 'true', dialyzer: 'false' }
       needs.browser.result = browser
       needs['home-css'].result = css
       const result = spawnSync('bash', ['-c', step.run], {

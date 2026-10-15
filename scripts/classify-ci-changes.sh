@@ -9,7 +9,7 @@ if [[ "$EVENT_NAME" != pull_request ]]; then
     printf 'full_ci=false\ndocs_only=false\n' >> "$GITHUB_OUTPUT"
     echo "event $EVENT_NAME: quarantine only" >> "$GITHUB_STEP_SUMMARY"
   fi
-  printf 'affected_paths_b64=\n' >> "$GITHUB_OUTPUT"
+  printf 'affected_paths_b64=\ndialyzer=false\n' >> "$GITHUB_OUTPUT"
   exit 0
 fi
 scratch="$(mktemp -d)"
@@ -44,6 +44,11 @@ if [[ "${EVENT_NAME}" == pull_request ]] && grep -qx 'full_ci=false' "$scratch/c
   esac
 fi
 if grep -qx 'full_ci=false' "$scratch/classification"; then
+  if jq -e '[.[] | .filename, (.previous_filename | select(. != null))] | any(test("^src/lib/.*\\.ex$"))' "$scratch/files.json" >/dev/null; then
+    echo 'dialyzer=true' >> "$scratch/classification"
+  else
+    echo 'dialyzer=false' >> "$scratch/classification"
+  fi
   paths_b64="$(jq -cj '[.[] | .filename, (.previous_filename | select(. != null))] | unique' "$scratch/files.json" | base64 -w0)"
   if (( ${#paths_b64} > 900000 )); then
     sed -i 's/^full_ci=.*/full_ci=true/' "$scratch/classification"
@@ -52,6 +57,7 @@ if grep -qx 'full_ci=false' "$scratch/classification"; then
   fi
   echo "affected_paths_b64=$paths_b64" >> "$GITHUB_OUTPUT"
 else
+  echo 'dialyzer=false' >> "$scratch/classification"
   echo 'affected_paths_b64=' >> "$GITHUB_OUTPUT"
 fi
 cat "$scratch/classification" | tee -a "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
