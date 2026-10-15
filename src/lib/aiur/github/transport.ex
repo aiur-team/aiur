@@ -32,7 +32,7 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub.CredentialHeadroom
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLCost
-  alias Aiur.GitHub.GraphQLErrors
+  alias Aiur.GitHub.{GraphQLErrors, HoldPressure}
   alias Aiur.GitHub.{QueueCost, Quota, Transport.AuthDiagnostic}
   alias Aiur.GitHub.ReadCache
 
@@ -167,7 +167,7 @@ defmodule Aiur.GitHub.Transport do
         budget_request(quota, request, request_fun, deadline_ms)
 
       {:hold, hold} ->
-        {:error, {:aiur, :locally_held, hold}}
+        {:error, {:aiur, :locally_held, HoldPressure.record(hold)}}
     end
   end
 
@@ -195,7 +195,7 @@ defmodule Aiur.GitHub.Transport do
         end
 
       {:hold, hold} ->
-        {:error, {:aiur, :locally_held, hold}}
+        {:error, {:aiur, :locally_held, HoldPressure.record(hold)}}
 
       {:error, _reason} = error ->
         error
