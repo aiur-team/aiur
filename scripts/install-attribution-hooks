@@ -15,13 +15,12 @@ cat > "$git_dir/hooks/commit-msg" <<'AIUR_COMMIT_MSG'
 tmp="$1.aiur-tmp.$$"
 trap 'rm -f "$tmp"' EXIT HUP INT TERM
 awk '
-  BEGIN { IGNORECASE = 1 }
-  /^co-authored-by:/ {
-    line = tolower($0)
-    if (line ~ /(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor|opencode|deepseek|kimi|noreply@anthropic\.com)/) next
+  {
+    lower = tolower($0)
+    if (lower ~ /^co-authored-by:/ && lower ~ /(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor|opencode|deepseek|kimi|noreply@anthropic\.com)/) next
+    if (lower ~ /generated with/ || lower ~ /claude\.ai/ || lower ~ /claude code session/) next
+    print
   }
-  /generated with/ || /claude\.ai/ || /claude code session/ { next }
-  { print }
 ' "$1" > "$tmp"
 cat "$tmp" > "$1"
 rm -f "$tmp"
