@@ -27,7 +27,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
   alias Aiur.Alerts
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
-  alias Aiur.Orchestrator.{OperatorMessages, ReviewFindings, State}
+  alias Aiur.Orchestrator.{OperatorMessages, ReviewFindings, ReworkHandoffChecks, State}
 
   @doc false
   @spec operator_queue_empty?(GenServer.server(), String.t()) :: boolean()
@@ -299,21 +299,48 @@ defmodule Aiur.Orchestrator.ReworkGate do
           :none | {:handoff, String.t()}
   def stopped_agent_handoff(issue_key, original_head, opts \\ []) do
     case open_pr(issue_key, opts) do
-      {:ok, pr} ->
-        current_head = head_sha(pr)
+      {:ok, pr} -> open_pr_handoff(issue_key, pr, original_head, opts)
+      {:error, _reason} -> {:handoff, "human-review"}
+      {:skip, :no_open_pr} -> :none
+    end
+  end
 
-        if is_binary(current_head) and current_head != "" and
-             (not is_binary(original_head) or original_head == "" or current_head != original_head) do
-          {:handoff, ci_handoff_state(current_head, opts)}
-        else
-          superseded_review_handoff(pr, current_head, opts)
-        end
+  defp open_pr_handoff(issue_key, pr, original_head, opts) do
+    current_head = head_sha(pr)
 
-      {:error, _reason} ->
-        {:handoff, "human-review"}
+    if head_moved?(current_head, original_head) do
+      {:handoff, ci_handoff_state(current_head, opts)}
+    else
+      pr
+      |> superseded_review_handoff(current_head, opts)
+      |> alert_no_op_rework(issue_key, pr, original_head, opts)
+    end
+  end
 
-      {:skip, :no_open_pr} ->
-        :none
+  defp head_moved?(current_head, original_head) when is_binary(current_head) and current_head != "" do
+    not is_binary(original_head) or original_head == "" or current_head != original_head
+  end
+
+  defp head_moved?(_current_head, _original_head), do: false
+
+  defp alert_no_op_rework(:none, issue_key, pr, original_head, opts) do
+    ReworkHandoffChecks.alert_no_op_rework(issue_key, original_head, head_sha(pr), opts)
+    :none
+  end
+
+  defp alert_no_op_rework(handoff, _issue_key, _pr, _original_head, _opts), do: handoff
+
+  @doc false
+  @spec agent_handoff_blockers(String.t(), String.t() | atom() | nil, keyword()) ::
+          {:blocked, [String.t()]} | :allow
+  def agent_handoff_blockers(issue_key, dispatch_head, opts \\ []) do
+    if is_binary(dispatch_head) and dispatch_head not in ["", :pending, :lookup_failed] do
+      case open_pr(issue_key, opts) do
+        {:ok, pr} -> ReworkHandoffChecks.agent_handoff_blockers(dispatch_head, head_sha(pr), opts)
+        _unknown -> :allow
+      end
+    else
+      :allow
     end
   end
 

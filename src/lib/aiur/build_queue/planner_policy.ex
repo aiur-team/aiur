@@ -157,6 +157,8 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
 
   defp promoted(%{claim: {:declined, :unauthorized}}), do: result(:promoted_unauthorized, :unauthorized)
 
+  defp promoted(%{claim: :authorization_pending}), do: result(:held, :authorization_pending)
+
   defp promoted(f), do: promoted_ready_or_withdraw(f)
 
   defp set_wait(f, reason) do

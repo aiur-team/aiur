@@ -5,6 +5,16 @@ import { assertNoDocumentOverflow, assertControlsRemainReachable, expectAuditCle
 
 test.setTimeout(90_000)
 
+async function isolateBoard(pair) {
+  await expect(pair.product.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+  await pair.product.evaluate(async () => {
+    const { fx } = await import('/build-home/state.js')
+    // Keep real toolbar state and URL writes; board providers such as C9-T09's
+    // Gantt layout are outside toolbar parity, as in the functional tools fixture.
+    for (const name of ['viewport', 'relayout', 'update', 'jumpNow']) fx[name] = () => {}
+  })
+}
+
 // Capture each region at a stable integer origin, independent of full-page viewport resizing.
 async function compareRegion(pair, options) {
   await applyAllowlist(pair, pair.cell)
@@ -66,7 +76,7 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
   test(`toolbar and status parity ${name}`, async ({ browser }) => {
     const pair = await openParityPair(browser, { ...viewport, theme, palette, dataset: 'live' }, { productPending: true })
     try {
-      await expect(pair.product.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+      await isolateBoard(pair)
       expect(await pair.product.locator('#bd-tools-l .bd-seg.vw').count()).toBe(1)
       for (const view of ['graph', 'gantt', 'list']) {
         for (const side of ['design', 'product']) {
@@ -99,7 +109,7 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
 for (const dataset of ['offline', 'noqueue']) test(`toolbar status dataset ${dataset}`, async ({ browser }) => {
   const pair = await openParityPair(browser, { ...PARITY_VIEWPORTS[0], theme: 'dark', palette: 'aiur', dataset }, { productPending: true })
   try {
-    await expect(pair.product.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+    await isolateBoard(pair)
     expect(await pair.product.locator('#bd-tools-l .bd-seg.vw').count()).toBe(1)
     await compareRegion(pair, { name: `tabs-${dataset}`, region: '#bd-tools-l' })
     if (dataset === 'offline') await compareRegion(pair, { name: `status-${dataset}`, region: '#bd-status' })
@@ -108,6 +118,7 @@ for (const dataset of ['offline', 'noqueue']) test(`toolbar status dataset ${dat
 test('toolbar breakpoint and reduced motion guards preserve existing stylesheet behavior', async ({ browser }) => {
   const pair = await openParityPair(browser, { ...PARITY_VIEWPORTS[0], theme: 'dark', palette: 'aiur', dataset: 'live' }, { productPending: true })
   try {
+    await isolateBoard(pair)
     for (const width of [1181, 1180, 721, 720]) {
       await pair.product.setViewportSize({ width, height: 900 })
       const boxes = await pair.product.evaluate(() => ['bd-filters', 'bd-tools-l', 'bd-tools'].map(id => { const r = document.getElementById(id).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, width: r.width } }))

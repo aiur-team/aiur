@@ -228,46 +228,36 @@ A page-1 `304` on a churned ticket cannot self-heal: the change that would refre
 
 Only trust a `304` for a paginated read when the read was single-page (then page 1 *is* the list), or when the validator kept is the last page's rather than the first's. If neither is practical, do not make the read conditional: an unconditional read that is correct beats a conditional one that is quietly wrong.
 
-Issue comments and PR changed files drain every page; single-list readers refuse
-a next page with `pagination_unexpected` rather than return a partial list.
+Issue comments and PR changed files drain every page; single-list readers refuse a next page with `pagination_unexpected` rather than return a partial list.
 
 **Incomplete label provenance is retried.** A new issue can carry `agent:todo`
-before GitHub has indexed its `labeled` timeline event. Aiur does not cache a
-missing or malformed event as a final authorization decision. For a `todo`
+before GitHub has indexed its `labeled` timeline event. Aiur does not cache a missing or malformed event as a final authorization decision. For a `todo`
 ticket it defers dispatch and retries on the next candidate poll.
 
-For active and rework tickets, Aiur still denies incomplete evidence. This
-preserves revocation after an unverified relabel.
+For active and rework tickets, Aiur still denies incomplete evidence. This preserves revocation after an unverified relabel.
 
-Either incomplete result retires the daemon's cached reads for that issue
-number, including the timeline body. A webhook backed repository's hour-long
+Either incomplete result retires the daemon's cached reads for that issue number, including the timeline body. A webhook backed repository's hour-long
 read TTL cannot replay the early snapshot.
 
-The invalidation covers one issue number and may add a timeline request on each
-retry until the event appears, with further requests if the timeline spans
+The invalidation covers one issue number and may add a timeline request on each retry until the event appears, with further requests if the timeline spans
 pages. No quota saving is claimed.
 
 **A validator belongs to the thing it describes.**
 
-A read of one resource earns a validator for that resource; a read of a query
-earns a validator for that query. Writing a query's validator into a resource's
+A read of one resource earns a validator for that resource; a read of a query earns a validator for that query. Writing a query's validator into a resource's
 key means any other writer of that key destroys or corrupts it.
 
-A body change deletes the ETag, and a webhook deposit writes a body-derived
-validator that is then sent on a URL where it can never match — either way a
-later conditional request is answered wrongly. Store a validator where the
-thing it describes lives, and only answer it against the read that earned it.
+A body change deletes the ETag, and a webhook deposit writes a body-derived validator that is then sent on a URL where it can never match — either way a
+later conditional request is answered wrongly. Store a validator where the thing it describes lives, and only answer it against the read that earned it.
 
 The ticket poll uses GraphQL to resolve which pull request belongs to a ticket and to read its inline review threads. Build history also uses bounded closed-issue catch-up, described below.
 
 The old query attached full comment and review-thread selections to every speculative branch candidate, so identifying one pull request paid for the contents of up to ten. Measured against the live API with `rateLimit { cost }`, ten targets now cost **11 points** where that shape cost **114**.
 
-Spend scales with target count, not with comment volume. The table below is for
-the **dispatch-class** cadence — the tick every poll loop rides.
+Spend scales with target count, not with comment volume. The table below is for the **dispatch-class** cadence — the tick every poll loop rides.
 
 A per-class entry in `polling.intervals` scales the same way for that class: halving a class's interval doubles its own spend, and the GraphQL pollers are
-the classes worth widening (CI, comments/review threads, and previously the
-Build Order catalog, now event-sourced).
+the classes worth widening (CI, comments/review threads, and previously the Build Order catalog, now event-sourced).
 
 | `interval_seconds` | Approximate GraphQL spend | Worst-case wake latency |
 | --- | --- | --- |
@@ -309,15 +299,11 @@ Aiur's poll is state-based, so a longer interval delays a wake without losing on
 
 ## API budgets
 
-Daemon admissions use one resident Python broker per Aiur process. It reuses
-its SQLite connection and batches queued commands before replying. Shell
-`gh` guards keep the one-shot interface against the same shared database;
-separate daemons never get separate quota ledgers for a shared credential.
+Aiur's resident Python broker reuses one SQLite connection and batches commands per process. Shell `gh` guards share its database, so daemons using one credential share quota ledgers.
 
-A broker deadline is a **local hold**: Aiur backs off, keeps the claim, and
-keeps attempt counters. `Errors.outcome/1` sorts results into `:complete`,
-`:held` (never sent), `:unknown` (may still apply) or `:failed`; an unknown
-review-thread reply is reconciled by reading the thread, never reposted.
+The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch retries these holds and escalates after `agent.dispatch_hold_attention_threshold` consecutive declines; `aiur status` reports their per-resource rate as `GITHUB HOLDS`.
+
+A broker deadline is a **local hold**: Aiur backs off, keeps the claim, and keeps attempt counters. `Errors.outcome/1` sorts results into `:complete`, `:held` (never sent), `:unknown` (may still apply) or `:failed`; an unknown review-thread reply is reconciled by reading the thread, never reposted.
 
 Resident broker exits also back off as local holds; the next call restarts the
 broker. Requests retain independent deadlines while sharing a transaction.
@@ -664,15 +650,13 @@ every request a determined agent could make.
 | Any direct-HTTP client — `curl`, `Req`, a Python script, a Node fetch | No — unauthenticated from an agent workspace. |
 | The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
 
-Human-review state writes compare the open PR with the configured base. Stale heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
+Human-review state writes compare the open PR with the configured base; stale heads also read fresh `mergeable` data for the exact PR head. State-label swaps add the target, revalidate current labels, then remove other state labels. Writes retry short local GitHub budget holds within the bounded wait policy.
 
 Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check changes in both directions; rename checks include old and new paths.
 
-A stale head approved at its current commit, and either in the merge queue or armed for auto-merge, is refused only for a `CONFLICTING` verdict; the file comparisons are skipped because the queue tests the merge. A comment does not move such a queued PR to rework (one GraphQL read, `rework_gate_merge_queue`); a blocking review still does.
+A stale head approved at its current commit is refused only for a `CONFLICTING` verdict. Overlap alone does not require a push that dismisses approval. Queued or auto-merge-armed heads skip file comparisons because the queue tests the merge. Comments do not move queued PRs to rework (one GraphQL read, `rework_gate_merge_queue`); blocking reviews still do.
 
-Otherwise a stale head passes when it has no conflicts and no changed-file overlap with the base since their merge base.
-Conflicts or overlap return `stale_review_base`. GitHub can lag its base SHA or report `UNKNOWN` while recalculating
-mergeability; those observations permit disjoint paths. A matching head's `CONFLICTING` verdict blocks the write.
+An unapproved stale head passes only with no conflicts or changed-file overlap since the merge base. Otherwise it returns `stale_review_base`. GitHub can lag its base SHA or report `UNKNOWN` while recalculating mergeability; those observations permit disjoint paths. A matching head's `CONFLICTING` verdict blocks the write.
 
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
@@ -817,3 +801,15 @@ Reviews use each reviewer's latest decision. An approval must match the current 
 A merge-queue rule routes the pinned head through GraphQL enqueueing; it never authorizes a direct bypass merge. Without a queue, squash merge pins the reviewed head. The ledger distinguishes enqueueing from observed merges.
 
 The daemon independently verifies the configured repository, PR head, base and merge SHA against GitHub before publishing `system.pr.merged`; caller-supplied actor data is replaced with GitHub's merge attribution. See [the command reference](/reference/cli#pr-merge).
+
+## Measured feature epics
+
+The feature worker uses the quota-accounted transport as `experiments_auto`:
+one labelled-issue page hourly (100 rows; a full page is incomplete),
+and one `/issues/{number}/sub_issues` page per tracked epic hourly. Merge and
+membership deposits can bring the member refresh forward, bounded to five minutes.
+ResourceStore labels discover epics between polls.
+
+Closed completed members
+missing RecentMergeStore evidence use a bounded linked-PR GraphQL read for merge
+time and SHA. Incomplete or refused reads preserve state for retry. No saving is claimed.

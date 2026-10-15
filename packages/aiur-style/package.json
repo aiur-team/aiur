@@ -23,7 +23,12 @@
       "default": "./dist/tokens.js"
     },
     "./tokens.css": "./dist/tokens.css",
-    "./theme-init.js": "./dist/init/theme-init.js"
+    "./theme-init.js": "./dist/init/theme-init.js",
+    "./vitepress.css": "./dist/vitepress.css",
+    "./banner": {
+      "types": "./dist/js/banner.d.ts",
+      "default": "./dist/js/banner.js"
+    }
   },
   "files": [
     "dist",
@@ -41,6 +46,7 @@
     }
   },
   "scripts": {
+    "prepare": "npm run build",
     "build": "node scripts/build.mjs",
     "check-dist": "node scripts/check-dist.mjs",
     "sync": "node scripts/sync.mjs",
@@ -57,6 +63,7 @@
     "http-server": "14.1.1",
     "jsdom": "24.1.3",
     "terser": "5.44.0",
-    "vitest": "2.1.9"
+    "vitest": "2.1.9",
+    "vitepress": "1.6.4"
   }
 }

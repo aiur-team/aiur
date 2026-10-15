@@ -451,6 +451,10 @@ defmodule Aiur.AgentTools.Errors do
     }
   end
 
+  def payload({:no_op_rework, message}) when is_binary(message) do
+    %{"error" => %{"message" => message, "reason" => "no_op_rework"}}
+  end
+
   def payload(reason) do
     %{
       "error" => %{
