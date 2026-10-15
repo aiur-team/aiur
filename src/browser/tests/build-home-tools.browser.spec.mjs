@@ -119,7 +119,7 @@ test('real LiveView URL history and server diff retain selected view and focused
 })
 
 test('default daemon helper remains unknown before offline module registration', async ({ browser }) => {
-  const page = await browser.newPage()
+  const page = await browser.newPage({ baseURL: test.info().project.use.baseURL })
   try {
     await openFixture(page)
     await page.route('**/tools-default', route => route.fulfill({ contentType: 'text/html', body: '<main id="build-root"><div id="bd-status"></div></main>' }))
