@@ -203,13 +203,21 @@ defmodule Aiur.BuildQueue.UnauthorizedTest do
   end
 
   defp restarted_server(supervisor, old_pid) do
+    restarted_server(supervisor, old_pid, System.monotonic_time(:millisecond) + 1_000)
+  end
+
+  defp restarted_server(supervisor, old_pid, deadline) do
     case Supervisor.which_children(supervisor) do
       [{Server, pid, :worker, _}] when is_pid(pid) and pid != old_pid ->
         pid
 
       _ ->
-        Process.sleep(10)
-        restarted_server(supervisor, old_pid)
+        if System.monotonic_time(:millisecond) >= deadline do
+          flunk("supervisor did not restart the build queue server within 1 second")
+        else
+          Process.sleep(10)
+          restarted_server(supervisor, old_pid, deadline)
+        end
     end
   end
 
