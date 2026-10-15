@@ -4,7 +4,7 @@ defmodule Aiur.Experiments.Auto.Creator do
   require Logger
   alias Aiur.Config.Schema.Experiments.Auto, as: AutoConfig
   alias Aiur.Experiments
-  alias Aiur.Experiments.Auto.{ConcurrentChanges, Line, SpecBuilder}
+  alias Aiur.Experiments.Auto.{ConcurrentChanges, Line, LineMerge, SpecBuilder}
   alias Aiur.Experiments.{Catalog, Paths}
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -12,6 +12,9 @@ defmodule Aiur.Experiments.Auto.Creator do
 
   @spec create(Line.t(), GenServer.server()) :: {:ok, term()} | {:error, term()}
   def create(line, server \\ __MODULE__), do: GenServer.call(server, {:create, line}, 180_000)
+
+  @spec rollback(String.t(), DateTime.t(), GenServer.server()) :: :ok | {:error, term()}
+  def rollback(version, at, server \\ __MODULE__), do: GenServer.call(server, {:rollback, version, at}, 180_000)
 
   @impl true
   def init(opts) do
@@ -41,10 +44,13 @@ defmodule Aiur.Experiments.Auto.Creator do
 
   def handle_call({:create, _invalid}, _from, state), do: {:reply, {:error, :invalid_line}, state}
 
+  def handle_call({:rollback, version, at}, _from, state), do: {:reply, LineMerge.rollback(version, at), state}
+
   defp create_line(line, state) do
     cond do
       not state.telemetry.() -> skip(line, state)
       line.key in state.receipts["completed"] -> {{:ok, :exists}, state}
+      line.key in state.receipts["skipped"] -> {{:ok, :skipped}, state}
       true -> initialize(line, state)
     end
   end
@@ -54,13 +60,22 @@ defmodule Aiur.Experiments.Auto.Creator do
 
     # X2 create commits the frozen baseline before returning; freezing again adds an unwanted revision.
     with {:ok, attrs} <- SpecBuilder.build(line, config, Catalog.load(state.catalog_context)),
-         {:ok, experiment} <- Experiments.create(attrs, actor: "auto"),
+         {:ok, experiment} <- merge_or_create(line, attrs, config),
          :ok <- ensure_baseline(experiment.id),
          :ok <- ConcurrentChanges.annotate(experiment.id, line),
          {:ok, updated} <- remember(state, "completed", line.key) do
       {{:ok, experiment}, updated}
     else
       error -> {error, state}
+    end
+  end
+
+  defp merge_or_create(line, attrs, config) do
+    with {:ok, target} <- LineMerge.target(line, config) do
+      case target do
+        nil -> Experiments.create(attrs, actor: "auto")
+        id -> LineMerge.attach(id, line)
+      end
     end
   end
 

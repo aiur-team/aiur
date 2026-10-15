@@ -139,7 +139,7 @@ defmodule Aiur.Application.Children do
       Aiur.ElevenLabs.Quota,
       Aiur.TicketContext.child_specs(:early, opts),
       BuildOrders.child_specs(:early, opts),
-      Aiur.Events.IdGenerator,
+      {Aiur.Events.IdGenerator, floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
       Aiur.Events.BranchRefStore,
       # Restart-durable GitHub state keyed by resource identity. Starts before

@@ -3,7 +3,7 @@ defmodule Aiur.Experiments.Auto do
   use Supervisor
   require Logger
 
-  alias Aiur.Experiments.Auto.{Creator, DeployLedger, Line}
+  alias Aiur.Experiments.Auto.{AiurVersionLine, Creator, DeployLedger, Line, RepoReleaseLine}
 
   @spec child_specs(keyword()) :: [Supervisor.child_spec() | {module(), keyword()}]
   def child_specs(opts \\ []) do
@@ -24,7 +24,19 @@ defmodule Aiur.Experiments.Auto do
   end
 
   @impl true
-  def init(opts), do: Supervisor.init([{DeployLedger, Keyword.get(opts, :ledger_opts, [])}, {Creator, Keyword.get(opts, :creator_opts, [])}], strategy: :one_for_one)
+  def init(opts) do
+    config = Keyword.get_lazy(opts, :config, &settings/0)
+    ledger = Keyword.get(opts, :ledger_opts, [])
+    creator = Keyword.get(opts, :creator_opts, [])
+    sources = source_children(config, opts)
+    Supervisor.init([{DeployLedger, ledger}, {Creator, Keyword.put_new(creator, :config, config)} | sources], strategy: :rest_for_one)
+  end
+
+  defp source_children(config, opts) do
+    version = Keyword.get(opts, :version_opts, []) |> Keyword.put_new(:ledger_opts, Keyword.get(opts, :ledger_opts, []))
+    release = Keyword.get(opts, :release_opts, []) |> Keyword.put_new(:config, config)
+    if(config.version_line, do: [{AiurVersionLine, version}], else: []) ++ if(config.release_line, do: [{RepoReleaseLine, release}], else: [])
+  end
 
   @spec create(Line.t()) :: {:ok, term()} | {:error, term()}
   def create(line) do
@@ -50,8 +62,14 @@ defmodule Aiur.Experiments.Auto do
   defp configured_sources(config) do
     [{:aiur_version, config.version_line}, {:repo_release, config.release_line}, {:feature, true}]
     |> Enum.filter(&elem(&1, 1))
-    |> Enum.map(fn {source, _enabled?} -> %{source: source, last_seen: nil} end)
+    |> Enum.map(fn {source, _enabled?} -> Map.merge(%{source: source, last_seen: nil}, source_status(source)) end)
   end
+
+  defp source_status(:repo_release) do
+    if Process.whereis(RepoReleaseLine), do: RepoReleaseLine.status(), else: %{status: :unavailable}
+  end
+
+  defp source_status(_source), do: %{}
 
   defp settings do
     case Aiur.Config.settings() do

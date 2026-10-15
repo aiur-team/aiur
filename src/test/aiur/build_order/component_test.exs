@@ -43,7 +43,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.ElevenLabs.Quota,
     {Aiur.BuildOrder.TicketDetailCoordinator, [runtime_config?: true]},
     {Aiur.BuildOrder.GraphProjection, [runtime_config?: true]},
-    Aiur.Events.IdGenerator,
+    {Aiur.Events.IdGenerator, [floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0]},
     {Aiur.Events.Exchange, [name: Aiur.Events.Exchange]},
     Aiur.Events.BranchRefStore,
     Aiur.GitHub.OpenIssueSnapshot,

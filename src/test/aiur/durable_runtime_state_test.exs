@@ -158,7 +158,7 @@ defmodule Aiur.DurableRuntimeStateTest do
       launch(logs_parent, "20260101T020000Z-300")
       refute File.exists?(Path.join(state_dir, "event-id.json"))
 
-      pid = start_generator(clock: fn -> 1 end)
+      pid = start_generator(clock: fn -> 1 end, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0)
       first = IdGenerator.next_id(pid)
       GenServer.stop(pid)
 
