@@ -121,7 +121,7 @@ required capture facts.
 
 Optional `strata_metadata` identifies attributes that treatment
 may change, for example `"strata_metadata": {"backend": {"post_treatment": true}}`.
-The analysis export carries this catalog metadata under `metric_metadata`, keyed by
+Exports carry metadata under `metric_metadata`, keyed by
 metric reference, without changing the registered spec; stratifying on a marked
 attribute raises `stratum_may_be_affected_by_treatment`.
 
