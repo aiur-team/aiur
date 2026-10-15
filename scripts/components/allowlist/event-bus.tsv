@@ -7,7 +7,6 @@ R-declared	Aiur.GitHub.ReadCache	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade8
 R-declared	Aiur.GitHub.ResourceStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Transport	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Signal	MP-R1-C5-T05: alert emitter moved to the signal port; component cannot require signal (layer/cycle)
 R-declared	Aiur.TicketBranch	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-down	Aiur.Events.CommentFilter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
