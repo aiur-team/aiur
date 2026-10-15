@@ -183,7 +183,7 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
     end
   end
 
-  defp unavailable_unauthorized?(f), do: f.claim in [:unavailable, :authorization_pending] and Enum.any?(f.context.input.latches, &(&1.key == {:promoted_unauthorized, f.item.issue_id}))
+  defp unavailable_unauthorized?(f), do: f.claim == :unavailable and Enum.any?(f.context.input.latches, &(&1.key == {:promoted_unauthorized, f.item.issue_id}))
 
   defp promoted_ready(f) do
     if withdrawing?(f), do: result(:promoted, nil, {:hold_release, f.item.issue_id}), else: result(:promoted, nil)

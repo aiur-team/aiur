@@ -111,8 +111,8 @@ defmodule Aiur.BuildQueue.UnauthorizedTest do
     assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}, 1_000
 
     restarted = restarted_server(supervisor, pid)
-    assert_receive {:scheduled, ^restarted, :tick}
-    assert_receive {:scheduled, ^restarted, {:reconcile, token}}
+    assert_receive {:scheduled, ^restarted, :tick}, 1_000
+    assert_receive {:scheduled, ^restarted, {:reconcile, token}}, 1_000
     send(restarted, {:reconcile, token})
     assert {:ok, %{projections: [%{state: :held, reason: :authorization_pending}]}} = GenServer.call(restarted, :show)
 
