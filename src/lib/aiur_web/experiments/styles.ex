@@ -17,6 +17,7 @@ defmodule AiurWeb.Experiments.Styles do
     .exp-table{width:100%;border-collapse:collapse;table-layout:fixed}
     .exp-table th,.exp-table td{text-align:left;padding:12px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
     #exp-report{margin-top:24px;min-width:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-sm);padding:1rem 1.1rem .9rem}
+    #exp-report .ticket-context-markdown{max-height:none}
     #exp-report .an-card-head{display:flex;gap:1rem;margin-bottom:.7rem}
     #exp-report .an-card-title{margin:0;font-size:.98rem;font-weight:700;color:var(--fg);letter-spacing:-.01em}
     #exp-report .an-card-sub{margin:.2rem 0 0;font-size:.78rem;line-height:1.4;color:var(--muted);max-width:64ch}
