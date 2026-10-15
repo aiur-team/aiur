@@ -48,7 +48,8 @@
     {"from": "orchestration", "to_module": "Aiur.GitHub.FailureEvidence", "kind": "reference", "only_paths": ["src/lib/aiur/landing_watch/merge_groups.ex"], "reason": "#4457: classify merge-group failures against required test evidence"},
     {"from": "orchestration", "to_module": "Aiur.GitHub.HumanReviewGate", "kind": "reference", "only_paths": ["src/lib/aiur/landing_watch.ex"], "reason": "#4457: recheck the latest approval at the observed pull request head"},
     {"from": "orchestration", "to_module": "Aiur.PrMerge.Queue", "kind": "reference", "only_paths": ["src/lib/aiur/landing_watch.ex", "src/lib/aiur/landing_watch/merge_groups.ex"], "reason": "#4457: enqueue eligible reviewed heads through the shared GitHub queue mutation"},
-    {"from": "control-cli", "to_module": "Aiur.PrMerge.Queue", "kind": "reference", "only_paths": ["src/lib/aiur/pr_merge.ex"], "reason": "#4457: PR merge command reuses the shared GitHub merge-queue mutation"}
+    {"from": "control-cli", "to_module": "Aiur.PrMerge.Queue", "kind": "reference", "only_paths": ["src/lib/aiur/pr_merge.ex"], "reason": "#4457: PR merge command reuses the shared GitHub merge-queue mutation"},
+    {"from": "control-cli", "to_module": "Aiur.Executor.HarnessSession", "kind": "reference", "only_paths": ["src/lib/aiur/harness_session_cli.ex"], "reason": "MP-E6-C12-T01: executor-session reads the live Executor handle"}
   ],
   "ports": [
     {
