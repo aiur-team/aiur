@@ -104,8 +104,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   @doc false
   @spec candidate_list_cache(State.t()) :: map()
-  def candidate_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
-    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:candidate_list_cache, %{})
+  def candidate_list_cache(%State{ci_lifecycle: ci_lifecycle} = state) do
+    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:candidate_list_cache, %{}) |> Aiur.Orchestrator.AdoptedBoot.candidate_cache(state)
   end
 
   defp put_candidate_list_cache(%State{} = state, cache) do
