@@ -41,7 +41,7 @@ defmodule Aiur.Workspace.AttributionGuard do
     [ "$local_sha" = "$zero" ] && continue
     if [ "$remote_sha" = "$zero" ]; then range="$local_sha"; else range="$remote_sha..$local_sha"; fi
     for commit in $(git rev-list "$range" 2>/dev/null); do
-      if git show -s --format=%B "$commit" | grep -Eiq '^(co-authored-by:.*(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor|opencode|deepseek|kimi|noreply@anthropic\.com)|.*generated with.*|.*claude\.ai.*)$'; then
+      if git show -s --format=%B "$commit" | grep -Eiq '^co-authored-by:.*(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor|opencode|deepseek|kimi|noreply@anthropic\.com)' || git show -s --format=%B "$commit" | grep -Eiq 'generated with|claude\.ai|claude code session'; then
         subject=$(git show -s --format=%s "$commit")
         echo "aiur: refusing to push commit $commit ($subject): AI attribution remains in the commit message" >&2
         exit 1
