@@ -3,9 +3,9 @@ defmodule Aiur.DecisionStore.AppendRecovery do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.Persistence
+  alias Aiur.Signal
 
   @spec recover_background_append(term(), term(), term(), term(), term()) :: term()
   def recover_background_append(state, decision, action_id, type, reason) do
@@ -22,7 +22,7 @@ defmodule Aiur.DecisionStore.AppendRecovery do
 
     unless MapSet.member?(failures, action_id) do
       _ =
-        Alerts.emit_custom(
+        Signal.agent_alert(
           lifecycle_append_failure_topic(decision, action_id),
           "Decision delivery persistence is temporarily unavailable for #{decision.decision_id}.",
           issue: decision.ticket.identifier,
@@ -58,7 +58,7 @@ defmodule Aiur.DecisionStore.AppendRecovery do
 
     if MapSet.member?(failures, action_id) do
       _ =
-        Alerts.emit_custom(
+        Signal.agent_alert(
           lifecycle_append_failure_topic(decision, action_id) <> ".resolved",
           "Decision delivery persistence recovered for #{decision.decision_id}.",
           issue: decision.ticket.identifier,

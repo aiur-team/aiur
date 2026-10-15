@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.Orchestrator.BuildQueueClaimProbe
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
-  alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
 
@@ -37,24 +37,24 @@ defmodule Aiur.Orchestrator do
 
   @impl true
   def handle_info({:tick, tick_token}, %{tick_token: tick_token} = state)
-      when is_reference(tick_token),
+      when is_reference(tick_token) and state.poll_frozen != true,
       do: Lifecycle.handle_tick(state)
 
   def handle_info({:tick, _tick_token}, state), do: {:noreply, state}
 
-  def handle_info(:tick, state), do: Lifecycle.handle_tick(state)
+  def handle_info(:tick, state), do: if(Map.get(state, :poll_frozen), do: {:noreply, state}, else: Lifecycle.handle_tick(state))
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
-
   # A test freeze (freeze_poll_cycle) sets `poll_frozen` so the one-shot
   # `:run_poll_cycle` the initial tick scheduled (20ms render delay, not
   # token-fenced) cannot fire a live poll that would ramp the load envelope
   # mid-test.
   def handle_info(:run_poll_cycle, %State{poll_frozen: true} = state), do: {:noreply, state}
-
   def handle_info(:run_poll_cycle, %State{} = state), do: Dispatcher.run_poll_cycle(state)
 
   def handle_info({:github_webhook_reconcile, %{kind: :review_thread} = hint}, %State{} = state),
     do: {:noreply, CommentPolling.request_reconcile(state, hint)}
+
+  def handle_info({:github_pr_ready_transition, t, n, sha}, state), do: {:noreply, ReadyForReviewTransitions.observe_webhook_transition(state, t, n, sha)}
 
   def handle_info({:run_github_comment_reconcile, token}, %State{} = state),
     do: {:noreply, CommentPolling.run_scheduled_reconcile(state, token)}
@@ -676,9 +676,8 @@ defmodule Aiur.Orchestrator do
   def handle_call(:list_running_active_identifiers, _from, state),
     do: StatusReport.list_running_active_identifiers(state)
 
-  def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids) do
-    {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
-  end
+  def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids), do: {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
+  def handle_call(:build_queue_next_set, _from, state), do: {:reply, BuildQueueClaimProbe.next_set(state), state}
 
   def handle_call(:status, _from, state), do: StatusReport.status(state)
 

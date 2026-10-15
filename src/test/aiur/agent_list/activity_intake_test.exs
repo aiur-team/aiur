@@ -53,6 +53,25 @@ defmodule Aiur.AgentList.ActivityIntakeTest do
            }
   end
 
+  test "presents the allowlisted compaction status in the latest activity row" do
+    ticket = identity()
+
+    evidence = %{
+      status: :known,
+      source: %{kind: :agent_alert, name: "compaction.failed"},
+      attributes: %{compaction_status: :failed},
+      observed_at: @now
+    }
+
+    state =
+      ActivityIntake.load(state([summary("42", ticket)]), %{
+        generation: 0,
+        entries: [%{identity: ticket, status: :fresh, progress: %{status: :unknown}, stage: %{status: :unknown}, latest_evidence: evidence}]
+      })
+
+    assert state.latest_event_by_id["42"].message == "Compaction failed"
+  end
+
   test "stale stage is not presented as active and stale evidence is explicit" do
     ticket = identity()
     stale = activity(ticket, 65, :review, :stale)

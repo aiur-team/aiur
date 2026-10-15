@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   require Logger
   alias Aiur.Accounts
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, ProcessTree, Tracker}
+  alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, ModelDiscovery, ProcessTree, Signal, Tracker}
   alias Aiur.AgentRunner.{CodexUpdateRelay, DispatchSelectionEvent, MessageHandler, ModelLabelRefresh, SessionResume, TurnBudget, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, Telemetry}
   alias Aiur.CodingAgent.HeadroomDispatch
@@ -15,8 +15,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   # headless wrapper's bash pid) is owned by this runner task. An
   # abort/shutdown brutally kills the task, skipping the `after
   # stop_session` cleanup, so report it to the orchestrator's running
-  # entry — the only place an abort path can still reach it. What gets
-  # reported is the backend's registry-declared `runtime_report`
+  # entry for abort cleanup. Report the registry-declared `runtime_report`
   # capability (`Aiur.CodingAgent.runtime_report/1`).
   defp report_repl_session(recipient, %Issue{id: issue_id}, session)
        when is_binary(issue_id) and is_pid(recipient) do
@@ -71,6 +70,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       :repl_pane ->
         %{
           pane_id: Map.get(session, :pane_id),
+          tmux_socket: Map.get(session, :tmux_socket),
           os_pid: Map.get(session, :os_pid),
           session_url: Map.get(session, :session_url)
         }
@@ -1210,7 +1210,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       reason = unsupported_model_reason(backend, model)
       Logger.warning("Unknown model #{inspect(model)} for backend #{backend}: #{reason}")
 
-      Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.unsupported_model",
+      Signal.alert("ticket.#{issue.identifier}.agent.attention.unsupported_model",
         issue: issue,
         workspace: workspace,
         worker_host: worker_host,

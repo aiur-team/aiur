@@ -3,10 +3,10 @@ defmodule Aiur.DecisionStore.FailureAttention do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Commands.DeliveryTarget
   alias Aiur.Decision
   alias Aiur.Issue
+  alias Aiur.Signal
   alias Aiur.Tracker
 
   # Delivery failures whose target is structurally unreachable cannot be made
@@ -212,7 +212,7 @@ defmodule Aiur.DecisionStore.FailureAttention do
         _attempt -> "delivery_failed"
       end
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       failure_attention_topic(decision),
       "Decision answer delivery failed for #{decision.decision_id} (#{reason_class}).",
       issue: decision.ticket.identifier,
@@ -229,7 +229,7 @@ defmodule Aiur.DecisionStore.FailureAttention do
   defp emit_failure_resolution(decision, :recovered) do
     active_answer = Decision.active_answer(decision)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       failure_attention_topic(decision) <> ".resolved",
       "Decision answer delivery recovered for #{decision.decision_id}.",
       issue: decision.ticket.identifier,
@@ -248,7 +248,7 @@ defmodule Aiur.DecisionStore.FailureAttention do
   defp emit_failure_resolution(decision, :non_actionable) do
     active_answer = Decision.active_answer(decision)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       failure_attention_topic(decision) <> ".resolved",
       "Decision answer delivery is not actionable for #{decision.decision_id}: " <>
         "the target agent is absent.",
@@ -269,7 +269,7 @@ defmodule Aiur.DecisionStore.FailureAttention do
   defp emit_failure_resolution(decision, :terminal) do
     active_answer = Decision.active_answer(decision)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       failure_attention_topic(decision) <> ".resolved",
       "Decision answer delivery is no longer actionable for #{decision.decision_id}: " <>
         "ticket #{decision.ticket.identifier} is terminal.",
@@ -296,7 +296,7 @@ defmodule Aiur.DecisionStore.FailureAttention do
       end
 
     if why do
-      Alerts.emit_custom(
+      Signal.agent_alert(
         failure_attention_topic(decision, action_id) <> "-withdrawn",
         "A withdrawn Decision answer reached the agent for #{decision.decision_id}.",
         issue: decision.ticket.identifier,
@@ -324,7 +324,7 @@ defmodule Aiur.DecisionStore.FailureAttention do
         :superseded -> "a newer answer replaced it before it reached an agent"
       end
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       failure_attention_topic(decision, action_id) <> ".resolved",
       "Decision answer delivery withdrawn for #{decision.decision_id}: #{detail}.",
       issue: decision.ticket.identifier,

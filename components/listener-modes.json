@@ -1,8 +1,8 @@
 {
   "id": "listener-modes",
-  "name": "Listener send router, mode store and scheduler (MP-E7; RC-36)",
+  "name": "Agent listener modes",
   "layer": 3,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [],
   "facades": [
     "*"
@@ -27,5 +27,16 @@
     "Aiur.Orchestrator.*",
     "AiurWeb.Endpoint",
     "AiurWeb.Router"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Routes messages to agents using steer, synchronous or asynchronous delivery.",
+  "status": "planned",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-E7"
 }

@@ -239,6 +239,18 @@ alerts:
 #     - { key: docs, label: Docs, labels: [documentation], hue: 100, icon: docs }
 
 # --- advanced (top-level; defaults shown, uncomment to override) ---
+# Optional Codex-native compaction immediately before final agent handoff.
+# It synchronously calls the live app-server method and leaves the original
+# rollout and thread resume handle intact. Other providers are rejected. The
+# app-server currently exposes no auto-trigger or progress polling protocol.
+# compaction:
+#   enabled: true
+#   backends: [codex]
+#   manual_approval: true # explicit operator opt-in at terminal handoff
+#   auto_trigger:
+#     enabled: false
+#     token_threshold: 50000 # cumulative tokens required at human-review handoff
+#   timeout_ms: 30000
 # debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins
 # max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
@@ -278,3 +290,20 @@ alerts:
 #   script_timeout_ms: 60000
 #   checkpoint_interval_ms: 3600000
 #   max_snapshot_observations: 50000
+
+#   auto:
+#     enabled: true
+#     version_line: true
+#     release_line: true
+#     release_tag_pattern: "v*"
+#     release_include_prereleases: false
+#     release_min_interval_days: 7
+#     feature_label: "experiment:feature"
+#     feature_live_signal: "auto"
+#     feature_quiet_hours: 6
+#     live_signal_max_wait_hours: 72
+#     before_days: 14
+#     after_days: 14
+#     after_step_days: 7
+#     after_max_days: 42
+#     metric_packs: ["delivery"]

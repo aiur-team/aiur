@@ -1,8 +1,8 @@
 {
   "id": "build-queue",
-  "name": "Build queue (MP-E1)",
+  "name": "Build queue",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/build_queue.ex",
     "src/lib/aiur/build_queue/**",
@@ -49,5 +49,20 @@
     "Aiur.GitHub.*",
     "Aiur.Orchestrator",
     "Aiur.Orchestrator.*"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Orders tickets for dispatch and holds work until its prerequisites are ready.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [
+    "build_queue"
+  ],
+  "env": [],
+  "capabilities": [
+    "build_queue",
+    "build_queue.build_order_source"
   ]
 }

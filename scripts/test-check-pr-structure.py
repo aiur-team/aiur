@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from components.public_fixtures import complete_fixture
 
 SOURCE = Path(__file__).resolve().parent.parent
 
@@ -18,7 +19,7 @@ class StructuralGateTest(unittest.TestCase):
         self.root = Path(self.scratch.name)
         shutil.copytree(SOURCE / 'scripts/components', self.root / 'scripts/components',
                         ignore=shutil.ignore_patterns('node_modules', 'allowlist', '__pycache__'))
-        for name in ('check-pr-structure.py', 'check-file-size.py', 'check-docs-prose.mjs', 'check-components.py',
+        for name in ('check-pr-structure.py', 'check-file-size.py', 'file_size_census.py', 'check-docs-prose.mjs', 'check-components.py',
                      'check-bare-assert-receive.py'):
             shutil.copyfile(SOURCE / 'scripts' / name, self.root / 'scripts' / name)
         # Stub mix outside the fixture repo: it logs its arguments and fails on demand.
@@ -47,6 +48,7 @@ class StructuralGateTest(unittest.TestCase):
             owns=dict(config=['fixture', 'scalar'], env=['AIUR_FIXTURE'],
                       state=['fixture_dir'], capabilities=[]), prior=[])])
         self.write('components.json', json.dumps(manifest))
+        complete_fixture(self.root)
         self.write('src/test/fixture_test.exs', 'assert_receive :done, 100\n')
         self.git('init', '-q')
         self.git('config', 'gc.auto', '0')

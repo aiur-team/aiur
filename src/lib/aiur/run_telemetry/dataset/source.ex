@@ -230,7 +230,9 @@ defmodule Aiur.RunTelemetry.Dataset.Source do
     end
   end
 
-  defp parse_line(line, path, line_number) do
+  @doc false
+  @spec parse_line(binary(), Path.t(), pos_integer()) :: {:ok, map()} | {:warning, map()}
+  def parse_line(line, path, line_number) do
     case Jason.decode(line) do
       {:ok, decoded} when is_map(decoded) -> validate_record(decoded, path, line_number)
       {:ok, _other} -> {:warning, warning(:invalid_record, path, line_number)}

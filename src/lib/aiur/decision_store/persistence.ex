@@ -3,7 +3,6 @@ defmodule Aiur.DecisionStore.Persistence do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Boot
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
@@ -19,6 +18,7 @@ defmodule Aiur.DecisionStore.Persistence do
   alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.Publisher
   alias Aiur.Journal
+  alias Aiur.Signal
 
   @spec repair_projection(term()) :: term()
   def repair_projection(state), do: ProjectionRecovery.repair(state, &notify_projection_event/3)
@@ -168,7 +168,7 @@ defmodule Aiur.DecisionStore.Persistence do
 
   @spec journal_failure_state(term(), term()) :: term()
   def journal_failure_state(state, {:journal_ambiguous, event, reason}) do
-    _ = Alerts.emit_custom("decision_store.append_ambiguous", "Decision journal outcome is unknown; writes are held.", reason: "Event #{event.event_id}: #{inspect(reason)}", needs_attention: true)
+    _ = Signal.agent_alert("decision_store.append_ambiguous", "Decision journal outcome is unknown; writes are held.", reason: "Event #{event.event_id}: #{inspect(reason)}", needs_attention: true)
     %{state | writable?: false, health: {:journal_ambiguous, event.event_id, reason}}
   end
 

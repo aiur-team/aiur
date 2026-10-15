@@ -1,7 +1,6 @@
 defmodule Aiur.DecisionStore.Withdrawals do
   @moduledoc false
 
-  alias Aiur.Alerts
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority
@@ -10,6 +9,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.FailureAttention
   alias Aiur.DecisionStore.Persistence
+  alias Aiur.Signal
 
   @spec handle_dismiss(term(), term(), term()) :: term()
   def handle_dismiss(decision_id, opts, state) do
@@ -238,7 +238,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
       end)
 
     if stale do
-      Alerts.emit_custom(
+      Signal.agent_alert(
         FailureAttention.failure_attention_topic(decision, stale.action_id) <> "-unknown",
         "Decision answer send outcome is unknown for #{decision.decision_id}.",
         issue: decision.ticket.identifier,

@@ -3,7 +3,6 @@ defmodule Aiur.DecisionStore.Boot do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Config
   alias Aiur.DecisionDispatch
   alias Aiur.DecisionDispatchTasks
@@ -22,6 +21,7 @@ defmodule Aiur.DecisionStore.Boot do
   alias Aiur.ExecutorCommandAttention
   alias Aiur.ExecutorEvents
   alias Aiur.Journal
+  alias Aiur.Signal
 
   @ndjson_filename "decisions.ndjson"
   @projection_filename "decisions.json"
@@ -187,7 +187,7 @@ defmodule Aiur.DecisionStore.Boot do
       )
 
       _ =
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "decision_store.unrecognized_event_types",
           "DecisionStore replayed audit records this build does not understand (#{listed}) at #{path}. " <>
             "They are retained on disk and skipped; the store stays writable. " <>
@@ -209,7 +209,7 @@ defmodule Aiur.DecisionStore.Boot do
     Logger.error("aiur_decision_store phase=corruption path=#{path} line=#{line} reason=#{inspected_reason}")
 
     _ =
-      Alerts.emit_custom(
+      Signal.agent_alert(
         "decision_store.corrupted",
         "DecisionStore audit log corrupt at #{path} line #{line} " <>
           "(#{inspected_reason}); store is read-only.",

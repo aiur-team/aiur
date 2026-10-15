@@ -3,12 +3,12 @@ defmodule Aiur.DecisionStore.Retry do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
+  alias Aiur.Signal
 
   # One retry ladder for every answered Decision, revision or not. A target
   # that is momentarily unreachable — paused, restarting, or refused a wake
@@ -64,7 +64,7 @@ defmodule Aiur.DecisionStore.Retry do
   # raise supersedes any `.resolved` clear that branch wrote.
   defp emit_retry_exhausted_attention(decision, action_id, attempts) do
     _ =
-      Alerts.emit_custom(
+      Signal.agent_alert(
         FailureAttention.failure_attention_topic(decision),
         "Decision answer delivery gave up for #{decision.decision_id} after #{attempts} automatic retries.",
         issue: decision.ticket.identifier,

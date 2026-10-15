@@ -207,3 +207,20 @@ prompt_file: github-muse.prompt.md
 #   script_timeout_ms: 60000
 #   checkpoint_interval_ms: 3600000
 #   max_snapshot_observations: 50000
+
+#   auto:
+#     enabled: true
+#     version_line: true
+#     release_line: true
+#     release_tag_pattern: "v*"
+#     release_include_prereleases: false
+#     release_min_interval_days: 7
+#     feature_label: "experiment:feature"
+#     feature_live_signal: "auto"
+#     feature_quiet_hours: 6
+#     live_signal_max_wait_hours: 72
+#     before_days: 14
+#     after_days: 14
+#     after_step_days: 7
+#     after_max_days: 42
+#     metric_packs: ["delivery"]

@@ -249,7 +249,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
     cond do
       open_decision?(Map.get(attrs, :open_decision_count)) -> :waiting_for_human
       Map.get(attrs, :workspace_retained?) -> :workspace_retained
-      Map.get(attrs, :work_state) == :completed -> :awaiting_dispatch
+      # A completed runner parked in a tracker wait is not owed another dispatch (#4174).
+      Map.get(attrs, :work_state) == :completed -> if tracker_reason == :active, do: :awaiting_dispatch, else: tracker_reason
       unresponsive?(attrs) -> :unresponsive
       # A duration-capped pause is one consistent state, never re-labelled by
       # whatever the tracker state happens to be. #2310 and #2311 paused for

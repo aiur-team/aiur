@@ -1,8 +1,8 @@
 {
   "id": "listener-spec",
-  "name": "Listener-mode spec package shared with Khala: JSON spec and golden fixtures (MP-E7, MP-Q1/E7-D1; RC-36). `status: planned`, `added_by: MP-E7`",
+  "name": "Shared listener specification",
   "layer": 5,
-  "kind": "optional",
+  "kind": "package",
   "paths": [],
   "facades": [
     "*"
@@ -16,5 +16,16 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Defines message delivery modes and examples shared with Khala.",
+  "status": "planned",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-E7"
 }

@@ -2,9 +2,12 @@ defmodule Aiur.Config.Schema.Experiments do
   @moduledoc false
   use Ecto.Schema
   import Ecto.Changeset
+  alias Aiur.Config.Schema.Experiments.Auto
+  require Auto
 
   @primary_key false
   embedded_schema do
+    embeds_one(:auto, Auto, on_replace: :update, defaults_to_struct: true)
     field(:enabled, :boolean, default: true)
     field(:default_min_samples, :integer, default: 15)
     field(:default_before_days, :integer, default: 14)
@@ -21,7 +24,8 @@ defmodule Aiur.Config.Schema.Experiments do
     numbers = [:default_min_samples, :default_before_days, :script_timeout_ms, :checkpoint_interval_ms, :max_snapshot_observations]
 
     schema
-    |> cast(attrs, fields, empty_values: [])
+    |> cast(attrs, fields -- [:auto], empty_values: [])
+    |> cast_embed(:auto, with: &Auto.changeset/2)
     |> validate_required([:enabled | numbers])
     |> then(fn changeset -> Enum.reduce(numbers, changeset, &validate_number(&2, &1, greater_than: 0)) end)
   end
