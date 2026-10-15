@@ -2,6 +2,7 @@ defmodule Aiur.ExecutorListenerTest do
   use Aiur.TestSupport
 
   alias Aiur.Alerts
+  alias Aiur.BuildQueue.Attention, as: BuildQueueAttention
   alias Aiur.Decision
   alias Aiur.Events.Exchange
   alias Aiur.Events.Publisher
@@ -271,6 +272,54 @@ defmodule Aiur.ExecutorListenerTest do
             ]} = ExecutorWakeInbox.wait(500, @inbox_name)
 
     assert [%{"topic" => "ticket.3141.agent.attention.waiting_for_human"}] = ExecutorWakeInbox.pending(@inbox_name)
+  end
+
+  test "every ticket attention binding wakes the Executor when its ticket is untracked" do
+    patterns =
+      ExecutorBindings.defaults()
+      |> Enum.filter(fn {pattern, class} -> class == "attention:auto" and String.starts_with?(pattern, "ticket.") end)
+      |> Enum.map(&elem(&1, 0))
+
+    topics = Enum.map(patterns, &concrete_ticket_topic/1)
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+    start_listener(inbox: @inbox_name, patterns: patterns, reconcile?: false)
+    Publisher.set_tracked_fn(fn _ticket -> false end)
+
+    on_exit(fn -> Publisher.set_tracked_fn(fn _ticket -> true end) end)
+
+    for topic <- topics do
+      if String.contains?(topic, ".queue.attention.") do
+        assert :ok = BuildQueueAttention.transient(:prerequisite_failed, "3141", %{})
+      else
+        assert :ok =
+                 Alerts.emit_system(topic,
+                   issue: "3141",
+                   message: "Attention requires Executor review.",
+                   reason: "Attention requires Executor review.",
+                   needs_attention: true,
+                   severity: "warning",
+                   central: true
+                 )
+      end
+    end
+
+    assert eventually(fn -> Enum.sort(Enum.map(ExecutorWakeInbox.pending(@inbox_name), & &1["topic"])) == Enum.sort(topics) end)
+    assert {:ok, records} = ExecutorWakeInbox.wait(500, @inbox_name)
+    assert Enum.sort(Enum.map(records, & &1["topic"])) == Enum.sort(topics)
+    assert Enum.all?(records, &(&1["count"] == 1))
+    assert Enum.sort(Enum.map(ExecutorWakeInbox.pending(@inbox_name), & &1["topic"])) == Enum.sort(topics)
+  end
+
+  defp concrete_ticket_topic(pattern) do
+    pattern
+    |> String.split(".")
+    |> Enum.with_index()
+    |> Enum.map_join(".", fn
+      {"*", 1} -> "3141"
+      {"*", _index} -> "waiting_for_human"
+      {"#", _index} -> "prerequisite_failed"
+      {segment, _index} -> segment
+    end)
   end
 
   test "reports a degraded binding transition once and resolves it after repair" do

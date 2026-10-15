@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorBindings do
   @moduledoc false
 
-  alias Aiur.ExecutorEvents
+  alias Aiur.{Events.Topic, ExecutorEvents}
 
   @defaults [
     {"executor.#", "commands:auto"},
@@ -53,6 +53,13 @@ defmodule Aiur.ExecutorBindings do
 
   @spec patterns() :: [String.t()]
   def patterns, do: Enum.map(@defaults, &elem(&1, 0))
+
+  @spec attention_topic?(String.t()) :: boolean()
+  def attention_topic?(topic) do
+    Enum.any?(@defaults, fn {pattern, class} ->
+      class == "attention:auto" and String.starts_with?(pattern, "ticket.") and Topic.matches?(pattern, topic)
+    end)
+  end
 
   @spec allowlisted?(String.t()) :: boolean()
   def allowlisted?(pattern) when is_binary(pattern) do
