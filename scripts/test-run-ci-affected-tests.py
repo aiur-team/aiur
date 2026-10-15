@@ -46,28 +46,28 @@ else:
 
     def test_unsafe_selection_defers_full_suite_to_merge_queue(self):
         reason = 'changed files include test support; changed paths: src/test/support/helper.exs'
-        status, calls = self.run_selection(
+        status, calls, output = self.run_selection(
             f'# full suite recommended: {reason}\ncd src && mise exec -- make ci'
         )
         notice = f'Unsafe affected selection deferred to full CI in the merge queue: {reason}'
         self.assertEqual(status, 0)
         self.assertEqual(calls, [])
-        self.assertIn(f'::notice::{notice}'.encode(), self.last_stdout)
+        self.assertIn(f'::notice::{notice}', output)
         self.assertIn(notice, self.last_summary)
 
     def test_selection_over_300_files_is_covered_by_merge_group_suite(self):
         paths = ' '.join(f'test/file_{index}_test.exs' for index in range(301))
-        status, calls = self.run_selection(f'cd src && mise exec -- mix test --max-cases 4 {paths}')
-        notice = b'selection 301 files > 300; covered by the merge_group full suite'
+        status, calls, output = self.run_selection(f'cd src && mise exec -- mix test --max-cases 4 {paths}')
+        notice = 'selection 301 files > 300; covered by the merge_group full suite'
         self.assertEqual(status, 0)
         self.assertEqual(calls, [])
-        self.assertIn(notice, self.last_stdout)
-        self.assertIn(notice.decode(), self.last_summary)
+        self.assertIn(notice, output)
+        self.assertIn(notice, self.last_summary)
 
     def test_selection_at_300_files_runs(self):
         # Future-regression guard for the inclusive boundary: 300 stays scoped.
         paths = ' '.join(f'test/file_{index}_test.exs' for index in range(300))
-        status, calls = self.run_selection(f'cd src && mise exec -- mix test --max-cases 4 {paths}')
+        status, calls, _output = self.run_selection(f'cd src && mise exec -- mix test --max-cases 4 {paths}')
         self.assertEqual(status, 0)
         self.assertEqual(len(calls), 1)
         self.assertEqual(len(calls[0][3:]), 300)
