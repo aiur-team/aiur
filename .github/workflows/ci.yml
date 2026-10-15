@@ -24,7 +24,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    outputs: {docs_only: "${{ steps.classify.outputs.docs_only }}", full_ci: "${{ steps.classify.outputs.full_ci }}", affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"}
+    outputs: {docs_only: "${{ steps.classify.outputs.docs_only }}", full_ci: "${{ steps.classify.outputs.full_ci }}", dialyzer: "${{ steps.classify.outputs.dialyzer }}", affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -435,7 +435,7 @@ jobs:
         run: python3 -m unittest discover -s analytics/tests -t analytics -v
   dialyzer:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true') }}
+    if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true' || needs.changes.outputs.dialyzer == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:

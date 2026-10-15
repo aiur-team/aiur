@@ -64,7 +64,9 @@ expect() {
 }
 for draft in true false; do
   expect 'docs_only=false full_ci=false' pull_request "$draft" '[{"filename":"src/lib/aiur/config.ex"}]'
+  grep -Fxq 'dialyzer=true' "$test_dir/out"
   expect 'docs_only=true full_ci=false' pull_request "$draft" '[{"filename":"website/docs-app/guide/a.md"}]'
+  grep -Fxq 'dialyzer=false' "$test_dir/out"
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":".github/workflows/ci.yml"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"src/mix.lock"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"mix.lock"}]'
@@ -76,6 +78,8 @@ for draft in true false; do
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"src/test/support/helper.exs"}]' '[]' full
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"scripts/example.sh"}]' '[]' full
 done
+expect 'docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.exs"}]'
+grep -Fxq 'dialyzer=false' "$test_dir/out"
 for path in scripts/check-ci-gate.py scripts/classify-ci-changes.sh scripts/ci-policy.rb scripts/ci-test-selection.exs scripts/run-ci-affected-tests.py src/lib/aiur/affected_tests.ex src/lib/mix/tasks/aiur.affected_tests.ex; do
   expect 'docs_only=false full_ci=true' pull_request false "[{\"filename\":\"$path\"}]"
 done
