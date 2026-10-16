@@ -21,7 +21,7 @@ defmodule AiurWeb.Build.IndexUnknownTimeTest do
          clock: &now/0}
       )
 
-    assert {:ok, snapshot} = GenServer.call(pid, {:window, "Etc/UTC"})
+    assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
     stats = snapshot.features["pag"].stats
     assert stats["spark"] == nil
     assert stats["total"] == 1
