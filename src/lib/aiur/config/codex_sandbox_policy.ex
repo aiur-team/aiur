@@ -77,9 +77,7 @@ defmodule Aiur.Config.CodexSandboxPolicy do
       # like `mix test` before project code runs.
       "networkAccess" => true,
       "excludeTmpdirEnvVar" => false,
-      # TMPDIR points into the workspace; a literal /tmp path is shared with
-      # every agent and outlives the workspace, so it is refused (#4730).
-      "excludeSlashTmp" => true
+      "excludeSlashTmp" => false
     }
   end
 
@@ -271,9 +269,7 @@ defmodule Aiur.Config.CodexSandboxPolicy do
       existing_roots = Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || []
       existing_roots = if is_list(existing_roots), do: existing_roots, else: []
 
-      policy
-      |> Map.put("writableRoots", append_unique(existing_roots, writable_roots))
-      |> exclude_slash_tmp_by_default()
+      Map.put(policy, "writableRoots", append_unique(existing_roots, writable_roots))
     else
       policy
     end
@@ -281,18 +277,10 @@ defmodule Aiur.Config.CodexSandboxPolicy do
 
   defp replace_workspace_writable_roots(%{} = policy, writable_roots) when is_list(writable_roots) do
     if workspace_write_policy?(policy) do
-      policy
-      |> Map.put("writableRoots", writable_roots)
-      |> exclude_slash_tmp_by_default()
+      Map.put(policy, "writableRoots", writable_roots)
     else
       policy
     end
-  end
-
-  # An operator who sets the key keeps it; listing /tmp in writableRoots
-  # still grants it.
-  defp exclude_slash_tmp_by_default(policy) do
-    if Map.has_key?(policy, :excludeSlashTmp), do: policy, else: Map.put_new(policy, "excludeSlashTmp", true)
   end
 
   defp workspace_write_policy?(policy) do

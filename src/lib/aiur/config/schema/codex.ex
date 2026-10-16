@@ -44,7 +44,7 @@ defmodule Aiur.Config.Schema.Codex do
     field(:thread_sandbox, :string, default: "workspace-write")
     # @config-reference config-configuration-agent-05 agent.codex.turn_sandbox_policy
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail agent.codex.turn_sandbox_policy | map or nil | nil | Explicit per-turn sandbox policy. For local `workspaceWrite`, `writableRoots` contains optional daemon-host extras; every entry must already exist and be writable. Aiur derives the current issue workspace and enabled shared GitHub budget root. Git checkouts also receive write access to their Git metadata and `.agents` directory so tracked skills links can be updated; `.codex` keeps its default protection. Configured extras are not forwarded to SSH workers. `excludeSlashTmp` defaults to `true`, so a literal `/tmp` path is refused; tools still get the workspace-private `$TMPDIR`. |
+    # @config-detail agent.codex.turn_sandbox_policy | map or nil | nil | Explicit per-turn sandbox policy. For local `workspaceWrite`, `writableRoots` contains optional daemon-host extras; every entry must already exist and be writable. Aiur derives the current issue workspace and enabled shared GitHub budget root. Git checkouts also receive write access to their Git metadata and `.agents` directory so tracked skills links can be updated; `.codex` keeps its default protection. Configured extras are not forwarded to SSH workers. |
     field(:turn_sandbox_policy, :map)
     # @config-reference config-configuration-agent-05 agent.codex.read_timeout_ms
     # @config-detail agent.codex.read_timeout_ms | integer | 5000 | Codex app-server read timeout. |

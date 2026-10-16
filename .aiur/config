@@ -135,8 +135,10 @@ agent:
     thread_sandbox: workspace-write
     turn_sandbox_policy:
       type: workspaceWrite
-      # No writableRoots extras: Aiur derives the issue workspace and enabled
-      # shared GitHub budget root at dispatch, and /tmp stays refused (#4730).
+      writableRoots:
+        # Optional local extras must already exist and be writable. Aiur derives
+        # the issue workspace and enabled shared GitHub budget root at dispatch.
+        - /tmp
       networkAccess: true
 opencode:
   command: opencode

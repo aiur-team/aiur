@@ -1270,7 +1270,7 @@ defmodule Aiur.AppServerTest do
         "readOnlyAccess" => %{"type" => "fullAccess"},
         "networkAccess" => true,
         "excludeTmpdirEnvVar" => false,
-        "excludeSlashTmp" => true
+        "excludeSlashTmp" => false
       }
 
       assert Enum.any?(lines, fn line ->
@@ -1312,7 +1312,7 @@ defmodule Aiur.AppServerTest do
         Aiur.AgentEnvironment.package_cache_paths() ++
         [Aiur.BuildGate.gate_dir()]
 
-    roots |> Enum.reduce(policy, &add_expected_root/2) |> Map.put_new("excludeSlashTmp", true)
+    Enum.reduce(roots, policy, &add_expected_root/2)
   end
 
   defp expected_runtime_policy(policy, _workspace), do: policy

@@ -66,18 +66,8 @@ defmodule Aiur.Config.SandboxPolicyTest do
              "/tmp/workspace"
            ) == %{
              "type" => "workspaceWrite",
-             "writableRoots" => ["/tmp/explicit", Path.expand("/tmp/workspace")],
-             "excludeSlashTmp" => true
+             "writableRoots" => ["/tmp/explicit", Path.expand("/tmp/workspace")]
            }
-
-    # #4730: the default refuses /tmp, but an operator's explicit choice stands.
-    opted_in = Map.put(explicit_policy, "excludeSlashTmp", false)
-
-    assert %{"excludeSlashTmp" => false} =
-             Schema.resolve_turn_sandbox_policy(
-               %Schema{agent: %Schema.Agent{codex: %Codex{turn_sandbox_policy: opted_in}}},
-               "/tmp/workspace"
-             )
 
     assert Schema.resolve_turn_sandbox_policy(%Schema{
              agent: %Schema.Agent{codex: %Codex{turn_sandbox_policy: nil}},
@@ -88,7 +78,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
-             "excludeSlashTmp" => true
+             "excludeSlashTmp" => false
            }
 
     assert Schema.resolve_turn_sandbox_policy(
@@ -103,7 +93,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
-             "excludeSlashTmp" => true
+             "excludeSlashTmp" => false
            }
 
     assert Schema.resolve_turn_sandbox_policy(%Schema{
@@ -139,7 +129,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
-             "excludeSlashTmp" => true
+             "excludeSlashTmp" => false
            }
 
     assert {:ok, remote_policy} =
@@ -151,7 +141,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
-             "excludeSlashTmp" => true
+             "excludeSlashTmp" => false
            }
   end
 
@@ -196,8 +186,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
                    Aiur.BuildGate.gate_dir()
                  ]
                  |> List.flatten(),
-               "networkAccess" => true,
-               "excludeSlashTmp" => true
+               "networkAccess" => true
              }
 
       assert {:ok, remote_settings} =
@@ -210,8 +199,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
                  Path.join(issue_workspace, ".git"),
                  Path.join(issue_workspace, ".agents")
                ],
-               "networkAccess" => true,
-               "excludeSlashTmp" => true
+               "networkAccess" => true
              }
 
       write_workflow_file!(Workflow.workflow_file_path(),

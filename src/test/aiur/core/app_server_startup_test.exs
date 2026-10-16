@@ -109,7 +109,7 @@ defmodule Aiur.Core.AppServerStartupTest do
         "readOnlyAccess" => %{"type" => "fullAccess"},
         "networkAccess" => true,
         "excludeTmpdirEnvVar" => false,
-        "excludeSlashTmp" => true
+        "excludeSlashTmp" => false
       }
 
       assert Enum.any?(lines, fn line ->
@@ -325,8 +325,7 @@ defmodule Aiur.Core.AppServerStartupTest do
 
       expected_turn_policy = %{
         "type" => "workspaceWrite",
-        "writableRoots" => expected_writable_roots,
-        "excludeSlashTmp" => true
+        "writableRoots" => expected_writable_roots
       }
 
       assert Enum.any?(lines, fn line ->
