@@ -20,8 +20,9 @@ test('degraded fixture renders aged failure markers and survives a LiveView patc
   const status = 'history:unavailable index:stale queue:disabled'
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-states', status)
   await page.evaluate(async () => {
-    const { ctx } = await import('/build-home/state.js'); await ctx.push('build:url', { view: 'graph', span: 2 })
+    const { ctx } = await import('/build-home/state.js'); await ctx.push('build:url', { view: 'graph', span: '2' })
   })
+  await expect(page).toHaveURL(/span=2/)
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-states', status)
 })
 test('age tick relayouts marker text through the live renderer', async ({ page }) => {

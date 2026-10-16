@@ -92,14 +92,18 @@ test('reason tags are bounded and hostile copy is escaped by the marker factory'
   })).toEqual(['not connected', 'unknown cause', 'unknown cause', 'unknown cause', 80, 0, true, null])
 })
 test('metadata covers five sources and arms just one age tick when needed', async ({ page }) => {
-  expect(await page.evaluate(() => {
+  expect(await page.evaluate(async () => {
+    const hook = await import('/build-home/hook.js')
     let callback, intervals = 0, passes = 0
     Object.assign(state.ctx, { snap: P, life: { every(ms, cb) { if (ms !== 30000) throw Error(ms); intervals++; callback = cb } } })
     state.fx.requestLivePass = () => passes++
     m.syncStates(); const healthy = intervals
     P.sources.features.state = 'incomplete'; P.sources.queue.state = 'disabled'; m.syncStates(); m.syncStates(); callback()
     const text = state.ctx.root.dataset.bdStates
+    state.ctx.root.removeAttribute('data-bd-states')
+    hook.writeOwnData()
+    const rewritten = state.ctx.root.dataset.bdStates
     P.sources.features.state = P.sources.queue.state = 'ok'; callback()
-    return { healthy, intervals, passes, text }
-  })).toEqual({ healthy: 0, intervals: 1, passes: 1, text: 'features:incomplete queue:disabled' })
+    return { healthy, intervals, passes, text, rewritten }
+  })).toEqual({ healthy: 0, intervals: 1, passes: 1, text: 'features:incomplete queue:disabled', rewritten: 'features:incomplete queue:disabled' })
 })
