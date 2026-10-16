@@ -141,9 +141,7 @@ Comparison reads are attributed to `human_review_base_ancestry` and always conta
 
 A head pushed after approval is classified once per approved/new head pair: one `pulls/{n}` read and up to three compare reads, attributed to `approval_carry`.
 
-The approval carries when the contribution diff (merge base to head) is unchanged, apart from conflict-resolution hunks. Matching hunks must sit at the same place once base edits above them are allowed for. The PR body `Tested head` must name the new head.
-
-A resolution hunk must overlap a base change made since approval, and may only add the PR's approved lines, once each and in order. It may remove lines only where the base and the approved diff both changed the region. Under `.github/`, `scripts/`, `.aiur/`, `src/config/` and `mix.exs`/`mix.lock`, only a hunk identical to a base change at the same place carries; under `docs/`, overlap alone is enough for additions.
+The approval carries only when the contribution diff (merge base to head) is identical, context included; hunk positions may shift with base edits above them. Any conflict resolution does not carry. The PR body `Tested head` must name the new head.
 
 A carried approval posts a PR comment and a `ticket.<id>.pr.approval_carried` info alert. Any other verdict raises `stale_approved_pr_head` with the differing hunks. Unreadable or truncated comparisons count as changed.
 

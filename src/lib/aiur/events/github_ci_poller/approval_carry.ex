@@ -3,21 +3,10 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   Classifies a push made after a PR was approved (#4668).
 
   The PR's contribution diff at the approved head (`merge-base(approved, base)..approved`)
-  is compared with the one at the new head. Hunks match when their changed lines
-  are identical at the same place, after the base's own edits above them. The
-  remaining hunks of a file are conflict resolution only when:
-
-    * under `.github/`, `scripts/`, `.aiur/`, `src/config/`, or in a `mix.exs` or
-      `mix.lock`, each one is exactly a hunk the base made at the same place between
-      the two merge bases, each base hunk used once;
-    * under `docs/`, each one overlaps such a base hunk;
-    * anywhere else, each one overlaps a base hunk, the new head adds only the
-      approved head's own added lines in order and count, and every other changed
-      line comes from the other side or from the base's change.
-
-  Outside the sensitive paths, a new-head hunk that removes lines must sit where
-  both the base and an unmatched approved hunk changed, so a merge cannot drop
-  base code the PR never touched.
+  is compared with the one at the new head. The approval carries only when both
+  are identical: the same files and the same hunks, context included, each at the
+  same place once the base's own edits above it are allowed for. Any other
+  difference, conflict resolution included, does not carry.
 
   A carried approval also needs the PR body `Tested head` to name the new head.
   Anything unreadable or truncated fails closed to `:changed`.
@@ -27,10 +16,7 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   alias Aiur.GitHub.Transport
 
   @type hunk :: %{file: String.t(), side: :approved | :current, header: String.t(), lines: [String.t()]}
-  @type verdict :: {:carried, %{resolved: non_neg_integer()}} | {:changed, %{reason: term(), hunks: [hunk()]}}
-
-  @inert_prefixes ["docs/"]
-  @sensitive_prefixes [".github/", "scripts/", ".aiur/", "src/config/"]
+  @type verdict :: :carried | {:changed, %{reason: term(), hunks: [hunk()]}}
 
   @spec classify(String.t(), String.t(), integer(), keyword()) :: verdict()
   def classify(approved_head, head, pr_number, opts \\ []) do
@@ -83,19 +69,16 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
          {:ok, main_files} <- files(main) do
       paths = Map.keys(approved_files) ++ Map.keys(current_files)
 
-      {differing, resolved} =
+      differing =
         paths
         |> Enum.uniq()
         |> Enum.sort()
-        |> Enum.reduce({[], 0}, fn path, {differing, resolved} ->
-          {file_differing, file_resolved} = compare_file(path, approved_files[path], current_files[path], main_files[path])
-          {differing ++ file_differing, resolved + file_resolved}
-        end)
+        |> Enum.flat_map(&compare_file(&1, approved_files[&1], current_files[&1], main_files[&1]))
 
       cond do
         differing != [] -> {:changed, %{reason: :contribution_changed, hunks: differing}}
         not Regex.match?(~r/(?m)^Tested head: #{Regex.escape(head)}\s*$/, body) -> {:changed, %{reason: :tested_head_stale, hunks: []}}
-        true -> {:carried, %{resolved: resolved}}
+        true -> :carried
       end
     else
       :error -> {:changed, %{reason: {:unavailable, :comparison_incomplete}, hunks: []}}
@@ -140,20 +123,23 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
         case Regex.run(~r/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/, line) do
           [_ | captures] ->
             [old_start, old_count, new_start, new_count] = Enum.map(captures ++ List.duplicate("", 4 - length(captures)), &count/1)
-            {:cont, {:ok, [%{header: line, old: {old_start, old_count}, new: {new_start, new_count}, lines: []} | acc]}}
+            {:cont, {:ok, [%{header: line, old: {old_start, old_count}, new: {new_start, new_count}, lines: [], body: []} | acc]}}
 
           nil ->
             {:halt, :error}
         end
 
       <<sign, _::binary>> = line, {:ok, [hunk | rest]} when sign in [?+, ?-] ->
-        {:cont, {:ok, [%{hunk | lines: [line | hunk.lines]} | rest]}}
+        {:cont, {:ok, [%{hunk | lines: [line | hunk.lines], body: [line | hunk.body]} | rest]}}
 
-      _context, acc ->
+      context, {:ok, [hunk | rest]} ->
+        {:cont, {:ok, [%{hunk | body: [context | hunk.body]} | rest]}}
+
+      _preamble, acc ->
         {:cont, acc}
     end)
     |> case do
-      {:ok, hunks} -> {:ok, hunks |> Enum.map(&%{&1 | lines: Enum.reverse(&1.lines)}) |> Enum.reverse()}
+      {:ok, hunks} -> {:ok, hunks |> Enum.map(&%{&1 | lines: Enum.reverse(&1.lines), body: Enum.reverse(&1.body)}) |> Enum.reverse()}
       :error -> :error
     end
   end
@@ -161,68 +147,18 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   defp count(""), do: 1
   defp count(value), do: String.to_integer(value)
 
-  defp compare_file(_path, same, same, nil), do: {[], 0}
+  defp compare_file(_path, same, same, nil), do: []
 
   defp compare_file(path, approved, current, main) do
     if Enum.any?([approved, current, main], &unreadable?/1) or renamed_differently?(approved, current) do
-      {[%{file: path, side: :current, header: "(no readable patch or renamed differently)", lines: []}], 0}
+      [%{file: path, side: :current, header: "(no readable patch or renamed differently)", lines: []}]
     else
-      main_hunks = hunks_of(main)
-      {approved_only, current_only} = unmatched(hunks_of(approved), hunks_of(current), main_hunks)
+      {approved_only, current_only} = unmatched(hunks_of(approved), hunks_of(current), hunks_of(main))
 
-      differing =
-        Enum.map(approved_only, &Map.merge(&1, %{file: path, side: :approved})) ++
-          Enum.map(current_only, &Map.merge(&1, %{file: path, side: :current}))
-
-      if resolution?(policy(path), differing, approved_only, current_only, main_hunks),
-        do: {[], length(differing)},
-        else: {Enum.map(differing, &Map.take(&1, [:file, :side, :header, :lines])), 0}
+      Enum.map(approved_only, &%{file: path, side: :approved, header: &1.header, lines: &1.lines}) ++
+        Enum.map(current_only, &%{file: path, side: :current, header: &1.header, lines: &1.lines})
     end
   end
-
-  defp policy(path) do
-    cond do
-      String.starts_with?(path, @sensitive_prefixes) or Path.basename(path) in ["mix.exs", "mix.lock"] -> :sensitive
-      String.starts_with?(path, @inert_prefixes) -> :inert
-      true -> :checked
-    end
-  end
-
-  # Code that runs at build, CI or deploy time carries a differing hunk only when the base made that
-  # exact change at the same place; each base hunk vouches for one differing hunk.
-  defp resolution?(:sensitive, differing, _approved_only, _current_only, main_hunks) do
-    differing
-    |> Enum.reduce_while(main_hunks, fn hunk, unused ->
-      case Enum.find_index(unused, &(&1.lines == hunk.lines and same_place?(hunk, &1))) do
-        nil -> {:halt, :unmatched}
-        index -> {:cont, List.delete_at(unused, index)}
-      end
-    end)
-    |> is_list()
-  end
-
-  defp resolution?(:inert, differing, approved_only, current_only, main_hunks),
-    do: Enum.all?(differing, &overlaps_main?(&1, main_hunks)) and removals_in_conflicts?(current_only, approved_only, main_hunks)
-
-  # The new head may add only the approved head's own added lines, once each and in order; every
-  # other changed line must come from the other side or from the base's change.
-  defp resolution?(:checked, differing, approved_only, current_only, main_hunks) do
-    Enum.all?(differing, &overlaps_main?(&1, main_hunks)) and
-      removals_in_conflicts?(current_only, approved_only, main_hunks) and
-      subsequence?(lines(current_only, ?+), lines(approved_only, ?+)) and
-      contained?(lines(current_only, ?-), lines(approved_only, ?-) ++ lines(main_hunks, ?+)) and
-      contained?(lines(approved_only, ?+), lines(current_only, ?+) ++ lines(main_hunks, ?+)) and
-      contained?(lines(approved_only, ?-), lines(current_only, ?-) ++ lines(main_hunks, ?-))
-  end
-
-  defp lines(hunks, sign), do: for(hunk <- hunks, <<^sign, text::binary>> <- hunk.lines, do: text)
-
-  defp contained?(needles, pool), do: needles -- pool == []
-
-  defp subsequence?([], _pool), do: true
-  defp subsequence?(_needles, []), do: false
-  defp subsequence?([line | needles], [line | pool]), do: subsequence?(needles, pool)
-  defp subsequence?(needles, [_line | pool]), do: subsequence?(needles, pool)
 
   defp renamed_differently?(%{meta: {previous, _sha}}, %{meta: {current_previous, _current_sha}}), do: previous != current_previous
   defp renamed_differently?(_approved, _current), do: false
@@ -233,11 +169,11 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   defp hunks_of(nil), do: []
   defp hunks_of(%{hunks: hunks}), do: hunks
 
-  # Each current hunk consumes at most one approved hunk with the same changed lines at the same
+  # Each current hunk consumes at most one approved hunk with the same lines and context at the same
   # place, once the base's own edits above it are allowed for.
   defp unmatched(approved, current, main_hunks) do
     Enum.reduce(current, {approved, []}, fn hunk, {remaining, extra} ->
-      case Enum.find_index(remaining, &(&1.lines == hunk.lines and shifted(&1.old, main_hunks) == elem(hunk.old, 0))) do
+      case Enum.find_index(remaining, &(&1.body == hunk.body and shifted(&1.old, main_hunks) == elem(hunk.old, 0))) do
         nil -> {remaining, [hunk | extra]}
         index -> {List.delete_at(remaining, index), extra}
       end
@@ -253,27 +189,6 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
         start + max(length, 1) <= main_start -> {:cont, position}
         true -> {:halt, :conflict}
       end
-    end)
-  end
-
-  # Approved hunks sit in the old base's coordinates; current hunks in the new base's.
-  defp overlaps_main?(hunk, main_hunks), do: Enum.any?(main_hunks, &overlaps?(hunk.old, base_side(hunk, &1)))
-
-  defp same_place?(hunk, main_hunk), do: elem(hunk.old, 0) == elem(base_side(hunk, main_hunk), 0)
-
-  defp base_side(%{side: :approved}, main_hunk), do: main_hunk.old
-  defp base_side(%{side: :current}, main_hunk), do: main_hunk.new
-
-  defp overlaps?({start, length}, {other_start, other_length}),
-    do: start < other_start + max(other_length, 1) and other_start < start + max(length, 1)
-
-  # A merge removes lines only where both sides touched the region: a base hunk that overlaps the
-  # removing hunk and an approved hunk the new head no longer has.
-  defp removals_in_conflicts?(current_only, approved_only, main_hunks) do
-    current_only
-    |> Enum.filter(fn hunk -> Enum.any?(hunk.lines, &String.starts_with?(&1, "-")) end)
-    |> Enum.all?(fn hunk ->
-      Enum.any?(main_hunks, &(overlaps?(hunk.old, &1.new) and Enum.any?(approved_only, fn approved -> overlaps?(approved.old, &1.old) end)))
     end)
   end
 end

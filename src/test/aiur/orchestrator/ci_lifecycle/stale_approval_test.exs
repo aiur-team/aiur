@@ -90,7 +90,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.StaleApprovalTest do
     for topic <- [stale_topic, carried_topic], do: :ok = Exchange.subscribe(topic)
     on_exit(fn -> for topic <- [stale_topic, carried_topic], do: Exchange.unsubscribe(topic) end)
     {issue, state, result} = approved_push(identifier, 946)
-    opts = classifier_opts({:carried, %{resolved: 0}})
+    opts = classifier_opts(:carried)
 
     next = poll_ci(state, issue, result, opts)
 

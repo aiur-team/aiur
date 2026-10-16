@@ -50,25 +50,20 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert do
   defp classify(classifier, approved, head, pr_number, opts) do
     verdict = classifier.(approved, head, pr_number, opts)
 
-    with {:carried, details} <- verdict do
+    if verdict == :carried do
       commenter = Keyword.get(opts, :approval_carry_commenter, &GitHubClient.create_comment/2)
-      _ = commenter.(to_string(pr_number), carried_comment(approved, head, details))
+      _ = commenter.(to_string(pr_number), "Aiur carried the approval from `#{approved}` to `#{head}`: the contribution diff is unchanged.")
     end
 
     verdict
   end
 
-  defp carried_comment(approved, head, %{resolved: resolved}) do
-    "Aiur carried the approval from `#{approved}` to `#{head}`: the contribution diff is unchanged" <>
-      if(resolved > 0, do: " apart from #{resolved} conflict-resolution hunk(s) overlapping changes on the base branch.", else: ".")
-  end
-
   # Not an `agent.attention.*` topic: those bind to the Executor as attentions regardless of `needs_attention`.
-  defp emit(issue, result, {:carried, details}) do
+  defp emit(issue, result, :carried) do
     Alerts.emit_system("ticket.#{issue.identifier}.pr.approval_carried",
       issue: issue.identifier,
       message: "Approval carried to the new PR head for #{issue.identifier}.",
-      reason: "The push after approval left the contribution diff unchanged (#{details.resolved} conflict-resolution hunk(s)) and the PR body Tested head names the new head.",
+      reason: "The push after approval left the contribution diff unchanged and the PR body Tested head names the new head.",
       needs_attention: false,
       severity: "info",
       central: true,
@@ -88,7 +83,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert do
     )
   end
 
-  defp changed_reason(:contribution_changed), do: "The push changed the PR's own contribution diff beyond conflict resolution."
+  defp changed_reason(:contribution_changed), do: "The push changed the PR's own contribution diff, so the approval was not carried."
   defp changed_reason(:tested_head_stale), do: "The contribution diff is unchanged, but the PR body Tested head does not name the new head, so the approval was not carried."
   defp changed_reason(:approved_head_unknown), do: "The approved commit is unknown, so the push could not be compared with it."
   defp changed_reason({:unavailable, detail}), do: "The contribution diffs could not be compared (#{inspect(detail)})."
