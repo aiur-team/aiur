@@ -277,7 +277,7 @@ defmodule Aiur.Application.Children do
         landing_watch_children() ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        quarantine_lifter_children() ++ List.wrap(if(dashboard?, do: AiurWeb.Build.Index))
+        quarantine_lifter_children() ++ List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
     )
   end
 
