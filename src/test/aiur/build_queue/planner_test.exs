@@ -51,6 +51,14 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :promoted, verdict: :waiting}], [{:begin_withdraw, "1"}]} = Planner.plan(input)
   end
 
+  test "delayed fresh observation adopts pre-existing todo from retained attempt provenance" do
+    input = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo))
+    attempt = F.intent(input, :mark, target_labels: ~w(agent:queued), preexisting_todo?: true, outcome: :ok)
+    input = %{input | intents: [List.last(attempt.intents)]}
+
+    assert {[%{state: :promoted, verdict: :waiting}], [{:begin_withdraw, "1"}]} = Planner.plan(input)
+  end
+
   test "manual todo after a queue marker write remains an explicit promotion" do
     input = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo))
     input = F.intent(input, :mark, target_labels: ~w(agent:queued), preexisting_todo?: false, outcome: :ok)
