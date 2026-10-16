@@ -17,8 +17,10 @@ job = workflow.split('  workflow-security:', 1)[1].split('  build:', 1)[0]
 assert 'docs_only' not in job
 assert 'fetch-depth: 0' in job
 assert 'run: bash scripts/test-check-file-size.sh' in job
-assert 'run: scripts/run-pre-handoff-guards.sh' in job
-assert 'GH_TOKEN: ${{ github.token }}' in job
+handoff = workflow.split('  pre-handoff:', 1)[1].split('  workflow-security:', 1)[0]
+action = (source / '.github/actions/pre-handoff/action.yml').read_text()
+assert 'fetch-depth: 0' in handoff and 'uses: ./.github/actions/pre-handoff' in handoff
+assert 'run: scripts/run-pre-handoff-guards.sh' in action and 'GH_TOKEN' not in action
 assert 'python3 scripts/check-file-size.py --base <BASE_SHA>' in (source / 'scripts/pre-handoff-guards.list').read_text()
 assert 'File size gate' not in workflow
 

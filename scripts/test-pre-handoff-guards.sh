@@ -13,7 +13,7 @@ trap cleanup EXIT
 base="$(git -C "$repo_root" rev-parse HEAD)"
 head="$base"
 cat > "$tmp/pr.json" <<JSON
-{"created_at":"1970-01-01T00:00:00Z","body":"","head":{"sha":"$head"}}
+{"created_at":"1970-01-01T00:00:00Z","body":"","head":{"sha":"$head","repo":{"full_name":"example/repo"}}}
 JSON
 
 cd "$repo_root"
@@ -38,7 +38,8 @@ assert_absent() {
 }
 
 for output in "$tmp/clean.log" "$tmp/non-pr.log"; do
-  for guard in check-on-exit-rm-rf.py check-bare-assert-receive.py check-browser-smoke-shards.mjs check-hot-list-format.py check-file-size.py; do
+  assert_contains "$output" 'run-pre-handoff-code-checks: no changed files' 'worker handoff runner omitted selected tests and Dialyzer gate'
+  for guard in check-on-exit-rm-rf.py check-bare-assert-receive.py check-browser-smoke-shards.mjs check-hot-list-format.py check-file-size.py run-quarantined-tests.py; do
     assert_contains "$output" "scripts/$guard" "shared guard list entry missing"
   done
 done
@@ -48,9 +49,13 @@ assert_absent "$tmp/non-pr.log" 'scripts/check-pr-body.py' 'non-PR path included
 events_repo="$tmp/events-repo"
 mkdir -p "$events_repo/scripts" "$tmp/bin"
 cp "$repo_root/scripts/run-pre-handoff-guards.sh" "$events_repo/scripts/run-pre-handoff-guards.sh"
+cat > "$events_repo/scripts/run-pre-handoff-code-checks.sh" <<'CODE_CHECKS'
+#!/usr/bin/env bash
+printf 'code-checks: %s\n' "$*"
+CODE_CHECKS
 cat > "$events_repo/scripts/pre-handoff-guards" <<'GUARDS'
 #!/usr/bin/env bash
-printf '%s\n' "$*" > "$EVENT_LOG"
+printf '%s skip-code-checks=%s\n' "$*" "${AIUR_PRE_HANDOFF_SKIP_CODE_CHECKS:-0}" > "$EVENT_LOG"
 printf 'pre-handoff-guards: %s\n' "$*"
 GUARDS
 cat > "$events_repo/scripts/check-config-docs.py" <<'PYTHON'
@@ -60,10 +65,11 @@ cat > "$events_repo/scripts/check-docs-prose.mjs" <<'NODE'
 process.exit(0)
 NODE
 chmod +x "$events_repo/scripts/pre-handoff-guards"
+chmod +x "$events_repo/scripts/run-pre-handoff-code-checks.sh"
 
 cat > "$tmp/bin/gh" <<'GH'
 #!/usr/bin/env bash
-printf '%s\n' "$*" > "$GH_LOG"
+printf '%s\n' "$*" >> "$GH_LOG"
 cat "$PR_METADATA"
 GH
 chmod +x "$tmp/bin/gh"
@@ -82,6 +88,7 @@ pr_base="$(printf '1%.0s' {1..40})"
 merge_base="$(printf '2%.0s' {1..40})"
 push_before="$(printf '3%.0s' {1..40})"
 dispatch_base="$(printf '4%.0s' {1..40})"
+cp "$tmp/pr.json" "$tmp/pr-original.json"
 run_event() {
   local name="$1" event="$2" pr_sha="$3" merge_sha="$4" push_sha="$5"
   : > "$tmp/$name.log"
@@ -112,6 +119,10 @@ assert_contains "$tmp/workflow_dispatch.args" "--skip-pr-body $dispatch_base" 'm
 assert_contains "$tmp/schedule.args" "--skip-pr-body $dispatch_base" 'scheduled event used the wrong merge base'
 for event in pull_request merge_group push push_zero workflow_dispatch schedule; do
   assert_absent "$tmp/$event.log" 'scripts/check-pr-body.py' "$event event included PR body guard"
+done
+assert_contains "$tmp/pull_request.args" 'skip-code-checks=0' 'pull-request event skipped selected tests and Dialyzer'
+for event in merge_group push push_zero workflow_dispatch schedule; do
+  assert_contains "$tmp/$event.args" 'skip-code-checks=1' "$event event repeated selected tests the full suite already runs"
 done
 assert_contains "$tmp/merge_group.log" "pre-handoff-guards: --skip-pr-body $merge_base" 'merge-group event runner did not execute its guard command'
 

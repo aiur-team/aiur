@@ -37,6 +37,13 @@ function renderSwatches() {
 }
 // Parse theme from URL query parameter
 const params = new URLSearchParams(window.location.search);
+if (params.has('specimens')) {
+  document.documentElement.setAttribute('data-specimens', '');
+  const fonts = document.createElement('link');
+  fonts.rel = 'stylesheet';
+  fonts.href = '../dist/fonts.css';
+  document.head.append(fonts);
+}
 const urlTheme = params.get('theme');
 if (urlTheme === 'light' || urlTheme === 'dark') {
   document.documentElement.setAttribute('data-theme', urlTheme);

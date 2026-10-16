@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.State do
   @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
-  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport}
+  alias Aiur.Orchestrator.{CiLifecycle, ControlLifecycle, PauseResume, StatusReport}
 
   @default_dispatch_recovery %{
     workspace_ownership: %{waits: %{}, ready: %{}},
@@ -130,10 +130,9 @@ defmodule Aiur.Orchestrator.State do
             codex_thrash_budget: map()
           },
           retry_attempts: map(),
-          comment_rework_retries: %{
-            {String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}
-          },
+          comment_rework_retries: %{{String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}},
           auto_resume: %{String.t() => map()},
+          budget_hold_streaks: %{String.t() => map()},
           # Claims released after retry exhaustion until dispatch re-establishes ownership.
           released_claims: %{String.t() => map()},
           fallback_backoff: %{String.t() => {pos_integer(), integer()}},
@@ -296,6 +295,7 @@ defmodule Aiur.Orchestrator.State do
     # In-flight comment-rework timers are cancellable and cannot fire into a successor.
     comment_rework_retries: %{},
     auto_resume: %{},
+    budget_hold_streaks: %{},
     released_claims: %{},
     fallback_backoff: %{},
     model_fallback_waiting: MapSet.new(),
@@ -718,8 +718,8 @@ defmodule Aiur.Orchestrator.State do
   # capacity leak where parked agents accumulate against the fleet limit
   # (#2329).
   # A provider usage limit belongs here for the same reason: the account, not
-  # this agent, is what the fleet waits on, there is no turn in flight, and
-  # holding the slot turns one account limit into a fleet-wide dispatch stall.
+  # this agent, is what the fleet waits on. Any pause on a `ci-wait` ticket
+  # releases too: its PR is handed off and the daemon owns that wait (#4694).
   @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :optimistic_blocker_failed, :max_agent_duration, :usage_limit_exhausted]
 
   @spec non_reserving_pause_reason?(term()) :: boolean()
@@ -729,7 +729,7 @@ defmodule Aiur.Orchestrator.State do
   def reserved_paused_running_count(running) when is_map(running) do
     Enum.count(running, fn
       {_issue_id, %{paused_reason: reason}} when reason in @non_reserving_pause_reasons -> false
-      {_issue_id, entry} -> paused_running_entry?(entry)
+      {_issue_id, entry} -> paused_running_entry?(entry) and not CiLifecycle.ci_wait_state?(get_in(entry, [:issue, Access.key(:state)]))
     end)
   end
 

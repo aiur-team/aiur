@@ -6,10 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>aiur-style Gallery</title>
   <link rel="stylesheet" href="../dist/aiur-style.css">
+  <style>#type-specimens { display: none; } html[data-specimens] #type-specimens { display: block; } #type-specimens p { font-size: 24px; color: inherit; }</style>
   <style>
-    * {
-      margin: 0;
-      box-sizing: border-box;
+    @layer aiur {
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
     }
 
     body {
@@ -94,6 +97,21 @@
   </div>
 
   <div class="gallery-sections">
+    <section id="type-specimens" class="section"><h2>Type specimens</h2><p style="font-family: 'Bungee'; font-weight: 400">Bungee 400 — Aa Bb 0123456789</p>
+<p style="font-family: 'Space Grotesk'; font-weight: 300">Space Grotesk 300 — Aa Bb 0123456789</p>
+<p style="font-family: 'Space Grotesk'; font-weight: 400">Space Grotesk 400 — Aa Bb 0123456789</p>
+<p style="font-family: 'Space Grotesk'; font-weight: 500">Space Grotesk 500 — Aa Bb 0123456789</p>
+<p style="font-family: 'Space Grotesk'; font-weight: 600">Space Grotesk 600 — Aa Bb 0123456789</p>
+<p style="font-family: 'Space Grotesk'; font-weight: 700">Space Grotesk 700 — Aa Bb 0123456789</p>
+<p style="font-family: 'JetBrains Mono'; font-weight: 100">JetBrains Mono 100 — Aa Bb 0123456789</p>
+<p style="font-family: 'JetBrains Mono'; font-weight: 200">JetBrains Mono 200 — Aa Bb 0123456789</p>
+<p style="font-family: 'JetBrains Mono'; font-weight: 300">JetBrains Mono 300 — Aa Bb 0123456789</p>
+<p style="font-family: 'JetBrains Mono'; font-weight: 400">JetBrains Mono 400 — Aa Bb 0123456789</p>
+<p style="font-family: 'JetBrains Mono'; font-weight: 500">JetBrains Mono 500 — Aa Bb 0123456789</p>
+<p style="font-family: 'JetBrains Mono'; font-weight: 600">JetBrains Mono 600 — Aa Bb 0123456789</p>
+<p style="font-family: 'JetBrains Mono'; font-weight: 700">JetBrains Mono 700 — Aa Bb 0123456789</p>
+<p style="font-family: 'JetBrains Mono'; font-weight: 800">JetBrains Mono 800 — Aa Bb 0123456789</p>
+</section>
     <section class="section" id="tokens">
       <h2>Color tokens</h2>
       <p>Switch themes to inspect the fixed palette. Text samples use readable-text tokens where required.</p>
@@ -123,6 +141,22 @@
         <a href="#buttons" id="focus-link">Plain link</a>
         <span tabindex="0" id="focus-tabindex">Focusable element</span>
       </div>
+    </section>
+    <section class="section" id="footer">
+      <h2>Footer</h2>
+<!-- Brand and links: aiur.team omits the product credit. Icon links need an aria-label. -->
+<footer class="aiur-footer">
+  <span class="aiur-footer__brand"><span class="aiur-footer__dot" aria-hidden="true"></span>aiur</span>
+  <nav class="aiur-footer__links" aria-label="Footer">
+    <a href="https://aiur.team/docs/">Docs</a>
+    <a href="https://github.com/aiur-team/aiur" aria-label="Aiur on GitHub"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 4-6 8 6 8m8-16 6 8-6 8m-2-18-4 20"/></svg></a>
+  </nav>
+</footer>
+
+<!-- Product credit: the keepout reserves space on the flow field. -->
+<footer class="aiur-footer">
+  <p class="aiur-footer__credit aiur-keepout">built with <a href="https://aiur.team">Aiur</a></p>
+</footer>
     </section>
     <div class="section" id="coming-soon">
       <h2>Components Coming Soon</h2>

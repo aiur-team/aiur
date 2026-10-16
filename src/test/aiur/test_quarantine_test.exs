@@ -18,7 +18,7 @@ defmodule Aiur.TestQuarantineTest do
   test "the checked-in quarantine list parses and excludes its exact entries" do
     path = Path.join([File.cwd!(), "test", "quarantine.txt"])
     assert {:ok, entries} = TestQuarantine.read(path)
-    assert length(entries) == 15
+    assert length(entries) == 24
 
     assert {:excluded, "due to test filter"} =
              ExUnit.Filters.eval(
@@ -30,6 +30,18 @@ defmodule Aiur.TestQuarantineTest do
 
     assert {:excluded, "due to module filter"} =
              ExUnit.Filters.eval([], TestQuarantine.filters(entries), %{module: :"Aiur.Core.AgentRunnerCheckpointQueueTest"}, :test)
+  end
+
+  test "a listed describe-block test is excluded by the name ExUnit gives it" do
+    assert {:ok, entries} = TestQuarantine.read(Path.join([File.cwd!(), "test", "quarantine.txt"]))
+
+    tags = %{
+      module: Aiur.DecisionStore.EnrichmentTest,
+      describe: "supervisor enrichment",
+      test: :"test supervisor enrichment exact replay is duplicate while changed reuse conflicts without append or notification"
+    }
+
+    assert {:excluded, "due to test filter"} = ExUnit.Filters.eval([], TestQuarantine.filters(entries), tags, :test)
   end
 
   test "the blocking ExUnit run config excludes a listed test by its exact name" do

@@ -10,7 +10,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
   require Logger
 
-  alias Aiur.Events.GithubCIPoller.{BaseRepair, Evaluation, Recovery}
+  alias Aiur.Events.GithubCIPoller.{ApprovalCarry, BaseRepair, Evaluation, Recovery}
   alias Aiur.GitHub.{CiReadiness, Client}
   alias Aiur.Stacking.StackBaseEvidence
 
@@ -30,6 +30,8 @@ defmodule Aiur.Events.GithubCIPoller do
   defdelegate record_pass(issue, result, opts), to: Recovery
   @spec attention_hold?(map() | nil) :: boolean()
   defdelegate attention_hold?(result), to: Recovery
+  @spec classify_approval_carry(String.t(), String.t(), integer(), keyword()) :: ApprovalCarry.verdict()
+  defdelegate classify_approval_carry(approved_head, head, pr_number, opts), to: ApprovalCarry, as: :classify
 
   @spec poll([target()], keyword()) :: {:ok, %{results: [map()], errors: [{String.t(), term()}]}}
   def poll(targets, opts \\ []) when is_list(targets) do

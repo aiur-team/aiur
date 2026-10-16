@@ -84,6 +84,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     retry_attempts: :lifecycle,
     released_claims: :lifecycle,
     auto_resume: :lifecycle,
+    budget_hold_streaks: :lifecycle,
     orphaned_claim_since: :lifecycle,
     fallback_backoff: :lifecycle,
     model_fallback_waiting: :lifecycle,

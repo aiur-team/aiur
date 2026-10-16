@@ -51,7 +51,7 @@ export const fx = {
   spanToolsHTML: () => '', wireSpanTools() {}, renderStatus() {},
   daemonView: () => ({ dotOff: true, dotText: 'Daemon status unknown' }),
   renderLoading() {}, renderUnavailable: defaultUnavailable, dataChanged: defaultDataChanged,
-  drawEdgesSoon() {}, openFromURL() {}, flushLive() {}, renderHeads() {},
+  drawEdgesSoon() {}, tickCardAges() {}, openFromURL() {}, flushLive() {}, renderHeads() {},
   makeCard: it => { const el = document.createElement('div'); el.className = 'bd-card'; el.dataset.id = it.t.id; el.tabIndex = -1; return el; },
   visibleCols: () => S.flow ? Array.from({ length: S.K }, (_, i) => 's' + i) : [...new Set([...ctx.D.order, 'unsorted'])],
   applyCols: keys => { ctx.content.style.width = ctx.vp.clientWidth + 'px'; ctx.cols = keys; const w = (ctx.content.offsetWidth - gutW() - 14) / Math.max(1, keys.length); ctx.colMap = Object.fromEntries(keys.map((key, i) => [key, { x: gutW() + i * w, w }])); },
