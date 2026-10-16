@@ -3,6 +3,8 @@ Code.require_file("../../support/decision_store_case.ex", __DIR__)
 defmodule Aiur.DecisionStore.AuthorityReclassificationTest do
   use Aiur.DecisionStoreCase, async: false
 
+  alias Aiur.DecisionStore.Persistence
+
   test "baseline contract: omitted authority defaults to Executor; explicit human-required needs a basis", %{dir: dir} do
     pid = start_store!(dir, dispatch_delay_ms: 60_000)
 
@@ -124,7 +126,7 @@ defmodule Aiur.DecisionStore.AuthorityReclassificationTest do
       data = %{actor: unquote(Macro.escape(actor)), authority: :supervisor_allowed, detail: "Not mine to decide.", expected_version: 1}
 
       assert {:error, unquote(Macro.escape(reason))} =
-               Aiur.DecisionStore.Persistence.build_and_persist_event(:authority_reclassified, decision, data, DateTime.utc_now(), state)
+               Persistence.build_and_persist_event(:authority_reclassified, decision, data, DateTime.utc_now(), state)
 
       assert File.read!(state.ndjson_path) == journal_before
       assert {:ok, %{authority: :human_required, version: 1}} = DecisionStore.get(legacy.decision_id, pid)
