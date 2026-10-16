@@ -44,6 +44,9 @@ test('sources-only diff keeps rows and changes freshness without moving the anch
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-states', 'queue:unavailable')
   const after = await page.evaluate(() => ({ same: oldCard.isConnected, top: oldCard.getBoundingClientRect().top }))
   expect(after.same).toBe(true); expect(after.top).toBeCloseTo(before, 0)
+  await page.evaluate(async () => { const { ctx } = await import('/build-home/state.js'); await ctx.resync() })
+  await expect(page.locator('#bd-sec-plan .bd-sech')).not.toContainText('unavailable')
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-states', '')
 })
 test('disconnect and reconnect preserve the cached board without skeletons', async ({ page }) => {
   await open(page, 'live'); await expect(page.locator('#bd-content')).toHaveCount(1)
@@ -61,4 +64,16 @@ test('initial unavailable response stops the loading spinner', async ({ page }) 
   await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · source unavailable')
   await expect(page.locator('.bd-spin')).toHaveCount(0)
   expect(await page.locator('.bd-skel i').evaluateAll(els => els.length === 16 && els.every(el => getComputedStyle(el).animationName === 'none'))).toBe(true)
+})
+
+test('snapshot history window reaches the layout instead of claiming no history', async ({ page }) => {
+  await open(page, 'live'); await expect(page.locator('#bd-content')).toHaveCount(1)
+  await page.evaluate(async () => {
+    const { ctx, S, fx } = await import('/build-home/state.js'), { receive } = await import('/build-home/hook.js')
+    S.ready = false
+    receive({ ...ctx.snap, generation: ctx.snap.generation + 1, sections: { ...ctx.snap.sections, hist: [] },
+      history: { ...ctx.snap.history, more: true, total: 10 } })
+    ctx.vp.scrollTop = 0; fx.update()
+  })
+  await expect(page.locator('#bd-sec-hist .bd-mk.empty')).toHaveText('No history in the loaded daysScroll up to load earlier days.')
 })
