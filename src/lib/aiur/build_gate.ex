@@ -9,7 +9,7 @@ defmodule Aiur.BuildGate do
 
   require Logger
 
-  alias Aiur.BuildGate.{PidStatus, Status}
+  alias Aiur.BuildGate.{HookSnapshot, PidStatus, Status}
   alias Aiur.Config
   alias Aiur.PathSafety
 
@@ -70,7 +70,7 @@ defmodule Aiur.BuildGate do
       _ = prepare_lock_namespace(lock_dir, slots)
 
       [
-        {"BASH_ENV", Keyword.get(opts, :hook_path, hook_path())},
+        {"BASH_ENV", Keyword.get_lazy(opts, :hook_path, fn -> agent_hook_path(gate_dir) end)},
         {"AIUR_BUILD_GATE_DIR", gate_dir},
         {"AIUR_BUILD_GATE_LOCK_DIR", lock_dir},
         {"AIUR_BUILD_GATE_SLOTS", Integer.to_string(slots)},
@@ -105,6 +105,25 @@ defmodule Aiur.BuildGate do
     |> :code.priv_dir()
     |> to_string()
     |> Path.join("build_gate.bash")
+  end
+
+  @doc """
+  The hook path handed to agents: a snapshot that outlives release replacement.
+
+  Falls back to the release hook when the snapshot cannot be written.
+  """
+  @spec agent_hook_path(Path.t()) :: Path.t()
+  def agent_hook_path(gate_dir \\ gate_dir()) when is_binary(gate_dir) do
+    source = hook_path()
+
+    case HookSnapshot.ensure(Path.dirname(source), Path.expand(gate_dir) <> ".hooks") do
+      {:ok, snapshot} ->
+        snapshot
+
+      {:error, reason} ->
+        Logger.warning("build_gate hook_snapshot_failed reason=#{inspect(reason)} fallback=#{source}")
+        source
+    end
   end
 
   @doc "Whether any local build admission mode requires the shared gate."
