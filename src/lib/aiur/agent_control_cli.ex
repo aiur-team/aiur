@@ -60,9 +60,7 @@ defmodule Aiur.AgentControlCLI do
   # state and is handled separately.
   @prewarm_warming_phases [:cloning, :fetching, :building, :checking]
 
-  # `aiur watch` remembers the last board it reported (per-row signature) in a node-local persistent term so
-  # `--changes` can print only state-level deltas across one-shot RPC invocations. Updated at Executor cadence
-  # (minutes), so the persistent_term churn is negligible.
+  # `aiur watch --changes` stores its last per-row board signature between RPCs.
   @watch_baseline_key {__MODULE__, :watch_baseline}
   @watch_stuck_after_seconds 600
 
@@ -326,6 +324,8 @@ defmodule Aiur.AgentControlCLI do
     guarded("executor-escalate", fn -> opts |> ExecutorCommandCLI.escalate(error_fun: &control_error/1) |> exit_marker() end)
   end
 
+  @spec executor_reclassify(keyword()) :: :ok
+  def executor_reclassify(opts) when is_list(opts), do: guarded("executor-reclassify", fn -> opts |> ExecutorCommandCLI.reclassify(error_fun: &control_error/1) |> exit_marker() end)
   @spec executor_moot(keyword()) :: :ok
   def executor_moot(opts) when is_list(opts) do
     guarded("executor-moot", fn -> opts |> ExecutorCommandCLI.moot(error_fun: &control_error/1) |> exit_marker() end)

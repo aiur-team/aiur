@@ -7,6 +7,7 @@ import { H } from './history.js';
 import { fromServer, flushURL } from './url.js';
 import './clock.js';
 import './render.js';
+import './cards.js';
 import './offline.js';
 import './tools.js';
 import './span.js';
@@ -48,6 +49,7 @@ export function receive(msg) {
         if (msg.kind === 'diff') resync(); else fx.renderUnavailable('invalid');
         return;
       }
+      fx.tickCardAges();
       if (msg.kind === 'snapshot') { if (first) firstPaint(); else repaint(); }
       else { fx.dataChanged(msg); fx.drawEdgesSoon(30); }
       writeOwnData();

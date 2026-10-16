@@ -36,10 +36,9 @@ defmodule Aiur.DecisionValidation do
   """
 
   alias Aiur.{Config, Decision, DecisionArtifact, DecisionCommandType, DecisionProvenance, SecretRedactor}
+  alias Aiur.DecisionValidation.Context
 
   @question_max 2000
-  @short_summary_max 500
-  @long_context_max 20_000
   @consequence_max 2000
   @kind_max 100
   @identity_max 200
@@ -104,7 +103,14 @@ defmodule Aiur.DecisionValidation do
              type_field(type_policy, :reversibility, @default_reversibility),
              :reversibility
            ),
-         {:ok, context} <- fetch_context(payload),
+         {:ok, context} <- Context.normalize(payload),
+         :ok <-
+           validate_authority_basis(
+             authority,
+             kind,
+             context,
+             Keyword.get(opts, :legacy_replay, false)
+           ),
          {:ok, options} <- fetch_options(payload),
          {:ok, recommendation} <- fetch_recommendation(payload, options),
          {:ok, consequence_of_delay} <-
@@ -166,6 +172,15 @@ defmodule Aiur.DecisionValidation do
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
+
+  defp validate_authority_basis(:human_required, kind, context, true) do
+    if is_nil(Map.get(context, :authority_basis)),
+      do: :ok,
+      else: Context.validate_authority_basis(:human_required, kind, context)
+  end
+
+  defp validate_authority_basis(authority, kind, context, _allow_legacy),
+    do: Context.validate_authority_basis(authority, kind, context)
 
   defp get(payload, key) when is_atom(key) do
     Map.get(payload, key, Map.get(payload, Atom.to_string(key)))
@@ -234,29 +249,6 @@ defmodule Aiur.DecisionValidation do
     if atom_value in allowed, do: {:ok, atom_value}, else: {:error, {field, :invalid_enum}}
   rescue
     ArgumentError -> {:error, {field, :invalid_enum}}
-  end
-
-  defp fetch_context(payload) do
-    case get(payload, :context) do
-      nil ->
-        {:ok, %{short_summary: nil, long_context_markdown: nil}}
-
-      context when is_map(context) ->
-        with {:ok, short_summary} <-
-               fetch_optional_string(context, :short_summary, @short_summary_max, :context_short_summary),
-             {:ok, long_context_markdown} <-
-               fetch_optional_string(
-                 context,
-                 :long_context_markdown,
-                 @long_context_max,
-                 :context_long_context_markdown
-               ) do
-          {:ok, %{short_summary: short_summary, long_context_markdown: long_context_markdown}}
-        end
-
-      _other ->
-        {:error, {:context, :invalid_type}}
-    end
   end
 
   defp fetch_options(payload) do

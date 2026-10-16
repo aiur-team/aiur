@@ -63,6 +63,14 @@ defmodule Aiur.DecisionStore.Calls do
     Requests.handle_executor_escalation(decision_id, payload, state)
   end
 
+  def handle_call({:reclassify_authority, _decision_id, _payload}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:reclassify_authority, decision_id, payload}, _from, state) do
+    Requests.handle_authority_reclassification(decision_id, payload, state)
+  end
+
   def handle_call({:dismiss, _decision_id, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end

@@ -58,7 +58,7 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
     end)
 
     assert {:ok, %{thread_id: "thr_original", turn_id: "turn_compact"}} =
-             CodexClient.request_compact(port, "thr_original", timeout_ms: 500, on_status: fn status, _thread_id, _detail -> send(self(), {:status, status}) end)
+             CodexClient.request_compact(port, "thr_original", timeout_ms: 5_000, on_status: fn status, _thread_id, _detail -> send(self(), {:status, status}) end)
 
     assert_received {:status, :pending}
     assert_received {:status, :completed}
@@ -73,7 +73,7 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
     end)
 
     assert {:ok, %{thread_id: "thr_original", turn_id: "turn_compact"}} =
-             CodexClient.request_compact(port, "thr_original", timeout_ms: 500)
+             CodexClient.request_compact(port, "thr_original", timeout_ms: 5_000)
   end
 
   test "reports server failure and a missing completion notification" do
@@ -85,7 +85,7 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
     end)
 
     assert {:error, {:response_error, %{"message" => "compaction rejected"}}} =
-             CodexClient.request_compact(failure_port, "thr_original", timeout_ms: 100)
+             CodexClient.request_compact(failure_port, "thr_original", timeout_ms: 5_000)
 
     {timeout_port, timeout_dir} = server_port("no-completion")
 
@@ -95,7 +95,7 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
     end)
 
     assert {:error, :compaction_completion_timeout} =
-             CodexClient.request_compact(timeout_port, "thr_original", timeout_ms: 100)
+             CodexClient.request_compact(timeout_port, "thr_original", timeout_ms: 1_000)
   end
 
   defp port do
@@ -111,6 +111,7 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
 
     File.write!(path, """
     import json, sys
+    print("ready", flush=True)
     request = json.loads(sys.stdin.readline())
     thread_id = request["params"]["threadId"]
     response = {"id": request["id"], "result": {}}
@@ -130,7 +131,14 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
 
     executable = System.find_executable("python3") || raise "python3 is required for JSON-RPC wire tests"
     port = Port.open({:spawn_executable, executable}, [:binary, :exit_status, :use_stdio, {:line, 65_536}, args: [path]])
-    {port, dir}
+
+    # Interpreter startup under host load can exceed the request budgets, so
+    # start the clock only once the fake server is reading stdin.
+    receive do
+      {^port, {:data, {:eol, "ready"}}} -> {port, dir}
+    after
+      10_000 -> flunk("fake app-server did not start")
+    end
   end
 
   defp response(id, result), do: Jason.encode!(%{"id" => id, "result" => result})

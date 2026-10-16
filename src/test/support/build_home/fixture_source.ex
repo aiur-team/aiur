@@ -5,7 +5,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   alias Aiur.TestSupport.BuildHome.EarlierControl
   alias AiurWeb.Build.Read
 
-  @files ~w(live dense newrepo noqueue offline odd-edges)
+  @files ~w(live dense newrepo noqueue offline odd-edges unknowns hostile)
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   def datasets, do: @files ++ ~w(unavailable hold)
@@ -66,7 +66,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
     path = Path.join(dir, dataset <> ".json")
 
     with {:ok, body} <- File.read(path), {:ok, json} <- Jason.decode(body) do
-      {:ok, json}
+      {:ok, if(dataset == "hostile", do: json["snapshot"], else: json)}
     else
       _error -> {:error, {:fixture_missing, path}}
     end
