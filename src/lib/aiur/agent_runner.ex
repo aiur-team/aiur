@@ -11,7 +11,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
   alias Aiur.Opencode.ApiClient
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
   alias Aiur.Workspace.Ownership
 
   @type worker_host :: String.t() | nil
@@ -253,7 +253,7 @@ defmodule Aiur.AgentRunner do
   defp begin_workspace_setup_retry(issue, opts) do
     operation_id = "workspace:#{System.unique_integer([:positive, :monotonic])}"
 
-    Lifecycle.record(
+    Signal.lifecycle(
       issue.identifier,
       Keyword.get(opts, :telemetry_attempt_id),
       :workspace_setup,

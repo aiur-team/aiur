@@ -138,7 +138,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.LandingWatch,
     Aiur.ExecutorSweep,
     Aiur.Experiments.Auto.Notifier,
-    Aiur.Experiments.Auto.WindowManager
+    Aiur.Experiments.Auto.WindowManager,
+    Aiur.LandingWatch.QuarantineLifter
   ]
 
   setup do
