@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   Turns a CI poll result into the pass, failure, or stale-wait transition.
   """
 
+  alias Aiur.Alerts
   alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.CIRecovery
   alias Aiur.Issue
@@ -30,6 +31,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     cond do
       CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) ->
         state
+
+      HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and stale_approved_head?(state, issue, result) ->
+        alert_stale_approved_head(issue, result)
+        Transition.transition_ci_ticket(state, issue, @ci_wait_state)
 
       HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and result[:pending_reason] == :draft_pull_request ->
         Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
@@ -88,14 +93,15 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   # exact-head observation; an unavailable read leaves the existing state alone.
   defp approved_landing_pr?(
          %Issue{state: issue_state},
-         %{pr_number: number, head_sha: head_sha},
+         %{decision: :failed, pr_number: number, head_sha: head_sha},
          opts
        )
        when is_integer(number) and is_binary(head_sha) do
     if CiLifecycle.ci_wait_state?(issue_state) do
       observer = Keyword.get(opts, :approved_landing_observer, &CIRecovery.observe/2)
+      observation = Keyword.get(opts, :ci_recovery_observation) || observer.(number, observer_opts(opts))
 
-      case observer.(number, Keyword.drop(opts, [:approved_landing_observer])) do
+      case observation do
         {:ok, %{"state" => "OPEN", "headRefOid" => ^head_sha, "reviewDecision" => "APPROVED"} = pr} ->
           is_map(Map.get(pr, "mergeQueueEntry")) or is_map(Map.get(pr, "autoMergeRequest"))
 
@@ -108,6 +114,39 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   end
 
   defp approved_landing_pr?(_issue, _result, _opts), do: false
+
+  defp observer_opts(opts), do: Keyword.drop(opts, [:approved_landing_observer, :ci_recovery_observation])
+
+  defp cache_approved_landing_observation(issue, %{decision: :failed, pr_number: number}, opts)
+       when is_integer(number) do
+    if CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) do
+      observer = Keyword.get(opts, :approved_landing_observer, &CIRecovery.observe/2)
+      Keyword.put(opts, :ci_recovery_observation, observer.(number, observer_opts(opts)))
+    else
+      opts
+    end
+  end
+
+  defp cache_approved_landing_observation(_issue, _result, opts), do: opts
+
+  defp stale_approved_head?(%State{} = state, %Issue{} = issue, %{head_sha: head_sha}) when is_binary(head_sha) do
+    passed_head = get_in(state.ci_lifecycle, [:passed_heads, CiLifecycle.ci_target_for_issue(issue)])
+    is_binary(passed_head) and passed_head != head_sha
+  end
+
+  defp stale_approved_head?(_state, _issue, _result), do: false
+
+  defp alert_stale_approved_head(issue, result) do
+    Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.stale_approved_pr_head",
+      issue: issue.identifier,
+      message: "The PR head for #{issue.identifier} changed after its last green CI head.",
+      reason: "The new head no longer has the previously recorded green CI result. Keep the ticket out of rework until fresh CI and review establish the status of the new head.",
+      needs_attention: true,
+      severity: "critical",
+      central: true,
+      head_sha: result[:head_sha]
+    )
+  end
 
   defp transition_ci_pass(state, issue, result) do
     if LifecycleFence.handoff_blocked?(state, issue) do
@@ -144,6 +183,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   @doc false
   @spec recover_ci_poll_result(State.t(), term(), term(), term()) :: term()
   def recover_ci_poll_result(state, issue, result, opts) do
+    opts = cache_approved_landing_observation(issue, result, opts)
     result = Map.put(result, :ci_recovery_opts, opts)
 
     cond do

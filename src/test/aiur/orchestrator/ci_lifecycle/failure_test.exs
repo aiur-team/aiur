@@ -97,6 +97,61 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       assert next.running[identifier].paused_reason == :ci_wait
     end
 
+    test "failing CI does not dispatch an approved current head with auto-merge armed" do
+      identifier = unique_identifier("ci-approved-auto-merge")
+      recorder = start_recorder()
+      issue = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      next =
+        poll_ci(
+          state,
+          issue,
+          %{decision: :failed, head_sha: "approved-head", pr_number: 943, failures: [%{name: "lint", result: "failure"}]},
+          ci_recovery: fn _issue, result, _opts -> result end,
+          approved_landing_observer: fn 943, _opts ->
+            {:ok,
+             %{
+               "state" => "OPEN",
+               "headRefOid" => "approved-head",
+               "reviewDecision" => "APPROVED",
+               "autoMergeRequest" => %{"enabledAt" => "2026-10-16T00:00:00Z"}
+             }}
+          end
+        )
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _, {:tracker_update, ^identifier, "rework", _}}
+      refute_received {:recorded, _, {:resume_agent, _, _}}
+      assert next.running[identifier].issue.state == "ci-wait"
+      assert next.running[identifier].paused_reason == :ci_wait
+    end
+
+    test "a new head after approved CI raises blocking attention and waits for fresh CI" do
+      identifier = unique_identifier("ci-stale-approved-head")
+      topic = "ticket.#{identifier}.agent.attention.stale_approved_pr_head"
+      :ok = Exchange.subscribe(topic)
+      on_exit(fn -> Exchange.unsubscribe(topic) end)
+      recorder = start_recorder()
+      issue = issue(identifier, "human-review")
+
+      state =
+        running_state(issue, recorder, :paused, paused_reason: :ci_wait)
+        |> then(fn state -> put_in(state.ci_lifecycle.passed_heads, %{identifier => "approved-head"}) end)
+
+      next = poll_ci(state, issue, %{decision: :pending, head_sha: "pushed-head", pr_number: 944})
+
+      assert_receive {:event, %{"needs_attention" => true, topic: ^topic}}, 500
+      assert_received {:recorded, _, {:tracker_update, ^identifier, "ci-wait", _}}
+      refute_received {:recorded, _, {:tracker_update, ^identifier, "rework", _}}
+      assert next.running[identifier].issue.state == "ci-wait"
+    end
+
     test "a head that actually passed CI reworks on a later failure after handoff and reload" do
       identifier = unique_identifier("ci-failed-human-review")
       topic = "ticket.#{identifier}.ci.failed"
