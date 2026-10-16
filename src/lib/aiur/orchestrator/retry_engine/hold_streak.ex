@@ -48,7 +48,7 @@ defmodule Aiur.Orchestrator.RetryEngine.HoldStreak do
       %{alerted?: true, identifier: identifier} ->
         case Alerts.emit_system("#{topic(identifier)}.resolved",
                issue: identifier,
-               reason: "Ticket #{identifier} dispatched past the local GitHub budget hold.",
+               reason: "Ticket #{identifier} is no longer held: it dispatched past the local GitHub budget hold or its claim was released.",
                needs_attention: false,
                severity: "info",
                central: true
