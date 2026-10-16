@@ -111,6 +111,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
        aiur alerts [--needs-attention] [--limit <n> | --all]  show structured alert feed
+       aiur executor-sweep [--json] [--apply]  inspect local Executor findings
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur listen [--topic <pattern> | --ticket <id>]  stream events as JSON lines
        aiur executor-listen [--topic <pattern>]  deprecated alias for listen
@@ -278,6 +279,10 @@ aiur_engine_main() {
     alerts)
       shift
       cmd_alerts "$@"
+      ;;
+    executor-sweep)
+      shift
+      cmd_executor_sweep "$@"
       ;;
     watch)
       shift

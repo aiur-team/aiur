@@ -209,6 +209,40 @@ defmodule Aiur.GitHub.TestTicketScopeTest do
     assert_receive :sandbox_write_reached_http, 1_000
   end
 
+  test "allows creating repository labels in the configured sandbox repository" do
+    test_pid = self()
+    expected_path = "/repos/#{tracker_repository()}/labels"
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      send(test_pid, {:repository_label_create_reached_http, conn.request_path})
+      Plug.Conn.resp(conn, 201, "{}")
+    end)
+
+    assert {:ok, %{status: 201}} =
+             Transport.default_request_fun(%{
+               method: :post,
+               url: "https://api.github.com/repos/#{tracker_repository()}/labels",
+               token: "token",
+               body: %{"name" => "#{Config.label_prefix()}:queued"}
+             })
+
+    assert_receive {:repository_label_create_reached_http, ^expected_path}, 1_000
+
+    assert {:error, {:outside_test_ticket_scope, "unknown"}} =
+             Aiur.TestTicketScope.allow_write?(%{
+               method: :post,
+               url: "https://api.github.com/repos/#{tracker_repository()}/labels",
+               body: %{"name" => "#{Config.label_prefix()}:unrelated"}
+             })
+
+    assert {:error, {:outside_test_ticket_scope, "unknown"}} =
+             Aiur.TestTicketScope.allow_write?(%{
+               method: :post,
+               url: "https://api.github.com/repos/other/repository/labels",
+               body: %{"name" => "#{Config.label_prefix()}:queued"}
+             })
+  end
+
   test "refuses dependency writes whose body can target another issue" do
     assert {:error, {:outside_test_ticket_scope, "99"}} =
              Aiur.TestTicketScope.with_write_scope(
