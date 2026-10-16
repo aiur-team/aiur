@@ -60,7 +60,7 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
     end
 
     test "silent executor failures name the attempted decision, version, and endpoint" do
-      for command <- ["executor-answer", "executor-escalate"] do
+      for command <- ["executor-answer", "executor-escalate", "executor-reclassify"] do
         rel = fake_release()
         state = tmp_state()
         File.write!(Path.join([rel, "bin", "aiur"]), "#!/usr/bin/env bash\necho \"__AIUR_CONTROL_EXIT__:1\"\n")

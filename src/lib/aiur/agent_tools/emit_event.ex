@@ -31,7 +31,10 @@ defmodule Aiur.AgentTools.EmitEvent do
   `supervisor_allowed` and `reversibility` to `reversible` when the requested
   answer is an observed fact. `attention.<slug>` only raises visibility; its
   legacy Command is human-required and cannot be answered by the Executor.
-  Keep genuine human policy choices `human_required`.
+  Keep genuine human policy choices `human_required`; include
+  `context.authority_basis` as `product`, `spend`, `external_publication`, or
+  `security`, with context explaining the specific boundary. Missing or
+  unrecognized bases are rejected. Legacy attention projections are exempt.
   """
   @emit_event_input_schema %{
     "type" => "object",

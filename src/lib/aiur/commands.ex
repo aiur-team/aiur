@@ -112,6 +112,9 @@ defmodule Aiur.Commands do
   @spec escalate_executor_command(String.t(), map(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
   defdelegate escalate_executor_command(decision_id, payload, server, timeout), to: Aiur.DecisionStore
 
+  @spec reclassify_authority(String.t(), map(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  defdelegate reclassify_authority(decision_id, payload, server), to: Aiur.DecisionStore
+
   @spec handle_revision_follow_up(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   defdelegate handle_revision_follow_up(decision_id, action_id), to: Aiur.DecisionStore
 

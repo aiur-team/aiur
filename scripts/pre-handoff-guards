@@ -25,6 +25,14 @@ if [[ "$skip_pr_body" == false ]]; then
   pr_json="$(cd "$(dirname "$pr_json")" && pwd)/$(basename "$pr_json")"
 fi
 
+if [[ "${AIUR_PRE_HANDOFF_SKIP_CODE_CHECKS:-}" == 1 ]]; then
+  echo "pre-handoff-guards: selected tests and Dialyzer skipped; this event runs the full suite"
+elif [[ "$skip_pr_body" == true ]]; then
+  "$repo_root/scripts/run-pre-handoff-code-checks.sh" "$base"
+else
+  "$repo_root/scripts/run-pre-handoff-code-checks.sh" "$base" "$pr_json"
+fi
+
 while IFS= read -r guard || [[ -n "$guard" ]]; do
   [[ -z "$guard" || "$guard" == \#* ]] && continue
   [[ "$skip_pr_body" == true && "$guard" == *'<PR_JSON>'* ]] && continue

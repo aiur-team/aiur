@@ -2,12 +2,8 @@ defmodule Aiur.DecisionHistory do
   @moduledoc """
   Read-only Executor history projected from `Aiur.DecisionStore` records.
 
-  The store remains the only source of truth. This module gives dashboard and
-  API consumers one newest-first shape while preserving uncertainty:
-  actor types are used only when a canonical record states them explicitly.
-  OCC-1 request records have source-agent metadata but no separate mutation
-  actor, so they are identified as ticket-agent activity rather than guessed to
-  be human or supervising-agent decisions.
+  The store remains the source of truth; this module exposes newest-first history
+  and attributes OCC-1 requests to their source agent.
   """
 
   alias Aiur.{Decision, DecisionDelegation, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionStore}
@@ -34,6 +30,7 @@ defmodule Aiur.DecisionHistory do
     "decision_dismissed" => :dismissed,
     "dismissed" => :dismissed,
     "executor_escalated" => :executor_escalated,
+    "authority_reclassified" => :authority_reclassified,
     "answered" => :answered,
     "revised" => :revised,
     "superseded" => :superseded,
@@ -235,6 +232,9 @@ defmodule Aiur.DecisionHistory do
   defp event_record(%DecisionEvent{type: :executor_escalated, data: data}, base, _revisions) do
     Map.merge(base, %{actor: data.actor, escalated_to_operator: true, escalation_reason: data.detail})
   end
+
+  defp event_record(%DecisionEvent{type: :authority_reclassified, data: data}, base, _revisions),
+    do: Map.merge(base, %{actor: data.actor, authority: data.authority, reclassification_rationale: data.detail})
 
   defp event_record(%DecisionEvent{type: type, data: data}, base, actions)
        when type in [:dispatch_queued, :dispatch_outcome_unknown, :delivered, :restored, :consumed, :failed] do

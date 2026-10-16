@@ -20,9 +20,9 @@ Global launches require Issues write access; conflicting repos fail. Omit `track
 | --- | --- | --- |
 | Start or attach | `aiur`, `aiur run` | Bare `aiur` attaches to this repository's live session when one exists; otherwise foreground gives the TUI board and chat panes. Background is headless unless launched with `--interactive`. |
 | Inspect live state | `status`, `agents`, `watch`, `alerts`, `usage`, `github-cost`, `github-usage` | Read-only reports from the running daemon. |
-| Operate the fleet | `set max-agents`, `pause`, `resume`, `park`, `message`, `reset-budget`, `workspace-recover`, `stop`, `restart` | Steers a live run and recovers an exactly identified workspace hold after the daemon proves provider exit. `park <ids>` releases a paused reservation; explicit resume clears its marker under capacity checks. |
+| Operate the fleet | `set max-agents`, `pause`, `resume`, `park`, `message`, `reset-budget`, `workspace-recover`, `stop`, `restart` | Steers a live run, recovers identified workspace holds, and manages paused reservations. |
 | Mirror a dashboard page | `units`, `commands`, `build-orders`, `queue show`, `analytics` | Read-only terminal forms of the dashboard pages. |
-| Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-moot`, `executor-emit`, `listen`, `findings`, `feature`, `epic` | Decision inbox, Executor events, and findings ledger. |
+| Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-reclassify`, `executor-moot`, `executor-emit`, `listen`, `findings`, `feature`, `epic` | Decision inbox, Executor actions, and findings ledger. |
 
 Background mode is the shape that matters for an agent Executor. `aiur --bg` starts the daemon with no board and no panes, the dashboard stays up, and every command below reads and writes the same live state through that detached daemon.
 
@@ -305,6 +305,7 @@ Quick creation accepts `--hypothesis`, `--draft`, `--no-freeze` and `--json`. Ma
 | `aiur executor-answer DECISION-ID --executor-id exec-1` | Optional attribution for the answering Executor. It must not be empty when present. | `aiur executor-answer dec_123 --expected-version 1 --option morning --rationale "Lowest risk" --idempotency-key run-1 --executor-id exec-1` |
 | `aiur executor-answer DECISION-ID --supersede` | Replaces the answer of a decided Command that no agent has received yet. The new answer is recorded as a revision, the old answer stays in the audit history, and only the newest answer is delivered. It is refused once a worker picked up any answer for sending, and for a Command that has no answer yet. | `aiur executor-answer dec_123 --expected-version 1 --custom-response "Use the new fixture" --rationale "Operator changed direction" --idempotency-key run-3 --supersede` |
 | `aiur executor-escalate DECISION-ID` | Hands a decision back to the human Executor instead of answering it. It requires `--expected-version` and `--reason`. | `aiur executor-escalate dec_123 --expected-version 1 --reason "Needs the release owner"` |
+| `aiur executor-reclassify DECISION-ID` | Reclassifies an open historical `human_required` decision with no human-only basis. Refuses decisions with product, spend, publication, security, or legacy-attention provenance. Requires `--expected-version` and `--rationale`; reclassification increments the version. | `aiur executor-reclassify dec_123 --expected-version 1 --rationale "Acceptance specifies the fallback"` |
 | `aiur executor-escalate DECISION-ID --reason "Text"` | Required. It records why the supervising Executor declined to answer. | `aiur executor-escalate dec_123 --expected-version 1 --reason "Needs the release owner"` |
 | `aiur executor-moot DECISION-ID` | Retires a Command whose question is void — its ticket closed, its originating agent is gone, or the operator changed direction before the answer reached an agent — recording why and by whom, without fabricating an answer. It requires `--expected-version` and `--reason-class`. It also withdraws a decided answer that no worker has picked up for sending; that answer is never delivered. For a decided Command, the Executor may withdraw only an answer that an Executor recorded or could have recorded itself; otherwise use `executor-escalate`. | `aiur executor-moot dec_123 --expected-version 1 --reason-class ticket_closed` |
 | `aiur executor-moot DECISION-ID --reason-class ticket_closed` | Required. A bounded class such as `ticket_closed` or `origin_agent_gone` that explains why the Command was voided. | `aiur executor-moot dec_123 --expected-version 1 --reason-class origin_agent_gone --reason "Agent no longer runs"` |
@@ -319,7 +320,7 @@ If the operator changes direction before delivery, run `executor-moot` to withdr
 
 Executor mutation failures include a remedy on stderr. Supply any named missing flag and retry; when `--expected-version` is stale, read the current version from the error and retry only after confirming the Command has not changed unexpectedly.
 
-If `executor-answer` says a field is outside Executor scope, use `aiur executor-escalate` with the same decision ID and current version.
+If `executor-answer` says a field is outside Executor scope, use `aiur executor-escalate` for genuinely human-owned questions. `executor-reclassify` only handles historical decisions with no recorded human-only basis; use the incremented version when answering.
 
 A stopped daemon is reported separately with the command needed to start it; a live but silent or unreachable daemon reports the attempted decision ID, expected version, and daemon endpoint so the same call can be diagnosed without guessing.
 
@@ -484,5 +485,4 @@ Gates cover head, draft, approval, requested changes, CI, conflicts, attribution
 A merge-queue rule reports `ENQUEUED`, never a direct merge; rerun after GitHub merges to record the result. Exit codes: `0` merged, enqueued, observed merged or dry run; `2` policy refusal; `1` tool/network error. Records, logs: `~/.aiur/logs/pr-merge/`. Only observed merges notify `system.pr.merged`, daemon-verified. Ledger/notification failures only warn.
 
 ## Offline experiment statistics
-
-`analytics/experiment-stats --experiment-dir DIR [--check] [--now TIME]` analyzes frozen experiment JSON. `--check` verifies the computed result body; `--now` overrides its external timestamp. See [Experiment statistics](./experiment-statistics) for inputs, methods, defaults and exit codes.
+`analytics/experiment-stats --experiment-dir DIR [--check] [--now TIME]` analyzes frozen experiment JSON. `--check` verifies the result; `--now` overrides its timestamp. See [Experiment statistics](./experiment-statistics).

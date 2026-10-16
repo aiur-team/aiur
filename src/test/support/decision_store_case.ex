@@ -104,6 +104,13 @@ defmodule Aiur.DecisionStoreCase do
   end
 
   def request(pid, payload, opts \\ []) do
+    payload =
+      if Map.get(payload, "authority") == "human_required" do
+        Map.update(payload, "context", %{"authority_basis" => "security"}, &Map.put_new(&1, "authority_basis", "security"))
+      else
+        payload
+      end
+
     DecisionStore.request(payload, Keyword.merge([ticket: @ticket, source: @source], opts), pid)
   end
 
@@ -117,6 +124,18 @@ defmodule Aiur.DecisionStoreCase do
       -DateTime.to_unix(decision.created_at, :microsecond),
       decision.decision_id
     }
+  end
+
+  def question_with_identity(question, identity) do
+    suffix =
+      identity
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+      |> String.graphemes()
+      |> Enum.chunk_every(2)
+      |> Enum.map_join(" ", &List.to_string/1)
+
+    "#{question} #{suffix}"
   end
 
   def project_attention(pid, payload, opts \\ []) do
@@ -293,6 +312,7 @@ defmodule Aiur.DecisionStoreCase do
           "question" => "Which archival target?",
           "blocking" => false,
           "authority" => "human_required",
+          "context" => %{"authority_basis" => "security"},
           "source_id" => "expired-unanswerable-1"
         },
         ticket: %{@ticket | identifier: "979"},
