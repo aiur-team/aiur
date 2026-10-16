@@ -336,20 +336,23 @@ test('named live diff clears known progress, band refresh rereads rows by id', a
     // C9-T08 owns band creation; refresh consumes its documented existing-item
     // contract. Hold real live relayout while testing this independent refresh.
     it.key = 'probe-band'; it.y = 20; it.el = beforeRefresh
-    ctx.bandMap[it.key] = { x: 120, w: 260 }; ctx.L.band.items = [it]
-    ren.place(beforeRefresh, it); window.bandItem = it; ctx.snapping = true
+    // Any other relayout may still replace ctx.L, so supply the band per refresh.
+    window.refreshBand = id => {
+      ctx.bandMap[it.key] = { x: 120, w: 260 }; ctx.L.band.items = [it]; cards.refreshTicket(id)
+    }
+    ctx.bandMap[it.key] = { x: 120, w: 260 }; ren.place(beforeRefresh, it); window.bandItem = it; ctx.snapping = true
   })
   await page.request.get('/build-control/diff?name=card-pct-null')
   await expect.poll(() => page.evaluate(() => ctx.D.byId['9002'].pct)).toBeNull()
   expect(await page.evaluate(() => {
-    cards.refreshTicket('9002'); bandItem.el.id = 'card-probe'
+    refreshBand('9002'); bandItem.el.id = 'card-probe'
     return { replaced: bandItem.el !== beforeRefresh, connected: !beforeRefresh.isConnected,
       noanim: bandItem.el.classList.contains('noanim'), left: bandItem.el.style.left, top: bandItem.el.style.top }
   })).toEqual({ replaced: true, connected: true, noanim: true, left: '120px', top: '20px' })
   await unknownProgress(card); await expect(card.locator('[data-unknown="pct"]')).toHaveText('—')
   await expect(card.locator('.bd-status')).not.toContainText('40%')
   expect(await page.evaluate(() => {
-    ctx.D.byId['9002'] = { ...bandItem.t, pct: 73 }; cards.refreshTicket('9002')
+    ctx.D.byId['9002'] = { ...bandItem.t, pct: 73 }; refreshBand('9002')
     return bandItem.el.querySelector('.bd-status').textContent
   })).toBe('Running73%')
 })
