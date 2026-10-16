@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.ReworkDispatchClaim do
 
   require Logger
 
-  alias Aiur.{Issue, Orchestrator.State}
+  alias Aiur.{GitHub.Errors, Issue, Orchestrator.State}
   alias Aiur.Orchestrator.{DispatchPolicy, TicketTransition, TrackerTasks}
 
   @spec dispatch(State.t(), Issue.t(), (State.t() -> State.t()), (State.t(), atom() -> State.t()), (State.t(), String.t() -> term())) ::
@@ -43,9 +43,18 @@ defmodule Aiur.Orchestrator.ReworkDispatchClaim do
       result == :ok ->
         dispatch_fun.(current)
 
+      transient_hold?(result) ->
+        # The guarded write never landed; release the claim so the next poll retries instead of declining.
+        Logger.info("Rework dispatch claim held for #{State.issue_context(issue)}; retrying next poll: #{inspect(result)}")
+        Map.update!(current, :claimed, &MapSet.delete(&1, issue.id))
+
       true ->
         Logger.warning("Rework dispatch claim failed for #{State.issue_context(issue)}: #{inspect(result)}")
         current |> Map.update!(:claimed, &MapSet.delete(&1, issue.id)) |> then(&decline_fun.(&1, :rework_claim_failed))
     end
   end
+
+  defp transient_hold?({:error, {:github, kind, _detail}}) when kind in [:local_hold, :rate_limited], do: true
+  defp transient_hold?({:error, reason}), do: match?({:github, :local_hold, _detail}, Errors.classify_transport(reason))
+  defp transient_hold?(_result), do: false
 end
