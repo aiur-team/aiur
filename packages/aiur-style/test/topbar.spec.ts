@@ -37,8 +37,11 @@ test('theme toggle aria-pressed tracks explicit and system theme', async ({ page
   await page.goto('topbar.html');
   const toggle = page.locator('.aiur-theme-toggle');
   await expect(toggle).toHaveAttribute('aria-label', 'Dark mode');
+  // the page defaults to dark, so the first click lands on light
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', String(await page.evaluate(() => document.documentElement.dataset.theme === 'dark')));
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
@@ -66,8 +69,12 @@ test('pin hands the bar to fixed once the banner has scrolled away', async ({ pa
 
 for (const theme of ['light', 'dark']) {
   test(`topbar screenshots ${theme}`, async ({ page }) => {
-    await page.goto(`topbar.html?theme=${theme}`);
-    await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
+    await page.goto('topbar.html');
+    const toggle = page.locator('.aiur-theme-toggle');
+    // the page defaults to dark; reach light through the real toggle
+    if (theme === 'light') await toggle.click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(toggle).toHaveAttribute('aria-pressed', String(theme === 'dark'));
     await page.evaluate(() => document.fonts.ready);
     await page.evaluate(() => scrollTo(0, 900));
     const bar = page.locator('.aiur-topbar');
@@ -77,10 +84,7 @@ for (const theme of ['light', 'dark']) {
     await expect(bar).toHaveScreenshot(`topbar-pinned-${theme}.png`);
     await bar.evaluate(el => { el.classList.add('aiur-topbar--end'); el.querySelector('.aiur-brand')!.remove(); });
     await expect(bar).toHaveScreenshot(`topbar-end-${theme}.png`);
-    const toggle = page.locator('.aiur-theme-toggle');
-    for (const pressed of ['false', 'true']) {
-      await toggle.evaluate((el, value) => el.setAttribute('aria-pressed', value), pressed);
-      await expect(toggle).toHaveScreenshot(`theme-toggle-${pressed}-${theme}.png`);
-    }
+    // pressed state and page theme always move together, as a user sees them
+    await expect(toggle).toHaveScreenshot(`theme-toggle-${theme === 'dark'}-${theme}.png`);
   });
 }
