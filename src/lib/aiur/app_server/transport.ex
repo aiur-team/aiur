@@ -15,7 +15,7 @@ defmodule Aiur.AppServer.Transport do
 
   @doc """
   Kills processes the relay adopted because their launcher exited: tool
-  commands that left the provider's process group (#4730). The direct Port has
+  commands that left the provider's session (#4730). The direct Port has
   no subreaper, so it has nothing to reap.
   """
   @spec reap_orphans(t()) :: :ok

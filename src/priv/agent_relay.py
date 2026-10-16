@@ -251,11 +251,12 @@ class Relay:
     async def kill_descendants(self, spare=None):
         # Tool commands may setsid or double-fork out of the provider group;
         # as subreaper the relay adopts them, so its tree is the whole agent.
-        # `spare` is the live provider at a turn end: it and its own process
-        # group (MCP servers) survive; tool shells run in groups of their own.
+        # `spare` is the live provider at a turn end: it and its descendants in
+        # its session (MCP servers) survive. Claude and Codex both start tool
+        # commands in sessions of their own, and a process cannot rejoin one.
         for _ in range(100):
             self.reap_adopted()
-            kept = provider_group(spare) if spare else set()
+            kept = provider_session(spare) if spare else set()
             pids = [pid for pid in descendants(os.getpid()) if pid not in kept and not zombie(pid)]
             if not pids:
                 return
@@ -392,13 +393,14 @@ def descendants(root):
     return found
 
 
-def provider_group(provider):
-    def group(pid):
+def provider_session(provider):
+    # Codex gives each MCP server a process group of its own, so match the session.
+    def session(pid):
         try:
-            return os.getpgid(pid)
+            return os.getsid(pid)
         except ProcessLookupError:
             return None
-    return {provider} | {pid for pid in descendants(provider) if group(pid) == provider}
+    return {provider} | {pid for pid in descendants(provider) if session(pid) == provider}
 
 
 def zombie(pid):

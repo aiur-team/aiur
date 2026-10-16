@@ -18,12 +18,13 @@ PROVIDER = ("import subprocess,sys\n"
             "sys.stdin.readline()\n")
 
 # A tool shell still running at the turn end, in its own session the way
-# headless Claude runs Bash, beside a provider-group child (an MCP server).
+# headless Claude and Codex run tool commands, beside MCP servers: Claude's in
+# the provider group, Codex's in a group of its own within the provider session.
 LIVE_SHELL = ("import subprocess,sys\n"
               "subprocess.Popen(['setsid', 'sh', '-c', "
               "\"timeout 30 sh -c 'echo $$ > loop.pid; while :; do sleep 0.2; done'\"])\n"
-              "server = subprocess.Popen(['sleep', '30'])\n"
-              "open('server.pid', 'w').write(str(server.pid))\n"
+              "servers = [subprocess.Popen(['sleep', '30']), subprocess.Popen(['sleep', '30'], process_group=0)]\n"
+              "open('server.pid', 'w').write(' '.join(str(server.pid) for server in servers))\n"
               "print('ready', flush=True)\n"
               "sys.stdin.readline()\n")
 
@@ -50,7 +51,7 @@ class RelayContainmentTest(unittest.TestCase):
 
     def tearDown(self):
         # Without the fix the loop survives the relay; never leave it behind.
-        for pid in (getattr(self, 'loop', None), getattr(self, 'server', None)):
+        for pid in (getattr(self, 'loop', None), *getattr(self, 'servers', ())):
             if pid and alive(pid):
                 os.kill(pid, signal.SIGKILL)
         harness.RelayTest.tearDown(self)
@@ -81,18 +82,19 @@ class RelayContainmentTest(unittest.TestCase):
         self.wait(lambda: not (self.directory / 'ctl.sock').exists())
         self.assertFalse(alive(self.loop))
 
-    def test_turn_reap_kills_a_loop_under_a_live_tool_shell_and_spares_the_provider_group(self):
+    def test_turn_reap_kills_a_loop_under_a_live_tool_shell_and_spares_the_provider_session(self):
         self.start(LIVE_SHELL)
         client, stream, hello = self.connect(1)
         self.assertEqual(self.read(stream)['line'], 'ready')
         loop_file = self.directory / 'loop.pid'
         self.wait(lambda: loop_file.exists() and loop_file.read_text().strip())
         self.loop = int(loop_file.read_text())
-        self.server = int((self.directory / 'server.pid').read_text())
+        self.servers = [int(pid) for pid in (self.directory / 'server.pid').read_text().split()]
         self.assertTrue(alive(self.loop))
         self.send(client, op='reap')
         self.wait(lambda: not alive(self.loop))
-        self.assertTrue(alive(self.server))
+        for server in self.servers:
+            self.assertTrue(alive(server))
         self.assertTrue(alive(hello['provider_pid']))
 
 
