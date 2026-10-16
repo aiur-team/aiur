@@ -1,4 +1,4 @@
-const sv = (p, sw) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 2) + '" stroke-linecap="round" stroke-linejoin="round">' + p + "</svg>";
+export const sv = (p, sw) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 2) + '" stroke-linecap="round" stroke-linejoin="round">' + p + "</svg>";
 export const I = {
   bug: sv('<path d="M9 7.5V6a3 3 0 0 1 6 0v1.5"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6z"/><path d="M12 20v-8M6 13H2.5M21.5 13H18M6.3 9 3.5 7.5M17.7 9l2.8-1.5M6.3 17.5 3.5 19M17.7 17.5l2.8 1.5"/>'),
   feature: sv('<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>'),

@@ -41,6 +41,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
       job_log_fun: fn _, _ ->
         {:ok, "mix test src/test/aiur/example_test.exs:12 test issue signature failed"}
       end,
+      annotations_fun: fn _, _ -> {:ok, []} end,
       jobs_fun: fn id, _ ->
         {:ok,
          [

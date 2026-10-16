@@ -233,8 +233,6 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
   # probe exactly as it would be by a billed call (#2284's "no quota can still
   # cost a slot"). One rate_limit admission is therefore enough to hold the
   # next request in the same minute.
-  # Flaky in merge groups; fix tracked in #4463.
-  @tag :quarantine
   test "a non-billable rate_limit probe still consumes a rate-per-minute pacing slot", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)

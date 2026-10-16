@@ -76,7 +76,8 @@ elsewhere. Prefer the source that would still be right if every local assumption
 were wrong.
 
 **Before auditing a GitHub-facing surface, read
-[`website/docs-app/apis/github.md`](../../../website/docs-app/apis/github.md).**
+[`website/docs-app/apis/github.md`](../../../website/docs-app/apis/github.md)
+and its topic pages in `website/docs-app/apis/`.**
 It is the source of truth for how Aiur talks to GitHub — poll cadence, API
 budgets, credential pooling, the read cache, webhook delivery states, and the
 Cloudflare tunnel boundary. In the incident above it already documented the
@@ -205,6 +206,11 @@ Distinguish three things that present identically as "the fleet is idle":
 Resolve a bottleneck when it can be done without adding much complexity. Do not
 invent work.
 
+When a feature looks starved, inspect the focus feature's GitHub `blocked_by`
+critical path and its open blocking decisions before changing queue ranks or
+holds. A downstream ticket waiting on a real prerequisite is not a queue-rank
+problem.
+
 **When the bottleneck is review, the remedy is parallel review, not fewer
 agents.** A queue that is growing with nothing approved is the Executor's own
 throughput ceiling, and it is the most common steady-state bottleneck once the
@@ -265,6 +271,11 @@ a review at the current head; check the reported age and review that PR first.
 The command reads local daemon state and cached GitHub resources. Do not replace
 it with a per-poll GitHub query loop. Continue the manual attribution check below
 for PRs you are about to enqueue.
+
+Any blocking decision at least 15 minutes old is a finding: answer or escalate
+it within the mandate, and record its age. Surface newly opened decisions in the
+same pass; use the `aiur-run` [decision sweep](../aiur-run/references/decision-sweep.md)
+for the command's JSON fields and age calculation.
 
 ### 3b. Every manual step is a finding
 

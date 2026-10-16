@@ -60,7 +60,25 @@ manual_sandbox_reset_exclude =
 # check against the live provider — never a gate, because a gate that needs the
 # internet and someone's API key fails for reasons that have nothing to do with
 # the change under test. Run one with `mix test --only external`.
-ExUnit.start(exclude: [:external, :perf_regression, :quarantine] ++ real_proc_exclude ++ manual_sandbox_reset_exclude)
+quarantine_path = Path.join(__DIR__, "quarantine.txt")
+
+quarantine_entries =
+  case Aiur.TestQuarantine.read(quarantine_path) do
+    {:ok, entries} -> entries
+    {:error, reason} -> raise "invalid test quarantine list #{quarantine_path}: #{inspect(reason)}"
+  end
+
+quarantine_filters =
+  if System.get_env("AIUR_RUN_QUARANTINED") == "1",
+    do: [],
+    else: Aiur.TestQuarantine.filters(quarantine_entries)
+
+ExUnit.start(
+  exclude:
+    [:external, :perf_regression, :quarantine] ++
+      real_proc_exclude ++
+      manual_sandbox_reset_exclude ++ quarantine_filters
+)
 
 Code.require_file("support/test_tmp.exs", __DIR__)
 

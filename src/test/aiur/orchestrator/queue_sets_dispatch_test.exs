@@ -35,8 +35,6 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     def notify_demand(_), do: :ok
   end
 
-  # Flaky in merge groups; fix tracked in #4463.
-  @tag :quarantine
   test "CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks" do
     {document, issues, _} = fixture()
     start_supervised!({Agent, fn -> document end}, id: :rank_store) |> Process.register(QueueBoundary)
