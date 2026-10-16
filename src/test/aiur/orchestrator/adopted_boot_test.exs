@@ -47,8 +47,9 @@ defmodule Aiur.Orchestrator.AdoptedBootTest do
     assert state.effective_concurrent_agents == 7
     capped = adopt(dir, 3, 9, 5)
     assert capped.effective_concurrent_agents == 5
-    occupied = adopt(dir, 6, 4, 5)
-    assert occupied.effective_concurrent_agents == 6
+    # Adoption past the cap falls back to a retry (#4683), so occupancy tops out at the cap.
+    occupied = adopt(dir, 5, 4, 5)
+    assert occupied.effective_concurrent_agents == 5
     assert Slots.effective_concurrent_agent_limit(occupied) == 5
   end
 
