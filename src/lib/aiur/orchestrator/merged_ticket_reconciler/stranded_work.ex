@@ -14,10 +14,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
 
   require Logger
 
-  alias Aiur.{Alerts, Config}
+  alias Aiur.{Alerts, Config, Tracker}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.IssueReopen
-  alias Aiur.Orchestrator.{CommentWake, Dispatcher, State, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.{CommentWake, State, TicketTransition, TrackerTasks}
   alias Aiur.Orchestrator.OperatorMessages.Enqueue
 
   @spec mark_merged(State.t(), String.t() | integer(), keyword()) :: State.t()
@@ -67,13 +66,11 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
   end
 
   defp keep_open(identifier, opts) do
-    reopen = Keyword.get(opts, :reopen_issue_fun, &reopen_issue/1)
+    reopen = Keyword.get(opts, :reopen_issue_fun, &Tracker.reopen_issue/1)
     write = Keyword.get(opts, :keep_open_state_fun, &TicketTransition.write_state(&1, "in-progress", writer: :stranded_work))
 
     with :ok <- reopen.(identifier), do: write.(identifier)
   end
-
-  defp reopen_issue(identifier), do: if(Dispatcher.github_tracker_kind?(), do: IssueReopen.reopen(identifier), else: :ok)
 
   defp apply_check(state, identifier, :merged, opts), do: CommentWake.mark_pr_merged_issue_done(state, identifier, opts)
 
