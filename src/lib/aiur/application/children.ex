@@ -272,12 +272,17 @@ defmodule Aiur.Application.Children do
         BuildOrders.child_specs(:label_projection, opts) ++
         landing_watch_children() ++
         executor_sweep_children() ++
-        Aiur.Experiments.window_children(recording?) ++ List.wrap(if(dashboard?, do: AiurWeb.Build.Index))
+        Aiur.Experiments.window_children(recording?) ++
+        quarantine_lifter_children() ++ List.wrap(if(dashboard?, do: AiurWeb.Build.Index))
     )
   end
 
   defp landing_watch_children do
     if AiurConfig.tracker_kind() == "github", do: [Aiur.LandingWatch], else: []
+  end
+
+  defp quarantine_lifter_children do
+    if AiurConfig.tracker_kind() == "github", do: [Aiur.LandingWatch.QuarantineLifter], else: []
   end
 
   defp executor_sweep_children do

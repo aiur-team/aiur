@@ -120,16 +120,18 @@ defmodule AiurWeb.Presenter do
     case safe_call(provider) do
       {:ok, %{merges: merges, health: health, reconciliation: reconciliation}}
       when is_list(merges) and is_map(reconciliation) ->
+        public_health = recent_merge_health(health)
+
         %{
-          status: if(health == :writable, do: :available, else: :degraded),
+          status: if(public_health == :writable, do: :available, else: :degraded),
           entries:
             merges
             |> Enum.map(&recent_merge_payload/1)
             |> Enum.reject(&is_nil/1)
             |> Enum.take(@recent_merge_limit),
-          health: recent_merge_health(health),
+          health: public_health,
           reconciliation: reconciliation,
-          message: recent_merge_message(health)
+          message: recent_merge_message(public_health)
         }
 
       _other ->
