@@ -170,6 +170,12 @@ if config_env() == :test do
   # Tests drive `check/1` deterministically on their own instances.
   config :aiur, :broker_timeout_check_interval_ms, 0
 
+  # The shared app's terminal-ticket fact capture must not reach GitHub across
+  # sequential test boundaries: other tests queue tickets into it, and its 5 s
+  # retry tick sends `POST /graphql` whenever a later test has set a token.
+  # Tests that exercise it start their own instance.
+  config :aiur, :run_telemetry_facts_capture?, false
+
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.
   config :aiur, :build_order_pack_status_poll?, false
