@@ -15,6 +15,26 @@ defmodule Aiur.ExecutorListenerTest do
   @listener_name Aiur.ExecutorListener.Test
   @inbox_name Aiur.ExecutorWakeInbox.ListenerTest
 
+  # Holds the listener inside each Command alert until the test releases it, so
+  # a test controls how long delivery takes instead of racing it (#4633).
+  defmodule GatedAlertSink do
+    @moduledoc false
+    def emit_system(topic, opts), do: Aiur.Alerts.emit_system(topic, opts)
+
+    # A released alert skips the real alert I/O: the test asserts wakes, not alerts.
+    def emit_custom("executor.command." <> _kind = topic, _message, _opts) do
+      send(Aiur.ExecutorListenerTest, {:alert_gate, self(), topic})
+
+      receive do
+        :release -> :ok
+      after
+        10_000 -> raise "GatedAlertSink was never released for #{topic}"
+      end
+    end
+
+    def emit_custom(topic, message, opts), do: Aiur.Alerts.emit_custom(topic, message, opts)
+  end
+
   setup do
     # The listener reads/writes its durable watermark under the per-test log
     # root (TestSupport isolates :log_file), so a "restart" in a test starts a
@@ -316,6 +336,11 @@ defmodule Aiur.ExecutorListenerTest do
     :ok = Aiur.TestSupport.ensure_id_generator_running()
     dir = Aiur.TestSupport.tmp_root!("aiur-decision-wake")
 
+    Process.register(self(), __MODULE__)
+    signal = Application.get_env(:aiur, :signal)
+    on_exit(fn -> Application.put_env(:aiur, :signal, signal) end)
+    Application.put_env(:aiur, :signal, Keyword.put(signal, :alert_sink, GatedAlertSink))
+
     suffix = System.unique_integer([:positive])
     ticket_identifier = "listener-wake-#{suffix}"
 
@@ -344,6 +369,20 @@ defmodule Aiur.ExecutorListenerTest do
     _nonblocking = request.("parity-note-#{suffix}", false)
     decision = request.("parity-#{suffix}", true)
 
+    # Both events are already in the listener's mailbox: the request publishes
+    # them before it returns. The listener raises a Command alert for each one
+    # before it reaches the blocking Decision's wake, so a wall-clock wait here
+    # races that alert work. Under CI load the alerts outlasted the wait (#4633).
+    assert_receive {:alert_gate, gate, "executor.command.requested"}, 5_000
+    assert :timeout = ExecutorWakeInbox.wait(0, @inbox_name)
+    send(gate, :release)
+    assert_receive {:alert_gate, gate, "executor.command.requested"}, 5_000
+    send(gate, :release)
+
+    # Once this barrier returns, the listener has consumed both events and
+    # enqueued every wake they produce; the wait only covers the inbox flush.
+    assert "executor.#" in Exchange.bindings_for(listener)
+    assert is_map(:sys.get_state(listener))
     assert {:ok, [wake]} = ExecutorWakeInbox.wait(1_000, @inbox_name)
     wake_topic = "ticket.#{ticket_identifier}.agent.attention.operator-decision"
 
@@ -357,9 +396,6 @@ defmodule Aiur.ExecutorListenerTest do
            } = wake
 
     assert wake["decision_id"] == decision.decision_id
-    # The listener sends the wake before this barrier can be handled. Once the
-    # barrier returns, every already-published request event has been consumed.
-    assert is_map(:sys.get_state(listener))
     assert [_only] = ExecutorWakeInbox.pending(@inbox_name)
   end
 

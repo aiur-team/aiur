@@ -15,6 +15,10 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     end
 
     def open_issue_labels(_), do: Agent.get(__MODULE__, &if(Map.get(&1, :observation_unavailable?, false), do: {:error, :offline}, else: {:ok, Map.get(&1, :observation_labels, &1.labels), 1_000}))
+
+    def issue_closure(id, _age),
+      do: Agent.get_and_update(__MODULE__, &{Map.get(Map.get(&1, :closures, %{}), id, {:error, :not_found}), Map.update(&1, :closure_reads, [id], fn ids -> ids ++ [id] end)})
+
     def blocked_by(id), do: Agent.get(__MODULE__, &{:ok, Map.get(Map.get(&1, :dependencies, %{}), id, [])})
 
     def ticket_pull_request(id) do
@@ -89,6 +93,26 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     refute output =~ "#9: closed"
     assert Enum.map(document().items, & &1.issue_id) == ["1", "2", "9"]
     assert document().intents |> Enum.map(&{&1.issue_id, &1.action}) |> Enum.uniq() == [{"1", :mark}, {"2", :mark}, {"9", :mark}]
+    assert Agent.get(Boundary, & &1.closure_reads) == ["9"]
+  end
+
+  test "add reports an unobserved but closed issue closed and does not queue it", %{server: pid} do
+    Agent.update(Boundary, &Map.merge(&1, %{observation_labels: Map.delete(&1.labels, "9"), closures: %{"9" => {:ok, %{open?: false, state_reason: "completed"}}}}))
+    output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["2", "9"], queue: "paseo", server: pid) == 1 end)
+    assert output =~ "#2: ok"
+    assert output =~ "#9: closed"
+    refute output =~ "not yet observed"
+    assert Enum.map(document().items, & &1.issue_id) == ["2"]
+    refute Enum.any?(document().intents, &(&1.issue_id == "9"))
+    assert Agent.get(Boundary, & &1.closure_reads) == ["9"]
+  end
+
+  test "add reads a cached closure without a tracker call", %{server: pid} do
+    Agent.update(Boundary, &Map.put(&1, :observation_labels, Map.delete(&1.labels, "9")))
+    :sys.replace_state(pid, &%{&1 | closure_cache: %{"9" => {:ok, %{open?: false, state_reason: "completed"}}}})
+    assert {:ok, [{"#9", {:error, :closed}}]} = MutationCLI.execute(verb: :add, ids: ["9"], queue: "paseo", server: pid)
+    assert document().items == []
+    refute Map.has_key?(Agent.get(Boundary, & &1), :closure_reads)
   end
 
   test "batch insertion order survives marker-write failure after membership is saved", %{server: pid} do

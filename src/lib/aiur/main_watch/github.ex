@@ -1,6 +1,7 @@
 defmodule Aiur.MainWatch.GitHub do
   @moduledoc "Bounded base-branch Actions observations through the governed GitHub transport."
   alias Aiur.CI.FailureDigest
+  alias Aiur.Events.GithubCIPoller.Evaluation
   alias Aiur.GitHub.{AppCredentials, AppToken, Config, Errors, PullRequests, Transport}
 
   @active_statuses ["queued", "in_progress", "waiting", "requested", "pending"]
@@ -234,7 +235,8 @@ defmodule Aiur.MainWatch.GitHub do
     cached = Enum.find(Keyword.get(opts, :history, []), &(&1.sha == sha and Map.get(&1, :run_fingerprint) == fingerprint))
     fields = [:sha, :completed_at, :checks, :digest, :failed_workflow, :run_urls, :suspect_merges, :run_fingerprint]
 
-    if is_map(cached) and Enum.all?(fields, &Map.has_key?(cached, &1)) do
+    # Entries cached before non-blocking checks were excluded must be rebuilt.
+    if is_map(cached) and Enum.all?(fields, &Map.has_key?(cached, &1)) and not Enum.any?(cached.checks, &Evaluation.non_blocking_name?(&1.name)) do
       {:ok, Map.take(cached, fields)}
     else
       with {:ok, observation} <- observation(sha, runs, opts), do: {:ok, Map.put(observation, :run_fingerprint, fingerprint)}
@@ -269,6 +271,7 @@ defmodule Aiur.MainWatch.GitHub do
   defp latest_checks(checks, suites) do
     checks
     |> Enum.filter(&(get_in(&1, ["check_suite", "id"]) in suites and get_in(&1, ["app", "slug"]) == "github-actions"))
+    |> Enum.reject(&Evaluation.non_blocking_name?(&1["name"]))
     |> Enum.sort_by(& &1["id"], :desc)
     |> Enum.uniq_by(&{get_in(&1, ["check_suite", "id"]), &1["name"]})
   end
