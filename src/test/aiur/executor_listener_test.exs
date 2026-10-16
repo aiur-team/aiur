@@ -21,11 +21,14 @@ defmodule Aiur.ExecutorListenerTest do
     @moduledoc false
     def emit_system(topic, opts), do: Aiur.Alerts.emit_system(topic, opts)
 
-    def emit_custom("executor.command." <> _kind = topic, message, opts) do
+    # A released alert skips the real alert I/O: the test asserts wakes, not alerts.
+    def emit_custom("executor.command." <> _kind = topic, _message, _opts) do
       send(Aiur.ExecutorListenerTest, {:alert_gate, self(), topic})
 
       receive do
-        :release -> Aiur.Alerts.emit_custom(topic, message, opts)
+        :release -> :ok
+      after
+        10_000 -> raise "GatedAlertSink was never released for #{topic}"
       end
     end
 
