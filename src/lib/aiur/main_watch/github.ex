@@ -76,14 +76,10 @@ defmodule Aiur.MainWatch.GitHub do
 
     retained_commits = Keyword.get(opts, :commits)
     retained_dates = Keyword.get(opts, :commit_dates)
-
-    etag =
-      if is_list(retained_commits) and is_list(retained_dates) and
-           length(retained_commits) == length(retained_dates),
-         do: Keyword.get(opts, :commit_etag)
+    etag = retained_etag(retained_commits, retained_dates, opts)
 
     request = github_request(token, "main_watch_commits", opts) |> Map.put(:url, url)
-    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+    request = if etag, do: Map.put(request, :etag, etag), else: request
 
     # Read only the first page: the window is the newest 20 commits, so its `rel="next"` link is expected.
     case request_fun(opts).(request) do
@@ -100,6 +96,16 @@ defmodule Aiur.MainWatch.GitHub do
         {:error, Errors.classify_error({:error, reason})}
     end
   end
+
+  # A validator is only safe to send when its snapshot can answer a 304.
+  defp retained_etag(commits, dates, opts) when is_list(commits) and is_list(dates) and length(commits) == length(dates) do
+    case Keyword.get(opts, :commit_etag) do
+      etag when is_binary(etag) and etag != "" -> etag
+      _absent -> nil
+    end
+  end
+
+  defp retained_etag(_commits, _dates, _opts), do: nil
 
   defp response_etag(response), do: Transport.header(Map.get(response, :headers, []), "etag")
 
