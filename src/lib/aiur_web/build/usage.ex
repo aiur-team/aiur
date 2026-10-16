@@ -7,6 +7,7 @@ defmodule AiurWeb.Build.Usage do
   alias AiurWeb.Build.{Read, UsageAPIs, UsageFacts}
   alias AiurWeb.OperatorControlCenter.{ModelProviders, Money, ProviderMeterSource, ProviderMetersPresenter}
   alias AiurWeb.ProviderMeterWindows
+  import Aiur.BuildOrder.SourceFreshness, only: [ms: 1]
 
   @order [:claude, :codex, :kimi, :deepseek]
   @logos [:claude, :codex, :kimi, :deepseek]
@@ -191,18 +192,6 @@ defmodule AiurWeb.Build.Usage do
     end
   end
 
-  @doc false
-  @spec ms(term()) :: integer() | nil
-  def ms(%DateTime{} = at), do: DateTime.to_unix(at, :millisecond)
-
-  def ms(at) when is_binary(at) do
-    case DateTime.from_iso8601(at) do
-      {:ok, dt, _} -> ms(dt)
-      _ -> nil
-    end
-  end
-
-  def ms(_), do: nil
   @doc false
   @spec percent(term()) :: integer() | nil
   def percent(value) when is_number(value), do: value |> round() |> max(0) |> min(100)

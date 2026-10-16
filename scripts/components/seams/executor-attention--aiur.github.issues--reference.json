@@ -1,0 +1,9 @@
+{
+  "from": "executor-attention",
+  "to_module": "Aiur.GitHub.Issues",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/alerts/stale_not_closed.ex"
+  ],
+  "reason": "#3943: stale merge alert reconciliation reads authoritative GitHub issue closure and done labels"
+}

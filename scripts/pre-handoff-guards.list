@@ -5,3 +5,4 @@ python3 scripts/check-bare-assert-receive.py
 node scripts/check-browser-smoke-shards.mjs
 python3 scripts/check-hot-list-format.py
 python3 scripts/check-file-size.py --base <BASE_SHA>
+python3 scripts/run-quarantined-tests.py --check

@@ -13,14 +13,17 @@ assert.ok(/  push:\n    branches: \[main, v2\]/.test(trigger), 'main pushes trig
 assert.ok(/  schedule:\n    - cron:/.test(trigger), 'scheduled CI is configured');
 const jobs = new Map([...source.split(/^jobs:\n/m)[1].matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:|$(?![\s\S]))/gm)]
   .map(([, id, body]) => [id, body]));
-const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'browser-2', 'browser-3', 'browser-4', 'home-css', 'layout-release', 'analytics', 'streamdeck'];
-const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'ci-gate'];
+const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css', 'layout-release', 'analytics', 'streamdeck', 'pre-handoff'];
+const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'ci-gate', 'pre-handoff'];
 function selected(event, full, dialyzer = false) {
   return [...jobs].filter(([, body]) => {
     const expression = body.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
     return !expression || runInNewContext(expression, {
       github: { event_name: event, ref: event === 'push' ? 'refs/heads/main' : '' }, cancelled: () => false, always: () => true,
-      needs: { changes: { result: 'success', outputs: { full_ci: String(full), dialyzer: String(dialyzer) } } },
+      needs: {
+        changes: { result: 'success', outputs: { full_ci: String(full), dialyzer: String(dialyzer) } },
+        'pre-handoff': { result: 'success' },
+      },
     });
   }).map(([id]) => id);
 }
@@ -87,7 +90,12 @@ assert.notEqual(gate('schedule', true, false).status, 0, 'gate refuses unsupport
 assert.ok(jobs.has('quarantine'), 'quarantine job remains available for scheduled/main runs');
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'schedule'"));
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'push' && github.ref == 'refs/heads/main'"));
-assert.ok(jobs.get('workflow-security').includes('Set up Elixir for evidence and classifier tests'));
+assert.ok(jobs.get('workflow-security').includes('timeout-minutes: 5'), 'security job keeps its original short budget');
+assert.ok(jobs.get('workflow-security').includes("needs['pre-handoff'].result"),
+  'required workflow security check fails when pre-handoff checks fail');
+assert.ok(jobs.get('pre-handoff').includes('./.github/actions/pre-handoff'), 'bounded pre-handoff job runs its dedicated action');
+assert.ok(readFileSync(new URL('../.github/actions/pre-handoff/action.yml', import.meta.url), 'utf8')
+  .includes('uses: ./.github/actions/setup-elixir'), 'pre-handoff action sets up Elixir');
 assert.ok(!jobs.get('workflow-security').includes("Set up Elixir for PR evidence\n        if:"));
 const affected = jobs.get('affected-tests');
 const affectedTimeout = Number(affected.match(/^    timeout-minutes: (\d+)$/m)?.[1]);
@@ -115,14 +123,16 @@ for (const command of coreCommands) {
   assert.equal(shardCommands.filter((name) => name === command).length, 1, `${command} appears in exactly one browser shard`);
 }
 assert.deepEqual([...new Set(shardCommands)].sort(), [...new Set(coreCommands)].sort(), 'shards match npm test:core commands');
-for (const [job, shard] of [['browser', 1], ['browser-2', 2], ['browser-3', 3], ['browser-4', 4]]) {
-  assert.ok(jobs.get(job).includes('./.github/actions/browser-smoke'), `${job} uses the shared browser action`);
-  assert.ok(jobs.get(job).includes('actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'), `${job} checks out before the local action`);
-  assert.ok(jobs.get(job).includes('timeout-minutes: 15'), `${job} retains its 15-minute timeout`);
-  assert.ok(jobs.get(job).includes(`shard: ${shard}`), `${job} selects shard ${shard}`);
-}
+const browserJob = jobs.get('browser');
+assert.ok(browserJob.includes('./.github/actions/browser-smoke'), 'browser uses the shared browser action');
+assert.ok(browserJob.includes('actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'), 'browser checks out before the local action');
+assert.ok(browserJob.includes('timeout-minutes: 22'), 'browser has headroom beyond the 9-minute shard target');
+for (const shard of [1, 2, 3, 4, 5]) assert.ok(browserJob.includes(`- { shard: ${shard}`), `browser matrix selects shard ${shard}`);
 const browserAction = readFileSync(new URL('../.github/actions/browser-smoke/action.yml', import.meta.url), 'utf8');
 assert.ok(browserAction.includes('using: composite'), 'shared browser setup is an allowed local composite action');
+assert.ok(!browserAction.includes('report-ci-run-attempt.sh'), 'the workflow job, not the action, discloses reruns once');
 assert.ok(browserAction.includes('run: node scripts/run-browser-smoke-shard.mjs ${{ inputs.shard }}'), 'shared action runs its selected shard');
+assert.ok(browserAction.includes('Report slowest browser smoke suites'), 'shared action reports per-suite timings after success or timeout');
+assert.ok(browserAction.includes('if: ${{ always() }}'), 'timing report runs after a shard timeout');
 assert.ok(!source.includes('npm run test:core'), 'no single job runs the unsharded browser suite');
 console.log('CI event selection and aggregate failure tests passed');

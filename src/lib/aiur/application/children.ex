@@ -276,7 +276,8 @@ defmodule Aiur.Application.Children do
         BuildOrders.child_specs(:label_projection, opts) ++
         landing_watch_children() ++
         executor_sweep_children() ++
-        Aiur.Experiments.window_children(recording?) ++ quarantine_lifter_children()
+        Aiur.Experiments.window_children(recording?) ++
+        quarantine_lifter_children() ++ List.wrap(if(dashboard?, do: AiurWeb.Build.Index))
     )
   end
 

@@ -209,7 +209,7 @@ defmodule Aiur.GitHub.Quota do
       refresh_ref: nil
     }
 
-    HoldSweep.sweep(state.hold_dir, state.clock.(), state.emit_fun)
+    state = Map.put(state, :hold_alerts, HoldSweep.sweep(state.hold_dir, state.clock.(), state.emit_fun))
     if refresh?, do: Process.send_after(self(), :refresh, 0)
     {:ok, state}
   end
@@ -311,9 +311,9 @@ defmodule Aiur.GitHub.Quota do
   def handle_info(:refresh, state), do: {:noreply, state}
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{refresh_ref: ref} = state) do
-    HoldSweep.sweep(state.hold_dir, state.clock.(), state.emit_fun)
+    hold_alerts = HoldSweep.sweep(state.hold_dir, state.clock.(), state.emit_fun, state.hold_alerts)
     Process.send_after(self(), :refresh, state.refresh_interval_ms)
-    {:noreply, %{refresh_stale_broker_alerts(state) | refresh_ref: nil}}
+    {:noreply, %{refresh_stale_broker_alerts(state) | refresh_ref: nil, hold_alerts: hold_alerts}}
   end
 
   def handle_info({:dispatch_recovery, token}, %{recovery_timer_token: token} = state) do

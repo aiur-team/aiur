@@ -18,6 +18,9 @@
     "./aiur-style.css": "./dist/aiur-style.css",
     "./css/*": "./dist/css/*",
     "./package.json": "./package.json",
+    "./fonts.css": "./dist/fonts.css",
+    "./fonts/*": "./dist/fonts/*",
+    "./assets/*": "./dist/assets/*",
     "./tokens": {
       "types": "./dist/tokens.d.ts",
       "default": "./dist/tokens.js"

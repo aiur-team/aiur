@@ -4,6 +4,7 @@ import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readWorkerSource, workerPartNames } from './layout-worker-source.mjs'
 import { promisify } from 'node:util'
 
 const ELK_VERSION = '0.11.1'
@@ -16,7 +17,7 @@ const layoutSourceRoot = path.join(browserRoot, 'layout')
 const repositoryRoot = path.resolve(sourceRoot, '..')
 const execFileAsync = promisify(execFile)
 const lineEndingPaths = [
-  'src/browser/layout/aiur-layout-worker.js',
+  ...(await workerPartNames(layoutSourceRoot)).map((file) => `src/browser/layout/worker/${file}`),
   'src/browser/layout/aiur-layout-client.js',
   'src/priv/static/vendor/elk/0.11.1/elk-worker.min.js',
   'src/priv/static/vendor/elk/0.11.1/aiur-layout-worker.js',
@@ -52,7 +53,7 @@ async function main() {
   const [sourceEngine, sourceLicense, sourceWorker, sourceClient] = await Promise.all([
     readFile(path.join(packageRoot, 'lib', 'elk-worker.min.js')),
     readFile(path.join(packageRoot, 'LICENSE.md')),
-    readFile(path.join(layoutSourceRoot, 'aiur-layout-worker.js')),
+    readWorkerSource(layoutSourceRoot),
     readFile(path.join(layoutSourceRoot, 'aiur-layout-client.js'))
   ])
   const [engine, license, worker, client] = await Promise.all([
@@ -62,10 +63,10 @@ async function main() {
     readFile(path.join(vendorRoot, 'aiur-layout-client.js'))
   ])
 
-  assert(sourceEngine.equals(engine), 'committed engine bytes must match locked elkjs bundle')
+  assert(sourceEngine.equals(engine), 'generated engine bytes must match locked elkjs bundle')
   assert(sourceLicense.equals(license), 'committed license must match locked elkjs package')
-  assert(sourceWorker.equals(worker), 'committed worker bytes must match authored source')
-  assert(sourceClient.equals(client), 'committed client bytes must match authored source')
+  assert(sourceWorker.equals(worker), 'generated worker bytes must match authored source')
+  assert(sourceClient.equals(client), 'generated client bytes must match authored source')
   assert(engine.byteLength <= manifest.engine.sizeBudgetBytes, 'engine exceeds committed size budget')
 
   verifyAsset(manifest.assets?.engine, engine, 'elk-0.11.1', 'elk-worker.min.js')
@@ -87,7 +88,7 @@ async function main() {
 async function verifyLineEndingContract(javascriptAssets) {
   const attributes = await readFile(path.join(repositoryRoot, '.gitattributes'), 'utf8')
   const requiredRules = [
-    'src/browser/layout/aiur-layout-worker.js text eol=lf',
+    'src/browser/layout/worker/*.js text eol=lf',
     'src/browser/layout/aiur-layout-client.js text eol=lf',
     'src/priv/static/vendor/elk/0.11.1/elk-worker.min.js -text',
     'src/priv/static/vendor/elk/0.11.1/aiur-layout-worker.js text eol=lf',
@@ -115,11 +116,12 @@ async function verifyAutocrlfCheckout() {
         await cp(path.join(repositoryRoot, relativePath), destination)
       })
     ])
-    await execFileAsync('git', ['init', '--quiet'], { cwd: checkout })
-    await execFileAsync('git', ['add', '.'], { cwd: checkout })
-    await execFileAsync('git', ['-c', 'user.name=Layout EOL Check', '-c', 'user.email=layout-eol@example.invalid', 'commit', '--quiet', '-m', 'Preserve layout bytes'], { cwd: checkout })
-    await execFileAsync('git', ['config', 'core.autocrlf', 'true'], { cwd: checkout })
-    await execFileAsync('git', ['checkout', '--force', 'HEAD'], { cwd: checkout })
+    await execFileAsync('git', ['-C', checkout, 'init', '--quiet'], { cwd: checkout })
+    await execFileAsync('git', ['-C', checkout, 'add', '--force', '.'], { cwd: checkout })
+    await execFileAsync('git', ['-C', checkout, '-c', 'user.name=Layout EOL Check', '-c', 'user.email=layout-eol@example.invalid', 'commit', '--quiet', '-m', 'Preserve layout bytes'], { cwd: checkout })
+    await execFileAsync('git', ['-C', checkout, 'config', 'core.autocrlf', 'true'], { cwd: checkout })
+    await Promise.all(lineEndingPaths.map((file) => rm(path.join(checkout, file))))
+    await execFileAsync('git', ['-C', checkout, 'checkout-index', '--all'], { cwd: checkout })
 
     for (const relativePath of lineEndingPaths) {
       const body = await readFile(path.join(checkout, relativePath))
