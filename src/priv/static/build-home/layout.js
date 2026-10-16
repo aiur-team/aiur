@@ -15,7 +15,7 @@ export function histDays(hist) {
 export function measureFlow(D, S, dims) {
   const avail = dims.vpW - dims.gut - 14;
   // Count every lane the board fills, history included: live days can hold ~30 epics (#4769).
-  const shown = [...D.now, ...D.plan, ...D.nq, ...D.hist.filter(t => t.end >= (S.histFrom || 0))];
+  const shown = [...D.now, ...D.plan, ...D.nq, ...D.hist.filter(t => Number.isFinite(t.end) && t.end >= (S.histFrom || 0))];
   const nEst = Math.max(4, new Set(shown.map(colKey).filter(k => !S.f.epic.length || S.f.epic.includes(k))).size);
   return { flow: avail / nEst < 62, K: Math.max(2, Math.floor(avail / 140)) };
 }

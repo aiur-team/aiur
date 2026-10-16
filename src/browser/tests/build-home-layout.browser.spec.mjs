@@ -10,7 +10,7 @@ for (const anchor of anchors) expect(design.split(anchor).length).toBe(2)
 const nowPlan = '[...D.now, ...D.plan].map(colKey)'
 // #4769: the lane estimate also counts history and not-queued lanes; the rest stays the design's.
 const flow = design.slice(design.indexOf(anchors[1]), design.indexOf(anchors[2]) + anchors[2].length)
-  .replace(nowPlan, '[...D.now, ...D.plan, ...D.nq, ...D.hist.filter(t => t.end >= (S.histFrom || 0))].map(colKey).filter(k => !S.f.epic.length || S.f.epic.includes(k))')
+  .replace(nowPlan, '[...D.now, ...D.plan, ...D.nq, ...D.hist.filter(t => Number.isFinite(t.end) && t.end >= (S.histFrom || 0))].map(colKey).filter(k => !S.f.epic.length || S.f.epic.includes(k))')
 expect(flow).not.toContain(nowPlan)
 const oracle = design.replace(anchors[0], `window.__E8L = { run(d, st, dims) {
 D = d; Object.assign(S, st); S.f = { ...S.f, ...(st.f || {}) };
