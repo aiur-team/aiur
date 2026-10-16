@@ -107,7 +107,7 @@ defmodule Aiur.Config.WorkflowSettingsTest do
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
-             "excludeSlashTmp" => false
+             "excludeSlashTmp" => true
            }
 
     assert config.agent.turn_timeout_ms == 3_600_000

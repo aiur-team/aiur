@@ -168,7 +168,8 @@ defmodule Aiur.Config.RuntimeSandboxTest do
 
       assert configured_default_policy == %{
                "type" => "workspaceWrite",
-               "writableRoots" => [configured_root, canonical_workspace_root]
+               "writableRoots" => [configured_root, canonical_workspace_root],
+               "excludeSlashTmp" => true
              }
 
       assert {:ok, workspace_write_policy} =
@@ -181,7 +182,8 @@ defmodule Aiur.Config.RuntimeSandboxTest do
 
       assert workspace_write_policy == %{
                "type" => "workspaceWrite",
-               "writableRoots" => [configured_root, canonical_issue_workspace]
+               "writableRoots" => [configured_root, canonical_issue_workspace],
+               "excludeSlashTmp" => true
              }
 
       remote_workspace = "/remote/workspaces/MT-101"
@@ -195,7 +197,8 @@ defmodule Aiur.Config.RuntimeSandboxTest do
 
       assert remote_workspace_write_policy == %{
                "type" => "workspaceWrite",
-               "writableRoots" => [remote_workspace, Path.join(remote_workspace, ".git"), Path.join(remote_workspace, ".agents")]
+               "writableRoots" => [remote_workspace, Path.join(remote_workspace, ".git"), Path.join(remote_workspace, ".agents")],
+               "excludeSlashTmp" => true
              }
 
       read_only_settings = %{
