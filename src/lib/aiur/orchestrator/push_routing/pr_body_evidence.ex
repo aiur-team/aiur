@@ -21,12 +21,11 @@ defmodule Aiur.Orchestrator.PushRouting.PrBodyEvidence do
          {:ok, %{} = pr} <- fetcher.(issue_number),
          {pr_number, ""} <- Integer.parse(to_string(value(pr, :number))),
          head_sha when is_binary(head_sha) <- nested_value(pr, :head, :sha),
-         body when is_binary(body) <- value(pr, :body),
-         true <- head_sha == pushed_sha do
-      if tested_head_matches?(body, pushed_sha) do
+         body when is_binary(body) <- value(pr, :body) do
+      if tested_head_matches?(body, head_sha) do
         resolve_stale_alert(state, identifier, opts)
       else
-        emit_stale_alert(state, identifier, pr_number, pushed_sha, opts)
+        emit_stale_alert(state, identifier, pr_number, head_sha, opts)
       end
     else
       _ -> state

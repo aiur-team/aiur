@@ -87,6 +87,50 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     )
   end
 
+  test "an older queued branch push still alerts when the live PR body is stale" do
+    identifier = Integer.to_string(System.unique_integer([:positive]))
+    pushed_sha = String.duplicate("d", 40)
+    live_head_sha = String.duplicate("e", 40)
+    emitted = :atomics.new(1, [])
+
+    pr_fetch = fn _number ->
+      {:ok,
+       %{
+         "number" => 9001,
+         "head" => %{"sha" => live_head_sha},
+         "body" => "Tested head: #{String.duplicate("f", 40)}"
+       }}
+    end
+
+    emitter = fn topic, opts ->
+      assert topic == "ticket.#{identifier}.pr.tested_head_stale"
+      assert opts[:message] =~ String.slice(live_head_sha, 0, 12)
+      :atomics.add_get(emitted, 1, 1)
+      :ok
+    end
+
+    condition = :atomics.new(1, [])
+    condition_state = fn _ -> if :atomics.get(condition, 1) == 1, do: :firing, else: :unknown end
+    event = %{topic: "ticket.#{identifier}.branch.push", sha: pushed_sha}
+
+    EventTopics.route(%State{}, event,
+      pull_request_fetcher: pr_fetch,
+      alert_emitter: emitter,
+      condition_state: condition_state
+    )
+
+    assert :atomics.get(emitted, 1) == 1
+    :atomics.put(condition, 1, 1)
+
+    EventTopics.route(%State{}, event,
+      pull_request_fetcher: pr_fetch,
+      alert_emitter: emitter,
+      condition_state: condition_state
+    )
+
+    assert :atomics.get(emitted, 1) == 1
+  end
+
   test "an answered Command wakes the idle dispatch poll for a stopped in-progress claim" do
     identifier = "answered-hold-#{System.unique_integer([:positive])}"
     topic = "ticket.#{identifier}.agent.decision.answered"
