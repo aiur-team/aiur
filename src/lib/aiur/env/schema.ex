@@ -168,7 +168,7 @@ defmodule Aiur.Env.Schema do
     # --- Supervisor Decision API ---
     {"AIUR_SUPERVISOR_TOKEN",
      type: :secret, group: :decision_api, purpose: "Bearer-safe token (at least 32 bytes) for the Supervisor Decision API; generate one with `openssl rand -base64 32`; unset or empty disables it."},
-    {"AIUR_CI_READINESS_TOKEN", type: :secret, group: :decision_api, purpose: "Operator token `aiur init` uses to confirm PRs can auto-merge."},
+    {"AIUR_CI_READINESS_TOKEN", type: :secret, group: :decision_api, purpose: "Operator token for startup CI readiness inspection and `aiur init`."},
 
     # --- Provider API keys ---
     {"DEEPSEEK_API_KEY", type: :secret, group: :provider_keys, purpose: "DeepSeek backend key; used when a backend config names this env var.", fetch: "platform.deepseek.com -> API Keys"},
@@ -203,6 +203,9 @@ defmodule Aiur.Env.Schema do
     {"AIUR_LAUNCHER_PID", type: :integer, validate: false, example: false, group: :runtime, purpose: "Launcher process id; exported by the launcher."},
     {"AIUR_GITHUB_BUDGET_CONSUMER", type: :string, validate: false, example: false, group: :runtime, purpose: "Workspace budget consumer id; set by the launcher."},
     {"AIUR_GITHUB_BUDGET_IDENTITY_KEY", type: :string, validate: false, example: false, group: :runtime, purpose: "Stable publication-credential budget identity; set by the launcher."},
+    {"AIUR_GITHUB_BUDGET_DIR", type: :path, validate: false, example: false, group: :runtime, purpose: "Isolated GitHub budget state directory for a scoped test run; set by the dev test launcher."},
+    {"AIUR_DEV_TEST_STATE_DIR", type: :path, validate: false, example: false, group: :runtime, purpose: "Per-launch private Executor and decision state for a scoped test run."},
+    {"AIUR_DEV_TEST_RUN_ID", type: :string, validate: false, example: false, group: :runtime, purpose: "Unique scoped test launch identifier for remote agent isolation."},
     {"AIUR_AGENT_IR_SANDBOX", type: :boolean, validate: false, example: false, group: :runtime, purpose: "Test-reset guard inside an agent IR sandbox."},
     {"AIUR_TELEMETRY_CALLER_CWD", type: :path, validate: false, example: false, group: :runtime, purpose: "Working directory captured by the telemetry CLI wrapper."},
     {"AIUR_RELEASE_DIR", type: :path, validate: false, example: false, group: :runtime, purpose: "Release directory the launcher resolved; detects a dev launcher run."},

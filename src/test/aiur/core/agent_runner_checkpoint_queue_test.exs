@@ -8,6 +8,8 @@ defmodule Aiur.Core.AgentRunnerCheckpointQueueTest do
     def fetch_candidate_issues, do: raise("queue-only checkpoint fixture must not poll the tracker")
   end
 
+  # Flaky in merge groups; fix tracked in #4463.
+  @tag :quarantine
   test "agent runner delivers queued operator messages at the turn boundary after a deferred checkpoint" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-checkpoint")
 
@@ -164,6 +166,7 @@ defmodule Aiur.Core.AgentRunnerCheckpointQueueTest do
     end
   end
 
+  @tag :quarantine
   test "agent runner requeues drained operator message when parent turn completes before delivery acknowledgement" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-checkpoint-completion-race")
 

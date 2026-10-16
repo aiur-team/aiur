@@ -9,6 +9,7 @@
     "src/lib/aiur/config/**",
     "src/lib/aiur/env.ex",
     "src/lib/aiur/env/**",
+    "src/lib/aiur/handoff/record.ex",
     "src/lib/aiur/merge_policy.ex",
     "src/lib/aiur/workflow.ex",
     "src/lib/aiur/workflow_store.ex",
@@ -25,6 +26,7 @@
   "owns": {
     "config": [
       "compaction",
+      "executor",
       "merge_policy",
       "prompt_file"
     ],
@@ -52,7 +54,9 @@
   "docs": [
     "reference/configuration.md"
   ],
-  "config": [],
+  "config": [
+    "executor"
+  ],
   "env": [
     "HOME",
     "XDG_CONFIG_HOME",

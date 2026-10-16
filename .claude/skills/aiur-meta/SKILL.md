@@ -254,6 +254,30 @@ now, and advance it. States that repeatedly sit unnoticed here:
 of ten tickets recovered this way already had one; a blanket re-dispatch would
 have duplicated all nine.
 
+### 3a. Run the Executor sweep every pass
+
+Run `aiur executor-sweep` on every pass and act on every finding before routine
+scheduling. It covers stale blocking decisions, approved PRs not landing or red,
+merge-queue health, held queues and idle capacity, feature ordering, ticket state
+hygiene, repeated unchanged-PR handbacks, and service health. Its first-priority
+finding is an open, non-draft PR whose ticket is in `agent:human-review` without
+a review at the current head; check the reported age and review that PR first.
+The command reads local daemon state and cached GitHub resources. Do not replace
+it with a per-poll GitHub query loop. Continue the manual attribution check below
+for PRs you are about to enqueue.
+
+### 3b. Every manual step is a finding
+
+The goal is that the operator never has to point out what fell through the cracks.
+So ask, every pass, **"what did I do by hand since the last pass?"** — each
+re-run, re-label, re-queue, dequeue, cancel, decision answer, or message that the
+daemon could have done itself. Any action you repeated, or any wait that a rule
+could have shortened, gets an automation ticket in the same pass, with the counts
+as evidence (how many PRs, how long they waited, how often you intervened). Do not
+wait to be asked: a gap you work around silently is a gap the operator finds later.
+Name the time it costs a ticket (minutes from approval to merge, from merge-group
+start to merge, from handback to review) and say which automation would cut it.
+
 ## 4. File what is broken
 
 Every finding becomes a ticket, linked to the run's meta epic. Not a note, not a

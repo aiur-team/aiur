@@ -31,7 +31,10 @@ defmodule Aiur.LandingWatch do
   end
 
   @impl true
-  def handle_call(:state, _from, state), do: {:reply, Map.take(state, [:watcher, :last_poll_at_ms, :last_error]), state}
+  def handle_call(:state, _from, state) do
+    requeues = Journal.merge_group_requeues_by_hour(state.opts)
+    {:reply, Map.merge(Map.take(state, [:watcher, :last_poll_at_ms, :last_error]), %{merge_group_requeues_by_hour: requeues}), state}
+  end
 
   @impl true
   def handle_info(:poll, %{task: task} = state) when not is_nil(task) do
@@ -363,8 +366,28 @@ defmodule Aiur.LandingWatch do
 
   defp route_rework(observation, failures, opts) do
     case Keyword.get(opts, :rework_fun) do
-      writer when is_function(writer, 3) -> writer.(observation, failures, opts)
-      _ -> transition_rework(observation, failures, opts)
+      writer when is_function(writer, 3) ->
+        writer.(observation, failures, opts)
+
+      _ ->
+        case transition_rework(observation, failures, opts) do
+          {:error, :pull_request_not_linked_to_ticket_branch} ->
+            log_unlinked_head_once(observation, opts)
+            :ok
+
+          result ->
+            result
+        end
+    end
+  end
+
+  defp log_unlinked_head_once(observation, opts) do
+    case Journal.claim_alert(observation.number, observation.head, "unlinked-rework-skipped", opts) do
+      {:ok, :new} ->
+        Logger.debug("landing watcher skipped rework routing for unlinked PR ##{observation.number} head #{observation.head}")
+
+      _ ->
+        :ok
     end
   end
 
@@ -388,7 +411,10 @@ defmodule Aiur.LandingWatch do
   end
 
   defp emit_rework_alert(observation, failures, issue, opts) do
-    message = "Approved PR ##{observation.number} moved ticket ##{issue} to rework: " <> Enum.map_join(failures, "; ", &failure_text/1)
+    run_link = Keyword.get(opts, :run_url)
+    evidence = Enum.map_join(failures, "; ", &failure_text/1)
+    evidence = if is_binary(run_link), do: evidence <> " (#{run_link})", else: evidence
+    message = "Approved PR ##{observation.number} moved ticket ##{issue} to rework: " <> evidence
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
     emitter.("system.pr.landing.rework", central: true, needs_attention: false, message: message, reason: message)
     :ok

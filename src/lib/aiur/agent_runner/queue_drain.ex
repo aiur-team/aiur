@@ -677,14 +677,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         on_operator_message: callbacks.on_operator_message,
         on_operator_response: callbacks.on_operator_response,
         on_provider_delivery: provider_delivery_callback(orchestrator, item, issue),
-        tool_executor:
-          ToolExecutor.build(
-            issue,
-            workspace,
-            worker_host,
-            app_session,
-            attempt_id: Keyword.get(opts, :telemetry_attempt_id)
-          )
+        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: Keyword.get(opts, :telemetry_attempt_id), rework_head_sha: Keyword.get(opts, :rework_head_sha))
       )
 
     TurnStreams.close(issue, aiur_turn_id, TurnLoop.turn_done_reason(result))

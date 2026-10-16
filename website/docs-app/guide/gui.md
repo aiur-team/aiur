@@ -80,6 +80,11 @@ The `sort` query parameter preserves the selected table, column, and direction i
 The temporary, unlinked `/build` route previews the build timeline loading shell.
 It requires dashboard authentication; the production data source is not wired yet.
 
+The toolbar selects Timeline, Gantt or List and retains the view in the URL.
+Use Left/Right arrows or Home/End to move between view tabs, then Enter or Space
+to select. The status line shows the daemon state, including unknown before
+the first snapshot, and the legend for the selected view.
+
 Its links retain view, span, feature focus, filters and ticket selection in
 `view`, `span`, `feature`, `fmode`, `epic`, `model`, `tstate`, `astate`,
 `live`, `trees` and `ticket`. Invalid values are removed.
@@ -98,6 +103,7 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
+| Experiments | A separate experiment index and specification detail at `/experiments`; shown when the experiments capability is available. |
 
 ### Read a Build Order program
 
@@ -189,3 +195,18 @@ Retained Analytics charts use at most 180 evenly spaced resource observations pe
 Full log combines the newest materialized prior runs that fit a bounded projection with the current telemetry stream. Its source label states how many retained runs are included. Without materialized history, only raw files up to 1 MiB can be analyzed; larger files report unavailable rather than trigger an unbounded parse.
 
 Retained summaries that exceed the read budget also report unavailable.
+
+### Read an experiment
+
+Open **Experiments** below Analytics and select an experiment. The shareable
+`/experiments/:id` URL shows its design, windows, hypothesis and registered
+metrics. On a phone, **All experiments** returns to the index. Existing
+experiments remain visible when capture is off; unavailable evidence and store
+errors are shown explicitly.
+
+Frozen baseline details include the revision, capture time, Aiur version and
+SHA-256 hash. A warning identifies metric packs that changed since the freeze.
+
+When a frozen analysis `result.json` is present in an experiment directory, the
+page shows its group summaries, sample counts and analyst labels. Below the
+analysis minimum, interval, p-value and effect cells say **not enough data**.

@@ -6,7 +6,7 @@ and may use an agent with `aiur-monitor` as an assistant. When an agent is told
 to use `aiur-run`, that agent is the Executor.
 
 This role owns the system of work. It receives the requirements, ticket
-contracts, and Build Order from the Feature Planner that used `aiur-build`. At
+contracts, and feature collection from the Feature Planner using `aiur-build`. At
 runtime, GitHub owns ticket facts and Aiur owns agent activity, progress,
 alerts, and events; planning documents preserve approved intent.
 
@@ -78,24 +78,24 @@ Classify every discovered finding before creating work:
   create or dispatch an individual feature-run ticket.
 - **Optimization:** preserve evidence for a separately authorized run.
 
-When creation is authorized, encode that classification in the same creation
-request. Executable work receives the configured lifecycle todo label
-(`agent:todo` in the standard workflow); deferred work receives `needs-triage`
-or `human:todo` and states why. Build Order roots carry `build-order`, while
-explicitly named `Epic:` containers carry `epic`; both are hierarchy and remain
-undispatched. Never split
-issue creation and disposition across two requests: failure of the label edit
-otherwise leaves an invisible ticket that looks complete to the findings
-ledger but can never be claimed.
+## Continuous-build intake
 
-This is mechanical on both filing surfaces. Agent workspaces resolve `gh`
-through Aiur's wrapper, while the repository `PreToolUse` hook checks Executor
-Bash commands before they run. Both refuse an `issue create` with no disposition
-and refuse direct REST or GraphQL issue creation that bypasses the checked label
-flags. The aiur-build publication validator separately refuses a Build Order
-whose executable members are projected undispatched. Use
-`gh issue create --label ...`; keep `gh issue list --search 'no:label'` as the
-independent safety-net audit before treating a queue as empty. An `optimistic_blocker_failed` wake names the dependent, blocker, cause, and action. Choose: wait for a replacement blocker, re-base the dependent on the default branch and resume it, or close it. Aiur keeps the branch and PR; recovery never auto-resumes parked work. Info with action `none` means work keeps running.
+Every authorized new feature, epic, bug batch, or experiment joins the repository's
+single continuous build by default. Follow [the intake procedure](continuous-build-intake.md)
+for feature collection and `feature:<slug>` labels,
+native `blocked_by` links where real, queue membership, and placement read-back.
+New features never create standalone Build Order roots; existing roots remain history.
+Only an explicit operator exclusion leaves filed work outside the build: park it
+with `needs-triage`/`human:todo` and the reason. Unfiled deferred findings remain
+in the ledger under the convergence policy above.
+
+“Prioritize” means place the work ahead of the previous next-up using priority
+labels and queue ordering, then report what it displaced. A label alone is not
+placement. Verify the collection, projected labels, prerequisites, membership,
+and effective start order before reporting intake complete.
+
+Use `agent:queued` in the same creation request for executable members; the queue
+promotes ready members to `agent:todo`. Never create first and label later.
 
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected
@@ -266,6 +266,7 @@ count detached from ready work.
 
 ## Recovery ladder
 
+Prefer `aiurdev restart --keep-agents` for fleet upgrades. Save `aiurdev agents --json` before; afterward compare `aiurdev status --handoff --json`: every issue is adopted with the same provider pid and session id, or has a fallback reason. Verify `aiurdev alerts` records `system.restart.handoff.completed`, adopted tickets have no startup-claim release, and a ready ticket dispatches within one poll interval. [Restart semantics](../../../../website/docs-app/reference/cli.md#restart-semantics) cover failed-build recovery.
 A fleet-wide quiet board is a blockage, not idleness, and none of its causes
 log anything. Clear the fleet-level gates before triaging any single agent: run
 bare `aiurdev resume` first, because the global pause switch survives daemon
@@ -276,9 +277,7 @@ prewarm record `~/.aiur/repo/<owner>/<repo>/base-record.json` matches the
 every dispatch tick silently (issue #1404); and allow for the post-restart
 dispatch ramp.
 
-Alerts persist across daemon restarts and tokens (#1231), so the actionable list
-keeps naming long-merged tickets. Check alert timestamps and trust the live
-state table over the alert list.
+Alerts persist across restarts (#1231). Check timestamps and trust the live table over stale alerts.
 
 A trusted `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review on an open PR moves
 its ticket from `agent:human-review` or `agent:ci-wait` to `agent:rework`
@@ -409,8 +408,11 @@ instead of issuing the same directive indefinitely. Once all conditions hold:
    rules — live in the repo's `AGENTS.md` (`Tests must fail without the
    production change they guard` and `Computed ages and collapsed causes`);
    cross-reference those sections rather than restating them;
-4. use `ce-code-review` when Compound Engineering is available, adding the
-   relevant security, data, frontend, backend, or design lens for the change;
+4. check `Local tests`: policy matches `aiur status`, `Tested head` is current,
+   `Base` and `Selection` cover the diff, and command results prove what ran;
+   stale, incomplete or failed evidence blocks approval. Use `ce-code-review`
+   when available, adding the relevant security, data, frontend, backend or
+   design lens for the change;
 5. reconcile duplicates and contradictions, classifying each finding under the
    convergence policy before routing it;
 6. return contained findings to the existing ticket as rework; create a new
@@ -477,24 +479,17 @@ invent a GitHub message. The normal attempt is what creates the failed suite,
 so this path surfaces the reason immediately after the first refusal instead of
 requiring a second `--admin` attempt.
 
-The declaration requires every blocking CI job as required status checks,
-including `build`, `test`, and `workflow security`, with strict status checks
-enabled, and the gate is enforced once that declaration is applied to the live
-ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
-that declaration on every PR and merge, so a regressed gate fails CI visibly.
-Before every merge, run `scripts/check-stack-order.sh <pr>` (see `merge-order-gate.md`).
-Wait for required checks and review; never merge a pending, failing, or stale head.
-
-A solo operator cannot merge a branch they authored through the gate
-(issue #1437). This used to bite hardest on the periodic `develop` -> `main`
-promotion; that promotion is retired now that `main` is the integration branch,
-but the rule still governs any Executor-authored branch.
-With a two-owner CODEOWNERS entry plus `require_code_owner_review`
-and `require_last_push_approval`, the only in-gate path is a bot approval, which
-defeats the gate; `--admin` does not bypass it. Any approved maintenance window
-must change only the review-side rules while leaving the required-status-check
-rule active. Back up and re-read the ruleset to confirm the review-side change
-rather than trusting the write.
+Read the active `merge_policy` from `aiur status`, not memory or a reviewer
+brief. Before every merge run `scripts/check-stack-order.sh <pr>` (see
+`merge-order-gate.md`), then use only
+`aiur pr merge <N> --reviewed-sha <full-reviewed-head-sha>`.
+Never replace it with `gh pr merge`, `--admin`, or scratch scripts.
+With `ci: wait`, all required checks must pass on the reviewed head.
+With `pending_ok`, reviewed local-test evidence for that head and configured
+mode plus enabled main watching may permit pending CI; failed checks and
+full-CI labels/paths still block. Respect command refusals and queue routing.
+On `system.main.ci.failed`, inspect the watcher’s fixer ticket and progress.
+Do not fix main by hand unless the fixer is stalled and takeover is authorized.
 
 ## Ticket close-out
 

@@ -57,6 +57,7 @@ defmodule Aiur.Application.ChildrenTest do
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
+      Aiur.GitHub.HoldPressure,
       Aiur.RecentMergeStore,
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,
@@ -66,6 +67,7 @@ defmodule Aiur.Application.ChildrenTest do
       Aiur.Claude.Telemetry,
       Aiur.BuildOrder.TicketHistoryProvider,
       Aiur.DaemonHeartbeatWriter,
+      Aiur.ExecutorSweep,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -347,6 +349,7 @@ defmodule Aiur.Application.ChildrenTest do
       # The flake this guards (#1745): a live ticker replaces the singleton
       # BranchRefStore's refs mid-test, so a synthetic ref recorded by one test
       # vanishes before that test asserts on it.
+      assert :ok = Aiur.TestSupport.ensure_branch_ref_store_running()
       assert is_pid(Process.whereis(Aiur.Events.BranchRefStore))
       refute Process.whereis(Aiur.Events.LsRemoteTicker)
     end

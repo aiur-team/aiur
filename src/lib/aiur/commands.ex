@@ -43,6 +43,9 @@ defmodule Aiur.Commands do
   @spec create_ask(String.t(), map()) :: {:ok, Aiur.Asks.ask()} | {:error, term()}
   defdelegate create_ask(repo, attrs), to: Aiur.Asks, as: :create
 
+  @spec decision_stale_topic(Aiur.Decision.t()) :: String.t()
+  defdelegate decision_stale_topic(decision), to: Aiur.DecisionAttentionSignals, as: :stale_topic
+
   @spec default_api() :: module()
   defdelegate default_api(), to: Aiur.Commands.Defaults
 
@@ -126,6 +129,9 @@ defmodule Aiur.Commands do
 
   @spec history(keyword()) :: [map()]
   defdelegate history(opts), to: Aiur.DecisionHistory, as: :list
+
+  @spec list_decisions() :: [Aiur.Decision.t()]
+  defdelegate list_decisions(), to: Aiur.DecisionStore, as: :list
 
   @spec metrics_snapshot(String.t()) :: {:ok, map()} | {:error, :not_found}
   defdelegate metrics_snapshot(decision_id), to: Aiur.DecisionMetrics, as: :snapshot

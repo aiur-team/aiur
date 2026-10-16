@@ -38,10 +38,6 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
       Issue.paused?(issue) or Issue.parked?(issue) or Issue.queued?(issue) or parked_marker?(issue) ->
         {issue, state}
 
-      restore_target_for(issue, state) == nil and not workflow_evidence?(state, issue) ->
-        alert_missing_state_label_no_evidence(issue, state)
-        {issue, state}
-
       restore_target_for(issue, state) == nil ->
         # Evidence of workflow membership exists (e.g. a released claim) but
         # there is no non-terminal state to restore; leave the ticket for the
@@ -122,8 +118,7 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
 
   # Positive evidence the ticket was in the agent workflow: a live running
   # entry, a released claim (a claim was dropped), or a prior polled copy
-  # carrying a state. A ticket with none of these has never entered the
-  # workflow and is untriaged parking, not a strand (#2420).
+  # carrying a state. No evidence means there is no Executor wake (#4610).
   @doc false
   @spec workflow_evidence?(State.t(), Issue.t()) :: boolean()
   def workflow_evidence?(%State{} = state, %Issue{id: issue_id} = issue) do
@@ -150,31 +145,6 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
   end
 
   defp parked_marker_label?(_label), do: false
-
-  # A zero-label ticket with no prior workflow record is surfaced with a
-  # needs-attention alert but NOT rewritten: stamping `agent:todo` on a ticket
-  # whose history shows no prior state is a guess that would reverse deliberate
-  # parking (#2420). The active-attention check keeps the alert to one per
-  # ticket instead of one per poll.
-  defp alert_missing_state_label_no_evidence(%Issue{} = issue, %State{} = state) do
-    topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing-no-evidence"
-
-    unless TransitionAlerts.active_attention?(state, topic) do
-      Alerts.emit_system(topic,
-        issue: issue.identifier,
-        message:
-          "Ticket #{issue.identifier} has no agent state label and no record of prior agent workflow membership; " <>
-            "left as-is pending triage.",
-        reason:
-          "Ticket #{issue.identifier} carries zero agent:* state labels with no prior running/last-known state and no " <>
-            "parking marker; left as-is pending triage — alerting without writing agent:todo so deliberate parking is not " <>
-            "reversed (#2420).",
-        needs_attention: true,
-        severity: "warning",
-        central: true
-      )
-    end
-  end
 
   @doc false
   @spec resolve_missing_state_label_alert(term(), State.t()) :: State.t()

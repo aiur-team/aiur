@@ -28,9 +28,9 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
       end
     end
 
-    assert {:ok, checks} = CiReadiness.fetch_required_checks(repo: "owner/repo", base_branch: "release/next", request_fun: request_fun)
+    assert {:ok, checks} = CiReadiness.fetch_required_checks(repo: "owner/repo", base_branch: "release/next", token: "test-gh-token", request_fun: request_fun)
     assert Enum.sort_by(checks, & &1.name) == [%{name: "full", app_id: 15_368}, %{name: "legacy", app_id: nil}]
-    assert {:error, _reason} = CiReadiness.fetch_required_checks(repo: "owner/repo", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
+    assert {:error, _reason} = CiReadiness.fetch_required_checks(repo: "owner/repo", token: "test-gh-token", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
   end
 
   test "PR workflow runs five fast jobs and the event gate produces the required check" do
@@ -124,11 +124,12 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     assert CiReadiness.cached_result(Keyword.put(opts, :config_fingerprint, "config-b")) == :unavailable
   end
 
-  test "dispatch consumes a persisted operator assessment without elevated daemon access" do
+  test "dispatch refreshes persisted readiness even when required checks are unchanged" do
     path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
     opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
     original_token = System.get_env(CiReadiness.operator_token_env())
+    System.put_env(CiReadiness.operator_token_env(), "operator-test-token")
 
     on_exit(fn ->
       File.rm(path)
@@ -143,10 +144,132 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
 
     assert :ok = CiReadiness.persist_assessment(readiness, opts)
     assert :ok = CiReadiness.clear_cached_result()
+
+    parent = self()
+
+    request_fun = fn %{url: url} ->
+      send(parent, {:readiness_request, url})
+
+      cond do
+        url =~ "/rules/branches/develop" ->
+          {:ok, %{status: 200, body: [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / required"}]}}]}}
+
+        String.ends_with?(url, "/branches/develop/protection") ->
+          {:ok, %{status: 404, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-content"}]}}
+
+        url == "workflow-content?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => Base.encode64(@workflow)}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/rulesets?" ->
+          {:ok, %{status: 200, body: [%{"id" => 7}]}}
+
+        url =~ "/rulesets/7" ->
+          {:ok, %{status: 200, body: %{"rules" => [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / required"}]}}]}}}
+
+        true ->
+          flunk("unexpected request: #{url}")
+      end
+    end
+
+    assert {:ok, ^readiness} = CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, request_fun))
+    assert_received {:readiness_request, "workflow-content?ref=develop"}
+  end
+
+  test "dispatch reports the operator token required instead of accepting a persisted ready result" do
+    path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
+
+    opts = [
+      repo: "owner/repo",
+      base_branch: "develop",
+      config_fingerprint: "config-a",
+      path: path,
+      token: "test-gh-token",
+      request_fun: fn _ -> flunk("readiness must not use daemon authentication") end
+    ]
+
+    original_token = System.get_env(CiReadiness.operator_token_env())
     System.delete_env(CiReadiness.operator_token_env())
 
-    assert {:ok, ^readiness} =
-             CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, fn _request -> flunk("unexpected daemon request") end))
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+      if original_token, do: System.put_env(CiReadiness.operator_token_env(), original_token), else: System.delete_env(CiReadiness.operator_token_env())
+    end)
+
+    assert :ok = CiReadiness.persist_assessment(readiness, opts)
+    assert {:ok, %{ready?: false} = unavailable} = CiReadiness.dispatch_check(opts)
+    assert {:unavailable, :ci_readiness_operator_token_required} in unavailable.issues
+    assert CiReadiness.format(unavailable) =~ CiReadiness.operator_token_env()
+  end
+
+  test "dispatch re-assesses when the live required check set changes" do
+    path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
+    old = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
+    original_token = System.get_env(CiReadiness.operator_token_env())
+    System.put_env(CiReadiness.operator_token_env(), "operator-test-token")
+
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+      if original_token, do: System.put_env(CiReadiness.operator_token_env(), original_token), else: System.delete_env(CiReadiness.operator_token_env())
+    end)
+
+    assert :ok = CiReadiness.persist_assessment(old, opts)
+    assert :ok = CiReadiness.clear_cached_result()
+
+    parent = self()
+
+    request_fun = fn %{url: url} ->
+      cond do
+        url =~ "/rules/branches/develop" ->
+          {:ok, %{status: 200, body: [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci gate"}]}}]}}
+
+        String.ends_with?(url, "/branches/develop/protection") ->
+          {:ok, %{status: 404, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-content"}]}}
+
+        url == "workflow-content?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => Base.encode64(String.replace(@workflow, "ci / required", "ci gate"))}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/rulesets?" ->
+          {:ok, %{status: 200, body: [%{"id" => 7}]}}
+
+        url =~ "/rulesets/7" ->
+          {:ok, %{status: 200, body: %{"rules" => [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci gate"}]}}]}}}
+
+        true ->
+          send(parent, {:unexpected_url, url})
+          {:error, :unexpected}
+      end
+    end
+
+    assert {:ok, readiness} = CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, request_fun))
+    assert readiness.required_checks == ["ci gate"]
   end
 
   test "expires an unchanged-config assessment and detects a removed pull request gate" do
@@ -162,17 +285,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
 
     assert :ok = CiReadiness.persist_assessment(readiness, Keyword.put(opts, :now, DateTime.add(now, -3_601, :second)))
 
-    request_fun = fn %{url: url} ->
-      cond do
-        String.ends_with?(url, "/branches/develop") -> {:ok, %{status: 200, body: %{}}}
-        String.ends_with?(url, "/repos/owner/repo") -> {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
-        url =~ "/contents/.github/workflows" -> {:ok, %{status: 200, body: []}}
-        true -> flunk("unexpected request: #{url}")
-      end
-    end
-
-    assert {:ok, %{issues: [:no_pr_workflow, :no_required_check]}} =
-             CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, request_fun))
+    assert {:ok, %{issues: [{:unavailable, :ci_readiness_operator_token_required}]}} = CiReadiness.dispatch_check(opts)
   end
 
   test "a newer persisted operator assessment replaces the live memory result" do
@@ -216,7 +329,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     end
 
     assert {:error, {:github, :timeout, _}} =
-             CiReadiness.check(repo: "owner/repo", base_branch: "develop", request_fun: request_fun, timeout_ms: 1)
+             CiReadiness.check(repo: "owner/repo", base_branch: "develop", token: "test-gh-token", request_fun: request_fun, timeout_ms: 1)
   end
 
   test "formats a ready assessment for operator status output" do
@@ -316,6 +429,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
 
     assert %{issues: [{:unavailable, reason}]} = CiReadiness.cached_result(opts)
     assert reason =~ "ci_readiness_operator_token_required"
+    assert CiReadiness.format(CiReadiness.cached_result(opts)) =~ CiReadiness.operator_token_env()
   end
 
   test "reports an unknown persisted issue instead of silently dropping the assessment" do

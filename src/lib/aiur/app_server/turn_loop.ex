@@ -3,12 +3,43 @@ defmodule Aiur.AppServer.TurnLoop do
   Shared blocking receive loop for app-server turns.
   """
 
+  alias Aiur.AgentRunner.Handoff
   alias Aiur.AppServer.{Adapter, Interrupts, Messages, OperatorDelivery, Rpc, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
 
   @spec receive_loop(map(), map()) :: term()
-  def receive_loop(%{port: port} = session, state) do
+  def receive_loop(session, state) do
+    case Process.get(:handoff_replay_frames, []) do
+      [frame | rest] ->
+        Process.put(:handoff_replay_frames, rest)
+        continue_or_return(session, replay_frame(session, state, frame))
+
+      [] ->
+        receive_messages(session, state)
+    end
+  end
+
+  defp replay_frame(session, state, {:data, {:eol, chunk}}),
+    do: handle_incoming(session, %{state | pending_line: ""}, state.pending_line <> to_string(chunk))
+
+  defp replay_frame(_session, state, {:data, {:noeol, chunk}}),
+    do: {:continue, %{state | pending_line: state.pending_line <> to_string(chunk)}}
+
+  defp replay_frame(session, state, {:exit_status, status}), do: handle_port_exit(session, state, status)
+
+  defp receive_messages(%{port: port} = session, state) do
     receive do
+      :handoff_abort ->
+        Process.delete(:handoff_hold)
+        receive_loop(session, state)
+
+      :handoff_hold ->
+        Process.put(:handoff_hold, true)
+        receive_loop(session, state)
+
+      {:handoff_snapshot, from, ref} ->
+        Handoff.capture(session, state, from, ref)
+
       {^port, {:data, {:eol, chunk}}} ->
         complete_line = state.pending_line <> to_string(chunk)
         continue_or_return(session, handle_incoming(session, %{state | pending_line: ""}, complete_line))

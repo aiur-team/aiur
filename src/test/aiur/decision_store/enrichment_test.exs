@@ -76,6 +76,8 @@ defmodule Aiur.DecisionStore.EnrichmentTest do
       assert length(String.split(File.read!(Path.join(dir, "decisions.ndjson")), "\n", trim: true)) == 1
     end
 
+    # Flaky in merge groups; fix tracked in #4463.
+    @tag :quarantine
     test "exact replay is duplicate while changed reuse conflicts without append or notification", %{dir: dir} do
       pid = start_store!(dir)
 

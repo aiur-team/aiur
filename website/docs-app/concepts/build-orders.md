@@ -1,6 +1,12 @@
 # Build Orders
 
-A Build Order turns a large feature into typed members, lanes, phases, dependencies, complexity, and optional icons.
+The repository has one [continuous build](./build-history), with feature
+collections added over time. New features join it through collection membership,
+native prerequisites, and the build queue; they do not create standalone roots.
+
+Existing Build Orders retain their typed members, lanes, phases, dependencies,
+complexity, and optional icons as readable planning history. The pack and root
+commands below describe those legacy artifacts.
 
 ## Pack contents
 
@@ -139,7 +145,9 @@ Stale, partial or unavailable graph evidence makes that root's items unknown and
 
 A queue is a feature set: dispatch fills capacity in set rank order. Spare capacity spreads into the next set so one deliverable can finish while another starts.
 
-`build_queue.set_order` selects `ranked` or `none` (default); `build_queue.max_active_sets` optionally caps unfinished active sets; `build_queue.spill_reserve_slots` keeps slots for the earliest unfinished set (default 0). `aiur queue order` adjusts ranks, and holds still stop a set. `NEXT` marks dispatch's selected set, including one already active.
+`build_queue.set_order` selects `ranked` (default) or `none`; `max_active_sets` caps unfinished sets, and `spill_reserve_slots` reserves slots for the earliest unfinished set. `aiur queue order` adjusts ranks; holds stop sets. `NEXT` marks dispatch's selected set.
+
+Queue summaries show ready and startable counts plus the largest blocker by downstream count. Cached GitHub blockers appear as `waiting on #N (github)`; cache misses do not fetch. `queue order` compares ranks with Build Order root dependency order.
 
 The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
 
@@ -292,3 +300,5 @@ In A ← B ← C, C updates only after B pushes. A live dependent pulls itself. 
 A conflict dispatches rework with `upstream_conflict`, the blocker PR and paths, and leaves descendants untouched until the fixed branch pushes.
 
 Pushes coalesce per dependent for two seconds, with two propagations at most in flight; a newer dependent push supersedes older pending work. Every successful propagation may trigger CI on its PR; existing draft workflow rules still apply.
+
+Add `experiment:feature` to a root issue to [measure the feature](/concepts/experiments#measuring-a-feature) from its first member merge through go-live.

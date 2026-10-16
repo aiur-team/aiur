@@ -61,6 +61,7 @@ in the workpad rather than falling back to raw label edits.
    be overhead, but err on the side of using these skills when in doubt.
 9. Before CI or review handoff, assess the exact PR head against the configured
    base using `dev-loop.md`'s integration checklist. Harmless staleness passes;
+   an approved exact head needs integration only for a real conflict; otherwise
    conflicts or changed-file overlap allow up to 3 integrations per handoff
    without asking. Record attempts in the workpad; unavailable assessments block
    handoff rather than imply safety.
@@ -73,7 +74,8 @@ in the workpad rather than falling back to raw label edits.
     instead of advancing the label.
 11. On a delivered required-check pass for the current head SHA, verify
     the PR is ready and assess current-base integration safety. No overlap or
-    conflicts permits `agent:human-review` even if the head is stale. If unsafe,
+    conflicts, or an approved exact head without a real conflict, permits
+    `agent:human-review` even if the head is stale. If unsafe,
     follow `dev-loop.md` step 13 and await new-head CI in `agent:ci-wait`. After
     the third integration, emit a non-blocking Executor alert; keep going if the
     base is safe. Never open a blocking decision for base integration. Use

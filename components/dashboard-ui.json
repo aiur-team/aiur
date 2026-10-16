@@ -6,6 +6,7 @@
   "paths": [
     "src/lib/aiur/event_humanizer.ex",
     "src/lib/aiur/event_humanizer_helpers.ex",
+    "src/lib/aiur/post_deploy_checklist.ex",
     "src/lib/aiur_web/**",
     "src/lib/aiur_web/routes/dashboard_pages.ex",
     "src/lib/aiur_web/sockets/live_view.ex"
@@ -15,6 +16,8 @@
   ],
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
+    "event-bus",
+    "identity",
     "kernel",
     "orchestration",
     "projections",

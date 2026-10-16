@@ -20,7 +20,6 @@ defmodule Aiur.AgentControlCLI do
     ExecutorCommandCLI,
     ExecutorEvents,
     ExecutorListener,
-    ExecutorWakeInbox,
     GitHubCostCLI,
     GitHubUsageCLI,
     Orchestrator,
@@ -31,7 +30,7 @@ defmodule Aiur.AgentControlCLI do
   }
 
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
-  alias Aiur.GitHub.{CiReadiness, CodeOwners, ResourceStore}
+  alias Aiur.GitHub.{CiReadiness, CodeOwners, HoldPressure}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, EnvelopeResume, OptimisticSlots, StatusObservation, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
@@ -50,14 +49,13 @@ defmodule Aiur.AgentControlCLI do
       report_control_query_failure: 3
     ]
 
+  @spec prepare_handoff(keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate prepare_handoff(opts \\ []), to: Aiur.Handoff, as: :prepare
   @status_timeout_ms 5_000
-  # Leave room to render the daemon timeout before the shared 10-second watchdog edge. Eight
-  # seconds lost the race: ~2s RPC startup plus a 10335ms saturated snapshot meant the launcher killed it, and the
-  # operator got a truncated fleet listing plus exit 124 instead of one honest
-  # "agents query timed out after 8s" line (#1684).
+  # Leave room to render the daemon timeout before the 10-second watchdog edge (#1684).
   @agents_timeout_ms 6_000
-  # RepoBase phases that mean the warm base is still becoming dispatchable
-  # (the gate holds new work). Anything else with prewarm enabled — :ready
+  # RepoBase phases that mean the warm base is still becoming dispatchable.
+  # Anything else with prewarm enabled — :ready
   # (normal), {:error, _} (fail-open cold clone), :idle — is not a "warming"
   # state and is handled separately.
   @prewarm_warming_phases [:cloning, :fetching, :building, :checking]
@@ -163,13 +161,13 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
-    print_executor_wake_status()
+    ExecutorAttention.CLI.print_wake_status()
     Commands.print_projection_status()
     print_codeowners_trust()
     ReloadRejection.print_status()
+    Aiur.Handoff.CLI.print_latest()
     Aiur.MergePolicyCLI.print()
     tracker_states = tracker_state_sets()
-
     # Count printed rows so hidden releases cannot inflate the headline (#1475).
     visible_statuses = Enum.filter(statuses, &visible_status_row?(&1, tracker_states))
 
@@ -192,7 +190,7 @@ defmodule Aiur.AgentControlCLI do
     supervision_exit_code = print_supervision_health()
     print_ci_readiness()
     print_build_gate_status()
-    if Config.tracker_kind() == "github", do: ResourceStore.Memory.print_status()
+    if Config.tracker_kind() == "github", do: HoldPressure.print_status()
     print_prewarm_status()
     print_blocking_asks(opts)
     exit_marker(supervision_exit_code)
@@ -573,6 +571,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp capacity_binding_label({:stale_poll, %{age_seconds: age}}), do: "dispatch poll stale (#{age}s ago)"
 
+  defp capacity_binding_label({:dispatch_cycle_stalled, detail}), do: CapacityBinding.dispatch_cycle_stalled_label(detail)
   defp capacity_binding_label({:awaiting_dispatch, %{ceiling: ceiling}}), do: "awaiting dispatch; ceiling: #{ceiling}"
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
   defp capacity_binding_label({:envelope, %{} = detail}), do: EnvelopeResume.label(detail)
@@ -585,8 +584,7 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
 
-  # Every admission measurement is rendered with the age of the sample it came
-  # from; otherwise old readings look current beside the live LOAD line (#2527).
+  # Include sample age so old admission readings do not look current (#2527).
   defp capacity_binding_label({:admission, hold}),
     do: admission_detail(hold) <> admission_sample_age(hold)
 
@@ -860,15 +858,6 @@ defmodule Aiur.AgentControlCLI do
       true ->
         IO.puts("LISTENER degraded (#{length(defaults) - length(missing)}/#{length(defaults)} bindings; MISSING: #{Enum.join(missing, ", ")})")
     end
-  end
-
-  defp print_executor_wake_status do
-    case ExecutorWakeInbox.stats() do
-      {:ok, stats} -> IO.puts("WAKES CURSOR #{stats.cursor} PENDING #{stats.pending_count}")
-      {:error, _reason} -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
-    end
-  catch
-    :exit, _reason -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
   end
 
   defp print_codeowners_trust do

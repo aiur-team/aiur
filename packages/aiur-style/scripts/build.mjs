@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import fs from 'fs';
-import { buildTokens } from '../src/tokens/build.mjs';
+import { buildTokens, tokens } from '../src/tokens/build.mjs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -42,25 +42,32 @@ fs.copyFileSync(path.join(packageRoot, 'src', 'init', 'theme-init.js'), path.joi
 console.log('Building CSS...');
 try {
   const cssFiles = fs.readdirSync(srcCssDir)
-    .filter(f => f.endsWith('.css'))
+    .filter(f => f.endsWith('.css') && f !== 'vitepress.css')
     .sort();
 
   if (cssFiles.length === 0) {
     console.warn('⚠ No CSS files found in src/css/');
   }
 
-  // Concatenate all CSS into main file with LF line endings
+  // Keep tokens verbatim; compact component closing braces to bound bundle size.
   const tokenCss = buildTokens(distDir);
   const cssContent = tokenCss + cssFiles
     .map(file => {
       const content = fs.readFileSync(path.join(srcCssDir, file), 'utf8');
       return content.replace(/\r\n/g, '\n');
     })
-    .join('\n');
+    .join('\n').replace(/\n[ \t]*}/g, ' }');
 
   const mainCssPath = path.join(distDir, 'aiur-style.css');
   fs.writeFileSync(mainCssPath, cssContent, { encoding: 'utf8' });
   console.log(`✓ CSS concatenated to dist/aiur-style.css (${cssFiles.length} files)`);
+
+  // VitePress uses .dark even when the host prefers light; derive its bridge from tokens.
+  const darkTokens = Object.entries(tokens.dark).map(([name, value]) =>
+    `    --aiur-${name.replaceAll('.', '-')}: ${value};`).join('\n');
+  fs.writeFileSync(path.join(distDir, 'vitepress.css'),
+    `@layer aiur.tokens {\n  html.dark {\n    color-scheme: dark;\n${darkTokens}\n  }\n}\n` +
+    fs.readFileSync(path.join(srcCssDir, 'vitepress.css'), 'utf8'));
 
   // Copy individual CSS files to dist/css/
   cssFiles.forEach(file => {

@@ -1,9 +1,9 @@
 defmodule Aiur.Orchestrator.Slots do
   @moduledoc """
-  Computes orchestrator worker-host and global dispatch slot capacity.
+  Computes global dispatch capacity and issue-specific worker-host eligibility.
   """
 
-  alias Aiur.{Config, Issue}
+  alias Aiur.{CodingAgent, Config, Issue}
   alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
@@ -111,6 +111,16 @@ defmodule Aiur.Orchestrator.Slots do
           true ->
             least_loaded_worker_host(state, available_hosts)
         end
+    end
+  end
+
+  @spec select_worker_host_for_issue(State.t(), Issue.t(), String.t() | nil) ::
+          String.t() | :no_worker_capacity | :preferred_worker_unavailable | nil
+  def select_worker_host_for_issue(%State{} = state, %Issue{} = issue, preferred_worker_host) do
+    if CodingAgent.remote_worker?(CodingAgent.backend_for(issue)) do
+      select_worker_host(state, preferred_worker_host)
+    else
+      if is_nil(preferred_worker_host), do: nil, else: :preferred_worker_unavailable
     end
   end
 
@@ -222,6 +232,9 @@ defmodule Aiur.Orchestrator.Slots do
       available: available_slots(state),
       optimistic: OptimisticSlots.status(state),
       capacity_hold: state.capacity_hold,
+      dispatch_cycle_stalled?: state.dispatch_cycle_stalled?,
+      dispatch_cycle_started_at_ms: state.dispatch_cycle_started_at_ms,
+      dispatch_cycle_stage: state.dispatch_cycle_stage,
       dispatch_hold: dispatch_hold_status(state, System.monotonic_time(:millisecond)),
       dispatch_selection_hold: state.dispatch_selection_hold,
       load_discount_reason: Map.get(sample, :load_discount_reason, :unavailable),

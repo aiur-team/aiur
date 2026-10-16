@@ -16,6 +16,8 @@ The endpoint serves packaged dashboard hooks, styles, fonts, logos, and provider
 
 Content-addressed layout vendor files remain on their verified router paths; vendor manifests, provenance, sources, and licenses are not exposed.
 
+Fleet rows show an **adopted** badge after a successful `restart --keep-agents`; its tooltip identifies the handoff. Use `aiur status --handoff --json` for provider and session identity checks.
+
 The Units catalog reconciles retained current-run membership with the latest fresh orchestrator snapshot. After a daemon generation change, current agents remain visible while membership catches up; counts are marked partial if that membership source is unavailable.
 
 A periodic reconciliation also recovers agents that existed without a dispatch notification, so an unknown catalog is never presented as an exact zero.
@@ -147,3 +149,7 @@ The binding admission signal (which host-pressure gate is holding dispatch) and 
 Because reading the build gate scans its lock files, that probe runs on a reduced cadence and carries the last observation forward, so telemetry never disturbs a real build acquisition. `/analytics`, `aiurdev analytics` (including `--json`), and the self-contained HTML report expose the same pressure evidence.
 
 This telemetry is measurement-only; it does not adapt `max_concurrent_agents` automatically.
+
+### Post-deploy checks
+
+The `/post-deploy` page lists manual checks from merged PRs. Add `Post-deploy check: <exact steps>` under `## Local tests`; name required operators, such as `(operator: physical Stream Deck)`. Checks stay pending until an Executor marks them done. Run them after rebuilding the runtime.

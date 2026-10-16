@@ -29,9 +29,6 @@ defmodule Aiur.AiurAgentSkillTest do
     dictated-input.md
   )
   @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-intro aiur-monitor aiur-run design-import)
-  # `aiur-meta` is an Executor meta-check driven by `aiur-run`'s timer. It audits
-  # operator surfaces and files tickets; issue workers never run it, so it stays
-  # Claude-only and is deliberately not symlinked into `.codex/skills/`.
   @claude_executor_only_skills ~w(aiur-handoff aiur-meta release)
 
   # Every skill that can reach a ticket-creation command. Each states the rule

@@ -66,6 +66,18 @@ defmodule Aiur.CodingAgent.RegistryContractTest do
            end) == []
   end
 
+  # Future regression guard: current adapters export none of these callbacks.
+  test "reserved callback names are exported only with their reserved arity" do
+    assert failures(fn _key, entry ->
+             Code.ensure_loaded!(entry.adapter)
+
+             for {name, arity} <- entry.adapter.__info__(:functions),
+                 name in [:steer, :reply_native_question, :release_native_question],
+                 arity != 3,
+                 do: {:reserved_callback_wrong_arity, name, arity}
+           end) == []
+  end
+
   test "immediate delivery implies no safe checkpoints" do
     assert failures(fn _key, entry ->
              if entry[:immediate_delivery] == true and entry[:safe_checkpoints] != [],
