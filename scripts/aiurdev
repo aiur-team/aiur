@@ -83,6 +83,7 @@ effective_command() {
 
   for arg in "$@"; do
     case "$arg" in
+    # @cli-reference aiur --debug | Enables debug logs and durable chat-pane recording for this run. Analytics capture does not depend on `--debug`. | aiur --debug
       --debug | --clear | --allow-remote) ;;
       *)
         printf '%s\n' "$arg"

@@ -49,6 +49,7 @@ defmodule Aiur.ConfigurationReferenceTest do
     tracker.linear.assignee
     workspace.root
     agent.max_concurrent_agents
+    agent.synthetic_load_process_cap
     agent.rate_limit_primary
     alerts.alerts_file
     server.host

@@ -18,6 +18,7 @@ defmodule Aiur.ExecutorEvents do
   alias Aiur.Events.Topic
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
+  alias Aiur.ExecutorEvents.Requested
   alias Aiur.ExecutorWakeProjection
   alias Aiur.JSONSafe
   alias Aiur.JsonStore
@@ -57,7 +58,7 @@ defmodule Aiur.ExecutorEvents do
   @doc "Publish a newly accepted Command to the durable Executor stream."
   @spec publish_requested(Decision.t()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
   def publish_requested(%Decision{} = decision) do
-    publish("executor.decision.requested", requested_payload(decision), source: :internal)
+    publish("executor.decision.requested", Requested.payload(decision), source: :internal)
   end
 
   @spec publish(String.t(), map(), keyword()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
@@ -343,25 +344,6 @@ defmodule Aiur.ExecutorEvents do
     }
   end
 
-  defp requested_payload(decision) do
-    %{
-      decision_id: decision.decision_id,
-      decision_version: decision.version,
-      issue_identifier: decision.ticket.identifier,
-      title: decision.question,
-      options: decision.options,
-      context: decision.context,
-      recommendation: decision.recommendation,
-      authority: decision.authority,
-      urgency: decision.urgency,
-      blocking: decision.blocking,
-      reversibility: decision.reversibility,
-      consequence_of_delay: decision.consequence_of_delay,
-      created_at: decision.created_at,
-      provenance: :decision_store
-    }
-  end
-
   @doc """
   Publishes `executor.decision.requested` only if this exact Decision version
   is not already journaled.
@@ -374,10 +356,8 @@ defmodule Aiur.ExecutorEvents do
   """
   @spec ensure_requested(Decision.t()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
   def ensure_requested(%Decision{} = decision) do
-    case requested_event_id(decision.decision_id, decision.version) do
-      {:ok, id} -> {:ok, id, 0}
-      :not_found -> publish_requested(decision)
-      {:error, reason} -> {:error, reason}
+    with {:ok, events} <- journal_events() do
+      Requested.ensure_requested(decision, events)
     end
   end
 
@@ -385,53 +365,8 @@ defmodule Aiur.ExecutorEvents do
   @spec reconcile_requested([Decision.t()]) :: {:ok, non_neg_integer()} | {:error, term()}
   def reconcile_requested(decisions) when is_list(decisions) do
     with {:ok, events} <- journal_events() do
-      decisions
-      |> missing_requested(events)
-      |> publish_missing_requested()
+      Requested.reconcile_requested(decisions, events)
     end
-  end
-
-  defp missing_requested(decisions, events) do
-    existing =
-      events
-      |> Enum.filter(&(&1["topic"] == "executor.decision.requested"))
-      |> MapSet.new(&{&1["decision_id"], &1["decision_version"]})
-
-    Enum.reject(decisions, &MapSet.member?(existing, {&1.decision_id, &1.version}))
-  end
-
-  # Never halts part-way. Halting left the untried tail unpublished while the
-  # caller retried the whole batch, so every already-published Decision was
-  # published a second time. Each Decision is attempted exactly once here and
-  # only the still-unpublished ones can be retried by the caller.
-  defp publish_missing_requested(decisions) do
-    {published, failures} =
-      Enum.reduce(decisions, {0, []}, fn decision, {count, failures} ->
-        case publish_requested(decision) do
-          {:ok, _id, _subscribers} -> {count + 1, failures}
-          {:error, reason} -> {count, [reason | failures]}
-        end
-      end)
-
-    case Enum.reverse(failures) do
-      [] -> {:ok, published}
-      [reason | _rest] -> {:error, reason}
-    end
-  end
-
-  defp requested_event_id(decision_id, version) do
-    with {:ok, events} <- journal_events() do
-      case Enum.find(events, &requested_event?(&1, decision_id, version)) do
-        %{"id" => id} when is_integer(id) -> {:ok, id}
-        _event -> :not_found
-      end
-    end
-  end
-
-  defp requested_event?(event, decision_id, version) do
-    event["topic"] == "executor.decision.requested" and
-      event["decision_id"] == decision_id and
-      event["decision_version"] == version
   end
 
   defp deferred_event_id(decision_id) do
