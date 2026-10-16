@@ -1,5 +1,6 @@
 defmodule Aiur.ExecutorSweep.Wake do
   @moduledoc false
+  require Logger
 
   @spec publish(map(), GenServer.server()) :: :ok
   def publish(finding, inbox \\ Aiur.ExecutorWakeInbox) do
@@ -12,9 +13,14 @@ defmodule Aiur.ExecutorSweep.Wake do
       :ignore -> :ok
     end
   rescue
-    _ -> :ok
+    error -> dropped(finding, :error, error)
   catch
-    :exit, _ -> :ok
+    :exit, reason -> dropped(finding, :exit, reason)
+  end
+
+  defp dropped(finding, kind, reason) do
+    Logger.warning("Executor sweep wake dropped for #{inspect(Map.get(finding, :kind))}: " <> Exception.format_banner(kind, reason))
+    :ok
   end
 
   defp wake_finding(finding) do

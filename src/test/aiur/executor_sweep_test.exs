@@ -1,5 +1,6 @@
 defmodule Aiur.ExecutorSweepTest do
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog
 
   alias Aiur.ExecutorSweep
   alias Aiur.ExecutorSweep.Wake
@@ -84,6 +85,34 @@ defmodule Aiur.ExecutorSweepTest do
     assert Process.alive?(pid)
     GenServer.stop(pid)
     Agent.stop(calls)
+  end
+
+  test "a skipped cycle logs a warning with the reason" do
+    parent = self()
+
+    log =
+      capture_log(fn ->
+        assert {:ok, pid} =
+                 ExecutorSweep.start_link(
+                   name: nil,
+                   interval_ms: 60_000,
+                   sweep_fun: fn ->
+                     send(parent, :swept)
+                     raise "dependency not started"
+                   end
+                 )
+
+        assert_receive :swept, 1_000
+        _ = :sys.get_state(pid)
+        GenServer.stop(pid)
+      end)
+
+    assert log =~ "Executor sweep skipped a cycle: ** (RuntimeError) dependency not started"
+  end
+
+  test "a dropped wake logs a warning with the finding kind" do
+    log = capture_log(fn -> assert :ok = Wake.publish(%{kind: "sample", issue_number: 7}, :no_such_inbox) end)
+    assert log =~ ~s(Executor sweep wake dropped for "sample")
   end
 
   test "interval 0 starts idle" do

@@ -1,6 +1,7 @@
 defmodule Aiur.ExecutorSweep do
   @moduledoc "Periodic local-state checks that keep Executor actions visible."
   use GenServer
+  require Logger
 
   alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
   alias Aiur.ExecutorSweep.Wake
@@ -63,9 +64,14 @@ defmodule Aiur.ExecutorSweep do
   defp safe_sweep(sweep_fun) do
     {:ok, sweep_fun.()}
   rescue
-    _ -> :error
+    error -> skipped(:error, error)
   catch
-    :exit, _ -> :error
+    :exit, reason -> skipped(:exit, reason)
+  end
+
+  defp skipped(kind, reason) do
+    Logger.warning("Executor sweep skipped a cycle: " <> Exception.format_banner(kind, reason))
+    :error
   end
 
   defp publish(finding), do: Wake.publish(finding)
