@@ -148,11 +148,12 @@ defmodule Aiur.AgentGitHubGuard.AgentToken do
   defp write_agent_token_file(path, token) do
     temporary = path <> ".#{System.unique_integer([:positive])}.tmp"
 
+    # Restrict the mode before the token lands, so it is never readable at the umask default.
     with {:ok, file} <- File.open(temporary, [:write, :binary, :exclusive]),
+         :ok <- File.chmod(temporary, 0o600),
          :ok <- IO.binwrite(file, token),
          :ok <- IO.binwrite(file, "\n"),
          :ok <- File.close(file),
-         :ok <- File.chmod(temporary, 0o600),
          :ok <- File.rename(temporary, path) do
       :ok
     else

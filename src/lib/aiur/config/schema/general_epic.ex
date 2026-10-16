@@ -9,10 +9,22 @@ defmodule Aiur.Config.Schema.GeneralEpic do
   @primary_key false
 
   embedded_schema do
+    # @config-reference config-configuration-build-order-00 build_order.general_epics.key
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.general_epics.key | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
     field(:key, :string)
+    # @config-reference config-configuration-build-order-00 build_order.general_epics.label
+    # @config-detail build_order.general_epics.label | string | required | Column header text, without control characters. |
     field(:label, :string)
+    # @config-reference config-configuration-build-order-00 build_order.general_epics.labels
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.general_epics.labels | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
     field(:labels, {:array, :string}, default: [])
+    # @config-reference config-configuration-build-order-00 build_order.general_epics.hue
+    # @config-detail build_order.general_epics.hue | integer | required | Colour hue, 0–359. |
     field(:hue, :integer)
+    # @config-reference config-configuration-build-order-00 build_order.general_epics.icon
+    # @config-detail build_order.general_epics.icon | string | required | One of `bug`, `pen`, `server`, `docs`. |
     field(:icon, :string)
   end
 

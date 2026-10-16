@@ -139,6 +139,9 @@ run_session() {
   fi
 
   run_session_reclaim_stale_nodes
+  # Next-launch backstop for debris a SIGKILLed run could not clean (#4648).
+  sweep_stale_tmp_artifacts || true
+  sweep_orphan_test_private_dirs || true
   run_session_start_tmux
 
   # Grace window: surface a boot crash instead of attaching to nothing. Prove

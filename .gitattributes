@@ -12,3 +12,11 @@ src/priv/static/vendor/elk/0.11.1/SOURCE.md text eol=lf
 # These registries are one-entry-per-line and validated as sorted and unique.
 scripts/components/allowlist/*.tsv merge=union
 src/test/support/state_writers_allowlist.exs merge=union
+
+# Generated reference blocks are append-only at merge; regenerate them after
+# merging sibling config or CLI additions to restore canonical source ordering.
+website/docs-app/reference/configuration.md merge=union
+website/docs-app/reference/configuration-agent.md merge=union
+website/docs-app/reference/configuration-build-order.md merge=union
+website/docs-app/reference/merge-policy.md merge=union
+website/docs-app/reference/cli-options.md merge=union

@@ -366,6 +366,7 @@ Grouped by channel:
 | `system.dispatch.prewarm_blocked` / `.resolved` | `dispatch:auto` |
 | `system.dispatch.todo_capacity_exceeded` | `dispatch:auto` |
 | `system.tracker.auth_preflight_failed` / `.resolved` | `dispatch:auto` |
+| `system.toolchain.erlang_missing` / `.resolved` | `dispatch:auto` |
 | `system.fleet.capacity.backoff` / `system.fleet.capacity.resumed` | `dispatch:auto` |
 | `system.github.connectivity_lost` | `dispatch:auto` |
 | `system.queue.attention.#` (including `.resolved`) | `dispatch:auto` |
@@ -426,6 +427,10 @@ unpauses to implement findings; a CI failure routes the ticket to `agent:rework`
 Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route both
 `agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
 reviews without inline threads.
+
+A trusted `CHANGES_REQUESTED` review also takes
+the PR out of the merge queue, turns its auto-merge off, and records both on the
+ticket; a later Executor approval lands it through the normal merge path.
 
 Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
 `Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
