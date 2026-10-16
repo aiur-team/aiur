@@ -64,7 +64,7 @@ export function relayout({ live = false } = {}) {
   syncHistory();
   if (S.view === 'list') return fx.renderList();
   if (!ctx.content) viewport();
-  Object.assign(S, measureFlow(ctx.D, { vpW: ctx.vp.clientWidth, gut: gutW() }));
+  Object.assign(S, measureFlow(ctx.D, S, { vpW: ctx.vp.clientWidth, gut: gutW() }));
   ctx.content.classList.toggle('flow', S.flow);
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();

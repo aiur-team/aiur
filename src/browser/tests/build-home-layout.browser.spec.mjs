@@ -7,7 +7,11 @@ const root = new URL('../../test/fixtures/build_home/', import.meta.url)
 const design = await readFile(new URL('design-source/assets/build.js', root), 'utf8')
 const anchors = ['  window.AiurBuild = {', 'const avail = vp.clientWidth - gutW() - 14;', 'S.K = Math.max(2, Math.floor(avail / 140));']
 for (const anchor of anchors) expect(design.split(anchor).length).toBe(2)
+const nowPlan = '[...D.now, ...D.plan].map(colKey)'
+// #4769: the lane estimate also counts history and not-queued lanes; the rest stays the design's.
 const flow = design.slice(design.indexOf(anchors[1]), design.indexOf(anchors[2]) + anchors[2].length)
+  .replace(nowPlan, '[...D.now, ...D.plan, ...D.nq, ...D.hist.filter(t => t.end >= (S.histFrom || 0))].map(colKey).filter(k => !S.f.epic.length || S.f.epic.includes(k))')
+expect(flow).not.toContain(nowPlan)
 const oracle = design.replace(anchors[0], `window.__E8L = { run(d, st, dims) {
 D = d; Object.assign(S, st); S.f = { ...S.f, ...(st.f || {}) };
 vp = { clientWidth: dims.vpW, clientHeight: dims.vpH }; root = { clientWidth: dims.rootW };
@@ -32,7 +36,7 @@ test('layout oracle', async ({ page }) => {
     const failures = []; let count = 0
     const check = (snapshot, span, dm, extra = {}) => {
       const D = intake(snapshot), st = { ...state, span, ...extra }
-      const expected = window.__E8L.run(D, st, dm), sizing = layout.measureFlow(D, dm)
+      const expected = window.__E8L.run(D, st, dm), sizing = layout.measureFlow(D, { ...st, f: { epic: [], ...st.f } }, dm)
       const actual = { L: layout.computeLayout(D, { ...st, ...sizing }, dm, sources), ...sizing }
       count++; if (JSON.stringify(summarize(actual)) !== JSON.stringify(summarize(expected))) failures.push({ cell: [snapshot.kind, span, dm.vpW, extra], actual: summarize(actual), expected: summarize(expected) })
     }
@@ -53,14 +57,15 @@ for (const dataset of ['live', 'newrepo', 'noqueue']) test(`labels and markers m
       elements: ['hist', 'plan', 'nq'].flatMap(sec => Array.from(document.querySelectorAll(`#bd-sec-${sec} .bd-layer > .bd-lbl, #bd-sec-${sec} .bd-layer > .bd-dl, #bd-sec-${sec} .bd-layer > .bd-mk`), el => ({ sec, html: el.outerHTML }))) }))
     const actual = await page.evaluate(({ snapshot, dm, cw }) => {
       const D = intake(snapshot), days = layout.histDays(D.hist); dm.gut = dm.rootW < 640 ? 46 : 84
-      const L = run(D, { histFrom: days.length ? days[Math.max(0, days.length - 2)] : 0, ...layout.measureFlow(D, dm) }, sources, dm)
+      const histFrom = days.length ? days[Math.max(0, days.length - 2)] : 0
+      const L = run(D, { histFrom, ...layout.measureFlow(D, { histFrom, f: { epic: [] } }, dm) }, sources, dm)
       return Object.entries(L.secs).flatMap(([sec, s]) => [...s.marks.map(m => { const el = layout.makeMark(m); layout.placeMark(el, m, cw, dm.gut); return { sec, html: el.outerHTML } }), ...s.labels.flatMap(lb => layout.makeLabel(lb).filter(Boolean).map(el => ({ sec, html: el.outerHTML })))])
     }, { snapshot: fixtures[dataset], ...rendered })
     expect(rendered.elements.length).toBeGreaterThan(0); for (const element of rendered.elements) expect(actual).toContainEqual(element)
   } finally { await context.close() }
 })
 test('flow boundary', async ({ page }) => {
-  expect(await page.evaluate(() => { const D = data(); D.now = ['a', 'b', 'c', 'd', 'e'].map(epic => ({ epic })); return [356, 370].map(vpW => layout.measureFlow(D, { vpW, gut: 46 })) })).toEqual([{ flow: true, K: 2 }, { flow: false, K: 2 }])
+  expect(await page.evaluate(() => { const D = data(); D.now = ['a', 'b', 'c', 'd', 'e'].map(epic => ({ epic })); return [356, 370].map(vpW => layout.measureFlow(D, state, { vpW, gut: 46 })) })).toEqual([{ flow: true, K: 2 }, { flow: false, K: 2 }])
 })
 test('zero viewport', async ({ page }) => {
   expect(await page.evaluate(() => { const L = run(data(6), { span: 2 }, sources, { vpW: 0, vpH: 0, gut: 46 }); return [L.det, L.ch, L.gap, Object.values(L.secs).every(s => Number.isFinite(s.h) && s.items.every(t => Number.isFinite(t.y) && Number.isFinite(t.h)))] })).toEqual(['line', 41, 9, true])
