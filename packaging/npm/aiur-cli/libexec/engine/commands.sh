@@ -39,8 +39,20 @@ parse_issue_targets() {
 }
 cmd_status() {
   [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
-  [ "$#" -eq 0 ] || die "status does not accept arguments"
-  run_control_rpc "Aiur.AgentControlCLI.status()"
+  if [ "$#" -eq 0 ]; then
+    run_control_rpc "Aiur.AgentControlCLI.status()"
+  else
+    local handoff=0 json=false arg
+    for arg in "$@"; do
+      case "$arg" in
+        --handoff) handoff=1 ;;
+        --json) json=true ;;
+        *) die "status accepts --handoff [--json]" ;;
+      esac
+    done
+    [ "$handoff" -eq 1 ] || die "status --json requires --handoff"
+    run_control_rpc "Aiur.Handoff.CLI.report(json: $json)"
+  fi
 }
 
 # `aiur usage` — Codex/Claude limit headroom from the daemon's meter
@@ -199,8 +211,12 @@ cmd_message() {
 # `aiur agents` — concise one-line-per-agent state + current activity from a
 # live node (the headless equivalent of the dashboard / aiur-status skill).
 cmd_agents() {
-  [ "$#" -eq 0 ] || die "agents does not accept arguments"
-  run_control_rpc "Aiur.AgentControlCLI.agents()"
+  if [ "$#" -eq 1 ] && [ "$1" = --json ]; then
+    run_control_rpc "Aiur.Handoff.CLI.agents()"
+  else
+    [ "$#" -eq 0 ] || die "agents accepts only --json"
+    run_control_rpc "Aiur.AgentControlCLI.agents()"
+  fi
 }
 
 # `aiur commands` — read the dashboard's retained Decision projection without

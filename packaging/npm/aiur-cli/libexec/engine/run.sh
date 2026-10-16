@@ -276,6 +276,7 @@ run_session_prepare_env() {
   # reap from it after the BEAM is gone — a crashed BEAM can kill nothing itself.
   export AIUR_AGENT_TMPFILE="${session_root}/aiur-${$}-agents"
   : >"$AIUR_AGENT_TMPFILE"
+  inherit_handoff_pidfile
 
   # Workspace-root handoff for the shell cwd-sweep backstop. The BEAM writes the
   # resolved Aiur.Config.workspace_root() here after config loads.

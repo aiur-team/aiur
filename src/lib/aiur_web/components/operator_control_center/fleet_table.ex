@@ -61,6 +61,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
               </td>
               <td data-label="State" data-sort-value={row.state || row.bucket}>
                 <span class={state_chip_class(row.state)}>{humanize(row.state || row.bucket)}</span>
+                <span :if={row[:adopted_from]} class="chip" title={"Adopted from handoff " <> row.adopted_from}>adopted</span>
                 <span class="fleet-latest-meta">{ci_review(row)}</span>
                 <span class="fleet-latest-meta">{ObservationAge.row_label(row)}</span>
               </td>
