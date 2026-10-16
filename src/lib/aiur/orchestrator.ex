@@ -101,7 +101,7 @@ defmodule Aiur.Orchestrator do
 
   # Only runners surviving provisioning bill one lifetime dispatch unit (#1453); preflight failures do not.
   def handle_info({:dispatch_committed, issue_id}, state) when is_binary(issue_id) do
-    state = Dispatcher.record_dispatch_committed(state, issue_id)
+    state = state |> Dispatcher.record_dispatch_committed(issue_id) |> RetryEngine.clear_budget_hold_streak(issue_id)
     {:noreply, state}
   end
 

@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
   alias Aiur.Config
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.RetryEngine.Exhaustion
+  alias Aiur.Orchestrator.RetryEngine.HoldStreak
   alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Orchestrator.State
 
@@ -147,8 +148,15 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
               local_budget_hold: metadata[:local_budget_hold]
             })
       }
+      |> record_hold_deferral(issue_id, identifier, metadata)
     end
   end
+
+  # A hold retry never consumes the failure budget, so a hold that never clears is surfaced by duration instead (#4693).
+  defp record_hold_deferral(state, issue_id, identifier, %{delay_type: :local_budget_hold, local_budget_hold: %{} = hold}),
+    do: HoldStreak.record(state, issue_id, identifier, hold)
+
+  defp record_hold_deferral(state, _issue_id, _identifier, _metadata), do: state
 
   @spec failure_retry?(map()) :: boolean()
   def failure_retry?(metadata) when is_map(metadata) do
