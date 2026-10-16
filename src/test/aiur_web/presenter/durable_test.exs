@@ -108,6 +108,39 @@ defmodule AiurWeb.PresenterDurableTest do
     refute payload.analytics.available?
   end
 
+  test "recent merge health errors are safe to serialize in the public payload" do
+    cases = [
+      {{:unavailable, {:path_unresolved, :eacces}},
+       %{
+         status: "unavailable",
+         reason: "path_unresolved",
+         detail: "eacces"
+       }},
+      {{:corrupt, {:invalid_record, 4}},
+       %{
+         status: "corrupt",
+         reason: "invalid_record",
+         detail: "4"
+       }},
+      {{:append_failed, :disk_full}, %{status: "append_failed", reason: "disk_full"}},
+      {{:compaction_failed, :disk_full}, %{status: "compaction_failed", reason: "disk_full"}}
+    ]
+
+    for {health, expected_health} <- cases do
+      payload =
+        Presenter.state_payload(Module.concat(__MODULE__, :MissingMergeHealthOrchestrator), 5,
+          recent_merge_snapshot_fun: fn ->
+            %{merges: [], health: health, reconciliation: %{status: :unknown}}
+          end
+        )
+
+      assert payload.recent_merges.status == :degraded
+      assert payload.recent_merges.health == expected_health
+      assert payload.recent_merges.message == "Showing a partial merge history."
+      assert {:ok, _json} = Jason.encode(payload)
+    end
+  end
+
   test "the recent repository merge projection stays bounded" do
     assert {:ok, merge} =
              RecentMerge.from_github_event(merged_event(),
@@ -117,7 +150,12 @@ defmodule AiurWeb.PresenterDurableTest do
 
     merges =
       Enum.map(1..51, fn number ->
-        %{merge | id: "owner/repo##{number}", number: number, url: "https://github.com/owner/repo/pull/#{number}"}
+        %{
+          merge
+          | id: "owner/repo##{number}",
+            number: number,
+            url: "https://github.com/owner/repo/pull/#{number}"
+        }
       end)
 
     payload =
