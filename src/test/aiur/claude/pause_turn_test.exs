@@ -56,7 +56,7 @@ defmodule Aiur.Claude.PauseTurnTest do
     started = ~s({"jsonrpc":"2.0","method":"turn/started","params":{"turn_id":"u1","thread_id":"t1"}})
 
     "while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
-      "request_id=$(printf '%s' \"$line\" | grep -o '^{\"id\":[0-9]*' | cut -d: -f2); " <>
+      ~s{request_id=$(printf '%s' "$line" | grep -o '^{"id":[0-9]*' | cut -d: -f2); } <>
       "case \"$line\" in " <>
       "*'\"initialize\"'*) echo '#{init}' ;; " <>
       "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
