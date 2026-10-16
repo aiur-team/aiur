@@ -7,6 +7,8 @@ defmodule Aiur.CommandsFacadeTest do
     capability_ids: {Aiur.DecisionStore.CapabilityProvider, :capability_ids},
     capabilities: {Aiur.DecisionStore.CapabilityProvider, :capabilities},
     query_list: {Aiur.DecisionQuery, :list},
+    list_decisions: {Aiur.DecisionStore, :list},
+    decision_stale_topic: {Aiur.DecisionAttentionSignals, :stale_topic},
     query_get: {Aiur.DecisionQuery, :get},
     query_counts: {Aiur.DecisionQuery, :counts},
     default_store: {Aiur.DecisionQuery, :default_store},

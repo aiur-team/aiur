@@ -26,6 +26,7 @@
   "owns": {
     "config": [
       "compaction",
+      "executor",
       "merge_policy",
       "prompt_file"
     ],
@@ -53,7 +54,9 @@
   "docs": [
     "reference/configuration.md"
   ],
-  "config": [],
+  "config": [
+    "executor"
+  ],
   "env": [
     "HOME",
     "XDG_CONFIG_HOME",

@@ -107,6 +107,11 @@ if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
 end
 
 if config_env() == :test do
+  # System.tmp_dir!() may be a directory inside an agent checkout. Bound Git's
+  # upward discovery there so non-repository test fixtures stay non-repositories.
+  # Git still discovers repositories initialized below TMPDIR normally.
+  System.put_env("GIT_CEILING_DIRECTORIES", System.tmp_dir!())
+
   # Install before app boot: accidental tracker/provider calls must never dial
   # public hosts. Tests opt in per request with a fake :plug/:adapter, or
   # adapter: Req.Finch for explicitly tagged live-provider checks.
@@ -164,6 +169,16 @@ if config_env() == :test do
   # tests and emit degraded alerts into an unrelated test's isolated ledger).
   # Tests drive `check/1` deterministically on their own instances.
   config :aiur, :broker_timeout_check_interval_ms, 0
+
+  # The shared app's terminal-ticket fact capture must not reach GitHub across
+  # sequential test boundaries: other tests queue tickets into it, and its 5 s
+  # retry tick sends `POST /graphql` whenever a later test has set a token.
+  # Tests that exercise it start their own instance.
+  config :aiur, :run_telemetry_facts_capture?, false
+
+  # The shared app's Executor sweep must not read daemon state or enqueue wakes
+  # across test boundaries. Tests start their own instance with an interval.
+  config :aiur, :executor_sweep_interval_ms, 0
 
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.

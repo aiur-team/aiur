@@ -55,11 +55,11 @@ defmodule AiurWeb.PresenterDurableTest do
     assert recent.ticket_id == nil
     assert payload.recent_merges.reconciliation.partial?
 
-    assert payload.analytics == %{
+    assert %{
              available?: true,
              path: "/analytics",
              message: "Open the separate durable telemetry report."
-           }
+           } = payload.analytics
   end
 
   test "renders a stale last-known-good fleet instead of a snapshot error" do
@@ -135,5 +135,29 @@ defmodule AiurWeb.PresenterDurableTest do
 
     assert length(payload.recent_merges.entries) == 50
     assert Enum.map(payload.recent_merges.entries, & &1.number) == Enum.to_list(1..50)
+  end
+
+  test "recent merge store health tuples JSON-encode as documented objects" do
+    cases = [
+      {{:unavailable, {:path_unresolved, :missing_test_state_dir}}, %{"status" => "unavailable", "reason" => "path_unresolved", "detail" => "missing_test_state_dir"}},
+      {{:unavailable, :enoent}, %{"status" => "unavailable", "reason" => "enoent"}},
+      {{:corrupt, 7, :invalid_json}, %{"status" => "corrupt", "line" => 7, "reason" => "invalid_json"}},
+      {{:append_failed, {:file, :enospc}}, %{"status" => "append_failed", "reason" => "file", "detail" => "enospc"}},
+      {{:compaction_failed, "disk full"}, %{"status" => "compaction_failed", "reason" => "disk full"}},
+      {{:compaction_failed, %{errno: 28}}, %{"status" => "compaction_failed", "reason" => "%{errno: 28}"}},
+      {{:weird, 1, 2, 3}, %{"status" => "unknown", "reason" => "{:weird, 1, 2, 3}"}},
+      {:writable, "writable"}
+    ]
+
+    for {health, expected} <- cases do
+      payload =
+        Presenter.state_payload(Module.concat(__MODULE__, :MissingOrchestrator), 5,
+          recent_merge_snapshot_fun: fn ->
+            %{merges: [], health: health, reconciliation: %{status: :unknown, partial?: nil, pages_fetched: 0}}
+          end
+        )
+
+      assert %{"recent_merges" => %{"health" => ^expected}} = payload |> Jason.encode!() |> Jason.decode!()
+    end
   end
 end

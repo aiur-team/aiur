@@ -67,7 +67,7 @@ defmodule Aiur.Handoff.Record do
   defp consume_file(file, outcome) do
     with {:ok, record} when is_map(record) <- JsonStore.read(file),
          :ok <- File.rename(file, file <> ".consumed") do
-      JsonStore.write!(file <> ".consumed", Map.put(record, "outcome", outcome))
+      JsonStore.write!(file <> ".consumed", Map.merge(record, %{"outcome" => outcome, "completed_at" => DateTime.to_iso8601(DateTime.utc_now())}))
     else
       {:ok, nil} -> {:error, :already_consumed}
       {:error, :enoent} -> {:error, :already_consumed}

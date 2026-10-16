@@ -12,6 +12,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.CommentPolling
   alias Aiur.Orchestrator.DispatchBatch
   alias Aiur.Orchestrator.DispatchCandidates
+  alias Aiur.Orchestrator.DispatchCycleCompletion
+  alias Aiur.Orchestrator.DispatchCycleLiveness
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
   alias Aiur.Orchestrator.Dispatcher.Candidates
@@ -132,12 +134,30 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec run_poll_cycle(State.t()) :: {:noreply, State.t()}
   def run_poll_cycle(%State{} = state) do
-    if TrackerTasks.running?(state, :startup_workspace_cleanup) do
+    if TrackerTasks.running?(state, :startup_workspace_cleanup),
+      do: {:noreply, Lifecycle.schedule_tick(state, 100)},
+      else: state |> DispatchCycleLiveness.start() |> continue_poll_cycle()
+  end
+
+  defp continue_poll_cycle(state) do
+    if dispatch_chain_pending?(state) or dispatch_poll_running?(state) do
       {:noreply, Lifecycle.schedule_tick(state, 100)}
     else
-      start_poll_cycle(state)
+      start_and_watch_poll_cycle(state)
     end
   end
+
+  defp start_and_watch_poll_cycle(state) do
+    case start_poll_cycle(state) do
+      {:noreply, next} = result ->
+        if dispatch_poll_running?(next),
+          do: {:noreply, Lifecycle.schedule_tick(next, 100)},
+          else: result
+    end
+  end
+
+  defp dispatch_poll_running?(state),
+    do: TrackerTasks.running?(state, :dispatch_poll) or TrackerTasks.running?(state, :ci_poll)
 
   defp start_poll_cycle(state) do
     cond do
@@ -168,36 +188,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end)
   end
 
-  defp finish_poll_cycle(state) do
-    schedule = TrackerHealth.poll_schedule(state)
-
-    state =
-      state
-      |> Lifecycle.schedule_tick(schedule.delay_ms)
-      |> Map.put(:effective_poll_interval_ms, schedule.delay_ms)
-      |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
-      # Keep the first poll at the base interval; idle widening starts after an observed cycle (#2138).
-      |> Map.update!(:poll_cycles_completed, &(&1 + 1))
-      # Measure the GitHub poll floor here so pulled-forward ticks still respect it.
-      |> Map.put(:last_dispatch_poll_at_ms, System.monotonic_time(:millisecond))
-      # Counted first, then pruned: a hint whose budget this cycle exhausted
-      # is dropped here, and a ticket this poll finally showed is dropped
-      # because the ordinary demand scan sees it now (#2640).
-      |> TrackerHealth.prune_queued_demand_hints()
-
-    # Every freshness threshold is a multiple of the cadence actually in force,
-    # so each class's effective interval — idle backoff, webhook widening and
-    # GitHub's own floors already composed in — is published where any reader
-    # can derive from it. See `Aiur.PollCadence` and
-    # `TrackerHealth.publish_poll_cadence/2` (#2309).
-    :ok = TrackerHealth.publish_poll_cadence(state, schedule)
-
-    state = %{state | poll_check_in_progress: false}
-
-    state = StatusReport.sync_waiting_for_human_episodes(state, DateTime.utc_now())
-    StatusReport.notify_dashboard(state)
-    state
-  end
+  @doc false
+  @spec finish_poll_cycle(State.t()) :: State.t()
+  defdelegate finish_poll_cycle(state), to: DispatchCycleCompletion, as: :finish
 
   defp start_poll_reads(state) do
     state

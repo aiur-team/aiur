@@ -4,7 +4,10 @@
   "kind": "reference",
   "only_paths": [
     "src/lib/aiur/landing_watch.ex",
-    "src/lib/aiur/landing_watch/merge_groups.ex"
+    "src/lib/aiur/landing_watch/merge_group_failure_evidence.ex",
+    "src/lib/aiur/landing_watch/merge_group_failure_processor.ex",
+    "src/lib/aiur/landing_watch/merge_groups.ex",
+    "src/lib/aiur/orchestrator/ci_lifecycle/outcome.ex"
   ],
-  "reason": "#4457: reuse governed CI jobs and bounded failed-job recovery"
+  "reason": "#4457: reuse governed CI jobs and bounded failed-job recovery; #4569: read failed merge-group job logs; #4631: observe approved exact-head PRs before CI recovery"
 }

@@ -69,7 +69,7 @@ jobs:
           otp-version: '28'
           elixir-version: '1.19.5'
       - name: Guard workflow triggers, action pins and PR body rollout
-        run: bash scripts/test-workflow-security.sh && python3 scripts/test-check-pr-body.py && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/test-check-pr-body-check-run.py && python3 scripts/check-hot-list-format.py && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py
+        run: bash scripts/test-workflow-security.sh && python3 scripts/test-check-pr-body.py && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/test-check-pr-body-check-run.py && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-pre-handoff-guards.sh
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
       - name: Test human-only merge ruleset verifier
@@ -97,7 +97,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/verify-human-only-merge-ruleset-live.sh
       - name: Structural guards
-        run: python3 scripts/check-bare-assert-receive.py && python3 scripts/check-on-exit-rm-rf.py && python3 scripts/check-config-docs.py && node scripts/check-docs-prose.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AIUR_PR_NUMBER: ${{ github.event.pull_request.number }}
+          AIUR_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          AIUR_MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          AIUR_PUSH_BEFORE: ${{ github.event.before }}
+        run: scripts/run-pre-handoff-guards.sh
       - name: Test rename preflight and plan refresh
         run: make test-rename-preflight && python3 -I scripts/test_plan_refresh.py
       - name: Test config documentation and design extract guards
@@ -120,25 +126,6 @@ jobs:
         run: bash scripts/test-check-file-size.sh
       - name: Set up Bun
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
-      - name: File size gate
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          MERGE_BASE: ${{ github.event.merge_group.base_sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-        run: |
-          case "$EVENT_NAME" in
-            pull_request|merge_group) base="${PR_BASE:-$MERGE_BASE}" ;;
-            push)
-              base="$PUSH_BEFORE"
-              if [[ "$base" =~ ^0+$ ]]; then base="$(git rev-parse HEAD^1)"; fi ;;
-            workflow_dispatch)
-              upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || echo origin/main)"
-              base="$(git merge-base HEAD "$upstream")" ;;
-            *) echo "Unsupported file size gate event: $EVENT_NAME" >&2; exit 1 ;;
-          esac
-          test -n "$base"
-          python3 scripts/check-file-size.py --base "$base"
   build:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
@@ -192,7 +179,7 @@ jobs:
       - name: Config docs and Docker dependency guards
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
-        run: python3 scripts/check-config-docs.py && python3 scripts/check-docker-path-deps.py && python3 scripts/test-check-docker-path-deps.py
+        run: python3 scripts/check-config-docs.py && bash website/docs-app/scripts/check-cli-reference.sh && bash website/docs-app/scripts/test-check-cli-reference.sh && python3 scripts/check-docker-path-deps.py && python3 scripts/test-check-docker-path-deps.py
       - name: Cache component checker toolchain
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -463,93 +450,85 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make dialyzer
   browser:
-    name: browser smoke (1/3)
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    name: browser smoke (1/4)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
     timeout-minutes: 15
     steps:
       - name: Checkout
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Disclose rerun attempt
-        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
+        if: ${{ github.run_attempt > 1 }}
+        working-directory: .
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up browser harness
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/setup-browser
-      - name: Run browser, accessibility, and performance smoke
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: node scripts/run-browser-smoke-shard.mjs 1
-      - name: Check browser fixtures and vendored assets
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: node scripts/check-vendored-elk.mjs && npm run check:build-home-fixtures
-      - name: Upload browser evidence
-        if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Run browser smoke shard 1
+        uses: ./.github/actions/browser-smoke
         with:
-          name: browser-harness-artifacts-1
-          path: src/browser/.artifacts-run-*/
-          if-no-files-found: ignore
-          include-hidden-files: true
+          shard: 1
+          verify_fixtures: true
+          upload_evidence: true
   browser-2:
-    name: browser smoke (2/3)
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    name: browser smoke (2/4)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
     timeout-minutes: 15
     steps:
       - name: Checkout
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Disclose rerun attempt
-        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
+        if: ${{ github.run_attempt > 1 }}
+        working-directory: .
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up browser harness
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/setup-browser
       - name: Run browser smoke shard 2
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: node scripts/run-browser-smoke-shard.mjs 2
-      - name: Run first visual regression baseline
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npm run test:visual
-
+        uses: ./.github/actions/browser-smoke
+        with:
+          shard: 2
+          visual_regression: first
   browser-3:
-    name: browser smoke (3/3)
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    name: browser smoke (3/4)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
     timeout-minutes: 15
     steps:
       - name: Checkout
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Disclose rerun attempt
-        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
+        if: ${{ github.run_attempt > 1 }}
+        working-directory: .
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up browser harness
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/setup-browser
       - name: Run browser smoke shard 3
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: node scripts/run-browser-smoke-shard.mjs 3
-      - name: Run second visual regression baseline and verify failure evidence
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npm run test:visual && npm run verify:failure-artifacts
-
+        uses: ./.github/actions/browser-smoke
+        with:
+          shard: 3
+  browser-4:
+    name: browser smoke (4/4)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        working-directory: .
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Run browser smoke shard 4
+        uses: ./.github/actions/browser-smoke
+        with:
+          shard: 4
+          visual_regression: second
   streamdeck:
     name: streamdeck
     needs: changes
@@ -694,12 +673,11 @@ jobs:
       - name: Run affected tests on the PR merge
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         env:
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
           AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}
-        run: sudo apt-get update && sudo apt-get install -y zsh && python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"
+        run: bash ../scripts/run-ci-affected-tests.sh
   ci-gate:
     name: ci gate
-    needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, browser-2, browser-3, home-css, layout-release, analytics, streamdeck]
+    needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, browser-2, browser-3, browser-4, home-css, layout-release, analytics, streamdeck]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 2

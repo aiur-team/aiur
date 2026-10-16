@@ -8,10 +8,12 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Alerts
   alias Aiur.Commands
   alias Aiur.Config
+  alias Aiur.GitHub.LocalHold
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher.Launch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.OptimisticSlots
   alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.Slots
@@ -181,7 +183,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   defp fetch_dispatch_validation(blocked_ids, issue, opts) do
     case held_by_dependency_before_refresh(blocked_ids, issue, opts) do
-      {:held, hydrated, _terminal_states} -> {:held, hydrated}
+      {:held, hydrated, _terminal_states} -> {:held, HoldDecline.observe(hydrated)}
       :continue -> refresh_dispatch_validation(issue, opts)
     end
   end
@@ -191,7 +193,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
     case Launch.revalidate_issue_for_dispatch(issue, fetcher, DispatchPolicy.terminal_state_set(), opts) do
-      {:ok, refreshed} -> {:validated, refreshed, hydrator.(refreshed)}
+      {:ok, refreshed} -> {:validated, refreshed, HoldDecline.observe(LocalHold.run(fn -> hydrator.(refreshed) end, LocalHold.caller_opts(opts)))}
       other -> other
     end
   end
@@ -233,7 +235,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   defp apply_dispatch_validation(state, issue, _attempt, _host, _opts, result) do
     Logger.warning("Asynchronous dispatch validation declined: #{State.issue_context(issue)} result=#{inspect(result)}")
-    emit_dispatch_attempt_decline(state, issue, :tracker_revalidation_failed, true)
+    emit_dispatch_attempt_decline(state, issue, HoldDecline.classify(issue, result, :tracker_revalidation_failed), true)
   end
 
   defp dispatch_input(state, id) do
@@ -321,7 +323,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
             "#{inspect(reason)} (fail-closed: unknown blockers hold dispatch)"
         )
 
-        emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
+        emit_dispatch_attempt_decline(state, refreshed_issue, HoldDecline.classify(refreshed_issue, {:error, reason}, :dependency_hydration_failed), true)
 
       # A hydrator that returns an unexpected shape must never crash the
       # orchestrator; treat it as unknown blockers and hold dispatch.
@@ -331,7 +333,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
             "#{State.issue_context(refreshed_issue)}: #{inspect(other)} (fail-closed)"
         )
 
-        emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
+        emit_dispatch_attempt_decline(state, refreshed_issue, HoldDecline.classify(refreshed_issue, {:error, other}, :dependency_hydration_failed), true)
     end
   end
 
@@ -391,7 +393,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
       issue,
       reason,
       "Ticket #{issue.identifier} was selected but dispatch stopped: #{inspect(reason)}",
-      attention?
+      attention? and reason != HoldDecline.hold_reason()
     )
   end
 
