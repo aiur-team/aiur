@@ -8,4 +8,3 @@ export async function spanState(page) {
     dot: document.querySelector('#bd-vp').style.getPropertyValue('--dot'),
   }))
 }
-

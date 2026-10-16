@@ -61,4 +61,3 @@ export async function compareRegion(pair, options) {
     for (const [index, side] of ['design', 'product'].entries()) await pair[side].locator('.sidenav, .ax-top').evaluateAll((nodes, values) => nodes.forEach((el, i) => { el.style.visibility = values[i] }), chrome[index])
   }
 }
-
