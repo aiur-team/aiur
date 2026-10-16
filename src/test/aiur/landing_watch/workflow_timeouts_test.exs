@@ -30,4 +30,21 @@ defmodule Aiur.LandingWatch.WorkflowTimeoutsTest do
     assert %{"browser smoke (3/3)" => 15, "lint" => 360} =
              WorkflowTimeouts.for_jobs(run, jobs, token: "test-gh-token", request_fun: request)
   end
+
+  test "maps matrix-expanded job names through the job's name expression" do
+    yaml = """
+    name: CI
+    jobs:
+      browser:
+        name: browser smoke (${{ matrix.shard }}/5)
+        timeout-minutes: 22
+    """
+
+    request = fn _request -> {:ok, %{status: 200, body: %{"content" => Base.encode64(yaml)}}} end
+    jobs = [%{"name" => "browser smoke (3/5)"}, %{"name" => "browser smoke (3/4)"}, %{"name" => "browser smoke"}]
+    run = %{"path" => ".github/workflows/ci.yml", "head_sha" => "merge-sha"}
+
+    assert %{"browser smoke (3/5)" => 22} ==
+             WorkflowTimeouts.for_jobs(run, jobs, token: "test-gh-token", request_fun: request)
+  end
 end
