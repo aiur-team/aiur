@@ -142,13 +142,12 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     refute CiRecovery.attention_hold?(state.ci_lifecycle.poll_cache["3864"])
     first_requests = requests(ctx)
     state = lifecycle_poll(state, ctx, %{ctx.issue | updated_at: DateTime.from_unix!(2)})
-    second_requests = requests(ctx)
-    assert length(second_requests) == length(first_requests) + 1
+    assert requests(ctx) == first_requests
     refute_received {:attention, _, _}
     lifecycle_poll(state, ctx, %{ctx.issue | updated_at: DateTime.from_unix!(3)})
     assert_received {:attention, "ticket.3864.pr.ci_recovery.loop", details}
     assert details[:message] =~ "UntouchedTest :: fails"
-    assert length(requests(ctx)) == length(second_requests) + 1
+    assert requests(ctx) == first_requests
   end
 
   test "unavailable Actions evidence holds without repeating reads or attention", ctx do
@@ -442,8 +441,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
             "baseRefName" => "main",
             "mergeable" => "MERGEABLE",
             "mergeStateStatus" => if(state.behind, do: "BEHIND", else: "CLEAN"),
-            "mergeQueueEntry" => if(state.queued, do: %{"id" => "queued"}, else: nil),
-            "autoMergeRequest" => nil
+            "mergeQueueEntry" => if(state.queued, do: %{"id" => "queued"}, else: nil)
           }
         }
       }
