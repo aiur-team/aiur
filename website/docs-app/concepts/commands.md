@@ -57,9 +57,11 @@ Because omission defaults to the Executor floor, a Command that is genuinely
 irreversible, involves spend or external publication, or changes product
 direction must declare `authority: human_required` (and the matching
 `reversibility`) and set `context.authority_basis` to `product`, `spend`,
-`external_publication`, or `security`. Explain the specific boundary in the
-request context; missing or unrecognized bases are rejected. Legacy attention
-projections remain human-required without this worker field.
+`external_publication`, or `security`.
+
+Explain the specific boundary in the request context; missing or unrecognized
+bases are rejected. Legacy attention projections remain human-required without
+this worker field.
 
 If the Executor sees an engineering decision that was marked human-required,
 `aiur executor-reclassify` records an Executor-attributed rationale and makes an
