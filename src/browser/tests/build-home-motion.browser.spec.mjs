@@ -134,7 +134,7 @@ for (const name of Object.keys(SEQUENCES)) for (const reduce of [false, true]) {
     test.setTimeout(240_000)
     let reference
     for (let run = 0; run < 3; run++) {
-      const record = await designRecord(browser, name, { reduce })
+      const record = await designRecord(browser, name, { reduce, ...(name === 'history.window' ? { selectedCell: { ...cell, dataset: 'dense' } } : {}) })
       expect(record.reason, JSON.stringify(record)).toBeUndefined()
       expect(record.samples.length).toBeGreaterThan(0)
       if (name.startsWith('snap.') && name !== 'snap.scrollbar-drag') expect(record.frame).toHaveLength(name === 'snap.scroll-curve' ? 27 : 41)

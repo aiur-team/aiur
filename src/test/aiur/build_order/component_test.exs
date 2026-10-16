@@ -39,6 +39,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.GitHub.ReadCache,
     Aiur.GitHub.Quota,
     Aiur.GitHub.BrokerTimeout,
+    Aiur.GitHub.HoldPressure,
     Aiur.GitHub.BudgetBroker,
     Aiur.ElevenLabs.Quota,
     {Aiur.BuildOrder.TicketDetailCoordinator, [runtime_config?: true]},

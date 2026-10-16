@@ -18,17 +18,19 @@ defmodule Aiur.RunTelemetry.Supervisor do
     facts_opts = Keyword.get(opts, :facts_opts, [])
     timeline_opts = Keyword.get(opts, :timeline_opts, [])
     name = Keyword.get(opts, :name, __MODULE__)
+    # FactsCapture retries queued tickets with a GraphQL read on its own 5 s tick.
+    facts_capture? = Application.get_env(:aiur, :run_telemetry_facts_capture?, true)
 
     children = [
       {Writer, writer_opts},
-      {Aiur.RunTelemetry.FactsCapture, facts_opts},
+      if(facts_capture?, do: {Aiur.RunTelemetry.FactsCapture, facts_opts}),
       {Aiur.RunTelemetry.RepoTimeline, timeline_opts},
       {Sampler, sampler_opts},
       {UsageCapture, name: child_name(name, UsageCapture)},
       {Task.Supervisor, name: child_name(name, :UsageTasks)}
     ]
 
-    Supervisor.init(children, strategy: :one_for_one)
+    Supervisor.init(Enum.reject(children, &is_nil/1), strategy: :one_for_one)
   end
 
   # The app's supervisor owns the module-named defaults; any other instance (tests) gets its own.

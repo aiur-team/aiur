@@ -82,7 +82,7 @@ defmodule Aiur.AgentControlCLITest do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
     empty_output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert empty_output =~ "WAKES CURSOR 0 PENDING 0"
+    assert empty_output =~ "WAKES CURSOR 0 PENDING 0\nDECISIONS "
     assert empty_output =~ "ISSUE STATE  TITLE"
     assert empty_output =~ "(no active agents)"
     assert empty_output =~ "__AIUR_CONTROL_EXIT__:0"

@@ -64,6 +64,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [watch_pr]} end
@@ -138,6 +139,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           max_concurrency: 1,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end,
@@ -199,6 +201,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
         ExUnit.CaptureLog.capture_log(fn ->
           CommentPolling.poll_github_comments(state,
             repo: "owner/repo",
+            token: "test-gh-token",
             request_fun: request_fun,
             max_concurrency: 1,
             watch_comment_target_limit: 2,
@@ -248,6 +251,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn _label ->

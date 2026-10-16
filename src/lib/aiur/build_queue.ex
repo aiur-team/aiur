@@ -77,7 +77,7 @@ defmodule Aiur.BuildQueue do
   def clear(opts), do: mutate({:clear, opts})
 
   @doc "Clears item holds and overrides, or releases all items and the hold in a queue by ID."
-  @spec release(String.t(), GenServer.server()) :: :ok | {:error, term()}
+  @spec release(String.t(), GenServer.server()) :: :ok | {:ok, [String.t()]} | {:error, term()}
   def release(target, server \\ Server) when is_binary(target) do
     GenServer.call(server, {:release, target})
   catch

@@ -30,11 +30,10 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.Budget
   alias Aiur.GitHub.CredentialHeadroom
-  alias Aiur.GitHub.CredentialSelector
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLCost
-  alias Aiur.GitHub.GraphQLErrors
-  alias Aiur.GitHub.{QueueCost, Quota}
+  alias Aiur.GitHub.{GraphQLErrors, HoldPressure}
+  alias Aiur.GitHub.{QueueCost, Quota, Transport.AuthDiagnostic}
   alias Aiur.GitHub.ReadCache
 
   require Logger
@@ -83,11 +82,7 @@ defmodule Aiur.GitHub.Transport do
         {:ok, token}
 
       _ ->
-        if Keyword.has_key?(opts, :request_fun) do
-          {:ok, "test-gh-token"}
-        else
-          require_token()
-        end
+        require_token()
     end
   end
 
@@ -116,7 +111,7 @@ defmodule Aiur.GitHub.Transport do
   @spec default_request_fun(map()) :: {:ok, map()} | {:error, term()}
   def default_request_fun(req), do: Aiur.TestTicketScope.with_write_scope(req, fn -> do_default_request(req) end)
 
-  defp do_default_request(%{token: token} = req) when is_binary(token), do: req |> QueueCost.tag() |> CredentialSelector.assign() |> do_request()
+  defp do_default_request(%{token: token} = req) when is_binary(token), do: AuthDiagnostic.run(req, &do_request/1)
   defp do_default_request(req), do: req |> QueueCost.tag() |> do_request()
 
   defp do_request(%{method: :get, url: url, token: token} = req) do
@@ -173,7 +168,7 @@ defmodule Aiur.GitHub.Transport do
         budget_request(quota, request, request_fun, deadline_ms)
 
       {:hold, hold} ->
-        {:error, {:aiur, :locally_held, hold}}
+        {:error, {:aiur, :locally_held, HoldPressure.record(hold)}}
     end
   end
 
@@ -201,7 +196,7 @@ defmodule Aiur.GitHub.Transport do
         end
 
       {:hold, hold} ->
-        {:error, {:aiur, :locally_held, hold}}
+        {:error, {:aiur, :locally_held, HoldPressure.record(hold)}}
 
       {:error, _reason} = error ->
         error

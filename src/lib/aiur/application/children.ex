@@ -132,6 +132,7 @@ defmodule Aiur.Application.Children do
       # retry path it observes lives in `Aiur.GitHub.LocalHold`; this process
       # owns the sliding-window rate and alert latch.
       Aiur.GitHub.BrokerTimeout,
+      Aiur.GitHub.HoldPressure,
       Aiur.GitHub.BudgetBroker,
       Aiur.Voice.child_specs(),
       Aiur.TicketContext.child_specs(:early, opts),

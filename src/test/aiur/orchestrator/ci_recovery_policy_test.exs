@@ -32,6 +32,7 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
     digest = %FailureDigest{flake_only: true, checks: [%{id: 1, name: "test", url: "https://github.com/owner/repo/actions/runs/99/job/1"}]}
 
     opts = [
+      token: "test-gh-token",
       request_fun: request,
       ci_recovery_path: path,
       ci_failure_digest: fn _, _ -> {:ok, digest} end,

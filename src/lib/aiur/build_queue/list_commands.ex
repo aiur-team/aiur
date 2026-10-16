@@ -2,13 +2,13 @@ defmodule Aiur.BuildQueue.ListCommands do
   @moduledoc false
   alias Aiur.BuildQueue.{ListMutations, Model.Intent, QueueTriggers, Reconcile, Settings}
 
-  @spec prepare(map(), tuple()) :: {:ok, map(), list(), map()} | {:error, term()}
+  @spec prepare(map(), tuple()) :: {:ok, map(), list(), map(), [String.t()]} | {:error, term()}
   def prepare(state, command) do
     observations = Reconcile.observations(state)
 
     with {:ok, document, actions} <- edit(state.document, command, state.clock.()),
-         {:ok, current_labels} <- open_members(state, command) do
-      {:ok, record(state, document, actions, observations, current_labels), actions, observations}
+         {:ok, current_labels, missing} <- open_members(state, command) do
+      {:ok, record(state, document, actions, observations, current_labels), actions, observations, missing}
     end
   end
 
@@ -53,18 +53,16 @@ defmodule Aiur.BuildQueue.ListCommands do
       {:ok, labels, observed_at} ->
         now = state.clock.()
 
-        cond do
-          observed_at > now or now - observed_at > max_age -> {:error, :inputs_unavailable}
-          Enum.any?(ids, &(not Map.has_key?(labels, &1))) -> {:error, :closed}
-          true -> {:ok, labels}
-        end
+        if observed_at > now or now - observed_at > max_age,
+          do: {:error, :inputs_unavailable},
+          else: {:ok, labels, Enum.reject(ids, &Map.has_key?(labels, &1))}
 
       _ ->
         {:error, :inputs_unavailable}
     end
   end
 
-  defp open_members(_state, _command), do: {:ok, %{}}
+  defp open_members(_state, _command), do: {:ok, %{}, []}
 
   defp intent({action, id}, observations, current_labels, state) do
     marker = "#{state.settings.tracker.github.label_prefix}:queued"

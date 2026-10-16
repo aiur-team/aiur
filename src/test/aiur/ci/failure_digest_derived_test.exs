@@ -83,7 +83,7 @@ defmodule Aiur.CI.FailureDigestDerivedTest do
       end
     end
 
-    FailureDigest.build(Keyword.get(opts, :id, "rollup"), request_fun: request)
+    FailureDigest.build(Keyword.get(opts, :id, "rollup"), token: "test-gh-token", request_fun: request)
   end
 
   defp annotation_response(nil), do: {:ok, %{status: 403, body: %{}}}

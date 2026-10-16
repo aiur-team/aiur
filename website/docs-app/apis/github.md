@@ -38,11 +38,11 @@ Measured on aiur-team/aiur on 2026-10-11: facts cost 4 points before bounding br
 
 The development `scripts/aiurdev --test` and `--test3` harnesses read GitHub issues but authorize only pinned tickets. Each scoped run gets private budget and state directories, and remote agents receive no GitHub credential. Ordinary runs keep normal discovery and remote credentials.
 
-CI batches and landing require all ruleset checks on PR heads. Startup readiness uses operator-only `AIUR_CI_READINESS_TOKEN` (`ci gate` here) and reports unavailable without it. Main-watch refreshes App auth once after 401; status names the failed request and credential class. Missing/skipped checks fail; lookup errors keep green aggregates pending.
+CI batches and landing require all ruleset checks on PR heads. Startup readiness uses operator-only `AIUR_CI_READINESS_TOKEN` (`ci gate` here) and reports unavailable without it. On a 401, main-watch names the applied credential; logs show a token fingerprint, never the token. Missing/skipped checks fail; lookup errors keep green aggregates pending.
 
 Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework. With no required list, every failure still decides.
 
-Ticket CI holds user-cancelled runs pending. The landing watcher follows approvals, retries infra failures, routes real failures to rework, checks attribution, and cancels stale groups. A same-job pass in an overlapping group proves a flake; it files a test-keyed issue, emits durable evidence, and re-enqueues approved PRs.
+User-cancelled CI runs stay pending. Landing watcher classifies failed groups from Actions logs and requeues approved PRs for infra, inherited, or known non-PR failures. Known tests match an open flake issue or base failure in 24h, and are untouched by the PR. Others route to rework with job/run details. It checks attribution and cancels stale groups.
 
 The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
 
@@ -299,13 +299,11 @@ Aiur's poll is state-based, so a longer interval delays a wake without losing on
 
 ## API budgets
 
-Daemon admissions use one resident Python broker per Aiur process. It reuses its SQLite connection and batches queued commands before replying. Shell
-`gh` guards keep the one-shot interface against the same shared database; separate daemons never get separate quota ledgers for a shared credential.
+Aiur's resident Python broker reuses one SQLite connection and batches commands per process. Shell `gh` guards share its database, so daemons using one credential share quota ledgers.
 
-A broker deadline is a **local hold**: Aiur backs off, keeps the claim, and
-keeps attempt counters. `Errors.outcome/1` sorts results into `:complete`,
-`:held` (never sent), `:unknown` (may still apply) or `:failed`; an unknown
-review-thread reply is reconciled by reading the thread, never reposted.
+The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch retries these holds and escalates after `agent.dispatch_hold_attention_threshold` consecutive declines; `aiur status` reports their per-resource rate as `GITHUB HOLDS`.
+
+A broker deadline is a **local hold**: Aiur backs off, keeps the claim, and keeps attempt counters. `Errors.outcome/1` sorts results into `:complete`, `:held` (never sent), `:unknown` (may still apply) or `:failed`; an unknown review-thread reply is reconciled by reading the thread, never reposted.
 
 Resident broker exits also back off as local holds; the next call restarts the
 broker. Requests retain independent deadlines while sharing a transaction.
@@ -652,15 +650,13 @@ every request a determined agent could make.
 | Any direct-HTTP client — `curl`, `Req`, a Python script, a Node fetch | No — unauthenticated from an agent workspace. |
 | The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
 
-Human-review state writes compare the open PR with the configured base. Stale heads also read a fresh GraphQL `mergeable` observation for the exact PR head.
+Human-review state writes compare the open PR with the configured base; stale heads also read fresh `mergeable` data for the exact PR head. State-label swaps add the target, revalidate current labels, then remove other state labels. Writes retry short local GitHub budget holds within the bounded wait policy.
 
 Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check changes in both directions; rename checks include old and new paths.
 
-A stale head approved at its current commit, and either in the merge queue or armed for auto-merge, is refused only for a `CONFLICTING` verdict; the file comparisons are skipped because the queue tests the merge. A comment does not move such a queued PR to rework (one GraphQL read, `rework_gate_merge_queue`); a blocking review still does.
+A stale head approved at its current commit is refused only for a `CONFLICTING` verdict. Overlap alone does not require a push that dismisses approval. Queued or auto-merge-armed heads skip file comparisons because the queue tests the merge. Comments do not move queued PRs to rework (one GraphQL read, `rework_gate_merge_queue`); blocking reviews still do.
 
-Otherwise a stale head passes when it has no conflicts and no changed-file overlap with the base since their merge base.
-Conflicts or overlap return `stale_review_base`. GitHub can lag its base SHA or report `UNKNOWN` while recalculating
-mergeability; those observations permit disjoint paths. A matching head's `CONFLICTING` verdict blocks the write.
+An unapproved stale head passes only with no conflicts or changed-file overlap since the merge base. Otherwise it returns `stale_review_base`. GitHub can lag its base SHA or report `UNKNOWN` while recalculating mergeability; those observations permit disjoint paths. A matching head's `CONFLICTING` verdict blocks the write.
 
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a file list reaching GitHub's 300-file cap also block.

@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './test',
-  testMatch: ['**/*.visual.spec.ts', '**/button.spec.ts', '**/theme-init.spec.ts'],
+  testMatch: ['**/*.visual.spec.ts', '**/button.spec.ts', '**/banner.spec.ts', '**/theme-init.spec.ts', '**/vitepress.spec.ts'],
   webServer: {
     command: 'http-server . -p 3000 -c-1',
     port: 3000,

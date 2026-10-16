@@ -16,6 +16,11 @@ defmodule AiurWeb.CodeownersTrustDashboardTest do
     File.write!(path, "* @acme/team\n")
     previous = Process.whereis(CodeOwners)
     if previous, do: Process.unregister(CodeOwners)
+    # The CodeOwners server resolves teams with the configured token.
+    token_key = {Aiur.GitHub.Config, :resolved_token}
+    previous_token = :persistent_term.get(token_key, :unset)
+    :persistent_term.put(token_key, "test-gh-token")
+    on_exit(fn -> if previous_token == :unset, do: :persistent_term.erase(token_key), else: :persistent_term.put(token_key, previous_token) end)
 
     on_exit(fn ->
       if previous && Process.alive?(previous), do: Process.register(previous, CodeOwners)

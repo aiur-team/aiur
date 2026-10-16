@@ -83,8 +83,6 @@ defmodule Aiur.TestTicketScope do
     end
   end
 
-  defp allow_scoped_write(_request, _resource), do: deny_write("unknown")
-
   defp deny_write(identifier), do: {:error, {:outside_test_ticket_scope, identifier}}
 
   defp installation_token_request?(url) do
