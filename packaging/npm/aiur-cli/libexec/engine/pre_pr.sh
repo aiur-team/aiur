@@ -143,10 +143,13 @@ cmd_pre_pr() {
       results+=("PASS refresh-pr-body-evidence")
       results+=("PASS check-pr-body")
     fi
-  elif [ -s "$temp_dir/gh-pr.log" ]; then
-    results+=("SKIP refresh-pr-body-evidence (could not read PR with gh)")
+  elif ! command -v gh >/dev/null || grep -q 'no pull requests found' "$temp_dir/gh-pr.log"; then
+    # The handoff guard refuses ci-wait/human-review until a rerun after `gh pr create` refreshes the body.
+    results+=("SKIP refresh-pr-body-evidence (no PR yet; rerun aiur pre-pr after gh pr create)")
   else
-    results+=("SKIP refresh-pr-body-evidence (no PR for this branch)")
+    results+=("FAIL refresh-pr-body-evidence (could not read PR with gh)")
+    failures+=("$temp_dir/gh-pr.log")
+    result=1
   fi
 
   pre_pr_report "$base_sha" "$result"
@@ -161,11 +164,11 @@ refresh_pr_body_evidence() {
   pushed_sha="$(git rev-parse HEAD)" || return 1
   merge_base="$(git merge-base HEAD "$base_sha")" || return 1
   local attempt
-  for ((attempt = 1; attempt <= 20; attempt++)); do
+  for ((attempt = 1; attempt <= ${AIUR_PRE_PR_REFRESH_ATTEMPTS:-20}; attempt++)); do
     pr_json="$(gh pr view "$number" --json headRefOid --jq '{head: {sha: .headRefOid}}' 2>/dev/null)" || return 1
     live_sha="$(jq -er '.head.sha' <<<"$pr_json")" || return 1
     [ "$live_sha" = "$pushed_sha" ] && break
-    sleep 3
+    sleep "${AIUR_PRE_PR_REFRESH_INTERVAL:-3}"
   done
   [ "$live_sha" = "$pushed_sha" ] || { echo "GitHub PR #$number did not report pushed head $pushed_sha" >&2; return 1; }
   if ! python3 - "$json_file" "$pushed_sha" "$base_ref" "$merge_base" <<'PY'

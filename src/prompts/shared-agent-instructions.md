@@ -62,7 +62,13 @@ checks on the current head SHA.
 In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
 `aiurdev pre-pr`) from the branch checkout. Paste its complete result block
 into the PR body; it records the merged `origin/main` SHA and each gate result.
-The command never pushes and refuses a dirty checkout.
+The command never pushes and refuses a dirty checkout. Once a PR exists, it
+waits for GitHub to report the pushed head, then rewrites the body's
+`Tested head:` and `Base:` lines as plain SHAs; it fails if `gh` cannot read
+the PR. Before the PR exists it skips that step, so the order at handoff is:
+push, `gh pr create`, run `aiur pre-pr` again to refresh the body, then hand
+off. `aiur_set_ticket_state` refuses `ci-wait` and `human-review` while the
+body's `Tested head` is not the PR head.
 
 Every PR body must follow `.github/pull_request_template.md`, including its
 `## Local tests` evidence. Before each handoff, run
