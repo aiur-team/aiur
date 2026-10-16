@@ -8,7 +8,8 @@ defmodule Aiur.Orchestrator.MaxAgentsCapTest do
 
   alias Aiur.{Issue, Workflow}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, PauseResume, RateLimitFallback, Slots, State, TrackerTasks}
-  alias Aiur.Orchestrator.PauseResume.Resume
+  alias Aiur.Orchestrator.PauseResume.{ControlRequest, QueuedDispatch, Resume}
+  # Keep-agents adoption at the cap is covered in test/aiur/handoff/adopter_test.exs.
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -51,6 +52,15 @@ defmodule Aiur.Orchestrator.MaxAgentsCapTest do
       assert Map.has_key?(started.running, first.id)
       assert Slots.used_slots(started) == 1
       refute_received {:runner_started, "rework-b"}
+    end
+
+    test "refuses a manual queued start and a paused-agent resume control request" do
+      paused = entry("paused", :paused)
+      claim = %{make_ref() => %{key: {:rework_claim, "rework-a"}}}
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1, running: %{"paused" => paused}, tracker_tasks: claim}
+
+      assert QueuedDispatch.queued_issue_resumability(state, issue("queued", "todo")) == {:error, :max_concurrent_agents_reached}
+      assert {{:error, :max_concurrent_agents_reached}, ^state} = ControlRequest.submit_resume_control_request(state, paused, :executor)
     end
   end
 
