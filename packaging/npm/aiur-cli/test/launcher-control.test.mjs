@@ -45,7 +45,9 @@ function setupControlRpc() {
       '    appfail) echo "__AIUR_CONTROL_EXIT__:7"; exit 0 ;;',
       '    missing_marker) echo ":ok"; echo "remote diagnostic"; exit 0 ;;',
       '    missing_marker_empty) exit 0 ;;',
-      '    hang) trap \'echo cleaned >"$AIUR_FAKE_RPC_CLEANUP"; exit 143\' TERM; while :; do sleep 1; done ;;',
+      // A partial reply up front keeps the "partial output was discarded" branch from
+      // depending on bash's own "Terminated" notice reaching the output file (#4678).
+      '    hang) trap \'echo cleaned >"$AIUR_FAKE_RPC_CLEANUP"; exit 143\' TERM; echo "partial reply"; while :; do sleep 1; done ;;',
       '    hang_descendant) setsid bash -c \'trap "" TERM; while :; do sleep 1; done\' & child=$!; echo "$child" >"$AIUR_FAKE_RPC_CHILD"; wait "$child" ;;',
       // Transport fails the way Elixir --rpc-eval does for an unreachable node.
       '    noconnection) echo "--rpc-eval : RPC failed with reason :noconnection" >&2; exit 1 ;;',

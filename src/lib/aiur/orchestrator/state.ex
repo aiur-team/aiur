@@ -130,10 +130,9 @@ defmodule Aiur.Orchestrator.State do
             codex_thrash_budget: map()
           },
           retry_attempts: map(),
-          comment_rework_retries: %{
-            {String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}
-          },
+          comment_rework_retries: %{{String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}},
           auto_resume: %{String.t() => map()},
+          budget_hold_streaks: %{String.t() => map()},
           # Claims released after retry exhaustion until dispatch re-establishes ownership.
           released_claims: %{String.t() => map()},
           fallback_backoff: %{String.t() => {pos_integer(), integer()}},
@@ -296,6 +295,7 @@ defmodule Aiur.Orchestrator.State do
     # In-flight comment-rework timers are cancellable and cannot fire into a successor.
     comment_rework_retries: %{},
     auto_resume: %{},
+    budget_hold_streaks: %{},
     released_claims: %{},
     fallback_backoff: %{},
     model_fallback_waiting: MapSet.new(),

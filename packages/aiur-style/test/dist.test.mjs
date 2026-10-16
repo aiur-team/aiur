@@ -19,7 +19,7 @@ describe('dist/ validation', () => {
       "import { initBanner } from 'aiur-style'; import { initBanner as subpath } from 'aiur-style/banner'; if (typeof initBanner !== 'function' || initBanner !== subpath) process.exit(1);",
     ], { cwd: packageRoot });
     assert.deepStrictEqual(Object.keys(pkgJson.exports).sort(),
-      ['.', './banner', './aiur-style.css', './css/*', './package.json', './theme-init.js', './tokens', './tokens.css', './vitepress.css'].sort());
+      ['.', './banner', './aiur-style.css', './css/*', './package.json', './theme-init.js', './tokens', './tokens.css', './vitepress.css', './fonts.css', './fonts/*', './assets/*'].sort());
     const targets = Object.values(pkgJson.exports).flatMap(value =>
       typeof value === 'object' ? Object.values(value) : [value]);
     for (const target of targets) {
@@ -69,7 +69,7 @@ describe('dist/ validation', () => {
     };
     walk(distDir);
 
-    const licenseFiles = files.filter(f => f.toLowerCase().includes('license'));
+    const licenseFiles = files.filter(f => f.toLowerCase().includes('license') || f.endsWith('-OFL.txt') || f.endsWith('SOURCES.md'));
     const otherFiles = files.filter(f => !licenseFiles.includes(f));
 
     otherFiles.forEach(filePath => {

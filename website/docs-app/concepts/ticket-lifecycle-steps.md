@@ -366,6 +366,7 @@ Grouped by channel:
 | `system.dispatch.prewarm_blocked` / `.resolved` | `dispatch:auto` |
 | `system.dispatch.todo_capacity_exceeded` | `dispatch:auto` |
 | `system.tracker.auth_preflight_failed` / `.resolved` | `dispatch:auto` |
+| `system.toolchain.erlang_missing` / `.resolved` | `dispatch:auto` |
 | `system.fleet.capacity.backoff` / `system.fleet.capacity.resumed` | `dispatch:auto` |
 | `system.github.connectivity_lost` | `dispatch:auto` |
 | `system.queue.attention.#` (including `.resolved`) | `dispatch:auto` |
@@ -427,6 +428,10 @@ Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route bo
 `agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
 reviews without inline threads.
 
+A trusted `CHANGES_REQUESTED` review also takes
+the PR out of the merge queue, turns its auto-merge off, and records both on the
+ticket; a later Executor approval lands it through the normal merge path.
+
 Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
 `Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
 fix requested “before merge”. Clean summaries such as “No blockers; waiting on
@@ -486,3 +491,9 @@ The agent never self-merges.
   rework gate refuses it.
 - **A draft PR left behind.** An approved, green draft never auto-merges — the
   agent must mark it ready for review before handing off.
+- **A local GitHub budget hold that never clears.** Hold retries never use up
+  the retry budget, so the ticket retries forever. After 30 minutes of
+  consecutive holds Aiur raises one
+  `ticket.<id>.agent.attention.budget-hold-persistent` naming the hold reason
+  and `reset_at`. The next committed dispatch, a retry for any other reason, or
+  a released claim resolves it.

@@ -7,7 +7,7 @@ defmodule Aiur.Handoff.Adopter do
   alias Aiur.Config.Paths
   alias Aiur.Handoff.{Compatibility, Record, Report}
   alias Aiur.Handoff.Fallback
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{Slots, State}
 
   @spec adopt(State.t(), keyword()) :: State.t()
   def adopt(state, opts \\ []) do
@@ -61,6 +61,7 @@ defmodule Aiur.Handoff.Adopter do
     with {:ok, _} <- validation,
          :ok <- Compatibility.check(agent, record, opts),
          {:ok, saved, budget} <- restore_metadata(agent),
+         :ok <- adoption_slot(state, agent["issue_id"], saved),
          {:ok, pid, session} <- start_runner(agent, opts) do
       entry = running_entry(saved, agent, record, pid, session)
       id = agent["issue_id"]
@@ -77,6 +78,17 @@ defmodule Aiur.Handoff.Adopter do
     error ->
       fallback(agent, opts)
       {Fallback.resume(state, agent), [outcome(agent, "fallback", {:invalid_snapshot, Exception.message(error)}) | outcomes]}
+  end
+
+  # Adoption takes a slot under the configured cap like any other start; an
+  # agent past it falls back to a checked retry (#4683). The load-reduced
+  # effective limit and a launch `--pause` do not stop live agents here.
+  defp adoption_slot(state, id, saved) do
+    candidate = %{state | running: Map.put(state.running, id, saved)}
+
+    if Slots.used_slots(candidate) > Slots.used_slots(state) and Slots.used_slots(candidate) > Slots.max_concurrent_agent_limit(state),
+      do: {:error, :max_concurrent_agents_reached},
+      else: :ok
   end
 
   defp start_runner(agent, opts) do

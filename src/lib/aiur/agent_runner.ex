@@ -44,16 +44,40 @@ defmodule Aiur.AgentRunner do
         :ok
 
       {:error, reason} ->
-        if transient_run_error?(reason, CodingAgent.backend_for(issue)) do
-          Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
-          :ok
-        else
-          message = "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}#{failure_detail(reason)}"
-          Logger.error(message)
-          raise RuntimeError, message
-        end
+        handle_run_error(issue, reason)
     end
   end
+
+  # A local budget hold (for example on the workspace auth preflight) exits
+  # with the structured reason instead of raising: a raise hides it inside a
+  # message string, so the retry engine booked a consuming failure retry and
+  # repeated holds exhausted into `agent:error` (#4679). With the raw reason,
+  # `RetryEngine.AgentDown` schedules a non-consuming retry after `reset_at`.
+  @doc false
+  @spec handle_run_error(Issue.t(), term()) :: :ok | no_return()
+  def handle_run_error(issue, reason) do
+    cond do
+      transient_run_error?(reason, CodingAgent.backend_for(issue)) ->
+        Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
+        :ok
+
+      local_budget_hold?(reason) ->
+        Logger.warning("Agent run deferred by local GitHub budget hold for #{issue_context(issue)}: #{inspect(reason)}; retrying after the hold resets")
+        exit(reason)
+
+      true ->
+        message = "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}#{failure_detail(reason)}"
+        Logger.error(message)
+        raise RuntimeError, message
+    end
+  end
+
+  # Matched by shape: agent-runner may not depend on the github or orchestration
+  # components; `RetryEngine.AgentDown` does the full hold classification.
+  defp local_budget_hold?({:workspace_github_connectivity_failed, _workspace, inner}), do: local_budget_hold?(inner)
+  defp local_budget_hold?({:github_auth_preflight_failed, %{classification: :local_hold}}), do: true
+  defp local_budget_hold?({:aiur, :locally_held, _hold}), do: true
+  defp local_budget_hold?(_reason), do: false
 
   # `:missing_tracker_identity` means the daemon could not decide which
   # repository an issue belongs to. Reported bare, it names no file, so the

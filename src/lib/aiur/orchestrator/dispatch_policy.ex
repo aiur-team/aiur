@@ -262,7 +262,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
            state.blocked_ticket_ids
          ) do
       :dispatch ->
-        if State.active_running_count(state.running) < Slots.max_concurrent_agent_limit(state),
+        if Slots.active_slots(state) < Slots.max_concurrent_agent_limit(state),
           do: :dispatch,
           else: {:skip, :fleet_capacity}
 

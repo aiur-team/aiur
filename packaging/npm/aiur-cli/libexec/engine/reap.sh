@@ -264,6 +264,7 @@ start_beam_death_watchdog() {
     reap_aiur_agents "$socket" "$pidfile"
     reap_workspace_cwd_from_file "$workspace_root_file"
     rm -f "$alert_ledger_path_file" "$dump_baseline_file" "$supervisor_file" "${AIUR_ARGV_FILE:-}" 2>/dev/null || true
+    cleanup_test_launch_private_state
   ) >/dev/null 2>&1 &
   printf '%s\n' "$!"
 }
