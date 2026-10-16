@@ -84,7 +84,7 @@ defmodule Aiur.Config.Schema.Github do
     # @config-detail tracker.github.max_inflight_per_endpoint | integer | 2 | Cap on concurrent requests to any single tracker endpoint (1-100). Must not exceed `tracker.github.max_inflight`. |
     field(:max_inflight_per_endpoint, :integer, default: @default_max_inflight_per_endpoint)
     # @config-reference config-configuration-01 tracker.github.requests_per_minute
-    # @config-detail tracker.github.requests_per_minute | integer | 300 | Requests per minute shared by every consumer of one GitHub token (1-10000). Keep it above the hourly ceiling divided by 60 so pacing never binds first; lower it when GitHub answers with secondary rate limits. |
+    # @config-detail tracker.github.requests_per_minute | integer | 300 | Requests per minute shared by every consumer of one GitHub token (1-10000). Keep it above the hourly ceiling divided by 60 so sustained pacing never binds before the hourly ceiling; bursts above it still hold; lower it when GitHub answers with secondary rate limits. |
     field(:requests_per_minute, :integer, default: @default_requests_per_minute)
     # @config-reference config-configuration-01 tracker.github.stagger_ms
     # @config-detail tracker.github.stagger_ms | integer | 75 | Delay inserted between tracker requests, in milliseconds (0-5000), so a poll cycle does not burst. |
