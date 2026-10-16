@@ -20,13 +20,13 @@ defmodule AiurWeb.Build.Freshness do
   | Unavailable/invalid provider, missing snapshot or unknown input | unavailable |
   | Explicitly disabled | disabled |
   """
+  alias Aiur.BuildOrder.SourceFreshness
   alias Aiur.{Orchestrator, PollCadence}
-  alias AiurWeb.Build.Usage
   alias AiurWeb.Endpoint
 
   @spec daemon(term(), integer()) :: map()
   def daemon({status, _, md}, now_ms) when status in [:current, :stale] and is_map(md) do
-    heartbeat = Usage.ms(Map.get(md, :observed_at))
+    heartbeat = SourceFreshness.ms(Map.get(md, :observed_at))
     state = if heartbeat, do: daemon_state(status, Map.get(md, :reason)), else: "unknown"
     %{state: state, heartbeat_at: heartbeat, observed_at: now_ms}
   end

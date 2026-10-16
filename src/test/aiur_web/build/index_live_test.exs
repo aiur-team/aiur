@@ -40,7 +40,7 @@ defmodule AiurWeb.Build.IndexLiveTest do
        clock: &now/0}
     )
 
-    assert {:ok, _} = GenServer.call(name, {:window, "Etc/UTC"})
+    assert {:ok, _} = Index.window(name, "Etc/UTC")
     receive_barrier(:daemon_ready)
     Application.put_env(:aiur, :build_data_source, {IndexSource, [server: name, usage: UsageStub, freshness: DaemonStub, index_subscribe: fn -> Phoenix.PubSub.subscribe(Aiur.PubSub, topic) end]})
 
@@ -96,7 +96,7 @@ defmodule AiurWeb.Build.IndexLiveTest do
     previous = Enum.map(views, &:sys.get_state(&1.pid).socket.assigns.build_generation)
     Process.exit(pid, :kill)
     receive_barrier({:index_read, :all})
-    assert {:ok, _} = GenServer.call(name, {:window, "Etc/UTC"})
+    assert {:ok, _} = Index.window(name, "Etc/UTC")
 
     for {view, generation} <- Enum.zip(views, previous) do
       render(view)
