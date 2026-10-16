@@ -340,7 +340,17 @@ defmodule Aiur.LandingWatch do
         :ok
 
       true ->
-        revalidate_attribution_and_enqueue(observation, opts)
+        land_unless_ticket_active(observation, opts)
+    end
+  end
+
+  # A ticket back in rework or with a running agent owns its PR; an Executor dequeue must stick (#4772).
+  defp land_unless_ticket_active(observation, opts) do
+    case fetch_ticket(observation, opts) do
+      {:ok, _issue, state} when state in ["rework", "in-progress"] -> :ok
+      {:ok, _issue, _state} -> revalidate_attribution_and_enqueue(observation, opts)
+      {:error, :pull_request_not_linked_to_ticket_branch} -> revalidate_attribution_and_enqueue(observation, opts)
+      {:error, _} = error -> error
     end
   end
 
@@ -460,10 +470,12 @@ defmodule Aiur.LandingWatch do
 
   defp fetch_ticket_state(issue, opts) do
     with {:ok, raw, _freshness} <- Client.fetch_issue_raw_conditional(issue, Keyword.put(opts, :revalidate, true)) do
-      case Enum.find(Map.get(raw, "labels", []), &(Map.get(&1, "name") in ["agent:human-review", "agent:ci-wait", "agent:merging"])) do
+      case Enum.find(Map.get(raw, "labels", []), &(Map.get(&1, "name") in ["agent:human-review", "agent:ci-wait", "agent:merging", "agent:rework", "agent:in-progress"])) do
         %{"name" => "agent:human-review"} -> {:ok, "human-review"}
         %{"name" => "agent:ci-wait"} -> {:ok, "ci-wait"}
         %{"name" => "agent:merging"} -> {:ok, "merging"}
+        %{"name" => "agent:rework"} -> {:ok, "rework"}
+        %{"name" => "agent:in-progress"} -> {:ok, "in-progress"}
         _ -> {:ok, "other"}
       end
     end
