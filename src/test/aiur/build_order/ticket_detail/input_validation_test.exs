@@ -71,6 +71,7 @@ defmodule Aiur.BuildOrder.TicketDetailInputValidationTest do
     assert {:error, %Failure{kind: :nonfetchable_repository}} =
              fetch(foreign,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> flunk("transport must not be called") end
              )
   end
@@ -82,6 +83,7 @@ defmodule Aiur.BuildOrder.TicketDetailInputValidationTest do
       assert {:error, %Failure{kind: :nonfetchable_repository}} =
                fetch(malformed,
                  configured_repo: @configured,
+                 token: "test-gh-token",
                  request_fun: fn _request -> flunk("transport must not be called") end
                )
     end
@@ -89,6 +91,7 @@ defmodule Aiur.BuildOrder.TicketDetailInputValidationTest do
     assert {:error, %Failure{kind: :configuration}} =
              fetch(identity(42, "I42"),
                configured_repo: {"owner?query", "repo"},
+               token: "test-gh-token",
                request_fun: fn _request -> flunk("transport must not be called") end
              )
   end
@@ -112,6 +115,7 @@ defmodule Aiur.BuildOrder.TicketDetailInputValidationTest do
       assert {:error, %Failure{kind: :nonfetchable_repository}} =
                fetch(malformed,
                  configured_repo: fn -> flunk("configuration reader must not be invoked") end,
+                 token: "test-gh-token",
                  request_fun: fn _request -> flunk("transport must not be called") end
                )
     end
@@ -123,6 +127,7 @@ defmodule Aiur.BuildOrder.TicketDetailInputValidationTest do
     assert {:error, %Failure{kind: :nonfetchable_repository}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> flunk("transport must not be called") end
              )
   end
@@ -138,6 +143,7 @@ defmodule Aiur.BuildOrder.TicketDetailInputValidationTest do
     assert {:error, %Failure{kind: :nonfetchable_repository}} =
              fetch(oversized,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> flunk("transport must not be called") end
              )
   end
@@ -148,6 +154,7 @@ defmodule Aiur.BuildOrder.TicketDetailInputValidationTest do
     assert {:error, %Failure{kind: :provider_identity_mismatch}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: issue(42, "OtherNode")}} end
              )
   end
@@ -170,6 +177,7 @@ defmodule Aiur.BuildOrder.TicketDetailInputValidationTest do
       assert {:error, %Failure{kind: :provider_identity_mismatch}} =
                fetch(identity,
                  configured_repo: @configured,
+                 token: "test-gh-token",
                  request_fun: fn _request -> {:ok, %{status: 200, body: response}} end
                )
     end
@@ -179,6 +187,7 @@ defmodule Aiur.BuildOrder.TicketDetailInputValidationTest do
     assert {:error, %Failure{kind: :validation}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request ->
                  {:ok, %{status: 200, body: invalid_lifecycle}}
                end
@@ -199,6 +208,7 @@ defmodule Aiur.BuildOrder.TicketDetailInputValidationTest do
       assert {:error, %Failure{kind: ^expected_kind}} =
                fetch(identity,
                  configured_repo: @configured,
+                 token: "test-gh-token",
                  request_fun: fn _request ->
                    {:ok, %{status: 200, body: invalid_lifecycle}}
                  end

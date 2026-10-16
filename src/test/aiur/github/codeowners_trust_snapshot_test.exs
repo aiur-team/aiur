@@ -11,6 +11,11 @@ defmodule Aiur.GitHub.CodeownersTrustSnapshotTest do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", tracker_trusted_accounts: ["configured"])
     path = Path.join(root, "CODEOWNERS")
     File.write!(path, "* @acme/team @direct # trailing comment\n")
+    # The CodeOwners server resolves teams with the configured token.
+    token_key = {Aiur.GitHub.Config, :resolved_token}
+    previous_token = :persistent_term.get(token_key, :unset)
+    :persistent_term.put(token_key, "test-gh-token")
+    on_exit(fn -> if previous_token == :unset, do: :persistent_term.erase(token_key), else: :persistent_term.put(token_key, previous_token) end)
     %{path: path, root: root}
   end
 
@@ -184,7 +189,7 @@ defmodule Aiur.GitHub.CodeownersTrustSnapshotTest do
       context = Codeowners.owners_for_pr(42, repo_root: root, repo: "owner/repo", token: "token", request_fun: request)
       assert context == {:error, :invalid_pr_files_response}
       assert Codeowners.authoritative?("direct", context) == nil
-      assert PullRequests.fetch_pull_request_changed_paths(42, request_fun: request) == context
+      assert PullRequests.fetch_pull_request_changed_paths(42, token: "test-gh-token", request_fun: request) == context
     end
   end
 
@@ -193,7 +198,7 @@ defmodule Aiur.GitHub.CodeownersTrustSnapshotTest do
     server = start_snapshot(path, request)
     refute CodeOwners.allowed?("member", server)
     assert CodeOwners.trust_snapshot(server).degradation.cause == {:team_lookup_failed, "@acme/team", :invalid_team_response}
-    context = Codeowners.ownership_for_path("lib/app.ex", repo_root: root, request_fun: request)
+    context = Codeowners.ownership_for_path("lib/app.ex", repo_root: root, token: "test-gh-token", request_fun: request)
     assert context == {:error, {:github_api_request, :invalid_team_response}}
     assert Codeowners.authoritative?("direct", context) == nil
   end
@@ -205,7 +210,7 @@ defmodule Aiur.GitHub.CodeownersTrustSnapshotTest do
     context = Codeowners.owners_for_pr(42, repo_root: root, repo: "owner/repo", token: "token", request_fun: request)
     assert context == {:error, :pr_files_truncated}
     assert Codeowners.authoritative?("direct", context) == nil
-    assert PullRequests.fetch_pull_request_changed_paths(42, request_fun: request) == context
+    assert PullRequests.fetch_pull_request_changed_paths(42, token: "test-gh-token", request_fun: request) == context
   end
 
   test "path ownership follows GitHub's last-match and gitignore semantics", %{root: root, path: path} do

@@ -15,6 +15,7 @@ defmodule Aiur.BuildOrder.GitHubGraphFixtures do
 
     [
       repository: @repository,
+      token: "test-gh-token",
       request_fun: request_fun,
       root_limit: 100,
       page_budget: 4,
@@ -23,7 +24,7 @@ defmodule Aiur.BuildOrder.GitHubGraphFixtures do
     |> Keyword.merge(overrides)
   end
 
-  def public_opts(request_fun), do: [request_fun: request_fun]
+  def public_opts(request_fun), do: [token: "test-gh-token", request_fun: request_fun]
 
   def queued_responses(responses) do
     parent = self()

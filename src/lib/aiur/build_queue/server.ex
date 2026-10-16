@@ -183,8 +183,9 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_call({:mutate, command}, _from, %{status: :running} = state) do
     case ListCommands.prepare(state, command) do
-      {:ok, document, actions, observations} ->
+      {:ok, document, actions, observations, missing} ->
         {reply, state} = commit_mutation(state, document, actions, observations)
+        reply = if reply == :ok and missing != [], do: {:ok, {:not_observed, missing}}, else: reply
         {:reply, reply, request(state)}
 
       error ->

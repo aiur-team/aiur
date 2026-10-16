@@ -1,0 +1,92 @@
+{
+  "generated_at": "2026-10-09T00:00:00Z",
+  "body": {
+    "schema_version": "experiment-result/v1",
+    "experiment_id": "generic-rate",
+    "group_order": [
+      "before",
+      "after"
+    ],
+    "engine": {
+      "name": "experiment-stats",
+      "version": "1.0.0"
+    },
+    "inputs": {
+      "snapshot_sha256": "a7c01f5f256ced43f7192a188c15d0ffa39584f559aba930b98d5a627c634401",
+      "spec_sha256": "6adb1307c2a7223c8d3006b58d0036f9fde8b35f8d025a35846d33cff0674396",
+      "annotations_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "defaults": {
+      "alpha": 0.05,
+      "min_samples": 10,
+      "power_target": 0.8,
+      "bootstrap_primary": 10000,
+      "bootstrap_exploratory": 2000,
+      "permutation_resamples": 20000
+    },
+    "metrics": {
+      "custom/rate": {
+        "kind": "rate",
+        "groups": {
+          "before": {
+            "events": 8,
+            "exposure": 100,
+            "n": 20,
+            "rate": 0.08,
+            "n_censored": 0
+          },
+          "after": {
+            "events": 20,
+            "exposure": 100,
+            "n": 20,
+            "rate": 0.2,
+            "n_censored": 0
+          }
+        },
+        "min_achievable_p": null,
+        "excluded_counts": {
+          "before": 0,
+          "after": 0
+        },
+        "flags": [],
+        "analyst_flags": [],
+        "status": "significant",
+        "direction": "regressed",
+        "adjustment": "holm",
+        "tests": {
+          "conditional_poisson": {
+            "statistic": 2.5,
+            "rate_ratio": 2.5,
+            "p_value": 0.03569813818,
+            "lo": 1.054787559,
+            "hi": 6.5622079,
+            "method": "conditional_exact"
+          }
+        },
+        "effects": {
+          "rate_ratio": {
+            "estimate": 2.5,
+            "lo": 1.054787559,
+            "hi": 6.5622079,
+            "method": "conditional_exact",
+            "null": 1,
+            "unbounded": []
+          }
+        },
+        "primary_effect": "rate_ratio",
+        "p_raw": 0.03569813818,
+        "p_adj": 0.03569813818,
+        "summary_text": "custom/rate: n 20 vs 20, rates 0.08 to 0.2, rate_ratio 2.5, 95% CI [1.054787559, 6.5622079], p 0.03569813818 (holm 0.03569813818); significant, regressed; 0 units excluded; flags: none."
+      }
+    },
+    "exclusions": [],
+    "warnings": [],
+    "overall": {
+      "primary_statuses": {
+        "custom/rate": "significant"
+      },
+      "note": "",
+      "flags": []
+    }
+  }
+}
