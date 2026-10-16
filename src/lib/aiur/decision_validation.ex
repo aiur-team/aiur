@@ -104,7 +104,13 @@ defmodule Aiur.DecisionValidation do
              :reversibility
            ),
          {:ok, context} <- Context.normalize(payload),
-         :ok <- Context.validate_authority_basis(authority, kind, context),
+         :ok <-
+           validate_authority_basis(
+             authority,
+             kind,
+             context,
+             Keyword.get(opts, :legacy_replay, false)
+           ),
          {:ok, options} <- fetch_options(payload),
          {:ok, recommendation} <- fetch_recommendation(payload, options),
          {:ok, consequence_of_delay} <-
@@ -166,6 +172,15 @@ defmodule Aiur.DecisionValidation do
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
+
+  defp validate_authority_basis(:human_required, kind, context, true) do
+    if is_nil(Map.get(context, :authority_basis)),
+      do: :ok,
+      else: Context.validate_authority_basis(:human_required, kind, context)
+  end
+
+  defp validate_authority_basis(authority, kind, context, _allow_legacy),
+    do: Context.validate_authority_basis(authority, kind, context)
 
   defp get(payload, key) when is_atom(key) do
     Map.get(payload, key, Map.get(payload, Atom.to_string(key)))

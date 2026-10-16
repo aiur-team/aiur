@@ -12,8 +12,9 @@ defmodule Aiur.DecisionEvent.AuthorityReclassification do
          :ok <- require_executor_actor(actor),
          authority <- get(raw, :authority),
          true <- authority in [:supervisor_allowed, "supervisor_allowed"],
-         {:ok, detail} <- bounded_required(get(raw, :detail), @detail_max, :detail) do
-      {:ok, %{actor: actor, authority: :supervisor_allowed, detail: detail}}
+         {:ok, detail} <- bounded_required(get(raw, :detail), @detail_max, :detail),
+         {:ok, expected_version} <- normalize_expected_version(get(raw, :expected_version)) do
+      {:ok, %{actor: actor, authority: :supervisor_allowed, detail: detail, expected_version: expected_version}}
     else
       false -> {:error, {:authority, :invalid_reclassification}}
       {:error, reason} -> {:error, reason}
@@ -25,7 +26,8 @@ defmodule Aiur.DecisionEvent.AuthorityReclassification do
     %{
       "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
       "authority" => Atom.to_string(data.authority),
-      "detail" => data.detail
+      "detail" => data.detail,
+      "expected_version" => data.expected_version
     }
   end
 
@@ -44,6 +46,9 @@ defmodule Aiur.DecisionEvent.AuthorityReclassification do
   defp normalize_actor(_other), do: {:error, {:actor, :invalid}}
   defp require_executor_actor(%{kind: :executor}), do: :ok
   defp require_executor_actor(_actor), do: {:error, {:actor_kind, :not_executor}}
+
+  defp normalize_expected_version(version) when is_integer(version) and version > 0, do: {:ok, version}
+  defp normalize_expected_version(_version), do: {:error, {:expected_version, :invalid}}
 
   defp bounded_optional(nil, _max, _field), do: {:ok, nil}
   defp bounded_optional(value, max, field), do: bounded_required(value, max, field)

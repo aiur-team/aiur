@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Requests do
 
   require Logger
 
+  alias Aiur.DecisionProjection.AuthorityReclassification
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.Dedup
@@ -53,15 +54,30 @@ defmodule Aiur.DecisionStore.Requests do
 
   defp validate_reclassification(decision, expected_version) do
     cond do
-      decision.version != expected_version -> {:error, {:stale_version, expected_version, decision.version}}
-      decision.authority != :human_required -> {:error, {:not_human_required, decision.authority}}
-      is_nil(decision.answer) and decision.decision_status in [:open, :deferred] -> :ok
-      true -> {:error, {:not_open, decision.decision_status}}
+      decision.version != expected_version ->
+        {:error, {:stale_version, expected_version, decision.version}}
+
+      decision.authority != :human_required ->
+        {:error, {:not_human_required, decision.authority}}
+
+      not AuthorityReclassification.reclassifiable?(decision) ->
+        {:error, :human_required_basis_cannot_be_reclassified}
+
+      is_nil(decision.answer) and decision.decision_status in [:open, :deferred] ->
+        :ok
+
+      true ->
+        {:error, {:not_open, decision.decision_status}}
     end
   end
 
   defp persist_reclassification(state, decision, executor_id, rationale) do
-    data = %{actor: %{kind: :executor, id: executor_id}, authority: :supervisor_allowed, detail: rationale}
+    data = %{
+      actor: %{kind: :executor, id: executor_id},
+      authority: :supervisor_allowed,
+      detail: rationale,
+      expected_version: decision.version
+    }
 
     case Persistence.build_and_persist_event(:authority_reclassified, decision, data, DateTime.utc_now(), state) do
       {:ok, next_state, updated} -> {:ok, next_state, updated}

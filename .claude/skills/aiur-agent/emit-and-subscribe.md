@@ -111,11 +111,10 @@ rejected. Keep `context.short_summary` or `context.long_context_markdown` clear
 about the specific boundary; the category alone is not a rationale. Legacy
 attention projections remain human-required without this worker-supplied field.
 
-An Executor who determines an open human-required Command is actually an
-engineering decision can run `aiur executor-reclassify <decision-id>
---expected-version <n> --rationale <why>`, then answer it with
-`aiur executor-answer`. Reclassification is recorded as an Executor action; it
-does not create a human answer.
+An Executor may reclassify an open historical Command only when it has no
+human-only basis. Product, spend, publication, or security decisions and legacy
+attentions remain human-only. Reclassification increments the version; answer
+with that version. Both mutations are Executor actions, not human answers.
 
 Aiur surfaces `human_required + reversible + all-low-risk` Commands as a
 classification warning. The store does not silently override the declared

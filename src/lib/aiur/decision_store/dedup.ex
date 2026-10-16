@@ -50,6 +50,7 @@ defmodule Aiur.DecisionStore.Dedup do
       candidate.decision_status in [:open, :deferred] and
       is_nil(candidate.answer) and
       candidate.ticket.identifier == answered.ticket.identifier and
+      candidate.authority == answered.authority and
       normalized_question(candidate.question) == question and
       not Withdrawals.unresolvable_block?(candidate)
   end
@@ -119,6 +120,7 @@ defmodule Aiur.DecisionStore.Dedup do
       candidate.decision_status in [:open, :deferred] and
       candidate.ticket.identifier == decision.ticket.identifier and
       candidate.blocking == decision.blocking and
+      candidate.authority == decision.authority and
       creation_duplicate_match?(candidate, decision)
   end
 

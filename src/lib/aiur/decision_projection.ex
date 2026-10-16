@@ -11,7 +11,7 @@ defmodule Aiur.DecisionProjection do
   """
 
   alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionValidation}
-  alias Aiur.DecisionEvent.Unrecognized
+  alias Aiur.{DecisionEvent.Unrecognized, DecisionProjection.AuthorityReclassification}
 
   @type projection :: %{
           current: %{String.t() => Decision.t()},
@@ -67,7 +67,8 @@ defmodule Aiur.DecisionProjection do
              source: source,
              now: created_at,
              legacy_attention: Map.get(raw, "legacy_attention"),
-             provenance: provenance
+             provenance: provenance,
+             legacy_replay: true
            ) do
         {:ok, decision} -> verify_request_hash(decision, persisted_decision_id, version, persisted_content_hash)
         {:error, reason} -> {:error, reason}
@@ -308,14 +309,13 @@ defmodule Aiur.DecisionProjection do
     {:ok, decision}
   end
 
-  # Escalation preserves status for undecided Commands so the operator can answer.
   defp transition(%Decision{decision_status: status} = decision, %DecisionEvent{type: :executor_escalated})
        when status in [:open, :deferred] do
     {:ok, decision}
   end
 
-  defp transition(%Decision{authority: :human_required, decision_status: status} = d, %DecisionEvent{type: :authority_reclassified, data: %{authority: :supervisor_allowed}})
-       when status in [:open, :deferred], do: {:ok, %{d | authority: :supervisor_allowed}}
+  defp transition(decision, %DecisionEvent{type: :authority_reclassified} = event),
+    do: AuthorityReclassification.transition(decision, event)
 
   defp transition(%Decision{decision_status: :open} = decision, %DecisionEvent{type: :decision_expired}) do
     {:ok, %{decision | decision_status: :expired, delivery_status: :not_dispatched}}

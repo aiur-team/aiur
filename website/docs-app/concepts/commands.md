@@ -63,10 +63,12 @@ Explain the specific boundary in the request context; missing or unrecognized
 bases are rejected. Legacy attention projections remain human-required without
 this worker field.
 
-If the Executor sees an engineering decision that was marked human-required,
-`aiur executor-reclassify` records an Executor-attributed rationale and makes an
-open decision answerable. The Executor can then answer it with
-`aiur executor-answer`; reclassification itself is not an answer.
+An Executor can use `aiur executor-reclassify` only for an open, historical
+`human_required` Command with no recorded human-only basis. It refuses Commands
+with a `product`, `spend`, `external_publication`, or `security` basis, and all
+legacy-attention Commands. Reclassification records the Executor's rationale,
+increments the Command version, and then permits `aiur executor-answer` at the
+new version; it is not itself an answer.
 
 Aiur warns when a human-required Command is reversible and all of its
 options are low-risk. It also raises attention when an Executor-unanswerable

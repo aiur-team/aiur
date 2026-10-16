@@ -228,9 +228,12 @@ direction must declare `authority: human_required` and set
 Explain the specific boundary in context; missing or unrecognized bases are
 rejected. Legacy attention projections remain human-required.
 
-An Executor may down-classify an open decision with
-`aiur executor-reclassify` and an audit rationale, then answer it. Both actions
-are recorded as Executor actions rather than a human answer.
+An Executor may reclassify an open historical decision only when it has no
+recorded human-only basis. Commands declaring `product`, `spend`,
+`external_publication`, or `security`, and all legacy-attention Commands, remain
+human-only. Reclassification records an Executor rationale and increments the
+Command version; a subsequent answer uses that new version. Both actions are
+recorded as Executor actions rather than human answers.
 
 The parallel `supervisor` path additionally requires the answer's declared
 `policy_basis` to match the Decision's own authority/kind/reversibility, or it
