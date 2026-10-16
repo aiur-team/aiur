@@ -704,6 +704,22 @@ defmodule Aiur.GitHub.BudgetTest do
     assert actor.core.used == 2
   end
 
+  # The live daemon token sat at 120 admissions per minute for a fifth of an
+  # hour while its rolling hour was 4,163 of 12,000 (#4496): the default pacer
+  # allowed only 7,200 an hour, so it held below the hourly ceiling.
+  test "the default pacer does not hold a burst while the rolling hour is under the ceiling", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0, timeout_ms: 2_000, daemon_core_limit_per_hour: 12_000, agent_core_limit_per_hour: 12_000]
+    request = request("busy-daemon-token", "/repos/owner/repo/issues/4496")
+
+    # The first admission creates the ledger the burst is injected into.
+    assert {:ok, first} = acquire_retrying_timeout(request, opts)
+    assert :ok = Budget.release(first, opts)
+    insert_recent_admissions(Budget.database_path(state_dir: root), "busy-daemon-token", "daemon:burst", 150)
+
+    assert {:ok, lease} = acquire_retrying_timeout(request, opts)
+    assert :ok = Budget.release(lease, opts)
+  end
+
   test "a non-billable rate_limit admission still consumes a rate-per-minute pacing slot", %{root: root} do
     # The #2328 shape: a probe the caller knows GitHub bills at zero is written
     # to the ledger non-billable but still occupies a pacing slot, exactly as a
@@ -1215,6 +1231,21 @@ defmodule Aiur.GitHub.BudgetTest do
     case System.cmd("python3", ["-c", script, db, key, consumer_key, endpoint_family, Integer.to_string(now), Integer.to_string(billable)], stderr_to_stdout: true) do
       {_output, 0} -> :ok
       {output, status} -> flunk("could not inject lease-less admission: #{status}: #{output}")
+    end
+  end
+
+  defp insert_recent_admissions(db, token, consumer_label, count) do
+    script =
+      "import sqlite3,sys,time; c=sqlite3.connect(sys.argv[1]); now=int(time.time()*1000); " <>
+        "c.execute('DROP TRIGGER IF EXISTS admissions_require_lease'); " <>
+        "c.executemany('INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, admitted_at_ms, billable) " <>
+        "VALUES (?,?,NULL,?,?,1)', [(sys.argv[2], sys.argv[3], 'issues', now - i * 100) for i in range(int(sys.argv[4]))]); c.commit()"
+
+    args = ["-c", script, db, Budget.token_key(token), Budget.token_key(consumer_label), Integer.to_string(count)]
+
+    case System.cmd("python3", args, stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> flunk("could not inject admissions: #{status}: #{output}")
     end
   end
 
