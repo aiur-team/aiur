@@ -128,6 +128,8 @@ if config_env() == :test do
   # (no valid token in CI) and shadow the per-test env tokens.
   config :aiur, :resolve_github_token_on_boot, false
   config :aiur, :workspace_github_preflight_enabled, false
+  # Tests run with a per-test mise data dir, where the host's Erlang looks missing.
+  config :aiur, :toolchain_preflight_opts, mise: nil
   config :aiur, :github_quota_refresh?, false
   config :aiur, :elevenlabs_quota_refresh?, false
   config :aiur, :github_budget_enabled?, false
