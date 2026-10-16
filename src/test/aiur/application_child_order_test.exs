@@ -102,7 +102,6 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.HttpServer,
     Aiur.TailscaleFunnel,
     Aiur.Opencode.TokenRegistry,
-    Aiur.Opencode.ActiveTurns,
     Aiur.Opencode.PaneSupervisor,
     Aiur.Opencode.SessionSupervisor,
     Aiur.Opencode.BridgeSupervisor,
@@ -123,6 +122,7 @@ defmodule Aiur.ApplicationChildOrderTest do
   # children. Explain the startup dependency here; do not extend the baseline.
   # Feeder subscribes after History starts and before Backfill can publish completion.
   @early_start_exceptions %{
+    Aiur.Opencode.ActiveTurns => "Create the turn table before agent tasks can start or be adopted",
     # Initial orchestrator dispatch must persist attempts before starting runners.
     Aiur.Orchestrator.OptimisticLedger => "Load durable attempts before Orchestrator starts its first dispatch",
     Aiur.BuildOrder.History.Feeder => "Subscribe to History before Backfill starts so completion triggers catch-up",

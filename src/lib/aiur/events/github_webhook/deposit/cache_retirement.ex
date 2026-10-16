@@ -3,7 +3,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
   Retires the daemon read cache for the resources a delivery names.
   """
 
-  alias Aiur.GitHub.ReadCache
+  alias Aiur.GitHub.{PollSnapshots, ReadCache}
 
   # A delivery is a fact about GitHub state that arrived for free, and the
   # `ReadCache` entries about the resources it touches are stale from that
@@ -24,6 +24,15 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
   # whole repository's cache for a change that made nothing it serves stale —
   # paying a full re-fetch on the very path this ticket exists to stop charging.
   @spec invalidate_read_cache(String.t(), map(), String.t()) :: :ok
+  def invalidate_read_cache("pull_request", payload, repo) do
+    invalidate_ci_snapshot(payload, repo)
+
+    case delivery_numbers("pull_request", payload) do
+      [number | _] -> ReadCache.invalidate_number(repo, number)
+      [] -> ReadCache.invalidate_repo(repo)
+    end
+  end
+
   def invalidate_read_cache(event_type, _payload, _repo)
       when event_type in ["sub_issues", "issue_dependencies"],
       do: :ok
@@ -32,6 +41,19 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
     case delivery_numbers(event_type, payload) do
       [] -> ReadCache.invalidate_repo(repo)
       numbers -> Enum.each(numbers, &ReadCache.invalidate_number(repo, &1))
+    end
+  end
+
+  defp invalidate_ci_snapshot(payload, repo) do
+    case get_in(payload, ["pull_request", "head", "ref"]) do
+      branch when is_binary(branch) ->
+        case Aiur.TicketBranch.ticket_id(branch) do
+          ticket when is_binary(ticket) -> PollSnapshots.invalidate_ci_contexts(repo, ticket)
+          _other -> :ok
+        end
+
+      _other ->
+        :ok
     end
   end
 

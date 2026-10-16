@@ -117,7 +117,7 @@ Pack ids cannot shadow built-ins, including
 
 Each metric declares its label, unit, unit of analysis, kind (`duration`,
 `count`, `binary`, `rate` or `bucketed`), preferred direction, group and
-required capture facts.
+required capture facts. Optional treatment-affected attribute metadata is documented in the [stratification reference](../reference/experiment-statistics.md#stratification).
 
 Sources are `event_interval` (first start and first
 subsequent end per unit), `event_count` (matches per unit or hour/day),
