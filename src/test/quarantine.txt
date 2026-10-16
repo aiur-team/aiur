@@ -7,7 +7,6 @@ Aiur.Muse.TurnTest	an accepted receipt without a terminal times out	#4463
 Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the real gh command	#4463
 Aiur.AgentGitHubGuard.InstallAndTokenTest	refuses gh aliases and any command name the guard cannot recognise	#4463
 Aiur.AgentGitHubGuard.Reconciliation1Test	a non-billable rate_limit probe still consumes a rate-per-minute pacing slot	#4463
-Aiur.AgentCompaction.CodexClientTest	reports server failure and a missing completion notification	#4463
 Aiur.Core.AgentRunnerCheckpointQueueTest	*	#4463
 Aiur.Core.AgentRunnerStartupFailureTest	agent runner pauses on before_run failure and resumes after operator intervention	#4463
 Aiur.Orchestrator.Status.ProgressAndIdentityTest	orchestrator snapshot reads open decisions without calling the per-ticket store	#4463

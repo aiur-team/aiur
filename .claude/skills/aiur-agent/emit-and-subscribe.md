@@ -104,13 +104,24 @@ directly and the requesting agent resumes without an operator:
 Because omission now defaults to Executor-answerable, the burden is inverted:
 a Command that is genuinely irreversible, involves spend or external
 publication, or changes product direction **must** explicitly declare
-`authority: human_required` (and the matching `reversibility`), or it will be
-within the Executor floor.
+`authority: human_required` (and the matching `reversibility`) and include
+`context.authority_basis` with one of `product`, `spend`,
+`external_publication`, or `security`. Requests without that explicit basis are
+rejected. Keep `context.short_summary` or `context.long_context_markdown` clear
+about the specific boundary; the category alone is not a rationale. Legacy
+attention projections remain human-required without this worker-supplied field.
+
+An Executor may reclassify an open historical Command only when it has no
+human-only basis. Product, spend, publication, or security decisions and legacy
+attentions remain human-only. Reclassification increments the version; answer
+with that version. Both mutations are Executor actions, not human answers.
 
 Aiur surfaces `human_required + reversible + all-low-risk` Commands as a
 classification warning. The store does not silently override the declared
 authority: correct it with a newer request version. The Executor floor remains
 unchanged and still refuses human-required or non-reversible Commands.
+When the ticket's acceptance criteria settle a purely engineering question, keep
+it within the Executor floor; reserve human authority for an explicit boundary.
 
 If the question has two to five bounded alternatives, you **must** encode them
 as `options` before emitting an `attention.*` or `pause.request` event. If you

@@ -306,6 +306,14 @@ defmodule Aiur.Orchestrator.Slots do
   def replacement_slot_available?(%State{} = state, issue_id),
     do: effective_concurrent_agent_limit(state) > used_slots(state, Map.delete(state.running, issue_id))
 
+  # A paused entry resumes only if the fleet has room without it: active
+  # workers plus every *other* paused entry still reserving a slot (#4694).
+  @spec resume_fleet_slot_available?(State.t(), map()) :: boolean()
+  def resume_fleet_slot_available?(%State{} = state, running_entry) do
+    others = Map.delete(state.running, get_in(running_entry, [:issue, Access.key(:id)]))
+    used_slots(state, others) < max_concurrent_agent_limit(state)
+  end
+
   @spec available_slots(State.t()) :: non_neg_integer()
   def available_slots(%State{globally_paused: true}), do: 0
 

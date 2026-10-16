@@ -227,7 +227,7 @@ function requiresInteractiveTools(argv) {
     "init", "pr", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
     "build-orders", "queue", "analytics", "experiments", "github-cost", "github-usage", "alerts", "watch", "set",
     "upgrade", "pause", "resume", "park", "reset-budget", "message", "cleanup-stale", "stop",
-    "executor-answer", "executor-escalate", "executor-moot", "executor-listen", "executor-wait",
+    "executor-answer", "executor-escalate", "executor-reclassify", "executor-moot", "executor-listen", "executor-wait",
     "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
     "executor-roster", "executor-session", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
   ]);
