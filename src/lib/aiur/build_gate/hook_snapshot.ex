@@ -52,15 +52,19 @@ defmodule Aiur.BuildGate.HookSnapshot do
     result =
       with :ok <- File.mkdir_p(stage),
            :ok <- write_files(files, stage) do
-        case File.rename(stage, target) do
-          :ok -> {:ok, hook}
-          # A concurrent publisher won the race with identical content.
-          {:error, _reason} = error -> if File.regular?(hook), do: {:ok, hook}, else: error
-        end
+        rename(stage, target, hook)
       end
 
     _ = File.rm_rf(stage)
     result
+  end
+
+  defp rename(stage, target, hook) do
+    case File.rename(stage, target) do
+      :ok -> {:ok, hook}
+      # A concurrent publisher won the race with identical content.
+      {:error, _reason} = error -> if File.regular?(hook), do: {:ok, hook}, else: error
+    end
   end
 
   defp write_files(files, stage) do
