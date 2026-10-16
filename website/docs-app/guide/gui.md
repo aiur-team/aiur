@@ -24,6 +24,8 @@ Dashboard: http://127.0.0.1:4000 (bind host=0.0.0.0, port=4000)
 
 The build timeline at `/build` labels daemon state separately from socket reachability. An offline or stale snapshot shows its last heartbeat age and local time; a missing heartbeat reads “no heartbeat recorded”. Socket loss lasting at least 500 ms shows “Daemon unreachable” and stops the live glows.
 
+History, queue and open-ticket headers label stale or partial reads with their age. Failed reads show unavailable markers instead of empty sections; disabled sources keep their reason. Filters and unloaded history days have distinct empty messages. Before the first snapshot, the timeline shows a loading skeleton; a failed initial read stops its animation.
+
 **Reconnect** retries a dropped socket immediately, or requests a fresh snapshot when the socket is open. It reads “Reconnecting…” while pending and returns to **Reconnect** after ten seconds if the page is still degraded. This control also works with read-only access.
 
 ## Find a surface

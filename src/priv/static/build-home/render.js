@@ -1,4 +1,5 @@
 import { S, ctx, fx, gutW, LH, onReset, renderChrome } from './state.js';
+import { syncStates } from './states.js';
 import { $ } from './dom.js';
 import { I } from './icons.js';
 import { dotSize } from './span.js';
@@ -59,6 +60,7 @@ function restoreFocus(id) {
 }
 export function relayout({ live = false } = {}) {
   if (S.loading) return fx.renderLoading();
+  syncStates();
   const reconnect = H.epoch !== null && H.epoch !== ctx.proto.epoch;
   const anchor = reconnect ? takeAnchor() : null, oldFrom = S.histFrom, focused = focusId();
   syncHistory();
@@ -68,7 +70,7 @@ export function relayout({ live = false } = {}) {
   ctx.content.classList.toggle('flow', S.flow);
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
-  ctx.L = computeLayout(ctx.D, S, { vpW: ctx.vp.clientWidth, vpH: ctx.vp.clientHeight, gut: gutW() }, ctx.snap.sources);
+  ctx.L = computeLayout(ctx.D, S, { vpW: ctx.vp.clientWidth, vpH: ctx.vp.clientHeight, gut: gutW() }, ctx.snap.sources, { history: H });
   ctx.svg.setAttribute('height', 0);
   ctx.vp.style.setProperty('--dot', dotSize(S.span));
   for (const [uid, el] of ctx.R) {
@@ -123,6 +125,8 @@ function renderSection(s, keep, keepL, focused) {
     const uid = s + ':m' + i; keepL.add(uid);
     let el = ctx.RL.get(uid);
     if (!el) { el = makeMark(m); sec.layer.appendChild(el); ctx.RL.set(uid, el); }
+    const text = makeMark(m).innerHTML;
+    if (el.dataset.txt !== text) { el.innerHTML = text; el.dataset.txt = text; }
     placeMark(el, m, ctx.content.offsetWidth, gutW());
   });
   lay.labels.forEach((lb, i) => {
@@ -164,6 +168,10 @@ export function onDataChanged(msg) {
   pendingLive.dirty = true;
   if (!deferred()) ctx.life.frame('live', flushLive);
 }
+export function requestLivePass() {
+  pendingLive.dirty = true;
+  ctx.life.frame('live', flushLive);
+}
 export function flushLive() {
   if (!pendingLive.dirty || deferred()) return;
   const anchor = takeAnchor();
@@ -171,4 +179,4 @@ export function flushLive() {
   pendingLive.changed.clear(); pendingLive.removed.clear(); pendingLive.dirty = false;
   performance.mark('build-home-live-pass');
 }
-Object.assign(fx, { viewport, relayout, update, dataChanged: onDataChanged, flushLive, renderHeads });
+Object.assign(fx, { viewport, relayout, update, dataChanged: onDataChanged, flushLive, requestLivePass, renderHeads });

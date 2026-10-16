@@ -13,8 +13,7 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
       if action == "skip" do
         %{resync: true}
       else
-        row = change_row(data, params)
-        %{now: data["now"], upsert: [row], remove: [], set: %{}, resync: false}
+        diff_changes(data, params)
       end
 
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build-home:fixture", {:build_changes, changes})
@@ -28,6 +27,16 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
   end
 
   def configure(conn, _params), do: send_resp(conn, 404, "unknown build fixture control action")
+
+  defp diff_changes(data, %{"name" => "queue-unavailable"}) do
+    path = Path.expand("../../fixtures/build_home/diffs/queue-unavailable.json", __DIR__)
+    set = path |> File.read!() |> Jason.decode!()
+    %{now: data["now"], upsert: [], remove: [], set: set, resync: false}
+  end
+
+  defp diff_changes(data, params) do
+    %{now: data["now"], upsert: [change_row(data, params)], remove: [], set: %{}, resync: false}
+  end
 
   defp change_row(data, params) do
     row = Enum.find(List.flatten(Map.values(data["sections"])), &(&1["id"] == params["id"])) || hd(data["sections"]["plan"])
