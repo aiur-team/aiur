@@ -314,9 +314,11 @@ defmodule AiurWeb.VoiceChannelTest do
 
     fake = joined.assigns.stt.pid
     :ok = FakeSTT.transcript(fake, :partial, "hello ")
+    await_channel(joined)
     assert_push("transcript", %{"kind" => "partial", "text" => "hello "})
 
     :ok = FakeSTT.transcript(fake, :final, "hello world")
+    await_channel(joined)
     assert_push("transcript", %{"kind" => "final", "text" => "hello world"})
   end
 
@@ -326,6 +328,7 @@ defmodule AiurWeb.VoiceChannelTest do
 
     fake = joined.assigns.stt.pid
     :ok = FakeSTT.error(fake, "ElevenLabs rejected the API key")
+    await_channel(joined)
     assert_push("error", %{"reason" => "ElevenLabs rejected the API key"})
   end
 
@@ -355,6 +358,10 @@ defmodule AiurWeb.VoiceChannelTest do
   end
 
   # --- helpers -------------------------------------------------------------
+
+  # The fake sent its frame before replying, so this sys call queues behind it:
+  # once it returns, the channel has handled the frame and pushed to us.
+  defp await_channel(joined), do: :sys.get_state(joined.channel_pid)
 
   defp voice_socket do
     {:ok, generation} = FinancialDataAccess.current_configuration_generation()
