@@ -267,7 +267,13 @@ defmodule Aiur.ExecutorAttention.CLITest do
 
     {:ok, decision} =
       Aiur.DecisionValidation.normalize(
-        %{"question" => "Defer composed pixels?", "blocking" => true, "authority" => "human_required", "source_id" => "aged"},
+        %{
+          "question" => "Defer composed pixels?",
+          "blocking" => true,
+          "authority" => "human_required",
+          "context" => %{"authority_basis" => "security"},
+          "source_id" => "aged"
+        },
         ticket: %{identifier: "3141", title: "Renderer", url: nil},
         source: %{agent_id: "codex", session_id: "s-1", event_id: nil},
         now: DateTime.add(DateTime.utc_now(), -20 * 60, :second)

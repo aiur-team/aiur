@@ -126,6 +126,18 @@ defmodule Aiur.DecisionStoreCase do
     }
   end
 
+  def question_with_identity(question, identity) do
+    suffix =
+      identity
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+      |> String.graphemes()
+      |> Enum.chunk_every(2)
+      |> Enum.map_join(" ", &List.to_string/1)
+
+    "#{question} #{suffix}"
+  end
+
   def project_attention(pid, payload, opts \\ []) do
     DecisionStore.project_attention(
       payload,
@@ -300,6 +312,7 @@ defmodule Aiur.DecisionStoreCase do
           "question" => "Which archival target?",
           "blocking" => false,
           "authority" => "human_required",
+          "context" => %{"authority_basis" => "security"},
           "source_id" => "expired-unanswerable-1"
         },
         ticket: %{@ticket | identifier: "979"},

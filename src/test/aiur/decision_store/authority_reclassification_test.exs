@@ -3,7 +3,7 @@ Code.require_file("../../support/decision_store_case.ex", __DIR__)
 defmodule Aiur.DecisionStore.AuthorityReclassificationTest do
   use Aiur.DecisionStoreCase, async: false
 
-  test "unbased engineering requests stay Executor-answerable and explicit human-required needs a basis", %{dir: dir} do
+  test "baseline contract: omitted authority defaults to Executor; explicit human-required needs a basis", %{dir: dir} do
     pid = start_store!(dir, dispatch_delay_ms: 60_000)
 
     assert {:ok, %{decision: %{authority: :supervisor_allowed, reversibility: :reversible}}} =

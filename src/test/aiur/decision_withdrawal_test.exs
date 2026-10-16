@@ -443,7 +443,8 @@ defmodule Aiur.DecisionWithdrawalTest do
         "question" => "Provide a disposable session, or accept inventory-only evidence?",
         "blocking" => true,
         "authority" => authority,
-        "reversibility" => "reversible"
+        "reversibility" => "reversible",
+        "context" => if(authority == "human_required", do: %{"authority_basis" => "security"}, else: nil)
       },
       [ticket: @ticket, source: @source],
       pid
