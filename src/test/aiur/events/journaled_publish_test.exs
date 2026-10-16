@@ -44,13 +44,14 @@ defmodule Aiur.Events.JournaledPublishTest do
 
   test "journal line carries the string source and the normalized payload", %{dir: dir, journal: journal} do
     :ok = Exchange.subscribe("executor.test.normalized")
-    payload = %{at: ~U[2026-10-06 12:00:00Z], kind: :x}
+    payload = %{at: ~U[2026-10-06 12:00:00Z], kind: :x, pair: {1, :a}}
 
     assert {:ok, id, _} = JournaledPublish.publish("executor.test.normalized", payload, journal: journal, journal_dir: dir, source: :executor_cli)
 
     line = File.read!(journal)
     assert line =~ ~s("at":"2026-10-06T12:00:00Z")
     assert line =~ ~s("kind":"x")
+    assert line =~ ~s("pair":[1,"a"])
     assert line =~ ~s("source":"executor_cli")
     assert_receive {:event, %{id: ^id, kind: :x}}, 500
   end
