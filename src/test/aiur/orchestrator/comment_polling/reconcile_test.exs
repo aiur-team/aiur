@@ -258,6 +258,7 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
       repo: "owner/repo",
       reconcile_only: true,
       comment_batch_fetcher: fn _targets, _opts -> {:ok, %{"42" => %{open_pull_request: nil}}} end,
+      token: "test-gh-token",
       request_fun: hanging_request
     ]
 

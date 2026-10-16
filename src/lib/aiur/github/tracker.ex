@@ -273,6 +273,9 @@ defmodule Aiur.GitHub.Tracker do
   @impl Aiur.Tracker.CodeHost
   defdelegate comment_optimistic_park(dependent, blocker, cause), to: Aiur.GitHub.OptimisticFailure
 
+  @impl Aiur.Tracker.CodeHost
+  defdelegate withdraw_landing(number), to: Aiur.GitHub.LandingWithdrawal, as: :withdraw
+
   @impl Aiur.Tracker.IssueTracker
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)

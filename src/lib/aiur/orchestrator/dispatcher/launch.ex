@@ -26,6 +26,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TelemetryCohort
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
+  alias Aiur.Signal
 
   @doc false
   @spec recover_orphaned_claim(State.t(), Issue.t(), term(), term()) :: {State.t(), term()}
@@ -234,7 +235,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
     worker_generation = System.unique_integer([:positive, :monotonic])
-    lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
+    lifecycle_attempt_id = Signal.new_attempt_id(dispatch_attempt_ticket(issue))
     optimistic_blockers = if issue.optimistic_start, do: Enum.map(issue.optimistic_start.blockers, & &1.identifier), else: []
 
     if TelemetryLifecycle.enabled?() do
@@ -436,7 +437,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
   defp record_rework_resume(%Issue{} = issue, attempt_id) do
     if DispatchPolicy.normalize_issue_state(issue.state) == "rework" do
-      TelemetryLifecycle.record(
+      Signal.lifecycle(
         issue.identifier,
         attempt_id,
         :agent_resume,

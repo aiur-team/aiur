@@ -64,6 +64,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
@@ -128,6 +129,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
@@ -228,6 +230,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [human_review_issue]} end
         )
@@ -293,6 +296,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, issues} end,
           human_review_comment_target_limit: 2,

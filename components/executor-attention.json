@@ -12,6 +12,8 @@
     "src/lib/aiur/executor/**",
     "src/lib/aiur/executor_*.ex",
     "src/lib/aiur/executor_attention/**",
+    "src/lib/aiur/executor_events/**",
+    "src/lib/aiur/executor_sweep/**",
     "src/lib/aiur/executor_wake_inbox/**",
     "src/lib/aiur/operator_wait_log.ex",
     "src/lib/aiur/progress_checkin/**"
@@ -29,7 +31,11 @@
     "signal"
   ],
   "optional": [
-    "conversations"
+    "build-queue",
+    "conversations",
+    "github",
+    "github-listeners",
+    "orchestration"
   ],
   "owns": {
     "config": [
@@ -53,7 +59,8 @@
     "type": "included"
   },
   "docs": [
-    "concepts/executor.md"
+    "concepts/executor.md",
+    "reference/cli.md"
   ],
   "config": [
     "alerts"

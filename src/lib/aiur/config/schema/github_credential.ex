@@ -26,11 +26,27 @@ defmodule Aiur.Config.Schema.GithubCredential do
 
   @primary_key false
   embedded_schema do
+    # @config-reference config-configuration-01 tracker.github.credentials.id
+    # @config-detail tracker.github.credentials.id | string | required | Lowercase identifier naming this credential in `aiur github-usage` and `aiur github-cost`. Must be unique. |
     field(:id, :string)
+    # @config-reference config-configuration-01 tracker.github.credentials.kind
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail tracker.github.credentials.kind | string | `machine_user` | One of `app_installation`, `machine_user` or `human`. Set it to `human` for a real person's token so Aiur keeps writes off that identity. |
     field(:kind, :string, default: "machine_user")
+    # @config-reference config-configuration-01 tracker.github.credentials.identity
+    # @config-detail tracker.github.credentials.identity | string | nil | The GitHub login this credential authenticates as. Reporting only, so a usage row names an account rather than a hash. |
     field(:identity, :string)
+    # @config-reference config-configuration-01 tracker.github.credentials.token_env
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail tracker.github.credentials.token_env | string | required except for `app_installation` | Environment variable holding the token. An `app_installation` credential mints its own and needs none. A variable that is not exported drops the credential from the pool rather than failing boot. |
     field(:token_env, :string)
+    # @config-reference config-configuration-01 tracker.github.credentials.writes
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail tracker.github.credentials.writes | boolean | `false` | Whether this credential may carry writes (comments, labels, merges, PR creation). A `human` credential cannot be set to `true`: GitHub attributes the write to that person and it breaks the agent-authors / human-reviews separation the merge policy depends on. |
     field(:writes, :boolean, default: false)
+    # @config-reference config-configuration-01 tracker.github.credentials.enabled
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail tracker.github.credentials.enabled | boolean | `true` | Set to `false` to keep a credential in the file but out of the pool, for a token being rotated or an account temporarily rate-limited. |
     field(:enabled, :boolean, default: true)
   end
 

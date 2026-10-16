@@ -53,6 +53,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     result = %{target: "3864", pr_number: 42, head_sha: "head-1", decision: :failed, failures: [%{name: "test"}]}
 
     opts = [
+      token: "test-gh-token",
       request_fun: request,
       ci_recovery_path: path,
       ledger_paths: [path <> ".alerts"],

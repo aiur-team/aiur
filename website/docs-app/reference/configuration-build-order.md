@@ -4,25 +4,25 @@ Sections of the [configuration reference](/reference/configuration) covering `bu
 
 ## build_order
 
-| Key | Type | Default | Controls |
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-build-order-00 -->
 | --- | --- | --- | --- |
-| `build_order.ticket_detail_freshness_ms` | integer | derived (¼ poll interval, min 5000) | Freshness window for ticket detail. |
-| `build_order.ticket_detail_max_entries` | integer | 32 | Maximum cached ticket-detail entries. |
-| `build_order.ticket_detail_max_description_bytes` | integer | 16384 | Maximum cached ticket-description size. |
-| `build_order.ticket_history_limit` | integer | 50 | Maximum ticket history records per view. |
-| `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
-| `build_order.ticket_history_stale_after_ms` | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
-| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Base cadence for the Build Order catalog's reads (boot, a viewer's mount, a degraded re-list) and the window after which a selected root is displayed as ageing. The catalog is event-sourced (#2325) and demand-gated (#2312): it is maintained from the resource store's change stream, so this is not a recurring poll, and no page open means no read. |
-| `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the labelled catalog read that resolves epic and wave counts on a boot/mount/degraded read; the event-sourced catalog resolves those counts from the store instead. |
-| `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
-| `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
-| `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
 | `build_order.general_epics` | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
+| `build_order.general_epics.hue` | integer | required | Colour hue, 0–359. |
+| `build_order.general_epics.icon` | string | required | One of `bug`, `pen`, `server`, `docs`. |
 | `build_order.general_epics.key` | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
 | `build_order.general_epics.label` | string | required | Column header text, without control characters. |
 | `build_order.general_epics.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
-| `build_order.general_epics.hue` | integer | required | Colour hue, 0–359. |
-| `build_order.general_epics.icon` | string | required | One of `bug`, `pen`, `server`, `docs`. |
+| `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the labelled catalog read that resolves epic and wave counts on a boot/mount/degraded read; the event-sourced catalog resolves those counts from the store instead. |
+| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Base cadence for the Build Order catalog's reads (boot, a viewer's mount, a degraded re-list) and the window after which a selected root is displayed as ageing. The catalog is event-sourced (#2325) and demand-gated (#2312): it is maintained from the resource store's change stream, so this is not a recurring poll, and no page open means no read. |
+| `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
+| `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
+| `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
+| `build_order.ticket_detail_freshness_ms` | integer | derived (¼ poll interval, min 5000) | Freshness window for ticket detail. |
+| `build_order.ticket_detail_max_description_bytes` | integer | 16384 | Maximum cached ticket-description size. |
+| `build_order.ticket_detail_max_entries` | integer | 32 | Maximum cached ticket-detail entries. |
+| `build_order.ticket_history_limit` | integer | 50 | Maximum ticket history records per view. |
+| `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
+| `build_order.ticket_history_stale_after_ms` | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
 
 ### General epics
 

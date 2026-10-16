@@ -35,8 +35,6 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     def notify_demand(_), do: :ok
   end
 
-  # Flaky in merge groups; fix tracked in #4463.
-  @tag :quarantine
   test "CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks" do
     {document, issues, _} = fixture()
     start_supervised!({Agent, fn -> document end}, id: :rank_store) |> Process.register(QueueBoundary)
@@ -70,7 +68,8 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     assert Enum.map(Agent.get(QueueBoundary, & &1.queues), &{&1.name, &1.rank}) == [{"set 2", 0}, {"set 1", 1}, {"set 0", 2}]
     assert Enum.sort(Map.keys(dispatch(issues).running)) == ~w(10 11 12 3 8 9)
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :order, server: pid, caller_agent_workspace: "/caller") == 0 end)
-    assert output == "0  set 2\n1  set 1\n2  set 0\n"
+    assert output =~ "queue order  actual set 2 > set 1 > set 0  declared unavailable"
+    assert output =~ "0  set 2\n1  set 1\n2  set 0\n"
     output = capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, claim_probe: QueueBoundary) end)
     assert output =~ "NEXT  set 2  rank 0"
     json = capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, json: true, claim_probe: QueueBoundary) end) |> Jason.decode!()

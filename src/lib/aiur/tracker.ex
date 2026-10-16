@@ -30,6 +30,16 @@ defmodule Aiur.Tracker do
     if Code.ensure_loaded?(tracker) and function_exported?(tracker, :blocked_by, 1), do: dispatch_blocked_by(tracker, issue_id), else: {:error, :unsupported}
   end
 
+  @doc "Reads native prerequisites from the tracker's cache without revalidation."
+  @spec cached_blocked_by(Aiur.Issue.t()) :: {:ok, Aiur.Issue.t()} | {:error, term()}
+  def cached_blocked_by(%Aiur.Issue{} = issue) do
+    tracker = adapter()
+
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :cached_blocked_by, 1),
+      do: tracker.cached_blocked_by(issue),
+      else: {:error, :unsupported}
+  end
+
   defp dispatch_blocked_by(tracker, issue_id), do: tracker.blocked_by(issue_id)
 
   @doc "Reads closure evidence, failing closed when the tracker does not support it."

@@ -37,7 +37,7 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
       :ok
     end
 
-    assert :ok = FlakeRecorder.record(failure, run, [17, 24], request_fun: request, journal_path: journal, alert_emitter: alert)
+    assert :ok = FlakeRecorder.record(failure, run, [17, 24], token: "test-gh-token", request_fun: request, journal_path: journal, alert_emitter: alert)
     assert_received {:created, body}
     assert body["title"] == "Flaky test: ExampleTest :: sometimes fails"
     assert body["labels"] == ["bug", "agent:todo", "priority:1"]
@@ -90,7 +90,7 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
         end
     end
 
-    assert :ok = FlakeRecorder.record(failure, %{"id" => 805}, [17], request_fun: request, journal_path: journal, alert_emitter: fn _, _ -> :ok end)
+    assert :ok = FlakeRecorder.record(failure, %{"id" => 805}, [17], token: "test-gh-token", request_fun: request, journal_path: journal, alert_emitter: fn _, _ -> :ok end)
     assert_received {:comment, body}
     assert body =~ "Run ID: 805"
     assert body =~ "Job: unit tests"

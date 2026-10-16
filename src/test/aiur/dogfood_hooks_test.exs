@@ -62,7 +62,6 @@ defmodule Aiur.DogfoodHooksTest do
 
     assert_hook_ok!("after_create", workspace, context.origin)
     assert current_branch!(workspace) == ticket_branch()
-
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
     assert File.regular?(Path.join([cache_root(workspace), "meta", "findings.ndjson"]))
     assert File.dir?(Path.join([cache_root(workspace), "meta", "retros"]))
