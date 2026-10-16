@@ -4,6 +4,8 @@ contaminating_env_vars = [
   "ERL_AFLAGS",
   "AIUR_DASHBOARD_USERNAME",
   "AIUR_DASHBOARD_PASSWORD",
+  "AIUR_DEV_TEST_TICKET_IDS",
+  "AIUR_DEV_TEST_STATE_DIR",
   "AIUR_DEBUG",
   "AIUR_SUPERVISOR_TOKEN",
   "AIUR_NODE",
@@ -106,6 +108,7 @@ Code.require_file("support/test_support/workflow_yaml.exs", __DIR__)
 Code.require_file("support/test_support/runtime_children.exs", __DIR__)
 Code.require_file("support/test_support/processes.exs", __DIR__)
 Code.require_file("support/test_support/workflow_files.exs", __DIR__)
+Code.require_file("support/test_scope_guard.exs", __DIR__)
 Code.require_file("support/test_support.exs", __DIR__)
 Code.require_file("support/test_cleanup.ex", __DIR__)
 Code.require_file("support/test_reset_support.ex", __DIR__)
