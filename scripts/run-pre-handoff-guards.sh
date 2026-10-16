@@ -3,8 +3,8 @@ set -euo pipefail
 
 case "${GITHUB_EVENT_NAME:?}" in
   pull_request)
-    gh api "repos/$GITHUB_REPOSITORY/pulls/${AIUR_PR_NUMBER:?}" > "$RUNNER_TEMP/pr-evidence.json"
-    scripts/pre-handoff-guards "$RUNNER_TEMP/pr-evidence.json" "${AIUR_PR_BASE_SHA:?}"
+    # pr-body.yml checks the body and reruns on edits; ci gate requires its newest run.
+    scripts/pre-handoff-guards --skip-pr-body "${AIUR_PR_BASE_SHA:?}"
     ;;
   merge_group)
     scripts/pre-handoff-guards --skip-pr-body "${AIUR_MERGE_BASE_SHA:?}"
