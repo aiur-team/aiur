@@ -199,7 +199,7 @@
   {
     "id": "section-source-state-copy",
     "kind": "copy",
-    "selector": ".bd-mk.empty, .bd-sech em",
+    "selector": "#bd-vp",
     "cells": {},
     "reason": "S-9: unavailable, incomplete, disabled, filtered and window copy; stale source ages. Healthy design copy is unchanged.",
     "approval": {
