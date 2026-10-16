@@ -246,6 +246,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
         "question" => "Ship the e2e change?",
         "blocking" => true,
         "authority" => "human_required",
+        "context" => %{"authority_basis" => "product"},
         "reversibility" => "reversible",
         "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."}]
       }
@@ -316,6 +317,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
         "question" => "Ship the stale change?",
         "blocking" => true,
         "authority" => "human_required",
+        "context" => %{"authority_basis" => "product"},
         "reversibility" => "reversible",
         "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."}]
       }

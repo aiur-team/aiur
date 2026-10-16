@@ -43,8 +43,11 @@ defmodule Aiur.BuildOrder.Index do
     %{upsert: upsert, remove: remove, set: set}
   end
 
+  @doc "Zone-independent window input, sorted once per index generation."
+  @spec base(map()) :: map()
+  defdelegate base(index), to: Pages
   @spec window(map(), String.t(), integer()) :: map()
-  def window(index, zone, now), do: Pages.window(index, zone, now)
+  defdelegate window(base, zone, now), to: Pages
   @spec earlier(map(), integer(), String.t(), integer()) :: {:ok, map()} | {:error, :invalid_params}
   def earlier(index, before, zone, days), do: Pages.earlier(index, before, zone, days)
   @spec local_midnight(Date.t(), String.t()) :: integer()

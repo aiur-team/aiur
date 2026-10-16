@@ -1,10 +1,7 @@
 defmodule Aiur.DecisionWithdrawalTest do
   @moduledoc """
-  #2711: a `:decided` Command whose answer never reached an agent can be
-  withdrawn (moot) or replaced (supersede) by the Executor, and neither the
-  withdrawn nor the replaced answer is ever delivered — not to the original
-  worker, and not to a later worker of the same ticket. A delivered answer
-  stays immutable.
+  #2711: an unanswered `:decided` Command can be withdrawn or superseded;
+  neither response reaches its worker or a later worker. Delivered answers stay immutable.
 
   The scenario mirrors Khala #12/#13: the Executor answers a blocking Command
   after its worker has gone, so every dispatch fails `target_agent_unavailable`
@@ -443,7 +440,8 @@ defmodule Aiur.DecisionWithdrawalTest do
         "question" => "Provide a disposable session, or accept inventory-only evidence?",
         "blocking" => true,
         "authority" => authority,
-        "reversibility" => "reversible"
+        "reversibility" => "reversible",
+        "context" => if(authority == "human_required", do: %{"authority_basis" => "security"}, else: nil)
       },
       [ticket: @ticket, source: @source],
       pid

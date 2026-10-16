@@ -90,6 +90,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
       "question" => "Ship the change?",
       "blocking" => true,
       "authority" => "human_required",
+      "context" => %{"authority_basis" => "product"},
       "reversibility" => "reversible",
       "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."}]
     }
