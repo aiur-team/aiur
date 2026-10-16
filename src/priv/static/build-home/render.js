@@ -78,7 +78,9 @@ export function relayout({ live = false } = {}) {
     if (!live || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
     else noanim(el);
   }
-  ctx.RL.forEach(el => el.remove()); ctx.RL.clear();
+  for (const [uid, el] of ctx.RL) {
+    if (!live || !uid.includes(':m')) { el.remove(); ctx.RL.delete(uid); }
+  }
   renderHeads();
   for (const sec of ['hist', 'plan', 'nq']) ctx.secs[sec].el.style.height = ctx.L.secs[sec].h + 'px';
   ctx.bandEl.style.height = ctx.L.band.h + 'px'; fx.renderBand();
@@ -125,6 +127,7 @@ function renderSection(s, keep, keepL, focused) {
     const uid = s + ':m' + i; keepL.add(uid);
     let el = ctx.RL.get(uid);
     if (!el) { el = makeMark(m); sec.layer.appendChild(el); ctx.RL.set(uid, el); }
+    el.className = 'bd-mk ' + m.kind;
     const text = makeMark(m).innerHTML;
     if (el.dataset.txt !== text) { el.innerHTML = text; el.dataset.txt = text; }
     placeMark(el, m, ctx.content.offsetWidth, gutW());

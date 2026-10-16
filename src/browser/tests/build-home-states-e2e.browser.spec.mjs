@@ -28,8 +28,10 @@ test('age tick relayouts marker text through the live renderer', async ({ page }
   await page.clock.install(); await open(page, 'degraded')
   await expect(page.locator('#bd-content')).toHaveCount(1); await scroll(page, 'hist')
   await expect(page.locator('#bd-sec-hist .bd-mk.empty')).toContainText('read 12 min ago')
+  await page.locator('#bd-sec-hist .bd-mk.empty').evaluate(el => { window.originalMarker = el })
   await page.clock.runFor(65000)
   await expect(page.locator('#bd-sec-hist .bd-mk.empty')).toContainText('read 13 min ago')
+  expect(await page.locator('#bd-sec-hist .bd-mk.empty').evaluate(el => el === window.originalMarker)).toBe(true)
 })
 test('sources-only diff keeps rows and changes freshness without moving the anchor', async ({ page }) => {
   await open(page, 'live'); await expect(page.locator('#bd-content')).toHaveCount(1); await scroll(page, 'plan')

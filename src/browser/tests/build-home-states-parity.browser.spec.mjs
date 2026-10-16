@@ -10,7 +10,14 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['light', 'dark']) 
       await applyAllowlist(pair, pair.cell)
       const region = '#bd-sec-' + sec + ' .bd-mk.empty'
       await expect(pair.product.locator(region)).toHaveText(await pair.design.locator(region).textContent())
-      await expectDesignParity(pair, { name: `empty-${dataset}-${viewport.viewport.width}-${theme}-${palette}`, region })
+      const read = page => page.locator(region).evaluate(el => {
+        const s = getComputedStyle(el)
+        return ['top', 'left', 'width', 'height', 'display', 'gap'].map(key => s[key])
+      })
+      expect(await read(pair.product)).toEqual(await read(pair.design))
+      // Text pixels and marker geometry are owned here. The adjacent Now band
+      // casts a shadow into the marker; its composition is owned by C9-T08.
+      for (const tag of ['b', 'p']) await expectDesignParity(pair, { name: `empty-${tag}-${dataset}-${viewport.viewport.width}-${theme}-${palette}`, region: region + ' ' + tag })
     } finally { await pair.close() }
   })
   test(`offline banner parity ${viewport.viewport.width} ${theme} ${palette}`, async ({ browser }) => {
