@@ -14,7 +14,7 @@ defmodule Aiur.AgentRunner.ReworkFindings do
   @type finding :: %{id: String.t(), file: String.t(), line: String.t(), ask: String.t()}
 
   @item ~r/^\s*(\d+)[.)]\s+(.+)$/
-  @location ~r/([A-Za-z0-9_.\/-]+\.[A-Za-z0-9]+):(\d+)/
+  @location ~r/([A-Za-z0-9_.\/-]+\.[A-Za-z0-9]+):~?(\d+)/
 
   @doc "Parses the numbered `file:line` items of a review body."
   @spec parse(term()) :: [finding()]
@@ -122,7 +122,8 @@ defmodule Aiur.AgentRunner.ReworkFindings do
         do: [],
         else: ["finding #{label(finding)} is marked fixed by #{inspect(commit)}, which is not a commit since the review"]
 
-    file_reason = if files == :unknown or finding.file in files, do: [], else: ["finding #{label(finding)} is marked fixed but #{finding.file} was not changed since the review"]
+    file_reason =
+      if files == :unknown or Enum.any?(files, &same_file?(&1, finding.file)), do: [], else: ["finding #{label(finding)} is marked fixed but #{finding.file} was not changed since the review"]
 
     commit_reason ++ file_reason
   end
@@ -149,6 +150,9 @@ defmodule Aiur.AgentRunner.ReworkFindings do
 
     "## Rework checklist\n\nThe worker's answers to the latest review's findings, verified before this handback.\n\n" <> rows <> "\n"
   end
+
+  # Reviews name a file by basename or without `src/`; the branch lists repo-relative paths.
+  defp same_file?(changed, file), do: changed == file or String.ends_with?(changed, "/" <> file)
 
   defp label(finding), do: "#{finding.id} (#{finding.file}:#{finding.line})"
 

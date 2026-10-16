@@ -10,6 +10,7 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
   1. src/lib/aiur/agent_runner/rework_handoff.ex:44-45 (with rework_handoff_guard.ex:52): `Keyword.get` passes an explicit `nil`.
   2. The re-review does not receive the worker's answers.
   3) src/lib/aiur/agent_runner/rework_checklist.ex:70: match commits by prefix.
+  4. dedup.ex:~118-136: approximate lines still count.
 
   Also: revert the unrelated reformatting.
   """
@@ -18,7 +19,8 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
     test "keeps the reviewer's numbers and skips items without file:line" do
       assert [
                %{id: "1", file: "src/lib/aiur/agent_runner/rework_handoff.ex", line: "44", ask: "src/lib/aiur/agent_runner/rework_handoff.ex:44-45" <> _},
-               %{id: "3", file: "src/lib/aiur/agent_runner/rework_checklist.ex", line: "70"}
+               %{id: "3", file: "src/lib/aiur/agent_runner/rework_checklist.ex", line: "70"},
+               %{id: "4", file: "dedup.ex", line: "118"}
              ] = ReworkFindings.parse(@review_body)
 
       assert ReworkFindings.parse("Please fix the tests.") == []
@@ -44,6 +46,16 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
                "finding 2 (lib/b.ex:9) is marked fixed by \"bbbbbbb\", which is not a commit since the review",
                "finding 2 (lib/b.ex:9) is marked fixed but lib/b.ex was not changed since the review"
              ]
+    end
+
+    test "a reviewer's basename or lib/-relative path matches the repo-relative changed file" do
+      findings = [%{id: "1", file: "x.ex", line: "62", ask: "fix x"}, %{id: "2", file: "lib/aiur/y.ex", line: "48", ask: "fix y"}]
+      answers = [%{"id" => "1", "status" => "fixed", "commit" => "aaaaaaa"}, %{"id" => "2", "status" => "fixed", "commit" => "aaaaaaa"}]
+
+      assert ReworkFindings.validate(findings, answers, [@commit], ["src/lib/aiur/landing/x.ex", "src/lib/aiur/y.ex"]) == :allow
+
+      assert {:blocked, ["finding 2 (lib/aiur/y.ex:48) is marked fixed but lib/aiur/y.ex was not changed since the review"]} =
+               ReworkFindings.validate(findings, answers, [@commit], ["src/lib/aiur/landing/x.ex", "src/lib/aiur/notlib/aiur_y.ex"])
     end
 
     test "short SHAs match by prefix and extra answers are ignored" do
