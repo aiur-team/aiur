@@ -100,15 +100,17 @@ since the merge base, including both paths of renames. Incomplete evidence or
 genuine conflicts leave labels unchanged.
 
 A rework handback to `ci-wait` or `human-review` must answer the latest
-blocking review. Its numbered `file:line` items are the rework prompt's
-checklist. The agent passes one `review_findings` answer per item: `fixed` with
-a commit, or `disputed` with evidence. The write is refused if an item has no
-answer. It is refused if a `fixed` commit is not one of the branch's own
-commits since the review, or if none of those commits changed the item's file.
-Merge commits do not count. The write is also refused with no commit since
-the review, unless every item is disputed, and while GitHub reports the PR
-conflicting. The verified answers are posted as a `## Rework checklist` ticket
-comment for the re-review.
+blocking review. Its numbered `file:line` items form the rework prompt's
+checklist. The agent passes one `review_findings` answer per item: `fixed`
+with a commit, or `disputed` with evidence.
+
+The write is refused if an item has no answer. It is refused if a `fixed`
+commit is not a branch commit since the review, or if no such commit changed
+the item's file. Merge commits do not count.
+
+The write is also refused with no commit since the review, unless every item
+is disputed, and while GitHub reports the PR conflicting. The verified answers
+are posted as a `## Rework checklist` ticket comment for the re-review.
 
 Harmless base movement needs no merge or CI rerun. Workers check before handoff
 and after CI. Up to three integrations per handoff
