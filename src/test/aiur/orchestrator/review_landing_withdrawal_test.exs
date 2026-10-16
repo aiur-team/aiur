@@ -34,6 +34,15 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawalTest do
     refute_received {:graphql, _operation, _variables}
   end
 
+  test "a CHANGES_REQUESTED review on a since-approved or newer head does not touch the queue" do
+    for context <- [%{"review_decision" => "APPROVED"}, %{"head_committed_at" => "2026-10-16T12:00:00Z"}] do
+      event = review_event("CHANGES_REQUESTED") |> put_in([:comment, "submitted_at"], "2026-10-16T11:00:00Z") |> Map.put(:pull_request, context)
+      ReviewLandingWithdrawal.changes_requested(%State{}, "42", event, opts())
+    end
+
+    refute_received {:graphql, _operation, _variables}
+  end
+
   test "a PR neither queued nor auto-merging is read but not mutated or recorded" do
     ReviewLandingWithdrawal.changes_requested(%State{}, "42", review_event("CHANGES_REQUESTED"), opts(%{"mergeQueueEntry" => nil, "autoMergeRequest" => nil}))
 
