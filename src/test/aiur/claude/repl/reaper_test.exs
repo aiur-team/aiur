@@ -108,8 +108,6 @@ defmodule Aiur.Claude.Repl.ReaperTest do
       assert Task.await(task, 2_000) == {:ok, :cleanup_proven}
     end
 
-    # Flaky in merge groups; fix tracked in #4463.
-    @tag :quarantine
     test "trusts observed absence when the group signal races with process exit", %{tmux: tmux} do
       {:ok, group_probes} = Agent.start_link(fn -> [true, false] end)
       on_exit(fn -> Aiur.TestSupport.safe_stop(group_probes) end)

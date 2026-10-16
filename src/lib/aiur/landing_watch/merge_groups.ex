@@ -2,7 +2,7 @@ defmodule Aiur.LandingWatch.MergeGroups do
   @moduledoc "Cancels active merge-group runs that no longer belong to the live queue."
 
   alias Aiur.GitHub.{CIRecovery, Transport}
-  alias Aiur.LandingWatch.{MergeGroupFailureProcessor, MergeGroupRunFetcher, Observer}
+  alias Aiur.LandingWatch.{MergeGroupFailureProcessor, MergeGroupQuarantine, MergeGroupRunFetcher, Observer}
 
   @spec cancel_stale([map()], keyword()) :: :ok | {:error, term()}
   def cancel_stale(observations, opts \\ [])
@@ -15,6 +15,7 @@ defmodule Aiur.LandingWatch.MergeGroups do
          {:ok, completed} <- MergeGroupRunFetcher.completed_runs(owner, repo, token, opts),
          {:ok, fresh_observations} <- live_observations(observations, opts) do
       with :ok <- MergeGroupFailureProcessor.process_completed(completed, fresh_observations, base, opts),
+           :ok <- MergeGroupQuarantine.process_completed(completed, base, opts),
            {:ok, reconciled_observations} <- live_observations(fresh_observations, opts) do
         live =
           Map.new(

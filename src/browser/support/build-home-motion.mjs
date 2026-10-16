@@ -1,3 +1,4 @@
+import { spanState } from './build-home-span-state.mjs'
 import { historySequence } from './build-home-history-motion.mjs'
 import { scrollbar } from './build-home-scrollbar-motion.mjs'
 // Shared records and ownership stay together; feature sequences live beside them.
@@ -305,13 +306,13 @@ async function view(page, ctx, mode) {
   const samples = []
   for (const span of await page.locator(input).evaluateAll(nodes => nodes.map(el => el.dataset.span))) {
     await click(page, `.bd-cal [data-span="${span}"]`, true); await page.clock.runFor(32)
-    samples.push(await state(page, ctx))
+    samples.push(await spanState(page))
   }
   for (const direction of ['1', '-1']) for (let step = 0; step < 30; step++) {
     const button = page.locator(`.bd-zoom [data-z="${direction}"]`)
     if (!await button.count()) throw new Error('unreachable zoom control')
     const disabled = await button.isDisabled()
-    samples.push({ ...await state(page, ctx), disabled })
+    samples.push({ ...await spanState(page), disabled })
     if (disabled) break
     await click(page, `.bd-zoom [data-z="${direction}"]`, true); await page.clock.runFor(32)
     if (step === 29) throw new Error('zoom did not reach its endpoint')
