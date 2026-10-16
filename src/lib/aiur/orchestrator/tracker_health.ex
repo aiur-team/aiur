@@ -12,6 +12,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.ToolchainPreflight
   alias Aiur.PollCadence
   alias Aiur.Webhooks
   alias Aiur.Webhooks.IntervalPolicy
@@ -371,9 +372,11 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def tracker_preflight do
     case Config.validate!() do
       :ok ->
-        case Config.tracker_kind() do
-          "github" -> GitHubTracker.ensure_auth_preflight()
-          _ -> :ok
+        with :ok <- ToolchainPreflight.check() do
+          case Config.tracker_kind() do
+            "github" -> GitHubTracker.ensure_auth_preflight()
+            _ -> :ok
+          end
         end
 
       {:error, reason} ->
@@ -391,6 +394,9 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def log_tracker_preflight_error({:github_auth_preflight_failed, _diagnostic} = reason) do
     Logger.error(GitHubClient.format_auth_preflight_error(reason))
   end
+
+  def log_tracker_preflight_error({:toolchain_missing, detail}),
+    do: Logger.error("Dispatch held: #{detail}")
 
   def log_tracker_preflight_error(:missing_linear_api_token),
     do: Logger.error("Linear API token missing in .aiur/config")
