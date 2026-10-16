@@ -97,6 +97,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     true
   end
 
+  defp approved_landing_pr?(%Issue{}, %{decision: :failed, review_decision: "APPROVED", recovery: %{"reason" => "approved_landing_pr"}}),
+    do: true
+
+  defp approved_landing_pr?(%Issue{}, %{decision: :failed, review_decision: "APPROVED", auto_merge_request: nil, merge_queue_entry: nil, landing_state: :landing}),
+    do: true
+
   defp approved_landing_pr?(_issue, _result), do: false
 
   defp stale_approved_head?(%Issue{} = issue, %{head_sha: head_sha, review_decision: "APPROVED", approved_review_head_sha: approved_head})

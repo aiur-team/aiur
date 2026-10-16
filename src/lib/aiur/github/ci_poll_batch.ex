@@ -242,7 +242,7 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp pull_request_fields(_entry) do
     """
     number state headRefName headRefOid baseRefName
-    isDraft reviewDecision mergeable mergeStateStatus
+    isDraft reviewDecision mergeable mergeStateStatus updatedAt
     autoMergeRequest { enabledAt }
     mergeQueueEntry { id }
     reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }
@@ -384,7 +384,8 @@ defmodule Aiur.GitHub.CIPollBatch do
           "head" => %{"ref" => Map.get(node, "headRefName"), "sha" => Map.get(node, "headRefOid")},
           "base" => %{"ref" => Map.get(node, "baseRefName")}
         }
-        |> put_merge_queue_observation(node),
+        |> put_merge_queue_observation(node)
+        |> Map.put("updated_at", Map.get(node, "updatedAt")),
       check_runs: Enum.map(check_runs, &normalize_check_run/1),
       commit_status: normalize_commit_status(statuses),
       contexts_overflow: contexts_overflow

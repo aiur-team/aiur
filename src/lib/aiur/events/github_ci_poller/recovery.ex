@@ -29,14 +29,56 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   def recover(issue, %{pr_number: number, head_sha: sha} = result, opts) when is_integer(number) and is_binary(sha) do
     target = to_string(issue.identifier || issue.id)
+    result = Map.put(result, :ci_issue, issue)
 
-    case Store.read(target, number, opts) do
-      {:ok, entry} -> recover_entry(issue, result, entry, opts)
-      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+    if result[:decision] == :failed and result[:review_decision] == "APPROVED" and
+         (is_nil(result[:auto_merge_request]) or is_nil(result[:merge_queue_entry])) do
+      refresh_approved_landing(issue, result, opts)
+    else
+      case Store.read(target, number, opts) do
+        {:ok, entry} -> recover_entry(issue, result, entry, opts)
+        {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+      end
     end
   end
 
   def recover(_issue, result, _opts), do: result
+
+  defp refresh_approved_landing(issue, %{decision: :failed, review_decision: "APPROVED", pr_number: number} = result, opts)
+       when is_integer(number) do
+    observation = Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(number, opts)
+    classify_landing_observation(issue, result, observation, opts)
+  end
+
+  defp classify_landing_observation(issue, result, observation, opts) do
+    classify_landing_observation(issue, result, observation, opts, :dispatch)
+  end
+
+  defp classify_landing_observation(issue, result, observation, opts, :dispatch) do
+    case observation do
+      {:ok, pr} -> classify_landing_pr(issue, result, pr, opts)
+      {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts)
+      _other -> attention(issue, result, "observation_unavailable", "landing_state_unknown", opts)
+    end
+  end
+
+  defp classify_landing_pr(issue, result, pr, opts) do
+    case fresh_landing_state(result, pr) do
+      :landing -> Map.put(result, :recovery, %{"reason" => "approved_landing_pr"})
+      :not_landing -> Map.put(result, :landing_state, :not_landing)
+      :changed_head -> held(result, "head_changed")
+      :unknown -> attention(issue, result, "observation_unavailable", "landing_state_unknown", opts)
+    end
+  end
+
+  defp fresh_landing_state(result, pr) do
+    cond do
+      pr["state"] != "OPEN" or pr["headRefOid"] != result[:head_sha] -> :changed_head
+      is_map(pr["autoMergeRequest"]) or is_map(pr["mergeQueueEntry"]) -> :landing
+      Map.has_key?(pr, "autoMergeRequest") and Map.has_key?(pr, "mergeQueueEntry") -> :not_landing
+      true -> :unknown
+    end
+  end
 
   defp recover_entry(_issue, %{head_sha: sha} = result, %{"hold" => %{"sha" => sha} = hold}, _opts),
     do: hold_result(result, hold)
@@ -82,24 +124,45 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp choose_recovery(issue, result, entry, pr, opts) do
+    case recovery_block(issue, result, pr) do
+      nil ->
+        recovery_queue_state(result, entry, pr, opts)
+
+      block ->
+        resolve_recovery_block(block, issue, result, pr, opts)
+    end
+  end
+
+  defp recovery_block(_issue, result, pr) do
     cond do
-      pr["state"] != "OPEN" or pr["headRefOid"] != result.head_sha ->
-        held(result, "head_changed")
+      pr["state"] != "OPEN" or pr["headRefOid"] != result.head_sha -> {:held, "head_changed"}
+      pr["isDraft"] != false -> draft_recovery_hold(pr)
+      pr["reviewDecision"] == "CHANGES_REQUESTED" -> {:attention, "rerun_skipped", "changes_requested"}
+      pr["reviewDecision"] == "APPROVED" -> {:approved_review, pr}
+      true -> nil
+    end
+  end
 
-      pr["isDraft"] != false ->
-        if pr["isDraft"] == true, do: attention(issue, result, "rerun_skipped", "draft_pr", opts), else: held(result, "pr_observation_unavailable")
+  defp draft_recovery_hold(%{"isDraft" => true}), do: {:attention, "rerun_skipped", "draft_pr"}
+  defp draft_recovery_hold(_pr), do: {:held, "pr_observation_unavailable"}
 
-      pr["reviewDecision"] == "CHANGES_REQUESTED" ->
-        attention(issue, result, "rerun_skipped", "changes_requested", opts)
+  defp recovery_queue_state(result, entry, pr, opts) do
+    cond do
+      not Map.has_key?(pr, "mergeQueueEntry") -> held(result, "queue_observation_unavailable")
+      pr["mergeQueueEntry"] != nil -> held(result, "merge_queue")
+      true -> rerun(result[:ci_issue], result, entry, opts)
+    end
+  end
 
-      not Map.has_key?(pr, "mergeQueueEntry") ->
-        held(result, "queue_observation_unavailable")
+  defp resolve_recovery_block({:held, reason}, _issue, result, _pr, _opts), do: held(result, reason)
+  defp resolve_recovery_block({:attention, kind, reason}, issue, result, _pr, opts), do: attention(issue, result, kind, reason, opts)
+  defp resolve_recovery_block({:approved_review, pr}, issue, result, _observed_pr, opts), do: approved_review_recovery(issue, result, pr, opts)
 
-      pr["mergeQueueEntry"] != nil ->
-        held(result, "merge_queue")
-
-      true ->
-        rerun(issue, result, entry, opts)
+  defp approved_review_recovery(issue, result, pr, opts) do
+    cond do
+      is_map(pr["autoMergeRequest"]) or is_map(pr["mergeQueueEntry"]) -> held(result, "approved_landing_pr")
+      Map.has_key?(pr, "autoMergeRequest") and Map.has_key?(pr, "mergeQueueEntry") -> rerun(issue, result, %{}, opts)
+      true -> attention(issue, result, "observation_unavailable", "landing_state_unknown", opts)
     end
   end
 

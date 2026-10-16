@@ -29,6 +29,33 @@ defmodule Aiur.LandingWatch.Observer do
   def refresh_queue(_, _), do: {:error, :invalid_queue_observations}
 
   @doc false
+  @spec landing_state(pos_integer(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def landing_state(number, expected_head, opts) when is_integer(number) and is_binary(expected_head) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts),
+         {:ok, %{"data" => %{"repository" => %{"pullRequest" => pr}}}} <-
+           Transport.github_graphql(
+             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+             token,
+             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid reviewDecision autoMergeRequest{enabledAt} mergeQueueEntry{id} reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}",
+             %{owner: owner, repo: repo, number: number},
+             caller: "landing_watch_failure_guard"
+           ),
+         true <- is_map(pr) and Map.get(pr, "headRefOid") == expected_head do
+      {:ok,
+       %{
+         approved: Classifier.approved_at_head?(pr),
+         landing: is_map(Map.get(pr, "autoMergeRequest")) or is_map(Map.get(pr, "mergeQueueEntry"))
+       }}
+    else
+      {:error, _reason} = error -> error
+      _other -> {:error, :landing_observation_unavailable}
+    end
+  end
+
+  def landing_state(_, _, _), do: {:error, :landing_observation_unavailable}
+
+  @doc false
   @spec revalidate_approved_head(pos_integer(), String.t(), keyword()) :: :ok | {:error, term()}
   def revalidate_approved_head(number, expected_head, opts) when is_integer(number) and number > 0 and is_binary(expected_head) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
@@ -37,11 +64,13 @@ defmodule Aiur.LandingWatch.Observer do
            Transport.github_graphql(
              Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
              token,
-             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid reviewDecision mergeQueueEntry { id } reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}",
+             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid reviewDecision autoMergeRequest{enabledAt} mergeQueueEntry { id } reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}",
              %{owner: owner, repo: repo, number: number},
              caller: "landing_watch_revalidate"
            ),
-         true <- Map.get(pr, "headRefOid") == expected_head and Classifier.approved_at_head?(pr) and is_nil(Map.get(pr, "mergeQueueEntry")) do
+         true <-
+           Map.get(pr, "headRefOid") == expected_head and Classifier.approved_at_head?(pr) and
+             is_nil(Map.get(pr, "mergeQueueEntry")) and is_nil(Map.get(pr, "autoMergeRequest")) do
       :ok
     else
       {:error, _} = error -> error

@@ -3,6 +3,7 @@ defmodule Aiur.Events.GithubCIPollerEvaluationTest do
   import Aiur.TestSupport.CIPollerFixture
 
   alias Aiur.Events.GithubCIPoller
+  alias Aiur.Events.GithubCIPoller.Evaluation
 
   setup :ci_poller_env
 
@@ -36,6 +37,24 @@ defmodule Aiur.Events.GithubCIPollerEvaluationTest do
                [%{"name" => "test", "status" => "in_progress", "conclusion" => nil}],
                %{"statuses" => []}
              )
+  end
+
+  test "ignores a failed run that predates the pull request update" do
+    failed = %{
+      "name" => "workflow security",
+      "status" => "completed",
+      "conclusion" => "failure",
+      "started_at" => "2026-10-16T07:40:00Z",
+      "completed_at" => "2026-10-16T07:41:00Z"
+    }
+
+    result = GithubCIPoller.evaluate_for_test([failed], %{"statuses" => []})
+
+    assert %{decision: :pending, pending_reason: :stale_ci_evidence, failures: []} =
+             Evaluation.ignore_stale_failures(result, [failed], %{"statuses" => []}, %{"updated_at" => "2026-10-16T07:54:08Z"})
+
+    assert %{decision: :failed} =
+             Evaluation.ignore_stale_failures(result, [failed], %{"statuses" => []}, %{"updated_at" => "2026-10-16T07:30:00Z"})
   end
 
   test "uses the combined-status aggregate when contexts are absent" do

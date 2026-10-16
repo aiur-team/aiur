@@ -192,14 +192,44 @@ defmodule Aiur.LandingWatch do
   defp handle_verdict(_observation, %{decision: :pending}, _runs, _opts), do: :ok
 
   defp handle_verdict(observation, %{decision: :failed} = result, runs, opts) do
-    if Classifier.infra_failure?(result, runs) do
-      request_infra_reruns(observation, runs, opts)
-    else
-      route_rework(observation, result.failures, opts)
+    case approved_landing?(observation, opts) do
+      :landing ->
+        :ok
+
+      :unknown ->
+        emit_landing_state_attention(observation, opts)
+
+      :not_landing ->
+        if Classifier.infra_failure?(result, runs) do
+          request_infra_reruns(observation, runs, opts)
+        else
+          route_rework(observation, result.failures, opts)
+        end
     end
   end
 
   defp handle_verdict(observation, %{decision: :passed}, _runs, opts), do: landing_eligibility(observation, opts)
+
+  defp approved_landing?(%{review_decision: "APPROVED"} = observation, opts) do
+    case Keyword.get(opts, :landing_state_fun, &Observer.landing_state/3).(observation.number, observation.head, opts) do
+      {:ok, %{approved: true, landing: true}} -> :landing
+      {:ok, %{approved: true, landing: false}} -> :not_landing
+      {:ok, _state} -> :not_landing
+      {:error, _reason} -> :unknown
+      _other -> :unknown
+    end
+  end
+
+  defp approved_landing?(_observation, _opts), do: :not_landing
+
+  defp emit_landing_state_attention(observation, opts) do
+    issue = TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"]))
+    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+    message = "Landing state for approved PR ##{observation.number} could not be confirmed; rework routing was held."
+
+    emitter.("system.pr.landing.state_unavailable", central: true, durable: true, needs_attention: true, issue: issue, message: message, reason: message)
+    :ok
+  end
 
   defp handle_person_cancel(observation, runs, opts) do
     issue = TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"]))

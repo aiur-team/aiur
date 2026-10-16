@@ -249,6 +249,33 @@ defmodule Aiur.Events.GithubWebhook.DepositBodiesTest do
                PollSnapshots.ci_contexts(@repo, number)
     end
 
+    test "a pull_request lifecycle delivery retires held CI contexts for its ticket" do
+      ticket = ticket_id()
+      number = ticket_number()
+
+      assert :ok =
+               PollSnapshots.put_ci_contexts(
+                 @repo,
+                 number,
+                 "deadbeef",
+                 [%{"id" => 5501, "name" => "ci gate", "status" => "completed", "conclusion" => "failure"}],
+                 %{"state" => "failure", "statuses" => []}
+               )
+
+      delivery = %{
+        "action" => "reopened",
+        "pull_request" => %{
+          "number" => 77,
+          "updated_at" => "2026-10-16T07:54:00Z",
+          "head" => %{"ref" => "aiur/#{ticket}-work", "sha" => "deadbeef"}
+        }
+      }
+
+      GithubWebhook.Deposit.deposit("pull_request", delivery, @repo)
+
+      assert :miss = PollSnapshots.ci_contexts(@repo, number)
+    end
+
     test "a resolved review-thread delivery advances an existing complete thread collection" do
       ticket = ticket_id()
       number = ticket_number()
