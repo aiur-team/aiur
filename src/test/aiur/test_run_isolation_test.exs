@@ -4,6 +4,22 @@ defmodule Aiur.TestRunIsolationTest do
   alias Aiur.AgentEnvironment
   alias Aiur.AgentGitHubGuard
 
+  test "scope leak guard rejects changed scope environment" do
+    previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+    previous_state_dir = System.get_env("AIUR_DEV_TEST_STATE_DIR")
+
+    on_exit(fn ->
+      restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope)
+      restore_env("AIUR_DEV_TEST_STATE_DIR", previous_state_dir)
+    end)
+
+    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "unrestored")
+
+    assert_raise RuntimeError, ~r/test scope environment leaked/, fn ->
+      Aiur.TestSupport.assert_test_scope_env!(previous_scope, previous_state_dir)
+    end
+  end
+
   test "scoped remote agents use per-launch paths without a shared credential" do
     previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
     previous_run_id = System.get_env("AIUR_DEV_TEST_RUN_ID")

@@ -351,7 +351,6 @@ defmodule Aiur.TestSupport do
         stop_default_http_server()
 
         on_exit(fn ->
-          Aiur.TestSupport.assert_test_scope_env!(previous_test_ticket_scope, previous_test_state_dir)
           Aiur.TestSupport.quiesce_live_orchestrator()
           Aiur.TestSupport.restore_app_env(previous_app_env)
           Application.delete_env(:aiur, :server_port_override)
@@ -376,6 +375,8 @@ defmodule Aiur.TestSupport do
           unless Process.whereis(Aiur.Supervisor) do
             Application.ensure_all_started(:aiur)
           end
+
+          Aiur.TestSupport.assert_test_scope_env!(previous_test_ticket_scope, previous_test_state_dir)
         end)
 
         :ok
