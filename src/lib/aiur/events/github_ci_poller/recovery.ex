@@ -72,7 +72,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp recover_failure(issue, result, entry, opts) do
     if get_in(entry, ["heads", result.head_sha]) != nil or retryable?(result.ci_failure_digest, result.pr_number, opts) do
-      case CIRecovery.observe(result.pr_number, opts) do
+      case Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(result.pr_number, opts) do
         {:ok, pr} -> choose_recovery(issue, result, entry, pr, opts)
         {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts)
       end
