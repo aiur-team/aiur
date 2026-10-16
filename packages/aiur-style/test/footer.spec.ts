@@ -56,7 +56,7 @@ for (const theme of ['light', 'dark']) {
         const top = section.getBoundingClientRect().top;
         section.style.transform = `translateY(${Math.floor(top) - top}px)`;
       });
-      await expect(page.locator('#footer .aiur-footer').nth(index)).toHaveScreenshot(`footer-${variant}-${theme}.png`, { maxDiffPixelRatio: 0.002 });
+      await expect(page.locator('#footer .aiur-footer').nth(index)).toHaveScreenshot(`footer-${variant}-${theme}.png`);
     });
   }
 }
