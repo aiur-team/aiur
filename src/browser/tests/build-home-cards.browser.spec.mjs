@@ -284,6 +284,14 @@ test('promotion ages use payload time, tick without rebuilding and restart after
   })
   await open(page, 'live')
   for (let mount = 0; mount < 2; mount++) {
+    // Finish any history response before observing identity across the age tick.
+    // Paging legitimately rebuilds section cards independently of this timer.
+    await page.evaluate(async () => {
+      const { loadEarlier } = await import('/build-home/history.js')
+      ctx.vp.scrollTop = ctx.secs.plan.el.offsetTop; ren.update()
+      await loadEarlier()
+      ctx.vp.scrollTop = ctx.secs.plan.el.offsetTop; ren.update()
+    })
     const promo = page.locator('#bd-sec-plan .bd-q.promo').first()
     await expect(promo).toContainText('promoted 6m ago')
     expect(await page.evaluate(() => ({ active: minuteTimers.size, registered: minuteRegistrations }))).toEqual({ active: 1, registered: mount + 1 })
@@ -336,7 +344,9 @@ test('named live diff clears known progress, band refresh rereads rows by id', a
 
 // Future regression guard for C9-T03's existing two-frame rule.
 test('new section cards release noanim only after two frames', async ({ page }) => {
-  await open(page, 'live'); await page.clock.install(); await page.clock.pauseAt(new Date())
+  await open(page, 'live')
+  const now = await page.evaluate(() => ctx.snap.now)
+  await page.clock.install({ time: now - 1000 }); await page.clock.pauseAt(now)
   expect(await page.evaluate(() => { ren.relayout(); window.firstCard = [...ctx.R.values()][0]; return firstCard.classList.contains('noanim') })).toBe(true)
   await page.clock.runFor(48)
   expect(await page.evaluate(() => !firstCard.classList.contains('noanim'))).toBe(true)
