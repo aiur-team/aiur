@@ -62,7 +62,12 @@ class RelayTest(unittest.TestCase):
     def connect(self, generation=None, offset=0):
         client = socket.socket(socket.AF_UNIX)
         client.settimeout(5)
-        client.connect(str(self.directory / "ctl.sock"))
+        # Via an fd path: a long $TMPDIR would exceed the 108-byte AF_UNIX limit.
+        directory = os.open(self.directory, os.O_PATH)
+        try:
+            client.connect(f"/proc/self/fd/{directory}/ctl.sock")
+        finally:
+            os.close(directory)
         self.clients.append(client)
         stream = client.makefile("rb")
         self.addCleanup(stream.close)
