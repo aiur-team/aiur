@@ -215,6 +215,18 @@ defmodule Aiur.TestSupport do
     end)
   end
 
+  @doc false
+  def assert_test_scope_env!(previous_scope, previous_state_dir) do
+    current_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+    current_state_dir = System.get_env("AIUR_DEV_TEST_STATE_DIR")
+
+    unless current_scope == previous_scope and current_state_dir == previous_state_dir do
+      raise "test scope environment leaked: " <>
+              "AIUR_DEV_TEST_TICKET_IDS #{inspect(previous_scope)} -> #{inspect(current_scope)}, " <>
+              "AIUR_DEV_TEST_STATE_DIR #{inspect(previous_state_dir)} -> #{inspect(current_state_dir)}"
+    end
+  end
+
   defmacro __using__(_opts) do
     quote do
       use ExUnit.Case
@@ -258,6 +270,8 @@ defmodule Aiur.TestSupport do
 
       setup do
         workflow_base = Application.fetch_env!(:aiur, :test_run_root)
+        previous_test_ticket_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+        previous_test_state_dir = System.get_env("AIUR_DEV_TEST_STATE_DIR")
 
         # `System.pid()` is what keeps this root private to *this* VM. Without it
         # two `mix test` runs on one host pick the same `workflow-<integer>` name
@@ -337,6 +351,7 @@ defmodule Aiur.TestSupport do
         stop_default_http_server()
 
         on_exit(fn ->
+          Aiur.TestSupport.assert_test_scope_env!(previous_test_ticket_scope, previous_test_state_dir)
           Aiur.TestSupport.quiesce_live_orchestrator()
           Aiur.TestSupport.restore_app_env(previous_app_env)
           Application.delete_env(:aiur, :server_port_override)
