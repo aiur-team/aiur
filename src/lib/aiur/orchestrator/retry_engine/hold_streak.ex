@@ -8,7 +8,8 @@ defmodule Aiur.Orchestrator.RetryEngine.HoldStreak do
   resets — would retry at max backoff forever, unseen. This counts the
   consecutive hold deferrals per ticket and raises one Executor attention once
   the run has lasted `alert_after_ms/0`. The ticket's next committed dispatch,
-  or the release of its claim, ends the run and resolves the attention.
+  a retry scheduled for any non-hold reason, or the release of its claim ends
+  the run and resolves the attention.
   """
 
   require Logger
@@ -27,9 +28,8 @@ defmodule Aiur.Orchestrator.RetryEngine.HoldStreak do
   def topic(identifier), do: "ticket.#{identifier}.agent.attention.budget-hold-persistent"
 
   @doc "Counts one hold deferral for `issue_id`; raises the attention once the run passes the threshold."
-  @spec record(State.t(), String.t(), String.t(), map()) :: State.t()
-  def record(%State{} = state, issue_id, identifier, hold) when is_map(hold) do
-    now_ms = System.monotonic_time(:millisecond)
+  @spec record(State.t(), String.t(), String.t(), map(), integer()) :: State.t()
+  def record(%State{} = state, issue_id, identifier, hold, now_ms) when is_map(hold) and is_integer(now_ms) do
     streak = Map.get(state.budget_hold_streaks, issue_id, %{since_ms: now_ms, count: 0, alerted?: false})
     streak = %{streak | count: streak.count + 1}
 
@@ -48,7 +48,7 @@ defmodule Aiur.Orchestrator.RetryEngine.HoldStreak do
       %{alerted?: true, identifier: identifier} ->
         case Alerts.emit_system("#{topic(identifier)}.resolved",
                issue: identifier,
-               reason: "Ticket #{identifier} is no longer held: it dispatched past the local GitHub budget hold or its claim was released.",
+               reason: "Ticket #{identifier} is no longer held: the local GitHub budget hold lifted or its claim was released.",
                needs_attention: false,
                severity: "info",
                central: true

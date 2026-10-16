@@ -103,7 +103,9 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
     else
       delay_ms = retry_delay(next_attempt, metadata)
       retry_token = make_ref()
-      due_at_ms = System.monotonic_time(:millisecond) + delay_ms
+      # `:now_ms` lets tests drive the hold-streak clock (#4693).
+      now_ms = metadata[:now_ms] || System.monotonic_time(:millisecond)
+      due_at_ms = now_ms + delay_ms
 
       timer_ref = Process.send_after(self(), {:retry_issue, issue_id, retry_token}, delay_ms)
 
@@ -148,15 +150,16 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
               local_budget_hold: metadata[:local_budget_hold]
             })
       }
-      |> record_hold_deferral(issue_id, identifier, metadata)
+      |> record_hold_deferral(issue_id, identifier, metadata, now_ms)
     end
   end
 
   # A hold retry never consumes the failure budget, so a hold that never clears is surfaced by duration instead (#4693).
-  defp record_hold_deferral(state, issue_id, identifier, %{delay_type: :local_budget_hold, local_budget_hold: %{} = hold}),
-    do: HoldStreak.record(state, issue_id, identifier, hold)
+  defp record_hold_deferral(state, issue_id, identifier, %{delay_type: :local_budget_hold, local_budget_hold: %{} = hold}, now_ms),
+    do: HoldStreak.record(state, issue_id, identifier, hold, now_ms)
 
-  defp record_hold_deferral(state, _issue_id, _identifier, _metadata), do: state
+  # Any other retry means the hold lifted, so the streak ends; a later hold starts a fresh one.
+  defp record_hold_deferral(state, issue_id, _identifier, _metadata, _now_ms), do: HoldStreak.clear(state, issue_id)
 
   @spec failure_retry?(map()) :: boolean()
   def failure_retry?(metadata) when is_map(metadata) do

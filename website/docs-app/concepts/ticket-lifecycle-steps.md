@@ -491,4 +491,5 @@ The agent never self-merges.
   the retry budget, so the ticket retries forever. After 30 minutes of
   consecutive holds Aiur raises one
   `ticket.<id>.agent.attention.budget-hold-persistent` naming the hold reason
-  and `reset_at`; the next committed dispatch or a released claim resolves it.
+  and `reset_at`. The next committed dispatch, a retry for any other reason, or
+  a released claim resolves it.
