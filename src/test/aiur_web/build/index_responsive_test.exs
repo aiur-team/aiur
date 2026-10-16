@@ -58,7 +58,7 @@ defmodule AiurWeb.Build.IndexResponsiveTest do
 
     assert_receive {:build_changes, %{upsert: [%{id: "12"}]}}, 5_000
     assert Enum.all?(Task.await_many(callers, 30_000), &match?({:ok, %{sections: %{hist: [_ | _]}}}, &1))
-    # Rescanning all 10,000 rows per mount took ~25 ms each, so 60 mounts delayed the daemon by over a second.
+    # Cutting each 10,000-row window inside the server once delayed the daemon by over a second behind 60 mounts.
     assert micros < 300_000
   end
 
