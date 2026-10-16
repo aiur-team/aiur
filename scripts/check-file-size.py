@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 
+from file_size_census import census, render
+
 LIMIT = 500
 # Tool-written lockfiles cannot be split. They may exceed LIMIT only when the tool reproduces them byte for byte.
 LOCKFILE_REGEN = {
@@ -64,7 +66,7 @@ def lockfile_verified(head, path):
         return False
 
 
-def check(base, head):
+def trees(base, head):
     cache = {}
     with subprocess.Popen(['git', '-C', str(Path.cwd()), 'cat-file', '--batch'], stdin=subprocess.PIPE, stdout=subprocess.PIPE) as batch:
         try:
@@ -73,6 +75,11 @@ def check(base, head):
         finally:
             batch.stdin.close()
             batch.wait()
+    return before, after
+
+
+def check(base, head):
+    before, after = trees(base, head)
     failures = 0
     for path, current in sorted(after.items()):
         previous = before.get(path, 0)
@@ -103,11 +110,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base', help='baseline commit (default: merge base with origin/main)')
     parser.add_argument('--head', default='HEAD', help='commit to check (default: HEAD)')
+    parser.add_argument('--census', nargs=2, metavar=('BASE', 'HEAD'), help='report tracked-text LOC by area, excluding moves from churn')
+    parser.add_argument('--json', action='store_true', help='emit census as JSON')
     args = parser.parse_args()
+    if args.json and not args.census:
+        parser.error('--json requires --census')
     try:
-        head = git('rev-parse', '--verify', f'{args.head}^{{commit}}').decode().strip()
-        base = args.base or git('merge-base', head, 'origin/main').decode().strip()
+        base_arg, head_arg = args.census or (args.base, args.head)
+        head = git('rev-parse', '--verify', f'{head_arg}^{{commit}}').decode().strip()
+        base = base_arg or git('merge-base', head, 'origin/main').decode().strip()
         base = git('rev-parse', '--verify', f'{base}^{{commit}}').decode().strip()
+        if args.census:
+            render(census(*trees(base, head), git, base, head), args.json)
+            return 0
         return check(base, head)
     except (subprocess.CalledProcessError, ValueError, OSError) as error:
         print(f'file size gate: base not available; fetch origin/main (or the supplied base); {error}', file=sys.stderr)

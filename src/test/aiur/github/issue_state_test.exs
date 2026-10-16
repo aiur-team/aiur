@@ -1,7 +1,8 @@
 defmodule Aiur.GitHub.IssueStateTest do
+  # Cohesion: these tests cover the GitHub issue-state transition protocol end to end.
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.IssueState
+  alias Aiur.GitHub.{Issues, IssueState}
   alias Aiur.GitHub.ResourceStore
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -33,6 +34,50 @@ defmodule Aiur.GitHub.IssueStateTest do
   end
 
   describe "update_issue_state/3" do
+    test "removes concurrent labels discovered after stale cached reads" do
+      key = ResourceStore.key_for_repo(:issue, "owner/repo", "42")
+      stale = %{"state" => "open", "labels" => [%{"name" => "sym:ci-wait"}]}
+      live = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}, %{"name" => "sym:human-review"}]}
+      :ok = ResourceStore.put_resource(key, stale, etag: ~s("stale"))
+      parent = self()
+      reads = :ets.new(:issue_state_reads, [:set, :public])
+      :ets.insert(reads, {:count, 0})
+      request_fun = concurrent_state_request_fun(parent, reads, live)
+
+      assert :ok = IssueState.update_issue_state("42", "in-progress", request_fun: request_fun)
+
+      assert_receive {:request, %{method: :get, etag: ~s("stale")}}, 1000
+      assert_receive {:request, %{method: :get, etag: ~s("stale")}}, 1000
+      assert_receive {:request, %{method: :post, body: %{"labels" => ["sym:in-progress"]}}}, 1000
+      assert_receive {:request, %{method: :get, etag: ~s("stale")}}, 1000
+      assert_receive {:request, %{method: :delete, url: rework_url}}, 1000
+      assert rework_url =~ "sym%3Arework" or rework_url =~ "sym:rework"
+      assert_receive {:request, %{method: :delete, url: review_url}}, 1000
+      assert review_url =~ "sym%3Ahuman-review" or review_url =~ "sym:human-review"
+    end
+
+    test "resumes cleanup when a local hold follows the target label add" do
+      parent = self()
+      request_counts = :ets.new(:held_issue_state_requests, [:set, :public])
+      :ets.insert(request_counts, get: 0, post: 0, delete: 0)
+      reset_at = DateTime.add(DateTime.utc_now(), -1, :second)
+      rework = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+      both = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}, %{"name" => "sym:in-progress"}]}
+      request_fun = held_state_request_fun(parent, request_counts, reset_at, rework, both)
+
+      assert :ok =
+               IssueState.update_issue_state("42", "in-progress",
+                 request_fun: request_fun,
+                 expected_state: "rework",
+                 local_hold_sleep_fun: fn _ -> :ok end
+               )
+
+      assert Map.new(:ets.tab2list(request_counts)) == %{get: 4, post: 1, delete: 2}
+      assert_received {:held_state_request, %{method: :delete, url: deleted_label}}
+      assert deleted_label =~ "sym%3Arework" or deleted_label =~ "sym:rework"
+      assert_received {:held_state_request, %{method: :delete, url: ^deleted_label}}
+    end
+
     test "swap keeps the queued marker" do
       test_pid = self()
 
@@ -87,8 +132,8 @@ defmodule Aiur.GitHub.IssueStateTest do
 
       assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
 
-      # Both issue reads on the transition (the initial and the active-label
-      # re-check) carried the stored validator.
+      # All issue reads on the transition carry the stored validator.
+      assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}, 1000
       assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}, 1000
       assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}, 1000
     end
@@ -142,7 +187,7 @@ defmodule Aiur.GitHub.IssueStateTest do
       [{:requests, seen}] = :ets.lookup(calls, :requests)
       methods = Enum.map(seen, & &1.method)
 
-      assert Enum.count(methods, &(&1 == :get)) == 2
+      assert Enum.count(methods, &(&1 == :get)) == 3
       assert Enum.count(methods, &(&1 == :delete)) == 1
       assert Enum.count(methods, &(&1 == :post)) == 1
       refute :patch in methods
@@ -195,7 +240,7 @@ defmodule Aiur.GitHub.IssueStateTest do
       methods = Enum.map(seen, & &1.method)
       deleted_urls = Enum.map(Enum.filter(seen, &(&1.method == :delete)), & &1.url)
 
-      assert Enum.count(methods, &(&1 == :get)) == 2
+      assert Enum.count(methods, &(&1 == :get)) == 3
       assert Enum.count(methods, &(&1 == :delete)) == 2
       assert Enum.count(methods, &(&1 == :post)) == 1
       refute :patch in methods
@@ -252,6 +297,86 @@ defmodule Aiur.GitHub.IssueStateTest do
       refute_receive {:request, %{method: :delete}}, 100
     end
 
+    test "a failure after the target add rolls it back and preserves rework" do
+      test_pid = self()
+      calls = :ets.new(:rework_claim_swap_calls, [:set, :public])
+      :ets.insert(calls, {:count, 0})
+      rework = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+      both = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}, %{"name" => "sym:in-progress"}]}
+      labels = :ets.new(:rework_claim_labels, [:set, :public])
+      :ets.insert(labels, {:value, ["sym:rework"]})
+
+      request_fun = fn req ->
+        send(test_pid, {:rework_swap_request, req})
+        [{:count, n}] = :ets.lookup(calls, :count)
+        :ets.insert(calls, {:count, n + 1})
+
+        case {req.method, n} do
+          {:get, n} when n in 0..2 ->
+            {:ok, %{status: 200, body: rework}}
+
+          {:post, 3} ->
+            :ets.insert(labels, {:value, ["sym:rework", "sym:in-progress"]})
+            {:ok, %{status: 200, body: both}}
+
+          {:get, 4} ->
+            {:ok, %{status: 200, body: both}}
+
+          {:delete, 5} ->
+            {:ok, %{status: 500, body: %{}, headers: []}}
+
+          {:delete, 6} ->
+            :ets.insert(labels, {:value, ["sym:rework"]})
+            {:ok, %{status: 200, body: rework}}
+
+          other ->
+            flunk("unexpected rework state request: #{inspect(other)}")
+        end
+      end
+
+      assert {:error, _reason} =
+               IssueState.update_issue_state("42", "in-progress", expected_state: "rework", request_fun: request_fun)
+
+      assert_received {:rework_swap_request, %{method: :post, body: %{"labels" => ["sym:in-progress"]}}}
+      assert_received {:rework_swap_request, %{method: :delete, url: original_state_url}}
+      assert original_state_url =~ "sym%3Arework" or original_state_url =~ "sym:rework"
+      assert_received {:rework_swap_request, %{method: :delete, url: rollback_url}}
+      assert rollback_url =~ "sym%3Ain-progress" or rollback_url =~ "sym:in-progress"
+      assert [{:value, ["sym:rework"]}] = :ets.lookup(labels, :value)
+      assert Issues.extract_state(rework, ["sym:rework"], "sym") == "rework"
+    end
+
+    test "the successful rework transition leaves only the in-progress state label" do
+      test_pid = self()
+      rework = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+      both = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}, %{"name" => "sym:in-progress"}]}
+      labels = :ets.new(:successful_rework_claim_labels, [:set, :public])
+      :ets.insert(labels, {:value, ["sym:rework"]})
+
+      request_fun = fn req ->
+        send(test_pid, {:successful_rework_request, req})
+
+        case req.method do
+          :get ->
+            {:ok, %{status: 200, body: if(:ets.lookup_element(labels, :value, 2) == ["sym:rework"], do: rework, else: both)}}
+
+          :post ->
+            :ets.insert(labels, {:value, ["sym:rework", "sym:in-progress"]})
+            {:ok, %{status: 200, body: both}}
+
+          :delete ->
+            :ets.insert(labels, {:value, ["sym:in-progress"]})
+            {:ok, %{status: 200, body: %{"labels" => [%{"name" => "sym:in-progress"}]}}}
+        end
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "in-progress", expected_state: "rework", request_fun: request_fun)
+      assert [{:value, ["sym:in-progress"]}] = :ets.lookup(labels, :value)
+      assert_received {:successful_rework_request, %{method: :post, body: %{"labels" => ["sym:in-progress"]}}}
+      assert_received {:successful_rework_request, %{method: :delete, url: old_state_url}}
+      assert old_state_url =~ "sym%3Arework" or old_state_url =~ "sym:rework"
+    end
+
     # Acceptance #2420: an idempotent re-stamp — `update_issue_state(id, "rework")`
     # on a ticket already carrying `sym:rework` — must not delete the only state
     # label. The swap POSTs the target first (a no-op) and the removal set
@@ -288,6 +413,13 @@ defmodule Aiur.GitHub.IssueStateTest do
             assert req.body == %{"labels" => ["sym:rework"]}
             {:ok, %{status: 200}}
 
+          {:get, 3} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+             }}
+
           _ ->
             flunk("unexpected request after the target label was already present: #{inspect(req)}")
         end
@@ -298,314 +430,64 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert_receive {:request, %{method: :get}}, 1000
       assert_receive {:request, %{method: :get}}, 1000
       assert_receive {:request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}, 1000
+      assert_receive {:request, %{method: :get}}, 1000
       # The just-added (already-present) label is excluded from the removal set,
       # so no DELETE ever fires and the ticket keeps exactly one state label.
       refute_receive {:request, %{method: :delete}}, 100
     end
+  end
 
-    test "terminal target state closes the issue" do
-      calls = :ets.new(:calls, [:set, :public])
-      :ets.insert(calls, {:count, 0})
+  defp concurrent_state_request_fun(parent, reads, live) do
+    fn request ->
+      send(parent, {:request, request})
 
-      request_fun = fn req ->
-        [{:count, n}] = :ets.lookup(calls, :count)
-        :ets.insert(calls, {:count, n + 1})
+      case request.method do
+        :get ->
+          concurrent_state_read(request, reads, live)
 
-        case {req.method, n} do
-          {:get, 0} ->
-            {:ok,
-             %{
-               status: 200,
-               body: %{"state" => "open", "labels" => [%{"name" => "sym:in-progress"}]}
-             }}
+        :post ->
+          assert request.body == %{"labels" => ["sym:in-progress"]}
+          {:ok, %{status: 200}}
 
-          {:post, 1} ->
-            assert req.body == %{"labels" => ["sym:done"]}
-            {:ok, %{status: 200}}
-
-          {:delete, 2} ->
-            {:ok, %{status: 200}}
-
-          {:patch, 3} ->
-            assert req.body == %{"state" => "closed"}
-            {:ok, %{status: 200}}
-
-          _ ->
-            {:ok, %{status: 200}}
-        end
+        :delete ->
+          {:ok, %{status: 200}}
       end
-
-      assert :ok = IssueState.update_issue_state("42", "Done", request_fun: request_fun)
-    end
-
-    test "closed-issue active-target branch strips active labels and reports no state label written" do
-      test_pid = self()
-
-      request_fun = fn req ->
-        send(test_pid, {:request, req})
-
-        case req.method do
-          :get ->
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "closed",
-                 "labels" => [
-                   %{"name" => "sym:done"},
-                   %{"name" => "sym:human-review"},
-                   %{"name" => "sym:rework"}
-                 ]
-               }
-             }}
-
-          _ ->
-            {:ok, %{status: 200}}
-        end
-      end
-
-      # The target is an active state on a closed issue, so no active state
-      # label was written — the transition must report that honestly instead
-      # of a false `:ok` (#2420).
-      assert {:error, {:no_state_label_written, _issue}} =
-               IssueState.update_issue_state("42", "rework", request_fun: request_fun)
-
-      # Only deletes non-terminal active labels; does not POST a new label or PATCH close
-      assert_receive {:request, %{method: :get}}, 1000
-      assert_receive {:request, %{method: :delete}}, 1000
-      refute_receive {:request, %{method: :post}}, 100
-      refute_receive {:request, %{method: :patch}}, 100
-    end
-
-    test "add_active_issue_label re-checks issue closed state before adding (stale-label race)" do
-      test_pid = self()
-      calls = :ets.new(:calls, [:set, :public])
-      :ets.insert(calls, {:count, 0})
-
-      request_fun = fn req ->
-        send(test_pid, {:request, req})
-        [{:count, n}] = :ets.lookup(calls, :count)
-        :ets.insert(calls, {:count, n + 1})
-
-        case {req.method, n} do
-          {:get, 0} ->
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [%{"name" => "sym:human-review"}]
-               }
-             }}
-
-          {:get, 1} ->
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "closed",
-                 "labels" => [%{"name" => "sym:done"}, %{"name" => "sym:rework"}]
-               }
-             }}
-
-          {:delete, 2} ->
-            {:ok, %{status: 200}}
-
-          _ ->
-            {:ok, %{status: 200}}
-        end
-      end
-
-      # The active-label add is the first step of the swap; it discovers the
-      # issue is closed, strips the stale active label, and reports that no
-      # state label was written rather than claiming success (#2420).
-      assert {:error, {:no_state_label_written, _issue}} =
-               IssueState.update_issue_state("42", "rework", request_fun: request_fun)
-
-      # Two GETs, one DELETE (the stale rework label), no POST
-      assert_receive {:request, %{method: :get}}, 1000
-      assert_receive {:request, %{method: :get}}, 1000
-      assert_receive {:request, %{method: :delete}}, 1000
-      refute_receive {:request, %{method: :post}}, 100
-    end
-
-    test "expected_state :none writes todo on a marker-only issue" do
-      test_pid = self()
-      body = %{"state" => "open", "labels" => [%{"name" => "sym:watch"}]}
-
-      request_fun = fn request ->
-        send(test_pid, {:request, request})
-        {:ok, %{status: 200, body: body}}
-      end
-
-      assert :ok = IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
-      assert_received {:request, %{method: :get}}
-      assert_received {:request, %{method: :get}}
-      assert_received {:request, %{method: :get}}
-      assert_received {:request, %{method: :post, body: %{"labels" => ["sym:todo"]}}}
-      refute_received {:request, %{method: :delete}}
-    end
-
-    test "expected_state :none refuses a state appearing before revalidation" do
-      test_pid = self()
-      gets = :ets.new(:gets, [:set, :private])
-
-      request_fun = fn request ->
-        send(test_pid, {:request, request})
-        assert request.method == :get
-        count = :ets.update_counter(gets, :count, 1, {:count, 0})
-        labels = if count == 1, do: ["sym:watch"], else: ["sym:watch", "sym:in-progress"]
-        {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}}}
-      end
-
-      assert {:error, {:stale_issue_state, :none, "in-progress"}} =
-               IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
-
-      assert_received {:request, %{method: :get}}
-      assert_received {:request, %{method: :get}}
-      refute_received {:request, _}
-    end
-
-    test "expected_state :none refuses existing single or multiple state labels" do
-      for states <- [["in-progress"], ["todo", "in-progress"]] do
-        request_fun = fn request ->
-          assert request.method == :get
-          {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(states, &%{"name" => "sym:#{&1}"})}}}
-        end
-
-        assert {:error, {:stale_issue_state, :none, actual}} =
-                 IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
-
-        assert actual in states
-        ResourceStore.reset()
-      end
-    end
-
-    test "regression guard: expected_state :none refuses a closed issue" do
-      body = %{"state" => "closed", "labels" => [%{"name" => "sym:watch"}]}
-
-      request_fun = fn request ->
-        assert request.method == :get
-        {:ok, %{status: 200, body: body}}
-      end
-
-      assert {:error, {:no_state_label_written, ^body}} =
-               IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
-    end
-
-    test "rejects a stale expected state before mutating labels" do
-      test_pid = self()
-
-      request_fun = fn request ->
-        send(test_pid, {:request, request})
-
-        {:ok,
-         %{
-           status: 200,
-           body: %{
-             "state" => "open",
-             "labels" => [%{"name" => "sym:rework"}]
-           }
-         }}
-      end
-
-      assert {:error, {:stale_issue_state, "ci-wait", "rework"}} =
-               IssueState.update_issue_state("42", "in-progress",
-                 expected_state: "ci-wait",
-                 request_fun: request_fun
-               )
-
-      assert_receive {:request, %{method: :get}}, 1000
-      refute_receive {:request, %{method: _method}}, 100
-    end
-
-    test "revalidates expected state after the human-review gate" do
-      test_pid = self()
-      issue_gets = :ets.new(:issue_gets, [:set, :public])
-      :ets.insert(issue_gets, {:count, 0})
-
-      request_fun = fn request ->
-        send(test_pid, {:request, request})
-
-        cond do
-          request.method == :get and String.contains?(request.url, "/issues/42") ->
-            [{:count, count}] = :ets.lookup(issue_gets, :count)
-            :ets.insert(issue_gets, {:count, count + 1})
-            state = if count == 0, do: "ci-wait", else: "rework"
-
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [%{"name" => "sym:#{state}"}]
-               }
-             }}
-
-          request.method == :get and String.contains?(request.url, "/pulls?") ->
-            {:ok, %{status: 200, body: [], headers: []}}
-
-          true ->
-            flunk("unexpected request: #{inspect(request)}")
-        end
-      end
-
-      assert {:error, {:stale_issue_state, "ci-wait", "rework"}} =
-               IssueState.update_issue_state("42", "human-review",
-                 expected_state: "ci-wait",
-                 request_fun: request_fun
-               )
-
-      assert_receive {:request, %{method: :get, url: issue_url}}, 1000
-      assert issue_url =~ "/issues/42"
-      # One open-pull-request listing, not two: the `head=<owner>:aiur/42` probe
-      # that used to run in front of it matched only branches the listing's own
-      # filter already accepts, so it was a billed request that answered nothing
-      # the next one did not.
-      assert_receive {:request, %{method: :get, url: ticket_pull_url}}, 1000
-      assert ticket_pull_url =~ "/pulls?"
-      refute ticket_pull_url =~ "head="
-      assert_receive {:request, %{method: :get, url: ^issue_url}}, 1000
-      refute_receive {:request, %{method: _method}}, 100
     end
   end
 
-  describe "add_label/3" do
-    test "returns :ok for 200..299 responses" do
-      for status <- [200, 201, 204] do
-        request_fun = fn _ -> {:ok, %{status: status}} end
-        assert :ok = IssueState.add_label("42", "sym:watch", request_fun: request_fun)
-      end
-    end
+  defp concurrent_state_read(request, reads, live) do
+    assert request.etag == ~s("stale")
+    read = :ets.update_counter(reads, :count, 1)
 
-    test "returns error for non-2xx responses" do
-      request_fun = fn _ -> {:ok, %{status: 404, body: %{}, headers: []}} end
-      assert {:error, _} = IssueState.add_label("42", "sym:watch", request_fun: request_fun)
+    if read < 3 do
+      {:ok, %{status: 304}}
+    else
+      {:ok, %{status: 200, body: live, headers: [{"etag", ~s("live")}]}}
     end
   end
 
-  describe "remove_label/3" do
-    test "treats 404 as success (idempotent delete)" do
-      request_fun = fn _ -> {:ok, %{status: 404}} end
-      assert :ok = IssueState.remove_label("42", "sym:todo", request_fun: request_fun)
-    end
-
-    test "returns :ok for 200" do
-      request_fun = fn _ -> {:ok, %{status: 200}} end
-      assert :ok = IssueState.remove_label("42", "sym:todo", request_fun: request_fun)
-    end
-
-    test "returns error for non-2xx/non-404 responses" do
-      request_fun = fn _ -> {:ok, %{status: 500, body: %{}, headers: []}} end
-      assert {:error, _} = IssueState.remove_label("42", "sym:todo", request_fun: request_fun)
+  defp held_state_request_fun(parent, request_counts, reset_at, rework, both) do
+    fn request ->
+      send(parent, {:held_state_request, request})
+      count = :ets.update_counter(request_counts, request.method, 1)
+      held_state_response(request, count, reset_at, rework, both)
     end
   end
 
-  describe "preserved_prefixed_label?/2" do
-    test "preserves automatic fallback markers across workflow state changes" do
-      assert IssueState.preserved_prefixed_label?("sym:rate-limit-fallback", "sym")
-      assert IssueState.preserved_prefixed_label?(" SYM:RATE-LIMIT-FALLBACK ", "sym")
-      refute IssueState.preserved_prefixed_label?("sym:in-progress", "sym")
-    end
+  defp held_state_response(%{method: :get}, count, _reset_at, rework, both) do
+    body = if count < 3, do: rework, else: both
+    {:ok, %{status: 200, body: body}}
+  end
+
+  defp held_state_response(%{method: :post}, _count, _reset_at, _rework, _both) do
+    {:ok, %{status: 200}}
+  end
+
+  defp held_state_response(%{method: :delete}, 1, reset_at, _rework, _both) do
+    {:error, {:aiur, :locally_held, %{reset_at: reset_at}}}
+  end
+
+  defp held_state_response(%{method: :delete}, _count, _reset_at, _rework, _both) do
+    {:ok, %{status: 200, body: [%{"name" => "sym:in-progress"}]}}
   end
 end

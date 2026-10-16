@@ -18,7 +18,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
   alias Aiur.{AgentPubSub, Commands, Issue, PauseContainment, Signal}
   alias Aiur.AgentRunner.{EventsDigest, MessageHandler, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{ToolExecutor, TurnLoop, TurnStreams}
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.AgentTools.Dispatch
   alias Aiur.CodingAgent
   alias Aiur.Workspace
 
@@ -665,7 +665,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
     MessageHandler.send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = TurnStreams.open(issue)
 
-    :ok = DynamicTool.reset_turn_quotas()
+    :ok = Dispatch.reset_turn_quotas()
 
     result =
       coding_agent_run_turn(opts).(
@@ -677,14 +677,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         on_operator_message: callbacks.on_operator_message,
         on_operator_response: callbacks.on_operator_response,
         on_provider_delivery: provider_delivery_callback(orchestrator, item, issue),
-        tool_executor:
-          ToolExecutor.build(
-            issue,
-            workspace,
-            worker_host,
-            app_session,
-            attempt_id: Keyword.get(opts, :telemetry_attempt_id)
-          )
+        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: Keyword.get(opts, :telemetry_attempt_id), rework_head_sha: Keyword.get(opts, :rework_head_sha))
       )
 
     TurnStreams.close(issue, aiur_turn_id, TurnLoop.turn_done_reason(result))

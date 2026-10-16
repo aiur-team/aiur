@@ -113,7 +113,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
             mergeable: "MERGEABLE",
             merge_state_status: "BLOCKED",
             auto_merge_request: nil,
-            merge_queue_entry: nil
+            merge_queue_entry: nil,
+            approved_review_head_sha: "parked-head"
           }
         },
         check_runs: [%{"name" => "test", "status" => "completed", "conclusion" => "success"}],
@@ -134,7 +135,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
                   mergeable: "MERGEABLE",
                   merge_state_status: "BLOCKED",
                   auto_merge_request: nil,
-                  merge_queue_entry: nil
+                  merge_queue_entry: nil,
+                  approved_review_head_sha: "parked-head"
                 }
               ]
             }} = poll(["42"], ci_batch: ci_batch, base_branch: "main")

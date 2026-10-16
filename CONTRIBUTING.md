@@ -63,6 +63,16 @@ reach, fails.
 Run `python3 scripts/check-file-size.py --base <commit>` locally; without
 `--base`, it uses the merge base with `origin/main`.
 
+For refactor reporting, run `python3 scripts/check-file-size.py --census <base> <head>`
+from the repository root; add `--json` for machine-readable output. It reuses the
+same tracked-text counter and prints base/head totals and added, removed and
+moved lines by area. Rename/copy detection uses Git similarity: unchanged lines
+are moved, and edited lines remain added/removed. Cross-area moves are credited
+to the base path's area; copies increase tree totals without counting reused
+content as added. Binary changes are counted as files, and symlinks are excluded.
+Area precedence and patterns live in `scripts/file_size_census.py`. This is
+instrumentation only, with no census CI enforcement or claimed saving.
+
 ## Reuse before invention
 
 - **The extraction trigger is the second concrete usage — not the first, not
@@ -76,6 +86,11 @@ Run `python3 scripts/check-file-size.py --base <commit>` locally; without
 - Prefer config access through `Aiur.Config` over ad-hoc environment reads.
 
 ## Testing
+
+**Harness characterization suite:** From `src/`, run
+`mise exec -- mix test --only r7_characterization --max-cases 4`. It must pass
+unchanged before and after every MP-R7 PR and MP-E7-C3; record the non-zero
+test count in each PR body. Tagged tests also run in normal partitioned CI.
 
 - **Mock at boundaries, never pure utilities.** Stub the external edges —
   GitHub, the shell, the filesystem, tmux, the coding-agent app-server — so a

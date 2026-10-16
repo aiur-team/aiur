@@ -9,6 +9,7 @@ defmodule Aiur.Experiments.Spec do
             hypothesis: "",
             owner: nil,
             status: "active",
+            report_reason: nil,
             origin: nil,
             design: nil,
             metrics: [],

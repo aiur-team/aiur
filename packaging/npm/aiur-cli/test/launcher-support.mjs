@@ -125,7 +125,7 @@ export function setupRealLauncher() {
   mkdirSync(path.join(root, "libexec"), { recursive: true });
   const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
-  for (const name of ["aiur-daemon-supervisor.sh", "aiur-queue.sh", "aiur-epic.sh", "aiur-feature.sh", "aiur-capabilities.sh", "aiur-experiments.sh", "engine"])
+  for (const name of ["aiur-daemon-supervisor.sh", "aiur-queue.sh", "aiur-epic.sh", "aiur-feature.sh", "aiur-capabilities.sh", "aiur-experiments.sh", "aiur-executor-session.sh", "engine"])
     cpSync(path.join(path.dirname(launcherSrc), name), path.join(root, "libexec", name), { recursive: true });
   const releaseDir = path.join(root, "release");
   const vsn = "0.1.1";

@@ -91,6 +91,14 @@ defmodule Aiur.Claude.DisplayTailer do
     GenServer.call(server, {:buffer_operator_delivery, item, occurred_at})
   end
 
+  @doc false
+  @spec handoff_state(GenServer.server()) :: map()
+  def handoff_state(server), do: GenServer.call(server, :handoff_state)
+
+  @doc false
+  @spec restore_handoff(GenServer.server(), map() | nil) :: :ok
+  def restore_handoff(server, state), do: GenServer.call(server, {:restore_handoff, state})
+
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
@@ -118,11 +126,14 @@ defmodule Aiur.Claude.DisplayTailer do
        session_id: normalize_session_id(Keyword.get(opts, :initial_session_id)),
        path: nil,
        tailer: nil,
+       handoff?: false,
        pending_operator_deliveries: []
      }}
   end
 
   @impl true
+  def handle_info({:claude_hook, _id, _event}, %{handoff?: true} = state), do: {:noreply, state}
+
   def handle_info({:claude_hook, _id, %{transcript_path: path} = event}, state)
       when is_binary(path) and path != "" do
     session_id = session_id(event, path)
@@ -148,6 +159,26 @@ defmodule Aiur.Claude.DisplayTailer do
   def handle_info(_other, state), do: {:noreply, state}
 
   @impl true
+  def handle_call(:handoff_state, _from, state) do
+    cursor = if is_pid(state.tailer), do: TranscriptTailer.handoff_cursor(state.tailer)
+    saved = state |> Map.take([:session_id, :path, :pending_operator_deliveries]) |> Map.put(:cursor, cursor)
+    {:reply, saved, %{state | tailer: nil, handoff?: true}}
+  end
+
+  def handle_call({:restore_handoff, %{path: path, session_id: session_id} = saved}, _from, state) do
+    state = %{state | pending_operator_deliveries: Map.get(saved, :pending_operator_deliveries, [])}
+
+    cursor =
+      case saved[:cursor] do
+        %{path: ^path, offset: offset} = cursor when is_integer(offset) and offset >= 0 -> cursor
+        _ -> nil
+      end
+
+    {:reply, :ok, if(is_binary(path), do: maybe_retarget(state, path, session_id, cursor), else: state)}
+  end
+
+  def handle_call({:restore_handoff, _saved}, _from, state), do: {:reply, :ok, state}
+
   def handle_call(:current_session, _from, state), do: {:reply, state.session_id, state}
 
   def handle_call(
@@ -174,23 +205,26 @@ defmodule Aiur.Claude.DisplayTailer do
     _ -> {:reply, {:ok, 0}, state}
   end
 
+  defp maybe_retarget(state, path, session_id, cursor \\ nil)
+
   # Already tailing this exact source — nothing to do.
   defp maybe_retarget(
          %{path: path, session_id: session_id, tailer: tailer} = state,
          path,
-         session_id
+         session_id,
+         _cursor
        )
        when is_pid(tailer),
        do: state
 
-  defp maybe_retarget(state, path, session_id) do
+  defp maybe_retarget(state, path, session_id, cursor) do
     prior_session = state.session_id
 
     if File.exists?(path) do
       stop_tailer(state.tailer)
-      backfill_bytes = current_size(path)
+      backfill_bytes = if cursor, do: max(cursor.backfill_until - cursor.offset, 0), else: current_size(path)
 
-      case start_tailer(state, path, session_id, backfill_bytes) do
+      case start_tailer(state, path, session_id, backfill_bytes, cursor) do
         {:ok, tailer} ->
           notify_source(state, {
             :available,
@@ -218,14 +252,14 @@ defmodule Aiur.Claude.DisplayTailer do
     end
   end
 
-  defp start_tailer(state, path, session_id, backfill_bytes) do
+  defp start_tailer(state, path, session_id, backfill_bytes, cursor) do
     on_message = state.on_message
     max_body = state.max_body
 
     TranscriptTailer.start_link(
       path: path,
-      from: :start,
-      backfill_until: backfill_bytes,
+      from: if(cursor, do: cursor.offset, else: :start),
+      backfill_until: if(cursor, do: cursor.backfill_until, else: backfill_bytes),
       turn_id: nil,
       interval_ms: state.interval_ms,
       on_backfill_message: fn event ->

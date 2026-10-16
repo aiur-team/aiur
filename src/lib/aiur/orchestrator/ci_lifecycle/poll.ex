@@ -294,8 +294,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
   # so the classifier keys eligibility on `mergeable` and deliberately ignores
   # the queue-status field. The daemon never arms auto-merge (the human-only
   # merge gate in #1841): it surfaces the parked state so the Executor can take
-  # the documented explicit action (`gh pr merge <n> --squash --delete-branch
-  # --auto`, per #1854).
+  # the documented explicit action (`aiur pr merge <n> --reviewed-sha <head>`).
 
   defp all_ci_targets_failed?([], _errors), do: false
 

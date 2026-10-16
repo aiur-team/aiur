@@ -1,15 +1,28 @@
 import Config
 
+config :aiur, Aiur.Events.Trace, Aiur.Events.DebugLog
+
 config :aiur, env: config_env()
 
+config :aiur, Aiur.Events.SourcePolicy, Aiur.GitHub.EventSourcePolicy
+
 config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
+config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
 config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
 
 config :aiur, :signal, alert_sink: Aiur.Alerts
 
+config :aiur, :github_poll_owner, Aiur.Orchestrator
+config :aiur, :github_quota_recovery_target, Aiur.Orchestrator
+config :aiur, :github_activity_recorder, {Aiur.Webhooks, :record_activity}
+config :aiur, :github_state_start_recorder, {Aiur.BuildOrder.History, :note_start}
+
+# Sources are named here so the sweep's complete set is readable in one place.
+config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
+
 # The agent sandbox sits below the TUI and the orchestrator, so it reaches both
 # through these names instead of referencing them.
-config :aiur, :process_reaper_pane_killer, {Aiur.Tmux, :kill_pane}
+config :aiur, :process_reaper_pane_killer, {Aiur.Tmux.Socket, :kill_pane}
 config :aiur, :pause_containment_result_target, Aiur.Orchestrator
 
 config :aiur, :turn_sandbox_root_contributors, [
@@ -30,6 +43,8 @@ config :aiur, :env_startup_checks, [Aiur.Commands]
 config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
 config :aiur, :experiment_metric_packs, [Aiur.Experiments.Packs.DeliverySpeed]
+
+config :aiur, :init_contributions, [Aiur.Voice]
 
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,
@@ -92,6 +107,11 @@ if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
 end
 
 if config_env() == :test do
+  # System.tmp_dir!() may be a directory inside an agent checkout. Bound Git's
+  # upward discovery there so non-repository test fixtures stay non-repositories.
+  # Git still discovers repositories initialized below TMPDIR normally.
+  System.put_env("GIT_CEILING_DIRECTORIES", System.tmp_dir!())
+
   # Install before app boot: accidental tracker/provider calls must never dial
   # public hosts. Tests opt in per request with a fake :plug/:adapter, or
   # adapter: Req.Finch for explicitly tagged live-provider checks.
@@ -149,6 +169,16 @@ if config_env() == :test do
   # tests and emit degraded alerts into an unrelated test's isolated ledger).
   # Tests drive `check/1` deterministically on their own instances.
   config :aiur, :broker_timeout_check_interval_ms, 0
+
+  # The shared app's terminal-ticket fact capture must not reach GitHub across
+  # sequential test boundaries: other tests queue tickets into it, and its 5 s
+  # retry tick sends `POST /graphql` whenever a later test has set a token.
+  # Tests that exercise it start their own instance.
+  config :aiur, :run_telemetry_facts_capture?, false
+
+  # The shared app's Executor sweep must not read daemon state or enqueue wakes
+  # across test boundaries. Tests start their own instance with an interval.
+  config :aiur, :executor_sweep_interval_ms, 0
 
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.

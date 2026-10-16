@@ -80,9 +80,8 @@ load_dotenv_file() {
   done <"$file"
 }
 
-# The readiness token grants the one-shot `aiur init` assessment access that a
-# normal daemon and its child agents must never inherit. Keep dotenv loading
-# generic, then remove this run-only secret before any session process starts.
+# The readiness token grants privileged repository-read access to the daemon's
+# startup assessment. AgentEnvironment removes it from every child agent.
 scrub_run_only_env() {
-  unset AIUR_CI_READINESS_TOKEN
+  :
 }

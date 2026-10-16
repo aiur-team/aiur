@@ -9,7 +9,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
 
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.Cohort
+  alias Aiur.RunTelemetry.{Cohort, DaemonEvents}
   alias Aiur.RunTelemetry.Lifecycle.BackendOperations
 
   @events ~w(
@@ -34,6 +34,11 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     rework_start
     agent_pause
     agent_resume
+    state_change
+    ci_result
+    pr_ready
+    dependency_cleared
+    ticket_usage
   )
   @boundaries ~w(
     start
@@ -102,7 +107,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     non_ff
     head_start_ms
     waste_ms
-  )a
+  )a ++ DaemonEvents.metadata_fields()
 
   @doc "Creates an opaque identity for one dispatched worker attempt."
   @spec new_attempt_id(String.t()) :: String.t()
@@ -200,11 +205,11 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     source = value(event, :source)
 
     with true <- source in [:github, "github", :github_reconciliation, "github_reconciliation"],
-         {:ok, ticket, kind} <- external_topic(topic),
+         {:ok, ticket, kind} <- DaemonEvents.topic(topic),
          true <- eligible_external_event?(kind, event) do
       timestamp = external_timestamp(kind, event)
       metadata = external_metadata(kind, event, timestamp)
-      {:ok, attributes(ticket, nil, external_event(kind), "point", metadata), timestamp}
+      {:ok, attributes(ticket, nil, DaemonEvents.event(kind), "point", metadata), timestamp}
     else
       _other -> :skip
     end
@@ -293,18 +298,6 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     |> binary_part(0, 22)
   end
 
-  defp external_topic(topic) when is_binary(topic) do
-    case Regex.run(
-           ~r/^ticket\.([^.]+)\.(pr\.opened|pr\.merged|issue\.commented|pr\.review_comment)$/,
-           topic
-         ) do
-      [_all, ticket, kind] -> {:ok, ticket, kind}
-      _other -> :error
-    end
-  end
-
-  defp external_topic(_topic), do: :error
-
   defp eligible_external_event?(kind, event)
        when kind in ["issue.commented", "pr.review_comment"] do
     CommentWake.trusted_comment_event?(event) and
@@ -312,10 +305,6 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   defp eligible_external_event?(_kind, _event), do: true
-
-  defp external_event("pr.opened"), do: "pr_opened"
-  defp external_event("pr.merged"), do: "pr_merged"
-  defp external_event(_comment), do: "comment_received"
 
   defp external_metadata(kind, event, timestamp) do
     pr = value(event, :pr) || %{}
@@ -342,6 +331,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
       review_thread_id: review_thread_id,
       author_trusted: value(event, :author_trusted?) == true
     }
+    |> Map.merge(DaemonEvents.ci_metadata(kind, event))
   end
 
   defp external_actor(event, pr, comment) do

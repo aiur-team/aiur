@@ -1,0 +1,52 @@
+{
+  "id": "experiments-page",
+  "name": "Experiments dashboard page",
+  "layer": 4,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur_web/experiments/**",
+    "src/lib/aiur_web/live/experiments_live.ex",
+    "src/lib/aiur_web/routes/experiments.ex"
+  ],
+  "facades": [
+    "AiurWeb.Routes.Experiments"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "dashboard-ui",
+    "experiments",
+    "web-kit",
+    "web-shell"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "forbid": [
+    "Aiur.Experiments.*",
+    "Aiur.GitHub",
+    "Aiur.GitHub.*",
+    "Aiur.Orchestrator",
+    "Aiur.Orchestrator.*",
+    "Aiur.RunTelemetry",
+    "Aiur.RunTelemetry.*",
+    "AiurWeb.OperatorControlCenter.Analytics.Charts",
+    "AiurWeb.OperatorControlCenter.Analytics.Presenter"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Displays experiment designs, frozen baselines and stored evidence.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "guide/gui.md#read-an-experiment"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": []
+}

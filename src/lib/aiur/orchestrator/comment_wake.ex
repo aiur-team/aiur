@@ -14,8 +14,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.GitHub.Issues, as: GitHubIssues
   alias Aiur.{Issue, Tracker}
-  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TrackerTasks}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TicketTransition, TrackerTasks}
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, OptimisticLedger, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
@@ -63,7 +62,7 @@ defmodule Aiur.Orchestrator.CommentWake do
       Keyword.get(opts, :observe_membership_fun, &MembershipLifecycle.observe/2)
 
     terminate_running_issue_fun =
-      Keyword.get(opts, :terminate_running_issue_fun, &Orchestrator.terminate_running_issue/3)
+      Keyword.get(opts, :terminate_running_issue_fun, &TicketTransition.apply_effect(&1, {:terminate, &2, &3}))
 
     mark_reconciled_fun =
       Keyword.get(opts, :mark_reconciled_fun, &CurrentRunMembership.mark_reconciled/1)
@@ -689,6 +688,10 @@ defmodule Aiur.Orchestrator.CommentWake do
       benign_review_pass_comment?(event) ->
         state
 
+      # A live rework worker gets the review; a finished one may have handed off since the last poll (#4601).
+      live_rework_worker?(running_entry) ->
+        OperatorMessages.enqueue_event_digest_item(state, to_string(issue_number), [event], event)
+
       true ->
         identifier = to_string(issue_number)
 
@@ -705,15 +708,13 @@ defmodule Aiur.Orchestrator.CommentWake do
           event,
           Map.get(running_entry, :telemetry_attempt_id),
           attempt,
-          fn arg1 ->
-            apply_active_comment_protection(
-              arg1,
-              {attempt, event, issue_number, source}
-            )
-          end
+          &apply_active_comment_protection(&1, {attempt, event, issue_number, source})
         )
     end
   end
+
+  defp live_rework_worker?(%{issue: %Issue{state: issue_state}, control: %{status: :working}}), do: DispatchPolicy.normalize_issue_state(issue_state) == "rework"
+  defp live_rework_worker?(_running_entry), do: false
 
   # A gate refusal on the running-entry path used to be the quietest outcome in
   # the whole comment-wake chain: no label write, no retry, no log line, no
@@ -1486,7 +1487,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     Logger.info("#{source} reactivating: issue_id=#{issue_id} issue_identifier=#{issue_number}")
 
-    case Orchestrator.reactivate_issue(state, refreshed_entry) do
+    case TicketTransition.apply_effect(state, {:reactivate, refreshed_entry}) do
       {{:ok, :reactivated}, next_state} ->
         next_state
 
@@ -1568,10 +1569,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp apply_active_comment_protection(
-         outcome,
-         {attempt, event, issue_number, source}
-       ) do
+  defp apply_active_comment_protection(outcome, {attempt, event, issue_number, source}) do
     case outcome do
       {:ok, state} ->
         state

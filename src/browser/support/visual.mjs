@@ -84,7 +84,7 @@ function browserEndpoint(child) {
 async function dockerConfig(scratch, browserRoot, endpoint) {
   const configPath = path.join(scratch, 'playwright.docker.config.mjs')
   const configUrl = new URL('../playwright.config.mjs', import.meta.url).href
-  await writeFile(configPath, `import config from ${JSON.stringify(configUrl)};\nexport default { ...config, testDir: ${JSON.stringify(path.join(browserRoot, 'tests'))}, use: { ...config.use, connectOptions: { wsEndpoint: ${JSON.stringify(endpoint)} } }, webServer: { ...config.webServer, cwd: ${JSON.stringify(browserRoot)} } };\n`)
+  await writeFile(configPath, `import config from ${JSON.stringify(configUrl)};\nexport default { ...config, testDir: ${JSON.stringify(path.join(browserRoot, 'tests'))}, use: { ...config.use, connectOptions: { wsEndpoint: ${JSON.stringify(endpoint)} } }, webServer: config.webServer ? { ...config.webServer, cwd: ${JSON.stringify(browserRoot)} } : undefined };\n`)
   return configPath
 }
 

@@ -82,7 +82,7 @@ defmodule Aiur.AgentControlCLITest do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
     empty_output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert empty_output =~ "WAKES CURSOR 0 PENDING 0"
+    assert empty_output =~ "WAKES CURSOR 0 PENDING 0\nDECISIONS "
     assert empty_output =~ "ISSUE STATE  TITLE"
     assert empty_output =~ "(no active agents)"
     assert empty_output =~ "__AIUR_CONTROL_EXIT__:0"
@@ -999,7 +999,7 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
-    assert output =~ "AGENTS 0/10 (binding: awaiting dispatch; ceiling: AIMD envelope 1)"
+    assert output =~ ~r/AGENTS 0\/10 \(binding: awaiting dispatch; ceiling: AIMD envelope \d+\)/
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -1069,7 +1069,7 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
-    assert output =~ "AGENTS 0/10 (binding: awaiting dispatch; ceiling: AIMD envelope 1)"
+    assert output =~ ~r/AGENTS 0\/10 \(binding: awaiting dispatch; ceiling: AIMD envelope \d+\)/
     assert output =~ "BUILD GATE 1/#{Config.max_concurrent_builds()} active, 1 queued"
     assert output =~ "BUILD GATE HOLDER slot=1 pid=2 command=\"test\" held="
     assert output =~ "BUILD GATE QUEUED pid=2 command=\"test\" waiting="

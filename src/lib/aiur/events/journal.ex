@@ -1,6 +1,8 @@
 defmodule Aiur.Events.Journal do
   @moduledoc "Append/replay for bus-owned journals, backed by the kernel journal."
 
+  # aiur:event-bus-boundary-member
+
   alias Aiur.Journal, as: KernelJournal
 
   @type replay_error :: {:corrupt, pos_integer(), term()} | {:journal_unavailable, term()}

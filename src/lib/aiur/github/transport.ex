@@ -30,11 +30,10 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.Budget
   alias Aiur.GitHub.CredentialHeadroom
-  alias Aiur.GitHub.CredentialSelector
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLCost
-  alias Aiur.GitHub.GraphQLErrors
-  alias Aiur.GitHub.{QueueCost, Quota}
+  alias Aiur.GitHub.{GraphQLErrors, HoldPressure}
+  alias Aiur.GitHub.{Quota, Transport.TestScope}
   alias Aiur.GitHub.ReadCache
 
   require Logger
@@ -83,11 +82,7 @@ defmodule Aiur.GitHub.Transport do
         {:ok, token}
 
       _ ->
-        if Keyword.has_key?(opts, :request_fun) do
-          {:ok, "test-gh-token"}
-        else
-          require_token()
-        end
+        require_token()
     end
   end
 
@@ -114,11 +109,7 @@ defmodule Aiur.GitHub.Transport do
   members had different visibility would need the credential in the cache key.
   """
   @spec default_request_fun(map()) :: {:ok, map()} | {:error, term()}
-  def default_request_fun(%{token: token} = req) when is_binary(token) do
-    req |> QueueCost.tag() |> CredentialSelector.assign() |> do_request()
-  end
-
-  def default_request_fun(req), do: req |> QueueCost.tag() |> do_request()
+  def default_request_fun(req), do: TestScope.run(req, &do_request/1)
 
   defp do_request(%{method: :get, url: url, token: token} = req) do
     headers =
@@ -174,7 +165,7 @@ defmodule Aiur.GitHub.Transport do
         budget_request(quota, request, request_fun, deadline_ms)
 
       {:hold, hold} ->
-        {:error, {:aiur, :locally_held, hold}}
+        {:error, {:aiur, :locally_held, HoldPressure.record(hold)}}
     end
   end
 
@@ -202,7 +193,7 @@ defmodule Aiur.GitHub.Transport do
         end
 
       {:hold, hold} ->
-        {:error, {:aiur, :locally_held, hold}}
+        {:error, {:aiur, :locally_held, HoldPressure.record(hold)}}
 
       {:error, _reason} = error ->
         error
@@ -468,7 +459,7 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
-  defp orchestrator_process?, do: self() == GenServer.whereis(Aiur.Orchestrator)
+  defp orchestrator_process?, do: self() == GenServer.whereis(Application.get_env(:aiur, :github_poll_owner))
 
   defp quota_preflight(quota, request), do: Quota.preflight(quota, request)
 

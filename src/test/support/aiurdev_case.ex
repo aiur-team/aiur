@@ -30,6 +30,7 @@ defmodule Aiur.TestSupport.AiurdevCase do
         "    echo \"ENGINE_ARGS: $*\"\n" <>
         "    echo \"AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
         "    echo \"AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}\"\n" <>
+        "    echo \"AIUR_GITHUB_BUDGET_DIR: ${AIUR_GITHUB_BUDGET_DIR:-}\"\n" <>
         "    echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
         "    echo \"AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
         "    echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
@@ -58,6 +59,8 @@ defmodule Aiur.TestSupport.AiurdevCase do
         "echo \"AIUR_DEBUG: ${AIUR_DEBUG:-}\"\n" <>
         "echo \"AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
         "echo \"AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}\"\n" <>
+        "echo \"AIUR_GITHUB_BUDGET_DIR: ${AIUR_GITHUB_BUDGET_DIR:-}\"\n" <>
+        "echo \"AIUR_RECORD_TEST_TICKET_IDS: ${AIUR_RECORD_TEST_TICKET_IDS:-}\"\n" <>
         "echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
         "echo \"AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
         "echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
@@ -168,6 +171,10 @@ defmodule Aiur.TestSupport.AiurdevCase do
       echo "MISE: $*"
       echo "MISE_AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}"
       echo "MISE_AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}"
+      echo "MISE_AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}"
+      echo "MISE_AIUR_GITHUB_BUDGET_DIR: ${AIUR_GITHUB_BUDGET_DIR:-}"
+      echo "MISE_AIUR_DEV_TEST_RUN_ID: ${AIUR_DEV_TEST_RUN_ID:-}"
+      echo "MISE_AIUR_DEV_TEST_STATE_DIR: ${AIUR_DEV_TEST_STATE_DIR:-}"
       echo "MISE_AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}"
       echo "MISE_XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}"
       echo "MISE_XDG_STATE_HOME: ${XDG_STATE_HOME:-}"

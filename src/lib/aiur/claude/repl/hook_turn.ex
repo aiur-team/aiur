@@ -10,6 +10,7 @@ defmodule Aiur.Claude.Repl.HookTurn do
 
   require Logger
 
+  alias Aiur.AgentRunner.Handoff
   alias Aiur.Claude.HookEvents
   alias Aiur.Claude.NotificationPolicy
   alias Aiur.Claude.Repl.OperatorInject
@@ -89,6 +90,33 @@ defmodule Aiur.Claude.Repl.HookTurn do
     end
   end
 
+  @doc "Reattach to a live hook turn, replaying durable events without submitting input."
+  @spec adopt(map(), map(), non_neg_integer(), keyword()) :: term()
+  def adopt(session, %{repl_acc: acc}, offset, opts) do
+    on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
+    timeout = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
+
+    loop = %{
+      session: session,
+      identifier: session.identifier,
+      on_message: on_message,
+      on_operator: Keyword.get(opts, :on_operator_message, fn -> :noop end),
+      on_provider_delivery: Keyword.get(opts, :on_provider_delivery, fn _ -> :ok end),
+      poll_ms: Keyword.get(opts, :poll_interval_ms, @turn_poll_ms),
+      pause_confirm_ms: Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms),
+      timeout_ms: timeout
+    }
+
+    :ok = HookEvents.subscribe(session.identifier)
+
+    try do
+      HookEvents.replay(session.identifier, offset || 0)
+      loop |> await_hook_turn(reset_deadline(loop), acc) |> finish_hook_turn(on_message)
+    after
+      HookEvents.unsubscribe(session.identifier)
+    end
+  end
+
   # Receive loop driven by claude lifecycle hooks. Returns `:ok` (with the captured
   # response/session in `acc`), `{:paused, _}`, or `{:error, reason}`.
   defp await_hook_turn(loop, deadline, acc) do
@@ -104,6 +132,21 @@ defmodule Aiur.Claude.Repl.HookTurn do
 
       true ->
         receive do
+          :handoff_abort ->
+            Process.delete(:handoff_hold)
+            await_hook_turn(loop, deadline, acc)
+
+          :handoff_hold ->
+            Process.put(:handoff_hold, true)
+            await_hook_turn(loop, deadline, acc)
+
+          {:handoff_snapshot, from, ref} ->
+            Handoff.capture(loop.session, %{repl_acc: acc}, from, ref)
+
+          {:claude_hook_available, _identifier} ->
+            replay_hooks(loop.identifier)
+            await_hook_turn(loop, deadline, acc)
+
           {:claude_hook, _id, %{event: :stop} = event} ->
             delivered_acc =
               acc
@@ -167,8 +210,17 @@ defmodule Aiur.Claude.Repl.HookTurn do
             interrupt_for_pause(loop.session, %{request_id: request_id})
         after
           loop.poll_ms ->
+            replay_hooks(loop.identifier)
+
             await_hook_turn(loop, deadline, acc)
         end
+    end
+  end
+
+  defp replay_hooks(identifier) do
+    case HookEvents.replay(identifier, 0) do
+      {:ok, _offset} -> :ok
+      {:error, reason} -> Logger.warning("repl_hook_turn replay_failed identifier=#{identifier} reason=#{inspect(reason)}")
     end
   end
 

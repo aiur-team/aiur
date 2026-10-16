@@ -1,0 +1,37 @@
+{
+  "id": "experiment-stats",
+  "name": "Experiment statistics",
+  "layer": 5,
+  "kind": "package",
+  "paths": [
+    "analytics/experiment-stats",
+    "analytics/lib/analytics/experiment_stats_cmd.py",
+    "analytics/lib/analytics/stats/**"
+  ],
+  "facades": [
+    "analytics.stats.analyze",
+    "analytics/experiment-stats"
+  ],
+  "facade_pending": null,
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Computes reproducible statistical results from frozen generic experiments.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "reference/experiment-statistics.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": []
+}

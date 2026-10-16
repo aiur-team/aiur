@@ -10,6 +10,7 @@
     "src/lib/aiur/display_sanitizer.ex",
     "src/lib/aiur/fs.ex",
     "src/lib/aiur/git.ex",
+    "src/lib/aiur/handoff/protection.ex",
     "src/lib/aiur/journal.ex",
     "src/lib/aiur/json_safe.ex",
     "src/lib/aiur/json_store.ex",
@@ -29,6 +30,7 @@
     "src/lib/aiur/start_trigger.ex",
     "src/lib/aiur/start_trigger/**",
     "src/lib/aiur/system_pressure.ex",
+    "src/lib/aiur/test_run_state.ex",
     "src/lib/aiur/tracker_identity.ex",
     "src/lib/aiur/yaml.ex",
     "src/priv/pidfd_reap.py"
