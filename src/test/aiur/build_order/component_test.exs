@@ -11,6 +11,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
   @foreground [
     Aiur.Webhooks.ModeTable,
     Aiur.Capabilities.Table,
+    Aiur.Opencode.ActiveTurns,
     {Aiur.PubSub.Boot, [name: Aiur.PubSub]},
     Aiur.AgentPubSub.FleetRefresh,
     {Registry, [keys: :unique, name: Aiur.IssueLog.Registry]},
@@ -114,7 +115,6 @@ defmodule Aiur.BuildOrder.ComponentTest do
     AiurWeb.FinancialData.Supervisor,
     {Aiur.HttpServer, dashboard_pages?: true},
     Aiur.Opencode.TokenRegistry,
-    Aiur.Opencode.ActiveTurns,
     Aiur.Opencode.PaneSupervisor,
     Aiur.Opencode.SessionSupervisor,
     Aiur.Opencode.BridgeSupervisor,
@@ -138,7 +138,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.LandingWatch,
     Aiur.ExecutorSweep,
     Aiur.Experiments.Auto.Notifier,
-    Aiur.Experiments.Auto.WindowManager
+    Aiur.Experiments.Auto.WindowManager,
+    Aiur.LandingWatch.QuarantineLifter
   ]
 
   setup do
