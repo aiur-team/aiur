@@ -79,6 +79,10 @@ async function open(page, dataset = 'unknowns') {
       if (store.acceptSnapshot(snap).error) throw new Error('snapshot injection rejected')
     }
   })
+  // Initial history paging relayouts replace ctx.L, including its band items.
+  // Settle that response before a test captures or supplies layout objects.
+  await expect.poll(() => page.evaluate(async () =>
+    (await import('/build-home/history.js')).H.state)).toBe('idle')
 }
 const probe = page => page.locator('#card-probe')
 async function draw(page, id, tier = 'full') { await page.evaluate(([id, tier]) => draw(id, tier), [id, tier]); return probe(page) }
