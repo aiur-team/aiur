@@ -1,7 +1,7 @@
-defmodule Aiur.GitHub.ApprovalCarryTest do
+defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.GitHub.ApprovalCarry
+  alias Aiur.Events.GithubCIPoller.ApprovalCarry
 
   @head String.duplicate("b", 40)
   @body "## Local tests\nTested head: #{@head}\n"

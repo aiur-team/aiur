@@ -1,4 +1,4 @@
-defmodule Aiur.GitHub.ApprovalCarry do
+defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   @moduledoc """
   Classifies a push made after a PR was approved (#4668).
 
@@ -13,7 +13,6 @@ defmodule Aiur.GitHub.ApprovalCarry do
 
   alias Aiur.Config
   alias Aiur.GitHub.Transport
-  alias Aiur.Orchestrator.PushRouting.PrBodyEvidence
 
   @type hunk :: %{file: String.t(), side: :approved | :current, header: String.t(), lines: [String.t()]}
   @type verdict :: {:carried, %{resolved: non_neg_integer()}} | {:changed, %{reason: term(), hunks: [hunk()]}}
@@ -82,7 +81,7 @@ defmodule Aiur.GitHub.ApprovalCarry do
 
       cond do
         differing != [] -> {:changed, %{reason: :contribution_changed, hunks: differing}}
-        not PrBodyEvidence.tested_head_matches?(body, head) -> {:changed, %{reason: :tested_head_stale, hunks: []}}
+        not Regex.match?(~r/(?m)^Tested head: #{Regex.escape(head)}\s*$/, body) -> {:changed, %{reason: :tested_head_stale, hunks: []}}
         true -> {:carried, %{resolved: resolved}}
       end
     else

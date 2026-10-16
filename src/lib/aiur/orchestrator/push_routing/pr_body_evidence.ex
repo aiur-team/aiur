@@ -51,9 +51,7 @@ defmodule Aiur.Orchestrator.PushRouting.PrBodyEvidence do
 
   defp value(map, key), do: Map.get(map, key, Map.get(map, to_string(key)))
 
-  @doc false
-  @spec tested_head_matches?(String.t(), String.t()) :: boolean()
-  def tested_head_matches?(body, sha),
+  defp tested_head_matches?(body, sha),
     do: Regex.match?(~r/(?m)^Tested head: #{Regex.escape(sha)}\s*$/, body)
 
   defp emit_stale_alert(state, identifier, pr_number, pushed_sha, opts) do

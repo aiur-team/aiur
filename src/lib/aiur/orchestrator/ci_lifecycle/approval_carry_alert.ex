@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert do
   """
 
   alias Aiur.Alerts
-  alias Aiur.GitHub.ApprovalCarry
+  alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
@@ -32,7 +32,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert do
 
       is_binary(elem(pair, 0)) and is_integer(result[:pr_number]) ->
         state = put_in(state.ci_lifecycle[:approval_carries], Map.put(carries, target, pair))
-        classifier = Keyword.get(opts, :approval_carry_classifier, &ApprovalCarry.classify/4)
+        classifier = Keyword.get(opts, :approval_carry_classifier, &GithubCIPoller.classify_approval_carry/4)
         {approved, head} = pair
 
         Poll.run_ci_effect(state, issue, :approval_carry, fn -> classify(classifier, approved, head, result[:pr_number], opts) end, fn current, verdict ->
