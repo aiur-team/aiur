@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import test from 'node:test'
+import { discoverSuites, shardCommands, suiteArgs, suiteCommand, suiteShard, SUITE_SCRIPT } from './browser-suites.mjs'
+import { shards } from './run-browser-smoke-shard.mjs'
 
 // Playwright pins this YAML parser; use it without adding a test-only dependency.
 const { yaml } = createRequire(import.meta.url)('../node_modules/playwright-core/lib/utilsBundle.js')
@@ -88,10 +90,32 @@ test('browser shards execute every core suite exactly once', () => {
     assert.notEqual(invalid.status, 0, 'only the four workflow shard ids are accepted')
     assert.match(invalid.stderr, /Unknown browser smoke shard: 5/)
     const expected = [...scripts['test:core'].matchAll(/npm run ([\w:-]+)/g)].map(match => match[1])
-      .filter(name => name !== 'fixture:preflight').sort()
+      .filter(name => name !== 'fixture:preflight' && name !== SUITE_SCRIPT)
+      .concat(discoverSuites().map(suiteCommand)).sort()
     const selected = readFileSync(calls, 'utf8').trim().split('\n').map(line => line.replace(/^run /, ''))
       .filter(name => name !== 'fixture:preflight').sort()
     assert.deepEqual(selected, expected)
     assert.equal(selected.length, new Set(selected).size, 'each core suite runs exactly once across shards')
   } finally { rmSync(scratch, { recursive: true, force: true }) }
+})
+
+test('a new build-home spec file joins exactly one shard with no list edit', () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'browser-suite-discovery-'))
+  try {
+    mkdirSync(join(scratch, 'tests'))
+    writeFileSync(join(scratch, 'package.json'), read('src/browser/package.json'))
+    writeFileSync(join(scratch, 'tests', 'build-home-fixture-new.browser.spec.mjs'), '')
+    writeFileSync(join(scratch, 'tests', 'build-home-shell.browser.spec.mjs'), '')
+    writeFileSync(join(scratch, 'tests', 'build-home-fixture-new.helper.mjs'), '')
+    assert.deepEqual(discoverSuites(scratch), ['build-home-fixture-new'], 'explicitly scripted and non-spec files are not discovered')
+    const placed = Object.entries(shardCommands(shards, scratch))
+      .filter(([, commands]) => commands.includes('test:browser-suite -- build-home-fixture-new'))
+    assert.deepEqual(placed.map(([shard]) => Number(shard)), [suiteShard('build-home-fixture-new')])
+    assert.equal(scripts[SUITE_SCRIPT], 'node scripts/browser-suites.mjs')
+    assert.match(scripts['test:core'], /npm run test:browser-suite -- --all$/)
+  } finally { rmSync(scratch, { recursive: true, force: true }) }
+  // Pinned so a hash change, which would silently move every discovered suite, fails here.
+  assert.deepEqual(['build-home-a', 'build-home-b-parity', 'build-home-c', 'build-home-fixture-new'].map(name => suiteShard(name)), [4, 1, 2, 3])
+  assert.deepEqual(suiteArgs('build-home-x'), ['tests/build-home-x.browser.spec.mjs'])
+  assert.deepEqual(suiteArgs('build-home-x-parity'), ['tests/build-home-x-parity.browser.spec.mjs', '--config', 'playwright.design-parity.config.mjs'])
 })

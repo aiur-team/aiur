@@ -103,14 +103,14 @@ run_event push push "$pr_base" "$merge_base" "$push_before"
 run_event push_zero push "$pr_base" "$merge_base" "$(printf '0%.0s' {1..40})"
 run_event workflow_dispatch workflow_dispatch "$pr_base" "$merge_base" "$push_before"
 run_event schedule schedule "$pr_base" "$merge_base" "$push_before"
-assert_contains "$tmp/pull_request.gh" "repos/example/repo/pulls/1" 'pull-request event did not fetch PR metadata'
-assert_contains "$tmp/pull_request.args" "$pr_base" 'pull-request event used the wrong base'
+[[ ! -e "$tmp/pull_request.gh" ]] || fail 'pull-request event read the stale-prone PR body'
+assert_contains "$tmp/pull_request.args" "--skip-pr-body $pr_base" 'pull-request event checked the body pr-body.yml owns'
 assert_contains "$tmp/merge_group.args" "--skip-pr-body $merge_base" 'merge-group event did not use its supplied base'
 assert_contains "$tmp/push.args" "--skip-pr-body $push_before" 'push event did not use its before SHA'
 assert_contains "$tmp/push_zero.args" "--skip-pr-body $pr_base" 'new-branch push did not use the parent SHA'
 assert_contains "$tmp/workflow_dispatch.args" "--skip-pr-body $dispatch_base" 'manual event used the wrong merge base'
 assert_contains "$tmp/schedule.args" "--skip-pr-body $dispatch_base" 'scheduled event used the wrong merge base'
-for event in merge_group push push_zero workflow_dispatch schedule; do
+for event in pull_request merge_group push push_zero workflow_dispatch schedule; do
   assert_absent "$tmp/$event.log" 'scripts/check-pr-body.py' "$event event included PR body guard"
 done
 assert_contains "$tmp/merge_group.log" "pre-handoff-guards: --skip-pr-body $merge_base" 'merge-group event runner did not execute its guard command'

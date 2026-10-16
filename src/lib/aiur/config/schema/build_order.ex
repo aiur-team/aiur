@@ -22,17 +22,36 @@ defmodule Aiur.Config.Schema.BuildOrder do
     # tracker polled every 5 seconds; leaving them as constants is what let them
     # survive #2064 moving the tracker to 120 seconds. An explicit setting still
     # wins, so this removes a stale default rather than an operator's control.
+    # @config-reference config-configuration-build-order-00 build_order.ticket_detail_freshness_ms
+    # @config-detail build_order.ticket_detail_freshness_ms | integer | derived (¼ poll interval, min 5000) | Freshness window for ticket detail. |
     field(:ticket_detail_freshness_ms, :integer, default: nil)
+    # @config-reference config-configuration-build-order-00 build_order.ticket_detail_max_entries
+    # @config-detail build_order.ticket_detail_max_entries | integer | 32 | Maximum cached ticket-detail entries. |
     field(:ticket_detail_max_entries, :integer, default: 32)
+    # @config-reference config-configuration-build-order-00 build_order.ticket_detail_max_description_bytes
+    # @config-detail build_order.ticket_detail_max_description_bytes | integer | 16384 | Maximum cached ticket-description size. |
     field(:ticket_detail_max_description_bytes, :integer, default: 16_384)
+    # @config-reference config-configuration-build-order-00 build_order.ticket_history_limit
+    # @config-detail build_order.ticket_history_limit | integer | 50 | Maximum ticket history records per view. |
     field(:ticket_history_limit, :integer, default: 50)
+    # @config-reference config-configuration-build-order-00 build_order.ticket_history_max_identities
+    # @config-detail build_order.ticket_history_max_identities | integer | 100 | Maximum distinct ticket identities retained in history. |
     field(:ticket_history_max_identities, :integer, default: 100)
+    # @config-reference config-configuration-build-order-00 build_order.ticket_history_stale_after_ms
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.ticket_history_stale_after_ms | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
     field(:ticket_history_stale_after_ms, :integer, default: 60_000)
     # Failure-backoff and age-display base for the catalog snapshot. The catalog
     # is event-sourced from daemon-owned store state and does not refresh on this
     # cadence; `nil` means "derive from the tracker poll interval" (see
     # `Aiur.BuildOrder.Cadence`).
+    # @config-reference config-configuration-build-order-00 build_order.graph_catalog_refresh_ms
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.graph_catalog_refresh_ms | integer | derived (1× effective poll interval) | Base cadence for the Build Order catalog's reads (boot, a viewer's mount, a degraded re-list) and the window after which a selected root is displayed as ageing. The catalog is event-sourced (#2325) and demand-gated (#2312): it is maintained from the resource store's change stream, so this is not a recurring poll, and no page open means no read. |
     field(:graph_catalog_refresh_ms, :integer, default: nil)
+    # @config-reference config-configuration-build-order-00 build_order.graph_catalog_labels_refresh_ms
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.graph_catalog_labels_refresh_ms | integer | derived (5× effective poll interval, min 600000) | Cadence for the labelled catalog read that resolves epic and wave counts on a boot/mount/degraded read; the event-sourced catalog resolves those counts from the store instead. |
     field(:graph_catalog_labels_refresh_ms, :integer, default: nil)
     # `graph_selected_refresh_ms` and `graph_demand_refresh_ms` are gone. They
     # were the two settings that let *viewing* buy GitHub reads — one repeating
@@ -44,9 +63,17 @@ defmodule Aiur.Config.Schema.BuildOrder do
     # A configuration that still sets them keeps loading: `cast/3` ignores keys
     # outside the permitted list, so an operator upgrading gets the new behaviour
     # and not a boot failure.
+    # @config-reference config-configuration-build-order-00 build_order.graph_refresh_timeout_ms
+    # @config-detail build_order.graph_refresh_timeout_ms | integer | 30000 | Maximum graph-refresh request duration. |
     field(:graph_refresh_timeout_ms, :integer, default: 30_000)
+    # @config-reference config-configuration-build-order-00 build_order.graph_max_selected_roots
+    # @config-detail build_order.graph_max_selected_roots | integer | 32 | Maximum selected Build Order roots. |
     field(:graph_max_selected_roots, :integer, default: 32)
+    # @config-reference config-configuration-build-order-00 build_order.graph_max_inflight
+    # @config-detail build_order.graph_max_inflight | integer | 4 | Maximum concurrent graph refreshes. |
     field(:graph_max_inflight, :integer, default: 4)
+    # @config-reference config-configuration-build-order-00 build_order.general_epics
+    # @config-detail build_order.general_epics | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
     embeds_many(:general_epics, GeneralEpic, on_replace: :delete)
   end
 

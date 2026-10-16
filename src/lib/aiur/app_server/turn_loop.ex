@@ -38,7 +38,7 @@ defmodule Aiur.AppServer.TurnLoop do
         receive_loop(session, state)
 
       {:handoff_snapshot, from, ref} ->
-        Handoff.capture(session, state, from, ref)
+        session |> Handoff.capture(state, from, ref) |> receive_loop(state)
 
       {^port, {:data, {:eol, chunk}}} ->
         complete_line = state.pending_line <> to_string(chunk)

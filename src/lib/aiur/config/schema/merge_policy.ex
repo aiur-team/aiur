@@ -13,11 +13,25 @@ defmodule Aiur.Config.Schema.MergePolicy do
 
     @primary_key false
     embedded_schema do
+      # @config-reference config-merge-policy-00 merge_policy.main_watch.enabled
+      # @config-detail merge_policy.main_watch.enabled | boolean | false | Watches completed CI on the configured base branch through webhooks and polling. |
       field(:enabled, :boolean, default: false)
+      # @config-reference config-merge-policy-00 merge_policy.main_watch.workflows
+      # @config-detail merge_policy.main_watch.workflows | array | `[]` | Workflow names to watch; empty means every workflow on the base branch. |
       field(:workflows, {:array, :string}, default: [])
+      # @config-reference config-merge-policy-00 merge_policy.main_watch.on_red
+      # @config-detail merge_policy.main_watch.on_red | string | `alert` | `alert` reports failed CI; `dispatch_fixer` files a P1 fixer after confirmed red CI and dispatches it first. |
       field(:on_red, :string, default: "alert")
+      # @config-reference config-merge-policy-00 merge_policy.main_watch.fixer_label
+      # @config-detail merge_policy.main_watch.fixer_label | string | `main-fix` | Label for fixer tickets and their full-CI requirement. |
       field(:fixer_label, :string, default: "main-fix")
+      # @config-reference config-merge-policy-00 merge_policy.main_watch.canary_minutes
+      # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+      # @config-detail merge_policy.main_watch.canary_minutes | integer | 45 | Minutes without a completed watched run before rerunning the newest cancelled run; requires Actions write permission, otherwise raises attention. `0` disables. |
       field(:canary_minutes, :integer, default: 45)
+      # @config-reference config-merge-policy-00 merge_policy.main_watch.red_fallback_minutes
+      # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+      # @config-detail merge_policy.main_watch.red_fallback_minutes | integer | 0 | Optional full-CI wait after main stays red this many minutes; absent/`0` disables, `60` enables a one-hour threshold; the merge-policy consumer enforces the threshold using the watcher’s retained state. |
       field(:red_fallback_minutes, :integer, default: 0)
     end
 
@@ -45,11 +59,24 @@ defmodule Aiur.Config.Schema.MergePolicy do
 
   @primary_key false
   embedded_schema do
+    # @config-reference config-merge-policy-00 merge_policy.ci
+    # @config-detail merge_policy.ci | string | `wait` | `wait` (the only mode) requires full CI before merge. |
     field(:ci, :string, default: "wait")
+    # @config-reference config-merge-policy-00 merge_policy.local_tests
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail merge_policy.local_tests | string | `partial` | `all`: full local suite; `partial`: tests relevant to the change, falling back to the full suite when selection is unsafe; `none`: compile and format only. |
     field(:local_tests, :string, default: "partial")
+    # @config-reference config-merge-policy-00 merge_policy.full_ci_labels
+    # @config-detail merge_policy.full_ci_labels | array | `[main-fix]` | Case-insensitive PR or ticket labels requiring full CI regardless of `ci`. |
     field(:full_ci_labels, {:array, :string}, default: ["main-fix"])
+    # @config-reference config-merge-policy-00 merge_policy.full_ci_paths
+    # @config-detail merge_policy.full_ci_paths | array | `[]` | Changed-path globs (`*`, `**`, `?`) requiring full CI regardless of `ci`; matches deleted paths too. |
     field(:full_ci_paths, {:array, :string}, default: [])
+    # @config-reference config-merge-policy-00 merge_policy.premerge_checks
+    # @config-detail merge_policy.premerge_checks | array | `[]` | Commands to run on the merge result before merging. |
     field(:premerge_checks, {:array, :string}, default: [])
+    # @config-reference config-merge-policy-00 merge_policy.attribution_scan
+    # @config-detail merge_policy.attribution_scan | boolean | false | Enables the premerge AI-attribution scan of the PR title and body. |
     field(:attribution_scan, :boolean, default: false)
     embeds_one(:main_watch, MainWatch, on_replace: :update, defaults_to_struct: true)
   end

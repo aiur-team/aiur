@@ -193,6 +193,7 @@ session_cleanup() {
     "$_session_workspace_root_file" "$_session_alert_ledger_path_file" \
     "$_session_crash_dump_baseline_file" 2>/dev/null || true
   rm -f "$(aiur_instance_record_path)" 2>/dev/null || true
+  cleanup_test_launch_private_state
   release_aiur_launch_lock "$_session_launch_lock"
   _session_launch_lock=""
   return $code

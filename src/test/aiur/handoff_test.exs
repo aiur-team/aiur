@@ -1,7 +1,9 @@
 defmodule Aiur.HandoffTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.AppServer.ToolCallLedger
+  import Aiur.Codex.TurnLoopTestSupport, only: [base_state: 0]
+  alias Aiur.AgentRunner.Handoff, as: RunnerHandoff
+  alias Aiur.AppServer.{Adapter, ToolCallLedger, TurnLoop}
   alias Aiur.Handoff
   alias Aiur.ProcessReaper
 
@@ -225,5 +227,69 @@ defmodule Aiur.HandoffTest do
     assert_receive {:killed, 999_992}, 1000
     refute_receive {:killed, 999_991}, 30
     assert [{{:os_pid, 999_991}, :agent, %{}}] == ProcessReaper.entries(reaper)
+  end
+
+  test "paused agents are skipped without entering the snapshot barrier" do
+    {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
+    paused = %{pid: self(), issue: %Aiur.Issue{id: "paused", identifier: "paused"}, identifier: "paused", control: %{status: :paused}}
+    {:ok, owner} = start_supervised({Owner, %{running: %{"paused" => paused}, retry_attempts: %{}, dispatch_recovery: %{}}})
+    dir = Path.join(System.tmp_dir!(), "handoff-paused-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      Aiur.TestCleanup.rm_rf!(dir)
+      Handoff.reset()
+    end)
+
+    assert {:ok, %{agents: [], skipped: ["paused"]}} =
+             Handoff.prepare(
+               orchestrator: owner,
+               ledger: ledger,
+               dir: dir,
+               config_fingerprint: "config",
+               hold: fn _ -> flunk("paused runner must not be held") end,
+               snapshot: fn _ -> flunk("paused runner must not be snapshotted") end
+             )
+
+    assert {:ok, %{"agents" => []}} = Handoff.Record.read(dir: dir)
+  end
+
+  @tag :tmp_dir
+  test "a prepare that fails after the snapshot leaves live runners finishing their turn", %{tmp_dir: workspace} do
+    {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
+    gate = Path.join(workspace, "go")
+    script = Path.join(workspace, "provider.py")
+
+    File.write!(script, """
+    import os, time, json
+    while not os.path.exists(#{inspect(gate)}): time.sleep(0.01)
+    print(json.dumps({'method':'turn/completed','params':{'turn':{'id':'turn-1','status':'completed'}}}), flush=True)
+    time.sleep(10)
+    """)
+
+    parent = self()
+    issue = %Aiur.Issue{id: "1", identifier: "ISSUE-1"}
+
+    runner =
+      spawn(fn ->
+        {:ok, port} = Adapter.start_port(workspace, "python3 #{script}")
+        session = %{backend: "codex", port: port, thread_id: "thread-1", workspace: workspace}
+        session = RunnerHandoff.before_turn(session, %{issue: issue, workspace: workspace, opts: [], turn_number: 1, max_turns: 1})
+        send(parent, :ready)
+        result = TurnLoop.receive_loop(session, Map.merge(base_state(), %{timeout_ms: 5_000, pending_line: ""}))
+        send(parent, {:finished, result, session.thread_id})
+      end)
+
+    assert_receive :ready, 5_000
+    {:ok, owner} = start_supervised({Owner, %{running: %{"1" => %{pid: runner, issue: issue, identifier: "ISSUE-1"}}, retry_attempts: %{}, dispatch_recovery: %{}}})
+    # A regular file as the record directory makes the write fail after the snapshot.
+    blocked = Path.join(workspace, "not-a-dir")
+    File.write!(blocked, "")
+    on_exit(&Handoff.reset/0)
+
+    assert {:error, %File.Error{reason: :enotdir}} = Handoff.prepare(orchestrator: owner, ledger: ledger, dir: blocked, config_fingerprint: "config")
+    refute GenServer.call(owner, :held?)
+    File.touch!(gate)
+    # The first decode in a fresh VM loads every app module, so allow for it.
+    assert_receive {:finished, {:ok, :turn_completed}, "thread-1"}, 30_000
   end
 end

@@ -31,12 +31,65 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     target = to_string(issue.identifier || issue.id)
 
     case Store.read(target, number, opts) do
-      {:ok, entry} -> recover_entry(issue, result, entry, opts)
+      {:ok, entry} -> recover_current(issue, result, entry, opts)
       {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
     end
   end
 
   def recover(_issue, result, _opts), do: result
+
+  # The batch snapshot can predate an auto-merge re-enable (#4672), so an
+  # approved failure it reports as not landing is confirmed live before rework.
+  # An approval recorded on an older head no longer approves this one.
+  defp recover_current(issue, %{head_sha: sha} = result, entry, opts) do
+    cond do
+      get_in(entry, ["hold", "sha"]) == sha or not unconfirmed_approved_failure?(result) -> recover_entry(issue, result, entry, opts)
+      entry["landing_hold"] == sha -> held(result, "approved_landing_pr")
+      true -> refresh_approved_landing(issue, result, entry, opts)
+    end
+  end
+
+  defp unconfirmed_approved_failure?(%{head_sha: sha} = result) do
+    result[:decision] == :failed and result[:review_decision] == "APPROVED" and result[:approved_review_head_sha] in [nil, sha] and
+      is_nil(result[:auto_merge_request]) and is_nil(result[:merge_queue_entry])
+  end
+
+  defp refresh_approved_landing(issue, %{pr_number: number} = result, entry, opts) do
+    case Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(number, opts) do
+      {:ok, pr} -> classify_landing_pr(issue, result, entry, pr, opts)
+      {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts)
+    end
+  end
+
+  defp classify_landing_pr(issue, result, entry, pr, opts) do
+    case fresh_landing_state(result, pr) do
+      :landing -> hold_landing(issue, result, opts)
+      :not_landing -> recover_entry(issue, result, entry, Keyword.put(opts, :ci_recovery_observation, {:ok, pr}))
+      :changed_head -> held(result, "head_changed")
+      :unknown -> attention(issue, result, "observation_unavailable", "landing_state_unknown", opts)
+    end
+  end
+
+  # Cached per head so later polls skip the live read; it only applies while
+  # the PR still reads approved. LandingWatch routes rework from its own live
+  # read if the PR stops landing.
+  defp hold_landing(issue, result, opts) do
+    case update(issue, result, &Map.put(&1, "landing_hold", result.head_sha), opts) do
+      {:ok, _entry} -> :ok
+      {:error, error} -> Logger.warning("CI recovery journal unavailable: #{inspect(error)}")
+    end
+
+    held(result, "approved_landing_pr")
+  end
+
+  defp fresh_landing_state(result, pr) do
+    cond do
+      pr["state"] != "OPEN" or pr["headRefOid"] != result[:head_sha] -> :changed_head
+      is_map(pr["autoMergeRequest"]) or is_map(pr["mergeQueueEntry"]) -> :landing
+      Map.has_key?(pr, "autoMergeRequest") and Map.has_key?(pr, "mergeQueueEntry") -> :not_landing
+      true -> :unknown
+    end
+  end
 
   defp recover_entry(_issue, %{head_sha: sha} = result, %{"hold" => %{"sha" => sha} = hold}, _opts),
     do: hold_result(result, hold)

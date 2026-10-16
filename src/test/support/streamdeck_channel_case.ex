@@ -14,6 +14,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
     quote do
       import Phoenix.ChannelTest
       import Aiur.TestSupport, only: [receive_barrier: 1]
+      use Aiur.TestScopeGuard
 
       import Plug.Conn, only: [put_req_header: 3]
       import Plug.Test
