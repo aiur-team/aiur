@@ -425,7 +425,9 @@ unpauses to implement findings; a CI failure routes the ticket to `agent:rework`
 
 Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route both
 `agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
-reviews without inline threads. A trusted `CHANGES_REQUESTED` review also takes
+reviews without inline threads.
+
+A trusted `CHANGES_REQUESTED` review also takes
 the PR out of the merge queue, turns its auto-merge off, and records both on the
 ticket; a later Executor approval lands it through the normal merge path.
 
