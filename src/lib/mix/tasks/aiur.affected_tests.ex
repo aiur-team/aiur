@@ -195,7 +195,8 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
       ["xref", "graph", "--only-nodes", "--only-direct", "--label", label] ++
         Enum.flat_map(sinks, &["--sink", &1])
 
-    case git_like_command(Path.join(root, "src"), "mix", args) do
+    # Reuse the caller's compiled build; a default-env child compiles a cold tree under mix test.
+    case git_like_command(Path.join(root, "src"), "mix", args, [{"MIX_ENV", to_string(Mix.env())}]) do
       {:ok, lines} ->
         sources =
           lines
@@ -237,8 +238,8 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
     git_like_command(root, "git", args)
   end
 
-  defp git_like_command(root, executable, args) do
-    case System.cmd(executable, args, cd: root, stderr_to_stdout: true) do
+  defp git_like_command(root, executable, args, env \\ []) do
+    case System.cmd(executable, args, cd: root, env: env, stderr_to_stdout: true) do
       {out, 0} -> {:ok, String.split(out, "\n", trim: true)}
       {out, status} -> {:error, "#{executable} #{Enum.join(args, " ")} failed (#{status}): #{String.trim(out)}"}
     end
