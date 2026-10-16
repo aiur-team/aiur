@@ -78,6 +78,7 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
 
       assert {:ok, [comment]} =
                ReviewThreads.fetch_unaddressed_pr_review_thread_comments(61,
+                 token: "test-gh-token",
                  request_fun: request_fun,
                  repo_root: repo_root,
                  agent_logins: ["aiur-bot"]
@@ -132,6 +133,7 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
 
       assert {:ok, []} =
                ReviewThreads.fetch_unaddressed_pr_review_thread_comments(61,
+                 token: "test-gh-token",
                  request_fun: request_fun,
                  repo_root: repo_root,
                  agent_logins: ["aiur-bot"]
@@ -173,6 +175,7 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
 
       assert {:error, {:github, :timeout, %{reason: :timeout}}} =
                ReviewThreads.fetch_unaddressed_pr_review_thread_comments(pr_number,
+                 token: "test-gh-token",
                  request_fun: request_fun
                )
 
@@ -227,6 +230,7 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
 
       assert {:ok, [comment]} =
                ReviewThreads.fetch_unaddressed_pr_review_thread_comments(61,
+                 token: "test-gh-token",
                  request_fun: request_fun,
                  repo_root: repo_root,
                  agent_logins: ["aiur-bot"]
@@ -275,6 +279,7 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
 
       assert {:ok, [comment]} =
                ReviewThreads.fetch_unaddressed_pr_review_thread_comments(1,
+                 token: "test-gh-token",
                  request_fun: request_fun,
                  repo_root: repo_root,
                  agent_logins: ["aiur-bot"]
@@ -325,6 +330,7 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
 
       assert {:error, :quota_hold} =
                ReviewThreads.fetch_unaddressed_pr_review_thread_comments(1,
+                 token: "test-gh-token",
                  request_fun: request_fun,
                  repo_root: repo_root,
                  agent_logins: ["aiur-bot"]
@@ -374,6 +380,7 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
 
       assert {:ok, [comment]} =
                ReviewThreads.fetch_unaddressed_pr_review_thread_comments(1,
+                 token: "test-gh-token",
                  request_fun: request_fun,
                  repo_root: repo_root,
                  agent_logins: ["aiur-bot"]
@@ -454,6 +461,7 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
 
       assert {:ok, comments} =
                ReviewThreads.fetch_unaddressed_pr_review_thread_comments(1,
+                 token: "test-gh-token",
                  request_fun: request_fun,
                  repo_root: repo_root,
                  agent_logins: ["aiur-bot"]

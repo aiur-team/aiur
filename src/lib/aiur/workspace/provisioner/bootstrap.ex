@@ -4,7 +4,7 @@ defmodule Aiur.Workspace.Provisioner.Bootstrap do
   # Readiness, log-safe reconstruction and prewarm materialization share the
   # same filesystem safety decisions and reconstruction lock.
   alias Aiur.{Config, RepoBase}
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
   alias Aiur.Workspace.{Checkout, Materialize, Reconstruction, Remote}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
@@ -267,7 +267,7 @@ defmodule Aiur.Workspace.Provisioner.Bootstrap do
             record_prewarm(lifecycle, :end, %{
               prewarm_outcome: :materialize_failed,
               outcome: :failed,
-              reason_class: Lifecycle.reason_class(reason)
+              reason_class: Signal.reason_class(reason)
             })
 
             record_prewarm_point(lifecycle, :cold_fallback, :success)
@@ -312,12 +312,12 @@ defmodule Aiur.Workspace.Provisioner.Bootstrap do
          metadata
        )
        when is_binary(ticket) and is_function(recorder, 3) do
-    Lifecycle.record(ticket, attempt_id, :prewarm, boundary, metadata, recorder: recorder)
+    Signal.lifecycle(ticket, attempt_id, :prewarm, boundary, metadata, recorder: recorder)
   end
 
   defp record_prewarm(%{ticket: ticket, attempt_id: attempt_id}, boundary, metadata)
        when is_binary(ticket) do
-    Lifecycle.record(ticket, attempt_id, :prewarm, boundary, metadata)
+    Signal.lifecycle(ticket, attempt_id, :prewarm, boundary, metadata)
   end
 
   defp record_prewarm(_lifecycle, _boundary, _metadata), do: :ok

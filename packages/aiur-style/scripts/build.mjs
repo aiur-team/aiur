@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import fs from 'fs';
-import { buildTokens } from '../src/tokens/build.mjs';
+import { buildTokens, tokens } from '../src/tokens/build.mjs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -42,7 +42,7 @@ fs.copyFileSync(path.join(packageRoot, 'src', 'init', 'theme-init.js'), path.joi
 console.log('Building CSS...');
 try {
   const cssFiles = fs.readdirSync(srcCssDir)
-    .filter(f => f.endsWith('.css'))
+    .filter(f => f.endsWith('.css') && f !== 'vitepress.css')
     .sort();
 
   if (cssFiles.length === 0) {
@@ -61,6 +61,13 @@ try {
   const mainCssPath = path.join(distDir, 'aiur-style.css');
   fs.writeFileSync(mainCssPath, cssContent, { encoding: 'utf8' });
   console.log(`✓ CSS concatenated to dist/aiur-style.css (${cssFiles.length} files)`);
+
+  // VitePress uses .dark even when the host prefers light; derive its bridge from tokens.
+  const darkTokens = Object.entries(tokens.dark).map(([name, value]) =>
+    `    --aiur-${name.replaceAll('.', '-')}: ${value};`).join('\n');
+  fs.writeFileSync(path.join(distDir, 'vitepress.css'),
+    `@layer aiur.tokens {\n  html.dark {\n    color-scheme: dark;\n${darkTokens}\n  }\n}\n` +
+    fs.readFileSync(path.join(srcCssDir, 'vitepress.css'), 'utf8'));
 
   // Copy individual CSS files to dist/css/
   cssFiles.forEach(file => {

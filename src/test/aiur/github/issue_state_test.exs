@@ -1,7 +1,8 @@
 defmodule Aiur.GitHub.IssueStateTest do
+  # Cohesion: these tests cover the GitHub issue-state transition protocol end to end.
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.IssueState
+  alias Aiur.GitHub.{Issues, IssueState}
   alias Aiur.GitHub.ResourceStore
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -294,6 +295,86 @@ defmodule Aiur.GitHub.IssueStateTest do
       # No DELETE ever fires: the old sym:todo label is never removed, so the
       # issue never passes through a zero-state-label state.
       refute_receive {:request, %{method: :delete}}, 100
+    end
+
+    test "a failure after the target add rolls it back and preserves rework" do
+      test_pid = self()
+      calls = :ets.new(:rework_claim_swap_calls, [:set, :public])
+      :ets.insert(calls, {:count, 0})
+      rework = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+      both = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}, %{"name" => "sym:in-progress"}]}
+      labels = :ets.new(:rework_claim_labels, [:set, :public])
+      :ets.insert(labels, {:value, ["sym:rework"]})
+
+      request_fun = fn req ->
+        send(test_pid, {:rework_swap_request, req})
+        [{:count, n}] = :ets.lookup(calls, :count)
+        :ets.insert(calls, {:count, n + 1})
+
+        case {req.method, n} do
+          {:get, n} when n in 0..2 ->
+            {:ok, %{status: 200, body: rework}}
+
+          {:post, 3} ->
+            :ets.insert(labels, {:value, ["sym:rework", "sym:in-progress"]})
+            {:ok, %{status: 200, body: both}}
+
+          {:get, 4} ->
+            {:ok, %{status: 200, body: both}}
+
+          {:delete, 5} ->
+            {:ok, %{status: 500, body: %{}, headers: []}}
+
+          {:delete, 6} ->
+            :ets.insert(labels, {:value, ["sym:rework"]})
+            {:ok, %{status: 200, body: rework}}
+
+          other ->
+            flunk("unexpected rework state request: #{inspect(other)}")
+        end
+      end
+
+      assert {:error, _reason} =
+               IssueState.update_issue_state("42", "in-progress", expected_state: "rework", request_fun: request_fun)
+
+      assert_received {:rework_swap_request, %{method: :post, body: %{"labels" => ["sym:in-progress"]}}}
+      assert_received {:rework_swap_request, %{method: :delete, url: original_state_url}}
+      assert original_state_url =~ "sym%3Arework" or original_state_url =~ "sym:rework"
+      assert_received {:rework_swap_request, %{method: :delete, url: rollback_url}}
+      assert rollback_url =~ "sym%3Ain-progress" or rollback_url =~ "sym:in-progress"
+      assert [{:value, ["sym:rework"]}] = :ets.lookup(labels, :value)
+      assert Issues.extract_state(rework, ["sym:rework"], "sym") == "rework"
+    end
+
+    test "the successful rework transition leaves only the in-progress state label" do
+      test_pid = self()
+      rework = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+      both = %{"state" => "open", "labels" => [%{"name" => "sym:rework"}, %{"name" => "sym:in-progress"}]}
+      labels = :ets.new(:successful_rework_claim_labels, [:set, :public])
+      :ets.insert(labels, {:value, ["sym:rework"]})
+
+      request_fun = fn req ->
+        send(test_pid, {:successful_rework_request, req})
+
+        case req.method do
+          :get ->
+            {:ok, %{status: 200, body: if(:ets.lookup_element(labels, :value, 2) == ["sym:rework"], do: rework, else: both)}}
+
+          :post ->
+            :ets.insert(labels, {:value, ["sym:rework", "sym:in-progress"]})
+            {:ok, %{status: 200, body: both}}
+
+          :delete ->
+            :ets.insert(labels, {:value, ["sym:in-progress"]})
+            {:ok, %{status: 200, body: %{"labels" => [%{"name" => "sym:in-progress"}]}}}
+        end
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "in-progress", expected_state: "rework", request_fun: request_fun)
+      assert [{:value, ["sym:in-progress"]}] = :ets.lookup(labels, :value)
+      assert_received {:successful_rework_request, %{method: :post, body: %{"labels" => ["sym:in-progress"]}}}
+      assert_received {:successful_rework_request, %{method: :delete, url: old_state_url}}
+      assert old_state_url =~ "sym%3Arework" or old_state_url =~ "sym:rework"
     end
 
     # Acceptance #2420: an idempotent re-stamp — `update_issue_state(id, "rework")`

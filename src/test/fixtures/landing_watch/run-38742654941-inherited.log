@@ -1,0 +1,8 @@
+2026-10-15T13:53:59Z EVENT_NAME: merge_group
+NEEDS_JSON: {
+  "workflow-security": {"result": "failure"},
+  "lint": {"result": "success"},
+  "build": {"result": "success"},
+  "coverage-partition": {"result": "success"},
+  "test": {"result": "success"}
+}

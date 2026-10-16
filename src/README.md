@@ -336,3 +336,9 @@ is not a product-performance budget; BO-014 owns those thresholds.
 ## License
 
 Apache License 2.0. See [LICENSE](../LICENSE) and [NOTICE](../NOTICE).
+
+Reference tables in the configuration and CLI docs are generated from annotations
+beside their schema fields and option definitions. Run `python3 scripts/generate-reference-tables.py` from the repository root after editing a
+reference description; CI runs the same command with `--check` to reject drift.
+Generated reference files use union merges so sibling additions survive a merge;
+regenerate the table after merging to restore canonical ordering.

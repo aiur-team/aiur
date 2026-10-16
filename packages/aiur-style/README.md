@@ -148,7 +148,9 @@ sample in either theme. `?theme=system` previews the system preference.
 
 See the aiur-style plan: [docs/aiur-style/plan.md](../../docs/aiur-style/plan.md).
 
-To build locally:
+`dist/` is generated and is not committed. The `prepare` lifecycle builds it
+when the package is installed from this repository and when npm packs it for
+publication. To build locally:
 
 ```bash
 npm run build        # Compile TypeScript and concatenate CSS

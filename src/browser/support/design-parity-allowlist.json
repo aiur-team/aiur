@@ -182,5 +182,18 @@
       "date": null,
       "ref": "S-34 / #3141"
     }
+  },
+  {
+    "id": "experiments-nav",
+    "kind": "pixel-mask",
+    "selector": ".sidenav-nav .snav:nth-child(n+5)",
+    "cells": {},
+    "reason": "#3789 Experiments below Analytics adds a nav row, shifts Streamdeck and redistributes phone flex widths; awaiting design sign-off.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/blob/research/refactor-findings/docs/research/experiments/x5/brainstorm.md#open-questions-for-kevin"
+    }
   }
 ]

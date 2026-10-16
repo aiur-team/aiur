@@ -31,7 +31,10 @@ defmodule Aiur.LandingWatch do
   end
 
   @impl true
-  def handle_call(:state, _from, state), do: {:reply, Map.take(state, [:watcher, :last_poll_at_ms, :last_error]), state}
+  def handle_call(:state, _from, state) do
+    requeues = Journal.merge_group_requeues_by_hour(state.opts)
+    {:reply, Map.merge(Map.take(state, [:watcher, :last_poll_at_ms, :last_error]), %{merge_group_requeues_by_hour: requeues}), state}
+  end
 
   @impl true
   def handle_info(:poll, %{task: task} = state) when not is_nil(task) do
@@ -189,14 +192,38 @@ defmodule Aiur.LandingWatch do
   defp handle_verdict(_observation, %{decision: :pending}, _runs, _opts), do: :ok
 
   defp handle_verdict(observation, %{decision: :failed} = result, runs, opts) do
-    if Classifier.infra_failure?(result, runs) do
-      request_infra_reruns(observation, runs, opts)
-    else
-      route_rework(observation, result.failures, opts)
+    case approved_landing?(observation) do
+      :landing ->
+        :ok
+
+      :unknown ->
+        emit_landing_state_attention(observation, opts)
+
+      :not_landing ->
+        if Classifier.infra_failure?(result, runs) do
+          request_infra_reruns(observation, runs, opts)
+        else
+          route_rework(observation, result.failures, opts)
+        end
     end
   end
 
   defp handle_verdict(observation, %{decision: :passed}, _runs, opts), do: landing_eligibility(observation, opts)
+
+  # `process/2` only reaches here for a PR approved at its head, and this poll's
+  # own GraphQL read carries the landing fields, so no extra request is needed.
+  defp approved_landing?(%{auto_merge_request: auto_merge, merge_queue_entry: entry}) when is_map(auto_merge) or is_map(entry), do: :landing
+  defp approved_landing?(%{auto_merge_request: nil, merge_queue_entry: nil}), do: :not_landing
+  defp approved_landing?(_observation), do: :unknown
+
+  defp emit_landing_state_attention(observation, opts) do
+    issue = TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"]))
+    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+    message = "Landing state for approved PR ##{observation.number} could not be confirmed; rework routing was held."
+
+    emitter.("system.pr.landing.state_unavailable", central: true, durable: true, needs_attention: true, issue: issue, message: message, reason: message)
+    :ok
+  end
 
   defp handle_person_cancel(observation, runs, opts) do
     issue = TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"]))
@@ -408,7 +435,10 @@ defmodule Aiur.LandingWatch do
   end
 
   defp emit_rework_alert(observation, failures, issue, opts) do
-    message = "Approved PR ##{observation.number} moved ticket ##{issue} to rework: " <> Enum.map_join(failures, "; ", &failure_text/1)
+    run_link = Keyword.get(opts, :run_url)
+    evidence = Enum.map_join(failures, "; ", &failure_text/1)
+    evidence = if is_binary(run_link), do: evidence <> " (#{run_link})", else: evidence
+    message = "Approved PR ##{observation.number} moved ticket ##{issue} to rework: " <> evidence
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
     emitter.("system.pr.landing.rework", central: true, needs_attention: false, message: message, reason: message)
     :ok

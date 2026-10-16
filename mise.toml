@@ -1,5 +1,5 @@
 [tools]
-erlang = "28"
+erlang = "28.5"                # pinned exactly (#4692): a floating "28" let a new upstream release change what every worker resolves
 elixir = "1.19.5-otp-28"
 opencode = "1.17.10"           # pinned: aiur's opencode pane integration is validated against 1.17.10 (custom-provider model resolution + chat panes verified end-to-end). Keep on a specific version, never `latest` — a bump requires re-running the row-shape + pane verification (see src/docs/notes/opencode-row-shapes-1.17.10.md).
 ripgrep = "latest"

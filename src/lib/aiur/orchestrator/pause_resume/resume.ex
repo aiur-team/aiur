@@ -190,7 +190,7 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
   @doc false
   @spec reactivate_issue(State.t(), map()) :: {{:ok, :reactivated} | {:error, term()}, State.t()}
   def reactivate_issue(%State{} = state, running_entry) do
-    if State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) do
+    if Slots.active_slots(state) >= Slots.max_concurrent_agent_limit(state) do
       {{:error, :max_concurrent_agents_reached}, state}
     else
       do_reactivate(state, running_entry)
@@ -274,7 +274,7 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
       # A CI-wait pause releases its reservation; other pauses retain one.
       # In both cases, resume must wait if the active count is already at the
       # cap (for example, after CI-wait capacity was filled by other work).
-      State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
+      Slots.active_slots(state) >= Slots.max_concurrent_agent_limit(state) ->
         {:error, :max_concurrent_agents_reached}
 
       not DispatchPolicy.state_slots_available?(Map.get(running_entry, :issue), state) ->

@@ -36,6 +36,7 @@ defmodule Aiur.BuildGate do
           required(:pgid) => pos_integer() | nil,
           required(:holder_pid) => pos_integer() | nil,
           required(:command_pgid) => pos_integer() | nil,
+          required(:command_pid_namespace) => String.t() | nil,
           required(:command_alive?) => boolean() | nil,
           required(:phase) => String.t() | nil,
           required(:command) => String.t() | nil,

@@ -2,20 +2,20 @@
 
 The operator merge command enforces this policy, status and capabilities display it, workers receive its local-test mode, and enabled main watching reports base-branch CI.
 
-| Key | Type | Default | Controls |
+| Key | Type | Default | Controls | <!-- generated-reference:config-merge-policy-00 -->
 | --- | --- | --- | --- |
+| `merge_policy.attribution_scan` | boolean | false | Enables the premerge AI-attribution scan of the PR title and body. |
 | `merge_policy.ci` | string | `wait` | `wait` (the only mode) requires full CI before merge. |
-| `merge_policy.local_tests` | string | `partial` | `all`: full local suite; `partial`: tests relevant to the change, falling back to the full suite when selection is unsafe; `none`: compile and format only. |
 | `merge_policy.full_ci_labels` | array | `[main-fix]` | Case-insensitive PR or ticket labels requiring full CI regardless of `ci`. |
 | `merge_policy.full_ci_paths` | array | `[]` | Changed-path globs (`*`, `**`, `?`) requiring full CI regardless of `ci`; matches deleted paths too. |
-| `merge_policy.premerge_checks` | array | `[]` | Commands to run on the merge result before merging. |
-| `merge_policy.attribution_scan` | boolean | false | Enables the premerge AI-attribution scan of the PR title and body. |
-| `merge_policy.main_watch.enabled` | boolean | false | Watches completed CI on the configured base branch through webhooks and polling. |
-| `merge_policy.main_watch.workflows` | array | `[]` | Workflow names to watch; empty means every workflow on the base branch. |
-| `merge_policy.main_watch.on_red` | string | `alert` | `alert` reports failed CI; `dispatch_fixer` files a P1 fixer after confirmed red CI and dispatches it first. |
-| `merge_policy.main_watch.fixer_label` | string | `main-fix` | Label for fixer tickets and their full-CI requirement. |
+| `merge_policy.local_tests` | string | `partial` | `all`: full local suite; `partial`: tests relevant to the change, falling back to the full suite when selection is unsafe; `none`: compile and format only. |
 | `merge_policy.main_watch.canary_minutes` | integer | 45 | Minutes without a completed watched run before rerunning the newest cancelled run; requires Actions write permission, otherwise raises attention. `0` disables. |
+| `merge_policy.main_watch.enabled` | boolean | false | Watches completed CI on the configured base branch through webhooks and polling. |
+| `merge_policy.main_watch.fixer_label` | string | `main-fix` | Label for fixer tickets and their full-CI requirement. |
+| `merge_policy.main_watch.on_red` | string | `alert` | `alert` reports failed CI; `dispatch_fixer` files a P1 fixer after confirmed red CI and dispatches it first. |
 | `merge_policy.main_watch.red_fallback_minutes` | integer | 0 | Optional full-CI wait after main stays red this many minutes; absent/`0` disables, `60` enables a one-hour threshold; the merge-policy consumer enforces the threshold using the watcher’s retained state. |
+| `merge_policy.main_watch.workflows` | array | `[]` | Workflow names to watch; empty means every workflow on the base branch. |
+| `merge_policy.premerge_checks` | array | `[]` | Commands to run on the merge result before merging. |
 
 Premerge commands execute PR-authored code as the operator's Unix user. Token environment variables are removed, but that user can still read the stored `gh` credential. The default command list is empty; configure only checks for code you trust to execute.
 
@@ -55,9 +55,9 @@ config or unknown file types. Use the target repository's test-selection tool
 (Aiur's Elixir core uses `mix aiur.affected_tests`).
 
 `mix pr_body.check --file <body.md>` validates the template and evidence shape.
-CI reads the current PR body and head SHA and runs the same checker in
-`workflow security`; stale `Tested head` values fail. Rerun that job after
-correcting a rejected body.
+CI runs the same checker in the `pr body` check, which reads the current PR
+body and head SHA; stale `Tested head` values fail. Editing the body reruns
+`pr body`, and `ci gate` requires its newest run, so a body fix needs no push.
 
 PRs opened at or before rollout are grandfathered out of the CI body gate.
 The cutoff is the first-parent commit that adds `scripts/check-pr-body.py` to
@@ -80,4 +80,4 @@ Actions read permission is required to attribute checks to workflows. Failed or 
 
 Named workflows must run on every base push. For example, `[ci, "Publish Docker Image"]` works when both run on every push; a path-filtered workflow can leave status on an older SHA. Merge-queue commits without push runs are skipped. The first Actions page must reach back to the oldest commit in the 20-commit window.
 
-Status reports `watcher=running|unavailable|not_running` for base-branch CI and `landing_watcher=...` separately. It follows approved heads through CI and queue, retries infra failures within a bound, and routes real check failures or AI attribution trailers to rework. Starting base-branch watching after boot requires a daemon restart.
+Status reports `watcher=running|unavailable|not_running` for base CI and `landing_watcher=...` separately. The landing watcher follows approved heads through CI and queue, retries infra failures, routes real failures to rework, and counts automatic merge-group requeues by hour. Starting base watching after boot requires a daemon restart.

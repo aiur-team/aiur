@@ -90,16 +90,27 @@ assert.ok(jobs.get('quarantine').includes("github.event_name == 'push' && github
 assert.ok(jobs.get('workflow-security').includes('Set up Elixir for evidence and classifier tests'));
 assert.ok(!jobs.get('workflow-security').includes("Set up Elixir for PR evidence\n        if:"));
 const affected = jobs.get('affected-tests');
+const affectedTimeout = Number(affected.match(/^    timeout-minutes: (\d+)$/m)?.[1]);
+assert.equal(affectedTimeout, 15, 'the job retains its original overall budget');
+assert.ok(affected.includes('run-ci-affected-tests.sh'), 'affected-tests delegates setup and base selection to its helper');
+const affectedRunner = readFileSync(new URL('../scripts/run-ci-affected-tests.sh', import.meta.url), 'utf8');
+assert.ok(affectedRunner.includes('git rev-parse HEAD^1'), 'affected-tests uses the PR merge base, not a stale event payload');
+assert.ok(affectedRunner.includes('affected-tests merge base: $PR_BASE'), 'affected-tests logs the base used for selection');
+assert.ok(affectedRunner.includes('affected-tests dependency setup duration: $((SECONDS - started))s'),
+  'affected-tests logs dependency setup duration');
 for (const guard of ['base_branch_literal_guard', 'state_owners', 'placement_rule', 'non_transition_facade', 'waiting_descriptor', 'application_child_order', 'health_scanner_child_order']) {
   assert.ok(affected.includes(`${guard}_test.exs`), `fast CI includes ${guard}`);
 }
-assert.ok(affected.includes('run-ci-affected-tests.py "$PR_BASE"'));
+assert.ok(affectedRunner.includes('run-ci-affected-tests.py "$PR_BASE"'));
 assert.ok(jobs.get('lint').includes('mix compile --warnings-as-errors'));
 assert.ok(jobs.get('workflow-security').includes('node scripts/test-ci-events.mjs'));
 const packageJson = JSON.parse(readFileSync(new URL('../src/browser/package.json', import.meta.url), 'utf8'));
 const coreCommands = [...packageJson.scripts['test:core'].matchAll(/npm run (test:[\w:-]+)/g)].map(([, name]) => name);
-const shardScript = readFileSync(new URL('../src/browser/scripts/run-browser-smoke-shard.mjs', import.meta.url), 'utf8');
-const shardCommands = [...shardScript.matchAll(/'(test:[\w:-]+)'/g)].map(([, name]) => name);
+const { shards } = await import('../src/browser/scripts/run-browser-smoke-shard.mjs');
+const browserSuites = await import('../src/browser/scripts/browser-suites.mjs');
+const shardCommands = Object.values(browserSuites.shardCommands(shards)).flat().filter((name) => name.startsWith('test:'));
+assert.ok(coreCommands.includes(browserSuites.SUITE_SCRIPT), 'test:core runs discovered home suites');
+coreCommands.splice(coreCommands.indexOf(browserSuites.SUITE_SCRIPT), 1, ...browserSuites.discoverSuites().map(browserSuites.suiteCommand));
 for (const command of coreCommands) {
   assert.equal(shardCommands.filter((name) => name === command).length, 1, `${command} appears in exactly one browser shard`);
 }

@@ -16,6 +16,8 @@ The endpoint serves packaged dashboard hooks, styles, fonts, logos, and provider
 
 Content-addressed layout vendor files remain on their verified router paths; vendor manifests, provenance, sources, and licenses are not exposed.
 
+Fleet rows show an **adopted** badge after a successful `restart --keep-agents`; its tooltip identifies the handoff. Use `aiur status --handoff --json` for provider and session identity checks.
+
 The Units catalog reconciles retained current-run membership with the latest fresh orchestrator snapshot. After a daemon generation change, current agents remain visible while membership catches up; counts are marked partial if that membership source is unavailable.
 
 A periodic reconciliation also recovers agents that existed without a dispatch notification, so an unknown catalog is never presented as an exact zero.
@@ -24,6 +26,12 @@ The Units summary keeps progress useful while member weight facts catch up. If
 some members have current facts, it shows the percentage derived from those
 members and labels how many inputs are current. Expected post-restart catch-up
 is marked as still settling; an unhealthy refresh is marked as degraded.
+
+### Build timeline range
+
+On the build timeline, Day, Week and Month set the visible range; − and + step
+through 1–30 days. The span is kept in the link. Range controls are hidden in
+List view and return when you switch to Timeline or Gantt.
 
 ### Shared GitHub quota
 

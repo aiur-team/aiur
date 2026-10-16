@@ -38,6 +38,18 @@ defmodule Aiur.Events.GithubCIPollerEvaluationTest do
              )
   end
 
+  test "a failed run that predates the last reopen is ignored, and later PR activity does not hide a real failure" do
+    failed = %{"name" => "ci gate", "status" => "completed", "conclusion" => "failure", "started_at" => "2026-10-16T07:40:00Z", "completed_at" => "2026-10-16T07:41:00Z"}
+    pr = %{"number" => 71, "head" => pr_head("aiur/42", "current-head"), "base" => %{"ref" => "main"}, "draft" => false}
+    poll_with = fn pr -> poll(["42"], ci_batch: %{"42" => %{pull_request: pr, check_runs: [failed], commit_status: %{"statuses" => []}}}) end
+
+    assert {:ok, %{results: [%{decision: :pending, pending_reason: :stale_ci_evidence}]}} = poll_with.(Map.put(pr, "reopened_at", "2026-10-16T07:54:00Z"))
+
+    # A comment, label or review moves `updatedAt` but is not a reopen.
+    assert {:ok, %{results: [%{decision: :failed}]}} = poll_with.(Map.put(pr, "updated_at", "2026-10-16T08:00:00Z"))
+    assert {:ok, %{results: [%{decision: :failed}]}} = poll_with.(Map.put(pr, "reopened_at", "2026-10-16T07:30:00Z"))
+  end
+
   test "uses the combined-status aggregate when contexts are absent" do
     assert %{decision: :passed, failures: []} =
              GithubCIPoller.evaluate_for_test([], %{"state" => "success", "statuses" => []})
