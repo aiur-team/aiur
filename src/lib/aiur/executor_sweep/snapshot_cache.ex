@@ -34,14 +34,9 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
 
   defp local_snapshot do
     decisions =
-      if Process.whereis(Aiur.DecisionStore) do
-        Aiur.DecisionStore.list()
-        |> Enum.map(fn decision ->
-          %{id: decision.decision_id, blocking: decision.blocking, status: Atom.to_string(decision.decision_status), created_at: decision.created_at}
-        end)
-      else
-        []
-      end
+      Enum.map(list_decisions(), fn decision ->
+        %{id: decision.decision_id, blocking: decision.blocking, status: Atom.to_string(decision.decision_status), created_at: decision.created_at}
+      end)
 
     queue = Aiur.BuildQueue.show()
     {fleet, dispatcher_service} = fleet_snapshot()
@@ -71,6 +66,12 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     }
   rescue
     _ -> %{decisions: [], queue_sets: [], idle_slots: 0, focus_set: nil, ci_wait: [], rework_attempts: [], services: []}
+  end
+
+  defp list_decisions do
+    Aiur.Commands.list_decisions()
+  catch
+    :exit, _ -> []
   end
 
   @doc false
@@ -330,7 +331,10 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
 
   defp timestamp(_), do: nil
 
-  defp value(map, key, default) do
-    Map.get(map, key, Map.get(map, String.to_atom(key), default))
-  end
+  # Cached GitHub rows use string keys and local state uses atom keys; accept either spelling.
+  defp value(map, key, default) when is_map(map), do: Map.get(map, key, Map.get(map, other_key(key), default))
+  defp value(_map, _key, default), do: default
+
+  defp other_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp other_key(key) when is_binary(key), do: String.to_atom(key)
 end

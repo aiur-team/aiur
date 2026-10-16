@@ -2,19 +2,10 @@
 R-declared	Aiur.AgentEventLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ControlCLI.Protocol	MP-R1-C9-T11 control-cli protocol shared with moved executor verbs
 R-declared	Aiur.ControlCLI.Reasons	MP-R1-C9-T11 control-cli protocol shared with moved executor verbs
-R-declared	Aiur.CurrentRunMembership	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Events.Sanitizer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.GitHub.Client	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.GitHub.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.GitHub.PullRequests	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.GitHub.ResourceStore	#4587 sweep reads existing repository snapshots without extra GitHub requests
 R-declared	Aiur.Init.Templates	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.LandingWatch	#4587 sweep reports watcher health from the existing daemon status
 R-declared	Aiur.LaunchStateAdoption	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.MainWatch	#4587 sweep reuses cached merge-group runs from the existing main watcher
 R-declared	Aiur.Metrics	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RepoBase	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.Layout	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -22,4 +13,3 @@ R-down	Aiur.ControlCLI.Protocol	MP-R1-C9-T11 control-cli protocol shared with mo
 R-down	Aiur.ControlCLI.Reasons	MP-R1-C9-T11 control-cli protocol shared with moved executor verbs
 R-down	Aiur.Init.Templates	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.LaunchStateAdoption	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-private	Aiur.DecisionStore	#4587 Executor sweep reads cached blocking decisions locally

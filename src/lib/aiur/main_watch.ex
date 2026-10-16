@@ -231,8 +231,14 @@ defmodule Aiur.MainWatch do
 
   defp consume({:ok, result}, server) do
     now = Keyword.get(server.opts, :now_fun, fn -> System.system_time(:millisecond) end).()
-    merge_groups = Enum.filter(result.runs, &(&1.event == "merge_group" and &1.status in ["queued", "in_progress", "waiting", "requested"]))
-    data = server.data |> Map.put(:commits, commit_order(result.commits, server.data.commits)) |> Map.put(:merge_groups, merge_groups) |> Map.put(:unavailable, false) |> Map.put(:last_error, nil)
+
+    data =
+      server.data
+      |> Map.put(:commits, commit_order(result.commits, server.data.commits))
+      |> Map.put(:merge_groups, Map.get(result, :merge_groups, []))
+      |> Map.put(:unavailable, false)
+      |> Map.put(:last_error, nil)
+
     data = observe(data, result.observations, now)
     data = %{data | commits: retained_commits(data.commits, data.state.history)}
     data = %{data | pending: data.pending ++ result.flake_events, last_completed_at: completed_at(result, server.data)}

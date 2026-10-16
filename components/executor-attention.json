@@ -31,7 +31,10 @@
   ],
   "optional": [
     "build-queue",
-    "conversations"
+    "conversations",
+    "github",
+    "github-listeners",
+    "orchestration"
   ],
   "owns": {
     "config": [

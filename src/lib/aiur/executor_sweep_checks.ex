@@ -350,6 +350,8 @@ defmodule Aiur.ExecutorSweep.Checks do
   end
 
   defp date(%DateTime{} = datetime), do: datetime
+  # MainWatch run timestamps are Unix milliseconds.
+  defp date(ms) when is_integer(ms), do: DateTime.from_unix!(ms, :millisecond)
 
   defp date(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do

@@ -241,12 +241,12 @@ defmodule Aiur.MainWatch.GitHubTest do
       cond do
         String.contains?(url, "/commits?") -> ok([%{"sha" => "base-sha", "commit" => %{"committer" => %{"date" => "2026-10-15T17:00:00Z"}}}])
         String.contains?(url, "/actions/runs?") and URI.decode_query(URI.parse(url).query)["event"] == "push" -> ok(%{"workflow_runs" => []})
-        String.contains?(url, "/actions/runs?") -> ok(%{"workflow_runs" => [merge_group]})
+        String.contains?(url, "/actions/runs?") -> ok(%{"workflow_runs" => [merge_group, %{merge_group | "id" => 43, "status" => "completed", "conclusion" => "success"}]})
         true -> flunk("an active merge-group snapshot must not fetch check evidence: #{url}")
       end
     end
 
-    assert {:ok, %{runs: [run]}} = GitHub.poll("main", ["ci"], request_fun: request, actions_write: false)
+    assert {:ok, %{runs: [], merge_groups: [run]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
     assert run.event == "merge_group"
     assert run.status == "in_progress"
     assert run.started_at == DateTime.to_unix(~U[2026-10-15 18:00:00Z], :millisecond)

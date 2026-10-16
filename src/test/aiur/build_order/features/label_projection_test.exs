@@ -176,7 +176,7 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
 
     tail =
       [Projection] ++
-        if(Aiur.LandingWatch in mods, do: [Aiur.LandingWatch], else: []) ++
+        Enum.filter([Aiur.LandingWatch, Aiur.ExecutorSweep], &(&1 in mods)) ++
         [Aiur.Experiments.Auto.Notifier, Aiur.Experiments.Auto.WindowManager]
 
     assert Enum.take(mods, -length(tail)) == tail

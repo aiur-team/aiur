@@ -32,6 +32,26 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [] = Checks.unreviewed_prs(%{snapshot | pull_requests: [%{base | reviewed_head_sha: "new"}]}, now, 1)
   end
 
+  test "threshold boundaries hold at 10, 10+1 and a configured value" do
+    now = ~U[2026-10-15 18:20:00Z]
+    pr = fn minutes -> %{number: 5, issue_number: 4, state: "open", draft: false, head_sha: "h", reviewed_head_sha: nil, ready_at: DateTime.add(now, -minutes * 60)} end
+    snapshot = fn minutes -> %{tickets: [%{number: 4, labels: ["agent:human-review"]}], pull_requests: [pr.(minutes)]} end
+
+    assert [] = Checks.unreviewed_prs(snapshot.(10), now, 10)
+    assert [%{age_ms: 660_000}] = Checks.unreviewed_prs(snapshot.(11), now, 10)
+    assert [] = Checks.unreviewed_prs(snapshot.(25), now, 25)
+    assert [_] = Checks.unreviewed_prs(snapshot.(26), now, 25)
+    assert [] = Aiur.ExecutorSweep.findings(snapshot: snapshot.(11), now: now, unreviewed_pr_minutes: 25)
+  end
+
+  test "flags a stale merge-group run reported by MainWatch in Unix milliseconds" do
+    now = ~U[2026-10-15 18:20:00Z]
+    started_at = DateTime.to_unix(~U[2026-10-15 16:00:00Z], :millisecond)
+    snapshot = %{merge_groups: [%{name: "run 44", state: "in_progress", started_at: started_at}]}
+
+    assert [%{kind: "stale_merge_group", age_ms: 8_400_000}] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_merge_group"))
+  end
+
   test "does not treat an old-head approval as current approval" do
     snapshot = %{pull_requests: [%{number: 10, state: "open", head_sha: "new", approved_head_sha: "old", review_decision: "APPROVED", in_merge_queue: false, auto_merge: false, required_checks: []}]}
 
