@@ -6,24 +6,13 @@ defmodule Aiur.LandingWatch.MergeGroupJournal do
   @spec claim_merge_group_run(pos_integer(), keyword()) ::
           {:ok, :new | :already_claimed} | {:error, term()}
   def claim_merge_group_run(run_id, opts) when is_integer(run_id) and run_id > 0 do
-    Journal.update(opts, fn state ->
-      runs = Map.get(state, "merge_group_runs", %{})
-      run_key = Integer.to_string(run_id)
-
-      if Map.has_key?(runs, run_key) do
-        {:ok, state, :already_claimed}
-      else
-        runs =
-          runs
-          |> Map.put(run_key, System.system_time(:millisecond))
-          |> Enum.sort_by(&elem(&1, 1), :desc)
-          |> Enum.take(500)
-          |> Map.new()
-
-        {:ok, Map.put(state, "merge_group_runs", runs), :new}
-      end
-    end)
+    claim_run(run_id, "merge_group_runs", opts)
   end
+
+  @spec claim_quarantine_merge_group_run(pos_integer(), keyword()) ::
+          {:ok, :new | :already_claimed} | {:error, term()}
+  def claim_quarantine_merge_group_run(run_id, opts) when is_integer(run_id) and run_id > 0,
+    do: claim_run(run_id, "quarantine_merge_group_runs", opts)
 
   @spec reserve_merge_group_requeue(integer(), keyword()) ::
           :ok | {:error, :merge_group_requeue_limit_reached | term()}
@@ -61,10 +50,38 @@ defmodule Aiur.LandingWatch.MergeGroupJournal do
 
   @spec release_merge_group_run(pos_integer(), keyword()) :: :ok | {:error, term()}
   def release_merge_group_run(run_id, opts) when is_integer(run_id) and run_id > 0 do
+    release_run(run_id, "merge_group_runs", opts)
+  end
+
+  @spec release_quarantine_merge_group_run(pos_integer(), keyword()) :: :ok | {:error, term()}
+  def release_quarantine_merge_group_run(run_id, opts) when is_integer(run_id) and run_id > 0,
+    do: release_run(run_id, "quarantine_merge_group_runs", opts)
+
+  defp claim_run(run_id, journal_key, opts) do
+    Journal.update(opts, fn state ->
+      runs = Map.get(state, journal_key, %{})
+      run_key = Integer.to_string(run_id)
+
+      if Map.has_key?(runs, run_key) do
+        {:ok, state, :already_claimed}
+      else
+        runs =
+          runs
+          |> Map.put(run_key, System.system_time(:millisecond))
+          |> Enum.sort_by(&elem(&1, 1), :desc)
+          |> Enum.take(500)
+          |> Map.new()
+
+        {:ok, Map.put(state, journal_key, runs), :new}
+      end
+    end)
+  end
+
+  defp release_run(run_id, journal_key, opts) do
     run_key = Integer.to_string(run_id)
 
     Journal.update(opts, fn state ->
-      {:ok, Map.put(state, "merge_group_runs", Map.delete(Map.get(state, "merge_group_runs", %{}), run_key))}
+      {:ok, Map.put(state, journal_key, Map.delete(Map.get(state, journal_key, %{}), run_key))}
     end)
   end
 end

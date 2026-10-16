@@ -3,7 +3,7 @@ pageClass: cli-reference
 ---
 # CLI
 
-Without local config, `aiur` and `aiurdev` use `~/.aiur/config`. Global launches announce the config and `origin` target, then ensure workflow/marker and complexity labels, without model labels. `aiur init` provisions `flake` for [CI failure evidence](/apis/github#ci-failure-evidence). Local config takes precedence.
+Without local config, `aiur` and `aiurdev` use `~/.aiur/config`. Global launches announce the config and `origin` target, then ensure workflow/marker and complexity labels, without model labels. `aiur init` provisions `flake` for [CI failure evidence](/apis/ci-failure-evidence). Local config takes precedence.
 
 `aiur` exists so an **agent can run Aiur on your behalf**; humans can type the commands or watch the TUI and dashboard while their Executor agent drives.
 
@@ -61,7 +61,7 @@ Background runs persist daemon Logger messages at `<logs-root>/log/aiur.log` wit
 
 `CI WAIT` lists tickets, PRs, recovery state (including `draft_pr`) and failing checks, including tickets without workers. `aiur capabilities` shows `ci=<mode> local_tests=<mode>` ([merge policy](/reference/merge-policy)).
 
-`aiur status` shows degraded CODEOWNERS trust with cause and age ([GitHub trust](/apis/github#who-aiur-trusts)). With ready work and free slots, it names preflight holds, stale polling, `awaiting dispatch`, or empty-cycle reasons and age. Prewarm holds keep their cause; unexplained empty cycles report `unknown`.
+`aiur status` shows degraded CODEOWNERS trust with cause and age ([GitHub trust](/apis/github-auth#who-aiur-trusts)). With ready work and free slots, it names preflight holds, stale polling, `awaiting dispatch`, or empty-cycle reasons and age. Prewarm holds keep their cause; unexplained empty cycles report `unknown`.
 
 The `POLL` line reports the age and freshness of the last dispatch poll attempt. A daemon that has not started a dispatch poll says so; unavailable age is never rendered as zero.
 

@@ -27,6 +27,12 @@ function imagePathsIn(markdown: string): string[] {
   )
 }
 
+function headingSlugs(markdown: string): string[] {
+  return [...markdown.matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gm)].map(([, heading]) =>
+    heading.replace(/`/g, '').toLowerCase().replace(/[^a-z0-9 -]/g, '').trim().replace(/\s+/g, '-')
+  )
+}
+
 test('every dashboard surface screenshot is published on the page that explains it', async () => {
   const websiteRoot = path.resolve(import.meta.dirname, '..')
 
@@ -231,6 +237,12 @@ test('docs group operator surfaces and API guidance without dense prose', async 
   const sidebar = await readFile(path.join(docsRoot, '.vitepress/config.ts'), 'utf8')
   const configuration = byRelativePath.get('reference/configuration.md') ?? ''
   const github = byRelativePath.get('apis/github.md') ?? ''
+  const githubPolling = byRelativePath.get('apis/github-polling.md') ?? ''
+  const githubBudgets = byRelativePath.get('apis/github-budgets.md') ?? ''
+  const githubCosts = byRelativePath.get('apis/github-costs.md') ?? ''
+  const githubWebhooks = byRelativePath.get('apis/github-webhooks.md') ?? ''
+  const githubAuth = byRelativePath.get('apis/github-auth.md') ?? ''
+  const githubAgentCache = byRelativePath.get('apis/github-agent-cache.md') ?? ''
   const elevenLabs = byRelativePath.get('apis/elevenlabs.md') ?? ''
   const streamDeck = byRelativePath.get('guide/stream-deck.md') ?? ''
 
@@ -239,17 +251,49 @@ test('docs group operator surfaces and API guidance without dense prose', async 
   expect(sidebar).toMatch(/text: 'Interfaces'[\s\S]*text: 'TUI'[\s\S]*text: 'CLI'[\s\S]*text: 'GUI'[\s\S]*text: 'Stream Deck'/)
   expect(sidebar).toMatch(/text: 'Concepts'[\s\S]*text: 'Skills'/)
   expect(sidebar).toMatch(/text: 'APIs'[\s\S]*text: 'GitHub'[\s\S]*text: 'ElevenLabs'/)
+  expect(sidebar).toContain("link: '/apis/github-polling'")
+  expect(sidebar).toContain("link: '/apis/github-budgets'")
+  expect(sidebar).toContain("link: '/apis/github-costs'")
+  expect(sidebar).toContain("link: '/apis/github-webhooks'")
+  expect(sidebar).toContain("link: '/apis/github-auth'")
+  expect(sidebar).toContain("link: '/apis/github-agent-cache'")
+  expect(github).toContain('/apis/github-polling')
+  expect(githubPolling).toContain('## Poll cadence')
+  expect(githubBudgets).toContain('### Reading these numbers without fooling yourself')
+  expect(githubCosts).toContain('Actions attempts (`ci_recovery`)')
+  expect(githubWebhooks).toContain('`AIUR_GITHUB_WEBHOOK_SECRET`')
+  expect(githubAuth).toContain('## GitHub App authentication')
+  expect(githubAuth).toContain('## Human-review base checks')
+  expect(githubAgentCache).toContain('## Shared agent reads')
+  expect(headingSlugs(github)).toEqual(expect.arrayContaining([
+    'repository-setup-from-global-defaults',
+    'what-aiur-polls',
+    'build-order-membership-recovery',
+    'credential-pooling',
+    'what-pooling-is-worth',
+    'human-review-base-checks',
+    'experiment-window-evidence'
+  ]))
+  for (const [, contents] of markdown) {
+    for (const [, target, fragment] of contents.matchAll(/\]\(\/(apis\/github-[^)#]+)#([a-z0-9-]+)\)/g)) {
+      const targetMarkdown = byRelativePath.get(`${target}.md`) ?? ''
+      expect(headingSlugs(targetMarkdown), `${target}#${fragment} must target a heading`).toContain(fragment)
+    }
+  }
+  for (const [name, contents] of Object.entries({ github, githubPolling, githubBudgets, githubCosts, githubWebhooks, githubAuth, githubAgentCache })) {
+    expect(contents.split('\n').length, `${name} exceeds the 500-line docs limit`).toBeLessThanOrEqual(500)
+  }
 
   expect(configuration).not.toContain('## GitHub webhook receiver')
   expect(configuration).not.toContain('### Choosing a poll interval')
   expect(configuration).not.toContain('### How widening interacts with polling')
-  expect(github).toContain('`POST /api/v1/github/webhook`')
-  expect(github).toContain('`AIUR_GITHUB_WEBHOOK_SECRET`')
-  expect(github).toContain('`pull_request_review_thread`')
-  expect(github).toContain('scheduled comment sweep remains the loss-recovery')
-  expect(github).toContain('`hooks.aiur.dev`')
-  expect(github).toContain('catch-all `404`')
-  expect(github).toContain('No inbound firewall rule')
+  expect(githubWebhooks).toContain('`POST /api/v1/github/webhook`')
+  expect(githubWebhooks).toContain('`AIUR_GITHUB_WEBHOOK_SECRET`')
+  expect(githubWebhooks).toContain('`pull_request_review_thread`')
+  expect(githubWebhooks).toContain('scheduled comment sweep remains the loss-recovery')
+  expect(githubAuth).toContain('`hooks.aiur.dev`')
+  expect(githubAuth).toContain('catch-all `404`')
+  expect(githubAuth).toContain('No inbound firewall rule')
   expect(elevenLabs).toContain('Speech to Text')
   expect(elevenLabs).toContain('`User`')
   expect(elevenLabs).toContain('Text to Speech')
