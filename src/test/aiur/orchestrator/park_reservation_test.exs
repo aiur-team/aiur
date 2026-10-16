@@ -50,6 +50,23 @@ defmodule Aiur.Orchestrator.ParkReservationTest do
     refute_received {:memory_tracker_remove_label, "repo#2952", "agent:parked"}
   end
 
+  test "an Executor pause on a ci-wait ticket does not hold a fleet slot" do
+    paused = %{pid: nil, ref: nil, paused_reason: :operator, control: %{status: :paused}}
+    ci_wait = %Issue{id: "4672", identifier: "repo#4672", state: "ci-wait", paused: true}
+    rework = %Issue{id: "4471", identifier: "repo#4471", state: "rework", paused: true}
+
+    running = %{
+      ci_wait.id => Map.merge(paused, %{issue: ci_wait, identifier: ci_wait.identifier}),
+      rework.id => Map.merge(paused, %{issue: rework, identifier: rework.identifier})
+    }
+
+    state = %State{max_concurrent_agents: 2, running: running}
+
+    assert State.reserved_paused_running_count(state.running) == 1
+    assert Slots.available_slots(state) == 1
+    assert {:reply, {:error, :reservation_not_held}, ^state} = Parking.park_agent_call(state, ci_wait.identifier)
+  end
+
   test "parks only pause reasons that currently hold fleet capacity" do
     for reason <- [:operator, :agent_pause_request, :input_required] do
       issue = %Issue{id: "#{reason}", identifier: "repo##{reason}", state: "in-progress", paused: true}
