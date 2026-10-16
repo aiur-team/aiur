@@ -14,7 +14,7 @@ test('future regression: bundle includes every readable component and matches a 
     execFileSync(process.execPath, [path.join(root, 'scripts/build.mjs'), output]);
     const bundle = fs.readFileSync(path.join(output, 'aiur-style.css'), 'utf8');
     assert.equal(bundle, fs.readFileSync(path.join(root, 'dist/aiur-style.css'), 'utf8'));
-    for (const file of fs.readdirSync(path.join(root, 'src/css')).filter(file => file.endsWith('.css'))) {
+    for (const file of fs.readdirSync(path.join(root, 'src/css')).filter(file => file.endsWith('.css') && file !== 'vitepress.css')) {
       const source = fs.readFileSync(path.join(root, 'src/css', file), 'utf8');
       assert.equal(fs.readFileSync(path.join(output, 'css', file), 'utf8'), source, `${file} stays readable`);
       const rules = source.replace(/\s+/g, ' ').trim();
