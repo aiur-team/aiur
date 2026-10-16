@@ -85,6 +85,14 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWorkTest do
     refute Map.has_key?(result.running, "issue-3846")
   end
 
+  test "a head SHA that is not a hex object id is never handed to git", context do
+    parent = self()
+    opts = Keyword.merge(opts(context, parent), head_sha: "--output=/tmp/x", unmerged_commits_fun: fn _, _ -> flunk("git was called") end)
+    StrandedWork.mark_merged(state(context.workspace), "3846", opts)
+
+    assert_received :terminated
+  end
+
   defp state(workspace) do
     issue = %Issue{id: "issue-3846", identifier: "3846", state: "human-review"}
 

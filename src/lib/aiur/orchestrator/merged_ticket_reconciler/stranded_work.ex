@@ -26,7 +26,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
     workspace = if is_map(entry), do: Map.get(entry, :workspace_path)
     head_sha = Keyword.get(opts, :head_sha)
 
-    if is_binary(workspace) and is_binary(head_sha) do
+    # The SHA becomes a git argument, so only a hex object id is accepted.
+    if is_binary(workspace) and is_binary(head_sha) and head_sha =~ ~r/\A[0-9a-f]{7,64}\z/ do
       TrackerTasks.run(
         state,
         {:stranded_work, identifier},
