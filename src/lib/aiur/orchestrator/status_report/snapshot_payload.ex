@@ -153,6 +153,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       repl_attach_command: Socket.attach_command(metadata),
       live_conversation: Map.get(metadata, :live_conversation),
       codex_app_server_pid: Map.get(metadata, :codex_app_server_pid),
+      provider_pid: metadata[:codex_app_server_pid] || metadata[:repl_os_pid] || metadata[:headless_os_pid],
       agent_input_tokens: Map.get(metadata, :agent_input_tokens, 0),
       agent_output_tokens: Map.get(metadata, :agent_output_tokens, 0),
       agent_total_tokens: Map.get(metadata, :agent_total_tokens, 0),
