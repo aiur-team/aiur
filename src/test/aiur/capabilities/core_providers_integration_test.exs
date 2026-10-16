@@ -24,8 +24,9 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
     Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.put(previous_config, :server, false))
 
     on_exit(fn ->
-      Application.put_env(:aiur, AiurWeb.Endpoint, previous_config)
+      # Restart first: HttpServer writes a fresh secret_key_base the restore must overwrite.
       Supervisor.restart_child(Aiur.Supervisor, Aiur.HttpServer)
+      Application.put_env(:aiur, AiurWeb.Endpoint, previous_config)
     end)
 
     Aiur.TestSupport.start_owned_endpoint!()

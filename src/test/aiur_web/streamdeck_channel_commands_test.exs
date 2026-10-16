@@ -25,7 +25,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       store = Endpoint.config(:decision_store)
       assert is_pid(store) and Process.alive?(store)
       socket = joined_socket()
-      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"}, 1_000)
 
       assert_push("commands", payload)
       assert_receive {:fake_decision_query, :hit}, 1000
@@ -41,7 +41,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
     test "commands_page replies with the next page" do
       socket = joined_socket()
-      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"}, 1_000)
       assert_push("commands", _payload)
 
       # The cursor is the opaque encoding the store hands back on the previous
@@ -59,7 +59,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
     test "answer_command records an operator-attributed answer" do
       socket = joined_socket()
-      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"}, 1_000)
       assert_push("commands", _payload)
 
       assert_reply(
@@ -86,7 +86,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
     test "answer_command sends a spoken custom response instead of an option" do
       socket = joined_socket()
-      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"}, 1_000)
       assert_push("commands", _payload)
 
       assert_reply(
@@ -121,7 +121,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       end)
 
       socket = joined_socket()
-      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"}, 1_000)
       assert_push("commands", _payload)
 
       assert_reply(
@@ -138,7 +138,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
     test "answer_command rejects a malformed payload outright" do
       socket = joined_socket()
-      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"}, 1_000)
       assert_push("commands", _payload)
 
       # Neither an option nor a custom response.
@@ -172,7 +172,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       # Each of these must fall through to `invalid_answer` before touching the
       # store.
       socket = joined_socket()
-      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"}, 1_000)
       assert_push("commands", _payload)
       decision_id = command_decision("AIUR-1").decision_id
 
@@ -201,7 +201,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       end)
 
       socket = joined_socket()
-      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"}, 1_000)
       assert_push("commands", _payload)
 
       assert_reply(
@@ -332,7 +332,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
                )
 
       socket = joined_socket()
-      assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"})
+      assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"}, 1_000)
       assert_push("commands", _payload)
 
       # The device answers the version it read; a different version is stale.
