@@ -61,7 +61,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
       max_turns: max_turns
     }
 
-    Handoff.before_turn(app_session, turn_context)
+    app_session = Handoff.before_turn(app_session, turn_context)
 
     case if(Handoff.active_resume?(), do: :ok, else: Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host)) do
       :ok -> run_supported_turn(turn_context, app_session)

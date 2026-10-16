@@ -62,7 +62,64 @@ defmodule Aiur.AgentRunner.HandoffTest do
     Transport.close(session.port)
   end
 
-  test "direct transports snapshot for per-agent fallback and retain normal shutdown cleanup" do
+  @tag :tmp_dir
+  test "relay preflight abort reattaches and finishes the same turn in the same runner", %{tmp_dir: workspace} do
+    gate = Path.join(workspace, "go")
+    script = Path.join(workspace, "provider.py")
+
+    File.write!(script, """
+    import os, time, json
+    while not os.path.exists(#{inspect(gate)}): time.sleep(0.01)
+    print(json.dumps({'method':'turn/completed','params':{'turn':{'id':'turn-1','status':'completed'}}}), flush=True)
+    time.sleep(10)
+    """)
+
+    parent = self()
+
+    runner =
+      spawn(fn ->
+        {:ok, port} = Adapter.start_port(workspace, "python3 #{script}")
+        session = %{backend: "codex", port: port, thread_id: "thread-1", workspace: workspace}
+        context = %{issue: %Aiur.Issue{id: "1", identifier: "ISSUE-1"}, workspace: workspace, opts: [], turn_number: 1, max_turns: 1}
+        session = Handoff.before_turn(session, context)
+        send(parent, {:ready, self()})
+        send(parent, {:finished, TurnLoop.receive_loop(session, Map.merge(base_state(), %{timeout_ms: 5_000, pending_line: ""}))})
+      end)
+
+    assert_receive {:ready, ^runner}, 5_000
+    Handoff.hold(runner)
+    assert {:ok, record} = Handoff.snapshot(runner)
+    assert record["transport"]["kind"] == "relay"
+    Handoff.abort(runner)
+    File.touch!(gate)
+    assert_receive {:finished, {:ok, :turn_completed}}, 30_000
+  end
+
+  test "before_turn preflight abort returns the unchanged session to the caller" do
+    parent = self()
+    session = %{backend: "codex", thread_id: "thread-1", os_pid: 1}
+
+    runner =
+      spawn(fn ->
+        send(parent, :waiting)
+
+        receive do
+          :go -> :ok
+        end
+
+        send(parent, {:next_turn, Handoff.before_turn(session, %{})})
+      end)
+
+    assert_receive :waiting, 1_000
+    Handoff.hold(runner)
+    send(runner, :go)
+    assert {:ok, record} = Handoff.snapshot(runner)
+    assert record["transport"]["kind"] == "unsupported"
+    Handoff.abort(runner)
+    assert_receive {:next_turn, ^session}, 1_000
+  end
+
+  test "direct transport preflight abort releases the live runner without closing its provider" do
     parent = self()
 
     for {worker_host, expected} <- [{nil, "relay_protocol"}, {"remote-worker", "remote_worker"}] do
@@ -71,7 +128,7 @@ defmodule Aiur.AgentRunner.HandoffTest do
           {:ok, port} = Adapter.start_port(File.cwd!(), "exec cat", fn _ -> :ok end, relay: false)
           session = %{backend: "codex", port: port, thread_id: "thread-1", workspace: File.cwd!(), worker_host: worker_host}
           Handoff.before_turn(session, %{worker_host: worker_host, workspace: File.cwd!()})
-          send(parent, {:direct_ready, self()})
+          send(parent, {:direct_ready, self(), port})
 
           try do
             TurnLoop.receive_loop(session, Map.merge(base_state(), %{timeout_ms: 5_000, pending_line: ""}))
@@ -84,14 +141,16 @@ defmodule Aiur.AgentRunner.HandoffTest do
           end
         end)
 
-      assert_receive {:direct_ready, ^runner}, 5_000
+      assert_receive {:direct_ready, ^runner, port}, 5_000
       Handoff.hold(runner)
       assert {:ok, record} = Handoff.snapshot(runner)
       assert record["fallback_reason"] == expected
       assert record["transport"]["kind"] == "direct"
       assert record["transport"]["os_pid"] > 0
       Handoff.abort(runner)
-      assert_receive {:direct_cleaned, ^runner}, 1_000
+      assert Process.alive?(runner)
+      assert Port.info(port) != nil
+      Process.exit(runner, :shutdown)
     end
   end
 
@@ -115,7 +174,7 @@ defmodule Aiur.AgentRunner.HandoffTest do
           :go -> :ok
         end
 
-        Handoff.before_turn(%{}, %{})
+        assert Handoff.before_turn(%{}, %{}) == %{}
         send(parent, :next_turn)
       end)
 

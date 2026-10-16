@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments.AnalysisInput do
   @moduledoc "Exports the stable, flat evidence consumed by experiment analysis."
 
-  alias Aiur.Experiments.{Arms, Evidence, Journal, Paths, Persistence, Reader, Snapshot}
+  alias Aiur.Experiments.{Arms, Catalog, Evidence, Journal, Paths, Persistence, Reader, Snapshot}
 
   @spec export(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def export(id, opts \\ []) do
@@ -14,7 +14,9 @@ defmodule Aiur.Experiments.AnalysisInput do
          {:ok, spec, false} <- Reader.spec(id),
          {:ok, annotations} <- Journal.read(Paths.file(id, "annotations.ndjson")),
          {:ok, arms} <- Arms.read(id, opts) do
-      {:ok, %{id: id, spec: spec, annotations: annotations, input: build(spec, annotations, arms)}}
+      ctx = Keyword.get(opts, :context, %{})
+      catalog = Map.get_lazy(ctx, :catalog, fn -> Catalog.load(ctx) end)
+      {:ok, %{id: id, spec: spec, annotations: annotations, input: build(spec, annotations, arms, Map.get(catalog, :metrics, %{}))}}
     else
       {:ok, _spec, true} -> {:error, :newer_spec}
       error -> error
@@ -34,8 +36,8 @@ defmodule Aiur.Experiments.AnalysisInput do
     end
   end
 
-  @spec build(map(), [map()], map()) :: map()
-  def build(spec, annotations, arms) do
+  @spec build(map(), [map()], map(), map()) :: map()
+  def build(spec, annotations, arms, definitions \\ %{}) do
     rows =
       for {group, arm} <- arms["arms"],
           {metric, evidence} <- arm["metrics"],
@@ -59,7 +61,20 @@ defmodule Aiur.Experiments.AnalysisInput do
       "rows" => Enum.sort_by(rows, &{&1["metric"], &1["group"], &1["unit_id"], &1["observed_at"]})
     }
 
+    metadata = metric_metadata(spec, definitions)
+    input = if metadata == %{}, do: input, else: Map.put(input, "metric_metadata", metadata)
     Map.put(input, "input_sha256", Evidence.hash(input))
+  end
+
+  defp metric_metadata(spec, definitions) do
+    for metric <- Map.get(spec, "metrics", []),
+        ref = metric["ref"],
+        definition = definitions[ref],
+        not is_nil(definition),
+        metadata = Map.get(definition, :strata_metadata, %{}),
+        metadata != %{},
+        into: %{},
+        do: {ref, %{"strata_metadata" => metadata}}
   end
 
   defp strata(attrs, fields) do

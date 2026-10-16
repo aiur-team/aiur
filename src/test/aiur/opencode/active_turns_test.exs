@@ -7,8 +7,8 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
     # Application starts the GenServer; ensure a fresh-looking table by
     # using unique identifiers per test rather than truncating shared state.
     #
-    # ActiveTurns is near the end of the `:rest_for_one` tree, so any earlier
-    # child's restart also restarts it. The supervisor call inside
+    # ActiveTurns starts early in the `:rest_for_one` tree, but an earlier
+    # child's restart still restarts it. The supervisor call inside
     # `ensure_runtime_children_running/0` returns only after a restart that is
     # already in progress is complete.
     assert Aiur.TestSupport.ensure_runtime_children_running() == :ok
@@ -17,6 +17,33 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
   end
 
   describe "lookup/2" do
+    test "concurrent put/2 calls share the GenServer-owned table" do
+      id = "concurrent-#{System.unique_integer()}"
+
+      results =
+        1..64
+        |> Task.async_stream(fn n -> ActiveTurns.put(id, "t-#{n}") end,
+          max_concurrency: 64,
+          timeout: 5_000
+        )
+        |> Enum.to_list()
+
+      assert Enum.all?(results, &(&1 == {:ok, :ok}))
+      assert MapSet.new(ActiveTurns.active_turn_ids(id)) == MapSet.new(Enum.map(1..64, &"t-#{&1}"))
+    end
+
+    test "table survives after a caller that writes an entry exits" do
+      id = "owner-#{System.unique_integer()}"
+      turn = "t-owner"
+      caller = spawn(fn -> ActiveTurns.put(id, turn) end)
+
+      ref = Process.monitor(caller)
+      assert_receive {:DOWN, ^ref, :process, ^caller, :normal}, 1_000
+
+      assert Process.whereis(ActiveTurns) == :ets.info(ActiveTurns, :owner)
+      assert ActiveTurns.lookup(id, turn) == :active
+    end
+
     test "returns :not_found for unregistered ids" do
       assert ActiveTurns.lookup("test-#{System.unique_integer()}", "tDEAD") == :not_found
     end
@@ -72,12 +99,6 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
       _ = :sys.get_state(pid)
 
       assert ActiveTurns.lookup(id, turn) == :not_found
-    end
-
-    test "init returns ok state and re-uses existing table" do
-      # The Application started the GenServer once already; calling init
-      # again should hit the ensure_table fallback (table already exists).
-      assert {:ok, %{}} = ActiveTurns.init([])
     end
 
     test "mark_closed is safe when GenServer is not registered" do

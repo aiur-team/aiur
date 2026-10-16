@@ -356,16 +356,17 @@ defmodule Aiur.BuildGate.StatusTest do
     self_pid = String.to_integer(System.pid())
     {pgid, 0} = System.cmd("ps", ["-o", "pgid=", "-p", System.pid()])
     live_pgid = pgid |> String.trim() |> String.to_integer()
+    {:ok, pid_namespace} = File.read_link("/proc/self/ns/pid")
 
     File.write!(
       Path.join(gate_dir, "slot-1/owner"),
-      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=a\ncommand_pgid=#{live_pgid}\n" <>
+      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=a\ncommand_pgid=#{live_pgid}\ncommand_pid_namespace=#{pid_namespace}\n" <>
         "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 30}\n"
     )
 
     File.write!(
       Path.join(gate_dir, "slot-2/owner"),
-      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=b\ncommand_pgid=999999999\n" <>
+      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=b\ncommand_pgid=999999999\ncommand_pid_namespace=#{pid_namespace}\n" <>
         "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 30}\n"
     )
 
@@ -376,5 +377,37 @@ defmodule Aiur.BuildGate.StatusTest do
     slot2 = Enum.find(holders, &(&1.slot == 2))
     assert slot1.command_alive? == true
     assert slot2.command_alive? == false
+  end
+
+  @tag @linux_only
+  test "status keeps a holder active when its PID namespace cannot be read", context do
+    slot_lock = Path.join(context.lock_dir, "slot-1.lock")
+    owner_path = Path.join(context.gate_dir, "slot-1.owner")
+    release_path = Path.join(context.gate_dir, "holder.release")
+    bash = System.find_executable("bash") || flunk("bash is required")
+
+    holder =
+      Aiur.BuildGateTestHolder.start!(
+        bash,
+        ~S"""
+        exec 8<>"$1"
+        flock 8
+        """,
+        ["build-gate-holder", slot_lock],
+        context.lock_dir,
+        release_path
+      )
+
+    File.write!(
+      owner_path,
+      "version=2\ntoken=unknown\npid=2\npgid=1\nholder_pid=2\ncommand_pgid=999999999\n" <>
+        "command_pid_namespace=unavailable\nphase=test\ncommand=mix test\n"
+    )
+
+    assert %{active: 1, holders: [%{command_alive?: nil}]} =
+             build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+    File.touch!(release_path)
+    assert_receive {^holder, {:exit_status, 0}}, 2_000
   end
 end
