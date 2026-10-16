@@ -139,7 +139,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
   # GitHub lists runs newest first; past the cap keep what was read, as the run fetcher does (#4556).
   defp read_pages(_request, _token, _url, acc, @page_limit) do
-    Logger.warning("Main failure evidence truncated at #{@page_limit} pages (#{length(acc)} runs)")
+    Logger.warning("Base-branch failure evidence truncated at #{@page_limit} pages (#{length(acc)} runs)")
     {:ok, acc}
   end
 
