@@ -6,17 +6,18 @@ defmodule Aiur.Opencode.ServerTest do
 
   # The serve resolves `opencode` from PATH. An unpinned wrapper ahead of the
   # repo's mise pin (e.g. an npx `opencode-ai` shim) runs another version with
-  # another schema, so put the pinned binary first (#4516). The suite isolates
-  # HOME and XDG dirs, so ask mise with the real home to find its installs.
+  # another schema, so put the pinned install dir `mise exec` already added to
+  # PATH first (#4516). Asking mise itself fails under the suite's isolated HOME.
   setup do
-    mise_env =
-      [{"HOME", Application.fetch_env!(:aiur, :test_original_home)}, {"MISE_QUIET", "1"}] ++
-        Enum.map(~w(XDG_CONFIG_HOME XDG_STATE_HOME XDG_DATA_HOME XDG_CACHE_HOME), &{&1, nil})
+    original_path = System.get_env("PATH", "")
 
-    with mise when is_binary(mise) <- System.find_executable("mise"),
-         {pinned, 0} <- System.cmd(mise, ["which", "opencode"], env: mise_env) do
-      original_path = System.get_env("PATH")
-      System.put_env("PATH", Path.dirname(String.trim(pinned)) <> ":" <> original_path)
+    pinned_dir =
+      original_path
+      |> String.split(":")
+      |> Enum.find(&(&1 =~ "/mise/installs/opencode/" and File.regular?(Path.join(&1, "opencode"))))
+
+    if pinned_dir do
+      System.put_env("PATH", pinned_dir <> ":" <> original_path)
       on_exit(fn -> System.put_env("PATH", original_path) end)
     end
 
@@ -98,6 +99,20 @@ defmodule Aiur.Opencode.ServerTest do
     assert System.get_env("OPENCODE_CONFIG") == poison_config_path
     assert System.get_env("OPENCODE_CONFIG_CONTENT") == poison_config
 
+    # The first request for a directory bootstraps its instance, which installs
+    # the slot's plugin deps into a fresh cache. That can outlast ApiClient's
+    # 30s timeout on a loaded host, so pay for it here under a test budget (#4516).
+    assert {:ok, %Req.Response{status: 200, body: %{"all" => providers}}} =
+             Req.get(base_url <> "/provider", params: [directory: ticket_workspace], receive_timeout: 120_000)
+
+    assert %{
+             "name" => "Aiur",
+             "options" => %{"baseURL" => "http://127.0.0.1:1/v1"},
+             "models" => models
+           } = Enum.find(providers, &(&1["id"] == "aiur"))
+
+    assert Map.has_key?(models, "issue-99")
+
     assert {:ok, session} =
              ApiClient.create_session(base_url, "99",
                model: %{providerID: "aiur", id: "issue-99"},
@@ -107,17 +122,6 @@ defmodule Aiur.Opencode.ServerTest do
     try do
       assert session["directory"] == ticket_workspace
       refute File.exists?(Path.join(ticket_workspace, "opencode.json"))
-
-      assert {:ok, %Req.Response{status: 200, body: %{"all" => providers}}} =
-               Req.get(base_url <> "/provider", params: [directory: ticket_workspace])
-
-      assert %{
-               "name" => "Aiur",
-               "options" => %{"baseURL" => "http://127.0.0.1:1/v1"},
-               "models" => models
-             } = Enum.find(providers, &(&1["id"] == "aiur"))
-
-      assert Map.has_key?(models, "issue-99")
 
       # SessionPrompt persists the user message before it waits for the model
       # stream. Keep that production request in flight and inspect the real
@@ -136,7 +140,7 @@ defmodule Aiur.Opencode.ServerTest do
     end
   end
 
-  defp await_session_message_seq(db_path, session_id, attempts \\ 40)
+  defp await_session_message_seq(db_path, session_id, attempts \\ 200)
 
   defp await_session_message_seq(_db_path, _session_id, 0), do: flunk("SessionPrompt did not persist session_message.seq")
 
