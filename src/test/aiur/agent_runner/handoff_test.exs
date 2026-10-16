@@ -62,7 +62,7 @@ defmodule Aiur.AgentRunner.HandoffTest do
     Transport.close(session.port)
   end
 
-  test "direct transports snapshot for per-agent fallback and retain normal shutdown cleanup" do
+  test "direct transport preflight abort releases the live runner without closing its provider" do
     parent = self()
 
     for {worker_host, expected} <- [{nil, "relay_protocol"}, {"remote-worker", "remote_worker"}] do
@@ -71,7 +71,7 @@ defmodule Aiur.AgentRunner.HandoffTest do
           {:ok, port} = Adapter.start_port(File.cwd!(), "exec cat", fn _ -> :ok end, relay: false)
           session = %{backend: "codex", port: port, thread_id: "thread-1", workspace: File.cwd!(), worker_host: worker_host}
           Handoff.before_turn(session, %{worker_host: worker_host, workspace: File.cwd!()})
-          send(parent, {:direct_ready, self()})
+          send(parent, {:direct_ready, self(), port})
 
           try do
             TurnLoop.receive_loop(session, Map.merge(base_state(), %{timeout_ms: 5_000, pending_line: ""}))
@@ -84,14 +84,16 @@ defmodule Aiur.AgentRunner.HandoffTest do
           end
         end)
 
-      assert_receive {:direct_ready, ^runner}, 5_000
+      assert_receive {:direct_ready, ^runner, port}, 5_000
       Handoff.hold(runner)
       assert {:ok, record} = Handoff.snapshot(runner)
       assert record["fallback_reason"] == expected
       assert record["transport"]["kind"] == "direct"
       assert record["transport"]["os_pid"] > 0
       Handoff.abort(runner)
-      assert_receive {:direct_cleaned, ^runner}, 1_000
+      assert Process.alive?(runner)
+      assert Port.info(port) != nil
+      Process.exit(runner, :shutdown)
     end
   end
 

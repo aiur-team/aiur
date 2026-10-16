@@ -113,7 +113,7 @@ defmodule Aiur.AgentRunner.Handoff do
 
     Process.put(:handoff_detached, is_nil(fallback_reason))
     send(from, {ref, {:ok, record}})
-    park(record)
+    park(record, session, state)
   end
 
   defp display_state do
@@ -125,22 +125,28 @@ defmodule Aiur.AgentRunner.Handoff do
     :exit, _ -> nil
   end
 
-  defp park(record) do
+  defp park(record, original_session, turn_state) do
     receive do
       :handoff_abort ->
-        if record["fallback_reason"], do: exit(:normal)
-        generation = record["transport"]["generation"] || 0
+        resumed =
+          if record["fallback_reason"] do
+            original_session
+          else
+            generation = record["transport"]["generation"] || 0
 
-        case attach(record, generation + 1) do
-          {:ok, session} -> Aiur.CodingAgent.stop_session(session)
-          _ -> :ok
-        end
+            case attach(record, generation + 1) do
+              {:ok, session} -> session
+              _ -> exit(:handoff_abort_restore_failed)
+            end
+          end
 
-        exit(:normal)
+        Process.put(:handoff_detached, false)
+        Process.delete(:handoff_hold)
+        Aiur.AppServer.TurnLoop.receive_loop(resumed, turn_state)
 
       {:handoff_snapshot, from, ref} ->
         send(from, {ref, {:ok, record}})
-        park(record)
+        park(record, original_session, turn_state)
     end
   end
 
