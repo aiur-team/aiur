@@ -45,8 +45,9 @@ defmodule Aiur.Workspace.AttributionGuard do
   cat > "$updates"
   while read local_ref local_sha remote_ref remote_sha || [ -n "${local_sha:-}" ]; do
     [ "$local_sha" = "$zero" ] && continue
-    if [ "$remote_sha" = "$zero" ]; then range="$local_sha"; else range="$remote_sha..$local_sha"; fi
-    for commit in $(git rev-list "$range" 2>/dev/null); do
+    # A new ref skips commits already on a remote ref, so inherited base history is out of scope (#4623).
+    if [ "$remote_sha" = "$zero" ]; then range="$local_sha --not --remotes"; else range="$remote_sha..$local_sha"; fi
+    for commit in $(git rev-list $range 2>/dev/null); do
       if git show -s --format=%B "$commit" | awk '
         {
           line = tolower($0)
