@@ -76,7 +76,8 @@ elsewhere. Prefer the source that would still be right if every local assumption
 were wrong.
 
 **Before auditing a GitHub-facing surface, read
-[`website/docs-app/apis/github.md`](../../../website/docs-app/apis/github.md).**
+[`website/docs-app/apis/github.md`](../../../website/docs-app/apis/github.md)
+and its topic pages in `website/docs-app/apis/`.**
 It is the source of truth for how Aiur talks to GitHub — poll cadence, API
 budgets, credential pooling, the read cache, webhook delivery states, and the
 Cloudflare tunnel boundary. In the incident above it already documented the
@@ -205,6 +206,11 @@ Distinguish three things that present identically as "the fleet is idle":
 Resolve a bottleneck when it can be done without adding much complexity. Do not
 invent work.
 
+When a feature looks starved, inspect the focus feature's GitHub `blocked_by`
+critical path and its open blocking decisions before changing queue ranks or
+holds. A downstream ticket waiting on a real prerequisite is not a queue-rank
+problem.
+
 **When the bottleneck is review, the remedy is parallel review, not fewer
 agents.** A queue that is growing with nothing approved is the Executor's own
 throughput ceiling, and it is the most common steady-state bottleneck once the
@@ -254,29 +260,22 @@ now, and advance it. States that repeatedly sit unnoticed here:
 of ten tickets recovered this way already had one; a blanket re-dispatch would
 have duplicated all nine.
 
-### 3a. Sweep the landing path every pass
+### 3a. Run the Executor sweep every pass
 
-The path from "approved" to "merged" is where finished work goes to wait unseen.
-On 2026-10-14 the Executor found **24 approved PRs** sitting on a red `ci gate`
-that came only from concurrency-cancelled runs, plus **12 merge-group runs** for
-5 build slots, because nobody swept this path. Run these queries on every pass
-and act on each hit:
+Run `aiur executor-sweep` on every pass and act on every finding before routine
+scheduling. It covers stale blocking decisions, approved PRs not landing or red,
+merge-queue health, held queues and idle capacity, feature ordering, ticket state
+hygiene, repeated unchanged-PR handbacks, and service health. Its first-priority
+finding is an open, non-draft PR whose ticket is in `agent:human-review` without
+a review at the current head; check the reported age and review that PR first.
+The command reads local daemon state and cached GitHub resources. Do not replace
+it with a per-poll GitHub query loop. Continue the manual attribution check below
+for PRs you are about to enqueue.
 
-- **Approved, not landing:** every APPROVED PR at its current head that is
-  neither in the merge queue nor auto-merging, or whose required check is red or
-  cancelled. Classify each failure as infrastructure (cancelled or superseded run,
-  jobs that failed with no steps at 0 s, runner errors) or real; rerun the first,
-  route the second to rework.
-- **Queue health:** queue entries in `UNMERGEABLE`, failed merge-group runs, and
-  merge-group runs whose PR and base no longer match a live entry (cancel those —
-  they hold runners). Before routing a group failure to rework, check whether
-  another group containing the same PR passed the same tests (flake, not the PR).
-- **Attribution:** commits of every PR about to be enqueued, for AI
-  `Co-authored-by` trailers (the queue squash copies them into `main`).
-- **Idle capacity:** agents running vs the ceiling, against held queue sets and
-  ready tickets. A held set while slots sit idle is a finding.
-- **Loops:** the same ticket handing back an unchanged PR, or re-raising the same
-  decision, more than twice.
+Any blocking decision at least 15 minutes old is a finding: answer or escalate
+it within the mandate, and record its age. Surface newly opened decisions in the
+same pass; use the `aiur-run` [decision sweep](../aiur-run/references/decision-sweep.md)
+for the command's JSON fields and age calculation.
 
 ### 3b. Every manual step is a finding
 

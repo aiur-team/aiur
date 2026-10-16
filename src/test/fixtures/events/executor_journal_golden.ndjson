@@ -1,0 +1,2 @@
+{"id":1,"message":"ready","source":"executor_cli","topic":"executor.notify.release"}
+{"decision_id":"golden-decision","decision_version":1,"id":2,"source":"executor_cli","topic":"executor.decision.requested"}

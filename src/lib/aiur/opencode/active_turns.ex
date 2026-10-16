@@ -45,7 +45,6 @@ defmodule Aiur.Opencode.ActiveTurns do
   @spec put(String.t(), String.t()) :: :ok
   def put(identifier, aiur_turn_id)
       when is_binary(identifier) and is_binary(aiur_turn_id) do
-    ensure_table()
     :ets.insert(@table, {{identifier, aiur_turn_id}, :active, nil})
     :ok
   end
@@ -59,7 +58,6 @@ defmodule Aiur.Opencode.ActiveTurns do
   @spec mark_closed(String.t(), String.t(), term()) :: :ok
   def mark_closed(identifier, aiur_turn_id, reason)
       when is_binary(identifier) and is_binary(aiur_turn_id) do
-    ensure_table()
     prior_pid = current_subscriber_pid({identifier, aiur_turn_id})
     :ets.insert(@table, {{identifier, aiur_turn_id}, {:closed, reason}, prior_pid})
     schedule_cleanup({identifier, aiur_turn_id})
@@ -74,8 +72,6 @@ defmodule Aiur.Opencode.ActiveTurns do
   @spec lookup(String.t(), String.t()) :: state()
   def lookup(identifier, aiur_turn_id)
       when is_binary(identifier) and is_binary(aiur_turn_id) do
-    ensure_table()
-
     case :ets.lookup(@table, {identifier, aiur_turn_id}) do
       [{_, state, _pid}] -> state
       [] -> :not_found
@@ -95,8 +91,6 @@ defmodule Aiur.Opencode.ActiveTurns do
   """
   @spec active_turn_ids(String.t()) :: [String.t()]
   def active_turn_ids(identifier) when is_binary(identifier) do
-    ensure_table()
-
     :ets.foldl(
       fn
         {{^identifier, aiur_turn_id}, :active, _pid}, acc -> [aiur_turn_id | acc]
@@ -124,7 +118,7 @@ defmodule Aiur.Opencode.ActiveTurns do
 
   @impl true
   def init(_opts) do
-    ensure_table()
+    :ets.new(@table, [:named_table, :public, read_concurrency: true])
     {:ok, %{}}
   end
 
@@ -165,13 +159,6 @@ defmodule Aiur.Opencode.ActiveTurns do
     case :ets.lookup(@table, key) do
       [{_, _state, pid}] -> pid
       [] -> nil
-    end
-  end
-
-  defp ensure_table do
-    case :ets.whereis(@table) do
-      :undefined -> :ets.new(@table, [:named_table, :public, read_concurrency: true])
-      _tid -> @table
     end
   end
 end

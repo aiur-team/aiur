@@ -1,0 +1,52 @@
+defmodule Aiur.LandingWatch.QuarantineLifterTest do
+  use ExUnit.Case, async: true
+
+  alias Aiur.LandingWatch.QuarantineLifter
+
+  test "a merged fix ticket opens a PR removing its quarantine row" do
+    parent = self()
+    journal = Path.join(System.tmp_dir!(), "quarantine-lifter-#{System.unique_integer([:positive])}.json")
+    on_exit(fn -> File.rm(journal) end)
+    original = "# Quarantine list\nAiur.ExampleTest\tfixed flakes\t#900\nAiur.OtherTest\tstill flaky\t#901\n"
+
+    request = fn %{method: method, url: url} = call ->
+      send(parent, {:request, method, url, Map.get(call, :body)})
+      response(method, url, original)
+    end
+
+    assert :ok =
+             QuarantineLifter.lift(900,
+               request_fun: request,
+               token: "test-gh-token",
+               base_branch: "main",
+               journal_path: journal
+             )
+
+    assert_received {:request, :put, "https://api.github.com/repos/test-org/test-repo/contents/src/test/quarantine.txt", body}
+    {:ok, content} = Base.decode64(body["content"])
+    refute content =~ "#900"
+    assert content =~ "#901"
+    assert body["branch"] == "aiur/quarantine-lift-900-main"
+
+    assert_received {:request, :post, "https://api.github.com/repos/test-org/test-repo/pulls", pr}
+    assert pr["base"] == "main"
+    assert pr["body"] =~ "#900"
+  end
+
+  defp response(:get, "https://api.github.com/repos/test-org/test-repo/contents/src/test/quarantine.txt?ref=main", contents),
+    do: {:ok, %{status: 200, body: %{"content" => Base.encode64(contents), "sha" => "list-blob", "encoding" => "base64"}}}
+
+  defp response(:get, "https://api.github.com/repos/test-org/test-repo/git/ref/heads/main", _contents),
+    do: {:ok, %{status: 200, body: %{"object" => %{"sha" => "base-commit"}}}}
+
+  defp response(:post, "https://api.github.com/repos/test-org/test-repo/git/refs", _contents),
+    do: {:ok, %{status: 201, body: %{}}}
+
+  defp response(:put, "https://api.github.com/repos/test-org/test-repo/contents/src/test/quarantine.txt", _contents),
+    do: {:ok, %{status: 200, body: %{}}}
+
+  defp response(:post, "https://api.github.com/repos/test-org/test-repo/pulls", _contents),
+    do: {:ok, %{status: 201, body: %{}}}
+
+  defp response(method, url, _contents), do: flunk("unexpected GitHub request #{method} #{url}")
+end

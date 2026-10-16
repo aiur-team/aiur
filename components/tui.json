@@ -23,7 +23,8 @@
     "event-bus",
     "harness-adapters",
     "orchestration",
-    "projections"
+    "projections",
+    "signal"
   ],
   "optional": [],
   "owns": {

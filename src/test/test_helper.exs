@@ -4,6 +4,8 @@ contaminating_env_vars = [
   "ERL_AFLAGS",
   "AIUR_DASHBOARD_USERNAME",
   "AIUR_DASHBOARD_PASSWORD",
+  "AIUR_DEV_TEST_TICKET_IDS",
+  "AIUR_DEV_TEST_STATE_DIR",
   "AIUR_DEBUG",
   "AIUR_SUPERVISOR_TOKEN",
   "AIUR_NODE",
@@ -48,12 +50,37 @@ File.mkdir_p!(Path.dirname(global_log_file))
 # excluded elsewhere (e.g. macOS dev) rather than silently passing.
 real_proc_exclude = if File.dir?("/proc"), do: [], else: [:real_proc]
 
+workspace_root = Path.expand("../..", __DIR__)
+
+manual_sandbox_reset_exclude =
+  if System.get_env("AIUR_AGENT_WORKSPACE") || String.contains?(workspace_root, "/aiur-workspaces/"),
+    do: [:manual_sandbox_reset],
+    else: []
+
 # `:external` tests call a third-party API over the network with a real
 # credential. They are evidence gathered on demand — a measurement or a contract
 # check against the live provider — never a gate, because a gate that needs the
 # internet and someone's API key fails for reasons that have nothing to do with
 # the change under test. Run one with `mix test --only external`.
-ExUnit.start(exclude: [:external, :perf_regression, :quarantine] ++ real_proc_exclude)
+quarantine_path = Path.join(__DIR__, "quarantine.txt")
+
+quarantine_entries =
+  case Aiur.TestQuarantine.read(quarantine_path) do
+    {:ok, entries} -> entries
+    {:error, reason} -> raise "invalid test quarantine list #{quarantine_path}: #{inspect(reason)}"
+  end
+
+quarantine_filters =
+  if System.get_env("AIUR_RUN_QUARANTINED") == "1",
+    do: [],
+    else: Aiur.TestQuarantine.filters(quarantine_entries)
+
+ExUnit.start(
+  exclude:
+    [:external, :perf_regression, :quarantine] ++
+      real_proc_exclude ++
+      manual_sandbox_reset_exclude ++ quarantine_filters
+)
 
 Code.require_file("support/test_tmp.exs", __DIR__)
 
@@ -81,6 +108,7 @@ Code.require_file("support/test_support/workflow_yaml.exs", __DIR__)
 Code.require_file("support/test_support/runtime_children.exs", __DIR__)
 Code.require_file("support/test_support/processes.exs", __DIR__)
 Code.require_file("support/test_support/workflow_files.exs", __DIR__)
+Code.require_file("support/test_scope_guard.exs", __DIR__)
 Code.require_file("support/test_support.exs", __DIR__)
 Code.require_file("support/test_cleanup.ex", __DIR__)
 Code.require_file("support/test_reset_support.ex", __DIR__)

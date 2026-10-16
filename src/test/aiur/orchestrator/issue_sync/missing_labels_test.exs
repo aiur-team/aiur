@@ -45,6 +45,31 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabelsTest do
       assert healed_state.last_polled_issues[none.id].state_labels == ["rework"]
     end
 
+    test "a removed ci-wait label with no replacement restores the prior state and raises its ticket alert" do
+      stranded = %{issue("removed-ci-wait", nil) | state_labels: []}
+      topic = "ticket.#{stranded.identifier}.agent.attention.state-label-missing"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      {state, [repaired]} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{last_polled_issues: %{stranded.id => issue("removed-ci-wait", "ci-wait")}},
+          [stranded],
+          fn _, "ci-wait" -> :ok end
+        )
+
+      assert repaired.state == "ci-wait"
+      assert repaired.state_labels == ["ci-wait"]
+      assert state.last_polled_issues[stranded.id].state == "ci-wait"
+      assert_receive {:event, %{topic: ^topic} = alert}, 1000
+      assert alert["message"] =~ "repaired to ci-wait"
+    end
+
     test "leaves a zero-label ticket with no workflow evidence alone and alerts without writing" do
       topic = "ticket.its-everdred/aiur#untriaged.agent.attention.state-label-missing-no-evidence"
       Publisher.set_tracked_fn(fn _ -> true end)
@@ -74,9 +99,8 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabelsTest do
       assert is_nil(left_alone.state)
       assert healed_state.last_polled_issues == %{}
 
-      assert_receive {:event, %{topic: ^topic} = alert}, 1000
-      assert alert["needs_attention"] == true
-      assert alert["reason"] =~ "left as-is"
+      refute_receive {:event, %{topic: ^topic}}, 50
+      refute_receive {:event, %{topic: "system.fleet.state_label_missing"}}, 50
     end
 
     test "the next label poll resolves a persisted missing-label alert after restart" do
@@ -97,11 +121,16 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabelsTest do
 
         update = fn _, _ -> flunk("this observation needs no label write") end
         missing = %{recovered | state: nil, state_labels: []}
-        {state, [^missing]} = IssueSync.reconcile_contradictory_state_labels(%State{}, [missing], update)
+
+        {state, [^missing]} =
+          IssueSync.reconcile_contradictory_state_labels(%State{}, [missing], update)
+
         assert AlertFeed.active_ticket_attention?(topic)
         refute_received {:event, %{topic: ^resolved_topic}}
 
-        {state, [observed]} = IssueSync.reconcile_contradictory_state_labels(state, [recovered], update)
+        {state, [observed]} =
+          IssueSync.reconcile_contradictory_state_labels(state, [recovered], update)
+
         assert observed.state == target
         assert_received {:event, %{topic: ^resolved_topic}}
         refute AlertFeed.active_ticket_attention?(topic)
@@ -121,6 +150,15 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabelsTest do
       human_todo = %{issue("human-todo", nil) | state_labels: [], labels: ["human:todo"]}
       epic = %{issue("epic", nil) | state_labels: [], labels: ["epic:fleet"]}
 
+      Publisher.set_tracked_fn(fn _ -> true end)
+      topic = "system.fleet.state_label_missing"
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
       {healed_state, healed_issues} =
         IssueSync.reconcile_contradictory_state_labels(
           %State{},
@@ -131,6 +169,22 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabelsTest do
       assert Enum.map(healed_issues, & &1.id) == ["parked", "human-todo", "epic"]
       assert Enum.all?(healed_issues, &(&1.state_labels == []))
       assert healed_state.last_polled_issues == %{}
+      refute_receive {:event, %{topic: ^topic}}, 50
+    end
+
+    test "does not wake for a zero-label issue without prior workflow evidence" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      topic = "ticket.its-everdred/aiur#unknown.agent.attention.state-label-missing-no-evidence"
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      unknown = %{issue("unknown", nil) | state_labels: []}
+      {_state, [^unknown]} = IssueSync.reconcile_contradictory_state_labels(%State{}, [unknown], fn _, _ -> flunk("no prior state to restore") end)
+      refute_receive {:event, %{topic: ^topic}}, 50
     end
 
     test "leaves an agent:paused zero-label ticket alone and raises no attention alert" do
@@ -147,7 +201,12 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabelsTest do
         for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
       end)
 
-      held = %{issue("held", nil) | state_labels: [], paused: true, labels: ["agent:paused", "complexity:2"]}
+      held = %{
+        issue("held", nil)
+        | state_labels: [],
+          paused: true,
+          labels: ["agent:paused", "complexity:2"]
+      }
 
       {healed_state, healed_issues} =
         IssueSync.reconcile_contradictory_state_labels(

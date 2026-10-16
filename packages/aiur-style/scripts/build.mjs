@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-import { buildTokens } from '../src/tokens/build.mjs';
+import { buildTokens, tokens } from '../src/tokens/build.mjs';
 
 export function build(outputDir = path.join(packageRoot, 'dist')) {
   fs.mkdirSync(path.join(outputDir, 'css'), { recursive: true });
@@ -13,7 +13,7 @@ export function build(outputDir = path.join(packageRoot, 'dist')) {
     ['--project', path.join(packageRoot, 'tsconfig.json'), '--outDir', path.join(outputDir, 'js')],
     { cwd: packageRoot, stdio: 'inherit' });
   const cssDir = path.join(packageRoot, 'src/css');
-  const cssFiles = fs.readdirSync(cssDir).filter(file => file.endsWith('.css')).sort();
+  const cssFiles = fs.readdirSync(cssDir).filter(file => file.endsWith('.css') && file !== 'vitepress.css').sort();
   const contents = cssFiles.map(file => {
     const css = fs.readFileSync(path.join(cssDir, file), 'utf8').replace(/\r\n/g, '\n');
     // Individual CSS lives one directory deeper than the consolidated stylesheet.
@@ -28,6 +28,12 @@ export function build(outputDir = path.join(packageRoot, 'dist')) {
   for (const directory of ['fonts', 'assets']) {
     fs.cpSync(path.join(packageRoot, directory), path.join(outputDir, directory), { recursive: true });
   }
+  // VitePress uses .dark even when the host prefers light; derive its bridge from tokens.
+  const darkTokens = Object.entries(tokens.dark).map(([name, value]) =>
+    `    --aiur-${name.replaceAll('.', '-')}: ${value};`).join('\n');
+  fs.writeFileSync(path.join(outputDir, 'vitepress.css'),
+    `@layer aiur.tokens {\n  html.dark {\n    color-scheme: dark;\n${darkTokens}\n  }\n}\n` +
+    fs.readFileSync(path.join(cssDir, 'vitepress.css'), 'utf8'));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -264,8 +264,6 @@ defmodule Aiur.AgentGitHubGuard.InstallAndTokenTest do
     assert File.read!(context.calls) == "api graphql\n"
   end
 
-  # Flaky in merge groups; fix tracked in #4463.
-  @tag :quarantine
   test "refuses gh aliases and any command name the guard cannot recognise", context do
     # The denylist keys on the command name, so an alias renames the command out
     # of its reach: `alias set zz "pr merge"` then `zz 7` is a two-command merge.
