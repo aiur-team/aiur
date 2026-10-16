@@ -120,6 +120,8 @@ Aiur surfaces `human_required + reversible + all-low-risk` Commands as a
 classification warning. The store does not silently override the declared
 authority: correct it with a newer request version. The Executor floor remains
 unchanged and still refuses human-required or non-reversible Commands.
+When the ticket's acceptance criteria settle a purely engineering question, keep
+it within the Executor floor; reserve human authority for an explicit boundary.
 
 If the question has two to five bounded alternatives, you **must** encode them
 as `options` before emitting an `attention.*` or `pause.request` event. If you
