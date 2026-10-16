@@ -15,14 +15,7 @@ defmodule AiurWeb.ObservabilityApiController do
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
     conn
-    |> json(
-      Presenter.state_payload(
-        orchestrator(),
-        snapshot_timeout_ms(),
-        snapshot_fun: Endpoint.config(:snapshot_fun) || (&Aiur.Orchestrator.dashboard_snapshot/2)
-      )
-      |> legacy_snapshot_error()
-    )
+    |> json(Presenter.state_payload(orchestrator(), snapshot_timeout_ms()) |> legacy_snapshot_error())
   end
 
   @spec streamdeck_grid(Conn.t(), map()) :: Conn.t()

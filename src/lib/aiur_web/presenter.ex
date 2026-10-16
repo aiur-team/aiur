@@ -26,7 +26,7 @@ defmodule AiurWeb.Presenter do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
     orchestrator
-    |> orchestrator_payload(snapshot_timeout_ms, Keyword.get(opts, :snapshot_fun, &Orchestrator.dashboard_snapshot/2))
+    |> orchestrator_payload(snapshot_timeout_ms)
     |> Map.put(:generated_at, generated_at)
     |> Map.merge(auxiliary_payload(opts))
   end
@@ -38,8 +38,8 @@ defmodule AiurWeb.Presenter do
     Map.put(analytics_payload(opts), :experiments_available?, get_in(report, [:capabilities, "experiments", :state]) in [:available, :degraded])
   end
 
-  defp orchestrator_payload(orchestrator, snapshot_timeout_ms, snapshot_fun) do
-    case snapshot_fun.(orchestrator, snapshot_timeout_ms) do
+  defp orchestrator_payload(orchestrator, snapshot_timeout_ms) do
+    case Orchestrator.dashboard_snapshot(orchestrator, snapshot_timeout_ms) do
       {status, snapshot, freshness} when status in [:current, :stale] ->
         snapshot_payload(snapshot, freshness)
 
@@ -48,26 +48,8 @@ defmodule AiurWeb.Presenter do
 
       :orchestrator_unavailable ->
         %{error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"}}
-
-      {:unavailable, reason} ->
-        %{error: unavailable_error(reason)}
     end
   end
-
-  defp unavailable_error({reason, detail}) do
-    %{code: "snapshot_unavailable", message: "Snapshot unavailable", reason: safe_reason(reason), detail: safe_detail(detail)}
-  end
-
-  defp unavailable_error(reason) do
-    %{code: "snapshot_unavailable", message: "Snapshot unavailable", reason: safe_reason(reason)}
-  end
-
-  defp safe_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp safe_reason(reason) when is_binary(reason), do: reason
-  defp safe_reason(reason), do: inspect(reason)
-
-  defp safe_detail(detail) when is_binary(detail), do: detail
-  defp safe_detail(detail), do: inspect(detail)
 
   defp snapshot_payload(snapshot, freshness) do
     idle = Map.get(snapshot, :idle, [])
@@ -145,7 +127,7 @@ defmodule AiurWeb.Presenter do
             |> Enum.map(&recent_merge_payload/1)
             |> Enum.reject(&is_nil/1)
             |> Enum.take(@recent_merge_limit),
-          health: health,
+          health: recent_merge_health(health),
           reconciliation: reconciliation,
           message: recent_merge_message(health)
         }
@@ -183,6 +165,23 @@ defmodule AiurWeb.Presenter do
   end
 
   defp recent_merge_payload(_merge), do: nil
+
+  # RecentMergeStore reports health as an atom or a tagged tuple; tuples are not
+  # JSON-encodable, so map each tuple to a status/reason/detail object (#4647).
+  defp recent_merge_health(health) when is_atom(health), do: health
+
+  defp recent_merge_health({:corrupt, line, reason}) when is_integer(line),
+    do: %{status: "corrupt", line: line, reason: json_term(reason)}
+
+  defp recent_merge_health({status, {reason, detail}}) when is_atom(status) and is_atom(reason),
+    do: %{status: json_term(status), reason: json_term(reason), detail: json_term(detail)}
+
+  defp recent_merge_health({status, reason}) when is_atom(status), do: %{status: json_term(status), reason: json_term(reason)}
+  defp recent_merge_health(other), do: %{status: "unknown", reason: inspect(other)}
+
+  defp json_term(term) when is_atom(term), do: Atom.to_string(term)
+  defp json_term(term) when is_binary(term), do: if(String.valid?(term), do: term, else: inspect(term))
+  defp json_term(term), do: inspect(term)
 
   defp recent_merge_message(:writable), do: nil
 
