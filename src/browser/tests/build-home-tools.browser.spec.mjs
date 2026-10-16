@@ -93,7 +93,12 @@ test('span HTML invalidates cache, list omits span controls, lifecycle releases 
 test('tabs and status have complete accessible roles in every view', async ({ page }) => {
   for (const name of ['Timeline', 'Gantt', 'List']) {
     await page.getByRole('tab', { name, exact: true }).click()
-    expectAuditClean(await new AxeBuilder({ page }).include('#bd-tools-l').include('#bd-tools').include('#bd-status').analyze())
+    const audit = await new AxeBuilder({ page }).include('#bd-tools-l').include('#bd-tools').include('#bd-status').analyze()
+    // Axe cannot grade a lone U+2212 glyph. Keep every violation and every other incomplete node;
+    // span pixel/style parity checks this glyph's rendered colours against the design.
+    for (const check of audit.incomplete) check.nodes = check.nodes.filter(node =>
+      !(check.id === 'color-contrast' && node.target.join('') === 'button[data-z="1"]' && node.any.every(item => item.data?.messageKey === 'nonBmp')))
+    expectAuditClean(audit)
   }
 })
 

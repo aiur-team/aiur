@@ -27,6 +27,12 @@ some members have current facts, it shows the percentage derived from those
 members and labels how many inputs are current. Expected post-restart catch-up
 is marked as still settling; an unhealthy refresh is marked as degraded.
 
+### Build timeline range
+
+On the build timeline, Day, Week and Month set the visible range; − and + step
+through 1–30 days. The span is kept in the link. Range controls are hidden in
+List view and return when you switch to Timeline or Gantt.
+
 ### Shared GitHub quota
 
 GitHub-backed runs meter the shared agent credential's core and GraphQL budgets in the dashboard, including remaining units, reset times, rolling read/write attribution, and the top ticket consumer. Aiur raises an Executor alert at 10% remaining and pauses new dispatch until the affected window resets.
