@@ -82,4 +82,4 @@ Named workflows must run on every base push. For example, `[ci, "Publish Docker 
 
 Status reports `watcher=running|unavailable|not_running` for base CI and `landing_watcher=...` separately. The landing watcher follows approved heads through CI and queue, retries infra failures, routes real failures to rework, and counts automatic merge-group requeues by hour. Starting base watching after boot requires a daemon restart.
 
-The landing watcher does not queue a PR whose ticket is in `agent:rework` or `agent:in-progress`, so an Executor dequeue holds until the ticket returns to review.
+The landing watcher does not queue a PR whose ticket is in `agent:rework`, `agent:in-progress` or `agent:todo` (these win over a review label it still carries), so an Executor dequeue holds until the ticket returns to review.

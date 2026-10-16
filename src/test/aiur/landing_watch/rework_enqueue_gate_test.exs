@@ -8,7 +8,7 @@ defmodule Aiur.LandingWatch.ReworkEnqueueGateTest do
   test "approved PR dequeued while its ticket is in rework with a running agent is not re-enqueued" do
     parent = self()
 
-    for state <- ["rework", "in-progress"] do
+    for state <- ["rework", "in-progress", "todo"] do
       assert :ok =
                LandingWatch.process(
                  approved_observation("old-head"),
