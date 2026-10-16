@@ -2,12 +2,12 @@ defmodule AiurWeb.Build.Usage do
   @moduledoc "Protected, per-connection quota facts for the build home usage strip."
   alias Aiur.{Accounts, CodingAgent, ModelAvailability}
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.BuildOrder.SourceFreshness
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
   alias Aiur.GitHub.Quota, as: GitHubQuota
   alias AiurWeb.Build.{Read, UsageAPIs, UsageFacts}
   alias AiurWeb.OperatorControlCenter.{ModelProviders, Money, ProviderMeterSource, ProviderMetersPresenter}
   alias AiurWeb.ProviderMeterWindows
+  import Aiur.BuildOrder.SourceFreshness, only: [ms: 1]
 
   @order [:claude, :codex, :kimi, :deepseek]
   @logos [:claude, :codex, :kimi, :deepseek]
@@ -192,11 +192,6 @@ defmodule AiurWeb.Build.Usage do
     end
   end
 
-  @doc false
-  @spec ms(term()) :: integer() | nil
-  # Unlike SourceFreshness, Usage has always treated a bare integer as unknown; keep that contract.
-  def ms(at) when is_integer(at), do: nil
-  def ms(at), do: SourceFreshness.ms(at)
   @doc false
   @spec percent(term()) :: integer() | nil
   def percent(value) when is_number(value), do: value |> round() |> max(0) |> min(100)
