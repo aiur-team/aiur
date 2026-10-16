@@ -24,7 +24,7 @@ def entries(path=LIST):
         if not line or line.startswith("#"):
             continue
         fields = line.split("\t")
-        if len(fields) != 3 or not fields[0].startswith("Aiur.") or not fields[1] or not re.fullmatch(r"#?[1-9][0-9]*", fields[2]):
+        if len(fields) != 3 or not fields[0].startswith(("Aiur.", "AiurWeb.")) or not fields[1] or not re.fullmatch(r"#?[1-9][0-9]*", fields[2]):
             raise ValueError(f"invalid quarantine entry at {path}:{number}")
         result.append(tuple(fields))
     return result

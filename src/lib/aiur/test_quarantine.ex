@@ -51,6 +51,6 @@ defmodule Aiur.TestQuarantine do
   defp reverse_entries({:ok, entries}), do: {:ok, Enum.reverse(entries)}
   defp reverse_entries(error), do: error
 
-  defp valid_module?(module), do: Regex.match?(~r/^Aiur(?:\.[A-Za-z0-9_]+)+$/, module)
+  defp valid_module?(module), do: Regex.match?(~r/^Aiur(?:Web)?(?:\.[A-Za-z0-9_]+)+$/, module)
   defp valid_ticket?(ticket), do: Regex.match?(~r/^#?[1-9][0-9]*$/, ticket)
 end

@@ -3,10 +3,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   Turns a CI poll result into the pass, failure, or stale-wait transition.
   """
 
-  alias Aiur.Alerts
   alias Aiur.Events.GithubCIPoller
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert
   alias Aiur.Orchestrator.CiLifecycle.Poll
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
   alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
@@ -110,18 +110,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
   defp stale_approved_head?(_issue, _result), do: false
 
-  defp alert_stale_approved_head(issue, result) do
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.stale_approved_pr_head",
-      issue: issue.identifier,
-      message: "The PR head for #{issue.identifier} changed after its last green CI head.",
-      reason: "The new head no longer has the previously recorded green CI result. Keep the ticket out of rework until fresh CI and review establish the status of the new head.",
-      needs_attention: true,
-      severity: "critical",
-      central: true,
-      head_sha: result[:head_sha]
-    )
-  end
-
   defp transition_ci_pass(state, issue, result) do
     if LifecycleFence.handoff_blocked?(state, issue) do
       Transition.log_fenced_ci_handoff(issue, @active_handoff_state)
@@ -161,7 +149,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
     cond do
       stale_approved_head?(issue, result) ->
-        alert_stale_approved_head(issue, result)
+        state = ApprovalCarryAlert.handle(state, issue, result, opts)
 
         if HumanReview.human_review_state?(Transition.effective_ci_state(issue)) do
           Transition.transition_ci_ticket(state, issue, @ci_wait_state)

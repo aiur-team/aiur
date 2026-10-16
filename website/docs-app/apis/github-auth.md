@@ -139,6 +139,12 @@ unreadable comparisons or a file list reaching GitHub's 300-file cap also block.
 
 Comparison reads are attributed to `human_review_base_ancestry` and always contact GitHub because base movement can change verdicts. Orphan recovery reads `orphan_claim_mergeability` only after REST reports `mergeable: false`, and `orphan_claim_approval_state` after a stale-base write fails. No quota savings are claimed.
 
+A head pushed after approval is classified once per approved/new head pair: one `pulls/{n}` read and up to three compare reads, attributed to `approval_carry`.
+
+The approval carries only when the contribution diff (merge base to head) is identical, context included; hunk positions may shift with base edits above them. Any conflict resolution does not carry. The PR body `Tested head` must name the new head.
+
+A carried approval posts a PR comment and a `ticket.<id>.pr.approval_carried` info alert. Any other verdict raises `stale_approved_pr_head` with the differing hunks. Unreadable or truncated comparisons count as changed.
+
 For the next 10 handoffs after rollout, record the tested PR head, observed base SHA and overlap/conflict verdict. Count unsafe handoffs reaching review separately from harmless stale heads; the earlier 3-of-8 stale-base count is context, not an equivalent baseline for this narrower measure.
 
 
