@@ -226,4 +226,28 @@ defmodule Aiur.HandoffTest do
     refute_receive {:killed, 999_991}, 30
     assert [{{:os_pid, 999_991}, :agent, %{}}] == ProcessReaper.entries(reaper)
   end
+
+  test "paused agents are skipped without entering the snapshot barrier" do
+    {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
+    paused = %{pid: self(), issue: %Aiur.Issue{id: "paused", identifier: "paused"}, identifier: "paused", control: %{status: :paused}}
+    {:ok, owner} = start_supervised({Owner, %{running: %{"paused" => paused}, retry_attempts: %{}, dispatch_recovery: %{}}})
+    dir = Path.join(System.tmp_dir!(), "handoff-paused-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      Aiur.TestCleanup.rm_rf!(dir)
+      Handoff.reset()
+    end)
+
+    assert {:ok, %{agents: [], skipped: ["paused"]}} =
+             Handoff.prepare(
+               orchestrator: owner,
+               ledger: ledger,
+               dir: dir,
+               config_fingerprint: "config",
+               hold: fn _ -> flunk("paused runner must not be held") end,
+               snapshot: fn _ -> flunk("paused runner must not be snapshotted") end
+             )
+
+    assert {:ok, %{"agents" => []}} = Handoff.Record.read(dir: dir)
+  end
 end
