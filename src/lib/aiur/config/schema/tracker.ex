@@ -123,7 +123,7 @@ defmodule Aiur.Config.Schema.Github do
     # empty list is the single-credential default and changes nothing.
     # @config-reference config-configuration-01 tracker.github.credentials
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail tracker.github.credentials | array | `[]` | Additional GitHub credentials the daemon spreads read traffic across, so one exhausted budget does not stop the fleet. Empty — the default — means one credential resolved exactly as before. See [Credential pooling](/apis/github#credential-pooling). |
+    # @config-detail tracker.github.credentials | array | `[]` | Additional GitHub credentials the daemon spreads read traffic across, so one exhausted budget does not stop the fleet. Empty — the default — means one credential resolved exactly as before. See [Credential pooling](/apis/github-budgets#credential-pooling). |
     embeds_many(:credentials, GithubCredential, on_replace: :delete)
     # Optional. Present only when the daemon authenticates as a GitHub App and
     # therefore writes under a login the agents do not hold. Absent is the
