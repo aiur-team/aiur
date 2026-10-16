@@ -71,12 +71,23 @@ defmodule AiurWeb.Build.IndexServerTest do
     refute_received {:trace, _, :call, {:persistent_term, :put, _}}
   end
 
+  test "a mount cuts its window in the caller, not in the shared server", %{pid: pid} do
+    mfa = {Aiur.BuildOrder.Index.Pages, :window, 3}
+    :erlang.trace(pid, true, [:call])
+    :erlang.trace_pattern(mfa, true, [:local])
+    on_exit(fn -> :erlang.trace_pattern(mfa, false, [:local]) end)
+    assert {:ok, _} = Index.window(pid, "Etc/UTC")
+    ref = :erlang.trace_delivered(pid)
+    receive_barrier({:trace_delivered, ^pid, ^ref})
+    refute_received {:trace, ^pid, :call, {Aiur.BuildOrder.Index.Pages, :window, _}}
+  end
+
   test "no-op reread emits nothing; a slow read leaves cached windows available", %{pid: pid} do
     send(pid, {:running_changed, %{}})
     :sys.get_state(pid)
     send(pid, :flush)
     receive_barrier({:read_started, worker, _dirty})
-    {micros, {:ok, snapshot}} = :timer.tc(fn -> GenServer.call(pid, {:window, "Etc/UTC"}) end)
+    {micros, {:ok, snapshot}} = :timer.tc(fn -> Index.window(pid, "Etc/UTC") end)
     assert micros < 100_000
     assert snapshot.sections.now == []
     send(worker, {:return, parts()})
@@ -119,7 +130,7 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert Process.alive?(pid)
     assert_received {:build_changes, %{resync: true} = changes}
     refute Map.has_key?(changes, :sections)
-    assert {:error, :epic_config_unavailable} = GenServer.call(pid, {:window, "Etc/UTC"})
+    assert {:error, :epic_config_unavailable} = Index.window(pid, "Etc/UTC")
   end
 
   test "first backfill page signals resync instead of flooding an unbounded empty window", %{pid: pid} do
@@ -132,7 +143,7 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert_received {:build_changes, %{resync: true} = change}
     refute Map.has_key?(change, :upsert)
     refute Map.has_key?(change, :sections)
-    assert {:ok, snapshot} = GenServer.call(pid, {:window, "Etc/UTC"})
+    assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
     assert length(snapshot.sections.hist) == 2
     assert snapshot.history.total == 100
   end
@@ -151,7 +162,7 @@ defmodule AiurWeb.Build.IndexServerTest do
         id: :subscribed_index
       )
 
-    assert {:ok, _} = GenServer.call(pid, {:window, "Etc/UTC"})
+    assert {:ok, _} = Index.window(pid, "Etc/UTC")
     :erlang.trace(pid, true, [:receive])
 
     signals = [

@@ -28,7 +28,7 @@ defmodule AiurWeb.Build.IndexDaemonTest do
     receive_barrier({:tick_scheduled, ^pid, :daemon_tick, 10_000})
     :sys.get_state(pid)
     # Mount read is the initial-load barrier; restart and daemon messages may arrive in either order.
-    assert {:ok, _} = GenServer.call(pid, {:window, "Etc/UTC"})
+    assert {:ok, _} = Index.window(pid, "Etc/UTC")
     drain()
     Agent.update(block, &%{&1 | heartbeat_at: 2, observed_at: 3})
     send(pid, :daemon_tick)
