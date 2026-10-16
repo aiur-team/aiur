@@ -256,8 +256,10 @@ class Relay:
         # commands in sessions of their own, and a process cannot rejoin one.
         for _ in range(100):
             self.reap_adopted()
+            pids = descendants(os.getpid())
+            # After the listing, so a child the provider forks meanwhile is kept.
             kept = provider_session(spare) if spare else set()
-            pids = [pid for pid in descendants(os.getpid()) if pid not in kept and not zombie(pid)]
+            pids = [pid for pid in pids if pid not in kept and not zombie(pid)]
             if not pids:
                 return
             for pid in pids:

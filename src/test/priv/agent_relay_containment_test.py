@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import time
 import unittest
 
 import agent_relay_test as harness
@@ -27,6 +28,16 @@ LIVE_SHELL = ("import subprocess,sys\n"
               "open('server.pid', 'w').write(' '.join(str(server.pid) for server in servers))\n"
               "print('ready', flush=True)\n"
               "sys.stdin.readline()\n")
+
+# The provider's own short-lived children, like a shell's `$(...)`: the reap
+# must spare one forked while it runs, or the provider loses a reply.
+CHURN = ("import subprocess,sys,threading\n"
+         "def churn():\n"
+         "    while True:\n"
+         "        if subprocess.run(['true']).returncode < 0: open('killed', 'w').close()\n"
+         "threading.Thread(target=churn, daemon=True).start()\n"
+         "print('ready', flush=True)\n"
+         "sys.stdin.readline()\n")
 
 
 def state(pid):
@@ -96,6 +107,15 @@ class RelayContainmentTest(unittest.TestCase):
         for server in self.servers:
             self.assertTrue(alive(server))
         self.assertTrue(alive(hello['provider_pid']))
+
+    def test_turn_reap_spares_a_child_the_provider_forks_meanwhile(self):
+        self.start(CHURN)
+        client, stream, hello = self.connect(1)
+        self.assertEqual(self.read(stream)['line'], 'ready')
+        for _ in range(200):
+            self.send(client, op='reap')
+        time.sleep(1)
+        self.assertFalse((self.directory / 'killed').exists())
 
 
 if __name__ == '__main__':
