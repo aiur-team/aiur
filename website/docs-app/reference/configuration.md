@@ -271,6 +271,12 @@ unresolved review threads — the normal state of a rework ticket) raises
 write, so the re-queue retries on the next tick instead of silently stranding
 the ticket in rework.
 
+The same tick routes stranded error tickets: a ticket in `agent:error` whose
+open PR's latest verdict from a trusted reviewer is `CHANGES_REQUESTED` moves to
+`agent:rework` once per review and raises `system.pr_health.error_rework`
+naming the review. An error ticket with no open PR, or no blocking review, is
+left in `agent:error`.
+
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-10 -->
 | --- | --- | --- | --- |
 | `pr_health.enabled` | boolean | false | Enables the PR-health scan and the rework re-queue. |
