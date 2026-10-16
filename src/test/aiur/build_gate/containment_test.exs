@@ -240,6 +240,39 @@ defmodule Aiur.BuildGate.ContainmentTest do
   end
 
   @tag @linux_only
+  test "a holder whose live parent never writes ready fails closed at the ceiling", context do
+    mv_path = System.find_executable("mv") || flunk("mv is required")
+    write_controlled_mv!(Path.join(context.bin_dir, "mv"), mv_path)
+    release_path = Path.join(context.gate_dir, "owner-publication.release")
+    # A failed assertion must not leave the parent parked in the mv wrapper.
+    on_exit(fn -> File.write(release_path, "") end)
+
+    # The parent stays alive inside the owner publication just before `ready`.
+    run =
+      Task.async(fn ->
+        run_bash(
+          "mix test",
+          Map.merge(context, %{
+            handshake_seconds: 1,
+            hold_owner_publication: release_path,
+            hold_owner_publication_count: 2,
+            started_path: ""
+          })
+        )
+      end)
+
+    wait_for_file!(release_path <> ".waiting", 500)
+    holder_pid = wait_for_holder_pid!(context.gate_dir)
+    assert_process_gone!(holder_pid)
+    File.write!(release_path, "")
+
+    assert {_output, 125} = Task.await(run, 10_000)
+    refute File.exists?(context.log_path)
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+    assert Path.wildcard(Path.join(context.gate_dir, ".holder-*-v2.*")) == []
+  end
+
+  @tag @linux_only
   test "Mix cannot unlink or replace host-owned slot locks", context do
     lock_path = Path.join(context.lock_dir, "slot-1.lock")
     inode = File.stat!(lock_path).inode

@@ -162,9 +162,10 @@ defmodule Aiur.TestSupport.BuildGateFixtures do
       sleep 0.2
     fi
 
-    # Hold the final publication open until the test releases it.
-    gate=${AIUR_TEST_HOLD_FINAL_OWNER_MV:-}
-    if ((status == 0)) && [[ -n $gate && $destination == */slot-1.owner ]] && ((count == 3)); then
+    # Hold one publication (the final one by default) open until the test releases it.
+    gate=${AIUR_TEST_HOLD_OWNER_MV:-}
+    if ((status == 0)) && [[ -n $gate && $destination == */slot-1.owner ]] &&
+      ((count == ${AIUR_TEST_HOLD_OWNER_MV_COUNT:-3})); then
       : > "$gate.waiting"
       until [[ -e $gate ]]; do sleep 0.01; done
     fi

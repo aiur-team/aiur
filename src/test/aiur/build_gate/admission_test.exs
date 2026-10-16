@@ -13,6 +13,11 @@ defmodule Aiur.BuildGate.AdmissionTest do
     end
   end
 
+  defp release_at!(path, at_ms) do
+    Process.sleep(max(0, at_ms - System.monotonic_time(:millisecond)))
+    File.write!(path, "")
+  end
+
   test "does not inject a shell hook when operators opt out", context do
     assert BuildGate.shell_env(slots: 0, stagger_seconds: 0, min_free_memory_mb: nil) == []
 
@@ -119,13 +124,16 @@ defmodule Aiur.BuildGate.AdmissionTest do
              "test --max-cases 4"
   end
 
+  # Regression guard only: the hold ends well inside any ceiling, so main's
+  # shared deadline passes this too. The per-stage ceiling test below covers
+  # the restart-from-progress behavior.
   @tag @linux_only
   test "a delayed owner publication holds the handshake open until it lands", context do
     real_mv = System.find_executable("mv")
     write_controlled_mv!(Path.join(context.bin_dir, "mv"), real_mv)
     release_path = Path.join(context.gate_dir, "owner-publication.release")
 
-    run = Task.async(fn -> run_bash("mix compile", Map.put(context, :hold_final_owner_publication, release_path)) end)
+    run = Task.async(fn -> run_bash("mix compile", Map.put(context, :hold_owner_publication, release_path)) end)
     wait_for_file!(release_path <> ".waiting", 500)
 
     # The final publication is still open, so the run must still be waiting on it.
@@ -137,6 +145,40 @@ defmodule Aiur.BuildGate.AdmissionTest do
     assert output =~ "aiur_build_gate acquired slot=1"
     assert output =~ "aiur_build_gate released slot=1 status=0"
     refute output =~ "owner_publish_failed"
+  end
+
+  @tag @linux_only
+  test "each handshake stage restarts its ceiling from the last progress", context do
+    # Each stage stays under the ceiling, but the handshake as a whole runs
+    # past it, so a shared deadline on either side fails the run.
+    ceiling_ms = 5_000
+    real_mv = System.find_executable("mv")
+    write_controlled_mv!(Path.join(context.bin_dir, "mv"), real_mv)
+    start_gate = Path.join(context.gate_dir, "holder-start.release")
+    release_path = Path.join(context.gate_dir, "owner-publication.release")
+    started_at = System.monotonic_time(:millisecond)
+
+    run_context =
+      Map.merge(context, %{
+        handshake_seconds: div(ceiling_ms, 1_000),
+        holder_start_gate: start_gate,
+        hold_owner_publication: release_path,
+        hold_owner_publication_count: 2
+      })
+
+    run = Task.async(fn -> run_bash("mix compile", run_context) end)
+
+    # The parent waits on `started` for 0.6 of the ceiling.
+    release_at!(start_gate, started_at + div(ceiling_ms * 6, 10))
+    wait_for_file!(release_path <> ".waiting", 500)
+
+    # The holder then waits on `ready` until the whole handshake has run past
+    # the ceiling plus the parent's one-second SECONDS granularity.
+    release_at!(release_path, started_at + ceiling_ms + 1_800)
+
+    assert {output, 0} = Task.await(run, 15_000)
+    assert output =~ "aiur_build_gate released slot=1 status=0"
+    assert File.read!(context.log_path) == "compile\n"
   end
 
   test "a non-mix elixir eval passes through the gate with its arguments intact", context do
