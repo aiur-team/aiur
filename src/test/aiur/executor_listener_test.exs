@@ -248,32 +248,43 @@ defmodule Aiur.ExecutorListenerTest do
   end
 
   test "attention alerts wake the Executor when their ticket has no running agent" do
+    ticket_identifier = Integer.to_string(System.unique_integer([:positive]))
     start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
-    start_listener(inbox: @inbox_name, patterns: ["ticket.*.agent.attention.*"], reconcile?: false)
+
+    start_listener(
+      inbox: @inbox_name,
+      patterns: ["ticket.*.agent.attention.*"],
+      reconcile?: false,
+      resubscribe_interval_ms: :infinity,
+      escalation_interval_ms: :infinity
+    )
+
     Publisher.set_tracked_fn(fn _ticket -> false end)
 
     on_exit(fn -> Publisher.set_tracked_fn(fn _ticket -> true end) end)
 
     assert :ok =
-             Alerts.emit_system("ticket.3141.agent.attention.waiting_for_human",
-               issue: "3141",
+             Alerts.emit_system("ticket.#{ticket_identifier}.agent.attention.waiting_for_human",
+               issue: ticket_identifier,
                reason: "Agent has been waiting for Executor input.",
                needs_attention: true,
                severity: "warning",
                central: true
              )
 
+    topic = "ticket.#{ticket_identifier}.agent.attention.waiting_for_human"
+
     assert {:ok,
             [
               %{
-                "topic" => "ticket.3141.agent.attention.waiting_for_human",
+                "topic" => ^topic,
                 "topic_class" => "ticket.agent.attention.waiting_for_human",
-                "ticket" => "3141",
+                "ticket" => ^ticket_identifier,
                 "needs_attention" => true
               }
             ]} = ExecutorWakeInbox.wait(500, @inbox_name)
 
-    assert [%{"topic" => "ticket.3141.agent.attention.waiting_for_human"}] = ExecutorWakeInbox.pending(@inbox_name)
+    assert [%{"topic" => ^topic}] = ExecutorWakeInbox.pending(@inbox_name)
   end
 
   test "every ticket attention binding wakes the Executor when its ticket is untracked" do
@@ -282,20 +293,30 @@ defmodule Aiur.ExecutorListenerTest do
       |> Enum.filter(fn {pattern, class} -> class == "attention:auto" and String.starts_with?(pattern, "ticket.") end)
       |> Enum.map(&elem(&1, 0))
 
-    topics = Enum.map(patterns, &concrete_ticket_topic/1)
-    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
-    start_listener(inbox: @inbox_name, patterns: patterns, reconcile?: false)
+    ticket_identifier = Integer.to_string(System.unique_integer([:positive]))
+    topics = Enum.map(patterns, &concrete_ticket_topic(&1, ticket_identifier))
+    inbox = start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+
+    listener =
+      start_listener(
+        inbox: @inbox_name,
+        patterns: patterns,
+        reconcile?: false,
+        resubscribe_interval_ms: :infinity,
+        escalation_interval_ms: :infinity
+      )
+
     Publisher.set_tracked_fn(fn _ticket -> false end)
 
     on_exit(fn -> Publisher.set_tracked_fn(fn _ticket -> true end) end)
 
     for topic <- topics do
       if String.contains?(topic, ".queue.attention.") do
-        assert :ok = BuildQueueAttention.transient(:prerequisite_failed, "3141", %{})
+        assert :ok = BuildQueueAttention.transient(:prerequisite_failed, ticket_identifier, %{})
       else
         assert :ok =
                  Alerts.emit_system(topic,
-                   issue: "3141",
+                   issue: ticket_identifier,
                    message: "Attention requires Executor review.",
                    reason: "Attention requires Executor review.",
                    needs_attention: true,
@@ -305,19 +326,26 @@ defmodule Aiur.ExecutorListenerTest do
       end
     end
 
-    assert eventually(fn -> Enum.sort(Enum.map(ExecutorWakeInbox.pending(@inbox_name), & &1["topic"])) == Enum.sort(topics) end)
-    assert {:ok, records} = ExecutorWakeInbox.wait(500, @inbox_name)
+    # Every publication is sent by this test process. The listener barrier
+    # proves it handled all of them; flushing the inbox then makes the durable
+    # assertion independent of its debounce timer and host scheduling.
+    assert is_map(:sys.get_state(listener))
+    send(inbox, :flush)
+    assert is_map(:sys.get_state(inbox))
+
+    assert Enum.sort(Enum.map(ExecutorWakeInbox.pending(@inbox_name), & &1["topic"])) == Enum.sort(topics)
+    assert {:ok, records} = ExecutorWakeInbox.wait(0, @inbox_name)
     assert Enum.sort(Enum.map(records, & &1["topic"])) == Enum.sort(topics)
     assert Enum.all?(records, &(&1["count"] == 1))
     assert Enum.sort(Enum.map(ExecutorWakeInbox.pending(@inbox_name), & &1["topic"])) == Enum.sort(topics)
   end
 
-  defp concrete_ticket_topic(pattern) do
+  defp concrete_ticket_topic(pattern, ticket_identifier) do
     pattern
     |> String.split(".")
     |> Enum.with_index()
     |> Enum.map_join(".", fn
-      {"*", 1} -> "3141"
+      {"*", 1} -> ticket_identifier
       {"*", _index} -> "waiting_for_human"
       {"#", _index} -> "prerequisite_failed"
       {segment, _index} -> segment
