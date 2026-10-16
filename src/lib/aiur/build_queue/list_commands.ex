@@ -1,6 +1,6 @@
 defmodule Aiur.BuildQueue.ListCommands do
   @moduledoc false
-  alias Aiur.BuildQueue.{ListMutations, Model.Intent, QueueTriggers, Reconcile, Settings}
+  alias Aiur.BuildQueue.{ListMutations, Model.Intent, Observer, QueueTriggers, Reconcile, Settings}
 
   @spec prepare(map(), tuple()) :: {:ok, map(), list(), map(), [String.t()]} | {:error, term()}
   def prepare(state, command) do
@@ -52,10 +52,14 @@ defmodule Aiur.BuildQueue.ListCommands do
     case state.tracker.open_issue_labels(max_age) do
       {:ok, labels, observed_at} ->
         now = state.clock.()
+        missing = Enum.reject(ids, &Map.has_key?(labels, &1))
 
-        if observed_at > now or now - observed_at > max_age,
-          do: {:error, :inputs_unavailable},
-          else: {:ok, labels, Enum.reject(ids, &Map.has_key?(labels, &1))}
+        cond do
+          observed_at > now or now - observed_at > max_age -> {:error, :inputs_unavailable}
+          # The listing holds only open issues, so only a closure read tells a closed issue from one not yet polled.
+          Enum.any?(missing, &match?({:ok, %{open?: false}}, Observer.closure(state, &1))) -> {:error, :closed}
+          true -> {:ok, labels, missing}
+        end
 
       _ ->
         {:error, :inputs_unavailable}
