@@ -38,7 +38,8 @@ defmodule AiurEnginePrePrTest do
         String.duplicate("a", 40) <>
         "\nBase: `main` @ `" <> sha <> "`\nSelection: focused\n- `mix test` -> pass\n"
 
-    File.write!(pr_json, Jason.encode!(%{"number" => 123, "body" => body}))
+    # Each refresh rewrites pr.json, so every run starts again from this seed.
+    File.write!(Path.join(fixture, "pr-seed.json"), Jason.encode!(%{"number" => 123, "body" => body}))
 
     File.write!(
       Path.join(fixture, "bin/gh"),
@@ -47,7 +48,10 @@ defmodule AiurEnginePrePrTest do
       if [[ "$*" == *createdAt* ]]; then
         jq -n --arg sha "#{sha}" --arg body "$(cat "#{fixture}/edited-body.md")" --arg created_at "2026-01-01T00:00:00Z" '{created_at: $created_at, body: $body, head: {sha: $sha}}'
       elif [[ "$*" == *headRefOid* ]]; then
-        echo '{"head":{"sha":"#{sha}"}}'
+        poll=$(( $(cat "#{fixture}/polls" 2>/dev/null || echo 0) + 1 ))
+        echo "$poll" > "#{fixture}/polls"
+        (( poll > ${FAKE_MAX_POLLS:-99} )) && exit 3
+        if (( poll >= ${FAKE_HEAD_FROM_POLL:-1} )); then echo '{"head":{"sha":"#{sha}"}}'; else echo '{"head":{"sha":"#{String.duplicate("b", 40)}"}}'; fi
       elif [[ "$*" == *pulls/123* ]]; then
         [[ "${FAIL_EDIT:-0}" == 1 ]] && exit 7
         while (($#)); do
@@ -86,12 +90,7 @@ defmodule AiurEnginePrePrTest do
       """
     )
 
-    {output, status} =
-      System.cmd("bash", [Path.join(fixture, "refresh-wrapper.sh")],
-        cd: repo,
-        env: [{"PATH", Path.join(fixture, "bin") <> ":" <> System.get_env("PATH")}],
-        stderr_to_stdout: true
-      )
+    {output, status} = run_refresh(fixture, repo, [])
 
     assert status == 0, output
     refreshed = File.read!(Path.join(fixture, "edited-body.md"))
@@ -100,17 +99,45 @@ defmodule AiurEnginePrePrTest do
     refute refreshed =~ "Tested head: `"
     refute refreshed =~ "Base: `"
 
-    {_output, failed_refresh} =
-      System.cmd("bash", [Path.join(fixture, "refresh-wrapper.sh")],
-        cd: repo,
-        env: [
-          {"PATH", Path.join(fixture, "bin") <> ":" <> System.get_env("PATH")},
-          {"FAIL_EDIT", "1"}
-        ],
-        stderr_to_stdout: true
-      )
+    {output, failed_refresh} = run_refresh(fixture, repo, [{"FAIL_EDIT", "1"}])
 
     assert failed_refresh == 1
+    assert File.read!(Path.join(fixture, "polls")) == "1\n", output
+
+    # GitHub never reports the pushed head: fail after exactly the injected bound.
+    {output, never} = run_refresh(fixture, repo, [{"FAKE_HEAD_FROM_POLL", "1000"}, {"FAKE_MAX_POLLS", "3"}, {"AIUR_PRE_PR_REFRESH_ATTEMPTS", "3"}])
+    assert never == 1
+    assert output =~ "did not report pushed head #{sha}"
+    assert File.read!(Path.join(fixture, "polls")) == "3\n"
+
+    # GitHub reports the pushed head on poll 3: pass.
+    {output, late} = run_refresh(fixture, repo, [{"FAKE_HEAD_FROM_POLL", "3"}, {"FAKE_MAX_POLLS", "3"}, {"AIUR_PRE_PR_REFRESH_ATTEMPTS", "3"}])
+    assert late == 0, output
+    assert File.read!(Path.join(fixture, "polls")) == "3\n"
+  end
+
+  test "an existing PR that gh cannot read fails pre-pr" do
+    fixture = fixture("unreadable-pr")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    File.write!(Path.join(fixture, "bin/gh"), "#!/usr/bin/env bash\necho 'HTTP 502: Bad Gateway' >&2\nexit 1\n")
+
+    {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
+
+    assert status == 1
+    assert output =~ "FAIL refresh-pr-body-evidence (could not read PR with gh)"
+    assert output =~ "HTTP 502"
+  end
+
+  test "no PR yet skips the refresh and asks for a rerun after gh pr create" do
+    fixture = fixture("no-pr")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+
+    {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
+
+    assert status == 0
+    assert output =~ "SKIP refresh-pr-body-evidence (no PR yet; rerun aiur pre-pr after gh pr create)"
   end
 
   test "full-suite fallback is reported and matching reader tests run" do
@@ -342,7 +369,7 @@ defmodule AiurEnginePrePrTest do
     esac
     """
 
-    gh = "#!/usr/bin/env bash\necho 'no PR' >&2\nexit 1\n"
+    gh = "#!/usr/bin/env bash\necho 'no pull requests found for branch \"feature\"' >&2\nexit 1\n"
 
     for {name, contents} <- [{"mise", mise}, {"gh", gh}] do
       path = Path.join(bin, name)
@@ -371,6 +398,21 @@ defmodule AiurEnginePrePrTest do
     System.cmd("bash", ["-c", command],
       cd: repo,
       env: env,
+      stderr_to_stdout: true
+    )
+  end
+
+  defp run_refresh(fixture, repo, env) do
+    File.rm(Path.join(fixture, "polls"))
+    File.cp!(Path.join(fixture, "pr-seed.json"), Path.join(fixture, "pr.json"))
+
+    System.cmd("bash", [Path.join(fixture, "refresh-wrapper.sh")],
+      cd: repo,
+      env:
+        [
+          {"PATH", Path.join(fixture, "bin") <> ":" <> System.get_env("PATH")},
+          {"AIUR_PRE_PR_REFRESH_INTERVAL", "0"}
+        ] ++ env,
       stderr_to_stdout: true
     )
   end
