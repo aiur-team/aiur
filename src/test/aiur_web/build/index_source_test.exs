@@ -125,6 +125,25 @@ defmodule AiurWeb.Build.IndexSourceTest do
     send(pid, :stop)
   end
 
+  test "a dead table reads as a stopped index but a fault in the cut propagates" do
+    dead = :ets.new(:dead, [])
+    :ets.delete(dead)
+    assert IndexSource.snapshot(server: table_server(dead)) == {:error, :index_not_running}
+
+    # An out-of-range end makes the caller-side cut raise ArgumentError, which must not read as a stopped index.
+    table = :ets.new(:bad_row, [:public])
+    :ets.insert(table, [{:generation, 1}, {:index, {:ok, %{hist: [%{end: 1_000_000_000_000_000_000}], history_meta: %{total: nil}, sections: %{}}}}])
+    assert_raise ArgumentError, fn -> IndexSource.snapshot(server: table_server(table)) end
+  end
+
+  defp table_server(table) do
+    spawn_link(fn ->
+      receive do
+        {:"$gen_call", from, :table} -> GenServer.reply(from, {:ok, table, now()})
+      end
+    end)
+  end
+
   defp drain_private do
     receive do
       {:build_changes, changes} ->

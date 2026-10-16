@@ -38,9 +38,6 @@ defmodule AiurWeb.Build.IndexSource do
 
   defp guard(fun) do
     fun.()
-  rescue
-    # The server's table dies with it between the call and the read.
-    ArgumentError -> {:error, :index_not_running}
   catch
     :exit, {:timeout, _} -> {:error, :timeout}
     :exit, _ -> {:error, :index_not_running}

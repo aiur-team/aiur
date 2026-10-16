@@ -22,6 +22,14 @@ defmodule AiurWeb.Build.Index do
   @spec window(GenServer.server(), String.t(), timeout()) :: {:ok, map()} | {:error, term()}
   def window(server, zone, timeout \\ 5_000) do
     {:ok, table, now} = GenServer.call(server, :table, timeout)
+
+    with {:ok, generation, index, daemon} <- read_table(table),
+         {:ok, base} <- index,
+         do: {:ok, base |> Core.window(zone, now) |> Map.merge(%{index_generation: generation, daemon: daemon})}
+  end
+
+  # Only the table reads mean a dead index; a fault in the cut itself must propagate.
+  defp read_table(table) do
     # Generation is published after its data, so reading it first never pairs it with older data.
     [{:generation, generation}] = :ets.lookup(table, :generation)
     [{:index, index}] = :ets.lookup(table, :index)
@@ -32,7 +40,10 @@ defmodule AiurWeb.Build.Index do
         [] -> nil
       end
 
-    with {:ok, base} <- index, do: {:ok, base |> Core.window(zone, now) |> Map.merge(%{index_generation: generation, daemon: daemon})}
+    {:ok, generation, index, daemon}
+  rescue
+    # The server's table dies with it between the call and the read.
+    ArgumentError -> {:error, :index_not_running}
   end
 
   @impl true
