@@ -53,7 +53,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovedLandingFailureTest do
           failures: [%{name: "lint", result: "failure"}],
           review_decision: "APPROVED",
           auto_merge_request: nil,
-          merge_queue_entry: nil
+          merge_queue_entry: nil,
+          recovery: %{"reason" => "approved_landing_pr"}
         },
         request_fun: refreshed_request
       )
