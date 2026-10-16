@@ -11,6 +11,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
   alias Aiur.Opencode.ApiClient
+  alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Signal
   alias Aiur.Workspace.Ownership
 
@@ -44,14 +45,31 @@ defmodule Aiur.AgentRunner do
         :ok
 
       {:error, reason} ->
-        if transient_run_error?(reason, CodingAgent.backend_for(issue)) do
-          Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
-          :ok
-        else
-          message = "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}#{failure_detail(reason)}"
-          Logger.error(message)
-          raise RuntimeError, message
-        end
+        handle_run_error(issue, reason)
+    end
+  end
+
+  # A local budget hold (for example on the workspace auth preflight) exits
+  # with the structured reason instead of raising: a raise hides it inside a
+  # message string, so the retry engine booked a consuming failure retry and
+  # repeated holds exhausted into `agent:error` (#4679). With the raw reason,
+  # `RetryEngine.AgentDown` schedules a non-consuming retry after `reset_at`.
+  @doc false
+  @spec handle_run_error(Issue.t(), term()) :: :ok | no_return()
+  def handle_run_error(issue, reason) do
+    cond do
+      transient_run_error?(reason, CodingAgent.backend_for(issue)) ->
+        Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
+        :ok
+
+      PollFailure.local_budget_hold_reason(reason) ->
+        Logger.warning("Agent run deferred by local GitHub budget hold for #{issue_context(issue)}: #{inspect(reason)}; retrying after the hold resets")
+        exit(reason)
+
+      true ->
+        message = "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}#{failure_detail(reason)}"
+        Logger.error(message)
+        raise RuntimeError, message
     end
   end
 
