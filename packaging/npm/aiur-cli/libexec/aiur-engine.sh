@@ -217,6 +217,7 @@ aiur_engine_main() {
     ask | asks)
       run_asks "$@"
       ;;
+    # @cli-reference aiur --bg | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | aiur --bg
     --bg)
       dispatch_run "$@"
       ;;
