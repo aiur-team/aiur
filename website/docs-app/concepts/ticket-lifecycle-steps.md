@@ -223,14 +223,10 @@ Because omission defaults to the floor, a Command that is genuinely
 irreversible, involves spend, external publication, or changes product
 direction must declare `authority: human_required` and set
 `context.authority_basis` to `product`, `spend`, `external_publication`, or
-`security`.
+`security`. Explain the specific boundary in context; missing or unrecognized
+bases are rejected. Legacy attention projections remain human-required.
 
-Explain the specific boundary in context; missing or unrecognized bases are
-rejected. Legacy attention projections remain human-required.
-
-An Executor may reclassify an open historical decision only when it has no recorded human-only basis. Product, spend, publication, security, and legacy-attention Commands remain human-only.
-
-Reclassification records an Executor rationale and increments the Command version. A subsequent answer uses that new version, and both actions are attributed to the Executor.
+An Executor may reclassify an open historical decision only when it has no recorded human-only basis. Product, spend, publication, security, and legacy-attention Commands remain human-only. Reclassification records an Executor rationale and increments the Command version. A subsequent answer uses that new version, and both actions are attributed to the Executor.
 
 The parallel `supervisor` path additionally requires the answer's declared
 `policy_basis` to match the Decision's own authority/kind/reversibility, or it
