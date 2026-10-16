@@ -4,7 +4,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   alias Aiur.AgentRunner.ReworkChecklist
   alias Aiur.{Alerts, Issue, LocalTestEvidence}
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.Orchestrator.{ReworkGate, ReworkHandoffChecks}
+  alias Aiur.Orchestrator.ReworkGate
 
   @spec write(
           Issue.t(),
@@ -202,11 +202,13 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
            opts
          ) do
       {:blocked, checks} ->
-        ReworkHandoffChecks.alert_no_op_rework(
-          issue.identifier,
-          Keyword.get(opts, :rework_head_sha),
-          Keyword.get(opts, :rework_head_sha),
-          alert_opts(issue, checks, opts)
+        alert(
+          issue,
+          checks,
+          "Cannot hand ticket #{issue.identifier} back to human review: PR head is unchanged and required checks are failing: #{Enum.join(checks, ", ")}. Address the Executor's latest rework comment or explain why it cannot be addressed.",
+          Keyword.get(opts, :workspace),
+          Keyword.get(opts, :worker_host),
+          opts
         )
 
         {:blocked, checks}
@@ -217,25 +219,6 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   end
 
   defp rework_blockers(_issue, _target, _opts), do: :allow
-
-  defp alert_opts(issue, checks, opts) do
-    case Keyword.get(opts, :no_op_rework_alert) do
-      fun when is_function(fun, 3) ->
-        [
-          emit_alert_fun: fn _topic, payload ->
-            fun.(
-              issue,
-              checks,
-              "#{Keyword.get(payload, :reason, "required checks are failing")} Inspect the latest rework comment."
-            )
-          end
-        ] ++
-          Keyword.take(opts, [:required_checks_fetcher, :commit_ci_status_fetcher])
-
-      _ ->
-        Keyword.take(opts, [:required_checks_fetcher, :commit_ci_status_fetcher])
-    end
-  end
 
   # #4611: a PR created after the first `aiur pre-pr` keeps stale Local tests evidence; refuse the handoff until it is refreshed.
   # An unreadable PR fails open here; the `pr body` CI check and the push backstop alert still cover it.
