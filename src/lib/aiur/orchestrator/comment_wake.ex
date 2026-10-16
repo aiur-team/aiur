@@ -14,7 +14,6 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.GitHub.Issues, as: GitHubIssues
   alias Aiur.{Issue, Tracker}
-  alias Aiur.Orchestrator.CommentReworkRefusal
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TicketTransition, TrackerTasks}
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, OptimisticLedger, ReviewFindings, WorkspaceCleanup}
@@ -674,6 +673,13 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
+  # The third running-entry shape, and the one the other two branches do not
+  # cover: an entry that is present but not `:deactivated`. A worker that has
+  # just finished its turn leaves `control.status: :completed` here, and a ticket
+  # that has bounced `human-review` → `ci-wait` → `human-review` keeps its entry
+  # across the round trip — so a reviewer's `--request-changes` landing in either
+  # window routes through this function rather than the idle writer or the
+  # `:deactivated` reactivation path (#2814).
   defp protect_active_comment_delivery(state, running_entry, issue_number, source, event, attempt) do
     cond do
       not trusted_comment_event?(event) ->
@@ -682,79 +688,95 @@ defmodule Aiur.Orchestrator.CommentWake do
       benign_review_pass_comment?(event) ->
         state
 
+      already_rework?(running_entry) ->
+        # The worker still gets the review; a second rework write would only
+        # spend a GitHub call and a rework attempt (#4601).
+        OperatorMessages.enqueue_event_digest_item(state, to_string(issue_number), [event], event)
+
       true ->
         identifier = to_string(issue_number)
 
         protected_state =
           OperatorMessages.enqueue_event_digest_item(state, identifier, [event], event)
 
-        if changes_requested_review?(event) do
-          maybe_write_active_review_rework(protected_state, running_entry, issue_number, source, event, attempt)
-        else
-          issue_key = rework_issue_key(running_entry, issue_number)
+        issue_key = rework_issue_key(running_entry, issue_number)
 
-          with_comment_transition(
-            protected_state,
-            issue_key,
-            issue_number,
-            source,
-            event,
-            Map.get(running_entry, :telemetry_attempt_id),
-            attempt,
-            &apply_active_comment_protection(&1, {attempt, event, issue_number, source})
-          )
-        end
+        with_comment_transition(
+          protected_state,
+          issue_key,
+          issue_number,
+          source,
+          event,
+          Map.get(running_entry, :telemetry_attempt_id),
+          attempt,
+          fn arg1 ->
+            apply_active_comment_protection(
+              arg1,
+              {attempt, event, issue_number, source}
+            )
+          end
+        )
     end
   end
 
-  defp maybe_write_active_review_rework(state, %{issue: %Issue{state: "rework"}}, _issue_number, _source, _event, _attempt),
-    do: state
+  defp already_rework?(%{issue: %Issue{state: issue_state}}), do: DispatchPolicy.normalize_issue_state(issue_state) == "rework"
+  defp already_rework?(_running_entry), do: false
 
-  defp maybe_write_active_review_rework(state, running_entry, issue_number, source, event, attempt) do
-    issue_key = rework_issue_key(running_entry, issue_number)
+  # A gate refusal on the running-entry path used to be the quietest outcome in
+  # the whole comment-wake chain: no label write, no retry, no log line, no
+  # alert. What the operator saw was a ticket that simply stayed in
+  # `agent:human-review` after a formal `--request-changes` review, with nothing
+  # anywhere naming a decision.
+  #
+  # Refusals that are *correct* readings of a comment that is not a change
+  # request stay as quiet as they were: an untrusted author, a bot review-pass
+  # comment, an approved pull request, a review that predates the head, a plain
+  # conversation comment on a ticket whose threads are clear. What must never be
+  # quiet is a live `CHANGES_REQUESTED` review that produced no rework write — by
+  # construction a reviewer asked for a change and the ticket did not move, the
+  # review will never be delivered again, and an operator is the only thing that
+  # can release it.
+  defp refuse_active_comment_rework(%State{} = state, issue_number, source, event, reason) do
+    context = "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
 
-    with_comment_transition(
-      state,
-      issue_key,
-      issue_number,
-      source,
-      event,
-      Map.get(running_entry, :telemetry_attempt_id),
-      attempt,
-      fn outcome ->
-        apply_active_review_transition(outcome, running_entry, issue_number, source, event, attempt)
-      end
-    )
-  end
+    if changes_requested_review?(event) do
+      Logger.warning("#{source} refused rework for a changes-requested review: #{context}")
 
-  defp apply_active_review_transition(outcome, running_entry, issue_number, source, event, attempt) do
-    case outcome do
-      {:ok, state} ->
-        write_active_review_rework(state, running_entry, issue_number, source, event, attempt)
-
-      {{:skip, :no_unresolved_review_threads}, state} ->
-        write_active_review_rework(state, running_entry, issue_number, source, event, attempt)
-
-      {{:skip, reason}, state} ->
-        refuse_active_comment_rework(state, issue_number, source, event, reason)
-
-      {{:error, reason}, state} ->
-        schedule_comment_rework_retry(state, issue_number, source, event, attempt, reason)
+      emit_refused_review_rework_alert(issue_number, event, reason)
+    else
+      Logger.info("#{source} active comment rework skipped: #{context}")
     end
+
+    state
   end
 
-  defp write_active_review_rework(state, running_entry, issue_number, source, event, attempt) do
-    TrackerTasks.run(
-      state,
-      {:comment_active_rework, to_string(issue_number), make_ref()},
-      fn -> write_rework_state(to_string(rework_issue_key(running_entry, issue_number)), "rework", event) end,
-      fn current, result ->
-        apply_active_review_write(current, result, {attempt, event, issue_number, source})
+  defp emit_refused_review_rework_alert(issue_number, event, reason) do
+    emit_alert_fun =
+      case Map.get(event, :emit_alert_fun) do
+        fun when is_function(fun, 2) -> fun
+        _ -> &Alerts.emit_system/2
       end
+
+    identifier = to_string(issue_number)
+
+    emit_alert_fun.(
+      "ticket.#{identifier}.agent.attention.review_rework_refused",
+      issue: identifier,
+      message:
+        "Ticket #{identifier} received a CHANGES_REQUESTED review but was not moved to rework " <>
+          "(#{inspect(reason)}); it is still sitting in its review state.",
+      reason:
+        "The rework gate refused the transition for a live changes-requested review, and a review " <>
+          "submission is delivered only once, so nothing re-derives it. Remedy: move the ticket to " <>
+          "rework or re-review it after addressing the gate condition.",
+      needs_attention: true,
+      severity: "warning",
+      central: true
     )
   end
 
-  defp emit_idle_comment_refusal(issue_number, reason) when reason in [:parked, :unlabeled_issue, :no_open_pr, :rework_attempt_limit_reached] do
+  defp emit_idle_comment_refusal(issue_number, reason)
+       when reason in [:parked, :unlabeled_issue, :no_open_pr, :rework_attempt_limit_reached] do
     remedy =
       case reason do
         :parked -> "resume the issue explicitly to clear the park marker"
@@ -775,19 +797,6 @@ defmodule Aiur.Orchestrator.CommentWake do
   end
 
   defp emit_idle_comment_refusal(_issue_number, _reason), do: :ok
-
-  defp refuse_active_comment_rework(%State{} = state, issue_number, source, event, reason) do
-    context = "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
-
-    if changes_requested_review?(event) do
-      Logger.warning("#{source} refused rework for a changes-requested review: #{context}")
-      CommentReworkRefusal.emit(issue_number, event, reason)
-    else
-      Logger.info("#{source} active comment rework skipped: #{context}")
-    end
-
-    state
-  end
 
   defp emit_comment_rework_refusal(issue_number, suffix, message, reason, remedy) do
     Alerts.emit_custom(
@@ -1330,8 +1339,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   end
 
   defp write_comment_rework(issue_key, telemetry_ticket, source, event, attempt_id) do
-    update_issue_state_fun =
-      Map.get(event, :comment_update_issue_state_fun, &write_rework_state(&1, &2, event))
+    update_issue_state_fun = Map.get(event, :comment_update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
 
     case update_issue_state_fun.(to_string(issue_key), "rework") do
       :ok ->
@@ -1348,10 +1356,6 @@ defmodule Aiur.Orchestrator.CommentWake do
       {:error, _reason} = error ->
         error
     end
-  end
-
-  defp write_rework_state(issue_key, "rework", _event) do
-    TicketTransition.write_state(issue_key, "rework", writer: :comment_wake)
   end
 
   defp comment_body(event) do
@@ -1571,40 +1575,45 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp apply_active_comment_protection({result, state}, {attempt, event, issue_number, source}) do
-    case result do
-      :ok ->
-        state
-
+  defp apply_active_comment_protection(
+         outcome,
+         {attempt, event, issue_number, source}
+       ) do
+    case outcome do
       {:ok, state} ->
         state
 
-      {:skip, reason} ->
-        refuse_active_comment_rework(state, issue_number, source, event, reason)
-
-      {:error, reason} ->
+      {{:error, reason}, state} ->
         Logger.warning(
           "#{source} active rework transition deferred behind delivery fence: " <>
             "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
         )
 
-        # Review submissions are delivered once, so transient open-PR, thread,
-        # or label-write failures must use the bounded retry path. The retry
-        # re-enters `maybe_reactivate_on_comment/5` with the running entry intact.
+        # A review submission is delivered ONCE. `Aiur.Events.Publisher`
+        # marks `{:pr_review, owner, repo, review_id}` handled for 72h at
+        # `resource_version = submitted_at`, and the poller's
+        # `pr_review_seen_at` watermark advances past that `submitted_at` in
+        # the very cycle that read `/reviews` — so nothing re-derives this
+        # review later. Returning `protected_state` here did not defer the
+        # transition, it abandoned it: one transient refusal (a held, 5xx or
+        # 429 open-PR search, review-thread read, or label write) left the
+        # ticket on `agent:human-review` for good and an operator had to
+        # relabel it by hand.
+        #
+        # The idle writer has always retried exactly this failure class
+        # (`maybe_transition_idle_issue_to_rework/5`), and `Aiur.Orchestrator`'s
+        # `{:retry_comment_rework, ...}` handler routes the retry back through
+        # `maybe_reactivate_on_comment/5`, so the running-entry writer
+        # re-enters this branch with the entry still in place. The attempt
+        # bound and `retryable_comment_rework_failure?/1` are shared, so an
+        # auth or non-retryable 4xx refusal still fails once and stays failed.
 
         schedule_comment_rework_retry(state, issue_number, source, event, attempt, reason)
+
+      {{:skip, reason}, state} ->
+        refuse_active_comment_rework(state, issue_number, source, event, reason)
     end
   end
-
-  defp apply_active_review_write({:handled, state}, _result, _context), do: state
-
-  defp apply_active_review_write(state, :ok, _context), do: state
-
-  defp apply_active_review_write(state, {:error, reason}, {attempt, event, issue_number, source}),
-    do: schedule_comment_rework_retry(state, issue_number, source, event, attempt, reason)
-
-  defp apply_active_review_write(_state, {{:error, reason}, prior_state}, context),
-    do: apply_active_review_write(prior_state, {:error, reason}, context)
 
   defp apply_comment_reactivation(
          outcome,

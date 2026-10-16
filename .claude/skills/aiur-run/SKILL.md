@@ -1192,8 +1192,17 @@ that the production files conflict while every test file auto-merges cleanly, so
 the resolver sees no markers and inherits a mutually unsatisfiable suite. Ask
 explicitly for a merge-order recommendation.
 
-Verify a current-head `CHANGES_REQUESTED` review moved the ticket to
-`agent:rework` and reached its worker. Do not relabel by hand.
+Do not relabel by hand after a `CHANGES_REQUESTED` review. The daemon already
+moves the ticket: the review webhook and the review poll both publish
+`ticket.<id>.pr.review_comment`, and `CommentWake` writes `agent:rework` (add
+before remove) and delivers the review to a worker that still holds the ticket.
+A hand relabel duplicates that write and spends the shared GitHub core budget
+the dispatcher's rework claim needs; on 2026-10-15 the claims after such
+relabels (#4570, #4566) hit a budget hold and raised `dispatch-declined`.
+Verify instead: the ticket left `agent:human-review`/`agent:ci-wait` for
+`agent:rework`. If it did not, read the `review_rework_refused` alert and fix
+what it names (review state, trusted author, open PR, current head; often a
+re-review of the current head) instead of relabelling.
 
 ### Merge mechanics
 

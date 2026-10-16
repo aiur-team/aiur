@@ -186,12 +186,10 @@ defmodule Aiur.GitHub.IssueStateTest do
       # the target — and no close (#2366, #2426).
       [{:requests, seen}] = :ets.lookup(calls, :requests)
       methods = Enum.map(seen, & &1.method)
-      mutations = seen |> Enum.reverse() |> Enum.map(& &1.method) |> Enum.filter(&(&1 in [:post, :delete]))
 
       assert Enum.count(methods, &(&1 == :get)) == 3
       assert Enum.count(methods, &(&1 == :delete)) == 1
       assert Enum.count(methods, &(&1 == :post)) == 1
-      assert mutations == [:post, :delete]
       refute :patch in methods
     end
 

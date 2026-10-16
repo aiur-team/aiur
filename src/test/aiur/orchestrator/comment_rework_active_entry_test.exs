@@ -129,7 +129,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     :ok
   end
 
-  test "the poll target for an idle ci-wait ticket routes a changes-requested review to rework" do
+  test "an idle ci-wait ticket is discovered and a changes-requested review routes it to rework" do
     issue = %{human_review_issue() | state: "ci-wait", labels: ["agent:ci-wait"]}
     Application.put_env(:aiur, :memory_tracker_issues, [issue])
     state = base_state(%{})

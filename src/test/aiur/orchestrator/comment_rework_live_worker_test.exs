@@ -60,10 +60,9 @@ defmodule Aiur.Orchestrator.CommentReworkLiveWorkerTest do
     :ok
   end
 
-  # Baseline behavior already delivered these reviews to a held worker. Keep
-  # this as a regression guard; the new behavior is the redundant-write no-op
-  # below, which avoids a dispatch decline when an operator has already put the
-  # ticket in rework while that worker is still holding it.
+  # Regression guard: origin/main already passes this. It is the only test of
+  # a review reaching a live (`:working`) worker; the new behavior is the
+  # already-rework no-op below.
   test "regression guard: a changes-requested review reaches a held worker without dispatch decline" do
     ticket = issue("human-review")
     state = base_state(ticket)
