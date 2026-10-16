@@ -829,18 +829,11 @@ Failed CI in `agent:human-review` routes to rework when that head already passed
 CI or the head changed. An inherited failure on a dismissed head remains held;
 the existing test-only one-poll retry still applies.
 
-The `pull_request_review` webhook and the review-submission poll both publish `ticket.<id>.pr.review_comment`, which
-routes through `CommentWake` to the rework transition. No manual relabel is
-required. After posting a review, verify the ticket actually left
-`agent:human-review` or `agent:ci-wait` (posted is not verified); only touch the
-label by hand if the automatic transition did not fire, and then check the delivery — review
-state, trusted author, open PR — before relabelling.
-
 Alerts persist across daemon restarts and tokens (full-history scan, #1231), so
 the `ACTIONABLE` list keeps naming long-merged tickets. Check timestamps before
 acting and trust the top state table over the alert list.
 
-On every observation:
+Run `aiur executor-sweep` on every observation and handle its findings first. It checks decisions, approved PR/CI, merge queue, capacity/order, ticket hygiene, blockers, handbacks, and watcher/dispatcher health. Unreviewed human-review PRs rank first using `executor.sweep.unreviewed_pr_minutes`; the daemon repeats every five minutes and wakes on new findings. Continue below for actions it cannot perform:
 
 - act on the `ACTIONABLE` section before routine scheduling;
 - continuously push toward the maximum **useful** concurrency across workers,
@@ -1199,10 +1192,16 @@ that the production files conflict while every test file auto-merges cleanly, so
 the resolver sees no markers and inherits a mutually unsatisfiable suite. Ask
 explicitly for a merge-order recommendation.
 
-The ticket leaves `agent:human-review` automatically on a `CHANGES_REQUESTED`
-review — verify it did, rather than relabelling by hand (see the rework note
-above). A review that does not move the ticket out of `agent:human-review` is a
-review nobody acts on.
+Do not relabel by hand after a `CHANGES_REQUESTED` review. The review webhook
+and poll both publish `ticket.<id>.pr.review_comment`; `CommentWake` writes
+`agent:rework` (add before remove) and delivers the review to a live worker. A
+hand relabel only repeats that write and spends shared GitHub core budget. (The
+2026-10-15 `dispatch-declined` on #4570/#4566 came from a budget hold on the
+rework claim, not the relabels; #4646.) Verify the ticket left
+`agent:human-review`/`agent:ci-wait` for `agent:rework`. If not, fix what the
+`review_rework_refused` alert names (often: re-review the current head). With no
+alert, run `aiur executor-sweep` (#4620) and grep the daemon log for `Rework
+dispatch claim failed` or `writer=comment_wake` before you touch a label.
 
 ### Merge mechanics
 
