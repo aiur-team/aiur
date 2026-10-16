@@ -370,19 +370,14 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   @spec tracker_preflight() :: :ok | {:error, term()}
   def tracker_preflight do
-    case Config.validate!() do
-      :ok ->
-        with :ok <- ToolchainPreflight.check() do
-          case Config.tracker_kind() do
-            "github" -> GitHubTracker.ensure_auth_preflight()
-            _ -> :ok
-          end
-        end
-
-      {:error, reason} ->
-        {:error, reason}
+    with :ok <- Config.validate!(),
+         :ok <- ToolchainPreflight.check() do
+      tracker_auth_preflight(Config.tracker_kind())
     end
   end
+
+  defp tracker_auth_preflight("github"), do: GitHubTracker.ensure_auth_preflight()
+  defp tracker_auth_preflight(_kind), do: :ok
 
   # `ensure_auth_preflight/0`, not `auth_preflight/0`: this runs on every poll
   # cycle, and re-proving a credential that has not changed cost 12 billed REST
