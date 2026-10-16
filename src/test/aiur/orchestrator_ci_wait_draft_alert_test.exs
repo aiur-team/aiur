@@ -1,8 +1,13 @@
 defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.{CiLifecycle, State}
+
+  setup do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github")
+    :ok
+  end
 
   test "alerts after a draft has remained in ci-wait without requiring a worker rewake" do
     identifier = "ci-wait-draft-#{System.unique_integer([:positive])}"

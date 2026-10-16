@@ -42,6 +42,10 @@ defmodule Aiur.BuildQueue.Observer do
     end
   end
 
+  @doc "Last-known closure for `id`: the transient cache, else one governed single-issue read."
+  @spec closure(map(), String.t()) :: Aiur.Tracker.issue_closure_result()
+  def closure(state, id), do: Map.get_lazy(Map.get(state, :closure_cache, %{}), id, fn -> read(state.tracker, id, Settings.observation_max_age_ms(state.settings)) end)
+
   defp read(tracker, id, age) do
     if Code.ensure_loaded?(tracker) and function_exported?(tracker, :issue_closure, 2), do: tracker.issue_closure(id, age), else: {:error, :unsupported}
   end

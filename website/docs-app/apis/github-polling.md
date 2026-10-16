@@ -118,7 +118,7 @@ Poll spend still scales inversely with a class's interval, so `polling.interval_
 
 The GitHub auth check runs once per credential, not once per sweep. It is re-run when the token or repository changes, and when a GitHub call answers `401` with the credential it proved — so a revoked token still produces the usual auth diagnostic rather than a raw failure downstream.
 
-Comments, review submissions, and watch-target discovery are read over conditional REST with `If-None-Match`. An unchanged answer returns `304`, which does not count against GitHub's primary REST limit, so repeatedly sweeping quiet tickets is free rather than merely cheap. Validators are kept on disk, so a restart does not force a full-price re-read.
+Comments, reviews, watch-target discovery, strict commit CI reads, and merge-group run lists use conditional REST with `If-None-Match`. Unchanged answers return `304` and reuse only the matching held body; strict reads still contact GitHub on every poll. These requests do not count against the primary REST limit, and validators survive restarts.
 
 When a worker starts or restarts, its bootstrap digest also re-reads the open PR's formal review submissions. This strict read revalidates the held review list with `If-None-Match`; a missing body or changed list is fetched from GitHub.
 
