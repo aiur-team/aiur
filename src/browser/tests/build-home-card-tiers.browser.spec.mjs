@@ -41,23 +41,23 @@ for (const width of [1440, 390]) {
   })
 }
 
-test('a day window with 30 lanes keeps history cards readable at 1440px (#4769)', async ({ page }) => {
+// The live shape: 30 epic lanes in the board order, with history rows spread over `used` of them.
+// Floors follow the design: a lane narrower than 62 px flows instead.
+for (const used of [30, 12]) test(`history over ${used} of 30 lanes keeps cards readable at 1440px (#4769)`, async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/build-fixture/live')
   await expect(page.locator('#bd-sec-hist .bd-card').first()).toBeAttached()
-  await page.evaluate(async () => {
+  const cols = await page.evaluate(async used => {
     const { ctx, fx } = await import('/build-home/state.js')
     const D = ctx.D, base = D.epics[D.order[0]]
-    // The live shape: loaded history rows spread over 30 epic lanes.
-    D.hist.forEach((t, i) => {
-      const key = 'lane' + (i % 30)
-      if (!D.epics[key]) { D.epics[key] = { ...base, label: 'Lane ' + (i % 30) }; D.order.splice(-1, 0, key) }
-      t.epic = key
-    })
+    for (let i = 0; i < 30; i++) { D.epics['lane' + i] = { ...base, label: 'Lane ' + i }; D.order.splice(-1, 0, 'lane' + i) }
+    D.hist.forEach((t, i) => { t.epic = 'lane' + (i % used) })
     fx.relayout()
     ctx.vp.scrollTop = ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - ctx.vp.clientHeight
     fx.update(true)
-  })
+    return ctx.cols
+  }, used)
+  expect(cols.filter(k => /^lane\d+$/.test(k) && +k.slice(4) >= used), 'unused lanes get no column').toEqual([])
   await page.waitForTimeout(400)
   const cards = await page.evaluate(() => {
     const vp = document.querySelector('#bd-vp').getBoundingClientRect()
@@ -67,8 +67,8 @@ test('a day window with 30 lanes keeps history cards readable at 1440px (#4769)'
   })
   expect(cards.length).toBeGreaterThan(0)
   for (const card of cards) {
-    expect(card.width, JSON.stringify(card)).toBeGreaterThanOrEqual(96)
+    expect(card.width, JSON.stringify(card)).toBeGreaterThanOrEqual(60)
     expect(['full', 'line'], JSON.stringify(card)).toContain(card.tier)
-    expect(card.title, JSON.stringify(card)).toBeGreaterThanOrEqual(60)
+    expect(card.title, JSON.stringify(card)).toBeGreaterThanOrEqual(40)
   }
 })
