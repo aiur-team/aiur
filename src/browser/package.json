@@ -11,7 +11,7 @@
     "fixture:preflight": "cd .. && mise exec -- mix compile --warnings-as-errors",
     "fixture:server": "node scripts/start-fixture.mjs",
     "test:admission": "node --test scripts/browser-admission.test.mjs",
-    "test": "npm run test:core && npm run test:home-css",
+    "test": "npm run test:core && npm run test:home-css && npm run test:build-home-cards",
     "test:build-home-layout": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-layout.browser.spec.mjs",
     "test:build-home-assets": "node scripts/run-browser-tests.mjs tests/build-home-assets.browser.spec.mjs",
     "test:smoke": "node scripts/run-browser-tests.mjs tests/liveview-smoke.spec.mjs",
@@ -60,6 +60,7 @@
     "test:build-home-tools": "node scripts/run-browser-tests.mjs tests/build-home-tools.browser.spec.mjs && node scripts/run-browser-tests.mjs tests/build-home-tools-parity.browser.spec.mjs --config playwright.design-parity.config.mjs",
     "test:build-home-span": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-span.browser.spec.mjs",
     "test:build-home-span-parity": "node scripts/run-browser-tests.mjs tests/build-home-span-parity.browser.spec.mjs --config playwright.design-parity.config.mjs",
+    "test:build-home-cards": "node scripts/run-browser-tests.mjs tests/build-home-cards.browser.spec.mjs --config playwright.design-parity.config.mjs",
     "test:browser-suite": "node scripts/browser-suites.mjs"
   },
   "devDependencies": {

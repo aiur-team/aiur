@@ -42,8 +42,8 @@ export function viewport() {
       const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid]); return; }
       const st = e.target.closest("[data-ast]"); if (st) { const v = st.dataset.ast.split(","), same = S.f.astate.join(",") === v.join(","); S.f.astate = same ? [] : v; if (S.liveMin && !same) { S.liveMin = false; writeURL(); relayout(); } fx.filtersChanged(); return; }
       const c = e.target.closest(".bd-card");
-      if (ctx.lockId) { if (c && fx.chainOf(ctx.lockId).has(c.dataset.id)) fx.openModal(ctx.D.byId[c.dataset.id]); return; }
-      if (c) fx.openModal(ctx.D.byId[c.dataset.id]);
+      if (ctx.lockId) { if (c && fx.chainOf(ctx.lockId).has(c.dataset.id)) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c }); return; }
+      if (c) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c });
     });
   }
 
