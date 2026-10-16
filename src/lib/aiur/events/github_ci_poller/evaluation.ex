@@ -45,12 +45,15 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
     evaluation(classification, failed_checks)
   end
 
+  # A failure that started before the PR's last reopen describes a run the
+  # reopen superseded, not the current CI state (#4672). Only the batch carries
+  # the reopen time; without one the verdict stands.
   @doc false
   @spec ignore_stale_failures(map(), [map()], map(), map()) :: map()
   def ignore_stale_failures(%{decision: :failed} = result, check_runs, commit_status, pr) do
-    with updated_at when is_integer(updated_at) <- timestamp_seconds(Map.get(pr, "updated_at")),
+    with reopened_at when is_integer(reopened_at) <- timestamp_seconds(Map.get(pr, "reopened_at")),
          failures when failures != [] <- stale_failure_evidence(check_runs, commit_status),
-         true <- Enum.all?(failures, &(&1 != nil and &1 < updated_at)) do
+         true <- Enum.all?(failures, &(&1 != nil and &1 < reopened_at)) do
       %{decision: :pending, pending_reason: :stale_ci_evidence, failures: []}
     else
       _other -> result

@@ -242,8 +242,9 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp pull_request_fields(_entry) do
     """
     number state headRefName headRefOid baseRefName
-    isDraft reviewDecision mergeable mergeStateStatus updatedAt
+    isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
+    timelineItems(itemTypes: [REOPENED_EVENT], last: 1) { nodes { ... on ReopenedEvent { createdAt } } }
     mergeQueueEntry { id }
     reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }
     #{contexts_selection()}
@@ -385,7 +386,7 @@ defmodule Aiur.GitHub.CIPollBatch do
           "base" => %{"ref" => Map.get(node, "baseRefName")}
         }
         |> put_merge_queue_observation(node)
-        |> Map.put("updated_at", Map.get(node, "updatedAt")),
+        |> Map.put("reopened_at", get_in(node, ["timelineItems", "nodes"]) |> List.wrap() |> List.last() |> then(&get_in(&1 || %{}, ["createdAt"]))),
       check_runs: Enum.map(check_runs, &normalize_check_run/1),
       commit_status: normalize_commit_status(statuses),
       contexts_overflow: contexts_overflow

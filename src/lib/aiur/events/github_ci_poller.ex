@@ -149,7 +149,6 @@ defmodule Aiur.Events.GithubCIPoller do
           |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
           |> Map.merge(Evaluation.merge_queue_observation(pr))
-          |> Map.put(:pull_request_updated_at, get_in(pr, ["updated_at"]))
           |> log_classification()
 
         {:ok, {:unchanged, recovered_invalidation}} ->
@@ -159,7 +158,6 @@ defmodule Aiur.Events.GithubCIPoller do
           |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})
           |> Map.merge(Evaluation.merge_queue_observation(pr))
-          |> Map.put(:pull_request_updated_at, get_in(pr, ["updated_at"]))
           |> log_classification()
 
         {:ok, {:repaired, invalidation}} ->
@@ -296,7 +294,6 @@ defmodule Aiur.Events.GithubCIPoller do
     case head_sha(current_pr) do
       {:ok, ^observed_head_sha} ->
         Evaluation.evaluate(check_runs, commit_status)
-        |> Evaluation.ignore_stale_failures(check_runs, commit_status, current_pr)
         |> Evaluation.enforce_required_checks(check_runs, commit_status, current_pr, opts)
         |> Evaluation.enforce_base_repair_invalidation(target, observed_head_sha, check_runs, commit_status, opts)
         |> Map.merge(%{
@@ -304,8 +301,7 @@ defmodule Aiur.Events.GithubCIPoller do
           pr_number: pr_number,
           head_sha: observed_head_sha,
           draft?: Evaluation.pr_draft?(current_pr),
-          review_decision: Map.get(current_pr, "review_decision"),
-          pull_request_updated_at: Map.get(current_pr, "updated_at")
+          review_decision: Map.get(current_pr, "review_decision")
         })
         |> log_classification()
 

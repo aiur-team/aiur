@@ -192,7 +192,7 @@ defmodule Aiur.LandingWatch do
   defp handle_verdict(_observation, %{decision: :pending}, _runs, _opts), do: :ok
 
   defp handle_verdict(observation, %{decision: :failed} = result, runs, opts) do
-    case approved_landing?(observation, opts) do
+    case approved_landing?(observation) do
       :landing ->
         :ok
 
@@ -210,17 +210,11 @@ defmodule Aiur.LandingWatch do
 
   defp handle_verdict(observation, %{decision: :passed}, _runs, opts), do: landing_eligibility(observation, opts)
 
-  defp approved_landing?(%{review_decision: "APPROVED"} = observation, opts) do
-    case Keyword.get(opts, :landing_state_fun, &Observer.landing_state/3).(observation.number, observation.head, opts) do
-      {:ok, %{approved: true, landing: true}} -> :landing
-      {:ok, %{approved: true, landing: false}} -> :not_landing
-      {:ok, _state} -> :not_landing
-      {:error, _reason} -> :unknown
-      _other -> :unknown
-    end
-  end
-
-  defp approved_landing?(_observation, _opts), do: :not_landing
+  # `process/2` only reaches here for a PR approved at its head, and this poll's
+  # own GraphQL read carries the landing fields, so no extra request is needed.
+  defp approved_landing?(%{auto_merge_request: auto_merge, merge_queue_entry: entry}) when is_map(auto_merge) or is_map(entry), do: :landing
+  defp approved_landing?(%{auto_merge_request: nil, merge_queue_entry: nil}), do: :not_landing
+  defp approved_landing?(_observation), do: :unknown
 
   defp emit_landing_state_attention(observation, opts) do
     issue = TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"]))

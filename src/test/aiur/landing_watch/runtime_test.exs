@@ -46,7 +46,6 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                     }
                   ]}
                end,
-               landing_state_fun: fn _, _, _ -> {:ok, %{approved: true, landing: false}} end,
                rerun_fun: fn 99, _ ->
                  send(parent, :rerun)
                  {:ok, %{}}
@@ -65,7 +64,6 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                required_checks_fun: fn _ -> {:ok, [%{name: "ci gate", app_id: nil}]} end,
                ci_status_fun: fn _, _ -> {:ok, %{check_runs: [failed_gate()], commit_status: %{"state" => "success", "statuses" => []}}} end,
                jobs_fun: fn 99, _ -> {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "cancelled"}]}]} end,
-               landing_state_fun: fn _, _, _ -> {:ok, %{approved: true, landing: false}} end,
                rerun_fun: fn _, _ -> flunk("bounded backoff must suppress an immediate duplicate") end,
                journal_path: path,
                now_ms: 1_000_000
@@ -90,7 +88,6 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                  assert run_id in [99, 100]
                  {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "cancelled"}]}]}
                end,
-               landing_state_fun: fn _, _, _ -> {:ok, %{approved: true, landing: false}} end,
                rerun_fun: fn run_id, _ ->
                  send(parent, {:rerun, run_id})
                  {:ok, %{}}
@@ -117,7 +114,6 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                jobs_fun: fn 99, _ ->
                  {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T00:00:00Z", "completed_at" => "2026-10-14T00:00:10Z"}]}
                end,
-               landing_state_fun: fn _, _, _ -> {:ok, %{approved: true, landing: false}} end,
                rework_fun: fn observation, failures, _ ->
                  send(parent, {:rework, observation.number, failures})
                  :ok
@@ -125,47 +121,6 @@ defmodule Aiur.LandingWatch.RuntimeTest do
              )
 
     assert_received {:rework, 17, [%{name: "ci gate"}]}
-  end
-
-  test "failed CI on an approved auto-merging PR does not route the linked ticket to rework" do
-    parent = self()
-
-    assert :ok =
-             LandingWatch.process(
-               approved_observation(),
-               approved_fun: fn _, _ -> {:ok, true} end,
-               required_checks_fun: fn _ -> {:ok, [%{name: "ci gate", app_id: nil}]} end,
-               ci_status_fun: fn _, _ -> {:ok, %{check_runs: [failed_gate()], commit_status: %{"state" => "success", "statuses" => []}}} end,
-               jobs_fun: fn 99, _ ->
-                 {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T00:00:00Z", "completed_at" => "2026-10-14T00:00:10Z"}]}
-               end,
-               landing_state_fun: fn 17, "head-sha", _ -> {:ok, %{approved: true, landing: true}} end,
-               rework_fun: fn _, _, _ -> send(parent, :rework) end
-             )
-
-    refute_received :rework
-  end
-
-  test "failed CI holds approved PR routing when landing state cannot be refreshed" do
-    parent = self()
-
-    assert :ok =
-             LandingWatch.process(
-               approved_observation(),
-               approved_fun: fn _, _ -> {:ok, true} end,
-               required_checks_fun: fn _ -> {:ok, [%{name: "ci gate", app_id: nil}]} end,
-               ci_status_fun: fn _, _ -> {:ok, %{check_runs: [failed_gate()], commit_status: %{"state" => "success", "statuses" => []}}} end,
-               jobs_fun: fn 99, _ -> {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}]}]} end,
-               landing_state_fun: fn _, _, _ -> {:error, :unavailable} end,
-               alert_emitter: fn topic, details ->
-                 send(parent, {:alert, topic, details})
-                 :ok
-               end,
-               rework_fun: fn _, _, _ -> send(parent, :rework) end
-             )
-
-    assert_received {:alert, "system.pr.landing.state_unavailable", _}
-    refute_received :rework
   end
 
   test "a queued ticket can return to rework when its PR conflicts with main" do
@@ -199,7 +154,6 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                jobs_fun: fn 99, _ ->
                  {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T00:00:00Z", "completed_at" => "2026-10-14T00:00:10Z"}]}
                end,
-               landing_state_fun: fn _, _, _ -> {:ok, %{approved: true, landing: false}} end,
                ticket_state_fun: fn "17", _ -> {:ok, "human-review"} end,
                transition_fun: fn id, target, options ->
                  send(parent, {:transition, id, target, options})
@@ -304,7 +258,6 @@ defmodule Aiur.LandingWatch.RuntimeTest do
       required_checks_fun: fn _ -> {:ok, [%{name: "ci gate", app_id: nil}]} end,
       ci_status_fun: fn _, _ -> {:ok, %{check_runs: [failed_gate()], commit_status: %{"state" => "success", "statuses" => []}}} end,
       jobs_fun: fn _, _ -> {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "cancelled"}]}]} end,
-      landing_state_fun: fn _, _, _ -> {:ok, %{approved: true, landing: false}} end,
       alert_emitter: fn topic, details ->
         send(parent, {:alert, topic, details})
         :ok
@@ -432,7 +385,6 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                jobs_fun: fn _, _ ->
                  {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T00:00:00Z", "completed_at" => "2026-10-14T00:00:10Z"}]}
                end,
-               landing_state_fun: fn _, _, _ -> {:ok, %{approved: true, landing: false}} end,
                ticket_state_fun: fn "17", _ -> {:ok, "merging"} end,
                transition_fun: fn id, target, options ->
                  send(parent, {:transition, id, target, options})

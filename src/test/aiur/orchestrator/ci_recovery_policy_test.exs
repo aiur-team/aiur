@@ -15,24 +15,9 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
       start_supervised!({Agent, fn -> %{posts: [], conclusion: "failure", draft: false, review: nil} end})
 
     request = fn
-      %{method: :post, url: "https://api.github.com/graphql", body: %{"query" => query}} ->
+      %{method: :post, url: "https://api.github.com/graphql"} ->
         current = Agent.get(state, & &1)
-
-        pull_request = %{
-          "state" => "OPEN",
-          "headRefOid" => "head",
-          "isDraft" => current.draft,
-          "reviewDecision" => current.review,
-          "mergeQueueEntry" => nil,
-          "autoMergeRequest" => nil
-        }
-
-        pull_request =
-          if current.review == "APPROVED" and String.contains?(query, "autoMergeRequest"),
-            do: Map.put(pull_request, "autoMergeRequest", %{"enabledAt" => "2026-10-16T07:54:08Z"}),
-            else: pull_request
-
-        ok(%{"data" => %{"repository" => %{"pullRequest" => pull_request}}})
+        ok(%{"data" => %{"repository" => %{"pullRequest" => %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => current.draft, "reviewDecision" => current.review, "mergeQueueEntry" => nil}}}})
 
       %{method: :post, url: url} ->
         Agent.update(state, &Map.update!(&1, :posts, fn posts -> [url | posts] end))
@@ -58,13 +43,6 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
     ]
 
     %{state: state, issue: %Issue{id: "1", identifier: "1"}, result: %{pr_number: 42, head_sha: "head", decision: :failed, failures: [%{name: "test"}]}, opts: opts}
-  end
-
-  test "an approved failed PR refreshes nil cached auto-merge state and holds the landing head", ctx do
-    Agent.update(ctx.state, &%{&1 | review: "APPROVED"})
-    result = Map.merge(ctx.result, %{review_decision: "APPROVED", auto_merge_request: nil, merge_queue_entry: nil})
-
-    assert %{recovery: %{"reason" => "approved_landing_pr"}} = Recovery.recover(ctx.issue, result, ctx.opts)
   end
 
   test "cancelled runs are skipped with one neutral attention", ctx do
