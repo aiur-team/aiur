@@ -9,7 +9,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   alias Aiur.Claude.{DisplayTailer, Telemetry}
   alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.LiveConversation.Source
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
   alias Aiur.Workspace.Ownership
   @type worker_host :: String.t() | nil
   # The live session's OS-level runtime (REPL pane + agent os pid, or the
@@ -185,7 +185,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     lifecycle_attempt_id = Keyword.get(opts, :telemetry_attempt_id)
 
-    Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :start, %{
+    Signal.lifecycle(issue.identifier, lifecycle_attempt_id, :agent_spinup, :start, %{
       operation_id: "session",
       backend: session_backend,
       worker_host: worker_host,
@@ -209,7 +209,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # workspace underneath it.
     case Keyword.get(session_opts, :account_selection_wait) do
       reset_at when is_binary(reset_at) ->
-        Lifecycle.record(
+        Signal.lifecycle(
           issue.identifier,
           lifecycle_attempt_id,
           :agent_spinup,
@@ -218,7 +218,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
             operation_id: "session",
             backend: session_backend,
             outcome: :paused,
-            reason_class: Lifecycle.reason_class(:usage_limit_exhausted)
+            reason_class: Signal.reason_class(:usage_limit_exhausted)
           }
         )
 
@@ -412,7 +412,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
        ) do
     case track_session_containment(ownership, session, worker_host) do
       :ok ->
-        Lifecycle.record(issue.identifier, session_context.lifecycle_attempt_id, :agent_spinup, :end, %{
+        Signal.lifecycle(issue.identifier, session_context.lifecycle_attempt_id, :agent_spinup, :end, %{
           operation_id: "session",
           backend: session_context.session_backend,
           outcome: :success
@@ -558,7 +558,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   defp record_session_start_failure(issue, session_context, reason) do
     observed_at = DateTime.utc_now()
 
-    Lifecycle.record(
+    Signal.lifecycle(
       issue.identifier,
       session_context.lifecycle_attempt_id,
       :agent_spinup,
@@ -567,7 +567,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         operation_id: "session",
         backend: session_context.session_backend,
         outcome: :failed,
-        reason_class: Lifecycle.reason_class(reason),
+        reason_class: Signal.reason_class(reason),
         exit_status: startup_exit_status(reason)
       },
       timestamp: observed_at
@@ -868,7 +868,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
           Logger.warning(
             "display_tailer start_failed #{Aiur.AgentRunner.issue_context(issue)} " <>
               "backend=#{backend} session=#{opaque_live_session(opts)} " <>
-              "reason_class=#{Lifecycle.reason_class(reason)}"
+              "reason_class=#{Signal.reason_class(reason)}"
           )
 
           nil

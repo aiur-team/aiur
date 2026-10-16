@@ -471,29 +471,17 @@ use compile, format and affected tests with the four-case cap, plus
 Use the target repository's required CI gate; Aiur runs fast checks on PRs and
 full CI in the merge queue. Do not loop locally on unrelated suite flakes.
 
-## Closing keyword in the PR description
-
-Every PR description must start with `Closes #N` (or `Fixes` / `Resolves`) for the
-originating issue so GitHub auto-closes it on merge. Multiple issues:
-`Closes #43, #46`.
-
 ## PR description shape
 
-Keep PR descriptions concise. Assume reviewers have the issue, workpad, and prior
-discussion for full problem context. Use this shape:
+Write every PR body from `.github/pull_request_template.md`; the required body
+gate checks that structure and the local-test evidence. Keep the closing keyword
+from the template (`Closes #N`, or `Refs #N` when the PR delivers only part of
+its ticket), and fill every section, including `#### Complexity routing` and
+the strict `## Local tests` evidence block. Keep `Policy:`, `Tested head:` and
+`Base:` as plain lines, not list items or backticks; include `Base:` as
+`<ref> @ <40-character-sha>`, and each command as `` `command` -> result ``.
 
-```markdown
-Closes #N
-
-# Problem
-
-One short paragraph or 2-3 bullets describing the issue being fixed.
-
-# Solution
-
-3-6 bullets covering the meaningful implementation and validation.
-```
-
-Do not include complexity-routing explanations, model names, AI tool names, or
-long process narratives in PR descriptions. Mention validation only as concrete
-checks that passed or known checks that still need attention.
+After every push, update `Tested head:` to the new full head SHA. Before
+handoff, run `python3 scripts/check-pr-body.py --pr-json <(gh api
+repos/{owner}/{repo}/pulls/<N>) --base <base-sha>` and confirm it prints
+`PR body format OK`.

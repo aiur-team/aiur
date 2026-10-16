@@ -10,7 +10,9 @@ config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
 config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
 config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
 
-config :aiur, :signal, alert_sink: Aiur.Alerts
+config :aiur, :signal,
+  alert_sink: Aiur.Alerts,
+  lifecycle_sink: Aiur.RunTelemetry.Lifecycle
 
 config :aiur, :github_poll_owner, Aiur.Orchestrator
 config :aiur, :github_quota_recovery_target, Aiur.Orchestrator

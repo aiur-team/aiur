@@ -127,7 +127,7 @@ defmodule AiurWeb.Presenter do
             |> Enum.map(&recent_merge_payload/1)
             |> Enum.reject(&is_nil/1)
             |> Enum.take(@recent_merge_limit),
-          health: health,
+          health: recent_merge_health(health),
           reconciliation: reconciliation,
           message: recent_merge_message(health)
         }
@@ -165,6 +165,23 @@ defmodule AiurWeb.Presenter do
   end
 
   defp recent_merge_payload(_merge), do: nil
+
+  # RecentMergeStore reports health as an atom or a tagged tuple; tuples are not
+  # JSON-encodable, so map each tuple to a status/reason/detail object (#4647).
+  defp recent_merge_health(health) when is_atom(health), do: health
+
+  defp recent_merge_health({:corrupt, line, reason}) when is_integer(line),
+    do: %{status: "corrupt", line: line, reason: json_term(reason)}
+
+  defp recent_merge_health({status, {reason, detail}}) when is_atom(status) and is_atom(reason),
+    do: %{status: json_term(status), reason: json_term(reason), detail: json_term(detail)}
+
+  defp recent_merge_health({status, reason}) when is_atom(status), do: %{status: json_term(status), reason: json_term(reason)}
+  defp recent_merge_health(other), do: %{status: "unknown", reason: inspect(other)}
+
+  defp json_term(term) when is_atom(term), do: Atom.to_string(term)
+  defp json_term(term) when is_binary(term), do: if(String.valid?(term), do: term, else: inspect(term))
+  defp json_term(term), do: inspect(term)
 
   defp recent_merge_message(:writable), do: nil
 
