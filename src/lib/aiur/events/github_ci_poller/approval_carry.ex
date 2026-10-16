@@ -3,12 +3,19 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   Classifies a push made after a PR was approved (#4668).
 
   The PR's contribution diff at the approved head (`merge-base(approved, base)..approved`)
-  is compared with the one at the new head. Hunks with identical changed lines
-  match regardless of position. A remaining hunk is conflict resolution only when
-  it overlaps a hunk the base changed between the two merge bases; under
-  `src/lib/` its changed lines must also come from the PR or from the base
-  itself. A carried approval also needs the PR body `Tested head` to name the
-  new head. Anything unreadable or truncated fails closed to `:changed`.
+  is compared with the one at the new head. Hunks match when their changed lines
+  are identical at the same place, after the base's own edits above them. The
+  remaining hunks of a file are conflict resolution only when:
+
+    * under `.github/`, `scripts/`, `.aiur/`, `src/config/`, or in a `mix.exs` or
+      `mix.lock`, each one is exactly a hunk the base made between the two merge bases;
+    * under `docs/`, each one overlaps such a base hunk;
+    * anywhere else, each one overlaps a base hunk, the new head adds only the
+      approved head's own added lines in order and count, and every other changed
+      line comes from the other side or from the base's change.
+
+  A carried approval also needs the PR body `Tested head` to name the new head.
+  Anything unreadable or truncated fails closed to `:changed`.
   """
 
   alias Aiur.Config
@@ -17,7 +24,8 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   @type hunk :: %{file: String.t(), side: :approved | :current, header: String.t(), lines: [String.t()]}
   @type verdict :: {:carried, %{resolved: non_neg_integer()}} | {:changed, %{reason: term(), hunks: [hunk()]}}
 
-  @guarded_prefix "src/lib/"
+  @inert_prefixes ["docs/"]
+  @sensitive_prefixes [".github/", "scripts/", ".aiur/", "src/config/"]
 
   @spec classify(String.t(), String.t(), integer(), keyword()) :: verdict()
   def classify(approved_head, head, pr_number, opts \\ []) do
@@ -148,30 +156,57 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   defp count(""), do: 1
   defp count(value), do: String.to_integer(value)
 
-  defp compare_file(_path, same, same, _main), do: {[], 0}
+  defp compare_file(_path, same, same, nil), do: {[], 0}
 
   defp compare_file(path, approved, current, main) do
-    if unreadable?(approved) or unreadable?(current) or renamed_differently?(approved, current) do
+    if Enum.any?([approved, current, main], &unreadable?/1) or renamed_differently?(approved, current) do
       {[%{file: path, side: :current, header: "(no readable patch or renamed differently)", lines: []}], 0}
     else
-      {approved_only, current_only} = unmatched(hunks_of(approved), hunks_of(current))
-      main_hunks = if main && is_list(main.hunks), do: main.hunks, else: []
-      main_unreadable? = main != nil and main.hunks == :unreadable
-      # A guarded resolution may only recombine lines the other side or the base already carries.
-      known = %{approved: changed_text(hunks_of(current) ++ main_hunks), current: changed_text(hunks_of(approved) ++ main_hunks)}
+      main_hunks = hunks_of(main)
+      {approved_only, current_only} = unmatched(hunks_of(approved), hunks_of(current), main_hunks)
 
       differing =
         Enum.map(approved_only, &Map.merge(&1, %{file: path, side: :approved})) ++
           Enum.map(current_only, &Map.merge(&1, %{file: path, side: :current}))
 
-      unexplained =
-        Enum.reject(differing, fn hunk ->
-          not main_unreadable? and overlaps_main?(hunk, main_hunks) and guarded_lines_known?(path, hunk, known)
-        end)
-
-      {Enum.map(unexplained, &Map.take(&1, [:file, :side, :header, :lines])), length(differing) - length(unexplained)}
+      if resolution?(policy(path), differing, approved_only, current_only, main_hunks),
+        do: {[], length(differing)},
+        else: {Enum.map(differing, &Map.take(&1, [:file, :side, :header, :lines])), 0}
     end
   end
+
+  defp policy(path) do
+    cond do
+      String.starts_with?(path, @sensitive_prefixes) or Path.basename(path) in ["mix.exs", "mix.lock"] -> :sensitive
+      String.starts_with?(path, @inert_prefixes) -> :inert
+      true -> :checked
+    end
+  end
+
+  # Code that runs at build, CI or deploy time carries a differing hunk only when the base made that exact change.
+  defp resolution?(:sensitive, differing, _approved_only, _current_only, main_hunks),
+    do: Enum.all?(differing, fn hunk -> Enum.any?(main_hunks, &(&1.lines == hunk.lines)) end)
+
+  defp resolution?(:inert, differing, _approved_only, _current_only, main_hunks), do: Enum.all?(differing, &overlaps_main?(&1, main_hunks))
+
+  # The new head may add only the approved head's own added lines, once each and in order; every
+  # other changed line must come from the other side or from the base's change.
+  defp resolution?(:checked, differing, approved_only, current_only, main_hunks) do
+    Enum.all?(differing, &overlaps_main?(&1, main_hunks)) and
+      subsequence?(lines(current_only, ?+), lines(approved_only, ?+)) and
+      contained?(lines(current_only, ?-), lines(approved_only, ?-) ++ lines(main_hunks, ?+)) and
+      contained?(lines(approved_only, ?+), lines(current_only, ?+) ++ lines(main_hunks, ?+)) and
+      contained?(lines(approved_only, ?-), lines(current_only, ?-) ++ lines(main_hunks, ?-))
+  end
+
+  defp lines(hunks, sign), do: for(hunk <- hunks, <<^sign, text::binary>> <- hunk.lines, do: text)
+
+  defp contained?(needles, pool), do: needles -- pool == []
+
+  defp subsequence?([], _pool), do: true
+  defp subsequence?(_needles, []), do: false
+  defp subsequence?([line | needles], [line | pool]), do: subsequence?(needles, pool)
+  defp subsequence?(needles, [_line | pool]), do: subsequence?(needles, pool)
 
   defp renamed_differently?(%{meta: {previous, _sha}}, %{meta: {current_previous, _current_sha}}), do: previous != current_previous
   defp renamed_differently?(_approved, _current), do: false
@@ -182,15 +217,27 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   defp hunks_of(nil), do: []
   defp hunks_of(%{hunks: hunks}), do: hunks
 
-  # Each current hunk consumes at most one approved hunk with the same changed lines.
-  defp unmatched(approved, current) do
+  # Each current hunk consumes at most one approved hunk with the same changed lines at the same
+  # place, once the base's own edits above it are allowed for.
+  defp unmatched(approved, current, main_hunks) do
     Enum.reduce(current, {approved, []}, fn hunk, {remaining, extra} ->
-      case Enum.find_index(remaining, &(&1.lines == hunk.lines)) do
+      case Enum.find_index(remaining, &(&1.lines == hunk.lines and shifted(&1.old, main_hunks) == elem(hunk.old, 0))) do
         nil -> {remaining, [hunk | extra]}
         index -> {List.delete_at(remaining, index), extra}
       end
     end)
     |> then(fn {approved_only, current_only} -> {approved_only, Enum.reverse(current_only)} end)
+  end
+
+  # Where an old-base hunk starts in the new base; a hunk the base touched has no single position.
+  defp shifted({start, length}, main_hunks) do
+    Enum.reduce_while(main_hunks, start, fn %{old: {main_start, main_length}, new: {_new_start, new_length}}, position ->
+      cond do
+        main_start + max(main_length, 1) <= start -> {:cont, position + new_length - main_length}
+        start + max(length, 1) <= main_start -> {:cont, position}
+        true -> {:halt, :conflict}
+      end
+    end)
   end
 
   # Approved hunks sit in the old base's coordinates; current hunks in the new base's.
@@ -202,11 +249,4 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
       start < main_start + max(main_length, 1) and main_start < start + max(length, 1)
     end)
   end
-
-  defp guarded_lines_known?(@guarded_prefix <> _rest, hunk, known), do: Enum.all?(hunk.lines, &MapSet.member?(Map.fetch!(known, hunk.side), strip(&1)))
-  defp guarded_lines_known?(_path, _hunk, _known), do: true
-
-  defp changed_text(hunks), do: hunks |> Enum.flat_map(& &1.lines) |> MapSet.new(&strip/1)
-
-  defp strip(<<_sign, rest::binary>>), do: rest
 end
