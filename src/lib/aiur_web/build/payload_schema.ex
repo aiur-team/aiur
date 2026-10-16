@@ -104,7 +104,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "orig" => :nonnegative,
       "added" => :nonnegative,
       "baseline" => :boolean,
-      "spark" => list(:nonnegative),
+      "spark" => nullable(list(:nonnegative)),
       "also" => :nonnegative,
       "reasons" => list(enum(~w(complexity no_weight progress status)))
     }
