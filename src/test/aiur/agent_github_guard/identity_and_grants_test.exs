@@ -247,6 +247,7 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
     reset = System.os_time(:second) + 3_600
+    before_ms = System.os_time(:millisecond)
 
     assert {_output, 1} =
              run_guard(context, ["api", "repos/owner/repo/issues/1670"],
@@ -262,15 +263,16 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                FAKE_RATE_LIMIT: "4077 #{reset} 4405 #{reset}"
              )
 
+    after_ms = System.os_time(:millisecond)
+
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
     assert %{"cooldown_until_ms" => cooldown_until} = Jason.decode!(snapshot)
-    # The wrapper command and SQLite snapshot consume a small part of the
-    # advertised two-second window; keep enough margin for a loaded host while
-    # still distinguishing Retry-After from the 60-second fallback.
-    assert cooldown_until >= System.os_time(:millisecond) + 1_500
-    assert cooldown_until <= System.os_time(:millisecond) + 3_000
+    # The broker stamps now + Retry-After while the guard runs, so bracket it
+    # with clocks read before and after the guard rather than a later wall clock.
+    assert cooldown_until >= before_ms + 2_000
+    assert cooldown_until <= after_ms + 2_000
   end
 
   test "a successful exhausted API response holds the budgeted resource globally", context do
