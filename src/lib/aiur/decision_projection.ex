@@ -317,6 +317,14 @@ defmodule Aiur.DecisionProjection do
     {:ok, decision}
   end
 
+  defp transition(
+         %Decision{authority: :human_required, decision_status: status} = decision,
+         %DecisionEvent{type: :authority_reclassified, data: %{authority: :supervisor_allowed}}
+       )
+       when status in [:open, :deferred] do
+    {:ok, %{decision | authority: :supervisor_allowed}}
+  end
+
   defp transition(%Decision{decision_status: :open} = decision, %DecisionEvent{type: :decision_expired}) do
     {:ok, %{decision | decision_status: :expired, delivery_status: :not_dispatched}}
   end

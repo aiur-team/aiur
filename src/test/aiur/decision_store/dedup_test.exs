@@ -11,7 +11,7 @@ defmodule Aiur.DecisionStore.DedupTest do
       assert {:ok, %{decision: primary}} =
                request(pid, %{
                  "question" => question,
-                 "blocking" => false,
+                 "blocking" => true,
                  "options" => [
                    %{"id" => "push_refresh", "label" => "Push the refresh"},
                    %{"id" => "keep_unpushed", "label" => "Keep it unpushed"}
@@ -96,23 +96,22 @@ defmodule Aiur.DecisionStore.DedupTest do
   end
 
   describe "creation-time dedup (#2099)" do
-    test "an exact-identical re-file from the same agent stays a distinct Command", %{dir: dir} do
+    test "an exact-identical re-file from the same agent returns the existing Command", %{dir: dir} do
       pid = start_store!(dir)
       question = "Should PR #1820 push its existing merge?"
 
-      # An identical re-file is the agent deliberately asking the same question
-      # again (e.g. a distinct tool call), not an accidental duplicate: the
-      # tool-call/retry contract depends on this, so it stays its own row.
+      # A fresh tool call asking the exact same question on the same ticket must
+      # not create a second decision.
       assert {:ok, %{status: :accepted, decision: first}} =
                request(pid, %{"question" => question, "blocking" => false, "source_id" => "ask-1"})
 
-      assert {:ok, %{status: :accepted, decision: second}} =
+      assert {:ok, %{status: :duplicate, decision: second}} =
                request(pid, %{"question" => question, "blocking" => false, "source_id" => "ask-2"})
 
-      refute second.decision_id == first.decision_id
+      assert second.decision_id == first.decision_id
 
       assert decisions = DecisionStore.list(pid)
-      assert length(decisions) == 2
+      assert length(decisions) == 1
     end
 
     test "paraphrases of one question from the same agent collapse within the window", %{dir: dir} do
@@ -147,23 +146,23 @@ defmodule Aiur.DecisionStore.DedupTest do
       assert length(decisions) == 1
     end
 
-    test "a different agent or ticket does not collapse", %{dir: dir} do
+    test "a different agent on the same ticket collapses, but another ticket does not", %{dir: dir} do
       pid = start_store!(dir)
       question = "Should we drop the index?"
 
       assert {:ok, %{decision: agent_a}} = request(pid, %{"question" => question, "blocking" => false})
 
-      assert {:ok, %{decision: agent_b}} =
+      assert {:ok, %{status: :duplicate, decision: agent_b}} =
                request(pid, %{"question" => question, "blocking" => false}, source: %{@source | agent_id: "agent-2"})
 
       assert {:ok, %{decision: other_ticket}} =
                request(pid, %{"question" => question, "blocking" => false}, ticket: %{@ticket | identifier: "5150"})
 
-      refute agent_b.decision_id == agent_a.decision_id
+      assert agent_b.decision_id == agent_a.decision_id
       refute other_ticket.decision_id == agent_a.decision_id
 
       assert decisions = DecisionStore.list(pid)
-      assert length(decisions) == 3
+      assert length(decisions) == 2
     end
 
     test "an answered Command is not a dedup candidate for a new similar one", %{dir: dir} do

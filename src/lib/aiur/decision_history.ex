@@ -34,6 +34,7 @@ defmodule Aiur.DecisionHistory do
     "decision_dismissed" => :dismissed,
     "dismissed" => :dismissed,
     "executor_escalated" => :executor_escalated,
+    "authority_reclassified" => :authority_reclassified,
     "answered" => :answered,
     "revised" => :revised,
     "superseded" => :superseded,
@@ -234,6 +235,10 @@ defmodule Aiur.DecisionHistory do
 
   defp event_record(%DecisionEvent{type: :executor_escalated, data: data}, base, _revisions) do
     Map.merge(base, %{actor: data.actor, escalated_to_operator: true, escalation_reason: data.detail})
+  end
+
+  defp event_record(%DecisionEvent{type: :authority_reclassified, data: data}, base, _revisions) do
+    Map.merge(base, %{actor: data.actor, authority: data.authority, reclassification_rationale: data.detail})
   end
 
   defp event_record(%DecisionEvent{type: type, data: data}, base, actions)

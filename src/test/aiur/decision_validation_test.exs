@@ -167,12 +167,28 @@ defmodule Aiur.DecisionValidationTest do
         "blocking" => true,
         "kind" => "sequencing",
         "authority" => "human_required",
+        "context" => %{"authority_basis" => "product"},
         "reversibility" => "reversible"
       }
 
       assert {:ok, decision} = normalize(payload)
       assert decision.authority == :human_required
       assert decision.reversibility == :reversible
+      assert decision.context.authority_basis == "product"
+    end
+
+    test "human_required authority requires a recognized explicit basis" do
+      assert normalize(%{"question" => "Who owns this product choice?", "blocking" => true, "authority" => "human_required"}) ==
+               {:error, {:decision_invalid, {:authority, :human_required_basis_required}}}
+    end
+
+    test "human_required authority rejects an unknown basis" do
+      assert normalize(%{
+               "question" => "Who owns this choice?",
+               "blocking" => true,
+               "authority" => "human_required",
+               "context" => %{"authority_basis" => "engineering"}
+             }) == {:error, {:decision_invalid, {:context_authority_basis, :invalid_enum}}}
     end
 
     test "an unclassified kind falls back to the Executor-answerable defaults" do

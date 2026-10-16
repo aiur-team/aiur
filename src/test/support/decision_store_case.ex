@@ -104,6 +104,13 @@ defmodule Aiur.DecisionStoreCase do
   end
 
   def request(pid, payload, opts \\ []) do
+    payload =
+      if Map.get(payload, "authority") == "human_required" do
+        Map.update(payload, "context", %{"authority_basis" => "security"}, &Map.put_new(&1, "authority_basis", "security"))
+      else
+        payload
+      end
+
     DecisionStore.request(payload, Keyword.merge([ticket: @ticket, source: @source], opts), pid)
   end
 

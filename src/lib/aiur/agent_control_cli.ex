@@ -326,6 +326,11 @@ defmodule Aiur.AgentControlCLI do
     guarded("executor-escalate", fn -> opts |> ExecutorCommandCLI.escalate(error_fun: &control_error/1) |> exit_marker() end)
   end
 
+  @spec executor_reclassify(keyword()) :: :ok
+  def executor_reclassify(opts) when is_list(opts) do
+    guarded("executor-reclassify", fn -> opts |> ExecutorCommandCLI.reclassify(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
   @spec executor_moot(keyword()) :: :ok
   def executor_moot(opts) when is_list(opts) do
     guarded("executor-moot", fn -> opts |> ExecutorCommandCLI.moot(error_fun: &control_error/1) |> exit_marker() end)

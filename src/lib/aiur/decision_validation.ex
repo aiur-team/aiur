@@ -56,6 +56,7 @@ defmodule Aiur.DecisionValidation do
   @default_authority :supervisor_allowed
   @default_urgency :normal
   @default_reversibility :reversible
+  @human_required_authority_bases ~w(product spend external_publication security)
 
   @type error :: {atom(), atom()}
 
@@ -105,6 +106,7 @@ defmodule Aiur.DecisionValidation do
              :reversibility
            ),
          {:ok, context} <- fetch_context(payload),
+         :ok <- validate_authority_basis(authority, kind, context),
          {:ok, options} <- fetch_options(payload),
          {:ok, recommendation} <- fetch_recommendation(payload, options),
          {:ok, consequence_of_delay} <-
@@ -250,14 +252,29 @@ defmodule Aiur.DecisionValidation do
                  :long_context_markdown,
                  @long_context_max,
                  :context_long_context_markdown
-               ) do
-          {:ok, %{short_summary: short_summary, long_context_markdown: long_context_markdown}}
+               ),
+             {:ok, authority_basis} <- fetch_authority_basis(context) do
+          context = %{short_summary: short_summary, long_context_markdown: long_context_markdown}
+          {:ok, if(authority_basis, do: Map.put(context, :authority_basis, authority_basis), else: context)}
         end
 
       _other ->
         {:error, {:context, :invalid_type}}
     end
   end
+
+  defp fetch_authority_basis(context) do
+    case get(context, :authority_basis) do
+      nil -> {:ok, nil}
+      basis when basis in @human_required_authority_bases -> {:ok, basis}
+      _invalid -> {:error, {:context_authority_basis, :invalid_enum}}
+    end
+  end
+
+  defp validate_authority_basis(:human_required, "legacy_attention", _context), do: :ok
+  defp validate_authority_basis(:human_required, _kind, %{authority_basis: basis}) when basis in @human_required_authority_bases, do: :ok
+  defp validate_authority_basis(:human_required, _kind, _context), do: {:error, {:authority, :human_required_basis_required}}
+  defp validate_authority_basis(_authority, _kind, _context), do: :ok
 
   defp fetch_options(payload) do
     case get(payload, :options) do

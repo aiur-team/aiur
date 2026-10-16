@@ -220,8 +220,14 @@ Known Command types carry an explicit policy in
 `supervisor_allowed`; pre-OCC `legacy_attention` stays `human_required`).
 
 Because omission defaults to the floor, a Command that is genuinely
-irreversible, involves spend, or changes product direction must declare
-`authority: human_required` explicitly or it will be Executor-answerable.
+irreversible, involves spend, external publication, or changes product
+direction must declare `authority: human_required` explicitly and set
+`context.authority_basis` to `product`, `spend`, `external_publication`, or
+`security`. The request must explain the specific boundary in context; the
+store rejects a missing or unrecognized basis. Legacy attention projections
+remain human-required. An Executor may down-classify an open decision with
+`aiur executor-reclassify` and an audit rationale, then answer it; this records
+Executor actions rather than a human answer.
 
 The parallel `supervisor` path additionally requires the answer's declared
 `policy_basis` to match the Decision's own authority/kind/reversibility, or it

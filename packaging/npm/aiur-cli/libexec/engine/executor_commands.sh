@@ -95,6 +95,31 @@ cmd_executor_escalate() {
   run_control_rpc "Aiur.AgentControlCLI.executor_escalate([$opts])"
 }
 
+cmd_executor_reclassify() {
+  local decision_id="${1:-}" expected_version="" rationale="" executor_id="aiur-cli" arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then echo "aiur: executor-reclassify expects exactly one decision ID" >&2; exit 64; fi
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --expected-version) [ "$#" -gt 1 ] || { echo "aiur: --expected-version requires a value" >&2; exit 64; }; shift; expected_version="$1" ;;
+      --expected-version=*) expected_version="${arg#--expected-version=}" ;;
+      --rationale) [ "$#" -gt 1 ] || { echo "aiur: --rationale requires a value" >&2; exit 64; }; shift; rationale="$1" ;;
+      --rationale=*) rationale="${arg#--rationale=}" ;;
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      -*) echo "aiur: executor-reclassify received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: executor-reclassify expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: --expected-version expects a positive integer" >&2; exit 64; }
+  [ -n "$rationale" ] || { echo "aiur: --rationale is required" >&2; exit 64; }
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
+  opts="$opts, rationale: Base.decode64!(\"$(encode_control_value "$rationale")\"), executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  run_control_rpc "Aiur.AgentControlCLI.executor_reclassify([$opts])"
+}
+
 cmd_executor_moot() {
   local decision_id="${1:-}" expected_version="" reason_class="" reason="" executor_id="aiur-cli" arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then

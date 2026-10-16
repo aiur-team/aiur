@@ -40,6 +40,7 @@ defmodule Aiur.DecisionEvent do
     :decision_deferred,
     :decision_mooted,
     :executor_escalated,
+    :authority_reclassified,
     :answer_recorded,
     :revision_recorded,
     :dispatch_queued,
@@ -74,6 +75,7 @@ defmodule Aiur.DecisionEvent do
           | :decision_deferred
           | :decision_mooted
           | :executor_escalated
+          | :authority_reclassified
           | :answer_recorded
           | :revision_recorded
           | :dispatch_queued
@@ -312,6 +314,19 @@ defmodule Aiur.DecisionEvent do
          :ok <- require_executor_actor(actor),
          {:ok, detail} <- bounded_required(get(raw, :detail), @detail_max, :detail) do
       {:ok, %{actor: actor, detail: detail}}
+    end
+  end
+
+  defp normalize_data(:authority_reclassified, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
+    with {:ok, actor} <- normalize_actor(get(raw, :actor)),
+         :ok <- require_executor_actor(actor),
+         authority <- get(raw, :authority),
+         true <- authority in [:supervisor_allowed, "supervisor_allowed"],
+         {:ok, detail} <- bounded_required(get(raw, :detail), @detail_max, :detail) do
+      {:ok, %{actor: actor, authority: :supervisor_allowed, detail: detail}}
+    else
+      false -> {:error, {:authority, :invalid_reclassification}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -580,6 +595,14 @@ defmodule Aiur.DecisionEvent do
   defp data_to_json_safe(:executor_escalated, data) do
     %{
       "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "detail" => data.detail
+    }
+  end
+
+  defp data_to_json_safe(:authority_reclassified, data) do
+    %{
+      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "authority" => Atom.to_string(data.authority),
       "detail" => data.detail
     }
   end

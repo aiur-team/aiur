@@ -104,8 +104,18 @@ directly and the requesting agent resumes without an operator:
 Because omission now defaults to Executor-answerable, the burden is inverted:
 a Command that is genuinely irreversible, involves spend or external
 publication, or changes product direction **must** explicitly declare
-`authority: human_required` (and the matching `reversibility`), or it will be
-within the Executor floor.
+`authority: human_required` (and the matching `reversibility`) and include
+`context.authority_basis` with one of `product`, `spend`,
+`external_publication`, or `security`. Requests without that explicit basis are
+rejected. Keep `context.short_summary` or `context.long_context_markdown` clear
+about the specific boundary; the category alone is not a rationale. Legacy
+attention projections remain human-required without this worker-supplied field.
+
+An Executor who determines an open human-required Command is actually an
+engineering decision can run `aiur executor-reclassify <decision-id>
+--expected-version <n> --rationale <why>`, then answer it with
+`aiur executor-answer`. Reclassification is recorded as an Executor action; it
+does not create a human answer.
 
 Aiur surfaces `human_required + reversible + all-low-risk` Commands as a
 classification warning. The store does not silently override the declared

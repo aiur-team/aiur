@@ -141,6 +141,19 @@ defmodule AiurEngineCommandsTest do
     end
   end
 
+  test "executor-reclassify safely routes the rationale and expected version" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_reclassify 'decision:42' --expected-version 3 --rationale 'Acceptance specifies the fallback' --executor-id codex-executor|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.executor_reclassify(["
+    assert out =~ "expected_version: 3"
+    assert out =~ "rationale: Base.decode64!("
+    assert out =~ "executor_id: Base.decode64!("
+  end
+
   test "executor mutation commands dispatch through the live control path" do
     rel = fake_release()
     env = [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}]
