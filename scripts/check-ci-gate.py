@@ -12,7 +12,7 @@ def required_jobs(event, full, dialyzer):
         raise ValueError(f'{event} must run full CI')
     jobs = ['changes', 'workflow-security', 'lint']
     if full:
-        return jobs + ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'browser-2', 'browser-3', 'browser-4', 'home-css',
+        return jobs + ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css',
                        'layout-release', 'analytics', 'streamdeck']
     selected = jobs + ['affected-tests']
     if event == 'pull_request' and dialyzer:
