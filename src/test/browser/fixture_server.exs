@@ -1,5 +1,5 @@
 Code.require_file("../support/browser_harness/fixture_endpoint_start.ex", __DIR__)
-for file <- ~w(earlier_control fixture_source), do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+for file <- ~w(earlier_control fixture_source index_parts index_seed), do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
 Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
@@ -8,7 +8,7 @@ Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
       route_shell_live graph_live ticket_context_live units_live_data units_live
-      support voice_provider build_order_source meters_live optimistic_control experiments
+      support voice_provider build_order_source meters_live optimistic_control experiments index_live
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
 end
@@ -53,6 +53,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
     get("/optimistic-control/:mode", Aiur.BrowserHarness.OptimisticControl, :configure)
+    get("/build-fixture/index-live", Aiur.BrowserHarness.IndexLiveFixture, :configure)
     get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
     get("/build-control/:action", Aiur.BrowserHarness.FixtureBuildControl, :configure)
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
