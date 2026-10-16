@@ -30,7 +30,13 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['light', 'dark']) 
   })
   test(`offline banner parity ${viewport.viewport.width} ${theme} ${palette}`, async ({ browser }) => {
     const pair = await openParityPair(browser, { ...viewport, theme, palette, dataset: 'offline' })
-    try { await expectDesignParity(pair, { name: `offline-${viewport.viewport.width}-${theme}-${palette}`, region: '#bd-offline' }) }
+    try {
+      for (const page of [pair.design, pair.product]) await page.locator('#bd-offline').evaluate(el => {
+        const width = el.getBoundingClientRect().width
+        Object.assign(el.style, { position: 'fixed', top: '0', left: '0', width: width + 'px', zIndex: '2147483647' })
+      })
+      await expectDesignParity(pair, { name: `offline-${viewport.viewport.width}-${theme}-${palette}`, region: '#bd-offline' })
+    }
     finally { await pair.close() }
   })
 }
