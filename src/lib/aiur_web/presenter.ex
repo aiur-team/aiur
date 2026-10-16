@@ -26,7 +26,7 @@ defmodule AiurWeb.Presenter do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
     orchestrator
-    |> orchestrator_payload(snapshot_timeout_ms)
+    |> orchestrator_payload(snapshot_timeout_ms, Keyword.get(opts, :snapshot_fun, &Orchestrator.dashboard_snapshot/2))
     |> Map.put(:generated_at, generated_at)
     |> Map.merge(auxiliary_payload(opts))
   end
@@ -38,8 +38,8 @@ defmodule AiurWeb.Presenter do
     Map.put(analytics_payload(opts), :experiments_available?, get_in(report, [:capabilities, "experiments", :state]) in [:available, :degraded])
   end
 
-  defp orchestrator_payload(orchestrator, snapshot_timeout_ms) do
-    case Orchestrator.dashboard_snapshot(orchestrator, snapshot_timeout_ms) do
+  defp orchestrator_payload(orchestrator, snapshot_timeout_ms, snapshot_fun) do
+    case snapshot_fun.(orchestrator, snapshot_timeout_ms) do
       {status, snapshot, freshness} when status in [:current, :stale] ->
         snapshot_payload(snapshot, freshness)
 
@@ -48,8 +48,26 @@ defmodule AiurWeb.Presenter do
 
       :orchestrator_unavailable ->
         %{error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"}}
+
+      {:unavailable, reason} ->
+        %{error: unavailable_error(reason)}
     end
   end
+
+  defp unavailable_error({reason, detail}) do
+    %{code: "snapshot_unavailable", message: "Snapshot unavailable", reason: safe_reason(reason), detail: safe_detail(detail)}
+  end
+
+  defp unavailable_error(reason) do
+    %{code: "snapshot_unavailable", message: "Snapshot unavailable", reason: safe_reason(reason)}
+  end
+
+  defp safe_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp safe_reason(reason) when is_binary(reason), do: reason
+  defp safe_reason(reason), do: inspect(reason)
+
+  defp safe_detail(detail) when is_binary(detail), do: detail
+  defp safe_detail(detail), do: inspect(detail)
 
   defp snapshot_payload(snapshot, freshness) do
     idle = Map.get(snapshot, :idle, [])

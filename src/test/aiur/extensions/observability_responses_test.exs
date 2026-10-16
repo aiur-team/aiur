@@ -123,4 +123,18 @@ defmodule Aiur.Extensions.ObservabilityResponsesTest do
                "error" => %{"code" => "snapshot_timeout", "message" => "Snapshot timed out"}
              }
   end
+
+  test "phoenix state api JSON encodes tuple details for unavailable snapshots" do
+    snapshot_fun = fn _orchestrator, _timeout -> {:unavailable, {:path_unresolved, :missing_test_state_dir}} end
+    start_test_endpoint(snapshot_fun: snapshot_fun, snapshot_timeout_ms: 5)
+
+    payload = json_response(get(build_conn(), "/api/v1/state"), 200)
+
+    assert payload["error"] == %{
+             "code" => "snapshot_unavailable",
+             "message" => "Snapshot unavailable",
+             "reason" => "path_unresolved",
+             "detail" => ":missing_test_state_dir"
+           }
+  end
 end
