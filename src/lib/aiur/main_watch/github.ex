@@ -13,11 +13,20 @@ defmodule Aiur.MainWatch.GitHub do
   defp poll_once(branch, workflows, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts),
-         {:ok, commit_window} <- commits(owner, repo, branch, token, opts),
+         {:ok, commit_window, commit_etag} <- commits(owner, repo, branch, token, opts),
          {commits, dates} = commit_window,
          {:ok, {runs, merge_groups}} <- runs(owner, repo, branch, commits, dates, workflows, token, opts),
          {:ok, observations} <- observations(commits, runs, workflows, opts) do
-      {:ok, %{observations: observations, runs: runs, merge_groups: merge_groups, commits: commits, actions_write: Keyword.get_lazy(opts, :actions_write, fn -> actions_write?(opts) end)}}
+      {:ok,
+       %{
+         observations: observations,
+         runs: runs,
+         merge_groups: merge_groups,
+         commits: commits,
+         commit_dates: dates,
+         commit_etag: commit_etag,
+         actions_write: Keyword.get_lazy(opts, :actions_write, fn -> actions_write?(opts) end)
+       }}
     end
   end
 
@@ -65,14 +74,20 @@ defmodule Aiur.MainWatch.GitHub do
   defp commits(owner, repo, branch, token, opts) do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits?" <> URI.encode_query(%{sha: branch, per_page: 20})
 
-    case request_fun(opts).(github_request(token, "main_watch_commits", opts) |> Map.put(:url, url)) do
-      {:ok, %{status: 200, body: commits}} when is_list(commits) ->
-        if Enum.all?(commits, &(is_map(&1) and is_binary(&1["sha"]))) do
-          window = Enum.take(commits, 20)
-          {:ok, {Enum.map(window, & &1["sha"]), Enum.map(window, &timestamp(get_in(&1, ["commit", "committer", "date"])))}}
-        else
-          {:error, :invalid_main_commits}
-        end
+    retained_commits = Keyword.get(opts, :commits)
+    retained_dates = Keyword.get(opts, :commit_dates)
+    etag = retained_etag(retained_commits, retained_dates, opts)
+
+    request = github_request(token, "main_watch_commits", opts) |> Map.put(:url, url)
+    request = if etag, do: Map.put(request, :etag, etag), else: request
+
+    # Read only the first page: the window is the newest 20 commits, so its `rel="next"` link is expected.
+    case request_fun(opts).(request) do
+      {:ok, %{status: 200, body: commits} = response} when is_list(commits) ->
+        commit_response({:ok, commits, response_etag(response) || etag}, retained_commits, retained_dates)
+
+      {:ok, %{status: 304} = response} ->
+        commit_response({:not_modified, response_etag(response) || etag}, retained_commits, retained_dates)
 
       {:ok, response} ->
         {:error, request_error(response, "main_watch_commits", opts)}
@@ -81,6 +96,35 @@ defmodule Aiur.MainWatch.GitHub do
         {:error, Errors.classify_error({:error, reason})}
     end
   end
+
+  # A validator is only safe to send when its snapshot can answer a 304.
+  defp retained_etag(commits, dates, opts) when is_list(commits) and is_list(dates) and length(commits) == length(dates) do
+    case Keyword.get(opts, :commit_etag) do
+      etag when is_binary(etag) and etag != "" -> etag
+      _absent -> nil
+    end
+  end
+
+  defp retained_etag(_commits, _dates, _opts), do: nil
+
+  defp response_etag(response), do: Transport.header(Map.get(response, :headers, []), "etag")
+
+  defp commit_response({:ok, commits, etag}, _retained_commits, _retained_dates) do
+    if Enum.all?(commits, &(is_map(&1) and is_binary(&1["sha"]))) do
+      window = Enum.take(commits, 20)
+      dates = Enum.map(window, &timestamp(get_in(&1, ["commit", "committer", "date"])))
+      {:ok, {Enum.map(window, & &1["sha"]), dates}, etag}
+    else
+      {:error, :invalid_main_commits}
+    end
+  end
+
+  defp commit_response({:not_modified, etag}, commits, dates)
+       when is_list(commits) and is_list(dates),
+       do: {:ok, {commits, dates}, etag}
+
+  defp commit_response({:not_modified, _etag}, _commits, _dates),
+    do: {:error, :main_commits_not_modified_without_snapshot}
 
   defp runs(owner, repo, branch, commits, dates, workflows, token, opts) do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <> URI.encode_query(%{branch: branch, event: "push", per_page: 100})
