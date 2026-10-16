@@ -402,10 +402,22 @@ defmodule Aiur.ExecutorListenerTest do
       if previous_dir, do: Application.put_env(:aiur, :decision_state_dir, previous_dir), else: Application.delete_env(:aiur, :decision_state_dir)
     end)
 
+    suffix = System.unique_integer([:positive])
+    ticket_identifier = "listener-wake-#{suffix}"
+
     start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
-    start_listener(inbox: @inbox_name, patterns: ["executor.#"], reconcile?: false)
+
+    listener =
+      start_listener(
+        inbox: @inbox_name,
+        patterns: ["executor.#"],
+        reconcile?: false,
+        resubscribe_interval_ms: :infinity,
+        escalation_interval_ms: :infinity
+      )
+
     store = start_supervised!({Aiur.DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
-    context = [ticket: %{identifier: "3141", title: "Renderer", url: nil}, source: %{agent_id: "codex", session_id: "s-1", event_id: nil}]
+    context = [ticket: %{identifier: ticket_identifier, title: "Renderer", url: nil}, source: %{agent_id: "codex", session_id: "s-1", event_id: nil}]
 
     request = fn source_id, blocking ->
       payload = %{"question" => "Defer composed mobile pixels?", "blocking" => blocking, "authority" => "human_required", "source_id" => source_id}
@@ -413,14 +425,15 @@ defmodule Aiur.ExecutorListenerTest do
       decision
     end
 
-    _nonblocking = request.("parity-note", false)
-    decision = request.("parity", true)
+    _nonblocking = request.("parity-note-#{suffix}", false)
+    decision = request.("parity-#{suffix}", true)
 
     assert {:ok, [wake]} = ExecutorWakeInbox.wait(1_000, @inbox_name)
+    wake_topic = "ticket.#{ticket_identifier}.agent.attention.operator-decision"
 
     assert %{
-             "topic" => "ticket.3141.agent.attention.operator-decision",
-             "ticket" => "3141",
+             "topic" => ^wake_topic,
+             "ticket" => ^ticket_identifier,
              "needs_attention" => true,
              "escalation" => "created",
              "question" => "Defer composed mobile pixels?",
@@ -428,7 +441,9 @@ defmodule Aiur.ExecutorListenerTest do
            } = wake
 
     assert wake["decision_id"] == decision.decision_id
-    Process.sleep(100)
+    # The listener sends the wake before this barrier can be handled. Once the
+    # barrier returns, every already-published request event has been consumed.
+    assert is_map(:sys.get_state(listener))
     assert [_only] = ExecutorWakeInbox.pending(@inbox_name)
   end
 
