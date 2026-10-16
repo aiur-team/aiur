@@ -165,9 +165,9 @@ defmodule Aiur.AgentControlCLI do
     Commands.print_projection_status()
     print_codeowners_trust()
     ReloadRejection.print_status()
+    Aiur.Handoff.CLI.print_latest()
     Aiur.MergePolicyCLI.print()
     tracker_states = tracker_state_sets()
-
     # Count printed rows so hidden releases cannot inflate the headline (#1475).
     visible_statuses = Enum.filter(statuses, &visible_status_row?(&1, tracker_states))
 
