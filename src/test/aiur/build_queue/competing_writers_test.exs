@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.CompetingWritersTest do
   @moduledoc "Integration coverage for queue and tracker writers racing over ticket state."
   use ExUnit.Case, async: false
-  alias Aiur.BuildQueue.{Hints, Model, Server}
+  alias Aiur.BuildQueue.{Bookkeeping, Hints, Model, Server}
   alias Aiur.Config.Schema
   alias Aiur.Events.Exchange
 
@@ -9,8 +9,13 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     def open_issue_labels(_age) do
       Agent.get_and_update(__MODULE__, fn s ->
         labels = if s.observation_calls == 0, do: Map.get(s, :observation_labels, s.labels), else: s.labels
-        {{:ok, Map.new(labels, fn {id, issue_labels} -> {id, %{labels: issue_labels}} end), s.now}, %{s | observation_calls: s.observation_calls + 1}}
+        result = observation_result(s, labels)
+        {result, %{s | observation_calls: s.observation_calls + 1}}
       end)
+    end
+
+    defp observation_result(state, labels) do
+      if Map.get(state, :observation_unavailable?, false), do: {:error, :offline}, else: {:ok, Map.new(labels, fn {id, issue_labels} -> {id, %{labels: issue_labels}} end), state.now}
     end
 
     def issue_closure(id, _age) do
@@ -56,7 +61,19 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
 
     pid =
       start_supervised!(
-        {Agent, fn -> %{document: document, now: 1_000, labels: %{"1" => ["agent:queued"], "2" => ["agent:queued"]}, calls: [], save_error: nil, closed_ids: [], observation_calls: 0} end}
+        {Agent,
+         fn ->
+           %{
+             document: document,
+             now: 1_000,
+             labels: %{"1" => ["agent:queued"], "2" => ["agent:queued"]},
+             calls: [],
+             save_error: nil,
+             closed_ids: [],
+             observation_labels: %{"1" => ["agent:queued"], "2" => ["agent:queued"]},
+             observation_calls: 0
+           }
+         end}
       )
 
     Process.register(pid, Boundary)
@@ -216,6 +233,33 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     assert calls() == []
   end
 
+  test "queue release clears its hold and reports members without observations" do
+    change_document(fn document -> %{document | queues: Enum.map(document.queues, &%{&1 | held: true})} end)
+    Agent.update(Boundary, &Map.put(&1, :observation_unavailable?, true))
+    pid = server()
+
+    assert {:ok, ["1", "2"]} = Aiur.BuildQueue.release("q", pid)
+    assert hd(document().queues).held == false
+    assert item("1").hold == nil
+    assert item("2").hold == nil
+  end
+
+  test "bookkeeping reports only the set members missing from a partial snapshot" do
+    document = %{document() | queues: Enum.map(document().queues, &%{&1 | held: true})}
+    observation = %Model.Observation{issue_id: "1", open?: true, labels: ["agent:todo"], state_reason: nil, pr: nil, observed_at_ms: 1_000}
+
+    assert {:ok, released, ["2"]} = Bookkeeping.release(document, "q", %{"1" => observation}, 1_000, "agent:todo")
+    assert hd(released.queues).held == false
+  end
+
+  test "releasing an unobserved closed member succeeds as a no-op with a notice" do
+    Agent.update(Boundary, &Map.put(&1, :observation_unavailable?, true))
+    pid = server()
+
+    assert {:ok, ["2"]} = Aiur.BuildQueue.release("2", pid)
+    assert item("2").hold == nil
+  end
+
   test "failed bookkeeping save stops batch without changing durable state" do
     labels("1", [])
     labels("2", ~w(agent:queued agent:todo))
@@ -245,7 +289,7 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     reconcile(pid)
     assert Aiur.BuildQueue.release("missing", pid) == {:error, :not_found}
     Agent.update(Boundary, &%{&1 | labels: %{}})
-    assert Aiur.BuildQueue.release("1", pid) == {:error, :observation_unavailable}
+    assert Aiur.BuildQueue.release("1", pid) == {:ok, ["1"]}
     labels("1", ["agent:queued"])
     Agent.update(Boundary, &%{&1 | save_error: :disk_full})
     assert Aiur.BuildQueue.release("1", pid) == {:error, :disk_full}

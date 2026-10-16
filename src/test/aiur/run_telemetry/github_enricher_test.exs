@@ -98,6 +98,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
 
     result =
       GitHubEnricher.enrich("owner/repo", ["930"],
+        token: "test-gh-token",
         request_fun: request_fun,
         trusted_author_fun: &(&1 == "owner")
       )
@@ -137,6 +138,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
     pagination_limit =
       GitHubEnricher.enrich("owner/repo", ["930"],
         max_pages: 0,
+        token: "test-gh-token",
         request_fun: fn _request -> flunk("pagination limit should fail before a request") end
       )
 
@@ -144,6 +146,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
 
     cycle =
       GitHubEnricher.enrich("owner/repo", ["930"],
+        token: "test-gh-token",
         request_fun: fn %{url: url} ->
           {:ok,
            %{
@@ -157,17 +160,17 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
     assert [%{reason: "pagination_cycle"}] = cycle.warnings
 
     status_failure =
-      GitHubEnricher.enrich("owner/repo", ["930"], request_fun: fn _request -> {:ok, %{status: 503}} end)
+      GitHubEnricher.enrich("owner/repo", ["930"], token: "test-gh-token", request_fun: fn _request -> {:ok, %{status: 503}} end)
 
     assert [%{reason: "status_503"}] = status_failure.warnings
 
     invalid_response =
-      GitHubEnricher.enrich("owner/repo", ["930"], request_fun: fn _request -> {:ok, %{body: []}} end)
+      GitHubEnricher.enrich("owner/repo", ["930"], token: "test-gh-token", request_fun: fn _request -> {:ok, %{body: []}} end)
 
     assert [%{reason: "invalid_response"}] = invalid_response.warnings
 
     exception =
-      GitHubEnricher.enrich("owner/repo", ["930"], request_fun: fn _request -> raise "request exploded" end)
+      GitHubEnricher.enrich("owner/repo", ["930"], token: "test-gh-token", request_fun: fn _request -> raise "request exploded" end)
 
     assert [%{reason: "request_exception"}] = exception.warnings
   end

@@ -67,6 +67,12 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
         idle_backoff: state.idle_poll_backoff,
         tracker_snapshot_fresh?: state.candidate_snapshot_fresh?,
         class_intervals: PollCadence.effective_intervals()
+      },
+      dispatch_cycle: %{
+        started_at_ms: state.dispatch_cycle_started_at_ms,
+        last_completed_at_ms: state.last_dispatch_cycle_completed_at_ms,
+        stalled?: state.dispatch_cycle_stalled?,
+        stage: state.dispatch_cycle_stage
       }
     }
     |> StatusObservation.attach(state, now)

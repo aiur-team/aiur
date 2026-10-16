@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+guards="$repo_root/scripts/pre-handoff-guards.list"
+pr_json="${1:-}"
+base="${2:-}"
+skip_pr_body=false
+
+if [[ "$pr_json" == "--skip-pr-body" ]]; then
+  skip_pr_body=true
+  pr_json=""
+  base="${2:-}"
+fi
+
+if [[ -z "$base" || ( "$skip_pr_body" == false && -z "$pr_json" ) ]]; then
+  echo "usage: scripts/pre-handoff-guards <PR_JSON_FILE> <BASE_SHA> | --skip-pr-body <BASE_SHA>" >&2
+  exit 2
+fi
+if [[ "$skip_pr_body" == false && ! -f "$pr_json" ]]; then
+  echo "pre-handoff-guards: PR metadata file not found: $pr_json" >&2
+  exit 2
+fi
+if [[ "$skip_pr_body" == false ]]; then
+  pr_json="$(cd "$(dirname "$pr_json")" && pwd)/$(basename "$pr_json")"
+fi
+
+while IFS= read -r guard || [[ -n "$guard" ]]; do
+  [[ -z "$guard" || "$guard" == \#* ]] && continue
+  [[ "$skip_pr_body" == true && "$guard" == *'<PR_JSON>'* ]] && continue
+  command=( )
+  while IFS= read -r -d '' arg; do command+=("$arg"); done < <(python3 - "$guard" "$pr_json" "$base" <<'PY'
+import shlex, sys
+for arg in shlex.split(sys.argv[1]):
+    arg = arg.replace('<PR_JSON>', sys.argv[2]).replace('<BASE_SHA>', sys.argv[3])
+    sys.stdout.buffer.write(arg.encode() + b'\0')
+PY
+)
+  printf 'pre-handoff-guards: %s\n' "${command[*]}"
+  (cd "$repo_root" && "${command[@]}")
+done < "$guards"

@@ -48,12 +48,19 @@ File.mkdir_p!(Path.dirname(global_log_file))
 # excluded elsewhere (e.g. macOS dev) rather than silently passing.
 real_proc_exclude = if File.dir?("/proc"), do: [], else: [:real_proc]
 
+workspace_root = Path.expand("../..", __DIR__)
+
+manual_sandbox_reset_exclude =
+  if System.get_env("AIUR_AGENT_WORKSPACE") || String.contains?(workspace_root, "/aiur-workspaces/"),
+    do: [:manual_sandbox_reset],
+    else: []
+
 # `:external` tests call a third-party API over the network with a real
 # credential. They are evidence gathered on demand — a measurement or a contract
 # check against the live provider — never a gate, because a gate that needs the
 # internet and someone's API key fails for reasons that have nothing to do with
 # the change under test. Run one with `mix test --only external`.
-ExUnit.start(exclude: [:external, :perf_regression, :quarantine] ++ real_proc_exclude)
+ExUnit.start(exclude: [:external, :perf_regression, :quarantine] ++ real_proc_exclude ++ manual_sandbox_reset_exclude)
 
 Code.require_file("support/test_tmp.exs", __DIR__)
 

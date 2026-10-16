@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusObservation
+  alias Aiur.Orchestrator.TelemetryEvents
   alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.Tracker
   alias Aiur.TrackerIdentity
@@ -162,6 +163,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         |> TransitionAlerts.emit_task_state_transition_alert(previous_issue, issue)
         |> TransitionAlerts.emit_tracker_pause_transition_alert(previous_issue, issue)
         |> Dependencies.emit_dependency_transition_events(previous_issue, issue)
+        |> TelemetryEvents.observe(previous_issue, issue)
       end)
 
     state = PushRouting.recheck_cleared_dependency_pauses(state, fetch_issue_states_fun, issues)

@@ -26,7 +26,7 @@ defmodule Aiur.RunTelemetry.WindowEventSourcesTest do
       end
     end
 
-    {data, ["github"]} = RunTelemetry.window_event_sources("owner/repo", @sources, @range, request_fun: request)
+    {data, ["github"]} = RunTelemetry.window_event_sources("owner/repo", @sources, @range, token: "test-gh-token", request_fun: request)
     assert data["pulls"] == [%{"number" => 42}]
 
     for _ <- 1..5 do
@@ -51,7 +51,7 @@ defmodule Aiur.RunTelemetry.WindowEventSourcesTest do
       end
     end
 
-    {data, ["github"]} = RunTelemetry.window_event_sources("owner/repo", @sources, @range, request_fun: request)
+    {data, ["github"]} = RunTelemetry.window_event_sources("owner/repo", @sources, @range, token: "test-gh-token", request_fun: request)
     assert length(data["runs"]) == 10
   end
 end

@@ -201,6 +201,14 @@ export async function expectDesignParity(pair, { name, region, fullPage = false,
 
 export async function compareParityPixels(pair, { name, region, fullPage = false, preserveAnimations = false }) {
   const { designMask, productMask } = await applyAllowlist(pair, pair.cell)
+  // A region capture must not mask unrelated chrome that overlaps its raster origin.
+  if (region) {
+    for (const [page, masks] of [[pair.design, designMask], [pair.product, productMask]]) {
+      const target = page.locator(region)
+      const inside = target.or(target.locator('*'))
+      for (let i = 0; i < masks.length; i++) masks[i] = masks[i].and(inside)
+    }
+  }
   // Hold screenshot animation state once, avoiding cancel/resume repaint drift.
   if (!preserveAnimations) for (const page of [pair.design, pair.product]) await page.evaluate(() => document.getAnimations().forEach(a => Number.isFinite(a.effect?.getComputedTiming().endTime) ? a.finish() : a.cancel()))
   const design = region ? await one(pair.design, region, 'design') : pair.design

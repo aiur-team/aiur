@@ -139,10 +139,11 @@ if [ -n "$agent_workspace_marker" ] && { [ "$test_single" -eq 1 ] || [ "$test3_m
   exit 64
 fi
 
-# The scope is an internal daemon launch value, never inherited by an ordinary
-# run or by the reset command. Validate it before build, log clearing, stop, or
-# GitHub reset so an unreadable pinned file cannot start an unbounded test run.
-unset AIUR_DEV_TEST_TICKET_IDS
+# These are internal launch values. Clear inherited copies before deciding
+# whether this invocation is scoped, then set them only for the pinned test run.
+# Validate the scope before build, log clearing, stop, or GitHub reset so an
+# unreadable pinned file cannot start an unbounded test run.
+unset AIUR_DEV_TEST_TICKET_IDS AIUR_GITHUB_BUDGET_DIR AIUR_DEV_TEST_STATE_DIR AIUR_DEV_TEST_RUN_ID
 test_scope_ids=""
 if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   tickets_file="$repo_root/.aiur-test-tickets.json"
@@ -194,6 +195,42 @@ if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   echo "🛑 stopping any running aiur" >&2
   "$engine" stop >/dev/null 2>&1 || true
 
+  export AIUR_DEV_TEST_TICKET_IDS="$test_scope_ids"
+  AIUR_GITHUB_BUDGET_DIR=""
+  AIUR_DEV_TEST_STATE_DIR=""
+
+  cleanup_test_launch_state() {
+    local path recorded_ids basename
+    for path in "${AIUR_GITHUB_BUDGET_DIR:-}" "${AIUR_DEV_TEST_STATE_DIR:-}"; do
+      [ -n "$path" ] || continue
+      basename="${path##*/}"
+      case "$basename" in
+        aiur-test-budget.*|aiur-test-state.*) ;;
+        *) continue ;;
+      esac
+      [ -f "$path/.aiur-test-private" ] || continue
+      recorded_ids="$(cat "$path/.aiur-test-private" 2>/dev/null || true)"
+      [ "$recorded_ids" = "$test_scope_ids" ] || continue
+      rm -rf -- "$path"
+    done
+  }
+  trap cleanup_test_launch_state EXIT
+
+  AIUR_GITHUB_BUDGET_DIR="$(mktemp -d "${TMPDIR:-/tmp}/aiur-test-budget.XXXXXX")" || {
+    echo "❌ could not create isolated GitHub budget directory" >&2
+    exit 1
+  }
+  export AIUR_GITHUB_BUDGET_DIR
+  AIUR_DEV_TEST_RUN_ID="${AIUR_GITHUB_BUDGET_DIR##*/}"
+  export AIUR_DEV_TEST_RUN_ID
+  printf '%s\n' "$test_scope_ids" >"$AIUR_GITHUB_BUDGET_DIR/.aiur-test-private"
+  AIUR_DEV_TEST_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/aiur-test-state.XXXXXX")" || {
+    echo "❌ could not create isolated Executor state directory" >&2
+    exit 1
+  }
+  export AIUR_DEV_TEST_STATE_DIR
+  printf '%s\n' "$test_scope_ids" >"$AIUR_DEV_TEST_STATE_DIR/.aiur-test-private"
+
   reset_args=("--confirm" "--force")
   [ "$test_single" -eq 1 ] && reset_args+=("--single")
   [ "$allow_remote" -eq 1 ] && reset_args+=("--allow-remote")
@@ -204,8 +241,6 @@ if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
     echo "❌ test reset failed; refusing to launch. Inspect the output above." >&2
     exit 1
   fi
-
-  export AIUR_DEV_TEST_TICKET_IDS="$test_scope_ids"
 
   # GitHub's label index is eventually consistent — wait until the pinned
   # tickets show under agent:todo (or fall through after 30s) so the
@@ -236,14 +271,13 @@ if [ "$test3_mode" -eq 1 ]; then
   pid_file="$repo_root/.aiur-test3-timer.pid"
   if [ -r "$pid_file" ]; then
     prior_pid="$(cat "$pid_file" 2>/dev/null || true)"
-    { [ -n "$prior_pid" ] && kill -0 "$prior_pid" 2>/dev/null && kill "$prior_pid" 2>/dev/null; } || true
+    { [ -n "$prior_pid" ] && kill -0 -- "-$prior_pid" 2>/dev/null && kill -- "-$prior_pid" 2>/dev/null; } || true
     rm -f "$pid_file"
   fi
   timer="$repo_root/scripts/aiur-test3-timer"
   if [ -x "$timer" ]; then
     echo "⏱  test3 timer started (results append to .aiur-test3-runs.jsonl)" >&2
-    setsid "$timer" "$repo_root" "$(date +%s)" </dev/null >/dev/null 2>&1 &
-    disown 2>/dev/null || true
+    "$script_dir/aiur-test3-start-timer" "$repo_root" "$timer" "$(date +%s)" || exit 1
   fi
 fi
 

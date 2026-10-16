@@ -57,6 +57,7 @@ defmodule Aiur.Application.ChildrenTest do
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
+      Aiur.GitHub.HoldPressure,
       Aiur.RecentMergeStore,
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,

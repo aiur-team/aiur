@@ -221,3 +221,5 @@ three-to-five-sentence goal summarizing its Executor role and authority.
 Stop after the reviewed pack and any separately user-authorized Executor
 promotion.
 Do not start Aiur or implement the first ticket as a convenience.
+
+Add `experiment:feature` to the promoted root to measure it automatically; see `website/docs-app/concepts/experiments.md` (Measuring a feature).

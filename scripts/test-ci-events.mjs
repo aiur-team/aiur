@@ -13,7 +13,7 @@ assert.ok(/  push:\n    branches: \[main, v2\]/.test(trigger), 'main pushes trig
 assert.ok(/  schedule:\n    - cron:/.test(trigger), 'scheduled CI is configured');
 const jobs = new Map([...source.split(/^jobs:\n/m)[1].matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:|$(?![\s\S]))/gm)]
   .map(([, id, body]) => [id, body]));
-const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'browser-2', 'browser-3', 'home-css', 'layout-release', 'analytics', 'streamdeck'];
+const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'browser-2', 'browser-3', 'browser-4', 'home-css', 'layout-release', 'analytics', 'streamdeck'];
 const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'ci-gate'];
 function selected(event, full, dialyzer = false) {
   return [...jobs].filter(([, body]) => {
@@ -104,8 +104,14 @@ for (const command of coreCommands) {
   assert.equal(shardCommands.filter((name) => name === command).length, 1, `${command} appears in exactly one browser shard`);
 }
 assert.deepEqual([...new Set(shardCommands)].sort(), [...new Set(coreCommands)].sort(), 'shards match npm test:core commands');
-for (const [job, shard] of [['browser', 1], ['browser-2', 2], ['browser-3', 3]]) {
-  assert.ok(jobs.get(job).includes(`run-browser-smoke-shard.mjs ${shard}`), `${job} runs shard ${shard}`);
+for (const [job, shard] of [['browser', 1], ['browser-2', 2], ['browser-3', 3], ['browser-4', 4]]) {
+  assert.ok(jobs.get(job).includes('./.github/actions/browser-smoke'), `${job} uses the shared browser action`);
+  assert.ok(jobs.get(job).includes('actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'), `${job} checks out before the local action`);
+  assert.ok(jobs.get(job).includes('timeout-minutes: 15'), `${job} retains its 15-minute timeout`);
+  assert.ok(jobs.get(job).includes(`shard: ${shard}`), `${job} selects shard ${shard}`);
 }
+const browserAction = readFileSync(new URL('../.github/actions/browser-smoke/action.yml', import.meta.url), 'utf8');
+assert.ok(browserAction.includes('using: composite'), 'shared browser setup is an allowed local composite action');
+assert.ok(browserAction.includes('run: node scripts/run-browser-smoke-shard.mjs ${{ inputs.shard }}'), 'shared action runs its selected shard');
 assert.ok(!source.includes('npm run test:core'), 'no single job runs the unsharded browser suite');
 console.log('CI event selection and aggregate failure tests passed');

@@ -24,15 +24,16 @@ defmodule Aiur.BuildQueue.Bookkeeping do
     end
   end
 
-  @spec release(map(), String.t(), map(), integer(), String.t()) :: {:ok, map()} | {:error, :not_found | :observation_unavailable}
+  @spec release(map(), String.t(), map(), integer(), String.t()) :: {:ok, map(), [String.t()]} | {:error, :not_found}
   def release(document, target, observations, now, todo) do
     queue? = Enum.any?(document.queues, &(&1.id == target))
     selected = Enum.filter(document.items, &(&1.issue_id == target or &1.queue_id == target))
 
-    cond do
-      selected == [] and not queue? -> {:error, :not_found}
-      Enum.any?(selected, &is_nil(observations[&1.issue_id])) -> {:error, :observation_unavailable}
-      true -> {:ok, released(document, target, selected, observations, now, todo)}
+    if selected == [] and not queue? do
+      {:error, :not_found}
+    else
+      unobserved = for item <- selected, is_nil(observations[item.issue_id]), do: item.issue_id
+      {:ok, released(document, target, selected, observations, now, todo), unobserved}
     end
   end
 
@@ -50,7 +51,8 @@ defmodule Aiur.BuildQueue.Bookkeeping do
 
   defp release_item(item, ids, observations, now, todo) do
     if MapSet.member?(ids, item.issue_id) do
-      promoted_at = if todo in observations[item.issue_id].labels, do: DateTime.from_unix!(now, :millisecond)
+      observation = observations[item.issue_id]
+      promoted_at = if observation && todo in observation.labels, do: DateTime.from_unix!(now, :millisecond)
       %{item | override: nil, hold: nil, promoted_at: promoted_at}
     else
       item

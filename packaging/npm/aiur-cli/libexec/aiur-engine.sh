@@ -63,7 +63,7 @@ engine_source="${BASH_SOURCE[0]}"
 
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session control commands executor_commands report_commands lifecycle handoff upgrade pre_pr"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -114,13 +114,13 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur listen [--topic <pattern> | --ticket <id>]  stream events as JSON lines
        aiur executor-listen [--topic <pattern>]  deprecated alias for listen
-       aiur executor-wait [--timeout <seconds>] [--json]  block until Executor work arrives
+       aiur executor-wait [--timeout <seconds>] [--session-id <uuid> [--harness codex]] [--json]  block until Executor work arrives
        aiur executor-fast-forward <wake-id> [--as <id>]  acknowledge an externally covered wake prefix
        aiur executor-emit <topic> --payload <json>  publish an Executor event
        aiur executor-subscribe|executor-unsubscribe <pattern>
        aiur executor-subscriptions  list persistent Executor bindings
        aiur workspace-recover <ticket-identifier> <generation>  release a held workspace after verified provider exit
-       aiur executor-roster [--json]  list Executor consumers with their liveness evidence
+       aiur executor-roster [--json]  list Executor consumers; executor-session [--json] reads the live Executor harness session
        aiur executor-claim [--as <id>]  claim the wake stream, or refuse and name the live owner
        aiur executor-release [--as <id>]  give up this consumer's claim
        aiur executor-revoke <consumer-id>  operator-only revoke of a live owner's claim
@@ -303,10 +303,8 @@ aiur_engine_main() {
       shift
       cmd_executor_subscriptions "$@"
       ;;
-    executor-roster)
-      shift
-      cmd_executor_roster "$@"
-      ;;
+    executor-roster | executor-session)
+      shift; "cmd_${cmd//-/_}" "$@" ;;
     executor-fast-forward)
       shift
       cmd_executor_fast_forward "$@"
@@ -387,6 +385,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-feature.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-executor-session.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-experiments.sh"
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   aiur_engine_main "$@"
