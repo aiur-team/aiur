@@ -212,6 +212,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
         ReworkDispatchClaim.dispatch(
           state,
           issue,
+          attempt,
           &spawn_issue_on_worker_host(&1, issue, attempt, recipient, worker_host, opts),
           &Candidates.emit_dispatch_attempt_decline(&1, issue, &2, true),
           &dispatch_input/2

@@ -164,6 +164,9 @@ defmodule Aiur.DispatcherBlockedByCostSupport do
           send(test_pid, {:issue_fetch, ids})
           {:ok, Enum.map(ids, &%{issue | id: &1})}
         end,
+        # The launch task's rework-head lookup lists `/pulls` after dispatch returns,
+        # racing the tests' `refute_received {:github, _}` (#4686).
+        rework_head_fetcher: fn _identifier -> {:ok, nil} end,
         runner: runner
       )
     after

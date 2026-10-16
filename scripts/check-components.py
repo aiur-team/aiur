@@ -116,6 +116,10 @@ def validate(value, schema, document, pointer=''):
 def load_manifest(root):
     document = json.loads((root / 'components.schema.json').read_text())
     manifest = read_manifest(root)
+    # Seam entries remain independent files so concurrent additions do not conflict.
+    files = sorted((root / 'scripts/components/seams').glob('*.json'))
+    if files:
+        manifest['seams'] = manifest.get('seams', []) + [json.loads(path.read_text()) for path in files]
     return validate_manifest(manifest, document)
 
 
@@ -433,7 +437,10 @@ def main():
                 return 0
         files = source_files(root)
         if args.format:
-            write_manifest(root, manifest)
+            # Seam files are the source of truth; keep formatting from inlining them.
+            formatted = dict(manifest)
+            formatted.pop('seams', None)
+            write_manifest(root, formatted)
         problems, counts, file_owners = ownership(manifest, files)
         declaration_counts = {}
         if args.rules in ('all', 'ownership'):

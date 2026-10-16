@@ -444,13 +444,22 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make dialyzer
   browser:
-    name: browser smoke (1/4)
+    name: browser smoke (${{ matrix.shard }}/5)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
-    timeout-minutes: 15
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { shard: 1, verify_fixtures: true, upload_evidence: true }
+          - { shard: 2, visual_regression: first }
+          - { shard: 3 }
+          - { shard: 4 }
+          - { shard: 5, visual_regression: second }
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -458,71 +467,13 @@ jobs:
         if: ${{ github.run_attempt > 1 }}
         working-directory: .
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Run browser smoke shard 1
+      - name: Run browser smoke shard
         uses: ./.github/actions/browser-smoke
         with:
-          shard: 1
-          verify_fixtures: true
-          upload_evidence: true
-  browser-2:
-    name: browser smoke (2/4)
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Disclose rerun attempt
-        if: ${{ github.run_attempt > 1 }}
-        working-directory: .
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Run browser smoke shard 2
-        uses: ./.github/actions/browser-smoke
-        with:
-          shard: 2
-          visual_regression: first
-  browser-3:
-    name: browser smoke (3/4)
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Disclose rerun attempt
-        if: ${{ github.run_attempt > 1 }}
-        working-directory: .
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Run browser smoke shard 3
-        uses: ./.github/actions/browser-smoke
-        with:
-          shard: 3
-  browser-4:
-    name: browser smoke (4/4)
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Disclose rerun attempt
-        if: ${{ github.run_attempt > 1 }}
-        working-directory: .
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Run browser smoke shard 4
-        uses: ./.github/actions/browser-smoke
-        with:
-          shard: 4
-          visual_regression: second
+          shard: ${{ matrix.shard }}
+          verify_fixtures: ${{ matrix.verify_fixtures || false }}
+          upload_evidence: ${{ matrix.upload_evidence || false }}
+          visual_regression: ${{ matrix.visual_regression || 'none' }}
   streamdeck:
     name: streamdeck
     needs: changes
@@ -671,7 +622,7 @@ jobs:
         run: bash ../scripts/run-ci-affected-tests.sh
   ci-gate:
     name: ci gate
-    needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, browser-2, browser-3, browser-4, home-css, layout-release, analytics, streamdeck]
+    needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 2

@@ -112,6 +112,32 @@ defmodule Aiur.Handoff.AdopterTest do
     assert good["status"] == "adopted"
   end
 
+  test "an agent past the slot cap falls back instead of being adopted (#4683)", %{dir: dir} do
+    assert :ok = Record.write(record([agent(dir, "kept"), agent(dir, "over")]), dir: dir)
+    parent = self()
+
+    runner = fn _, _, recipient, _ ->
+      send(recipient, {:handoff_adopted, self(), {:ok, %{}}})
+
+      receive do
+        :handoff_continue -> send(parent, {:continued, self()})
+      end
+
+      receive do
+        :stop -> :ok
+      end
+    end
+
+    state = Adopter.adopt(%State{max_concurrent_agents: 1}, options(dir, runner: runner, stop_agent: fn a -> send(parent, {:stopped, a["identifier"]}) end))
+    assert Map.keys(state.running) == ["kept"]
+    assert_receive {:continued, pid}, 1000
+    send(pid, :stop)
+    assert_receive {:stopped, "over"}, 1000
+    assert state.retry_attempts["over"]
+    assert {:ok, %{"outcome" => [_kept, over]}} = Aiur.JsonStore.read(Record.path(dir: dir) <> ".consumed")
+    assert over["reason"] == ":max_concurrent_agents_reached"
+  end
+
   test "consume failure stops staged runners before they resume", %{dir: dir} do
     assert :ok = Record.write(record([agent(dir, "one")]), dir: dir)
     File.mkdir_p!(Record.path(dir: dir) <> ".consumed")

@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url'
 
 // Home suites are registered by file name alone: tests/build-home-<name>.browser.spec.mjs needs no
 // package.json script, shard-map line or guard edit, so parallel home PRs never conflict on them.
-export const SHARD_COUNT = 4
 export const SUITE_SCRIPT = 'test:browser-suite'
 const browserRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SPEC = /^(build-home-[\w-]+)\.browser\.spec\.mjs$/
@@ -19,8 +18,8 @@ export function discoverSuites(root = browserRoot) {
     .sort()
 }
 
-// ponytail: FNV-1a of the name spreads suites without timings; switch to recorded timings once #4667 lands.
-export function suiteShard(name, count = SHARD_COUNT) {
+// ponytail: FNV-1a of the name spreads suites without timings; switch to recorded timings once a discovered suite has one.
+export function suiteShard(name, count) {
   let hash = 0x811c9dc5
   for (const char of name) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0
   return (hash % count) + 1
@@ -28,9 +27,11 @@ export function suiteShard(name, count = SHARD_COUNT) {
 
 export const suiteCommand = name => `${SUITE_SCRIPT} -- ${name}`
 
+// The hand-placed map's key count is the shard count, so adding a shard there is the only edit.
 export function shardCommands(shards, root = browserRoot) {
-  const plan = Object.fromEntries(Array.from({ length: SHARD_COUNT }, (_, index) => [index + 1, [...(shards[index + 1] ?? [])]]))
-  for (const name of discoverSuites(root)) plan[suiteShard(name)].push(suiteCommand(name))
+  const count = Object.keys(shards).length
+  const plan = Object.fromEntries(Array.from({ length: count }, (_, index) => [index + 1, [...(shards[index + 1] ?? [])]]))
+  for (const name of discoverSuites(root)) plan[suiteShard(name, count)].push(suiteCommand(name))
   return plan
 }
 
