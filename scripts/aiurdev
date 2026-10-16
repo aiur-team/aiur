@@ -211,7 +211,7 @@ guard_checkout_target() {
 }
 
 . "$script_dir/lib/aiurdev-toolchain.sh"
-
+. "$script_dir/lib/layout-assets.sh"
 
 # True only when repo_root is itself the root of a git work tree. `git -C` walks
 # UP to the nearest enclosing repository, so a repo_root that merely sits inside
@@ -345,7 +345,7 @@ build_aiur() {
   echo "🔨 rebuilding bin/aiur (compile + release)" >&2
   log_file="$(mktemp "${TMPDIR:-/tmp}/aiurdev-release.XXXXXX")"
 
-  if (cd "$elixir_dir" && "$mise_bin" exec -- mix compile --force && "$mise_bin" exec -- mix release --overwrite) >"$log_file" 2>&1; then
+  if (build_layout_assets "$repo_root" "$mise_bin" exec -- && cd "$elixir_dir" && "$mise_bin" exec -- mix compile --force && "$mise_bin" exec -- mix release --overwrite) >"$log_file" 2>&1; then
     status=0
   else
     status=$?
@@ -410,7 +410,7 @@ ensure_built_locked() {
     return
   fi
 
-  if [ -n "$(find "$elixir_dir/lib" "$elixir_dir/mix.exs" "$elixir_dir/mix.lock" \
+  if layout_assets_stale "$repo_root" "$elixir_dir/bin/aiur" || [ -n "$(find "$elixir_dir/lib" "$elixir_dir/mix.exs" "$elixir_dir/mix.lock" \
     -newer "$elixir_dir/bin/aiur" -print -quit 2>/dev/null)" ]; then
     build_aiur
   fi
