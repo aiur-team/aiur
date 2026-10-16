@@ -11,8 +11,8 @@ defmodule Aiur.LandingWatch.MergeGroups do
     with {:ok, base} <- MergeGroupRunFetcher.base_branch(opts),
          {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts),
-         {:ok, runs} <- MergeGroupRunFetcher.active_runs(owner, repo, token, opts),
-         {:ok, completed} <- MergeGroupRunFetcher.completed_runs(owner, repo, token, opts),
+         {:ok, runs} <- MergeGroupRunFetcher.active_runs(owner, repo, base, token, opts),
+         {:ok, completed} <- MergeGroupRunFetcher.completed_runs(owner, repo, base, token, opts),
          {:ok, fresh_observations} <- live_observations(observations, opts) do
       with :ok <- MergeGroupFailureProcessor.process_completed(completed, fresh_observations, base, opts),
            :ok <- MergeGroupQuarantine.process_completed(completed, base, opts),

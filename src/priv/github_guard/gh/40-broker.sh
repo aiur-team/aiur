@@ -100,7 +100,7 @@ budget_acquire() {
       $budget_ignore_flag $budget_cache_flags $budget_billable_flag \
       --max-inflight "${AIUR_GITHUB_MAX_INFLIGHT:-4}" \
       --max-inflight-per-endpoint "${AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT:-2}" \
-      --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-120}" \
+      --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-300}" \
       --stagger-ms "${AIUR_GITHUB_STAGGER_MS:-75}" --lease-ttl-ms "$budget_lease_ttl_ms" \
       --core-limit "${AIUR_GITHUB_CORE_LIMIT_PER_HOUR:-0}" \
       --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" \
