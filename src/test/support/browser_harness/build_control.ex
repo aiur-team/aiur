@@ -28,6 +28,8 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
 
   def configure(conn, _params), do: send_resp(conn, 404, "unknown build fixture control action")
 
+  defp diff_changes(_data, %{"name" => name}) when name in ~w(card-pct-null card-clock-3h), do: named_diff(name)
+
   defp diff_changes(data, %{"name" => "queue-unavailable"}) do
     path = Path.expand("../../fixtures/build_home/diffs/queue-unavailable.json", __DIR__)
     set = path |> File.read!() |> Jason.decode!()
@@ -40,6 +42,12 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
 
   defp diff_changes(data, params) do
     %{now: data["now"], upsert: [change_row(data, params)], remove: [], set: %{}, resync: false}
+  end
+
+  defp named_diff(name) do
+    path = Path.expand("../../fixtures/build_home/diffs/#{name}.json", __DIR__)
+    data = path |> File.read!() |> Jason.decode!()
+    %{now: data["now"], upsert: data["upsert"], remove: data["remove"], set: data["set"], resync: false}
   end
 
   defp change_row(data, params) do
