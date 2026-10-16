@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.PauseResume.ControlRequest do
   alias Aiur.Orchestrator.PauseResume.WorkerControl
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   @doc false
   @spec send_resume_control_message(State.t(), term(), term()) :: term()
@@ -309,7 +309,7 @@ defmodule Aiur.Orchestrator.PauseResume.ControlRequest do
   def record_control_transition(_running_entry, status, status, _cause), do: :ok
 
   def record_control_transition(running_entry, _old_status, :paused, cause) do
-    Lifecycle.record(
+    Signal.lifecycle(
       Map.get(running_entry, :identifier),
       Map.get(running_entry, :telemetry_attempt_id),
       :agent_pause,
@@ -320,7 +320,7 @@ defmodule Aiur.Orchestrator.PauseResume.ControlRequest do
 
   def record_control_transition(running_entry, old_status, :working, cause)
       when old_status in [:paused, :deactivated] do
-    Lifecycle.record(
+    Signal.lifecycle(
       Map.get(running_entry, :identifier),
       Map.get(running_entry, :telemetry_attempt_id),
       :agent_resume,

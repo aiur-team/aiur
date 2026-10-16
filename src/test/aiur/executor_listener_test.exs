@@ -315,12 +315,6 @@ defmodule Aiur.ExecutorListenerTest do
   test "a blocking Decision requested through DecisionStore wakes the Executor exactly once" do
     :ok = Aiur.TestSupport.ensure_id_generator_running()
     dir = Aiur.TestSupport.tmp_root!("aiur-decision-wake")
-    previous_dir = Application.get_env(:aiur, :decision_state_dir)
-    Application.put_env(:aiur, :decision_state_dir, dir)
-
-    on_exit(fn ->
-      if previous_dir, do: Application.put_env(:aiur, :decision_state_dir, previous_dir), else: Application.delete_env(:aiur, :decision_state_dir)
-    end)
 
     suffix = System.unique_integer([:positive])
     ticket_identifier = "listener-wake-#{suffix}"
@@ -336,7 +330,9 @@ defmodule Aiur.ExecutorListenerTest do
         escalation_interval_ms: :infinity
       )
 
-    store = start_supervised!({Aiur.DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
+    store =
+      start_supervised!({Aiur.DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, executor_request_publisher: &Aiur.ExecutorEvents.publish_requested/1})
+
     context = [ticket: %{identifier: ticket_identifier, title: "Renderer", url: nil}, source: %{agent_id: "codex", session_id: "s-1", event_id: nil}]
 
     request = fn source_id, blocking ->
