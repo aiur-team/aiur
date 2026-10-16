@@ -17,6 +17,33 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
   end
 
   describe "lookup/2" do
+    test "concurrent put/2 calls share the GenServer-owned table" do
+      id = "concurrent-#{System.unique_integer()}"
+
+      results =
+        1..64
+        |> Task.async_stream(fn n -> ActiveTurns.put(id, "t-#{n}") end,
+          max_concurrency: 64,
+          timeout: 5_000
+        )
+        |> Enum.to_list()
+
+      assert Enum.all?(results, &(&1 == {:ok, :ok}))
+      assert MapSet.new(ActiveTurns.active_turn_ids(id)) == MapSet.new(Enum.map(1..64, &"t-#{&1}"))
+    end
+
+    test "table survives after a caller that writes an entry exits" do
+      id = "owner-#{System.unique_integer()}"
+      turn = "t-owner"
+      caller = spawn(fn -> ActiveTurns.put(id, turn) end)
+
+      ref = Process.monitor(caller)
+      assert_receive {:DOWN, ^ref, :process, ^caller, :normal}, 1_000
+
+      assert Process.whereis(ActiveTurns) == :ets.info(ActiveTurns, :owner)
+      assert ActiveTurns.lookup(id, turn) == :active
+    end
+
     test "returns :not_found for unregistered ids" do
       assert ActiveTurns.lookup("test-#{System.unique_integer()}", "tDEAD") == :not_found
     end
@@ -72,12 +99,6 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
       _ = :sys.get_state(pid)
 
       assert ActiveTurns.lookup(id, turn) == :not_found
-    end
-
-    test "init returns ok state and re-uses existing table" do
-      # The Application started the GenServer once already; calling init
-      # again should hit the ensure_table fallback (table already exists).
-      assert {:ok, %{}} = ActiveTurns.init([])
     end
 
     test "mark_closed is safe when GenServer is not registered" do
