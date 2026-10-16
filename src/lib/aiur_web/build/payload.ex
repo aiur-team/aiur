@@ -6,7 +6,7 @@ defmodule AiurWeb.Build.Payload do
 
   Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
   features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
-  history (from/more/total/undated/tz), sources (history/features/queue/agents/index),
+  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
@@ -52,7 +52,8 @@ defmodule AiurWeb.Build.Payload do
 
   History requires nullable from/total/undated, boolean more and string tz.
   Sources each require state (ok/stale/incomplete/unavailable/disabled), nullable
-  observed_at milliseconds and nullable reason text. Daemon requires state
+  observed_at milliseconds and nullable reason text. Open tickets also allow unsupported
+  and require truncated (boolean). Daemon requires state
   (live/stale/offline/unknown) and nullable heartbeat_at/observed_at milliseconds.
 
   Authorized usage requires observed_at (ms or nil), apis and providers. Each

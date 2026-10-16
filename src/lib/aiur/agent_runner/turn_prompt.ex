@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.TurnPrompt do
   @moduledoc false
 
-  alias Aiur.AgentRunner.OptimisticPrompt
+  alias Aiur.AgentRunner.{OptimisticPrompt, ReworkFindings}
   alias Aiur.{Issue, PromptBuilder}
 
   defp turn_of(nil), do: ""
@@ -172,9 +172,20 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     """
 
     continuation <>
+      review_findings_section(issue, opts, reason) <>
       "\nTicket operating contract and context follow. Use them for identity, lifecycle, and repository rules; the continuation guidance above supersedes their generic cold-start phase order.\n\n" <>
       PromptBuilder.build_prompt(issue, opts)
   end
+
+  # #4654: the findings the handback gate checks, so the worker answers the same ids. Unreadable reviews add nothing.
+  defp review_findings_section(issue, opts, :rework) do
+    case ReworkFindings.fetch(issue.identifier, opts) do
+      {:ok, %{findings: findings}} -> ReworkFindings.prompt_section(findings)
+      {:error, _reason} -> ""
+    end
+  end
+
+  defp review_findings_section(_issue, _opts, :prior_work), do: ""
 
   defp continuation_headline(:rework), do: "this issue is in rework"
   defp continuation_headline(:prior_work), do: "this agent run continues prior work on this ticket"
