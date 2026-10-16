@@ -27,9 +27,9 @@ The Units strip shows non-model APIs beside model-provider meters.
 
 | API | What the row means | Detail |
 | --- | --- | --- |
-| GitHub Core | REST request budget percentage used | [GitHub API budgets](/apis/github#api-budgets) |
-| GitHub GraphQL | Query-point budget percentage used | [GitHub API budgets](/apis/github#api-budgets) |
-| GitHub secondary limit | Active abuse-control backoff | [GitHub API budgets](/apis/github#api-budgets) |
+| GitHub Core | REST request budget percentage used | [GitHub API budgets](/apis/github-budgets#api-budgets) |
+| GitHub GraphQL | Query-point budget percentage used | [GitHub API budgets](/apis/github-budgets#api-budgets) |
+| GitHub secondary limit | Active abuse-control backoff | [GitHub API budgets](/apis/github-budgets#api-budgets) |
 | ElevenLabs credit quota | Account credit pool as percentage used; appears only when a key is configured | [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures) |
 
 Every meter bar runs the full width of its pane, and every progress bar on the dashboard shares the same height. Model rows show the provider logo and usage bars only — the per-provider token count, spend figure, and the ElevenLabs next-invoice amount are not rendered on the strip.
@@ -105,7 +105,7 @@ The Tickets panel covers every open repository ticket, including work that has n
 | Check admission | Rechecks an already labelled ticket without rewriting its labels. Authorization can still decline; an allowed GitHub operator must remove and reapply the trigger label using their own account. |
 | Non-GitHub tracker | Reports the panel as unsupported. |
 
-While the request runs, duplicate submission is disabled and Close stays responsive. Partial failures retain applied changes and retry only the remaining label changes. Successful label writes do not prove an agent is running: pause, prewarm, capacity, and dependency gates can still hold dispatch. See [GitHub trust](/apis/github#who-aiur-trusts).
+While the request runs, duplicate submission is disabled and Close stays responsive. Partial failures retain applied changes and retry only the remaining label changes. Successful label writes do not prove an agent is running: pause, prewarm, capacity, and dependency gates can still hold dispatch. See [GitHub trust](/apis/github-auth#who-aiur-trusts).
 
 ### Reveal and search
 

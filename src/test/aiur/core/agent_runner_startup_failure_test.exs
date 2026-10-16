@@ -68,8 +68,6 @@ defmodule Aiur.Core.AgentRunnerStartupFailureTest do
     end
   end
 
-  # Flaky in merge groups; fix tracked in #4463.
-  @tag :quarantine
   test "agent runner pauses on before_run failure and resumes after operator intervention" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-before-run-pause")
 
