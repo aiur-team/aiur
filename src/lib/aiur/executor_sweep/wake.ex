@@ -13,6 +13,8 @@ defmodule Aiur.ExecutorSweep.Wake do
     end
   rescue
     _ -> :ok
+  catch
+    :exit, _ -> :ok
   end
 
   defp wake_finding(finding) do

@@ -37,20 +37,35 @@ defmodule Aiur.ExecutorSweep do
 
   @impl true
   def init(opts) do
-    send(self(), :sweep)
+    # An interval of 0 disables the timer (the shared test app stays idle).
+    interval_ms = Keyword.get_lazy(opts, :interval_ms, fn -> Application.get_env(:aiur, :executor_sweep_interval_ms, @interval_ms) end)
+    if interval_ms > 0, do: send(self(), :sweep)
 
-    {:ok,
-     %{seen: MapSet.new(), sweep_fun: Keyword.get(opts, :sweep_fun, &findings/0), publish_fun: Keyword.get(opts, :publish_fun, &publish/1), interval_ms: Keyword.get(opts, :interval_ms, @interval_ms)}}
+    {:ok, %{seen: MapSet.new(), sweep_fun: Keyword.get(opts, :sweep_fun, &findings/0), publish_fun: Keyword.get(opts, :publish_fun, &publish/1), interval_ms: interval_ms}}
   end
 
   @impl true
   def handle_info(:sweep, state) do
-    findings = state.sweep_fun.()
-    fingerprints = MapSet.new(findings, &fingerprint/1)
-    new_findings = Enum.reject(findings, &(fingerprint(&1) in state.seen))
-    Enum.each(new_findings, state.publish_fun)
     Process.send_after(self(), :sweep, state.interval_ms)
-    {:noreply, %{state | seen: fingerprints}}
+
+    case safe_sweep(state.sweep_fun) do
+      {:ok, findings} ->
+        fingerprints = MapSet.new(findings, &fingerprint/1)
+        findings |> Enum.reject(&(fingerprint(&1) in state.seen)) |> Enum.each(state.publish_fun)
+        {:noreply, %{state | seen: fingerprints}}
+
+      :error ->
+        {:noreply, state}
+    end
+  end
+
+  # A dependency that is down or still starting must not crash the sweep, or restarts can exhaust the app supervisor.
+  defp safe_sweep(sweep_fun) do
+    {:ok, sweep_fun.()}
+  rescue
+    _ -> :error
+  catch
+    :exit, _ -> :error
   end
 
   defp publish(finding), do: Wake.publish(finding)

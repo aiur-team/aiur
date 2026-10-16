@@ -65,6 +65,34 @@ defmodule Aiur.ExecutorSweepTest do
     Agent.stop(head)
   end
 
+  test "a failing or exiting sweep keeps the process alive and the next sweep publishes" do
+    parent = self()
+    {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+    sweep = fn ->
+      case Agent.get_and_update(calls, &{&1, &1 + 1}) do
+        0 -> raise "dependency not started"
+        1 -> exit(:noproc)
+        _ -> [%{kind: "sample"}]
+      end
+    end
+
+    assert {:ok, pid} = ExecutorSweep.start_link(name: nil, interval_ms: 60_000, sweep_fun: sweep, publish_fun: &send(parent, {:finding, &1}))
+    send(pid, :sweep)
+    send(pid, :sweep)
+    assert_receive {:finding, %{kind: "sample"}}, 1_000
+    assert Process.alive?(pid)
+    GenServer.stop(pid)
+    Agent.stop(calls)
+  end
+
+  test "interval 0 starts idle" do
+    parent = self()
+    assert {:ok, pid} = ExecutorSweep.start_link(name: nil, interval_ms: 0, sweep_fun: fn -> send(parent, :swept) && [] end)
+    refute_receive :swept, 50
+    GenServer.stop(pid)
+  end
+
   test "pure sweep runner accepts local snapshot inputs" do
     assert [] = ExecutorSweep.findings(snapshot: %{pull_requests: [], tickets: []}, now: ~U[2026-10-15 18:20:00Z])
   end
