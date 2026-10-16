@@ -70,7 +70,7 @@ defmodule Aiur.BuildGate do
       _ = prepare_lock_namespace(lock_dir, slots)
 
       [
-        {"BASH_ENV", Keyword.get_lazy(opts, :hook_path, fn -> agent_hook_path(gate_dir) end)},
+        {"BASH_ENV", Keyword.get_lazy(opts, :hook_path, fn -> agent_hook_path(gate_dir, Keyword.get_lazy(opts, :hook_source_dir, &hook_source_dir/0)) end)},
         {"AIUR_BUILD_GATE_DIR", gate_dir},
         {"AIUR_BUILD_GATE_LOCK_DIR", lock_dir},
         {"AIUR_BUILD_GATE_SLOTS", Integer.to_string(slots)},
@@ -107,16 +107,18 @@ defmodule Aiur.BuildGate do
     |> Path.join("build_gate.bash")
   end
 
+  defp hook_source_dir, do: Path.dirname(hook_path())
+
   @doc """
   The hook path handed to agents: a snapshot that outlives release replacement.
 
   Falls back to the release hook when the snapshot cannot be written.
   """
-  @spec agent_hook_path(Path.t()) :: Path.t()
-  def agent_hook_path(gate_dir \\ gate_dir()) when is_binary(gate_dir) do
-    source = hook_path()
+  @spec agent_hook_path(Path.t(), Path.t()) :: Path.t()
+  def agent_hook_path(gate_dir \\ gate_dir(), source_dir \\ hook_source_dir()) when is_binary(gate_dir) and is_binary(source_dir) do
+    source = Path.join(source_dir, "build_gate.bash")
 
-    case HookSnapshot.ensure(Path.dirname(source), Path.expand(gate_dir) <> ".hooks") do
+    case HookSnapshot.ensure(source_dir, Path.expand(gate_dir) <> ".hooks") do
       {:ok, snapshot} ->
         snapshot
 
