@@ -27,6 +27,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     PauseResume,
     RateLimitFallbackTransition,
     RemoteControlMode,
+    Slots,
     State
   }
 
@@ -315,10 +316,14 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     usages = account_usages(candidates, opts)
     move_session = Keyword.get(opts, :move_session_fun, &Aiur.Accounts.move_session/6)
 
-    with {:ok, destination} <- Aiur.Accounts.select("claude", candidates, config.account_selection || "balance", usages),
+    with true <- Slots.replacement_slot_available?(state, issue.id) || :no_available_slots,
+         {:ok, destination} <- Aiur.Accounts.select("claude", candidates, config.account_selection || "balance", usages),
          :ok <- move_session.("claude", session.account_name, destination, session.session_id, session.cwd, Keyword.get(opts, :move_opts, [])) do
       Redispatch.handoff(opts, state, running_entry, issue, destination, session)
     else
+      :no_available_slots ->
+        {state, false}
+
       {:error, reason} ->
         Logger.warning("Claude account handoff deferred: #{log_context(running_entry, issue)} reason=#{inspect(reason)}")
         {put_running_entry(state, issue.id, Map.put(running_entry, :account_handoff_attempted, true)), true}
