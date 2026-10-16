@@ -189,6 +189,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_NOFILE_SOFT_LIMIT", type: :integer, validate: false, example: false, group: :runtime, purpose: "Effective open-file soft limit; exported by the launcher."},
     {"AIUR_AGENT_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Agent-queue tempfile path; set by the launcher."},
     {"AIUR_CI_CHANGED_PATHS_B64", type: :string, validate: false, example: false, group: :runtime, purpose: "Classifier-selected paths for affected-test scoping in CI."},
+    {"AIUR_CI_SELECTOR_DIAGNOSTICS", type: :string, validate: false, example: false, group: :runtime, purpose: "Enables affected-test selector stage diagnostics in CI."},
     {"GITHUB_EVENT_NAME", type: :string, validate: false, example: false, group: :runtime, purpose: "GitHub Actions event type; identifies pull-request merge checkouts."},
     {"AIUR_SESSION_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Session tempfile path; set by the launcher."},
     {"AIUR_WORKSPACE_ROOT_FILE", type: :path, validate: false, example: false, group: :runtime, purpose: "File the launcher reads the workspace root from."},

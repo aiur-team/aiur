@@ -3,6 +3,8 @@
 import json
 import os
 from pathlib import Path
+import select
+import signal
 import subprocess
 import tempfile
 import unittest
@@ -78,6 +80,112 @@ else:
 
     def test_failure_is_not_reported_as_success(self):
         self.assertNotEqual(self.run_selection('cd src && mise exec -- mix test --max-cases 4 test/a_test.exs', 1)[0], 0)
+
+    def test_selector_timeout_preserves_stage_diagnostic_and_fails(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
+            root = Path(scratch)
+            mix = root / 'mix'
+            mix.write_text('''#!/usr/bin/env python3
+import time
+print('affected-test selector: xref graph label=compile', file=__import__('sys').stderr, flush=True)
+time.sleep(30)
+''')
+            mix.chmod(0o755)
+            process = subprocess.Popen(
+                ['python3', str(SCRIPT), 'base-sha'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+                env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                         AIUR_CI_SELECTOR_TIMEOUT_SECONDS='2'),
+            )
+            try:
+                readable, _writable, _exceptional = select.select([process.stdout], [], [], 1.5)
+                self.assertTrue(readable, 'selector stage was not streamed before the timeout')
+                self.assertIn('xref graph label=compile', process.stdout.readline())
+                _stdout, stderr = process.communicate(timeout=4)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertIn('selector exceeded 2s', stderr)
+            finally:
+                if process.poll() is None:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.communicate()
+
+    def test_selector_timeout_kills_descendants_that_ignore_sigterm(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
+            root = Path(scratch)
+            child_pid = root / 'child.pid'
+            mix = root / 'mix'
+            mix.write_text(f'''#!/usr/bin/env python3
+import signal, subprocess, sys, time
+child = subprocess.Popen([sys.executable, '-c', "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"])
+open({str(child_pid)!r}, 'w').write(str(child.pid))
+print('selector started', flush=True)
+time.sleep(30)
+''')
+            mix.chmod(0o755)
+            process = subprocess.Popen(
+                ['python3', str(SCRIPT), 'base-sha'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+                env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                         AIUR_CI_SELECTOR_TIMEOUT_SECONDS='2'),
+            )
+            try:
+                _stdout, stderr = process.communicate(timeout=8)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertIn('selector exceeded 2s', stderr)
+                child_process = subprocess.run(
+                    ['ps', '-o', 'stat=', '-p', child_pid.read_text()],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(child_process.stdout.strip(), '', 'selector descendant survived timeout')
+            finally:
+                if process.poll() is None:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.communicate()
+
+    def test_selector_timeout_catches_descendant_holding_stdout_after_leader_exits(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
+            root = Path(scratch)
+            child_pid = root / 'child.pid'
+            mix = root / 'mix'
+            mix.write_text(f'''#!/usr/bin/env python3
+import subprocess, sys
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+open({str(child_pid)!r}, 'w').write(str(child.pid))
+print('# no affected test files detected', flush=True)
+''')
+            mix.chmod(0o755)
+            result = subprocess.run(
+                ['python3', str(SCRIPT), 'base-sha'],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                start_new_session=True,
+                env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                         AIUR_CI_SELECTOR_TIMEOUT_SECONDS='2'),
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('selector exceeded 2s', result.stderr)
+            child_process = subprocess.run(
+                ['ps', '-o', 'stat=', '-p', child_pid.read_text()],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(child_process.stdout.strip(), '', 'selector descendant survived timeout')
 
     def test_unrecognized_output_fails_closed(self):
         for value in ['unexpected', 'cd src && mise exec -- echo success']:

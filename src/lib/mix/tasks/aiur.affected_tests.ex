@@ -47,9 +47,14 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   @doc false
   @spec selection(String.t(), String.t(), boolean()) :: {:ok, [String.t()]} | {:error, String.t()}
   def selection(root, base, json? \\ false) do
+    diagnostic("computing diff range")
+
     with {:ok, diff_range} <- GitDiff.range(root, base),
+         :ok <- diagnostic("collecting changed paths"),
          {:ok, changed} <- changed_files(root, base),
+         :ok <- diagnostic("expanding xref dependencies"),
          {:ok, dependents} <- xref_dependents(root, changed),
+         :ok <- diagnostic("scanning deleted references"),
          {:ok, references} <- deleted_reference_tests(root, diff_range) do
       selected =
         Aiur.AffectedTests.select(changed,
@@ -60,6 +65,14 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
 
       {:ok, output_lines(selected, json?, changed)}
     end
+  end
+
+  defp diagnostic(stage) do
+    if System.get_env("AIUR_CI_SELECTOR_DIAGNOSTICS") == "1" do
+      IO.puts(:stderr, "affected-test selector: #{stage}")
+    end
+
+    :ok
   end
 
   @spec selection_json({:full, String.t()} | {:scoped, [String.t()]}) :: String.t()
@@ -168,6 +181,8 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   end
 
   defp reduce_xref_label(label, {:ok, acc}, root, sinks) do
+    diagnostic("xref graph label=#{label}")
+
     case xref_sources_for_label(root, sinks, label) do
       {:ok, sources} -> {:cont, {:ok, sources ++ acc}}
       {:error, reason} -> {:halt, {:error, "xref dependency expansion failed: #{reason}"}}
