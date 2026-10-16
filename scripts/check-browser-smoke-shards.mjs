@@ -1,25 +1,31 @@
 #!/usr/bin/env node
 
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, resolve } from 'node:path'
+import { discoverSuites, shardCommands, suiteCommand, SUITE_SCRIPT } from '../src/browser/scripts/browser-suites.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packagePath = process.argv[2] ?? resolve(root, 'src/browser/package.json')
 const runnerPath = process.argv[3] ?? resolve(root, 'src/browser/scripts/run-browser-smoke-shard.mjs')
+const browserRoot = dirname(packagePath)
 
 const scripts = JSON.parse(readFileSync(packagePath, 'utf8')).scripts
 const core = scripts['test:core']
 if (typeof core !== 'string') throw new Error('src/browser/package.json is missing test:core')
+if (!core.includes(`npm run ${SUITE_SCRIPT} -- --all`)) {
+  console.error(`test:core must run discovered home suites with \`npm run ${SUITE_SCRIPT} -- --all\`.`)
+  process.exit(1)
+}
+// Discovered tests/build-home-*.browser.spec.mjs suites are part of the expected set without a list edit.
 const expected = [...core.matchAll(/npm run ([\w:-]+)/g)]
   .map((match) => match[1])
-  .filter((name) => name !== 'fixture:preflight')
+  .filter((name) => name !== 'fixture:preflight' && name !== SUITE_SCRIPT)
+  .concat(discoverSuites(browserRoot).map(suiteCommand))
 
-const runner = readFileSync(runnerPath, 'utf8')
-const shardMap = runner.match(/const shards = \{([\s\S]*?)\n\};/)
-if (!shardMap) throw new Error(`${runnerPath} does not define the expected smoke shard map`)
-const selected = [...shardMap[1].matchAll(/\d+: \[([^\]]*)\]/g)]
-  .flatMap((match) => [...match[1].matchAll(/'([^']+)'/g)].map((item) => item[1]))
+const { shards } = await import(pathToFileURL(runnerPath).href)
+if (!shards) throw new Error(`${runnerPath} does not export the smoke shard map`)
+const selected = Object.values(shardCommands(shards, browserRoot)).flat()
 
 const counts = (names) => names.reduce((result, name) => {
   result.set(name, (result.get(name) ?? 0) + 1)

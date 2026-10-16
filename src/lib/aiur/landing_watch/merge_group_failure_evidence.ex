@@ -3,6 +3,8 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
   alias Aiur.GitHub.{CIRecovery, Client, Errors, FailureEvidence, Transport}
 
+  require Logger
+
   @page_limit 5
 
   @spec recent_main_paths(binary(), keyword()) :: [String.t()]
@@ -135,8 +137,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
   defp issue_comments(_number, _opts), do: []
 
-  defp read_pages(_request, _token, _url, _acc, @page_limit),
-    do: {:error, :merge_group_run_list_too_large}
+  # GitHub lists runs newest first; past the cap keep what was read, as the run fetcher does (#4556).
+  defp read_pages(_request, _token, _url, acc, @page_limit) do
+    Logger.warning("Base-branch failure evidence truncated at #{@page_limit} pages (#{length(acc)} runs)")
+    {:ok, acc}
+  end
 
   defp read_pages(request, token, url, acc, page) do
     case request.(%{

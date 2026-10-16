@@ -172,7 +172,10 @@
           "type": "object"
         },
         "primary_effect": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "p_raw": {
           "type": [
@@ -187,10 +190,37 @@
           ]
         },
         "strata": {
-          "type": "object"
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/metric"
+          }
         },
         "power": {
           "type": "object"
+        },
+        "stratified": {
+          "type": "object"
+        },
+        "unstratified": {
+          "type": "object"
+        },
+        "strata_dropped": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "composition": {
+          "type": "object"
+        },
+        "strata_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "p_raw_source": {
+          "const": "stratified"
         }
       },
       "required": [

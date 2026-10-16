@@ -25,8 +25,8 @@ sweep_dead_tmux_sockets() {
 }
 
 # Reap stale aiur /tmp debris so a tmpfs /tmp can't fill from accumulated per-run
-# tempfiles and leaked test artifacts. Runs alongside sweep_dead_tmux_sockets on
-# foreground teardown (session_cleanup) and on `aiur stop`. Bounded and safe:
+# tempfiles and leaked test artifacts. Runs at launch, on foreground teardown
+# (session_cleanup) and on `aiur stop`. Bounded and safe:
 #
 #   * Only exact top-level Aiur artifact families under the temp roots the engine
 #     and BEAM write to. Arbitrary Executor worktrees/checkouts like
@@ -45,7 +45,7 @@ is_aiur_tmp_artifact_candidate() {
   case "$base" in
     aiur-argv.* | aiur-startup.* | aiur-pane.* | aiur-launcher.* | aiur-capture.* | \
       aiur-trap.*.log | aiur-tree.*.json | aiur-wrapper.pid | aiur-*-frames.bin | \
-      aiur-rc | aiur-claude-hooks | aiur-debug)
+      aiur-rc | aiur-claude-hooks | aiur-debug | aiur-test-budget.* | aiur-test-state.*)
       return 0
       ;;
     aiur-*-sessions | aiur-*-agents | aiur-*-alert-ledger | aiur-*-crash-dump-baseline)
@@ -119,6 +119,7 @@ sweep_stale_tmp_artifacts() {
           fi
           ;;
       esac
+      rm -f -- "$path/agent-token" 2>/dev/null # a --test budget dir's token copy goes first
       if rm -rf -- "$path" 2>/dev/null; then
         removed=$((removed + 1))
       fi

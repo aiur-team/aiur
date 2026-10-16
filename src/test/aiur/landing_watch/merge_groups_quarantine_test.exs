@@ -9,9 +9,10 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
     journal = Path.join(System.tmp_dir!(), "merge-group-quarantine-#{System.unique_integer([:positive])}.json")
     on_exit(fn -> File.rm(journal) end)
 
+    # Relative to now: the quarantine window is 24 hours, so fixed dates expire.
     runs = [
-      failed_run(501, "pr-41-a-pr-42-b", "https://github.com/test-org/test-repo/actions/runs/501", "2026-10-15T10:00:00Z"),
-      failed_run(502, "pr-43-c-pr-44-d", "https://github.com/test-org/test-repo/actions/runs/502", "2026-10-15T10:10:00Z")
+      failed_run(501, "pr-41-a-pr-42-b", "https://github.com/test-org/test-repo/actions/runs/501", minutes_ago(20)),
+      failed_run(502, "pr-43-c-pr-44-d", "https://github.com/test-org/test-repo/actions/runs/502", minutes_ago(10))
     ]
 
     request = fn %{method: :get, url: url} ->
@@ -84,6 +85,8 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
     assert :ok =
              MergeGroupQuarantine.process_completed([run], "main", jobs_fun: fn _run, _opts -> flunk("stale runs must not fetch jobs") end)
   end
+
+  defp minutes_ago(minutes), do: DateTime.utc_now() |> DateTime.add(-minutes * 60) |> DateTime.to_iso8601()
 
   defp failed_run(id, branch, url, created_at) do
     %{

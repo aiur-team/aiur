@@ -106,8 +106,11 @@ assert.ok(jobs.get('lint').includes('mix compile --warnings-as-errors'));
 assert.ok(jobs.get('workflow-security').includes('node scripts/test-ci-events.mjs'));
 const packageJson = JSON.parse(readFileSync(new URL('../src/browser/package.json', import.meta.url), 'utf8'));
 const coreCommands = [...packageJson.scripts['test:core'].matchAll(/npm run (test:[\w:-]+)/g)].map(([, name]) => name);
-const shardScript = readFileSync(new URL('../src/browser/scripts/run-browser-smoke-shard.mjs', import.meta.url), 'utf8');
-const shardCommands = [...shardScript.matchAll(/'(test:[\w:-]+)'/g)].map(([, name]) => name);
+const { shards } = await import('../src/browser/scripts/run-browser-smoke-shard.mjs');
+const browserSuites = await import('../src/browser/scripts/browser-suites.mjs');
+const shardCommands = Object.values(browserSuites.shardCommands(shards)).flat().filter((name) => name.startsWith('test:'));
+assert.ok(coreCommands.includes(browserSuites.SUITE_SCRIPT), 'test:core runs discovered home suites');
+coreCommands.splice(coreCommands.indexOf(browserSuites.SUITE_SCRIPT), 1, ...browserSuites.discoverSuites().map(browserSuites.suiteCommand));
 for (const command of coreCommands) {
   assert.equal(shardCommands.filter((name) => name === command).length, 1, `${command} appears in exactly one browser shard`);
 }

@@ -47,18 +47,28 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   @doc false
   @spec selection(String.t(), String.t(), boolean()) :: {:ok, [String.t()]} | {:error, String.t()}
   def selection(root, base, json? \\ false) do
+    with {:ok, selected, _candidates, _fallback, changed} <- selection_details(root, base) do
+      {:ok, output_lines(selected, json?, changed)}
+    end
+  end
+
+  @doc false
+  @spec selection_details(String.t(), String.t()) ::
+          {:ok, {:full, String.t()} | {:scoped, [String.t()]}, [String.t()], [String.t()], [String.t()]}
+          | {:error, String.t()}
+  def selection_details(root, base) do
     with {:ok, diff_range} <- GitDiff.range(root, base),
          {:ok, changed} <- changed_files(root, base),
          {:ok, dependents} <- xref_dependents(root, changed),
          {:ok, references} <- deleted_reference_tests(root, diff_range) do
-      selected =
-        Aiur.AffectedTests.select(changed,
+      {selected, candidates, fallback} =
+        Aiur.AffectedTests.select_with_candidates(changed,
           base_dir: root,
           dependent_sources: dependents,
           reference_tests: references
         )
 
-      {:ok, output_lines(selected, json?, changed)}
+      {:ok, selected, candidates, fallback, changed}
     end
   end
 
@@ -158,12 +168,18 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
     if sinks == [] do
       {:ok, []}
     else
-      ["compile", "export", "runtime"]
-      |> Enum.reduce_while({:ok, []}, &reduce_xref_label(&1, &2, root, sinks))
-      |> case do
-        {:ok, sources} -> {:ok, Enum.uniq(sources)}
-        error -> error
+      with {:ok, sources} <- xref_sources(root, sinks) do
+        {:ok, Enum.uniq(sources)}
       end
+    end
+  end
+
+  defp xref_sources(root, sinks) do
+    ["compile", "export", "runtime"]
+    |> Enum.reduce_while({:ok, []}, &reduce_xref_label(&1, &2, root, sinks))
+    |> case do
+      {:ok, sources} -> {:ok, Enum.uniq(sources)}
+      error -> error
     end
   end
 
@@ -179,7 +195,8 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
       ["xref", "graph", "--only-nodes", "--only-direct", "--label", label] ++
         Enum.flat_map(sinks, &["--sink", &1])
 
-    case git_like_command(Path.join(root, "src"), "mix", args) do
+    # Reuse the caller's compiled build; a default-env child compiles a cold tree under mix test.
+    case git_like_command(Path.join(root, "src"), "mix", args, [{"MIX_ENV", to_string(Mix.env())}]) do
       {:ok, lines} ->
         sources =
           lines
@@ -221,8 +238,8 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
     git_like_command(root, "git", args)
   end
 
-  defp git_like_command(root, executable, args) do
-    case System.cmd(executable, args, cd: root, stderr_to_stdout: true) do
+  defp git_like_command(root, executable, args, env \\ []) do
+    case System.cmd(executable, args, cd: root, env: env, stderr_to_stdout: true) do
       {out, 0} -> {:ok, String.split(out, "\n", trim: true)}
       {out, status} -> {:error, "#{executable} #{Enum.join(args, " ")} failed (#{status}): #{String.trim(out)}"}
     end
