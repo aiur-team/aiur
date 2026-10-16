@@ -134,7 +134,7 @@ for (const theme of ['dark', 'light']) test(`unknown complexity uses faint in ${
 
 test('unknown points, estimates, queue numbers and unfiled identity stay explicit', async ({ page }) => {
   await open(page)
-  await draw(page, '9004'); await expect(probe(page).locator('[data-unknown="pts"]')).toHaveText('—')
+  await draw(page, '9004'); await expect(probe(page).locator('.bd-status')).toContainText('Open · not queued'); await expect(probe(page).locator('[data-unknown="pts"]')).toHaveText('—')
   await expect(probe(page).locator('.bd-cx')).toHaveAttribute('title', /points unknown/)
   await draw(page, '9005'); await expect(probe(page).locator('.bd-status')).toContainText('≈— · 2 pts')
   await expect(probe(page).locator('[data-unknown="est"]')).toHaveAttribute('title', 'Estimate unknown')
@@ -154,6 +154,7 @@ test('history distinguishes outcomes and guards unknown dates and state', async 
   for (const [status, label] of [['done', 'Merged'], ['failed', 'Failed · closed'], ['not_planned', 'Not planned'], ['closed', 'Closed'], ['running', 'State unknown']]) {
     await page.evaluate(status => inject('9010', { status }), status)
     const card = await draw(page, '9010'); await expect(card.locator('.bd-status > span').first()).toHaveText(label)
+    await expect(card.locator('.bd-status > span').last()).toHaveText('Oct 7')
     expect(await card.evaluate(el => [el.classList.contains('failed'), el.classList.contains('np')])).toEqual([status === 'failed', status === 'not_planned'])
     await draw(page, '9010', 'line'); await expect(card.locator('.bd-lx')).toHaveCount(status === 'failed' ? 1 : 0)
     await page.evaluate(() => { S.f.tstate = ['merged']; st.fx.decorateAll(); cards.decorate(document.querySelector('#card-probe')) })
@@ -192,6 +193,13 @@ test('cues preserve order, failed blocks and override tooltips', async ({ page }
   }
   await open(page)
   await draw(page, '9012'); await expect(probe(page).locator('.bd-alert')).toHaveText('Prereq #7 failed')
+  await page.evaluate(() => inject('9012', { cue: { blockedChain: true, failed: null, wait: 7 } }))
+  await draw(page, '9012'); await expect(probe(page)).toHaveClass(/blk/)
+  await expect(probe(page).locator('.bd-cues')).toContainText('prereq chain failed')
+  await expect(probe(page).locator('.bd-cues')).not.toContainText('waits on')
+  await page.evaluate(() => inject('9012', { cue: { promoted: ctx.snap.now - 360000, held: 'held reason', wait: 7 }, override: { hours: 4, reason: 'override reason' } }))
+  await draw(page, '9012')
+  expect(await probe(page).locator('.bd-q').allTextContents()).toEqual([' promoted 6m ago', ' held', ' waits on #7', ' estimate overridden'])
 })
 
 test('hostile text stays literal in all tiers, cues and model slots', async ({ page }) => {
@@ -251,10 +259,22 @@ test('client guards malicious numbers, missing epic and feature keys', async ({ 
 })
 
 test('promotion ages use payload time, tick without rebuilding and restart after remount', async ({ page }) => {
-  await page.clock.install(); await open(page, 'live')
+  await page.clock.install()
+  await page.addInitScript(() => {
+    window.minuteTimers = new Set(); window.minuteRegistrations = 0
+    const start = window.setInterval, stop = window.clearInterval
+    window.setInterval = (fn, delay, ...args) => {
+      const id = start(fn, delay, ...args)
+      if (delay === 60000) { minuteTimers.add(id); minuteRegistrations++ }
+      return id
+    }
+    window.clearInterval = id => { minuteTimers.delete(id); return stop(id) }
+  })
+  await open(page, 'live')
   for (let mount = 0; mount < 2; mount++) {
     const promo = page.locator('#bd-sec-plan .bd-q.promo').first()
     await expect(promo).toContainText('promoted 6m ago')
+    expect(await page.evaluate(() => ({ active: minuteTimers.size, registered: minuteRegistrations }))).toEqual({ active: 1, registered: mount + 1 })
     await promo.evaluate(el => { window.promoNode = el })
     await page.clock.runFor(60000)
     await expect(promo).toContainText('promoted 7m ago')
