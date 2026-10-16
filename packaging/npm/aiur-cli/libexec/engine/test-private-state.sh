@@ -29,3 +29,31 @@ cleanup_test_launch_private_state() {
   cleanup_test_private_dir "${AIUR_DEV_TEST_STATE_DIR:-}" "aiur-test-state" "$AIUR_DEV_TEST_TICKET_IDS"
   cleanup_test_private_dir "${AIUR_GITHUB_BUDGET_DIR:-}" "aiur-test-budget" "$AIUR_DEV_TEST_TICKET_IDS"
 }
+
+# Launch-time backstop for a sandbox whose launcher was SIGKILLed or crashed
+# before any trap ran: no age gate, because the budget dir holds a token copy.
+# A marked dir of ours is kept only while its launcher pid lives or a live
+# process names it in its environment (a --bg BEAM, its watchdog, agents).
+# ponytail: the environ probe needs /proc; elsewhere only the launcher pid and
+# the 24h sweep_stale_tmp_artifacts guard it.
+sweep_orphan_test_private_dirs() {
+  local path pid holder
+  for path in "${TMPDIR:-/tmp}"/aiur-test-budget.* "${TMPDIR:-/tmp}"/aiur-test-state.*; do
+    [ -d "$path" ] && [ ! -L "$path" ] && [ -O "$path" ] && [ -f "$path/.aiur-test-private" ] || continue
+    if [ "$path" = "${AIUR_GITHUB_BUDGET_DIR:-}" ] || [ "$path" = "${AIUR_DEV_TEST_STATE_DIR:-}" ]; then
+      continue
+    fi
+    pid="$(cat "$path/.aiur-test-launcher" 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+      continue
+    fi
+    holder=""
+    if [ -d /proc/self ]; then
+      holder="$(grep -lzxF -e "AIUR_GITHUB_BUDGET_DIR=$path" -e "AIUR_DEV_TEST_STATE_DIR=$path" \
+        /proc/[0-9]*/environ 2>/dev/null | head -n 1 || true)"
+    fi
+    [ -z "$holder" ] || continue
+    rm -f -- "$path/agent-token" 2>/dev/null || true
+    rm -rf -- "$path" 2>/dev/null || true
+  done
+}
