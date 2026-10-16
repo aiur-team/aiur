@@ -36,10 +36,9 @@ defmodule Aiur.DecisionValidation do
   """
 
   alias Aiur.{Config, Decision, DecisionArtifact, DecisionCommandType, DecisionProvenance, SecretRedactor}
+  alias Aiur.DecisionValidation.Context
 
   @question_max 2000
-  @short_summary_max 500
-  @long_context_max 20_000
   @consequence_max 2000
   @kind_max 100
   @identity_max 200
@@ -56,7 +55,6 @@ defmodule Aiur.DecisionValidation do
   @default_authority :supervisor_allowed
   @default_urgency :normal
   @default_reversibility :reversible
-  @human_required_authority_bases ~w(product spend external_publication security)
 
   @type error :: {atom(), atom()}
 
@@ -105,8 +103,8 @@ defmodule Aiur.DecisionValidation do
              type_field(type_policy, :reversibility, @default_reversibility),
              :reversibility
            ),
-         {:ok, context} <- fetch_context(payload),
-         :ok <- validate_authority_basis(authority, kind, context),
+         {:ok, context} <- Context.normalize(payload),
+         :ok <- Context.validate_authority_basis(authority, kind, context),
          {:ok, options} <- fetch_options(payload),
          {:ok, recommendation} <- fetch_recommendation(payload, options),
          {:ok, consequence_of_delay} <-
@@ -237,44 +235,6 @@ defmodule Aiur.DecisionValidation do
   rescue
     ArgumentError -> {:error, {field, :invalid_enum}}
   end
-
-  defp fetch_context(payload) do
-    case get(payload, :context) do
-      nil ->
-        {:ok, %{short_summary: nil, long_context_markdown: nil}}
-
-      context when is_map(context) ->
-        with {:ok, short_summary} <-
-               fetch_optional_string(context, :short_summary, @short_summary_max, :context_short_summary),
-             {:ok, long_context_markdown} <-
-               fetch_optional_string(
-                 context,
-                 :long_context_markdown,
-                 @long_context_max,
-                 :context_long_context_markdown
-               ),
-             {:ok, authority_basis} <- fetch_authority_basis(context) do
-          context = %{short_summary: short_summary, long_context_markdown: long_context_markdown}
-          {:ok, if(authority_basis, do: Map.put(context, :authority_basis, authority_basis), else: context)}
-        end
-
-      _other ->
-        {:error, {:context, :invalid_type}}
-    end
-  end
-
-  defp fetch_authority_basis(context) do
-    case get(context, :authority_basis) do
-      nil -> {:ok, nil}
-      basis when basis in @human_required_authority_bases -> {:ok, basis}
-      _invalid -> {:error, {:context_authority_basis, :invalid_enum}}
-    end
-  end
-
-  defp validate_authority_basis(:human_required, "legacy_attention", _context), do: :ok
-  defp validate_authority_basis(:human_required, _kind, %{authority_basis: basis}) when basis in @human_required_authority_bases, do: :ok
-  defp validate_authority_basis(:human_required, _kind, _context), do: {:error, {:authority, :human_required_basis_required}}
-  defp validate_authority_basis(_authority, _kind, _context), do: :ok
 
   defp fetch_options(payload) do
     case get(payload, :options) do
