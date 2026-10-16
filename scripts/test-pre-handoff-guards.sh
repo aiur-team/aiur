@@ -38,7 +38,7 @@ assert_absent() {
 }
 
 for output in "$tmp/clean.log" "$tmp/non-pr.log"; do
-  for guard in check-on-exit-rm-rf.py check-bare-assert-receive.py check-browser-smoke-shards.mjs check-hot-list-format.py check-file-size.py; do
+  for guard in check-on-exit-rm-rf.py check-bare-assert-receive.py check-browser-smoke-shards.mjs check-hot-list-format.py check-file-size.py run-quarantined-tests.py; do
     assert_contains "$output" "scripts/$guard" "shared guard list entry missing"
   done
 done
