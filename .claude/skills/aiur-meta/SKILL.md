@@ -76,7 +76,8 @@ elsewhere. Prefer the source that would still be right if every local assumption
 were wrong.
 
 **Before auditing a GitHub-facing surface, read
-[`website/docs-app/apis/github.md`](../../../website/docs-app/apis/github.md).**
+[`website/docs-app/apis/github.md`](../../../website/docs-app/apis/github.md)
+and its topic pages in `website/docs-app/apis/`.**
 It is the source of truth for how Aiur talks to GitHub — poll cadence, API
 budgets, credential pooling, the read cache, webhook delivery states, and the
 Cloudflare tunnel boundary. In the incident above it already documented the
