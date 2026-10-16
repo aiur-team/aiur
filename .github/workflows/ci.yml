@@ -673,9 +673,8 @@ jobs:
       - name: Run affected tests on the PR merge
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         env:
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
           AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}
-        run: sudo apt-get update && sudo apt-get install -y zsh && python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"
+        run: bash ../scripts/run-ci-affected-tests.sh
   ci-gate:
     name: ci gate
     needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, browser-2, browser-3, browser-4, home-css, layout-release, analytics, streamdeck]
