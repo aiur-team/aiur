@@ -19,7 +19,7 @@ describe('dist/ validation', () => {
       "import { initBanner } from 'aiur-style'; import { initBanner as subpath } from 'aiur-style/banner'; if (typeof initBanner !== 'function' || initBanner !== subpath) process.exit(1);",
     ], { cwd: packageRoot });
     assert.deepStrictEqual(Object.keys(pkgJson.exports).sort(),
-      ['.', './banner', './aiur-style.css', './css/*', './package.json', './theme-init.js', './tokens', './tokens.css'].sort());
+      ['.', './banner', './aiur-style.css', './css/*', './package.json', './theme-init.js', './tokens', './tokens.css', './vitepress.css'].sort());
     const targets = Object.values(pkgJson.exports).flatMap(value =>
       typeof value === 'object' ? Object.values(value) : [value]);
     for (const target of targets) {

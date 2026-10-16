@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="${1:?repo_root required}"
+timer="${2:?timer script required}"
+start_epoch="${3:?start epoch required}"
+pid_file="$repo_root/.aiur-test3-timer.pid"
+
+setsid "$timer" "$repo_root" "$start_epoch" </dev/null >/dev/null 2>&1 &
+timer_launcher_pid=$!
+disown 2>/dev/null || true
+
+# The launcher must not return before stop can find the detached poller.
+for _ in {1..100}; do
+  if [ -r "$pid_file" ]; then
+    timer_pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [[ "$timer_pid" =~ ^[0-9]+$ ]] && kill -0 "$timer_pid" 2>/dev/null; then
+      exit 0
+    fi
+  fi
+  sleep 0.05
+done
+
+echo "test3 timer failed to register" >&2
+if [ -r "$pid_file" ]; then
+  timer_pid="$(cat "$pid_file" 2>/dev/null || true)"
+  [[ "$timer_pid" =~ ^[0-9]+$ ]] && kill -- "-$timer_pid" 2>/dev/null || true
+fi
+kill -- "-$timer_launcher_pid" 2>/dev/null || true
+kill "$timer_launcher_pid" 2>/dev/null || true
+rm -f "$pid_file"
+exit 1

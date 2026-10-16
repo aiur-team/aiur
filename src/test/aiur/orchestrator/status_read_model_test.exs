@@ -34,6 +34,15 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
     assert StatusReport.snapshot_payload(input).capacity.load == 7.0
   end
 
+  test "snapshot retains same-head rework attempt counts for the Executor sweep" do
+    state = %State{rework_attempts: %{{"4429", "current-head"} => 3, {"4429", "old-head"} => 1}}
+
+    assert [
+             %{issue_id: "4429", head_sha: "current-head", count: 3},
+             %{issue_id: "4429", head_sha: "old-head", count: 1}
+           ] = StatusReport.snapshot_payload(StatusReport.snapshot_input(state)).rework_attempts |> Enum.sort_by(& &1.head_sha)
+  end
+
   test "groups retain source timestamps and grow older at read time" do
     now = DateTime.utc_now()
     captured = DateTime.add(now, -10, :second)

@@ -61,6 +61,7 @@ export function shell() {
   }, { passive: true });
   let lastST = -1;
   life.every(250, () => {
+    fx.flushLive();
     if (S.loading || !ctx.L || !isVisible()) return;
     if (vp.scrollTop !== lastST) { lastST = vp.scrollTop; fx.update(); }
   });
