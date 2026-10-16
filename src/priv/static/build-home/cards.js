@@ -151,4 +151,4 @@ export function refreshTicket(id) {
   }
   fx.drawEdgesSoon(30);
 }
-Object.assign(fx, { makeCard, decorateAll, refreshTicket });
+Object.assign(fx, { makeCard, decorateAll, refreshTicket, tickCardAges: tickAges });

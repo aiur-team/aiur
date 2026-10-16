@@ -1,7 +1,8 @@
 import { S, FKEYS } from './state.js';
 export { colKey } from './layout.js';
 import { colKey } from './layout.js';
-export const tstate = t => t.sec === 'hist' ? (t.status === 'failed' ? 'failed' : 'merged') : t.sec === 'now' ? 'in progress' : t.sec === 'plan' ? (t.cue.held ? 'held' : (t.cue.waitAny || t.cue.failed || t.cue.blockedChain) ? 'blocked' : 'queued') : 'open';
+const HIST_STATE = { done: 'merged', failed: 'failed', closed: 'closed', not_planned: 'not planned' };
+export const tstate = t => t.sec === 'hist' ? (Object.hasOwn(HIST_STATE, t.status) ? HIST_STATE[t.status] : 'unknown') : t.sec === 'now' ? 'in progress' : t.sec === 'plan' ? (t.cue.held ? 'held' : (t.cue.waitAny || t.cue.failed || t.cue.blockedChain) ? 'blocked' : 'queued') : 'open';
 export const astate = t => t.sec === 'now' ? t.agent?.state ?? 'none' : 'none';
 export function match(t) {
   for (const k of FKEYS) {

@@ -49,6 +49,7 @@ export function receive(msg) {
         if (msg.kind === 'diff') resync(); else fx.renderUnavailable('invalid');
         return;
       }
+      fx.tickCardAges();
       if (msg.kind === 'snapshot') { if (first) firstPaint(); else repaint(); }
       else { fx.dataChanged(msg); fx.drawEdgesSoon(30); }
       writeOwnData();
