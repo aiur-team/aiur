@@ -1708,7 +1708,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         "done" ->
           LocalHold.run(
             fn -> update_issue_state_fun.(to_string(identifier), "done") |> Alerts.StaleNotClosed.resolve_on_ok(identifier) end,
-            LocalHold.caller_opts(opts)
+            LocalHold.caller_opts(Keyword.put(opts, :local_hold_max_wait_ms, 3_600_000))
           )
 
         target when target in ["rework", "human-review"] ->
