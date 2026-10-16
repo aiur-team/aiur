@@ -386,7 +386,11 @@ async function compareCard(pair, selector, name, parts = []) {
   }, input)
   try {
     await expect(pair.product.locator('#parity-card')).toHaveClass(new RegExp('\\b' + input.tier + '\\b'))
-    if (parts.length) for (const part of parts) await expectDesignParity(pair, { name: name + '-' + part, region: '#parity-card .' + part })
+    if (parts.length) for (const part of parts) {
+      const region = '#parity-card .' + part, visible = await pair.design.locator(region).isVisible()
+      expect(await pair.product.locator(region).isVisible(), part + ' responsive visibility').toBe(visible)
+      if (visible) await expectDesignParity(pair, { name: name + '-' + part, region })
+    }
     else await expectDesignParity(pair, { name, region: '#parity-region' })
   } finally {
     await pair.design.evaluate(() => {
