@@ -245,9 +245,9 @@ aiur_build_gate_release_linux_owner() {
 aiur_build_gate_hold_linux_lease() {
   local python_binary=$1 ready_path=$2 started_path=$3 command_pid_path=$4
   local command_ready_path=$5 status_path=$6 status_ack_path=$7 owner_path=$8 token=$9
-  local parent_pid=${10} agent_pgid=${11} slot_fd=${12} ack_seconds=${13}
+  local parent_pid=${10} agent_pgid=${11} slot_fd=${12} handshake_seconds=${13} ack_seconds=${14}
   local holder_script
-  shift 13
+  shift 14
 
   # The subreaper owns the lease until every adopted descendant has exited.
   aiur_build_gate_priority_args "$@" || return $?
@@ -255,13 +255,15 @@ aiur_build_gate_hold_linux_lease() {
 
   exec "$python_binary" "$holder_script" "$ready_path" "$started_path" "$command_pid_path" \
     "$command_ready_path" "$status_path" "$status_ack_path" "$owner_path" "$token" \
-    "$parent_pid" "$agent_pgid" "$slot_fd" "$ack_seconds" "${aiur_build_gate_prioritized_command[@]}"
+    "$parent_pid" "$agent_pgid" "$slot_fd" "$handshake_seconds" "$ack_seconds" "${aiur_build_gate_prioritized_command[@]}"
 }
 
 aiur_build_gate_wait_for_holder_value() {
   local path=$1 holder_pid=$2 expected_pattern=$3 value result
+  # Readiness files do the syncing; the ceiling only fails a live but stuck holder.
+  local deadline=$((SECONDS + $4))
 
-  while :; do
+  while ((SECONDS <= deadline)); do
     if value=$(aiur_build_gate_read_regular "$path" 2>/dev/null); then
       [[ $value =~ $expected_pattern ]] && return 0
     else

@@ -158,8 +158,15 @@ defmodule Aiur.TestSupport.BuildGateFixtures do
     status=$?
 
     if ((status == 0)) && [[ ${AIUR_TEST_DELAY_OWNER_MV:-0} == 1 ]] &&
-      [[ $destination == */slot-1.owner ]] && ((count == 3)); then
-      sleep "${AIUR_TEST_DELAY_OWNER_MV_SECONDS:-0.2}"
+      [[ $destination == */slot-1.owner ]]; then
+      sleep 0.2
+    fi
+
+    # Hold the final publication open until the test releases it.
+    gate=${AIUR_TEST_HOLD_FINAL_OWNER_MV:-}
+    if ((status == 0)) && [[ -n $gate && $destination == */slot-1.owner ]] && ((count == 3)); then
+      : > "$gate.waiting"
+      until [[ -e $gate ]]; do sleep 0.01; done
     fi
 
     exit "$status"

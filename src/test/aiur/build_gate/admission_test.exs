@@ -120,14 +120,20 @@ defmodule Aiur.BuildGate.AdmissionTest do
   end
 
   @tag @linux_only
-  test "publishes the owner when the parent is delayed by CI load", context do
+  test "a delayed owner publication holds the handshake open until it lands", context do
     real_mv = System.find_executable("mv")
     write_controlled_mv!(Path.join(context.bin_dir, "mv"), real_mv)
+    release_path = Path.join(context.gate_dir, "owner-publication.release")
 
-    delayed_context =
-      Map.merge(context, %{delay_owner_publication: true, owner_publication_delay_seconds: 11})
+    run = Task.async(fn -> run_bash("mix compile", Map.put(context, :hold_final_owner_publication, release_path)) end)
+    wait_for_file!(release_path <> ".waiting", 500)
 
-    assert {output, 0} = run_bash("mix compile", delayed_context)
+    # The final publication is still open, so the run must still be waiting on it.
+    assert Task.yield(run, 0) == nil
+    assert File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+    File.write!(release_path, "")
+
+    assert {output, 0} = Task.await(run, 5_000)
     assert output =~ "aiur_build_gate acquired slot=1"
     assert output =~ "aiur_build_gate released slot=1 status=0"
     refute output =~ "owner_publish_failed"
