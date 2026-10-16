@@ -4,6 +4,7 @@ defmodule Aiur.Handoff do
   alias Aiur.AgentRunner.Handoff, as: RunnerHandoff
   alias Aiur.AppServer.ToolCallLedger
   alias Aiur.Handoff.{Protection, Record}
+  alias Aiur.Orchestrator.State
   alias Aiur.ProcessReaper
   alias Aiur.RunTelemetry.RunContext
 
@@ -63,7 +64,9 @@ defmodule Aiur.Handoff do
   defp do_prepare(owner, server, opts) do
     opts = Keyword.put_new_lazy(opts, :config_fingerprint, &config_fingerprint/0)
     state = GenServer.call(server, :prepare_handoff_snapshot, 65_000)
-    entries = Enum.filter(state.running, fn {_id, entry} -> is_pid(entry[:pid]) end)
+    all_entries = Enum.filter(state.running, fn {_id, entry} -> is_pid(entry[:pid]) end)
+    skipped = Enum.filter(all_entries, fn {_id, entry} -> State.paused_running_entry?(entry) end)
+    entries = Enum.reject(all_entries, fn {_id, entry} -> State.paused_running_entry?(entry) end)
     hold = Keyword.get(opts, :hold, &RunnerHandoff.hold/1)
     Enum.each(entries, fn {_id, entry} -> hold.(entry.pid) end)
 
@@ -79,13 +82,13 @@ defmodule Aiur.Handoff do
           for {ref, :agent, meta} <- ProcessReaper.entries(), MapSet.member?(tickets, to_string(meta[:ticket])), do: ref
 
       :ok = ProcessReaper.handoff(refs)
-      result = %{path: Record.path(opts), handoff_id: record["handoff_id"], agents: agents}
+      result = %{path: Record.path(opts), handoff_id: record["handoff_id"], agents: agents, skipped: Enum.map(skipped, fn {_id, entry} -> entry.identifier end)}
       Protection.store(owner, result, tickets)
       {:ok, result}
     else
       {:error, _} = error ->
         abort = Keyword.get(opts, :abort, &RunnerHandoff.abort/1)
-        Enum.each(entries, fn {_id, entry} -> abort.(entry.pid) end)
+        Enum.each(all_entries, fn {_id, entry} -> abort.(entry.pid) end)
         GenServer.call(server, :cancel_handoff)
         error
     end

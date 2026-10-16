@@ -26,11 +26,15 @@ def summarize(result, metric, groups):
         text += f', rates {fmt(a["rate"])} to {fmt(b["rate"])}'
     else:
         text += f', median {measurement(a.get("median"), metric)} to {measurement(b.get("median"), metric)}'
-    if result["status"] != "insufficient_data":
+    if result["status"] != "insufficient_data" and result.get("primary_effect"):
         effect = result["effects"][result["primary_effect"]]
         text += (f', {result["primary_effect"]} {fmt(effect["estimate"])}, '
                  f'95% CI [{fmt(effect["lo"])}, {fmt(effect["hi"])}], '
                  f'p {fmt(result["p_raw"])} ({result["adjustment"]} {fmt(result["p_adj"])})')
+    if result["status"] != "insufficient_data" and not result.get("primary_effect"):
+        text += f', effect unavailable, p {fmt(result["p_raw"])} ({result["adjustment"]} {fmt(result["p_adj"])})'
+    if "composition_shift" in result["flags"]:
+        text += ', stratum mix changed; ' + ('standardized effect shown' if result.get("primary_effect") else 'standardized effect unavailable')
     text += f'; {result["status"]}, {result["direction"]}'
     text += f'; {sum(result["excluded_counts"].values())} units excluded'
     text += '; flags: ' + (', '.join(result["flags"]) or 'none')
