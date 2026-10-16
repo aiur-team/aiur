@@ -141,7 +141,8 @@ defmodule Aiur.Claude.Repl.HookTurn do
             await_hook_turn(loop, deadline, acc)
 
           {:handoff_snapshot, from, ref} ->
-            Handoff.capture(loop.session, %{repl_acc: acc}, from, ref)
+            session = Handoff.capture(loop.session, %{repl_acc: acc}, from, ref)
+            await_hook_turn(%{loop | session: session}, deadline, acc)
 
           {:claude_hook_available, _identifier} ->
             replay_hooks(loop.identifier)

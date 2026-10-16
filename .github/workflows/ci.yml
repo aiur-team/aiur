@@ -34,10 +34,7 @@ jobs:
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Set up Elixir for selection
-        uses: erlef/setup-beam@e6d7c94229049569db56a7ad5a540c051a010af9 # v1.20.4
-        with:
-          otp-version: '28'
-          elixir-version: '1.19.5'
+        uses: ./.github/actions/setup-elixir
       - name: Classify the changed paths
         id: classify
         env:

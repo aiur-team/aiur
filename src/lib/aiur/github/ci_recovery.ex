@@ -10,7 +10,7 @@ defmodule Aiur.GitHub.CIRecovery do
            Transport.github_graphql(
              Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
              token,
-             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid isDraft state reviewDecision mergeQueueEntry{id}}}}",
+             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid isDraft state reviewDecision autoMergeRequest{enabledAt} mergeQueueEntry{id}}}}",
              %{owner: owner, repo: repo, number: number},
              caller: "ci_recovery"
            ),

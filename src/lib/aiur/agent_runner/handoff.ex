@@ -52,7 +52,7 @@ defmodule Aiur.AgentRunner.Handoff do
   end
 
   @doc false
-  @spec before_turn(map(), map()) :: :ok
+  @spec before_turn(map(), map()) :: map()
   def before_turn(session, context) do
     Process.put(:handoff_turn_context, context)
 
@@ -65,12 +65,16 @@ defmodule Aiur.AgentRunner.Handoff do
 
     if Process.get(:handoff_hold) do
       receive do
-        {:handoff_snapshot, from, ref} -> capture(session, nil, from, ref)
-        :handoff_abort -> Process.delete(:handoff_hold)
-      end
-    end
+        {:handoff_snapshot, from, ref} ->
+          capture(session, nil, from, ref)
 
-    :ok
+        :handoff_abort ->
+          Process.delete(:handoff_hold)
+          session
+      end
+    else
+      session
+    end
   end
 
   @doc false
@@ -92,8 +96,8 @@ defmodule Aiur.AgentRunner.Handoff do
     end
   end
 
-  @doc false
-  @spec capture(map(), map() | nil, pid(), reference()) :: no_return()
+  @doc "Park the runner for the new daemon; on abort return the live session so the caller resumes its own loop."
+  @spec capture(map(), map() | nil, pid(), reference()) :: map()
   def capture(session, state, from, ref) do
     context = Process.get(:handoff_turn_context, %{})
     {transport, frames} = detach(session)
@@ -113,7 +117,7 @@ defmodule Aiur.AgentRunner.Handoff do
 
     Process.put(:handoff_detached, is_nil(fallback_reason))
     send(from, {ref, {:ok, record}})
-    park(record)
+    park(record, session)
   end
 
   defp display_state do
@@ -125,22 +129,35 @@ defmodule Aiur.AgentRunner.Handoff do
     :exit, _ -> nil
   end
 
-  defp park(record) do
+  defp park(record, original_session) do
     receive do
       :handoff_abort ->
-        if record["fallback_reason"], do: exit(:normal)
-        generation = record["transport"]["generation"] || 0
+        resumed =
+          cond do
+            record["fallback_reason"] ->
+              original_session
 
-        case attach(record, generation + 1) do
-          {:ok, session} -> Aiur.CodingAgent.stop_session(session)
-          _ -> :ok
-        end
+            # The pane was never released, so only the drained hooks need to come back.
+            record["transport"]["kind"] == "repl" ->
+              Enum.each(decode(record["queued_frames"]), &send(self(), {:claude_hook, original_session.identifier, &1}))
+              original_session
 
-        exit(:normal)
+            true ->
+              generation = record["transport"]["generation"] || 0
+
+              case attach(record, generation + 1) do
+                {:ok, session} -> session
+                _ -> exit(:handoff_abort_restore_failed)
+              end
+          end
+
+        Process.put(:handoff_detached, false)
+        Process.delete(:handoff_hold)
+        resumed
 
       {:handoff_snapshot, from, ref} ->
         send(from, {ref, {:ok, record}})
-        park(record)
+        park(record, original_session)
     end
   end
 
