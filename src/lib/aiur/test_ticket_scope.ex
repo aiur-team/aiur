@@ -87,20 +87,23 @@ defmodule Aiur.TestTicketScope do
   end
 
   defp allowed_post_request?(%{method: :post, url: url} = request) do
-    installation_token_request?(url) or scoped_graphql_read?(request) or repository_label_create?(url)
+    installation_token_request?(url) or scoped_graphql_read?(request) or repository_label_create?(request)
   end
 
   defp allowed_post_request?(_request), do: false
 
-  defp repository_label_create?(url) do
+  defp repository_label_create?(%{url: url, body: body}) do
     with %URI{} = uri <- URI.parse(url),
          true <- uri.scheme == "https" and uri.host == "api.github.com" and is_nil(uri.userinfo),
-         true <- uri.port in [nil, 443] and uri.path == "/repos/#{configured_repository_path()}/labels" do
+         true <- uri.port in [nil, 443] and uri.path == "/repos/#{configured_repository_path()}/labels",
+         true <- is_map(body) and Map.get(body, "name") == "#{Config.label_prefix()}:queued" do
       true
     else
       _ -> false
     end
   end
+
+  defp repository_label_create?(_request), do: false
 
   defp configured_repository_path do
     case configured_repository() do

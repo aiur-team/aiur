@@ -223,7 +223,7 @@ defmodule Aiur.GitHub.TestTicketScopeTest do
                method: :post,
                url: "https://api.github.com/repos/#{tracker_repository()}/labels",
                token: "token",
-               body: %{"name" => "build-queue:test"}
+               body: %{"name" => "#{Config.label_prefix()}:queued"}
              })
 
     assert_receive {:repository_label_create_reached_http, ^expected_path}, 1_000
@@ -231,7 +231,15 @@ defmodule Aiur.GitHub.TestTicketScopeTest do
     assert {:error, {:outside_test_ticket_scope, "unknown"}} =
              Aiur.TestTicketScope.allow_write?(%{
                method: :post,
-               url: "https://api.github.com/repos/other/repository/labels"
+               url: "https://api.github.com/repos/#{tracker_repository()}/labels",
+               body: %{"name" => "#{Config.label_prefix()}:unrelated"}
+             })
+
+    assert {:error, {:outside_test_ticket_scope, "unknown"}} =
+             Aiur.TestTicketScope.allow_write?(%{
+               method: :post,
+               url: "https://api.github.com/repos/other/repository/labels",
+               body: %{"name" => "#{Config.label_prefix()}:queued"}
              })
   end
 
