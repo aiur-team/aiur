@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.EventTopics do
     OptimisticGuardEffects,
     PushRouting,
     RestackScheduler,
+    ReviewLandingWithdrawal,
     State
   }
 
@@ -26,7 +27,10 @@ defmodule Aiur.Orchestrator.EventTopics do
   defp route_classified(state, :nomatch, _event, _opts), do: state
 
   defp route_classified(state, {:pr_review_comment, identifier}, event, _opts),
-    do: CommentWake.maybe_reactivate_on_comment(state, identifier, "PR review comment", event)
+    do:
+      state
+      |> ReviewLandingWithdrawal.changes_requested(identifier, event)
+      |> CommentWake.maybe_reactivate_on_comment(identifier, "PR review comment", event)
 
   defp route_classified(state, {:issue_commented, identifier}, event, _opts),
     do: CommentWake.maybe_reactivate_on_comment(state, identifier, "issue comment", event)
