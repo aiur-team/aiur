@@ -34,6 +34,20 @@ defmodule Aiur.AgentRunner.ReworkHandoffTest do
     assert :continued = ReworkHandoff.after_turn(issue, context, fn -> :continued end)
   end
 
+  test "a moved rework head with open review findings continues instead of handing back unchecked" do
+    issue = %Aiur.Issue{identifier: "rework-findings", state: "rework"}
+    {:ok, orchestrator} = FakeOrchestrator.start_link()
+    review = %{"state" => "CHANGES_REQUESTED", "body" => "1. lib/a.ex:3 fix it", "commit_id" => "old", "submitted_at" => "t", "id" => 1, "user" => %{"login" => "r"}, authoritative: true}
+
+    opts = [
+      rework_head_sha: "old",
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 7, "head" => %{"sha" => "new"}}} end,
+      reviews_fetcher: fn 7 -> {:ok, [review]} end
+    ]
+
+    assert :continued = ReworkHandoff.after_turn(issue, %{orchestrator: orchestrator, opts: opts}, fn -> :continued end)
+  end
+
   test "rework continues to consume queued operator input before handing off" do
     issue = %Aiur.Issue{identifier: "rework-queued", state: "rework"}
     {:ok, orchestrator} = FakeOrchestrator.start_link(1)
