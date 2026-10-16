@@ -1,12 +1,12 @@
 defmodule AiurWeb.Build.DataSource do
-  @moduledoc "Read seam for the build home page; the default source is not wired yet."
+  @moduledoc "Read seam for the build home page; real index by default, fixtures selectable."
 
   @callback subscribe(keyword()) :: :ok | {:error, term()}
   @callback snapshot(keyword()) :: {:ok, map()} | {:error, term()}
   @callback earlier(integer(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
 
   @spec source() :: module() | {module(), keyword()}
-  def source, do: Application.get_env(:aiur, :build_data_source, __MODULE__)
+  def source, do: Application.get_env(:aiur, :build_data_source, AiurWeb.Build.IndexSource)
 
   @spec call(module() | {module(), keyword()}, atom(), [term()]) :: term()
   def call({module, opts}, function, args) when is_atom(module) and is_list(opts),
