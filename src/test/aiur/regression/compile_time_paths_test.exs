@@ -97,11 +97,11 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     "aiur_web/components/operator_control_center/build_order_epic_icon.ex" => [
       "@external_resource path"
     ],
-    # The Stream Deck key-face contract is authored once in the npm package
-    # that the packaged deck ships from, and embedded into the web emulator at
+    # The Stream Deck key-face contract is authored once in daemon priv and
+    # mirrored by the sidecar, and embedded into the web emulator at
     # compile time via File.read!/1. Nothing reads @contract_path at runtime.
     "aiur_web/streamdeck_key_face_contract.ex" => [
-      "@contract_path Path.expand(\"../../../packages/streamdeck/src/key-face-contract.json\", __DIR__)",
+      "@contract_path Path.expand(\"../../priv/streamdeck/key-face-contract.json\", __DIR__)",
       "@external_resource Path.relative_to(@contract_path, File.cwd!(), force: true)"
     ]
   }

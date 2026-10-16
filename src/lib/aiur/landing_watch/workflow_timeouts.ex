@@ -43,10 +43,18 @@ defmodule Aiur.LandingWatch.WorkflowTimeouts do
   end
 
   defp matching_timeout(name, {job_id, definition}) do
-    if job_id == name or Map.get(definition, "name") == name,
+    if job_id == name or name_matches?(Map.get(definition, "name"), name),
       do: configured_timeout(definition),
       else: nil
   end
+
+  # Matrix jobs name each run from an expression, e.g. "browser smoke (${{ matrix.shard }}/5)".
+  defp name_matches?(pattern, name) when is_binary(pattern) and is_binary(name) do
+    regex = pattern |> String.split(~r/\$\{\{.*?\}\}/) |> Enum.map_join(".+", &Regex.escape/1)
+    Regex.match?(~r/\A#{regex}\z/, name)
+  end
+
+  defp name_matches?(_pattern, _name), do: false
 
   defp configured_timeout(definition) do
     case Map.get(definition, "timeout-minutes") do

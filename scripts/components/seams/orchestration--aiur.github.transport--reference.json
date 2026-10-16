@@ -1,0 +1,22 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.GitHub.Transport",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/landing_watch.ex",
+    "src/lib/aiur/landing_watch/attribution.ex",
+    "src/lib/aiur/landing_watch/flake_recorder.ex",
+    "src/lib/aiur/landing_watch/merge_group_failure_evidence.ex",
+    "src/lib/aiur/landing_watch/merge_group_failure_processor.ex",
+    "src/lib/aiur/landing_watch/merge_group_quarantine.ex",
+    "src/lib/aiur/landing_watch/merge_group_requeue.ex",
+    "src/lib/aiur/landing_watch/merge_group_run_fetcher.ex",
+    "src/lib/aiur/landing_watch/merge_groups.ex",
+    "src/lib/aiur/landing_watch/observer.ex",
+    "src/lib/aiur/landing_watch/quarantine_lifter.ex",
+    "src/lib/aiur/landing_watch/quarantine_pr.ex",
+    "src/lib/aiur/landing_watch/workflow_timeouts.ex",
+    "src/lib/aiur/orchestrator/merge_attribution.ex"
+  ],
+  "reason": "#3777: merge tracker and quarantine jobs use the governed GitHub transport; #4569: failed-group evidence reads remain on that transport"
+}

@@ -4,6 +4,8 @@ Aiur exposes a Phoenix WebSocket at `/streamdeck/websocket` for push-driven
 fleet state. Join the single `streamdeck:fleet` channel; internal PubSub topic
 names and tuple shapes are not part of this API.
 
+The canonical visual contract and parity vectors live in `src/priv/streamdeck/`; the sidecar keeps byte-checked mirrors in `packages/streamdeck/src/`. Edit the canonical files, then copy them to the mirrors.
+
 ## Authentication
 
 The device first requests `POST /api/v1/streamdeck/token` with the existing
