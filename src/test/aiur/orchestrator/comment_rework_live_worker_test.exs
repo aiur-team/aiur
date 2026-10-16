@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.CommentReworkLiveWorkerTest do
 
   @issue_number "4601"
 
-  defp base_state(issue) do
+  defp base_state(issue, status \\ :working) do
     %State{
       queue_store: AgentQueueStore.new(),
       running: %{
@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.CommentReworkLiveWorkerTest do
           issue: issue,
           pid: self(),
           telemetry_attempt_id: "ticket-4601:test",
-          control: %{status: :working, version: 1}
+          control: %{status: status, version: 1}
         }
       },
       completed: MapSet.new(),
@@ -89,5 +89,17 @@ defmodule Aiur.Orchestrator.CommentReworkLiveWorkerTest do
     assert [digest] = AgentQueueStore.list_pending(updated.queue_store, @issue_number)
     assert digest.body.events == [event]
     refute Enum.any?(AlertFeed.list(), &(&1["topic"] == "ticket.#{@issue_number}.agent.attention.dispatch-declined"))
+  end
+
+  # Regression guard: origin/main passes this; 3d2ea5c17 failed it. The cached
+  # state can lag a handoff by one poll, so only a live worker may skip the write.
+  test "regression guard: a finished worker cached as rework still moves a handed-off human-review ticket to rework" do
+    Application.put_env(:aiur, :memory_tracker_issues, [issue("human-review")])
+    state = base_state(issue("rework"), :completed)
+    event = review_event(issue("human-review"))
+
+    CommentWake.maybe_reactivate_on_comment(state, @issue_number, :pr_review, event)
+
+    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
   end
 end

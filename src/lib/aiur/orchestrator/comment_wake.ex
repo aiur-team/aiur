@@ -688,8 +688,8 @@ defmodule Aiur.Orchestrator.CommentWake do
       benign_review_pass_comment?(event) ->
         state
 
-      # The worker still gets the review; a second rework write only spends a rework attempt (#4601).
-      already_rework?(running_entry) ->
+      # A live rework worker gets the review; a finished one may have handed off since the last poll (#4601).
+      live_rework_worker?(running_entry) ->
         OperatorMessages.enqueue_event_digest_item(state, to_string(issue_number), [event], event)
 
       true ->
@@ -713,8 +713,8 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp already_rework?(%{issue: %Issue{state: issue_state}}), do: DispatchPolicy.normalize_issue_state(issue_state) == "rework"
-  defp already_rework?(_running_entry), do: false
+  defp live_rework_worker?(%{issue: %Issue{state: issue_state}, control: %{status: :working}}), do: DispatchPolicy.normalize_issue_state(issue_state) == "rework"
+  defp live_rework_worker?(_running_entry), do: false
 
   # A gate refusal on the running-entry path used to be the quietest outcome in
   # the whole comment-wake chain: no label write, no retry, no log line, no

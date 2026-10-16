@@ -1196,13 +1196,15 @@ Do not relabel by hand after a `CHANGES_REQUESTED` review. The daemon already
 moves the ticket: the review webhook and the review poll both publish
 `ticket.<id>.pr.review_comment`, and `CommentWake` writes `agent:rework` (add
 before remove) and delivers the review to a worker that still holds the ticket.
-A hand relabel duplicates that write and spends the shared GitHub core budget
-the dispatcher's rework claim needs; on 2026-10-15 the claims after such
-relabels (#4570, #4566) hit a budget hold and raised `dispatch-declined`.
+A hand relabel only duplicates that write and spends shared GitHub core budget.
+(The 2026-10-15 `dispatch-declined` alerts on #4570 and #4566 came from a
+GitHub budget hold on the rework claim, not from the relabels; #4646 tracks it.)
 Verify instead: the ticket left `agent:human-review`/`agent:ci-wait` for
 `agent:rework`. If it did not, read the `review_rework_refused` alert and fix
 what it names (review state, trusted author, open PR, current head; often a
-re-review of the current head) instead of relabelling.
+re-review of the current head). If there is no such alert, run
+`aiur executor-sweep` (#4620) and check the daemon log for `Rework dispatch
+claim failed` or `ticket_transition ... writer=comment_wake` before you touch a label.
 
 ### Merge mechanics
 
