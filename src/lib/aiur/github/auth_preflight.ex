@@ -4,10 +4,11 @@ defmodule Aiur.GitHub.AuthPreflight do
 
   ## Two entry points, and why
 
-  `preflight_auth/1` always spends three requests. It is the diagnostic form:
-  daemon boot, workspace creation, anything an operator asked for directly.
+  `preflight_auth/1` runs an unconditional diagnostic, making three requests
+  when all checks complete. Use it for an operator-requested fresh check.
 
-  `ensure_preflight/1` is the form the orchestrator's poll cycle calls. It runs
+  `ensure_preflight/1` serves the orchestrator's poll cycle and workspace
+  startup. It runs
   the same three requests, remembers a success, and then answers `:ok` from
   memory until something says the answer may have changed. Before this, the
   cycle re-proved credentials on every tick — 3 requests × 6 idle cycles = 18

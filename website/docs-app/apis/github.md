@@ -208,7 +208,9 @@ Poll spend still scales inversely with a class's interval, so `polling.interval_
   cadence, not to change its loop. Its loop is not gated on a class cadence — it
   rides the dispatch tick — so it stays at the fallback (`interval_seconds`).
 
-The GitHub auth check runs once per credential, not once per sweep. It is re-run when the token or repository changes, and when a GitHub call answers `401` with the credential it proved — so a revoked token still produces the usual auth diagnostic rather than a raw failure downstream.
+The GitHub auth check runs once per credential, not once per sweep or workspace startup. Workspace startup reuses the daemon's successful repository-and-credential proof. Explicit diagnostic checks still force a fresh probe.
+
+The check runs again when the token or repository changes, or when GitHub answers `401` with the proven credential. A revoked token therefore produces the usual auth diagnostic rather than a raw failure downstream.
 
 Comments, review submissions, and watch-target discovery are read over conditional REST with `If-None-Match`. An unchanged answer returns `304`, which does not count against GitHub's primary REST limit, so repeatedly sweeping quiet tickets is free rather than merely cheap. Validators are kept on disk, so a restart does not force a full-price re-read.
 
