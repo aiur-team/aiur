@@ -1,6 +1,7 @@
 defmodule Aiur.AppServer.RelayTurnReapTest do
   use Aiur.TestSupport
 
+  alias Aiur.Codex.CodingAgent
   alias Aiur.Workflow
 
   # #4730: a tool command backgrounded with setsid, then orphaned, left the
@@ -24,15 +25,15 @@ defmodule Aiur.AppServer.RelayTurnReapTest do
     path = Workflow.workflow_file_path()
     File.write!(path, String.replace(File.read!(path), "agent:\n", "agent:\n  relay: true\n"))
     Aiur.WorkflowStore.force_reload()
-    assert {:ok, session} = Aiur.Codex.CodingAgent.start_session(workspace)
+    assert {:ok, session} = CodingAgent.start_session(workspace)
     assert is_pid(session.port)
 
     try do
-      assert {:ok, %{result: :turn_completed}} = Aiur.Codex.CodingAgent.run_turn(session, "spin", %{id: "1", identifier: "T-1", title: "fake"})
+      assert {:ok, %{result: :turn_completed}} = CodingAgent.run_turn(session, "spin", %{id: "1", identifier: "T-1", title: "fake"})
       loop = pid_file |> File.read!() |> String.trim()
       assert eventually(fn -> not alive?(loop) end), "detached loop #{loop} outlived the turn"
     after
-      Aiur.Codex.CodingAgent.stop_session(session)
+      CodingAgent.stop_session(session)
     end
   end
 
