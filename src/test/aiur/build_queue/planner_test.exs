@@ -66,6 +66,17 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :overridden}], [{:mark_override, "1"}]} = Planner.plan(input)
   end
 
+  test "observation older than the queue's own todo withdrawal is not a manual promotion" do
+    # Mark intents have aged out of the reconcile window; only the newer withdraw remains.
+    input = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo), observed_at_ms: 9_500)
+    withdrawn = F.intent(input, :withdraw, target_labels: ~w(agent:queued), recorded_at_ms: 9_800)
+    assert {[%{state: :unknown, reason: :awaiting_withdrawal_observation}], []} = Planner.plan(withdrawn)
+
+    for changes <- [[recorded_at_ms: 9_400], [outcome: {:error, :denied}], [target_labels: ~w(agent:queued agent:todo)]] do
+      assert {[%{state: :overridden}], [{:mark_override, "1"}]} = input |> F.intent(:withdraw, Keyword.merge([target_labels: ~w(agent:queued), recorded_at_ms: 9_800], changes)) |> Planner.plan()
+    end
+  end
+
   test "external removal holds once and matching withdrawal intent permits management" do
     input = F.input() |> F.update_item(promoted_at: DateTime.from_unix!(9_000, :millisecond))
     assert {[%{state: :held, reason: :external}], [{:mark_external_hold, "1"}]} = Planner.plan(input)
