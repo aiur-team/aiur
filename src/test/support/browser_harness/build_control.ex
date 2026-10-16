@@ -10,11 +10,16 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
     {:ok, data} = FixtureSource.full([])
 
     changes =
-      if action == "skip" do
-        %{resync: true}
-      else
-        row = change_row(data, params)
-        %{now: data["now"], upsert: [row], remove: [], set: %{}, resync: false}
+      cond do
+        action == "skip" ->
+          %{resync: true}
+
+        params["name"] in ~w(card-pct-null card-clock-3h) ->
+          named_diff(params["name"])
+
+        true ->
+          row = change_row(data, params)
+          %{now: data["now"], upsert: [row], remove: [], set: %{}, resync: false}
       end
 
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build-home:fixture", {:build_changes, changes})
@@ -28,6 +33,12 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
   end
 
   def configure(conn, _params), do: send_resp(conn, 404, "unknown build fixture control action")
+
+  defp named_diff(name) do
+    path = Path.expand("../../fixtures/build_home/diffs/#{name}.json", __DIR__)
+    data = path |> File.read!() |> Jason.decode!()
+    %{now: data["now"], upsert: data["upsert"], remove: data["remove"], set: data["set"], resync: false}
+  end
 
   defp change_row(data, params) do
     row = Enum.find(List.flatten(Map.values(data["sections"])), &(&1["id"] == params["id"])) || hd(data["sections"]["plan"])

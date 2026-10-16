@@ -24,8 +24,8 @@ defmodule Aiur.DecisionEvent do
     SecretRedactor
   }
 
+  alias Aiur.DecisionEvent.AuthorityReclassification
   alias Aiur.DecisionEvent.Unrecognized
-
   @schema_version 1
   @versioned_snapshot_schema_version 2
   @provenance_event_id_prefix "decision-provenance-v1:"
@@ -40,6 +40,7 @@ defmodule Aiur.DecisionEvent do
     :decision_deferred,
     :decision_mooted,
     :executor_escalated,
+    :authority_reclassified,
     :answer_recorded,
     :revision_recorded,
     :dispatch_queued,
@@ -59,9 +60,7 @@ defmodule Aiur.DecisionEvent do
   @actor_types [:acknowledged, :resolved]
   @snapshot_types [:requested, :enriched]
 
-  # A dispatch whose caller timed out may still have queued its item, so it is
-  # recorded as an unknown outcome, not a failure. The store adopts the item
-  # when it learns it exists (#2717).
+  # A timed-out dispatch may still be queued; the store later adopts that item (#2717).
   @outcome_unknown_types [:dispatch_outcome_unknown]
   @types @types ++ @outcome_unknown_types
   @transport_types @transport_types ++ @outcome_unknown_types
@@ -74,6 +73,7 @@ defmodule Aiur.DecisionEvent do
           | :decision_deferred
           | :decision_mooted
           | :executor_escalated
+          | :authority_reclassified
           | :answer_recorded
           | :revision_recorded
           | :dispatch_queued
@@ -303,10 +303,7 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  # The Executor deferring a Command to the operator is a decision about that
-  # Command exactly as an Executor answer is, so it earns the same durability
-  # and attribution instead of living only in an alert marker file. `detail`
-  # carries the Executor's stated reason for escalating.
+  # Executor escalation records the Executor's reason and durable attribution.
   defp normalize_data(:executor_escalated, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
     with {:ok, actor} <- normalize_actor(get(raw, :actor)),
          :ok <- require_executor_actor(actor),
@@ -314,6 +311,8 @@ defmodule Aiur.DecisionEvent do
       {:ok, %{actor: actor, detail: detail}}
     end
   end
+
+  defp normalize_data(:authority_reclassified, raw, _decision_id, _version, _trusted_provenance), do: AuthorityReclassification.normalize(raw)
 
   defp normalize_data(:decision_expired, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
     with {:ok, reason_class} <- bounded_required(get(raw, :reason_class), @reason_max, :reason_class),
@@ -526,9 +525,7 @@ defmodule Aiur.DecisionEvent do
     }
   end
 
-  # Schema-1 event hashes deliberately retain the current-main material. The
-  # separately bound provenance state does not alter what a rollback reader
-  # reconstructs from the Decision snapshot.
+  # Schema-1 hashes retain main's material; provenance remains rollback-compatible.
   defp legacy_data_to_json_safe(:requested, %Decision{} = decision) do
     data_to_json_safe(:requested, decision)
     |> Map.delete("provenance")
@@ -583,6 +580,8 @@ defmodule Aiur.DecisionEvent do
       "detail" => data.detail
     }
   end
+
+  defp data_to_json_safe(:authority_reclassified, data), do: AuthorityReclassification.to_json_safe(data)
 
   defp data_to_json_safe(:decision_expired, data) do
     %{

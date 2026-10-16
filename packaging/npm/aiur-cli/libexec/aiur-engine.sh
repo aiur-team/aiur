@@ -87,6 +87,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
+       aiur executor-reclassify <decision-id> --expected-version <n> --rationale <text> [--executor-id <id>]
        aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  read queue; add/remove/reorder/order/hold/release/recover/clear steer it
@@ -249,6 +250,10 @@ aiur_engine_main() {
     executor-escalate)
       shift
       cmd_executor_escalate "$@"
+      ;;
+    executor-reclassify)
+      shift
+      cmd_executor_reclassify "$@"
       ;;
     executor-moot)
       shift

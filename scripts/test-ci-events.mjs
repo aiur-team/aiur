@@ -13,14 +13,17 @@ assert.ok(/  push:\n    branches: \[main, v2\]/.test(trigger), 'main pushes trig
 assert.ok(/  schedule:\n    - cron:/.test(trigger), 'scheduled CI is configured');
 const jobs = new Map([...source.split(/^jobs:\n/m)[1].matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:|$(?![\s\S]))/gm)]
   .map(([, id, body]) => [id, body]));
-const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css', 'layout-release', 'analytics', 'streamdeck'];
-const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'ci-gate'];
+const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css', 'layout-release', 'analytics', 'streamdeck', 'pre-handoff'];
+const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'ci-gate', 'pre-handoff'];
 function selected(event, full, dialyzer = false) {
   return [...jobs].filter(([, body]) => {
     const expression = body.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
     return !expression || runInNewContext(expression, {
       github: { event_name: event, ref: event === 'push' ? 'refs/heads/main' : '' }, cancelled: () => false, always: () => true,
-      needs: { changes: { result: 'success', outputs: { full_ci: String(full), dialyzer: String(dialyzer) } } },
+      needs: {
+        changes: { result: 'success', outputs: { full_ci: String(full), dialyzer: String(dialyzer) } },
+        'pre-handoff': { result: 'success' },
+      },
     });
   }).map(([id]) => id);
 }
@@ -87,7 +90,12 @@ assert.notEqual(gate('schedule', true, false).status, 0, 'gate refuses unsupport
 assert.ok(jobs.has('quarantine'), 'quarantine job remains available for scheduled/main runs');
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'schedule'"));
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'push' && github.ref == 'refs/heads/main'"));
-assert.ok(jobs.get('workflow-security').includes('Set up Elixir for evidence and classifier tests'));
+assert.ok(jobs.get('workflow-security').includes('timeout-minutes: 5'), 'security job keeps its original short budget');
+assert.ok(jobs.get('workflow-security').includes("needs['pre-handoff'].result"),
+  'required workflow security check fails when pre-handoff checks fail');
+assert.ok(jobs.get('pre-handoff').includes('./.github/actions/pre-handoff'), 'bounded pre-handoff job runs its dedicated action');
+assert.ok(readFileSync(new URL('../.github/actions/pre-handoff/action.yml', import.meta.url), 'utf8')
+  .includes('uses: ./.github/actions/setup-elixir'), 'pre-handoff action sets up Elixir');
 assert.ok(!jobs.get('workflow-security').includes("Set up Elixir for PR evidence\n        if:"));
 const affected = jobs.get('affected-tests');
 const affectedTimeout = Number(affected.match(/^    timeout-minutes: (\d+)$/m)?.[1]);

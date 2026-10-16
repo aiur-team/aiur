@@ -42,8 +42,8 @@ export function viewport() {
       const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid]); return; }
       const st = e.target.closest("[data-ast]"); if (st) { const v = st.dataset.ast.split(","), same = S.f.astate.join(",") === v.join(","); S.f.astate = same ? [] : v; if (S.liveMin && !same) { S.liveMin = false; writeURL(); relayout(); } fx.filtersChanged(); return; }
       const c = e.target.closest(".bd-card");
-      if (ctx.lockId) { if (c && fx.chainOf(ctx.lockId).has(c.dataset.id)) fx.openModal(ctx.D.byId[c.dataset.id]); return; }
-      if (c) fx.openModal(ctx.D.byId[c.dataset.id]);
+      if (ctx.lockId) { if (c && fx.chainOf(ctx.lockId).has(c.dataset.id)) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c }); return; }
+      if (c) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c });
     });
   }
 
@@ -68,12 +68,14 @@ export function relayout({ live = false } = {}) {
   ctx.content.classList.toggle('flow', S.flow);
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
+  const previousDetail = ctx.L?.det;
   ctx.L = computeLayout(ctx.D, S, { vpW: ctx.vp.clientWidth, vpH: ctx.vp.clientHeight, gut: gutW() }, ctx.snap.sources);
+  const detailChanged = previousDetail !== ctx.L.det;
   ctx.svg.setAttribute('height', 0);
   ctx.vp.style.setProperty('--dot', dotSize(S.span));
   for (const [uid, el] of ctx.R) {
     const id = el.dataset.id;
-    if (!live || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
+    if (!live || detailChanged || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
     else noanim(el);
   }
   ctx.RL.forEach(el => el.remove()); ctx.RL.clear();

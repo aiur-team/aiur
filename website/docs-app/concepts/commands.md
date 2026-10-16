@@ -56,7 +56,19 @@ stay `human_required`.
 Because omission defaults to the Executor floor, a Command that is genuinely
 irreversible, involves spend or external publication, or changes product
 direction must declare `authority: human_required` (and the matching
-`reversibility`) explicitly.
+`reversibility`) and set `context.authority_basis` to `product`, `spend`,
+`external_publication`, or `security`.
+
+Explain the specific boundary in the request context; missing or unrecognized
+bases are rejected. Legacy attention projections remain human-required without
+this worker field.
+
+An Executor can reclassify an open historical `human_required` Command only
+when it has no recorded human-only basis. Product, spend, publication, security,
+and legacy-attention Commands remain human-only.
+
+Reclassification records the Executor's rationale and increments the Command
+version. A separate `aiur executor-answer` must use the new version.
 
 Aiur warns when a human-required Command is reversible and all of its
 options are low-risk. It also raises attention when an Executor-unanswerable

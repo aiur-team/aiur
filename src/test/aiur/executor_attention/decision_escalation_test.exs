@@ -220,6 +220,7 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
           "question" => "May this renderer defer composed mobile pixels?",
           "blocking" => Keyword.get(overrides, :blocking, true),
           "authority" => "human_required",
+          "context" => %{"authority_basis" => "security"},
           "source_id" => source_id
         },
         ticket: %{identifier: ticket, title: "Renderer", url: nil},

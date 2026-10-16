@@ -4,24 +4,22 @@ defmodule Aiur.DecisionStore.DedupTest do
   use Aiur.DecisionStoreCase, async: false
 
   describe "supersede-and-clear on answer (#1844)" do
-    test "answering a Command clears its open duplicates on the same ticket", %{dir: dir} do
+    test "answering does not dismiss an identical human-only attention", %{dir: dir} do
       pid = start_store!(dir)
       question = "Should PR #1820 push its existing merge?"
 
       assert {:ok, %{decision: primary}} =
                request(pid, %{
                  "question" => question,
-                 "blocking" => false,
+                 "blocking" => true,
                  "options" => [
                    %{"id" => "push_refresh", "label" => "Push the refresh"},
                    %{"id" => "keep_unpushed", "label" => "Keep it unpushed"}
                  ]
                })
 
-      # The same question filed a second time as an option-less attention —
-      # the exact #1844 shape. `source_id` differs, so nothing dedups it today;
-      # it is filed by a *different* agent so creation-time dedup (#2099) does
-      # not collapse it before the answer-time supersede can be exercised.
+      # The same question can carry a different authority. Answering the
+      # Executor-authority Command must leave the human-only attention open.
       assert {:ok, %{status: :accepted, decision: duplicate}} =
                project_attention(
                  pid,
@@ -51,17 +49,8 @@ defmodule Aiur.DecisionStore.DedupTest do
                  "option_id" => "push_refresh"
                })
 
-      assert {:ok, %Decision{decision_status: :dismissed} = cleared} =
+      assert {:ok, %Decision{decision_status: :open}} =
                DecisionStore.get(duplicate.decision_id, pid)
-
-      # The dismissal names the Command that answered it, so the audit trail
-      # explains why a record the operator never touched closed itself.
-      assert {:ok, audit} = DecisionStore.audit_history(cleared.decision_id, pid)
-
-      assert Enum.any?(audit, fn record ->
-               match?(%DecisionEvent{type: :decision_dismissed}, record) and
-                 record.data.actor.id == "superseded-by:#{primary.decision_id}"
-             end)
 
       assert {:ok, %Decision{decision_status: :open}} = DecisionStore.get(unrelated.decision_id, pid)
       assert {:ok, %Decision{decision_status: :open}} = DecisionStore.get(other_ticket.decision_id, pid)
@@ -96,23 +85,76 @@ defmodule Aiur.DecisionStore.DedupTest do
   end
 
   describe "creation-time dedup (#2099)" do
-    test "an exact-identical re-file from the same agent stays a distinct Command", %{dir: dir} do
+    test "an exact-identical re-file from the same agent returns the existing Command", %{dir: dir} do
       pid = start_store!(dir)
       question = "Should PR #1820 push its existing merge?"
 
-      # An identical re-file is the agent deliberately asking the same question
-      # again (e.g. a distinct tool call), not an accidental duplicate: the
-      # tool-call/retry contract depends on this, so it stays its own row.
+      # A fresh tool call asking the exact same question on the same ticket must
+      # not create a second decision.
       assert {:ok, %{status: :accepted, decision: first}} =
                request(pid, %{"question" => question, "blocking" => false, "source_id" => "ask-1"})
 
-      assert {:ok, %{status: :accepted, decision: second}} =
+      assert {:ok, %{status: :duplicate, decision: second}} =
                request(pid, %{"question" => question, "blocking" => false, "source_id" => "ask-2"})
 
-      refute second.decision_id == first.decision_id
+      assert second.decision_id == first.decision_id
 
       assert decisions = DecisionStore.list(pid)
-      assert length(decisions) == 2
+      assert length(decisions) == 1
+    end
+
+    test "an exact question with a human-required authority stays distinct", %{dir: dir} do
+      pid = start_store!(dir)
+      question = "Should we publish the customer records?"
+
+      assert {:ok, %{decision: executor_decision}} =
+               request(pid, %{"question" => question, "blocking" => false})
+
+      assert {:ok, %{status: :accepted, decision: human_decision}} =
+               request(
+                 pid,
+                 %{
+                   "question" => question,
+                   "blocking" => false,
+                   "authority" => "human_required",
+                   "context" => %{"authority_basis" => "external_publication"}
+                 },
+                 source: %{@source | agent_id: "agent-2"}
+               )
+
+      refute human_decision.decision_id == executor_decision.decision_id
+      assert human_decision.authority == :human_required
+      assert length(DecisionStore.list(pid)) == 2
+    end
+
+    test "answer-time superseding does not dismiss a same-question human-required Command", %{dir: dir} do
+      pid = start_store!(dir)
+      question = "Should we publish the customer records?"
+
+      assert {:ok, %{decision: executor_decision}} =
+               request(pid, %{"question" => question, "blocking" => false})
+
+      assert {:ok, %{status: :accepted, decision: human_decision}} =
+               request(
+                 pid,
+                 %{
+                   "question" => question,
+                   "blocking" => false,
+                   "authority" => "human_required",
+                   "context" => %{"authority_basis" => "external_publication"}
+                 },
+                 source: %{@source | agent_id: "agent-2"}
+               )
+
+      assert {:ok, %{status: :accepted}} =
+               answer(pid, executor_decision.decision_id, %{
+                 "idempotency_key" => "answer-executor-question",
+                 "expected_version" => executor_decision.version,
+                 "custom_response" => "Hold for the operator"
+               })
+
+      assert {:ok, %{decision_status: :open, authority: :human_required}} =
+               DecisionStore.get(human_decision.decision_id, pid)
     end
 
     test "paraphrases of one question from the same agent collapse within the window", %{dir: dir} do
@@ -147,23 +189,23 @@ defmodule Aiur.DecisionStore.DedupTest do
       assert length(decisions) == 1
     end
 
-    test "a different agent or ticket does not collapse", %{dir: dir} do
+    test "a different agent on the same ticket collapses, but another ticket does not", %{dir: dir} do
       pid = start_store!(dir)
       question = "Should we drop the index?"
 
       assert {:ok, %{decision: agent_a}} = request(pid, %{"question" => question, "blocking" => false})
 
-      assert {:ok, %{decision: agent_b}} =
+      assert {:ok, %{status: :duplicate, decision: agent_b}} =
                request(pid, %{"question" => question, "blocking" => false}, source: %{@source | agent_id: "agent-2"})
 
       assert {:ok, %{decision: other_ticket}} =
                request(pid, %{"question" => question, "blocking" => false}, ticket: %{@ticket | identifier: "5150"})
 
-      refute agent_b.decision_id == agent_a.decision_id
+      assert agent_b.decision_id == agent_a.decision_id
       refute other_ticket.decision_id == agent_a.decision_id
 
       assert decisions = DecisionStore.list(pid)
-      assert length(decisions) == 3
+      assert length(decisions) == 2
     end
 
     test "an answered Command is not a dedup candidate for a new similar one", %{dir: dir} do
@@ -196,7 +238,7 @@ defmodule Aiur.DecisionStore.DedupTest do
       assert fresh.decision_status == :open
     end
 
-    test "attention projections dedup against a recent same-agent Command", %{dir: dir} do
+    test "attention projections with human-only authority stay distinct", %{dir: dir} do
       pid = start_store!(dir)
 
       assert {:ok, %{status: :accepted, decision: first}} =
@@ -206,7 +248,7 @@ defmodule Aiur.DecisionStore.DedupTest do
                  "source_id" => "agent-request"
                })
 
-      assert {:ok, %{status: :duplicate, decision: duplicate}} =
+      assert {:ok, %{status: :accepted, decision: attention}} =
                project_attention(pid, %{
                  "question" => "Reclassify ticket #2071 for fresh implementation?",
                  "blocking" => false,
@@ -214,10 +256,10 @@ defmodule Aiur.DecisionStore.DedupTest do
                  "source_id" => "legacy_attention:2071-reclassify"
                })
 
-      assert duplicate.decision_id == first.decision_id
+      refute attention.decision_id == first.decision_id
 
       assert decisions = DecisionStore.list(pid)
-      assert length(decisions) == 1
+      assert length(decisions) == 2
     end
   end
 end
