@@ -67,6 +67,40 @@ defmodule Aiur.AgentGitHubGuard.ShiftedClockTest do
     assert tree_digest(quota_dir) == before
   end
 
+  test "a preloaded libfaketime marks the clock untrusted", context do
+    quota_dir = canary_quota_dir(context)
+    before = tree_digest(quota_dir)
+
+    # Only the path string is matched, so the library need not exist.
+    assert {output, 1} = run_guard(context, ["api", "repos/owner/repo/issues"], [LD_PRELOAD: "/usr/lib/faketime/libfaketime.so.1"] ++ @secondary_failure)
+
+    assert output =~ "libfaketime is preloaded"
+    assert tree_digest(quota_dir) == before
+  end
+
+  test "a fast-clock guard call does not touch the shared budget broker", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    File.mkdir_p!(budget_root)
+    File.write!(Path.join(budget_root, "canary"), "canary\n")
+    before = tree_digest(budget_root)
+
+    budget_env = [
+      AIUR_GITHUB_BUDGET_ENABLED: "1",
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+      AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
+    ]
+
+    assert {output, 1} = run_guard(context, ["api", "repos/owner/repo/issues"], fast_clock(context) ++ @secondary_failure ++ budget_env)
+
+    assert output =~ "ignoring shared GitHub quota state"
+    assert tree_digest(budget_root) == before
+
+    # Control: the same call on a trusted clock does reach the broker DB.
+    assert {_output, 1} = run_guard(context, ["api", "repos/owner/repo/issues"], @secondary_failure ++ budget_env)
+    assert File.exists?(Path.join(budget_root, "budget.sqlite3"))
+  end
+
   test "a fast-clock reader does not delete a real hold", context do
     hold_file = Path.join(canary_quota_dir(context), "graphql-secondary-hold")
     hold = "#{System.os_time(:second) + 120}\n"

@@ -212,6 +212,8 @@ budget_derive_identity() {
 # hold against the wrong `now`: it publishes holds weeks ahead and deletes the
 # fleet's real holds as expired. Such a process keeps no quota state at all.
 # `btime + uptime` is the kernel's wall clock, which an LD_PRELOAD shim cannot fake.
+# Under lxcfs (`/proc/uptime` virtualized, `btime` from the host) the check can
+# misfire. That only drops shared quota coordination for the call, an accepted cost.
 clock_shift=
 case "${LD_PRELOAD:-}:${DYLD_INSERT_LIBRARIES:-}" in *faketime*) clock_shift='libfaketime is preloaded' ;; esac
 if [ -n "${FAKETIME:-}" ]; then clock_shift='FAKETIME is set'; fi
@@ -232,6 +234,8 @@ if [ -n "$clock_shift" ]; then
   printf 'aiur: %s; ignoring shared GitHub quota state for this call\n' "$clock_shift" >&2
   state_root=
   agent_quota_dir=
+  # The broker DB is shared hold state too, priced by an equally shifted clock.
+  budget_required=0
 fi
 
 if [ -n "$state_root" ]; then
