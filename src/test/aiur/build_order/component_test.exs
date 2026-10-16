@@ -139,7 +139,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.ExecutorSweep,
     Aiur.Experiments.Auto.Notifier,
     Aiur.Experiments.Auto.WindowManager,
-    Aiur.LandingWatch.QuarantineLifter
+    Aiur.LandingWatch.QuarantineLifter,
+    AiurWeb.Build.Index
   ]
 
   setup do
@@ -162,7 +163,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
 
     without_dashboard =
       @foreground
-      |> Enum.reject(&(&1 in [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, {Aiur.HttpServer, dashboard_pages?: true}]))
+      |> Enum.reject(&(&1 in [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, AiurWeb.Build.Index, {Aiur.HttpServer, dashboard_pages?: true}]))
       |> Enum.map(fn
         {Aiur.OpenTicketSource, _} -> {Aiur.OpenTicketSource, poll_on_start: false}
         spec -> spec

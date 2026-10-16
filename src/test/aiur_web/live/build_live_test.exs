@@ -2,6 +2,8 @@ defmodule AiurWeb.BuildLiveTest do
   use Aiur.TestSupport
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
+  alias Aiur.TestSupport.BuildHome.IndexParts
+  alias AiurWeb.Build.{DataSource, Index, IndexSource}
   alias AiurWeb.{BuildLive, Endpoint}
   @endpoint Endpoint
 
@@ -122,11 +124,17 @@ defmodule AiurWeb.BuildLiveTest do
     assert render(view) =~ ~s(data-build-state="ready")
   end
 
-  test "default source is not wired" do
+  test "default source reads the supervised ticket index" do
     Application.delete_env(:aiur, :build_data_source)
-    {:ok, view, _} = live(build_conn(), "/build")
-    render_async(view)
-    assert has_element?(view, "#build-root[data-build-state=unavailable][data-build-reason=not_wired]")
+    assert DataSource.source() == IndexSource
+
+    pid =
+      start_supervised!(
+        {Index, name: nil, subscribe: fn -> :ok end, read: fn _, _, _ -> IndexParts.parts([IndexParts.row(7)]) end, daemon_read: fn _ -> %{state: "unknown", heartbeat_at: nil, observed_at: nil} end}
+      )
+
+    assert {:ok, snapshot} = DataSource.call(DataSource.source(), :snapshot, [[server: pid, financial: :locked]])
+    assert Enum.map(snapshot.sections.hist, & &1.num) == [7]
   end
 
   test "subscription failure still loads the snapshot" do

@@ -216,7 +216,7 @@ defmodule Aiur.Orchestrator.Slots do
 
   @spec max_concurrent_agent_status(State.t()) :: map()
   def max_concurrent_agent_status(%State{} = state) do
-    active = State.active_running_count(state.running)
+    active = active_slots(state)
     reserved_paused = State.reserved_paused_running_count(state.running)
     max = max_concurrent_agent_limit(state)
     sample = state.dispatch_capacity_sample
@@ -279,10 +279,32 @@ defmodule Aiur.Orchestrator.Slots do
   # the agent has simply hit its time cap and is parked for review), so the
   # parked runner releases normal dispatch capacity (#2329).
   @spec used_slots(State.t()) :: non_neg_integer()
-  def used_slots(%State{} = state) do
-    State.active_running_count(state.running) +
-      State.reserved_paused_running_count(state.running)
+  def used_slots(%State{} = state), do: used_slots(state, state.running)
+
+  defp used_slots(state, running) do
+    State.active_running_count(running) + pending_rework_claims(state) + State.reserved_paused_running_count(running)
   end
+
+  # Active agents plus rework claims whose tracker write is still in flight.
+  # A pending claim starts its worker when the write returns, without a second
+  # check, so it must hold its slot from the moment it is claimed (#4683).
+  @spec active_slots(State.t()) :: non_neg_integer()
+  def active_slots(%State{} = state) do
+    State.active_running_count(state.running) + pending_rework_claims(state)
+  end
+
+  defp pending_rework_claims(%State{tracker_tasks: tasks}) when is_map(tasks),
+    do: Enum.count(tasks, &match?({_ref, %{key: {:rework_claim, _id}}}, &1))
+
+  defp pending_rework_claims(_state), do: 0
+
+  # A worker that replaces the issue's own entry (backend or account swap)
+  # inherits whatever slot that entry holds and needs a free one otherwise.
+  @spec replacement_slot_available?(State.t(), term()) :: boolean()
+  def replacement_slot_available?(%State{globally_paused: true}, _issue_id), do: false
+
+  def replacement_slot_available?(%State{} = state, issue_id),
+    do: effective_concurrent_agent_limit(state) > used_slots(state, Map.delete(state.running, issue_id))
 
   @spec available_slots(State.t()) :: non_neg_integer()
   def available_slots(%State{globally_paused: true}), do: 0

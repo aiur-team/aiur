@@ -51,6 +51,22 @@ defmodule Aiur.AgentTools.TicketState do
         "description" =>
           "Target state, with or without the `agent:` prefix (e.g. `human-review` or `agent:human-review`). One of: " <>
             Enum.join(@agent_settable_states, ", ") <> "."
+      },
+      "review_findings" => %{
+        "type" => "array",
+        "description" =>
+          "Rework handback only: one answer per finding in the rework prompt's review findings checklist. " <>
+            "`fixed` names the commit that changes the finding's file; `disputed` gives concrete evidence.",
+        "items" => %{
+          "type" => "object",
+          "required" => ["id", "status"],
+          "properties" => %{
+            "id" => %{"type" => "string", "description" => "The finding's number from the checklist, e.g. `3`."},
+            "status" => %{"type" => "string", "enum" => ["fixed", "disputed"]},
+            "commit" => %{"type" => "string", "description" => "Commit SHA (at least 7 characters) for a `fixed` finding."},
+            "evidence" => %{"type" => "string", "description" => "Why a `disputed` finding needs no change."}
+          }
+        }
       }
     }
   }
@@ -77,8 +93,8 @@ defmodule Aiur.AgentTools.TicketState do
     setter = Keyword.get(opts, :ticket_state_setter)
 
     with {:ok, state} <- normalize_state(arguments),
-         true <- is_function(setter, 1) || {:error, :ticket_state_setter_unavailable},
-         {:ok, result} <- setter.(state) do
+         true <- is_function(setter, 2) || {:error, :ticket_state_setter_unavailable},
+         {:ok, result} <- setter.(state, review_findings(arguments)) do
       Response.build(
         true,
         Jason.encode!(
@@ -91,6 +107,9 @@ defmodule Aiur.AgentTools.TicketState do
       false -> Response.failure(Errors.payload(:ticket_state_setter_unavailable))
     end
   end
+
+  defp review_findings(arguments) when is_map(arguments), do: Map.get(arguments, "review_findings") || Map.get(arguments, :review_findings)
+  defp review_findings(_arguments), do: nil
 
   @spec agent_settable_states() :: [String.t()]
   def agent_settable_states, do: @agent_settable_states
