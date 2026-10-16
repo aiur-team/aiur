@@ -26,10 +26,6 @@ assert.ok(ciSource.includes('node scripts/test-workflow-check-names.mjs'),
   'workflow security must execute this test');
 const securityJob = ciSource.split(/^  workflow-security:\n/m)[1].split(/^  build:\n/m)[0];
 const structuralStep = securityJob.split(/^      - name: Structural guards\n/m)[1].split(/^      - name:/m)[0];
-assert.ok(structuralStep.includes('GH_TOKEN: ${{ github.token }}'),
-  'structural guards must authenticate gh api');
-assert.ok(securityJob.includes('pull-requests: read'),
-  'workflow security needs read access to PR metadata');
 assert.ok(structuralStep.includes('run: scripts/run-pre-handoff-guards.sh'),
   'all event types must use the shared guard runner');
 

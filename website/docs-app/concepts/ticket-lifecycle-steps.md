@@ -428,6 +428,10 @@ Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route bo
 `agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
 reviews without inline threads.
 
+A trusted `CHANGES_REQUESTED` review also takes
+the PR out of the merge queue, turns its auto-merge off, and records both on the
+ticket; a later Executor approval lands it through the normal merge path.
+
 Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
 `Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
 fix requested “before merge”. Clean summaries such as “No blockers; waiting on
