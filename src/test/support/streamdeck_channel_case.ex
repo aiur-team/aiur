@@ -6,6 +6,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
   import Phoenix.ChannelTest
 
   alias Aiur.{AgentEvents, DecisionValidation, IssueLog, StreamdeckFleetFixture}
+  alias Aiur.TestSupport.RuntimeChildren
   alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckSocket}
 
   @endpoint Endpoint
@@ -105,6 +106,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
   end
 
   def setup_channel do
+    :ok = RuntimeChildren.ensure_financial_data_running()
     original_config = Application.get_env(:aiur, Endpoint, [])
     original_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     original_password = System.get_env("AIUR_DASHBOARD_PASSWORD")

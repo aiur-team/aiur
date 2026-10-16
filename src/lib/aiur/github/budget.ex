@@ -21,7 +21,7 @@ defmodule Aiur.GitHub.Budget do
   @external_resource @broker_source_path
   @default_max_inflight 4
   @default_max_inflight_per_endpoint 2
-  @default_requests_per_minute 120
+  @default_requests_per_minute 300
   @default_stagger_ms 75
   @default_timeout_ms 30_000
   @lease_grace_ms 5_000

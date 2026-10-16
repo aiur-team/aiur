@@ -54,7 +54,7 @@ tracker:
   github:
     max_inflight: 4
     max_inflight_per_endpoint: 2
-    requests_per_minute: 120
+    requests_per_minute: 300
     stagger_ms: 75
 ```
 
