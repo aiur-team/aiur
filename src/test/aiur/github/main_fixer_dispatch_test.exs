@@ -126,7 +126,12 @@ defmodule Aiur.GitHub.MainFixerDispatchTest do
       github_quota: :available
     }
 
+    # A private store: the global DecisionStore is shared suite state, and an
+    # unreadable one fails dispatch closed as `:blocked_on_decision` (#4653).
+    store = start_supervised!({Aiur.DecisionStore, name: nil, state_dir: Aiur.TestSupport.tmp_root!("main-fixer-decisions"), filesystem_sync_fun: fn -> :ok end})
+
     opts = [
+      decision_store: store,
       admission_probes_fun: fn -> probes end,
       issue_fetcher: fn ids -> {:ok, Enum.filter([normal, fixer], &(&1.id in ids))} end,
       blocked_by_hydrator: fn issue -> {:ok, issue} end,
