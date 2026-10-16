@@ -338,6 +338,32 @@ defmodule Aiur.TestSupport.RuntimeChildren do
     :exit, _reason -> :supervisor_unavailable
   end
 
+  @doc """
+  Ensures the dashboard's financial-data tree is running. Stream Deck token
+  issuance fails closed with `:authentication_required` while
+  `AiurWeb.FinancialDataAccess.Generation` is absent, so a sibling that toppled
+  `Aiur.Supervisor` or stopped this child would otherwise fail every later
+  Stream Deck test (#4695).
+  """
+  @spec ensure_financial_data_running() :: :ok | :error
+  def ensure_financial_data_running do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(AiurWeb.FinancialDataAccess.Generation) do
+      pid when is_pid(pid) -> :ok
+      nil -> restart_financial_data()
+    end
+  end
+
+  defp restart_financial_data do
+    case Supervisor.restart_child(Aiur.Supervisor, AiurWeb.FinancialData.Supervisor) do
+      {:ok, _pid} -> :ok
+      _ -> if Process.whereis(AiurWeb.FinancialDataAccess.Generation), do: :ok, else: :error
+    end
+  catch
+    :exit, _reason -> :error
+  end
+
   def ensure_aiur_supervisor_running do
     case Process.whereis(Aiur.Supervisor) do
       pid when is_pid(pid) ->

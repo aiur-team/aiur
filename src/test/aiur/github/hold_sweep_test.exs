@@ -22,7 +22,7 @@ defmodule Aiur.GitHub.HoldSweepTest do
     write_hold(dir, "core-secondary-hold", 60)
     File.write!(Path.join(dir, "agent-requests.tsv"), "#{DateTime.to_unix(@now) + 30 * 86_400}\n")
 
-    assert :ok = HoldSweep.sweep(dir, @now, emit)
+    assert %{"graphql-secondary-hold" => _} = HoldSweep.sweep(dir, @now, emit)
 
     refute File.exists?(Path.join(dir, "graphql-secondary-hold"))
     assert File.exists?(Path.join(dir, "core-hold"))
@@ -35,8 +35,50 @@ defmodule Aiur.GitHub.HoldSweepTest do
     refute_receive {:alert, _name, _opts}, 50
   end
 
+  # #4714: a fast-clock writer rewrote its bogus hold every minute; the sweep
+  # removes it every time but raises one attention item, not one per minute.
+  test "a hold rewritten every minute alerts once per hour", %{dir: dir, emit: emit} do
+    alerted =
+      Enum.reduce(0..59, %{}, fn minute, alerted ->
+        write_hold(dir, "graphql-secondary-hold", 30 * 86_400)
+        alerted = HoldSweep.sweep(dir, DateTime.add(@now, minute * 60), emit, alerted)
+        refute File.exists?(Path.join(dir, "graphql-secondary-hold"))
+        alerted
+      end)
+
+    assert_receive {:alert, "system.github.quota.implausible_hold", _opts}, 1_000
+    refute_receive {:alert, _name, _opts}, 50
+
+    # A different hold file is a different writer's news, and the hour reopens the window.
+    write_hold(dir, "core-hold", 30 * 86_400)
+    alerted = HoldSweep.sweep(dir, @now, emit, alerted)
+    assert_receive {:alert, "system.github.quota.implausible_hold", opts}, 1_000
+    assert opts[:message] =~ "core-hold"
+
+    write_hold(dir, "graphql-secondary-hold", 30 * 86_400)
+    HoldSweep.sweep(dir, DateTime.add(@now, 3_600), emit, alerted)
+    assert_receive {:alert, "system.github.quota.implausible_hold", opts}, 1_000
+    assert opts[:message] =~ "graphql-secondary-hold"
+  end
+
+  test "the quota server alerts once across polls that keep rewriting a hold", %{dir: dir, emit: emit} do
+    parent = self()
+
+    refresh_fun = fn ->
+      write_hold(dir, "graphql-secondary-hold", 30 * 86_400)
+      send(parent, :refreshed)
+    end
+
+    start_supervised!({Quota, name: nil, clock: fn -> @now end, hold_dir: dir, request_log_path: nil, emit_fun: emit, refresh_fun: refresh_fun, refresh?: true, refresh_interval_ms: 5})
+
+    # Each poll's sweep runs after its `:refreshed`; the fifth guarantees four completed sweeps.
+    for _poll <- 1..5, do: assert_receive(:refreshed, 1_000)
+    assert_receive {:alert, "system.github.quota.implausible_hold", _opts}, 1_000
+    refute_receive {:alert, _name, _opts}, 50
+  end
+
   test "a nil hold dir is a no-op", %{emit: emit} do
-    assert :ok = HoldSweep.sweep(nil, @now, emit)
+    assert HoldSweep.sweep(nil, @now, emit) == %{}
   end
 
   test "the quota server sweeps on startup and after each refresh poll", %{dir: dir, emit: emit} do

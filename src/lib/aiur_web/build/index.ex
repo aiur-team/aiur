@@ -18,13 +18,48 @@ defmodule AiurWeb.Build.Index do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
+  @doc "Cuts one mount's window in the caller, so concurrent mounts never queue behind the server's sort and page work."
+  @spec window(GenServer.server(), String.t(), timeout()) :: {:ok, map()} | {:error, term()}
+  def window(server, zone, timeout \\ 5_000) do
+    {:ok, table, now} = GenServer.call(server, :table, timeout)
+
+    with {:ok, generation, index, daemon} <- read_table(table),
+         {:ok, base} <- index,
+         do: {:ok, base |> Core.window(zone, now) |> Map.merge(%{index_generation: generation, daemon: daemon})}
+  end
+
+  # Only the table reads mean a dead index; a fault in the cut itself must propagate.
+  defp read_table(table) do
+    # Generation is published after its data, so reading it first never pairs it with older data.
+    [{:generation, generation}] = :ets.lookup(table, :generation)
+    [{:index, index}] = :ets.lookup(table, :index)
+
+    daemon =
+      case :ets.lookup(table, :daemon) do
+        [{:daemon, block}] -> block
+        [] -> nil
+      end
+
+    {:ok, generation, index, daemon}
+  rescue
+    # The server's table dies with it between the call and the read.
+    ArgumentError -> {:error, :index_not_running}
+  end
+
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
 
     case Keyword.get(opts, :subscribe, &Core.subscribe_sources/0).() do
-      :ok -> {:ok, %{parts: %{}, index: {:error, :loading}, generation: 0, dirty: MapSet.new(), timer: nil, task: nil, daemon: nil, daemon_task: nil, waiting: [], opts: opts}, {:continue, :load}}
-      {:error, reason} -> {:stop, {:subscription_failed, reason}}
+      :ok ->
+        table = :ets.new(__MODULE__, [:protected, read_concurrency: true])
+        :ets.insert(table, {:generation, 0})
+
+        {:ok, %{parts: %{}, index: {:error, :loading}, generation: 0, dirty: MapSet.new(), timer: nil, task: nil, daemon: nil, daemon_task: nil, waiting: [], table: table, opts: opts},
+         {:continue, :load}}
+
+      {:error, reason} ->
+        {:stop, {:subscription_failed, reason}}
     end
   end
 
@@ -35,12 +70,8 @@ defmodule AiurWeb.Build.Index do
   end
 
   @impl true
-  def handle_call({:window, zone}, from, %{index: {:error, :loading}} = state), do: {:noreply, %{state | waiting: [{from, zone} | state.waiting]}}
-
-  def handle_call({:window, zone}, _from, state) do
-    reply = with {:ok, index} <- state.index, do: {:ok, index |> Core.window(zone, clock(state)) |> Map.put(:index_generation, state.generation)}
-    {:reply, reply, state}
-  end
+  def handle_call(:table, from, %{index: {:error, :loading}} = state), do: {:noreply, %{state | waiting: [from | state.waiting]}}
+  def handle_call(:table, _from, state), do: {:reply, {:ok, state.table, clock(state)}, state}
 
   def handle_call({:earlier, before, zone, days}, _from, state) do
     reply = with {:ok, index} <- state.index, do: Core.earlier(index, before, zone, days)
@@ -115,6 +146,8 @@ defmodule AiurWeb.Build.Index do
     if changed?, do: broadcast(state, %{index_generation: generation, now: clock(state), upsert: [], remove: [], set: %{daemon: block}, resync: false})
     timer = Keyword.get(state.opts, :daemon_timer, &Process.send_after/3)
     timer.(self(), :daemon_tick, 10_000)
+    :ets.insert(state.table, {:daemon, block})
+    :ets.insert(state.table, {:generation, generation})
     %{state | daemon_task: nil, daemon: block, generation: generation}
   end
 
@@ -146,11 +179,9 @@ defmodule AiurWeb.Build.Index do
     generation = if changes, do: state.generation + 1, else: state.generation
     if changes, do: broadcast(state, Map.merge(changes, %{index_generation: generation, now: clock(state)}))
     state = %{state | parts: parts, index: next, generation: generation}
-
-    Enum.each(state.waiting, fn {from, zone} ->
-      reply = with {:ok, index} <- next, do: {:ok, index |> Core.window(zone, clock(state)) |> Map.put(:index_generation, generation)}
-      GenServer.reply(from, reply)
-    end)
+    :ets.insert(state.table, {:index, with({:ok, index} <- next, do: {:ok, Core.base(index)})})
+    :ets.insert(state.table, {:generation, generation})
+    Enum.each(state.waiting, &GenServer.reply(&1, {:ok, state.table, clock(state)}))
 
     state = %{state | waiting: []}
     if MapSet.size(state.dirty) > 0, do: schedule(state), else: state
