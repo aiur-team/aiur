@@ -52,7 +52,7 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawal do
 
   defp comment(identifier, number, actions, opts) do
     done = Enum.map_join(actions, " and ", &action_text/1)
-    body = "After a CHANGES_REQUESTED review on PR ##{number}, Aiur #{done}. An Executor approval re-enables auto-merge."
+    body = "After a CHANGES_REQUESTED review on PR ##{number}, Aiur #{done}. A later Executor approval lands it through the normal merge path."
     Keyword.get(opts, :create_comment, &GitHubClient.create_comment/2).(identifier, body)
   end
 

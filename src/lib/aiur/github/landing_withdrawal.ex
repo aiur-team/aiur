@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.LandingWithdrawal do
 
   A `CHANGES_REQUESTED` review does not touch the queue on GitHub's side, so a
   rejected PR keeps its slot and its group keeps failing (#4676). An Executor
-  approval later re-arms auto-merge through the normal landing path.
+  approval later lands the PR through the normal merge path.
   """
 
   alias Aiur.GitHub.Transport
@@ -17,23 +17,29 @@ defmodule Aiur.GitHub.LandingWithdrawal do
          {:ok, {owner, name}} <- Transport.parse_repo() do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       graphql = fn query, variables -> Transport.github_graphql(request_fun, token, query, variables, caller: "landing_withdrawal") end
-      read = fn -> read(graphql, owner, name, pr_number) end
+      withdraw_read(graphql, fn -> read(graphql, owner, name, pr_number) end)
+    else
+      {:error, reason} -> {:error, reason, []}
+    end
+  end
 
-      with {:ok, pr} <- read.(),
-           {:ok, dequeued} <- dequeue(graphql, pr),
-           # Dequeuing can clear the auto-merge request itself, so re-read before disabling it.
-           {:ok, pr} <- if(dequeued == [], do: {:ok, pr}, else: read.()) do
-        case disable_auto_merge(graphql, pr) do
-          {:ok, disabled} -> {:ok, dequeued ++ disabled}
-          {:error, reason} -> {:error, reason, dequeued}
-        end
+  defp withdraw_read(graphql, read) do
+    with {:ok, pr} <- read.(),
+         {:ok, dequeued} <- dequeue(graphql, pr) do
+      # Dequeuing can clear the auto-merge request itself, so re-read before disabling it.
+      with {:ok, pr} <- reread(dequeued, pr, read),
+           {:ok, disabled} <- disable_auto_merge(graphql, pr) do
+        {:ok, dequeued ++ disabled}
       else
-        {:error, reason} -> {:error, reason, []}
+        {:error, reason} -> {:error, reason, dequeued}
       end
     else
       {:error, reason} -> {:error, reason, []}
     end
   end
+
+  defp reread([], pr, _read), do: {:ok, pr}
+  defp reread(_dequeued, _pr, read), do: read.()
 
   defp read(graphql, owner, name, number) do
     query = """
