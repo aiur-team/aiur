@@ -9,9 +9,7 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawal do
 
   require Logger
 
-  alias Aiur.Alerts
-  alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.LandingWithdrawal
+  alias Aiur.{Alerts, CodeHost, Tracker}
   alias Aiur.Orchestrator.{CommentWake, ReworkGate, State, TrackerTasks}
 
   @spec changes_requested(State.t(), String.t(), map(), keyword()) :: State.t()
@@ -24,7 +22,7 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawal do
   end
 
   defp withdraw(identifier, opts) do
-    withdraw_fun = Keyword.get(opts, :withdraw, &LandingWithdrawal.withdraw/1)
+    withdraw_fun = Keyword.get(opts, :withdraw, &CodeHost.withdraw_landing/1)
 
     case ReworkGate.open_pr(identifier, opts) do
       {:ok, %{"number" => number}} when is_integer(number) -> record(identifier, number, withdraw_fun.(number), opts)
@@ -33,6 +31,8 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawal do
   end
 
   defp record(_identifier, _number, {:ok, []}, _opts), do: :ok
+  defp record(_identifier, _number, {:error, :code_host_unavailable}, _opts), do: :ok
+  defp record(identifier, number, {:error, reason}, opts), do: record(identifier, number, {:error, reason, []}, opts)
 
   defp record(identifier, number, {:ok, actions}, opts), do: comment(identifier, number, actions, opts)
 
@@ -53,7 +53,7 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawal do
   defp comment(identifier, number, actions, opts) do
     done = Enum.map_join(actions, " and ", &action_text/1)
     body = "After a CHANGES_REQUESTED review on PR ##{number}, Aiur #{done}. A later Executor approval lands it through the normal merge path."
-    Keyword.get(opts, :create_comment, &GitHubClient.create_comment/2).(identifier, body)
+    Keyword.get(opts, :create_comment, &Tracker.create_comment/2).(identifier, body)
   end
 
   defp action_text(:dequeued), do: "removed it from the merge queue"
