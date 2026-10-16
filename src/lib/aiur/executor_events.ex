@@ -13,14 +13,13 @@ defmodule Aiur.ExecutorEvents do
   alias Aiur.Events.Exchange
   alias Aiur.Events.IdGenerator
   alias Aiur.Events.Journal
-  alias Aiur.Events.Publisher
+  alias Aiur.Events.JournaledPublish
   alias Aiur.Events.Sanitizer
   alias Aiur.Events.Topic
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorEvents.Requested
   alias Aiur.ExecutorWakeProjection
-  alias Aiur.JSONSafe
   alias Aiur.JsonStore
   alias Aiur.Signal
 
@@ -67,11 +66,14 @@ defmodule Aiur.ExecutorEvents do
 
     with :ok <- validate_publish_topic(topic),
          :ok <- reject_github_source(source),
-         :ok <- reject_github_payload_source(payload),
-         {:ok, id} <- IdGenerator.reserve_durable_id(),
-         event <- payload |> JSONSafe.normalize() |> Map.merge(%{"id" => id, "topic" => topic, "source" => source_name(source)}),
-         :ok <- append_event(event) do
-      Publisher.publish_persisted(topic, payload, id, source: source)
+         :ok <- reject_github_payload_source(payload) do
+      # Deliberately NOT `StatePaths.ensure/0`: this runs on every publish, and the
+      # one-time legacy import behind it costs a `mkdir_p` plus a handful of stats
+      # per append — enough to push a Command past an operator-visible latency
+      # budget under load. `Journal.prepare/2` creates the directory, and the
+      # import runs once from the supervised children's `init/1`
+      # (`Claims`, `ExecutorWakeInbox`, `ExecutorListener`).
+      JournaledPublish.publish(topic, payload, journal: journal_path(), journal_dir: StatePaths.dir(), source: source)
     end
   end
 
@@ -328,9 +330,6 @@ defmodule Aiur.ExecutorEvents do
     |> reject_github_source()
   end
 
-  defp source_name(source) when is_atom(source), do: Atom.to_string(source)
-  defp source_name(source), do: source
-
   defp deferred_payload(decision, renotify?) do
     %{
       decision_id: decision.decision_id,
@@ -401,18 +400,6 @@ defmodule Aiur.ExecutorEvents do
         "Executor event journal is corrupt at #{journal_path()} line #{line}; listener replay is stopped.",
         needs_attention: true
       )
-  end
-
-  # Deliberately NOT `StatePaths.ensure/0`: this runs on every publish, and the
-  # one-time legacy import behind it costs a `mkdir_p` plus a handful of stats
-  # per append — enough to push a Command past an operator-visible latency
-  # budget under load. `Journal.prepare/2` below already creates the
-  # directory, and the import runs once from the supervised children's `init/1`
-  # (`Claims`, `ExecutorWakeInbox`, `ExecutorListener`).
-  defp append_event(event) do
-    with :ok <- Journal.prepare(StatePaths.dir(), journal_path()) do
-      Journal.append(journal_path(), event)
-    end
   end
 
   defp subscription_state do
