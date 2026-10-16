@@ -232,6 +232,26 @@ defmodule Aiur.MainWatch.GitHubTest do
     end
   end
 
+  test "retains active merge-group runs outside the pushed commit window" do
+    merge_group =
+      run(44, "queue-sha", "ci", "in_progress", nil)
+      |> Map.merge(%{"event" => "merge_group", "head_branch" => "gh-readonly-queue/main/pr-4-merge", "created_at" => "2026-10-15T18:00:00Z"})
+
+    request = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/commits?") -> ok([%{"sha" => "base-sha", "commit" => %{"committer" => %{"date" => "2026-10-15T17:00:00Z"}}}])
+        String.contains?(url, "/actions/runs?") and URI.decode_query(URI.parse(url).query)["event"] == "push" -> ok(%{"workflow_runs" => []})
+        String.contains?(url, "/actions/runs?") -> ok(%{"workflow_runs" => [merge_group, %{merge_group | "id" => 43, "status" => "completed", "conclusion" => "success"}]})
+        true -> flunk("an active merge-group snapshot must not fetch check evidence: #{url}")
+      end
+    end
+
+    assert {:ok, %{runs: [], merge_groups: [run]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
+    assert run.event == "merge_group"
+    assert run.status == "in_progress"
+    assert run.started_at == DateTime.to_unix(~U[2026-10-15 18:00:00Z], :millisecond)
+  end
+
   test "pagination and provider errors cannot produce a partial green verdict" do
     for response <- [{:ok, %{status: 200, body: %{"workflow_runs" => []}, headers: [{"link", "<https://api.github.com/next>; rel=\"next\""}]}}, {:ok, %{status: 403, body: %{}}}] do
       request = fn %{url: url} -> if String.contains?(url, "/commits?"), do: ok([%{"sha" => "abc"}]), else: response end

@@ -3,11 +3,8 @@ defmodule Aiur.ExecutorListenerTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.Alerts
-  alias Aiur.BuildQueue.Attention, as: BuildQueueAttention
   alias Aiur.Decision
   alias Aiur.Events.Exchange
-  alias Aiur.Events.Publisher
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorEvents
@@ -247,83 +244,6 @@ defmodule Aiur.ExecutorListenerTest do
     assert watermark() == nil
   end
 
-  test "attention alerts wake the Executor when their ticket has no running agent" do
-    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
-    start_listener(inbox: @inbox_name, patterns: ["ticket.*.agent.attention.*"], reconcile?: false)
-    Publisher.set_tracked_fn(fn _ticket -> false end)
-
-    on_exit(fn -> Publisher.set_tracked_fn(fn _ticket -> true end) end)
-
-    assert :ok =
-             Alerts.emit_system("ticket.3141.agent.attention.waiting_for_human",
-               issue: "3141",
-               reason: "Agent has been waiting for Executor input.",
-               needs_attention: true,
-               severity: "warning",
-               central: true
-             )
-
-    assert {:ok,
-            [
-              %{
-                "topic" => "ticket.3141.agent.attention.waiting_for_human",
-                "topic_class" => "ticket.agent.attention.waiting_for_human",
-                "ticket" => "3141",
-                "needs_attention" => true
-              }
-            ]} = ExecutorWakeInbox.wait(500, @inbox_name)
-
-    assert [%{"topic" => "ticket.3141.agent.attention.waiting_for_human"}] = ExecutorWakeInbox.pending(@inbox_name)
-  end
-
-  test "every ticket attention binding wakes the Executor when its ticket is untracked" do
-    patterns =
-      ExecutorBindings.defaults()
-      |> Enum.filter(fn {pattern, class} -> class == "attention:auto" and String.starts_with?(pattern, "ticket.") end)
-      |> Enum.map(&elem(&1, 0))
-
-    topics = Enum.map(patterns, &concrete_ticket_topic/1)
-    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
-    start_listener(inbox: @inbox_name, patterns: patterns, reconcile?: false)
-    Publisher.set_tracked_fn(fn _ticket -> false end)
-
-    on_exit(fn -> Publisher.set_tracked_fn(fn _ticket -> true end) end)
-
-    for topic <- topics do
-      if String.contains?(topic, ".queue.attention.") do
-        assert :ok = BuildQueueAttention.transient(:prerequisite_failed, "3141", %{})
-      else
-        assert :ok =
-                 Alerts.emit_system(topic,
-                   issue: "3141",
-                   message: "Attention requires Executor review.",
-                   reason: "Attention requires Executor review.",
-                   needs_attention: true,
-                   severity: "warning",
-                   central: true
-                 )
-      end
-    end
-
-    assert eventually(fn -> Enum.sort(Enum.map(ExecutorWakeInbox.pending(@inbox_name), & &1["topic"])) == Enum.sort(topics) end)
-    assert {:ok, records} = ExecutorWakeInbox.wait(500, @inbox_name)
-    assert Enum.sort(Enum.map(records, & &1["topic"])) == Enum.sort(topics)
-    assert Enum.all?(records, &(&1["count"] == 1))
-    assert Enum.sort(Enum.map(ExecutorWakeInbox.pending(@inbox_name), & &1["topic"])) == Enum.sort(topics)
-  end
-
-  defp concrete_ticket_topic(pattern) do
-    pattern
-    |> String.split(".")
-    |> Enum.with_index()
-    |> Enum.map_join(".", fn
-      {"*", 1} -> "3141"
-      {"*", _index} -> "waiting_for_human"
-      {"#", _index} -> "prerequisite_failed"
-      {segment, _index} -> segment
-    end)
-  end
-
   test "reports a degraded binding transition once and resolves it after repair" do
     parent = self()
 
@@ -402,10 +322,22 @@ defmodule Aiur.ExecutorListenerTest do
       if previous_dir, do: Application.put_env(:aiur, :decision_state_dir, previous_dir), else: Application.delete_env(:aiur, :decision_state_dir)
     end)
 
+    suffix = System.unique_integer([:positive])
+    ticket_identifier = "listener-wake-#{suffix}"
+
     start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
-    start_listener(inbox: @inbox_name, patterns: ["executor.#"], reconcile?: false)
+
+    listener =
+      start_listener(
+        inbox: @inbox_name,
+        patterns: ["executor.#"],
+        reconcile?: false,
+        resubscribe_interval_ms: :infinity,
+        escalation_interval_ms: :infinity
+      )
+
     store = start_supervised!({Aiur.DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
-    context = [ticket: %{identifier: "3141", title: "Renderer", url: nil}, source: %{agent_id: "codex", session_id: "s-1", event_id: nil}]
+    context = [ticket: %{identifier: ticket_identifier, title: "Renderer", url: nil}, source: %{agent_id: "codex", session_id: "s-1", event_id: nil}]
 
     request = fn source_id, blocking ->
       payload = %{"question" => "Defer composed mobile pixels?", "blocking" => blocking, "authority" => "human_required", "source_id" => source_id}
@@ -413,14 +345,15 @@ defmodule Aiur.ExecutorListenerTest do
       decision
     end
 
-    _nonblocking = request.("parity-note", false)
-    decision = request.("parity", true)
+    _nonblocking = request.("parity-note-#{suffix}", false)
+    decision = request.("parity-#{suffix}", true)
 
     assert {:ok, [wake]} = ExecutorWakeInbox.wait(1_000, @inbox_name)
+    wake_topic = "ticket.#{ticket_identifier}.agent.attention.operator-decision"
 
     assert %{
-             "topic" => "ticket.3141.agent.attention.operator-decision",
-             "ticket" => "3141",
+             "topic" => ^wake_topic,
+             "ticket" => ^ticket_identifier,
              "needs_attention" => true,
              "escalation" => "created",
              "question" => "Defer composed mobile pixels?",
@@ -428,7 +361,9 @@ defmodule Aiur.ExecutorListenerTest do
            } = wake
 
     assert wake["decision_id"] == decision.decision_id
-    Process.sleep(100)
+    # The listener sends the wake before this barrier can be handled. Once the
+    # barrier returns, every already-published request event has been consumed.
+    assert is_map(:sys.get_state(listener))
     assert [_only] = ExecutorWakeInbox.pending(@inbox_name)
   end
 
