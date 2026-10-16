@@ -305,6 +305,8 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
     Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
   end
 
+  defp tracker_preflight_detail({:toolchain_missing, _detail}), do: :toolchain_missing
+
   defp tracker_preflight_detail(reason) when is_atom(reason), do: reason
 
   defp tracker_preflight_detail(_reason), do: :unknown
