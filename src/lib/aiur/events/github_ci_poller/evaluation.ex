@@ -197,15 +197,12 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
     Map.get(check_run, "started_at") || Map.get(check_run, "completed_at") || ""
   end
 
-  defp non_blocking_check?(check_run) do
-    case Map.get(check_run, "name") do
-      name when is_binary(name) ->
-        name |> String.trim() |> String.downcase() |> String.ends_with?("(non-blocking)")
+  defp non_blocking_check?(check_run), do: non_blocking_name?(Map.get(check_run, "name"))
 
-      _ ->
-        false
-    end
-  end
+  @doc "True for check names that CI marks with the `(non-blocking)` suffix."
+  @spec non_blocking_name?(term()) :: boolean()
+  def non_blocking_name?(name) when is_binary(name), do: name |> String.trim() |> String.downcase() |> String.ends_with?("(non-blocking)")
+  def non_blocking_name?(_name), do: false
 
   defp blocking_check_runs(check_runs) do
     check_runs
