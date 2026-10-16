@@ -3,7 +3,10 @@ defmodule AiurWeb.StreamdeckPackageIndependenceTest do
 
   @src Path.expand("../..", __DIR__)
   # Prose only (a README pointer in an install prompt and a comment); no file reads.
-  @prose_only ["lib/aiur_web/live/streamdeck_live.ex"]
+  @prose_only [
+    "lib/aiur_web/live/streamdeck_live.ex",
+    "lib/aiur_web/live/streamdeck_live/components.ex"
+  ]
 
   test "daemon compile inputs never reference the sidecar package source tree" do
     files =
