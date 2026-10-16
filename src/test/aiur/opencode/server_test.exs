@@ -4,6 +4,25 @@ defmodule Aiur.Opencode.ServerTest do
   alias Aiur.Opencode.{ApiClient, Server, TokenRegistry, WorkspaceSetup}
   alias Exqlite.Basic
 
+  # The serve resolves `opencode` from PATH. An unpinned wrapper ahead of the
+  # repo's mise pin (e.g. an npx `opencode-ai` shim) runs another version with
+  # another schema, so put the pinned binary first (#4516). The suite isolates
+  # HOME and XDG dirs, so ask mise with the real home to find its installs.
+  setup do
+    mise_env =
+      [{"HOME", Application.fetch_env!(:aiur, :test_original_home)}, {"MISE_QUIET", "1"}] ++
+        Enum.map(~w(XDG_CONFIG_HOME XDG_STATE_HOME XDG_DATA_HOME XDG_CACHE_HOME), &{&1, nil})
+
+    with mise when is_binary(mise) <- System.find_executable("mise"),
+         {pinned, 0} <- System.cmd(mise, ["which", "opencode"], env: mise_env) do
+      original_path = System.get_env("PATH")
+      System.put_env("PATH", Path.dirname(String.trim(pinned)) <> ":" <> original_path)
+      on_exit(fn -> System.put_env("PATH", original_path) end)
+    end
+
+    :ok
+  end
+
   test "launch_env clears shell startup hooks" do
     assert {~c"BASH_ENV", false} in Server.launch_env("/workspace")
     assert {~c"ENV", false} in Server.launch_env("/workspace")
