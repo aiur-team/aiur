@@ -15,5 +15,8 @@
   .aiur-brand:focus-visible { outline: 2px solid var(--aiur-color-focus); outline-offset: 4px; }
   .aiur-topbar.is-logo-tucked .aiur-brand { transform: translateY(-160%); opacity: 0; pointer-events: none; }
   .aiur-topbar__actions { pointer-events: auto; display: flex; align-items: center; gap: 18px; }
-  @media (prefers-reduced-motion: reduce) { .aiur-brand { transition: none; } }
+  .aiur-topbar__link { font: 13px var(--aiur-font-mono); color: var(--aiur-color-muted); text-decoration: none; transition: color .2s ease; }
+  .aiur-topbar__link:hover { color: var(--aiur-color-fg); }
+  .aiur-topbar__link:focus-visible { outline: 2px solid var(--aiur-color-focus); outline-offset: 4px; }
+  @media (prefers-reduced-motion: reduce) { .aiur-brand, .aiur-topbar__link { transition: none; } }
 }
