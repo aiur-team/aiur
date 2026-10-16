@@ -55,7 +55,14 @@ defmodule Aiur.MainWatch do
   @impl true
   def handle_call(:state, _from, server) do
     watcher = if server.data.unavailable, do: :unavailable, else: :running
-    state = server.data.state |> Map.put(:unavailable, server.data.unavailable) |> Map.put(:watcher, watcher) |> Map.put(:last_error, Map.get(server.data, :last_error))
+
+    state =
+      server.data.state
+      |> Map.put(:unavailable, server.data.unavailable)
+      |> Map.put(:watcher, watcher)
+      |> Map.put(:last_error, Map.get(server.data, :last_error))
+      |> Map.put(:merge_groups, Map.get(server.data, :merge_groups, []))
+
     {:reply, state, server}
   end
 
@@ -224,7 +231,14 @@ defmodule Aiur.MainWatch do
 
   defp consume({:ok, result}, server) do
     now = Keyword.get(server.opts, :now_fun, fn -> System.system_time(:millisecond) end).()
-    data = server.data |> Map.put(:commits, commit_order(result.commits, server.data.commits)) |> Map.put(:unavailable, false) |> Map.put(:last_error, nil)
+
+    data =
+      server.data
+      |> Map.put(:commits, commit_order(result.commits, server.data.commits))
+      |> Map.put(:merge_groups, Map.get(result, :merge_groups, []))
+      |> Map.put(:unavailable, false)
+      |> Map.put(:last_error, nil)
+
     data = observe(data, result.observations, now)
     data = %{data | commits: retained_commits(data.commits, data.state.history)}
     data = %{data | pending: data.pending ++ result.flake_events, last_completed_at: completed_at(result, server.data)}

@@ -181,7 +181,7 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
     assert Enum.find_index(mods, &(&1 == Projection)) > Enum.find_index(mods, &(&1 == Features))
     assert Enum.find_index(mods, &(&1 == Projection)) > Enum.find_index(mods, &(&1 == History))
 
-    Enum.each([Aiur.LandingWatch, Aiur.Experiments.Auto.Notifier, Aiur.Experiments.Auto.WindowManager], fn optional ->
+    Enum.each([Aiur.LandingWatch, Aiur.ExecutorSweep, Aiur.Experiments.Auto.Notifier, Aiur.Experiments.Auto.WindowManager], fn optional ->
       if optional in mods do
         assert Enum.find_index(mods, &(&1 == optional)) > Enum.find_index(mods, &(&1 == Projection))
       end

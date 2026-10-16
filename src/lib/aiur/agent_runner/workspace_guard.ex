@@ -3,7 +3,6 @@ defmodule Aiur.AgentRunner.WorkspaceGuard do
 
   require Logger
   alias Aiur.Orchestrator.StatusReason
-  alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Signal
   alias Aiur.Workspace.{HostLock, Ownership}
   alias Aiur.Workspace.Ownership.{HoldStatus, Store}
@@ -15,7 +14,7 @@ defmodule Aiur.AgentRunner.WorkspaceGuard do
     attempt_id = Keyword.get(opts, :telemetry_attempt_id)
     setup_operation_id = "workspace:#{System.unique_integer([:positive, :monotonic])}"
 
-    Lifecycle.record(issue.identifier, attempt_id, :workspace_setup, :start, %{
+    Signal.lifecycle(issue.identifier, attempt_id, :workspace_setup, :start, %{
       operation_id: setup_operation_id,
       worker_host: worker_host,
       remote: is_binary(worker_host)
@@ -228,10 +227,10 @@ defmodule Aiur.AgentRunner.WorkspaceGuard do
     metadata = %{
       operation_id: Keyword.get(opts, :telemetry_setup_operation_id),
       outcome: outcome,
-      reason_class: if(is_nil(reason), do: nil, else: Lifecycle.reason_class(reason))
+      reason_class: if(is_nil(reason), do: nil, else: Signal.reason_class(reason))
     }
 
-    Lifecycle.record(
+    Signal.lifecycle(
       issue.identifier,
       Keyword.get(opts, :telemetry_attempt_id),
       :workspace_setup,
@@ -246,7 +245,7 @@ defmodule Aiur.AgentRunner.WorkspaceGuard do
       |> Ownership.telemetry_metadata()
       |> Map.put(:outcome, outcome)
 
-    Lifecycle.record(
+    Signal.lifecycle(
       issue.identifier,
       Keyword.get(opts, :telemetry_attempt_id),
       :workspace_ownership,
@@ -260,7 +259,7 @@ defmodule Aiur.AgentRunner.WorkspaceGuard do
   end
 
   defp record_workspace_ownership_conflict(issue, opts, :none) do
-    Lifecycle.record(
+    Signal.lifecycle(
       issue.identifier,
       Keyword.get(opts, :telemetry_attempt_id),
       :workspace_ownership,

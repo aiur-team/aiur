@@ -184,6 +184,18 @@ cmd_alerts() {
   run_control_rpc "Aiur.AgentControlCLI.alerts(argv: [${args%, }])"
 }
 
+cmd_executor_sweep() {
+  local args="" arg
+  for arg in "$@"; do
+    case "$arg" in
+      --json) args="${args}json: true, " ;;
+      --apply) args="${args}apply: true, " ;;
+      *) echo "aiur: executor-sweep accepts --json and --apply" >&2; exit 64 ;;
+    esac
+  done
+  run_control_rpc "Aiur.ExecutorSweep.run([${args%, }])"
+}
+
 # `aiur watch` — the server-side status board. Compiles one row per active
 # agent (state · complexity · activity-age · doing) plus an actionable section
 # from aiur's own state, with no GitHub round-trip. `--changes` (default) prints

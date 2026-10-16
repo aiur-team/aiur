@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
 """Exercise the selector runner with a hermetic Mix executable."""
 import json
+import importlib.util
+import io
 import os
 from pathlib import Path
+import re
 import subprocess
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).with_name('run-ci-affected-tests.py')
+SELECTED_TEST = 'cd src && mise exec -- mix test --max-cases 4 test/slow_test.exs'
+RUNNER_SPEC = importlib.util.spec_from_file_location('affected_runner', SCRIPT)
+RUNNER = importlib.util.module_from_spec(RUNNER_SPEC)
+RUNNER_SPEC.loader.exec_module(RUNNER)
 
 
 class AffectedRunnerTest(unittest.TestCase):
-    def run_selection(self, selection, status=0):
+    def run_selection(self, selection, status=0, test_delay=0):
         with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
             root = Path(scratch)
             mix = root / 'mix'
@@ -21,6 +31,8 @@ if sys.argv[1] == 'aiur.affected_tests':
     assert sys.argv[2] == 'base-sha'
     print(os.environ['SELECTION'])
 else:
+    import time
+    time.sleep(float(os.environ['TEST_DELAY']))
     with open(os.environ['CALLS'], 'a') as out:
         out.write(json.dumps(sys.argv[1:]) + '\\n')
     sys.exit(int(os.environ['TEST_STATUS']))
@@ -31,11 +43,15 @@ else:
             result = subprocess.run(['python3', str(SCRIPT), 'base-sha'], capture_output=True,
                                     env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
                                              SELECTION=selection, CALLS=str(calls), TEST_STATUS=str(status),
+                                             TEST_DELAY=str(test_delay),
                                              GITHUB_STEP_SUMMARY=str(summary)))
             self.last_stderr = result.stderr
             self.last_stdout = result.stdout
             self.last_summary = summary.read_text() if summary.exists() else ''
             self.assertNotIn(b"can't open file", result.stderr)
+            self.assertIn(b'::notice::affected-tests selection duration:', result.stderr)
+            if 'mix test' in selection and len(selection.split()) <= 305:
+                self.assertIn(b'::notice::affected-tests selected tests duration:', result.stderr)
             invoked = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
             return result.returncode, invoked, result.stdout.decode()
 
@@ -43,6 +59,27 @@ else:
         self.assertEqual(self.run_selection("cd src && mise exec -- mix test --max-cases 4 'test/a test.exs' 'test/$(bad)_test.exs'"),
                          (0, [['test', '--max-cases', '4', 'test/a test.exs', 'test/$(bad)_test.exs']],
                           "cd src && mise exec -- mix test --max-cases 4 'test/a test.exs' 'test/$(bad)_test.exs'\n\n"))
+
+    def test_selected_test_duration_includes_slow_test_runtime(self):
+        status, calls, _output = self.run_selection(SELECTED_TEST, test_delay=1.1)
+        match = re.search(rb'::notice::affected-tests selected tests duration: ([0-9.]+)s', self.last_stderr)
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, [['test', '--max-cases', '4', 'test/slow_test.exs']])
+        self.assertIsNotNone(match)
+        self.assertGreaterEqual(float(match.group(1)), 1.0)
+
+    def test_selected_test_command_is_terminated_at_its_timeout(self):
+        self.assertEqual(RUNNER.SELECTED_TEST_TIMEOUT_SECONDS, 600)
+        stderr = io.StringIO()
+        command = [sys.executable, '-c', 'import time; time.sleep(5)']
+        with patch.object(RUNNER, 'SELECTED_TEST_TIMEOUT_SECONDS', 0.1):
+            with redirect_stderr(stderr), self.assertRaises(subprocess.TimeoutExpired):
+                RUNNER.run_selected_tests(command)
+
+        match = re.search(r'::notice::affected-tests selected tests duration: ([0-9.]+)s', stderr.getvalue())
+        self.assertIsNotNone(match)
+        self.assertLess(float(match.group(1)), 2.0)
+        self.assertIn('::error::affected-tests selected tests exceeded its 0.1s timeout', stderr.getvalue())
 
     def test_unsafe_selection_defers_full_suite_to_merge_queue(self):
         reason = 'changed files include test support; changed paths: src/test/support/helper.exs'

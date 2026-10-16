@@ -10,7 +10,9 @@ config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
 config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
 config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
 
-config :aiur, :signal, alert_sink: Aiur.Alerts
+config :aiur, :signal,
+  alert_sink: Aiur.Alerts,
+  lifecycle_sink: Aiur.RunTelemetry.Lifecycle
 
 config :aiur, :github_poll_owner, Aiur.Orchestrator
 config :aiur, :github_quota_recovery_target, Aiur.Orchestrator
@@ -175,6 +177,10 @@ if config_env() == :test do
   # retry tick sends `POST /graphql` whenever a later test has set a token.
   # Tests that exercise it start their own instance.
   config :aiur, :run_telemetry_facts_capture?, false
+
+  # The shared app's Executor sweep must not read daemon state or enqueue wakes
+  # across test boundaries. Tests start their own instance with an interval.
+  config :aiur, :executor_sweep_interval_ms, 0
 
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.

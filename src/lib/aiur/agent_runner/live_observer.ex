@@ -4,7 +4,7 @@ defmodule Aiur.AgentRunner.LiveObserver do
   require Logger
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.{Issue, LiveConversation, TrackerIdentity}
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   # This sits beside, rather than behind, the existing pane transcript. The
   # pane is intentionally rich (reasoning, commands, tool I/O); the dashboard
@@ -326,7 +326,7 @@ defmodule Aiur.AgentRunner.LiveObserver do
     end
   catch
     :exit, reason ->
-      reason_class = Lifecycle.reason_class(reason)
+      reason_class = Signal.reason_class(reason)
       log_projection_failure(issue, operation, reason_class)
       {:error, {:live_conversation_unavailable, operation}}
   end

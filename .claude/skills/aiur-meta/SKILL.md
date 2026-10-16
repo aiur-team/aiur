@@ -254,29 +254,17 @@ now, and advance it. States that repeatedly sit unnoticed here:
 of ten tickets recovered this way already had one; a blanket re-dispatch would
 have duplicated all nine.
 
-### 3a. Sweep the landing path every pass
+### 3a. Run the Executor sweep every pass
 
-The path from "approved" to "merged" is where finished work goes to wait unseen.
-On 2026-10-14 the Executor found **24 approved PRs** sitting on a red `ci gate`
-that came only from concurrency-cancelled runs, plus **12 merge-group runs** for
-5 build slots, because nobody swept this path. Run these queries on every pass
-and act on each hit:
-
-- **Approved, not landing:** every APPROVED PR at its current head that is
-  neither in the merge queue nor auto-merging, or whose required check is red or
-  cancelled. Classify each failure as infrastructure (cancelled or superseded run,
-  jobs that failed with no steps at 0 s, runner errors) or real; rerun the first,
-  route the second to rework.
-- **Queue health:** queue entries in `UNMERGEABLE`, failed merge-group runs, and
-  merge-group runs whose PR and base no longer match a live entry (cancel those —
-  they hold runners). Before routing a group failure to rework, check whether
-  another group containing the same PR passed the same tests (flake, not the PR).
-- **Attribution:** commits of every PR about to be enqueued, for AI
-  `Co-authored-by` trailers (the queue squash copies them into `main`).
-- **Idle capacity:** agents running vs the ceiling, against held queue sets and
-  ready tickets. A held set while slots sit idle is a finding.
-- **Loops:** the same ticket handing back an unchanged PR, or re-raising the same
-  decision, more than twice.
+Run `aiur executor-sweep` on every pass and act on every finding before routine
+scheduling. It covers stale blocking decisions, approved PRs not landing or red,
+merge-queue health, held queues and idle capacity, feature ordering, ticket state
+hygiene, repeated unchanged-PR handbacks, and service health. Its first-priority
+finding is an open, non-draft PR whose ticket is in `agent:human-review` without
+a review at the current head; check the reported age and review that PR first.
+The command reads local daemon state and cached GitHub resources. Do not replace
+it with a per-poll GitHub query loop. Continue the manual attribution check below
+for PRs you are about to enqueue.
 
 ### 3b. Every manual step is a finding
 
