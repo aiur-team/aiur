@@ -33,6 +33,12 @@
         "state": "ok",
         "observed_at": 1791408000000,
         "reason": null
+      },
+      "open_tickets": {
+        "state": "ok",
+        "observed_at": 1791408000000,
+        "reason": null,
+        "truncated": false
       }
     }
   }
