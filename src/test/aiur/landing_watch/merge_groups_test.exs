@@ -1,6 +1,7 @@
 defmodule Aiur.LandingWatch.MergeGroupsTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.LandingWatch.MergeGroups
 
   test "only active merge-group runs without a live PR entry are cancelled" do
@@ -112,6 +113,39 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
     assert_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/41/cancel"}
 
     refute_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/42/cancel"}
+  end
+
+  test "the strict stale-run census revalidates each status list with its own ETag" do
+    parent = self()
+    base = "etag-census-test"
+    statuses = ["queued", "in_progress", "waiting", "requested", "completed"]
+    keys = Enum.map(statuses, &ResourceStore.key(:landing_merge_group_runs, "test-org", "test-repo", "#{base}:#{&1}:0"))
+    on_exit(fn -> Enum.each(keys, &ResourceStore.drop_data/1) end)
+
+    request = fn call ->
+      status = call.url |> URI.parse() |> Map.get(:query) |> URI.decode_query() |> Map.fetch!("status")
+      send(parent, {:census_request, status, Map.get(call, :etag)})
+
+      if is_binary(Map.get(call, :etag)) do
+        {:ok, %{status: 304, headers: [{"etag", Map.get(call, :etag)}]}}
+      else
+        {:ok, %{status: 200, body: %{"workflow_runs" => []}, headers: [{"etag", ~s("#{status}-etag")}]}}
+      end
+    end
+
+    opts = [base_branch: base, token: "test-gh-token", request_fun: request, live_observations_fun: fn _, _ -> {:ok, []} end]
+    assert :ok = MergeGroups.cancel_stale([], opts)
+    assert :ok = MergeGroups.cancel_stale([], opts)
+
+    requests =
+      for _ <- 1..10 do
+        assert_received {:census_request, status, etag}
+        {status, etag}
+      end
+
+    assert Enum.all?(Enum.take(requests, 5), fn {_status, etag} -> is_nil(etag) end)
+    assert Enum.sort(Enum.map(Enum.drop(requests, 5), &elem(&1, 0))) == Enum.sort(statuses)
+    assert Enum.all?(Enum.drop(requests, 5), fn {status, etag} -> etag == ~s("#{status}-etag") end)
   end
 
   test "queue is re-observed after the active-run census before cancelling" do

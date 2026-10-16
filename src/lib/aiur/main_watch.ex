@@ -116,7 +116,14 @@ defmodule Aiur.MainWatch do
 
   defp start_poll(server) do
     poll = Keyword.get(server.opts, :poll_fun, &GitHub.poll/3)
-    opts = server.opts |> Keyword.put(:history, server.data.state.history) |> bounded_requests()
+
+    opts =
+      server.opts
+      |> Keyword.put(:history, server.data.state.history)
+      |> Keyword.put(:commit_etag, Map.get(server.data, :commit_etag))
+      |> Keyword.put(:commits, Map.get(server.data, :commit_window, server.data.commits))
+      |> Keyword.put(:commit_dates, Map.get(server.data, :commit_dates, []))
+      |> bounded_requests()
 
     task =
       Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
@@ -235,6 +242,9 @@ defmodule Aiur.MainWatch do
     data =
       server.data
       |> Map.put(:commits, commit_order(result.commits, server.data.commits))
+      |> Map.put(:commit_window, result.commits)
+      |> Map.put(:commit_dates, Map.get(result, :commit_dates, []))
+      |> Map.put(:commit_etag, Map.get(result, :commit_etag))
       |> Map.put(:merge_groups, Map.get(result, :merge_groups, []))
       |> Map.put(:unavailable, false)
       |> Map.put(:last_error, nil)
