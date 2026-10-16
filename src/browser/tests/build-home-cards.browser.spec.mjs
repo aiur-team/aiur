@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { openParityPair, expectDesignParity } from '../support/design-parity.mjs'
+import { openParityPair, expectDesignParity, waitParityReady } from '../support/design-parity.mjs'
 
 // unknowns.json: live.json plus schema-valid rows 9001–9012 and pack:alpha.
 // Reproduce from repo root (frozen now retained; only schema-valid values):
@@ -425,6 +425,34 @@ test.describe('parity', () => {
           // value cannot be used as a status baseline. Compare the real known parts.
           await compareCard(pair, `.bd-card[data-id="${row.id}"]`, 'plan-' + row.id + '-' + name,
             ['bd-top', 'bd-title', row.alert ? 'bd-alert' : 'bd-cues'])
+        }
+      } finally { await pair.close() }
+    })
+  }
+
+  for (const theme of ['dark', 'light']) for (const palette of ['gruvbox', 'aiur']) {
+    test(`original-renderer tier and container witnesses ${theme}-${palette}`, async ({ browser }) => {
+      const cell = { dataset: 'live', viewport: { width: 390, height: 900 }, theme, palette }
+      const pair = await openCardParityPair(browser, cell, { productPending: true })
+      try {
+        const source = await readFile(new URL('../../test/fixtures/build_home/design-source/assets/build.js', import.meta.url), 'utf8')
+        const anchor = '  window.AiurBuild = {'
+        expect(source.split(anchor)).toHaveLength(2)
+        // Expose the original renderer, as the existing render-parity harness
+        // does for update(). Neither implementation nor SVG/CSS is copied.
+        const original = source.replace(anchor, `window.__cardWitness = (tier, width) => {
+          const t = D.hist.find(t => t.status === "done"), det = L.det;
+          L.det = tier; const el = makeCard({t, sec:t.sec, h:tier === "full" ? 122.2 : 30}); L.det = det;
+          el.id = "card-witness"; el.style.width = width + "px"; el.style.height = (tier === "full" ? 122.2 : 30) + "px";
+          content.append(el);
+        };\n${anchor}`)
+        await pair.design.route('**/assets/build.js*', route => route.fulfill({ contentType: 'text/javascript', body: original }))
+        await pair.design.reload(); await waitParityReady(pair.design, 'board', 'design')
+        for (const [tier, width] of [['line', 140], ['mini', 90], ['full', 90]]) {
+          await pair.design.evaluate(([tier, width]) => window.__cardWitness(tier, width), [tier, width])
+          expect(await pair.design.locator('#card-witness').evaluate(el => el.getBoundingClientRect().width)).toBe(width)
+          await compareCard(pair, '#card-witness', `witness-${tier}-${width}-${theme}-${palette}`)
+          await pair.design.locator('#card-witness').evaluate(el => el.remove())
         }
       } finally { await pair.close() }
     })
