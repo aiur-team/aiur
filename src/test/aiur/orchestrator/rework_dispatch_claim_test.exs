@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.ReworkDispatchClaimTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, Tracker, Workflow}
-  alias Aiur.Orchestrator.{Dispatcher, StartupClaimReconciler, State}
+  alias Aiur.Orchestrator.{Dispatcher, RetryEngine, StartupClaimReconciler, State}
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -272,14 +272,17 @@ defmodule Aiur.Orchestrator.ReworkDispatchClaimTest do
     previous
   end
 
-  test "a transient GitHub hold on the claim retries next poll without a dispatch decline" do
+  test "a transient GitHub hold on the claim defers a retry to the hold's reset_at without a dispatch decline" do
+    reset_at = DateTime.add(DateTime.utc_now(), 60, :second)
+
     held = [
-      {:error, {:aiur, :locally_held, %{reason: :shared_budget, resource: "core"}}},
-      {:error, :github_budget_broker_timeout},
-      {:error, {:github, :rate_limited, %{status: 429}}}
+      {{:error, {:aiur, :locally_held, %{reason: :shared_budget, resource: "core", reset_at: reset_at}}}, 55_000},
+      {{:error, {:github, :rate_limited, %{status: 429, reset_at: DateTime.to_iso8601(reset_at)}}}, 55_000},
+      # No reset_at to aim at: backed off by at least the default hold delay.
+      {{:error, :github_budget_broker_timeout}, 9_000}
     ]
 
-    for {result, index} <- Enum.with_index(held) do
+    for {{result, min_delay_ms}, index} <- Enum.with_index(held) do
       issue = issue("rework-held-#{index}", "rework")
       Application.put_env(:aiur, :memory_tracker_issues, [issue])
       parent = self()
@@ -290,13 +293,26 @@ defmodule Aiur.Orchestrator.ReworkDispatchClaimTest do
         Dispatcher.dispatch_issue(dispatch_state(), issue, nil, nil, blocked_by_hydrator: &{:ok, &1}, runner: runner)
 
       refute Map.has_key?(held_state.dispatch_declines, issue.id)
-      refute MapSet.member?(held_state.claimed, issue.id)
       refute Map.has_key?(held_state.running, issue.id)
       refute_received {:runner_issue, _}
       assert {:ok, [%Issue{state: "rework"}]} = Tracker.fetch_issue_states_by_ids([issue.id])
 
+      # The claim stays held so polls before reset_at cannot re-claim; only the retry timer releases it.
+      assert MapSet.member?(held_state.claimed, issue.id)
+      assert %{delay_type: :local_budget_hold, timer_ref: timer_ref, attempt: attempt} = held_state.retry_attempts[issue.id]
+      assert Process.read_timer(timer_ref) > min_delay_ms
+      Process.cancel_timer(timer_ref)
+
       Application.put_env(:aiur, :tracker_adapters, previous)
-      next = Dispatcher.dispatch_issue(held_state, issue, nil, nil, blocked_by_hydrator: &{:ok, &1}, runner: runner)
+
+      dispatch = fn current, ticket, retry_attempt, host, opts ->
+        Dispatcher.dispatch_issue(current, ticket, retry_attempt, host, opts ++ [blocked_by_hydrator: &{:ok, &1}, runner: runner])
+      end
+
+      retry_state = %{held_state | retry_attempts: Map.delete(held_state.retry_attempts, issue.id)}
+
+      assert {:noreply, next} =
+               RetryEngine.handle_retry_issue_lookup(issue, retry_state, issue.id, attempt, %{identifier: issue.identifier}, dispatch_fun: dispatch)
 
       assert Map.has_key?(next.running, issue.id)
       assert_receive {:runner_issue, %Issue{state: "rework"}}, 1_000
