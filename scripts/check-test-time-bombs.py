@@ -28,10 +28,12 @@ BATCH = 40
 
 # These fail under the shift for reasons unrelated to the real clock: they compare
 # fixture dates with data the shift cannot reach (epoch integers, price tables and
-# golden files outside src/test, YYYY-MM month keys, API version strings) or with
-# calendar facts that move with the date (DST, weekend pricing rules). Each was
-# read and confirmed clock-free in #4691; a new time bomb in one of them is missed.
+# golden files outside src/test, YYYY-MM month keys, API and protocol version
+# strings) or with calendar facts that move with the date (DST, weekend pricing
+# rules). Each was read and confirmed clock-free in #4691; a new time bomb in one
+# of them is missed.
 FIXED_DATE_FILES = {
+    'test/aiur/agent_tools/mcp_test.exs',
     'test/aiur/analytics_cli_test.exs',
     'test/aiur/build_order/github_graph/provider_failure_test.exs',
     'test/aiur/build_order/index_pages_test.exs',
@@ -44,10 +46,14 @@ FIXED_DATE_FILES = {
     'test/aiur/codex/usage_limit_test.exs',
     'test/aiur/config/priority_routes_test.exs',
     'test/aiur/events/github_keys_test.exs',
+    'test/aiur/experiments/auto/creator_test.exs',
     'test/aiur/experiments/capture_test.exs',
+    'test/aiur/experiments/snapshot_test.exs',
     'test/aiur/experiments/sources/common_test.exs',
     'test/aiur/experiments/sources/evaluator_test.exs',
     'test/aiur/github/client_events_test.exs',
+    'test/aiur/github/dependencies_api_test.exs',
+    'test/aiur/github/issues/blocked_by_test.exs',
     'test/aiur/github/issues/datetime_test.exs',
     'test/aiur/github/transport_test.exs',
     'test/aiur/github_client/auth_and_errors_test.exs',
