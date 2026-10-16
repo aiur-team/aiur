@@ -28,12 +28,18 @@ defmodule Aiur.Config.Schema.Polling do
     # `TrackerHealth.next_poll_delay_ms/1` takes the wider of the two — so a
     # value under 60 mostly does not tighten the loop, and the real saving from
     # this 120s default is measured against an effective 60s, not against 30s.
+    # @config-reference config-configuration-02 polling.interval_seconds
+    # @config-detail polling.interval_seconds | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
     field(:interval_seconds, :integer, default: 120)
     # With no agent actively running, reconciliation is housekeeping rather
     # than an input to active work. Operator and webhook wakes still schedule
     # an immediate fresh sweep before new work is admitted.
+    # @config-reference config-configuration-02 polling.idle_widen_factor
+    # @config-detail polling.idle_widen_factor | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
     field(:idle_widen_factor, :float, default: 5.0)
     # Usage endpoint allows ~1 request/2min, per account. Measured floor 120s.
+    # @config-reference config-configuration-02 polling.usage_interval_seconds
+    # @config-detail polling.usage_interval_seconds | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
     field(:usage_interval_seconds, :integer, default: 300)
     # The single view-state reconciliation sweep. It exists only to recover a
     # webhook delivery that was lost — measured at 9 of 100 during a restart,
@@ -46,6 +52,9 @@ defmodule Aiur.Config.Schema.Polling do
     # watching them, so an idle daemon with no dashboard session open makes no
     # requests from those two; PackStatus stays reconciled on every tick
     # regardless of viewers (it writes the authoritative status.json projection).
+    # @config-reference config-configuration-02 polling.view_state_sweep_seconds
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail polling.view_state_sweep_seconds | integer | 900 | Seconds between runs of the view-state reconciliation sweep. It exists only to recover a webhook delivery that was lost, so it is a recovery bound rather than a refresh interval — a delivery that arrives updates the dashboard immediately and for free, and shortening this makes nothing fresher. The open-backlog and ad-hoc-overlay sources are event-sourced and not swept at all; the sweep reconciles the daemon-owned Build Order pack-status projection (which writes `status.json` on disk and stays on this cadence until it is moved to the event stream too) and runs the issue-family divergence watermark — a single bounded `updated_at`-ordered head page that keeps webhook loss detectable and re-converges a dropped delivery. |
     field(:view_state_sweep_seconds, :integer, default: 900)
     # Per-class poll cadences, in seconds, for the state classes Aiur polls.
     # Each entry names a poll class (`dispatch`, `ci`, `review`, `planning`,
@@ -53,6 +62,9 @@ defmodule Aiur.Config.Schema.Polling do
     # optional, so existing configs that only set `interval_seconds` keep
     # exactly today's behaviour (every class shares the single value). See
     # `Aiur.PollCadence` for how each class resolves and is consumed.
+    # @config-reference config-configuration-02 polling.intervals
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail polling.intervals | map of class → integer | `%{}` | Per-class poll cadences in seconds. Each key names a poll class — `dispatch`, `ci`, `review`, `planning`, `firehose` — and overrides `interval_seconds` for that class only. A class with no entry falls back to `interval_seconds`, so an unset map keeps today's single-interval behaviour exactly. `0` means the class is on-demand — no timer, refreshed only when a consumer explicitly asks — which is the recommended value for `planning`. (`firehose` is not recommended at any value: its loop rides the dispatch tick and is not gated, so an entry would be a dead knob.) `dispatch` must be a positive integer: the dispatch tick always runs, so `dispatch: 0` is rejected. `review` only diverges on a repo proven webhook-backed — on a polling repo its safety net stays at the dispatch rate. An unknown class key or a negative value is rejected. |
     field(:intervals, {:map, :integer}, default: %{})
     # A per-class interval of `0` means the class has no timer — it is
     # on-demand, refreshed only when a consumer explicitly asks (#2309).

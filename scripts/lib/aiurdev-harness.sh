@@ -230,6 +230,10 @@ if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   }
   export AIUR_DEV_TEST_STATE_DIR
   printf '%s\n' "$test_scope_ids" >"$AIUR_DEV_TEST_STATE_DIR/.aiur-test-private"
+  # This pid becomes the engine's on exec; the next launch's orphan sweep spares
+  # the dirs while it lives (sweep_orphan_test_private_dirs).
+  printf '%s\n' "$$" >"$AIUR_GITHUB_BUDGET_DIR/.aiur-test-launcher"
+  printf '%s\n' "$$" >"$AIUR_DEV_TEST_STATE_DIR/.aiur-test-launcher"
 
   reset_args=("--confirm" "--force")
   [ "$test_single" -eq 1 ] && reset_args+=("--single")

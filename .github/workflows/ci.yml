@@ -51,7 +51,6 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -95,8 +94,6 @@ jobs:
         run: bash scripts/verify-human-only-merge-ruleset-live.sh
       - name: Structural guards
         env:
-          GH_TOKEN: ${{ github.token }}
-          AIUR_PR_NUMBER: ${{ github.event.pull_request.number }}
           AIUR_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           AIUR_MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           AIUR_PUSH_BEFORE: ${{ github.event.before }}
@@ -104,7 +101,7 @@ jobs:
       - name: Test rename preflight and plan refresh
         run: make test-rename-preflight && python3 -I scripts/test_plan_refresh.py
       - name: Test config documentation and design extract guards
-        run: bash scripts/test-check-config-docs.sh && bash scripts/test-check-design-extract.sh
+        run: bash scripts/test-check-config-docs.sh && python3 scripts/test-generate-reference-tables.py && bash scripts/test-check-design-extract.sh
       - name: Check component docs links and test manifest guard
         run: python3 scripts/check-components.py --docs && bash scripts/test-check-components.sh
       - name: Test env example drift guard
@@ -166,7 +163,7 @@ jobs:
         uses: ./.github/actions/setup-elixir
       - name: Compile with warnings as errors
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: mix compile --warnings-as-errors
+        run: mix compile --warnings-as-errors && python3 ../scripts/generate-reference-tables.py --check
       - name: Format check
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make fmt-check

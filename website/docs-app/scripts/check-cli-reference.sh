@@ -8,11 +8,13 @@ parser="$repo_root/src/lib/aiur/cli.ex"
 dev_shim="$repo_root/scripts/aiurdev"
 dev_harness="$repo_root/scripts/lib/aiurdev-harness.sh"
 page="$docs_dir/reference/cli.md"
+cli_launch_options_page="$docs_dir/reference/cli-options.md"
 cli_reference_pages=("$page")
 for command_page in "$docs_dir"/reference/*commands*.md; do
   [ -f "$command_page" ] && cli_reference_pages+=("$command_page")
 done
 cli_reference_pages+=("$docs_dir/reference/experiment-statistics.md")
+cli_reference_pages+=("$docs_dir/reference/cli-options.md")
 source_dev_commands="$(sed -n 's/^if \[ "${1:-}" = "\([a-z-]*\)" \]; then$/\1/p' "$dev_shim" "$dev_harness" | sort -u)"
 
 fail=0
@@ -76,6 +78,7 @@ source_flags="$(
              in_case && /^[[:space:]]*--[a-z0-9-]*([=][*])?\)/ { print }
              in_case && /^[[:space:]]*esac/ { in_case-- }'
   } \
+    | cat - <(awk -F '|' 'NF >= 5 { print $2 }' "$docs_dir/reference/cli-options.md" | grep -oE -- '--[a-z][a-z0-9-]*') \
     | grep -oE -- '--[a-z][a-z0-9-]*' \
     | sort -u
 )"
@@ -96,7 +99,7 @@ has_complete_table_row() {
     $2 ~ "(^|[^[:alnum:]-])" token "([^[:alnum:]-]|$)" && NF >= 5 && $2 !~ /^[[:space:]-]*$/ &&
       $3 !~ /^[[:space:]-]*$/ && $4 !~ /^[[:space:]-]*$/ { found = 1 }
     END { exit found ? 0 : 1 }
-  ' "${cli_reference_pages[@]}"
+  ' "${cli_reference_pages[@]}" "$cli_launch_options_page"
 }
 
 rendered_flags="$(cat "${cli_reference_pages[@]}" | awk -F '|' 'NF >= 5 { print $2 }' | grep -oE -- '--[a-z][a-z0-9-]*' | sort -u)"
