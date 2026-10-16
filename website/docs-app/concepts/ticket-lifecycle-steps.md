@@ -491,3 +491,9 @@ The agent never self-merges.
   rework gate refuses it.
 - **A draft PR left behind.** An approved, green draft never auto-merges — the
   agent must mark it ready for review before handing off.
+- **A local GitHub budget hold that never clears.** Hold retries never use up
+  the retry budget, so the ticket retries forever. After 30 minutes of
+  consecutive holds Aiur raises one
+  `ticket.<id>.agent.attention.budget-hold-persistent` naming the hold reason
+  and `reset_at`. The next committed dispatch, a retry for any other reason, or
+  a released claim resolves it.

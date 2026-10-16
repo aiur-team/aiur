@@ -451,12 +451,9 @@ defmodule Aiur.AgentTools.Errors do
     }
   end
 
-  def payload({:no_op_rework, message}) when is_binary(message) do
-    %{"error" => %{"message" => message, "reason" => "no_op_rework"}}
-  end
-
-  def payload({:stale_pr_body_evidence, message}) when is_binary(message) do
-    %{"error" => %{"message" => message, "reason" => "stale_pr_body_evidence"}}
+  def payload({reason, message})
+      when reason in [:no_op_rework, :stale_pr_body_evidence, :rework_findings_unaddressed, :pull_request_conflicting] and is_binary(message) do
+    %{"error" => %{"message" => message, "reason" => Atom.to_string(reason)}}
   end
 
   def payload(reason) do

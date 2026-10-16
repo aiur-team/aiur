@@ -126,6 +126,22 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       refute prompt == PromptBuilder.build_prompt(issue, [])
     end
 
+    test "turn one cold rework lists the latest review's findings as the handback checklist" do
+      issue = %Issue{id: "4654", identifier: "4654", title: "Checklist", state: "rework"}
+      body = "Request changes.\n\n1. lib/a.ex:44 drop the nil key\n2. No location here.\n"
+
+      opts = [
+        open_pr_fetcher: fn "4654" -> {:ok, %{"number" => 7}} end,
+        reviews_fetcher: fn 7 -> {:ok, [%{"state" => "CHANGES_REQUESTED", "body" => body, "submitted_at" => "t", "id" => 1, "user" => %{"login" => "r"}, authoritative: true}]} end
+      ]
+
+      prompt = TurnPrompt.build_turn_prompt(issue, opts, 1, nil)
+
+      assert prompt =~ "Review findings checklist"
+      assert prompt =~ "- 1. `lib/a.ex:44` — lib/a.ex:44 drop the nil key"
+      refute prompt =~ "- 2."
+    end
+
     test "turn one resumed rework still uses restart continuation guidance" do
       issue = %Issue{id: "1091", identifier: "1091", title: "Fetch planning graph", state: "rework"}
 
