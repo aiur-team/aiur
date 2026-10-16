@@ -114,4 +114,46 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
 
     assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_diffs(approved, current, comparison([]), @body, @head)
   end
+
+  # The PR hunk stays as approved; the merge also drops base code the PR never touched.
+  defp dropped(path, main_patch, dropped_patch) do
+    approved = comparison([{path, "a1", @approved_patch}])
+    main = comparison([{path, "m1", main_patch}])
+    current = comparison([{path, "a2", @approved_patch <> "\n" <> dropped_patch}])
+    ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
+  end
+
+  test "a merge deleting a base-added or base-changed line the PR never touched is not carried" do
+    for path <- ["src/lib/a.ex", "src/test/foo_test.exs", "docs/a.md"] do
+      assert {:changed, %{reason: :contribution_changed, hunks: [%{lines: ["-  authorize!(user)"]}]}} =
+               dropped(path, "@@ -30,0 +31,1 @@\n+  authorize!(user)", "@@ -31,1 +30,0 @@\n-  authorize!(user)"),
+             path
+
+      assert {:changed, %{reason: :contribution_changed}} =
+               dropped(path, "@@ -31,1 +31,1 @@\n-  check(x)\n+  check(x, strict: true)", "@@ -31,1 +30,0 @@\n-  check(x, strict: true)"),
+             path
+    end
+  end
+
+  test "a merge deleting a file the base added is not carried" do
+    main = comparison([{"src/test/sec_test.exs", "m1", "@@ -0,0 +1,2 @@\n+test_a\n+test_b"}])
+    current = comparison([{"src/test/sec_test.exs", "a2", "@@ -1,2 +0,0 @@\n-test_a\n-test_b"}])
+
+    assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_diffs(comparison([]), current, main, @body, @head)
+  end
+
+  test "a src/lib resolution keeping the PR's deletion over the base's edit carries" do
+    approved = comparison([{"src/lib/a.ex", "a1", "@@ -7,7 +7,6 @@\n l7\n l8\n l9\n-old\n l11\n l12\n l13"}])
+    main = comparison([{"src/lib/a.ex", "m1", @upstream_main}])
+    current = comparison([{"src/lib/a.ex", "a2", "@@ -7,7 +7,6 @@\n l7\n l8\n l9\n-upstream\n l11\n l12\n l13"}])
+
+    assert {:carried, %{resolved: 2}} = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
+  end
+
+  test "a CI-path hunk replaying the base's change at another place is not carried" do
+    main = comparison([{".github/workflows/ci.yml", "m1", "@@ -10,7 +10,6 @@\n a\n b\n c\n-      - run: mix test\n d\n e\n f"}])
+    current = comparison([{".github/workflows/ci.yml", "a2", "@@ -50,7 +50,6 @@\n a\n b\n c\n-      - run: mix test\n d\n e\n f"}])
+
+    assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_diffs(comparison([]), current, main, @body, @head)
+  end
 end

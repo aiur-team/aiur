@@ -8,11 +8,16 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   remaining hunks of a file are conflict resolution only when:
 
     * under `.github/`, `scripts/`, `.aiur/`, `src/config/`, or in a `mix.exs` or
-      `mix.lock`, each one is exactly a hunk the base made between the two merge bases;
+      `mix.lock`, each one is exactly a hunk the base made at the same place between
+      the two merge bases, each base hunk used once;
     * under `docs/`, each one overlaps such a base hunk;
     * anywhere else, each one overlaps a base hunk, the new head adds only the
       approved head's own added lines in order and count, and every other changed
       line comes from the other side or from the base's change.
+
+  Outside the sensitive paths, a new-head hunk that removes lines must sit where
+  both the base and an unmatched approved hunk changed, so a merge cannot drop
+  base code the PR never touched.
 
   A carried approval also needs the PR body `Tested head` to name the new head.
   Anything unreadable or truncated fails closed to `:changed`.
@@ -183,16 +188,27 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
     end
   end
 
-  # Code that runs at build, CI or deploy time carries a differing hunk only when the base made that exact change.
-  defp resolution?(:sensitive, differing, _approved_only, _current_only, main_hunks),
-    do: Enum.all?(differing, fn hunk -> Enum.any?(main_hunks, &(&1.lines == hunk.lines)) end)
+  # Code that runs at build, CI or deploy time carries a differing hunk only when the base made that
+  # exact change at the same place; each base hunk vouches for one differing hunk.
+  defp resolution?(:sensitive, differing, _approved_only, _current_only, main_hunks) do
+    differing
+    |> Enum.reduce_while(main_hunks, fn hunk, unused ->
+      case Enum.find_index(unused, &(&1.lines == hunk.lines and same_place?(hunk, &1))) do
+        nil -> {:halt, :unmatched}
+        index -> {:cont, List.delete_at(unused, index)}
+      end
+    end)
+    |> is_list()
+  end
 
-  defp resolution?(:inert, differing, _approved_only, _current_only, main_hunks), do: Enum.all?(differing, &overlaps_main?(&1, main_hunks))
+  defp resolution?(:inert, differing, approved_only, current_only, main_hunks),
+    do: Enum.all?(differing, &overlaps_main?(&1, main_hunks)) and removals_in_conflicts?(current_only, approved_only, main_hunks)
 
   # The new head may add only the approved head's own added lines, once each and in order; every
   # other changed line must come from the other side or from the base's change.
   defp resolution?(:checked, differing, approved_only, current_only, main_hunks) do
     Enum.all?(differing, &overlaps_main?(&1, main_hunks)) and
+      removals_in_conflicts?(current_only, approved_only, main_hunks) and
       subsequence?(lines(current_only, ?+), lines(approved_only, ?+)) and
       contained?(lines(current_only, ?-), lines(approved_only, ?-) ++ lines(main_hunks, ?+)) and
       contained?(lines(approved_only, ?+), lines(current_only, ?+) ++ lines(main_hunks, ?+)) and
@@ -241,12 +257,23 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   end
 
   # Approved hunks sit in the old base's coordinates; current hunks in the new base's.
-  defp overlaps_main?(%{side: side} = hunk, main_hunks) do
-    {start, length} = hunk.old
+  defp overlaps_main?(hunk, main_hunks), do: Enum.any?(main_hunks, &overlaps?(hunk.old, base_side(hunk, &1)))
 
-    Enum.any?(main_hunks, fn main_hunk ->
-      {main_start, main_length} = if side == :approved, do: main_hunk.old, else: main_hunk.new
-      start < main_start + max(main_length, 1) and main_start < start + max(length, 1)
+  defp same_place?(hunk, main_hunk), do: elem(hunk.old, 0) == elem(base_side(hunk, main_hunk), 0)
+
+  defp base_side(%{side: :approved}, main_hunk), do: main_hunk.old
+  defp base_side(%{side: :current}, main_hunk), do: main_hunk.new
+
+  defp overlaps?({start, length}, {other_start, other_length}),
+    do: start < other_start + max(other_length, 1) and other_start < start + max(length, 1)
+
+  # A merge removes lines only where both sides touched the region: a base hunk that overlaps the
+  # removing hunk and an approved hunk the new head no longer has.
+  defp removals_in_conflicts?(current_only, approved_only, main_hunks) do
+    current_only
+    |> Enum.filter(fn hunk -> Enum.any?(hunk.lines, &String.starts_with?(&1, "-")) end)
+    |> Enum.all?(fn hunk ->
+      Enum.any?(main_hunks, &(overlaps?(hunk.old, &1.new) and Enum.any?(approved_only, fn approved -> overlaps?(approved.old, &1.old) end)))
     end)
   end
 end
