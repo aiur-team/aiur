@@ -6,9 +6,6 @@ defmodule Aiur.TestScopeGuard do
     "AIUR_DASHBOARD_PASSWORD"
   ]
 
-  # Stream Deck token issuance reads these alongside the dashboard credentials.
-  @endpoint_auth_keys [:secret_key_base, :dashboard_auth_required]
-
   defmacro __using__(_opts) do
     quote do
       setup_all do
@@ -23,7 +20,7 @@ defmodule Aiur.TestScopeGuard do
     %{
       env: Map.new(@scope_env, &{&1, System.get_env(&1)}),
       decision_state_dir: Application.fetch_env(:aiur, :decision_state_dir),
-      endpoint_auth: endpoint_auth()
+      generation_alive?: generation_alive?()
     }
   end
 
@@ -44,14 +41,13 @@ defmodule Aiur.TestScopeGuard do
         [":aiur, :decision_state_dir #{inspect(previous.decision_state_dir)} -> #{inspect(current_decision_state_dir)}" | changes]
       end
 
-    current_endpoint_auth = endpoint_auth()
-
+    # A toppled Aiur.Supervisor takes this process with it, and Stream Deck
+    # token issuance then fails closed in every later module that does not
+    # restart the application (#4695).
     changes =
-      if current_endpoint_auth == previous.endpoint_auth do
-        changes
-      else
-        [":aiur, AiurWeb.Endpoint auth #{inspect(previous.endpoint_auth)} -> #{inspect(current_endpoint_auth)}" | changes]
-      end
+      if previous.generation_alive? and not generation_alive?(),
+        do: ["AiurWeb.FinancialDataAccess.Generation stopped" | changes],
+        else: changes
 
     case changes do
       [] -> nil
@@ -67,7 +63,6 @@ defmodule Aiur.TestScopeGuard do
       {:ok, value} -> Application.put_env(:aiur, :decision_state_dir, value)
     end
 
-    restore_endpoint_auth(previous.endpoint_auth)
     :ok
   end
 
@@ -78,19 +73,16 @@ defmodule Aiur.TestScopeGuard do
     :ok
   end
 
-  defp endpoint_auth do
-    config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
-    Map.new(@endpoint_auth_keys, &{&1, Keyword.fetch(config, &1)})
-  end
+  defp generation_alive? do
+    # A supervisor answers a call only after finishing any restart in flight, so
+    # a rest_for_one restart that briefly removed Generation is not a leak.
+    with supervisor when is_pid(supervisor) <- Process.whereis(Aiur.Supervisor) do
+      GenServer.call(supervisor, :which_children, 5_000)
+    end
 
-  defp restore_endpoint_auth(previous) do
-    config =
-      Enum.reduce(previous, Application.get_env(:aiur, AiurWeb.Endpoint, []), fn
-        {key, {:ok, value}}, config -> Keyword.put(config, key, value)
-        {key, :error}, config -> Keyword.delete(config, key)
-      end)
-
-    Application.put_env(:aiur, AiurWeb.Endpoint, config)
+    is_pid(Process.whereis(AiurWeb.FinancialDataAccess.Generation))
+  catch
+    :exit, _reason -> is_pid(Process.whereis(AiurWeb.FinancialDataAccess.Generation))
   end
 
   defp restore_env(name, nil), do: System.delete_env(name)
