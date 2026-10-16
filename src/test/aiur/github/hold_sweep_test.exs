@@ -29,7 +29,7 @@ defmodule Aiur.GitHub.HoldSweepTest do
     assert File.exists?(Path.join(dir, "core-secondary-hold"))
     assert File.exists?(Path.join(dir, "agent-requests.tsv"))
 
-    assert_receive {:alert, "system.github.quota.implausible_hold", opts}
+    assert_receive {:alert, "system.github.quota.implausible_hold", opts}, 1_000
     assert opts[:needs_attention]
     assert opts[:message] =~ "graphql-secondary-hold"
     refute_receive {:alert, _name, _opts}, 50
@@ -45,7 +45,7 @@ defmodule Aiur.GitHub.HoldSweepTest do
     start_supervised!({Quota, name: nil, clock: fn -> @now end, hold_dir: dir, request_log_path: nil, emit_fun: emit, refresh?: false})
 
     refute File.exists?(Path.join(dir, "core-secondary-hold"))
-    assert_receive {:alert, "system.github.quota.implausible_hold", _opts}
+    assert_receive {:alert, "system.github.quota.implausible_hold", _opts}, 1_000
 
     # The refresh poll itself writes the bogus hold; the sweep after it must remove it.
     start_supervised!(
