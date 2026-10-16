@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
   alias Aiur.Alerts
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.GitHub.CIRecovery
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Poll
@@ -32,10 +31,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
       CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) ->
         state
 
-      HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and stale_approved_head?(state, issue, result) ->
-        alert_stale_approved_head(issue, result)
-        Transition.transition_ci_ticket(state, issue, @ci_wait_state)
-
       HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and result[:pending_reason] == :draft_pull_request ->
         Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
@@ -61,7 +56,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
   defp apply_ci_poll_result(state, issue, %{decision: :failed} = result) do
     cond do
-      approved_landing_pr?(issue, result, result[:ci_recovery_opts] || []) ->
+      approved_landing_pr?(issue, result) ->
         Logger.info("CI failure did not reopen approved landing PR: #{State.issue_context(issue)}")
         state
 
@@ -87,54 +82,33 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
   defp apply_ci_poll_result(state, _issue, _result), do: state
 
-  # CI repair is for a failing head that still needs work. Once that exact head
-  # is approved and GitHub has auto-merge armed or placed it in the merge queue,
-  # a failure must not route the ticket back to rework (#4631). Require a fresh,
-  # exact-head observation; an unavailable read leaves the existing state alone.
+  # The CI batch carries these exact-head fields already. Reuse them here so a
+  # failed CI poll does not add another GitHub request (#4631).
   defp approved_landing_pr?(
-         %Issue{state: issue_state},
-         %{decision: :failed, pr_number: number, head_sha: head_sha},
-         opts
+         %Issue{},
+         %{
+           decision: :failed,
+           review_decision: "APPROVED",
+           auto_merge_request: auto_merge_request,
+           merge_queue_entry: merge_queue_entry
+         }
        )
-       when is_integer(number) and is_binary(head_sha) do
-    if CiLifecycle.ci_wait_state?(issue_state) do
-      observer = Keyword.get(opts, :approved_landing_observer, &CIRecovery.observe/2)
-      observation = Keyword.get(opts, :ci_recovery_observation) || observer.(number, observer_opts(opts))
-
-      case observation do
-        {:ok, %{"state" => "OPEN", "headRefOid" => ^head_sha, "reviewDecision" => "APPROVED"} = pr} ->
-          is_map(Map.get(pr, "mergeQueueEntry")) or is_map(Map.get(pr, "autoMergeRequest"))
-
-        _ ->
-          false
-      end
-    else
-      false
-    end
+       when is_map(auto_merge_request) or is_map(merge_queue_entry) do
+    true
   end
 
-  defp approved_landing_pr?(_issue, _result, _opts), do: false
+  defp approved_landing_pr?(_issue, _result), do: false
 
-  defp observer_opts(opts), do: Keyword.drop(opts, [:approved_landing_observer, :ci_recovery_observation])
+  defp stale_approved_head?(%Issue{} = issue, %{head_sha: head_sha, review_decision: "APPROVED", approved_review_head_sha: approved_head})
+       when is_binary(head_sha) do
+    in_review_handoff? =
+      CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) or
+        HumanReview.human_review_state?(Transition.effective_ci_state(issue))
 
-  defp cache_approved_landing_observation(issue, %{decision: :failed, pr_number: number}, opts)
-       when is_integer(number) do
-    if CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) do
-      observer = Keyword.get(opts, :approved_landing_observer, &CIRecovery.observe/2)
-      Keyword.put(opts, :ci_recovery_observation, observer.(number, observer_opts(opts)))
-    else
-      opts
-    end
+    in_review_handoff? and approved_head != head_sha
   end
 
-  defp cache_approved_landing_observation(_issue, _result, opts), do: opts
-
-  defp stale_approved_head?(%State{} = state, %Issue{} = issue, %{head_sha: head_sha}) when is_binary(head_sha) do
-    passed_head = get_in(state.ci_lifecycle, [:passed_heads, CiLifecycle.ci_target_for_issue(issue)])
-    is_binary(passed_head) and passed_head != head_sha
-  end
-
-  defp stale_approved_head?(_state, _issue, _result), do: false
+  defp stale_approved_head?(_issue, _result), do: false
 
   defp alert_stale_approved_head(issue, result) do
     Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.stale_approved_pr_head",
@@ -183,11 +157,19 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   @doc false
   @spec recover_ci_poll_result(State.t(), term(), term(), term()) :: term()
   def recover_ci_poll_result(state, issue, result, opts) do
-    opts = cache_approved_landing_observation(issue, result, opts)
     result = Map.put(result, :ci_recovery_opts, opts)
 
     cond do
-      approved_landing_pr?(issue, result, opts) ->
+      stale_approved_head?(issue, result) ->
+        alert_stale_approved_head(issue, result)
+
+        if HumanReview.human_review_state?(Transition.effective_ci_state(issue)) do
+          Transition.transition_ci_ticket(state, issue, @ci_wait_state)
+        else
+          state
+        end
+
+      approved_landing_pr?(issue, result) ->
         Logger.info("CI failure did not reopen approved landing PR: #{State.issue_context(issue)}")
         state
 
