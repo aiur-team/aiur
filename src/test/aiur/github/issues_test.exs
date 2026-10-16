@@ -84,7 +84,6 @@ defmodule Aiur.GitHub.IssuesTest do
 
       System.put_env("AIUR_DEV_TEST_TICKET_IDS", "")
       assert_raise ArgumentError, fn -> Aiur.TestTicketScope.validate!() end
-      restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope)
     end
 
     test "returns empty list when no states given" do
