@@ -1,5 +1,6 @@
 defmodule AiurWeb.Build.UsageTest do
   use ExUnit.Case, async: true
+  alias Aiur.BuildOrder.SourceFreshness
   alias Aiur.ProviderMeterSnapshot
   alias Aiur.TestSupport.BuildHome.UsageInputs, as: I
   alias AiurWeb.Build.{Payload, Read, Usage}
@@ -18,7 +19,7 @@ defmodule AiurWeb.Build.UsageTest do
 
   test "U1 U2 U3 U13 windows classify by duration and keep unknown distinct from zero" do
     row = provider(%{"x:short" => I.window(42, 300), "x:long" => I.window(61, 10_080)})
-    assert row.session == %{acc: [42], win: "5h", reset_at: Usage.ms(DateTime.add(I.now(), 3600))}
+    assert row.session == %{acc: [42], win: "5h", reset_at: SourceFreshness.ms(DateTime.add(I.now(), 3600))}
     assert row.weekly.acc == [61]
     assert row.weekly.win == "7d"
     unknown = provider(%{"x:other" => I.window(nil, nil, %{coverage: :empty_supported})})
@@ -46,7 +47,7 @@ defmodule AiurWeb.Build.UsageTest do
     row = provider(%{"primary" => I.window(42)}, %{health: %{state: :stale, failure: :transport}})
     assert row.stale
     assert row.session.acc == [42]
-    assert row.observed_at == Usage.ms(I.now())
+    assert row.observed_at == SourceFreshness.ms(I.now())
     ended = provider(%{"primary" => I.window(42, 300, %{resets_at: DateTime.add(I.now(), -60)})})
     assert ended.stale
   end
@@ -57,7 +58,7 @@ defmodule AiurWeb.Build.UsageTest do
     row = block(I.inputs(%{meters: %{codex: unknown}, durable: durable})).providers |> hd()
     assert row.none and row.stale
     assert row.note == "Last known 100% (previous boot)"
-    assert row.observed_at == Usage.ms(I.now())
+    assert row.observed_at == SourceFreshness.ms(I.now())
     loading = block(I.inputs(%{durable: durable})).providers |> hd()
     assert loading.note == "Awaiting first observation"
     refute loading.stale
@@ -82,7 +83,7 @@ defmodule AiurWeb.Build.UsageTest do
     assert row.accounts == ["personal", "work"]
     assert row.session.acc == [nil, 1]
     assert row.weekly.acc == [nil, 96]
-    assert row.session.reset_at == Usage.ms(DateTime.add(I.now(), 3600))
+    assert row.session.reset_at == SourceFreshness.ms(DateTime.add(I.now(), 3600))
     single = block(%{inputs | accounts: Map.take(accounts, ["work"])}).providers |> hd()
     assert single.accounts == nil
     assert single.session.acc == [40]
@@ -101,8 +102,8 @@ defmodule AiurWeb.Build.UsageTest do
     assert row.icon == "github"
 
     assert row.lines == [
-             %{tag: "core", acc: [5], reset_at: Usage.ms(DateTime.add(I.now(), 3600)), win: "1h", tip: [["Requests left", "4,736 of 5,000"]], hold_until: nil},
-             %{tag: "gql", acc: [0], reset_at: Usage.ms(DateTime.add(I.now(), 3600)), win: "1h", tip: [["Points left", "4,998 of 5,000"]], hold_until: nil}
+             %{tag: "core", acc: [5], reset_at: SourceFreshness.ms(DateTime.add(I.now(), 3600)), win: "1h", tip: [["Requests left", "4,736 of 5,000"]], hold_until: nil},
+             %{tag: "gql", acc: [0], reset_at: SourceFreshness.ms(DateTime.add(I.now(), 3600)), win: "1h", tip: [["Points left", "4,998 of 5,000"]], hold_until: nil}
            ]
   end
 
@@ -120,11 +121,11 @@ defmodule AiurWeb.Build.UsageTest do
     later = DateTime.add(I.now(), 7200)
     quota = %{quota | backoffs: [%{resource: "core", until: later}, %{resource: "graphql", until: later}]}
     [core, gql] = hd(block(I.inputs(%{github: {:ok, quota}})).apis).lines
-    assert core.hold_until == Usage.ms(later)
-    assert gql.hold_until == Usage.ms(later)
+    assert core.hold_until == SourceFreshness.ms(later)
+    assert gql.hold_until == SourceFreshness.ms(later)
     assert length(core.tip) == 1
     no_backoff = %{quota | backoffs: []}
-    assert hd(hd(block(I.inputs(%{github: {:ok, no_backoff}})).apis).lines).hold_until == Usage.ms(DateTime.add(I.now(), 3600))
+    assert hd(hd(block(I.inputs(%{github: {:ok, no_backoff}})).apis).lines).hold_until == SourceFreshness.ms(DateTime.add(I.now(), 3600))
     assert hd(hd(block(I.inputs(%{github: {:ok, I.quota(600)}})).apis).lines).hold_until == nil
   end
 

@@ -15,14 +15,14 @@ defmodule AiurWeb.Build.IndexSource do
 
   @impl true
   def snapshot(opts) do
-    with {:ok, data} <- call({:window, Keyword.get(opts, :time_zone, "Etc/UTC")}, opts) do
+    with {:ok, data} <- guard(fn -> Index.window(server(opts), Keyword.get(opts, :time_zone, "Etc/UTC"), timeout(opts)) end) do
       usage = Keyword.get(opts, :usage, Usage)
       freshness = Keyword.get(opts, :freshness, Freshness)
 
       {:ok,
        Map.merge(data, %{
          usage: usage.read(Keyword.get(opts, :financial, :locked), opts),
-         daemon: freshness.read_daemon(opts),
+         daemon: data.daemon || freshness.read_daemon(opts),
          writable: Endpoint.config(:dashboard_writable) == true
        })}
     end
@@ -34,10 +34,15 @@ defmodule AiurWeb.Build.IndexSource do
   @spec ticket(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def ticket(id, opts), do: call({:ticket, id}, opts)
 
-  defp call(message, opts) do
-    GenServer.call(Keyword.get(opts, :server, Index), message, Keyword.get(opts, :timeout, 4_000))
+  defp call(message, opts), do: guard(fn -> GenServer.call(server(opts), message, timeout(opts)) end)
+
+  defp guard(fun) do
+    fun.()
   catch
     :exit, {:timeout, _} -> {:error, :timeout}
     :exit, _ -> {:error, :index_not_running}
   end
+
+  defp server(opts), do: Keyword.get(opts, :server, Index)
+  defp timeout(opts), do: Keyword.get(opts, :timeout, 4_000)
 end
