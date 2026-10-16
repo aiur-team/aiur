@@ -688,9 +688,8 @@ defmodule Aiur.Orchestrator.CommentWake do
       benign_review_pass_comment?(event) ->
         state
 
+      # The worker still gets the review; a second rework write only spends a rework attempt (#4601).
       already_rework?(running_entry) ->
-        # The worker still gets the review; a second rework write would only
-        # spend a GitHub call and a rework attempt (#4601).
         OperatorMessages.enqueue_event_digest_item(state, to_string(issue_number), [event], event)
 
       true ->
@@ -709,12 +708,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           event,
           Map.get(running_entry, :telemetry_attempt_id),
           attempt,
-          fn arg1 ->
-            apply_active_comment_protection(
-              arg1,
-              {attempt, event, issue_number, source}
-            )
-          end
+          &apply_active_comment_protection(&1, {attempt, event, issue_number, source})
         )
     end
   end
@@ -1575,10 +1569,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp apply_active_comment_protection(
-         outcome,
-         {attempt, event, issue_number, source}
-       ) do
+  defp apply_active_comment_protection(outcome, {attempt, event, issue_number, source}) do
     case outcome do
       {:ok, state} ->
         state
