@@ -32,9 +32,18 @@ async function routeCardAsset(target, asset) {
 }
 async function openCardParityPair(browser, cell, options) {
   const asset = test.info().project.metadata.cardsAsset
-  return openParityPair(asset ? { newContext: async options => {
+  const pair = await openParityPair(asset ? { newContext: async options => {
     const context = await browser.newContext(options); await routeCardAsset(context, asset); return context
   } } : browser, cell, options)
+  await expect(pair.product.locator('#bd-content')).toHaveCount(1)
+  // Element parity owns card rendering, not history paging. Install the same
+  // complete frozen fixture through the real store; paging has its own suite.
+  const full = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/' + cell.dataset + '.json', import.meta.url), 'utf8'))
+  await pair.product.evaluate(async sections => {
+    const { ctx } = await import('/build-home/state.js'), { acceptSnapshot } = await import('/build-home/store.js')
+    if (acceptSnapshot({ ...ctx.snap, sections }).error) throw new Error('Parity fixture intake failed')
+  }, full.sections)
+  return pair
 }
 async function open(page, dataset = 'unknowns') {
   await page.goto('/build-fixture/' + dataset)
@@ -349,12 +358,7 @@ async function compareCard(pair, selector, name, parts = []) {
   await pair.product.evaluate(async input => {
     const { ctx, fx } = await import('/build-home/state.js')
     document.querySelector('#parity-card')?.remove()
-    let t = ctx.D.all.find(t => t.num === input.num)
-    const history = await import('/build-home/history.js')
-    while (!t && history.H.more) {
-      if (!await history.loadEarlier()) break
-      t = ctx.D.all.find(t => t.num === input.num)
-    }
+    const t = ctx.D.all.find(t => t.num === input.num)
     if (!t) throw new Error('Design card missing from product fixture: ' + input.num)
     const det = ctx.L.det; ctx.L.det = input.tier
     const el = fx.makeCard({ ...input.it, t })
