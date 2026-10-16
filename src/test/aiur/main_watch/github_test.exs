@@ -42,6 +42,52 @@ defmodule Aiur.MainWatch.GitHubTest do
     assert hd(result.observations).completed_at == DateTime.to_unix(~U[2026-10-10 00:00:00Z], :millisecond)
   end
 
+  test "newest completed push ci failure wins over a newer cancelled rerun" do
+    request = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/commits?") ->
+          ok([%{"sha" => "failed-push"}])
+
+        String.contains?(url, "/actions/runs?") and URI.decode_query(URI.parse(url).query)["event"] == "push" ->
+          ok(%{
+            "workflow_runs" => [
+              Map.merge(run(8, "failed-push", "ci", "completed", "failure"), %{"updated_at" => "2026-10-14T12:00:00Z"}),
+              Map.merge(run(9, "failed-push", "ci", "completed", "cancelled"), %{"updated_at" => "2026-10-15T12:00:00Z"})
+            ]
+          })
+
+        String.contains?(url, "/actions/runs?") ->
+          ok(%{"workflow_runs" => []})
+
+        String.contains?(url, "/check-runs?") ->
+          ok(%{"check_runs" => [check(1, 1, "failure")]})
+
+        String.contains?(url, "/annotations?") ->
+          ok([])
+
+        String.contains?(url, "/contents/") ->
+          ok(%{"encoding" => "base64", "content" => ""})
+
+        String.contains?(url, "/issues?") ->
+          ok([])
+
+        String.ends_with?(url, "/status") ->
+          ok(%{"statuses" => []})
+
+        true ->
+          flunk("unexpected request #{url}")
+      end
+    end
+
+    assert {:ok, %{observations: [observation], runs: [newest, previous]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
+    assert observation.sha == "failed-push"
+    assert observation.failed_workflow
+    assert observation.checks == [%{name: "test", conclusion: "failure"}]
+    assert newest.id == 9
+    assert newest.conclusion == "cancelled"
+    assert previous.id == 8
+  end
+
   test "reports the failing caller and credential class on an unrecoverable 401" do
     request = fn _request -> {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}} end
 
