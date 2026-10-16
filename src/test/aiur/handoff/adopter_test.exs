@@ -2,7 +2,7 @@ defmodule Aiur.Handoff.AdopterTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner.Handoff, as: Runner
-  alias Aiur.Handoff.{Adopter, Compatibility, Record}
+  alias Aiur.Handoff.{Adopter, Compatibility, Record, Report}
   alias Aiur.Orchestrator.{OrphanedWorkers, StartupClaimReconciler, State, StatusReport}
 
   setup do
@@ -19,7 +19,7 @@ defmodule Aiur.Handoff.AdopterTest do
     parent = self()
 
     runner = fn _agent, 2, recipient, _opts ->
-      send(recipient, {:handoff_adopted, self(), {:ok, %{}}})
+      send(recipient, {:handoff_adopted, self(), {:ok, %{metadata: %{codex_app_server_pid: "123"}}}})
 
       receive do
         :handoff_continue -> send(parent, {:continued, self()})
@@ -35,6 +35,11 @@ defmodule Aiur.Handoff.AdopterTest do
     on_exit(fn -> send(pid, :stop) end)
     assert state.running["one"].pid == pid
     assert state.running["one"].adopted_from == "restart"
+    assert {:ok, %{adopted: [outcome], fallback: []}} = Report.latest(dir: dir)
+    assert outcome["provider_pid_before"] == "123"
+    assert outcome["provider_pid_after"] == "123"
+    assert outcome["session_id_before"] == "session-one"
+    assert outcome["session_id_after"] == "session-one"
     assert state.running["one"].agent_total_tokens == 27
     assert State.effective_runtime_seconds(state.running["one"], DateTime.utc_now()) >= 119
     assert state.claimed == MapSet.new(["one"])
@@ -66,11 +71,14 @@ defmodule Aiur.Handoff.AdopterTest do
     assert_receive {:stopped, "one"}, 1000
     assert_receive {:stopped, "two"}, 1000
     assert_receive {:alert, "system.handoff.incompatible"}, 1000
+    assert_received {:alert, "system.restart.handoff.completed"}
+    assert_received {:alert, "system.restart.handoff.fallback"}
     refute_receive {:alert, _}, 20
     assert {:ok, %{"outcome" => outcomes}} = Aiur.JsonStore.read(Record.path(dir: dir) <> ".consumed")
     assert Enum.map(outcomes, & &1["reason"]) == [":schema", ":schema"]
     Adopter.adopt(%State{}, opts)
     refute_receive {:stopped, _}, 20
+    refute_received {:alert, _}
   end
 
   test "config changes and missing relays fall back independently", %{dir: dir} do
@@ -142,6 +150,7 @@ defmodule Aiur.Handoff.AdopterTest do
         dir: dir,
         generation: 2,
         config_fingerprint: "config",
+        emit_alert: fn _name, _options -> :ok end,
         relay_probe: fn
           "missing" -> {:error, :enoent}
           _ -> {:ok, hello()}
@@ -155,7 +164,7 @@ defmodule Aiur.Handoff.AdopterTest do
 
   defp agent(dir, id) do
     issue = %Aiur.Issue{id: id, identifier: id, title: "existing", state: "in-progress"}
-    entry = %{identifier: id, issue: issue, started_at: DateTime.add(DateTime.utc_now(), -120), agent_total_tokens: 27, worker_host: nil, turn_count: 2}
+    entry = %{identifier: id, session_id: "session-#{id}", issue: issue, started_at: DateTime.add(DateTime.utc_now(), -120), agent_total_tokens: 27, worker_host: nil, turn_count: 2}
 
     %{
       "issue_id" => id,

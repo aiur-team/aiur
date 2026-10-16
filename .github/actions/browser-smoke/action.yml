@@ -1,0 +1,50 @@
+name: Browser smoke shard
+description: Set up and run one browser smoke shard
+inputs:
+  shard:
+    description: Browser smoke shard number
+    required: true
+  verify_fixtures:
+    description: Check browser fixtures and vendored assets after the shard
+    required: false
+    default: 'false'
+  upload_evidence:
+    description: Upload browser harness artifacts
+    required: false
+    default: 'false'
+  visual_regression:
+    description: Optional visual baseline to run after the shard
+    required: false
+    default: none
+runs:
+  using: composite
+  steps:
+    - name: Set up browser harness
+      uses: ./.github/actions/setup-browser
+    - name: Run browser smoke shard
+      working-directory: src/browser
+      run: node scripts/run-browser-smoke-shard.mjs ${{ inputs.shard }}
+      shell: bash
+    - name: Check browser fixtures and vendored assets
+      if: ${{ inputs.verify_fixtures == 'true' }}
+      working-directory: src/browser
+      run: node scripts/check-vendored-elk.mjs && npm run check:build-home-fixtures
+      shell: bash
+    - name: Run first visual regression baseline
+      if: ${{ inputs.visual_regression == 'first' }}
+      working-directory: src/browser
+      run: npm run test:visual
+      shell: bash
+    - name: Run second visual regression baseline and verify failure evidence
+      if: ${{ inputs.visual_regression == 'second' }}
+      working-directory: src/browser
+      run: npm run test:visual && npm run verify:failure-artifacts
+      shell: bash
+    - name: Upload browser evidence
+      if: ${{ always() && inputs.upload_evidence == 'true' }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: browser-harness-artifacts-${{ inputs.shard }}
+        path: src/browser/.artifacts-run-*/
+        if-no-files-found: ignore
+        include-hidden-files: true

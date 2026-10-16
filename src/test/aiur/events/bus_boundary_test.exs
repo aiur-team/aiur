@@ -9,7 +9,7 @@ defmodule Aiur.Events.BusBoundaryTest do
   # not the whole `Aiur.Events` namespace: Sanitizer, BranchRefStore and
   # CommentFilter belong to github-listeners (CR-R2-1(b)).
   @allowed_modules ~w(Aiur.Events Aiur.Events.SubscriptionStoreRegistry
-                      Aiur.Config Aiur.JsonStore)
+                      Aiur.Config Aiur.JsonStore Aiur.Journal)
 
   # {member_file, referenced_module} => ticket that removes the edge.
   # Seam tickets delete their rows; that deletion is the proof the edge is gone.
@@ -62,6 +62,10 @@ defmodule Aiur.Events.BusBoundaryTest do
     path
     |> File.read!()
     |> String.contains?("# aiur:event-bus-boundary-member")
+  end
+
+  test "journal belongs to the event-bus boundary" do
+    assert "events/journal.ex" in members()
   end
 
   test "a boundary-member marker discovers a newly added event module" do

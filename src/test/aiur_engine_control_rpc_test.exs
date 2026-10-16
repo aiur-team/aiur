@@ -3,6 +3,9 @@ defmodule AiurEngineControlRpcTest do
 
   import Aiur.TestSupport.EngineCase
 
+  alias Aiur.TestSupport.ExecutorSessionRPCAssertions
+  Code.require_file("support/executor_session_rpc_assertions.ex", __DIR__)
+
   test "todo control rpc propagates live success and semantic failure codes" do
     for {rpc_output, expected_code} <- [
           {"queued 1 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:0", 0},
@@ -195,25 +198,25 @@ aiur_engine_main listen --ticket 3028|,
       run_sourced_engine(
         ~s|run_control_rpc() { echo "TIMEOUT:$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"; echo "RPC:$1"; }
 cmd_executor_wait --timeout 2 --json|,
-        []
+        ExecutorSessionRPCAssertions.env()
       )
 
     assert out =~ "TIMEOUT:12"
-    assert out =~ "Aiur.AgentControlCLI.executor_wait(timeout_ms: 2000, json: true)"
+    ExecutorSessionRPCAssertions.assert_rpc(out, "timeout_ms: 2000, json: true")
 
     {bad, 64} = run_sourced_engine("cmd_executor_wait --timeout nope", [])
     assert bad =~ "executor-wait --timeout expects a positive integer"
   end
 
-  test "the takeover commands pass an explicit consumer id and nothing else" do
+  test "the takeover commands pass an explicit consumer id and only session registration env" do
     {wait, 0} =
       run_sourced_engine(
         ~s|run_control_rpc() { echo "RPC:$1"; }
 cmd_executor_wait --timeout 2 --as agent-b|,
-        []
+        ExecutorSessionRPCAssertions.env()
       )
 
-    assert wait =~ ~s|executor_wait(timeout_ms: 2000, json: false, as: "agent-b")|
+    ExecutorSessionRPCAssertions.assert_rpc(wait, ~s|timeout_ms: 2000, json: false, as: "agent-b"|)
 
     {claim, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_claim --as agent-a|, [])
     assert claim =~ ~s|executor_claim([as: "agent-a"])|

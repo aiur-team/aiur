@@ -132,6 +132,7 @@ defmodule Aiur.Application.Children do
       # retry path it observes lives in `Aiur.GitHub.LocalHold`; this process
       # owns the sliding-window rate and alert latch.
       Aiur.GitHub.BrokerTimeout,
+      Aiur.GitHub.HoldPressure,
       Aiur.GitHub.BudgetBroker,
       Aiur.Voice.child_specs(),
       Aiur.TicketContext.child_specs(:early, opts),
@@ -268,12 +269,16 @@ defmodule Aiur.Application.Children do
         [Aiur.BackgroundCpu] ++
         Aiur.Experiments.children(recording?) ++
         Auto.child_specs(recording?: recording?, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]) ++
-        BuildOrders.child_specs(:label_projection, opts) ++ landing_watch_children() ++ Aiur.Experiments.window_children(recording?)
+        BuildOrders.child_specs(:label_projection, opts) ++ landing_watch_children() ++ executor_sweep_children() ++ Aiur.Experiments.window_children(recording?)
     )
   end
 
   defp landing_watch_children do
     if AiurConfig.tracker_kind() == "github", do: [Aiur.LandingWatch], else: []
+  end
+
+  defp executor_sweep_children do
+    if AiurConfig.tracker_kind() == "github", do: [Aiur.ExecutorSweep], else: []
   end
 
   defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil

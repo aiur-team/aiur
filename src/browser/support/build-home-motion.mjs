@@ -1,5 +1,6 @@
+import { historySequence } from './build-home-history-motion.mjs'
 import { scrollbar } from './build-home-scrollbar-motion.mjs'
-// The ticket requires one support module: measurements and sequence ownership stay together.
+// Shared records and ownership stay together; feature sequences live beside them.
 // Motion records use the same allowlist as screenshot parity. Design bytes stay untouched.
 import { captureStable } from './design-parity.mjs'
 export const motionPathMatches = (pattern, path) => new RegExp(`^${pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(path.replace(/^reduce\.live-toggle\.animation\.tkin(?=\.)/, 'modal.reduce.animation.tkin'))
@@ -128,7 +129,8 @@ export async function pausedAnimations(page, selector, { trigger, event = 'click
 }
 
 export const OWNER = {
-  sb: { owners: ['MP-E8-C9-T03'], pending: true, anchor: '#bd-sb' },
+  'history': { owners: ['MP-E8-C9-T03'], anchor: '#build-root[data-bd-paging]' },
+  sb: { owners: ['MP-E8-C9-T03'], anchor: '#bd-sb' },
   'snap.scroll-curve': { owners: ['MP-E8-C9-T08', 'MP-E8-C10-T01', 'MP-E8-C9-T10'], anchor: '#bd-nowbtn' },
   'snap': { owners: ['MP-E8-C9-T08'], anchor: '.bd-now-h > b' },
   'columns': { owners: ['MP-E8-C9-T04', 'MP-E8-C9-T10'], anchor: '.bd-content .bd-lane' },
@@ -470,6 +472,7 @@ async function inventory(page, ctx) {
 }
 
 export const SEQUENCES = {
+  ...Object.fromEntries(['load-earlier', 'window'].map(name => [`history.${name}`, (page, ctx) => historySequence(page, ctx, name)])),
   ...Object.fromEntries(['scroll-reveal', 'drag', 'track-click'].map(action => [`sb.${action}`, (page, ctx) => scrollbar(page, ctx, action)])),
   ...Object.fromEntries(['settle-near-top', 'settle-near-bottom', 'pinned', 'guard-up', 'guard-down', 'tall-band', 'list-view'].map(kind => [`snap.${kind}`, (page, ctx) => snap(page, ctx, kind)])),
   'snap.scroll-curve': scrollCurve,

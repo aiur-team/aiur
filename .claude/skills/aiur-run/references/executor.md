@@ -266,6 +266,7 @@ count detached from ready work.
 
 ## Recovery ladder
 
+Prefer `aiurdev restart --keep-agents` for fleet upgrades. Save `aiurdev agents --json` before; afterward compare `aiurdev status --handoff --json`: every issue is adopted with the same provider pid and session id, or has a fallback reason. Verify `aiurdev alerts` records `system.restart.handoff.completed`, adopted tickets have no startup-claim release, and a ready ticket dispatches within one poll interval. [Restart semantics](../../../../website/docs-app/reference/cli.md#restart-semantics) cover failed-build recovery.
 A fleet-wide quiet board is a blockage, not idleness, and none of its causes
 log anything. Clear the fleet-level gates before triaging any single agent: run
 bare `aiurdev resume` first, because the global pause switch survives daemon
@@ -276,9 +277,7 @@ prewarm record `~/.aiur/repo/<owner>/<repo>/base-record.json` matches the
 every dispatch tick silently (issue #1404); and allow for the post-restart
 dispatch ramp.
 
-Alerts persist across daemon restarts and tokens (#1231), so the actionable list
-keeps naming long-merged tickets. Check alert timestamps and trust the live
-state table over the alert list.
+Alerts persist across restarts (#1231). Check timestamps and trust the live table over stale alerts.
 
 A trusted `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review on an open PR moves
 its ticket from `agent:human-review` or `agent:ci-wait` to `agent:rework`

@@ -51,6 +51,14 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :promoted, verdict: :waiting}], [{:begin_withdraw, "1"}]} = Planner.plan(input)
   end
 
+  test "delayed fresh observation adopts pre-existing todo from retained attempt provenance" do
+    input = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo))
+    attempt = F.intent(input, :mark, target_labels: ~w(agent:queued), preexisting_todo?: true, outcome: :ok)
+    input = %{input | intents: [List.last(attempt.intents)]}
+
+    assert {[%{state: :promoted, verdict: :waiting}], [{:begin_withdraw, "1"}]} = Planner.plan(input)
+  end
+
   test "manual todo after a queue marker write remains an explicit promotion" do
     input = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo))
     input = F.intent(input, :mark, target_labels: ~w(agent:queued), preexisting_todo?: false, outcome: :ok)
@@ -112,6 +120,14 @@ defmodule Aiur.BuildQueue.PlannerTest do
     input = F.apply_actions(input, actions)
     assert {[%{state: :promoted_unauthorized}], []} = Planner.plan(input)
     assert {[%{state: :promoted}], [{:attention_resolve, {:promoted_unauthorized, "1"}}]} = Planner.plan(%{input | claims: %{"1" => :unclaimed}})
+  end
+
+  test "cold authorization evidence holds a promoted ticket without unauthorized attention" do
+    input = %{(F.input() |> F.promoted()) | claims: %{"1" => :authorization_pending}}
+    latch = %Aiur.BuildQueue.Model.Latch{key: {:promoted_unauthorized, "1"}, opened_at_ms: 9_000, emitted?: true}
+    input = %{input | latches: [latch]}
+
+    assert {[%{state: :held, reason: :authorization_pending}], [{:attention_resolve, {:promoted_unauthorized, "1"}}]} = Planner.plan(input)
   end
 
   test "marker removal, closure, claims and saved overrides take precedence" do

@@ -172,7 +172,14 @@ defmodule Aiur.Events.BranchForcePushTest do
     pid =
       start_supervised!(
         {LsRemoteTicker,
-         name: nil, repo: "owner/repo", publisher: publisher, request_fun: request_fun, task_supervisor: supervisor, start_paused?: true, ls_remote_fun: fn _, _ -> {:ok, Agent.get(refs, & &1)} end}
+         name: nil,
+         repo: "owner/repo",
+         publisher: publisher,
+         token: "test-gh-token",
+         request_fun: request_fun,
+         task_supervisor: supervisor,
+         start_paused?: true,
+         ls_remote_fun: fn _, _ -> {:ok, Agent.get(refs, & &1)} end}
       )
 
     tick(pid)

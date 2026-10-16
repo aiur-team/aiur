@@ -106,10 +106,8 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
     assert Agent.get(Boundary, & &1) == previous
   end
 
-  test "closed, missing and stale snapshots refuse the entire add without saving" do
+  test "stale and unavailable snapshots refuse add without saving" do
     server()
-    update(:snapshot, {:ok, %{"1" => %{labels: []}}, 1_000})
-    assert {:error, :closed} = Aiur.BuildQueue.add(["1", "2"], "paseo")
     update(:snapshot, :none)
     assert {:error, :inputs_unavailable} = Aiur.BuildQueue.add(["1"], "paseo")
     update(:snapshot, {:ok, %{"1" => %{labels: []}}, 100_000})

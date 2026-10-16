@@ -39,6 +39,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.GitHub.ReadCache,
     Aiur.GitHub.Quota,
     Aiur.GitHub.BrokerTimeout,
+    Aiur.GitHub.HoldPressure,
     Aiur.GitHub.BudgetBroker,
     Aiur.ElevenLabs.Quota,
     {Aiur.BuildOrder.TicketDetailCoordinator, [runtime_config?: true]},
@@ -135,6 +136,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.Experiments.Auto, [recording?: true, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]]},
     Aiur.BuildOrder.Features.LabelProjection,
     Aiur.LandingWatch,
+    Aiur.ExecutorSweep,
     Aiur.Experiments.Auto.Notifier,
     Aiur.Experiments.Auto.WindowManager
   ]

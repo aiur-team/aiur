@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.TicketTransition do
   Owns ticket state and marker writes, with caller attribution and outcome evidence.
 
   The tracker label is authoritative: repeated writes retain adapter semantics.
-  This owner never retries; callers reconcile labels before deciding again.
+  GitHub state writes retry local budget holds at the request boundary.
   Errors are returned unchanged. Transport/deadline failures have unknown outcomes.
   `tracker:` names the facade-shaped module to call (default `Aiur.Tracker`); the
   build queue passes its injected tracker so its writes are attributed here too.
@@ -39,7 +39,10 @@ defmodule Aiur.Orchestrator.TicketTransition do
     writer = Keyword.fetch!(opts, :writer)
     true = is_atom(writer) and not is_nil(writer)
     tracker = Keyword.get(opts, :tracker, Tracker)
-    result = with_writer(writer, fn -> tracker.update_issue_state(issue_id, to_state, Keyword.drop(opts, [:writer, :identifier, :tracker])) end)
+
+    adapter_opts = Keyword.drop(opts, [:writer, :identifier, :tracker])
+    result = with_writer(writer, fn -> tracker.update_issue_state(issue_id, to_state, adapter_opts) end)
+
     record(issue_id, :state, to_state, writer, opts, result)
     result
   end
