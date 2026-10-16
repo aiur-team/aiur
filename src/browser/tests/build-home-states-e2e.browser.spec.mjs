@@ -48,6 +48,7 @@ test('sources-only diff keeps rows and changes freshness without moving the anch
   await expect(page.locator('#bd-sec-plan .bd-sech')).not.toContainText('unavailable')
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-states', '')
 })
+// Future-regression guard for C8-T03's cached-board lifecycle, not new-state coverage.
 test('disconnect and reconnect preserve the cached board without skeletons', async ({ page }) => {
   await open(page, 'live'); await expect(page.locator('#bd-content')).toHaveCount(1)
   await page.evaluate(() => { window.cachedBoard = document.querySelector('#bd-content'); window.liveSocket.disconnect() })

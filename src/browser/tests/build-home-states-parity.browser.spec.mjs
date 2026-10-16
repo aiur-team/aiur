@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { openParityPair, expectDesignParity, PARITY_VIEWPORTS, applyAllowlist } from '../support/design-parity.mjs'
 
+// Port guards preserve existing healthy markers and offline styling; degraded states are new coverage.
 test.setTimeout(90000)
 for (const viewport of PARITY_VIEWPORTS) for (const theme of ['light', 'dark']) for (const palette of ['aiur', 'gruvbox']) {
   for (const [dataset, sec] of [['newrepo', 'hist'], ['noqueue', 'plan']]) test(`empty marker parity ${dataset} ${viewport.viewport.width} ${theme} ${palette}`, async ({ browser }) => {
