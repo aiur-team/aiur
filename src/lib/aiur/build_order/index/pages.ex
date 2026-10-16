@@ -2,11 +2,16 @@ defmodule Aiur.BuildOrder.Index.Pages do
   @moduledoc false
   @blocks ~w(epics features order counts sources repo)a
 
-  @spec window(map(), String.t(), integer()) :: map()
-  def window(index, zone, now) do
-    {rows, history} = page(index, nil, zone, 2)
+  @spec base(map()) :: map()
+  def base(index) do
     sections = Map.new(~w(now plan nq)a, fn sec -> {sec, index.all |> Map.values() |> Enum.filter(&(&1.sec == Atom.to_string(sec))) |> Enum.sort_by(&{&1.ord, &1.id})} end)
-    index |> Map.take(@blocks) |> Map.merge(%{now: now, sections: Map.put(sections, :hist, rows), history: history})
+    index |> Map.take(@blocks ++ [:hist, :history_meta]) |> Map.put(:sections, sections)
+  end
+
+  @spec window(map(), String.t(), integer()) :: map()
+  def window(base, zone, now) do
+    {rows, history} = page(base, nil, zone, 2)
+    base |> Map.take(@blocks) |> Map.merge(%{now: now, sections: Map.put(base.sections, :hist, rows), history: history})
   end
 
   @spec earlier(map(), integer(), String.t(), integer()) :: {:ok, map()} | {:error, :invalid_params}

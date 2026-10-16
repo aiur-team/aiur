@@ -272,9 +272,10 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
         :ok
 
       # A CI-wait pause releases its reservation; other pauses retain one.
-      # In both cases, resume must wait if the active count is already at the
-      # cap (for example, after CI-wait capacity was filled by other work).
-      Slots.active_slots(state) >= Slots.max_concurrent_agent_limit(state) ->
+      # In both cases, resume must wait if active workers plus other reserved
+      # pauses already fill the cap (for example, after CI-wait capacity was
+      # filled by other work).
+      not Slots.resume_fleet_slot_available?(state, running_entry) ->
         {:error, :max_concurrent_agents_reached}
 
       not DispatchPolicy.state_slots_available?(Map.get(running_entry, :issue), state) ->

@@ -124,6 +124,13 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:escalate_executor_command, decision_id, payload}, timeout)
   end
 
+  @doc "Durably lets the Executor reclassify a human-required decision as answerable, with rationale."
+  @spec reclassify_authority(String.t(), map(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
+  def reclassify_authority(decision_id, payload, server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_map(payload) do
+    GenServer.call(server, {:reclassify_authority, decision_id, payload}, timeout)
+  end
+
   @doc "Durably dismisses an open Decision without recording an answer."
   @spec dismiss(String.t(), keyword(), GenServer.server(), timeout()) ::
           {:ok, map()} | {:error, term()}

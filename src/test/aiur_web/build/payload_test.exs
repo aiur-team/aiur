@@ -5,7 +5,7 @@ defmodule AiurWeb.Build.PayloadTest do
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   test "fixtures reach the full strict schema (future fixture guard)" do
-    for name <- ~w(live dense newrepo noqueue offline) do
+    for name <- ~w(live dense newrepo noqueue offline unknowns) do
       {:ok, data} = FixtureSource.full(dataset: name)
       assert Payload.validate(Payload.snapshot(data, "epoch", 0)) == :ok
     end

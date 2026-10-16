@@ -33,7 +33,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     assert {:error, _reason} = CiReadiness.fetch_required_checks(repo: "owner/repo", token: "test-gh-token", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
   end
 
-  test "PR workflow runs five fast jobs and the event gate produces the required check" do
+  test "PR workflow runs six fast jobs and the event gate produces the required check" do
     root = Path.expand("../../../../..", __DIR__)
     workflow = File.read!(Path.join(root, ".github/workflows/ci.yml"))
     parsed = YamlElixir.read_from_string!(workflow)
@@ -41,7 +41,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     assert Map.has_key?(parsed["on"], "merge_group")
     assert parsed["on"]["push"]["branches"] == ["main", "v2"]
     gate = "needs.changes.outputs.full_ci == 'true'"
-    fast = ~w(affected-tests changes ci-gate lint workflow-security)
+    fast = ~w(affected-tests changes ci-gate lint pre-handoff workflow-security)
     selected = for {id, job} <- parsed["jobs"], id != "quarantine", not String.contains?(Map.get(job, "if", ""), gate), do: id
     assert Enum.sort(selected) == fast
 

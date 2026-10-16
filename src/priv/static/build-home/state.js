@@ -51,7 +51,7 @@ export const fx = {
   spanToolsHTML: () => '', wireSpanTools() {}, renderStatus() {},
   daemonView: () => ({ dotOff: true, dotText: 'Daemon status unknown' }),
   renderLoading() {}, renderUnavailable: defaultUnavailable, dataChanged: defaultDataChanged,
-  drawEdgesSoon() {}, openFromURL() {}, flushLive() {}, renderHeads() {},
+  drawEdgesSoon() {}, tickCardAges() {}, openFromURL() {}, flushLive() {}, renderHeads() {},
   makeCard: it => { const el = document.createElement('div'); el.className = 'bd-card'; el.dataset.id = it.t.id; el.tabIndex = -1; el._it = it; return el; },
   visibleCols: () => [], applyCols() {}, scheduleCols() {},
   drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
