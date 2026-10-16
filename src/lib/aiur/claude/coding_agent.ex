@@ -287,8 +287,11 @@ defmodule Aiur.Claude.CodingAgent do
 
   @impl Aiur.AppServer.Adapter
   @doc false
-  @spec handle_interrupt_error(map(), term()) :: {:error, term()}
-  def handle_interrupt_error(_state, error), do: {:error, {:turn_interrupt_failed, error}}
+  @spec handle_interrupt_error(map(), term()) ::
+          {:ok, :turn_completed} | {:paused, map()} | {:continue, map()} | {:error, term()}
+  # aiur-claude answers "No active turn to interrupt." when the turn ended first;
+  # that is a pause boundary, not a worker failure (#4696).
+  defdelegate handle_interrupt_error(state, error), to: Aiur.Codex.Interrupts
 
   @impl Aiur.AppServer.Adapter
   @doc false
