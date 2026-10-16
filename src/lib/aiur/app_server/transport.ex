@@ -13,6 +13,17 @@ defmodule Aiur.AppServer.Transport do
   def close(port) when is_port(port), do: Port.close(port)
   def close(pid) when is_pid(pid), do: relay_call(pid, :close)
 
+  @doc """
+  Kills processes the relay adopted because their launcher exited: tool
+  commands that left the provider's session (#4730). The direct Port has
+  no subreaper, so it has nothing to reap.
+  """
+  @spec reap_orphans(t()) :: :ok
+  def reap_orphans(port) when is_port(port), do: :ok
+
+  # A cast: turn boundaries must never wait on, or crash with, the relay.
+  def reap_orphans(pid) when is_pid(pid), do: GenServer.cast(pid, :reap_orphans)
+
   @spec os_pid(t()) :: {:os_pid, pos_integer()} | nil
   def os_pid(port) when is_port(port), do: Port.info(port, :os_pid)
 
