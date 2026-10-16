@@ -85,7 +85,7 @@ defmodule Aiur.Orchestrator.PauseResume.ControlRequest do
   def submit_resume_control_request(%State{} = state, running_entry, requester, request_id \\ nil) do
     if Map.get(running_entry, :control, %{}) |> Map.get(:status, :working) == :paused do
       cond do
-        Slots.active_slots(state) >= Slots.max_concurrent_agent_limit(state) ->
+        not Slots.resume_fleet_slot_available?(state, running_entry) ->
           {{:error, :max_concurrent_agents_reached}, state}
 
         not DispatchPolicy.state_slots_available?(Map.get(running_entry, :issue), state) ->
