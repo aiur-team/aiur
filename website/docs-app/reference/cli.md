@@ -112,13 +112,13 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur units` | Reads the Dashboard Units projection. Choose `--scope live\|unfinished\|all\|none`, repeat `--condition active\|alert\|paused\|queued\|finished` (`queued` means waiting for dispatch or retry, unrelated to `agent:queued` membership), choose `--format auto\|table\|records`, or add `--json`. | `aiur units --scope unfinished --condition active` |
 | `aiur units --condition alert` | Repeats to require any of the selected Unit conditions. | `aiur units --condition alert --condition paused` |
 | `aiur units --format records` | Chooses `auto`, `table`, or line-oriented `records` output. | `aiur units --format records` |
-| `aiur watch` | Shows changed fleet rows by default. | `aiur watch` |
+| `aiur watch [--changes]` | Shows changed fleet rows by default; `--changes` makes that default explicit. | `aiur watch --changes` |
 | `aiur watch --full` | Prints all fleet rows. | `aiur watch --full` |
-| `aiur watch --changes` | Makes the changed-rows default explicit. | `aiur watch --changes` |
 | `aiur watch --once` | Requests the one-shot form. | `aiur watch --once` |
 | `aiur watch --interval 5` | Re-renders until interrupted. The interval must be a positive number of seconds. | `aiur watch --interval 5` |
 | `aiur alerts` | Shows every open attention item plus the latest 100 other retained alerts, oldest first, with an `event: "alert_feed_truncated"` JSON notice when older rows are omitted. `--limit <n>` (positive integer) changes that cap; `--all` removes it. Repeated active attentions carry the latest event’s `timestamp` and text; `first_seen_at` retains the opening time. | `aiur alerts` |
 | `aiur alerts --needs-attention` | Filters to unresolved alerts requiring Executor action. Never truncated. | `aiur alerts --needs-attention` |
+| `aiur executor-sweep [--json] [--apply]` | Lists prioritized findings from local daemon and cached GitHub state. `--apply` reports any applied safe action; findings that need operator judgement remain recommendations. | `aiur executor-sweep --json` |
 | `aiur set max-agents 6` | Changes the live session cap without editing config. The new cap applies to live state at once (`status` reflects it), and a raise pulls the next scheduled dispatch cycle forward without crossing the GitHub poll floor. Lower or unchanged caps keep the cadence. It does not rewrite the next launch's config; a restart drops it, and `aiur status` then shows the ceiling as `config max_concurrent_agents` rather than as the operator's last command. | `aiur set max-agents 6` |
 | `aiur pause` | Turns on the global pause switch. It stops new provisioning and cooperatively holds the fleet. The switch is persisted with its source and survives restart; a failed persisted-state read starts paused. | `aiur pause` |
 | `aiur resume` | Turns off that global switch. Lifting the pause schedules a prompt poll, so a ramp resumes dispatch within one base interval rather than waiting out the idle poll backoff. | `aiur resume` |

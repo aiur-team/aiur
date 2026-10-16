@@ -216,6 +216,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :idle_poll_backoff,
       :poll_interval_ms,
       :retry_attempts,
+      :rework_attempts,
       :auto_resume,
       :released_claims,
       :running,

@@ -176,6 +176,10 @@ if config_env() == :test do
   # Tests that exercise it start their own instance.
   config :aiur, :run_telemetry_facts_capture?, false
 
+  # The shared app's Executor sweep must not read daemon state or enqueue wakes
+  # across test boundaries. Tests start their own instance with an interval.
+  config :aiur, :executor_sweep_interval_ms, 0
+
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.
   config :aiur, :build_order_pack_status_poll?, false

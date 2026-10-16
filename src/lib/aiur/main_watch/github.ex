@@ -3,6 +3,8 @@ defmodule Aiur.MainWatch.GitHub do
   alias Aiur.CI.FailureDigest
   alias Aiur.GitHub.{AppCredentials, AppToken, Config, Errors, PullRequests, Transport}
 
+  @active_statuses ["queued", "in_progress", "waiting", "requested", "pending"]
+
   @spec poll(String.t(), [String.t()], keyword()) :: {:ok, map()} | {:error, term()}
   def poll(branch, workflows, opts \\ []) do
     poll_once(branch, workflows, opts)
@@ -13,9 +15,9 @@ defmodule Aiur.MainWatch.GitHub do
          {:ok, token} <- Transport.require_token(opts),
          {:ok, commit_window} <- commits(owner, repo, branch, token, opts),
          {commits, dates} = commit_window,
-         {:ok, runs} <- runs(owner, repo, branch, commits, dates, workflows, token, opts),
+         {:ok, {runs, merge_groups}} <- runs(owner, repo, branch, commits, dates, workflows, token, opts),
          {:ok, observations} <- observations(commits, runs, workflows, opts) do
-      {:ok, %{observations: observations, runs: runs, commits: commits, actions_write: Keyword.get_lazy(opts, :actions_write, fn -> actions_write?(opts) end)}}
+      {:ok, %{observations: observations, runs: runs, merge_groups: merge_groups, commits: commits, actions_write: Keyword.get_lazy(opts, :actions_write, fn -> actions_write?(opts) end)}}
     end
   end
 
@@ -88,7 +90,9 @@ defmodule Aiur.MainWatch.GitHub do
     with {:ok, push_runs} <- runs_page(url, token, dates, opts),
          {:ok, queue_runs} <- runs_page(queue_url, token, dates, opts) do
       runs = push_runs ++ Enum.filter(queue_runs, &(&1["event"] == "merge_group"))
-      {:ok, runs |> Enum.filter(&watched?(&1, commits, branch, workflows)) |> Enum.map(&normalize/1) |> Enum.sort_by(& &1.id, :desc)}
+      # Active queue runs are reported for the sweep only; they never count as main coverage.
+      merge_groups = Enum.filter(runs, &(queue_run?(&1, branch, workflows) and &1["status"] in @active_statuses))
+      {:ok, {runs |> Enum.filter(&watched?(&1, commits, branch, workflows)) |> sort_normalized(), sort_normalized(merge_groups)}}
     end
   end
 
@@ -117,12 +121,17 @@ defmodule Aiur.MainWatch.GitHub do
   end
 
   defp watched?(run, commits, branch, workflows) do
-    branch_event? =
-      (run["event"] == "push" and run["head_branch"] == branch) or
-        (run["event"] == "merge_group" and is_binary(run["head_branch"]) and String.starts_with?(run["head_branch"], "gh-readonly-queue/#{branch}/"))
+    branch_event? = (run["event"] == "push" and run["head_branch"] == branch) or queue_branch?(run, branch)
 
     run["head_sha"] in commits and branch_event? and (workflows == [] or run["name"] in workflows)
   end
+
+  defp queue_run?(run, branch, workflows), do: queue_branch?(run, branch) and (workflows == [] or run["name"] in workflows)
+
+  defp queue_branch?(run, branch),
+    do: run["event"] == "merge_group" and is_binary(run["head_branch"]) and String.starts_with?(run["head_branch"], "gh-readonly-queue/#{branch}/")
+
+  defp sort_normalized(runs), do: runs |> Enum.map(&normalize/1) |> Enum.sort_by(& &1.id, :desc)
 
   defp normalize(run),
     do: %{
@@ -133,6 +142,9 @@ defmodule Aiur.MainWatch.GitHub do
       status: run["status"],
       conclusion: run["conclusion"],
       attempt: run["run_attempt"] || 1,
+      event: run["event"],
+      head_branch: run["head_branch"],
+      started_at: timestamp(run["created_at"]),
       completed_at: timestamp(run["updated_at"]),
       url: run["html_url"]
     }
