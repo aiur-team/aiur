@@ -68,12 +68,14 @@ export function relayout({ live = false } = {}) {
   ctx.content.classList.toggle('flow', S.flow);
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
+  const previousDetail = ctx.L?.det;
   ctx.L = computeLayout(ctx.D, S, { vpW: ctx.vp.clientWidth, vpH: ctx.vp.clientHeight, gut: gutW() }, ctx.snap.sources);
+  const detailChanged = previousDetail !== ctx.L.det;
   ctx.svg.setAttribute('height', 0);
   ctx.vp.style.setProperty('--dot', dotSize(S.span));
   for (const [uid, el] of ctx.R) {
     const id = el.dataset.id;
-    if (!live || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
+    if (!live || detailChanged || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
     else noanim(el);
   }
   ctx.RL.forEach(el => el.remove()); ctx.RL.clear();
