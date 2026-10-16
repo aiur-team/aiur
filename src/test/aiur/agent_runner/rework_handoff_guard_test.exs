@@ -105,4 +105,41 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
     assert_receive {:state_write, "gid-rework-moved", "human-review"}, 100
     refute_received :unexpected_alert
   end
+
+  test "ci-wait and human-review handoffs fail until the PR body names the live head" do
+    head = String.duplicate("c", 40)
+    base = String.duplicate("d", 40)
+    issue = %Issue{id: "gid-evidence", identifier: "4611", state: "in-progress"}
+    test_pid = self()
+
+    # The first `aiur pre-pr` ran before `gh pr create`, so the body still holds a placeholder head.
+    stale = "## Local tests\n\nPolicy: partial\nTested head: #{String.duplicate("a", 40)}\nBase: main @ #{base}\nSelection: focused\n- `mix test` -> pass\n"
+    fresh = String.replace(stale, "Tested head: " <> String.duplicate("a", 40), "Tested head: " <> head)
+
+    executor = fn body ->
+      ToolExecutor.build(issue, nil, nil, %{},
+        coordination_runner: fn _key, operation, _opts -> operation.() end,
+        ticket_state_writer: fn issue_id, state ->
+          send(test_pid, {:state_write, issue_id, state})
+          :ok
+        end,
+        open_pr_fetcher: fn "4611" -> {:ok, %{"number" => 4622, "body" => body, "head" => %{"sha" => head}}} end
+      )
+    end
+
+    for state <- ["ci-wait", "human-review"] do
+      response = executor.(stale).("aiur_set_ticket_state", %{"state" => state})
+      refute response["success"]
+      error = Jason.decode!(response["output"])["error"]
+      assert error["reason"] == "stale_pr_body_evidence"
+      assert error["message"] =~ "Run `aiur pre-pr` again after `gh pr create`"
+      refute_received {:state_write, _, _}
+    end
+
+    backticked = String.replace(fresh, "Tested head: " <> head, "Tested head: `#{head}`")
+    refute executor.(backticked).("aiur_set_ticket_state", %{"state" => "ci-wait"})["success"]
+
+    assert executor.(fresh).("aiur_set_ticket_state", %{"state" => "ci-wait"})["success"]
+    assert_receive {:state_write, "gid-evidence", "ci-wait"}, 100
+  end
 end

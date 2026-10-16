@@ -11,8 +11,8 @@
 # reveals whether parallelism is real.
 #
 # Invoked detached by `scripts/aiur` after a successful --test3 reset.
-# A PID file at `.aiur-test3-timer.pid` lets the next --test3 run
-# kill any in-flight poller before starting a new one.
+# A PID file at `.aiur-test3-timer.pid` lets both the next --test3 run and
+# `aiurdev stop` kill any in-flight poller before leaving the sandbox.
 set -euo pipefail
 
 repo_root="${1:?repo_root required}"
