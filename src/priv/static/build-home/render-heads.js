@@ -5,7 +5,7 @@ import { nowMs } from './clock.js';
 import { esc } from './dom.js';
 import { fmtD } from './util.js';
 
-export function headHTML(D, history, sources, from, state = 'idle') {
+export function headHTML(D, history, sources, from, state = 'idle', compact = false) {
   const hc = history.more ? history.total : D.hist.length, shown = D.hist.filter(x => x.end >= from).length;
   const total = Number.isInteger(hc) ? hc.toLocaleString() : null;
   const available = ['ok', 'stale', 'incomplete'].includes(sources?.history?.state);
@@ -26,13 +26,14 @@ export function headHTML(D, history, sources, from, state = 'idle') {
     const filtered = D[sec].filter(row => !S.f?.epic?.length || S.f.epic.includes(row.epic || 'unsorted'));
     const st = sectionState({ sources }, D, history, sec, filtered), note = headNote(sec, st, nowMs());
     if (!note) continue;
+    const suffix = compact ? '<br>' + esc(note).replace(', showing the ', ', showing<br> the ') : esc(note);
     heads[sec] = heads[sec].replace(/<em>(.*?)<\/em>/, (_match, text) => '<em>' +
-      (['unavailable', 'incomplete', 'disabled'].includes(st.show) ? esc(note) : text + ' · ' + esc(note)) + '</em>');
+      (['unavailable', 'incomplete', 'disabled'].includes(st.show) ? esc(note) : text + ' · ' + suffix) + '</em>');
   }
   return heads;
 }
 export function renderHeads() {
   if (!ctx.D || !ctx.secs.hist) return;
-  const heads = headHTML(ctx.D, H, ctx.snap.sources, S.histFrom, H.state);
+  const heads = headHTML(ctx.D, H, ctx.snap.sources, S.histFrom, H.state, ctx.root.clientWidth < 640);
   for (const sec of Object.keys(heads)) ctx.secs[sec].head.innerHTML = heads[sec];
 }
