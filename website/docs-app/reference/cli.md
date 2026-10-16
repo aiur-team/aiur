@@ -20,9 +20,9 @@ Global launches require Issues write access; conflicting repos fail. Omit `track
 | --- | --- | --- |
 | Start or attach | `aiur`, `aiur run` | Bare `aiur` attaches to this repository's live session when one exists; otherwise foreground gives the TUI board and chat panes. Background is headless unless launched with `--interactive`. |
 | Inspect live state | `status`, `agents`, `watch`, `alerts`, `usage`, `github-cost`, `github-usage` | Read-only reports from the running daemon. |
-| Operate the fleet | `set max-agents`, `pause`, `resume`, `park`, `message`, `reset-budget`, `workspace-recover`, `stop`, `restart` | Steers a live run and recovers an exactly identified workspace hold after the daemon proves provider exit. `park <ids>` releases a paused reservation; explicit resume clears its marker under capacity checks. |
+| Operate the fleet | `set max-agents`, `pause`, `resume`, `park`, `message`, `reset-budget`, `workspace-recover`, `stop`, `restart` | Steers a live run, recovers identified workspace holds, and manages paused reservations. |
 | Mirror a dashboard page | `units`, `commands`, `build-orders`, `queue show`, `analytics` | Read-only terminal forms of the dashboard pages. |
-| Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-reclassify`, `executor-moot`, `executor-emit`, `listen`, `findings`, `feature`, `epic` | Decision inbox, Executor events, and findings ledger. |
+| Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-reclassify`, `executor-moot`, `executor-emit`, `listen`, `findings`, `feature`, `epic` | Decision inbox, Executor actions, and findings ledger. |
 
 Background mode is the shape that matters for an agent Executor. `aiur --bg` starts the daemon with no board and no panes, the dashboard stays up, and every command below reads and writes the same live state through that detached daemon.
 
@@ -497,5 +497,4 @@ Gates cover head, draft, approval, requested changes, CI, conflicts, attribution
 A merge-queue rule reports `ENQUEUED`, never a direct merge; rerun after GitHub merges to record the result. Exit codes: `0` merged, enqueued, observed merged or dry run; `2` policy refusal; `1` tool/network error. Records, logs: `~/.aiur/logs/pr-merge/`. Only observed merges notify `system.pr.merged`, daemon-verified. Ledger/notification failures only warn.
 
 ## Offline experiment statistics
-
-`analytics/experiment-stats --experiment-dir DIR [--check] [--now TIME]` analyzes frozen experiment JSON. `--check` verifies the computed result body; `--now` overrides its external timestamp. See [Experiment statistics](./experiment-statistics) for inputs, methods, defaults and exit codes.
+`analytics/experiment-stats --experiment-dir DIR [--check] [--now TIME]` analyzes frozen experiment JSON. `--check` verifies the result; `--now` overrides its timestamp. See [Experiment statistics](./experiment-statistics).
