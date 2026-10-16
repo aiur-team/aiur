@@ -166,10 +166,9 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 
 ### Restart semantics
 
-Save `aiurdev agents --json`, run `aiurdev restart --keep-agents`, then inspect `aiurdev status --handoff --json`; each issue must be adopted with matching PIDs and sessions or have a fallback reason.
-
 | Restart case | Result |
 | --- | --- |
+| Keep-agents verification | Save `aiurdev agents --json`, run `aiurdev restart --keep-agents`, then inspect `aiurdev status --handoff --json`; each issue must be adopted with matching PIDs and sessions or have a fallback reason. |
 | Installed `aiur` | Bounces the pinned release without building. |
 | Development release | Refreshes between stop and start, then boots current code. |
 | Daemon already stopped | Starts it. |
@@ -498,7 +497,4 @@ A merge-queue rule reports `ENQUEUED`, never a direct merge; rerun after GitHub 
 
 ## Offline experiment statistics
 
-`analytics/experiment-stats --experiment-dir DIR [--check] [--now TIME]` analyzes
-frozen experiment JSON. `--check` verifies the computed result body; `--now`
-overrides its external timestamp. See [Experiment statistics](./experiment-statistics)
-for inputs, methods, defaults and exit codes.
+`analytics/experiment-stats --experiment-dir DIR [--check] [--now TIME]` analyzes frozen experiment JSON. `--check` verifies the computed result body; `--now` overrides its external timestamp. See [Experiment statistics](./experiment-statistics) for inputs, methods, defaults and exit codes.
