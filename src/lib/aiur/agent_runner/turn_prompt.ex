@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.TurnPrompt do
   @moduledoc false
 
-  alias Aiur.AgentRunner.OptimisticPrompt
+  alias Aiur.AgentRunner.{OptimisticPrompt, ReworkFindings}
   alias Aiur.{Issue, PromptBuilder}
 
   defp turn_of(nil), do: ""
@@ -172,14 +172,23 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     """
 
     continuation <>
+      review_findings_section(issue, opts, reason) <>
       "\nTicket operating contract and context follow. Use them for identity, lifecycle, and repository rules; the continuation guidance above supersedes their generic cold-start phase order.\n\n" <>
       PromptBuilder.build_prompt(issue, opts)
   end
 
-  defp continuation_headline(:rework), do: "this issue is in rework"
+  # #4654: the findings the handback gate checks, so the worker answers the same ids. Unreadable reviews add nothing.
+  defp review_findings_section(issue, opts, :rework) do
+    case ReworkFindings.fetch(issue.identifier, opts) do
+      {:ok, %{findings: findings}} -> ReworkFindings.prompt_section(findings)
+      {:error, _reason} -> ""
+    end
+  end
 
-  defp continuation_headline(:prior_work),
-    do: "this agent run continues prior work on this ticket"
+  defp review_findings_section(_issue, _opts, :prior_work), do: ""
+
+  defp continuation_headline(:rework), do: "this issue is in rework"
+  defp continuation_headline(:prior_work), do: "this agent run continues prior work on this ticket"
 
   defp continuation_why(:rework),
     do: "This ticket was already brainstormed, planned, and implemented in a prior run; it is back in `rework` only to address review feedback."
@@ -190,7 +199,6 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   defp continuation_orientation(:rework),
     do:
       "Read the existing `## Agent Workpad`, the latest Executor rework comment on the ticket, and the failing required checks on the PR's current head, then make the requested changes. " <>
-        "Before editing, turn every review finding into a numbered checklist item with its file and line plus a one-line ask. In the workpad, mark each item `fixed` with the commit SHA or `disputed` with concrete evidence. Include this completed checklist in the re-review handoff. " <>
         "Treat the ticket comment and failing checks as rework instructions even when the PR is approved and has no open review threads. " <>
         "If every finding is already addressed, there is nothing to rework: say so in the workpad, reply on the threads that are already satisfied, and end the turn. " <>
         "Do NOT push a commit to prove liveness — a merge of the base with no substantive change is not progress, and on a branch ruleset that dismisses stale approvals the push destroys the very approval that would have released the ticket (#1756)."

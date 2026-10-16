@@ -15,9 +15,7 @@ defmodule Aiur.AgentTools.TicketStateTest do
         TicketState.execute(
           "aiur_set_ticket_state",
           %{"state" => "human-review"},
-          ticket_state_setter: fn state, findings ->
-            {:ok, %{state: state, findings: findings}}
-          end
+          ticket_state_setter: fn state, nil -> {:ok, %{state: state}} end
         )
 
       assert response["success"] == true
@@ -77,9 +75,7 @@ defmodule Aiur.AgentTools.TicketStateTest do
         TicketState.execute(
           "aiur_set_ticket_state",
           %{"state" => "ci-wait"},
-          ticket_state_setter: fn _state, _findings ->
-            {:error, {:stale_issue_state, "ci-wait", "rework"}}
-          end
+          ticket_state_setter: fn _state, _findings -> {:error, {:stale_issue_state, "ci-wait", "rework"}} end
         )
 
       assert response["success"] == false
@@ -99,13 +95,6 @@ defmodule Aiur.AgentTools.TicketStateTest do
       spec = Enum.find(Dispatch.tool_specs(), &(&1["name"] == "aiur_set_ticket_state"))
 
       assert spec["inputSchema"]["required"] == ["state"]
-
-      assert spec["inputSchema"]["properties"]["review_findings"]["items"]["required"] == [
-               "id",
-               "file",
-               "status"
-             ]
-
       assert spec["description"] =~ "ONLY"
 
       response =

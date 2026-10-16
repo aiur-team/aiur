@@ -54,18 +54,18 @@ defmodule Aiur.AgentTools.TicketState do
       },
       "review_findings" => %{
         "type" => "array",
-        "description" => "For rework handoff, include every review finding with id, file, status, commit, and evidence. Status must be fixed or disputed.",
+        "description" =>
+          "Rework handback only: one answer per finding in the rework prompt's review findings checklist. " <>
+            "`fixed` names the commit that changes the finding's file; `disputed` gives concrete evidence.",
         "items" => %{
           "type" => "object",
-          "required" => ["id", "file", "status"],
+          "required" => ["id", "status"],
           "properties" => %{
-            "id" => %{"type" => "string"},
-            "file" => %{"type" => "string"},
+            "id" => %{"type" => "string", "description" => "The finding's number from the checklist, e.g. `3`."},
             "status" => %{"type" => "string", "enum" => ["fixed", "disputed"]},
-            "commit" => %{"type" => "string"},
-            "evidence" => %{"type" => "string"}
-          },
-          "additionalProperties" => false
+            "commit" => %{"type" => "string", "description" => "Commit SHA (at least 7 characters) for a `fixed` finding."},
+            "evidence" => %{"type" => "string", "description" => "Why a `disputed` finding needs no change."}
+          }
         }
       }
     }
@@ -89,16 +89,12 @@ defmodule Aiur.AgentTools.TicketState do
 
   @impl true
   @spec execute(String.t(), term(), keyword()) :: map()
-  def execute("aiur_set_ticket_state", arguments, opts) when is_map(arguments) do
+  def execute("aiur_set_ticket_state", arguments, opts) do
     setter = Keyword.get(opts, :ticket_state_setter)
 
     with {:ok, state} <- normalize_state(arguments),
          true <- is_function(setter, 2) || {:error, :ticket_state_setter_unavailable},
-         {:ok, result} <-
-           setter.(
-             state,
-             Map.get(arguments, "review_findings", Map.get(arguments, :review_findings))
-           ) do
+         {:ok, result} <- setter.(state, review_findings(arguments)) do
       Response.build(
         true,
         Jason.encode!(
@@ -112,8 +108,8 @@ defmodule Aiur.AgentTools.TicketState do
     end
   end
 
-  def execute("aiur_set_ticket_state", _arguments, _opts),
-    do: Response.failure(Errors.payload(:invalid_ticket_state))
+  defp review_findings(arguments) when is_map(arguments), do: Map.get(arguments, "review_findings") || Map.get(arguments, :review_findings)
+  defp review_findings(_arguments), do: nil
 
   @spec agent_settable_states() :: [String.t()]
   def agent_settable_states, do: @agent_settable_states
