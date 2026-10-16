@@ -44,7 +44,7 @@ test('sources-only diff keeps rows and changes freshness without moving the anch
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-states', 'queue:unavailable')
   const after = await page.evaluate(() => ({ same: oldCard.isConnected, top: oldCard.getBoundingClientRect().top }))
   expect(after.same).toBe(true); expect(after.top).toBeCloseTo(before, 0)
-  await page.evaluate(async () => { const { ctx } = await import('/build-home/state.js'); await ctx.resync() })
+  expect((await page.request.get('/build-control/diff?name=sources-ok')).ok()).toBe(true)
   await expect(page.locator('#bd-sec-plan .bd-sech')).not.toContainText('unavailable')
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-states', '')
 })

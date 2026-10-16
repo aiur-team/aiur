@@ -34,6 +34,10 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
     %{now: data["now"], upsert: [], remove: [], set: set, resync: false}
   end
 
+  defp diff_changes(data, %{"name" => "sources-ok"}) do
+    %{now: data["now"], upsert: [], remove: [], set: %{"sources" => data["sources"]}, resync: false}
+  end
+
   defp diff_changes(data, params) do
     %{now: data["now"], upsert: [change_row(data, params)], remove: [], set: %{}, resync: false}
   end
