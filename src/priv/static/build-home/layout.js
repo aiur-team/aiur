@@ -17,7 +17,8 @@ export function measureFlow(D, dims) {
   const nEst = Math.max(4, new Set([...D.now, ...D.plan].map(colKey)).size);
   return { flow: avail / nEst < 62, K: Math.max(2, Math.floor(avail / 140)) };
 }
-export const crowded = (dims, n) => (dims.vpW - dims.gut - 14) / n < 62;
+// The design's 62 px lane minimum, measured on the lane applyCols draws (16 px gaps between lanes).
+export const crowded = (dims, n) => (dims.vpW - dims.gut - 14 - 16 * (n - 1)) / n < 62;
 export const fwdLanes = (D, S) => new Set([...D.plan, ...D.nq].filter(t => !S.f.epic.length || S.f.epic.includes(colKey(t))).map(colKey));
 // Most columns visibleCols can draw at any scroll position of an unflowed layout: the lanes of
 // every history day a viewport of height `span` touches, plus the forward set past history (#4769).

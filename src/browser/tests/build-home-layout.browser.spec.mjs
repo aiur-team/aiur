@@ -69,7 +69,7 @@ test('lane count follows the packed day columns (#4769)', async ({ page }) => {
     D.plan = [{ epic: 'x' }, { epic: 'a' }]
     const L = run(D), fwd = layout.fwdLanes(D, state), all = L.secs.hist.h + 1000
     return [layout.laneMax(L, new Set(), 1), layout.laneMax(L, new Set(), all), layout.laneMax(L, fwd, all), [...layout.fwdLanes(D, { f: { epic: ['x'] } })],
-      layout.crowded({ vpW: 1440, gut: 84 }, 22), layout.crowded({ vpW: 1440, gut: 84 }, 21)]
+      layout.crowded({ vpW: 1440, gut: 84 }, 18), layout.crowded({ vpW: 1440, gut: 84 }, 17)]
   })).toEqual([12, 14, 15, ['x'], true, false])
 })
 test('zero viewport', async ({ page }) => {
