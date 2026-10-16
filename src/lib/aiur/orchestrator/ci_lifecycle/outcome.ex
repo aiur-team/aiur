@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   """
 
   alias Aiur.Events.GithubCIPoller
+  alias Aiur.GitHub.CIRecovery
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Poll
@@ -55,6 +56,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
   defp apply_ci_poll_result(state, issue, %{decision: :failed} = result) do
     cond do
+      approved_landing_pr?(issue, result, result[:ci_recovery_opts] || []) ->
+        Logger.info("CI failure did not reopen approved landing PR: #{State.issue_context(issue)}")
+        state
+
       human_review_ci_replay?(state, issue, result) ->
         log_replayed_human_review_ci_failure(issue, result)
 
@@ -76,6 +81,33 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   end
 
   defp apply_ci_poll_result(state, _issue, _result), do: state
+
+  # CI repair is for a failing head that still needs work. Once that exact head
+  # is approved and GitHub has auto-merge armed or placed it in the merge queue,
+  # a failure must not route the ticket back to rework (#4631). Require a fresh,
+  # exact-head observation; an unavailable read leaves the existing state alone.
+  defp approved_landing_pr?(
+         %Issue{state: issue_state},
+         %{pr_number: number, head_sha: head_sha},
+         opts
+       )
+       when is_integer(number) and is_binary(head_sha) do
+    if CiLifecycle.ci_wait_state?(issue_state) do
+      observer = Keyword.get(opts, :approved_landing_observer, &CIRecovery.observe/2)
+
+      case observer.(number, Keyword.drop(opts, [:approved_landing_observer])) do
+        {:ok, %{"state" => "OPEN", "headRefOid" => ^head_sha, "reviewDecision" => "APPROVED"} = pr} ->
+          is_map(Map.get(pr, "mergeQueueEntry")) or is_map(Map.get(pr, "autoMergeRequest"))
+
+        _ ->
+          false
+      end
+    else
+      false
+    end
+  end
+
+  defp approved_landing_pr?(_issue, _result, _opts), do: false
 
   defp transition_ci_pass(state, issue, result) do
     if LifecycleFence.handoff_blocked?(state, issue) do
@@ -114,19 +146,47 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   def recover_ci_poll_result(state, issue, result, opts) do
     result = Map.put(result, :ci_recovery_opts, opts)
 
-    if CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and
-         (result[:decision] == :failed or result[:pending_reason] == :ci_cancelled or
-            (result[:decision] == :pending and GithubCIPoller.attention_hold?(state.ci_lifecycle.poll_cache[CiLifecycle.ci_target_for_issue(issue)]))) and
-         is_integer(result[:pr_number]) and not Issue.paused?(issue) and not LifecycleFence.handoff_blocked?(state, issue) do
-      recovery = Keyword.get(opts, :ci_recovery, &GithubCIPoller.recover_failure/3)
+    cond do
+      approved_landing_pr?(issue, result, opts) ->
+        Logger.info("CI failure did not reopen approved landing PR: #{State.issue_context(issue)}")
+        state
 
-      Poll.run_ci_effect(state, issue, "ci_recovery", fn -> recovery.(issue, result, opts) end, fn current, recovered ->
-        recovered = GithubCIPoller.complete_recovery(issue, result, recovered, opts)
-        current |> ResultProjection.stash_last_ci_result(issue, recovered) |> apply_ci_poll_result(issue, recovered)
-      end)
-    else
-      apply_ci_poll_result(state, issue, result)
+      ci_recovery_required?(state, issue, result) ->
+        run_ci_recovery(state, issue, result, opts)
+
+      true ->
+        apply_ci_poll_result(state, issue, result)
     end
+  end
+
+  defp ci_recovery_required?(state, issue, result) do
+    ci_failure_or_hold?(state, issue, result) and is_integer(result[:pr_number]) and
+      not Issue.paused?(issue) and not LifecycleFence.handoff_blocked?(state, issue)
+  end
+
+  defp ci_failure_or_hold?(state, issue, result) do
+    CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and
+      (result[:decision] == :failed or result[:pending_reason] == :ci_cancelled or
+         (result[:decision] == :pending and
+            GithubCIPoller.attention_hold?(state.ci_lifecycle.poll_cache[CiLifecycle.ci_target_for_issue(issue)])))
+  end
+
+  defp run_ci_recovery(state, issue, result, opts) do
+    recovery = Keyword.get(opts, :ci_recovery, &GithubCIPoller.recover_failure/3)
+
+    Poll.run_ci_effect(
+      state,
+      issue,
+      "ci_recovery",
+      fn -> recovery.(issue, result, opts) end,
+      fn current, recovered ->
+        recovered = GithubCIPoller.complete_recovery(issue, result, recovered, opts)
+
+        current
+        |> ResultProjection.stash_last_ci_result(issue, recovered)
+        |> apply_ci_poll_result(issue, recovered)
+      end
+    )
   end
 
   defp retryable_test_failure?(_state, _issue, %{ci_recovery_checked: true}), do: false

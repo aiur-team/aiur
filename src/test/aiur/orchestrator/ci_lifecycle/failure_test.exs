@@ -57,6 +57,46 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       assert event.message =~ "CI failed: lint, coverage"
     end
 
+    test "failing CI does not dispatch an approved current head that is queued or auto-merging" do
+      identifier = unique_identifier("ci-approved-queued")
+      recorder = start_recorder()
+      issue = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      next =
+        poll_ci(
+          state,
+          issue,
+          %{
+            decision: :failed,
+            head_sha: "approved-head",
+            pr_number: 942,
+            failures: [%{name: "lint", result: "failure"}]
+          },
+          ci_recovery: fn _issue, result, _opts -> result end,
+          approved_landing_observer: fn 942, _opts ->
+            {:ok,
+             %{
+               "state" => "OPEN",
+               "headRefOid" => "approved-head",
+               "reviewDecision" => "APPROVED",
+               "mergeQueueEntry" => %{"id" => "queue-entry"}
+             }}
+          end
+        )
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _, {:tracker_update, ^identifier, "rework", _}}
+      refute_received {:recorded, _, {:resume_agent, _, _}}
+      assert next.running[identifier].issue.state == "ci-wait"
+      assert next.running[identifier].paused_reason == :ci_wait
+    end
+
     test "a head that actually passed CI reworks on a later failure after handoff and reload" do
       identifier = unique_identifier("ci-failed-human-review")
       topic = "ticket.#{identifier}.ci.failed"
