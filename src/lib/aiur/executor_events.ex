@@ -12,13 +12,13 @@ defmodule Aiur.ExecutorEvents do
   alias Aiur.Decision
   alias Aiur.Events.Exchange
   alias Aiur.Events.IdGenerator
+  alias Aiur.Events.Journal
   alias Aiur.Events.Publisher
   alias Aiur.Events.Sanitizer
   alias Aiur.Events.Topic
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorWakeProjection
-  alias Aiur.Journal
   alias Aiur.JSONSafe
   alias Aiur.JsonStore
   alias Aiur.Signal
@@ -447,17 +447,13 @@ defmodule Aiur.ExecutorEvents do
   defp replay_validator(_event), do: {:error, :invalid_executor_event}
 
   defp journal_events do
-    case Journal.replay(journal_path(), &replay_validator/1) do
-      {:ok, events, nil} ->
-        {:ok, events}
-
-      {:ok, _events, {:corrupt, line, reason}} ->
-        report_corruption(line, reason)
-        {:error, {:corrupt, line, reason}}
-
-      {:error, reason} ->
+    case Journal.replay(journal_path(), &replay_validator/1, on_corrupt: &report_corruption/2) do
+      {:error, {:journal_unavailable, reason}} = error ->
         Logger.error("aiur_executor_events phase=journal_unavailable reason=#{inspect(reason)}")
-        {:error, {:journal_unavailable, reason}}
+        error
+
+      result ->
+        result
     end
   end
 
