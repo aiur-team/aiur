@@ -18,7 +18,7 @@ export function discoverSuites(root = browserRoot) {
     .sort()
 }
 
-// ponytail: FNV-1a of the name spreads suites without timings; switch to recorded timings once #4667 lands.
+// ponytail: FNV-1a of the name spreads suites without timings; switch to recorded timings once a discovered suite has one.
 export function suiteShard(name, count) {
   let hash = 0x811c9dc5
   for (const char of name) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0

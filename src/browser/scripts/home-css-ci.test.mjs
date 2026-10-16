@@ -58,6 +58,7 @@ test('browser shards have bounded timeouts and home matrix keeps an independent 
     { shard: 4 },
     { shard: 5, visual_regression: 'second' },
   ])
+  assert.deepEqual(browser.strategy.matrix.include.map(entry => entry.shard), Object.keys(shards).map(Number))
   assert.equal(browser.steps[2].with.visual_regression, "${{ matrix.visual_regression || 'none' }}")
   assert.equal(browserAction.runs.using, 'composite')
   assert.equal(browserAction.runs.steps.find(step => step.name === 'Run browser smoke shard').run,
