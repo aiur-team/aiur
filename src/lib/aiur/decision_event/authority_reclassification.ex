@@ -9,7 +9,6 @@ defmodule Aiur.DecisionEvent.AuthorityReclassification do
   @spec normalize(term()) :: {:ok, map()} | {:error, term()}
   def normalize(raw) when is_map(raw) do
     with {:ok, actor} <- normalize_actor(get(raw, :actor)),
-         :ok <- require_executor_actor(actor),
          authority <- get(raw, :authority),
          true <- authority in [:supervisor_allowed, "supervisor_allowed"],
          {:ok, detail} <- bounded_required(get(raw, :detail), @detail_max, :detail),
@@ -44,8 +43,6 @@ defmodule Aiur.DecisionEvent.AuthorityReclassification do
   end
 
   defp normalize_actor(_other), do: {:error, {:actor, :invalid}}
-  defp require_executor_actor(%{kind: :executor}), do: :ok
-  defp require_executor_actor(_actor), do: {:error, {:actor_kind, :not_executor}}
 
   defp normalize_expected_version(version) when is_integer(version) and version > 0, do: {:ok, version}
   defp normalize_expected_version(_version), do: {:error, {:expected_version, :invalid}}
