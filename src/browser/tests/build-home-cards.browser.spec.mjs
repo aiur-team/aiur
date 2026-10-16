@@ -33,7 +33,15 @@ async function routeCardAsset(target, asset) {
 async function openCardParityPair(browser, cell, options) {
   const asset = test.info().project.metadata.cardsAsset
   const pair = await openParityPair(asset ? { newContext: async options => {
-    const context = await browser.newContext(options); await routeCardAsset(context, asset); return context
+    const context = await browser.newContext(options), newPage = context.newPage.bind(context)
+    context.newPage = async () => {
+      const page = await newPage(), goto = page.goto.bind(page)
+      // The parity network guard installs a page route. Install the asset route
+      // immediately before navigation so it takes precedence over that guard.
+      page.goto = async (...args) => { await routeCardAsset(page, asset); return goto(...args) }
+      return page
+    }
+    return context
   } } : browser, cell, options)
   await expect(pair.product.locator('#bd-content')).toHaveCount(1)
   // Element parity owns card rendering, not history paging. Install the same
