@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { expectSpanAuditClean } from './support/build-home-span-audit.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { openFixture, expectAuditClean } from './support/browser-helpers.mjs'
+import { openFixture } from './support/browser-helpers.mjs'
 
 test.beforeEach(async ({ page }) => {
   await openFixture(page)
@@ -93,12 +94,7 @@ test('span HTML invalidates cache, list omits span controls, lifecycle releases 
 test('tabs and status have complete accessible roles in every view', async ({ page }) => {
   for (const name of ['Timeline', 'Gantt', 'List']) {
     await page.getByRole('tab', { name, exact: true }).click()
-    const audit = await new AxeBuilder({ page }).include('#bd-tools-l').include('#bd-tools').include('#bd-status').analyze()
-    // Axe cannot grade a lone U+2212 glyph. Keep every violation and every other incomplete node;
-    // span pixel/style parity checks this glyph's rendered colours against the design.
-    for (const check of audit.incomplete) check.nodes = check.nodes.filter(node =>
-      !(check.id === 'color-contrast' && node.target.join('') === 'button[data-z="1"]' && node.any.every(item => item.data?.messageKey === 'nonBmp')))
-    expectAuditClean(audit)
+    expectSpanAuditClean(await new AxeBuilder({ page }).include('#bd-tools-l').include('#bd-tools').include('#bd-status').analyze())
   }
 })
 

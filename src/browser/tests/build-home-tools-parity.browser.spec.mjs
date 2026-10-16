@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { expectSpanAuditClean } from './support/build-home-span-audit.mjs'
 import { PARITY_VIEWPORTS, openParityPair } from '../support/design-parity.mjs'
-import { assertNoDocumentOverflow, assertControlsRemainReachable, expectAuditClean } from './support/browser-helpers.mjs'
+import { assertNoDocumentOverflow, assertControlsRemainReachable } from './support/browser-helpers.mjs'
 
 test.setTimeout(90_000)
 
@@ -32,7 +33,7 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
         }
         await compareRegion(pair, { name: `tabs-${view}-${name}`, region: '#bd-tools-l' })
         await compareRegion(pair, { name: `status-${view}-${name}`, region: '#bd-status' })
-        if (viewport.viewport.width === 1440) expectAuditClean(await new AxeBuilder({ page: pair.product }).include('.bd-toolbar').include('#bd-status').analyze())
+        if (viewport.viewport.width === 1440) expectSpanAuditClean(await new AxeBuilder({ page: pair.product }).include('.bd-toolbar').include('#bd-status').analyze())
       }
       if (viewport.viewport.width <= 1180) {
         const boxes = []
