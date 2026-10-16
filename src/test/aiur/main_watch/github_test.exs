@@ -42,6 +42,76 @@ defmodule Aiur.MainWatch.GitHubTest do
     assert hd(result.observations).completed_at == DateTime.to_unix(~U[2026-10-10 00:00:00Z], :millisecond)
   end
 
+  test "newest completed push ci failure wins over a newer cancelled rerun" do
+    request = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/commits?") ->
+          ok([%{"sha" => "failed-push"}])
+
+        String.contains?(url, "/actions/runs?") and URI.decode_query(URI.parse(url).query)["event"] == "push" ->
+          ok(%{
+            "workflow_runs" => [
+              Map.merge(run(8, "failed-push", "ci", "completed", "failure"), %{"updated_at" => "2026-10-14T12:00:00Z"}),
+              Map.merge(run(9, "failed-push", "ci", "completed", "cancelled"), %{"updated_at" => "2026-10-15T12:00:00Z"})
+            ]
+          })
+
+        String.contains?(url, "/actions/runs?") ->
+          ok(%{"workflow_runs" => []})
+
+        String.contains?(url, "/check-runs?") ->
+          ok(%{"check_runs" => [check(1, 1, "failure")]})
+
+        String.contains?(url, "/annotations?") ->
+          ok([])
+
+        String.contains?(url, "/contents/") ->
+          ok(%{"encoding" => "base64", "content" => ""})
+
+        String.contains?(url, "/issues?") ->
+          ok([])
+
+        String.ends_with?(url, "/status") ->
+          ok(%{"statuses" => []})
+
+        true ->
+          flunk("unexpected request #{url}")
+      end
+    end
+
+    assert {:ok, %{observations: [observation], runs: [newest, previous]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
+    assert observation.sha == "failed-push"
+    assert observation.failed_workflow
+    assert observation.checks == [%{name: "test", conclusion: "failure"}]
+    assert newest.id == 9
+    assert newest.conclusion == "cancelled"
+    assert previous.id == 8
+  end
+
+  test "configured non-ci workflow failure makes main red" do
+    build = run(12, "build-red", "build", "completed", "failure")
+    failure = check(2, 2, "failure")
+
+    assert {:ok, %{observations: [observation]}} =
+             GitHub.poll("main", ["build"], token: "test-gh-token", request_fun: evidence_request([build], [failure]), actions_write: false)
+
+    assert observation.sha == "build-red"
+    assert observation.failed_workflow
+    assert observation.checks == [%{name: "test", conclusion: "failure"}]
+  end
+
+  test "empty workflow configuration watches every push workflow" do
+    runs = [run(13, "any-red", "ci", "completed", "success"), run(14, "any-red", "build", "completed", "failure")]
+    checks = [check(1, 1, "success"), check(2, 2, "failure")]
+
+    assert {:ok, %{observations: [observation]}} =
+             GitHub.poll("main", [], token: "test-gh-token", request_fun: evidence_request(runs, checks), actions_write: false)
+
+    assert observation.sha == "any-red"
+    assert observation.failed_workflow
+    assert Enum.sort(Enum.map(observation.checks, &{&1.name, &1.conclusion})) == [{"test", "failure"}, {"test", "success"}]
+  end
+
   test "reports the failing caller and credential class on an unrecoverable 401" do
     request = fn _request -> {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}} end
 
@@ -306,6 +376,25 @@ defmodule Aiur.MainWatch.GitHubTest do
         true -> flunk("must not fetch older pages: #{url}")
       end
     end
+  end
+
+  defp evidence_request(runs, checks) do
+    fn %{url: url} -> evidence_response(url, runs, checks) end
+  end
+
+  defp evidence_response(url, runs, checks) do
+    routes = [
+      {"/commits?", ok([%{"sha" => hd(runs)["head_sha"]}])},
+      {"event=push", ok(%{"workflow_runs" => runs})},
+      {"/actions/runs?", ok(%{"workflow_runs" => []})},
+      {"/check-runs?", ok(%{"check_runs" => checks})},
+      {"/status", ok(%{"statuses" => []})},
+      {"/annotations?", ok([])},
+      {"/contents/", ok(%{"encoding" => "base64", "content" => ""})},
+      {"/issues?", ok([])}
+    ]
+
+    Enum.find_value(routes, fn {path, response} -> if String.contains?(url, path), do: response end) || flunk("unexpected request #{url}")
   end
 
   defp run(id, sha, name, status, conclusion),

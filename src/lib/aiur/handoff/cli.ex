@@ -30,6 +30,7 @@ defmodule Aiur.Handoff.CLI do
     case Aiur.AgentControlCLI.prepare_handoff() do
       {:ok, result} ->
         IO.puts("__AIUR_HANDOFF__:#{result.handoff_id}")
+        if result.skipped != [], do: IO.puts("Handoff skipped paused agents: #{Enum.join(result.skipped, ", ")}")
         exit_marker(0)
 
       {:error, reason} ->

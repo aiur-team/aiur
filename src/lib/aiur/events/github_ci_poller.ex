@@ -144,6 +144,7 @@ defmodule Aiur.Events.GithubCIPoller do
       case BaseRepair.ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
         {:ok, :unchanged} ->
           Evaluation.evaluate(check_runs, commit_status)
+          |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
           |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
           |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
@@ -152,6 +153,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
         {:ok, {:unchanged, recovered_invalidation}} ->
           Evaluation.evaluate(check_runs, commit_status)
+          |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
           |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
           |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})

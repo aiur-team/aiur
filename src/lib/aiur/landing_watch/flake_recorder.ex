@@ -40,8 +40,21 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
 
   defp record_issue_and_emit(identity, evidence, owner, repo, token, opts) do
     case find_or_create(owner, repo, token, identity, evidence, opts) do
-      {:ok, issue} -> emit(evidence, issue, opts)
-      {:error, _} = error -> error
+      {:ok, issue} ->
+        case emit(evidence, issue, opts) do
+          :ok -> notify_issue_recorded(issue, opts)
+          {:error, _} = error -> error
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp notify_issue_recorded(issue, opts) do
+    case Keyword.get(opts, :issue_recorded_fun) do
+      fun when is_function(fun, 1) -> fun.(issue)
+      _ -> :ok
     end
   end
 

@@ -176,6 +176,12 @@ defmodule Aiur.GitHub.PollSnapshots do
     ResourceStore.drop_data(review_threads_key(repo, pr_number))
   end
 
+  @doc "Retire a delivery-backed CI snapshot when a pull request lifecycle event arrives."
+  @spec invalidate_ci_contexts(String.t(), term()) :: :ok
+  def invalidate_ci_contexts(repo, target) do
+    ResourceStore.drop_data(ci_contexts_key(repo, target))
+  end
+
   defp delivery_snapshot(key, opts) do
     now_ms = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
     fresh_ms = Keyword.get(opts, :delivery_fresh_ms, @delivery_fresh_ms)

@@ -955,7 +955,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_build_gate_holder(%{kind: :slot} = holder) do
     identifiers = ["slot=#{Map.get(holder, :slot)}", "pid=#{Map.get(holder, :pid)}"]
-    annotation = if Map.get(holder, :command_alive?) == false, do: " (command gone)", else: ""
+    annotation = if Map.get(holder, :command_alive?) == false, do: " (command gone)", else: if(Map.get(holder, :command_alive?) == nil, do: " (command liveness unknown)", else: "")
     print_build_gate_line("HOLDER", identifiers, holder, "held", annotation)
   end
 
