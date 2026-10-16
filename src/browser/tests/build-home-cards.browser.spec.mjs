@@ -115,6 +115,7 @@ for (const tier of ['full', 'line']) test(`unknown progress and models: ${tier}`
   const card = await draw(page, '9007', tier)
   await expect(card.locator(tier === 'full' ? '.bd-ag > .ax-mono' : '.bd-lg.ax-mono')).toHaveText('M')
   await expect(card.locator(tier === 'full' ? '.bd-ag img, .bd-ag.fill' : 'img.bd-lg')).toHaveCount(0)
+  await card.screenshot({ path: test.info().outputPath('unknown-model-' + tier + '.png') })
   await page.evaluate(() => inject('9007', { agent: { model: null, name: null, state: 'active' } }))
   await draw(page, '9007', tier)
   await expect(card.locator('.ax-mono')).toHaveText('?')
@@ -130,6 +131,7 @@ for (const theme of ['dark', 'light']) test(`unknown complexity uses faint in ${
     const same = getComputedStyle(ref).color === getComputedStyle(el).color; ref.remove()
     return { same, hue: el.style.getPropertyValue('--cxh') }
   })).toEqual({ same: true, hue: '' })
+  await card.screenshot({ path: test.info().outputPath('unknown-complexity-' + theme + '.png') })
 })
 
 test('unknown points, estimates, queue numbers and unfiled identity stay explicit', async ({ page }) => {
@@ -155,6 +157,7 @@ test('history distinguishes outcomes and guards unknown dates and state', async 
     await page.evaluate(status => inject('9010', { status }), status)
     const card = await draw(page, '9010'); await expect(card.locator('.bd-status > span').first()).toHaveText(label)
     await expect(card.locator('.bd-status > span').last()).toHaveText('Oct 7')
+    if (status === 'not_planned') await card.screenshot({ path: test.info().outputPath('not-planned.png') })
     expect(await card.evaluate(el => [el.classList.contains('failed'), el.classList.contains('np')])).toEqual([status === 'failed', status === 'not_planned'])
     await draw(page, '9010', 'line'); await expect(card.locator('.bd-lx')).toHaveCount(status === 'failed' ? 1 : 0)
     await page.evaluate(() => { S.f.tstate = ['merged']; st.fx.decorateAll(); cards.decorate(document.querySelector('#card-probe')) })
