@@ -16,7 +16,11 @@ defmodule Aiur.Config.Schema.Decisions do
         }
 
   embedded_schema do
+    # @config-reference config-configuration-17 decisions.supervisor_allowed_kinds
+    # @config-detail decisions.supervisor_allowed_kinds | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
     field(:supervisor_allowed_kinds, {:array, :string}, default: [])
+    # @config-reference config-configuration-17 decisions.supervisor_allow_non_reversible
+    # @config-detail decisions.supervisor_allow_non_reversible | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |
     field(:supervisor_allow_non_reversible, :boolean, default: false)
   end
 

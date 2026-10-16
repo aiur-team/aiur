@@ -55,7 +55,14 @@ defmodule Aiur.MainWatch do
   @impl true
   def handle_call(:state, _from, server) do
     watcher = if server.data.unavailable, do: :unavailable, else: :running
-    state = server.data.state |> Map.put(:unavailable, server.data.unavailable) |> Map.put(:watcher, watcher) |> Map.put(:last_error, Map.get(server.data, :last_error))
+
+    state =
+      server.data.state
+      |> Map.put(:unavailable, server.data.unavailable)
+      |> Map.put(:watcher, watcher)
+      |> Map.put(:last_error, Map.get(server.data, :last_error))
+      |> Map.put(:merge_groups, Map.get(server.data, :merge_groups, []))
+
     {:reply, state, server}
   end
 
@@ -238,6 +245,7 @@ defmodule Aiur.MainWatch do
       |> Map.put(:commit_window, result.commits)
       |> Map.put(:commit_dates, Map.get(result, :commit_dates, []))
       |> Map.put(:commit_etag, Map.get(result, :commit_etag))
+      |> Map.put(:merge_groups, Map.get(result, :merge_groups, []))
       |> Map.put(:unavailable, false)
       |> Map.put(:last_error, nil)
 

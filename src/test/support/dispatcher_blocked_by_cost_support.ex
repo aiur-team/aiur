@@ -10,7 +10,7 @@ defmodule Aiur.DispatcherBlockedByCostSupport do
   alias Aiur.GitHub.{CycleFetchCache, Issues, OpenIssueSnapshot, Quota, ResourceStore}
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, State}
+  alias Aiur.Orchestrator.{Dispatcher, Lifecycle, State}
   alias Aiur.Workflow
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -29,18 +29,52 @@ defmodule Aiur.DispatcherBlockedByCostSupport do
 
       @blocker 53
 
-      setup_all {Aiur.DispatcherBlockedByCostSupport, :suspend_orchestrator}
+      setup {Aiur.DispatcherBlockedByCostSupport, :suspend_orchestrator}
       setup {Aiur.DispatcherBlockedByCostSupport, :github_double}
     end
   end
 
   @doc false
   def suspend_orchestrator(_context) do
-    # Keep the live poller out of the process-owned double until fixture cleanup.
+    # Keep the live poller from making requests through this process-owned
+    # Req.Test stub. Freeze via state replacement rather than :sys.suspend:
+    # ExUnit's on_exit process cannot resume a suspension it did not acquire.
     orchestrator = Process.whereis(Orchestrator)
-    :ok = :sys.suspend(orchestrator)
-    on_exit(fn -> :ok = :sys.resume(orchestrator) end)
+
+    original_state =
+      :sys.replace_state(orchestrator, fn state ->
+        if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+        %{
+          state
+          | tick_timer_ref: nil,
+            tick_token: make_ref(),
+            next_poll_due_at_ms: nil,
+            poll_check_in_progress: false,
+            poll_frozen: true
+        }
+      end)
+
+    on_exit(fn ->
+      # Restore only the policy bit and restart polling if this fixture froze
+      # an active poller. The old timer was canceled, so simply unfreezing
+      # would leave the shared Orchestrator idle indefinitely.
+      restore_orchestrator_polling(orchestrator, original_state.poll_frozen)
+    end)
+
     :ok
+  end
+
+  defp restore_orchestrator_polling(orchestrator, true) do
+    :sys.replace_state(orchestrator, &%{&1 | poll_frozen: true})
+  end
+
+  defp restore_orchestrator_polling(orchestrator, false) do
+    :sys.replace_state(orchestrator, fn state ->
+      state
+      |> Map.put(:poll_frozen, false)
+      |> Lifecycle.schedule_tick(0)
+    end)
   end
 
   @doc false

@@ -2,7 +2,8 @@ defmodule Aiur.ExecutorAttention.CLI do
   @moduledoc false
   alias Aiur.ControlCLI.Reasons
   alias Aiur.Executor.{Claims, Roster}
-  alias Aiur.{ExecutorEvents, ExecutorWakeInbox}
+  alias Aiur.ExecutorAttention.DecisionEscalation
+  alias Aiur.{ExecutorEvents, ExecutorListener, ExecutorWakeInbox}
 
   import Aiur.ControlCLI.Protocol, only: [control_error: 1, exit_marker: 1]
 
@@ -72,7 +73,7 @@ defmodule Aiur.ExecutorAttention.CLI do
     json? = Keyword.get(opts, :json, false)
     consumer_id = Claims.resolve_consumer_id(opts)
 
-    case executor_wait_role(consumer_id) do
+    case executor_wait_role(consumer_id, opts) do
       {:ok, role, holder} -> executor_wait_as(consumer_id, role, holder, timeout_ms, json?)
       {:error, reason} -> executor_wait_failure(:claim, executor_wait_detail(reason), reason, :unknown, json?)
     end
@@ -87,6 +88,9 @@ defmodule Aiur.ExecutorAttention.CLI do
     renewer = start_lease_renewer(consumer_id)
 
     try do
+      # Backstop (#4567): an aged open blocking Decision wakes this wait even
+      # when no event reached the inbox for it.
+      :ok = ExecutorListener.backstop()
       result = ExecutorWakeInbox.wait(timeout_ms)
       executor_wait_result(result, consumer_id, renewed_wait_role(role, renewer), json?, timeout_ms)
     after
@@ -98,8 +102,8 @@ defmodule Aiur.ExecutorAttention.CLI do
   # Anything else means the claim store could not be arbitrated at all, and
   # waiting under it would print records nobody can acknowledge — the silent
   # no-progress loop #2600 reported. Fail with the stage instead.
-  defp executor_wait_role(consumer_id) do
-    case Claims.claim(consumer_id) do
+  defp executor_wait_role(consumer_id, opts) do
+    case Claims.claim(consumer_id, session_opts: Keyword.take(opts, [:session_id, :harness, :env])) do
       {:ok, _entry} ->
         {:ok, :owner, nil}
 
@@ -413,6 +417,22 @@ defmodule Aiur.ExecutorAttention.CLI do
     end
   end
 
+  @doc "Prints the `status` WAKES and DECISIONS lines."
+  @spec print_wake_status() :: :ok
+  def print_wake_status do
+    print_wakes()
+    DecisionEscalation.print_status()
+  end
+
+  defp print_wakes do
+    case ExecutorWakeInbox.stats() do
+      {:ok, stats} -> IO.puts("WAKES CURSOR #{stats.cursor} PENDING #{stats.pending_count}")
+      {:error, _reason} -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
+    end
+  catch
+    :exit, _reason -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
+  end
+
   defp print_executor_wakes(records, true, role),
     do: IO.puts(Jason.encode!(%{"status" => "woken", "role" => role, "records" => records}))
 
@@ -420,7 +440,8 @@ defmodule Aiur.ExecutorAttention.CLI do
     Enum.each(records, fn record ->
       ticket = if record["ticket"], do: " ticket=#{record["ticket"]}", else: ""
       observation = if record["observation"] == "initial_sync", do: " observation=initial_sync", else: ""
-      IO.puts("WAKE #{record["topic"]}#{ticket} count=#{record["count"]} role=#{role}#{observation}")
+      decision = if record["decision_id"], do: " decision=#{record["decision_id"]} gates=#{record["gates"]} escalation=#{record["escalation"]}", else: ""
+      IO.puts("WAKE #{record["topic"]}#{ticket} count=#{record["count"]} role=#{role}#{observation}#{decision}")
     end)
   end
 

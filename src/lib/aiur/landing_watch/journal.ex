@@ -3,6 +3,7 @@ defmodule Aiur.LandingWatch.Journal do
 
   alias Aiur.Config.Paths
   alias Aiur.JsonStore
+  alias Aiur.LandingWatch.MergeGroupJournal
 
   @spec state(keyword()) :: {:ok, map()} | {:error, term()}
   def state(opts \\ []) do
@@ -85,32 +86,44 @@ defmodule Aiur.LandingWatch.Journal do
     update(opts, fn state -> {:ok, Map.put(state, "flakes", Map.delete(Map.get(state, "flakes", %{}), identity))} end)
   end
 
-  @spec claim_merge_group_run(pos_integer(), keyword()) :: {:ok, :new | :already_claimed} | {:error, term()}
-  def claim_merge_group_run(run_id, opts \\ []) when is_integer(run_id) and run_id > 0 do
+  @spec record_failure_observation(map(), keyword()) :: :ok | {:error, term()}
+  def record_failure_observation(row, opts \\ []) when is_map(row) do
     update(opts, fn state ->
-      runs = Map.get(state, "merge_group_runs", %{})
-      run_key = Integer.to_string(run_id)
-
-      if Map.has_key?(runs, run_key) do
-        {:ok, state, :already_claimed}
-      else
-        runs =
-          runs
-          |> Map.put(run_key, System.system_time(:millisecond))
-          |> Enum.sort_by(&elem(&1, 1), :desc)
-          |> Enum.take(500)
-          |> Map.new()
-
-        {:ok, Map.put(state, "merge_group_runs", runs), :new}
-      end
+      observations = Map.get(state, "failure_observations", [])
+      identity = row["identity"]
+      pr = row["pr"]
+      run_url = row["run_url"]
+      unique = Enum.reject(observations, &(&1["identity"] == identity and &1["pr"] == pr and &1["run_url"] == run_url))
+      retained = [row | unique] |> Enum.sort_by(& &1["at_ms"], :desc) |> Enum.take(2_000)
+      {:ok, Map.put(state, "failure_observations", retained)}
     end)
   end
 
-  @spec release_merge_group_run(pos_integer(), keyword()) :: :ok | {:error, term()}
-  def release_merge_group_run(run_id, opts \\ []) when is_integer(run_id) and run_id > 0 do
-    run_key = Integer.to_string(run_id)
-    update(opts, fn state -> {:ok, Map.put(state, "merge_group_runs", Map.delete(Map.get(state, "merge_group_runs", %{}), run_key))} end)
+  @spec failure_observations(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def failure_observations(opts \\ []) do
+    with {:ok, state} <- state(opts), do: {:ok, Map.get(state, "failure_observations", [])}
   end
+
+  @spec claim_merge_group_run(pos_integer(), keyword()) :: {:ok, :new | :already_claimed} | {:error, term()}
+  def claim_merge_group_run(run_id, opts \\ []), do: MergeGroupJournal.claim_merge_group_run(run_id, opts)
+
+  @spec reserve_merge_group_requeue(integer(), keyword()) :: :ok | {:error, :merge_group_requeue_limit_reached | term()}
+  def reserve_merge_group_requeue(now, opts \\ []), do: MergeGroupJournal.reserve_merge_group_requeue(now, opts)
+
+  @spec merge_group_requeues_by_hour(keyword()) :: {:ok, %{optional(String.t()) => non_neg_integer()}} | {:error, term()}
+  def merge_group_requeues_by_hour(opts \\ []), do: MergeGroupJournal.merge_group_requeues_by_hour(opts)
+
+  @spec release_merge_group_run(pos_integer(), keyword()) :: :ok | {:error, term()}
+  def release_merge_group_run(run_id, opts \\ []), do: MergeGroupJournal.release_merge_group_run(run_id, opts)
+
+  @spec claim_quarantine_merge_group_run(pos_integer(), keyword()) ::
+          {:ok, :new | :already_claimed} | {:error, term()}
+  def claim_quarantine_merge_group_run(run_id, opts \\ []),
+    do: MergeGroupJournal.claim_quarantine_merge_group_run(run_id, opts)
+
+  @spec release_quarantine_merge_group_run(pos_integer(), keyword()) :: :ok | {:error, term()}
+  def release_quarantine_merge_group_run(run_id, opts \\ []),
+    do: MergeGroupJournal.release_quarantine_merge_group_run(run_id, opts)
 
   @spec retain_current_heads([map()], keyword()) :: :ok | {:error, term()}
   def retain_current_heads(observations, opts \\ [])
@@ -120,7 +133,10 @@ defmodule Aiur.LandingWatch.Journal do
 
     if Enum.all?(keys, &is_binary/1) do
       retained = MapSet.new(keys)
-      update(opts, fn state -> {:ok, Map.filter(state, fn {entry_key, _} -> entry_key in ["flakes", "merge_group_runs"] or MapSet.member?(retained, entry_key) end)} end)
+
+      update(opts, fn state ->
+        {:ok, Map.filter(state, fn {entry_key, _} -> entry_key in ["flakes", "merge_group_runs", "quarantine_merge_group_runs", "merge_group_requeues"] or MapSet.member?(retained, entry_key) end)}
+      end)
     else
       :ok
     end
@@ -128,7 +144,9 @@ defmodule Aiur.LandingWatch.Journal do
 
   def retain_current_heads(_, _), do: {:error, :invalid_landing_watch_observations}
 
-  defp update(opts, fun) do
+  @doc false
+  @spec update(keyword(), (map() -> term())) :: term()
+  def update(opts, fun) do
     path = path(opts)
     :global.trans({{__MODULE__, path}, self()}, fn -> perform_update(path, opts, fun) end)
   rescue

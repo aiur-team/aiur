@@ -3,6 +3,8 @@
 from datetime import datetime
 import math
 
+from .stratification import declaration, partition
+
 KINDS = {"duration", "count", "binary", "rate", "bucketed"}
 DIRECTIONS = {"lower_is_better", "higher_is_better", "decrease", "increase", "none"}
 
@@ -57,6 +59,7 @@ def normalize(snapshot, spec, annotations):
                 "permutation_resamples": positive_integer(spec.get("permutation_resamples", 20_000), "permutation_resamples")}
     if not 0 < settings["power_target"] < 1:
         raise ValueError("power_target must be between zero and one")
+    strata_fields = declaration(spec)
     flags, exclusions = annotations.get("flags", []), annotations.get("exclusions", [])
     if not isinstance(flags, list) or not isinstance(exclusions, list):
         raise ValueError("annotation flags and exclusions must be arrays")
@@ -101,6 +104,15 @@ def normalize(snapshot, spec, annotations):
             warnings.append(f"{metric_id}: added after frozen_at; exploratory")
         metric = {**definition, "id": metric_id, "kind": kind, "direction": direction,
                   "mde": number(definition.get("mde", .2), "mde"), "primary": primary}
+        metadata = snapshot.get("metric_metadata", {})
+        if not isinstance(metadata, dict) or not isinstance(metadata.get(metric_id, {}), dict):
+            raise ValueError("metric_metadata must map metric IDs to objects")
+        strata_metadata = definition.get("strata_metadata", metadata.get(metric_id, {}).get("strata_metadata", {}))
+        if (not isinstance(strata_metadata, dict)
+                or any(not isinstance(value, dict) or not isinstance(value.get("post_treatment"), bool)
+                       for value in strata_metadata.values())):
+            raise ValueError("strata_metadata must map attributes to post_treatment booleans")
+        metric["strata_metadata"] = strata_metadata
         grouped = {g: [] for g in groups}
         counts = {g: 0 for g in groups}
         censored = {g: 0 for g in groups}
@@ -143,6 +155,12 @@ def normalize(snapshot, spec, annotations):
                     raise ValueError("exposure must be positive")
                 n = positive_integer(data.get("n"), "rate independent-unit n", 0)
                 metric["rates"][group] = {"events": events, "exposure": exposure, "n": n}
+        if strata_fields and kind == "rate":
+            metric["stratification_unavailable"] = True
+            warnings.append(f"{metric_id}: aggregate rate evidence cannot be stratified")
+        if strata_fields and kind != "rate":
+            metric["strata_rows"] = partition(rows, strata_fields, excluded, groups)
+            metric["strata_fields"] = strata_fields
         metrics.append(metric)
     if set(primaries) - seen:
         raise ValueError("primary_metrics IDs must exist in spec.metrics")

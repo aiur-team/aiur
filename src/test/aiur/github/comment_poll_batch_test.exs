@@ -190,7 +190,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     # branch alias. If the estimate is not called, or returns garbage, these
     # concrete values fail.
     assert log =~ "estimated_points=1"
-    assert log =~ "estimated_nodes=45"
+    assert log =~ "estimated_nodes=78"
     assert log =~ "measured_points=14"
     assert log =~ "variables=%{\"owner\" => \"owner\", \"repo\" => \"repo\"}"
     # The document is the built batch query, so its operation name is in the log.
@@ -316,15 +316,26 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
   # authored date off the published comment event. The batch is the only place
   # those two facts are fetched, so they must survive normalization — including
   # on a branch-discovered candidate, whose field set is otherwise minimal.
-  test "carries the review decision and head commit date into the pull request payload" do
+  test "carries review, landing, and ready-time facts into the pull request payload" do
     request_fun = fn %{method: :post, body: body} ->
       assert body["query"] =~ "reviewDecision"
+      assert body["query"] =~ "reviews(last: 1) { nodes { state commit { oid } } }"
+      assert body["query"] =~ "mergeQueueEntry { id }"
+      assert body["query"] =~ "autoMergeRequest { enabledAt }"
+      assert body["query"] =~ "timelineItems(last: 10, itemTypes: [READY_FOR_REVIEW_EVENT])"
       assert body["query"] =~ "commits(last: 1) { nodes { commit { committedDate } } }"
 
       pull_request =
         77
         |> pull_request("aiur/42-comment-batch")
         |> Map.put("reviewDecision", "CHANGES_REQUESTED")
+        |> Map.put("mergeable", "MERGEABLE")
+        |> Map.put("mergeQueueEntry", %{"id" => "mq-1"})
+        |> Map.put("autoMergeRequest", nil)
+        |> Map.put("createdAt", "2026-10-14T19:00:00Z")
+        |> Map.put("updatedAt", "2026-10-15T18:20:00Z")
+        |> Map.put("reviews", %{"nodes" => [%{"state" => "APPROVED", "commit" => %{"oid" => "head-77"}}]})
+        |> Map.put("timelineItems", %{"nodes" => [%{"__typename" => "ReadyForReviewEvent", "createdAt" => "2026-10-14T19:08:00Z"}]})
         |> Map.put("commits", %{"nodes" => [%{"commit" => %{"committedDate" => "2026-08-10T04:29:00Z"}}]})
 
       {:ok,
@@ -348,7 +359,17 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
              )
 
     assert batch.open_pull_request["review_decision"] == "CHANGES_REQUESTED"
+    assert batch.open_pull_request["reviewed_head_sha"] == "head-77"
+    assert batch.open_pull_request["approved_head_sha"] == "head-77"
+    assert batch.open_pull_request["mergeable"] == "MERGEABLE"
+    assert batch.open_pull_request["mergeQueueEntry"] == %{"id" => "mq-1"}
+    assert batch.open_pull_request["autoMergeRequest"] == nil
+    assert batch.open_pull_request["created_at"] == "2026-10-14T19:00:00Z"
+    assert batch.open_pull_request["ready_for_review_at"] == "2026-10-14T19:08:00Z"
     assert batch.open_pull_request["head_committed_at"] == "2026-08-10T04:29:00Z"
+    assert {:ok, %{data: cached_pr}} = ResourceStore.fetch(ResourceStore.key(:branch_pull_request, "owner", "repo", 42))
+    assert cached_pr["ready_for_review_at"] == "2026-10-14T19:08:00Z"
+    assert cached_pr["mergeQueueEntry"] == %{"id" => "mq-1"}
   end
 
   test "leaves the review context nil for a pull request with no reviews or commits" do
@@ -441,6 +462,22 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     # was uncaught. An exact set fails on any key that starts or stops being
     # stripped.
     assert batch.open_pull_request |> Map.keys() |> Enum.sort() ==
-             ["base", "draft", "head", "head_committed_at", "number", "review_decision", "state"]
+             [
+               "approved_head_sha",
+               "autoMergeRequest",
+               "base",
+               "created_at",
+               "draft",
+               "head",
+               "head_committed_at",
+               "mergeQueueEntry",
+               "mergeable",
+               "number",
+               "ready_for_review_at",
+               "review_decision",
+               "reviewed_head_sha",
+               "state",
+               "updated_at"
+             ]
   end
 end

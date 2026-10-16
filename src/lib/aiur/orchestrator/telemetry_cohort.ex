@@ -2,11 +2,11 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
   @moduledoc "Bounded attempt cohort attributes resolved from the dispatched issue."
   alias Aiur.BuildOrder.Features
   alias Aiur.{CodingAgent, Config}
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   @spec record_dispatch(Aiur.Issue.t(), String.t(), map()) :: :ok
   def record_dispatch(issue, attempt_id, metadata) do
-    Lifecycle.record(issue.identifier, attempt_id, :dispatch, :point, Map.merge(attempt_fields(issue), metadata))
+    Signal.lifecycle(issue.identifier, attempt_id, :dispatch, :point, Map.merge(attempt_fields(issue), metadata))
   end
 
   @spec attempt_fields(Aiur.Issue.t(), keyword()) :: map()

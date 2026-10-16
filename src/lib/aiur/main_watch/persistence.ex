@@ -41,6 +41,7 @@ defmodule Aiur.MainWatch.Persistence do
       commit_dates: [],
       commit_etag: nil,
       early_merges: [],
+      merge_groups: [],
       canary_at: nil,
       unavailable: false,
       last_error: nil,

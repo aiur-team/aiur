@@ -77,6 +77,7 @@ defmodule Aiur.TestSupport do
   @isolated_app_env_keys [
     :workflow_file_path,
     :log_file,
+    :decision_state_dir,
     :build_gate_dir_override,
     :global_pause_store_path,
     :github_resource_store_path,
@@ -215,25 +216,17 @@ defmodule Aiur.TestSupport do
     end)
   end
 
+  @doc false
   defmacro __using__(_opts) do
     quote do
       use ExUnit.Case
+      use Aiur.TestScopeGuard
       import ExUnit.CaptureLog
 
-      alias Aiur.AgentRunner
-      alias Aiur.CLI
+      alias Aiur.{AgentRunner, CLI, Config, HttpServer, Issue, PromptBuilder, StatusDashboard, Tracker, Workflow, WorkflowStore, Workspace}
       alias Aiur.Codex.CodingAgent, as: AppServer
-      alias Aiur.Config
-      alias Aiur.HttpServer
-      alias Aiur.Issue
       alias Aiur.Linear.Client
       alias Aiur.Orchestrator
-      alias Aiur.PromptBuilder
-      alias Aiur.StatusDashboard
-      alias Aiur.Tracker
-      alias Aiur.Workflow
-      alias Aiur.WorkflowStore
-      alias Aiur.Workspace
 
       # Backend config aliases for tests
       alias Aiur.Codex.Config, as: CodexConfig
@@ -258,6 +251,7 @@ defmodule Aiur.TestSupport do
 
       setup do
         workflow_base = Application.fetch_env!(:aiur, :test_run_root)
+        previous_test_scope_state = Aiur.TestScopeGuard.capture()
 
         # `System.pid()` is what keeps this root private to *this* VM. Without it
         # two `mix test` runs on one host pick the same `workflow-<integer>` name
@@ -269,12 +263,20 @@ defmodule Aiur.TestSupport do
             "workflow-#{System.pid()}-#{System.unique_integer([:positive])}"
           )
 
+        test_state_dir = Path.join(workflow_root, "test-state")
+
         # Every application key this setup overrides, captured as-is so
         # teardown puts back exactly what was there. See
         # `Aiur.TestSupport.isolated_app_env_keys/0`.
         previous_app_env = Aiur.TestSupport.capture_app_env()
 
         File.mkdir_p!(workflow_root)
+        System.put_env("AIUR_DEV_TEST_STATE_DIR", test_state_dir)
+
+        expected_test_scope_state = %{
+          previous_test_scope_state
+          | env: Map.put(previous_test_scope_state.env, "AIUR_DEV_TEST_STATE_DIR", test_state_dir)
+        }
 
         # Pin the host-pressure probes to a quiet host so admission decisions are
         # a function of the test's own state, not of what else is running on the
@@ -337,6 +339,8 @@ defmodule Aiur.TestSupport do
         stop_default_http_server()
 
         on_exit(fn ->
+          scope_state_violation = Aiur.TestScopeGuard.violation(expected_test_scope_state)
+
           Aiur.TestSupport.quiesce_live_orchestrator()
           Aiur.TestSupport.restore_app_env(previous_app_env)
           Application.delete_env(:aiur, :server_port_override)
@@ -345,6 +349,7 @@ defmodule Aiur.TestSupport do
           EventsPublisher.set_tracked_fn(fn _ -> true end)
           EventsSubscriptionStore.set_enqueue_fn(nil)
           Aiur.TestCleanup.rm_rf!(workflow_root)
+          Aiur.TestScopeGuard.restore(previous_test_scope_state)
 
           # Reload the store onto the restored baseline so the next test never
           # observes the now-deleted `workflow_root` config, and recover the
@@ -361,6 +366,8 @@ defmodule Aiur.TestSupport do
           unless Process.whereis(Aiur.Supervisor) do
             Application.ensure_all_started(:aiur)
           end
+
+          if scope_state_violation, do: raise(scope_state_violation)
         end)
 
         :ok

@@ -146,12 +146,12 @@ defmodule AiurWeb.Build.PayloadSchema do
       "unsorted" => :boolean
     }
 
-  defp sources,
-    do:
-      Map.new(
-        ~w(history features queue agents index),
-        &{&1, object(%{"state" => enum(~w(ok stale incomplete unavailable disabled)), "observed_at" => nullable(:integer), "reason" => nullable(:string)})}
-      )
+  defp sources do
+    standard = Map.new(~w(history features queue agents index), &{&1, object(source())})
+    Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean)))
+  end
+
+  defp source, do: %{"state" => enum(~w(ok stale incomplete unavailable disabled unsupported)), "observed_at" => nullable(:integer), "reason" => nullable(:string)}
 
   defp cue,
     do: %{

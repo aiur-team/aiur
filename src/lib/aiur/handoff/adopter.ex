@@ -5,9 +5,9 @@ defmodule Aiur.Handoff.Adopter do
   alias Aiur.AgentRunner.Handoff, as: Runner
   alias Aiur.AppServer.RelayPort
   alias Aiur.Config.Paths
-  alias Aiur.Handoff.{Compatibility, Record}
+  alias Aiur.Handoff.{Compatibility, Record, Report}
   alias Aiur.Handoff.Fallback
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{Slots, State}
 
   @spec adopt(State.t(), keyword()) :: State.t()
   def adopt(state, opts \\ []) do
@@ -43,6 +43,7 @@ defmodule Aiur.Handoff.Adopter do
     case Record.consume(Enum.reverse(outcomes), opts) do
       :ok ->
         for {_id, entry} <- next.running, entry[:adopted_from] == record["handoff_id"], do: send(entry.pid, :handoff_continue)
+        Report.notify(opts)
         next
 
       {:error, reason} ->
@@ -60,12 +61,13 @@ defmodule Aiur.Handoff.Adopter do
     with {:ok, _} <- validation,
          :ok <- Compatibility.check(agent, record, opts),
          {:ok, saved, budget} <- restore_metadata(agent),
+         :ok <- adoption_slot(state, agent["issue_id"], saved),
          {:ok, pid, session} <- start_runner(agent, opts) do
       entry = running_entry(saved, agent, record, pid, session)
       id = agent["issue_id"]
       state = %{state | running: Map.put(state.running, id, entry), claimed: MapSet.put(state.claimed, id)}
       Logger.info("Adopted agent ticket=#{agent["identifier"]} handoff=#{record["handoff_id"]}")
-      {restore_budget(state, agent["issue_id"], budget), [outcome(agent, "adopted", nil) | outcomes]}
+      {restore_budget(state, agent["issue_id"], budget), [outcome(agent, "adopted", nil, entry) | outcomes]}
     else
       {:error, reason} ->
         fallback(agent, opts)
@@ -76,6 +78,17 @@ defmodule Aiur.Handoff.Adopter do
     error ->
       fallback(agent, opts)
       {Fallback.resume(state, agent), [outcome(agent, "fallback", {:invalid_snapshot, Exception.message(error)}) | outcomes]}
+  end
+
+  # Adoption takes a slot under the configured cap like any other start; an
+  # agent past it falls back to a checked retry (#4683). The load-reduced
+  # effective limit and a launch `--pause` do not stop live agents here.
+  defp adoption_slot(state, id, saved) do
+    candidate = %{state | running: Map.put(state.running, id, saved)}
+
+    if Slots.used_slots(candidate) > Slots.used_slots(state) and Slots.used_slots(candidate) > Slots.max_concurrent_agent_limit(state),
+      do: {:error, :max_concurrent_agents_reached},
+      else: :ok
   end
 
   defp start_runner(agent, opts) do
@@ -114,7 +127,7 @@ defmodule Aiur.Handoff.Adopter do
     saved
     |> Map.merge(%{pid: pid, ref: Process.monitor(pid), adopted_from: record["handoff_id"], workspace_path: agent["workspace"]})
     |> Map.put(:last_codex_timestamp, DateTime.utc_now())
-    |> Map.put(:codex_app_server_pid, get_in(session, [:metadata, :codex_app_server_pid]) || get_in(agent, ["transport", "provider_pid"]))
+    |> Map.put(:codex_app_server_pid, get_in(session, [:metadata, :codex_app_server_pid]) || (get_in(agent, ["transport", "provider_pid"]) || get_in(agent, ["transport", "os_pid"])))
   end
 
   defp restore_metadata(agent) do
@@ -145,7 +158,29 @@ defmodule Aiur.Handoff.Adopter do
     end
   end
 
-  defp outcome(agent, status, reason), do: %{identifier: agent["identifier"], status: status, reason: if(reason, do: inspect(reason))}
+  defp outcome(agent, status, reason, entry \\ %{}) do
+    pid = get_in(agent, ["transport", "provider_pid"]) || get_in(agent, ["transport", "os_pid"])
+
+    %{
+      identifier: agent["identifier"],
+      issue_id: agent["issue_id"],
+      status: status,
+      reason: if(reason, do: inspect(reason)),
+      provider_pid_before: Report.provider_pid(pid),
+      provider_pid_after: Report.provider_pid(entry[:codex_app_server_pid]),
+      session_id_before: saved_session_id(agent),
+      session_id_after: entry[:session_id]
+    }
+  end
+
+  defp saved_session_id(agent) do
+    case Runner.decode(agent["running_entry"]) do
+      saved when is_map(saved) -> saved[:session_id]
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
 
   defp alert(reason, opts) do
     emit = Keyword.get(opts, :emit_alert, &Aiur.Alerts.emit_system/2)

@@ -308,7 +308,7 @@ defmodule AiurWeb.StreamdeckLive do
     ~H"""
     <DashboardShell.dashboard_shell
       route={@current_route}
-      routes={RouteRegistry.routes(%{})}
+      routes={RouteRegistry.routes(AiurWeb.Presenter.analytics_navigation())}
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}

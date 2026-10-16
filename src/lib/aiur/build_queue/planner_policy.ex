@@ -80,7 +80,19 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   end
 
   defp manual_promotion(f) do
-    if adoption_withdrawal?(f), do: withdrawal(f), else: result(:overridden, :manual_promotion, {:mark_override, f.item.issue_id})
+    cond do
+      adoption_withdrawal?(f) -> withdrawal(f)
+      unobserved_withdrawal?(f) -> result(:unknown, :awaiting_withdrawal_observation)
+      true -> result(:overridden, :manual_promotion, {:mark_override, f.item.issue_id})
+    end
+  end
+
+  # The queue's own todo withdrawal postdates this observation, so its todo label is stale evidence.
+  defp unobserved_withdrawal?(f) do
+    Enum.any?(f.context.input.intents, fn intent ->
+      intent.issue_id == f.item.issue_id and intent.action == :withdraw and intent.outcome in [nil, :ok] and
+        "#{f.prefix}:todo" not in intent.target_labels and intent.recorded_at_ms > f.observation.observed_at_ms
+    end)
   end
 
   defp adoption_withdrawal?(f) do
@@ -156,6 +168,8 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   defp promoted(%{claim: {:declined, {:queue_set_order, reason}}} = f), do: set_wait(f, reason)
 
   defp promoted(%{claim: {:declined, :unauthorized}}), do: result(:promoted_unauthorized, :unauthorized)
+
+  defp promoted(%{claim: :authorization_pending}), do: result(:held, :authorization_pending)
 
   defp promoted(f), do: promoted_ready_or_withdraw(f)
 

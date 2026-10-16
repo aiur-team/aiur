@@ -49,7 +49,7 @@ defmodule Aiur.CiLifecycleTestSupport do
 
           case Process.get(@request_key) do
             nil -> Process.get(@update_result_key, :ok)
-            request_fun -> IssueState.remove_label(issue_id, label, request_fun: request_fun)
+            request_fun -> IssueState.remove_label(issue_id, label, token: "test-gh-token", request_fun: request_fun)
           end
 
         _other ->
@@ -64,7 +64,7 @@ defmodule Aiur.CiLifecycleTestSupport do
 
           case Process.get(@request_key) do
             nil -> Process.get(@update_result_key, :ok)
-            request_fun -> IssueState.update_issue_state(issue_id, state_name, Keyword.put(opts, :request_fun, request_fun))
+            request_fun -> IssueState.update_issue_state(issue_id, state_name, Keyword.merge(opts, token: "test-gh-token", request_fun: request_fun))
           end
 
         _other ->

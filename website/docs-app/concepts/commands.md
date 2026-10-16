@@ -59,10 +59,23 @@ direction must declare `authority: human_required` (and the matching
 `reversibility`) explicitly.
 
 Aiur warns when a human-required Command is reversible and all of its
-options are low-risk. It also raises attention when a blocking Command remains
-unanswered for a day, or when an Executor-unanswerable Command expires without a
-decision. These signals expose stale context and upstream misclassification;
-they do not weaken the answer-authorization floor.
+options are low-risk. It also raises attention when an Executor-unanswerable
+Command expires without a decision. These signals expose stale context and
+upstream misclassification; they do not weaken the answer-authorization floor.
+
+A blocking Command never waits in silence. When it is created, the Executor gets
+one `ticket.<N>.agent.attention.operator-decision` wake with the decision id,
+the question, the recommended option and the number of open tickets it gates.
+
+While it stays open, Aiur wakes the Executor again at 15 and 30 minutes and
+alerts the operator at 45 minutes, then every hour. A Command that gates 10 or
+more open tickets alerts the operator at 15 minutes. Answering the Command
+resolves the alert and stops the ladder.
+
+The ladder is computed from the
+Command's age, so a restart continues it. `aiur status` prints
+`DECISIONS open N oldest <age> (#ticket, gates M)` and marks it `ATTENTION`
+when the oldest blocking Command is older than 15 minutes.
 
 Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
 

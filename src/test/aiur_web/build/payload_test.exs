@@ -52,9 +52,14 @@ defmodule AiurWeb.Build.PayloadTest do
   end
 
   test "every source must be present" do
-    data = fixture() |> update_in(["sources"], &Map.delete(&1, "queue"))
-    assert {:error, errors} = Payload.validate(data)
-    assert {"sources.queue", :missing} in errors
+    for key <- ~w(history features queue agents index open_tickets) do
+      data = fixture() |> update_in(["sources"], &Map.delete(&1, key))
+      assert {:error, errors} = Payload.validate(data)
+      assert {"sources.#{key}", :missing} in errors
+    end
+
+    data = fixture() |> put_in(["sources", "open_tickets", "state"], "unsupported") |> put_in(["sources", "open_tickets", "truncated"], true)
+    assert Payload.validate(data) == :ok
   end
 
   test "locked usage cannot carry values" do

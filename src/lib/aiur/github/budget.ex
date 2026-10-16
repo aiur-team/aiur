@@ -1,4 +1,6 @@
 defmodule Aiur.GitHub.Budget do
+  alias Aiur.GitHub.Budget.StateDir
+
   @moduledoc """
   Coordinates GitHub request admission across local Aiur instances.
 
@@ -101,12 +103,7 @@ defmodule Aiur.GitHub.Budget do
   end
 
   @spec state_dir(keyword()) :: Path.t()
-  def state_dir(opts \\ []) do
-    case Keyword.get(opts, :state_dir, Application.get_env(:aiur, :github_budget_dir)) do
-      path when is_binary(path) and path != "" -> Path.expand(path)
-      _ -> Path.join(System.user_home!(), ".aiur/github-budget")
-    end
-  end
+  def state_dir(opts \\ []), do: StateDir.resolve(opts)
 
   @spec database_path(keyword()) :: Path.t()
   def database_path(opts \\ []), do: Path.join(state_dir(opts), "budget.sqlite3")
