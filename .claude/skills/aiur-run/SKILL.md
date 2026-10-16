@@ -1192,19 +1192,16 @@ that the production files conflict while every test file auto-merges cleanly, so
 the resolver sees no markers and inherits a mutually unsatisfiable suite. Ask
 explicitly for a merge-order recommendation.
 
-Do not relabel by hand after a `CHANGES_REQUESTED` review. The daemon already
-moves the ticket: the review webhook and the review poll both publish
-`ticket.<id>.pr.review_comment`, and `CommentWake` writes `agent:rework` (add
-before remove) and delivers the review to a worker that still holds the ticket.
-A hand relabel only duplicates that write and spends shared GitHub core budget.
-(The 2026-10-15 `dispatch-declined` alerts on #4570 and #4566 came from a
-GitHub budget hold on the rework claim, not from the relabels; #4646 tracks it.)
-Verify instead: the ticket left `agent:human-review`/`agent:ci-wait` for
-`agent:rework`. If it did not, read the `review_rework_refused` alert and fix
-what it names (review state, trusted author, open PR, current head; often a
-re-review of the current head). If there is no such alert, run
-`aiur executor-sweep` (#4620) and check the daemon log for `Rework dispatch
-claim failed` or `ticket_transition ... writer=comment_wake` before you touch a label.
+Do not relabel by hand after a `CHANGES_REQUESTED` review. The review webhook
+and poll both publish `ticket.<id>.pr.review_comment`; `CommentWake` writes
+`agent:rework` (add before remove) and delivers the review to a live worker. A
+hand relabel only repeats that write and spends shared GitHub core budget. (The
+2026-10-15 `dispatch-declined` on #4570/#4566 came from a budget hold on the
+rework claim, not the relabels; #4646.) Verify the ticket left
+`agent:human-review`/`agent:ci-wait` for `agent:rework`. If not, fix what the
+`review_rework_refused` alert names (often: re-review the current head). With no
+alert, run `aiur executor-sweep` (#4620) and grep the daemon log for `Rework
+dispatch claim failed` or `writer=comment_wake` before you touch a label.
 
 ### Merge mechanics
 
