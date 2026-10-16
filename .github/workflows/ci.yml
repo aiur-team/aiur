@@ -98,8 +98,6 @@ jobs:
         run: bash scripts/verify-human-only-merge-ruleset-live.sh
       - name: Structural guards
         env:
-          GH_TOKEN: ${{ github.token }}
-          AIUR_PR_NUMBER: ${{ github.event.pull_request.number }}
           AIUR_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           AIUR_MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           AIUR_PUSH_BEFORE: ${{ github.event.before }}
