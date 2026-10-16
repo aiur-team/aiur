@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.MaxAgentsCapTest do
   import Aiur.RateLimitFallbackFixture, only: [fallback_entry: 1, reconcile_opts: 1]
 
   alias Aiur.{Issue, Workflow}
-  alias Aiur.Orchestrator.{DispatchPolicy, Dispatcher, PauseResume, RateLimitFallback, Slots, State, TrackerTasks}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, PauseResume, RateLimitFallback, Slots, State, TrackerTasks}
   alias Aiur.Orchestrator.PauseResume.Resume
 
   setup do

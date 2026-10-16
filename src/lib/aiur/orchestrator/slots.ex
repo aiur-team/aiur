@@ -279,8 +279,10 @@ defmodule Aiur.Orchestrator.Slots do
   # the agent has simply hit its time cap and is parked for review), so the
   # parked runner releases normal dispatch capacity (#2329).
   @spec used_slots(State.t()) :: non_neg_integer()
-  def used_slots(%State{} = state) do
-    active_slots(state) + State.reserved_paused_running_count(state.running)
+  def used_slots(%State{} = state), do: used_slots(state, state.running)
+
+  defp used_slots(state, running) do
+    State.active_running_count(running) + pending_rework_claims(state) + State.reserved_paused_running_count(running)
   end
 
   # Active agents plus rework claims whose tracker write is still in flight.
@@ -299,8 +301,10 @@ defmodule Aiur.Orchestrator.Slots do
   # A worker that replaces the issue's own entry (backend or account swap)
   # inherits whatever slot that entry holds and needs a free one otherwise.
   @spec replacement_slot_available?(State.t(), term()) :: boolean()
+  def replacement_slot_available?(%State{globally_paused: true}, _issue_id), do: false
+
   def replacement_slot_available?(%State{} = state, issue_id),
-    do: available_slots(%{state | running: Map.delete(state.running, issue_id)}) > 0
+    do: effective_concurrent_agent_limit(state) > used_slots(state, Map.delete(state.running, issue_id))
 
   @spec available_slots(State.t()) :: non_neg_integer()
   def available_slots(%State{globally_paused: true}), do: 0
