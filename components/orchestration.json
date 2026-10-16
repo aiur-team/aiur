@@ -15,6 +15,7 @@
     "src/lib/aiur/handoff/adopter.ex",
     "src/lib/aiur/handoff/compatibility.ex",
     "src/lib/aiur/handoff/fallback.ex",
+    "src/lib/aiur/handoff/report.ex",
     "src/lib/aiur/landing_watch.ex",
     "src/lib/aiur/landing_watch/**",
     "src/lib/aiur/orchestrator.ex",

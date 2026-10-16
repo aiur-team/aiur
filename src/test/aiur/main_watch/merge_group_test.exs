@@ -8,7 +8,7 @@ defmodule Aiur.MainWatch.MergeGroupTest do
   end
 
   test "landed main commit is covered by its exact-SHA merge group without a push CI run" do
-    assert {:ok, %{observations: [observation], runs: [run]}} = GitHub.poll("main", ["ci"], request_fun: request(), actions_write: false)
+    assert {:ok, %{observations: [observation], runs: [run]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(), actions_write: false)
     assert observation.sha == "landed"
     assert observation.checks == [%{name: "ci gate", conclusion: "success"}]
     refute observation.failed_workflow
@@ -18,12 +18,12 @@ defmodule Aiur.MainWatch.MergeGroupTest do
 
   test "future guard: wrong queue base or SHA cannot cover main" do
     for override <- [%{"head_sha" => "other"}, %{"head_branch" => "gh-readonly-queue/develop/pr-1-base"}] do
-      assert {:ok, %{observations: [], runs: []}} = GitHub.poll("main", ["ci"], request_fun: request(override), actions_write: false)
+      assert {:ok, %{observations: [], runs: []}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(override), actions_write: false)
     end
   end
 
   test "unreadable queue census cannot yield partial green from push runs" do
-    assert {:error, {:github, :http, %{status: 403}}} = GitHub.poll("main", ["ci"], request_fun: request(%{}, true), actions_write: false)
+    assert {:error, {:github, :http, %{status: 403}}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(%{}, true), actions_write: false)
   end
 
   defp request(override \\ %{}, fail? \\ false) do

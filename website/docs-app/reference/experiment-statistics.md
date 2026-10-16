@@ -10,6 +10,12 @@ analytics/experiment-stats --experiment-dir DIR --check
 analytics/experiment-stats --experiment-dir DIR --now 2026-10-09T00:00:00Z
 ```
 
+| Syntax | Default or important interaction | Runnable example |
+| --- | --- | --- |
+| `--experiment-dir DIR` | Required directory containing the frozen experiment inputs. | `analytics/experiment-stats --experiment-dir ./frozen` |
+| `--check` | Recomputes and compares the stored result body; exits 1 when it differs. | `analytics/experiment-stats --experiment-dir ./frozen --check` |
+| `--now TIME` | Overrides the external `generated_at` timestamp without changing inference. | `analytics/experiment-stats --experiment-dir ./frozen --now 2026-10-09T00:00:00Z` |
+
 The directory contains `spec.json`, `snapshot.json` and optional `annotations.json`. The CLI writes `result.json` atomically. `--check` recomputes and compares the entire stored body, including input hashes; an edited number returns exit 1 with a field-level JSON diff. Invalid input returns exit 2.
 
 `--now` supplies an ISO8601 timestamp for `generated_at`, outside the computed body. It does not alter inference.

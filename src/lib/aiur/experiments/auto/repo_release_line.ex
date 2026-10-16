@@ -103,7 +103,8 @@ defmodule Aiur.Experiments.Auto.RepoReleaseLine do
     end
   end
 
-  defp eligible?(tag, config) do
+  @spec eligible?(String.t(), map()) :: boolean()
+  def eligible?(tag, config) do
     pattern = config.release_tag_pattern |> Regex.escape() |> String.replace("\\*", ".*") |> String.replace("\\?", ".")
 
     with true <- Regex.match?(Regex.compile!("\\A#{pattern}\\z"), tag),

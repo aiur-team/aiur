@@ -1,7 +1,8 @@
 defmodule Aiur.BuildQueue.ReadinessTest do
   use ExUnit.Case, async: true
-  alias Aiur.BuildQueue.Model.{Edge, Observation}
-  alias Aiur.BuildQueue.Readiness
+  alias Aiur.BuildQueue.Model.{Edge, Item, Observation, Queue}
+  alias Aiur.BuildQueue.{Readiness, ReadModel}
+  alias Aiur.Config.Schema
   @opts [now_ms: 10_000, max_age_ms: 1_000, label_prefix: "worker"]
 
   test "only completed closure satisfies a fresh prerequisite" do
@@ -65,6 +66,60 @@ defmodule Aiur.BuildQueue.ReadinessTest do
   test "empty, disconnected, and diamond graphs have no cycles" do
     assert Readiness.cyclic_items([]) == MapSet.new()
     assert Readiness.cyclic_items([edge("1", "2"), edge("1", "3"), edge("2", "4"), edge("3", "4"), edge("5", "6")]) == MapSet.new()
+  end
+
+  test "cached native blocker evidence renders as a GitHub waiting prerequisite without tracker reads" do
+    queue = %Queue{id: "q-0001", name: "focus", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-15 00:00:00Z]}
+    item = %Item{issue_id: "11", queue_id: queue.id, position: 0, hold: nil, override: nil, promoted_at: nil, added_at: queue.created_at}
+    observation = %Observation{issue_id: "11", open?: true, labels: ["agent:queued"], state_reason: nil, pr: nil, observed_at_ms: 10_000}
+
+    model =
+      ReadModel.build(%{
+        status: :running,
+        clock: fn -> 10_000 end,
+        document: %{queues: [queue], items: [item], edges: [], latches: []},
+        settings: %Schema{build_queue: %Schema.BuildQueue{}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}},
+        projections: [%{issue_id: "11", state: :ready, verdict: :ready, reason: nil, rank: {0, 5, 0, 0, "11"}}],
+        observations: %{"11" => observation},
+        native_blockers: %{"11" => {:ok, [%{number: 3141, open?: true}]}}
+      })
+
+    [projected] = hd(model.queues).items
+    assert projected.state == :waiting
+    assert projected.reason == "waiting on #3141 (github)"
+    assert [%{number: 3141, verdict: :pending, source: :github, description: "waiting on #3141 (github)"}] = projected.prerequisites
+  end
+
+  test "focus starvation requires startable focus work and a lower claimed set" do
+    startable = %{number: 11, state: :ready, verdict: :ready}
+    claimed = %{number: 21, state: :claimed, verdict: :ready}
+    focus = %{queue_id: "a", set_rank: 0, items: [startable]}
+    lower = %{queue_id: "b", set_rank: 1, items: [claimed]}
+
+    assert ReadModel.focus_starvation([lower, focus]) == {:starved, [11]}
+    assert ReadModel.focus_starvation([focus, %{lower | items: []}]) == :clear
+    assert ReadModel.focus_starvation([%{focus | items: [claimed]}, lower]) == :clear
+  end
+
+  test "reconciliation focus starvation uses projections and cached GitHub blockers" do
+    time = DateTime.from_unix!(10_000, :millisecond)
+    focus = %Queue{id: "focus", name: "focus", rank: 0, kind: :list, root: nil, held: false, generation: 0, created_at: time}
+    lower = %Queue{id: "lower", name: "lower", rank: 1, kind: :list, root: nil, held: false, generation: 0, created_at: time}
+
+    members = [
+      %Item{issue_id: "11", queue_id: "focus", position: 0, hold: nil, override: nil, promoted_at: nil, added_at: time},
+      %Item{issue_id: "21", queue_id: "lower", position: 0, hold: nil, override: nil, promoted_at: nil, added_at: time}
+    ]
+
+    ready = %{issue_id: "11", state: :ready, verdict: :ready}
+    claimed = %{issue_id: "21", state: :claimed, verdict: :ready}
+    state = %{document: %{queues: [lower, focus], items: members}, native_blockers: %{}}
+
+    assert ReadModel.focus_starvation(state, [ready, claimed]) == {:starved, [11]}
+    assert ReadModel.focus_starvation(state, [%{ready | state: :claimed}, claimed]) == :clear
+
+    blocked = %{state | native_blockers: %{"11" => {:ok, [%{number: 3141, open?: true}]}}}
+    assert ReadModel.focus_starvation(blocked, [ready, claimed]) == :clear
   end
 
   test "the node bound accepts 1000 and refuses 1001 without pretending acyclic" do

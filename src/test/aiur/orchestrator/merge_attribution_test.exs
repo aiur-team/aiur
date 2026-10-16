@@ -61,6 +61,7 @@ defmodule Aiur.Orchestrator.MergeAttributionTest do
     parent = self()
 
     overrides = [
+      token: "test-gh-token",
       request_fun: request,
       target_state: "done",
       update_issue_state_fun: fn "3122", "done" -> :ok end,
