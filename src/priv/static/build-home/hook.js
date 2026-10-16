@@ -10,6 +10,7 @@ import './render.js';
 import './columns.js';
 import './offline.js';
 import './tools.js';
+import './span.js';
 
 export function writeOwnData() {
   Object.assign(ctx.root.dataset, { buildHomeHook: 'mounted', bdMounted: '', bdPaging: H.state, buildSocket: ctx.socket });

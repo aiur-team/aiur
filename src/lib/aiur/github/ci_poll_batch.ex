@@ -245,6 +245,7 @@ defmodule Aiur.GitHub.CIPollBatch do
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     mergeQueueEntry { id }
+    reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }
     #{contexts_selection()}
     """
   end
@@ -397,8 +398,23 @@ defmodule Aiur.GitHub.CIPollBatch do
   # clearing a recovery signal on partial data.
   defp put_merge_queue_observation(pull_request, node) do
     case MergeQueue.normalize_graphql_pull_request(node) do
-      %{} = observation -> Map.put(pull_request, "merge_queue", observation)
-      {:error, _reason} -> pull_request
+      %{} = observation ->
+        observation = Map.put(observation, :approved_review_head_sha, approved_review_head_sha(node))
+        Map.put(pull_request, "merge_queue", observation)
+
+      {:error, _reason} ->
+        pull_request
+    end
+  end
+
+  defp approved_review_head_sha(node) do
+    with %{} = reviews <- Map.get(node, "reviews"),
+         [review | _] when is_map(review) <- Map.get(reviews, "nodes"),
+         %{} = commit <- Map.get(review, "commit"),
+         sha when is_binary(sha) <- Map.get(commit, "oid") do
+      sha
+    else
+      _ -> nil
     end
   end
 

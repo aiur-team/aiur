@@ -85,8 +85,6 @@ defmodule Aiur.Muse.TurnTest do
   end
 
   @tag :tmp_dir
-  # Flaky in merge groups; fix tracked in #4463.
-  @tag :quarantine
   test "an accepted receipt without a terminal times out", %{tmp_dir: dir} do
     assert {:error, :native_turn_timeout} = Task.await(run_fixture(dir, "receipt_only", 150), :infinity)
   end

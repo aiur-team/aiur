@@ -136,8 +136,10 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.Experiments.Auto, [recording?: true, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]]},
     Aiur.BuildOrder.Features.LabelProjection,
     Aiur.LandingWatch,
+    Aiur.ExecutorSweep,
     Aiur.Experiments.Auto.Notifier,
-    Aiur.Experiments.Auto.WindowManager
+    Aiur.Experiments.Auto.WindowManager,
+    Aiur.LandingWatch.QuarantineLifter
   ]
 
   setup do

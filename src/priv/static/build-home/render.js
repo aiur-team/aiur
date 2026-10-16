@@ -1,6 +1,7 @@
 import { S, ctx, fx, gutW, LH, onReset, renderChrome } from './state.js';
 import { $ } from './dom.js';
 import { I } from './icons.js';
+import { dotSize } from './span.js';
 import { writeURL } from './url.js';
 import { computeLayout, measureFlow, histDays, makeMark, placeMark, makeLabel } from './layout.js';
 import { H, syncHistory, loadEarlier, ensureDays, ensureFrom } from './history.js';
@@ -69,7 +70,7 @@ export function relayout({ live = false } = {}) {
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
   ctx.L = computeLayout(ctx.D, S, { vpW: ctx.vp.clientWidth, vpH: ctx.vp.clientHeight, gut: gutW() }, ctx.snap.sources);
   ctx.svg.setAttribute('height', 0);
-  ctx.vp.style.setProperty('--dot', Math.max(14, 30 - 16 * Math.log(S.span) / Math.log(3)).toFixed(1) + 'px');
+  ctx.vp.style.setProperty('--dot', dotSize(S.span));
   for (const [uid, el] of ctx.R) {
     const id = el.dataset.id;
     if (!live || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
