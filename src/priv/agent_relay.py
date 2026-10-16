@@ -126,8 +126,9 @@ class Relay:
                 raise ValueError('invalid_signal')
             self.signal_group(getattr(signal, 'SIG' + name))
         elif op == 'reap':
-            # Turn boundary: anything the relay adopted lost its launcher.
-            asyncio.create_task(self.kill_descendants(keep=self.provider.pid))
+            # Turn boundary: no tool command is running, so whatever one left
+            # behind dies, whether adopted or still under a live tool shell.
+            asyncio.create_task(self.kill_descendants(spare=self.provider.pid))
         elif op == 'stop':
             grace = request.get('grace_ms', 10000)
             if type(grace) is not int or not 0 <= grace <= 60000:
@@ -247,13 +248,15 @@ class Relay:
         except ProcessLookupError:
             pass
 
-    async def kill_descendants(self, keep=None):
+    async def kill_descendants(self, spare=None):
         # Tool commands may setsid or double-fork out of the provider group;
         # as subreaper the relay adopts them, so its tree is the whole agent.
-        # `keep` spares one child's subtree: the live provider at a turn end.
+        # `spare` is the live provider at a turn end: it and its own process
+        # group (MCP servers) survive; tool shells run in groups of their own.
         for _ in range(100):
             self.reap_adopted()
-            pids = [pid for pid in descendants(os.getpid(), keep) if not zombie(pid)]
+            kept = provider_group(spare) if spare else set()
+            pids = [pid for pid in descendants(os.getpid()) if pid not in kept and not zombie(pid)]
             if not pids:
                 return
             for pid in pids:
@@ -371,7 +374,7 @@ class Relay:
             self.journal.close()
 
 
-def descendants(root, keep=None):
+def descendants(root):
     found, pending = [], [root]
     while pending:
         parent = pending.pop()
@@ -381,13 +384,21 @@ def descendants(root, keep=None):
             continue
         for task in tasks:
             try:
-                children = [int(pid) for pid in Path(f'/proc/{parent}/task/{task}/children').read_text().split()
-                            if int(pid) != keep]
+                children = [int(pid) for pid in Path(f'/proc/{parent}/task/{task}/children').read_text().split()]
             except (OSError, ValueError):
                 continue
             found += children
             pending += children
     return found
+
+
+def provider_group(provider):
+    def group(pid):
+        try:
+            return os.getpgid(pid)
+        except ProcessLookupError:
+            return None
+    return {provider} | {pid for pid in descendants(provider) if group(pid) == provider}
 
 
 def zombie(pid):

@@ -6,6 +6,6 @@ defmodule Aiur.AppServer.AgentRelayContainmentScriptTest do
     script = Path.expand("../../priv/agent_relay_containment_test.py", __DIR__)
     {output, status} = System.cmd("python3", [script, "-v"], stderr_to_stdout: true)
     assert status == 0, output
-    assert output =~ "Ran 2 tests"
+    assert output =~ "Ran 3 tests"
   end
 end

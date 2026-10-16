@@ -17,6 +17,16 @@ PROVIDER = ("import subprocess,sys\n"
             "print('ready', flush=True)\n"
             "sys.stdin.readline()\n")
 
+# A tool shell still running at the turn end, in its own session the way
+# headless Claude runs Bash, beside a provider-group child (an MCP server).
+LIVE_SHELL = ("import subprocess,sys\n"
+              "subprocess.Popen(['setsid', 'sh', '-c', "
+              "\"timeout 30 sh -c 'echo $$ > loop.pid; while :; do sleep 0.2; done'\"])\n"
+              "server = subprocess.Popen(['sleep', '30'])\n"
+              "open('server.pid', 'w').write(str(server.pid))\n"
+              "print('ready', flush=True)\n"
+              "sys.stdin.readline()\n")
+
 
 def state(pid):
     try:
@@ -40,9 +50,9 @@ class RelayContainmentTest(unittest.TestCase):
 
     def tearDown(self):
         # Without the fix the loop survives the relay; never leave it behind.
-        loop = getattr(self, 'loop', None)
-        if loop and alive(loop):
-            os.kill(loop, signal.SIGKILL)
+        for pid in (getattr(self, 'loop', None), getattr(self, 'server', None)):
+            if pid and alive(pid):
+                os.kill(pid, signal.SIGKILL)
         harness.RelayTest.tearDown(self)
 
     def start_detached_loop(self):
@@ -70,6 +80,20 @@ class RelayContainmentTest(unittest.TestCase):
         self.send(client, op='stop', grace_ms=1000)
         self.wait(lambda: not (self.directory / 'ctl.sock').exists())
         self.assertFalse(alive(self.loop))
+
+    def test_turn_reap_kills_a_loop_under_a_live_tool_shell_and_spares_the_provider_group(self):
+        self.start(LIVE_SHELL)
+        client, stream, hello = self.connect(1)
+        self.assertEqual(self.read(stream)['line'], 'ready')
+        loop_file = self.directory / 'loop.pid'
+        self.wait(lambda: loop_file.exists() and loop_file.read_text().strip())
+        self.loop = int(loop_file.read_text())
+        self.server = int((self.directory / 'server.pid').read_text())
+        self.assertTrue(alive(self.loop))
+        self.send(client, op='reap')
+        self.wait(lambda: not alive(self.loop))
+        self.assertTrue(alive(self.server))
+        self.assertTrue(alive(hello['provider_pid']))
 
 
 if __name__ == '__main__':
