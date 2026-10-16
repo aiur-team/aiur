@@ -33,10 +33,17 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['light', 'dark']) 
     const pair = await openParityPair(browser, { ...viewport, theme, palette, dataset: 'offline' })
     try {
       for (const page of [pair.design, pair.product]) await page.locator('#bd-offline').evaluate(el => {
-        const width = el.getBoundingClientRect().width
-        Object.assign(el.style, { position: 'fixed', top: '0', left: '0', width: width + 'px', zIndex: '2147483647' })
+        const box = el.getBoundingClientRect()
+        let parent = el.parentElement, color = 'rgba(0, 0, 0, 0)'
+        while (parent && color === 'rgba(0, 0, 0, 0)') { color = getComputedStyle(parent).backgroundColor; parent = parent.parentElement }
+        const host = document.createElement('div'); host.className = 'bd-root'; host.id = 'offline-capture'
+        // Preserve the translucent banner over its actual ancestor background,
+        // isolated from unowned mobile chrome beneath the fixed capture origin.
+        Object.assign(host.style, { position: 'fixed', top: '0', left: '0', width: box.width + 'px',
+          height: box.height + 'px', zIndex: '2147483647', backgroundColor: color })
+        document.body.append(host); host.append(el)
       })
-      await expectDesignParity(pair, { name: `offline-${viewport.viewport.width}-${theme}-${palette}`, region: '#bd-offline' })
+      await expectDesignParity(pair, { name: `offline-${viewport.viewport.width}-${theme}-${palette}`, region: '#offline-capture' })
     }
     finally { await pair.close() }
   })
