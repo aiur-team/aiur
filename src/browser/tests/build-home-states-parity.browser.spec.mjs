@@ -59,6 +59,7 @@ for (const width of [1440, 390]) test(`degraded marker retains design geometry $
       return { box: props.map(k => s[k]), text: ['b', 'p'].map(sel => { const st = getComputedStyle(el.querySelector(sel)); return ['font', 'color', 'maxWidth'].map(k => st[k]) }) }
     })
     expect(await read(pair.product)).toEqual(await read(pair.design))
+    await expect(pair.product.locator('#bd-sec-nq .bd-sech')).toContainText('stale, read 3 h ago (11:20)')
     if (width === 390) expect(await pair.product.locator('#bd-vp').evaluate(el => el.scrollWidth === el.clientWidth)).toBe(true)
   } finally { await pair.close() }
 })
