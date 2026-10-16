@@ -157,9 +157,9 @@ defmodule Aiur.MainWatch.GitHub do
   end
 
   defp append_observation(sha, {:ok, acc}, runs, workflows, opts) do
-    latest = newest_completed_ci_run(runs, sha)
+    latest = newest_completed_workflow_runs(runs, sha, workflows)
 
-    if latest != [] and configured_workflows_complete?(runs, sha, workflows) do
+    if latest != [] and (failed_workflow?(latest) or configured_workflows_complete?(runs, sha, workflows)) do
       case cached_observation(sha, latest, opts) do
         {:ok, observation} -> {:cont, {:ok, acc ++ [observation]}}
         error -> {:halt, error}
@@ -169,12 +169,14 @@ defmodule Aiur.MainWatch.GitHub do
     end
   end
 
-  defp newest_completed_ci_run(runs, sha) do
+  defp newest_completed_workflow_runs(runs, sha, workflows) do
     runs
-    |> Enum.filter(&(&1.sha == sha and &1.event == "push" and &1.name == "ci" and &1.status == "completed" and &1.conclusion not in [nil, "cancelled"]))
+    |> Enum.filter(&(&1.sha == sha and &1.event == "push" and &1.status == "completed" and &1.conclusion not in [nil, "cancelled"] and (workflows == [] or &1.name in workflows)))
     |> Enum.sort_by(&{&1.completed_at || 0, &1.id}, :desc)
     |> Enum.uniq_by(& &1.name)
   end
+
+  defp failed_workflow?(runs), do: Enum.any?(runs, &(&1.conclusion == "failure"))
 
   defp configured_workflows_complete?(runs, sha, workflows) do
     workflows == [] or
