@@ -32,7 +32,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   defp write_release(issue, target, opts) do
-    update = Keyword.get(opts, :update_issue_state_fun, &guarded_update/3)
+    writer = Keyword.get(opts, :writer, :startup_claim_reconciler)
+    update = Keyword.get(opts, :update_issue_state_fun, &guarded_update(&1, &2, &3, writer))
 
     with true <- Observation.lease_free?(issue, opts),
          :ok <- update.(issue.identifier, target, issue.state) do
@@ -72,7 +73,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
     fetch = Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
 
     case fetch.(issue.identifier) do
-      {:ok, nil} -> {:ok, "todo"}
+      {:ok, nil} -> {:ok, Keyword.get(opts, :no_pr_target, "todo")}
       {:ok, pr} when is_map(pr) -> pr_target(pr, opts)
       {:error, _reason} = error -> error
     end
@@ -131,7 +132,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
     end
   end
 
-  defp guarded_update(identifier, target, expected), do: TicketTransition.write_state(identifier, target, writer: :startup_claim_reconciler, expected_state: expected)
+  defp guarded_update(identifier, target, expected, writer), do: TicketTransition.write_state(identifier, target, writer: writer, expected_state: expected)
 
   defp lifecycle_state_name(slug, opts) do
     opts |> Keyword.get_lazy(:active_states, &Config.active_states/0) |> Enum.find(slug, &(DispatchPolicy.state_slug(&1) == slug))
@@ -139,13 +140,16 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
 
   defp comment(issue, target, note, opts) do
     post = Keyword.get(opts, :create_comment_fun, &Tracker.create_comment/2)
-    body = "Released orphaned in-progress claim to #{target}: no live worker or workspace lease owned this ticket throughout the recovery grace period." <> note
+    body = Keyword.get(opts, :release_body, &orphan_release_body/1).(target) <> note
 
     case post.(issue.identifier, body) do
       :ok -> :ok
       {:error, reason} -> comment_failed(issue, reason, opts)
     end
   end
+
+  defp orphan_release_body(target),
+    do: "Released orphaned in-progress claim to #{target}: no live worker or workspace lease owned this ticket throughout the recovery grace period."
 
   defp comment_failed(issue, reason, opts) do
     emit = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
