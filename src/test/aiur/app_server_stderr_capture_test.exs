@@ -2,7 +2,8 @@ defmodule Aiur.AppServerStderrCaptureTest.LogHandler do
   @moduledoc false
 
   def log(%{level: level, msg: message}, %{config: %{owner: owner}}) do
-    send(owner, {:captured_app_server_log, level, render(message)})
+    rendered = render(message)
+    send(owner, {:captured_app_server_log, level, rendered})
     :ok
   end
 
@@ -26,7 +27,9 @@ defmodule Aiur.AppServerStderrCaptureTest do
       workspace_root = Path.join(test_root, "workspaces")
       workspace = Path.join(workspace_root, "MT-92")
       codex_binary = Path.join(test_root, "fake-codex")
+      release_fifo = Path.join(test_root, "release")
       File.mkdir_p!(workspace)
+      assert {"", 0} = System.cmd("mkfifo", [release_fifo], stderr_to_stdout: true)
 
       File.write!(codex_binary, """
       #!/bin/sh
@@ -40,6 +43,7 @@ defmodule Aiur.AppServerStderrCaptureTest do
           3) printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-92"}}}' ;;
           4)
             printf '%s\\n' 'warning: this is stderr noise' >&2
+            IFS= read -r release < "#{release_fifo}"
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
             ;;
@@ -50,10 +54,7 @@ defmodule Aiur.AppServerStderrCaptureTest do
 
       File.chmod!(codex_binary, 0o755)
 
-      write_workflow_file!(Workflow.workflow_file_path(),
-        workspace_root: workspace_root,
-        command: "#{codex_binary} app-server"
-      )
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root, command: "#{codex_binary} app-server")
 
       issue = %Issue{
         id: "issue-stderr",
@@ -68,11 +69,25 @@ defmodule Aiur.AppServerStderrCaptureTest do
       assert :ok = :logger.add_handler(handler_id, LogHandler, %{config: %{owner: self()}})
 
       try do
-        assert {:ok, _result} = AppServer.run(workspace, "Capture stderr log", issue)
-        assert :ok = Logger.flush()
+        Application.put_env(:aiur, :workflow_store_config_reader, fn path ->
+          case File.read(path) do
+            {:ok, contents} ->
+              {:ok, String.replace(contents, "  kind: codex", "  kind: codex\n  relay: false")}
 
-        assert_receive {:captured_app_server_log, :warning, "Codex turn stream output: warning: this is stderr noise"},
-                       1_000
+            error ->
+              error
+          end
+        end)
+
+        write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root, command: "#{codex_binary} app-server")
+        turn_task = Task.async(fn -> AppServer.run(workspace, "Capture stderr log", issue) end)
+
+        warning = "Codex turn stream output: warning: this is stderr noise"
+        assert_receive {:captured_app_server_log, :warning, ^warning}, 1_000
+
+        File.write!(release_fifo, "ok\\n")
+        assert {:ok, _result} = Task.await(turn_task, 5_000)
+        assert :ok = Logger.flush()
       after
         :logger.remove_handler(handler_id)
       end
