@@ -6,7 +6,7 @@ defmodule AiurWeb.DashboardLive.Controls do
 
   alias Aiur.{AgentChat, AgentPubSub}
   alias Aiur.Orchestrator.{GlobalPause, Slots}
-  alias AiurWeb.{DashboardLive, Endpoint}
+  alias AiurWeb.{DashboardLive, EndpointConfig}
   alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresenter}
 
   @doc false
@@ -105,14 +105,14 @@ defmodule AiurWeb.DashboardLive.Controls do
   end
 
   defp capacity_adjust(delta) do
-    case Endpoint.config(:capacity_adjust_fun) do
+    case EndpointConfig.get(:capacity_adjust_fun) do
       fun when is_function(fun, 1) -> fun.(delta)
       _other -> Slots.adjust_max_concurrent_agents(capacity_orchestrator(), delta)
     end
   end
 
   defp capacity_set(next) do
-    case Endpoint.config(:capacity_set_fun) do
+    case EndpointConfig.get(:capacity_set_fun) do
       fun when is_function(fun, 1) -> fun.(next)
       _other -> Slots.set_max_concurrent_agents(capacity_orchestrator(), next)
     end
@@ -120,12 +120,12 @@ defmodule AiurWeb.DashboardLive.Controls do
 
   @doc false
   @spec capacity_orchestrator() :: GenServer.server()
-  def capacity_orchestrator, do: Endpoint.config(:orchestrator) || Aiur.Orchestrator
+  def capacity_orchestrator, do: EndpointConfig.get(:orchestrator) || Aiur.Orchestrator
 
   @doc false
   @spec pause_agent(Aiur.TrackerIdentity.t() | String.t()) :: term()
   def pause_agent(target) do
-    case Endpoint.config(:agent_chat_pause_fun) do
+    case EndpointConfig.get(:agent_chat_pause_fun) do
       fun when is_function(fun, 1) -> fun.(target)
       _fun -> AgentChat.pause(target)
     end
@@ -227,14 +227,14 @@ defmodule AiurWeb.DashboardLive.Controls do
   end
 
   defp resume_agent(identifier) do
-    case Endpoint.config(:agent_chat_resume_fun) do
+    case EndpointConfig.get(:agent_chat_resume_fun) do
       fun when is_function(fun, 1) -> fun.(identifier)
       _fun -> AgentChat.resume(identifier)
     end
   end
 
   defp unit_capabilities(identifier) do
-    case Endpoint.config(:agent_chat_capabilities_fun) do
+    case EndpointConfig.get(:agent_chat_capabilities_fun) do
       fun when is_function(fun, 1) -> fun.(identifier)
       _fun -> AgentChat.capabilities(identifier)
     end

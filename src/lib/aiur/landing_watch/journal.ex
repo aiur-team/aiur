@@ -21,6 +21,71 @@ defmodule Aiur.LandingWatch.Journal do
     update(opts, &reserve_rerun_entry(&1, key(pr, head), now))
   end
 
+  @doc "Reserves a PR-level rerun against both the per-head budget and the shared automatic-requeue cap in one write."
+  @spec reserve_automatic_rerun(pos_integer(), String.t(), integer(), keyword()) :: :ok | {:error, term()}
+  def reserve_automatic_rerun(pr, head, now, opts \\ []) when is_integer(pr) and is_binary(head) do
+    update(opts, fn state ->
+      with {:ok, state} <- reserve_rerun_entry(state, key(pr, head), now),
+           {:ok, state, :ok} <- MergeGroupJournal.take_requeue_slot(state, now),
+           do: {:ok, state}
+    end)
+  end
+
+  @doc "Why the per-head budget would refuse a rerun of this journal entry now, or nil."
+  @spec rerun_refusal(map(), integer()) :: :rerun_backoff | :rerun_limit_reached | :invalid_landing_watch_journal_entry | nil
+  def rerun_refusal(entry, now) do
+    case rerun_decision(entry["rerun_count"] || 0, entry["last_rerun_at"] || 0, now) do
+      :reserve -> nil
+      {:error, reason} -> reason
+    end
+  end
+
+  @spec mark_rerun_pending(pos_integer(), String.t(), map(), keyword()) :: :ok | {:error, term()}
+  def mark_rerun_pending(pr, head, row, opts \\ []) when is_integer(pr) and is_binary(head) and is_map(row) do
+    update(opts, fn state ->
+      entry = Map.get(state, key(pr, head), %{})
+      since = get_in(entry, ["rerun_pending", "since_ms"]) || row["since_ms"]
+      {:ok, Map.put(state, key(pr, head), Map.put(entry, "rerun_pending", Map.put(row, "since_ms", since)))}
+    end)
+  end
+
+  @spec clear_rerun_pending(pos_integer(), String.t(), keyword()) :: :ok | {:error, term()}
+  def clear_rerun_pending(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+    update(opts, fn state ->
+      case Map.get(state, key(pr, head)) do
+        %{"rerun_pending" => _} = entry -> {:ok, Map.put(state, key(pr, head), Map.delete(entry, "rerun_pending"))}
+        _ -> {:ok, state}
+      end
+    end)
+  end
+
+  @doc "Approved PR heads whose automatic rerun waits behind the shared cap, oldest first."
+  @spec rerun_backlog(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def rerun_backlog(opts \\ []) do
+    with {:ok, state} <- state(opts) do
+      rows =
+        for {entry_key, %{"rerun_pending" => %{} = row}} <- state, [pr, head] <- [String.split(entry_key, ":", parts: 2)], {number, ""} <- [Integer.parse(pr)] do
+          Map.merge(row, %{"pr" => number, "head" => head})
+        end
+
+      {:ok, Enum.sort_by(rows, &(&1["since_ms"] || 0))}
+    end
+  end
+
+  @doc "Remembers a merged PR that changed CI files, so older failed PR runs can be rerun."
+  @spec record_ci_merge(map(), keyword()) :: :ok | {:error, term()}
+  def record_ci_merge(%{"pr" => pr} = row, opts \\ []) do
+    update(opts, fn state ->
+      merges = [row | Enum.reject(Map.get(state, "ci_merges", []), &(&1["pr"] == pr))] |> Enum.take(50)
+      {:ok, Map.put(state, "ci_merges", merges)}
+    end)
+  end
+
+  @spec ci_merges(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def ci_merges(opts \\ []) do
+    with {:ok, state} <- state(opts), do: {:ok, Map.get(state, "ci_merges", [])}
+  end
+
   @spec mark_landed(pos_integer(), String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def mark_landed(pr, head, entry, opts \\ []) do
     update(opts, fn state ->
@@ -135,7 +200,10 @@ defmodule Aiur.LandingWatch.Journal do
       retained = MapSet.new(keys)
 
       update(opts, fn state ->
-        {:ok, Map.filter(state, fn {entry_key, _} -> entry_key in ["flakes", "merge_group_runs", "quarantine_merge_group_runs", "merge_group_requeues"] or MapSet.member?(retained, entry_key) end)}
+        {:ok,
+         Map.filter(state, fn {entry_key, _} ->
+           entry_key in ["flakes", "merge_group_runs", "merge_group_run_failures", "quarantine_merge_group_runs", "merge_group_requeues", "ci_merges"] or MapSet.member?(retained, entry_key)
+         end)}
       end)
     else
       :ok

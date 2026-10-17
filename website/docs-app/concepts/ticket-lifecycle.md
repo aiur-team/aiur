@@ -29,7 +29,7 @@ todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelle
 | `agent:rework` | CI or review requires another run. |
 | `agent:merging` | An accepted PR entering merge. Active for polling but **never dispatchable**. |
 | `agent:done` | Work complete. Terminal. |
-| `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. |
+| `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. With `pr_health.enabled`, an error ticket whose open PR has a blocking `CHANGES_REQUESTED` review moves to `agent:rework` once per review (`system.pr_health.error_rework`). |
 | `agent:cancelled` / `agent:canceled` | Terminal cancellation. **Both spellings exist**; both are real labels. |
 
 The terminal states are exactly `done | cancelled | canceled`
@@ -80,6 +80,12 @@ finishes, the ticket goes to `human-review`.
 At the no-op bound, verified rework with no new PR head becomes `error`. Other
 no-op-bound tickets keep their state and receive an alert. A normal turn limit
 leaves the state unchanged when no PR head moved.
+
+When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
+daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
+merge-queue runs get those runners. The agent's next
+push starts fresh checks. A rework handback without a push leaves those runs
+cancelled, and CI recovery raises an attention for that head.
 
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
 that returns `{:error, {:stale_issue_state, ...}}` when the issue has moved
@@ -166,6 +172,8 @@ and never deletes ones a repository already has; those keep working as exact pin
 ## Build queue
 
 **Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI uses held edges and delivered PR facts (valid for 24 hours), independent of dispatch freshness. Missing facts or a merged/closed blocker restore `tracker.base_branch`. Retarget to integration before merge.
+
+**Rework waits on blockers.** An `agent:rework` dependent is held by open blockers the same way as `agent:todo`, so a stacked PR gets no rework turns it cannot act on.
 
 **Optimistic dependents.** An explicit Optimistic start prompt block tells a worker to integrate blocker pushes,
 rebase rewritten history, and keep its PR draft until every blocker merges. When its own work is done,

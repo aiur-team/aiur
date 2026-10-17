@@ -277,6 +277,9 @@ defmodule Aiur.GitHub.Tracker do
   defdelegate withdraw_landing(number), to: Aiur.GitHub.LandingWithdrawal, as: :withdraw
 
   @impl Aiur.Tracker.IssueTracker
+  defdelegate reopen_issue(issue_id), to: Aiur.GitHub.IssueReopen, as: :reopen
+
+  @impl Aiur.Tracker.IssueTracker
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)
       when is_binary(issue_id) and is_binary(state_name) do

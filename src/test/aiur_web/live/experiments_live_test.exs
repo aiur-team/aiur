@@ -6,10 +6,20 @@ defmodule AiurWeb.ExperimentsLiveTest do
   @endpoint Endpoint
 
   defmodule Facade do
-    def metric_catalog, do: %{metrics: %{}}
-    def status, do: Application.fetch_env!(:aiur, :experiment_live_fixture).status
-    def list, do: Application.fetch_env!(:aiur, :experiment_live_fixture).list
-    def fetch(id), do: Map.get(Application.fetch_env!(:aiur, :experiment_live_fixture).details, id, {:error, :not_found})
+    def metric_catalog, do: fail(:metric_catalog) || %{metrics: %{}}
+    def status, do: fail(:status) || state().status
+    def list, do: fail(:list) || state().list
+    def fetch(id), do: fail(:fetch) || Map.get(state().details, id, {:error, :not_found})
+    defp state, do: Application.fetch_env!(:aiur, :experiment_live_fixture)
+
+    defp fail(read) do
+      case get_in(state(), [:fail, read]) do
+        nil -> nil
+        :noproc -> exit({:noproc, {GenServer, :call, [Aiur.Experiments.Store, read, 5_000]}})
+        error -> raise error
+      end
+    end
+
     def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, "experiment-live-test")
   end
 
@@ -40,6 +50,34 @@ defmodule AiurWeb.ExperimentsLiveTest do
       assert html =~ copy
       refute html =~ "/private/store"
       refute has_element?(view, "#experiments-capture-off")
+    end
+  end
+
+  test "a first-request read that raises or exits renders the neutral read_failed state, not a 500" do
+    cold_ets = %ArgumentError{message: "the table identifier does not refer to an existing ETS table"}
+    unreadable = %File.Error{reason: :eacces, action: "read file", path: "result.json"}
+
+    for {fail, cause} <- [
+          {%{status: :noproc}, "no process"},
+          {%{metric_catalog: cold_ets}, "existing ETS table"},
+          {%{list: cold_ets}, "existing ETS table"},
+          {%{fetch: unreadable}, "permission denied"}
+        ] do
+      populated()
+      fixture(Map.put(Application.fetch_env!(:aiur, :experiment_live_fixture), :fail, fail))
+
+      log =
+        capture_log(fn ->
+          html = build_conn() |> get("/experiments") |> html_response(200)
+          assert html =~ ~s(data-empty-reason="read_failed")
+          {:ok, view, _html} = live(build_conn(), "/experiments")
+          assert has_element?(view, "[data-empty-reason=read_failed]", "could not be loaded")
+          refute has_element?(view, "[data-empty-reason=store_unreadable]")
+          refute has_element?(view, "#exp-detail")
+        end)
+
+      assert log =~ "experiments page"
+      assert log =~ cause
     end
   end
 

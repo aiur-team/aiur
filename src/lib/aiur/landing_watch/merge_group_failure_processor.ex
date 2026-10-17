@@ -1,8 +1,12 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   @moduledoc "Classifies failed merge-group runs and routes each PR outcome."
-  alias Aiur.GitHub.{CIRecovery, Transport}
+  alias Aiur.Alerts
+  alias Aiur.GitHub.{CIRecovery, Errors, Transport}
   alias Aiur.LandingWatch
-  alias Aiur.LandingWatch.{Journal, MergeFailureClassifier, MergeFailureOptions, MergeGroupFailureEvidence, MergeGroupRequeue}
+  alias Aiur.LandingWatch.{Journal, MergeFailureClassifier, MergeFailureOptions, MergeGroupFailureEvidence, MergeGroupJournal, MergeGroupRequeue}
+
+  # A run that fails to classify this many polls in a row keeps its claim and raises an attention.
+  @lasting_failure_polls 5
 
   @spec process_completed([map()], [map()], String.t(), keyword()) :: :ok | {:error, term()}
   def process_completed(runs, observations, base, opts) do
@@ -23,10 +27,10 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
 
     opts = if has_observed_pr?, do: prepare_failure_evidence(opts, base), else: opts
 
-    Enum.reduce(failures, :ok, fn run, result ->
-      if result == :ok,
-        do: process_claimed_failed_group(run, runs, observations, base, opts),
-        else: result
+    # One failing run must not hold back later runs; report the first error after trying all.
+    Enum.reduce(failures, :ok, fn run, first_error ->
+      result = process_claimed_failed_group(run, runs, observations, base, opts)
+      if first_error == :ok, do: result, else: first_error
     end)
   end
 
@@ -50,12 +54,41 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   defp process_new_failed_group(run, runs, observations, base, opts) do
     case process_failed_group(run, runs, observations, base, opts) do
       :ok ->
+        _ = MergeGroupJournal.clear_merge_group_run_failures(run["id"], opts)
         :ok
 
-      {:error, _} = error ->
-        _ = Journal.release_merge_group_run(run["id"], opts)
-        error
+      {:error, reason} = error ->
+        if throttled?(reason) do
+          _ = Journal.release_merge_group_run(run["id"], opts)
+          error
+        else
+          release_counted_failure(run, base, reason, error, opts)
+        end
     end
+  end
+
+  # Budget holds and GitHub rate limits throttle every run, not this one, so they retry uncounted.
+  defp throttled?({:job_log, _job_id, reason}), do: throttled?(reason)
+  defp throttled?({:github, :rate_limited, _}), do: true
+  defp throttled?(reason), do: Errors.outcome({:error, reason}) == :held
+
+  defp release_counted_failure(run, base, reason, error, opts) do
+    case MergeGroupJournal.release_failed_merge_group_run(run["id"], @lasting_failure_polls, opts) do
+      {:ok, :kept} -> emit_lasting_failure_attention(run, base, reason, opts)
+      _ -> error
+    end
+  end
+
+  defp emit_lasting_failure_attention(run, base, reason, opts) do
+    {:ok, prs} = run_prs(run, base)
+
+    emit_unclassified_attention(
+      "system.pr.landing.merge_group_unclassified",
+      run,
+      prs,
+      "#{@lasting_failure_polls} consecutive polls failed (last error: #{inspect(reason)})",
+      opts
+    )
   end
 
   defp process_failed_group(run, runs, observations, base, opts) do
@@ -88,26 +121,41 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
           route_failed_prs(prs, observations, failure, run, opts)
       end
     else
-      {:error, _} = error -> error
+      # A log GitHub no longer serves degrades only this run; the claim stays so the poll moves on.
+      # Other errors release the claim; process_new_failed_group caps their retries.
+      {:error, {:job_log, job_id, {:github, :http, %{status: status}} = reason}} when status in [404, 410] ->
+        emit_unclassified_attention(
+          "system.pr.landing.job_log_unavailable",
+          run,
+          prs,
+          "log for job #{inspect(job_id)} is unavailable (#{inspect(reason)})",
+          opts
+        )
+
+      {:error, _} = error ->
+        error
     end
+  end
+
+  defp emit_unclassified_attention(name, run, prs, detail, opts) do
+    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+
+    message =
+      "Merge-group run #{run["id"]} for PR #{Enum.map_join(prs, ", ", &"##{&1}")} was not classified: #{detail}."
+
+    emitter.(name,
+      central: true,
+      durable: true,
+      needs_attention: true,
+      message: message,
+      reason: message
+    )
+
+    :ok
   end
 
   defp classifier_options(run, prs, jobs, opts) do
-    MergeFailureOptions.build(run, prs, jobs, opts, &job_log/2)
-  end
-
-  defp job_log(job, opts) do
-    case job["id"] do
-      id when is_integer(id) ->
-        case CIRecovery.read("/actions/jobs/#{id}/logs", opts) do
-          {:ok, %{"log" => log}} when is_binary(log) -> {:ok, log}
-          {:error, reason} -> {:error, reason}
-          _ -> {:error, :invalid_actions_job_log}
-        end
-
-      _ ->
-        {:error, :missing_actions_job_id}
-    end
+    MergeFailureOptions.build(run, prs, jobs, opts, &MergeGroupFailureEvidence.job_log/2)
   end
 
   defp route_failed_prs(_prs, _observations, nil, _run, _opts), do: :ok

@@ -52,6 +52,13 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{kind: "stale_merge_group", age_ms: 8_400_000}] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_merge_group"))
   end
 
+  test "a mergeable queue entry and a fresh merge group produce no finding" do
+    now = ~U[2026-10-15 18:20:00Z]
+    snapshot = %{merge_queue: [%{number: 9, mergeable: "MERGEABLE"}], merge_groups: [%{name: "run 45", state: "in_progress", started_at: now}]}
+
+    assert [] = Checks.all(snapshot, now)
+  end
+
   test "does not treat an old-head approval as current approval" do
     snapshot = %{pull_requests: [%{number: 10, state: "open", head_sha: "new", approved_head_sha: "old", review_decision: "APPROVED", in_merge_queue: false, auto_merge: false, required_checks: []}]}
 
@@ -92,10 +99,10 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
         %{number: 3, labels: ["agent:error"]},
         %{number: 4, labels: ["agent:human-review"], created_at: old, unchanged_pr_handoffs: 3},
         %{number: 5, labels: ["agent:rework"], open_blocked_by: [99]},
-        %{number: 6, labels: ["needs-triage"], created_at: ~U[2026-10-15 16:00:00Z]},
         %{number: 7, labels: ["agent:todo", "agent:rework"]},
         %{number: 12, labels: ["agent:paused"], closed_blockers: [90]}
       ],
+      open_tickets: %Aiur.OpenTicketSource.Snapshot{status: :available, tickets: [%{identifier: "6", labels: ["needs-triage"], created_at: ~U[2026-10-15 16:00:00Z]}]},
       services: [%{name: "watchers", status: "down"}, %{name: "dispatcher", status: "stalled"}]
     }
 
@@ -126,5 +133,68 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
 
     assert Enum.find(findings, &(Map.get(&1, :pull_request) == 9 and &1.kind == "approved_pr_red")).failure_class == "infra"
     assert Enum.find(findings, &(Map.get(&1, :pull_request) == 10 and &1.kind == "approved_pr_red")).failure_class == "caused_by_pr"
+  end
+
+  @snapshot_keys [:pull_requests, :tickets, :decisions, :merge_queue, :merge_groups, :queue_sets, :idle_slots, :queue_order, :feature_order, :services]
+
+  defp healthy_snapshot do
+    %{
+      pull_requests: [%{number: 1, issue_number: 1, state: "open", in_merge_queue: true}],
+      tickets: [%{number: 1, labels: ["agent:human-review"]}],
+      decisions: [],
+      merge_queue: [%{number: 1, mergeable: "MERGEABLE"}, %{number: 2, mergeable: "UNMERGEABLE"}],
+      merge_groups: [%{name: "run 1", state: "completed", started_at: ~U[2026-10-15 18:19:00Z]}],
+      queue_sets: [],
+      idle_slots: 0,
+      focus_set: nil,
+      queue_order: [],
+      feature_order: [],
+      services: [%{name: "watchers", status: "down"}]
+    }
+  end
+
+  test "mergeable queue entries and fresh merge groups produce no findings instead of crashing" do
+    kinds = healthy_snapshot() |> Checks.all(~U[2026-10-15 18:20:00Z]) |> Enum.map(& &1.kind)
+
+    assert "unmergeable_queue_entry" in kinds
+    refute "stale_merge_group" in kinds
+    refute "sweep_check_failed" in kinds
+  end
+
+  test "a nil snapshot key reports its checks unknown and keeps the other checks running" do
+    for key <- @snapshot_keys do
+      findings = Checks.all(Map.put(healthy_snapshot(), key, nil), ~U[2026-10-15 18:20:00Z])
+      unknown = Enum.filter(findings, &(&1.kind == "sweep_source_unavailable"))
+
+      assert unknown != [], "#{key}: no unknown finding"
+      assert Enum.all?(unknown, &(&1.sources == [key])), "#{key}: #{inspect(unknown)}"
+      refute Enum.any?(findings, &(&1.kind == "sweep_check_failed")), "#{key}: #{inspect(findings)}"
+
+      if key != :services, do: assert(Enum.any?(findings, &(&1.kind == "service_unhealthy")), "#{key}: services check skipped")
+    end
+  end
+
+  test "a raising check is reported without skipping the cycle" do
+    snapshot = %{healthy_snapshot() | decisions: [:not_a_map]}
+    findings = Aiur.ExecutorSweep.findings(snapshot: snapshot, now: ~U[2026-10-15 18:20:00Z], unreviewed_pr_minutes: 10)
+
+    assert [%{check: "old_decisions"}] = Enum.filter(findings, &(&1.kind == "sweep_check_failed"))
+    assert Enum.any?(findings, &(&1.kind == "service_unhealthy"))
+    assert Enum.any?(findings, &(&1.kind == "unmergeable_queue_entry"))
+  end
+
+  test "lists approved PRs waiting on the landing watcher's shared rerun cap" do
+    now = ~U[2026-10-15 18:20:00Z]
+    since = DateTime.to_unix(now, :millisecond) - 12 * 60_000
+    row = %{"pr" => 4610, "head" => "abc", "reason" => "known flake", "checks" => ["ci gate"], "since_ms" => since}
+
+    assert [finding] = Checks.all(%{landing_rerun_backlog: [row]}, now) |> Enum.filter(&(&1.kind == "approved_pr_rerun_pending"))
+    assert %{pull_request: 4610, head_sha: "abc", priority: 3, age_ms: 720_000} = finding
+    assert finding.message == "Approved PR #4610 awaits an automatic CI rerun of ci gate (known flake) for 12m."
+    assert [%{kind: "sweep_source_unavailable", sources: [:landing_rerun_backlog]}] = Checks.all(%{landing_rerun_backlog: nil}, now)
+
+    refresh = Map.merge(row, %{"action" => "refresh", "reason" => "superseded job name"})
+    assert [finding] = Checks.all(%{landing_rerun_backlog: [refresh]}, now) |> Enum.filter(&(&1.kind == "approved_pr_refresh_pending"))
+    assert finding.message == "Approved PR #4610 needs a fresh merge ref for ci gate (superseded job name); waiting 12m."
   end
 end

@@ -8,6 +8,8 @@ on:
         required: true
         type: string
   pull_request:
+    # Drafts skip until ready_for_review; a close only cancels the PR's queued run (#4942).
+    types: [opened, synchronize, reopened, ready_for_review, closed]
     paths:
       - "website/**"
       - "components.json"
@@ -36,6 +38,7 @@ concurrency:
 
 jobs:
   guards:
+    if: ${{ github.event.pull_request.draft != true && github.event.action != 'closed' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -79,6 +82,9 @@ jobs:
       - name: Build docs
         working-directory: website/docs-app
         run: bun run build
+      - name: Test components loader
+        working-directory: website/docs-app
+        run: bun run test:components
       - name: Install browser
         run: npx playwright install --with-deps chromium
       - name: Test brand accessibility and theme navigation

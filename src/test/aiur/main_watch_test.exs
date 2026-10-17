@@ -8,7 +8,6 @@ defmodule Aiur.MainWatchTest do
   alias Aiur.MainWatch.{Persistence, State}
 
   setup do
-    unless Process.whereis(Aiur.TaskSupervisor), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
     :ok
   end
 

@@ -184,6 +184,13 @@ for (const { width, isMobile } of routeShellViewports) {
         await nextPaint(page)
 
         expect((await topbar.boundingBox()).y).toBeCloseTo(initialTop, 0)
+        // The sidebar runs the full page height on a long page, and its links stay pinned (#4886).
+        const rail = await page.evaluate(() => ({
+          sidebar: document.querySelector('aside.sidenav').getBoundingClientRect().bottom,
+          layout: document.querySelector('.app-layout').getBoundingClientRect().bottom
+        }))
+        expect(rail.sidebar).toBeCloseTo(rail.layout, 0)
+        await expect(page.locator('a.snav').first()).toBeInViewport()
       }
 
       const accessibility = await new AxeBuilder({ page }).analyze()

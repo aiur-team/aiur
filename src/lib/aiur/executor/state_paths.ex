@@ -109,6 +109,10 @@ defmodule Aiur.Executor.StatePaths do
   @spec claims_path() :: Path.t()
   def claims_path, do: Path.join(dir(), "#{Paths.repo_name()}.executor.claims.json")
 
+  @doc "Fingerprints of the executor-sweep findings already published."
+  @spec sweep_seen_path() :: Path.t()
+  def sweep_seen_path, do: Path.join(dir(), "#{Paths.repo_name()}.executor.sweep.seen.json")
+
   @spec path_for(atom()) :: Path.t()
   def path_for(key) when is_map_key(@legacy_names, key),
     do: Path.join(dir(), "#{Paths.repo_name()}.#{Map.fetch!(@legacy_names, key)}")
