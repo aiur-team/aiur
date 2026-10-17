@@ -70,42 +70,49 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   defp target(issue, opts) do
+    case Keyword.get(opts, :forced_target) do
+      target when is_binary(target) -> {:ok, target}
+      nil -> discover_target(issue, opts)
+    end
+  end
+
+  defp discover_target(issue, opts) do
     fetch = Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
 
     case fetch.(issue.identifier) do
       {:ok, nil} -> {:ok, Keyword.get(opts, :no_pr_target, "todo")}
-      {:ok, pr} when is_map(pr) -> pr_target(pr, opts)
+      {:ok, pr} when is_map(pr) -> pr_target(pr, issue, opts)
       {:error, _reason} = error -> error
     end
   end
 
-  defp pr_target(pr, opts) do
+  defp pr_target(pr, issue, opts) do
     fetch = Keyword.get(opts, :pr_fetcher, &Client.fetch_open_pull_request/1)
 
     case fetch.(Map.fetch!(pr, "number")) do
       {:ok, %{"draft" => true}} -> {:ok, "rework"}
-      {:ok, %{} = current} -> mergeability_target(current, opts)
+      {:ok, %{} = current} -> mergeability_target(current, issue, opts)
       {:ok, nil} -> {:error, :pull_request_changed}
       {:ok, _unknown} -> {:error, :mergeability_unknown}
       {:error, _reason} = error -> error
     end
   end
 
-  defp mergeability_target(%{"mergeable" => false, "number" => number} = pr, opts) do
+  defp mergeability_target(%{"mergeable" => false, "number" => number} = pr, issue, opts) do
     fetch = Keyword.get(opts, :mergeability_fetcher, &Client.pull_request_mergeability/1)
 
     case fetch.(number) do
       {:ok, "CONFLICTING"} -> {:ok, "rework"}
-      {:ok, "MERGEABLE"} -> review_target(pr, opts)
+      {:ok, "MERGEABLE"} -> review_target(pr, issue, opts)
       {:ok, "UNKNOWN"} -> {:error, :mergeability_unknown}
       {:error, _reason} = error -> error
     end
   end
 
-  defp mergeability_target(%{"mergeable" => true} = pr, opts), do: review_target(pr, opts)
-  defp mergeability_target(_pr, _opts), do: {:error, :mergeability_unknown}
+  defp mergeability_target(%{"mergeable" => true} = pr, issue, opts), do: review_target(pr, issue, opts)
+  defp mergeability_target(_pr, _issue, _opts), do: {:error, :mergeability_unknown}
 
-  defp review_target(pr, opts) do
+  defp review_target(pr, _issue, opts) do
     case ReworkGate.open_pull_request_rework_verdict(pr, opts) do
       {:ok, :rework} ->
         case ReworkGate.approved_and_queued?(pr, opts) do

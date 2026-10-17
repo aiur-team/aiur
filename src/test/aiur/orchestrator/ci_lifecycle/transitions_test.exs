@@ -96,6 +96,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
                  head_sha: "failed-head",
                  draft?: false,
                  review_decision: nil,
+                 merge_queue_entry: nil,
+                 auto_merge_request: nil,
+                 merge_queue: nil,
                  recovery: nil,
                  failures: [%{name: "lint", result: "failure", excerpt: "failed"}],
                  tracker_state: "ci-wait"
@@ -344,6 +347,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
                  head_sha: "stalled-head",
                  draft?: true,
                  review_decision: "APPROVED",
+                 merge_queue_entry: nil,
+                 auto_merge_request: nil,
+                 merge_queue: nil,
                  recovery: nil,
                  failures: [],
                  tracker_state: "human-review"

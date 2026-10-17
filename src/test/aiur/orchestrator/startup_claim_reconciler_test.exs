@@ -151,6 +151,44 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert state.startup_claim_reconciliation_complete?
   end
 
+  test "restores an ownerless claim to ci-wait when its approved PR is queued or auto-merging" do
+    issue = issue("approved-queued", "in-progress")
+    target = issue.identifier
+    state = %State{ci_lifecycle: %{poll_cache: %{target => %{review_decision: "APPROVED", auto_merge_request: nil, merge_queue_entry: %{id: "queue"}}}}}
+
+    parent = self()
+
+    {result, [%Issue{state: "ci-wait"}]} =
+      reconcile(state, [issue],
+        update_issue_state_fun: fn identifier, target, expected ->
+          send(parent, {:transition, identifier, target, expected})
+          :ok
+        end,
+        open_pr_fetcher: fn _identifier -> {:ok, %{"number" => 7}} end,
+        pr_fetcher: fn _number -> {:ok, %{"number" => 7, "mergeable" => true, "review_decision" => "APPROVED", "head" => %{"sha" => "head"}}} end
+      )
+
+    assert_receive {:transition, "approved-queued", "ci-wait", "in-progress"}, 1000
+    assert result.startup_claim_reconciliation_complete?
+  end
+
+  # Regression guard: changes-requested PRs must keep the existing rework recovery path.
+  test "does not mistake a changes-requested PR for an approved queued PR" do
+    issue = issue("requested-changes", "in-progress")
+    target = issue.identifier
+    state = %State{ci_lifecycle: %{poll_cache: %{target => %{review_decision: "CHANGES_REQUESTED", merge_queue_entry: nil}}}}
+
+    {result, [%Issue{state: "rework"}]} =
+      reconcile(state, [issue],
+        unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread"}]} end,
+        open_pr_fetcher: fn _identifier -> {:ok, %{"number" => 9}} end,
+        pr_fetcher: fn _number -> {:ok, %{"number" => 9, "mergeable" => true, "review_decision" => "CHANGES_REQUESTED", "head" => %{"sha" => "head"}}} end,
+        update_issue_state_fun: fn "requested-changes", "rework", "in-progress" -> :ok end
+      )
+
+    assert result.startup_claim_reconciliation_complete?
+  end
+
   test "claims the current daemon boot before running the pass" do
     issue = issue("2076", "in-progress")
     parent = self()
