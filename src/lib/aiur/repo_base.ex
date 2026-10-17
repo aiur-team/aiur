@@ -205,8 +205,7 @@ defmodule Aiur.RepoBase do
        ready_head: nil,
        freshness: :unknown,
        remote_head_fun: Keyword.get(opts, :remote_head_fun, &Clone.remote_head/1),
-       dispatch_hold_timeout_ms:
-         Keyword.get(opts, :dispatch_hold_timeout_ms, @dispatch_hold_timeout_ms),
+       dispatch_hold_timeout_ms: Keyword.get(opts, :dispatch_hold_timeout_ms, @dispatch_hold_timeout_ms),
        dispatch_watchdog: nil
      }}
   end
@@ -270,8 +269,7 @@ defmodule Aiur.RepoBase do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{probe: %{ref: ref}} = state) do
-    {:noreply,
-     state |> clear_probe() |> probe_failed({:probe_crashed, reason}) |> clear_released_watchdog()}
+    {:noreply, state |> clear_probe() |> probe_failed({:probe_crashed, reason}) |> clear_released_watchdog()}
   end
 
   def handle_info({:remote_head, pid, result}, %{probe: %{pid: pid}} = state) do
