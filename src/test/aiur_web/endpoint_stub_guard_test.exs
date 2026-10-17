@@ -1,6 +1,5 @@
 defmodule AiurWeb.EndpointStubGuardTest do
-  # Mutates the global endpoint env in the refusal test, so not async.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.EndpointConfig
@@ -8,9 +7,11 @@ defmodule AiurWeb.EndpointStubGuardTest do
   # A function or process in the global `AiurWeb.Endpoint` config is called by
   # every other test that renders a dashboard (#4838, #4862, #4892). Scope it to
   # the test with `Aiur.TestSupport.EndpointStubs.put/1` or `scope/1` (#4908).
-  @test_root Path.expand("../..", __DIR__)
+  @test_root Path.expand("..", __DIR__)
   # Standalone fixture servers: their HTTP requests have no test caller to scope to.
   @exempt ~w(browser manual)
+  # The guard's own tests write stubs on purpose.
+  @guard_tests ~w(aiur_web/endpoint_stub_guard_test.exs aiur_web/endpoint_stub_refusal_test.exs)
   @endpoint_aliases [[:Endpoint], [:AiurWeb, :Endpoint]]
 
   test "no test writes a function or self() into the global endpoint config" do
@@ -18,7 +19,7 @@ defmodule AiurWeb.EndpointStubGuardTest do
       for path <- Path.wildcard(Path.join(@test_root, "**/*.{ex,exs}")),
           relative = Path.relative_to(path, @test_root),
           hd(Path.split(relative)) not in @exempt,
-          path != __ENV__.file,
+          relative not in @guard_tests,
           line <- global_stub_writes(path),
           do: "#{relative}:#{line}"
 
@@ -35,14 +36,6 @@ defmodule AiurWeb.EndpointStubGuardTest do
     """
 
     assert source |> Code.string_to_quoted!() |> stub_lines() == [1, 2, 3]
-  end
-
-  test "starting the test endpoint refuses stubs left in the global env" do
-    previous = Application.get_env(:aiur, AiurWeb.Endpoint)
-    on_exit(fn -> Application.put_env(:aiur, AiurWeb.Endpoint, previous) end)
-    Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.put(previous || [], :open_tickets_fun, fn -> [] end))
-
-    assert_raise RuntimeError, ~r/open_tickets_fun/, &Aiur.TestSupport.start_owned_endpoint!/0
   end
 
   test "a scoped stub is visible to the test and its callers only" do
