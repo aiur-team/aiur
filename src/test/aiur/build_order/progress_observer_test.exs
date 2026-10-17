@@ -101,10 +101,11 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
     snapshot = snapshot(context.id, 50, [])
     {:ok, store} = BuildProgress.start_link(name: nil, state_file: context.path)
     {:ok, projection} = GenServer.start_link(Projection, %{snapshot | repository: :unknown})
-    {:ok, observer} = ProgressObserver.start_link(name: nil, projection: projection, progress: store)
+    {:ok, observer} = ProgressObserver.start_link(name: nil, projection: projection, progress: store, test_observer: self())
     assert BuildProgress.facts(:all, store) == []
     :ok = GenServer.call(projection, {:replace, snapshot})
     send(observer, {:graph_projection_reset, 2})
+    assert_receive {:progress_observer_reset_subscribed, ^observer}, 1_000
     :sys.get_state(observer)
     assert [%{percent: 50}] = BuildProgress.facts(context.scope, store)
     snapshot = percent(snapshot, 75)

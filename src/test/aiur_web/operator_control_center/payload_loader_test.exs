@@ -8,7 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoaderTest do
   setup context do
     previous = Application.get_env(:aiur, Endpoint)
     test = self()
-    cache = start_supervised!({ControlCenterCache, name: nil})
+    cache = start_supervised!({ControlCenterCache, [name: nil, load_timeout_ms: 100]})
 
     Application.put_env(
       :aiur,
@@ -18,15 +18,16 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoaderTest do
         server: false,
         secret_key_base: String.duplicate("s", 64),
         control_center_cache: if(context[:missing_cache], do: :missing_payload_cache, else: cache),
-        # Past the cache's load timeout, so the slow provider still overruns the
-        # whole load; the default budget would degrade only its own surface.
+        # Past the injected cache timeout, forcing its unavailable-load path.
         control_center_provider_budget_ms: 60_000,
         # Endpoint config is global, so other processes' dashboard loads can reach
         # this fun too; `$callers` tells which load started each read (#4892).
         units_fleet_fun: fn ->
           send(test, {:fleet_read, Process.get(:"$callers", [])})
-          Process.sleep(10_000)
-          %{}
+
+          receive do
+            :never_release -> %{}
+          end
         end
       )
       |> EndpointStubs.scope()
@@ -51,16 +52,14 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoaderTest do
     refute_received {:fleet_read, [^test | _]}
   end
 
-  @tag timeout: 15_000
   test "slow cached load returns unavailable without starting an uncached retry", %{cache: cache} do
-    started = System.monotonic_time(:millisecond)
-    payload = PayloadLoader.load(:fresh)
-    assert System.monotonic_time(:millisecond) - started < 5_000
+    payload_task = Task.async(fn -> PayloadLoader.load(:fresh) end)
+    assert_receive {:fleet_read, [_loader, ^cache | _]}, 1_000
+    payload = Task.await(payload_task, 1_000)
     assert payload.stale == true
     assert payload.cache_error == :timeout
     assert payload.fleet.error.code == "snapshot_unavailable"
     # The bounded read runs in a task of the loader task the cache started.
-    assert_received {:fleet_read, [_loader, ^cache | _]}
     test = self()
     refute_received {:fleet_read, [^test | _]}
   end
