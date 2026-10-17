@@ -70,13 +70,14 @@ defmodule Aiur.Experiments.ChartCacheTest do
 
   test "cached confounder snapshots supply ticks through the real facade", %{id: id, raw: raw} do
     {:ok, now, _} = DateTime.from_iso8601(hd(raw["snapshots"])["computed_at"])
-    pulls = [%{"number" => 123, "mergedAt" => "2026-10-10T00:00:00Z", "title" => "Overlapping release"}]
+    at = raw["spec"]["windows"]["after"]["start"]
+    pulls = [%{"number" => 123, "mergedAt" => at, "title" => "Overlapping release"}]
     events = WindowEvents.collect(raw["spec"], now: now, alert_files: [], records_fun: fn _ -> {[], []} end, github_fun: fn _, _, _, _ -> {%{"pulls" => pulls}, []} end)
     events = Map.put(events, "snapshot", "events-1.ndjson")
     bytes = Enum.map_join([Map.delete(events, "events") | events["events"]], &(Evidence.encode(&1) <> "\n"))
     File.write!(Paths.file(id, "events-1.ndjson"), bytes)
     {:ok, detail} = Experiments.chart_detail(id)
-    assert Enum.any?(detail.annotations, &(&1["at"] == "2026-10-10T00:00:00Z"))
+    assert Enum.any?(detail.annotations, &(&1["at"] == at))
   end
 
   defp write_snapshot(id, snapshot) do
