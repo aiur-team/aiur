@@ -40,6 +40,13 @@ defmodule Aiur.TestSupport.WorkflowYaml.Sections do
     end
   end
 
+  # Only renders a `pr_health:` block when a test passes a pr_health override.
+  def pr_health_yaml(overrides) do
+    if Keyword.has_key?(overrides, :pr_health_interval_seconds) do
+      "pr_health:\n  interval_seconds: #{yaml_value(Keyword.get(overrides, :pr_health_interval_seconds))}"
+    end
+  end
+
   def yaml_value(value) when is_binary(value) do
     "\"" <> String.replace(value, "\"", "\\\"") <> "\""
   end

@@ -121,6 +121,13 @@ defmodule Aiur.Tracker do
     adapter().create_comment(issue_id, body)
   end
 
+  @doc "Reopens a closed issue; trackers that never auto-close an issue have nothing to undo."
+  @spec reopen_issue(String.t()) :: :ok | {:error, term()}
+  def reopen_issue(issue_id) do
+    tracker_adapter = adapter()
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, :reopen_issue, 1), do: tracker_adapter.reopen_issue(issue_id), else: :ok
+  end
+
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name) do
     adapter().update_issue_state(issue_id, state_name)

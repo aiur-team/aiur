@@ -17,15 +17,16 @@ defmodule Aiur.ExecutorListenerWakeTest do
 
   test "attention alerts wake the Executor when their ticket has no running agent" do
     ticket_identifier = Integer.to_string(System.unique_integer([:positive]))
-    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+    inbox = start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
 
-    start_listener(
-      inbox: @inbox_name,
-      patterns: ["ticket.*.agent.attention.*"],
-      reconcile?: false,
-      resubscribe_interval_ms: :infinity,
-      escalation_interval_ms: :infinity
-    )
+    listener =
+      start_listener(
+        inbox: @inbox_name,
+        patterns: ["ticket.*.agent.attention.*"],
+        reconcile?: false,
+        resubscribe_interval_ms: :infinity,
+        escalation_interval_ms: :infinity
+      )
 
     Publisher.set_tracked_fn(fn _ticket -> false end)
     on_exit(fn -> Publisher.set_tracked_fn(fn _ticket -> true end) end)
@@ -41,17 +42,22 @@ defmodule Aiur.ExecutorListenerWakeTest do
 
     topic = "ticket.#{ticket_identifier}.agent.attention.waiting_for_human"
 
-    assert {:ok,
-            [
-              %{
-                "topic" => ^topic,
-                "topic_class" => "ticket.agent.attention.waiting_for_human",
-                "ticket" => ^ticket_identifier,
-                "needs_attention" => true
-              }
-            ]} = ExecutorWakeInbox.wait(500, @inbox_name)
+    assert is_map(:sys.get_state(listener))
+    send(inbox, :flush)
+    assert is_map(:sys.get_state(inbox))
 
-    assert [%{"topic" => ^topic}] = ExecutorWakeInbox.pending(@inbox_name)
+    assert {:ok, records} = ExecutorWakeInbox.wait(0, @inbox_name)
+
+    assert [
+             %{
+               "topic" => ^topic,
+               "topic_class" => "ticket.agent.attention.waiting_for_human",
+               "ticket" => ^ticket_identifier,
+               "needs_attention" => true
+             }
+           ] = own_records(records, ticket_identifier)
+
+    assert [%{"topic" => ^topic}] = own_records(ExecutorWakeInbox.pending(@inbox_name), ticket_identifier)
   end
 
   test "every ticket attention binding wakes the Executor when its ticket is untracked" do
@@ -99,12 +105,19 @@ defmodule Aiur.ExecutorListenerWakeTest do
     send(inbox, :flush)
     assert is_map(:sys.get_state(inbox))
 
-    assert Enum.sort(Enum.map(ExecutorWakeInbox.pending(@inbox_name), & &1["topic"])) == Enum.sort(topics)
+    assert own_topics(ExecutorWakeInbox.pending(@inbox_name), ticket_identifier) == Enum.sort(topics)
     assert {:ok, records} = ExecutorWakeInbox.wait(0, @inbox_name)
-    assert Enum.sort(Enum.map(records, & &1["topic"])) == Enum.sort(topics)
-    assert Enum.all?(records, &(&1["count"] == 1))
-    assert Enum.sort(Enum.map(ExecutorWakeInbox.pending(@inbox_name), & &1["topic"])) == Enum.sort(topics)
+    assert own_topics(records, ticket_identifier) == Enum.sort(topics)
+    assert Enum.all?(own_records(records, ticket_identifier), &(&1["count"] == 1))
+    assert own_topics(ExecutorWakeInbox.pending(@inbox_name), ticket_identifier) == Enum.sort(topics)
   end
+
+  # The listener subscribes to the shared bus, so attention alerts from other
+  # tests' background work (such as the live orchestrator's comment-rework
+  # retries, #4812) land in this inbox too. Assert only on this test's ticket.
+  defp own_records(records, ticket_identifier), do: Enum.filter(records, &(&1["ticket"] == ticket_identifier))
+
+  defp own_topics(records, ticket_identifier), do: records |> own_records(ticket_identifier) |> Enum.map(& &1["topic"]) |> Enum.sort()
 
   defp concrete_ticket_topic(pattern, ticket_identifier) do
     pattern

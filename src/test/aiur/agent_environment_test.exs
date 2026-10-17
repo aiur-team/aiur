@@ -661,7 +661,7 @@ defmodule Aiur.AgentEnvironmentTest do
       # The only permitted BASH_ENV is Aiur's immutable build-admission hook;
       # an operator-provided value is replaced at the launch boundary.
       assert {~c"BASH_ENV", build_gate_hook} = List.keyfind(env, ~c"BASH_ENV", 0)
-      assert to_string(build_gate_hook) == BuildGate.hook_path()
+      assert to_string(build_gate_hook) == BuildGate.agent_hook_path()
       assert {~c"ENV", false} = List.keyfind(env, ~c"ENV", 0)
       assert {~c"ZDOTDIR", ~c"/dev/null"} = List.keyfind(env, ~c"ZDOTDIR", 0)
 

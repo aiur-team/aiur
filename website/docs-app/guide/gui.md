@@ -31,6 +31,10 @@ Closed tickets distinguish merged, failed, not planned and other closed outcomes
 
 The build timeline at `/build` labels daemon state separately from socket reachability. An offline or stale snapshot shows its last heartbeat age and local time; a missing heartbeat reads “no heartbeat recorded”. Socket loss lasting at least 500 ms shows “Daemon unreachable” and stops the live glows.
 
+While the socket is open but the fleet snapshot is unread, such as during startup, the footer reads “Daemon up · unread” with the age of the last good reading. A source that a GitHub budget hold delays is named in the footer with the age of its last read, for example “history held 2m”. Hover the footer for the full sentence.
+
+History, queue and open-ticket headers label stale or partial reads with their age. Failed reads show unavailable markers instead of empty sections; disabled sources keep their reason. Filters and unloaded history days have distinct empty messages. Before the first snapshot, the timeline shows a loading skeleton; a failed initial read stops its animation.
+
 **Reconnect** retries a dropped socket immediately, or requests a fresh snapshot when the socket is open. It reads “Reconnecting…” while pending and returns to **Reconnect** after ten seconds if the page is still degraded. This control also works with read-only access.
 
 ## Find a surface
@@ -66,7 +70,9 @@ The **Models** pane shows a named weekly line for each [Claude account](/guide/c
 
 The pane shows only providers with a real account: a routed backend, a keyed API, or a provider with an observation. Unconfigured placeholders are not shown.
 
-Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. An unknown count or context observation appears as `—`; context is separate from cumulative token usage.
+Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. Context is separate from cumulative token usage.
+
+A running unit whose backend has not reported a count or context reads **not reported**, and the tooltip names the backend. A unit with no running attempt, such as one in CI wait, reads **no attempt**.
 
 Open a Units row's conversation to see its **Cumulative Token Usage** panel. For a running Codex agent, it uses the current attempt; otherwise it shows ticket scope.
 

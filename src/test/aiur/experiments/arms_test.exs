@@ -6,7 +6,7 @@ defmodule Aiur.Experiments.ArmsTest do
 
   setup do
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
     root = Path.join(System.tmp_dir!(), "experiment-arms-#{System.unique_integer([:positive])}")
     previous = Application.get_env(:aiur, :experiments_dir)
     Application.put_env(:aiur, :experiments_dir, root)
