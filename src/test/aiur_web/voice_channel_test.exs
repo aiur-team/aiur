@@ -162,6 +162,7 @@ defmodule AiurWeb.VoiceChannelTest do
     {socket, _client} = voice_socket()
     assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:conversation")
     send(joined.channel_pid, {:voice_closed})
+    await_channel(joined)
     assert_push("stopped", %{})
 
     push(joined, "speak", %{"text" => "Agent reply"})
@@ -182,6 +183,7 @@ defmodule AiurWeb.VoiceChannelTest do
     {socket, _client} = voice_socket()
     assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:conversation")
     send(joined.channel_pid, {:voice_closed})
+    await_channel(joined)
     assert_push("stopped", %{})
 
     push(joined, "speak", %{"text" => "Agent reply"})
@@ -207,6 +209,7 @@ defmodule AiurWeb.VoiceChannelTest do
         {socket, _client} = voice_socket()
         assert {:ok, _reply, channel} = subscribe_and_join(socket, "voice:conversation")
         send(channel.channel_pid, {:voice_closed})
+        await_channel(channel)
         assert_push("stopped", %{})
         {index, channel}
       end
@@ -245,6 +248,7 @@ defmodule AiurWeb.VoiceChannelTest do
     assert reason =~ "Too many dashboard dictation sessions"
 
     send(first.channel_pid, {:voice_closed})
+    await_channel(first)
     assert_push("stopped", %{})
 
     assert {:ok, _reply, _third} = subscribe_and_join(third_socket, "voice:conversation")
@@ -314,9 +318,11 @@ defmodule AiurWeb.VoiceChannelTest do
 
     fake = joined.assigns.stt.pid
     :ok = FakeSTT.transcript(fake, :partial, "hello ")
+    await_channel(joined)
     assert_push("transcript", %{"kind" => "partial", "text" => "hello "})
 
     :ok = FakeSTT.transcript(fake, :final, "hello world")
+    await_channel(joined)
     assert_push("transcript", %{"kind" => "final", "text" => "hello world"})
   end
 
@@ -326,6 +332,7 @@ defmodule AiurWeb.VoiceChannelTest do
 
     fake = joined.assigns.stt.pid
     :ok = FakeSTT.error(fake, "ElevenLabs rejected the API key")
+    await_channel(joined)
     assert_push("error", %{"reason" => "ElevenLabs rejected the API key"})
   end
 
@@ -355,6 +362,10 @@ defmodule AiurWeb.VoiceChannelTest do
   end
 
   # --- helpers -------------------------------------------------------------
+
+  # A frame sent before this (by the test, or by the fake before it replied) is
+  # queued ahead of the sys call: once it returns, the channel has pushed to us.
+  defp await_channel(joined), do: :sys.get_state(joined.channel_pid)
 
   defp voice_socket do
     {:ok, generation} = FinancialDataAccess.current_configuration_generation()
