@@ -1,6 +1,17 @@
 defmodule AiurWeb.StreamdeckChannelVoiceTest do
   use AiurWeb.StreamdeckChannelCase
 
+  setup do
+    previous = Application.fetch_env(:aiur, :voice_provider)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:aiur, :voice_provider, value)
+        :error -> Application.delete_env(:aiur, :voice_provider)
+      end
+    end)
+  end
+
   describe "control: implement" do
     test "queues the ticket through the CLI todo seam and reports it queued" do
       test_pid = self()
@@ -144,7 +155,7 @@ defmodule AiurWeb.StreamdeckChannelVoiceTest do
 
   describe "voice input" do
     test "voice_start mints an opaque session and voice_audio relays the base64 frame verbatim" do
-      put_endpoint_config(streamdeck_voice_session: __MODULE__.FakeVoiceSession)
+      Application.put_env(:aiur, :voice_provider, __MODULE__.FakeVoiceProvider)
 
       socket = joined_socket()
       start = push(socket, "voice_start", %{})
@@ -167,7 +178,7 @@ defmodule AiurWeb.StreamdeckChannelVoiceTest do
     end
 
     test "no configured API key is reported as unconfigured rather than as a failure" do
-      put_endpoint_config(streamdeck_voice_session: __MODULE__.UnconfiguredVoiceSession)
+      Application.put_env(:aiur, :voice_provider, __MODULE__.UnconfiguredVoiceProvider)
 
       socket = joined_socket()
       start = push(socket, "voice_start", %{})
@@ -183,7 +194,7 @@ defmodule AiurWeb.StreamdeckChannelVoiceTest do
     end
 
     test "a stale, unknown or oversized frame never reaches the provider" do
-      put_endpoint_config(streamdeck_voice_session: __MODULE__.FakeVoiceSession)
+      Application.put_env(:aiur, :voice_provider, __MODULE__.FakeVoiceProvider)
 
       socket = joined_socket()
       assert_reply(push(socket, "voice_start", %{}), :ok, %{"session" => session})
@@ -212,7 +223,7 @@ defmodule AiurWeb.StreamdeckChannelVoiceTest do
     end
 
     test "transcripts, errors and closure reach the device tagged with their session" do
-      put_endpoint_config(streamdeck_voice_session: __MODULE__.FakeVoiceSession)
+      Application.put_env(:aiur, :voice_provider, __MODULE__.FakeVoiceProvider)
 
       socket = joined_socket()
       assert_reply(push(socket, "voice_start", %{}), :ok, %{"session" => session})
@@ -236,7 +247,7 @@ defmodule AiurWeb.StreamdeckChannelVoiceTest do
     end
 
     test "a second hold replaces the first and cannot inherit its text" do
-      put_endpoint_config(streamdeck_voice_session: __MODULE__.FakeVoiceSession)
+      Application.put_env(:aiur, :voice_provider, __MODULE__.FakeVoiceProvider)
 
       socket = joined_socket()
       assert_reply(push(socket, "voice_start", %{}), :ok, %{"session" => first})
@@ -255,7 +266,7 @@ defmodule AiurWeb.StreamdeckChannelVoiceTest do
     end
 
     test "unfocus and channel termination stop the session, and a session crash spares the channel" do
-      put_endpoint_config(streamdeck_voice_session: __MODULE__.FakeVoiceSession)
+      Application.put_env(:aiur, :voice_provider, __MODULE__.FakeVoiceProvider)
 
       socket = joined_socket()
       assert_reply(push(socket, "voice_start", %{}), :ok, %{"session" => _session})
@@ -278,7 +289,7 @@ defmodule AiurWeb.StreamdeckChannelVoiceTest do
     end
 
     test "the snapshot says whether voice is available, and never carries a key" do
-      put_endpoint_config(streamdeck_voice_available_fun: fn -> false end)
+      Application.put_env(:aiur, :voice_provider, __MODULE__.UnconfiguredVoiceProvider)
 
       socket = authenticated_socket()
       assert {:ok, _reply, _socket} = subscribe_and_join(socket, "streamdeck:fleet")
@@ -288,7 +299,7 @@ defmodule AiurWeb.StreamdeckChannelVoiceTest do
     end
 
     test "a configured key makes voice available and states no reason" do
-      put_endpoint_config(streamdeck_voice_available_fun: fn -> true end)
+      Application.put_env(:aiur, :voice_provider, __MODULE__.FakeVoiceProvider)
 
       # `reason` is nil rather than a description of the credential: the
       # projection reports only that one exists.
@@ -296,9 +307,34 @@ defmodule AiurWeb.StreamdeckChannelVoiceTest do
     end
   end
 
-  # A voice session stands in for `Aiur.ElevenLabs.Realtime`. The seam injects
-  # the session module and never a credential, so no configuration key anywhere
-  # in this suite can be made to carry an API key into the channel.
+  defmodule FakeVoiceProvider do
+    @behaviour Aiur.Voice.Provider
+    @impl true
+    def transcriber, do: AiurWeb.StreamdeckChannelVoiceTest.FakeVoiceSession
+    @impl true
+    def synthesizer, do: nil
+    @impl true
+    def configured?, do: true
+    @impl true
+    def child_specs, do: []
+    @impl true
+    def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
+  end
+
+  defmodule UnconfiguredVoiceProvider do
+    @behaviour Aiur.Voice.Provider
+    @impl true
+    def transcriber, do: AiurWeb.StreamdeckChannelVoiceTest.UnconfiguredVoiceSession
+    @impl true
+    def synthesizer, do: nil
+    @impl true
+    def configured?, do: false
+    @impl true
+    def child_specs, do: []
+    @impl true
+    def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
+  end
+
   defmodule FakeVoiceSession do
     @moduledoc false
     use GenServer

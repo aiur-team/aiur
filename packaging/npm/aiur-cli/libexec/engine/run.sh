@@ -139,6 +139,9 @@ run_session() {
   fi
 
   run_session_reclaim_stale_nodes
+  # Next-launch backstop for debris a SIGKILLed run could not clean (#4648).
+  sweep_stale_tmp_artifacts || true
+  sweep_orphan_test_private_dirs || true
   run_session_start_tmux
 
   # Grace window: surface a boot crash instead of attaching to nothing. Prove
@@ -263,7 +266,7 @@ run_session_prepare_env() {
   mkdir -p "$AIUR_BG_STATE_DIR"
   printf '%s\n' "$session" >"$AIUR_BG_STATE_DIR/state"
   export AIUR_TMUX_SESSION="$session"
-  export AIUR_TMUX_SOCKET="$socket"
+  export AIUR_TMUX_SOCKET="$socket" AIUR_AGENT_TMUX_SOCKET="${socket}-agents"
   export AIUR_TMUX_CONF="$conf"
   export AIUR_BIN="$engine_source"
 
@@ -276,6 +279,7 @@ run_session_prepare_env() {
   # reap from it after the BEAM is gone — a crashed BEAM can kill nothing itself.
   export AIUR_AGENT_TMPFILE="${session_root}/aiur-${$}-agents"
   : >"$AIUR_AGENT_TMPFILE"
+  inherit_handoff_pidfile
 
   # Workspace-root handoff for the shell cwd-sweep backstop. The BEAM writes the
   # resolved Aiur.Config.workspace_root() here after config loads.
@@ -338,16 +342,15 @@ run_session_write_pane_launcher() {
   {
     printf '#!/usr/bin/env bash\n'
     printf 'set -o pipefail\n'
-    printf 'unset AIUR_CI_READINESS_TOKEN\n'
     printf 'cd %q || exit 1\n' "$PWD"
     local v
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
-      AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
+      AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_AGENT_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE AIUR_ALERT_LEDGER_PATH_FILE \
-      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG AIUR_DEV_TEST_TICKET_IDS \
+      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG AIUR_DEV_TEST_TICKET_IDS AIUR_DEV_TEST_RUN_ID AIUR_GITHUB_BUDGET_DIR AIUR_DEV_TEST_STATE_DIR \
       AIUR_OPERATOR_PID AIUR_LAUNCHER_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS \
-      AIUR_BG_STATE_DIR AIUR_INSTANCE_KEY AIUR_CLI_VERSION; do
+      AIUR_BG_STATE_DIR AIUR_INSTANCE_KEY AIUR_CLI_VERSION AIUR_CI_READINESS_TOKEN; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"

@@ -31,6 +31,18 @@ defmodule Aiur.AgentSkillsTest do
     assert installed_dev_loop =~ "This is a cross-skill override"
   end
 
+  test "exposes installed skills at every registered backend path", %{workspace: ws} do
+    assert :ok = AgentSkills.install(ws)
+
+    for %{path: path} <- Aiur.CodingAgent.skill_install_locations(),
+        skill <- AgentSkills.issue_worker_skills() do
+      destination = Path.join([ws, path, skill, "SKILL.md"])
+      assert File.regular?(destination), "missing #{path}/#{skill}/SKILL.md"
+      canonical = Path.join([ws, ".claude/skills", skill, "SKILL.md"])
+      assert File.read!(destination) == File.read!(canonical)
+    end
+  end
+
   test "ships the pinned Compound Engineering dependency into every workspace", %{workspace: ws} do
     assert AgentSkills.compound_engineering_version() == "3.19.0"
     assert length(AgentSkills.compound_engineering_skills()) == 31

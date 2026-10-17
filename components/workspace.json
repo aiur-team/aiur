@@ -6,6 +6,7 @@
   "paths": [
     "src/lib/aiur/prewarm/**",
     "src/lib/aiur/repo_base.ex",
+    "src/lib/aiur/repo_base/**",
     "src/lib/aiur/workspace.ex",
     "src/lib/aiur/workspace/**"
   ],

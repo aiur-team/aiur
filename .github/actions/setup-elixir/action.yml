@@ -21,3 +21,12 @@ runs:
       shell: bash
       working-directory: src
       run: make deps
+    - name: Set up Node for pinned layout assets
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: "20"
+        cache: npm
+        cache-dependency-path: src/browser/package-lock.json
+    - name: Generate pinned layout assets
+      shell: bash
+      run: source scripts/lib/layout-assets.sh && build_layout_assets "$GITHUB_WORKSPACE"

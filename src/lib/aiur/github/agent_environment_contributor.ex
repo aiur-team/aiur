@@ -3,6 +3,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   @behaviour Aiur.AgentEnvironment.Contributor
 
   alias Aiur.AgentGitHubGuard
+  alias Aiur.AgentEnvironment.TestRunIsolation
   alias Aiur.Config.Paths
   alias Aiur.GitHub.{AgentMarker, Budget, Credential}
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -68,10 +69,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export GH_CONFIG_DIR=#{Aiur.Shell.escape(AgentGitHubGuard.gh_config_dir(workspace))}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(AgentGitHubGuard.quota_dir(workspace))}\n" <>
-      "export AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'\n" <>
-      "AIUR_GITHUB_BUDGET_ROOT=\"$HOME/${AIUR_GITHUB_BUDGET_ROOT#\\~/}\"\nexport AIUR_GITHUB_BUDGET_ROOT\n" <>
-      "export AIUR_GITHUB_CREDENTIAL_FILE='~/.aiur/github-budget/agent-token'\n" <>
-      "AIUR_GITHUB_CREDENTIAL_FILE=\"$HOME/${AIUR_GITHUB_CREDENTIAL_FILE#\\~/}\"\nexport AIUR_GITHUB_CREDENTIAL_FILE\n" <>
+      TestRunIsolation.remote_github_budget_exports() <>
       "unset AIUR_GITHUB_BUDGET_KEY\n" <>
       publication_credential_export(opts) <>
       "export AIUR_GITHUB_BUDGET_BROKER=#{Aiur.Shell.escape(AgentGitHubGuard.budget_broker_path(workspace))}\n" <>

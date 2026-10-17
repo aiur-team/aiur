@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
   require Logger
 
   alias Aiur.{Alerts, CurrentRunMembership, Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{OptimisticLedger, State}
+  alias Aiur.Orchestrator.{OptimisticLedger, State, TelemetryEvents}
   alias Aiur.RunTelemetry.Lifecycle
 
   @membership_observe_timeout 5_000
@@ -16,6 +16,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
 
   def record(%Issue{} = issue, lifecycle, observe_membership_fun)
       when is_function(observe_membership_fun, 2) do
+    :ok = TelemetryEvents.terminal(issue, lifecycle)
     if lifecycle in [:completed, :cancelled], do: OptimisticLedger.close_observed(issue)
 
     case Issue.tracker_identity(issue) do

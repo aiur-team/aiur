@@ -63,13 +63,12 @@ the change falsifies before writing anything new.
 A genuinely new page must also be added to the sidebar in
 `website/docs-app/.vitepress/config.ts`, or nobody can reach it.
 
-Only one row above is machine-checked. `scripts/check-config-docs.py` resolves
-every config key to its full dotted path and fails the required `lint` job when
-one is missing from the configuration reference; `scripts/test-check-config-docs.sh`
-guards that checker. **Every other row is enforced by review alone** — nothing
-will stop a CLI flag or a dashboard page from merging undocumented, so a
-reviewer treating a missing doc as a blocking finding is the only mechanism
-there is.
+The config and CLI rows are machine-checked: `scripts/check-config-docs.py` resolves
+config keys; missing entries fail `lint`. `scripts/test-check-config-docs.sh` guards
+that checker. The `lint` job runs `website/docs-app/scripts/check-cli-reference.sh`
+and its self-test, as does website guards for docs-only changes. Keep
+`reference/cli.md` at 500 lines or fewer; consolidate added rows in the same change.
+Other rows remain enforced by review alone.
 
 ## Layout
 
@@ -243,8 +242,8 @@ speaks HTTP directly is metered by GitHub's anonymous limit, not by Aiur's
 guard — the ledger counts governed `gh`/`git` calls, and only those.
 
 **Before changing anything that talks to GitHub — polling, budgets, the read
-cache, webhooks, credentials — read
-[`website/docs-app/apis/github.md`](website/docs-app/apis/github.md).** It is
+cache, webhooks, credentials — read the GitHub API docs index and topic pages
+in `website/docs-app/apis/`.** It is
 the source of truth for how Aiur uses the GitHub API: what it polls and how
 often, how the Core/GraphQL budgets are metered and attributed, how to read
 `aiur github-cost` without misinterpreting it, which reads the cache refuses on
@@ -370,7 +369,7 @@ A PR claiming a quota, latency, or cost saving must state, in the PR body:
    never produces. `aiur github-cost` gives per-caller points, calls, and
    rate; the local ledger and the App-token `/rate_limit` give the
    credential-side view. Read
-   [`website/docs-app/apis/github.md`](website/docs-app/apis/github.md)
+   [`website/docs-app/apis/github-budgets.md`](website/docs-app/apis/github-budgets.md)
    ("Reading these numbers without fooling yourself") before measuring.
 3. **What must be true at merge for the saving to occur.** If the saving needs
    a config change, ship that change in the PR — or say plainly that the

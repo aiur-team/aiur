@@ -229,7 +229,7 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
         issue = %Issue{
           id: issue_id,
           identifier: identifier,
-          state: "rework",
+          state: "in-progress",
           title: "Completed batch #{number}"
         }
 

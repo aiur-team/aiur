@@ -143,5 +143,83 @@
       "date": null,
       "ref": "https://github.com/aiur-team/aiur/issues/3111#decisions-3"
     }
+  },
+  {
+    "id": "history-page-error",
+    "kind": "copy",
+    "selector": "#bd-vp",
+    "cells": {},
+    "reason": "earlier days could not load \u00b7 scroll up to retry",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "S-34 / #3141"
+    }
+  },
+  {
+    "id": "history-total-unknown",
+    "kind": "copy",
+    "selector": "#bd-vp",
+    "cells": {},
+    "reason": "loaded \u00b7 total unknown",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "S-34 / #3141"
+    }
+  },
+  {
+    "id": "history-unavailable",
+    "kind": "copy",
+    "selector": "#bd-vp",
+    "cells": {},
+    "reason": "History unavailable",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "S-34 / #3141"
+    }
+  },
+  {
+    "id": "experiments-nav",
+    "kind": "pixel-mask",
+    "selector": ".sidenav-nav .snav:nth-child(n+5)",
+    "cells": {},
+    "reason": "#3789 Experiments below Analytics adds a nav row, shifts Streamdeck and redistributes phone flex widths; awaiting design sign-off.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/blob/research/refactor-findings/docs/research/experiments/x5/brainstorm.md#open-questions-for-kevin"
+    }
+  },
+  {
+    "id": "section-source-state-copy",
+    "kind": "copy",
+    "selector": "#bd-vp",
+    "cells": {},
+    "reason": "S-9: unavailable, incomplete, disabled, filtered and window copy; stale source ages. Healthy design copy is unchanged.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "MP-E8-C9-T13 / DESIGN-E8 S-9"
+    }
+  },
+  {
+    "id": "build-daemon-dot-no-shrink",
+    "kind": "design-style",
+    "selector": "html",
+    "css": ".bd-daemon { white-space: normal; } .bd-daemon i { flex: none; }",
+    "reason": "Let a longer daemon footer label wrap at phone width and keep its 7 px status dot from shrinking to zero",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/4770"
+    }
   }
 ]

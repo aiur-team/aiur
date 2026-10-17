@@ -13,7 +13,8 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|{"system.main.ci.flaked", "ci:auto"},|,
       ~S|{"system.main.ci.flake_rerun", "ci:auto"},|,
       ~S|{"system.main.ci.canary", "attention:auto"},|,
-      ~S|{"system.main.ci.unavailable", "attention:auto"},|
+      ~S|{"system.main.ci.unavailable", "attention:auto"},|,
+      ~S|{"system.main.fixer.*", "attention:auto"},|
     ],
     "aiur/main_watch.ex" => [
       ~S|Logger.warning("main-watch poll failed: #{inspect(reason)}")|,
@@ -30,9 +31,22 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|events = if state.status == :red, do: [{"system.main.ci.failed.resolved", payload}], else: []|,
       ~S|topic = if flaked, do: "system.main.ci.flaked", else: "system.main.ci.failed"|
     ],
+    # Fixer topics and evidence markers are protocol identifiers, independent of the base branch.
+    "aiur/main_watch/fixer.ex" => [
+      ~S|"system.main.fixer.failed"|,
+      ~S|"system.main.fixer.needs_triage"|,
+      ~S|"system.main.fixer.dispatch_unavailable"|,
+      ~S|"system.main.fixer.no_pr"|,
+      ~S|"<!-- aiur:main-watch test="|,
+      ~S|"<!-- aiur:main-watch test=#{hash(identity)} -->"|
+    ],
+    "aiur/main_watch/fixer_watchdog.ex" => [~S|"system.main.fixer.stalled"|],
+    "aiur/github/main_fixer.ex" => [
+      ~S|@marker ~r/<!-- aiur:main-watch signature=([a-f0-9]{64}) sha=([a-f0-9]{40}) -->/|
+    ],
     "aiur/merge_policy_cli.ex" => [
       ~S|labels = if policy.ci == "wait" and policy.full_ci_labels == ["main-fix"], do: "", else: " full_ci=[#{Enum.join(policy.full_ci_labels, ",")}]"|,
-      ~S|IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher}#{main}")|,
+      ~S|IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher}#{watch_error} landing_watcher=#{landing.watcher}#{main}")|,
       ~S|"main=unavailable last_known=" <> String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "")|,
       ~S|"main=red" <> observation(state, now_ms) <> since <> fixer|,
       ~S|def main_state(%{status: :green} = state, now_ms), do: "main=green" <> observation(state, now_ms)|,

@@ -82,14 +82,14 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @shared_prompt_path"
     ],
     "aiur_web/static_assets.ex" => [
-      "@dashboard_css_glob Path.expand(\"../../priv/static/css/*.css\", __DIR__)",
+      "@dashboard_css_glob Path.relative_to(Path.expand(\"../../priv/static/css/*.css\", __DIR__), File.cwd!(), force: true)",
       "for part <- @dashboard_css_parts, do: @external_resource(part)",
       "@dashboard_fonts_path Path.expand(\"../../priv/static/dashboard-fonts.css\", __DIR__)",
       "@dashboard_palette_path Path.expand(\"../../priv/static/dashboard-palette.css\", __DIR__)",
-      "@external_resource @dashboard_fonts_path",
-      "@external_resource @dashboard_palette_path",
+      "@external_resource Path.relative_to(@dashboard_fonts_path, File.cwd!(), force: true)",
+      "@external_resource Path.relative_to(@dashboard_palette_path, File.cwd!(), force: true)",
       "@dom_svg_layout_adapter_path Path.expand(\"../../priv/static/aiur-dom-svg-layout-adapter.js\", __DIR__)",
-      "@external_resource @dom_svg_layout_adapter_path",
+      "@external_resource Path.relative_to(@dom_svg_layout_adapter_path, File.cwd!(), force: true)",
       "@external_resource @phoenix_html_js_path",
       "@external_resource @phoenix_js_path",
       "@external_resource @phoenix_live_view_js_path"
@@ -97,11 +97,11 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     "aiur_web/components/operator_control_center/build_order_epic_icon.ex" => [
       "@external_resource path"
     ],
-    # The Stream Deck key-face contract is authored once in the npm package
-    # that the packaged deck ships from, and embedded into the web emulator at
+    # The Stream Deck key-face contract is authored once in daemon priv and
+    # mirrored by the sidecar, and embedded into the web emulator at
     # compile time via File.read!/1. Nothing reads @contract_path at runtime.
     "aiur_web/streamdeck_key_face_contract.ex" => [
-      "@contract_path Path.expand(\"../../../packages/streamdeck/src/key-face-contract.json\", __DIR__)",
+      "@contract_path Path.expand(\"../../priv/streamdeck/key-face-contract.json\", __DIR__)",
       "@external_resource Path.relative_to(@contract_path, File.cwd!(), force: true)"
     ]
   }

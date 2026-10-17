@@ -103,6 +103,7 @@ defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
       GithubCommentsPoller.poll([target],
         since: "2026-06-24T11:00:00Z",
         repo: @repo,
+        token: "test-gh-token",
         request_fun: request_fun,
         review_submission_targets: MapSet.new(),
         pr_ready_ledger: ReadyForReviewTransitions.ledger(state),

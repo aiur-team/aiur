@@ -23,10 +23,37 @@ defmodule AiurExperimentsEngineTest do
     refute output =~ title
   end
 
-  test "metrics JSON dispatch reaches the control RPC" do
+  test "metrics and events JSON dispatch reach the control RPC" do
     {output, 0} = run_engine(["experiments", "metrics", "--json"])
     assert output =~ "verb: :metrics"
     assert output =~ Base.encode64("--json")
+    {output, 0} = run_engine(["experiments", "events", "delivery-change", "--json", "--refresh"])
+
+    assert output ==
+             "RPC:Aiur.AgentControlCLI.experiments([verb: :events, argv: [ Base.decode64!(\"#{Base.encode64("delivery-change")}\"), Base.decode64!(\"#{Base.encode64("--json")}\"), Base.decode64!(\"#{Base.encode64("--refresh")}\")]])\n"
+  end
+
+  test "preregister reads a caller file and transports JSON without shell interpolation" do
+    payload = ~s|{"hypothesis":"$(touch unwanted); significant at n=40"}|
+    {output, 0} = run_engine(["experiments", "preregister", "latency", "--file", "-", "--json"], payload)
+    assert output =~ "verb: :preregister"
+    assert output =~ Base.encode64("--contract-json=" <> payload)
+    refute output =~ payload
+    assert {error, 64} = run_engine(["experiments", "preregister", "latency", "--file"])
+    assert error =~ "--file requires a file or -"
+    assert {error, 64} = run_engine(["experiments", "preregister", "latency", "--contract-json={}"])
+    assert error =~ "use --file"
+  end
+
+  test "report submit and stats dispatch use the same safe RPC path" do
+    payload = ~s|{"summary":"significant at n=40"}|
+    {output, 0} = run_engine(["experiments", "report", "submit", "latency", "--file", "-"], payload)
+    assert output =~ "verb: :report_submit"
+    assert output =~ Base.encode64("--contract-json=" <> payload)
+    {output, 0} = run_engine(["experiments", "stats", "latency", "--json"])
+    assert output =~ "verb: :stats"
+    assert {error, 64} = run_engine(["experiments", "report", "latency"])
+    assert error =~ "report expects submit"
   end
 
   test "freeze transports the window, revision reason and JSON option through RPC" do
@@ -39,7 +66,7 @@ defmodule AiurExperimentsEngineTest do
 
   test "rejects absent verbs and a line lacking its reference before invoking RPC" do
     assert {output, 64} = run_engine(["experiments"])
-    assert output =~ "expects list, show, metrics, create or freeze"
+    assert output =~ "expects list, show, events, metrics, create or freeze"
     assert {output, 64} = run_engine(["experiments", "create", "--line", "release"])
     assert output =~ "requires type:ref"
     refute output =~ "RPC:"

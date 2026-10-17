@@ -12,7 +12,6 @@ defmodule Aiur.GitHub.Tracker do
   def code_host, do: __MODULE__
   @behaviour Aiur.Tracker.CodeHost
 
-  alias Aiur.BuildOrder.History
   alias Aiur.GitHub.BoundedBlockedBy
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
@@ -201,6 +200,10 @@ defmodule Aiur.GitHub.Tracker do
   @spec cached_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
   def cached_blocked_by(%Issue{} = issue), do: Issues.hydrate_blocked_by(issue, revalidate: :cached)
 
+  @doc "Reads the last-known dependency evidence, whatever its age. For ordering only, never for a dispatch decision."
+  @spec last_known_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def last_known_blocked_by(%Issue{} = issue), do: Issues.hydrate_blocked_by(issue, revalidate: :cached, record_max_age_ms: :infinity)
+
   @impl Aiur.Tracker.IssueTracker
   @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::
           {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
@@ -270,6 +273,12 @@ defmodule Aiur.GitHub.Tracker do
   @impl Aiur.Tracker.CodeHost
   defdelegate comment_optimistic_park(dependent, blocker, cause), to: Aiur.GitHub.OptimisticFailure
 
+  @impl Aiur.Tracker.CodeHost
+  defdelegate withdraw_landing(number), to: Aiur.GitHub.LandingWithdrawal, as: :withdraw
+
+  @impl Aiur.Tracker.IssueTracker
+  defdelegate reopen_issue(issue_id), to: Aiur.GitHub.IssueReopen, as: :reopen
+
   @impl Aiur.Tracker.IssueTracker
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)
@@ -300,9 +309,16 @@ defmodule Aiur.GitHub.Tracker do
 
   defp note_in_progress(result, issue_id, state_name) do
     if result == :ok and DispatchPolicy.state_slug(state_name) == "in-progress",
-      do: History.note_start(issue_id, :label, DateTime.utc_now())
+      do: record_start(issue_id)
 
     result
+  end
+
+  defp record_start(issue_id) do
+    case Application.get_env(:aiur, :github_state_start_recorder) do
+      {module, function} -> apply(module, function, [issue_id, :label, DateTime.utc_now()])
+      nil -> :ok
+    end
   end
 
   @impl Aiur.Tracker.IssueTracker

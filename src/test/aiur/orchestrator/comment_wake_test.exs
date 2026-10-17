@@ -960,7 +960,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       parent = self()
       identity = issue.tracker_identity
-      reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
+      reset_at = DateTime.add(DateTime.utc_now(), 5, :minute)
       hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
       detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
       {:ok, counter} = Agent.start_link(fn -> 0 end)
@@ -1006,7 +1006,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     # error.
     test "a merged-PR local hold beyond the ceiling still fails and the existing alert fires" do
       state = base_state()
-      reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
+      reset_at = DateTime.add(DateTime.utc_now(), 3_700, :second)
       hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
       detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
 
@@ -1044,7 +1044,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       }
 
       parent = self()
-      reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
+      reset_at = DateTime.add(DateTime.utc_now(), 3_700, :second)
       hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
       detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
 

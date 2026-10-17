@@ -210,7 +210,7 @@ aiur_build_gate_wait_for_phase_start_pid() {
 
 aiur_build_gate_publish_owner_v2() {
   local gate_dir=$1 owner_path=$2 token=$3 phase=$4 owner_pid=$5 owner_pgid=$6 command=$7
-  local holder_pid=${8:-0} command_pgid=${9:-0}
+  local holder_pid=${8:-0} command_pgid=${9:-0} command_pid_namespace=${10:-}
   local owner_candidate started_at
 
   started_at=$(aiur_build_gate_started_at)
@@ -221,8 +221,8 @@ aiur_build_gate_publish_owner_v2() {
   }
 
   if ! printf \
-    'version=2\ntoken=%s\npid=%s\npgid=%s\nholder_pid=%s\ncommand_pgid=%s\nphase=%s\ncommand=%s\nstarted_at=%s\n' \
-    "$token" "$owner_pid" "$owner_pgid" "$holder_pid" "$command_pgid" "$phase" "$command" "$started_at" \
+    'version=2\ntoken=%s\npid=%s\npgid=%s\nholder_pid=%s\ncommand_pgid=%s\ncommand_pid_namespace=%s\nphase=%s\ncommand=%s\nstarted_at=%s\n' \
+    "$token" "$owner_pid" "$owner_pgid" "$holder_pid" "$command_pgid" "$command_pid_namespace" "$phase" "$command" "$started_at" \
     >"$owner_candidate"; then
     rm -f "$owner_candidate" 2>/dev/null || true
     aiur_build_gate_fail "owner_write_failed" "$owner_path"

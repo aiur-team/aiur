@@ -50,6 +50,17 @@ defmodule Aiur.Orchestrator.CapacityBindingTest do
     assert CapacityBinding.short_label({:admission, hold}) == "admission: load"
   end
 
+  test "dispatch-cycle status timestamps use the daemon's wall clock" do
+    started_at_ms = 1_792_079_021_000
+    label = CapacityBinding.dispatch_cycle_stalled_label(started_at_ms, "{:dispatch, \"priority-1\"}")
+
+    assert label ==
+             "dispatch cycle stalled since #{DateTime.from_unix!(started_at_ms, :millisecond) |> DateTime.to_iso8601()} " <>
+               "at {:dispatch, \"priority-1\"}"
+
+    assert CapacityBinding.dispatch_cycle_stalled_label(%{}) == "dispatch cycle stalled"
+  end
+
   # A well-formed figure with no timestamp is indistinguishable from a fresh
   # one, which is how a `load=24.14` that had been current eight minutes earlier
   # read as authoritative beside a live `LOAD 6.34` line (#2527).

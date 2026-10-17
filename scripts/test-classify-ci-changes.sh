@@ -36,9 +36,9 @@ merge_policy:
 YAML
 STUB
 mkdir "$test_dir/failbin"
-printf '#!/bin/sh\nexit 1\n' > "$test_dir/failbin/elixir"
-chmod +x "$test_dir/bin/gh" "$test_dir/bin/git" "$test_dir/failbin/elixir"
-cat > "$test_dir/bin/elixir" <<'STUB'
+printf '#!/bin/sh\nexit 1\n' > "$test_dir/failbin/mix"
+chmod +x "$test_dir/bin/gh" "$test_dir/bin/git" "$test_dir/failbin/mix"
+cat > "$test_dir/bin/mix" <<'STUB'
 #!/usr/bin/env bash
 if [[ -n "${TEST_SELECTOR:-}" ]]; then
   [[ "$TEST_SELECTOR" != fail ]] || exit 1
@@ -47,13 +47,13 @@ else
   echo scoped:1
 fi
 STUB
-chmod +x "$test_dir/bin/elixir"
+chmod +x "$test_dir/bin/mix"
 classify() {
   : > "$test_dir/out"
   EVENT_NAME="$1" TEST_DRAFT="$2" TEST_FILES="$3" TEST_LABELS="${4:-[]}" \
     TEST_SELECTOR="${5:-scoped:1}" TEST_OVERSIZED_PATHS="${6:-false}" \
     REPO=o/r PR_NUMBER=7 \
-    GITHUB_OUTPUT="$test_dir/out" GITHUB_STEP_SUMMARY="$test_dir/summary" \
+    GITHUB_OUTPUT="$test_dir/out" GITHUB_STEP_SUMMARY="$test_dir/summary" MIX_BIN="$test_dir/bin/mix" \
     PATH="$test_dir/bin:$PATH" bash "$root/scripts/classify-ci-changes.sh" || return $?
   grep -E '^(full_ci|docs_only)=' "$test_dir/out" | sort | paste -sd' ' -
 }
@@ -64,38 +64,49 @@ expect() {
 }
 for draft in true false; do
   expect 'docs_only=false full_ci=false' pull_request "$draft" '[{"filename":"src/lib/aiur/config.ex"}]'
+  grep -Fxq 'dialyzer=true' "$test_dir/out"
   expect 'docs_only=true full_ci=false' pull_request "$draft" '[{"filename":"website/docs-app/guide/a.md"}]'
+  grep -Fxq 'dialyzer=false' "$test_dir/out"
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":".github/workflows/ci.yml"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"src/mix.lock"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"mix.lock"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"website/new.md","previous_filename":"src/mix.exs"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"website/new.md"}]' '[{"name":"MAIN-FIX"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"website/new.md"}]' '[{"name":"urgent"}]'
+  expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[{"name":"CI:FULL"}]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[]'
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"src/test/support/helper.exs"}]' '[]' full
   expect 'docs_only=false full_ci=true' pull_request "$draft" '[{"filename":"scripts/example.sh"}]' '[]' full
 done
+expect 'docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.exs"}]'
+grep -Fxq 'dialyzer=false' "$test_dir/out"
 for path in scripts/check-ci-gate.py scripts/classify-ci-changes.sh scripts/ci-policy.rb scripts/ci-test-selection.exs scripts/run-ci-affected-tests.py src/lib/aiur/affected_tests.ex src/lib/mix/tasks/aiur.affected_tests.ex; do
   expect 'docs_only=false full_ci=true' pull_request false "[{\"filename\":\"$path\"}]"
 done
 for event in push merge_group workflow_dispatch; do
-  expect 'docs_only=false full_ci=true' "$event" true '[]'
+  if [[ "$event" == push ]]; then
+    GITHUB_REF=refs/heads/v2 expect 'docs_only=false full_ci=true' "$event" true '[]'
+  else
+    expect 'docs_only=false full_ci=true' "$event" true '[]'
+  fi
 done
+GITHUB_REF=refs/heads/main expect 'docs_only=false full_ci=true' push true '[]'
+GITHUB_REF=refs/heads/main expect 'docs_only=false full_ci=false' schedule true '[]'
+GITHUB_REF=refs/heads/v2 expect 'docs_only=false full_ci=true' push true '[]'
 TEST_BIGPATCH=true expect 'docs_only=false full_ci=false' pull_request false '[]'
-TEST_LEGACY=true expect 'docs_only=true full_ci=true' pull_request false '[{"filename":"website/new.md"}]'
+TEST_LEGACY=true expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"website/new.md"}]'
 TEST_LEGACY=true expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]'
 TEST_FILE_CAP=true expect 'docs_only=false full_ci=true' pull_request false '[]'
 expect 'docs_only=false full_ci=true' pull_request false '[]' '[]' '' true
 expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scoped:401
+expect 'docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scoped:400
 classify pull_request false '[{"filename":"src/test/aiur/config_test.exs"},{"filename":"src/lib/aiur/config.ex"}]' >/dev/null
 expected_paths="$(printf '["src/lib/aiur/config.ex","src/test/aiur/config_test.exs"]' | base64 -w0)"
 grep -Fxq "affected_paths_b64=$expected_paths" "$test_dir/out"
-if classify pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' fail >/dev/null; then
-  echo 'selector failure must not publish a fast classification' >&2
-  exit 1
-fi
+PATH="$test_dir/failbin:$PATH" expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' fail
 workflow="$root/.github/workflows/ci.yml"
 ! grep -q 'outputs.draft\|pull_request.draft' "$workflow"
+grep -Fq 'uses: ./.github/actions/setup-elixir' "$workflow"
 grep -Eq 'outputs:.*full_ci:.*steps\.classify\.outputs\.full_ci' "$workflow"
 grep -Eq 'outputs:.*affected_paths_b64:.*steps\.classify\.outputs\.affected_paths_b64' "$workflow"
 grep -Fq 'run: bash scripts/classify-ci-changes.sh' "$workflow"

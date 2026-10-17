@@ -6,9 +6,9 @@ defmodule Aiur.AppServer.Adapter do
   require Logger
 
   alias Aiur.{AgentEnvironment, Config}
+  alias Aiur.AgentTools.Dispatch
   alias Aiur.AppServer.{Messages, RelayPort, Transport, TurnLoop, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
-  alias Aiur.Codex.DynamicTool
   alias Aiur.ProcessTree
 
   @port_line_bytes 1_048_576
@@ -60,7 +60,7 @@ defmodule Aiur.AppServer.Adapter do
 
     tool_executor =
       Keyword.get(opts, :tool_executor, fn tool, arguments ->
-        DynamicTool.execute(tool, arguments)
+        Dispatch.execute(tool, arguments)
       end)
 
     case pause_latched?(session) do
@@ -81,6 +81,8 @@ defmodule Aiur.AppServer.Adapter do
     # settled, and letting it survive would let a stale banner mislabel an
     # unrelated later failure as a quota pause.
     StreamDiagnostics.clear(session.port)
+    # Each turn starts and ends without load an earlier tool command left behind.
+    Transport.reap_orphans(session.port)
 
     case backend.start_turn(session, prompt, issue) do
       {:ok, turn_id} ->
@@ -125,6 +127,7 @@ defmodule Aiur.AppServer.Adapter do
           |> TurnState.initialize_turn_tracking()
 
         loop_result = TurnLoop.receive_loop(session, state)
+        Transport.reap_orphans(session.port)
 
         handle_turn_result(
           backend,

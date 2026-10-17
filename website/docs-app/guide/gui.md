@@ -20,6 +20,23 @@ Startup prints the URL and effective bind only when the listener runs:
 Dashboard: http://127.0.0.1:4000 (bind host=0.0.0.0, port=4000)
 ```
 
+## Build timeline cards
+
+The temporary `/build` preview renders tickets as full, line, mini or bar cards as
+space changes. Full cards show complexity, section status and queue cues. Unknown
+progress, points and estimates read `—`; unknown progress has no progress bar.
+Closed tickets distinguish merged, failed, not planned and other closed outcomes.
+
+## Build timeline freshness
+
+The build timeline at `/build` labels daemon state separately from socket reachability. An offline or stale snapshot shows its last heartbeat age and local time; a missing heartbeat reads “no heartbeat recorded”. Socket loss lasting at least 500 ms shows “Daemon unreachable” and stops the live glows.
+
+While the socket is open but the fleet snapshot is unread, such as during startup, the footer reads “Daemon up · unread” with the age of the last good reading. A source that a GitHub budget hold delays is named in the footer with the age of its last read, for example “history held 2m”. Hover the footer for the full sentence.
+
+History, queue and open-ticket headers label stale or partial reads with their age. Failed reads show unavailable markers instead of empty sections; disabled sources keep their reason. Filters and unloaded history days have distinct empty messages. Before the first snapshot, the timeline shows a loading skeleton; a failed initial read stops its animation.
+
+**Reconnect** retries a dropped socket immediately, or requests a fresh snapshot when the socket is open. It reads “Reconnecting…” while pending and returns to **Reconnect** after ten seconds if the page is still degraded. This control also works with read-only access.
+
 ## Find a surface
 
 Use the browser when you need interactive detail; use the paired command when terminal output is more useful.
@@ -53,7 +70,9 @@ The **Models** pane shows a named weekly line for each [Claude account](/guide/c
 
 The pane shows only providers with a real account: a routed backend, a keyed API, or a provider with an observation. Unconfigured placeholders are not shown.
 
-Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. An unknown count or context observation appears as `—`; context is separate from cumulative token usage.
+Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. Context is separate from cumulative token usage.
+
+A running unit whose backend has not reported a count or context reads **not reported**, and the tooltip names the backend. A unit with no running attempt, such as one in CI wait, reads **no attempt**.
 
 Open a Units row's conversation to see its **Cumulative Token Usage** panel. For a running Codex agent, it uses the current attempt; otherwise it shows ticket scope.
 
@@ -67,12 +86,18 @@ The fleet table's **Context** column shows each agent's observed context occupan
 
 Fleet and capacity facts show their observation age, including fresh data. Tracker rows and retry failures retain their source ages; unknown observations say `age unavailable`. Retry rows identify `since daemon start <UTC time>` because retry state resets on restart. These observations come from the same status read model as `aiur status` and `aiur agents`.
 
-A degraded CODEOWNERS trust banner shows the lookup cause and elapsed age (`age unknown` when unavailable); see [GitHub trust](/apis/github#who-aiur-trusts).
+A degraded CODEOWNERS trust banner shows the lookup cause and elapsed age (`age unknown` when unavailable); see [GitHub trust](/apis/github-auth#who-aiur-trusts).
 
 The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs. Paginated and progressively revealed tables sort the displayed rows, then reapply that order when more rows appear.
 
-The temporary, unlinked `/build` route previews the build timeline loading shell.
-It requires dashboard authentication; the production data source is not wired yet.
+The temporary, unlinked `/build` route reads the repository timeline from local stores.
+It requires dashboard authentication and loads history by active day in the browser’s time zone.
+Live changes are coalesced; snapshots distinguish unavailable sources from empty sections.
+
+The toolbar selects Timeline, Gantt or List and retains the view in the URL.
+Use Left/Right arrows or Home/End to move between view tabs, then Enter or Space
+to select. The status line shows the daemon state, including unknown before
+the first snapshot, and the legend for the selected view.
 
 Its links retain view, span, feature focus, filters and ticket selection in
 `view`, `span`, `feature`, `fmode`, `epic`, `model`, `tstate`, `astate`,
@@ -92,6 +117,7 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
+| Experiments | A separate experiment index and specification detail at `/experiments`; shown when the experiments capability is available. |
 
 ### Read a Build Order program
 
@@ -183,3 +209,18 @@ Retained Analytics charts use at most 180 evenly spaced resource observations pe
 Full log combines the newest materialized prior runs that fit a bounded projection with the current telemetry stream. Its source label states how many retained runs are included. Without materialized history, only raw files up to 1 MiB can be analyzed; larger files report unavailable rather than trigger an unbounded parse.
 
 Retained summaries that exceed the read budget also report unavailable.
+
+### Read an experiment
+
+Open **Experiments** below Analytics and select an experiment. The shareable
+`/experiments/:id` URL shows its design, windows, hypothesis and registered
+metrics. On a phone, **All experiments** returns to the index. Existing
+experiments remain visible when capture is off; unavailable evidence and store
+errors are shown explicitly.
+
+Frozen baseline details include the revision, capture time, Aiur version and
+SHA-256 hash. A warning identifies metric packs that changed since the freeze.
+
+When a frozen analysis `result.json` is present in an experiment directory, the
+page shows its group summaries, sample counts and analyst labels. Below the
+analysis minimum, interval, p-value and effect cells say **not enough data**.

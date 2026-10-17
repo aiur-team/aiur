@@ -18,6 +18,33 @@ defmodule Aiur.TestSupport.RuntimeChildren do
     end
   end
 
+  @doc """
+  Restarts the shared `Aiur.Orchestrator` when a prior test terminated it and
+  its own restart never ran or failed. One such leak otherwise fails every
+  later case in the partition that reads the live orchestrator (#4888).
+  """
+  @spec ensure_orchestrator_running() :: :ok | :error
+  def ensure_orchestrator_running do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(Aiur.Orchestrator) do
+      pid when is_pid(pid) -> :ok
+      nil -> restart_orchestrator()
+    end
+  end
+
+  # Any restart outcome (started, raced, failed init) is judged by the name.
+  defp restart_orchestrator do
+    _ = restart_orchestrator_child()
+    if Process.whereis(Aiur.Orchestrator), do: :ok, else: :error
+  end
+
+  defp restart_orchestrator_child do
+    Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
   @doc "Ensures the shared durable event ID generator is running after an application restart."
   @spec ensure_id_generator_running() :: :ok | :error
   def ensure_id_generator_running do
@@ -98,7 +125,7 @@ defmodule Aiur.TestSupport.RuntimeChildren do
   unregistered for every later test in the suite. Signal-based (`Process.whereis`)
   — never a duration.
   """
-  @spec ensure_pubsub_running() :: :ok | :error
+  @spec ensure_pubsub_running() :: :ok | {:error, term()}
   def ensure_pubsub_running(retries \\ 1) do
     case Process.whereis(Aiur.PubSub) do
       pid when is_pid(pid) ->
@@ -116,8 +143,8 @@ defmodule Aiur.TestSupport.RuntimeChildren do
             ensure_aiur_supervisor_running()
             ensure_pubsub_running(retries - 1)
 
-          _ ->
-            pubsub_status()
+          failure ->
+            pubsub_status(failure)
         end
     end
   end
@@ -190,10 +217,17 @@ defmodule Aiur.TestSupport.RuntimeChildren do
     if Process.whereis(Aiur.GitHub.ReadCache), do: :ok, else: :error
   end
 
-  defp pubsub_status do
+  # Name the failure: a bare `:error` in a setup assert hid that the root
+  # supervisor itself was gone or still shutting down (#4527).
+  defp pubsub_status(failure) do
     case Process.whereis(Aiur.PubSub) do
-      pid when is_pid(pid) -> :ok
-      nil -> :error
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        supervisor = Process.whereis(Aiur.Supervisor)
+
+        {:error, {:pubsub_not_running, restart: failure, aiur_supervisor: supervisor, supervisor_accepting_calls?: supervisor_accepting_calls?(supervisor, 1_000)}}
     end
   end
 
@@ -329,6 +363,32 @@ defmodule Aiur.TestSupport.RuntimeChildren do
     Supervisor.restart_child(Aiur.Supervisor, Aiur.GitHub.ReadCache)
   catch
     :exit, _reason -> :supervisor_unavailable
+  end
+
+  @doc """
+  Ensures the dashboard's financial-data tree is running. Stream Deck token
+  issuance fails closed with `:authentication_required` while
+  `AiurWeb.FinancialDataAccess.Generation` is absent, so a sibling that toppled
+  `Aiur.Supervisor` or stopped this child would otherwise fail every later
+  Stream Deck test (#4695).
+  """
+  @spec ensure_financial_data_running() :: :ok | :error
+  def ensure_financial_data_running do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(AiurWeb.FinancialDataAccess.Generation) do
+      pid when is_pid(pid) -> :ok
+      nil -> restart_financial_data()
+    end
+  end
+
+  defp restart_financial_data do
+    case Supervisor.restart_child(Aiur.Supervisor, AiurWeb.FinancialData.Supervisor) do
+      {:ok, _pid} -> :ok
+      _ -> if Process.whereis(AiurWeb.FinancialDataAccess.Generation), do: :ok, else: :error
+    end
+  catch
+    :exit, _reason -> :error
   end
 
   def ensure_aiur_supervisor_running do

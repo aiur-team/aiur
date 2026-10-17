@@ -36,6 +36,7 @@ cmd_pre_pr() {
     -u AIUR_AGENT_BIN -u AIUR_AGENT_QUOTA_STATE_PATH -u AIUR_AGENT_TMPFILE
     -u AIUR_ALERT_LEDGER_PATH_FILE -u AIUR_REPO_STATE_PATH -u AIUR_SESSION_TMPFILE
     -u AIUR_WORKSPACE_ROOT_FILE -u AIUR_TMUX_CONF -u AIUR_TMUX_SESSION -u AIUR_TMUX_SOCKET
+    -u AIUR_CONTROL_RELEASE_RETRYABLE -u AIUR_CONTROL_RELEASE_RETRY_SIGNAL
     "HOME=$test_home" "XDG_CONFIG_HOME=$test_config" "TMPDIR=$temp_dir"
     "PATH=$test_path"
   )
@@ -133,17 +134,74 @@ cmd_pre_pr() {
     esac
   fi
 
-  if command -v gh >/dev/null && pr_json="$(gh pr view --json createdAt,body,headRefOid --jq '{created_at: .createdAt, body: .body, head: {sha: .headRefOid}}' 2>"$temp_dir/gh-pr.log")"; then
+  if command -v gh >/dev/null && pr_json="$(gh pr view --json number,createdAt,body,headRefOid --jq '{number: .number, created_at: .createdAt, body: .body, head: {sha: .headRefOid}}' 2>"$temp_dir/gh-pr.log")"; then
     printf '%s\n' "$pr_json" >"$temp_dir/pr.json"
-    run_gate "check-pr-body" python3 scripts/check-pr-body.py --pr-json "$temp_dir/pr.json" --base "$base_sha"
-  elif [ -s "$temp_dir/gh-pr.log" ]; then
-    results+=("SKIP check-pr-body (could not read PR with gh)")
+    if ! refresh_pr_body_evidence "$temp_dir/pr.json" "$base_ref" "$base_sha" >"$temp_dir/refresh.log" 2>&1; then
+      results+=("FAIL refresh-pr-body-evidence")
+      failures+=("$temp_dir/refresh.log")
+      result=1
+    else
+      results+=("PASS refresh-pr-body-evidence")
+      results+=("PASS check-pr-body")
+    fi
+  elif ! command -v gh >/dev/null || grep -q 'no pull requests found' "$temp_dir/gh-pr.log"; then
+    # The handoff guard refuses ci-wait/human-review until a rerun after `gh pr create` refreshes the body.
+    results+=("SKIP refresh-pr-body-evidence (no PR yet; rerun aiur pre-pr after gh pr create)")
   else
-    results+=("SKIP check-pr-body (no PR for this branch)")
+    results+=("FAIL refresh-pr-body-evidence (could not read PR with gh)")
+    failures+=("$temp_dir/gh-pr.log")
+    result=1
   fi
 
   pre_pr_report "$base_sha" "$result"
   return "$result"
+}
+
+# Refresh Local-tests refs only once GitHub has acknowledged the final pushed HEAD.
+# The checker intentionally consumes exact plain text, so preserve that format.
+refresh_pr_body_evidence() {
+  local json_file="$1" base_ref="$2" base_sha="$3" merge_base number pushed_sha live_sha pr_json body_file update_json
+  number="$(jq -er '.number' "$json_file")" || return 1
+  pushed_sha="$(git rev-parse HEAD)" || return 1
+  merge_base="$(git merge-base HEAD "$base_sha")" || return 1
+  local attempt
+  for ((attempt = 1; attempt <= ${AIUR_PRE_PR_REFRESH_ATTEMPTS:-20}; attempt++)); do
+    pr_json="$(gh pr view "$number" --json headRefOid --jq '{head: {sha: .headRefOid}}' 2>/dev/null)" || return 1
+    live_sha="$(jq -er '.head.sha' <<<"$pr_json")" || return 1
+    [ "$live_sha" = "$pushed_sha" ] && break
+    sleep "${AIUR_PRE_PR_REFRESH_INTERVAL:-3}"
+  done
+  [ "$live_sha" = "$pushed_sha" ] || { echo "GitHub PR #$number did not report pushed head $pushed_sha" >&2; return 1; }
+  if ! python3 - "$json_file" "$pushed_sha" "$base_ref" "$merge_base" <<'PY'
+import json, pathlib, re, sys
+path = pathlib.Path(sys.argv[1])
+pr = json.loads(path.read_text(encoding="utf-8"))
+body = pr.get("body") or ""
+head, base_ref, base_sha = sys.argv[2:]
+body, head_count = re.subn(r"(?m)^Tested head:.*$", "Tested head: " + head, body)
+body, base_count = re.subn(r"(?m)^Base:.*$", "Base: " + base_ref + " @ " + base_sha, body)
+if head_count != 1 or base_count != 1:
+    raise SystemExit("PR body must contain exactly one Tested head: and Base: line")
+pathlib.Path(path.parent, "body.md").write_text(body, encoding="utf-8")
+PY
+  then
+    return 1
+  fi
+  body_file="$(dirname "$json_file")/body.md"
+  update_json="$(dirname "$json_file")/body-update.json"
+  if ! python3 - "$body_file" "$update_json" <<'PY'
+import json, pathlib, sys
+body = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+pathlib.Path(sys.argv[2]).write_text(json.dumps({"body": body}), encoding="utf-8")
+PY
+  then
+    return 1
+  fi
+  gh api "repos/{owner}/{repo}/pulls/$number" --method PATCH --input "$update_json" >/dev/null || return 1
+  pr_json="$(gh pr view "$number" --json createdAt,body,headRefOid --jq '{created_at: .createdAt, body: .body, head: {sha: .headRefOid}}')" || return 1
+  printf '%s\n' "$pr_json" >"$json_file"
+  [ "$(jq -r '.head.sha' "$json_file")" = "$pushed_sha" ] || { echo "PR #$number head moved during evidence refresh" >&2; return 1; }
+  python3 scripts/check-pr-body.py --pr-json "$json_file" --base "$base_sha"
 }
 
 pre_pr_report() {

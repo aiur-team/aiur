@@ -93,6 +93,14 @@ defmodule Aiur.GitHub.AppTokenRefresher do
     :ok
   end
 
+  @doc "Forces one serialized App installation-token refresh after GitHub rejects the cached token."
+  @spec refresh_now(GenServer.server()) :: :ok | {:error, :not_running | :token_unavailable}
+  def refresh_now(server \\ __MODULE__) do
+    GenServer.call(server, :refresh_now, 60_000)
+  catch
+    :exit, _ -> {:error, :not_running}
+  end
+
   ## ---- GenServer ----
 
   @impl true
@@ -126,6 +134,17 @@ defmodule Aiur.GitHub.AppTokenRefresher do
       end
 
     {:ok, schedule_initial(state)}
+  end
+
+  @impl true
+  def handle_call(:refresh_now, _from, %{enabled: false} = state), do: {:reply, {:error, :token_unavailable}, state}
+
+  def handle_call(:refresh_now, _from, state) do
+    previous = current_token()
+    next = do_refresh(state)
+    refreshed = current_token()
+    reply = if is_binary(refreshed) and refreshed != previous, do: :ok, else: {:error, :token_unavailable}
+    {:reply, reply, next}
   end
 
   @impl true

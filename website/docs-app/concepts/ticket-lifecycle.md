@@ -66,7 +66,7 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 | Target | Written by | Where |
 | --- | --- | --- |
 | `ci-wait` | orchestrator | `src/lib/aiur/orchestrator/ci_lifecycle/transition.ex:63-81`, callers `ci_lifecycle/outcome.ex:40,141` |
-| `in-progress` | orchestrator on CI pass / ci-wait fallback re-wake; **also the agent itself** at turn start | `ci_lifecycle/outcome.ex:254-261`, `ci_lifecycle/wait_rewake.ex:342-348`; `shared-agent-instructions.md:44,49,120` |
+| `in-progress` | orchestrator on CI pass / fallback re-wake / guarded rework dispatch claim; **also the agent itself** at turn start | `ci_lifecycle/outcome.ex:254-261`, `ci_lifecycle/wait_rewake.ex:342-348`; `dispatcher.ex`; `shared-agent-instructions.md:44,49,120` |
 | `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection; a merged PR whose remaining open PR carries unresolved review findings | `ci_lifecycle/outcome.ex:294-301`; `comment_wake.ex:950`; `human_review.ex:144-147`; `merged_ticket_reconciler.ex:130-202` |
 | `todo` | orchestrator: human-review revert with no open PR; error-latch reset | `human_review.ex:149-152`; `pause_resume/tracker_control.ex:307` |
 | `human-review`, `merging` | **the agent itself**, via the `aiur_set_ticket_state` tool; the orchestrator on merge when a remaining open PR merely awaits review | `shared-agent-instructions.md:44,49,120`; `merged_ticket_reconciler.ex:130-202` |
@@ -81,6 +81,12 @@ At the no-op bound, verified rework with no new PR head becomes `error`. Other
 no-op-bound tickets keep their state and receive an alert. A normal turn limit
 leaves the state unchanged when no PR head moved.
 
+When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
+daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
+merge-queue runs get those runners. The agent's next
+push starts fresh checks. A rework handback without a push leaves those runs
+cancelled, and CI recovery raises an attention for that head.
+
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
 that returns `{:error, {:stale_issue_state, ...}}` when the issue has moved
 underneath the writer (`issue_state.ex:162-174`), and a state write can never
@@ -93,11 +99,24 @@ Dispatch denies an issue carrying two or more state labels. Agents use
 read (`GitHub.IssueState.swap_labels/4`); naming an old label to remove can race
 with an orchestrator transition and leave contradictory labels behind.
 
-For `human-review`, the writer also checks review threads and the exact PR head
-against `tracker.base_branch`. Stale heads pass only with no conflicts or
-changed-file overlap since the merge base, including both paths of renames.
-Incomplete evidence, mismatched heads or bases, conflicts and overlap leave
-labels unchanged.
+For `human-review`, the writer checks review threads and the exact PR head
+against `tracker.base_branch`. An approved exact head tolerates overlap-only
+staleness. Unapproved stale heads need no conflicts or changed-file overlap
+since the merge base, including both paths of renames. Incomplete evidence or
+genuine conflicts leave labels unchanged.
+
+A rework handback to `ci-wait` or `human-review` must answer the latest
+blocking review. Its numbered `file:line` items form the rework prompt's
+checklist. The agent passes one `review_findings` answer per item: `fixed`
+with a commit, or `disputed` with evidence.
+
+The write is refused if an item has no answer. It is refused if a `fixed`
+commit is not a branch commit since the review, or if no such commit changed
+the item's file. Merge commits do not count.
+
+The write is also refused with no commit since the review, unless every item
+is disputed, and while GitHub reports the PR conflicting. The verified answers
+are posted as a `## Rework checklist` ticket comment for the re-review.
 
 Harmless base movement needs no merge or CI rerun. Workers check before handoff
 and after CI. Up to three integrations per handoff
@@ -153,6 +172,8 @@ and never deletes ones a repository already has; those keep working as exact pin
 ## Build queue
 
 **Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI uses held edges and delivered PR facts (valid for 24 hours), independent of dispatch freshness. Missing facts or a merged/closed blocker restore `tracker.base_branch`. Retarget to integration before merge.
+
+**Rework waits on blockers.** An `agent:rework` dependent is held by open blockers the same way as `agent:todo`, so a stacked PR gets no rework turns it cannot act on.
 
 **Optimistic dependents.** An explicit Optimistic start prompt block tells a worker to integrate blocker pushes,
 rebase rewritten history, and keep its PR draft until every blocker merges. When its own work is done,

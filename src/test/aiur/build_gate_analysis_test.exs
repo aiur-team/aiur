@@ -34,6 +34,7 @@ defmodule Aiur.BuildGateAnalysisTest do
       File.chmod(BuildGate.lock_dir(root), 0o755)
       Aiur.TestCleanup.rm_rf!(BuildGate.lock_dir(root))
       Aiur.TestCleanup.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root <> ".hooks")
     end)
 
     %{root: root, bin: bin, env: env}

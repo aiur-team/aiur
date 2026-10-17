@@ -2,8 +2,7 @@ defmodule Aiur.Orchestrator.GithubBudgetPause do
   @moduledoc false
 
   alias Aiur.Alerts
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{ControlLifecycle, State}
+  alias Aiur.Orchestrator.{ControlLifecycle, State, TicketTransition}
   alias Aiur.Protocol.MapAccess
 
   @budget_resources ["core", "graphql"]
@@ -236,7 +235,7 @@ defmodule Aiur.Orchestrator.GithubBudgetPause do
     entry = State.find_running_by_identifier(state.running, identifier)
 
     if State.paused_running_entry?(entry) and not matching_resume_pending?(state, entry) do
-      case Orchestrator.resume_paused_issue(state, entry, false) do
+      case TicketTransition.apply_effect(state, {:resume_paused, entry, false}) do
         {{:ok, :resumed}, next_state} -> next_state
         {{:error, _reason}, next_state} -> next_state
       end

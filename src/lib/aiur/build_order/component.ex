@@ -21,7 +21,7 @@ defmodule Aiur.BuildOrder.Component do
     ]
   end
 
-  def child_specs(:view_state_sweep, _opts), do: [{Aiur.GitHub.ViewStateSweep, sources: [PackStatus]}]
+  def child_specs(:view_state_sweep, _opts), do: [{Aiur.GitHub.ViewStateSweep, sources: Application.get_env(:aiur, :view_state_sources, [])}]
   def child_specs(:recording, _opts), do: [Aiur.BuildProgress, ProgressObserver]
 
   def child_specs(:final, _opts) do

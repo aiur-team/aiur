@@ -77,6 +77,7 @@ defmodule Aiur.TestSupport do
   @isolated_app_env_keys [
     :workflow_file_path,
     :log_file,
+    :decision_state_dir,
     :build_gate_dir_override,
     :global_pause_store_path,
     :github_resource_store_path,
@@ -215,25 +216,17 @@ defmodule Aiur.TestSupport do
     end)
   end
 
+  @doc false
   defmacro __using__(_opts) do
     quote do
       use ExUnit.Case
+      use Aiur.TestScopeGuard
       import ExUnit.CaptureLog
 
-      alias Aiur.AgentRunner
-      alias Aiur.CLI
+      alias Aiur.{AgentRunner, CLI, Config, HttpServer, Issue, PromptBuilder, StatusDashboard, Tracker, Workflow, WorkflowStore, Workspace}
       alias Aiur.Codex.CodingAgent, as: AppServer
-      alias Aiur.Config
-      alias Aiur.HttpServer
-      alias Aiur.Issue
       alias Aiur.Linear.Client
       alias Aiur.Orchestrator
-      alias Aiur.PromptBuilder
-      alias Aiur.StatusDashboard
-      alias Aiur.Tracker
-      alias Aiur.Workflow
-      alias Aiur.WorkflowStore
-      alias Aiur.Workspace
 
       # Backend config aliases for tests
       alias Aiur.Codex.Config, as: CodexConfig
@@ -258,6 +251,7 @@ defmodule Aiur.TestSupport do
 
       setup do
         workflow_base = Application.fetch_env!(:aiur, :test_run_root)
+        previous_test_scope_state = Aiur.TestScopeGuard.capture()
 
         # `System.pid()` is what keeps this root private to *this* VM. Without it
         # two `mix test` runs on one host pick the same `workflow-<integer>` name
@@ -269,14 +263,20 @@ defmodule Aiur.TestSupport do
             "workflow-#{System.pid()}-#{System.unique_integer([:positive])}"
           )
 
+        test_state_dir = Path.join(workflow_root, "test-state")
+
         # Every application key this setup overrides, captured as-is so
         # teardown puts back exactly what was there. See
         # `Aiur.TestSupport.isolated_app_env_keys/0`.
         previous_app_env = Aiur.TestSupport.capture_app_env()
 
-        Aiur.TestSupport.reset_global_state!()
-
         File.mkdir_p!(workflow_root)
+        System.put_env("AIUR_DEV_TEST_STATE_DIR", test_state_dir)
+
+        expected_test_scope_state = %{
+          previous_test_scope_state
+          | env: Map.put(previous_test_scope_state.env, "AIUR_DEV_TEST_STATE_DIR", test_state_dir)
+        }
 
         # Pin the host-pressure probes to a quiet host so admission decisions are
         # a function of the test's own state, not of what else is running on the
@@ -305,7 +305,7 @@ defmodule Aiur.TestSupport do
         # test's agent runner resume a prior thread (building the "session
         # resumed" continuation prompt) instead of cold-starting — an
         # order-dependent failure that only surfaces when the leaking sibling
-        # test is absent from the run (e.g. `mix test test/aiur/core_test.exs`).
+        # test is absent from the run (e.g. `mix test test/aiur/core/`).
         File.mkdir_p!(Path.join(workflow_root, "log"))
         Application.put_env(:aiur, :log_file, Path.join([workflow_root, "log", "aiur.log"]))
 
@@ -333,9 +333,16 @@ defmodule Aiur.TestSupport do
         # exiting `:shutdown`. Then reload it onto this test's config path.
         Aiur.TestSupport.ensure_runtime_children_running()
         if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
+        Aiur.TestSupport.ensure_orchestrator_running()
+
+        Aiur.TestSupport.quiesce_live_orchestrator()
+        Aiur.TestSupport.reset_global_state!()
         stop_default_http_server()
 
         on_exit(fn ->
+          scope_state_violation = Aiur.TestScopeGuard.violation(expected_test_scope_state)
+
+          Aiur.TestSupport.quiesce_live_orchestrator()
           Aiur.TestSupport.restore_app_env(previous_app_env)
           Application.delete_env(:aiur, :server_port_override)
           Application.delete_env(:aiur, :memory_tracker_issues)
@@ -343,6 +350,7 @@ defmodule Aiur.TestSupport do
           EventsPublisher.set_tracked_fn(fn _ -> true end)
           EventsSubscriptionStore.set_enqueue_fn(nil)
           Aiur.TestCleanup.rm_rf!(workflow_root)
+          Aiur.TestScopeGuard.restore(previous_test_scope_state)
 
           # Reload the store onto the restored baseline so the next test never
           # observes the now-deleted `workflow_root` config, and recover the
@@ -359,6 +367,8 @@ defmodule Aiur.TestSupport do
           unless Process.whereis(Aiur.Supervisor) do
             Application.ensure_all_started(:aiur)
           end
+
+          if scope_state_violation, do: raise(scope_state_violation)
         end)
 
         :ok
@@ -375,6 +385,7 @@ defmodule Aiur.TestSupport do
   defdelegate await_process_down(process, timeout \\ 2_000), to: Aiur.TestSupport.Processes
   defdelegate await_supervised_restart(name, prior, timeout \\ 5_000), to: Aiur.TestSupport.Processes
   defdelegate ensure_runtime_children_running(), to: Aiur.TestSupport.RuntimeChildren
+  defdelegate ensure_orchestrator_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_branch_ref_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_resource_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_workflow_store_running(), to: Aiur.TestSupport.RuntimeChildren
@@ -383,6 +394,40 @@ defmodule Aiur.TestSupport do
   defdelegate ensure_provider_meter_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_subscription_store_supervisor_running(retries \\ 1), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_read_cache_running(retries \\ 1), to: Aiur.TestSupport.RuntimeChildren
+
+  @doc false
+  @spec quiesce_live_orchestrator() :: :ok
+  def quiesce_live_orchestrator do
+    case freeze_live_orchestrator() do
+      pid when is_pid(pid) -> Aiur.TestSupport.await_orchestrator_state(pid, &(map_size(&1.tracker_tasks) == 0))
+      _not_running -> :ok
+    end
+
+    :ok
+  end
+
+  @spec freeze_live_orchestrator() :: pid() | :ok
+  def freeze_live_orchestrator do
+    case Process.whereis(Aiur.Orchestrator) do
+      pid when is_pid(pid) ->
+        :sys.replace_state(pid, fn state ->
+          if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+          %{
+            state
+            | tick_timer_ref: nil,
+              tick_token: make_ref(),
+              next_poll_due_at_ms: nil,
+              poll_check_in_progress: false,
+              poll_frozen: true
+          }
+        end)
+
+      nil ->
+        :ok
+    end
+  end
+
   defdelegate write_workflow_file!(path, overrides \\ []), to: Aiur.TestSupport.WorkflowFiles
   defdelegate write_workflow_file_async!(path, overrides \\ []), to: Aiur.TestSupport.WorkflowFiles
   defdelegate write_workflow_file_atomic!(path, content), to: Aiur.TestSupport.WorkflowFiles

@@ -9,8 +9,7 @@ defmodule AiurWeb.StreamdeckChannel.Voice do
   import Phoenix.Socket, only: [assign: 3]
 
   alias Aiur.AgentChat
-  alias Aiur.ElevenLabs.Realtime
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
 
   @spec stop_child(term()) :: :ok
   def stop_child(pid) when is_pid(pid) do
@@ -21,27 +20,14 @@ defmodule AiurWeb.StreamdeckChannel.Voice do
 
   def stop_child(_absent), do: :ok
 
-  # The session module is the seam, never the credential: a test supplies a fake
-  # session and no configuration anywhere can be made to carry an API key into
-  # this channel.
-  defp voice_session_module do
-    case Endpoint.config(:streamdeck_voice_session) do
-      module when is_atom(module) and not is_nil(module) -> module
-      _absent -> Realtime
-    end
-  end
-
   @spec open_voice_session() :: {:ok, map()} | {:error, term()}
   def open_voice_session do
-    module = voice_session_module()
-
-    case module.start(owner: self()) do
+    case Aiur.Voice.start_transcription(owner: self()) do
       # The module is remembered with the session rather than re-read per frame,
       # so a configuration change cannot leave `push` and `commit` addressing a
       # different implementation than the one that opened the connection.
-      {:ok, pid} -> {:ok, %{id: mint_session_id(), pid: pid, ref: Process.monitor(pid), module: module}}
+      {:ok, %{pid: pid, module: module}} -> {:ok, %{id: mint_session_id(), pid: pid, ref: Process.monitor(pid), module: module}}
       {:error, reason} -> {:error, reason}
-      _other -> {:error, :voice_unavailable}
     end
   end
 
@@ -101,7 +87,7 @@ defmodule AiurWeb.StreamdeckChannel.Voice do
   # can observe delivery without a live orchestrator.
   @spec send_agent_message(String.t(), String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
   def send_agent_message(identifier, message, message_id) do
-    case Endpoint.config(:agent_chat_send_fun) do
+    case EndpointConfig.get(:agent_chat_send_fun) do
       fun when is_function(fun, 3) -> fun.(identifier, message, message_id: message_id)
       fun when is_function(fun, 2) -> fun.(identifier, message)
       _fun -> AgentChat.send(identifier, message, message_id: message_id)

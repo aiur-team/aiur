@@ -11,6 +11,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
   @foreground [
     Aiur.Webhooks.ModeTable,
     Aiur.Capabilities.Table,
+    Aiur.Opencode.ActiveTurns,
     {Aiur.PubSub.Boot, [name: Aiur.PubSub]},
     Aiur.AgentPubSub.FleetRefresh,
     {Registry, [keys: :unique, name: Aiur.IssueLog.Registry]},
@@ -39,12 +40,14 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.GitHub.ReadCache,
     Aiur.GitHub.Quota,
     Aiur.GitHub.BrokerTimeout,
+    Aiur.GitHub.HoldPressure,
     Aiur.GitHub.BudgetBroker,
     Aiur.ElevenLabs.Quota,
     {Aiur.BuildOrder.TicketDetailCoordinator, [runtime_config?: true]},
     {Aiur.BuildOrder.GraphProjection, [runtime_config?: true]},
-    Aiur.Events.IdGenerator,
+    {Aiur.Events.IdGenerator, [floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0]},
     {Aiur.Events.Exchange, [name: Aiur.Events.Exchange]},
+    Aiur.PostDeployChecklist,
     Aiur.Events.BranchRefStore,
     Aiur.GitHub.OpenIssueSnapshot,
     Aiur.GitHub.ResourceStore,
@@ -71,7 +74,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.GitHub.CodeOwners,
     {Registry, [keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry]},
     Aiur.Events.SubscriptionStoreSupervisor,
-    Aiur.DecisionAttention,
+    {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
     Aiur.OperatorWaitLog,
     Aiur.Orchestrator.OptimisticLedger,
     Aiur.Orchestrator.TrackedSet,
@@ -112,7 +115,6 @@ defmodule Aiur.BuildOrder.ComponentTest do
     AiurWeb.FinancialData.Supervisor,
     {Aiur.HttpServer, dashboard_pages?: true},
     Aiur.Opencode.TokenRegistry,
-    Aiur.Opencode.ActiveTurns,
     Aiur.Opencode.PaneSupervisor,
     Aiur.Opencode.SessionSupervisor,
     Aiur.Opencode.BridgeSupervisor,
@@ -128,10 +130,19 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.AgentList.Input,
     Aiur.LauncherWatchdog,
     Aiur.BackgroundCpu,
+    Aiur.PRLifecycle.HeadVerdictRouter,
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
     Aiur.Experiments.Checkpointer,
-    Aiur.BuildOrder.Features.LabelProjection
+    Aiur.Experiments.StatsRunner,
+    {Aiur.Experiments.Auto, [recording?: true, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]]},
+    Aiur.BuildOrder.Features.LabelProjection,
+    Aiur.LandingWatch,
+    Aiur.ExecutorSweep,
+    Aiur.Experiments.Auto.Notifier,
+    Aiur.Experiments.Auto.WindowManager,
+    Aiur.LandingWatch.QuarantineLifter,
+    AiurWeb.Build.IndexSupervisor
   ]
 
   setup do
@@ -154,7 +165,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
 
     without_dashboard =
       @foreground
-      |> Enum.reject(&(&1 in [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, {Aiur.HttpServer, dashboard_pages?: true}]))
+      |> Enum.reject(&(&1 in [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, AiurWeb.Build.IndexSupervisor, {Aiur.HttpServer, dashboard_pages?: true}]))
       |> Enum.map(fn
         {Aiur.OpenTicketSource, _} -> {Aiur.OpenTicketSource, poll_on_start: false}
         spec -> spec

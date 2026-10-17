@@ -5,7 +5,7 @@ Records:        20
 Tickets:        2 (dispatched 2, merged 1, open 1)
 CPU burned:     0.0 CPU-hours
 Peak concurrency: 1 of 10 cap
-Wasted capacity: 0.0 slot-hours
+Wasted capacity: unknown (partial; missing cap observations)
 
 Top cost (CPU-seconds):
   #930                     9.5

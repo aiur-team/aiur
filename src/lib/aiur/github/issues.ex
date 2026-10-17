@@ -378,7 +378,7 @@ defmodule Aiur.GitHub.Issues do
   defp do_fetch_candidate_issues_conditional(cache, opts) do
     with {:ok, issues, ctx, updated_cache} <- list_open_issues_conditional(cache, opts) do
       active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
-      {:ok, filter_and_authorize_candidates_with_degenerate(issues, active_states, ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix), updated_cache}
+      {:ok, filter_and_authorize_candidates_with_degenerate(issues, active_states, ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix, cache), updated_cache}
     end
   end
 
@@ -428,14 +428,14 @@ defmodule Aiur.GitHub.Issues do
 
   # Keep fresh non-dispatchable workflow states as evidence for next-poll label repair.
   # Only dispatchable candidates go through authorization; terminal tickets remain excluded.
-  defp filter_and_authorize_candidates_with_degenerate(issues, active_states, request_fun, token, owner, repo, prefix) do
+  defp filter_and_authorize_candidates_with_degenerate(issues, active_states, request_fun, token, owner, repo, prefix, cache) do
     {dispatchable, rest} =
       Enum.split_with(issues, fn issue ->
         is_binary(issue.state) and
           MapSet.member?(active_states, StatePolicy.normalize_state(issue.state))
       end)
 
-    authorized = authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
+    authorized = GitHub.CandidateAuthorization.authorize(dispatchable, cache, &authorize_dispatches(&1, request_fun, token, owner, repo, prefix))
 
     healable =
       rest
@@ -1028,7 +1028,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   def hydrate_blocked_by(%Issue{id: id} = issue, opts) when is_binary(id) and id != "" do
-    case CycleFetchCache.fetch({:blocked_by, id}, fn -> fetch_blocked_by(id, opts) end) do
+    case CycleFetchCache.fetch({:blocked_by, id, opts[:record_max_age_ms]}, fn -> fetch_blocked_by(id, opts) end) do
       {:ok, blockers} when is_list(blockers) ->
         {:ok, %{issue | blocked_by: normalize_blockers(blockers, GitHub.Config.label_prefix())}}
 
@@ -1051,7 +1051,7 @@ defmodule Aiur.GitHub.Issues do
 
   # Reduces GitHub's native dependency issue objects to the same `blocked_by`
   # shape Linear's normalize_issue produces (`%{id, identifier, state, url}`)
-  # so the dispatch gate (`DispatchPolicy.todo_issue_held_by_dependency?`)
+  # so the dispatch gate (`DispatchPolicy.issue_held_by_dependency?`)
   # and the blocker event machinery consume them unchanged. Blocker state comes
   # from the same source as the issue itself: `agent:*` labels, with a raw
   # `state: "closed"` resolving to the terminal "Closed". A blocker with no

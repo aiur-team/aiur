@@ -11,6 +11,7 @@
     "src/lib/aiur/codex_prober.ex",
     "src/lib/aiur/coding_agent.ex",
     "src/lib/aiur/coding_agent/**",
+    "src/lib/aiur/harness/**",
     "src/lib/aiur/model_availability.ex",
     "src/lib/aiur/model_catalog.ex",
     "src/lib/aiur/model_discovery.ex",
@@ -19,7 +20,8 @@
     "src/lib/aiur/open_ai_compat/**",
     "src/lib/aiur/rtk.ex",
     "src/lib/aiur/rtk_startup_check.ex",
-    "src/priv/agent_relay.py"
+    "src/priv/agent_relay.py",
+    "src/priv/claude_hook_spool.py"
   ],
   "facades": [
     "*"
