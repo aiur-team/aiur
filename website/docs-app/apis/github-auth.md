@@ -137,7 +137,9 @@ An unapproved stale head passes only with no conflicts or changed-file overlap s
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a PR's own file list reaching GitHub's 300-file cap also block. A capped upstream or base comparison is not read as complete; the PR's paths are checked directly instead.
 
-Comparison reads are attributed to `human_review_base_ancestry` and always contact GitHub because base movement can change verdicts. When a comparison is capped, one GraphQL read compares each PR path's object id at the merge base and the base tip, also attributed to `human_review_base_ancestry`; a malformed or failed answer blocks. Orphan recovery reads `orphan_claim_mergeability` only after REST reports `mergeable: false`, and `orphan_claim_approval_state` after a stale-base write fails. No quota savings are claimed.
+When a comparison is capped, one GraphQL read compares each PR path's object id at the merge base and the base tip, also attributed to `human_review_base_ancestry`. A malformed or failed answer blocks.
+
+Comparison reads are attributed to `human_review_base_ancestry` and always contact GitHub because base movement can change verdicts. Orphan recovery reads `orphan_claim_mergeability` only after REST reports `mergeable: false`, and `orphan_claim_approval_state` after a stale-base write fails. No quota savings are claimed.
 
 A head pushed after approval is classified once per approved/new head pair: one `pulls/{n}` read and up to three compare reads, attributed to `approval_carry`.
 
