@@ -7,7 +7,8 @@ defmodule Aiur.BuildGate.HookSnapshot do
   so an agent started before the rebuild would lose its build admission
   (#4489). Each distinct hook is copied once to `<root>/<digest>/`, so every
   path an existing agent holds stays readable. A snapshot is reused only while
-  its files still match the release; a damaged one is republished.
+  its files still match the release; a damaged one is republished. Snapshots
+  are read-only, so a stray edit cannot reach agents before that check runs.
   """
 
   # ponytail: snapshots are never pruned; each is ~115 KiB and only a changed hook adds one.
@@ -36,8 +37,17 @@ defmodule Aiur.BuildGate.HookSnapshot do
     cutoff = System.os_time(:second) - @stale_stage_seconds
 
     for stage <- Path.wildcard(Path.join(root, ".stage-*"), match_dot: true), match?({:ok, %File.Stat{mtime: mtime}} when mtime < cutoff, File.lstat(stage, time: :posix)) do
-      File.rm_rf(stage)
+      remove(stage)
     end
+  end
+
+  # rm_rf cannot clear a read-only directory, so make each one writable first.
+  defp remove(dir) do
+    for path <- [dir | Path.wildcard(Path.join(dir, "**"), match_dot: true)], match?({:ok, %File.Stat{type: :directory}}, File.lstat(path)) do
+      File.chmod(path, 0o755)
+    end
+
+    File.rm_rf(dir)
   end
 
   defp read_files(source_dir) do
@@ -66,13 +76,14 @@ defmodule Aiur.BuildGate.HookSnapshot do
 
     result =
       with :ok <- File.mkdir_p(stage),
-           :ok <- write_files(files, stage) do
+           :ok <- write_files(files, stage),
+           :ok <- seal(stage) do
         # A damaged snapshot is replaced, not trusted.
-        _ = File.rm_rf(target)
+        _ = remove(target)
         rename(stage, target, files)
       end
 
-    _ = File.rm_rf(stage)
+    _ = remove(stage)
     result
   end
 
@@ -89,9 +100,19 @@ defmodule Aiur.BuildGate.HookSnapshot do
       path = Path.join(stage, relative)
 
       with :ok <- File.mkdir_p(Path.dirname(path)),
-           :ok <- File.write(path, contents) do
+           :ok <- File.write(path, contents),
+           :ok <- File.chmod(path, 0o444) do
         {:cont, :ok}
       else
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp seal(stage) do
+    Enum.reduce_while([stage | Enum.filter(Path.wildcard(Path.join(stage, "*")), &File.dir?/1)], :ok, fn dir, :ok ->
+      case File.chmod(dir, 0o555) do
+        :ok -> {:cont, :ok}
         error -> {:halt, error}
       end
     end)

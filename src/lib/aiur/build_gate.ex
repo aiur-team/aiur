@@ -70,7 +70,7 @@ defmodule Aiur.BuildGate do
       _ = prepare_lock_namespace(lock_dir, slots)
 
       [
-        {"BASH_ENV", Keyword.get_lazy(opts, :hook_path, fn -> agent_hook_path(gate_dir, Keyword.get_lazy(opts, :hook_source_dir, &hook_source_dir/0)) end)},
+        {"BASH_ENV", Keyword.get_lazy(opts, :hook_path, fn -> agent_hook_path(gate_dir) end)},
         {"AIUR_BUILD_GATE_DIR", gate_dir},
         {"AIUR_BUILD_GATE_LOCK_DIR", lock_dir},
         {"AIUR_BUILD_GATE_SLOTS", Integer.to_string(slots)},
@@ -101,9 +101,9 @@ defmodule Aiur.BuildGate do
 
   @spec hook_path() :: Path.t()
   def hook_path do
+    # Tests point this at a release copy they can delete (#4489).
     :aiur
-    |> :code.priv_dir()
-    |> to_string()
+    |> Application.get_env(:build_gate_priv_dir_override, to_string(:code.priv_dir(:aiur)))
     |> Path.join("build_gate.bash")
   end
 
