@@ -79,8 +79,9 @@ defmodule Aiur.BuildOrder.IndexBenchTest do
       end
 
     IO.puts("INDEX_MOUNT_BENCH schedulers=#{System.schedulers_online()} single_us=#{single} worst_10_us=#{latencies[10]} worst_50_us=#{latencies[50]}")
-    # Serialized in the server, the worst of 50 mounts waits for all 50 cuts; caller-side cuts run in parallel.
-    # A sub-millisecond cut makes call overhead dominate the ratio, so 100 ms also passes.
-    if System.schedulers_online() >= 4, do: assert(latencies[50] < max(25 * single, 100_000))
+    # Latency alone cannot tell sub-ms server cuts from caller cuts, so check the server publishes an uncut base.
+    {:ok, table, _now} = GenServer.call(server, :table)
+    assert [{:index, {:ok, base}}] = :ets.lookup(table, :index)
+    refute Map.has_key?(base, :history)
   end
 end

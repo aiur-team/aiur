@@ -42,6 +42,17 @@ defmodule Aiur.BuildOrder.IndexPagesTest do
     assert empty.sources.history.state == "ok"
   end
 
+  test "a non-integer end in hist is skipped, never shown as the newest day" do
+    assert {:ok, index} = assemble(parts([row(1, %{end: ~U[2026-10-06 12:00:00Z]}), row(2, %{end: ~U[2026-10-07 12:00:00Z]})]))
+    base = Index.base(index)
+    [old, new] = base.hist
+
+    for bad <- [nil, :unknown] do
+      page = Index.window(%{base | hist: [old, %{new | num: 3, end: bad}, new]}, "Etc/UTC", now())
+      assert Enum.map(page.sections.hist, & &1.num) == [1, 2]
+    end
+  end
+
   test "day walk matches a per-row reference across zones, DST and off-midnight cursors" do
     start = ~U[2026-10-25 03:00:00Z]
     rows = for n <- 1..400, do: row(n, %{end: DateTime.add(start, n * 4_877)})

@@ -45,6 +45,8 @@ defmodule Aiur.BuildOrder.Index.Pages do
   # Rows arrive newest first; resolve one local midnight per day crossed, not per row.
   # Prepending restores ascending order; `chosen` holds the oldest chosen midnight at its head.
   defp walk([], _before, _zone, _days, _day, rows, chosen), do: {rows, chosen, false}
+  # Atoms sort above integers, so a non-integer end would land on the newest day; skip it.
+  defp walk([row | rest], before, zone, days, day, rows, chosen) when not is_integer(row.end), do: walk(rest, before, zone, days, day, rows, chosen)
 
   defp walk([row | rest], before, zone, days, day, rows, chosen) when is_integer(day) and row.end >= day do
     rows = if match?([^day | _], chosen), do: [row | rows], else: rows

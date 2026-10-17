@@ -1,4 +1,5 @@
 defmodule AiurWeb.Build.IndexResponsiveTest do
+  # Regression guard for caller-side cuts shipped in #4753; it passes with #4504's walk reverted.
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
   import Aiur.TestSupport.BuildHome.IndexParts
