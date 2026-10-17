@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments do
   @moduledoc "Versioned experiment specs and their durable audit trail."
 
-  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, ReportMarkdown, ReportReads, Schema, Store, WindowEvents}
+  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, ReportMarkdown, ReportReads, SampleStatus, Schema, Store, WindowEvents}
 
   @spec metric_catalog() :: map()
   def metric_catalog, do: Catalog.load()
@@ -107,6 +107,10 @@ defmodule Aiur.Experiments do
   def export_analysis_input(id) do
     if Paths.valid_id?(id), do: ReportReads.input(id, mutate({:export_analysis_input, id})), else: {:error, :not_found}
   end
+
+  @doc "Completed-unit minimum-sample guards for pre-registered primary metrics."
+  @spec sample_status(map()) :: {:ok, [map()]} | {:error, term()}
+  def sample_status(spec), do: SampleStatus.read(spec)
 
   @spec checkpoint(String.t(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def checkpoint(id, now), do: mutate({:checkpoint, id, now})

@@ -41,4 +41,10 @@ def summarize(result, metric, groups):
     for annotation in result["analyst_flags"]:
         if annotation["flag"] == "confounded":
             text += f' (analyst: confounded — {annotation["reason"]})'
+    power = result.get('power', {})
+    needed = power.get('samples_needed_per_group')
+    if result['status'] in ('insufficient_data', 'inconclusive') and needed is not None:
+        text += f'; need about {needed} per group to detect {fmt(metric["mde"] * 100)}%'
+        if power.get('days_needed') is not None:
+            text += f' (about {fmt(power["days_needed"])} days at the current rate)'
     return text + '.'
