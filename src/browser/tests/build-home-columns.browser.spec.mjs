@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
@@ -9,9 +8,8 @@ test.beforeEach(async ({ page }) => {
   const errors = []; page.columnErrors = errors
   // Resolve owned modules from this checkout even when the fixture uses a shared compiled release.
   await page.route(/\/build-home\/(columns|state|render|hook|match)\.js$/, route => route.fulfill({ path: fileURLToPath(new URL('../../priv/static/build-home/' + new URL(route.request().url()).pathname.split('/').at(-1), import.meta.url)), contentType: 'text/javascript' }))
-  await openLive(page)
-})
-async function openLive(page) {
+  // The fixture server is shared by all workers; scope this page's /build-control diffs to its worker.
+  expect(await page.request.get('/build-control/stream?key=w' + test.info().workerIndex).then(r => r.status())).toBe(200)
   await page.goto('/build-fixture/live')
   await expect(page.locator('.bd-lane')).not.toHaveCount(0)
   await page.evaluate(async () => {
@@ -19,7 +17,7 @@ async function openLive(page) {
     window.ren = await import('/build-home/render.js'); window.ctx = st.ctx; window.S = st.S
     S.ready = false
   })
-}
+})
 test.afterEach(async ({ page }) => { expect(page.columnErrors).toEqual([]) })
 async function freeze(page) {
   // Dispose bootstrap timers (the 250ms scroll poll) before faking the clock: fake clear* cannot cancel native ids.
@@ -29,30 +27,26 @@ async function freeze(page) {
     ctx.life = (await import('/build-home/life.js')).createLife()
     ctx.laneEls.forEach(el => el.remove()); ctx.guideEls.forEach(el => el.remove())
     ctx.laneEls.clear(); ctx.guideEls.clear(); ctx.cols = []
-    // The fixture is shared across workers: another worker's /build-control/diff reaches this page via receive() → fx.dataChanged → flushLive → relayout → applyCols.
+    // Keep live updates (receive() → fx.dataChanged → flushLive → relayout → applyCols) from repainting under the fake clock.
     Object.assign(st.fx, { relayout() {}, update() {}, dataChanged() {}, flushLive() {} })
   })
 }
 
-// The fixture broadcasts every diff to every worker's live page, so resend ours until it is the one shown.
-const changedInfra = JSON.parse(readFileSync(new URL('../../test/fixtures/build_home/diffs/counts-changed.json', import.meta.url))).set.counts.infra
 for (const name of ['counts-changed', 'counts-unknown']) test(`live ${name} refills existing lanes`, async ({ page }) => {
-  await page.evaluate(() => {
+  const before = await page.evaluate(() => {
     ctx.vp.scrollTop = ctx.secs.plan.el.offsetTop; ren.update(true)
     cols.applyCols(cols.visibleCols(), true)
     window.infra = ctx.laneEls.get('infra')
+    return ctx.D.counts.infra
   })
-  await expect(async () => {
-    expect(await page.request.get('/build-control/diff?name=' + name).then(r => r.status())).toBe(200)
-    const short = { timeout: 1000 }
-    if (name === 'counts-changed') await expect(page.locator('.bd-lane[title="Infra"] em')).toHaveText(String(changedInfra), short)
-    else {
-      await expect.poll(() => page.evaluate(() => ctx.D.counts), short).toBeNull()
-      for (const em of await page.locator('.bd-lane:not(.lock):not(.leave) em').all()) {
-        await expect(em).toHaveText('—', short); await expect(em).toHaveAttribute('title', 'Ticket count unavailable', short)
-      }
+  expect(await page.request.get('/build-control/diff?name=' + name).then(r => r.status())).toBe(200)
+  if (name === 'counts-changed') await expect(page.locator('.bd-lane[title="Infra"] em')).toHaveText(String(before + 3))
+  else {
+    await expect.poll(() => page.evaluate(() => ctx.D.counts)).toBeNull()
+    for (const em of await page.locator('.bd-lane:not(.lock):not(.leave) em').all()) {
+      await expect(em).toHaveText('—'); await expect(em).toHaveAttribute('title', 'Ticket count unavailable')
     }
-  }).toPass()
+  }
   expect(await page.evaluate(() => ctx.laneEls.get('infra') === infra)).toBe(true)
 })
 
@@ -78,17 +72,11 @@ for (const general of [true, false]) test(`fallback uses payload general epics: 
 })
 
 for (const section of ['plan', 'hist']) test(`live ${section} epic invalidates visibility cache`, async ({ page }) => {
-  let fresh = true
-  // Another worker's new-epic diff can add 'design' first; a reloaded snapshot does not have it.
-  await expect(async () => {
-    if (!fresh) await openLive(page)
-    fresh = false
-    await page.evaluate(section => {
-      ctx.vp.scrollTop = section === 'plan' ? ctx.secs.plan.el.offsetTop : ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 500
-      cols.applyCols(cols.visibleCols(), true)
-    }, section)
-    expect(await page.evaluate(() => ctx.cols.includes('design'))).toBe(false)
-  }).toPass()
+  await page.evaluate(section => {
+    ctx.vp.scrollTop = section === 'plan' ? ctx.secs.plan.el.offsetTop : ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 500
+    cols.applyCols(cols.visibleCols(), true)
+  }, section)
+  expect(await page.evaluate(() => ctx.cols.includes('design'))).toBe(false)
   expect(await page.request.get(`/build-control/diff?name=${section}-new-epic`).then(r => r.status())).toBe(200)
   await expect.poll(() => page.evaluate(() => ctx.cols.includes('design'))).toBe(true)
   expect(await page.evaluate(() => ctx.cols.join('|') === ctx.D.order.filter(k => ctx.cols.includes(k)).join('|'))).toBe(true)
