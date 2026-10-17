@@ -10,6 +10,7 @@ defmodule Aiur.AgentQueueStore do
           next_sequence: integer(),
           items: %{optional(integer()) => AgentQueueItem.t()},
           pending_ids_by_target: %{optional(String.t()) => [integer()]},
+          item_ids_by_target: %{optional(String.t()) => [integer()]},
           item_id_by_action: %{optional(String.t()) => integer()},
           item_id_by_message_id: %{optional(String.t()) => integer()}
         }
@@ -18,6 +19,9 @@ defmodule Aiur.AgentQueueStore do
             next_sequence: 1,
             items: %{},
             pending_ids_by_target: %{},
+            # Every item id per target, newest first. Items are never pruned, so
+            # per-target reads must not scan `items` (#4962).
+            item_ids_by_target: %{},
             item_id_by_action: %{},
             item_id_by_message_id: %{}
 
@@ -71,6 +75,7 @@ defmodule Aiur.AgentQueueStore do
       store
       |> maybe_supersede_deduped(item, now)
       |> put_item(item)
+      |> index_item(item)
       |> append_pending_id(target_issue_identifier, item.id)
       |> bump_counters()
 
@@ -322,11 +327,10 @@ defmodule Aiur.AgentQueueStore do
   @spec list_visible_operator_messages(t(), String.t()) :: [AgentQueueItem.t()]
   def list_visible_operator_messages(%__MODULE__{} = store, target_issue_identifier)
       when is_binary(target_issue_identifier) do
-    store.items
-    |> Map.values()
+    store
+    |> target_items(target_issue_identifier)
     |> Enum.filter(fn
       %AgentQueueItem{
-        target_issue_identifier: ^target_issue_identifier,
         category: :operator_message,
         status: status
       }
@@ -526,6 +530,17 @@ defmodule Aiur.AgentQueueStore do
     %{store | items: Map.put(store.items, id, item)}
   end
 
+  defp index_item(%__MODULE__{} = store, %AgentQueueItem{id: id, target_issue_identifier: target}) do
+    %{store | item_ids_by_target: Map.update(store.item_ids_by_target, target, [id], &[id | &1])}
+  end
+
+  defp target_items(%__MODULE__{} = store, target_issue_identifier) do
+    store.item_ids_by_target
+    |> Map.get(target_issue_identifier, [])
+    |> Enum.map(&Map.get(store.items, &1))
+    |> Enum.reject(&is_nil/1)
+  end
+
   defp append_pending_id(%__MODULE__{} = store, target_issue_identifier, item_id) do
     pending_ids = Map.get(store.pending_ids_by_target, target_issue_identifier, [])
 
@@ -572,9 +587,9 @@ defmodule Aiur.AgentQueueStore do
   end
 
   defp update_delivered_items(%__MODULE__{} = store, target_issue_identifier, updater) do
-    store.items
-    |> Map.values()
-    |> Enum.filter(&match?(%AgentQueueItem{target_issue_identifier: ^target_issue_identifier, status: :delivered}, &1))
+    store
+    |> target_items(target_issue_identifier)
+    |> Enum.filter(&match?(%AgentQueueItem{status: :delivered}, &1))
     |> Enum.sort_by(& &1.sequence)
     |> Enum.reduce({store, []}, fn item, {store_acc, updated_items} ->
       updated = updater.(item)
