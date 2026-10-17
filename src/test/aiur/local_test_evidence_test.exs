@@ -68,6 +68,15 @@ defmodule Aiur.LocalTestEvidenceTest do
     end
   end
 
+  test "a malformed command bullet error names the line and where notes go" do
+    # #4777 shape: a note between the closing backtick and ->.
+    body = String.replace(@body, "`mix format --check-formatted` -> ok", "`mix format --check-formatted` (note) -> ok")
+
+    assert {:error, message} = LocalTestEvidence.parse(body)
+    assert message =~ "- `mix format --check-formatted` (note) -> ok"
+    assert message =~ "Put notes after ->"
+  end
+
   test "accepts notes after the list and a blank line before it" do
     notes = String.replace(@body, "-> ok\n", "-> ok\n\nCI remains authoritative.\n\n```text\n--- aiur pre-pr result ---\n```\n")
     assert {:ok, %{commands: [_, _]}} = LocalTestEvidence.parse(notes)

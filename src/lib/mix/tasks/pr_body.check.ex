@@ -35,8 +35,8 @@ defmodule Mix.Tasks.PrBody.Check do
 
         with {:ok, template_path, template} <- read_template(),
              {:ok, body} <- read_file(file_path),
-             {:ok, headings} <- extract_template_headings(template, template_path),
-             :ok <- lint_and_print(template_path, template, body, headings, opts) do
+             {:ok, _headings} <- extract_template_headings(template, template_path),
+             :ok <- lint_and_print(template_path, template, body, opts) do
           Mix.shell().info("PR body format OK")
         else
           {:error, message} -> Mix.raise(message)
@@ -76,10 +76,14 @@ defmodule Mix.Tasks.PrBody.Check do
     end
   end
 
+  @doc "Every template and Local tests error in `body`; `opts` takes `:policy` and `:head`. The handoff guard shares it (#4937)."
+  @spec errors(String.t(), String.t(), keyword()) :: [String.t()]
+  def errors(template, body, opts \\ []), do: lint(template, body, headings(template)) ++ evidence_errors(body, opts)
+
+  defp headings(template), do: Regex.scan(~r/^\#{2,6}\s+.+$/m, template) |> Enum.map(&hd/1)
+
   defp extract_template_headings(template, template_path) do
-    headings =
-      Regex.scan(~r/^\#{2,6}\s+.+$/m, template)
-      |> Enum.map(&hd/1)
+    headings = headings(template)
 
     if headings == [] do
       {:error, "No markdown headings found in #{template_path}"}
@@ -88,8 +92,8 @@ defmodule Mix.Tasks.PrBody.Check do
     end
   end
 
-  defp lint_and_print(template_path, template, body, headings, opts) do
-    errors = lint(template, body, headings) ++ evidence_errors(body, opts)
+  defp lint_and_print(template_path, template, body, opts) do
+    errors = errors(template, body, opts)
 
     if errors == [] do
       :ok
