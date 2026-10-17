@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.FixtureSourceTest do
   use Aiur.TestSupport
   alias Aiur.TestSupport.BuildHome.FixtureSource
-  alias AiurWeb.Build.DataSource
+  alias AiurWeb.Build.{DataSource, Payload}
 
   test "every dataset serves its initial window with the frozen now" do
     for dataset <- ~w(live dense newrepo noqueue offline odd-edges unknowns hostile list-edges) do
@@ -18,7 +18,7 @@ defmodule AiurWeb.Build.FixtureSourceTest do
 
   test "list edges reach the strict payload schema" do
     assert {:ok, json} = FixtureSource.full(dataset: "list-edges")
-    assert AiurWeb.Build.Payload.validate(json) == :ok
+    assert Payload.validate(json) == :ok
     assert Enum.map(json["sections"]["hist"], & &1["status"]) |> Enum.take(2) == ["not_planned", "closed"]
     assert json["sources"]["open_tickets"]["state"] == "unavailable"
   end
