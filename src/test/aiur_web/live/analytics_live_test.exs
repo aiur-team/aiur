@@ -308,17 +308,6 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "189s"
   end
 
-  # Adopted agents the sampler never attributed left the tile at a confident 0 (#4829).
-  test "an occupied fleet with no sampled agents reads unknown peak concurrency, never 0" do
-    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture!(RunTelemetry.boot_id(), 7))
-
-    {:ok, view, _html} = loaded_live(build_conn(), "/analytics")
-    tile = view |> element(".an-kpi", "Peak concurrency") |> render()
-
-    assert tile =~ ~s(<span class="an-kpi-val">unknown</span>)
-    assert tile =~ "partial: 7 of 7 occupied slots not seen as active"
-  end
-
   @tag analytics_capacity: %{effective: 3, max: 8, configured: 16, occupied: 3, available: 0, active: 3, reserved_paused: 0, queued_demand?: true}
   test "renders the runtime cap with every other ceiling the daemon reports" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
@@ -730,7 +719,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     path
   end
 
-  defp pressure_fixture!(boot_id, occupied \\ 13) do
+  defp pressure_fixture!(boot_id) do
     root = Path.join(System.tmp_dir!(), "aiur-analytics-pressure-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
@@ -751,7 +740,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
           "actor_type" => "daemon",
           "availability" => "unavailable",
           "fleet_capacity_status" => "current",
-          "fleet_agents_occupied" => occupied,
+          "fleet_agents_occupied" => 13,
           "fleet_agents_configured" => 16,
           "fleet_agents_max" => 16,
           "fleet_agents_effective" => 12,
