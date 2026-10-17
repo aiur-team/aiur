@@ -8,6 +8,8 @@ test.beforeEach(async ({ page }) => {
   const errors = []; page.columnErrors = errors
   // Resolve owned modules from this checkout even when the fixture uses a shared compiled release.
   await page.route(/\/build-home\/(columns|state|render|hook|match)\.js$/, route => route.fulfill({ path: fileURLToPath(new URL('../../priv/static/build-home/' + new URL(route.request().url()).pathname.split('/').at(-1), import.meta.url)), contentType: 'text/javascript' }))
+  // The fixture server is shared by all workers; scope this page's /build-control diffs to its worker.
+  expect(await page.request.get('/build-control/stream?key=w' + test.info().workerIndex).then(r => r.status())).toBe(200)
   await page.goto('/build-fixture/live')
   await expect(page.locator('.bd-lane')).not.toHaveCount(0)
   await page.evaluate(async () => {
@@ -25,7 +27,7 @@ async function freeze(page) {
     ctx.life = (await import('/build-home/life.js')).createLife()
     ctx.laneEls.forEach(el => el.remove()); ctx.guideEls.forEach(el => el.remove())
     ctx.laneEls.clear(); ctx.guideEls.clear(); ctx.cols = []
-    // The fixture is shared across workers: another worker's /build-control/diff reaches this page via receive() → fx.dataChanged → flushLive → relayout → applyCols.
+    // Keep live updates (receive() → fx.dataChanged → flushLive → relayout → applyCols) from repainting under the fake clock.
     Object.assign(st.fx, { relayout() {}, update() {}, dataChanged() {}, flushLive() {} })
   })
 }
