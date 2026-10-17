@@ -247,4 +247,21 @@ defmodule Aiur.AffectedTestsTest do
     assert AffectedTests.select([".aiur/config", "src/lib/aiur/foo.ex"], all_exist()) ==
              {:scoped, ["src/test/aiur/foo_test.exs"]}
   end
+
+  test "budget overflow reports on stderr and leaves stdout empty" do
+    references = for n <- 1..401, do: "src/test/aiur/ref_#{n}_test.exs"
+    opts = [reference_tests: references] ++ all_exist()
+
+    stderr =
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        stdout =
+          ExUnit.CaptureIO.capture_io(fn ->
+            assert {:full, _} = AffectedTests.select(["src/lib/aiur/foo.ex"], opts)
+          end)
+
+        assert stdout == ""
+      end)
+
+    assert stderr =~ "affected tests budget: widened set has 402 tests"
+  end
 end

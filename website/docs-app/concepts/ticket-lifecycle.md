@@ -29,7 +29,7 @@ todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelle
 | `agent:rework` | CI or review requires another run. |
 | `agent:merging` | An accepted PR entering merge. Active for polling but **never dispatchable**. |
 | `agent:done` | Work complete. Terminal. |
-| `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. |
+| `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. With `pr_health.enabled`, an error ticket whose open PR has a blocking `CHANGES_REQUESTED` review moves to `agent:rework` once per review (`system.pr_health.error_rework`). |
 | `agent:cancelled` / `agent:canceled` | Terminal cancellation. **Both spellings exist**; both are real labels. |
 
 The terminal states are exactly `done | cancelled | canceled`
