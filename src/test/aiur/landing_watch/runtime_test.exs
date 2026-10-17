@@ -50,11 +50,16 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                  send(parent, :rerun)
                  {:ok, %{}}
                end,
+               comment_fun: fn number, body, _ ->
+                 send(parent, {:comment, number, body})
+                 {:ok, %{}}
+               end,
                journal_path: path,
                now_ms: 1_000_000
              )
 
     assert_received :rerun
+    assert_received {:comment, 17, "Landing watcher reran the failed CI (ci gate) on approved head `head-sha`: infrastructure failure."}
     assert %{"17:head-sha" => %{"rerun_count" => 1, "last_rerun_at" => 1_000_000}} = Jason.decode!(File.read!(path))
 
     assert :ok =
@@ -92,6 +97,7 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                  send(parent, {:rerun, run_id})
                  {:ok, %{}}
                end,
+               comment_fun: fn _, _, _ -> {:ok, %{}} end,
                journal_path: path,
                now_ms: 1_000_000
              )
@@ -114,6 +120,8 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                jobs_fun: fn 99, _ ->
                  {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T00:00:00Z", "completed_at" => "2026-10-14T00:00:10Z"}]}
                end,
+               rerun_classifier_fun: fn _, _, _, _ -> {:ok, :rework} end,
+               journal_path: journal_path(),
                rework_fun: fn observation, failures, _ ->
                  send(parent, {:rework, observation.number, failures})
                  :ok
@@ -154,6 +162,8 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                jobs_fun: fn 99, _ ->
                  {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T00:00:00Z", "completed_at" => "2026-10-14T00:00:10Z"}]}
                end,
+               rerun_classifier_fun: fn _, _, _, _ -> {:ok, :rework} end,
+               journal_path: journal_path(),
                ticket_state_fun: fn "17", _ -> {:ok, "human-review"} end,
                transition_fun: fn id, target, options ->
                  send(parent, {:transition, id, target, options})
@@ -389,6 +399,8 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                jobs_fun: fn _, _ ->
                  {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T00:00:00Z", "completed_at" => "2026-10-14T00:00:10Z"}]}
                end,
+               rerun_classifier_fun: fn _, _, _, _ -> {:ok, :rework} end,
+               journal_path: journal_path(),
                ticket_state_fun: fn "17", _ -> {:ok, "merging"} end,
                transition_fun: fn id, target, options ->
                  send(parent, {:transition, id, target, options})

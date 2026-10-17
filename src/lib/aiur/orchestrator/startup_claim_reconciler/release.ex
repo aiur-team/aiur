@@ -17,6 +17,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
     case result do
       {:error, {:github, kind, _} = reason} when kind in [:local_hold, :rate_limited] -> {:defer, reason}
       {:error, {:aiur, :locally_held, _} = reason} -> {:defer, reason}
+      # Boot-time budget timeouts starve the ancestry read; it is missing evidence, not a verdict.
+      {:error, :review_base_ancestry_unavailable = reason} -> {:defer, reason}
       {:error, {:github, :transport, %{reason: {:aiur, :locally_held, _}}} = reason} -> {:defer, reason}
       other -> other
     end
@@ -80,6 +82,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
     fetch = Keyword.get(opts, :pr_fetcher, &Client.fetch_open_pull_request/1)
 
     case fetch.(Map.fetch!(pr, "number")) do
+      {:ok, %{"draft" => true}} -> {:ok, "rework"}
       {:ok, %{} = current} -> mergeability_target(current, opts)
       {:ok, nil} -> {:error, :pull_request_changed}
       {:ok, _unknown} -> {:error, :mergeability_unknown}

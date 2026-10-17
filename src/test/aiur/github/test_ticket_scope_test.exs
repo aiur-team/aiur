@@ -146,6 +146,7 @@ defmodule Aiur.GitHub.TestTicketScopeTest do
              Aiur.LandingWatch.start_link(
                name: server,
                interval_ms: 60_000,
+               subscribe: false,
                observe_fun: fn _opts -> {:ok, [observation]} end,
                journal_prune_fun: fn _observations, _opts -> :ok end,
                process_fun: fn _observation, _opts ->
