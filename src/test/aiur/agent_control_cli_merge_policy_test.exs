@@ -73,8 +73,6 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
   end
 
   defp launch_watcher(overrides \\ []) do
-    unless Process.whereis(Aiur.TaskSupervisor), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
-
     opts = [
       config: %{workflows: [], canary_minutes: 0},
       branch: "main",

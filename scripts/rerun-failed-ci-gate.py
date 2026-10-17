@@ -44,13 +44,15 @@ def main():
         if run is None:
             print('No ci run exists for this PR head; its gate will read the successful body check.')
             return 0
-        for attempt in range(360):
+        # Only a running gate can have read the body check before it passed; a
+        # queued or absent gate reads it later. Waiting longer squats a runner (#4814).
+        for attempt in range(18):
             job = gate_job(run)
-            if job is not None and job['status'] not in ('queued', 'in_progress'):
+            if job is None or job['status'] != 'in_progress':
                 rerun_if_failed(job)
                 return 0
             time.sleep(10)
-        print('ci gate did not finish within 60 minutes; no rerun was started.')
+        print('ci gate did not finish within 3 minutes; no rerun was started.')
         return 0
     except (KeyError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
         print(f'Unable to inspect or re-run ci gate: {error}', file=sys.stderr)

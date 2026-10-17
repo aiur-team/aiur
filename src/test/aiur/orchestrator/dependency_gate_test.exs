@@ -14,35 +14,35 @@ defmodule Aiur.Orchestrator.DependencyGateTest do
   test "default dispatch preserves terminal states and fails closed for unreadable or working blockers", ctx do
     for state <- ["Done", "Cancelled", "Duplicate", "Closed", "not_planned"] do
       candidate = dependent(ctx.blocker_id, state)
-      refute DispatchPolicy.todo_issue_held_by_dependency?(candidate, ctx.terminal)
+      refute DispatchPolicy.issue_held_by_dependency?(candidate, ctx.terminal)
       assert DispatchPolicy.optimistic_blockers(candidate) == []
     end
 
     for state <- [nil, "in-progress", "error"] do
-      assert DispatchPolicy.todo_issue_held_by_dependency?(dependent(ctx.blocker_id, state), ctx.terminal)
+      assert DispatchPolicy.issue_held_by_dependency?(dependent(ctx.blocker_id, state), ctx.terminal)
     end
   end
 
   test "recorded merge releases an open blocker under the default trigger", ctx do
     record(ctx.blocker_id, :pr_merged)
     candidate = dependent(ctx.blocker_id, "human-review")
-    refute DispatchPolicy.todo_issue_held_by_dependency?(candidate, ctx.terminal)
+    refute DispatchPolicy.issue_held_by_dependency?(candidate, ctx.terminal)
     assert DispatchPolicy.optimistic_blockers(candidate) == []
   end
 
   test "pr_opened releases ci-wait and names only optimistic blockers", ctx do
     candidate = dependent(ctx.blocker_id, "ci-wait")
     :ets.insert(Hints.table_name(), {candidate.id, {0, 0}, false, :pr_opened})
-    refute DispatchPolicy.todo_issue_held_by_dependency?(candidate, ctx.terminal)
+    refute DispatchPolicy.issue_held_by_dependency?(candidate, ctx.terminal)
     assert DispatchPolicy.optimistic_blockers(candidate) == [ctx.blocker_id]
     refute DispatchPolicy.describe_dependency_hold(candidate, ctx.terminal) =~ ctx.blocker_id
 
     for state <- [nil, "in-progress", "error"] do
-      assert DispatchPolicy.todo_issue_held_by_dependency?(dependent(ctx.blocker_id, state), ctx.terminal)
+      assert DispatchPolicy.issue_held_by_dependency?(dependent(ctx.blocker_id, state), ctx.terminal)
     end
 
     pending = %{candidate | blocked_by: candidate.blocked_by ++ [%{id: "pending", state: "in-progress"}]}
-    assert DispatchPolicy.todo_issue_held_by_dependency?(pending, ctx.terminal)
+    assert DispatchPolicy.issue_held_by_dependency?(pending, ctx.terminal)
     assert DispatchPolicy.holding_blockers(pending, ctx.terminal) == [%{id: "pending", state: "in-progress"}]
   end
 
@@ -50,7 +50,7 @@ defmodule Aiur.Orchestrator.DependencyGateTest do
     candidate = dependent(ctx.blocker_id, "ci-wait")
     :ets.insert(Hints.table_name(), {candidate.id, {0, 0}, false, :pr_opened})
     record(ctx.blocker_id, nil, true)
-    assert DispatchPolicy.todo_issue_held_by_dependency?(candidate, ctx.terminal)
+    assert DispatchPolicy.issue_held_by_dependency?(candidate, ctx.terminal)
     assert DispatchPolicy.optimistic_blockers(candidate) == []
   end
 
@@ -58,8 +58,8 @@ defmodule Aiur.Orchestrator.DependencyGateTest do
     candidate = dependent(ctx.blocker_id, "in-progress")
     :ets.insert(Hints.table_name(), {candidate.id, {0, 0}, false, :pr_ci_green})
     record(ctx.blocker_id, :pr_ci_green)
-    refute DispatchPolicy.todo_issue_held_by_dependency?(candidate, ctx.terminal)
-    assert DispatchPolicy.todo_issue_held_by_dependency?(dependent(ctx.blocker_id, nil), ctx.terminal)
+    refute DispatchPolicy.issue_held_by_dependency?(candidate, ctx.terminal)
+    assert DispatchPolicy.issue_held_by_dependency?(dependent(ctx.blocker_id, nil), ctx.terminal)
   end
 
   test "hold descriptions name an optimistic trigger and stale observation", ctx do
@@ -79,26 +79,26 @@ defmodule Aiur.Orchestrator.DependencyGateTest do
       :ets.insert(Hints.table_name(), {candidate.id, {0, 0}, false, :pr_ci_green})
 
       record(ctx.blocker_id, :pr_ci_green, false, System.system_time(:millisecond) - @day_ms)
-      assert DispatchPolicy.todo_issue_held_by_dependency?(candidate, ctx.terminal)
+      assert DispatchPolicy.issue_held_by_dependency?(candidate, ctx.terminal)
       assert DispatchPolicy.optimistic_blockers(candidate) == []
 
       record(ctx.blocker_id, :pr_ci_green)
-      refute DispatchPolicy.todo_issue_held_by_dependency?(candidate, ctx.terminal)
+      refute DispatchPolicy.issue_held_by_dependency?(candidate, ctx.terminal)
     end
 
     test "a day-old hydrated label holds, the same fresh label releases", ctx do
       :ets.insert(Hints.table_name(), {"3765-dependent", {0, 0}, false, :pr_opened})
       old = System.system_time(:millisecond) - @day_ms
       stale = [%{id: ctx.blocker_id, state: "ci-wait", observed_at_ms: old}]
-      assert DispatchPolicy.todo_issue_held_by_dependency?(%{dependent(ctx.blocker_id, "ci-wait") | blocked_by: stale}, ctx.terminal)
+      assert DispatchPolicy.issue_held_by_dependency?(%{dependent(ctx.blocker_id, "ci-wait") | blocked_by: stale}, ctx.terminal)
 
       fresh = [%{id: ctx.blocker_id, state: "ci-wait", observed_at_ms: System.system_time(:millisecond)}]
-      refute DispatchPolicy.todo_issue_held_by_dependency?(%{dependent(ctx.blocker_id, "ci-wait") | blocked_by: fresh}, ctx.terminal)
+      refute DispatchPolicy.issue_held_by_dependency?(%{dependent(ctx.blocker_id, "ci-wait") | blocked_by: fresh}, ctx.terminal)
     end
 
     test "final evidence does not age out", ctx do
       record(ctx.blocker_id, :pr_merged, false, System.system_time(:millisecond) - @day_ms)
-      refute DispatchPolicy.todo_issue_held_by_dependency?(dependent(ctx.blocker_id, "human-review"), ctx.terminal)
+      refute DispatchPolicy.issue_held_by_dependency?(dependent(ctx.blocker_id, "human-review"), ctx.terminal)
     end
   end
 

@@ -1,5 +1,6 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   @moduledoc "Classifies failed merge-group runs and routes each PR outcome."
+  alias Aiur.Alerts
   alias Aiur.GitHub.{CIRecovery, Transport}
   alias Aiur.LandingWatch
   alias Aiur.LandingWatch.{Journal, MergeFailureClassifier, MergeFailureOptions, MergeGroupFailureEvidence, MergeGroupRequeue}
@@ -88,26 +89,36 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
           route_failed_prs(prs, observations, failure, run, opts)
       end
     else
-      {:error, _} = error -> error
+      # A log GitHub no longer serves degrades only this run; the claim stays so the poll moves on.
+      # Other read errors (budget holds, timeouts) release the claim and retry next poll.
+      {:error, {:job_log, job_id, {:github, :http, %{status: status}} = reason}} when status in [404, 410] ->
+        emit_job_log_attention(run, prs, job_id, reason, opts)
+
+      {:error, _} = error ->
+        error
     end
+  end
+
+  defp emit_job_log_attention(run, prs, job_id, reason, opts) do
+    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+
+    message =
+      "Merge-group run #{run["id"]} for PR #{Enum.map_join(prs, ", ", &"##{&1}")} was not classified: " <>
+        "log for job #{inspect(job_id)} is unavailable (#{inspect(reason)})."
+
+    emitter.("system.pr.landing.job_log_unavailable",
+      central: true,
+      durable: true,
+      needs_attention: true,
+      message: message,
+      reason: message
+    )
+
+    :ok
   end
 
   defp classifier_options(run, prs, jobs, opts) do
-    MergeFailureOptions.build(run, prs, jobs, opts, &job_log/2)
-  end
-
-  defp job_log(job, opts) do
-    case job["id"] do
-      id when is_integer(id) ->
-        case CIRecovery.read("/actions/jobs/#{id}/logs", opts) do
-          {:ok, %{"log" => log}} when is_binary(log) -> {:ok, log}
-          {:error, reason} -> {:error, reason}
-          _ -> {:error, :invalid_actions_job_log}
-        end
-
-      _ ->
-        {:error, :missing_actions_job_id}
-    end
+    MergeFailureOptions.build(run, prs, jobs, opts, &MergeGroupFailureEvidence.job_log/2)
   end
 
   defp route_failed_prs(_prs, _observations, nil, _run, _opts), do: :ok

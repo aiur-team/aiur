@@ -17,18 +17,22 @@ defmodule Aiur.LandingWatch.MergeGroupJournal do
   @spec reserve_merge_group_requeue(integer(), keyword()) ::
           :ok | {:error, :merge_group_requeue_limit_reached | term()}
   def reserve_merge_group_requeue(now, opts) when is_integer(now) do
-    Journal.update(opts, fn state ->
-      recent =
-        state
-        |> Map.get("merge_group_requeues", [])
-        |> Enum.filter(&(is_integer(&1) and now >= &1 and now - &1 < 15 * 60_000))
+    Journal.update(opts, &take_requeue_slot(&1, now))
+  end
 
-      if length(recent) >= 3 do
-        {:error, :merge_group_requeue_limit_reached}
-      else
-        {:ok, Map.put(state, "merge_group_requeues", [now | recent]), :ok}
-      end
-    end)
+  @doc "Takes one slot of the shared automatic-requeue cap from a journal state, without writing it."
+  @spec take_requeue_slot(map(), integer()) :: {:ok, map(), :ok} | {:error, :merge_group_requeue_limit_reached}
+  def take_requeue_slot(state, now) do
+    recent =
+      state
+      |> Map.get("merge_group_requeues", [])
+      |> Enum.filter(&(is_integer(&1) and now >= &1 and now - &1 < 15 * 60_000))
+
+    if length(recent) >= 3 do
+      {:error, :merge_group_requeue_limit_reached}
+    else
+      {:ok, Map.put(state, "merge_group_requeues", [now | recent]), :ok}
+    end
   end
 
   @spec merge_group_requeues_by_hour(keyword()) ::
