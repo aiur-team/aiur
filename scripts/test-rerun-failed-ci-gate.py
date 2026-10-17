@@ -108,6 +108,22 @@ class RerunFailedCiGateTest(unittest.TestCase):
         ])
         sleep.assert_called_once_with(10)
 
+    def test_main_does_not_wait_for_a_gate_that_has_not_started(self):
+        run = {'id': 47, 'head_sha': 'current-head'}
+        for jobs in [[], [{'id': 101, 'name': 'ci gate', 'head_sha': 'current-head',
+                           'status': 'queued', 'conclusion': None}]]:
+            with patch.object(MODULE, 'current_ci_run', return_value=run):
+                with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'aiur-team/aiur'}):
+                    with patch.object(MODULE, 'api', return_value={'jobs': jobs}) as api:
+                        with patch.object(MODULE.time, 'sleep') as sleep:
+                            self.assertEqual(MODULE.main(), 0)
+            api.assert_called_once_with('repos/aiur-team/aiur/actions/runs/47/jobs?per_page=100')
+            sleep.assert_not_called()
+
+    def test_gate_rerun_job_cannot_squat_a_runner(self):
+        workflow = (Path(__file__).parents[1] / '.github/workflows/pr-body.yml').read_text()
+        self.assertIn('timeout-minutes: 5', workflow[workflow.index('gate-rerun:'):])
+
     def test_main_does_not_rerun_green_gate(self):
         run = {'id': 46, 'head_sha': 'current-head'}
         green = {'jobs': [{'id': 100, 'name': 'ci gate', 'head_sha': 'current-head',
