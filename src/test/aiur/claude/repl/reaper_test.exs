@@ -116,8 +116,8 @@ defmodule Aiur.Claude.Repl.ReaperTest do
       respond_error(tmux, "no pane\n")
 
       assert Task.await(task, 2_000) == {:ok, :cleanup_proven}
-      assert_receive {:unregistered, {:pane, "%9"}}
-      assert_receive {:unregistered, {:os_pid, 2_147_480_000}}
+      assert_receive {:unregistered, {:pane, "%9"}}, 1_000
+      assert_receive {:unregistered, {:os_pid, 2_147_480_000}}, 1_000
     end
 
     test "trusts observed absence when the group signal races with process exit", %{tmux: tmux} do
