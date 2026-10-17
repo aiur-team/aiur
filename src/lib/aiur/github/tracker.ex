@@ -16,8 +16,8 @@ defmodule Aiur.GitHub.Tracker do
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
   alias Aiur.GitHub.Issues
-  alias Aiur.GitHub.LocalHold
   alias Aiur.GitHub.Labels
+  alias Aiur.GitHub.LocalHold
   alias Aiur.GitHub.OpenIssueSnapshot
   alias Aiur.GitHub.TicketPullRequest
   alias Aiur.GitHub.Transport

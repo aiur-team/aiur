@@ -11,7 +11,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.CodingAgent
   alias Aiur.Commands
   alias Aiur.Issue
-  alias Aiur.Tracker
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
@@ -27,6 +26,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.TelemetryCohort
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
   alias Aiur.Signal
+  alias Aiur.Tracker
 
   @doc false
   @spec recover_orphaned_claim(State.t(), Issue.t(), term(), term()) :: {State.t(), term()}
