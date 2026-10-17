@@ -6,7 +6,7 @@ defmodule AiurWeb.Experiments.ChartsTest do
 
   defp fixture do
     raw = File.read!(Path.expand("../../aiur/experiments/fixtures/chart_detail.json", __DIR__)) |> Jason.decode!()
-    detail = Map.new(raw, fn {key, value} -> {String.to_existing_atom(key), value} end)
+    detail = %{spec: raw["spec"], analysis: raw["analysis"], snapshots: raw["snapshots"], annotations: raw["annotations"], phase: :collecting}
     {:ok, detail} = ChartData.attach({:ok, detail}, [])
     ViewModel.detail(detail)
   end

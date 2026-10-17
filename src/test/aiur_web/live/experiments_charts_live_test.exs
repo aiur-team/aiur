@@ -20,7 +20,7 @@ defmodule AiurWeb.ExperimentsChartsLiveTest do
   setup do
     previous = Map.new([:experiments_facade, :chart_live_fixture, Endpoint], &{&1, Application.get_env(:aiur, &1)})
     raw = File.read!(Path.expand("../../aiur/experiments/fixtures/chart_detail.json", __DIR__)) |> Jason.decode!()
-    detail = Map.new(raw, fn {key, value} -> {String.to_existing_atom(key), value} end)
+    detail = %{spec: raw["spec"], analysis: raw["analysis"], snapshots: raw["snapshots"], annotations: raw["annotations"], phase: :collecting}
     Application.put_env(:aiur, :experiments_facade, Facade)
     Application.put_env(:aiur, :chart_live_fixture, detail)
     Application.put_env(:aiur, Endpoint, Keyword.merge(previous[Endpoint] || [], server: false, dashboard_auth_required: false, secret_key_base: String.duplicate("s", 64)))

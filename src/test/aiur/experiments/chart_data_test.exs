@@ -4,7 +4,7 @@ defmodule Aiur.Experiments.ChartDataTest do
 
   defp fixture do
     raw = File.read!(Path.expand("fixtures/chart_detail.json", __DIR__)) |> Jason.decode!()
-    Map.new(raw, fn {key, value} -> {String.to_existing_atom(key), value} end)
+    %{spec: raw["spec"], analysis: raw["analysis"], snapshots: raw["snapshots"], annotations: raw["annotations"], phase: :collecting}
   end
 
   test "projection selects the latest frozen arms and preserves stored descriptive values" do
