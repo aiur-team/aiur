@@ -62,12 +62,12 @@ end
 defmodule Aiur.ETestSupportReregisterNeighbourTest do
   use Aiur.TestSupport, async: false
 
-  alias Aiur.TestSupport.RuntimeChildren
+  alias Aiur.TestSupport.OrchestratorChild
 
   @moduletag :orchestrator_guard_probe
 
   test "runs with the supervised orchestrator registered again" do
-    assert Process.whereis(Aiur.Orchestrator) == RuntimeChildren.supervised_orchestrator()
+    assert Process.whereis(Aiur.Orchestrator) == OrchestratorChild.supervised_pid()
   end
 end
 

@@ -16,6 +16,8 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   """
   use GenServer
 
+  alias Aiur.TestSupport.OrchestratorChild
+
   alias Aiur.TestSupport.RuntimeChildren
 
   # persistent_term, not GenServer state: after_suite callbacks run once formatters have stopped.
@@ -96,7 +98,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
   # nil when the name belongs to the supervised child, which is what every test expects to find.
   defp leak do
-    case {Process.whereis(Aiur.Orchestrator), RuntimeChildren.supervised_orchestrator()} do
+    case {Process.whereis(Aiur.Orchestrator), OrchestratorChild.supervised_pid()} do
       {nil, _child} -> "down"
       {pid, pid} -> nil
       {pid, _child} -> "held by a stand-in #{inspect(pid)}"
