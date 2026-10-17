@@ -41,12 +41,30 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     registry = Application.fetch_env!(:aiur, :agent_environment_contributors)
     env = Application.fetch_env!(:aiur, :env)
     budget = Application.fetch_env!(:aiur, :github_budget_dir)
+    budget_settings = Application.fetch_env(:aiur, :github_budget_settings_override)
+
+    # Freeze baseline inputs independently of later changes to production defaults.
+    Application.put_env(:aiur, :github_budget_settings_override, %{
+      max_inflight: 4,
+      max_inflight_per_endpoint: 2,
+      requests_per_minute: 120,
+      stagger_ms: 75,
+      agent_core_limit_per_hour: 250,
+      agent_graphql_limit_per_hour: 600,
+      agent_search_limit_per_hour: 600
+    })
+
     Application.put_env(:aiur, :github_budget_dir, Path.join(root, "budget"))
 
     on_exit(fn ->
       Application.put_env(:aiur, :agent_environment_contributors, registry)
       Application.put_env(:aiur, :env, env)
       Application.put_env(:aiur, :github_budget_dir, budget)
+
+      case budget_settings do
+        {:ok, value} -> Application.put_env(:aiur, :github_budget_settings_override, value)
+        :error -> Application.delete_env(:aiur, :github_budget_settings_override)
+      end
     end)
 
     %{workflow_file: workflow_file, workflow_root: root, workspace: Path.join(root, "workspace"), home: Path.join(root, "home")}
@@ -137,8 +155,19 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     ]
 
     Map.new(env, fn
-      {name, false} -> {name, false}
-      {name, value} -> {name, Enum.reduce(replacements, value, fn {path, label}, acc -> if is_binary(path), do: String.replace(acc, path, label), else: acc end)}
+      {name, false} ->
+        {name, false}
+
+      {name, value} ->
+        normalized = normalize_value(value, replacements)
+        # Main may publish the same build hook into its trusted, content-addressed directory.
+        {name, Regex.replace(~r"<root>/build-gate\.hooks/[a-f0-9]{64}/build_gate\.bash", normalized, "<priv>/build_gate.bash")}
+    end)
+  end
+
+  defp normalize_value(value, replacements) do
+    Enum.reduce(replacements, value, fn {path, label}, acc ->
+      if is_binary(path), do: String.replace(acc, path, label), else: acc
     end)
   end
 

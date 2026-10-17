@@ -2,8 +2,8 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   @moduledoc "GitHub guard environment for local and remote agent processes."
   @behaviour Aiur.AgentEnvironment.Contributor
 
-  alias Aiur.AgentGitHubGuard
   alias Aiur.AgentEnvironment.TestRunIsolation
+  alias Aiur.AgentGitHubGuard
   alias Aiur.Config.Paths
   alias Aiur.GitHub.{AgentMarker, Budget, Credential}
   alias Aiur.GitHub.Config, as: GitHubConfig
