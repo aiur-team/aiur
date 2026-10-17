@@ -2,10 +2,9 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   @moduledoc false
 
   alias Aiur.AgentRunner.ReworkFindings
-  alias Aiur.{Alerts, Issue, LocalTestEvidence, Tracker}
+  alias Aiur.{Alerts, Issue, LocalTestEvidence, PrBodyLint, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.ReworkGate
-  alias Mix.Tasks.PrBody.Check, as: PrBodyCheck
 
   @spec write(Issue.t(), String.t(), String.t(), Path.t() | nil, String.t() | nil, keyword(), fun()) ::
           {:ok, map()} | {:error, term()}
@@ -46,7 +45,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   defp rework_blockers(_issue, _state, _opts), do: :allow
 
   # #4611: a PR created after the first `aiur pre-pr` keeps stale Local tests evidence; refuse the handoff until it is refreshed.
-  # #4937: with the worker's checkout at hand it runs the full `mix pr_body.check` lint, so a body CI would reject is refused too.
+  # #4937: with the worker's checkout at hand it runs the full `mix pr_body.check` lint (`Aiur.PrBodyLint`), so a body CI would reject is refused too.
   # An unreadable PR fails open here; the `pr body` CI check and the push backstop alert still cover it.
   defp evidence_blockers(issue, state, workspace, opts) when state in ["ci-wait", "human-review"] do
     with {:ok, pr} <- ReworkGate.open_pr(issue.identifier, opts),
@@ -65,7 +64,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   defp evidence_error(body, head, workspace) do
     case pr_template(workspace) do
       {:ok, template} ->
-        case PrBodyCheck.errors(template, body, head: head) do
+        case PrBodyLint.errors(template, body, head: head) do
           [] -> :ok
           errors -> {:error, Enum.join(errors, "; ")}
         end
