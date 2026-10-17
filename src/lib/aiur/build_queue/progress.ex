@@ -20,7 +20,7 @@ defmodule Aiur.BuildQueue.Progress do
 
     resolution =
       cond do
-        total == 0 -> :unresolved
+        total == 0 -> :empty
         resolved == 0 -> :unresolved
         resolved < total -> :partial
         true -> :resolved
