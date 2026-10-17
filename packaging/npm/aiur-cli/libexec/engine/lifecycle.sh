@@ -277,26 +277,11 @@ cmd_stop() {
   warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
 }
 
-# Stop, refresh the release, start again — `aiur restart`.
-#
-# The refresh deliberately runs BETWEEN the stop and the start. A dev rebuild
-# rewrites the release directory in place, and a BEAM booted from that directory
-# is exactly what the control-retry path (EX_TEMPFAIL) exists to survive; doing
-# it while the daemon is down means the new daemon boots from a release nothing
-# else is holding half-written.
-#
-# The engine itself never knows how to build: the installed CLI runs a pinned
-# platform release with no source tree beside it, so its restart is a plain
-# bounce. The dev shim supplies its build-if-stale step through
-# AIUR_RESTART_BUILD_CMD, a shell command line run via `bash -c` so the wrapper
-# (not this parser) owns quoting.
+# `aiur restart` stops, refreshes the release while down, then starts detached.
+# The dev shim supplies its build-if-stale step through AIUR_RESTART_BUILD_CMD.
 aiur_restart_daemon_state="untouched"
 
-# Everything between the stop and a confirmed start runs with this armed, so the
-# operator hears about a fleet that is down no matter which step failed — a
-# rebuild, a missing tmux, a BEAM that would not boot, or a Ctrl-C during the
-# minutes-long rebuild. Naming only the step that failed would let "aiur failed
-# to start" read as "nothing changed", which is the silently stopped fleet.
+# Report any failure after stop so an unsuccessful restart cannot look harmless.
 aiur_restart_report_state() {
   [ "$aiur_restart_daemon_state" = "stopped" ] || return 0
 
@@ -487,12 +472,16 @@ cmd_restart() {
     echo "aiur: --no-build — restarting on the release already on disk" >&2
   fi
 
-  # Always detached: the daemon this stopped was itself detached, and a restart
-  # that captured the terminal would be a surprise. `--interactive` still opts
-  # into the attachable session (`aiur --bg --interactive`), and a purely
-  # foreground restart remains `aiur stop && aiur run`.
+  # A restart stays detached; --interactive still opts into the attachable session.
   aiur_restart_start_attempted=1
-  dispatch_run --bg "${run_args[@]+"${run_args[@]}"}"
+  local start_status=0
+  aiur_restart_start_with_retry || start_status=$?
+  if [ "$start_status" -ne 0 ]; then
+    report_restart_handoff_failure
+    trap - EXIT INT TERM
+    aiur_restart_report_state
+    exit "$start_status"
+  fi
 
   aiur_restart_daemon_state="running"
   trap - EXIT INT TERM

@@ -70,6 +70,55 @@ defmodule AiurEngineRestartTest do
     assert markers == ["STOP", "BUILD", "RUN: --bg"]
   end
 
+  test "restart retries a failed distribution boot and succeeds on the next launch" do
+    tmp = Aiur.TestSupport.tmp_root!("restart-boot-retry")
+
+    {out, 0} =
+      run_sourced_engine(
+        """
+        attempts="$TMPDIR/restart-attempts"
+        dispatch_run() {
+          count=0
+          [ ! -f "$attempts" ] || count="$(cat "$attempts")"
+          count=$((count + 1)); printf '%s' "$count" > "$attempts"
+          if [ "$count" -eq 1 ]; then echo 'nodistribution'; return 1; fi
+          echo "RUN:$*"
+        }
+        cmd_stop() { echo STOP; }
+        cmd_restart --no-build
+        """,
+        [{"TMPDIR", tmp}, {"AIUR_RESTART_RETRY_DELAY_SECONDS", "0"}]
+      )
+
+    assert out =~ "restart startup attempt 1 failed (exit 1); retrying after cleanup"
+    assert out =~ "RUN:--bg"
+  end
+
+  test "restart returns the failed boot status and reports lost handoff sessions" do
+    {out, status} =
+      run_sourced_engine(
+        """
+        run_control_rpc() {
+          case "$1" in
+            *prepare*) echo '__AIUR_HANDOFF__:handoff-failed' ;;
+            *report*) echo 'HANDOFF handoff-failed adopted=0 fallback=12 gap=104064ms'; echo 'ticket-1 fallback relay_gone' ;;
+          esac
+        }
+        cmd_stop() { :; }
+        dispatch_run() { echo nodistribution; return 23; }
+        cmd_restart --keep-agents --no-build
+        """,
+        [{"AIUR_RESTART_START_ATTEMPTS", "1"}]
+      )
+
+    assert status == 23
+    assert out =~ "restart startup failed after 1 attempt(s) (exit 23)"
+    assert out =~ "12 handoff session(s) lost: relay_gone"
+    assert out =~ "adopted=0 fallback=12 gap=104064ms"
+    assert out =~ "ticket-1 fallback relay_gone"
+    assert out =~ "STOPPED and was NOT restarted"
+  end
+
   test "restart refuses a legacy config before stopping or rebuilding" do
     root = Aiur.TestSupport.tmp_root!("aiur-restart-legacy-config")
     File.mkdir_p!(root)

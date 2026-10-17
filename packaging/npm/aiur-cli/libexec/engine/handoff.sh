@@ -30,6 +30,54 @@ report_restart_handoff() {
   }
 }
 
+aiur_restart_start_with_retry() {
+  local attempt=1 status=0 max_attempts="${AIUR_RESTART_START_ATTEMPTS:-2}"
+  if ! [[ "$max_attempts" =~ ^[1-9][0-9]*$ ]]; then max_attempts=2; fi
+  while [ "$attempt" -le "$max_attempts" ]; do
+    if dispatch_run --bg "${run_args[@]+"${run_args[@]}"}"; then return 0; else status=$?; fi
+    [ "$attempt" -lt "$max_attempts" ] || break
+    echo "aiur: restart startup attempt $attempt failed (exit $status); retrying after cleanup" >&2
+    if [ -n "${release_bin:-}" ]; then
+      local tmux_bin socket session conf
+      tmux_bin="$(command -v tmux || true)"
+      socket="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}"
+      session="${socket}-default"
+      conf="$(resolve_tmux_conf)"
+      [ -z "$tmux_bin" ] || "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
+      kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
+    fi
+    sleep "${AIUR_RESTART_RETRY_DELAY_SECONDS:-1}"
+    attempt=$((attempt + 1))
+  done
+  echo "❌ restart startup failed after $attempt attempt(s) (exit $status)" >&2
+  return "$status"
+}
+
+report_restart_handoff_failure() {
+  # Called only after every startup attempt failed. The report has per-session
+  # fallback reasons, so make the loss visible in the command's own output too.
+  [ -n "${AIUR_RESTART_HANDOFF_ID:-}" ] || return 0
+  local output status=0
+  output="$(AIUR_CONTROL_RPC_TIMEOUT_SECONDS=130 run_control_rpc \
+    "Aiur.Handoff.CLI.report(expected_id: \"$AIUR_RESTART_HANDOFF_ID\", wait_ms: 120_000)" 2>&1)" || status=$?
+
+  if [ "$status" -ne 0 ]; then
+    echo "aiur: restart handoff $AIUR_RESTART_HANDOFF_ID outcome unavailable; sessions may be lost. Run 'aiur status --handoff --json' after recovery." >&2
+    [ -z "$output" ] || printf '%s\n' "$output" >&2
+    return 0
+  fi
+
+  local fallback_count reasons
+  fallback_count="$(printf '%s\n' "$output" | sed -n 's/.*fallback=\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  reasons="$(printf '%s\n' "$output" | awk '$2 == "fallback" { split($3, parts, ":"); print parts[1] }' | sort -u | paste -sd, -)"
+  if [ -n "$fallback_count" ] && [ "$fallback_count" -gt 0 ]; then
+    echo "aiur: $fallback_count handoff session(s) lost: ${reasons:-fallback reason unavailable}" >&2
+  else
+    echo "aiur: handoff report did not confirm adoption; inspect 'aiur status --handoff --json'." >&2
+  fi
+  [ -z "$output" ] || printf '%s\n' "$output" >&2
+}
+
 write_handoff_stop() {
   local sentinel="$1" pidfile="$2"
   printf 'handoff=%s\n' "$AIUR_RESTART_HANDOFF_ID" >"$sentinel" || return 1
