@@ -3,14 +3,14 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
 
   alias Aiur.GitHub.{Config, ResourceStore}
 
-  @spec read() :: map()
-  def read do
+  @spec read((-> Aiur.OpenTicketSource.Snapshot.t())) :: map()
+  def read(open_ticket_snapshot \\ &Aiur.OpenTicketSource.snapshot/0) do
     with repo when is_binary(repo) <- Config.repo(),
          [owner, name] <- String.split(repo, "/", parts: 2) do
       pull_requests = entries(:pull_request, owner, name)
       branch_pull_requests = entries(:branch_pull_request, owner, name)
       reviews = entries(:pull_request_reviews, owner, name)
-      tickets = entries(:issue_labels, owner, name)
+      tickets = open_tickets(open_ticket_snapshot)
       issues = Map.new(entries(:issue, owner, name))
       blocked_by = Map.new(entries(:issue_blocked_by, owner, name))
       timelines = Map.new(entries(:issue_timeline, owner, name))
@@ -20,7 +20,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       snapshot =
         snapshot
         |> Map.merge(local)
-        |> Map.update!(:tickets, &attach_rework_attempts(&1, snapshot.pull_requests, local.rework_attempts))
+        |> Map.update!(:tickets, &(&1 && attach_rework_attempts(&1, snapshot.pull_requests, local.rework_attempts)))
 
       pull_requests = Enum.map(snapshot.pull_requests, &attach_ci(&1, local.ci_wait))
 
@@ -30,6 +30,20 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     else
       _ -> Map.merge(%{pull_requests: [], tickets: []}, local_snapshot())
     end
+  end
+
+  # The store keeps label rows for closed issues and merged PRs, so ticket checks
+  # read the open-ticket projection, which excludes both. Before a full listing
+  # the projection is partial, so tickets read as unknown (nil), not as none.
+  @doc false
+  @spec open_tickets((-> Aiur.OpenTicketSource.Snapshot.t())) :: [{integer(), [String.t()]}] | nil
+  def open_tickets(snapshot_fun \\ &Aiur.OpenTicketSource.snapshot/0) do
+    case snapshot_fun.() do
+      %{status: :available, tickets: tickets} -> for %{identifier: identifier, labels: labels} <- tickets, {number, ""} <- [Integer.parse(identifier)], do: {number, labels}
+      _not_listed -> nil
+    end
+  catch
+    :exit, _reason -> nil
   end
 
   defp local_snapshot do
@@ -173,7 +187,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   end
 
   @doc false
-  @spec build([{integer(), map()}], [{integer(), list()}], [{integer(), list()}], map(), map(), [{integer(), map()}], map()) :: map()
+  @spec build([{integer(), map()}], [{integer(), list()}], [{integer(), list()}] | nil, map(), map(), [{integer(), map()}], map()) :: map()
   def build(pull_requests, reviews, tickets, issues \\ %{}, blocked_by \\ %{}, branch_pull_requests \\ [], timelines \\ %{}) do
     reviews = Map.new(reviews)
     branch_prs = Map.new(branch_pull_requests)
@@ -186,7 +200,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     %{
       pull_requests: pull_requests,
       merge_queue: merge_queue_entries(pull_requests),
-      tickets: Enum.map(tickets, &normalize_ticket(&1, issues, blocked_by))
+      tickets: tickets && Enum.map(tickets, &normalize_ticket(&1, issues, blocked_by))
     }
   end
 
