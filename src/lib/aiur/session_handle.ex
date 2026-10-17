@@ -143,11 +143,22 @@ defmodule Aiur.SessionHandle do
     update_payload(identifier, opts, &Map.delete(&1, "resume_failures"))
   end
 
-  @doc "Forget the resumable thread so the next start is clean; other handle state is kept."
+  @doc """
+  Forget the resumable thread so the next start is clean, and remember that it
+  was abandoned so that start continues the prior work. Other state is kept.
+  """
   @spec drop_thread(String.t(), keyword()) :: :ok
   def drop_thread(identifier, opts \\ []) do
-    update_payload(identifier, opts, &Map.drop(&1, ["thread_id", "resume_failures"]))
+    update_payload(identifier, opts, fn payload ->
+      payload
+      |> Map.drop(["thread_id", "resume_failures"])
+      |> Map.put("abandoned_thread", payload["thread_id"])
+    end)
   end
+
+  @doc "Whether a prior thread for `identifier` was abandoned by `drop_thread/2`."
+  @spec abandoned_thread?(String.t(), keyword()) :: boolean()
+  def abandoned_thread?(identifier, opts \\ []), do: Map.has_key?(read_payload(identifier, opts), "abandoned_thread")
 
   defp update_payload(identifier, opts, fun) do
     :global.trans({{__MODULE__, identifier}, self()}, fn ->

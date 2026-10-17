@@ -88,6 +88,22 @@ defmodule Aiur.AgentRunner.SessionResume do
 
   defp note_resume_turn_start(_session, _identifier, _result, _opts), do: :ok
 
+  # First-turn prompt opts. A resumed thread already carries the original task
+  # and full prior turn history, so it continues rather than replaying the
+  # cold-start prompt. A fresh session that replaced an abandoned thread has no
+  # such history but does have prior work (branch, workspace, workpad), so it
+  # gets the continuation prompt with a note about the abandoned thread.
+  @doc false
+  @spec put_first_turn_opts(keyword(), map(), String.t(), keyword()) :: keyword()
+  def put_first_turn_opts(opts, session, identifier, handle_opts \\ []) do
+    resumed? = session_resumed?(session)
+    opts = Keyword.put(opts, :resumed, resumed?)
+
+    if not resumed? and SessionHandle.abandoned_thread?(identifier, handle_opts),
+      do: Keyword.merge(opts, prior_work: true, abandoned_thread: true),
+      else: opts
+  end
+
   # Session-lifecycle log carrying full issue context (per docs/logging.md,
   # which scopes issue-context start/completion logging to AgentRunner). Only
   # logs when a resume was attempted, distinguishing a true resume from a

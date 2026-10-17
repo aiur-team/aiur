@@ -52,6 +52,7 @@ defmodule Aiur.AgentRunner.TurnLoopResumePortClosedTest do
     end)
 
     assert SessionHandle.load(ctx.issue.identifier, "codex") == :none
+    assert SessionHandle.abandoned_thread?(ctx.issue.identifier)
   end
 
   test "a port loss after the first turn completed does not count", ctx do

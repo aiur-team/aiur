@@ -104,6 +104,21 @@ defmodule Aiur.AgentRunner.SessionResumeTest do
 
       assert {:ok, %{thread_id: "big"}} = SessionHandle.load("4561", "codex", opts)
     end
+
+    test "the fresh session after a drop gets continuation prompt opts", %{opts: opts} do
+      resumed = %{resumed: true, thread_id: "big"}
+      fresh = %{resumed: false, thread_id: "fresh"}
+
+      assert SessionResume.put_first_turn_opts([], fresh, "4561", opts) == [resumed: false]
+
+      capture_log(fn ->
+        for _ <- 1..2, do: SessionResume.track_resume_turn_start(resumed, "4561", @port_closed, opts)
+      end)
+
+      first_turn_opts = SessionResume.put_first_turn_opts([], fresh, "4561", opts)
+      assert first_turn_opts[:prior_work] and first_turn_opts[:abandoned_thread]
+      assert SessionResume.put_first_turn_opts([], resumed, "4561", opts) == [resumed: true]
+    end
   end
 
   describe "persist_handle_best_effort/3" do
