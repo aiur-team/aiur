@@ -20,8 +20,7 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
 
   require Logger
 
-  alias Aiur.CodingAgent
-  alias Aiur.Shell
+  alias Aiur.{AgentSkills, Shell}
   alias Aiur.Workspace.WipPreservation.Command
 
   @patch "tracked.patch"
@@ -350,7 +349,7 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
   # such an untracked entry first, the skill root before the path in it, and
   # never follows a symlink: a path below one is left alone.
   defp skill_collision_command(added) do
-    roots = Enum.map(CodingAgent.skill_install_locations(), &(String.trim_trailing(&1.path, "/") <> "/"))
+    roots = Enum.map(AgentSkills.install_paths(), &(String.trim_trailing(&1, "/") <> "/"))
 
     added
     |> Enum.flat_map(fn path ->
