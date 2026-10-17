@@ -308,7 +308,17 @@ defmodule Aiur.GitHub.Tracker do
     if result == :ok and DispatchPolicy.state_slug(state_name) == "in-progress",
       do: record_start(issue_id)
 
+    if result == :ok and DispatchPolicy.state_slug(state_name) == "rework",
+      do: cancel_rework_ci(issue_id)
+
     result
+  end
+
+  defp cancel_rework_ci(issue_id) do
+    case Application.get_env(:aiur, :github_rework_ci_canceller) do
+      {module, function} -> apply(module, function, [issue_id])
+      nil -> :ok
+    end
   end
 
   defp record_start(issue_id) do
