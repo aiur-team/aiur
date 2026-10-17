@@ -38,14 +38,17 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
     assert status != 0
     assert output =~ "Aiur.Orchestrator was down before Aiur.BTestSupportWiringNeighbourTest"
     assert output =~ "last finished test: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down"
+    assert output =~ "last finished test: Aiur.DPlainCaseUnnamedProbeTest: test leaves the supervised orchestrator unnamed"
     assert output =~ "Aiur.ZTestSupportWiringProbeTest: test leaves orchestrator down left Aiur.Orchestrator down (restore: :ok)"
-    # The first is caught by the next sync setup, the last by the after_suite check.
+    assert output =~ ~r/YTestSupportStandInProbeTest: test leaves a stand-in holding the name left Aiur.Orchestrator held by a stand-in #PID<[\d.]+> \(restore: :ok\)/
+    # Each plain leak is caught by the next sync setup, the last one by the after_suite check.
     assert output =~
-             "plain ExUnit tests left Aiur.Orchestrator down: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down, " <>
-               "Aiur.ZZPlainCaseLastProbeTest: test leaves orchestrator down at suite end\n"
+             "plain ExUnit tests broke Aiur.Orchestrator: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down (down), " <>
+               "Aiur.DPlainCaseUnnamedProbeTest: test leaves the supervised orchestrator unnamed (down), " <>
+               "Aiur.ZZPlainCaseLastProbeTest: test leaves orchestrator down at suite end (down)\n"
 
     # Borrowing the name in setup and giving it back is not a leak.
     refute output =~ "AAUnregisterRestoreProbeTest"
-    assert output =~ "10 tests, 1 failure"
+    assert output =~ "13 tests, 2 failures"
   end
 end
