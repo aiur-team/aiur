@@ -28,7 +28,7 @@ defmodule Aiur.AiurAgentSkillTest do
     stub-then-fetch.md
     dictated-input.md
   )
-  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-intro aiur-monitor aiur-run design-import)
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-experiment aiur-intro aiur-monitor aiur-run design-import)
   @claude_executor_only_skills ~w(aiur-handoff aiur-meta release)
 
   # Every skill that can reach a ticket-creation command. Each states the rule
@@ -312,7 +312,7 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "Codex backend surface: every Codex-exposed Aiur skill uses canonical Claude source" do
     for skill <- @codex_exposed_aiur_skills do
-      if skill == "aiur-debug" do
+      if skill in ~w(aiur-debug aiur-experiment) do
         assert_codex_skill_is_tracked_symlink(skill)
       else
         assert_codex_skill_symlink_resolves_to_claude(skill)
