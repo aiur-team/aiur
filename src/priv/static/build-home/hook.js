@@ -12,6 +12,7 @@ import './cards.js';
 import './offline.js';
 import './tools.js';
 import './span.js';
+import './edges.js';
 import './states.js';
 
 export function writeOwnData() {
