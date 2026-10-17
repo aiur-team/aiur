@@ -13,9 +13,14 @@ defmodule Aiur.GitHub.ReworkCICancel do
   @workflows ["ci", "pr body"]
   @active ["queued", "in_progress", "waiting", "requested", "pending"]
 
-  @doc "Fire-and-forget cancel used by the GitHub tracker after a rework write."
+  @doc "Fire-and-forget cancel the poll diff runs when a ticket enters rework."
   @spec cancel_async(String.t()) :: :ok
   def cancel_async(issue_id) do
+    if Aiur.Config.tracker_kind() == "github", do: start(issue_id)
+    :ok
+  end
+
+  defp start(issue_id) do
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> log(issue_id, cancel(issue_id)) end) do
       {:ok, _pid} -> :ok
       {:error, reason} -> Logger.warning("rework CI cancel not started issue=#{issue_id} reason=#{inspect(reason)}")
@@ -37,6 +42,8 @@ defmodule Aiur.GitHub.ReworkCICancel do
   end
 
   defp cancel_head(sha, opts) do
+    opts = Keyword.put_new(opts, :caller, "rework_ci_cancel")
+
     case CIRecovery.read("/actions/runs?head_sha=#{sha}&event=pull_request&per_page=100", opts) do
       {:ok, %{"workflow_runs" => runs}} when is_list(runs) ->
         cancel = Keyword.get(opts, :cancel_fun, &CIRecovery.cancel/2)

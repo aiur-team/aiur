@@ -1,12 +1,9 @@
 defmodule Aiur.GitHub.ReworkCICancelTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.{ReworkCICancel, Tracker}
-
-  defmodule Client do
-    def update_issue_state(_id, "fail"), do: {:error, :boom}
-    def update_issue_state(_id, _state), do: :ok
-  end
+  alias Aiur.GitHub.ReworkCICancel
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.{IssueSync, State}
 
   def record_cancel(issue_id), do: send(:rework_ci_cancel_test, {:cancel, issue_id})
 
@@ -60,20 +57,37 @@ defmodule Aiur.GitHub.ReworkCICancelTest do
     assert {:error, :boom} = ReworkCICancel.cancel("17", open_pr_fun: fn _ -> {:error, :boom} end)
   end
 
-  test "a successful rework write fires the canceller; other writes do not" do
+  test "a polled entry into rework fires the canceller once, whoever wrote the label" do
     Process.register(self(), :rework_ci_cancel_test)
-    prior = Enum.map([:github_client_module, :github_rework_ci_canceller], &{&1, Application.fetch_env(:aiur, &1)})
+    prior = [{:github_rework_ci_canceller, Application.fetch_env(:aiur, :github_rework_ci_canceller)}]
     on_exit(fn -> Aiur.TestSupport.restore_app_env(prior) end)
-    Application.put_env(:aiur, :github_client_module, Client)
     Application.put_env(:aiur, :github_rework_ci_canceller, {__MODULE__, :record_cancel})
 
-    assert :ok = Tracker.update_issue_state("11", "rework")
-    assert :ok = Tracker.update_issue_state("12", "Rework", [])
-    assert :ok = Tracker.update_issue_state("13", "human-review")
-    assert {:error, :boom} = Tracker.update_issue_state("14", "fail")
+    state = sync(%State{}, [%Issue{id: "11", identifier: "11", state: "human-review"}, %Issue{id: "12", identifier: "12", state: "in-progress"}])
+    refute_received {:cancel, _}
 
+    # An Executor `gh issue edit` reaches the daemon only through the poll diff.
+    state = sync(state, [%Issue{id: "11", identifier: "11", state: "rework"}, %Issue{id: "12", identifier: "12", state: "ci-wait"}])
     assert_received {:cancel, "11"}
-    assert_received {:cancel, "12"}
+    refute_received {:cancel, _}
+
+    _state = sync(state, [%Issue{id: "11", identifier: "11", state: "rework"}])
     refute_received {:cancel, _}
   end
+
+  test "the runs listing and cancels carry their own cost caller" do
+    test = self()
+
+    request = fn req ->
+      send(test, {:caller, req.method, req.caller})
+      if req.method == :get, do: {:ok, %{status: 200, body: %{"workflow_runs" => [run(1, "ci", "queued")]}}}, else: {:ok, %{status: 202, body: %{}}}
+    end
+
+    assert {:ok, [1]} = ReworkCICancel.cancel("17", token: "test-gh-token", request_fun: request, open_pr_fun: fn _ -> {:ok, %{"head" => %{"sha" => "head"}}} end)
+    assert_received {:caller, :get, "rework_ci_cancel"}
+    assert_received {:caller, :post, "rework_ci_cancel"}
+  end
+
+  defp sync(state, issues),
+    do: IssueSync.sync_polled_issue_state(state, issues, fn _ -> {:ok, []} end, fn _, _ -> :ok end, MapSet.new(["done"]), fn _ -> :ok end, fn _, _ -> :ok end)
 end

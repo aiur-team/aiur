@@ -81,8 +81,9 @@ At the no-op bound, verified rework with no new PR head becomes `error`. Other
 no-op-bound tickets keep their state and receive an alert. A normal turn limit
 leaves the state unchanged when no PR head moved.
 
-A successful GitHub write to `rework` cancels the PR head's queued and running
-`ci` and `pr body` runs, so merge-queue runs get those runners. The agent's next
+When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
+daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
+merge-queue runs get those runners. The agent's next
 push starts fresh checks. A rework handback without a push leaves those runs
 cancelled, and CI recovery raises an attention for that head.
 
