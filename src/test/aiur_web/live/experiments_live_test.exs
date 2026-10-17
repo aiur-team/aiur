@@ -53,7 +53,7 @@ defmodule AiurWeb.ExperimentsLiveTest do
     end
   end
 
-  test "first request against an unready store renders the unreadable state, not a 500" do
+  test "a first-request read that raises or exits renders the neutral read_failed state, not a 500" do
     cold_ets = %ArgumentError{message: "the table identifier does not refer to an existing ETS table"}
     unreadable = %File.Error{reason: :eacces, action: "read file", path: "result.json"}
 
@@ -69,9 +69,10 @@ defmodule AiurWeb.ExperimentsLiveTest do
       log =
         capture_log(fn ->
           html = build_conn() |> get("/experiments") |> html_response(200)
-          assert html =~ ~s(data-empty-reason="store_unreadable")
+          assert html =~ ~s(data-empty-reason="read_failed")
           {:ok, view, _html} = live(build_conn(), "/experiments")
-          assert has_element?(view, "[data-empty-reason=store_unreadable]", "could not be read")
+          assert has_element?(view, "[data-empty-reason=read_failed]", "could not be loaded")
+          refute has_element?(view, "[data-empty-reason=store_unreadable]")
           refute has_element?(view, "#exp-detail")
         end)
 

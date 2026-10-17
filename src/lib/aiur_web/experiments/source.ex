@@ -4,8 +4,8 @@ defmodule AiurWeb.Experiments.Source do
   require Logger
   alias AiurWeb.Experiments.ViewModel
 
-  @spec index() :: {:ok, [map()]} | {:error, :store_unreadable}
-  def index, do: guarded(:index, &read_index/0, {:error, :store_unreadable})
+  @spec index() :: {:ok, [map()]} | {:error, :store_unreadable | :read_failed}
+  def index, do: guarded(:index, &read_index/0, {:error, :read_failed})
 
   defp read_index do
     catalog = facade().metric_catalog().metrics
@@ -23,8 +23,8 @@ defmodule AiurWeb.Experiments.Source do
     end
   end
 
-  @spec detail(String.t()) :: {:ok, map()} | {:error, :not_found | :store_unreadable}
-  def detail(id), do: guarded(:detail, fn -> read_detail(id) end, {:error, :store_unreadable})
+  @spec detail(String.t()) :: {:ok, map()} | {:error, :not_found | :store_unreadable | :read_failed}
+  def detail(id), do: guarded(:detail, fn -> read_detail(id) end, {:error, :read_failed})
 
   defp read_detail(id) do
     case facade().fetch(id) do
@@ -35,7 +35,7 @@ defmodule AiurWeb.Experiments.Source do
   end
 
   @spec status() :: map()
-  def status, do: guarded(:status, &read_status/0, %{available?: false, store: {:error, :store_unreadable}, capture: :off})
+  def status, do: guarded(:status, &read_status/0, %{available?: false, store: {:error, :read_failed}, capture: :off})
 
   defp read_status do
     case facade().status() do
@@ -51,8 +51,8 @@ defmodule AiurWeb.Experiments.Source do
   defp order({:ok, items}), do: {:ok, ViewModel.order(items)}
   defp order(error), do: error
 
-  # A read that raises or exits renders the unreadable state instead of a 500,
-  # and the log keeps the cause that a failed render used to discard (#4545).
+  # A read that raises, exits or throws renders the cause-neutral :read_failed
+  # state instead of a 500; the log keeps the cause a failed render discarded (#4545).
   defp guarded(read, fun, fallback) do
     fun.()
   rescue
