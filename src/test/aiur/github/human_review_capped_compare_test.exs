@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.HumanReviewCappedCompareTest do
   # either: the PR's own complete path set is probed by object id instead.
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{Client, HumanReviewContribution, ResourceStore}
+  alias Aiur.GitHub.{Client, HumanReviewContribution, HumanReviewPathProbe, ResourceStore}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
   @capped Enum.map(1..300, &%{"filename" => "upstream/#{&1}.ex", "patch" => "@@ -1 +1 @@\n-a\n+b"})
@@ -85,6 +85,25 @@ defmodule Aiur.GitHub.HumanReviewCappedCompareTest do
     test "an unlisted contribution path changed upstream fails closed" do
       assert {:error, :review_base_ancestry_unavailable} = unchanged?(fn paths, _from, _to -> {:ok, paths} end)
       assert {:error, :boom} = unchanged?(fn _paths, _from, _to -> {:error, :boom} end)
+    end
+
+    test "the real probe reads each contribution path at the merge base and base tip" do
+      probe = fn objects ->
+        request_fun = fn %{body: %{"query" => query}} ->
+          send(self(), {:probe, query})
+          {:ok, %{status: 200, body: %{"data" => %{"repository" => objects}}}}
+        end
+
+        &HumanReviewPathProbe.changed_paths(&1, &2, &3, %{request_fun: request_fun, token: "test-gh-token"})
+      end
+
+      assert {:ok, true} = unchanged?(probe.(%{"f0" => %{"oid" => "blob-a"}, "t0" => %{"oid" => "blob-a"}}))
+      assert_received {:probe, query}
+      assert query =~ ~s("old-base:feature.ex")
+      assert query =~ ~s("observed-base:feature.ex")
+
+      assert {:error, :review_base_ancestry_unavailable} = unchanged?(probe.(%{"f0" => %{"oid" => "blob-a"}, "t0" => %{"oid" => "blob-b"}}))
+      assert {:error, :review_base_ancestry_unavailable} = unchanged?(probe.(%{"f0" => %{"oid" => "blob-a"}}))
     end
   end
 
