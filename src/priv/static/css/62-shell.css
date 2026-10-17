@@ -76,8 +76,9 @@ html.nav-collapsed .ax-collapse svg { transform: scaleX(-1); }
 @media (max-width: 960px) {
   .app-layout, html.nav-collapsed .app-layout { grid-template-columns: 1fr; }
   .sidenav { top: auto; height: auto; padding: .35rem .5rem calc(.35rem + env(safe-area-inset-bottom, 0px)); }
-  /* Six items share the bar at 390px, even beside a 15px classic scrollbar (#4827). */
-  .sidenav .snav { flex: 1 1 auto; min-width: 0; border-radius: 10px; padding: .45rem .1rem; }
+  .sidenav .snav { border-radius: 10px; padding: .45rem .3rem; }
+  /* The design has five items; a sixth fits a 390px bar only without gaps (#4827). */
+  .sidenav-nav:has(> .snav:nth-child(6)) { gap: 0; }
   .ax-collapse { display: none; }
   .dashboard-shell { padding: 1rem .9rem 5.5rem; }
   html.nav-collapsed .snav-label { display: inline; }
