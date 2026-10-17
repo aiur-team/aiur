@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.LifecycleFence
   alias Aiur.Orchestrator.Reconciler
+  alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.StartTrigger.ProgressStore
@@ -147,6 +148,32 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   def recover_ci_poll_result(state, issue, result, opts) do
     result = Map.put(result, :ci_recovery_opts, opts)
 
+    # Unapproved conflicts only: changes-requested belongs to HeadVerdictRouter (#4822),
+    # approved conflicts to LandingWatch (#4883).
+    if Transition.effective_ci_state(issue) in [@ci_wait_state, @human_review_state] and
+         result[:mergeable] == "CONFLICTING" and not approved_at_head?(result) do
+      route_rework(state, issue, result)
+    else
+      recover_ci_poll_result_after_rework(state, issue, result, opts)
+    end
+  end
+
+  defp approved_at_head?(result),
+    do: result[:review_decision] == "APPROVED" and result[:approved_review_head_sha] == result[:head_sha]
+
+  # A head routed back unchanged (e.g. a handback that left the conflict in
+  # place) hits the #2422 per-head bound, which raises one attention instead of looping.
+  defp route_rework(state, issue, result) do
+    issue_key = to_string(issue.id || issue.identifier)
+    head_sha = result[:head_sha]
+
+    case ReworkGate.verify_rework_attempt(state, issue_key, head_sha) do
+      {:ok, state} -> Transition.transition_ci_ticket(state, issue, "rework", &State.bump_rework_attempt(&1, issue_key, head_sha))
+      {:skip, _reason, state} -> state
+    end
+  end
+
+  defp recover_ci_poll_result_after_rework(state, issue, result, opts) do
     cond do
       stale_approved_head?(issue, result) ->
         state = ApprovalCarryAlert.handle(state, issue, result, opts)
