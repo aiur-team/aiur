@@ -216,10 +216,10 @@ defmodule AiurWeb.StreamdeckChannelTest do
     focus = push(socket, "focus", %{"identifier" => identifier})
     assert_reply(focus, :ok, %{"focused" => ^identifier})
 
-    # `assert_push/2` receives the decoded Phoenix socket payload, proving the
+    # `receive_barrier/1` receives the decoded Phoenix socket payload, proving the
     # nonempty DTO crossed the channel serializer rather than only Jason.encode/1
     # on the projection helper.
-    assert_push("logs", payload)
+    receive_barrier(%Message{event: "logs", payload: payload})
 
     # One key per shared-event-bus row, anchored by the synthesised origin at
     # index 0 and closed by LIVE at the end. A transcript turn is a detail row
@@ -259,11 +259,11 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
 
     assert_reply(push(socket, "focus", %{"identifier" => first}), :ok, %{"focused" => ^first})
-    assert_push("logs", first_payload)
+    receive_barrier(%Message{event: "logs", payload: first_payload})
     assert Enum.any?(first_payload["transcript"], &(&1["body"] == "first agent body"))
 
     assert_reply(push(socket, "focus", %{"identifier" => second}), :ok, %{"focused" => ^second})
-    assert_push("logs", second_payload)
+    receive_barrier(%Message{event: "logs", payload: second_payload})
     assert Enum.any?(second_payload["transcript"], &(&1["body"] == "second agent body"))
     refute Enum.any?(second_payload["transcript"], &(&1["body"] == "first agent body"))
 
@@ -343,7 +343,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
     focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
     assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
-    assert_push("logs", _payload)
+    receive_barrier(%Message{event: "logs"})
 
     %{assigns: %{transcript_relay: relay, focus_token: focus_token}} = :sys.get_state(socket.channel_pid)
     assert is_pid(relay)
