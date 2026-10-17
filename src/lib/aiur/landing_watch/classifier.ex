@@ -16,18 +16,7 @@ defmodule Aiur.LandingWatch.Classifier do
 
     Evaluation.evaluate(check_runs, commit_status)
     |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, Keyword.put(opts, :required_checks, required))
-    |> fail_beside_cancelled(check_runs)
   end
-
-  # A cancelled run never completes again, so a required failure beside it is final (#4930).
-  # Without a required failure, settling already made this `:ci_cancelled`.
-  defp fail_beside_cancelled(%{decision: :pending, pending_reason: :check_runs_incomplete, failures: [_ | _] = failures} = result, runs) do
-    if Enum.all?(runs, &(Map.get(&1, "status") == "completed")) and Enum.any?(runs, &(Map.get(&1, "conclusion") == "cancelled")),
-      do: %{decision: :failed, failures: failures},
-      else: result
-  end
-
-  defp fail_beside_cancelled(result, _runs), do: result
 
   @spec infra_failure?(map(), [map()]) :: boolean()
   def infra_failure?(%{decision: :failed, failures: failures}, runs) when failures != [] do

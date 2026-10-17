@@ -272,6 +272,17 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     assert {:ok, []} = Journal.rerun_backlog(journal_path: path)
   end
 
+  test "a refresh waiting for the shared cap does not repeat overlap reads" do
+    path = journal_path()
+    for _ <- 1..3, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
+    refresh = [rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:refresh, "superseded job name"}} end]
+    assert :ok = LandingWatch.process(observation(), opts(path, refresh))
+
+    waiting = [base_changes_fun: fn _, _, _ -> flunk("cap-refused refresh must skip base compare") end, changed_paths_fun: fn _, _ -> flunk("cap-refused refresh must skip changed paths") end]
+    assert :ok = LandingWatch.process(observation(), opts(path, waiting))
+    refute_received {:update_branch, _, _}
+  end
+
   defp assert_refresh(path, reason) do
     refute_received {:rerun, _}
     assert_received {:update_branch, 17, "head-sha"}

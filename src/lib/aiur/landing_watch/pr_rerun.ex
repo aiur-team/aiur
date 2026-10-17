@@ -13,7 +13,7 @@ defmodule Aiur.LandingWatch.PrRerun do
 
   alias Aiur.GitHub.{CIRecovery, Client}
   alias Aiur.LandingWatch
-  alias Aiur.LandingWatch.{Journal, MergeGroupRunFetcher, PrRerunClassifier}
+  alias Aiur.LandingWatch.{Journal, MergeGroupJournal, MergeGroupRunFetcher, PrRerunClassifier}
   alias Aiur.TicketBranch
 
   @rerun_conclusions ["cancelled", "failure", "timed_out", "startup_failure"]
@@ -69,7 +69,20 @@ defmodule Aiur.LandingWatch.PrRerun do
 
   # Base changes to the PR's own files void its Tested head (#4854), so the worker retests rather than the watcher updating.
   defp remedy(observation, runs, :refresh, reason, marker, opts) do
-    case base_overlap(observation, opts) do
+    overlap =
+      case defer_if_refused(observation, runs, reason, opts) do
+        :ok -> base_overlap(observation, opts)
+        :deferred -> :ok
+        {:error, _} = error -> error
+      end
+
+    case overlap do
+      :ok ->
+        :ok
+
+      :deferred ->
+        :ok
+
       {:ok, []} ->
         request_remedy(observation, runs, :refresh, reason, opts)
 
@@ -82,6 +95,47 @@ defmodule Aiur.LandingWatch.PrRerun do
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp defer_if_refused(observation, runs, reason, opts) do
+    case preflight_refusal(observation, opts) do
+      nil ->
+        :ok
+
+      :rerun_backoff ->
+        :deferred
+
+      :rerun_limit_reached ->
+        with :ok <- Journal.clear_rerun_pending(observation.number, observation.head, opts),
+             :ok <- alert_limit(observation, opts),
+             do: :deferred
+
+      :merge_group_requeue_limit_reached ->
+        mark_refresh_pending(observation, runs, reason, opts)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp mark_refresh_pending(observation, runs, reason, opts) do
+    row = %{"action" => "refresh", "reason" => reason, "checks" => failed_checks(runs), "since_ms" => now(opts)}
+
+    case Journal.mark_rerun_pending(observation.number, observation.head, row, opts) do
+      :ok -> :deferred
+      error -> error
+    end
+  end
+
+  defp preflight_refusal(observation, opts) do
+    with {:ok, state} <- Journal.state(opts) do
+      entry = Map.get(state, "#{observation.number}:#{observation.head}", %{})
+
+      case Journal.rerun_refusal(entry, now(opts)) do
+        nil -> MergeGroupJournal.requeue_refusal(state, now(opts))
+        refusal -> refusal
+      end
     end
   end
 
