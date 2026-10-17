@@ -52,7 +52,7 @@ defmodule Aiur.Experiments.ChartData do
   end
 
   defp scale(result, groups) do
-    values = for group <- groups, point <- group.points, do: point["value"]
+    values = for group <- groups, value <- [group.median, group.q1, group.q3] ++ Tuple.to_list(group.whiskers || {}) ++ Enum.map(group.points, & &1["value"]), is_number(value), do: value
     positive? = values != [] and Enum.all?(values, &(&1 > 0))
     log? = result["scale"] == "log" or (result["kind"] == "duration" and positive? and Enum.max(values) / Enum.min(values) >= 100)
     if log? and positive?, do: "log", else: "linear"

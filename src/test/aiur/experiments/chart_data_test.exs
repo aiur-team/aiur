@@ -90,4 +90,31 @@ defmodule Aiur.Experiments.ChartDataTest do
     assert projected.stratum == "tags.team:" <> key
     assert Enum.map(hd(projected.chart_metrics).groups, &length(&1.points)) == [12, 4]
   end
+
+  test "a zero whisker outside the point cap keeps the scale linear" do
+    detail = fixture()
+    [metric | _] = detail.spec["metrics"]
+    ref = metric["ref"]
+    template = hd(get_in(hd(detail.snapshots), ["metrics", ref, "observations"]))
+    points = for index <- 1..500, do: %{template | "unit_id" => String.pad_leading(to_string(index), 3, "0"), "value" => index}
+    points = points ++ [%{template | "unit_id" => "zzz", "value" => 0}]
+
+    snapshots =
+      for snapshot <- detail.snapshots do
+        evidence = snapshot["metrics"][ref]
+        evidence = if snapshot["window_name"] == "before", do: Map.put(evidence, "observations", points), else: evidence
+        Map.put(snapshot, "metrics", %{ref => evidence})
+      end
+
+    result = detail.analysis["metrics"][ref] |> Map.delete("strata")
+    result = put_in(result, ["groups", "before"], %{"n" => 501, "median" => 250, "q1" => 125, "q3" => 375, "min" => 0, "max" => 500, "iqr" => 250, "p90" => 450, "n_censored" => 0})
+    analysis = Map.put(detail.analysis, "metrics", %{ref => result})
+    spec = Map.merge(detail.spec, %{"metrics" => [metric], "stratify_by" => []})
+    {:ok, projected} = ChartData.attach({:ok, %{detail | spec: spec, snapshots: snapshots, analysis: analysis}}, [])
+    metric = hd(projected.chart_metrics)
+    assert length(hd(metric.groups).points) == 500
+    assert Enum.min(Enum.map(hd(metric.groups).points, & &1["value"])) == 1
+    assert hd(metric.groups).whiskers == {0, 500}
+    assert metric.scale == "linear"
+  end
 end
