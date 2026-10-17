@@ -118,7 +118,7 @@ function renderSection(s, keep, keepL, focused) {
     const uid = s + ':' + it.t.id; keep.add(uid);
     let el = ctx.R.get(uid);
     if (!el) { el = fx.makeCard(it); noanim(el); sec.layer.appendChild(el); ctx.R.set(uid, el); }
-    place(el, it);
+    el._it = it; place(el, it);
   }
   lay.marks.forEach((m, i) => {
     if (!overlaps(m.y, m.h)) return;
@@ -137,10 +137,7 @@ function renderSection(s, keep, keepL, focused) {
 }
 export function update(force) {
   if (!ctx.L || !ctx.content || S.loading || S.view === 'list') return;
-  const next = fx.visibleCols();
-  if (next.length && next.join('|') !== ctx.cols.join('|')) {
-    ctx.life.later('cols', force ? 0 : 220, () => { fx.applyCols(fx.visibleCols()); update(); });
-  }
+  fx.scheduleCols(force);
   const keep = new Set(), keepL = new Set();
   const focused = focusId() ?? ctx.a11y.focusId;
   ctx.a11y.focusId = focused;

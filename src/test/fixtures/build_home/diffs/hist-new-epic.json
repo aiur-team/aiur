@@ -1,0 +1,47 @@
+{
+  "v": 1,
+  "kind": "diff",
+  "epoch": "fixture",
+  "generation": 1,
+  "now": 1791408000000,
+  "upsert": [
+    {
+      "id": "900002",
+      "num": 900002,
+      "title": "Cache GitHub API responses",
+      "type": "chore",
+      "epic": "design",
+      "feature": null,
+      "also": [],
+      "cx": 2,
+      "pts": 2,
+      "sec": "hist",
+      "ord": 0,
+      "start": 1789402681986,
+      "start_src": "label",
+      "end": 1791408000000,
+      "created": 1789349279436,
+      "status": "done",
+      "pct": 100,
+      "agent": {
+        "model": "claude",
+        "state": null,
+        "effort": "high",
+        "name": "Claude"
+      },
+      "est": null,
+      "override": null,
+      "added": false,
+      "deps": [],
+      "children": [],
+      "dep_states": {},
+      "deps_missing": 0,
+      "wave": null,
+      "qpos": null,
+      "cue": null,
+      "pr": null
+    }
+  ],
+  "remove": [],
+  "set": {}
+}
