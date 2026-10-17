@@ -51,7 +51,7 @@ defmodule AiurWeb.ExperimentsLive do
       {Phoenix.HTML.raw("<style>" <> Styles.css() <> "</style>")}
       <section id="experiments-page" class="exp-root" data-selection={if @selected_id, do: "detail", else: "index"} aria-label="Experiment collection">
         <h1>Experiments</h1>
-        <p :if={@status.capture == :off and @index_error not in [:component_off, :store_unreadable]} class="exp-notice" id="experiments-capture-off" role="status">
+        <p :if={@status.capture == :off and @index_error not in [:component_off, :store_unreadable, :read_failed]} class="exp-notice" id="experiments-capture-off" role="status">
           Capture is off. New samples are not being captured; existing experiments remain available.
         </p>
         <div :if={@index_error} class="exp-notice" data-empty-reason={@index_error}>
@@ -125,14 +125,14 @@ defmodule AiurWeb.ExperimentsLive do
   end
 
   defp index(%{store: {:error, :disabled}}), do: {[], :component_off}
-  defp index(%{store: {:error, _reason}}), do: {[], :store_unreadable}
+  defp index(%{store: {:error, reason}}), do: {[], reason}
   defp index(%{available?: false}), do: {[], :component_off}
 
   defp index(_status) do
     case Source.index() do
       {:ok, []} -> {[], :no_experiments}
       {:ok, items} -> {items, nil}
-      {:error, _reason} -> {[], :store_unreadable}
+      {:error, reason} -> {[], reason}
     end
   end
 
@@ -154,5 +154,6 @@ defmodule AiurWeb.ExperimentsLive do
 
   defp state_copy(:component_off), do: "Experiments are not enabled."
   defp state_copy(:not_found), do: "Experiment not found."
+  defp state_copy(:read_failed), do: "Experiment data could not be loaded."
   defp state_copy(_reason), do: "The experiment state store could not be read."
 end
