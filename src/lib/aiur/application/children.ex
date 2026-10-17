@@ -234,6 +234,7 @@ defmodule Aiur.Application.Children do
       maybe_ls_remote_ticker(ls_remote_ticker?),
       Aiur.PRLifecycle.HealthScanner,
       Aiur.PRLifecycle.ReworkRequeue,
+      Aiur.PRLifecycle.ChangesRequestedRework,
       Aiur.ProgressCheckin.Worker,
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,
