@@ -52,8 +52,14 @@ required to ship the current task, do not silently fix it inside the same PR.
 Instead:
 
 1. Open a new GitHub issue describing the finding (clear title, evidence,
-   suggested fix if obvious) and apply `needs-triage` in that same creation
-   request so the user triages it before any agent picks it up.
+   suggested fix if obvious) and give it its disposition in that same creation
+   request:
+   - a defect with evidence — the command and its output, a CI run id, or a
+     file and line reference — gets `agent:todo` so dispatch can pick it up;
+   - only a finding that needs a human decision (scope, policy, or no
+     reproducible evidence yet) gets `needs-triage`, with that question in the
+     body. Nothing triages these automatically; the Executor sees them through
+     the `TRIAGE` line in `aiur status` and a wake after an hour.
 2. Reference the issue you're currently working on inside the new issue (e.g.,
    "surfaced while working on #N").
 3. Add a comment on your current issue with a link to the new issue (e.g.,

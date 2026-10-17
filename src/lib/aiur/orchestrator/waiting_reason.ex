@@ -311,8 +311,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
   @doc """
   Classifies a tracker-active row with no live running process.
   An open decision takes precedence, followed by `blocked_by_open?`, which is
-  only ever true for a `todo` issue with an unresolved dependency (see
-  `DispatchPolicy.todo_issue_held_by_dependency?/2`).
+  only ever true for a `todo` or `rework` issue with an unresolved dependency (see
+  `DispatchPolicy.issue_held_by_dependency?/2`).
 
   The fourth argument is a keyword list of idle-reason evidence so #1457 can
   render *why* a row is idle rather than a bare "idle":
