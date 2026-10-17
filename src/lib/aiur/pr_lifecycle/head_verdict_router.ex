@@ -84,7 +84,9 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
       tracker: Keyword.get(opts, :tracker, Tracker),
       alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2),
       enabled?: Keyword.get(opts, :enabled?, &default_enabled?/0),
-      # Review ids already routed (or observed on a rework ticket). In memory: a
+      # Review ids already routed (or observed on a rework ticket). Error routes
+      # use a ticket-scoped key so a prior waiting/rework observation cannot
+      # suppress the error-state recovery route. In memory: a
       # restart can route a disputed same-head review once more, or re-route a
       # body-fix approval after CI moved that ticket back to rework (one wasted
       # landing cycle until the next failure returns it).
@@ -142,7 +144,7 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
     with false <- Issue.parked?(issue) or (from_state == "error" and Issue.paused?(issue)),
          %{"draft" => false} = pr <- Enum.find(prs, &ticket_pr?(&1, issue.identifier)),
          {%{"id" => id} = review, state} <- live_verdict(pr, state),
-         false <- MapSet.member?(state.routed, id) do
+         false <- MapSet.member?(state.routed, routed_key(from_state, id)) do
       route(issue, from_state, review, state)
     else
       {nil, state} -> state
@@ -156,7 +158,7 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
   defp ticket_pr?(%{"head" => %{"ref" => ref}}, identifier), do: TicketBranch.ticket_branch?(ref, identifier)
   defp ticket_pr?(_pr, _identifier), do: false
 
-  defp route(_issue, "rework", %{"state" => "CHANGES_REQUESTED", "id" => id}, state), do: mark(state, id)
+  defp route(_issue, "rework", %{"state" => "CHANGES_REQUESTED", "id" => id}, state), do: mark(state, id, "rework")
 
   defp route(issue, from_state, %{"state" => "CHANGES_REQUESTED"} = review, state) when from_state in @requestable_states,
     do: write(issue, from_state, "rework", review, state)
@@ -165,7 +167,7 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
     do: write(issue, "rework", "ci-wait", review, state)
 
   defp route(_issue, from_state, %{"state" => "APPROVED", "id" => id}, state) when from_state in @waiting_states,
-    do: mark(state, id)
+    do: mark(state, id, from_state)
 
   defp route(_issue, _from_state, _review, state), do: state
 
@@ -176,7 +178,7 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
       :ok ->
         Logger.info("HeadVerdictRouter moved issue=#{issue.identifier} #{from_state} -> #{to_state} review=#{id}")
         if from_state == "error", do: alert_error_rework(issue, review, state)
-        mark(state, id)
+        mark(state, id, from_state)
 
       {:error, reason} ->
         # Not marked: the next tick retries.
@@ -195,7 +197,10 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
     )
   end
 
-  defp mark(state, id), do: %{state | routed: MapSet.put(state.routed, id)}
+  defp routed_key("error", id), do: {:error, id}
+  defp routed_key(_state, id), do: id
+
+  defp mark(state, id, from_state), do: %{state | routed: MapSet.put(state.routed, routed_key(from_state, id))}
 
   defp live_verdict(%{"number" => number, "head" => %{"sha" => head}} = pr, state) when is_integer(number) and is_binary(head) do
     updated_at = pr["updated_at"]

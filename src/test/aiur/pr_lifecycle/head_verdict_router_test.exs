@@ -254,6 +254,35 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouterTest do
       assert opts[:expected_state] == "error"
     end
 
+    test "a rework turn that ends in error on the same review routes once more" do
+      {:ok, ticket} = Agent.start_link(fn -> "rework" end)
+      state = error_worker(tickets_fetcher: fn -> {:ok, [issue(Agent.get(ticket, & &1))]} end)
+
+      state = HeadVerdictRouter.tick(state)
+      refute_received {:state_write, _, _, _}
+
+      Agent.update(ticket, fn _ -> "error" end)
+      HeadVerdictRouter.tick(state)
+
+      assert_received {:state_write, "3145", "rework", opts}
+      assert opts[:expected_state] == "error"
+    end
+
+    test "ci-wait to rework to error routes the same review from error" do
+      {:ok, ticket} = Agent.start_link(fn -> "ci-wait" end)
+      state = error_worker(tickets_fetcher: fn -> {:ok, [issue(Agent.get(ticket, & &1))]} end)
+
+      state = HeadVerdictRouter.tick(state)
+      assert_received {:state_write, "3145", "rework", opts}
+      assert opts[:expected_state] == "ci-wait"
+
+      Agent.update(ticket, fn _ -> "error" end)
+      HeadVerdictRouter.tick(state)
+
+      assert_received {:state_write, "3145", "rework", opts}
+      assert opts[:expected_state] == "error"
+    end
+
     test "routes once, records why, and routes again on a new blocking review" do
       {:ok, current} = Agent.start_link(fn -> {pr(), [review(%{})]} end)
 
