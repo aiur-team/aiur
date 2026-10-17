@@ -26,9 +26,9 @@ defmodule Aiur.AppServer.RelayPort do
     end
   end
 
-  @spec attach(Path.t(), pos_integer(), non_neg_integer()) :: {:ok, pid()} | {:error, term()}
-  def attach(directory, generation, offset) do
-    GenServer.start(__MODULE__, {:attach, self(), directory, generation, offset})
+  @spec attach(Path.t(), pos_integer(), non_neg_integer(), keyword()) :: {:ok, pid()} | {:error, term()}
+  def attach(directory, generation, offset, actor_meta \\ []) do
+    GenServer.start(__MODULE__, {:attach, self(), directory, generation, offset, actor_meta})
   end
 
   @spec generation(Path.t()) :: pos_integer()
@@ -87,7 +87,7 @@ defmodule Aiur.AppServer.RelayPort do
     end
   end
 
-  def init({:attach, owner, directory, generation, offset}), do: connect(owner, directory, generation, offset)
+  def init({:attach, owner, directory, generation, offset, actor_meta}), do: connect(owner, directory, generation, offset, actor_meta)
 
   defp launch(root, workspace, command, env, opts) do
     nonce = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
@@ -136,7 +136,7 @@ defmodule Aiur.AppServer.RelayPort do
     end)
   end
 
-  defp connect(owner, directory, generation, offset) do
+  defp connect(owner, directory, generation, offset, actor_meta \\ []) do
     socket_path = Path.join(directory, "ctl.sock")
 
     with {:ok, socket} <- connect_socket(socket_path, 100),
@@ -151,7 +151,7 @@ defmodule Aiur.AppServer.RelayPort do
         end)
         |> Map.merge(%{directory: directory, generation: generation})
 
-      ProcessReaper.register(:agent, {:os_pid, metadata.relay_pid}, comm: "agent_relay.py")
+      ProcessReaper.register(:agent, {:os_pid, metadata.relay_pid}, [comm: "agent_relay.py"] ++ actor_meta)
       :ok = :inet.setopts(socket, packet: :raw, active: :once)
       {:ok, %{owner: owner, monitor: Process.monitor(owner), socket: socket, metadata: metadata, exited: false, closing: nil, pending: ""}}
     else

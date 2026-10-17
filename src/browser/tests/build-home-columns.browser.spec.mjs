@@ -8,6 +8,8 @@ test.beforeEach(async ({ page }) => {
   const errors = []; page.columnErrors = errors
   // Resolve owned modules from this checkout even when the fixture uses a shared compiled release.
   await page.route(/\/build-home\/(columns|state|render|hook|match)\.js$/, route => route.fulfill({ path: fileURLToPath(new URL('../../priv/static/build-home/' + new URL(route.request().url()).pathname.split('/').at(-1), import.meta.url)), contentType: 'text/javascript' }))
+  // The fixture server is shared by all workers; scope this page's /build-control diffs to its worker.
+  expect(await page.request.get('/build-control/stream?key=w' + test.info().workerIndex).then(r => r.status())).toBe(200)
   await page.goto('/build-fixture/live')
   await expect(page.locator('.bd-lane')).not.toHaveCount(0)
   await page.evaluate(async () => {
@@ -18,13 +20,15 @@ test.beforeEach(async ({ page }) => {
 })
 test.afterEach(async ({ page }) => { expect(page.columnErrors).toEqual([]) })
 async function freeze(page) {
-  const now = await page.evaluate(() => Date.now())
+  // Dispose bootstrap timers (the 250ms scroll poll) before faking the clock: fake clear* cannot cancel native ids.
+  const now = await page.evaluate(() => { ctx.life.dispose(); return Date.now() })
   await page.clock.install({ time: now }); await page.clock.pauseAt(now + 1000)
   await page.evaluate(async () => {
-    // Isolate the timers under test from bootstrap resize/scroll callbacks.
-    ctx.life.dispose(); ctx.life = (await import('/build-home/life.js')).createLife()
+    ctx.life = (await import('/build-home/life.js')).createLife()
     ctx.laneEls.forEach(el => el.remove()); ctx.guideEls.forEach(el => el.remove())
     ctx.laneEls.clear(); ctx.guideEls.clear(); ctx.cols = []
+    // Keep live updates (receive() → fx.dataChanged → flushLive → relayout → applyCols) from repainting under the fake clock.
+    Object.assign(st.fx, { relayout() {}, update() {}, dataChanged() {}, flushLive() {} })
   })
 }
 

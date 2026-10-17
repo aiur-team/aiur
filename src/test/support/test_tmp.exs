@@ -10,9 +10,49 @@ defmodule Aiur.TestTmp do
     root = Path.join(base, "run-#{System.os_time(:millisecond)}-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir!(root)
     File.chmod!(root, 0o700)
-    ExUnit.after_suite(fn _result -> File.rm_rf!(root) end)
+    ExUnit.after_suite(fn _result -> remove_run_root(root) end)
     root
   end
+
+  @doc """
+  Removes the run root at suite end without ever failing the suite.
+
+  A writer still alive here (test_helper stops the app first, but an OS child
+  a test spawned may remain) can land a file mid-removal, and the final
+  `rmdir` fails with ENOTEMPTY, rendered "file already exists" (#4866). The
+  first failure is logged with the path and the files present, so a retry that
+  succeeds still names the writer. Retry briefly, then leave the directory: the
+  next run's `sweep!/2` removes it once this VM's pid is dead.
+  """
+  def remove_run_root(root, rm \\ &File.rm_rf/1, attempts \\ 20) do
+    case rm.(root) do
+      {:ok, _removed} ->
+        :ok
+
+      {:error, reason, file} ->
+        IO.puts(
+          :stderr,
+          "warning: late writer in test run root #{root}: #{inspect(reason)} at #{file}; present: #{inspect(files(root))}"
+        )
+
+        retry_remove(root, rm, attempts - 1)
+    end
+  end
+
+  defp retry_remove(root, rm, attempts) when attempts > 0 do
+    Process.sleep(50)
+
+    case rm.(root) do
+      {:ok, _removed} -> :ok
+      {:error, _reason, _file} -> retry_remove(root, rm, attempts - 1)
+    end
+  end
+
+  defp retry_remove(root, _rm, _attempts) do
+    IO.puts(:stderr, "warning: left test run root #{root} for the next run's sweep; still present: #{inspect(files(root))}")
+  end
+
+  defp files(root), do: root |> Path.join("**") |> Path.wildcard(match_dot: true) |> Enum.reject(&File.dir?/1)
 
   def sweep!(base, owner) do
     for name <- File.ls!(base) do

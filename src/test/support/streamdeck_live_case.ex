@@ -4,8 +4,9 @@ defmodule AiurWeb.StreamdeckLiveCase do
   import Phoenix.LiveViewTest
 
   alias Aiur.{CodingAgent, IssueLog}
-  alias Aiur.TestSupport.AwaitingCommands
+  alias Aiur.TestSupport.{AwaitingCommands, EndpointStubs}
   alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
 
   using do
     quote do
@@ -67,7 +68,7 @@ defmodule AiurWeb.StreamdeckLiveCase do
       )
       |> Keyword.merge(awaiting_commands_config(context))
 
-    Application.put_env(:aiur, Endpoint, endpoint_config)
+    Application.put_env(:aiur, Endpoint, EndpointStubs.scope(endpoint_config))
     Aiur.TestSupport.start_owned_endpoint!()
 
     on_exit(fn ->
@@ -280,18 +281,14 @@ defmodule AiurWeb.StreamdeckLiveCase do
   end
 
   def with_production_feed(fun) do
-    previous_endpoint_value = Endpoint.config(:streamdeck_logs_fun)
-    previous_endpoint_config = Application.get_env(:aiur, Endpoint, [])
-
-    Phoenix.Config.put(Endpoint, :streamdeck_logs_fun, nil)
-    Application.put_env(:aiur, Endpoint, Keyword.put(previous_endpoint_config, :streamdeck_logs_fun, nil))
+    previous_logs_fun = EndpointConfig.get(:streamdeck_logs_fun)
+    EndpointStubs.put(streamdeck_logs_fun: nil)
 
     try do
       fun.()
     after
       Enum.each(~w(1352 1345), &File.rm(IssueLog.event_log_path(&1)))
-      Application.put_env(:aiur, Endpoint, previous_endpoint_config)
-      Phoenix.Config.put(Endpoint, :streamdeck_logs_fun, previous_endpoint_value)
+      EndpointStubs.put(streamdeck_logs_fun: previous_logs_fun)
     end
   end
 

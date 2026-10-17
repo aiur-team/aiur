@@ -242,9 +242,9 @@ defmodule Aiur.Config.Schema.Agent do
     field(:turn_timeout_ms, :integer, default: 3_600_000)
     # @config-reference config-configuration-agent-00 agent.stall_timeout_ms | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
     field(:stall_timeout_ms, :integer, default: 3_600_000)
-    # Safety checkpoint: pause an agent that has been actively running this
-    # many minutes (paused/blocked time excluded). 0 disables it.
-    # @config-reference config-configuration-agent-00 agent.max_agent_duration_minutes | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
+    # Runtime cap: pause an agent that has been actively running this
+    # many minutes (paused/blocked time excluded), then release it. 0 disables it.
+    # @config-reference config-configuration-agent-00 agent.max_agent_duration_minutes | integer | 60 | Active-runtime cap; the parked worker is released to rework or human-review. 0 disables it. |
     field(:max_agent_duration_minutes, :integer, default: 60)
     # A CI-wait pause releases its dispatch slot. If no terminal CI event is
     # observed in this window, wake the agent for one recovery check.
@@ -281,7 +281,7 @@ defmodule Aiur.Config.Schema.Agent do
     # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
     # load-generator guard; positive integers cap known generators per agent.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.synthetic_load_process_cap | integer or nil | nil | Caps synthetic CPU load generators per agent process tree; nil derives `max(1, cores / 4)` and 0 disables the guard. A generator is a known command (`yes`, `stress`, `stress-ng`) or any process seen busy-looping for 10 seconds: runnable and burning CPU with no read/write syscall, no new page fault and no voluntary context switch. Known commands above the cap are killed. A generator that outlives its agent command (its session leader has exited or init adopted it, and its working directory is under `workspace.root`) is flagged regardless of the cap; that orphan scan is skipped when `workspace.root` is the home directory or one of its ancestors. Every kill or first sighting raises a `system.agent.synthetic_load_cap` alert naming the workspace. |
+    # @config-reference config-configuration-agent-00 agent.synthetic_load_process_cap | integer or nil | nil | Caps synthetic CPU load generators per agent process tree; nil derives `max(1, cores / 4)` and 0 disables the guard. A generator is a known command (`yes`, `stress`, `stress-ng`) or any process seen busy-looping for 10 seconds: runnable and burning CPU with no read/write syscall, no new page fault and no voluntary context switch. A tree with at least as many spinning processes as the host has cores is flagged after one sample (about a second) instead. Known commands above the cap are killed. A generator that outlives its agent command (its session leader has exited or init adopted it, and its working directory is under `workspace.root`) is flagged regardless of the cap; that orphan scan is skipped when `workspace.root` is the home directory or one of its ancestors. Every kill or first sighting raises an alert naming the workspace that wakes the Executor: the ticket's `ticket.<N>.agent.attention.synthetic-load` attention, or `system.agent.synthetic_load_cap` when no ticket is known (an orphan). |
     field(:synthetic_load_process_cap, :integer)
     # false = busy-loop-detected and orphaned generators are reported, not killed.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength

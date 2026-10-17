@@ -72,6 +72,32 @@ defmodule Aiur.BuildGate.HookSnapshotTest do
     assert File.regular?(Path.join(snapshot, "build_gate_holder_lib/files.py"))
   end
 
+  # Concurrent first workspaces once deleted a peer's fresh snapshot while its hook sourced it (#4902).
+  test "concurrent first publishers never remove a snapshot a peer already returned", context do
+    release_priv = copy_release_priv!(context)
+
+    for round <- 1..10 do
+      root = Path.join(context.gate_dir, "hooks-#{round}")
+      done = :counters.new(1, [])
+      callers = 8
+
+      missing =
+        1..callers
+        |> Task.async_stream(
+          fn _caller ->
+            {:ok, hook} = HookSnapshot.ensure(release_priv, root)
+            :counters.add(done, 1, 1)
+            Stream.repeatedly(fn -> File.regular?(hook) end) |> Enum.take_while(fn _ -> :counters.get(done, 1) < callers end) |> Enum.count(&(not &1))
+          end,
+          max_concurrency: callers,
+          timeout: 30_000
+        )
+        |> Enum.map(fn {:ok, misses} -> misses end)
+
+      assert Enum.sum(missing) == 0, "round #{round}: returned hook vanished #{inspect(missing)}"
+    end
+  end
+
   test "a stage left by a dead publisher is removed once stale", context do
     root = context.gate_dir <> ".hooks"
     [stale, fresh] = for name <- ~w(.stage-dead-1 .stage-live-2), do: Path.join(root, name)

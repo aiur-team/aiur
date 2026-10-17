@@ -4,7 +4,7 @@ defmodule AiurWeb.PostDeployLive do
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias Aiur.PostDeployChecklist
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, Overview, RouteRegistry}
 
   @impl true
@@ -38,7 +38,7 @@ defmodule AiurWeb.PostDeployLive do
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
 
   def handle_event("post-deploy-done", %{"id" => id}, %{assigns: %{writable: true}} = socket) when is_binary(id) do
-    if Endpoint.config(:dashboard_writable) == true do
+    if EndpointConfig.get(:dashboard_writable) == true do
       actor = System.get_env("AIUR_DASHBOARD_USERNAME") || "Executor"
 
       case PostDeployChecklist.mark_done(id, actor) do

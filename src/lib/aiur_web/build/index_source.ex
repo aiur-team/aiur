@@ -3,7 +3,7 @@ defmodule AiurWeb.Build.IndexSource do
   @behaviour AiurWeb.Build.DataSource
   alias Aiur.BuildOrder.Index, as: Core
   alias AiurWeb.Build.{Freshness, Index, Usage}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
 
   @impl true
   def subscribe(opts) do
@@ -23,7 +23,7 @@ defmodule AiurWeb.Build.IndexSource do
        Map.merge(data, %{
          usage: usage.read(Keyword.get(opts, :financial, :locked), opts),
          daemon: data.daemon || freshness.read_daemon(opts),
-         writable: Endpoint.config(:dashboard_writable) == true
+         writable: EndpointConfig.get(:dashboard_writable) == true
        })}
     end
   end

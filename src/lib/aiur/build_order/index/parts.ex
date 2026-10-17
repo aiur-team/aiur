@@ -13,13 +13,13 @@ defmodule Aiur.BuildOrder.Index.Parts do
   def safe(part, fun) do
     fun.()
   rescue
-    error -> failed(part, error.__struct__)
+    error -> failed(part, {error.__struct__, Exception.message(error)})
   catch
-    kind, _reason -> failed(part, kind)
+    kind, reason -> failed(part, {kind, reason})
   end
 
   defp failed(part, reason) do
-    Logger.warning("build_index part=#{part} read_failed=#{inspect(reason)}")
+    Logger.warning("build_index part=#{part} read_failed=#{inspect(reason, limit: 20, printable_limit: 200)}")
     {:error, :read_failed}
   end
 

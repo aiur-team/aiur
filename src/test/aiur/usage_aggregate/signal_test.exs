@@ -28,7 +28,9 @@ defmodule Aiur.UsageAggregate.SignalTest do
     assert opts[:reason] == "Usage totals are stale; subscription retries continue"
     assert opts[:needs_attention] == true
     send(store, {:ledger_unavailable, since})
+    Aiur.Signal.alert("system.supervision.degraded", message: "an unrelated app-wide alert")
     _ = Store.snapshot(store)
-    refute_received {:signal_alert, _, _}
+    # Scoped to this topic: the sink is app-wide, so a real SupervisionHealth alert can land here (#4896).
+    refute_received {:signal_alert, "system.usage_aggregate." <> _, _}
   end
 end
