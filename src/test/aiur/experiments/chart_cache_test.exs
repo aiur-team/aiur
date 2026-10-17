@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments.ChartCacheTest do
   use ExUnit.Case, async: false
   alias Aiur.Experiments
-  alias Aiur.Experiments.{Catalog, Evidence, Paths, ReportEngine, ReportInput, WindowEvents}
+  alias Aiur.Experiments.{Catalog, Evidence, Paths, ReportEngine, ReportInput, Snapshot, Store, WindowEvents}
 
   setup do
     root = Path.join(System.tmp_dir!(), "chart-cache-#{System.unique_integer([:positive])}")
@@ -16,6 +16,8 @@ defmodule Aiur.Experiments.ChartCacheTest do
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
+    start_supervised!(Store)
     raw = File.read!(Path.expand("fixtures/chart_detail.json", __DIR__)) |> Jason.decode!()
     spec = raw["spec"]
     id = spec["id"]
@@ -78,6 +80,8 @@ defmodule Aiur.Experiments.ChartCacheTest do
   end
 
   defp write_snapshot(id, snapshot) do
+    metrics = Map.new(snapshot["metrics"], fn {ref, evidence} -> {ref, Map.put(evidence, "summary", Snapshot.summary(evidence["observations"]))} end)
+    snapshot = Map.put(snapshot, "metrics", metrics)
     snapshot = Map.put(snapshot, "sha256", Evidence.hash(snapshot))
     File.write!(Paths.file(id, "snapshots/#{snapshot["window_name"]}.r#{snapshot["revision"]}.json"), Jason.encode!(snapshot))
     Jason.encode!(%{"schema_version" => 1, "kind" => "frozen", "window" => snapshot["window_name"], "revision" => snapshot["revision"], "sha256" => snapshot["sha256"]})
