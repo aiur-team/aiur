@@ -20,8 +20,11 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWorkTest do
 
     sha = fn -> git.(["rev-parse", "HEAD"]) |> String.trim() end
 
+    # Each commit carries its own patch: empty commits would all be patch-equivalent.
     commit = fn message ->
-      git.(["commit", "--quiet", "--allow-empty", "-m", message])
+      File.write!(Path.join(root, String.replace(message, " ", "_")), message)
+      git.(["add", "-A"])
+      git.(["commit", "--quiet", "-m", message])
       sha.()
     end
 
@@ -36,7 +39,16 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWorkTest do
     git.(["merge", "--quiet", "--no-edit", "origin/main"])
     added = Enum.map(["Initialize capacity", "Assign adoption capacity", "Verify unadopted tickets"], commit)
 
-    {:ok, workspace: root, queued_head: queued_head, added: added, commit: commit}
+    {:ok, workspace: root, queued_head: queued_head, added: added, commit: commit, git: git}
+  end
+
+  test "a local rebase of the queued commits is not new scope", context do
+    context.git.(["checkout", "--quiet", "-b", "rebased", context.queued_head])
+    context.git.(["rebase", "--quiet", "origin/main"])
+    assert StrandedWork.unmerged_commits(context.workspace, context.queued_head, "main") == []
+
+    added = context.commit.("Wire adoption")
+    assert StrandedWork.unmerged_commits(context.workspace, context.queued_head, "main") == [added]
   end
 
   test "finds the commits made after the queued head, ignoring base integration", context do
@@ -73,6 +85,66 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWorkTest do
     refute_received {:state_written, _}
     refute_received :terminated
     assert Map.has_key?(result.running, "issue-3846")
+    assert [item] = Map.values(result.queue_store.items)
+    assert item.body.text =~ "could not reopen the ticket"
+    refute item.body.text =~ "reopened the ticket as in-progress"
+  end
+
+  test "a reopen held by the local budget is waited out, and the ticket still ends up open", context do
+    parent = self()
+    calls = :counters.new(1, [])
+    hold = {:error, {:github, :local_hold, %{hold: %{reason: :shared_budget, resource: "core", reset_at: ~U[2026-01-01 00:00:00Z]}}}}
+
+    reopen = fn id ->
+      :counters.add(calls, 1, 1)
+      if :counters.get(calls, 1) == 1, do: hold, else: send(parent, {:reopened, id}) && :ok
+    end
+
+    opts = Keyword.merge(opts(context, parent), reopen_issue_fun: reopen, local_hold_sleep_fun: fn _ -> :ok end)
+    StrandedWork.mark_merged(state(context.workspace), "3846", opts)
+
+    assert_received {:reopened, "3846"}
+    assert_received {:state_written, "3846"}
+    assert_received {:alert, false}
+  end
+
+  test "a reopened ticket whose state write failed is reported as such", context do
+    parent = self()
+    opts = Keyword.put(opts(context, parent), :keep_open_state_fun, fn _ -> {:error, :conflict} end)
+    result = StrandedWork.mark_merged(state(context.workspace), "3846", opts)
+
+    assert_received {:reopened, "3846"}
+    assert_received {:alert, true}
+    assert [item] = Map.values(result.queue_store.items)
+    assert item.body.text =~ "reopened the ticket but could not set it in-progress"
+  end
+
+  test "the webhook and the poll route report one merge once", context do
+    parent = self()
+    state = StrandedWork.mark_merged(state(context.workspace), "3846", opts(context, parent))
+    result = StrandedWork.mark_merged(state, "3846", opts(context, parent))
+
+    assert_received {:alert, false}
+    refute_received {:alert, _}
+    assert [_item] = Map.values(result.queue_store.items)
+  end
+
+  test "a merge that leaves another open PR keeps its routing and skips the check", context do
+    parent = self()
+
+    opts =
+      Keyword.merge(opts(context, parent),
+        target_state: "rework",
+        unmerged_commits_fun: fn _, _ -> flunk("git was called") end,
+        update_issue_state_fun: fn id, target -> send(parent, {:target_written, id, target}) && :ok end
+      )
+
+    result = StrandedWork.mark_merged(state(context.workspace), "3846", opts)
+
+    assert_received {:target_written, "3846", "rework"}
+    refute_received {:reopened, _}
+    refute_received :terminated
+    assert result.queue_store.items == %{}
   end
 
   test "a merge at the worker's head completes the ticket as before", context do

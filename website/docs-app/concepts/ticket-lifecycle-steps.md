@@ -457,26 +457,25 @@ Merge the PR yourself or delegate it to your Executor. `agent:merging` →
 (`merged_ticket_reconciler.ex:92-129`) — but only when the PR body claims the
 ticket and the ticket has no blocking open pull request.
 
-**The PR body decides, not the branch.** A ticket's PR is matched by its
-`aiur/<ticket>-<slug>` head branch, which says the PR belongs to the ticket,
-not that it completes it. Only a documented closing keyword — `Closes`,
-`Fixes` or `Resolves` followed by `#<ticket>` — lets a merge stamp `done`.
+**The PR body decides, not the branch.** A ticket's PR is matched by its `aiur/<ticket>-<slug>` head branch, which says the PR belongs to the ticket, not that it completes it. Only a documented closing keyword — `Closes`, `Fixes` or `Resolves` followed by `#<ticket>` — lets a merge stamp `done`.
 
-Write `Refs #<ticket>` for a partial merge; the ticket stays in `human-review`.
-No body or no keyword is the same: absent evidence is never closing evidence.
+Write `Refs #<ticket>` instead when the merge is deliberately only part of the
+acceptance — a proof ticket whose other half is deployed evidence, say. The
+ticket then stays open in `human-review` with its checklist intact.
 
-**Work committed after the queued head is kept.** If the worker's checkout has
-commits that neither the merged head nor the base holds, Aiur reopens the ticket
-as `in-progress`, keeps the worker, and tells it to open a new PR from the base.
+A PR with no body, or one naming the ticket without a keyword, is treated the
+same way: absent evidence is never closing evidence.
 
 A ticket can legitimately carry two open `aiur/<ticket>-` PRs, so a merge that
 leaves one still open routes the ticket to `rework` (that PR has unresolved
 review findings) or `human-review` (it is merely awaiting review) instead of
 `done`, keeping the remaining PR's findings dispatchable.
 
-A stale draft — one with no update within the staleness window — does not block
-`done`: a superseded attempt left open must not pin its ticket out of its
-terminal state.
+**Work committed after the queued head is kept.** It applies only to a merge that would stamp `done`, so the `Refs` and two-PR rules come first, and only to a running worker in a local workspace. It looks for non-merge commits that neither the merged head nor the base contains and whose patches the merged head lacks, so a local rebase is not new scope.
+
+If it finds any, Aiur reopens the ticket as `in-progress`, keeps the worker, and tells it to open a new PR from the base. If the reopen or the `in-progress` write fails, Aiur still keeps the worker and raises an Executor attention naming the failed step. Uncommitted edits and remote workers are not checked.
+
+A stale draft — one with no update within the staleness window — does not block `done`: a superseded attempt left open must not pin its ticket out of its terminal state.
 
 The agent never self-merges.
 
