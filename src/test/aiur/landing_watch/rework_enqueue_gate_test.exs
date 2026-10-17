@@ -31,6 +31,27 @@ defmodule Aiur.LandingWatch.ReworkEnqueueGateTest do
     assert_received {:enqueued, "new-head"}
   end
 
+  test "a gating label wins over a review label whichever order GitHub lists them" do
+    parent = self()
+
+    for labels <- [["agent:human-review", "agent:rework"], ["agent:rework", "agent:human-review"]] do
+      request_fun = fn %{url: url} ->
+        assert url =~ "/issues/17"
+        {:ok, %{status: 200, body: %{"labels" => Enum.map(labels, &%{"name" => &1})}, headers: []}}
+      end
+
+      opts =
+        parent
+        |> landing_opts(nil, journal_path())
+        |> Keyword.delete(:ticket_state_fun)
+        |> Keyword.merge(repository: {"owner", "gate-#{System.unique_integer([:positive])}"}, token: "t", request_fun: request_fun)
+
+      assert :ok = LandingWatch.process(approved_observation("old-head"), opts)
+    end
+
+    refute_received {:enqueued, _head}
+  end
+
   defp landing_opts(parent, ticket_state, path) do
     [
       approved_fun: fn _, _ -> {:ok, true} end,
