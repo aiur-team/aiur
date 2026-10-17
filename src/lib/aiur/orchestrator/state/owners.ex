@@ -141,6 +141,7 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.SnapshotStore
     ],
     dispatch: [
+      Aiur.Orchestrator.AdoptedBoot,
       Aiur.Orchestrator.Dispatcher,
       Aiur.Orchestrator.DispatchOutcome,
       Aiur.Orchestrator.DispatchPolicy,
