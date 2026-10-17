@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.DurationCapReleaseTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{PauseResume, State}
+  alias Aiur.Orchestrator.{DurationCapRelease, PauseResume, State}
 
   setup do
     previous = Application.get_env(:aiur, :duration_cap_release_opts)
@@ -55,6 +55,28 @@ defmodule Aiur.Orchestrator.DurationCapReleaseTest do
     refute_received {:write, _target, _expected}
   end
 
+  # Owner mode applies the result later; a refresh may have swapped `:issue` after the write.
+  test "a release completing after an issue refresh still frees the runner" do
+    parked = parked_entry()
+    refreshed = %{parked | issue: %{parked.issue | state: "rework", labels: ["agent:rework"]}}
+    state = %State{running: %{"issue-4849" => refreshed}, claimed: MapSet.new(["issue-4849"])}
+
+    released = DurationCapRelease.apply_release(state, {:ok, "rework"}, parked, emit_alert_fun: fn _, _ -> :ok end)
+
+    refute Map.has_key?(released.running, "issue-4849")
+    refute MapSet.member?(released.claimed, "issue-4849")
+  end
+
+  test "a release completing after an operator resume keeps the resumed runner" do
+    parked = parked_entry()
+    resumed = parked |> Map.delete(:paused_reason) |> Map.put(:control, %{status: :working})
+    state = %State{running: %{"issue-4849" => resumed}}
+
+    kept = DurationCapRelease.apply_release(state, {:ok, "rework"}, parked, emit_alert_fun: fn _, _ -> :ok end)
+
+    assert kept.running["issue-4849"] == resumed
+  end
+
   # Guard, passes on main too: other pause causes keep their runner.
   test "an operator pause is not released" do
     Application.put_env(:aiur, :duration_cap_release_opts, base_opts())
@@ -89,6 +111,8 @@ defmodule Aiur.Orchestrator.DurationCapReleaseTest do
       emit_alert_fun: fn _topic, _opts -> :ok end
     ]
   end
+
+  defp parked_entry, do: %{entry() | control: %{status: :paused}}
 
   defp entry do
     %{

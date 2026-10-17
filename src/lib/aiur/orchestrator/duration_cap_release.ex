@@ -36,8 +36,14 @@ defmodule Aiur.Orchestrator.DurationCapRelease do
     )
   end
 
-  defp apply_release(state, {:ok, target}, %{issue: %{id: issue_id}} = entry, opts) do
-    if TrackerTasks.same_runner?(Map.get(state.running, issue_id), entry) do
+  # The tracker write already landed, so a refresh that swapped `:issue` must not
+  # keep the runner; only a different or resumed runner is left alone.
+  @runner_fields [:pid, :ref, :session_id, :telemetry_attempt_id, :control]
+
+  @doc false
+  @spec apply_release(State.t(), term(), map(), keyword()) :: State.t()
+  def apply_release(state, {:ok, target}, %{issue: %{id: issue_id}} = entry, opts) do
+    if same_parked_runner?(Map.get(state.running, issue_id), entry) do
       Logger.warning("Released duration-capped agent to #{target} #{State.issue_context(entry.issue)}")
       resolve_pause_alert(entry, target, opts)
       AgentTeardown.terminate_running_issue(state, issue_id, false)
@@ -47,10 +53,15 @@ defmodule Aiur.Orchestrator.DurationCapRelease do
   end
 
   # A failed or deferred write leaves the agent paused for the Executor, as before #4849.
-  defp apply_release(state, result, entry, _opts) do
+  def apply_release(state, result, entry, _opts) do
     Logger.warning("Duration-capped agent stays paused; release did not complete: #{inspect(result)} #{State.issue_context(entry.issue)}")
     state
   end
+
+  defp same_parked_runner?(%{paused_reason: :max_agent_duration} = current, entry),
+    do: Map.take(current, @runner_fields) == Map.take(entry, @runner_fields)
+
+  defp same_parked_runner?(_current, _entry), do: false
 
   defp resolve_pause_alert(entry, target, opts) do
     emit = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
