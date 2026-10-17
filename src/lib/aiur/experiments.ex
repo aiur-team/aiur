@@ -62,6 +62,14 @@ defmodule Aiur.Experiments do
   @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
   def fetch(id), do: ReportReads.detail(id, Reader.fetch(id))
 
+  @spec chart_detail(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def chart_detail(id, opts \\ []) do
+    with {:ok, detail} <- fetch(id) do
+      detail = Aiur.Experiments.ChartEvidence.attach(id, detail)
+      Aiur.Experiments.ChartData.attach({:ok, detail}, opts)
+    end
+  end
+
   @spec events(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def events(id, opts \\ []) do
     task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> prepare_events(id, opts) end)

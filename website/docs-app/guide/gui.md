@@ -221,6 +221,20 @@ errors are shown explicitly.
 Frozen baseline details include the revision, capture time, Aiur version and
 SHA-256 hash. A warning identifies metric packs that changed since the freeze.
 
-When a frozen analysis `result.json` is present in an experiment directory, the
-page shows its group summaries, sample counts and analyst labels. Below the
+The page reads the cached report analysis matching the current frozen inputs
+(or a legacy root-level `result.json`) for group summaries, sample counts and
+analyst labels. Below the
 analysis minimum, interval, p-value and effect cells say **not enough data**.
+
+The median-change chart shows stored percentage estimates and confidence
+intervals, with the expected direction labelled. Hollow points mean **not enough
+data**; no interval is drawn for those metrics. Select a metric to see its
+box-and-dot distribution and time series; metric and stratum selections are
+shareable through `?metric=` and `?stratum=`. Stratum chips appear only for stored
+stratum analyses. Cohorts use both colour and marker shape. On phones, the time
+series scrolls within its container. Every chart has a **Show data** table.
+
+Sample meters distinguish the minimum sample guard from estimated power
+requirements. Missing estimates remain unavailable. Sample points come from
+frozen snapshots; if none exist, the page says so and shows only stored group
+summaries. Rolling medians appear only when supplied in the stored analysis.
