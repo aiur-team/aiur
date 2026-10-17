@@ -32,18 +32,25 @@ defmodule Aiur.ExecutorSweep.OpenTicketsTest do
     deposit(8, "OPEN", ["agent:todo", "agent:rework"])
     deposit(9, "open", ["agent:todo"])
 
-    snapshot_fun = fn -> OpenTicketSource.snapshot(source) end
+    # The source filters these webhook deltas for real; `:available` stands in for the boot listing it skipped.
+    snapshot_fun = fn -> %{OpenTicketSource.snapshot(source) | status: :available} end
     assert eventually(fn -> length(snapshot_fun.().tickets) == 3 end)
 
-    snapshot = SnapshotCache.build([], [], SnapshotCache.open_tickets(snapshot_fun))
-    flagged = Checks.all(snapshot, ~U[2026-10-16 20:33:00Z]) |> Enum.filter(&(&1.kind == "invalid_state_labels")) |> Enum.map(& &1.ticket)
+    Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    flagged = Checks.all(SnapshotCache.read(snapshot_fun), ~U[2026-10-16 20:33:00Z]) |> Enum.filter(&(&1.kind == "invalid_state_labels")) |> Enum.map(& &1.ticket)
 
     assert Enum.sort(flagged) == [7, 8]
     GenServer.stop(source)
   end
 
-  test "an unreachable open-ticket source yields no tickets" do
-    assert [] = SnapshotCache.open_tickets(fn -> exit(:noproc) end)
+  # Before its first full listing the source holds only webhook deltas, so ticket checks report it unknown.
+  test "an unlisted or unreachable open-ticket source reads as unknown, not empty" do
+    assert nil == SnapshotCache.open_tickets(fn -> exit(:noproc) end)
+    assert nil == SnapshotCache.open_tickets(fn -> %OpenTicketSource.Snapshot{status: :stale, tickets: [%{identifier: "7", labels: []}]} end)
+
+    Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    findings = Checks.all(SnapshotCache.read(fn -> %OpenTicketSource.Snapshot{status: :unavailable} end), ~U[2026-10-16 20:33:00Z])
+    assert Enum.any?(findings, &(&1.kind == "sweep_source_unavailable" and &1.check == "ticket_hygiene"))
   end
 
   defp deposit(number, state, labels) do

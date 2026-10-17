@@ -45,9 +45,17 @@ defmodule Aiur.ExecutorSweep do
     if interval_ms > 0, do: send(self(), :sweep)
 
     seen_path = Keyword.get_lazy(opts, :seen_path, &StatePaths.sweep_seen_path/0)
+    seen = read_seen(seen_path)
 
     {:ok,
-     %{seen: read_seen(seen_path), seen_path: seen_path, sweep_fun: Keyword.get(opts, :sweep_fun, &findings/0), publish_fun: Keyword.get(opts, :publish_fun, &publish/1), interval_ms: interval_ms}}
+     %{
+       seen: seen || MapSet.new(),
+       seeded?: seen != nil,
+       seen_path: seen_path,
+       sweep_fun: Keyword.get(opts, :sweep_fun, &findings/0),
+       publish_fun: Keyword.get(opts, :publish_fun, &publish/1),
+       interval_ms: interval_ms
+     }}
   end
 
   @impl true
@@ -56,10 +64,16 @@ defmodule Aiur.ExecutorSweep do
 
     case safe_sweep(state.sweep_fun) do
       {:ok, findings} ->
+        complete? = not Enum.any?(findings, &(&1.kind == "sweep_source_unavailable"))
         fingerprints = MapSet.new(findings, &fingerprint/1)
-        findings |> Enum.reject(&(fingerprint(&1) in state.seen)) |> Enum.each(state.publish_fun)
-        if fingerprints != state.seen, do: write_seen(state.seen_path, fingerprints)
-        {:noreply, %{state | seen: fingerprints}}
+        # Without a seen file, the first sweep and the first complete one record the backlog instead of waking on it.
+        quiet? = not state.seeded? and (complete? or state.seen == MapSet.new())
+        unless quiet?, do: findings |> Enum.reject(&(fingerprint(&1) in state.seen)) |> Enum.each(state.publish_fun)
+        # An unavailable source hides its findings only for now; keep their fingerprints so they do not wake again.
+        seen = if complete?, do: fingerprints, else: MapSet.union(state.seen, fingerprints)
+        seeded? = state.seeded? or complete?
+        if seeded? and (seen != state.seen or not state.seeded?), do: write_seen(state.seen_path, seen)
+        {:noreply, %{state | seen: seen, seeded?: seeded?}}
 
       :error ->
         {:noreply, state}
@@ -81,9 +95,11 @@ defmodule Aiur.ExecutorSweep do
   end
 
   # `seen` survives a restart, so a boot re-publishes only findings that changed.
+  # A missing or unreadable file is nil: the sweep seeds it instead of publishing everything.
   defp read_seen(path) do
-    case JsonStore.read(path, []) do
+    case JsonStore.read(path) do
       {:ok, list} when is_list(list) -> MapSet.new(list)
+      {:ok, nil} -> nil
       other -> skipped_seen(:read, other)
     end
   end
@@ -96,7 +112,7 @@ defmodule Aiur.ExecutorSweep do
 
   defp skipped_seen(op, reason) do
     Logger.warning("Executor sweep could not #{op} its published findings: #{inspect(reason)}")
-    MapSet.new()
+    nil
   end
 
   defp publish(finding), do: Wake.publish(finding)

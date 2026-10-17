@@ -186,9 +186,79 @@ defmodule Aiur.ExecutorSweepTest do
     Agent.stop(findings)
   end
 
+  test "a first start without a seen file records the backlog and publishes only later findings" do
+    parent = self()
+    path = fresh_seen_path()
+    {:ok, findings} = Agent.start_link(fn -> Enum.map(1..300, &%{kind: "invalid_state_labels", ticket: &1}) end)
+
+    assert {:ok, pid} = ExecutorSweep.start_link(name: nil, seen_path: path, interval_ms: 60_000, sweep_fun: fn -> Agent.get(findings, & &1) end, publish_fun: &send(parent, {:finding, &1}))
+    _ = :sys.get_state(pid)
+    refute_receive {:finding, _}, 50
+    assert File.exists?(path)
+
+    Agent.update(findings, &[%{kind: "sample", ticket: 301} | &1])
+    send(pid, :sweep)
+    assert_receive {:finding, %{ticket: 301}}, 1_000
+    send(pid, :sweep)
+    _ = :sys.get_state(pid)
+    refute_receive {:finding, _}, 50
+    GenServer.stop(pid)
+    Agent.stop(findings)
+  end
+
+  @ticket %{kind: "invalid_state_labels", ticket: 7}
+  @unavailable %{kind: "sweep_source_unavailable", check: "ticket_hygiene", sources: [:tickets]}
+
+  test "an unavailable ticket source keeps ticket fingerprints across a restart" do
+    parent = self()
+    path = seen_path()
+    {:ok, findings} = Agent.start_link(fn -> [@ticket] end)
+    start = fn -> ExecutorSweep.start_link(name: nil, seen_path: path, interval_ms: 60_000, sweep_fun: fn -> Agent.get(findings, & &1) end, publish_fun: &send(parent, {:finding, &1})) end
+
+    assert {:ok, pid} = start.()
+    assert_receive {:finding, @ticket}, 1_000
+    Agent.update(findings, fn _ -> [@unavailable] end)
+    send(pid, :sweep)
+    assert_receive {:finding, @unavailable}, 1_000
+    GenServer.stop(pid)
+
+    # Restarted while the source is still listing; the ticket finding returns once it is listed.
+    assert {:ok, pid} = start.()
+    _ = :sys.get_state(pid)
+    Agent.update(findings, fn _ -> [@ticket] end)
+    send(pid, :sweep)
+    _ = :sys.get_state(pid)
+    refute_receive {:finding, _}, 50
+    GenServer.stop(pid)
+    Agent.stop(findings)
+  end
+
+  test "a first start keeps quiet until the ticket source has been listed once" do
+    parent = self()
+    {:ok, findings} = Agent.start_link(fn -> [@unavailable] end)
+
+    assert {:ok, pid} =
+             ExecutorSweep.start_link(name: nil, seen_path: fresh_seen_path(), interval_ms: 60_000, sweep_fun: fn -> Agent.get(findings, & &1) end, publish_fun: &send(parent, {:finding, &1}))
+
+    _ = :sys.get_state(pid)
+    Agent.update(findings, fn _ -> [@ticket] end)
+    send(pid, :sweep)
+    _ = :sys.get_state(pid)
+    refute_receive {:finding, _}, 50
+    GenServer.stop(pid)
+    Agent.stop(findings)
+  end
+
   defp seen_path do
+    path = fresh_seen_path()
+    File.write!(path, "[]")
+    path
+  end
+
+  defp fresh_seen_path do
     root = Aiur.TestSupport.tmp_root!("aiur-executor-sweep-seen")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    File.mkdir_p!(root)
     Path.join(root, "seen.json")
   end
 end
