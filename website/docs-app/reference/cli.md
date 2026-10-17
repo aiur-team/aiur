@@ -156,6 +156,7 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 | Restart case | Result |
 | --- | --- |
 | Keep-agents verification | Save `aiurdev agents --json`, run `aiurdev restart --keep-agents`, then inspect `aiurdev status --handoff --json`; each issue must be adopted with matching PIDs and sessions or have a fallback reason. |
+| Refreshed release fails during startup | When `aiurdev restart` rebuilds and the new release exits before becoming ready, restart restores the saved previous release and tries to boot it with the same keep-agents handoff. It reports the previous build SHA and first startup error, and raises a critical `system.restart.rollback` alert. |
 | Installed `aiur` | Bounces the pinned release without building. |
 | Development release | Refreshes between stop and start, then boots current code. |
 | Daemon already stopped | Starts it. |
