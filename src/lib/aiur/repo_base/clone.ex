@@ -121,7 +121,10 @@ defmodule Aiur.RepoBase.Clone do
   # case) when no token is available. The header is HTTP-transport only, so it is
   # inert for the local rev-parse/reset calls that also route through `git/2`.
   @spec git_auth_env() :: [{String.t(), String.t()}]
-  def git_auth_env, do: git_auth_env(Aiur.GitHub.Config.token())
+  def git_auth_env do
+    {module, function, args} = Application.get_env(:aiur, :repo_base_git_token, {Aiur.Workspace.NoToken, :token, []})
+    git_auth_env(apply(module, function, args))
+  end
 
   @doc false
   @spec git_auth_env(String.t() | nil) :: [{String.t(), String.t()}]
