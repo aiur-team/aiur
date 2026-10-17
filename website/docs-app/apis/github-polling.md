@@ -43,7 +43,9 @@ CI batches and landing require all ruleset checks on PR heads. Startup readiness
 
 Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework. With no required list, every failure still decides.
 
-User-cancelled CI runs stay pending. Landing watcher classifies failed groups from Actions logs and requeues approved PRs for infra, inherited, or known non-PR failures. Known tests match an open flake issue or base failure in 24h, and are untouched by the PR. Others route to rework with job/run details. It checks attribution and cancels stale groups. For an approved PR that is not landing, every failed required run must have a non-PR cause before it is rerun: infrastructure, a merge ref older than a base-branch fix, a later merge that changed its workflow or a `.github/`/`scripts/` file its failing job uses, a job the base workflow no longer defines, or a known flake in an untouched test. Anything else routes to rework. Each rerun posts its reason on the PR.
+User-cancelled CI runs stay pending. Landing watcher classifies failed groups from Actions logs and requeues approved PRs for infra, inherited, or known non-PR failures. Known tests match an open flake issue or base failure in 24h, and are untouched by the PR. Others route to rework with job/run details. It checks attribution and cancels stale groups.
+
+An approved PR that is not landing is rerun only when every failed required run has a non-PR cause. The causes are: infrastructure, a merge ref older than a base fix, a later merge that changed its workflow or a `.github/` or `scripts/` file its job uses, a job the base workflow dropped, or a known flake. Other failures route to rework.
 
 The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
 
