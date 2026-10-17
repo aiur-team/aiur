@@ -63,7 +63,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
     end
   end
 
-  defp job_log(job, opts) do
+  @doc false
+  @spec job_log(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def job_log(job, opts) do
     case job["id"] do
       id when is_integer(id) ->
         case CIRecovery.read("/actions/jobs/#{id}/logs", opts) do

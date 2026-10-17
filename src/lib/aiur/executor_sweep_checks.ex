@@ -21,6 +21,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       {"unreviewed_prs", [:pull_requests, :tickets], fn -> unreviewed_prs(snapshot, now, unreviewed_minutes) end},
       {"old_decisions", [:decisions], fn -> old_decisions(snapshot, now) end},
       {"approved_prs", [:pull_requests], fn -> approved_prs(snapshot) end},
+      {"landing_rerun_backlog", [:landing_rerun_backlog], fn -> landing_rerun_backlog(snapshot, now) end},
       {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
       {"stale_merge_groups", [:merge_groups], fn -> stale_merge_groups(snapshot, now, stale_minutes) end},
       {"queue_sets", [:queue_sets, :idle_slots], fn -> queue_sets(snapshot) end},
@@ -130,6 +131,27 @@ defmodule Aiur.ExecutorSweep.Checks do
       failure_class: cause,
       failed_checks: classifications
     )
+  end
+
+  # Approved heads whose automatic rerun waits behind the shared 3-per-15-minute cap.
+  defp landing_rerun_backlog(snapshot, now) do
+    snapshot
+    |> Map.get(:landing_rerun_backlog, [])
+    |> Enum.map(fn row ->
+      since = value(row, :since_ms, nil)
+      age = if is_integer(since), do: max(DateTime.to_unix(now, :millisecond) - since, 0), else: 0
+      checks = Enum.join(value(row, :checks, []), ", ")
+
+      finding(
+        "approved_pr_rerun_pending",
+        3,
+        age,
+        "Wait for the landing watcher's next rerun slot, or rerun the failed checks manually.",
+        "Approved PR ##{value(row, :pr, "?")} awaits an automatic CI rerun of #{checks} (#{value(row, :reason, "non-PR failure")}) for #{duration(age)}.",
+        pull_request: value(row, :pr, nil),
+        head_sha: value(row, :head, nil)
+      )
+    end)
   end
 
   defp single_or_mixed([single]), do: single

@@ -107,6 +107,9 @@ defmodule Aiur.LandingWatch.MergeFailureClassifier do
     end
   end
 
+  # PR-level runs name their pull request directly instead of through a queue branch.
+  defp run_prs(%{"pull_request_numbers" => numbers}) when is_list(numbers), do: numbers
+
   defp run_prs(%{"head_branch" => branch}) when is_binary(branch) do
     Regex.scan(~r/pr-(\d+)-/, branch, capture: :all_but_first) |> List.flatten() |> Enum.map(&String.to_integer/1)
   end
