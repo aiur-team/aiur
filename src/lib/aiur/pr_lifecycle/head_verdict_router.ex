@@ -44,8 +44,9 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
   like `Aiur.PRLifecycle.ReworkRequeue`. A tick makes one open-pull-request
   listing (one page for up to 100 open PRs) and re-reads a PR's reviews only
   when its `head.sha` or `updated_at` changed since the last tick (a submitted
-  or dismissed review bumps `updated_at`). At the default 1800s cadence that is
-  2 listing calls an hour plus one reviews read per changed PR.
+  or dismissed review bumps `updated_at`). With the three state-label issue
+  listings, the default 1800s cadence makes 8 listing calls an hour plus one
+  conditional reviews read per changed PR.
   """
 
   use Aiur.PeriodicWorker
@@ -77,7 +78,9 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
       tracker: Keyword.get(opts, :tracker, Tracker),
       enabled?: Keyword.get(opts, :enabled?, &default_enabled?/0),
       # Review ids already routed (or observed on a rework ticket). In memory: a
-      # restart can route a disputed same-head review once more.
+      # restart can route a disputed same-head review once more, or re-route a
+      # body-fix approval after CI moved that ticket back to rework (one wasted
+      # landing cycle until the next failure returns it).
       routed: MapSet.new(),
       # PR number => {head sha, updated_at, deciding review or nil}. The reviews
       # read is skipped while both are unchanged.
