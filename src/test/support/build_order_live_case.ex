@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildOrderLiveCase do
   import ExUnit.Callbacks
 
   alias Aiur.{AgentPubSub, TrackerIdentity}
-  alias Aiur.TestSupport.{AwaitingCommands, LiveViewAsync}
+  alias Aiur.TestSupport.{AwaitingCommands, EndpointStubs, LiveViewAsync}
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
   alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
@@ -199,7 +199,7 @@ defmodule AiurWeb.BuildOrderLiveCase do
       )
       |> Keyword.merge(awaiting_commands_config(context))
 
-    Application.put_env(:aiur, Endpoint, endpoint_config)
+    Application.put_env(:aiur, Endpoint, EndpointStubs.scope(endpoint_config))
     Aiur.TestSupport.start_owned_endpoint!()
 
     on_exit(fn ->

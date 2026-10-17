@@ -7,7 +7,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   alias Aiur.{AgentChat, AgentControlCLI, Commands, ProviderMeterSnapshot}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
 
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
@@ -355,7 +355,7 @@ defmodule AiurWeb.StreamdeckChannel do
   end
 
   defp queue_ticket_fun do
-    case Endpoint.config(:streamdeck_implement_fun) do
+    case EndpointConfig.get(:streamdeck_implement_fun) do
       fun when is_function(fun, 1) -> fun
       _absent -> fn identifier -> AgentControlCLI.todo([identifier]) end
     end
@@ -365,7 +365,7 @@ defmodule AiurWeb.StreamdeckChannel do
   defp reason_text(reason), do: inspect(reason)
 
   defp pause_agent(identifier) do
-    case Endpoint.config(:agent_chat_pause_fun) do
+    case EndpointConfig.get(:agent_chat_pause_fun) do
       fun when is_function(fun, 1) -> fun.(identifier)
       _fun -> AgentChat.pause(identifier)
     end
@@ -384,7 +384,7 @@ defmodule AiurWeb.StreamdeckChannel do
   defp unsubscribe_focused(socket), do: socket
 
   defp transcript_flush_ms do
-    Endpoint.config(:streamdeck_transcript_flush_ms) ||
+    EndpointConfig.get(:streamdeck_transcript_flush_ms) ||
       Application.get_env(:aiur, Endpoint, []) |> Keyword.get(:streamdeck_transcript_flush_ms) || 250
   end
 

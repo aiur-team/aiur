@@ -5,6 +5,7 @@ defmodule AiurWeb.CodeownersTrustDashboardTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.GitHub.CodeOwners
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.ControlCenterCache
 
   @endpoint AiurWeb.Endpoint
@@ -60,7 +61,7 @@ defmodule AiurWeb.CodeownersTrustDashboardTest do
         control_center_cache: cache
       )
 
-    Application.put_env(:aiur, AiurWeb.Endpoint, config)
+    Application.put_env(:aiur, AiurWeb.Endpoint, EndpointStubs.scope(config))
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, AiurWeb.Endpoint, previous), else: Application.delete_env(:aiur, AiurWeb.Endpoint)

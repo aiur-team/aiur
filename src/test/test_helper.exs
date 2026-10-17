@@ -138,6 +138,8 @@ end
 
 Code.put_compiler_option(:no_warn_undefined, [])
 
+Aiur.TestSupport.EndpointStubs.init!()
+
 # Keep plain ExUnit.Case modules and between-case application timers from
 # publishing Orchestrator poll state or alerts into the suite-wide ledger.
 Aiur.TestSupport.quiesce_live_orchestrator()

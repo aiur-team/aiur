@@ -6,7 +6,7 @@ defmodule AiurWeb.StreamdeckFleetUpdates do
 
   @spec subscribe(:atomics.atomics_ref()) :: :ok | {:error, term()}
   def subscribe(latch) do
-    subscriber = AiurWeb.Endpoint.config(:streamdeck_fleet_subscribe_fun) || (&AgentPubSub.subscribe_fleet_refresh/1)
+    subscriber = AiurWeb.EndpointConfig.get(:streamdeck_fleet_subscribe_fun) || (&AgentPubSub.subscribe_fleet_refresh/1)
     subscriber.(latch)
   end
 
