@@ -11,3 +11,12 @@ for (const cell of PARITY_MATRIX) {
     } finally { await pair.close() }
   })
 }
+
+// C9-T03 enables these captures after the timeline render window lands.
+for (const region of ['sec-hist', 'sec-plan', 'sec-nq']) {
+  test.fixme(region, async ({ browser }) => {
+    const pair = await openParityPair(browser, PARITY_MATRIX[0])
+    try { await expectDesignParity(pair, { name: region, region: '#bd-' + region }) }
+    finally { await pair.close() }
+  })
+}

@@ -2,10 +2,13 @@
 """Prevent new oversized text files and growth of existing debt using Git blobs."""
 
 import argparse
+import os
 from pathlib import Path, PurePosixPath
 import subprocess
 import sys
 import tempfile
+
+from file_size_census import census, render
 
 LIMIT = 500
 # Tool-written lockfiles cannot be split. They may exceed LIMIT only when the tool reproduces them byte for byte.
@@ -13,6 +16,8 @@ LOCKFILE_REGEN = {
     'package-lock.json': ['npm', 'install', '--package-lock-only', '--ignore-scripts'],
     'bun.lock': ['bun', 'install', '--lockfile-only'],
 }
+SKILL_MOUNTS = ('.codex/skills', '.agents/skills')
+CLAUDE_SKILLS = '.claude/skills'
 
 
 def git(*args):
@@ -64,7 +69,7 @@ def lockfile_verified(head, path):
         return False
 
 
-def check(base, head):
+def trees(base, head):
     cache = {}
     with subprocess.Popen(['git', '-C', str(Path.cwd()), 'cat-file', '--batch'], stdin=subprocess.PIPE, stdout=subprocess.PIPE) as batch:
         try:
@@ -73,7 +78,39 @@ def check(base, head):
         finally:
             batch.stdin.close()
             batch.wait()
-    failures = 0
+    return before, after
+
+
+def check(base, head):
+    changed = subprocess.check_output(
+        ['git', '-C', str(Path.cwd()), 'diff', '--no-renames', '--diff-filter=ACDMRT', '--name-only', '-z', base, head]
+    ).split(b'\0')
+    added = set(subprocess.check_output(
+        ['git', '-C', str(Path.cwd()), 'diff', '--no-renames', '--diff-filter=A', '--name-only', '-z', base, head]
+    ).split(b'\0'))
+    mount_failures = 0
+    for path in changed:
+        if not path:
+            continue
+        name = path.decode('utf-8', errors='backslashreplace')
+        display_name = name.encode('unicode_escape').decode('ascii')
+        for mount in SKILL_MOUNTS:
+            if name == mount or name.startswith(mount + '/'):
+                if path in added:
+                    print(f'{display_name}: new tracked entry under mounted skill path {mount} is rejected')
+                    mount_failures += 1
+                break
+        else:
+            if name == CLAUDE_SKILLS or name.startswith(CLAUDE_SKILLS + '/'):
+                before = tree_entry(base, path)
+                after = tree_entry(head, path)
+                symlink = before == '120000' or after == '120000'
+                if symlink:
+                    print(f'{display_name}: tracked symlink under mounted skill path {CLAUDE_SKILLS} is rejected')
+                    mount_failures += 1
+
+    before, after = trees(base, head)
+    failures = mount_failures
     for path, current in sorted(after.items()):
         previous = before.get(path, 0)
         name = path.decode('utf-8', errors='backslashreplace')
@@ -99,15 +136,37 @@ def check(base, head):
     return int(bool(failures))
 
 
+def tree_entry(revision, path):
+    result = subprocess.run(
+        ['git', 'ls-tree', '-z', revision, '--', os.fsdecode(path)],
+        check=True, capture_output=True,
+    ).stdout
+    for entry in result.split(b'\0'):
+        if not entry:
+            continue
+        metadata, name = entry.split(b'\t', 1)
+        if name == path:
+            return metadata.split(b' ', 1)[0].decode('ascii')
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base', help='baseline commit (default: merge base with origin/main)')
     parser.add_argument('--head', default='HEAD', help='commit to check (default: HEAD)')
+    parser.add_argument('--census', nargs=2, metavar=('BASE', 'HEAD'), help='report tracked-text LOC by area, excluding moves from churn')
+    parser.add_argument('--json', action='store_true', help='emit census as JSON')
     args = parser.parse_args()
+    if args.json and not args.census:
+        parser.error('--json requires --census')
     try:
-        head = git('rev-parse', '--verify', f'{args.head}^{{commit}}').decode().strip()
-        base = args.base or git('merge-base', head, 'origin/main').decode().strip()
+        base_arg, head_arg = args.census or (args.base, args.head)
+        head = git('rev-parse', '--verify', f'{head_arg}^{{commit}}').decode().strip()
+        base = base_arg or git('merge-base', head, 'origin/main').decode().strip()
         base = git('rev-parse', '--verify', f'{base}^{{commit}}').decode().strip()
+        if args.census:
+            render(census(*trees(base, head), git, base, head), args.json)
+            return 0
         return check(base, head)
     except (subprocess.CalledProcessError, ValueError, OSError) as error:
         print(f'file size gate: base not available; fetch origin/main (or the supplied base); {error}', file=sys.stderr)

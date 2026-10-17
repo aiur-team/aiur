@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.AlertsTest do
         %{
           decision: :passed,
           pr_number: 77,
-          head_sha: "parked-head",
+          head_sha: "1234567890abcdef1234567890abcdef12345678",
           draft?: false,
           review_decision: "APPROVED",
           mergeable: "MERGEABLE",
@@ -38,6 +38,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.AlertsTest do
       assert_received {:parked_alert, ^ref, ^topic, opts}
       assert Keyword.get(opts, :needs_attention) == true
       assert Keyword.get(opts, :central) == true
+      assert Keyword.fetch!(opts, :message) =~ "`aiur pr merge 77 --reviewed-sha 1234567890abcdef1234567890abcdef12345678`"
+      refute Keyword.fetch!(opts, :message) =~ "gh pr merge"
       assert MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
     end
 

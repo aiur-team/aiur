@@ -3250,7 +3250,8 @@ defmodule AiurWeb.DashboardLiveTest do
     store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
 
     assert {:ok, %{decision: live_decision}} =
-             DecisionStore.request(
+             Aiur.DecisionStoreCase.request(
+               store,
                %{
                  "source_id" => "dashboard-dismiss-notify-live",
                  "question" => "Should the dashboard ship this change?",
@@ -3259,11 +3260,8 @@ defmodule AiurWeb.DashboardLiveTest do
                  "reversibility" => "reversible",
                  "options" => [%{"id" => "ship", "label" => "Ship it"}]
                },
-               [
-                 ticket: %{identifier: "987", title: "Operator Control Center", url: nil},
-                 source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-dismiss-notify-live"}
-               ],
-               store
+               ticket: %{identifier: "987", title: "Operator Control Center", url: nil},
+               source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-dismiss-notify-live"}
              )
 
     start_test_endpoint(
@@ -3296,7 +3294,8 @@ defmodule AiurWeb.DashboardLiveTest do
     :sys.replace_state(orchestrator, &%{&1 | running: %{}})
 
     assert {:ok, %{decision: gone_decision}} =
-             DecisionStore.request(
+             Aiur.DecisionStoreCase.request(
+               store,
                %{
                  "source_id" => "dashboard-dismiss-notify-gone",
                  "question" => "Should the dashboard ship this change?",
@@ -3305,11 +3304,8 @@ defmodule AiurWeb.DashboardLiveTest do
                  "reversibility" => "reversible",
                  "options" => [%{"id" => "ship", "label" => "Ship it"}]
                },
-               [
-                 ticket: %{identifier: "988", title: "Operator Control Center", url: nil},
-                 source: %{agent_id: "agent-988", session_id: "session-988", event_id: "event-dismiss-notify-gone"}
-               ],
-               store
+               ticket: %{identifier: "988", title: "Operator Control Center", url: nil},
+               source: %{agent_id: "agent-988", session_id: "session-988", event_id: "event-dismiss-notify-gone"}
              )
 
     {:ok, gone_view, _html} = live(build_conn(), "/commands/#{gone_decision.decision_id}")
@@ -6300,7 +6296,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
   defp request_api_decision(store, source_id, authority, opts \\ []) do
     assert {:ok, %{decision: decision}} =
-             DecisionStore.request(
+             Aiur.DecisionStoreCase.request(
+               store,
                %{
                  "source_id" => source_id,
                  "question" => "Choose #{source_id}?",
@@ -6315,8 +6312,7 @@ defmodule AiurWeb.DashboardLiveTest do
                    source: %{agent_id: "agent-984", session_id: "session-984", event_id: "event-#{source_id}"}
                  ],
                  opts
-               ),
-               store
+               )
              )
 
     decision
@@ -6327,7 +6323,7 @@ defmodule AiurWeb.DashboardLiveTest do
              DecisionStore.request(
                %{
                  "source_id" => source_id,
-                 "question" => "Should the dashboard ship this change?",
+                 "question" => Aiur.DecisionStoreCase.question_with_identity("Should the dashboard ship this change?", source_id),
                  "blocking" => true,
                  "urgency" => "critical",
                  "reversibility" => "reversible",
@@ -6413,7 +6409,7 @@ defmodule AiurWeb.DashboardLiveTest do
     request =
       %{
         "source_id" => source_id,
-        "question" => "Should the dashboard ship this change?",
+        "question" => Aiur.DecisionStoreCase.question_with_identity("Should the dashboard ship this change?", source_id),
         "blocking" => blocking?,
         "urgency" => "critical",
         "reversibility" => reversibility,

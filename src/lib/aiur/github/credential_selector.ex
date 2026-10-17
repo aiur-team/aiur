@@ -278,6 +278,7 @@ defmodule Aiur.GitHub.CredentialSelector do
         request
         |> Map.put(:token, token)
         |> Map.put(:credential_id, credential.id)
+        |> Map.put(:credential_class, credential_class(credential))
         |> Map.put(:credential_key, Credential.identity_key(credential))
 
       _unavailable ->
@@ -287,13 +288,21 @@ defmodule Aiur.GitHub.CredentialSelector do
 
   defp attach_accounting_identity(request, credential) do
     if Credential.token(credential) == Map.get(request, :token),
-      do: Map.put(request, :credential_key, Credential.identity_key(credential)),
+      do:
+        request
+        |> Map.put(:credential_id, credential.id)
+        |> Map.put(:credential_class, credential_class(credential))
+        |> Map.put(:credential_key, Credential.identity_key(credential)),
       else: request
   end
 
   defp attach_pinned_identity(request, credential) do
     request
     |> Map.put(:credential_id, credential.id)
+    |> Map.put(:credential_class, credential_class(credential))
     |> Map.put(:credential_key, Credential.identity_key(credential))
   end
+
+  defp credential_class(%Credential{kind: :app_installation}), do: "github_app_installation"
+  defp credential_class(%Credential{}), do: "github_token"
 end

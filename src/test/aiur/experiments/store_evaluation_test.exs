@@ -12,7 +12,7 @@ defmodule Aiur.Experiments.StoreEvaluationTest do
     previous = Application.get_env(:aiur, :experiments_dir)
     Application.put_env(:aiur, :experiments_dir, Path.join(root, "state"))
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
     source = %{"kind" => "event_interval", "start" => "job.started", "end" => "job.finished", "unit_key" => "/id", "attrs" => %{"complexity" => "/complexity"}}
     metric = %{id: "latency", label: "Latency", unit: "ms", unit_of_analysis: "job", kind: "duration", better: "lower", default_direction: "decrease", group: "flow", requires: [], source: source}
     pack = %{schema_version: 1, id: "app", version: "1", metrics: [metric]}
@@ -102,6 +102,21 @@ defmodule Aiur.Experiments.StoreEvaluationTest do
     send(evaluator, :release)
     assert Task.await(freeze) == {:error, :stale_preparation}
     assert {:ok, nil} = Snapshot.latest(spec.id, "before")
+  end
+
+  test "create runs under task supervision and timeout leaves no experiment", %{controller: controller, writer: writer} do
+    Agent.update(controller, fn _ -> :hold end)
+    create = Task.async(fn -> Experiments.create(attrs()) end)
+    assert_receive {:evaluating, evaluator}, 1_000
+    assert evaluator in Task.Supervisor.children(Aiur.TaskSupervisor)
+    refute evaluator == writer
+    refute File.exists?(Paths.experiment("freeze-fixture"))
+    state = :sys.get_state(writer)
+    send(writer, {:evaluation_timeout, state.evaluation.token})
+    assert Task.await(create) == {:error, :evaluation_timeout}
+    refute File.exists?(Paths.experiment("freeze-fixture"))
+    assert {:ok, []} = Paths.ids()
+    assert Process.alive?(writer)
   end
 
   test "deadline kills the evaluator and refuses late persistence", %{controller: controller, writer: writer} do

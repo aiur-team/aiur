@@ -1,6 +1,12 @@
 # Build Orders
 
-A Build Order turns a large feature into typed members, lanes, phases, dependencies, complexity, and optional icons.
+The repository has one [continuous build](./build-history), with feature
+collections added over time. New features join it through collection membership,
+native prerequisites, and the build queue; they do not create standalone roots.
+
+Existing Build Orders retain their typed members, lanes, phases, dependencies,
+complexity, and optional icons as readable planning history. The pack and root
+commands below describe those legacy artifacts.
 
 ## Pack contents
 
@@ -66,6 +72,10 @@ Draft members carry local ticket document paths and no invented GitHub issue URL
 
 <img src="/images/dashboard/build-orders-dark.png" alt="Desktop Build Order graph with synthetic example member tickets">
 
+The Analytics pane shows an **Optimistic starts** tile when member telemetry records early starts. It counts redone and discarded work and reports head start (the interval from dependent start to blocker merge, floored at zero), never time saved.
+
+Missing head-start evidence is shown as unknown. A parked optimistic member stays `optimistic_parked` in the lifecycle chart until it resumes.
+
 ## The repository state node
 
 Aiur separates the repository's tracked code from daemon-owned state under `~/.aiur/repo/<owner>/<repo>/`.
@@ -74,8 +84,14 @@ Aiur separates the repository's tracked code from daemon-owned state under `~/.a
 | --- | --- |
 | `latest/` | Aiur-managed warm clone of the configured base branch. |
 | `builds/` | State-node Build Order packs, daemon status projections, and cross-boot build summaries. |
-| `analytics/` | Telemetry summaries, including `runs/<boot-id>/run-summary.json`. |
+| `experiments/` | Experiment specs, snapshots and the capped `deploys.ndjson` boot ledger. |
+| `analytics/` | Run summaries, durable `tickets/<ticket>.json`, and `repo-timeline.ndjson` facts when captured. |
 | `meta/` | Executor findings at `findings.ndjson` and narrative retrospectives at `retros/<boot-id>.md`. |
+
+From a checkout, `analytics/ledger-backfill --since 2026-09-15 --repo owner/name`
+rebuilds durable ticket records from retained launches and fetches missing PR facts.
+Use `--no-facts` for offline replay. Missing milestones stay unavailable; records
+already materialized survive raw-log retention.
 
 These paths are machine-local. Do not commit them, and do not expect copying a repository to copy its run state.
 
@@ -124,6 +140,14 @@ For a list queue, if `queue add` finds `agent:todo` already present, the saved m
 Adoption brings pre-labelled blocked members under queue control: the queue holds dispatch, checks claims, then removes `agent:todo` only from unclaimed members with known unmet prerequisites. Claimed members keep their labels. Unadoption removes queue membership and `agent:queued`, preserving other labels.
 
 Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
+
+### Feature sets
+
+A queue is a feature set: dispatch fills capacity in set rank order. Spare capacity spreads into the next set so one deliverable can finish while another starts.
+
+`build_queue.set_order` selects `ranked` (default) or `none`; `max_active_sets` caps unfinished sets, and `spill_reserve_slots` reserves slots for the earliest unfinished set. `aiur queue order` adjusts ranks; holds stop sets. `NEXT` marks dispatch's selected set.
+
+Queue summaries show ready and startable counts plus the largest blocker by downstream count. Cached GitHub blockers appear as `waiting on #N (github)`; cache misses do not fetch. `queue order` compares ranks with Build Order root dependency order.
 
 The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
 
@@ -276,3 +300,5 @@ In A ← B ← C, C updates only after B pushes. A live dependent pulls itself. 
 A conflict dispatches rework with `upstream_conflict`, the blocker PR and paths, and leaves descendants untouched until the fixed branch pushes.
 
 Pushes coalesce per dependent for two seconds, with two propagations at most in flight; a newer dependent push supersedes older pending work. Every successful propagation may trigger CI on its PR; existing draft workflow rules still apply.
+
+Add `experiment:feature` to a root issue to [measure the feature](/concepts/experiments#measuring-a-feature) from its first member merge through go-live.

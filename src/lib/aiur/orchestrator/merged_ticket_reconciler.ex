@@ -29,7 +29,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   state. A failed open-PR lookup never closes the ticket.
   """
   alias Aiur.{Alerts, Issue, RecentMerge, RecentMergeStore}
-  alias Aiur.Orchestrator.{CommentWake, Lifecycle, OptimisticLedger, PushRouting, Reconciler, ReworkGate, State, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.{Lifecycle, OptimisticLedger, PushRouting, Reconciler, ReworkGate, State, TicketTransition, TrackerTasks}
 
   require Logger
 
@@ -152,10 +152,10 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
         blocked_before = PushRouting.merged_ticket_blockee_count(state, issue.identifier)
 
         state =
-          CommentWake.mark_pr_merged_issue_done(
+          __MODULE__.StrandedWork.mark_merged(
             state,
             issue.identifier,
-            merged_ticket_opts(merge, opts)
+            Keyword.merge(merged_ticket_opts(merge, opts), head_sha: merge.head_sha, pr_number: merge.number)
           )
 
         blocked_after = PushRouting.merged_ticket_blockee_count(state, issue.identifier)

@@ -8,8 +8,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.RouteState
 
+  @late_after_ms 5_000
+
   attr(:route_state, :any, required: true)
   attr(:now, :any, required: true)
+  attr(:catalog_wait_ms, :integer, required: true)
+  attr(:catalog_read_failed?, :boolean, default: false)
 
   @spec build_order_catalog(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_catalog(assigns) do
@@ -23,10 +27,22 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
           Refresh catalog
         </button>
       </div>
-      <.catalog_entries snapshot={RouteState.catalog_snapshot(@route_state)} />
+      <.catalog_entries
+        snapshot={RouteState.catalog_snapshot(@route_state)}
+        catalog_wait_ms={@catalog_wait_ms}
+        catalog_read_failed?={@catalog_read_failed?}
+      />
     </section>
     """
   end
+
+  @spec catalog_state(term(), non_neg_integer(), boolean()) ::
+          :loading | :late | :read_failed | :stale_lkg | :invalid_lkg | :empty | :ready | :stale | :invalid | :unavailable
+  def catalog_state(snapshot, wait_ms, read_failed? \\ false)
+  def catalog_state(nil, _wait_ms, true), do: :read_failed
+  def catalog_state(nil, wait_ms, _read_failed?) when wait_ms >= @late_after_ms, do: :late
+  def catalog_state(nil, _wait_ms, _read_failed?), do: :loading
+  def catalog_state(snapshot, _wait_ms, _read_failed?), do: catalog_state(snapshot)
 
   @spec catalog_state(term()) :: :loading | :stale_lkg | :invalid_lkg | :empty | :ready | :stale | :invalid | :unavailable
   def catalog_state(nil), do: :loading
@@ -46,6 +62,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   def catalog_state(_snapshot), do: :unavailable
 
   attr(:snapshot, :any, default: nil)
+  attr(:catalog_wait_ms, :integer, default: 0)
+  attr(:catalog_read_failed?, :boolean, default: false)
 
   defp catalog_entries(%{snapshot: %Snapshot{data: %Catalog{entries: entries} = catalog} = snapshot} = assigns) do
     assigns =
@@ -128,12 +146,13 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   end
 
   defp catalog_entries(assigns) do
-    assigns = assign(assigns, :catalog_state, catalog_state(assigns.snapshot))
+    assigns = assign(assigns, :catalog_state, catalog_state(assigns.snapshot, assigns.catalog_wait_ms, assigns.catalog_read_failed?))
+    assigns = assign(assigns, :catalog_wait_seconds, div(assigns.catalog_wait_ms, 1_000))
 
     ~H"""
     <div class="bo-state-card" role={catalog_state_role(@catalog_state)}>
       <h3>{catalog_state_title(@catalog_state)}</h3>
-      <p>{catalog_state_message(@catalog_state)}</p>
+      <p>{catalog_state_message(@catalog_state, @catalog_wait_seconds)}</p>
     </div>
     """
   end
@@ -310,15 +329,22 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   defp catalog_notice(_snapshot), do: nil
 
   defp catalog_state_title(:loading), do: "Loading Build Orders"
+  defp catalog_state_title(:late), do: "Build Order catalog is taking longer than expected"
+  defp catalog_state_title(:read_failed), do: "Build Order catalog read failed"
   defp catalog_state_title(:stale), do: "Build Order list is unavailable"
   defp catalog_state_title(:invalid), do: "Build Order list is unreadable"
   defp catalog_state_title(_state), do: "No Build Order list"
 
-  defp catalog_state_message(:loading), do: "Waiting for the first list of Build Orders."
-  defp catalog_state_message(:stale), do: "The list of Build Orders is not available right now."
-  defp catalog_state_message(:invalid), do: "The list of Build Orders came back unreadable."
-  defp catalog_state_message(_state), do: "No readable list of Build Orders is available."
+  defp catalog_state_message(:loading, _wait_seconds), do: "Waiting for the first list of Build Orders."
+  defp catalog_state_message(:late, wait_seconds), do: "No Build Order list has arrived after #{wait_seconds} seconds. Waiting for the first list."
 
-  defp catalog_state_role(:invalid), do: "alert"
+  defp catalog_state_message(:read_failed, wait_seconds),
+    do: "The catalog read returned no Build Order list after #{wait_seconds} seconds. Refresh catalog to retry."
+
+  defp catalog_state_message(:stale, _wait_seconds), do: "The list of Build Orders is not available right now."
+  defp catalog_state_message(:invalid, _wait_seconds), do: "The list of Build Orders came back unreadable."
+  defp catalog_state_message(_state, _wait_seconds), do: "No readable list of Build Orders is available."
+
+  defp catalog_state_role(state) when state in [:invalid, :read_failed], do: "alert"
   defp catalog_state_role(_state), do: "status"
 end

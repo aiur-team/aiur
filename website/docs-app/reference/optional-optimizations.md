@@ -24,11 +24,11 @@ A personal access token shares the operator account's rate-limit budget and make
 
 ### When you want it
 
-You run a long-lived daemon, poll heavily enough to feel PAT rate limits, or want the daemon's API writes attributed to a bot (`<app-slug>[bot]`) instead of your personal account. Budget and credential-pooling details are in [API budgets](/apis/github#api-budgets).
+You run a long-lived daemon, poll heavily enough to feel PAT rate limits, or want the daemon's API writes attributed to a bot (`<app-slug>[bot]`) instead of your personal account. Budget and credential-pooling details are in [API budgets](/apis/github-budgets#api-budgets).
 
 ### Configuration
 
-Set three environment variables and one config key; the full setup (permissions, token lifecycle) is in [GitHub App authentication](/apis/github#github-app-authentication).
+Set three environment variables and one config key; the full setup (permissions, token lifecycle) is in [GitHub App authentication](/apis/github-auth#github-app-authentication).
 
 | Variable | Purpose |
 | --- | --- |
@@ -55,7 +55,7 @@ Poll latency. By default the daemon reconciles GitHub state on a poll cadence, s
 
 You want events to arrive immediately and to save the poll spend that would buy them. Base `polling.interval_seconds` is 120s; `webhooks.poll_widen_factor` 2.0 puts a proven repo on a 240s sweep, composing with the idle widen (5.0) to 1,200s.
 
-The daemon read-cache TTL rises from 30s to one hour on a proven repo for comment and issue reads; repository-configuration reads (`:repo_config`) rise from five minutes to one hour — see [Optional webhook](/apis/github#optional-webhook).
+The daemon read-cache TTL rises from 30s to one hour on a proven repo for comment and issue reads; repository-configuration reads (`:repo_config`) rise from five minutes to one hour — see [Optional webhook](/apis/github-webhooks#optional-webhook).
 
 ### Configuration
 
@@ -74,11 +74,11 @@ The daemon read-cache TTL rises from 30s to one hour on a proven repo for commen
        - owner/repo
    ```
 
-3. Pin `server.port` to a fixed value, then point the tunnel at whatever address the daemon actually bound — `127.0.0.1` on that port by default, or the `server.host` address if you pinned one. The default `server.port: 0` binds a fresh OS port every boot, so a tunnel aimed at a guessed port finds nothing; and an origin the daemon is not listening on (loopback or otherwise) returns `502`. Serve only `/api/v1/github/webhook` and finish the ingress list with a catch-all `404`; the same origin serves the operator dashboard, and a host-wide tunnel would expose it. See [Cloudflare tunnel boundary](/apis/github#cloudflare-tunnel-boundary).
+3. Pin `server.port` to a fixed value, then point the tunnel at whatever address the daemon actually bound — `127.0.0.1` on that port by default, or the `server.host` address if you pinned one. The default `server.port: 0` binds a fresh OS port every boot, so a tunnel aimed at a guessed port finds nothing; and an origin the daemon is not listening on (loopback or otherwise) returns `502`. Serve only `/api/v1/github/webhook` and finish the ingress list with a catch-all `404`; the same origin serves the operator dashboard, and a host-wide tunnel would expose it. See [Cloudflare tunnel boundary](/apis/github-auth#cloudflare-tunnel-boundary).
 
 4. Give the tunnel a public hostname you control and set GitHub's webhook payload URL to `https://<your-host>/api/v1/github/webhook` (`hooks.aiur.dev` is one operator's choice, not a requirement). Without a domain, `cloudflared tunnel --url` (quick tunnels) exposes the daemon on a temporary public URL — fine for a single session, gone when the process exits.
 
-Without public ingress, polling is the default mode and degrades cleanly: a repo that is configured but never delivers keeps polling at the full interval, and a repo that goes silent returns to full polling and raises an attention. Delivery states are in [Optional webhook](/apis/github#optional-webhook).
+Without public ingress, polling is the default mode and degrades cleanly: a repo that is configured but never delivers keeps polling at the full interval, and a repo that goes silent returns to full polling and raises an attention. Delivery states are in [Optional webhook](/apis/github-webhooks#optional-webhook).
 
 ## Tailscale
 
@@ -172,7 +172,7 @@ The "codex → claude" pairing is the automatic rate-limit reroute, not the defa
 
 ### Configuration
 
-Set `agent.priority` in `.aiur/config` and provide the matching provider keys via `agent.backend_configs.<backend>.api_key_env`. See [agent](/reference/configuration#agent) for the full key.
+Set `agent.priority` in `.aiur/config` and provide the matching provider keys via `agent.backend_configs.<backend>.api_key_env`. See [agent](/reference/configuration-agent#agent) for the full key.
 
 ## What you lose by skipping everything
 

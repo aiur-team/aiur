@@ -1,0 +1,9 @@
+{
+  "from": "control-cli",
+  "to_module": "Aiur.GitHubCostCLI",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/agent_control_cli.ex"
+  ],
+  "reason": "MP-R1-C7-T06 (#3301): CLI routes into the existing GitHub-owned command facade"
+}

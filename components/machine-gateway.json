@@ -1,8 +1,8 @@
 {
   "id": "machine-gateway",
-  "name": "Machine gateway process and the `aiur_machine` store library (MP-N2)",
+  "name": "Machine gateway",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [],
   "facades": [
     "*"
@@ -19,5 +19,16 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Gives paired devices access to machine settings and available Aiur instances.",
+  "status": "planned",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-N2"
 }

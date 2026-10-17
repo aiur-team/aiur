@@ -10,9 +10,32 @@ defmodule Aiur.BuildQueue.Attention do
   alias Aiur.BuildQueue.Store
   alias Aiur.Signal
 
-  @ticket_causes [:prerequisite_failed, :dependency_changed_after_start, :promoted_unauthorized, :write_failed, :merged_issue_open, :optimistic_blocker_failed]
-  @system_causes [:inputs_unavailable, :store_unavailable]
-  @fields [:ticket, :prerequisite, :queue_id, :root, :blocked, :cause, :milestone, :percent, :generation, :freshness, :blocker, :action, :started, :severity]
+  @ticket_causes [
+    :prerequisite_failed,
+    :dependency_changed_after_start,
+    :promoted_unauthorized,
+    :write_failed,
+    :merged_issue_open,
+    :optimistic_blocker_failed
+  ]
+  @system_causes [:inputs_unavailable, :store_unavailable, :focus_starved]
+  @fields [
+    :ticket,
+    :prerequisite,
+    :queue_id,
+    :root,
+    :blocked,
+    :cause,
+    :milestone,
+    :percent,
+    :generation,
+    :freshness,
+    :blocker,
+    :action,
+    :started,
+    :severity,
+    :members
+  ]
 
   @spec open(atom() | tuple(), String.t() | nil, map()) :: :ok | {:error, term()}
   @spec open(atom() | tuple(), String.t() | nil, map(), keyword()) :: :ok | {:error, term()}
@@ -25,7 +48,14 @@ defmodule Aiur.BuildQueue.Attention do
     with :ok <- validate_open(kind(cause), subject, payload),
          {:ok, document} <- store.load() do
       key = {cause, subject}
-      latch = Enum.find(document.latches, &(&1.key == key)) || %Latch{key: key, opened_at_ms: Keyword.get_lazy(opts, :now_ms, fn -> System.system_time(:millisecond) end)}
+
+      latch =
+        Enum.find(document.latches, &(&1.key == key)) ||
+          %Latch{
+            key: key,
+            opened_at_ms: Keyword.get_lazy(opts, :now_ms, fn -> System.system_time(:millisecond) end)
+          }
+
       open_latch(document, latch, payload, store)
     end
   end
@@ -58,11 +88,19 @@ defmodule Aiur.BuildQueue.Attention do
     {cause, subject} = latch.key
 
     with :ok <- emit(kind(cause), subject, %{}, true) do
-      save_store(store, %{document | latches: Enum.reject(document.latches, &(&1.key == latch.key))})
+      save_store(store, %{
+        document
+        | latches: Enum.reject(document.latches, &(&1.key == latch.key))
+      })
     end
   end
 
-  defp save_latch(document, latch, store), do: save_store(store, %{document | latches: [latch | Enum.reject(document.latches, &(&1.key == latch.key))]})
+  defp save_latch(document, latch, store),
+    do:
+      save_store(store, %{
+        document
+        | latches: [latch | Enum.reject(document.latches, &(&1.key == latch.key))]
+      })
 
   defp save_store(store, document) do
     case store.save(document) do
@@ -74,22 +112,37 @@ defmodule Aiur.BuildQueue.Attention do
   @spec transient_store(boolean()) :: :ok | {:error, term()}
   def transient_store(resolved?), do: emit(:store_unavailable, nil, %{}, resolved?)
 
-  @spec transient(atom() | tuple(), String.t(), map(), boolean()) :: :ok | {:error, term()}
+  @spec transient(atom() | tuple(), String.t() | nil, map(), boolean()) :: :ok | {:error, term()}
   def transient(cause, subject, payload, resolved? \\ false) do
     payload = Map.take(payload, @fields)
-    validate = if resolved?, do: validate(kind(cause), subject, payload), else: validate_open(kind(cause), subject, payload)
+
+    validate =
+      if resolved?,
+        do: validate(kind(cause), subject, payload),
+        else: validate_open(kind(cause), subject, payload)
+
     with :ok <- validate, do: emit(kind(cause), subject, payload, resolved?)
   end
 
-  defp kind({:prerequisite_failed, reason}) when reason in [:agent_error, :pr_closed_unmerged, :not_planned, :duplicate], do: :prerequisite_failed
-  defp kind({:optimistic_blocker_failed, reason}) when reason in [:trouble, :churn], do: :optimistic_blocker_failed
+  defp kind({:prerequisite_failed, reason})
+       when reason in [:agent_error, :pr_closed_unmerged, :not_planned, :duplicate],
+       do: :prerequisite_failed
+
+  defp kind({:optimistic_blocker_failed, reason}) when reason in [:trouble, :churn],
+    do: :optimistic_blocker_failed
+
   defp kind(cause), do: cause
 
   # One signal-port seam; only the local feed gets the human-readable copy.
   defp emit(cause, subject, payload, resolved?) do
     prefix = if subject, do: "ticket.#{subject}", else: "system"
-    topic = "#{prefix}.queue.attention.#{cause}" <> if(resolved?, do: ".resolved", else: "")
-    message = if resolved?, do: "Queue attention #{cause} cleared#{if subject, do: " for ##{subject}", else: ""}.", else: message(cause, subject, payload)
+    attention = if cause == :focus_starved, do: "queue.focus_starved", else: "queue.attention.#{cause}"
+    topic = "#{prefix}.#{attention}" <> if(resolved?, do: ".resolved", else: "")
+
+    message =
+      if resolved?,
+        do: "Queue attention #{cause} cleared#{if subject, do: " for ##{subject}", else: ""}.",
+        else: message(cause, subject, payload)
 
     Signal.alert(topic,
       message: message,
@@ -103,27 +156,61 @@ defmodule Aiur.BuildQueue.Attention do
     )
   end
 
-  defp validate_open(:optimistic_blocker_failed, _subject, payload) when map_size(payload) == 0, do: {:error, :invalid_attention}
+  defp validate_open(:optimistic_blocker_failed, _subject, payload) when map_size(payload) == 0,
+    do: {:error, :invalid_attention}
+
   defp validate_open(cause, subject, payload), do: validate(cause, subject, payload)
 
   defp validate(cause, subject, payload) do
-    valid_scope = (cause in @ticket_causes and is_binary(subject) and issue?(subject)) or (cause in @system_causes and is_nil(subject))
-    if valid_scope and valid_optimistic?(cause, payload) and Enum.all?(payload, &valid_field?/1), do: :ok, else: {:error, :invalid_attention}
+    valid_scope =
+      (cause in @ticket_causes and is_binary(subject) and issue?(subject)) or
+        (cause in @system_causes and is_nil(subject))
+
+    if valid_scope and valid_optimistic?(cause, payload) and Enum.all?(payload, &valid_field?/1),
+      do: :ok,
+      else: {:error, :invalid_attention}
   end
 
-  defp valid_optimistic?(:optimistic_blocker_failed, payload) when map_size(payload) > 0, do: Enum.all?([:blocker, :cause, :action], &Map.has_key?(payload, &1))
+  defp valid_optimistic?(:optimistic_blocker_failed, payload) when map_size(payload) > 0,
+    do: Enum.all?([:blocker, :cause, :action], &Map.has_key?(payload, &1))
+
   defp valid_optimistic?(_cause, _payload), do: true
 
   defp issue?(value) when is_binary(value), do: Regex.match?(~r/\A[1-9][0-9]*\z/, value)
   defp issue?(value), do: is_integer(value) and value > 0
-  defp valid_field?({key, value}) when key in [:ticket, :prerequisite, :root, :blocker], do: issue?(value)
-  defp valid_field?({key, value}) when key in [:blocked, :started] and is_list(value), do: Enum.all?(value, &issue?/1)
-  defp valid_field?({:queue_id, value}) when is_binary(value), do: Regex.match?(~r/\Aq-[0-9a-f]{4}\z/, value)
-  defp valid_field?({:cause, value}), do: value in (@ticket_causes ++ @system_causes ++ [:agent_error, :pr_closed_unmerged, :not_planned, :duplicate, :edge_removed, :paused, :parked, :todo, :churn])
+
+  defp valid_field?({key, value}) when key in [:ticket, :prerequisite, :root, :blocker],
+    do: issue?(value)
+
+  defp valid_field?({key, value}) when key in [:blocked, :started, :members] and is_list(value),
+    do: Enum.all?(value, &issue?/1)
+
+  defp valid_field?({:queue_id, value}) when is_binary(value),
+    do: Regex.match?(~r/\Aq-[0-9a-f]{4}\z/, value)
+
+  defp valid_field?({:cause, value}),
+    do:
+      value in (@ticket_causes ++
+                  @system_causes ++
+                  [
+                    :agent_error,
+                    :pr_closed_unmerged,
+                    :not_planned,
+                    :duplicate,
+                    :edge_removed,
+                    :paused,
+                    :parked,
+                    :todo,
+                    :churn
+                  ])
+
   defp valid_field?({:milestone, value}), do: value in [25, 50, 75, 100]
   defp valid_field?({:percent, value}), do: is_integer(value) and value in 0..100
   defp valid_field?({:generation, value}), do: is_integer(value) and value >= 0
-  defp valid_field?({:freshness, value}), do: value in [:current, :fresh, :stale, :unknown, :unavailable]
+
+  defp valid_field?({:freshness, value}),
+    do: value in [:current, :fresh, :stale, :unknown, :unavailable]
+
   defp valid_field?({:action, value}), do: value in [:paused_parked, :parked, :none]
   defp valid_field?({:severity, value}), do: value in ["info", "warning"]
   defp valid_field?(_), do: false
@@ -150,7 +237,9 @@ defmodule Aiur.BuildQueue.Attention do
   end
 
   defp message(:dependency_changed_after_start, subject, payload) do
-    prerequisite = if payload[:prerequisite], do: " (prerequisite ##{payload[:prerequisite]})", else: ""
+    prerequisite =
+      if payload[:prerequisite], do: " (prerequisite ##{payload[:prerequisite]})", else: ""
+
     "##{subject} became unready after it started#{prerequisite}. Decide whether it pauses; ask the human if unsure."
   end
 
@@ -182,9 +271,21 @@ defmodule Aiur.BuildQueue.Attention do
     "##{subject} started on ##{payload[:blocker]} before it merged; ##{payload[:blocker]} #{cause}. #{action} Choose: wait for a replacement blocker, re-base ##{subject} on the default branch and resume it, or close it."
   end
 
-  defp message(:promoted_unauthorized, subject, _), do: "##{subject} is ready but dispatch is not authorized for it. An allowed human must apply the marker or agent:todo, or hold it."
-  defp message(:merged_issue_open, subject, _), do: "The PR for ##{subject} merged; the issue is still open. Close it or explain why it stays open."
-  defp message(:inputs_unavailable, _, _), do: "Queue readiness unknown: inputs unavailable. Wait; do not promote by hand."
-  defp message(:store_unavailable, _, _), do: "Queue store unavailable; promotion paused. Report it; do not edit labels by hand."
-  defp message(:write_failed, subject, _), do: "Cannot write queue labels on ##{subject}. Check GitHub budget and auth; retry with aiur queue recover."
+  defp message(:promoted_unauthorized, subject, _),
+    do: "##{subject} is ready but dispatch is not authorized for it. An allowed human must apply the marker or agent:todo, or hold it."
+
+  defp message(:merged_issue_open, subject, _),
+    do: "The PR for ##{subject} merged; the issue is still open. Close it or explain why it stays open."
+
+  defp message(:inputs_unavailable, _, _),
+    do: "Queue readiness unknown: inputs unavailable. Wait; do not promote by hand."
+
+  defp message(:store_unavailable, _, _),
+    do: "Queue store unavailable; promotion paused. Report it; do not edit labels by hand."
+
+  defp message(:focus_starved, _, payload),
+    do: "Focus queue has startable members #{Enum.map_join(Map.get(payload, :members, []), ", ", &"##{&1}")} while lower-ranked sets hold slots."
+
+  defp message(:write_failed, subject, _),
+    do: "Cannot write queue labels on ##{subject}. Check GitHub budget and auth; retry with aiur queue recover."
 end

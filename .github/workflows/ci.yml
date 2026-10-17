@@ -1,32 +1,28 @@
 name: ci
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   # The merge queue requires checks on its candidate ref (#1381).
   merge_group:
   push:
-    branches: [v2]
+    branches: [main, v2]
+  schedule:
+    - cron: '23 7 * * *'
   # Manual head checks when pull_request synchronize does not create runs (#2397).
   workflow_dispatch:
 # Initial PR runs supersede each other; queue groups and reruns stay independent.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
-# Job timeouts (#2461): 3-4x observed duration; re-measure when profiles change.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && (github.event.action != 'labeled' || github.event.label.name == 'ci:full') }}
 jobs:
-  # PRs run fast checks regardless of draft state. Full CI runs in the queue
-  # or when the base's merge_policy label/path overrides demand it on a PR.
+  # PRs run fast checks unless ci:full or base policy opts into the full set.
   # Only ci gate is required: it rejects skipped jobs in the selected set.
   changes:
     name: changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      docs_only: ${{ steps.classify.outputs.docs_only }}
-      full_ci: ${{ steps.classify.outputs.full_ci }}
+    permissions: { contents: read, pull-requests: read }
+    outputs: {docs_only: "${{ steps.classify.outputs.docs_only }}", full_ci: "${{ steps.classify.outputs.full_ci }}", dialyzer: "${{ steps.classify.outputs.dialyzer }}", affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -36,10 +32,7 @@ jobs:
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Set up Elixir for selection
-        uses: erlef/setup-beam@e6d7c94229049569db56a7ad5a540c051a010af9 # v1.20.4
-        with:
-          otp-version: '28'
-          elixir-version: '1.19.5'
+        uses: ./.github/actions/setup-elixir
       - name: Classify the changed paths
         id: classify
         env:
@@ -48,15 +41,27 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: bash scripts/classify-ci-changes.sh
-  workflow-security:
+  pre-handoff:
     needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions: { contents: read }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: { fetch-depth: 0 }
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - uses: ./.github/actions/pre-handoff
+  workflow-security:
+    needs: [changes, pre-handoff]
     if: ${{ !cancelled() && needs.changes.result == 'success' }}
     name: workflow security
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -65,22 +70,8 @@ jobs:
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up Elixir for evidence and classifier tests
-        uses: erlef/setup-beam@e6d7c94229049569db56a7ad5a540c051a010af9 # v1.20.4
-        with:
-          otp-version: '28'
-          elixir-version: '1.19.5'
-      - name: Check PR body and local-test evidence
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr-evidence.json"
-          python3 scripts/check-pr-body.py --pr-json "$RUNNER_TEMP/pr-evidence.json" --base "$PR_BASE"
       - name: Guard workflow triggers, action pins and PR body rollout
-        run: bash scripts/test-workflow-security.sh && python3 scripts/test-check-pr-body.py && python3 scripts/check-hot-list-format.py && python3 scripts/test-hot-list-format.py
+        run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
       - name: Test human-only merge ruleset verifier
@@ -107,20 +98,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/verify-human-only-merge-ruleset-live.sh
-      - name: Structural guards
-        run: python3 scripts/check-bare-assert-receive.py && python3 scripts/check-on-exit-rm-rf.py && python3 scripts/check-config-docs.py && node scripts/check-docs-prose.mjs
-      - name: Test rename preflight
-        run: make test-rename-preflight
+      - name: Test rename preflight and plan refresh
+        run: make test-rename-preflight && python3 -I scripts/test_plan_refresh.py
       - name: Test config documentation and design extract guards
-        run: bash scripts/test-check-config-docs.sh && bash scripts/test-check-design-extract.sh
-      - name: Test component manifest guard
-        run: bash scripts/test-check-components.sh
+        run: bash scripts/test-check-config-docs.sh && python3 scripts/test-generate-reference-tables.py && bash scripts/test-check-design-extract.sh
+      - name: Check component docs links and test manifest guard
+        run: python3 scripts/check-components.py --docs && bash scripts/test-check-components.sh
       - name: Test env example drift guard
         run: bash scripts/test-check-env-example.sh
       - name: Test coverage-shard parity guard
         run: bash scripts/test-check-test-shard-parity.sh
       - name: Test bare assert_receive and on_exit rm_rf guards
-        run: bash scripts/test-check-bare-assert-receive.sh && bash scripts/test-check-on-exit-rm-rf.sh
+        run: bash scripts/test-check-bare-assert-receive.sh && bash scripts/test-check-on-exit-rm-rf.sh && test "${{ needs['pre-handoff'].result }}" = success
       - name: Test hourly retrospective visual check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
       - name: Test hourly dashboard analyzer
@@ -131,25 +120,6 @@ jobs:
         run: bash scripts/test-check-file-size.sh
       - name: Set up Bun
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
-      - name: File size gate
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          MERGE_BASE: ${{ github.event.merge_group.base_sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-        run: |
-          case "$EVENT_NAME" in
-            pull_request|merge_group) base="${PR_BASE:-$MERGE_BASE}" ;;
-            push)
-              base="$PUSH_BEFORE"
-              if [[ "$base" =~ ^0+$ ]]; then base="$(git rev-parse HEAD^1)"; fi ;;
-            workflow_dispatch)
-              upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || echo origin/main)"
-              base="$(git merge-base HEAD "$upstream")" ;;
-            *) echo "Unsupported file size gate event: $EVENT_NAME" >&2; exit 1 ;;
-          esac
-          test -n "$base"
-          python3 scripts/check-file-size.py --base "$base"
   build:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
@@ -193,7 +163,7 @@ jobs:
         uses: ./.github/actions/setup-elixir
       - name: Compile with warnings as errors
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: mix compile --warnings-as-errors
+        run: mix compile --warnings-as-errors && python3 ../scripts/generate-reference-tables.py --check
       - name: Format check
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make fmt-check
@@ -203,7 +173,7 @@ jobs:
       - name: Config docs and Docker dependency guards
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
-        run: python3 scripts/check-config-docs.py && python3 scripts/check-docker-path-deps.py && python3 scripts/test-check-docker-path-deps.py
+        run: python3 scripts/check-config-docs.py && bash website/docs-app/scripts/check-cli-reference.sh && bash website/docs-app/scripts/test-check-cli-reference.sh && python3 scripts/check-docker-path-deps.py && python3 scripts/test-check-docker-path-deps.py
       - name: Cache component checker toolchain
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -269,26 +239,11 @@ jobs:
           # Put per-test SQLite state in private runner temp, avoiding quota-mounted
           # /tmp; df free space does not reflect EDQUOT limits.
           TMPDIR: ${{ runner.temp }}
-        # Capture the full log in a file: orphaned opencode/sleep processes hold
-        # tee pipes open, hanging the step until a cancelled red (#2397).
-        # Orphans inherit the file FD harmlessly, allowing completion when make
-        # exits; the known-flaky reporter below can still read the log.
-        #
-        # The bound lives here, in the step, not on the job. A job-level
-        # timeout cancels the job and a cancelled job skips every remaining
-        # step, so `Print partition log` and the known-flaky report are lost
-        # exactly when a wedge makes them most valuable. `timeout` makes the
-        # step exit normally with 124, which is an ordinary step *failure*, so
-        # the `failure()` steps below still run and the red names what it is.
-        #
-        # `tail -F` mirrors the log to the live job output while the partition
-        # runs. `Print partition log` below only helps when the runner survives
-        # to reach it; a partition that takes its own runner down (#2560) ends
-        # the job mid-step, skips every remaining step, and used to report as a
-        # bare exit 143 with not one line of test output. Streaming means the
-        # log GitHub has already ingested names the test that was running. This
-        # is a `tail`, not a `tee`: nothing downstream of `make` holds a pipe
-        # open, so the orphaned-background-process hang of #2397 cannot recur.
+        # Stream a file-backed log so orphan processes cannot hold a tee pipe
+        # open (#2397), and GitHub captures test output before a runner dies
+        # (#2560). Keep the timeout at step level: its ordinary failure lets
+        # the log and known-flaky reporting steps below run; a job timeout
+        # would cancel them. The private temp avoids quota-mounted /tmp.
         run: |
           log="$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
           : > "$log"
@@ -416,60 +371,31 @@ jobs:
   quarantine:
     name: quarantined tests (non-blocking)
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true') }}
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: src
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: ./.github/actions/run-quarantine
+  home-css:
+    name: browser home CSS
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up Elixir
+      - name: Disclose rerun attempt
+        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Verify home CSS
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/setup-elixir
-      - name: Cache _build (dependency apps only)
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          # Dependency-only cache: `_build/test/lib` holds one directory per
-          # app, and only the dependency apps are worth restoring. The
-          # first-party `aiur` app is pruned before every run (below) so it
-          # always recompiles against the current source — a key on
-          # `mix.lock`/`mix.exs` cannot see a config-schema, struct, or module
-          # attribute change, so caching the `aiur` beams would let a run use
-          # artifacts predating that change.
-          # No prefix `restore-keys`: a stale _build from a different mix.lock
-          # restores compiled deps whose versions no longer match mix.exs, which
-          # fails with "Unchecked dependencies for environment test". Exact-key
-          # only, so a lock/dep bump recompiles fresh instead of reusing stale
-          # artifacts. The `-deps-` key prefix also retires the old whole-`_build`
-          # entries, whose tar layout no longer matches this path.
-          key: ${{ runner.os }}-quarantine-build-deps-${{ hashFiles('src/mix.lock', 'src/mix.exs') }}
-          path: src/_build/test/lib
-      - name: Drop first-party beams (always recompile against current source)
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        # The `aiur` app dir may have been restored from a cache saved before a
-        # compile-time-visible source change (a schema field, a struct, a module
-        # attribute). Removing it forces Mix to recompile the app fresh; the
-        # dependency beams the cache exists to save are left in place.
-        # `run` steps inherit the job's `working-directory: src`; action inputs
-        # such as the cache path remain workspace-relative.
-        run: rm -rf _build/test/lib/aiur
-      - name: Run quarantined tests
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        # `--exclude test` narrows to the tag without failing while the queue
-        # is empty; unlike `--only`, that lets this non-blocking job stay green
-        # until the first confirmed flake is quarantined.
-        run: mix test --include quarantine --exclude test
-      - name: Prune first-party beams before the cache save
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        # `mix test` recompiles the `aiur` app, so prune it again before the
-        # cache post-step saves, keeping the stored cache dependency-only (the
-        # path the restore step promises).
-        run: rm -rf _build/test/lib/aiur
+        uses: ./.github/actions/verify-home-css
   analytics:
     needs: changes
     if: ${{ needs.changes.outputs.full_ci == 'true' }}
@@ -490,7 +416,7 @@ jobs:
         run: python3 -m unittest discover -s analytics/tests -t analytics -v
   dialyzer:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true') }}
+    if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true' || needs.changes.outputs.dialyzer == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -518,69 +444,36 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make dialyzer
   browser:
-    name: browser harness
+    name: browser smoke (${{ matrix.shard }}/5)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
+    runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { shard: 1, verify_fixtures: true, upload_evidence: true }
+          - { shard: 2, visual_regression: first }
+          - { shard: 3 }
+          - { shard: 4 }
+          - { shard: 5, visual_regression: second }
     steps:
       - name: Checkout
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Disclose rerun attempt
-        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
+        if: ${{ github.run_attempt > 1 }}
+        working-directory: .
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up Node
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - name: Run browser smoke shard
+        uses: ./.github/actions/browser-smoke
         with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: src/browser/package-lock.json
-      - name: Install fixture build tools
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: apt-get update && apt-get install -y --no-install-recommends build-essential
-      - name: Set up Elixir
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/setup-elixir
-      - name: Cache Playwright browser
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('src/browser/package-lock.json') }}
-      - name: Install browser harness dependencies
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npm ci
-      - name: Install Chromium
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npx playwright install --with-deps chromium
-      - name: Run browser, accessibility, and performance smoke
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npm test
-      - name: Run visual regression baselines
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: |
-          npm run test:visual
-          npm run test:visual
-      - name: Verify browser failure evidence, redaction, and teardown
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: src/browser
-        run: npm run verify:failure-artifacts
-      - name: Upload browser failure evidence
-        if: ${{ (failure()) && needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: browser-harness-artifacts
-          path: src/browser/.artifacts-run-*/
-          if-no-files-found: ignore
-          include-hidden-files: true
+          shard: ${{ matrix.shard }}
+          verify_fixtures: ${{ matrix.verify_fixtures || false }}
+          upload_evidence: ${{ matrix.upload_evidence || false }}
+          visual_regression: ${{ matrix.visual_regression || 'none' }}
   streamdeck:
     name: streamdeck
     needs: changes
@@ -695,7 +588,7 @@ jobs:
   affected-tests:
     name: affected tests
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'false' }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.full_ci == 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -725,11 +618,11 @@ jobs:
       - name: Run affected tests on the PR merge
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         env:
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-        run: sudo apt-get update && sudo apt-get install -y zsh && python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"
+          AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}
+        run: bash ../scripts/run-ci-affected-tests.sh
   ci-gate:
     name: ci gate
-    needs: [changes, workflow-security, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, layout-release, analytics, streamdeck]
+    needs: [changes, workflow-security, pre-handoff, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -739,7 +632,15 @@ jobs:
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Require latest PR-body check
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/check-pr-body-check-run.py
       - name: Require the event's selected jobs
+        if: ${{ github.event_name != 'schedule' && !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
         env:
           EVENT_NAME: ${{ github.event_name }}
           NEEDS_JSON: ${{ toJSON(needs) }}

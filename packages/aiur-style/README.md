@@ -38,10 +38,10 @@ import 'aiur-style/aiur-style.css';
 
 ### JavaScript
 
-The package exports an empty barrel for now. Behaviors and components will be added in future updates.
+Theme and banner behaviors are exported from the package root.
 
 ```javascript
-import 'aiur-style';
+import { getTheme, setTheme, onThemeChange, initThemeToggle } from 'aiur-style';
 ```
 
 ## Theme
@@ -55,6 +55,57 @@ The package supports light and dark themes via the `data-theme` attribute on `<h
 ```
 
 When the attribute is absent, the theme follows the system preference via `prefers-color-scheme`.
+
+Load the external classic initializer as the first child of `<head>`, before
+stylesheets. Copy it from `aiur-style/theme-init.js` into your public assets;
+do not use `type="module"`, `async`, `defer`, or inline script code.
+
+```html
+<script src="/aiur-style/theme-init.js" data-default="dark"
+  data-legacy-keys="khala.theme" data-banner="aiur-launch"></script>
+```
+
+Stored `light`/`dark` wins over `data-default` (`system` by default). System mode
+leaves the attribute absent. `data-storage-key` overrides `aiur-theme` for both
+initialization and runtime persistence. Space-separated `data-legacy-keys`
+migrate the first valid theme and the first banner dismissal (`dismissed` or
+`1`), without overwriting an existing choice. A migrated key is removed only
+after the new value is written. `data-banner` selects `aiur-banner:<id>`;
+`dismissed` sets `html[data-aiur-banner="dismissed"]` before paint.
+`data-vitepress="true"` synchronizes `vitepress-theme-appearance` (including
+`auto` for system mode) and `html.dark` during initialization only. Runtime
+`setTheme()` does not synchronize VitePress. Storage failures never prevent rendering.
+
+`getTheme()` resolves the attribute or system preference. `setTheme(theme,
+{persist: false})` changes only the current page; persistence defaults to true.
+Each attribute change dispatches `aiur:themechange` on `document` with
+`detail: {theme}`. `onThemeChange(callback)` observes explicit choices and system
+changes while the attribute is absent, and returns an unsubscribe function.
+
+`initThemeToggle(button)` reveals a hidden button, synchronizes `aria-pressed`
+(true means dark), and toggles relative to the resolved theme. Repeated calls
+bind once; the first call's `{destroy}` removes the listeners and permits
+initialization again. Supply `type="button"`, an accessible label, and
+`aria-hidden="true"` on decorative icons in your markup.
+
+## Announcement banner
+
+Use `markup/banner.html` as the server-rendered pattern and load the shared CSS.
+Match its `data-aiur-banner` campaign id to the initializer's `data-banner`.
+Initialize it from an external module:
+
+```javascript
+import { initBanner } from 'aiur-style/banner';
+const banner = initBanner(document.querySelector('[data-aiur="banner"]'));
+// When the element is removed:
+banner.destroy();
+```
+
+Alternatively, load `dist/js/auto.js` as an external module to initialize
+`data-aiur="banner"` elements. Closing saves `aiur-banner:<id>=dismissed`,
+hides the banner, moves focus to the next control (or `main`/`body`), and
+emits a bubbling `aiur:bannerdismiss` event. Storage failures still allow
+closing for the current page. Choose a new campaign id to show a new message.
 
 ## Tokens
 
@@ -97,7 +148,9 @@ sample in either theme. `?theme=system` previews the system preference.
 
 See the aiur-style plan: [docs/aiur-style/plan.md](../../docs/aiur-style/plan.md).
 
-To build locally:
+`dist/` is generated and is not committed. The `prepare` lifecycle builds it
+when the package is installed from this repository and when npm packs it for
+publication. To build locally:
 
 ```bash
 npm run build        # Compile TypeScript and concatenate CSS

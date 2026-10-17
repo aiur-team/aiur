@@ -17,7 +17,11 @@ Aiur ships Agent Skills under `.claude/skills/`, with shared links for Codex und
 
 ## Agent-workspace skills
 
-These three skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under `<workspace>/.claude/skills/`, `<workspace>/.codex/skills/`, and `<workspace>/.agents/skills/`.
+These three skills, together with the complete pinned Compound Engineering set, are installed in every ticket workspace under `<workspace>/.claude/skills/`. Codex discovers per-skill symlinks under `<workspace>/.codex/skills/`. Muse receives copies under `<workspace>/.agents/skills/`.
+
+Local and remote Codex sandboxes make `.agents/` and `.codex/` writable for Git merges. The pre-merge hook moves conflicting untracked skill files aside: identical copies are removed; differing copies are saved under Git metadata.
+
+CI rejects tracked changes under `.codex/skills` and `.agents/skills`, and tracked symlinks under `.claude/skills`. Regular `.claude/skills` source files remain editable.
 
 Muse loads workspace skills and rules only when `agent.backend_configs.muse.trust_workspace` is explicitly enabled.
 
@@ -32,6 +36,18 @@ Executor skills are deliberately excluded from this set: an issue worker has no 
 For Aiur changes, workers run `mise exec -- python3 scripts/check-pr-structure.py --base <base-sha>` after committing, before every push and after every base integration.
 
 In a clean worktree it checks file size, docs paragraph/table prose, component ownership and reference boundaries, bare receives, formatting and the `State` writer allowlist — the cheap gates CI would otherwise fail a full cycle on.
+
+For refactor reports, run `python3 scripts/check-file-size.py --census <base> <head>`
+from the repository root; add `--json` for machine-readable output. The table
+reports tracked-text totals and added, removed and moved lines by source, test,
+docs, generated/vendor and other areas.
+
+Git-detected rename/copy pairs credit
+unchanged lines as moved to the original area; edits count as added/removed.
+
+Copies and cross-area moves can change area totals without text churn. Binary
+changes are file counts; symlink blobs are excluded. This report does not enforce
+a CI limit or claim savings.
 
 The `aiur-agent` dev loop distinguishes a retryable GitHub budget hold from a
 credential failure. A budget-held agent requests a typed, expiring pause and is
@@ -50,13 +66,15 @@ sandbox resets from issue workspaces, not ordinary repository tests.
 
 These stay with the Executor and are not copied into ticket workspaces.
 
+`aiur-run` runs `aiur executor-sweep` on every pass and follows its findings alongside the status-reported merge policy and local-test evidence; `aiur-handoff` records that policy and watcher state.
+
 | Skill | Trigger | Covers |
 | --- | --- | --- |
 | [aiur-intro](../../.claude/skills/aiur-intro/SKILL.md) | First contact or installation | Operating modes, setup, and first run. |
 | [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | Plan a large feature | Requirements, ticket contracts, dependency graph, and Build Order handoff. |
-| [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | Operate a run | Accepted boundary through review and merge. |
+| [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | Operate a run | Executor sweep findings, accepted boundary through review and merge. |
 | [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) | Inspect a live run | Status board and alert feed. |
-| [aiur-meta](../../.claude/skills/aiur-meta/SKILL.md) | Hourly audit | Operator surfaces, bottleneck, and durable findings. |
+| [aiur-meta](../../.claude/skills/aiur-meta/SKILL.md) | Hourly audit | Executor sweep findings, operator surfaces, bottleneck, and durable findings. |
 | [aiur-handoff](../../.claude/skills/aiur-handoff/SKILL.md) | Executor handoff | Boot document for the next Executor. |
 | [release](../../.claude/skills/release/SKILL.md) | Release | Version, tag, and GitHub release. |
 

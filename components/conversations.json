@@ -1,8 +1,8 @@
 {
   "id": "conversations",
-  "name": "Transcript access and event-to-conversation anchors (MP-E4 owns the contract)",
+  "name": "Conversations",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/agent_event_feed.ex",
     "src/lib/aiur/agent_log.ex",
@@ -36,5 +36,19 @@
     "PRJ",
     "RUN",
     "SD"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Provides access to agent transcripts and links events to their conversation context.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "guide/gui.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": [
+    "conversations.read"
   ]
 }

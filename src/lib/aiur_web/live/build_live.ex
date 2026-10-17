@@ -20,8 +20,8 @@ defmodule AiurWeb.BuildLive do
     socket =
       socket
       |> Protocol.init()
+      |> DashboardShell.mount()
       |> UsageUpdates.init(connected)
-      |> NavState.assign_nav()
       |> AwaitingCommands.mount(connected)
       |> assign(build_state: :loading, build_snapshot: nil, route: @route, tracker_kind: Runtime.tracker_kind(), agent_kind: Runtime.agent_kind(), analytics: Presenter.analytics_navigation())
 
@@ -86,6 +86,7 @@ defmodule AiurWeb.BuildLive do
 
   def handle_info({:build_changes, changes}, socket), do: {:noreply, Protocol.changes(socket, changes, source_opts(socket))}
 
+  def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
   def handle_info({AiurWeb.FinancialData, :updated, _} = message, socket), do: {:noreply, UsageUpdates.queue(socket, message)}
   def handle_info(:build_usage_flush, socket), do: {:noreply, UsageUpdates.flush(socket)}
   def handle_info(tick, socket) when tick in [:build_usage_github_tick, :build_usage_elevenlabs_tick], do: {:noreply, UsageUpdates.tick(socket, tick)}
@@ -93,6 +94,9 @@ defmodule AiurWeb.BuildLive do
   def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, AwaitingCommands.refresh(socket)}
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
 
   @impl true
   def handle_event("build-resync", _params, socket), do: Protocol.resync(socket, source_opts(socket))
@@ -136,7 +140,8 @@ defmodule AiurWeb.BuildLive do
     ~H"""
     <DashboardShell.dashboard_shell route={@route} routes={RouteRegistry.routes(@analytics)}
       tracker_kind={@tracker_kind} agent_kind={@agent_kind}
-      nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}>
+      nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}
+      pause_state={DashboardShell.pause_state(assigns)}>
       <div id="build-root" class="bd-root" phx-hook="BuildHome" phx-update="ignore"
         data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}>
         <div id="bd-usage"></div><div id="bd-offline"></div><div id="bd-fh"></div>
@@ -144,7 +149,7 @@ defmodule AiurWeb.BuildLive do
         <div class="bd-vpw"><div class="bd-vp" id="bd-vp">
           <div class="bd-lanes"><div class="bd-skel-lanes"><i class="bd-skel-i" style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i></div></div>
           <div class="bd-skel"><i :for={_ <- 1..16}></i></div>
-          <div class="bd-loading"><span class="bd-spin"></span>Loading build timeline…</div>
+          <div class="bd-loading" role="status"><span class="bd-spin"></span>Loading build timeline…</div>
         </div><div class="bd-sb" id="bd-sb"><i></i></div><div class="bd-tree" id="bd-tree" hidden></div></div>
         <div class="bd-status" id="bd-status"></div>
       </div>

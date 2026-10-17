@@ -4,17 +4,17 @@ defmodule Aiur.Claude.CodingAgent do
 
   Simplified variant of Codex.CodingAgent without approval request handling.
   Communicates via the same JSON-RPC 2.0 stdio protocol used by the Codex
-  app-server and advertises the same Aiur DynamicTool surface.
+  app-server and advertises the same Aiur agent-tool surface.
   """
 
   @behaviour Aiur.CodingAgent.Backend
   @behaviour Aiur.AppServer.Adapter
 
   require Logger
+  alias Aiur.AgentTools.Catalog
   alias Aiur.AppServer.{Adapter, Messages, Rpc, Transport}
   alias Aiur.Claude.{AccountGeneration, NotificationPolicy}
   alias Aiur.Claude.CodingAgent.Methods
-  alias Aiur.Codex.DynamicTool
   alias Aiur.Config
   alias Aiur.ProcessTree
 
@@ -225,7 +225,7 @@ defmodule Aiur.Claude.CodingAgent do
       "params" => %{
         "permissionMode" => Aiur.Claude.Config.permission_mode(),
         "cwd" => Path.expand(workspace),
-        "dynamicTools" => DynamicTool.tool_specs()
+        "dynamicTools" => Catalog.specs()
       }
     })
 
@@ -287,8 +287,11 @@ defmodule Aiur.Claude.CodingAgent do
 
   @impl Aiur.AppServer.Adapter
   @doc false
-  @spec handle_interrupt_error(map(), term()) :: {:error, term()}
-  def handle_interrupt_error(_state, error), do: {:error, {:turn_interrupt_failed, error}}
+  @spec handle_interrupt_error(map(), term()) ::
+          {:ok, :turn_completed} | {:paused, map()} | {:continue, map()} | {:error, term()}
+  # aiur-claude answers "No active turn to interrupt." when the turn ended first;
+  # that is a pause boundary, not a worker failure (#4696).
+  defdelegate handle_interrupt_error(state, error), to: Aiur.Codex.Interrupts
 
   @impl Aiur.AppServer.Adapter
   @doc false

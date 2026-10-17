@@ -11,23 +11,18 @@ R-optional	Aiur.DaemonHeartbeatChecker	baseline 22b2fa407c5d4218d25d63b1aa17472a
 R-optional	Aiur.EpicCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.EventHumanizerHelpers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.Sanitizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Executor.StatePaths	MP-R2-C2-T07: full-product app boot supplies the existing Executor journal floor; reusable bus has no such dependency
 R-optional	Aiur.ExecutorAttention.CLI	MP-R1-C9-T11 delegates executor verbs
 R-optional	Aiur.ExecutorBindings	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorCommandCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorEvents	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorListener	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.ExecutorWakeInbox	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.Budget	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.BudgetLedger	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.CiReadiness	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.CodeOwners	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.CredentialUsage	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.HoldPressure	#4067 status reports local GitHub budget holds; gated on the GitHub tracker
 R-optional	Aiur.GitHub.HostCommand	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Labels	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.Quota	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.ReadCache	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.StatePolicy	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.OpencodeTheme	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ProviderMeterProjection	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

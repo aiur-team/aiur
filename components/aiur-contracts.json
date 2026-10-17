@@ -1,8 +1,8 @@
 {
   "id": "aiur-contracts",
-  "name": "Wire contracts: JSON Schemas and generated TypeScript types for identity and capabilities",
+  "name": "Client contracts",
   "layer": 5,
-  "kind": "required",
+  "kind": "package",
   "paths": [
     "packages/aiur-contracts/**"
   ],
@@ -18,5 +18,16 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Defines shared data contracts for Aiur clients and integrations.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-R1"
 }

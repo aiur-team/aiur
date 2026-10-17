@@ -59,7 +59,8 @@ shared [dictated-input note](dictated-input.md).
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
 - Integration safety is your responsibility. Before CI or human-review
   handoff, assess the exact PR head against its configured base. Harmless
-  staleness passes; conflicts or changed-file overlap require integration,
+  staleness passes; an approved exact head needs integration only for a real
+  conflict, while other conflicts or changed-file overlap require integration,
   up to 3 integrations per handoff without asking, each followed by relevant
   local tests and format, size, components gates. After the third, emit a
   non-blocking Executor alert; keep going if the base is safe. Never open a
@@ -67,7 +68,8 @@ shared [dictated-input note](dictated-input.md).
   A PR already in the merge queue is left alone: never dequeue it, or ask the
   Executor to, in order to update its branch.
 - **Events:** `emit_event(name, message, payload?)` publishes to
-  `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`.
+  `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`;
+  `optimistic.integrated` uses `ticket.<id>.optimistic.integrated`.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of
   `ticket.N.*`; `blocked` / `unblocked` are single-attempt, fire-and-forget
   readiness signals. A manual `aiur_subscribe` pattern must begin with

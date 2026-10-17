@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments do
   @moduledoc "Versioned experiment specs and their durable audit trail."
 
-  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, Schema, Store}
+  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, Schema, Store, WindowEvents}
 
   @spec metric_catalog() :: map()
   def metric_catalog, do: Catalog.load()
@@ -11,6 +11,9 @@ defmodule Aiur.Experiments do
 
   @spec children(boolean()) :: [module()]
   def children(recording?), do: if(child(recording?), do: [Store, Capture, Checkpointer], else: [])
+
+  @spec window_children(boolean()) :: [module()]
+  def window_children(recording?), do: if(child(recording?), do: [Aiur.Experiments.Auto.Notifier, Aiur.Experiments.Auto.WindowManager], else: [])
 
   @spec child(boolean()) :: module() | nil
   def child(false), do: nil
@@ -59,6 +62,36 @@ defmodule Aiur.Experiments do
   @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
   def fetch(id), do: Reader.fetch(id)
 
+  @spec events(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def events(id, opts \\ []) do
+    task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> prepare_events(id, opts) end)
+    result = Task.yield(task, Keyword.get(opts, :timeout_ms, 120_000)) || Task.shutdown(task, :brutal_kill)
+    finish_events(result, id, opts)
+  catch
+    :exit, _reason -> {:error, :events_collection_unavailable}
+  end
+
+  defp prepare_events(id, opts) do
+    with {:ok, spec, read_only?} <- Reader.spec(id) do
+      cached_events(WindowEvents.snapshot(spec), spec, read_only?, opts)
+    end
+  end
+
+  defp cached_events({:ok, snapshot}, spec, read_only?, opts) do
+    if opts[:refresh], do: collect_events(spec, read_only?, opts), else: {:cached, snapshot}
+  end
+
+  defp cached_events({:error, :not_found}, spec, read_only?, opts), do: collect_events(spec, read_only?, opts)
+  defp cached_events(error, _spec, _read_only?, _opts), do: error
+  defp collect_events(_spec, true, _opts), do: {:error, :store_read_only}
+  defp collect_events(spec, false, opts), do: {:collected, WindowEvents.collect(spec, opts)}
+
+  defp finish_events({:ok, {:cached, snapshot}}, _id, _opts), do: {:ok, snapshot}
+  defp finish_events({:ok, {:collected, snapshot}}, id, opts), do: mutate({:events_snapshot, id, snapshot, Keyword.get(opts, :refresh, false)})
+  defp finish_events({:ok, {:error, _reason} = error}, _id, _opts), do: error
+  defp finish_events(nil, _id, _opts), do: {:error, :events_collection_timeout}
+  defp finish_events({:exit, _reason}, _id, _opts), do: {:error, :events_collection_failed}
+
   @spec create(map(), keyword()) :: {:ok, Aiur.Experiments.Spec.t()} | {:error, term()}
   def create(attrs, opts \\ []), do: mutate({:create, attrs, opts})
 
@@ -77,6 +110,14 @@ defmodule Aiur.Experiments do
 
   @spec checkpoint(String.t(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def checkpoint(id, now), do: mutate({:checkpoint, id, now})
+
+  @doc false
+  @spec manage_window(String.t(), term(), map(), DateTime.t(), term()) :: term()
+  def manage_window(id, samples, config, now, truncation \\ nil), do: mutate({:manage_window, id, samples, config, now, truncation})
+
+  @doc false
+  @spec window_spec(String.t()) :: {:ok, map(), boolean()} | {:error, term()}
+  def window_spec(id), do: mutate({:window_spec, id})
 
   @spec amend(String.t(), map(), term()) :: {:ok, Aiur.Experiments.Spec.t()} | {:error, term()}
   def amend(id, changes, actor), do: mutate({:amend, id, changes, actor, "amended"})

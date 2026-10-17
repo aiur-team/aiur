@@ -7,6 +7,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
   alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.Handoff.Adopter
+  alias Aiur.Handoff.Protection
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
@@ -42,6 +44,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     "ticket.*.ci.passed",
     "ticket.*.agent.pause.request",
     "ticket.*.agent.unblocked",
+    "ticket.*.optimistic.integrated",
     "ticket.*.agent.decision.answered",
     "ticket.*.branch.push",
     "ticket.*.branch.force-push",
@@ -86,6 +89,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
   @spec init(keyword(), (term() -> boolean())) :: {:ok, State.t()}
   def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
     :ok = TestTicketScope.validate!()
+    :ok = Protection.reset()
+    :ok = ProcessReaper.handoff([])
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
     Process.flag(:trap_exit, true)
@@ -160,12 +165,12 @@ defmodule Aiur.Orchestrator.Lifecycle do
     # Runner tasks survive an Orchestrator-only restart, but this generation
     # cannot track them. Stop them before startup cleanup or the first poll, so
     # the ticket is redispatched instead of refused as a live session (#2705).
-    state = OrphanedWorkers.stop_untracked_runners(state)
+    state = state |> Adopter.adopt() |> OrphanedWorkers.stop_untracked_runners()
     state = WorkspaceCleanup.start_startup_workspace_cleanup(state, wake?: Keyword.get(opts, :initial_poll?, true))
     RemoteControlMode.cleanup_stray_remote_control_servers()
-    TrackedSet.reset([])
+    TrackedSet.reset(Enum.map(state.running, fn {_id, entry} -> entry.identifier end))
     install_event_tracked_fn(tracked_issue?)
-    subscribe_to_orchestrator_topics()
+    subscribe_to_orchestrator_topics(opts)
     subscribe_to_prewarm(opts)
     _ = LiveConversation.subscribe_restarts()
 
@@ -221,7 +226,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     # crash-restart, and latching the app-lifetime reaper into draining
     # there would kill every agent the restarted orchestrator spawns.
     _ = ProcessReaper.reap([:agent], drain: false)
-    Enum.each(running, fn {_issue_id, entry} -> AgentTeardown.kill_repl_session(entry) end)
+    Enum.each(running, fn {id, entry} -> unless Protection.protected?(id), do: AgentTeardown.kill_repl_session(entry) end)
     discard_unnamed_snapshot(state)
     :ok
   end
@@ -412,12 +417,21 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # Subscribe to the topics the orchestrator routes itself. These subscriptions
   # must be installed after startup cleanup and tracked-set initialization but
   # before the first tick is seeded.
-  defp subscribe_to_orchestrator_topics do
+  defp subscribe_to_orchestrator_topics(opts) do
     if Process.whereis(Exchange) do
-      Enum.each(@orchestrator_topics, &Exchange.subscribe/1)
+      Enum.each(@orchestrator_topics -- skipped_comment_topics(opts), &Exchange.subscribe/1)
     end
 
     :ok
+  end
+
+  # The test env keeps the supervised live orchestrator off comment topics:
+  # webhook tests publish comments it cannot resolve without a tracker (#4845).
+  defp skipped_comment_topics(opts) do
+    if Keyword.get(opts, :name) == Aiur.Orchestrator and
+         not Application.get_env(:aiur, :live_orchestrator_comment_topics?, true),
+       do: ["ticket.*.pr.review_comment", "ticket.*.issue.commented"],
+       else: []
   end
 
   defp subscribe_to_prewarm(opts) do

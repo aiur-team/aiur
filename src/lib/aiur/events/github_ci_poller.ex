@@ -10,7 +10,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
   require Logger
 
-  alias Aiur.Events.GithubCIPoller.{BaseRepair, Evaluation, Recovery}
+  alias Aiur.Events.GithubCIPoller.{ApprovalCarry, BaseRepair, Evaluation, Recovery}
   alias Aiur.GitHub.{CiReadiness, Client}
   alias Aiur.Stacking.StackBaseEvidence
 
@@ -30,6 +30,8 @@ defmodule Aiur.Events.GithubCIPoller do
   defdelegate record_pass(issue, result, opts), to: Recovery
   @spec attention_hold?(map() | nil) :: boolean()
   defdelegate attention_hold?(result), to: Recovery
+  @spec classify_approval_carry(String.t(), String.t(), integer(), keyword()) :: ApprovalCarry.verdict()
+  defdelegate classify_approval_carry(approved_head, head, pr_number, opts), to: ApprovalCarry, as: :classify
 
   @spec poll([target()], keyword()) :: {:ok, %{results: [map()], errors: [{String.t(), term()}]}}
   def poll(targets, opts \\ []) when is_list(targets) do
@@ -144,6 +146,7 @@ defmodule Aiur.Events.GithubCIPoller do
       case BaseRepair.ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
         {:ok, :unchanged} ->
           Evaluation.evaluate(check_runs, commit_status)
+          |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
           |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
           |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
@@ -152,6 +155,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
         {:ok, {:unchanged, recovered_invalidation}} ->
           Evaluation.evaluate(check_runs, commit_status)
+          |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
           |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
           |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})

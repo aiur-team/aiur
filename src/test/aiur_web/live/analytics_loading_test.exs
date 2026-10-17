@@ -106,10 +106,29 @@ defmodule AiurWeb.AnalyticsLoadingTest do
     refute_received {:scan_started, _worker}
   end
 
+  test "blocked analytics scan shows elapsed loading time then a named timeout" do
+    previous = Application.fetch_env(:aiur, :analytics_load_timeout_ms)
+    Application.put_env(:aiur, :analytics_load_timeout_ms, 1_500)
+    on_exit(fn -> Aiur.TestSupport.restore_app_env(analytics_load_timeout_ms: previous) end)
+
+    {:ok, dataset} = @summary |> File.read!() |> Summaries.decode_summary()
+    session = %{"parent" => self(), "identity" => make_ref(), "dataset" => dataset}
+    {:ok, view, html} = live_isolated(build_conn(), SlowAnalyticsLive, session: session)
+    assert html =~ "Loading run analytics"
+    receive_barrier({:scan_started, _worker})
+
+    assert eventually(fn -> render(view) =~ "waited 1s" end, 500)
+    assert eventually(fn -> render(view) =~ "Run analytics timed out." end, 500)
+    rendered = render(view)
+    assert rendered =~ "within 1.5 seconds"
+    refute rendered =~ "Loading run analytics"
+    assert length(:binary.matches(rendered, ~s(data-empty-reason="timeout"))) == 1
+  end
+
   test "async worker exits become an unavailable state" do
     {:ok, view, _html} = live(build_conn(), "/analytics")
     LiveViewAsync.render_when_complete(view)
-    socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, range: :run}}
+    socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, range: :run, unavailable: :loading}}
 
     assert capture_log(fn ->
              {:noreply, failed} = AiurWeb.AnalyticsLive.handle_async(:analytics_model, {:exit, :killed}, socket)
@@ -121,5 +140,16 @@ defmodule AiurWeb.AnalyticsLoadingTest do
   defp build_conn do
     Phoenix.ConnTest.build_conn()
     |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
+  end
+
+  defp eventually(_fun, 0), do: false
+
+  defp eventually(fun, attempts) do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
   end
 end

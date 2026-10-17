@@ -86,6 +86,7 @@ defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
       "number" => pr_number,
       "state" => "open",
       "draft" => draft?,
+      "user" => %{"login" => "aiur-worker"},
       "head" => %{"ref" => "aiur/#{target}", "sha" => head_sha}
     }
 
@@ -102,6 +103,7 @@ defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
       GithubCommentsPoller.poll([target],
         since: "2026-06-24T11:00:00Z",
         repo: @repo,
+        token: "test-gh-token",
         request_fun: request_fun,
         review_submission_targets: MapSet.new(),
         pr_ready_ledger: ReadyForReviewTransitions.ledger(state),

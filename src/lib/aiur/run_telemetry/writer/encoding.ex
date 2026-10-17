@@ -11,6 +11,7 @@ defmodule Aiur.RunTelemetry.Writer.Encoding do
     dispatch
     pr_opened
     pr_merged
+    pr_ready
     pr_facts
   )
 

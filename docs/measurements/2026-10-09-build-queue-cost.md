@@ -49,7 +49,7 @@ This runbook keeps the AC12 acceptance procedure beside the measurement steps it
 
 ## Executor collection
 
-Read [GitHub accounting guidance](../../website/docs-app/apis/github.md#reading-these-numbers-without-fooling-yourself)
+Read [GitHub accounting guidance](../../website/docs-app/apis/github-budgets.md#reading-these-numbers-without-fooling-yourself)
 first. Run from the Executor checkout, never an issue workspace. Use the
 launched instance's identity for every control command. Preserve evidence
 outside the logs that `--test3` clears, **before launching AC12**:
@@ -62,7 +62,7 @@ tmux -L queue-cost-driver new-session -d -s queue-cost-driver -x 220 -y 60 \
   "bash -c 'unset TMUX; exec mise exec -- ./scripts/aiurdev --test3 --max-agents 1' 2>&1 | tee '$measurement_dir/startup.log'; sleep 3600"
 ```
 
-Follow the canonical wrapper-tmux recipe in [AGENTS.md](../../AGENTS.md#driving-the-tui-from-a-non-tty-agent-environment):
+Follow the canonical wrapper-tmux recipe in [docs/manual-testing.md](../manual-testing.md#driving-the-tui-from-a-non-tty-agent-environment):
 read `aiur foreground tmux socket …, session …` from this startup log, wait for
 a running row, open its chat pane, send input and capture rendered output.
 Do not use HTTP/log inspection as proof of AC12. Back up the repository request

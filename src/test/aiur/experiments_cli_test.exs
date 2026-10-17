@@ -49,7 +49,7 @@ defmodule Aiur.ExperimentsCLITest do
     end)
 
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-    if !Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
     start_supervised!(Aiur.Experiments.Store)
     :ok
   end

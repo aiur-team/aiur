@@ -12,6 +12,7 @@ defmodule AiurWeb.Build.FeatureStatsPayloadTest do
     assert stats["pct"] == 61
     assert Payload.validate(data) == :ok
     assert Payload.validate(put_in(data, ["features", "pag", "stats"], nil)) == :ok
+    assert Payload.validate(put_in(data, ["features", "pag", "stats", "spark"], nil)) == :ok
     missing = update_in(data, ["features", "pag"], &Map.delete(&1, "stats"))
     assert {:error, [{"features.pag.stats", :missing}]} = Payload.validate(missing)
     assert {:error, [{"features.pag.stats.extra", :unknown}]} = Payload.validate(put_in(data, ["features", "pag", "stats", "extra"], 1))

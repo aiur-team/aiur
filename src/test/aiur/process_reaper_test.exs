@@ -223,9 +223,10 @@ defmodule Aiur.ProcessReaperTest do
     end
 
     test "appends an agent os_pid with no comm as a bare line", %{reaper: reaper, pidfile: path} do
-      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 99}, [])
+      # Teardown uses real killers, so a synthetic fixture must not name a live PID.
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 2_147_480_000}, [])
 
-      assert wait_for_lines(path) == ["pid 99"]
+      assert wait_for_lines(path) == ["pid 2147480000"]
     end
 
     test "appends an agent pane ref", %{reaper: reaper, pidfile: path} do
@@ -244,7 +245,7 @@ defmodule Aiur.ProcessReaperTest do
 
     test "no-ops cleanly when the env var is unset", %{reaper: reaper, pidfile: path} do
       System.delete_env("AIUR_AGENT_TMPFILE")
-      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 1}, comm: "claude")
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 2_147_480_000}, comm: "claude")
 
       # Give the GenServer a beat; the file must stay empty.
       :ok = ProcessReaper.reap(reaper, [], [])
@@ -272,7 +273,7 @@ defmodule Aiur.ProcessReaperTest do
   test "default pane killer comes from app config", %{reaper: reaper} do
     previous = Application.get_env(:aiur, :process_reaper_pane_killer)
     # The composition root wires the TUI's killer; the reaper itself names no TUI module.
-    assert previous == {Aiur.Tmux, :kill_pane}
+    assert previous == {Aiur.Tmux.Socket, :kill_pane}
 
     Application.put_env(:aiur, :process_reaper_pane_killer, {__MODULE__, :record_pane_kill})
     on_exit(fn -> Application.put_env(:aiur, :process_reaper_pane_killer, previous) end)

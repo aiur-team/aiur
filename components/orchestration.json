@@ -1,8 +1,8 @@
 {
   "id": "orchestration",
-  "name": "Poll cycle, dispatch, control lifecycle, PR/CI lifecycle, operator messaging",
+  "name": "Run orchestration",
   "layer": 3,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/agent_chat.ex",
     "src/lib/aiur/agent_queue.ex",
@@ -11,12 +11,21 @@
     "src/lib/aiur/current_run_membership.ex",
     "src/lib/aiur/current_run_membership/**",
     "src/lib/aiur/dispatch_budget_store.ex",
+    "src/lib/aiur/handoff.ex",
+    "src/lib/aiur/handoff/adopter.ex",
+    "src/lib/aiur/handoff/compatibility.ex",
+    "src/lib/aiur/handoff/fallback.ex",
+    "src/lib/aiur/handoff/report.ex",
+    "src/lib/aiur/landing_watch.ex",
+    "src/lib/aiur/landing_watch/**",
     "src/lib/aiur/orchestrator.ex",
     "src/lib/aiur/orchestrator/**",
     "src/lib/aiur/pr_ready_ledger_store.ex",
     "src/lib/aiur/recent_merge.ex",
     "src/lib/aiur/recent_merge/**",
-    "src/lib/aiur/recent_merge_store.ex"
+    "src/lib/aiur/recent_merge_store.ex",
+    "src/lib/aiur/test_quarantine.ex",
+    "src/lib/aiur/test_quarantine/**"
   ],
   "facades": [
     "*"
@@ -27,6 +36,7 @@
     "commands",
     "config",
     "event-bus",
+    "harness-adapters",
     "identity",
     "kernel",
     "listener-modes",
@@ -60,5 +70,22 @@
   ],
   "shared_with": [
     "github-listeners"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Dispatches tickets, manages agent lifecycles and coordinates pull request progress.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/ticket-lifecycle.md"
+  ],
+  "config": [
+    "polling",
+    "pr_health",
+    "pr_watch",
+    "worker"
+  ],
+  "env": [],
+  "capabilities": []
 }

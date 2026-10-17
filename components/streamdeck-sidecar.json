@@ -1,8 +1,8 @@
 {
   "id": "streamdeck-sidecar",
-  "name": "`@aiur/streamdeck` (MP-R6)",
+  "name": "Stream Deck client",
   "layer": 5,
-  "kind": "optional",
+  "kind": "client",
   "paths": [
     "packages/streamdeck/**"
   ],
@@ -18,5 +18,18 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Connects a physical Stream Deck to Aiur for status, conversations and Command responses.",
+  "status": "optional",
+  "install": {
+    "type": "setup",
+    "docs": "guide/stream-deck.md"
+  },
+  "docs": [
+    "guide/stream-deck.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": []
 }

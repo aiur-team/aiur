@@ -10,7 +10,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
 
         cond do
           Enum.any?(results, &match?({_, {:error, :outcome_unknown}}, &1)) -> 124
-          Enum.all?(results, &match?({_, :ok}, &1)) -> 0
+          Enum.all?(results, &successful?/1) -> 0
           true -> 1
         end
 
@@ -20,7 +20,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
     end
   end
 
-  @spec execute(keyword()) :: {:ok, [{String.t(), :ok | {:error, term()}}]} | {:error, term()}
+  @spec execute(keyword()) :: {:ok, [{String.t(), :ok | {:ok, [String.t()]} | {:error, term()}}]} | {:error, term()}
   def execute(opts) do
     with :ok <- guard_workspace(opts), :ok <- validate(opts), {:ok, opts} <- trigger(opts), :ok <- confirm(opts) do
       if opts[:build_order], do: adopt(opts), else: dispatch(Keyword.fetch!(opts, :verb), opts)
@@ -34,25 +34,32 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp validate(opts) do
     ids = Keyword.get(opts, :ids, [])
     queue = opts[:queue]
-    valid = is_list(ids) and Enum.all?(ids, &id?/1) and Enum.uniq(ids) == ids and (is_nil(queue) or (is_binary(queue) and String.trim(queue) != ""))
+    valid = is_list(ids) and Enum.all?(ids, &id?/1) and Enum.uniq(ids) == ids and valid_queue?(queue)
+    valid = valid and valid_rank?(opts)
     valid = valid and valid_options?(opts) and valid_command?(opts[:verb], ids, opts)
     if valid, do: :ok, else: {:error, :invalid_arguments}
   end
 
   defp valid_options?(opts) do
-    allowed =
-      case opts[:verb] do
-        :add -> [:ids, :queue, :after, :at, :build_order, :start_on]
-        :set -> [:queue, :start_on]
-        :recover -> [:force]
-        :clear -> [:remove_markers, :yes]
-        :remove -> [:ids]
-        :reorder -> [:ids, :to]
-        verb when verb in [:hold, :release] -> [:ids, :queue]
-        _ -> []
-      end
+    Enum.all?(Keyword.keys(opts), &(&1 in (allowed_options(opts[:verb]) ++ [:verb, :caller_agent_workspace, :server, :error_fun])))
+  end
 
-    Enum.all?(Keyword.keys(opts), &(&1 in (allowed ++ [:verb, :caller_agent_workspace, :server, :error_fun])))
+  defp valid_queue?(nil), do: true
+  defp valid_queue?(queue), do: is_binary(queue) and String.trim(queue) != ""
+  defp valid_rank?(opts), do: not Keyword.has_key?(opts, :rank) or (is_binary(opts[:queue]) and position?(opts[:rank]))
+  defp allowed_options(:order), do: [:queue, :to]
+
+  defp allowed_options(verb) do
+    case verb do
+      :add -> [:ids, :queue, :after, :at, :build_order, :start_on, :rank]
+      :set -> [:queue, :start_on]
+      :recover -> [:force]
+      :clear -> [:remove_markers, :yes]
+      :remove -> [:ids]
+      :reorder -> [:ids, :to]
+      verb when verb in [:hold, :release] -> [:ids, :queue]
+      _ -> []
+    end
   end
 
   defp valid_command?(:add, ids, opts) do
@@ -63,6 +70,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
     end
   end
 
+  defp valid_command?(:order, [], opts), do: is_binary(opts[:queue]) and position?(opts[:to])
   defp valid_command?(:set, [], opts), do: is_binary(opts[:queue]) and Keyword.has_key?(opts, :start_on)
   defp valid_command?(:recover, [], opts), do: Keyword.get(opts, :force, false) in [true, false]
   defp valid_command?(:clear, [], opts), do: opts[:remove_markers] == true and Keyword.get(opts, :yes, false) in [true, false]
@@ -93,6 +101,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp adopt(opts) do
     root = opts[:build_order]
     command = if Keyword.has_key?(opts, :start_on), do: {:adopt, root, opts[:queue], opts[:start_on]}, else: {:adopt, root, opts[:queue]}
+    command = if Keyword.has_key?(opts, :rank), do: {:adopt, root, opts[:queue], opts[:start_on], opts[:rank]}, else: command
     result = call({:mutate, command}, opts)
 
     results =
@@ -108,18 +117,19 @@ defmodule Aiur.BuildQueue.MutationCLI do
     if opts[:verb] == :clear and opts[:yes] != true, do: {:error, :confirmation_required}, else: :ok
   end
 
+  defp dispatch(:order, opts), do: {:ok, [{opts[:queue], call({:mutate, {:order, opts[:queue], opts[:to]}}, opts)}]}
   defp dispatch(:set, opts), do: {:ok, [{opts[:queue], call({:mutate, {:set_trigger, opts[:queue], opts[:start_on]}}, opts)}]}
   defp dispatch(:recover, opts), do: {:ok, [{"recover", call({:recover, Keyword.get(opts, :force, false)}, opts)}]}
   defp dispatch(:clear, opts), do: {:ok, [{"clear", call({:mutate, {:clear, Keyword.take(opts, [:remove_markers, :yes])}}, opts)}]}
 
   defp dispatch(:add, opts) do
     {results, _} =
-      Enum.map_reduce(opts[:ids], opts[:at], fn id, at ->
-        options = Keyword.take(opts, [:after]) |> Keyword.put(:queue, opts[:queue] || "default")
+      Enum.map_reduce(opts[:ids], {opts[:at], Keyword.take(opts, [:rank])}, fn id, {at, rank} ->
+        options = Keyword.take(opts, [:after]) |> Keyword.merge(rank) |> Keyword.put(:queue, opts[:queue] || "default")
         options = if Keyword.has_key?(opts, :start_on), do: Keyword.put(options, :start_trigger, opts[:start_on]), else: options
         options = if is_nil(at), do: options, else: Keyword.put(options, :at, at)
         result = call({:mutate, {:add, [id], options}}, opts)
-        {{"##{id}", result}, if(inserted?(result) and is_integer(at), do: at + 1, else: at)}
+        {{"##{id}", result}, {if(inserted?(result) and is_integer(at), do: at + 1, else: at), if(inserted?(result), do: [], else: rank)}}
       end)
 
     {:ok, results}
@@ -135,8 +145,14 @@ defmodule Aiur.BuildQueue.MutationCLI do
   end
 
   defp inserted?(:ok), do: true
+  defp inserted?({:ok, {:not_observed, ids}}) when is_list(ids), do: true
   defp inserted?({:error, {:marker_write_failed, _}}), do: true
   defp inserted?(_), do: false
+
+  defp successful?({_id, :ok}), do: true
+  defp successful?({_id, {:ok, {:not_observed, ids}}}) when is_list(ids), do: true
+  defp successful?({_id, {:ok, unobserved}}) when is_list(unobserved), do: true
+  defp successful?(_), do: false
 
   defp target(opts) do
     if opts[:queue] do
@@ -179,6 +195,8 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp message({:error, {:already_queued, name}}), do: "already in queue #{name}"
   defp message({:error, :agent_workspace}), do: "blocked in agent workspace"
   defp message({:error, :outcome_unknown}), do: "outcome unknown; run aiur queue show before retrying"
+  defp message({:ok, {:not_observed, ids}}), do: "not yet observed (retry after next poll) for ##{Enum.join(ids, ", #")}; queued pending"
+  defp message({:ok, unobserved}) when is_list(unobserved), do: "released; no observation for ##{Enum.join(unobserved, ", #")}"
   defp message({:error, reason}) when is_atom(reason), do: reason |> Atom.to_string() |> String.replace("_", " ")
   defp message({:error, reason}), do: inspect(reason)
 end

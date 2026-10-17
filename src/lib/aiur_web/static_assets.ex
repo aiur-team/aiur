@@ -3,8 +3,8 @@ defmodule AiurWeb.StaticAssets do
 
   alias Aiur.CodingAgent
 
-  # Ordered partials; see priv/static/css/README.md.
-  @dashboard_css_glob Path.expand("../../priv/static/css/*.css", __DIR__)
+  # Ordered partials (priv/static/css/README.md), relative so a copied warm build globs its own.
+  @dashboard_css_glob Path.relative_to(Path.expand("../../priv/static/css/*.css", __DIR__), File.cwd!(), force: true)
   @dashboard_css_parts @dashboard_css_glob |> Path.wildcard() |> Enum.sort()
   @dashboard_fonts_path Path.expand("../../priv/static/dashboard-fonts.css", __DIR__)
   @dashboard_palette_path Path.expand("../../priv/static/dashboard-palette.css", __DIR__)
@@ -61,9 +61,9 @@ defmodule AiurWeb.StaticAssets do
   }
 
   for part <- @dashboard_css_parts, do: @external_resource(part)
-  @external_resource @dashboard_fonts_path
-  @external_resource @dashboard_palette_path
-  @external_resource @dom_svg_layout_adapter_path
+  @external_resource Path.relative_to(@dashboard_fonts_path, File.cwd!(), force: true)
+  @external_resource Path.relative_to(@dashboard_palette_path, File.cwd!(), force: true)
+  @external_resource Path.relative_to(@dom_svg_layout_adapter_path, File.cwd!(), force: true)
   @external_resource @phoenix_html_js_path
   @external_resource @phoenix_js_path
   @external_resource @phoenix_live_view_js_path

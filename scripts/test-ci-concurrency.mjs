@@ -18,16 +18,18 @@ function evaluate(expression, github) {
   });
 }
 
-function policy(event, ref, runId, attempt = 1, pr = 42, name = 'ci') {
+function policy(event, ref, runId, attempt = 1, pr = 42, name = 'ci', action = 'synchronize', label = 'ci:full') {
   const github = {
     workflow: name, event_name: event, ref, run_id: runId, run_attempt: attempt,
-    event: event === 'pull_request' ? { pull_request: { number: pr } } : {},
+    event: event === 'pull_request' ? { action, label: { name: label }, pull_request: { number: pr } } : {},
   };
   return {
     group: group.replace(/\$\{\{ (.*?) \}\}/g, (_, expression) => evaluate(expression, github)),
     cancel: evaluate(cancel, github),
   };
 }
+assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'other').cancel, false);
+assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'ci:full').cancel, true);
 
 // Existing event policies deliberately remain unchanged, including exact groups.
 for (const [event, ref] of [

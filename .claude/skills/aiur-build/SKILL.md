@@ -46,7 +46,7 @@ complete instructions before using it.
    and record every unanswered item there so asynchronous work can continue.
 5. Record commit/push permission, GitHub ticket-promotion permission, and
    the planning-only boundary. Never infer permission to create issues or merge.
-6. Allocate a stable `build_order_id`, logical ticket prefix, and `plan_version`
+6. Allocate a stable feature slug, logical ticket prefix, and `plan_version`
    before tickets receive GitHub numbers.
 7. Pin the finite feature boundary: acceptance criteria, critical path,
    documentation/cleanup, end-to-end proof, and the condition that ends the
@@ -140,64 +140,30 @@ Include an audit/ADR gate when ownership is uncertain and an explicit
 integration/feature-acceptance capstone from day one. Preserve planned versus
 discovered ticket provenance as `plan_version` evolves.
 
-## Write one canonical runtime pack
+## Output a collection into the continuous build
 
-The per-repository state node remains the durable runtime authority. Successful
-publication also writes a repository-local discovery mirror at
-`.aiur/build_orders/<slug>.json`; the dashboard discovers both and reconciles
-copies by the precedence documented below. It never reads planning branches or
-arbitrary copies under `docs/`:
+A new feature produces a feature collection appended to the repository's single
+continuous build, never a standalone Build Order root. Keep requirements,
+versioned design captures, evidence, decisions, ticket drafts, typed graph,
+wave/critical-path analysis, validation report, and approved planning SHA in the
+reviewable planning pack. These remain durable intent, not live runtime state.
 
-```text
-~/.aiur/repo/<owner>/<repo>/builds/<slug>/
-  build-order.json
-  status.json
-  tickets/<ID>.md
-```
+Record the feature slug, display label, member logical IDs, optional feature
+epics, and links to existing build tickets. Keep real prerequisites separate
+from scheduling preferences. On promotion, record tracker-number mappings,
+`feature:<slug>` label verification, queue name and rank, and placement evidence.
+A collection is not a separate run or a new acceptance boundary for the repository.
 
-This state-node path is machine-local runtime storage, not a worktree path.
-Executor-authored findings and retros live in its sibling `meta/` directory;
-do not create build packs or operational notes under `docs/executor/` as a
-substitute for the canonical state node.
+Existing `build-order.json` packs and state-node discovery mirrors remain
+readable history. Do not publish a new legacy runtime pack or create a root to
+make a new feature visible. Use `aiur feature create` and `aiur feature add` when
+promotion is authorized, following the intake procedure below.
 
-The researched ticket document is the draft body, not a second status system.
-Every member in `build-order.json` uses the canonical runtime shape:
-
-```json
-{
-  "id": "AS-101",
-  "title": "Wire the stream",
-  "lane": "runtime",
-  "phase": 1,
-  "complexity": 2,
-  "depends_on": [],
-  "ticket": null,
-  "doc": "tickets/AS-101.md",
-  "icon": "bolt"
-}
-```
-
-`ticket` is the authority pointer: `null` means the member is still a draft;
-an issue number means the tracker is authoritative. `doc` is relative to the
-build directory. A pack may set `icon` to choose its catalog icon; omitted icons
-receive a deterministic generic default, distinct from other build orders in
-the same repository list. Member icons remain presentation hints.
-
-Do not ship converter code. Existing packs are one-time Executor hand-conversion
-work after the reader lands. Canonical planning artifacts under `docs/` remain
-version-control evidence, not discovery inputs. After materialization, the
-publisher writes the matching live discovery mirror to
-`.aiur/build_orders/<slug>.json`; Aiur reads that materialized mirror.
-When the same repository-qualified `build_order_id` appears in more than one
-discovery source, Aiur keeps exactly one copy by source precedence: workspace
-mirror, repository state, `AIUR_BUILD_ORDER_DIRS`, configured list, then the
-singular test/demo override. It logs whether the discarded copy was identical
-or divergent. Different build-order IDs are never reconciled merely because
-their root numbers collide; the catalog keeps both so deep links fail closed.
-
-Verify before declaring planning complete: with the daemon running, open the
-Build Order page and confirm the pack title and members render. This is a
-required verification rung, not a documentation-only check.
+Before handoff, verify promoted members in the continuous Build view; until
+that view ships, use `aiur feature show <slug> --json` and `aiur queue show --json`
+(`aiur build-orders` remains useful for legacy roots). An unpromoted planning
+pack instead records the proposed collection and queue placement for the Executor;
+it must not claim live membership or completed placement verification.
 
 ## Approval freeze and re-approval
 
@@ -218,33 +184,34 @@ applies: make subsequent edits on the ticket, not in the planning document.
 ## Optional GitHub promotion
 
 Only the Executor promotes researched drafts, and only when the user explicitly
-asks to create tickets. Ask whenever the user wants tickets created; encourage
+asks to create tickets or has already granted that authority; encourage
 creating every researched, ready-to-begin ticket together. Per-phase promotion
 is optional user complexity, never a hardcoded Aiur workflow.
 
+Use `agent:queued` in the same creation request for executable members; the queue
+promotes ready members to `agent:todo`. Never create first and label later.
+
 Promotion is deliberately not machinery: the Executor creates each issue with
 the corresponding `tickets/<ID>.md` content verbatim, records the returned
-issue number in that member's `ticket` field, and freezes the document. **After
+issue number in the pack's logical-to-tracker mapping, and freezes the document. **After
 promotion, edits go to the ticket, never the doc.** This transfer of authority
 is the anti-duplication rule.
 
-Check `aiur queue show` before creation. With the queue enabled, create executable
-members with open prerequisites with `agent:queued`; members with none receive
-the configured lifecycle todo label (`agent:todo` in the standard workflow).
-Then adopt the root with `aiur queue add --build-order <root>` and verify it with
-`aiur queue show`. If status is disabled, use `agent:todo` for every executable
-member and retain native blockers; other unavailable statuses need recovery.
-The Build Order root carries only `build-order`; `Epic:` containers remain
-undispatched. Never create first and label second: include the waiting marker
-or dispatch label in the same creation request.
-
+Complete [continuous-build intake](../aiur-run/references/continuous-build-intake.md)
+as part of promotion: create the feature collection, file members with their
+feature and disposition labels, write native prerequisites (including real links
+to existing work), join the registry, and enqueue every executable member.
+Feature ownership and queue membership are separate writes; read both back and
+repair partial intake before declaring success. Never create a Build Order root.
+If the operator says “prioritize”, place the collection before the prior next-up
+using priority labels and queue ordering, and report the displaced work.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.
 
 ## Handoff and stop
 
-The handoff identifies the Build Order/version, approved planning commit,
+The handoff identifies the feature slug/plan version, approved planning commit,
 GitHub selector, source precedence, decisions/contracts, unresolved human
 gates, integration/acceptance owner, finite feature boundary, deferred-findings
 ledger, backlog-growth circuit breaker, runtime terminal condition, and queries
@@ -254,3 +221,5 @@ three-to-five-sentence goal summarizing its Executor role and authority.
 Stop after the reviewed pack and any separately user-authorized Executor
 promotion.
 Do not start Aiur or implement the first ticket as a convenience.
+
+Add `experiment:feature` to the promoted root to measure it automatically; see `website/docs-app/concepts/experiments.md` (Measuring a feature).
