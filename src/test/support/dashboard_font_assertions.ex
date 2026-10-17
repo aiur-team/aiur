@@ -14,7 +14,7 @@ defmodule Aiur.TestSupport.DashboardFontAssertions do
 
   def assert_fonts(request) do
     font_urls = Regex.scan(~r{url\(/fonts/([^)]+)\)}, response(request.("/dashboard.css"), 200))
-    assert length(font_urls) == 39
+    assert length(font_urls) == 36
 
     for [_full, name] <- Enum.uniq(font_urls) do
       conn = request.("/fonts/#{name}")
