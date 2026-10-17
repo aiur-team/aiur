@@ -436,8 +436,8 @@ applies. It reconciles a compile-time set of reviewed bindings on every start:
   also wake when the daemon observes the change.
 - attention and CI: `ticket.*.agent.attention.*`,
   `ticket.*.agent.paused`, `ticket.*.agent.error.tokens_exhausted`,
-  `ticket.*.agent.retry_exhausted`, `ticket.*.pr.parked_ready`, and
-  `ticket.*.ci.{passed,failed}`
+  `ticket.*.agent.retry_exhausted`, `ticket.*.pr.parked_ready`, `ticket.*.ci.{passed,failed}`,
+  and `system.agent.synthetic_load_cap` (CPU load from a workspace with no known ticket)
 
 Treat `ready_for_review` wakes marked `observation: "initial_sync"` as "review if not already reviewed"; they backfill first-sight history rather than signal a new transition.
 
