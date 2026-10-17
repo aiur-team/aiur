@@ -140,7 +140,7 @@ defmodule Aiur.Opencode.ServerTest do
     end
   end
 
-  defp await_session_message_seq(db_path, session_id, attempts \\ 200)
+  defp await_session_message_seq(db_path, session_id, attempts \\ 40)
 
   defp await_session_message_seq(_db_path, _session_id, 0), do: flunk("SessionPrompt did not persist session_message.seq")
 
