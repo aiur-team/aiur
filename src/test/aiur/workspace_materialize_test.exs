@@ -1,3 +1,4 @@
+# Cohesion: these cases share a git-backed base fixture and pin materialization contracts.
 defmodule Aiur.WorkspaceMaterializeTest do
   use ExUnit.Case, async: true
 
