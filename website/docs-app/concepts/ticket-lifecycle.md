@@ -171,7 +171,9 @@ and never deletes ones a repository already has; those keep working as exact pin
 
 ## Build queue
 
-**Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI uses held edges and delivered PR facts (valid for 24 hours), independent of dispatch freshness. Missing facts or a merged/closed blocker restore `tracker.base_branch`. Retarget to integration before merge. An `agent:rework` dependent is held by open blockers the same way as `agent:todo`, so a stacked PR gets no rework turns it cannot act on.
+**Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI uses held edges and delivered PR facts (valid for 24 hours), independent of dispatch freshness. Missing facts or a merged/closed blocker restore `tracker.base_branch`. Retarget to integration before merge.
+
+**Rework waits on blockers.** An `agent:rework` dependent is held by open blockers the same way as `agent:todo`, so a stacked PR gets no rework turns it cannot act on.
 
 **Optimistic dependents.** An explicit Optimistic start prompt block tells a worker to integrate blocker pushes,
 rebase rewritten history, and keep its PR draft until every blocker merges. When its own work is done,
