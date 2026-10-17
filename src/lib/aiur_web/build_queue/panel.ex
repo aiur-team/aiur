@@ -62,7 +62,7 @@ defmodule AiurWeb.BuildQueue.Panel do
       <p :if={Map.get(@queue, :progress_reasons, []) != []} style={muted()} data-queue-progress-reason>
         {Copy.reason(@queue.progress_reasons)} · {Copy.text(:age)}: {Copy.age(@source && @source.age_ms)}
       </p>
-      <div style="overflow-x: auto" tabindex="0" role="region" aria-label="Build queue items">
+      <div :if={@queue.items != []} style="overflow-x: auto" tabindex="0" role="region" aria-label="Build queue items">
         <table class="bo-catalog-table" style="min-width: 48rem">
           <thead><tr>
             <th :for={key <- [:position, :ticket, :state, :waiting_on, :rank, :attentions]} scope="col">{Copy.text(key)}</th>
