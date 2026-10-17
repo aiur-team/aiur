@@ -60,5 +60,14 @@ defmodule Aiur.Workspace.RelocatedResourcesTest do
       assert Path.type(path) == :relative
       assert File.regular?(path)
     end
+
+    workspace_assets =
+      AiurWeb.StaticAssets.__info__(:attributes)
+      |> Keyword.get_values(:external_resource)
+      |> List.flatten()
+      |> Enum.filter(&String.starts_with?(Path.relative_to(&1, File.cwd!()), "priv/static/"))
+
+    assert length(workspace_assets) > 3
+    assert Enum.all?(workspace_assets, &(Path.type(&1) == :relative))
   end
 end
