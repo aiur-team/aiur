@@ -130,4 +130,15 @@ defmodule AiurWeb.Experiments.ChartsTest do
     assert length(Floki.find(times, ".exp-outside")) == 1
     assert Floki.text(Floki.find(times, "tbody")) =~ "Outside window"
   end
+
+  test "capped point sets keep full distribution whiskers inside the plot" do
+    metric = hd(fixture().chart_metrics)
+    group = hd(metric.groups)
+    group = %{group | points: [hd(group.points)], n: 600, median: 100, q1: 99, q3: 101, whiskers: {98, 103}}
+    chart = html(Charts.distribution(%{metric | groups: [group]})) |> Floki.parse_fragment!()
+    [line] = Floki.find(chart, ".exp-whisker")
+    assert Floki.attribute(line, "y1") == ["240.0"]
+    assert Floki.attribute(line, "y2") == ["20.0"]
+    assert Floki.text(chart) =~ "n 600, showing 1"
+  end
 end

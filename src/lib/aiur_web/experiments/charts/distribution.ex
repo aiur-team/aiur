@@ -4,7 +4,7 @@ defmodule AiurWeb.Experiments.Charts.Distribution do
 
   @spec render(map()) :: String.t()
   def render(metric) do
-    values = for group <- metric.groups, value <- [group.median, group.q1, group.q3] ++ Enum.map(group.points, & &1["value"]), is_number(value), do: value
+    values = for group <- metric.groups, value <- [group.median, group.q1, group.q3] ++ Tuple.to_list(group.whiskers || {}) ++ Enum.map(group.points, & &1["value"]), is_number(value), do: value
     domain = Svg.domain(values, metric.scale)
     groups = Enum.with_index(metric.groups) |> Enum.map(fn {group, index} -> group(group, index, length(metric.groups), domain, metric) end)
 
