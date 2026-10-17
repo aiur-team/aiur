@@ -30,7 +30,13 @@ test('B1 list registration renders sections and counts in design order', async (
 })
 test('B2 delegated Enter opens once across renders and remounts', async ({ page }) => {
   for (let mount = 0; mount < 2; mount++) {
-    if (mount) { await page.goto('/agents'); await open(page) }
+    if (mount) {
+      await page.evaluate(() => window.liveSocket.main.pushLinkPatch(null, '/commands'))
+      await expect(page.locator('#build-root')).toHaveCount(0)
+      await page.evaluate(() => window.liveSocket.main.pushLinkPatch(null, '/build?view=list'))
+      await expect(page.locator('.bd-list')).toHaveCount(1)
+      expect(await page.evaluate(() => window.listSentinel)).toBe(true)
+    } else await page.evaluate(() => { window.listSentinel = true })
     await page.evaluate(async () => {
       const { fx } = await import('/build-home/state.js'); window.opened = []; fx.openModal = t => opened.push(t.id)
       fx.relayout(); fx.relayout()
@@ -68,6 +74,8 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
   await expect(page.locator('.lh[data-sec=hist] em')).toContainText('earlier days could not load')
   await page.request.get('/build-control/earlier?delay=500')
   const count = await page.locator('.lr.hist').count()
+  await more.focus()
+  const scroll = await page.locator('#bd-vp').evaluate(vp => vp.scrollTop)
   await page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js'); const push = ctx.push; window.calls = 0
     ctx.push = (event, params) => { if (event === 'load-earlier') calls++; return push(event, params) }
@@ -76,6 +84,8 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
   await expect(more).toBeDisabled(); await expect(more).toHaveAttribute('aria-busy', 'true')
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
   await expect(more).toBeEnabled()
+  await expect(more).toBeFocused()
+  expect(await page.locator('#bd-vp').evaluate(vp => vp.scrollTop)).toBeCloseTo(scroll, 0)
   expect(await page.evaluate(() => calls)).toBe(1)
   expect(await page.locator('.lr.hist').count()).toBeGreaterThan(count)
 })
@@ -97,4 +107,15 @@ test('B6 table accessibility and forced-colour focus; B7 hostile title stays tex
   await page.emulateMedia({ forcedColors: 'active' }); await rows(page).first().focus()
   await expect(rows(page).first()).toHaveCSS('outline-style', 'solid')
   for (const text of await page.locator('.lst').allTextContents()) expect(text.length).toBeGreaterThan(0)
+})
+
+test('history button focus survives live rerenders and falls back when exhausted', async ({ page }) => {
+  const more = page.locator('#lr-more'); await more.focus()
+  await page.evaluate(async () => { const { fx } = await import('/build-home/state.js'); fx.renderList() })
+  await expect(more).toBeFocused()
+  await page.evaluate(async () => {
+    const { H } = await import('/build-home/history.js'), { fx } = await import('/build-home/state.js')
+    H.more = false; fx.renderList()
+  })
+  await expect(rows(page).last()).toBeFocused()
 })

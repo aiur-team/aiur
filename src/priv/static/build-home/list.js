@@ -83,6 +83,7 @@ export function listHTML(D, state, history, P, now) {
 export function renderList() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
   const focused = document.activeElement?.closest?.('.lr[data-id]'), index = previous.indexOf(focused);
+  const moreFocused = document.activeElement?.id === 'lr-more' && vp.contains(document.activeElement);
   const top = vp.getBoundingClientRect().top;
   const anchor = previous.find(el => el.getBoundingClientRect().top >= top);
   const offset = anchor ? anchor.getBoundingClientRect().top - top : null, scroll = vp.scrollTop;
@@ -91,6 +92,7 @@ export function renderList() {
   const all = rows(), next = anchor && all.find(el => el.dataset.id === anchor.dataset.id);
   vp.scrollTop = next ? vp.scrollTop + next.getBoundingClientRect().top - top - offset : scroll;
   if (index >= 0) (all.find(el => el.dataset.id === focused.dataset.id) || all[Math.min(index, all.length - 1)] || vp.querySelector('.bd-list')).focus({ preventScroll: true });
+  if (moreFocused) (vp.querySelector('#lr-more') || all.at(-1) || vp.querySelector('.bd-list')).focus({ preventScroll: true });
   bindOnce(vp);
 }
 function bindOnce(vp) {
