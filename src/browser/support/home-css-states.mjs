@@ -31,8 +31,13 @@ export async function openHomeState(page, cell) {
   if (cell.interaction === 'filter') await page.locator('.bd-fg').first().click()
   if (cell.interaction === 'usage') await page.locator('.ax-seg').first().click()
   if (cell.interaction === 'lock' || cell.interaction === 'tree') {
-    await page.locator('.bd-card.plan').first().hover({ force: true })
-    await page.locator('.bd-lt [data-lt="lock"]').click({ force: true })
+    const lockTab = page.locator('.bd-lt [data-lt="lock"]')
+    // This helper opens only the design mock; product receives this locked DOM via transplant.
+    await expect(async () => {
+      await page.locator('.bd-card.plan').first().hover({ force: true })
+      await lockTab.click({ force: true })
+      await expect(page.locator('.bd-lt')).toHaveClass(/locked/)
+    }).toPass()
     if (cell.interaction === 'tree') await page.locator('.bd-lt [data-lt="tree"]').click()
   }
   if (['modal', 'command', 'nq'].includes(cell.interaction)) await expect(page.locator('.tk-backdrop')).toHaveClass(/show/)

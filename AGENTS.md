@@ -332,6 +332,10 @@ discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
 author-side rule so the check happens before review, not for the first time in
 review.
 
+A fixed fixture date must never meet the real clock: inject `now`, or date the
+fixture relative to `DateTime.utc_now()`. CI's affected-tests job reruns dated
+tests with every date literal 35 days older (`scripts/check-test-time-bombs.py`).
+
 ## Computed ages and collapsed causes — author-side checks
 
 Two more dashboard rules recur in review — an age computed but never rendered,

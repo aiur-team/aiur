@@ -4,9 +4,9 @@ defmodule Aiur.AgentSkills do
   workspace.
 
   The per-turn agent prompt (`shared-agent-instructions.md`) routes every agent
-  to the `aiur-agent` operating manual — the single skill covering the ticket
-  workflow, the dev loop, and cross-ticket events — while `/aiur-debug` is the
-  shared diagnosis overlay available when a run or ticket fails. Those skills
+  to the `aiur-agent` operating manual for the ticket workflow, dev loop
+  and cross-ticket events. `/aiur-debug` provides the diagnosis overlay,
+  and `/aiur-experiment` provides the experiment analyst. These skills
   ship in aiur's own tree under
   `.claude/skills/`, but an agent's workspace is a checkout of the *target*
   repo, which has no copy — so
@@ -40,7 +40,7 @@ defmodule Aiur.AgentSkills do
   # skills (aiur-build, aiur-run, aiur-monitor, release) are excluded because an
   # issue worker has no reason to run aiur itself. That test cross-checks this
   # subset, so the two cannot silently drift.
-  @aiur_issue_worker_skills ~w(aiur-agent aiur-debug design-import)
+  @aiur_issue_worker_skills ~w(aiur-agent aiur-debug aiur-experiment design-import)
 
   # The bundled source tree is the release build input. Backend workspace paths
   # are supplied by `CodingAgent.skill_install_locations/0` below.
