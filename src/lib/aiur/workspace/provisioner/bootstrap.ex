@@ -158,11 +158,7 @@ defmodule Aiur.Workspace.Provisioner.Bootstrap do
     with {:ok, %File.Stat{type: :directory}} <- File.lstat(workspace),
          {:ok, entries} <- File.ls(workspace),
          {:ok, %File.Stat{type: :directory}} <- File.lstat(Path.join(workspace, ".aiur-runtime")) do
-      case Enum.sort(entries) do
-        [".aiur-runtime"] -> true
-        [".aiur-runtime", "logs"] -> safe_logs_tree?(Path.join(workspace, "logs")) == :ok
-        _ -> false
-      end
+      entries == [".aiur-runtime"]
     else
       _ -> false
     end

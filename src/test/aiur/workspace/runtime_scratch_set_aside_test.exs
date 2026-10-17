@@ -19,13 +19,14 @@ defmodule Aiur.Workspace.RuntimeScratchSetAsideTest do
     File.mkdir_p!(Path.dirname(scratch))
     File.write!(scratch, "scratch\n")
 
-    assert {:ok, ^workspace, true} = Provisioner.ensure_workspace(workspace, nil)
+    assert {:ok, ^workspace, true} = Provisioner.ensure_workspace(workspace, nil, nil, "aiur/4962-runtime", nil, nil)
     refute File.exists?(Path.join(workspace, ".aiur-runtime/tmp"))
 
     assert [stale] = Path.wildcard(Path.join(workspace_root, "4962.stale-*"))
     assert File.read!(Path.join([stale, ".aiur-runtime", "tmp", "aiur-test-logs-1", "run.log"])) == "scratch\n"
   end
 
+  # Regression guard: passes on main too; locks in that set-aside never widens past runtime scratch.
   test "keeps a workspace with other unknown content ambiguous and in place", ctx do
     %{workspace: workspace, workspace_root: workspace_root} = ctx
     File.mkdir_p!(Path.join(workspace, ".aiur-runtime/tmp"))
