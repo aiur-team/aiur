@@ -38,8 +38,8 @@ defmodule Aiur.BrowserHarness.FixtureServerTest do
   end
 
   defp linked_start_failure(reason) do
-    pid = spawn_link(fn -> exit(reason) end)
-    monitor = Process.monitor(pid)
+    # Link and monitor atomically; a separate Process.monitor/1 can race the exit and see :noproc.
+    {pid, monitor} = Process.spawn(fn -> exit(reason) end, [:link, :monitor])
     assert_receive {:DOWN, ^monitor, :process, ^pid, ^reason}, 1_000
     {:ok, :collision}
   end
