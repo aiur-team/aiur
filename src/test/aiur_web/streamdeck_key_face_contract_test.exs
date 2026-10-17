@@ -7,7 +7,7 @@ defmodule AiurWeb.StreamdeckKeyFaceContractTest do
   # asserts against. These are literal expected renderings, not a restatement of
   # the formula: a hue rounded differently in one language, or a contract value
   # changed on one side only, fails here rather than drifting silently.
-  @vectors_path Path.expand("../../../packages/streamdeck/src/key-face-parity-vectors.json", __DIR__)
+  @vectors_path Path.expand("../../priv/streamdeck/key-face-parity-vectors.json", __DIR__)
   @external_resource @vectors_path
   @vectors @vectors_path |> File.read!() |> Jason.decode!()
 

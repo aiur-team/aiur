@@ -9,8 +9,15 @@ defmodule Aiur.Config.Schema.Server do
     # claude remote-control's transcript hook can reach it; without a bound
     # port the hook is skipped and RC runs fail `:no_transcript`. Set an
     # explicit port to expose the dashboard at a fixed address.
+    # @config-reference config-configuration-18 server.port
+    # @config-detail server.port | integer | 0 | HTTP port; 0 selects a free OS port. |
     field(:port, :integer, default: 0)
+    # @config-reference config-configuration-18 server.host
+    # @config-detail server.host | string | `127.0.0.1` | HTTP bind address. Set it explicitly to serve the dashboard beyond the machine; there is no automatic Tailscale detection. |
     field(:host, :string, default: "127.0.0.1")
+    # @config-reference config-configuration-18 server.tailscale_funnel
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail server.tailscale_funnel | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
     field(:tailscale_funnel, :boolean, default: false)
   end
 

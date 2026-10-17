@@ -5,7 +5,7 @@ defmodule AiurWeb.Build.PayloadTest do
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   test "fixtures reach the full strict schema (future fixture guard)" do
-    for name <- ~w(live dense newrepo noqueue offline) do
+    for name <- ~w(live dense newrepo noqueue offline unknowns) do
       {:ok, data} = FixtureSource.full(dataset: name)
       assert Payload.validate(Payload.snapshot(data, "epoch", 0)) == :ok
     end
@@ -52,9 +52,14 @@ defmodule AiurWeb.Build.PayloadTest do
   end
 
   test "every source must be present" do
-    data = fixture() |> update_in(["sources"], &Map.delete(&1, "queue"))
-    assert {:error, errors} = Payload.validate(data)
-    assert {"sources.queue", :missing} in errors
+    for key <- ~w(history features queue agents index open_tickets) do
+      data = fixture() |> update_in(["sources"], &Map.delete(&1, key))
+      assert {:error, errors} = Payload.validate(data)
+      assert {"sources.#{key}", :missing} in errors
+    end
+
+    data = fixture() |> put_in(["sources", "open_tickets", "state"], "unsupported") |> put_in(["sources", "open_tickets", "truncated"], true)
+    assert Payload.validate(data) == :ok
   end
 
   test "locked usage cannot carry values" do

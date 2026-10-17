@@ -18,7 +18,7 @@ defmodule Aiur.Experiments.StartupTest do
     write_workflow_file_atomic!(path, File.read!(path) <> "\nexperiments:\n  auto:\n    enabled: false\n")
     :ok = Aiur.WorkflowStore.force_reload()
     assert Aiur.Experiments.child(true) == Aiur.Experiments.Store
-    assert Aiur.Experiments.children(true) == [Aiur.Experiments.Store, Aiur.Experiments.Capture, Aiur.Experiments.Checkpointer]
+    assert Aiur.Experiments.children(true) == [Aiur.Experiments.Store, Aiur.Experiments.Capture, Aiur.Experiments.Checkpointer, Aiur.Experiments.StatsRunner]
     assert Aiur.Experiments.window_children(true) == [Aiur.Experiments.Auto.Notifier, Aiur.Experiments.Auto.WindowManager]
     assert Aiur.Experiments.window_children(false) == []
   end

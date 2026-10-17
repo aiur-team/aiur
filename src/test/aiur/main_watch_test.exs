@@ -2,11 +2,12 @@ defmodule Aiur.MainWatchTest do
   use Aiur.TestSupport
   alias Aiur.CI.FailureDigest
   alias Aiur.Events.Exchange
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.MainWatch
+  alias Aiur.MainWatch.GitHub, as: MainWatchGitHub
   alias Aiur.MainWatch.{Persistence, State}
 
   setup do
-    unless Process.whereis(Aiur.TaskSupervisor), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
     :ok
   end
 
@@ -44,6 +45,36 @@ defmodule Aiur.MainWatchTest do
     refute_received {:emitted, _, _}
   end
 
+  test "restored ETag snapshot is passed into the next poll" do
+    parent = self()
+    date = DateTime.to_unix(~U[2026-10-10 00:00:00Z], :millisecond)
+
+    initial = %{
+      Persistence.empty()
+      | commits: ["retained-sha"],
+        commit_window: ["retained-sha"],
+        commit_dates: [date],
+        commit_etag: "\"main-v1\""
+    }
+
+    poll = fn _branch, _workflows, opts ->
+      send(parent, {:poll_started, self(), opts})
+
+      receive do
+        {:complete, result} -> result
+      end
+    end
+
+    _server = launch(initial, poll_fun: poll)
+    assert_receive {:poll_started, worker, opts}, 1_000
+    assert opts[:commit_etag] == "\"main-v1\""
+    assert opts[:commits] == ["retained-sha"]
+    assert opts[:commit_dates] == [date]
+    send(worker, {:complete, {:ok, result([])}})
+    assert_receive {:saved, _persisted}, 1_000
+    stop_supervised!(MainWatch)
+  end
+
   test "unavailable watcher keeps a sanitized auth diagnostic through restart" do
     reason = {:github, :auth, %{status: 401, caller: "main_watch_commits", credential: "github_app_installation"}}
     server = launch(Persistence.empty())
@@ -55,6 +86,36 @@ defmodule Aiur.MainWatchTest do
     green = %{observation("recovered", 2) | checks: [%{name: "test", conclusion: "success"}]}
     finish_poll(server, {:ok, result([green])})
     assert %{watcher: :running, status: :green, sha: "recovered", last_error: nil} = MainWatch.state(server)
+    stop_supervised!(MainWatch)
+  end
+
+  test "bounded production request wrapper preserves the configured GitHub token" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    token_key = {GitHubConfig, :resolved_token}
+    source_key = {GitHubConfig, :resolved_token_source}
+    previous_token = :persistent_term.get(token_key, :unset)
+    previous_source = :persistent_term.get(source_key, :unset)
+
+    on_exit(fn ->
+      restore_persistent_term(token_key, previous_token)
+      restore_persistent_term(source_key, previous_source)
+    end)
+
+    :persistent_term.put(token_key, "runtime-pat")
+    :persistent_term.put(source_key, :env)
+    parent = self()
+
+    request = fn call ->
+      send(parent, {:actual_request_token, call.token})
+      {:ok, %{status: 200, body: []}}
+    end
+
+    launch(Persistence.empty(),
+      poll_fun: fn branch, workflows, opts -> MainWatchGitHub.poll(branch, workflows, opts) end,
+      request_fun: request
+    )
+
+    assert_receive {:actual_request_token, "runtime-pat"}, 1_000
     stop_supervised!(MainWatch)
   end
 
@@ -326,4 +387,7 @@ defmodule Aiur.MainWatchTest do
   end
 
   defp run(conclusion, at), do: %{id: 3, sha: "old", attempt: 1, status: "completed", conclusion: conclusion, completed_at: at, url: "run"}
+
+  defp restore_persistent_term(key, :unset), do: :persistent_term.erase(key)
+  defp restore_persistent_term(key, value), do: :persistent_term.put(key, value)
 end

@@ -246,6 +246,7 @@ defmodule Aiur.DecisionExpiryTest do
                  "question" => "Still actionable?",
                  "blocking" => blocking,
                  "authority" => authority,
+                 "context" => %{"authority_basis" => "security"},
                  "source_id" => source_id
                },
                ticket: %{@ticket | identifier: ticket_identifier},

@@ -3,9 +3,8 @@ defmodule Aiur.CLI do
   Escript entrypoint for running Aiur with an explicit config-file path.
   """
 
-  alias Aiur.CLI.{Banner, Subcommands}
-  alias Aiur.{LogFile, Workflow}
-  @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
+  alias Aiur.CLI.{Banner, ReferenceOptions, RuntimeDeps, Subcommands, Usage}
+  alias Aiur.Workflow
   @repo "aiur-team/aiur"
   @version Mix.Project.config()[:version]
   @git_rev String.trim(
@@ -14,41 +13,6 @@ defmodule Aiur.CLI do
                _ -> ""
              end
            )
-  @switches [
-    {@acknowledgement_switch, :boolean},
-    logs_root: :string,
-    port: :integer,
-    host: :string,
-    version: :boolean,
-    interactive: :boolean,
-    headless: :boolean,
-    executor: :boolean,
-    no_dashboard: :boolean,
-    max_agents: :integer,
-    pause: :boolean,
-    force: :boolean,
-    todo: :boolean,
-    only: :boolean,
-    unfiled: :boolean,
-    slugs: :boolean,
-    scope: :string,
-    record: :string,
-    repo: :string,
-    digest: :boolean,
-    body: :string,
-    body_file: :string,
-    urgency: :string,
-    blocking: :boolean,
-    done: :string,
-    note: :string,
-    json: :boolean,
-    open: :boolean,
-    all: :boolean,
-    dir: :string,
-    harness: :string,
-    purge: :boolean
-  ]
-
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
           required(:file_regular?) => (String.t() -> boolean()),
@@ -157,8 +121,8 @@ defmodule Aiur.CLI do
           | {:account_login_prepare, String.t(), String.t(), String.t() | nil}
           | {:account_logout, String.t(), String.t(), boolean()}
           | {:error, String.t()}
-  def evaluate(args, deps \\ runtime_deps()) do
-    case OptionParser.parse(args, strict: @switches) do
+  def evaluate(args, deps \\ RuntimeDeps.get()) do
+    case OptionParser.parse(args, strict: ReferenceOptions.strict_switches()) do
       {opts, positional, []} ->
         cond do
           Subcommands.todo_switch?(opts) -> Subcommands.evaluate_todo(opts, positional)
@@ -169,6 +133,12 @@ defmodule Aiur.CLI do
       _ ->
         {:error, usage_message()}
     end
+  end
+
+  @doc false
+  @spec reference_options() :: [%{name: atom(), type: atom(), syntax: String.t(), description: String.t(), example: String.t()}]
+  def reference_options do
+    ReferenceOptions.options()
   end
 
   defp evaluate_standard([version: true], _positional, _deps), do: {:version, @version}
@@ -271,24 +241,7 @@ defmodule Aiur.CLI do
 
   @spec usage_message() :: String.t()
   @doc false
-  def usage_message do
-    "Usage: aiur [--interactive] [--headless] [--executor] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]\n       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]\n       aiur findings --record <json> --repo <owner/repo>\n       aiur findings --digest [--scope aiur|repo]\n       aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]\n       aiur ask --done <id> [--note <text>]\n       aiur asks [--open|--all] [--json]"
-  end
-
-  @spec runtime_deps() :: deps()
-  defp runtime_deps do
-    %{
-      file_regular?: &File.regular?/1,
-      set_workflow_file_path: &Aiur.Workflow.set_workflow_file_path/1,
-      set_logs_root: &set_logs_root/1,
-      set_server_port_override: &set_server_port_override/1,
-      set_server_host_override: &set_server_host_override/1,
-      ensure_all_started: fn -> Application.ensure_all_started(:aiur) end,
-      configured_max_agents: &Aiur.Config.max_concurrent_agents/0,
-      executor_mode?: fn -> Application.get_env(:aiur, :executor_mode, false) end,
-      check_daemon_gap: &Aiur.DaemonHeartbeatChecker.check_and_alert!/0
-    }
-  end
+  def usage_message, do: Usage.message()
 
   defp warn_if_max_agents_exceeds_config(opts, deps) do
     with requested when is_integer(requested) <- last_option_value(opts, :max_agents),
@@ -329,16 +282,11 @@ defmodule Aiur.CLI do
   end
 
   defp require_guardrails_acknowledgement(opts) do
-    if Keyword.get(opts, @acknowledgement_switch, false) do
+    if Keyword.get(opts, ReferenceOptions.acknowledgement_switch(), false) do
       :ok
     else
       {:error, Banner.acknowledgement()}
     end
-  end
-
-  defp set_logs_root(logs_root) do
-    Application.put_env(:aiur, :log_file, LogFile.default_log_file(logs_root))
-    :ok
   end
 
   defp maybe_set_server_port(opts, deps) do
@@ -357,11 +305,6 @@ defmodule Aiur.CLI do
     end
   end
 
-  defp set_server_port_override(port) when is_integer(port) and port >= 0 do
-    Application.put_env(:aiur, :server_port_override, port)
-    :ok
-  end
-
   defp maybe_set_server_host(opts, deps) do
     case Keyword.get_values(opts, :host) do
       [] ->
@@ -376,11 +319,6 @@ defmodule Aiur.CLI do
           :ok = deps.set_server_host_override.(host)
         end
     end
-  end
-
-  defp set_server_host_override(host) when is_binary(host) and host != "" do
-    Application.put_env(:aiur, :server_host_override, host)
-    :ok
   end
 
   defp maybe_set_interactive(opts) do

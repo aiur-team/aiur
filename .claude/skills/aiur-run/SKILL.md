@@ -324,9 +324,8 @@ moved), and say plainly when one is `stalled` or `expired`. Recommend; do not
 revoke a live peer's claim yourself. `aiur executor-revoke <id>` is the
 operator's decision.
 
-**Arm the wake monitor before you dispatch anything.** This is a launch step,
-not later advice. The daemon holds the real event-bus subscription (28
-bindings); **the Executor does not.** Events are projected to a file —
+**Arm the wake monitor before dispatch.** The daemon holds the real event-bus
+subscription (28 bindings); **the Executor does not.** Events are projected to a file —
 `~/.aiur/repo/<owner>/<repo>/executor/<repo>.executor.wakes.ndjson`, with the read
 position in `<repo>.executor.wakes.cursor.json`. `<repo>` is the sanitized final
 segment of the tracker project identity (`Paths.repo_name/0`; for example,
@@ -437,8 +436,8 @@ applies. It reconciles a compile-time set of reviewed bindings on every start:
   also wake when the daemon observes the change.
 - attention and CI: `ticket.*.agent.attention.*`,
   `ticket.*.agent.paused`, `ticket.*.agent.error.tokens_exhausted`,
-  `ticket.*.agent.retry_exhausted`, `ticket.*.pr.parked_ready`, and
-  `ticket.*.ci.{passed,failed}`
+  `ticket.*.agent.retry_exhausted`, `ticket.*.pr.parked_ready`, `ticket.*.ci.{passed,failed}`,
+  and `system.agent.synthetic_load_cap` (CPU load from a workspace with no known ticket)
 
 Treat `ready_for_review` wakes marked `observation: "initial_sync"` as "review if not already reviewed"; they backfill first-sight history rather than signal a new transition.
 
@@ -566,10 +565,9 @@ configuration cannot widen this trust boundary.
 
 Handle each Command when the daemon listener delivers it (via the
 needs-attention alert) or when you read it with `aiur commands <decision-id>`.
-The listener is the primary command path: do not poll or sweep the decision
-store to discover newly created Commands. The listener's replay after a
-restart provides the missed-event backstop; the ordinary monitoring cadence
-remains a health audit, not a second command inbox.
+The listener remains the primary command path. As a backstop, sweep decisions
+every `executor-wait` cycle; use [`references/open-decisions-sweep.sh`](references/open-decisions-sweep.sh)
+to list open decisions and report new ones or blockers at least 15 minutes old.
 
 Use contextual judgment for every Command, never a rules table or a hardcoded
 allowlist of command types. Answer directly only when the requested choice is
@@ -829,18 +827,11 @@ Failed CI in `agent:human-review` routes to rework when that head already passed
 CI or the head changed. An inherited failure on a dismissed head remains held;
 the existing test-only one-poll retry still applies.
 
-The `pull_request_review` webhook and the review-submission poll both publish `ticket.<id>.pr.review_comment`, which
-routes through `CommentWake` to the rework transition. No manual relabel is
-required. After posting a review, verify the ticket actually left
-`agent:human-review` or `agent:ci-wait` (posted is not verified); only touch the
-label by hand if the automatic transition did not fire, and then check the delivery — review
-state, trusted author, open PR — before relabelling.
-
 Alerts persist across daemon restarts and tokens (full-history scan, #1231), so
 the `ACTIONABLE` list keeps naming long-merged tickets. Check timestamps before
 acting and trust the top state table over the alert list.
 
-On every observation:
+Run `aiur executor-sweep` on every observation and handle its findings first. It checks decisions, approved PR/CI, merge queue, capacity/order, ticket hygiene, blockers, handbacks, and watcher/dispatcher health. Unreviewed human-review PRs rank first using `executor.sweep.unreviewed_pr_minutes`; the daemon repeats every five minutes and wakes on new findings. Continue below for actions it cannot perform:
 
 - act on the `ACTIONABLE` section before routine scheduling;
 - continuously push toward the maximum **useful** concurrency across workers,
@@ -1199,10 +1190,16 @@ that the production files conflict while every test file auto-merges cleanly, so
 the resolver sees no markers and inherits a mutually unsatisfiable suite. Ask
 explicitly for a merge-order recommendation.
 
-The ticket leaves `agent:human-review` automatically on a `CHANGES_REQUESTED`
-review — verify it did, rather than relabelling by hand (see the rework note
-above). A review that does not move the ticket out of `agent:human-review` is a
-review nobody acts on.
+Do not relabel by hand after a `CHANGES_REQUESTED` review. The review webhook
+and poll both publish `ticket.<id>.pr.review_comment`; `CommentWake` writes
+`agent:rework` (add before remove) and delivers the review to a live worker. A
+hand relabel only repeats that write and spends shared GitHub core budget. (The
+2026-10-15 `dispatch-declined` on #4570/#4566 came from a budget hold on the
+rework claim, not the relabels; #4646.) Verify the ticket left
+`agent:human-review`/`agent:ci-wait` for `agent:rework`. If not, fix what the
+`review_rework_refused` alert names (often: re-review the current head). With no
+alert, run `aiur executor-sweep` (#4620) and grep the daemon log for `Rework
+dispatch claim failed` or `writer=comment_wake` before you touch a label.
 
 ### Merge mechanics
 

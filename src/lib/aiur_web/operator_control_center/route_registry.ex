@@ -47,6 +47,17 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:analytics]
     },
     %{
+      id: :experiments,
+      label: "Experiments",
+      icon: "⚗",
+      description: "Frozen experiment evidence.",
+      path: "/experiments",
+      type: :live,
+      owner: :experiments,
+      availability: :available,
+      active_actions: [:experiments, :experiment]
+    },
+    %{
       id: :streamdeck,
       label: "Streamdeck+",
       nav_label: "Streamdeck",
@@ -62,7 +73,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   @spec routes(map()) :: [map()]
   def routes(analytics) when is_map(analytics) do
-    Enum.map(@routes, &resolve_runtime_availability(&1, analytics))
+    Enum.filter(@routes, &resolve_runtime_availability(&1, analytics))
   end
 
   @spec route(atom(), map()) :: {:ok, map()} | :error
@@ -98,5 +109,6 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   def navigation_mode(_current_route, _target_route), do: :navigate
 
-  defp resolve_runtime_availability(route, _analytics), do: route
+  defp resolve_runtime_availability(%{id: :experiments}, runtime), do: Map.get(runtime, :experiments_available?, false) == true
+  defp resolve_runtime_availability(_route, _runtime), do: true
 end

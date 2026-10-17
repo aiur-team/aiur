@@ -3,6 +3,7 @@
 import argparse
 import base64
 import asyncio
+import ctypes
 from collections import deque
 from datetime import datetime, timedelta, timezone
 import json
@@ -124,6 +125,10 @@ class Relay:
             if name not in ('TERM', 'KILL', 'INT', 'HUP'):
                 raise ValueError('invalid_signal')
             self.signal_group(getattr(signal, 'SIG' + name))
+        elif op == 'reap':
+            # Turn boundary: no tool command is running, so whatever one left
+            # behind dies, whether adopted or still under a live tool shell.
+            asyncio.create_task(self.kill_descendants(spare=self.provider.pid))
         elif op == 'stop':
             grace = request.get('grace_ms', 10000)
             if type(grace) is not int or not 0 <= grace <= 60000:
@@ -243,6 +248,41 @@ class Relay:
         except ProcessLookupError:
             pass
 
+    async def kill_descendants(self, spare=None):
+        # Tool commands may setsid or double-fork out of the provider group;
+        # as subreaper the relay adopts them, so its tree is the whole agent.
+        # `spare` is the live provider at a turn end: it and its descendants in
+        # its session (MCP servers) survive. Claude and Codex both start tool
+        # commands in sessions of their own, and a process cannot rejoin one.
+        for _ in range(100):
+            self.reap_adopted()
+            pids = descendants(os.getpid())
+            # After the listing, so a child the provider forks meanwhile is kept.
+            kept = provider_session(spare) if spare else set()
+            pids = [pid for pid in pids if pid not in kept and not zombie(pid)]
+            if not pids:
+                return
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            await asyncio.sleep(.01)
+
+    def reap_adopted(self):
+        # Never reap the provider: asyncio owns its exit status.
+        while True:
+            try:
+                child = os.waitid(os.P_ALL, 0, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            except ChildProcessError:
+                return
+            if child is None or child.si_pid == self.provider.pid:
+                return
+            try:
+                os.waitpid(child.si_pid, 0)
+            except ChildProcessError:
+                return
+
     async def stop(self, grace=10):
         if self.stopping:
             return
@@ -255,6 +295,7 @@ class Relay:
         # Descendants may survive their session leader; always finish group cleanup.
         self.signal_group(signal.SIGKILL)
         await self.provider.wait()
+        await self.kill_descendants()
         await asyncio.gather(*self.readers, return_exceptions=True)
         status = self.provider.returncode
         self.exit_status = status if status >= 0 else 128 - status
@@ -267,6 +308,8 @@ class Relay:
 
     async def watch(self):
         await self.provider.wait()
+        # An adopted descendant holding stdout would keep the readers open.
+        await self.kill_descendants()
         await asyncio.gather(*self.readers)
         status = self.provider.returncode
         self.exit_status = status if status >= 0 else 128 - status
@@ -284,6 +327,7 @@ class Relay:
                 if age >= self.spec.get('orphan_timeout_seconds', 1800):
                     await self.stop()
                     return
+            self.reap_adopted()
             await asyncio.sleep(.05)
 
     async def run(self):
@@ -293,13 +337,14 @@ class Relay:
             if hasattr(self, 'provider'):
                 self.signal_group(signal.SIGKILL)
                 await self.provider.wait()
+                await self.kill_descendants()
             raise
 
     async def serve(self):
         self.provider = await asyncio.create_subprocess_exec(
             *self.spec['argv'], cwd=self.spec['cwd'], env=self.spec['env'],
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE, start_new_session=True)
+            stderr=asyncio.subprocess.STDOUT, start_new_session=True)
         self.provider_start = None
         try:
             self.provider_start = Path(f'/proc/{self.provider.pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
@@ -309,8 +354,7 @@ class Relay:
         self.manifest.update(protocol=PROTOCOL, relay_pid=os.getpid(), provider_pid=self.provider.pid,
                              pgid=self.provider.pid, created_at=datetime.now(timezone.utc).isoformat())
         self.persist()
-        self.readers = [asyncio.create_task(self.output(self.provider.stdout)),
-                        asyncio.create_task(self.output(self.provider.stderr))]
+        self.readers = [asyncio.create_task(self.output(self.provider.stdout))]
         path = self.directory / 'ctl.sock'
         server = await asyncio.start_unix_server(self.receive, path='ctl.sock', limit=self.cap * 2)
         os.chmod(path, 0o600)
@@ -331,6 +375,50 @@ class Relay:
             for task in tasks:
                 task.cancel()
             self.journal.close()
+
+
+def descendants(root):
+    found, pending = [], [root]
+    while pending:
+        parent = pending.pop()
+        try:
+            tasks = os.listdir(f'/proc/{parent}/task')
+        except OSError:
+            continue
+        for task in tasks:
+            try:
+                children = [int(pid) for pid in Path(f'/proc/{parent}/task/{task}/children').read_text().split()]
+            except (OSError, ValueError):
+                continue
+            found += children
+            pending += children
+    return found
+
+
+def provider_session(provider):
+    # Codex gives each MCP server a process group of its own, so match the session.
+    def session(pid):
+        try:
+            return os.getsid(pid)
+        except ProcessLookupError:
+            return None
+    return {provider} | {pid for pid in descendants(provider) if session(pid) == provider}
+
+
+def zombie(pid):
+    try:
+        return Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0] == 'Z'
+    except (OSError, IndexError):
+        return True
+
+
+def become_subreaper():
+    # PR_SET_CHILD_SUBREAPER: orphaned descendants reparent here, not to init
+    # or systemd --user, so stop can still find them (#4730).
+    try:
+        ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0)
+    except (AttributeError, OSError):
+        pass
 
 
 def sweep_dead_relays(root):
@@ -392,6 +480,7 @@ def main():
     os.setsid()
     if os.fork():
         os._exit(0)
+    become_subreaper()
     os.umask(0o077)
     os.chdir(directory)
     with open(os.devnull, 'rb') as null, open(directory / 'relay.log', 'ab', buffering=0) as log:

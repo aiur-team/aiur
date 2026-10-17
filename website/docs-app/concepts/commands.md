@@ -56,13 +56,38 @@ stay `human_required`.
 Because omission defaults to the Executor floor, a Command that is genuinely
 irreversible, involves spend or external publication, or changes product
 direction must declare `authority: human_required` (and the matching
-`reversibility`) explicitly.
+`reversibility`) and set `context.authority_basis` to `product`, `spend`,
+`external_publication`, or `security`.
+
+Explain the specific boundary in the request context; missing or unrecognized
+bases are rejected. Legacy attention projections remain human-required without
+this worker field.
+
+An Executor can reclassify an open historical `human_required` Command only
+when it has no recorded human-only basis. Product, spend, publication, security,
+and legacy-attention Commands remain human-only.
+
+Reclassification records the Executor's rationale and increments the Command
+version. A separate `aiur executor-answer` must use the new version.
 
 Aiur warns when a human-required Command is reversible and all of its
-options are low-risk. It also raises attention when a blocking Command remains
-unanswered for a day, or when an Executor-unanswerable Command expires without a
-decision. These signals expose stale context and upstream misclassification;
-they do not weaken the answer-authorization floor.
+options are low-risk. It also raises attention when an Executor-unanswerable
+Command expires without a decision. These signals expose stale context and
+upstream misclassification; they do not weaken the answer-authorization floor.
+
+A blocking Command never waits in silence. When it is created, the Executor gets
+one `ticket.<N>.agent.attention.operator-decision` wake with the decision id,
+the question, the recommended option and the number of open tickets it gates.
+
+While it stays open, Aiur wakes the Executor again at 15 and 30 minutes and
+alerts the operator at 45 minutes, then every hour. A Command that gates 10 or
+more open tickets alerts the operator at 15 minutes. Answering the Command
+resolves the alert and stops the ladder.
+
+The ladder is computed from the
+Command's age, so a restart continues it. `aiur status` prints
+`DECISIONS open N oldest <age> (#ticket, gates M)` and marks it `ATTENTION`
+when the oldest blocking Command is older than 15 minutes.
 
 Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
 

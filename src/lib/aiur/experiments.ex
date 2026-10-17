@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments do
   @moduledoc "Versioned experiment specs and their durable audit trail."
 
-  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, Schema, Store, WindowEvents}
+  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, ReportMarkdown, ReportReads, Schema, Store, WindowEvents}
 
   @spec metric_catalog() :: map()
   def metric_catalog, do: Catalog.load()
@@ -10,7 +10,7 @@ defmodule Aiur.Experiments do
   def observations(refs, window, context \\ %{}), do: Evaluator.observations(refs, window, context)
 
   @spec children(boolean()) :: [module()]
-  def children(recording?), do: if(child(recording?), do: [Store, Capture, Checkpointer], else: [])
+  def children(recording?), do: if(child(recording?), do: [Store, Capture, Checkpointer, Aiur.Experiments.StatsRunner], else: [])
 
   @spec window_children(boolean()) :: [module()]
   def window_children(recording?), do: if(child(recording?), do: [Aiur.Experiments.Auto.Notifier, Aiur.Experiments.Auto.WindowManager], else: [])
@@ -60,7 +60,7 @@ defmodule Aiur.Experiments do
   end
 
   @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
-  def fetch(id), do: Reader.fetch(id)
+  def fetch(id), do: ReportReads.detail(id, Reader.fetch(id))
 
   @spec events(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def events(id, opts \\ []) do
@@ -97,15 +97,15 @@ defmodule Aiur.Experiments do
 
   @spec freeze(String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
   def freeze(id, window \\ nil, opts \\ []) do
-    if Paths.valid_id?(id), do: mutate({:freeze, id, window, opts}), else: {:error, :not_found}
+    if Paths.valid_id?(id), do: ReportReads.snapshot(id, mutate({:freeze, id, window, opts})), else: {:error, :not_found}
   end
 
   @spec arms(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def arms(id, opts \\ []), do: Arms.read(id, opts)
+  def arms(id, opts \\ []), do: ReportReads.arms(id, Arms.read(id, opts))
 
   @spec export_analysis_input(String.t()) :: {:ok, map()} | {:error, term()}
   def export_analysis_input(id) do
-    if Paths.valid_id?(id), do: mutate({:export_analysis_input, id}), else: {:error, :not_found}
+    if Paths.valid_id?(id), do: ReportReads.input(id, mutate({:export_analysis_input, id})), else: {:error, :not_found}
   end
 
   @spec checkpoint(String.t(), DateTime.t()) :: {:ok, map()} | {:error, term()}
@@ -139,6 +139,21 @@ defmodule Aiur.Experiments do
       {:error, :not_found}
     end
   end
+
+  @spec stats(String.t()) :: {:ok, map()} | {:error, term()}
+  def stats(id), do: mutate({:stats, id})
+
+  @spec put_report(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def put_report(id, report), do: mutate({:put_report, id, report})
+
+  @spec report_markdown(map()) :: String.t()
+  def report_markdown(report), do: ReportMarkdown.render(report)
+
+  @spec put_preregistration(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def put_preregistration(id, attrs), do: mutate({:put_preregistration, id, attrs})
+
+  @spec record_results_read(String.t()) :: :ok | {:error, term()}
+  def record_results_read(id), do: mutate({:record_results_read, id})
 
   @spec report_dir(String.t()) :: Path.t()
   def report_dir(id), do: Paths.file(id, "report")

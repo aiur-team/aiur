@@ -18,7 +18,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, OptimisticLedger, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
@@ -165,10 +165,10 @@ defmodule Aiur.Orchestrator.CommentWake do
   # `MergedTicketReconciler.merged_ticket_target/2` pass the decided
   # `:target_state` (the reconciler does, so its terminal path does not
   # re-enumerate the open-PR listing); everyone else — the live webhook route —
-  # computes it here so no path can write `done` without first checking that
-  # the merged PR actually claimed to close the ticket, and then that no other
-  # open PR remains.
-  defp merged_issue_target_state(identifier, opts) do
+  # computes it here so no path can write `done` without first checking that the
+  # merged PR actually claimed to close the ticket, and then that no other open PR remains.
+  @spec merged_issue_target_state(String.t() | integer(), keyword()) :: String.t() | {:error, term()}
+  def merged_issue_target_state(identifier, opts) do
     case Keyword.get(opts, :target_state) do
       target when target in ["done", "rework", "human-review"] ->
         target
@@ -688,6 +688,10 @@ defmodule Aiur.Orchestrator.CommentWake do
       benign_review_pass_comment?(event) ->
         state
 
+      # A live rework worker gets the review; a finished one may have handed off since the last poll (#4601).
+      live_rework_worker?(running_entry) ->
+        OperatorMessages.enqueue_event_digest_item(state, to_string(issue_number), [event], event)
+
       true ->
         identifier = to_string(issue_number)
 
@@ -704,15 +708,13 @@ defmodule Aiur.Orchestrator.CommentWake do
           event,
           Map.get(running_entry, :telemetry_attempt_id),
           attempt,
-          fn arg1 ->
-            apply_active_comment_protection(
-              arg1,
-              {attempt, event, issue_number, source}
-            )
-          end
+          &apply_active_comment_protection(&1, {attempt, event, issue_number, source})
         )
     end
   end
+
+  defp live_rework_worker?(%{issue: %Issue{state: issue_state}, control: %{status: :working}}), do: DispatchPolicy.normalize_issue_state(issue_state) == "rework"
+  defp live_rework_worker?(_running_entry), do: false
 
   # A gate refusal on the running-entry path used to be the quietest outcome in
   # the whole comment-wake chain: no label write, no retry, no log line, no
@@ -1094,7 +1096,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     case Map.get(state.running, issue.id) do
       %{pid: pid, issue: %Issue{} = dispatched_issue} = entry when is_pid(pid) ->
         if DispatchPolicy.normalize_issue_state(dispatched_issue.state) != "rework" do
-          Lifecycle.record(
+          Signal.lifecycle(
             issue.identifier,
             Map.get(entry, :telemetry_attempt_id),
             :agent_resume,
@@ -1335,7 +1337,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     case update_issue_state_fun.(to_string(issue_key), "rework") do
       :ok ->
-        Lifecycle.record(
+        Signal.lifecycle(
           to_string(telemetry_ticket),
           attempt_id,
           :rework_start,
@@ -1567,10 +1569,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp apply_active_comment_protection(
-         outcome,
-         {attempt, event, issue_number, source}
-       ) do
+  defp apply_active_comment_protection(outcome, {attempt, event, issue_number, source}) do
     case outcome do
       {:ok, state} ->
         state
@@ -1709,7 +1708,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         "done" ->
           LocalHold.run(
             fn -> update_issue_state_fun.(to_string(identifier), "done") |> Alerts.StaleNotClosed.resolve_on_ok(identifier) end,
-            LocalHold.caller_opts(opts)
+            LocalHold.caller_opts(Keyword.put(opts, :local_hold_max_wait_ms, 3_600_000))
           )
 
         target when target in ["rework", "human-review"] ->

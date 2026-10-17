@@ -161,10 +161,18 @@ defmodule AiurWeb.BuildOrderLive do
 
   def handle_info(:refresh_build_queue, socket), do: {:noreply, QueueRuntime.refresh(socket)}
 
+  def handle_info({:build_order_catalog_timeout, ref}, socket),
+    do: {:noreply, SourceRuntime.catalog_read_timed_out(socket, ref)}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
   def handle_async(:build_queue_view, result, socket), do: {:noreply, QueueRuntime.complete(socket, result)}
+
+  def handle_async(:build_order_catalog, {:ok, snapshot}, socket),
+    do: {:noreply, socket |> SourceRuntime.complete_catalog(snapshot) |> UsageRuntime.sync_scope() |> AnalyticsRuntime.sync_scope()}
+
+  def handle_async(:build_order_catalog, {:exit, _reason}, socket), do: {:noreply, SourceRuntime.failed_catalog(socket)}
 
   def handle_async(:build_order_sources, {:ok, {token, sources}}, socket) do
     {:noreply, SourceRuntime.complete_reload(socket, token, sources)}
@@ -296,14 +304,15 @@ defmodule AiurWeb.BuildOrderLive do
         aria-label="Build Order explorer"
         data-build-order-status={RouteState.status(@route_state)}
         data-build-order-root={RouteState.root_identifier(@route_state)}
-        data-build-order-catalog-state={BuildOrderCatalog.catalog_state(RouteState.catalog_snapshot(@route_state), catalog_wait_ms(@now, @catalog_wait_started_at))}
+        data-build-order-catalog-state={BuildOrderCatalog.catalog_state(RouteState.catalog_snapshot(@route_state), catalog_wait_ms(@catalog_read_failed_at || @now, @catalog_wait_started_at), @catalog_read_failed?)}
       >
         <QueuePanel.panel :if={RouteState.route(@route_state) == :catalog} view={@queue_view} now={@now} />
         <BuildOrderCatalog.build_order_catalog
           :if={RouteState.route(@route_state) == :catalog}
           route_state={@route_state}
           now={@now}
-          catalog_wait_ms={catalog_wait_ms(@now, @catalog_wait_started_at)}
+          catalog_wait_ms={catalog_wait_ms(@catalog_read_failed_at || @now, @catalog_wait_started_at)}
+          catalog_read_failed?={@catalog_read_failed?}
         />
         <BuildOrderSelected.build_order_selected
           :if={RouteState.route(@route_state) == :selected}

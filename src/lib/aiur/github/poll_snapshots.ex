@@ -3,9 +3,9 @@ defmodule Aiur.GitHub.PollSnapshots do
   Complete, short-lived selection snapshots shared by webhook and poll reads.
 
   These are deliberately narrower than a caller's GraphQL document. Review
-  decisions and merge verdicts remain live reads; only review-thread and CI
-  context collections can be served after a webhook has advanced a complete
-  polled baseline.
+  thread and CI collections require complete baselines. Executor-sweep PR facts
+  are a versioned partial update of the existing branch-PR cache, so they do
+  not introduce another GitHub request.
   """
 
   alias Aiur.GitHub.ResourceStore
@@ -17,6 +17,51 @@ defmodule Aiur.GitHub.PollSnapshots do
 
   @spec ci_contexts_key(String.t(), term()) :: ResourceStore.key() | nil
   def ci_contexts_key(repo, target), do: ResourceStore.key_for_repo(:ci_contexts, repo, target)
+
+  @doc false
+  @spec put_executor_sweep_pr(String.t(), term(), map()) :: :ok | :unchanged
+  def put_executor_sweep_pr(repo, ticket, pull_request) when is_map(pull_request) do
+    facts =
+      Map.take(pull_request, [
+        "number",
+        "state",
+        "draft",
+        "head",
+        "base",
+        "review_decision",
+        "approved_head_sha",
+        "reviewed_head_sha",
+        "mergeable",
+        "mergeQueueEntry",
+        "autoMergeRequest",
+        "created_at",
+        "ready_for_review_at",
+        "updated_at"
+      ])
+
+    case Map.get(facts, "updated_at") do
+      marker when is_binary(marker) and marker != "" ->
+        key = ResourceStore.key_for_repo(:branch_pull_request, repo, ticket)
+
+        ResourceStore.update_resource(
+          key,
+          &merge_executor_sweep_pr(&1, &2, marker, facts),
+          source: :poll,
+          version: fn body -> Map.get(body, "updated_at") end,
+          etag: :derive,
+          partial: true
+        )
+
+      _ ->
+        :unchanged
+    end
+  end
+
+  defp merge_executor_sweep_pr(held, metadata, marker, facts) do
+    if ResourceStore.regression?(metadata.version, marker),
+      do: :unchanged,
+      else: Map.merge(if(is_map(held), do: held, else: %{}), facts)
+  end
 
   @spec review_threads(String.t(), term(), keyword()) :: {:ok, [map()]} | :miss
   def review_threads(repo, pr_number, opts \\ []) do
@@ -129,6 +174,12 @@ defmodule Aiur.GitHub.PollSnapshots do
   @spec invalidate_review_threads(String.t(), term()) :: :ok
   def invalidate_review_threads(repo, pr_number) do
     ResourceStore.drop_data(review_threads_key(repo, pr_number))
+  end
+
+  @doc "Retire a delivery-backed CI snapshot when a pull request lifecycle event arrives."
+  @spec invalidate_ci_contexts(String.t(), term()) :: :ok
+  def invalidate_ci_contexts(repo, target) do
+    ResourceStore.drop_data(ci_contexts_key(repo, target))
   end
 
   defp delivery_snapshot(key, opts) do

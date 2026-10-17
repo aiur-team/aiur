@@ -211,7 +211,8 @@ defmodule Aiur.OpenTicketSource do
           # `pull_request` key distinguishes them, and the Tickets panel is
           # about tickets.
           Fetch.pull_request?(gh_issue) -> remove_ticket(state, id)
-          Map.get(gh_issue, "state") != "open" -> remove_ticket(state, id)
+          # Reconciliation files GraphQL's "OPEN"; deliveries file REST's "open".
+          String.downcase(to_string(Map.get(gh_issue, "state"))) != "open" -> remove_ticket(state, id)
           true -> upsert_ticket(state, Issues.normalize_issue(gh_issue, owner, repo, state.label_prefix))
         end
     end

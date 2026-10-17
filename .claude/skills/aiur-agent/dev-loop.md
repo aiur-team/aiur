@@ -155,7 +155,10 @@ blocking finding is the only enforcement they have.
 In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
 `aiurdev pre-pr`) from the branch checkout. Paste its complete result block
 into the PR body; it records the merged `origin/main` SHA and each gate result.
-It never pushes and refuses a dirty checkout.
+It never pushes and refuses a dirty checkout. Once a PR exists it rewrites the
+body's `Tested head:` and `Base:` lines; with no PR yet it skips that. So the
+order is: push, `gh pr create`, `aiur pre-pr` again, then hand off;
+`aiur_set_ticket_state` refuses `ci-wait`/`human-review` on a stale head.
 
 **Resolve validation from the target repository first.** Read [`validation.md`](validation.md).
 The Elixir examples below apply only to Aiur's Elixir core.
@@ -468,29 +471,19 @@ use compile, format and affected tests with the four-case cap, plus
 Use the target repository's required CI gate; Aiur runs fast checks on PRs and
 full CI in the merge queue. Do not loop locally on unrelated suite flakes.
 
-## Closing keyword in the PR description
-
-Every PR description must start with `Closes #N` (or `Fixes` / `Resolves`) for the
-originating issue so GitHub auto-closes it on merge. Multiple issues:
-`Closes #43, #46`.
-
 ## PR description shape
 
-Keep PR descriptions concise. Assume reviewers have the issue, workpad, and prior
-discussion for full problem context. Use this shape:
+Write every PR body from `.github/pull_request_template.md`; the required body
+gate checks that structure and the local-test evidence. Keep the closing keyword
+from the template (`Closes #N`, or `Refs #N` when the PR delivers only part of
+its ticket), and fill every section, including `#### Complexity routing` and
+the strict `## Local tests` evidence block. Keep `Policy:`, `Tested head:` and
+`Base:` as plain lines, not list items or backticks; include `Base:` as
+`<ref> @ <40-character-sha>`, and each command as `` `command` -> result ``.
+Put the commands in one unbroken bullet list right after `Selection:`, with no
+blank lines or prose between bullets, and write notes below the list.
 
-```markdown
-Closes #N
-
-# Problem
-
-One short paragraph or 2-3 bullets describing the issue being fixed.
-
-# Solution
-
-3-6 bullets covering the meaningful implementation and validation.
-```
-
-Do not include complexity-routing explanations, model names, AI tool names, or
-long process narratives in PR descriptions. Mention validation only as concrete
-checks that passed or known checks that still need attention.
+After every push, update `Tested head:` to the new full head SHA. Before
+handoff, run `python3 scripts/check-pr-body.py --pr-json <(gh api
+repos/{owner}/{repo}/pulls/<N>) --base <base-sha>` and confirm it prints
+`PR body format OK`.

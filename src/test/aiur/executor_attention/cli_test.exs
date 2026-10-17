@@ -261,4 +261,41 @@ defmodule Aiur.ExecutorAttention.CLITest do
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert Enum.map(ExecutorWakeInbox.pending(), & &1["wake_id"]) == [3]
   end
+
+  test "executor-wait returns an aged open blocking Decision that no event backs (#4567)" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+
+    {:ok, decision} =
+      Aiur.DecisionValidation.normalize(
+        %{
+          "question" => "Defer composed pixels?",
+          "blocking" => true,
+          "authority" => "human_required",
+          "context" => %{"authority_basis" => "security"},
+          "source_id" => "aged"
+        },
+        ticket: %{identifier: "3141", title: "Renderer", url: nil},
+        source: %{agent_id: "codex", session_id: "s-1", event_id: nil},
+        now: DateTime.add(DateTime.utc_now(), -20 * 60, :second)
+      )
+
+    opts = [
+      decisions_fun: fn -> {:ok, [decision]} end,
+      gates_fun: fn _ticket -> 0 end,
+      condition_states_fun: fn topics -> Map.new(topics, &{&1, :unknown}) end,
+      alert_fun: fn _topic, _opts -> :ok end
+    ]
+
+    # The listener serves the backstop; its timer stays off so only the wait drives the ladder.
+    start_supervised!({Aiur.ExecutorListener, patterns: [], reconcile?: false, escalation_interval_ms: :infinity, escalation: opts})
+
+    output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 2_000) end)
+
+    assert output =~ ~r/^WAKE ticket.3141.agent.attention.operator-decision ticket=3141 .* decision=#{decision.decision_id} gates=0/m
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert ExecutorWakeInbox.pending() == []
+
+    # Surfaced once; the next wait inside 15 minutes is quiet again.
+    assert capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 50) end) =~ "NO-WAKES"
+  end
 end

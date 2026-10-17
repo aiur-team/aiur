@@ -10,6 +10,26 @@
     "registered_at": {"type": ["string", "null"], "format": "date-time"},
     "annotations": {"type": "array", "items": {"type": "object"}},
     "input_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "metric_metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["strata_metadata"],
+        "properties": {
+          "strata_metadata": {
+            "type": "object",
+            "propertyNames": {"minLength": 1},
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["post_treatment"],
+              "properties": {"post_treatment": {"type": "boolean"}}
+            }
+          }
+        }
+      }
+    },
     "rows": {
       "type": "array",
       "items": {

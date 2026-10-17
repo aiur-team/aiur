@@ -2,11 +2,10 @@ defmodule Aiur.OpenAICompat.ToolsTest do
   use ExUnit.Case, async: true
 
   alias Aiur.OpenAICompat.{CommandRunner, ToolCallParser, Tools}
+  alias Aiur.TestSupport.RuntimeChildren
 
   setup do
-    if is_nil(Process.whereis(Aiur.TaskSupervisor)) do
-      start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
-    end
+    :ok = RuntimeChildren.ensure_aiur_supervisor_running()
 
     :ok
   end

@@ -364,12 +364,19 @@ defmodule Aiur.Orchestrator.Status.StartupCleanupTest do
     previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
     previous_github_token = System.get_env("GITHUB_TOKEN")
     previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+    previous_state = System.get_env("AIUR_DEV_TEST_STATE_DIR")
+    previous_instance = System.get_env("AIUR_INSTANCE_KEY")
     previous_log_file = Application.get_env(:aiur, :log_file)
     workspace_root = Aiur.TestSupport.tmp_root!("aiur-scoped-startup-cleanup")
 
     try do
       System.put_env("GITHUB_TOKEN", "gh-test-token")
+      # A real ticket scope always carries its state dir and instance key. Without
+      # them no decision-state path resolves, so an app restart during this test
+      # could not bring the workspace ownership registry back (#4686).
       System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+      System.put_env("AIUR_DEV_TEST_STATE_DIR", Path.join(workspace_root, "test-state"))
+      System.put_env("AIUR_INSTANCE_KEY", "test-#{System.unique_integer([:positive])}")
       Application.put_env(:aiur, :log_file, Path.join([workspace_root, "log", "agent.md"]))
 
       pinned_workspace = Path.join([workspace_root, "owner", "repo", "99"])
@@ -414,6 +421,8 @@ defmodule Aiur.Orchestrator.Status.StartupCleanupTest do
       restore_application_env(:log_file, previous_log_file)
       restore_env("GITHUB_TOKEN", previous_github_token)
       restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope)
+      restore_env("AIUR_DEV_TEST_STATE_DIR", previous_state)
+      restore_env("AIUR_INSTANCE_KEY", previous_instance)
       File.rm_rf(workspace_root)
     end
   end
