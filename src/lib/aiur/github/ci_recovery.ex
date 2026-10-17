@@ -22,7 +22,8 @@ defmodule Aiur.GitHub.CIRecovery do
     end
   end
 
-  @spec read(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  # Text endpoints such as job logs return a binary body.
+  @spec read(String.t(), keyword()) :: {:ok, map() | binary()} | {:error, term()}
   def read(path, opts), do: request(:get, path, nil, opts)
 
   @spec rerun(integer(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -55,7 +56,7 @@ defmodule Aiur.GitHub.CIRecovery do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      req = %{method: method, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}#{path}", token: token, caller: "ci_recovery"}
+      req = %{method: method, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}#{path}", token: token, caller: Keyword.get(opts, :caller, "ci_recovery")}
       req = if method == :get, do: req, else: Map.put(req, :body, body)
 
       case request.(req) do

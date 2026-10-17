@@ -1,3 +1,5 @@
+import { sectionState, emptyMark } from './states.js';
+import { nowMs } from './clock.js';
 import { LH, SEC } from './state.js';
 import { esc } from './dom.js';
 import { WD, fmtD, fmtRange, dayKey } from './util.js';
@@ -40,15 +42,6 @@ export function laneMax(L, fwd, span) {
     bump(day.d, -1);
   });
   return max;
-}
-function emptyMark(sources, key, mark) {
-  const source = sources?.[key];
-  const state = ["ok", "stale", "incomplete", "unavailable", "disabled"].includes(source?.state) ? source.state : "unavailable";
-  if (["ok", "stale", "incomplete"].includes(state)) {
-    return state === "stale" ? { ...mark, stale: true, observed_at: source.observed_at } : mark;
-  }
-  const labels = { history: ["History unavailable", "History disabled"], queue: ["Queue unavailable", "Build queue disabled"], index: ["Open tickets unavailable", "Open-ticket index disabled"] };
-  return { kind: "empty", y: SEC, h: 96, label: labels[key][state === "disabled" ? 1 : 0], sub: "", source: key, state };
 }
 export function computeLayout(D, S, dims, sources, ext = {}) {
   if (S.view === "gantt" && !ext.gantt) throw new Error("gantt layout not installed");
@@ -99,6 +92,7 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
     return y;
   }
   const out = { det, base: baseDet, fs, ch, pitch, gap, secs: {} };
+  const P = { sources }, H = ext.history ?? {}, mctx = { nqCount: NQL.length, index: sources?.index, now: nowMs() };
   /* history */
   const hs = { items: [], marks: [], labels: [], h: 0, unplaced: D.hist.filter(t => !Number.isFinite(t.end)).map(t => t.id) };
   if (hs.unplaced.length && !warned.has(D.hist)) {
@@ -106,7 +100,8 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
     console.warn("History rows without finite end:", hs.unplaced);
   }
   const gctx = y => ({ span, pph: pphG, flow, K, compact, gapLabel, colKey, CH, gap, det, nowRows: NOWL, hs, y });
-  if (!histList.length) { hs.marks.push(emptyMark(sources, "history", { kind: "empty", y: SEC, h: 96, label: "No history yet", sub: "A new repo — nothing has merged. The first tickets are running in the Now band below." })); hs.h = SEC + 104; }
+  const hst = sectionState(P, D, H, 'hist', histList);
+  if (hst.show !== 'rows') { hs.marks.push(emptyMark('hist', hst, mctx)); hs.h = SEC + 104; }
   else if (S.view === "gantt") ext.gantt.hist(entries(histList), gctx(SEC + 4));
   else hs.h = rows(entries(histList), SEC + 4, hs.items, hs.marks, hs.labels, "hist", true) + gap;
   out.secs.hist = hs;
@@ -114,7 +109,8 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
   out.band = { items: [], h: 0, BK: 1 };
   /* planned */
   const ps = { items: [], marks: [], labels: [], h: 0 };
-  if (!PLANL.length) { ps.marks.push(emptyMark(sources, "queue", { kind: "empty", y: SEC, h: 96, label: "Nothing planned", sub: ( ["ok", "stale"].includes(sources?.index?.state) ? "The build queue is empty. " + NQL.length + " open tickets are not queued — promote some to keep agents busy." : "The build queue is empty. The open-ticket index is unavailable, so the number not queued is unknown.") })); ps.h = SEC + 104; }
+  const pst = sectionState(P, D, H, 'plan', PLANL);
+  if (pst.show !== 'rows') { ps.marks.push(emptyMark('plan', pst, mctx)); ps.h = SEC + 104; }
   else {
     let y = SEC + 4, cum = 0, unknown = false;
     const waveKey = t => Number.isInteger(t.wave) && t.wave >= 1 ? t.wave : null;
@@ -138,8 +134,9 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
   /* not queued */
   const ns = { items: [], marks: [], labels: [], h: 0 };
   ns.h = rows(entries(NQL), SEC + 4, ns.items, ns.marks, ns.labels, "nq", false) + gap;
-  if (!NQL.length && !["ok", "stale", "incomplete"].includes(sources?.index?.state)) {
-    ns.marks.push(emptyMark(sources, "index", {})); ns.h = SEC + 104;
+  const nst = sectionState(P, D, H, 'nq', NQL);
+  if (['unavailable', 'incomplete', 'disabled'].includes(nst.show)) {
+    ns.marks.push(emptyMark('nq', nst, mctx)); ns.h = SEC + 104;
   }
   out.secs.nq = ns;
   return out;

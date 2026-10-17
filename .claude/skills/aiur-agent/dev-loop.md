@@ -480,6 +480,8 @@ its ticket), and fill every section, including `#### Complexity routing` and
 the strict `## Local tests` evidence block. Keep `Policy:`, `Tested head:` and
 `Base:` as plain lines, not list items or backticks; include `Base:` as
 `<ref> @ <40-character-sha>`, and each command as `` `command` -> result ``.
+Put the commands in one unbroken bullet list right after `Selection:`, with no
+blank lines or prose between bullets, and write notes below the list.
 
 After every push, update `Tested head:` to the new full head SHA. Before
 handoff, run `python3 scripts/check-pr-body.py --pr-json <(gh api

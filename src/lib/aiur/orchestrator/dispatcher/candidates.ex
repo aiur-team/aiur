@@ -246,7 +246,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
      Map.get(state.auto_resume, id), Map.get(state.retry_attempts, id)}
   end
 
-  # A todo ticket held by an open dependency cannot dispatch whatever its
+  # A todo or rework ticket held by an open dependency cannot dispatch whatever its
   # refreshed state says, so the dependency gate runs first and a held ticket
   # spends no `issue_by_id` refresh and no `dispatch_authorization` read. Before
   # #2714 every held dependent paid both on every pass, which was a third of a
@@ -256,7 +256,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   # with no dependency hold, and an issue also held on a blocking Command
   # (whose decline reason takes precedence) all take the ordinary path, which
   # refreshes the issue and runs every gate again, fail-closed as before. The
-  # gate needs the candidate to be `todo`, and the candidate's state is the
+  # gate needs the candidate to be `todo` or `rework`, and the candidate's state is the
   # latest tracker poll's.
   defp held_by_dependency_before_refresh(blocked_ids, %Issue{} = issue, opts) do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
@@ -264,7 +264,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     with false <- DispatchPolicy.blocked_on_decision?(issue, blocked_ids),
          {:ok, %Issue{} = hydrated} <- hydrator.(issue),
          terminal_states = DispatchPolicy.terminal_state_set(),
-         true <- DispatchPolicy.todo_issue_held_by_dependency?(hydrated, terminal_states) do
+         true <- DispatchPolicy.issue_held_by_dependency?(hydrated, terminal_states) do
       {:held, hydrated, terminal_states}
     else
       _not_held -> :continue
@@ -341,7 +341,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   defp dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts) do
     terminal_states = DispatchPolicy.terminal_state_set()
 
-    if DispatchPolicy.todo_issue_held_by_dependency?(hydrated, terminal_states) do
+    if DispatchPolicy.issue_held_by_dependency?(hydrated, terminal_states) do
       Logger.info(
         "Skipping dispatch; #{State.issue_context(hydrated)} " <>
           DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)

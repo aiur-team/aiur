@@ -18,6 +18,7 @@ config :aiur, :github_poll_owner, Aiur.Orchestrator
 config :aiur, :github_quota_recovery_target, Aiur.Orchestrator
 config :aiur, :github_activity_recorder, {Aiur.Webhooks, :record_activity}
 config :aiur, :github_state_start_recorder, {Aiur.BuildOrder.History, :note_start}
+config :aiur, :github_rework_ci_canceller, {Aiur.GitHub.ReworkCICancel, :cancel_async}
 
 # Sources are named here so the sweep's complete set is readable in one place.
 config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
@@ -127,7 +128,11 @@ if config_env() == :test do
   # Tests manage GITHUB_TOKEN themselves; a boot resolution would cache a nil
   # (no valid token in CI) and shadow the per-test env tokens.
   config :aiur, :resolve_github_token_on_boot, false
+  config :aiur, :github_rework_ci_canceller, nil
   config :aiur, :workspace_github_preflight_enabled, false
+  # Webhook tests publish comments on the shared bus; the supervised orchestrator
+  # must not turn them into tracker-less comment-rework attempts (#4845).
+  config :aiur, :live_orchestrator_comment_topics?, false
   # Tests run with a per-test mise data dir, where the host's Erlang looks missing.
   config :aiur, :toolchain_preflight_opts, mise: nil
   config :aiur, :github_quota_refresh?, false
