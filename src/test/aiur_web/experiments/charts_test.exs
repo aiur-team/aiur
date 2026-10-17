@@ -102,7 +102,8 @@ defmodule AiurWeb.Experiments.ChartsTest do
     empty = %{group | n: 0, median: nil, q1: nil, q3: nil, whiskers: nil, points: []}
     assert empty.whiskers == nil
     distribution = html(Charts.distribution(%{metric | groups: [empty]})) |> Floki.parse_fragment!()
-    summary_cells = Floki.find(distribution, "details:first-child tbody td") |> Enum.map(&Floki.text/1)
+    [summary_table, _samples_table] = Floki.find(distribution, "table")
+    summary_cells = Floki.find(summary_table, "tbody td") |> Enum.map(&Floki.text/1)
     assert List.last(summary_cells) == "Unavailable"
   end
 
