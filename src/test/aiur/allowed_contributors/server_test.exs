@@ -3,6 +3,7 @@ defmodule Aiur.AllowedContributors.ServerTest do
 
   alias Aiur.AllowedContributors
   alias Aiur.AllowedContributorsFixture, as: Fixture
+  alias Aiur.WorkflowStore.Reload
 
   @topic "ticket.101.issue.opened.allowed_contributor"
 
@@ -61,7 +62,6 @@ defmodule Aiur.AllowedContributors.ServerTest do
 
   test "an unreadable allow-list defers without remembering the issue, then accepts once readable", context do
     {server, gh} = Fixture.start(context, body: {:error, :timeout})
-    _ = :sys.get_state(server)
 
     assert {:deferred, :allowlist_unavailable} = AllowedContributors.observe(Fixture.candidate(), server)
     refute_received {:published, _, _, _}
@@ -69,6 +69,8 @@ defmodule Aiur.AllowedContributors.ServerTest do
 
     # Still inside the on-demand retry window: no new read, still deferred.
     Agent.update(gh, &%{&1 | body: "user 42\n"})
+    # Another test reloading the shared workflow config must not refresh this server.
+    Phoenix.PubSub.broadcast(Aiur.PubSub, Reload.configuration_topic(), {:workflow_config_updated, 999})
     assert {:deferred, :allowlist_unavailable} = AllowedContributors.observe(Fixture.candidate(), server)
     assert Fixture.read_count(gh) == initial_reads
 

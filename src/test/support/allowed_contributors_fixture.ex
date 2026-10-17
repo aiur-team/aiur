@@ -16,7 +16,8 @@ defmodule Aiur.AllowedContributorsFixture do
   @doc """
   Starts an intake server against the fake. Options: `:body` (allow-list
   text, or `:absent`), `:members` (`%{{org_login, user_login} => response}`),
-  `:rate_limit`, `:aiur_logins`. The clock starts at the real wall time; move it with `advance/2`.
+  `:rate_limit`, `:aiur_logins`, `:subscribe_fun` (default: none, so another
+  test's workflow-config reload cannot refresh this server). The clock starts at the real wall time; move it with `advance/2`.
   Returns `{server, agent}`; update the agent to change GitHub's answers.
   """
   @spec start(map(), keyword()) :: {pid(), pid()}
@@ -34,6 +35,7 @@ defmodule Aiur.AllowedContributorsFixture do
          repo: {"acme", "app"},
          state_dir: Keyword.get(opts, :state_dir, dir),
          refresh_ms: :infinity,
+         subscribe_fun: Keyword.get(opts, :subscribe_fun, fn -> :ok end),
          rate_limit: Keyword.get(opts, :rate_limit, 5),
          token_fun: Keyword.get(opts, :token_fun, fn -> "token" end),
          config_fun: Keyword.get(opts, :config_fun, fn -> Keyword.get(opts, :allowed_contributors) end),
