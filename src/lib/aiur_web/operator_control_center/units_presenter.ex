@@ -217,6 +217,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
       public_row
       |> Map.put(:telemetry_attempt_id, Map.get(internal_row, :telemetry_attempt_id))
       |> Map.put(:context_usage, public_context_usage(Map.get(internal_row, :context_usage)))
+      |> Map.put(:turn_count, Map.get(internal_row, :turn_count))
+      |> Map.put(:turn_count_observed?, Map.get(internal_row, :turn_count_observed?) == true)
     else
       _missing_identity_or_snapshot -> public_row
     end

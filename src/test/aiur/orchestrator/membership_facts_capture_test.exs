@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.MembershipFactsCaptureTest do
 
   setup do
     {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
 
     Enum.each([Store, FactsCapture], fn name ->
       if pid = Process.whereis(name) do
