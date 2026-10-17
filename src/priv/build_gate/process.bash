@@ -97,7 +97,7 @@ aiur_build_gate_read_regular() {
   fi
 
   # Bash builtins only: wait loops poll this every 10 ms, and a process per
-  # read (once python3, #4792) costs whole cores when many shells are queued.
+  # read (once python3, #4792) costs whole cores when many gated commands run.
   # Opening read/write avoids FIFO open blocking; validating /dev/fd checks
   # the opened object rather than trusting a pathname lstat/open sequence.
   if [[ -L $path ]] || ! { exec {metadata_fd}<>"$path"; } 2>/dev/null; then
