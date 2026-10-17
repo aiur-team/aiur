@@ -127,4 +127,52 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert Enum.find(findings, &(Map.get(&1, :pull_request) == 9 and &1.kind == "approved_pr_red")).failure_class == "infra"
     assert Enum.find(findings, &(Map.get(&1, :pull_request) == 10 and &1.kind == "approved_pr_red")).failure_class == "caused_by_pr"
   end
+
+  @snapshot_keys [:pull_requests, :tickets, :decisions, :merge_queue, :merge_groups, :queue_sets, :idle_slots, :queue_order, :feature_order, :services]
+
+  defp healthy_snapshot do
+    %{
+      pull_requests: [%{number: 1, issue_number: 1, state: "open", in_merge_queue: true}],
+      tickets: [%{number: 1, labels: ["agent:human-review"]}],
+      decisions: [],
+      merge_queue: [%{number: 1, mergeable: "MERGEABLE"}, %{number: 2, mergeable: "UNMERGEABLE"}],
+      merge_groups: [%{name: "run 1", state: "completed", started_at: ~U[2026-10-15 18:19:00Z]}],
+      queue_sets: [],
+      idle_slots: 0,
+      focus_set: nil,
+      queue_order: [],
+      feature_order: [],
+      services: [%{name: "watchers", status: "down"}]
+    }
+  end
+
+  test "mergeable queue entries and fresh merge groups produce no findings instead of crashing" do
+    kinds = healthy_snapshot() |> Checks.all(~U[2026-10-15 18:20:00Z]) |> Enum.map(& &1.kind)
+
+    assert "unmergeable_queue_entry" in kinds
+    refute "stale_merge_group" in kinds
+    refute "sweep_check_failed" in kinds
+  end
+
+  test "a nil snapshot key reports its checks unknown and keeps the other checks running" do
+    for key <- @snapshot_keys do
+      findings = Checks.all(Map.put(healthy_snapshot(), key, nil), ~U[2026-10-15 18:20:00Z])
+      unknown = Enum.filter(findings, &(&1.kind == "sweep_source_unavailable"))
+
+      assert unknown != [], "#{key}: no unknown finding"
+      assert Enum.all?(unknown, &(&1.sources == [key])), "#{key}: #{inspect(unknown)}"
+      refute Enum.any?(findings, &(&1.kind == "sweep_check_failed")), "#{key}: #{inspect(findings)}"
+
+      if key != :services, do: assert(Enum.any?(findings, &(&1.kind == "service_unhealthy")), "#{key}: services check skipped")
+    end
+  end
+
+  test "a raising check is reported without skipping the cycle" do
+    snapshot = %{healthy_snapshot() | decisions: [:not_a_map]}
+    findings = Aiur.ExecutorSweep.findings(snapshot: snapshot, now: ~U[2026-10-15 18:20:00Z], unreviewed_pr_minutes: 10)
+
+    assert [%{check: "old_decisions"}] = Enum.filter(findings, &(&1.kind == "sweep_check_failed"))
+    assert Enum.any?(findings, &(&1.kind == "service_unhealthy"))
+    assert Enum.any?(findings, &(&1.kind == "unmergeable_queue_entry"))
+  end
 end

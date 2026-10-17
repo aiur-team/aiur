@@ -6,19 +6,63 @@ defmodule Aiur.ExecutorSweep.Checks do
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
 
-  @doc "Runs all pure checks against one local snapshot."
+  @doc """
+  Runs all pure checks against one local snapshot. A snapshot key present with
+  a nil value is unknown, so its checks report the source unavailable instead
+  of running. A check that raises reports itself failed without dropping the
+  other checks' findings.
+  """
   @spec all(map(), DateTime.t(), keyword()) :: [finding()]
   def all(snapshot, %DateTime{} = now, opts \\ []) do
-    (unreviewed_prs(snapshot, now, Keyword.get(opts, :unreviewed_pr_minutes, 10)) ++
-       old_decisions(snapshot, now) ++
-       approved_prs(snapshot) ++
-       merge_queue(snapshot, now, Keyword.get(opts, :merge_group_stale_minutes, 15)) ++
-       queue_sets(snapshot) ++
-       queue_order(snapshot) ++
-       ticket_hygiene(snapshot, now) ++
-       rework_hygiene(snapshot) ++
-       service_health(snapshot))
+    unreviewed_minutes = Keyword.get(opts, :unreviewed_pr_minutes, 10)
+    stale_minutes = Keyword.get(opts, :merge_group_stale_minutes, 15)
+
+    [
+      {"unreviewed_prs", [:pull_requests, :tickets], fn -> unreviewed_prs(snapshot, now, unreviewed_minutes) end},
+      {"old_decisions", [:decisions], fn -> old_decisions(snapshot, now) end},
+      {"approved_prs", [:pull_requests], fn -> approved_prs(snapshot) end},
+      {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
+      {"stale_merge_groups", [:merge_groups], fn -> stale_merge_groups(snapshot, now, stale_minutes) end},
+      {"queue_sets", [:queue_sets, :idle_slots], fn -> queue_sets(snapshot) end},
+      {"queue_order", [:queue_order, :feature_order], fn -> queue_order(snapshot) end},
+      {"ticket_hygiene", [:tickets, :pull_requests], fn -> ticket_hygiene(snapshot, now) end},
+      {"rework_hygiene", [:tickets], fn -> rework_hygiene(snapshot) end},
+      {"service_health", [:services], fn -> service_health(snapshot) end}
+    ]
+    |> Enum.flat_map(fn {check, sources, run} -> run_check(snapshot, check, sources, run) end)
     |> Enum.sort_by(&{&1.priority, -Map.get(&1, :age_ms, 0), &1.kind, &1.message})
+  end
+
+  defp run_check(snapshot, check, sources, run) do
+    case Enum.filter(sources, &(Map.has_key?(snapshot, &1) and is_nil(Map.get(snapshot, &1)))) do
+      [] ->
+        run.()
+
+      unknown ->
+        [
+          finding(
+            "sweep_source_unavailable",
+            15,
+            0,
+            "Restore the snapshot source; this check's state is unknown.",
+            "Executor sweep check #{check} skipped: #{Enum.join(unknown, ", ")} unavailable.",
+            check: check,
+            sources: unknown
+          )
+        ]
+    end
+  rescue
+    error ->
+      [
+        finding(
+          "sweep_check_failed",
+          15,
+          0,
+          "Inspect the daemon log and fix the failing sweep check.",
+          "Executor sweep check #{check} failed: #{Exception.format_banner(:error, error, __STACKTRACE__)}",
+          check: check
+        )
+      ]
   end
 
   @doc "Returns unreviewed human-review PR findings, oldest first."
@@ -91,41 +135,43 @@ defmodule Aiur.ExecutorSweep.Checks do
   defp single_or_mixed([single]), do: single
   defp single_or_mixed(_), do: "mixed"
 
-  defp merge_queue(snapshot, now, stale_minutes) do
-    unmergeable =
-      snapshot
-      |> Map.get(:merge_queue, [])
-      |> Enum.flat_map(fn entry ->
-        if value(entry, :mergeable, "") == "UNMERGEABLE" do
-          [
-            finding("unmergeable_queue_entry", 4, 0, "Resolve the reported merge conflict or remove the entry from queue.", "PR ##{value(entry, :number, "?")} is UNMERGEABLE in the merge queue.",
-              pull_request: value(entry, :number, nil)
-            )
-          ]
-        end
-      end)
+  defp unmergeable_queue_entries(snapshot) do
+    snapshot
+    |> Map.get(:merge_queue, [])
+    |> Enum.flat_map(fn entry ->
+      if value(entry, :mergeable, "") == "UNMERGEABLE" do
+        [
+          finding("unmergeable_queue_entry", 4, 0, "Resolve the reported merge conflict or remove the entry from queue.", "PR ##{value(entry, :number, "?")} is UNMERGEABLE in the merge queue.",
+            pull_request: value(entry, :number, nil)
+          )
+        ]
+      else
+        []
+      end
+    end)
+  end
 
-    stale =
-      snapshot
-      |> Map.get(:merge_groups, [])
-      |> Enum.flat_map(fn group ->
-        age = age_ms(date(value(group, :started_at, nil)), now)
+  defp stale_merge_groups(snapshot, now, stale_minutes) do
+    snapshot
+    |> Map.get(:merge_groups, [])
+    |> Enum.flat_map(fn group ->
+      age = age_ms(date(value(group, :started_at, nil)), now)
 
-        if value(group, :state, "") in ["queued", "in_progress"] and age >= stale_minutes * 60_000 do
-          [
-            finding(
-              "stale_merge_group",
-              5,
-              age,
-              "Inspect the merge-group run and start a fresh required run if needed.",
-              "Merge group #{value(group, :name, "?")} is #{value(group, :state, "stale")} for #{duration(age)}.",
-              merge_group: value(group, :name, nil)
-            )
-          ]
-        end
-      end)
-
-    unmergeable ++ stale
+      if value(group, :state, "") in ["queued", "in_progress"] and age >= stale_minutes * 60_000 do
+        [
+          finding(
+            "stale_merge_group",
+            5,
+            age,
+            "Inspect the merge-group run and start a fresh required run if needed.",
+            "Merge group #{value(group, :name, "?")} is #{value(group, :state, "stale")} for #{duration(age)}.",
+            merge_group: value(group, :name, nil)
+          )
+        ]
+      else
+        []
+      end
+    end)
   end
 
   defp queue_sets(snapshot) do
