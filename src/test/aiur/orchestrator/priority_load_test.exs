@@ -56,6 +56,13 @@ defmodule Aiur.Orchestrator.PriorityLoadTest do
     assert_in_delta SystemLoad.gate_signal(25.0, lower, 16), 18.6, 0.0001
   end
 
+  # #4896: an :ignore'd child reads DOWN to SupervisionHealth, which then alerts on every unrelated restart.
+  test "the test app's sampler is up but never scans" do
+    assert {BackgroundCpu, pid, :worker, _} = List.keyfind(Supervisor.which_children(Aiur.Supervisor), BackgroundCpu, 0)
+    assert is_pid(pid)
+    assert :ets.whereis(:aiur_background_cpu) == :undefined
+  end
+
   test "(c) unreadable /proc gives no discount and never reads as zero load" do
     missing = Path.join(System.tmp_dir!(), "aiur-proc-missing-#{System.unique_integer([:positive])}")
     assert BackgroundCpu.scan(missing, 0) == :unavailable

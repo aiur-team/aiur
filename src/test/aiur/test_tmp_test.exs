@@ -72,4 +72,66 @@ defmodule Aiur.TestTmpTest do
       refute File.exists?(root)
     end
   end
+
+  test "a late writer at suite end leaves the run root but the green suite still exits 0", %{base: base} do
+    support = Path.expand("../support/test_tmp.exs", __DIR__)
+    process_identity = Path.expand("../../lib/aiur/process_identity.ex", __DIR__)
+
+    script = """
+    Code.require_file(#{inspect(process_identity)})
+    Code.require_file(#{inspect(support)})
+    ExUnit.start()
+    root = Aiur.TestTmp.start!(#{inspect(base)})
+    IO.puts("RUN_ROOT=" <> root)
+    spawn(fn ->
+      Stream.repeatedly(fn ->
+        File.mkdir_p(root)
+        File.write(Path.join(root, "late-\#{System.unique_integer([:positive])}"), "x")
+      end)
+      |> Stream.run()
+    end)
+    defmodule LateWriterProbe do
+      use ExUnit.Case
+      test "completion", do: assert(true)
+    end
+    """
+
+    {output, status} = System.cmd("elixir", ["--erl", "+S 2:2", "-e", script], stderr_to_stdout: true)
+    assert status == 0, output
+    assert output =~ "1 test, 0 failures"
+    refute output =~ "File.Error"
+  end
+
+  test "suite-end removal names the late writer even when a retry succeeds, and never raises", %{base: base} do
+    root = Path.join(base, "run-root")
+    File.mkdir_p!(Path.join(root, "late"))
+    File.write!(Path.join([root, "late", "writer.log"]), "x")
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    flaky = fn path ->
+      case Agent.get_and_update(attempts, &{&1, &1 + 1}) do
+        0 -> {:error, :eexist, Path.join(path, "late")}
+        _ -> File.rm_rf(path)
+      end
+    end
+
+    stderr = ExUnit.CaptureIO.capture_io(:stderr, fn -> assert :ok = Aiur.TestTmp.remove_run_root(root, flaky, 3) end)
+    refute File.exists?(root)
+    assert Agent.get(attempts, & &1) == 2
+    assert stderr =~ ":eexist at #{root}/late"
+    assert stderr =~ "late/writer.log"
+    refute stderr =~ "left test run root"
+
+    File.mkdir_p!(Path.join(root, "late"))
+    File.write!(Path.join([root, "late", "writer.log"]), "x")
+
+    stderr =
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        assert :ok = Aiur.TestTmp.remove_run_root(root, fn path -> {:error, :eexist, path} end, 2)
+      end)
+
+    assert stderr =~ "left test run root #{root}"
+    assert stderr =~ "late/writer.log"
+    assert File.dir?(root)
+  end
 end
