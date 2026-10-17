@@ -36,14 +36,31 @@ defmodule Aiur.BuildOrder.Index.Pages do
 
   defp page(index, before, zone, days) do
     zone = zone(zone)
-    # shortcut: one linear scan per page; add a day index only if C12-T06 measures a bottleneck.
-    dated = Enum.map(index.hist, fn row -> {row, midnight(row.end, zone)} end)
-    available = dated |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.filter(&(is_nil(before) or &1 < before)) |> Enum.sort(:desc)
-    chosen = available |> Enum.take(days) |> MapSet.new()
-    rows = for {row, day} <- dated, MapSet.member?(chosen, day), do: row
+    {rows, chosen, more} = walk(Enum.reverse(index.hist), before, zone, days, nil, [], [])
     from = if index.history_meta.total == nil, do: nil, else: Enum.min(chosen, fn -> before end)
-    history = Map.merge(index.history_meta, %{from: from, more: length(available) > days, tz: zone})
+    history = Map.merge(index.history_meta, %{from: from, more: more, tz: zone})
     {rows, history}
+  end
+
+  # Rows arrive newest first; resolve one local midnight per day crossed, not per row.
+  # Prepending restores ascending order; `chosen` holds the oldest chosen midnight at its head.
+  defp walk([], _before, _zone, _days, _day, rows, chosen), do: {rows, chosen, false}
+  # Atoms sort above integers, so a non-integer end would land on the newest day; skip it.
+  defp walk([row | rest], before, zone, days, day, rows, chosen) when not is_integer(row.end), do: walk(rest, before, zone, days, day, rows, chosen)
+
+  defp walk([row | rest], before, zone, days, day, rows, chosen) when is_integer(day) and row.end >= day do
+    rows = if match?([^day | _], chosen), do: [row | rows], else: rows
+    walk(rest, before, zone, days, day, rows, chosen)
+  end
+
+  defp walk([row | rest], before, zone, days, _day, rows, chosen) do
+    day = midnight(row.end, zone)
+
+    cond do
+      is_integer(before) and day >= before -> walk(rest, before, zone, days, day, rows, chosen)
+      length(chosen) == days -> {rows, chosen, true}
+      true -> walk(rest, before, zone, days, day, [row | rows], [day | chosen])
+    end
   end
 
   defp midnight(ms, zone) do
