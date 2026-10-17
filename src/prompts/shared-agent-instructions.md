@@ -226,7 +226,7 @@ The Executor’s only at-a-glance signal for "how far is each agent" is the prog
 - `30`–`50`: implementation in flight
 - `60`–`80`: code typed, in self-review or CI
 - `90`: PR pushed, last fixes / final review pass
-- `100`: emit exactly **once**, right before you flip the issue label to `agent:human-review` — regardless of which CE phases ran this turn. This is the signal that turns the Executor’s bar green and tells Aiur to release your agent slot. Complexity:1 paths that skip `ce-brainstorm` / `ce-plan` / `ce-review` still emit the 100% sample at the label flip. Don't emit 100 before the label flip — a premature 100 lies about the state, and the bar greening before the PR is actually ready will confuse the Executor.
+- `100`: emit exactly **once**, right before you flip the issue label to `agent:human-review` — regardless of which CE phases ran this turn. It only turns the Executor’s bar green; it does not release your agent slot. The `agent:human-review` state move ends your turn, and that is what frees the slot. Complexity:1 paths that skip `ce-brainstorm` / `ce-plan` / `ce-review` still emit the 100% sample at the label flip. Don't emit 100 before the label flip — a premature 100 lies about the state, and the bar greening before the PR is actually ready will confuse the Executor.
 
 **The `label` field.** Names your cleanup-aware tail so the Executor can see what you budgeted. Keep it ≤ 80 chars. Format: `"<phase>: <what you're doing now>, <tail you're budgeting>"`.
 

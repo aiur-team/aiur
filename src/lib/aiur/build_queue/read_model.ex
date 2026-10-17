@@ -354,6 +354,7 @@ defmodule Aiur.BuildQueue.ReadModel do
       start_trigger_source: if(is_nil(queue.start_trigger), do: :config, else: :queue),
       held: queue.held,
       progress: progress,
+      progress_reasons: Progress.reasons(queue, items, progress, context.build_orders[queue.root]),
       edges: context.summary_edges,
       items: items
     }

@@ -18,7 +18,7 @@ defmodule Aiur.TestQuarantineTest do
   test "the checked-in quarantine list parses and excludes its exact entries" do
     path = Path.join([File.cwd!(), "test", "quarantine.txt"])
     assert {:ok, entries} = TestQuarantine.read(path)
-    assert length(entries) == 24
+    assert length(entries) == 22
 
     assert {:excluded, "due to test filter"} =
              ExUnit.Filters.eval(

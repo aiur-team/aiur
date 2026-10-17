@@ -164,6 +164,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         |> TransitionAlerts.emit_tracker_pause_transition_alert(previous_issue, issue)
         |> Dependencies.emit_dependency_transition_events(previous_issue, issue)
         |> TelemetryEvents.observe(previous_issue, issue)
+        |> cancel_rework_ci(previous_issue, issue)
       end)
 
     state = PushRouting.recheck_cleared_dependency_pauses(state, fetch_issue_states_fun, issues)
@@ -176,6 +177,20 @@ defmodule Aiur.Orchestrator.IssueSync do
     |> StatusObservation.observe_tickets(issues, retained_issues)
     |> OptimisticGuardEffects.reconcile()
   end
+
+  # The poll diff sees every writer's rework move (daemon or Executor label
+  # edit), and fires once per entry, so a ticket parked in rework is not re-cancelled (#4814).
+  defp cancel_rework_ci(state, %Issue{state: previous}, %Issue{state: current} = issue) do
+    with "rework" <- DispatchPolicy.state_slug(current),
+         false <- DispatchPolicy.state_slug(previous) == "rework",
+         {module, function} <- Application.get_env(:aiur, :github_rework_ci_canceller) do
+      apply(module, function, [issue.id])
+    end
+
+    state
+  end
+
+  defp cancel_rework_ci(state, _previous, _issue), do: state
 
   # A `released_claims` entry exists only to tell the operator that a claim was
   # dropped and still needs recovery. Once the ticket reaches a terminal tracker

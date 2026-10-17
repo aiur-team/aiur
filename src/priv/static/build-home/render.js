@@ -1,4 +1,5 @@
 import { S, ctx, fx, gutW, LH, onReset, renderChrome } from './state.js';
+import { syncStates } from './states.js';
 import { $ } from './dom.js';
 import { I } from './icons.js';
 import { dotSize } from './span.js';
@@ -59,6 +60,7 @@ function restoreFocus(id) {
 }
 export function relayout({ live = false } = {}) {
   if (S.loading) return fx.renderLoading();
+  syncStates();
   const reconnect = H.epoch !== null && H.epoch !== ctx.proto.epoch;
   const anchor = reconnect ? takeAnchor() : null, oldFrom = S.histFrom, focused = focusId();
   syncHistory();
@@ -69,9 +71,9 @@ export function relayout({ live = false } = {}) {
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
   const previousDetail = ctx.L?.det;
-  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources);
+  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H });
   // The design counts only live and planned lanes; also flow when the packed day columns would still be slivers (#4769).
-  if (!S.flow && !S.feature && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources); }
+  if (!S.flow && !S.feature && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H }); }
   ctx.content.classList.toggle('flow', S.flow);
   const detailChanged = previousDetail !== ctx.L.det;
   ctx.svg.setAttribute('height', 0);
@@ -81,7 +83,9 @@ export function relayout({ live = false } = {}) {
     if (!live || detailChanged || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
     else noanim(el);
   }
-  ctx.RL.forEach(el => el.remove()); ctx.RL.clear();
+  for (const [uid, el] of ctx.RL) {
+    if (!live || !uid.includes(':m')) { el.remove(); ctx.RL.delete(uid); }
+  }
   renderHeads();
   for (const sec of ['hist', 'plan', 'nq']) ctx.secs[sec].el.style.height = ctx.L.secs[sec].h + 'px';
   ctx.bandEl.style.height = ctx.L.band.h + 'px'; fx.renderBand();
@@ -128,6 +132,9 @@ function renderSection(s, keep, keepL, focused) {
     const uid = s + ':m' + i; keepL.add(uid);
     let el = ctx.RL.get(uid);
     if (!el) { el = makeMark(m); sec.layer.appendChild(el); ctx.RL.set(uid, el); }
+    el.className = 'bd-mk ' + m.kind;
+    const text = makeMark(m).innerHTML;
+    if (el.dataset.txt !== text) { el.innerHTML = text; el.dataset.txt = text; }
     placeMark(el, m, ctx.content.offsetWidth, gutW());
   });
   lay.labels.forEach((lb, i) => {
@@ -166,6 +173,10 @@ export function onDataChanged(msg) {
   pendingLive.dirty = true;
   if (!deferred()) ctx.life.frame('live', flushLive);
 }
+export function requestLivePass() {
+  pendingLive.dirty = true;
+  ctx.life.frame('live', flushLive);
+}
 export function flushLive() {
   if (!pendingLive.dirty || deferred()) return;
   const anchor = takeAnchor();
@@ -173,4 +184,4 @@ export function flushLive() {
   pendingLive.changed.clear(); pendingLive.removed.clear(); pendingLive.dirty = false;
   performance.mark('build-home-live-pass');
 }
-Object.assign(fx, { viewport, relayout, update, dataChanged: onDataChanged, flushLive, renderHeads });
+Object.assign(fx, { viewport, relayout, update, dataChanged: onDataChanged, flushLive, requestLivePass, renderHeads });
