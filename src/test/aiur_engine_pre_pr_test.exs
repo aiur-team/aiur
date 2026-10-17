@@ -2,6 +2,7 @@ defmodule AiurEnginePrePrTest do
   use ExUnit.Case, async: false
 
   @engine Path.expand("../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
+  @shim Path.expand("../../scripts/aiurdev", __DIR__)
 
   test "conflicting origin main reports the file, aborts, and leaves the checkout clean" do
     fixture = fixture("conflict")
@@ -307,6 +308,34 @@ defmodule AiurEnginePrePrTest do
     assert output =~ "Not run: Credo and specs (make lint), dialyzer, full suite"
   end
 
+  # The dev shim marks pre-pr as a retryable control command; its tests must not inherit that.
+  test "pre-pr through the dev shim keeps control retry flags out of tests" do
+    fixture = fixture("dev-shim")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    File.ln_s!(Path.expand("../../packaging", __DIR__), Path.join(repo, "packaging"))
+    File.write!(Path.join(repo, ".git/info/exclude"), "/packaging\n")
+
+    {output, _status} =
+      System.cmd("bash", [@shim, "pre-pr"],
+        cd: repo,
+        env: [
+          {"AIUR_REPO_ROOT", repo},
+          {"AIUR_SKIP_BUILD", "1"},
+          {"AIUR_AGENT_WORKSPACE", repo},
+          {"AIUR_BASE_BRANCH", "main"},
+          {"HOME", Path.join(fixture, "home")},
+          {"TMPDIR", fixture},
+          {"TMUX", nil},
+          {"PATH", Path.join(fixture, "bin") <> ":" <> System.get_env("PATH")}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert output =~ "--- aiur pre-pr result"
+    assert File.read!(Path.join(fixture, "test-env")) == "clean\n", output
+  end
+
   defp fixture(name) do
     root = Aiur.TestSupport.tmp_root!("pre-pr-#{name}")
     repo = Path.join(root, "repo")
@@ -343,7 +372,7 @@ defmodule AiurEnginePrePrTest do
     #!/usr/bin/env bash
     case "$*" in
       *"mix test"*)
-        if [ -n "${AIUR_AGENT_WORKSPACE+x}${AIUR_INSTANCE_KEY+x}${AIUR_PROJECT_ROOT+x}" ]; then echo leaked > "#{root}/test-env"; exit 79; fi
+        if [ -n "${AIUR_AGENT_WORKSPACE+x}${AIUR_INSTANCE_KEY+x}${AIUR_PROJECT_ROOT+x}${AIUR_CONTROL_RELEASE_RETRYABLE+x}${AIUR_CONTROL_RELEASE_RETRY_SIGNAL+x}" ]; then echo leaked > "#{root}/test-env"; exit 79; fi
         echo clean >> "#{root}/test-env"
         echo "$TMPDIR" >> "#{root}/test-tmpdirs"
         echo "$*" > "#{root}/test-command"
