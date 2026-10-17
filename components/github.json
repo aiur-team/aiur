@@ -93,6 +93,7 @@
     "Aiur.Webhooks.ModeTable"
   ],
   "requires": [
+    "agent-sandbox",
     "config",
     "kernel",
     "signal",
