@@ -269,10 +269,6 @@ A PR whose head only moved via merges of the base branch (own contribution
 unchanged) is NOT re-queued; it raises `system.pr_health.rework_merge_only` so
 the merge-only state is visible distinctly from genuine rework.
 
-An `agent:error` ticket whose open PR's latest trusted verdict is
-`CHANGES_REQUESTED` moves to `agent:rework` once per review
-(`system.pr_health.error_rework`); one without an open PR stays in error.
-
 A re-queue that the thread-clearance gate refuses (the reworked PR still has
 unresolved review threads — the normal state of a rework ticket) raises
 `system.pr_health.rework_requeue_failed`; the head is not throttled on a failed
