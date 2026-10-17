@@ -37,8 +37,34 @@ end
 '''
 
 
-def compare(repo, base, head):
-    return json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/compare/{base}...{head}'], text=True))
+GIT_TIMEOUT = 60
+
+
+def git(root, *args):
+    return subprocess.check_output(['git', '-C', str(root), *args], text=True, timeout=GIT_TIMEOUT)
+
+
+def compare(root, base, head):
+    """A GitHub compare body built from the checkout's history, so a hung network call cannot stall the gate."""
+    base = git(root, 'rev-parse', f'{base}^{{commit}}').strip()
+    merge_base = git(root, 'merge-base', base, head).strip()
+    raw = iter(git(root, 'diff', '--raw', '-z', '--no-abbrev', '-M', merge_base, head).split('\0')[:-1])
+    files = []
+    for meta in raw:
+        _modes, _new_mode, _old_sha, sha, status = meta.split()
+        path = next(raw)
+        files.append({'filename': next(raw), 'previous_filename': path, 'sha': sha} if status[0] in 'RC'
+                     else {'filename': path, 'sha': sha})
+    diff = git(root, 'diff', '--no-color', '--no-ext-diff', '-M', merge_base, head)
+    patches = re.split(r'^diff --git .*\n', diff, flags=re.M)[1:]
+    if len(patches) != len(files):
+        raise ValueError(f'{len(files)} files but {len(patches)} patches')
+    for file, chunk in zip(files, patches):
+        hunk = re.search(r'^@@ ', chunk, re.M)
+        if hunk:
+            file['patch'] = chunk[hunk.start():].rstrip('\n')
+    return {'status': 'ahead' if merge_base == base else 'diverged',
+            'merge_base_commit': {'sha': merge_base}, 'files': files}
 
 
 def is_ancestor(root, tested, head):
@@ -51,12 +77,12 @@ def identical_contribution(pr, tested, root):
     head = pr['head']['sha']
     if not is_ancestor(root, tested, head):
         return False
-    repo, base = pr['base']['repo']['full_name'], pr['base']['ref']
     try:
-        approved, current = compare(repo, base, tested), compare(repo, base, head)
+        base = pr['base']['sha']
+        approved, current = compare(root, base, tested), compare(root, base, head)
         bases = approved['merge_base_commit']['sha'], current['merge_base_commit']['sha']
-        main = {'files': []} if bases[0] == bases[1] else compare(repo, *bases)
-    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError) as error:
+        main = {'files': []} if bases[0] == bases[1] else compare(root, *bases)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, StopIteration, KeyError, TypeError) as error:
         print(f'PR body gate: contribution comparison unavailable: {error}')
         return False
     if main.get('status', 'ahead') != 'ahead':
