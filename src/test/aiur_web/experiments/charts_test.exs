@@ -54,10 +54,13 @@ defmodule AiurWeb.Experiments.ChartsTest do
 
   test "jitter is byte stable, labels are escaped and log powers are equally spaced" do
     metric = hd(fixture().chart_metrics) |> Map.merge(%{label: "<script>latency</script>", scale: "log"})
+    metric = %{metric | groups: Enum.map(metric.groups, &%{&1 | name: "\" onload=\"evil", label: "<b>Group</b>"})}
     first = html(Charts.distribution(metric))
     assert first == html(Charts.distribution(metric))
     assert first =~ "&lt;script&gt;latency&lt;/script&gt;"
     refute first =~ "<script>"
+    assert Floki.find(Floki.parse_fragment!(first), "[onload]") == []
+    assert first =~ "&lt;b&gt;Group&lt;/b&gt;"
     assert Svg.ticks({0.5, 9000}, "log") == [1.0, 10.0, 100.0, 1000.0]
     assert Svg.position(10, {1, 100}, {0, 100}, "log") == 50.0
     assert Svg.position(100, {1, 100}, {0, 100}, "log") == 100.0

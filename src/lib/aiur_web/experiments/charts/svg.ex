@@ -16,18 +16,18 @@ defmodule AiurWeb.Experiments.Charts.Svg do
 
   @spec line(number(), number(), number(), number(), String.t()) :: String.t()
   def line(x1, y1, x2, y2, class \\ ""),
-    do: ~s(<line x1="#{x1}" y1="#{y1}" x2="#{x2}" y2="#{y2}" stroke="currentColor" class="#{class}" />)
+    do: ~s(<line x1="#{x1}" y1="#{y1}" x2="#{x2}" y2="#{y2}" stroke="currentColor" class="#{escape(class)}" />)
 
   @spec text(number(), number(), term()) :: String.t()
   def text(x, y, value), do: ~s(<text x="#{x}" y="#{y}" fill="currentColor" font-size="12">#{escape(value)}</text>)
 
   @spec rect(number(), number(), number(), number(), String.t()) :: String.t()
-  def rect(x, y, width, height, class), do: ~s(<rect x="#{x}" y="#{y}" width="#{width}" height="#{height}" class="#{class}" />)
+  def rect(x, y, width, height, class), do: ~s(<rect x="#{x}" y="#{y}" width="#{width}" height="#{height}" class="#{escape(class)}" />)
 
   @spec marker(number(), number(), non_neg_integer(), String.t()) :: String.t()
   def marker(x, y, index, class \\ "exp-point") do
     body = shape(x, y, rem(index, 4))
-    ~s(<g class="#{class} exp-series-#{rem(index, 4)}">#{body}</g>)
+    ~s(<g class="#{escape(class)} exp-series-#{rem(index, 4)}">#{body}</g>)
   end
 
   defp shape(x, y, 0), do: ~s(<circle cx="#{x}" cy="#{y}" r="4" />)
