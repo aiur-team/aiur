@@ -78,7 +78,7 @@ defmodule Aiur.ExecutorSweep do
 
   defp fingerprint(finding) do
     finding
-    |> Map.take([:kind, :ticket, :issue_number, :pull_request, :head_sha, :decision, :merge_group, :queue_set, :service, :failure_class, :failed_checks])
+    |> Map.take([:kind, :ticket, :issue_number, :pull_request, :head_sha, :decision, :merge_group, :queue_set, :service, :failure_class, :failed_checks, :check, :sources])
     |> :erlang.term_to_binary()
     |> then(&:crypto.hash(:sha256, &1))
   end
