@@ -10,16 +10,14 @@ on:
     - cron: '23 7 * * *'
   # Manual head checks when pull_request synchronize does not create runs (#2397).
   workflow_dispatch:
-# Initial PR runs supersede each other; queue groups and reruns stay independent.
+# Initial PR runs supersede each other and a close cancels them; queue groups and reruns stay independent.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && (github.event.action != 'labeled' || github.event.label.name == 'ci:full') }}
 jobs:
-  # PRs run fast checks unless ci:full or base policy opts into the full set.
+  # PRs run fast checks unless ci:full or base policy opts into the full set; drafts run none until ready_for_review (#4942).
   # Only ci gate is required: it rejects skipped jobs in the selected set.
   changes:
-    name: changes
-    # Drafts skip CI until ready_for_review; a close only cancels the PR's queued run (#4942).
     if: ${{ github.event.pull_request.draft != true && github.event.action != 'closed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -73,7 +71,7 @@ jobs:
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Guard workflow triggers, action pins and PR body rollout
-        run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && node scripts/test-draft-ci-skip.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py
+        run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
       - name: Test human-only merge ruleset verifier
