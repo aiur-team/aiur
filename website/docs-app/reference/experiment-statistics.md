@@ -2,6 +2,19 @@
 
 `analytics/experiment-stats` computes an offline, generic experiment result using Python 3's standard library. The pure facade is `analytics.stats.analyze(snapshot, spec, annotations)`. It reads no clock, network or environment. Metric names have no statistical meaning.
 
+## Running it yourself
+
+Aiur releases include `analytics/` beside `bin/` and `lib/`. From any working directory, run the release's tool against a frozen experiment directory:
+
+```sh
+/path/to/release/analytics/experiment-stats --experiment-dir /path/to/experiment
+/path/to/release/analytics/experiment-stats --experiment-dir /path/to/experiment --check
+```
+
+Results live in that experiment's `result.json`; `--check` verifies its stored body without rewriting it. Python 3 must be on `PATH`. Missing Python makes daemon recomputation unavailable with `statistics unavailable: python3 not found`.
+
+The daemon resolves tools in this order: explicit caller override, tracked repository checkout, bundled release, current directory. It logs the first resolved directory once. Its runner serializes recomputations, uses `nice -n 10` and kills the tool after 120 seconds; failures leave orchestration running. Callers decide when to request recomputation.
+
 ## Frozen inputs and CLI
 
 ```sh
@@ -109,7 +122,7 @@ X2 exports this as `metric_metadata[metric_ref].strata_metadata` alongside rows 
 
 ## Correction and labels
 
-Pre-registered primaries use Holm correction. Other metrics use Benjamini–Hochberg and carry `exploratory`. An `added_at` later than the spec's `frozen_at` (or X2 `registered_at`) makes a listed primary exploratory, with a warning. With no primaries the overall result says “no pre-registered primary”.
+Pre-registered primaries use Holm correction at `alpha`. Other metrics use Benjamini–Hochberg at `fdr_q` (defaults to `alpha`) and carry `exploratory`. An `added_at` later than the spec's `frozen_at` (or X2 `registered_at`) makes a listed primary exploratory, with a warning. With no primaries the overall result says “no pre-registered primary”.
 
 Guarded hypotheses remain in the correction family as p=1 but report no test.
 
@@ -130,3 +143,14 @@ Overall statuses come only from primary metrics; flags are unioned without colla
 Result schema: `analytics/schema/experiment-result.v1.json`. The result body records the engine version and SHA256 hashes of full-precision input JSON (sorted keys, compact UTF-8 encoding). Seeds derive from experiment ID, metric ID, `pooled` and snapshot hash using the version-stable PCG32 generator.
 
 Outputs use sorted keys, ten significant digits, UTF-8 and a trailing newline. Two identical inputs and engine versions produce identical bodies; timestamps are excluded from `--check`. Summaries use the published rounded numbers.
+
+
+## Reports and labels
+
+Register with `aiur experiments preregister <id> --file prereg.json`. The server assigns time and `post_hoc` after results reads. Repeating registration requires a JSON `reason`; amendments preserve the original and flag post-hoc changes. Contracts: `src/priv/experiments/schema/`.
+
+Labels, weakest first: `not-enough-data`, `underpowered`, `inconclusive`, `no-effect-detected`, `significant`. An analyst may weaken engine labels with a reason, never strengthen them. Overall labels derive from primaries; chips show n, effect and CI, with unavailable values explicit.
+
+Every event ID appears once. High/`noted` confounders require `confounded`; sensitivity needs a linked analysis. Snapshot hashes and registration must match. Summary verdicts need numbers; below planned n, confirmatory becomes interim.
+
+After freezing both windows and collecting events, `aiur experiments stats <id> --json` returns the input hash and report-ready rows. `aiur experiments report submit <id> --file report.json` recomputes those inputs, rejects stale or invented numbers, and stores the next version. `show --json` exposes the report history.
