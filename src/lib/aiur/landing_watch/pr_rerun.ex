@@ -67,6 +67,8 @@ defmodule Aiur.LandingWatch.PrRerun do
   defp action("refresh"), do: :refresh
   defp action(_), do: :rerun
 
+  defp remedy(observation, runs, :rerun, reason, _marker, opts), do: request_remedy(observation, runs, :rerun, reason, opts)
+
   # Base changes to the PR's own files void its Tested head (#4854), so the worker retests rather than the watcher updating.
   defp remedy(observation, runs, :refresh, reason, marker, opts) do
     overlap =
@@ -138,8 +140,6 @@ defmodule Aiur.LandingWatch.PrRerun do
       end
     end
   end
-
-  defp remedy(observation, runs, :rerun, reason, _marker, opts), do: request_remedy(observation, runs, :rerun, reason, opts)
 
   defp base_overlap(observation, opts) do
     with {:ok, base} <- MergeGroupRunFetcher.base_branch(opts),
