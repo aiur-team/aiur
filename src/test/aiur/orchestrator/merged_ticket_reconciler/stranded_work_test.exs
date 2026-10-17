@@ -1,10 +1,11 @@
 defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWorkTest do
   use ExUnit.Case, async: true
   @moduletag :tmp_dir
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.{AgentQueueStore, Issue}
   alias Aiur.Orchestrator.MergedTicketReconciler.StrandedWork
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{State, TrackerTasks}
 
   # The 2026-10-15 sequence (#3846): PR #3928 entered the merge queue at the
   # worker's head, the worker committed three more commits (its pushes were
@@ -106,6 +107,21 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWorkTest do
     assert_received {:reopened, "3846"}
     assert_received {:state_written, "3846"}
     assert_received {:alert, false}
+  end
+
+  test "on the owner path a held reopen has no generic timeout, and a crashed check keeps the worker", context do
+    parent = self()
+    opts = Keyword.put(opts(context, parent), :reopen_issue_fun, fn _ -> exit(:controlled_crash) end)
+    pending = StrandedWork.mark_merged(%{state(context.workspace) | snapshot_key: self()}, "3846", opts)
+
+    assert [%{key: {:stranded_work, "3846"}, timer: nil}] = Map.values(pending.tracker_tasks)
+    receive_barrier({:DOWN, ref, :process, _pid, :controlled_crash})
+    {:handled, result} = TrackerTasks.down(pending, ref, :controlled_crash)
+
+    assert_received {:alert, true}
+    refute_received :terminated
+    assert Map.has_key?(result.running, "issue-3846")
+    assert result.tracker_tasks == %{}
   end
 
   test "a reopened ticket whose state write failed is reported as such", context do

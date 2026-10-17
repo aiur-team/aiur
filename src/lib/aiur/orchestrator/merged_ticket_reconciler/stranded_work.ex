@@ -108,6 +108,22 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
   defp apply_check(state, identifier, {:merged, target}, opts),
     do: CommentWake.mark_pr_merged_issue_done(state, identifier, Keyword.put(opts, :target_state, target))
 
+  # The check crashed or timed out, so whether work is stranded is unknown: keep the worker and ask the Executor.
+  defp apply_check(state, identifier, {:error, reason}, opts) do
+    Logger.warning("stranded-work check failed: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
+    Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2).(
+      "ticket.#{identifier}.agent.attention.merged_with_stranded_work",
+      issue: identifier,
+      message: "The PR for ##{identifier} merged, but Aiur could not check the worker's checkout for unmerged commits (#{inspect(reason)})",
+      reason: "The worker was kept running. Remedy: check its checkout for commits after the merged head, then reopen the ticket or move it to done.",
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    state
+  end
+
   # The worker is never torn down here, even when the reopen failed: it still holds the only copy of the work.
   defp apply_check(state, identifier, {:stranded, commits, kept_open}, opts) do
     key = reconciliation_key(identifier, opts)
