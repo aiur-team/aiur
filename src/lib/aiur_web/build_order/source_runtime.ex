@@ -2,7 +2,7 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   @moduledoc "Projection and cached execution/activity orchestration for Build Order routes."
 
   import Phoenix.Component, only: [assign: 3]
-  import Phoenix.LiveView, only: [connected?: 1, start_async: 3]
+  import Phoenix.LiveView, only: [cancel_async: 2, connected?: 1, start_async: 3]
 
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
@@ -18,6 +18,10 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   # rate limit on their own (#2544).
   @catalog_refresh_min_interval_ms 5_000
 
+  # A catalog read that never returns would stay "taking longer than expected"
+  # for ever; past this bound it becomes the named read failure (#4873).
+  @catalog_read_timeout_ms 30_000
+
   @spec catalog_refresh_min_interval_ms() :: pos_integer()
   def catalog_refresh_min_interval_ms, do: @catalog_refresh_min_interval_ms
 
@@ -32,7 +36,10 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
     |> assign(:source_reload_queued?, false)
     |> assign(:model, nil)
     |> assign(:adhoc_overlay, nil)
+    |> assign(:catalog_read, nil)
+    |> assign(:catalog_read_queued?, false)
     |> assign(:catalog_read_failed?, false)
+    |> assign(:catalog_read_failed_at, nil)
   end
 
   @spec connect(Socket.t()) :: Socket.t()
@@ -54,23 +61,72 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   # The catalog read rereads every planning pack and scans the resource store.
   # Run inline in the connected mount it can outlast the client's 10s join
   # timeout under load, and every rejoin restarts it, so the page never connects (#4841).
-  defp load_catalog_async(socket) do
+  # Live-state events and resets can arrive faster than a slow read finishes,
+  # so the read in flight absorbs them and reruns once when it settles (#4873).
+  defp load_catalog_async(%{assigns: %{catalog_read: {_ref, _timer}}} = socket),
+    do: assign(socket, :catalog_read_queued?, true)
+
+  defp load_catalog_async(socket), do: start_catalog_read(socket)
+
+  defp start_catalog_read(socket) do
     source = socket.assigns.source
-    start_async(socket, :build_order_catalog, fn -> Runtime.safe_source_call(source, :catalog, [], nil) end)
+    ref = make_ref()
+    timer = Process.send_after(self(), {:build_order_catalog_timeout, ref}, catalog_read_timeout_ms())
+
+    socket
+    |> assign(:catalog_read, {ref, timer})
+    |> assign(:catalog_read_queued?, false)
+    |> assign(:catalog_read_failed?, false)
+    |> assign(:catalog_read_failed_at, nil)
+    |> assign(:catalog_wait_started_at, Runtime.display_now())
+    |> start_async(:build_order_catalog, fn -> Runtime.safe_source_call(source, :catalog, [], nil) end)
   end
+
+  defp catalog_read_timeout_ms,
+    do: Application.get_env(:aiur, :build_order_catalog_read_timeout_ms, @catalog_read_timeout_ms)
+
+  defp stop_catalog_read(%{assigns: %{catalog_read: {_ref, timer}}} = socket) do
+    _ = Process.cancel_timer(timer)
+    socket |> cancel_async(:build_order_catalog) |> assign(:catalog_read, nil)
+  end
+
+  defp stop_catalog_read(socket), do: socket
+
+  defp rerun_queued_catalog(%{assigns: %{catalog_read_queued?: true}} = socket), do: start_catalog_read(socket)
+  defp rerun_queued_catalog(socket), do: socket
 
   @spec complete_catalog(Socket.t(), term()) :: Socket.t()
   def complete_catalog(socket, %Snapshot{} = snapshot) do
-    case accept_authority(socket, snapshot) do
-      {:ok, socket} -> put_catalog(socket, snapshot)
-      :ignored -> socket
-    end
+    socket = stop_catalog_read(socket)
+
+    socket =
+      case accept_authority(socket, snapshot) do
+        {:ok, socket} -> put_catalog(socket, snapshot)
+        :ignored -> socket
+      end
+
+    rerun_queued_catalog(socket)
   end
 
   def complete_catalog(socket, _unreadable), do: failed_catalog(socket)
 
+  # The failure time freezes the age the page shows, so "after N seconds"
+  # stays the time the read took rather than the time since it failed.
   @spec failed_catalog(Socket.t()) :: Socket.t()
-  def failed_catalog(socket), do: assign(socket, :catalog_read_failed?, true)
+  # A read this socket cancelled still reports its exit; nothing is in flight.
+  def failed_catalog(%{assigns: %{catalog_read: nil}} = socket), do: socket
+
+  def failed_catalog(socket) do
+    socket
+    |> stop_catalog_read()
+    |> assign(:catalog_read_failed?, true)
+    |> assign(:catalog_read_failed_at, Runtime.display_now())
+    |> rerun_queued_catalog()
+  end
+
+  @spec catalog_read_timed_out(Socket.t(), reference()) :: Socket.t()
+  def catalog_read_timed_out(%{assigns: %{catalog_read: {ref, _timer}}} = socket, ref), do: failed_catalog(socket)
+  def catalog_read_timed_out(socket, _stale_ref), do: socket
 
   @spec reset(Socket.t(), integer()) :: Socket.t()
   def reset(socket, authority_epoch) do
@@ -96,7 +152,7 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
     socket
     |> assign(:route_state, route_state)
     |> apply_effects(effects)
-    |> reload_catalog()
+    |> load_catalog_async()
     |> assign_model()
   end
 
@@ -153,7 +209,7 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
 
   @spec refresh_live_state(Socket.t()) :: Socket.t()
   def refresh_live_state(socket) do
-    socket = reload_catalog(socket)
+    socket = load_catalog_async(socket)
 
     case RouteState.selected_identity(socket.assigns.route_state) do
       %TrackerIdentity{} = identity -> refresh_selected(socket, identity)
@@ -175,20 +231,15 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
 
     if catalog_refresh_allowed?(socket.assigns[:catalog_refresh_at_ms], now_ms) do
       _ = Runtime.safe_source_call(socket.assigns.source, :refresh_catalog, [], :ok)
-      socket |> assign(:catalog_refresh_at_ms, now_ms) |> retry_failed_catalog()
+      socket |> assign(:catalog_refresh_at_ms, now_ms) |> restart_catalog_read()
     else
       socket
     end
   end
 
-  defp retry_failed_catalog(%{assigns: %{catalog_read_failed?: true}} = socket) do
-    socket
-    |> assign(:catalog_read_failed?, false)
-    |> assign(:catalog_wait_started_at, Runtime.display_now())
-    |> load_catalog_async()
-  end
-
-  defp retry_failed_catalog(socket), do: socket
+  # Refresh catalog restarts a failed read and a stuck one alike (#4873).
+  defp restart_catalog_read(%{assigns: %{catalog_read: nil, catalog_read_failed?: false}} = socket), do: socket
+  defp restart_catalog_read(socket), do: socket |> stop_catalog_read() |> start_catalog_read()
 
   defp catalog_refresh_allowed?(nil, _now_ms), do: true
 
@@ -255,15 +306,6 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
     case RouteState.selected_identity(socket.assigns.route_state) do
       %TrackerIdentity{} = identity -> deactivate(socket.assigns.source, identity)
       _identity -> :ok
-    end
-  end
-
-  defp reload_catalog(socket) do
-    snapshot = Runtime.safe_source_call(socket.assigns.source, :catalog, [], nil)
-
-    case accept_authority(socket, snapshot) do
-      {:ok, socket} -> put_catalog(socket, snapshot)
-      :ignored -> socket
     end
   end
 
