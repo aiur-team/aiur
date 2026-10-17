@@ -1,8 +1,6 @@
 defmodule Aiur.TestSupport.OrchestratorGuardTest do
   use Aiur.TestSupport
 
-  import ExUnit.CaptureIO
-
   alias Aiur.TestSupport.OrchestratorGuard
 
   setup do
@@ -27,14 +25,22 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
     refute Process.whereis(Aiur.Orchestrator)
   end
 
-  test "ensure_running names the last finished test when it has to restart the orchestrator", context do
-    GenServer.cast(OrchestratorGuard, {:test_finished, %ExUnit.Test{module: LeakyTest, name: :"test leaks"}})
-    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
+  test "the ExUnit wiring reports setup restarts and fails leaks from both case templates" do
+    src_dir = Path.expand("../../..", __DIR__)
+    mix = System.find_executable("mix") || flunk("mix executable not found")
 
-    output = capture_io(:stderr, fn -> assert :ok = OrchestratorGuard.ensure_running(context) end)
+    {output, status} =
+      System.cmd(mix, ["test", "--seed", "0", "--include", "orchestrator_guard_probe", "test/fixtures/orchestrator_guard"],
+        cd: src_dir,
+        stderr_to_stdout: true
+      )
 
-    assert output =~ "Aiur.Orchestrator was down before Aiur.TestSupport.OrchestratorGuardTest: test ensure_running"
-    assert output =~ "last finished test: LeakyTest: test leaks"
-    assert is_pid(Process.whereis(Aiur.Orchestrator))
+    assert status != 0
+    assert output =~ "Aiur.Orchestrator was down before Aiur.BTestSupportWiringNeighbourTest"
+    assert output =~ "last finished test: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down"
+    assert output =~ "Aiur.ZTestSupportWiringProbeTest: test leaves orchestrator down left Aiur.Orchestrator down (restore: :ok)"
+    assert output =~ "plain ExUnit tests left Aiur.Orchestrator down: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down"
+    assert output =~ "Aiur.BTestSupportWiringNeighbourTest"
+    assert output =~ "4 tests, 1 failure"
   end
 end
