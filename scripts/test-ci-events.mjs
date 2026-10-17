@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 const source = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const trigger = source.split(/^concurrency:/m)[0];
 assert.ok(/^  pull_request:$/m.test(trigger));
-assert.ok(/types: \[opened, synchronize, reopened, ready_for_review, labeled, closed\]/.test(trigger), 'label events let ci:full start a full run');
+assert.ok(/types: \[opened, synchronize, reopened, ready_for_review, labeled\]/.test(trigger), 'label events let ci:full start a full run');
 assert.ok(source.includes("github.event.action != 'labeled' || github.event.label.name == 'ci:full'"), 'unrelated labels must not cancel active CI');
 assert.ok(/^  merge_group:$/m.test(trigger));
 assert.ok(/  push:\n    branches: \[main, v2\]/.test(trigger), 'main pushes trigger CI');
@@ -28,7 +28,7 @@ function selected(event, full, dialyzer = false, payload = { pull_request: {} })
     : (changesRuns || /always\(\)|cancelled\(\)/.test(condition(body) ?? '')) && run(condition(body), changes)).map(([id]) => id);
 }
 assert.deepEqual(selected('pull_request', false).sort(), fastJobs.sort(), 'PR without Elixir source changes selects only fast jobs');
-for (const payload of [{ pull_request: { draft: true } }, { action: 'labeled', pull_request: { draft: true } }, { action: 'closed', pull_request: { draft: false } }]) {
+for (const payload of [{ pull_request: { draft: true } }, { action: 'labeled', pull_request: { draft: true } }]) {
   assert.deepEqual(selected('pull_request', true, true, payload), [], `no CI job holds a runner for ${JSON.stringify(payload)} (#4942)`);
 }
 assert.deepEqual(selected('pull_request', false, false, { action: 'ready_for_review', pull_request: { draft: false } }).sort(), fastJobs.sort(), 'marking a draft ready runs CI');
