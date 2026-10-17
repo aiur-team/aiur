@@ -42,7 +42,7 @@ defmodule Aiur.ExecutorSweep do
     interval_ms = Keyword.get_lazy(opts, :interval_ms, fn -> Application.get_env(:aiur, :executor_sweep_interval_ms, @interval_ms) end)
     if interval_ms > 0, do: send(self(), :sweep)
 
-    {:ok, %{seen: MapSet.new(), sweep_fun: Keyword.get(opts, :sweep_fun, &findings/0), publish_fun: Keyword.get(opts, :publish_fun, &publish/1), interval_ms: interval_ms}}
+    {:ok, %{seen: MapSet.new(), triage_seen: nil, sweep_fun: Keyword.get(opts, :sweep_fun, &sweep/0), publish_fun: Keyword.get(opts, :publish_fun, &publish/1), interval_ms: interval_ms}}
   end
 
   @impl true
@@ -50,19 +50,38 @@ defmodule Aiur.ExecutorSweep do
     Process.send_after(self(), :sweep, state.interval_ms)
 
     case safe_sweep(state.sweep_fun) do
-      {:ok, findings} ->
+      {:ok, {findings, triage_available?}} ->
+        {triage, findings} = Enum.split_with(findings, &(&1.kind == "stale_needs_triage"))
         fingerprints = MapSet.new(findings, &fingerprint/1)
         findings |> Enum.reject(&(fingerprint(&1) in state.seen)) |> Enum.each(state.publish_fun)
-        {:noreply, %{state | seen: fingerprints}}
+        {:noreply, %{state | seen: fingerprints, triage_seen: triage_seen(triage, triage_available?, state)}}
 
       :error ->
         {:noreply, state}
     end
   end
 
+  # The triage wake fires on backlog growth only: the first available sweep after boot seeds the
+  # backlog silently, and a sweep without the projection keeps the prior set (#4521).
+  defp triage_seen(_triage, false, state), do: state.triage_seen
+  defp triage_seen(triage, true, %{triage_seen: nil}), do: MapSet.new(triage, &fingerprint/1)
+
+  defp triage_seen(triage, true, state) do
+    triage |> Enum.reject(&(fingerprint(&1) in state.triage_seen)) |> Enum.each(state.publish_fun)
+    MapSet.new(triage, &fingerprint/1)
+  end
+
+  defp sweep do
+    snapshot = SnapshotCache.read()
+    {findings(snapshot: snapshot), match?(%Aiur.OpenTicketSource.Snapshot{status: :available}, Map.get(snapshot, :open_tickets))}
+  end
+
   # A dependency that is down or still starting must not crash the sweep, or restarts can exhaust the app supervisor.
   defp safe_sweep(sweep_fun) do
-    {:ok, sweep_fun.()}
+    case sweep_fun.() do
+      {findings, triage_available?} -> {:ok, {findings, triage_available?}}
+      findings -> {:ok, {findings, true}}
+    end
   rescue
     error -> skipped(:error, error)
   catch

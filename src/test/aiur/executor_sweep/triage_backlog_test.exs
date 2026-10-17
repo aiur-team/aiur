@@ -79,20 +79,69 @@ defmodule Aiur.ExecutorSweep.TriageBacklogTest do
     end
   end
 
-  test "a growing stale-triage backlog wakes the Executor for each new ticket" do
+  defp start_sweep(state, publish_fun) do
+    sweep = fn ->
+      {status, tickets} = Agent.get(state, & &1)
+      findings = Checks.all(%{open_tickets: %Snapshot{status: status, tickets: tickets}}, @now) |> Enum.filter(&(&1.kind == "stale_needs_triage"))
+      {findings, status == :available}
+    end
+
+    ExecutorSweep.start_link(name: nil, interval_ms: 60_000, sweep_fun: sweep, publish_fun: publish_fun)
+  end
+
+  defp sweep_once(pid), do: send(pid, :sweep) && :sys.get_state(pid)
+
+  test "the backlog seen at boot is seeded silently; growth wakes the Executor per new ticket" do
     parent = self()
-    {:ok, tickets} = Agent.start_link(fn -> [ticket("1", ["needs-triage"], ~U[2026-10-16 09:00:00Z])] end)
-    sweep = fn -> Checks.all(%{open_tickets: %Snapshot{status: :available, tickets: Agent.get(tickets, & &1)}}, @now) |> Enum.filter(&(&1.kind == "stale_needs_triage")) end
+    {:ok, state} = Agent.start_link(fn -> {:available, [ticket("1", ["needs-triage"], ~U[2026-10-16 09:00:00Z])]} end)
 
-    assert {:ok, pid} = ExecutorSweep.start_link(name: nil, interval_ms: 60_000, sweep_fun: sweep, publish_fun: &send(parent, {:finding, &1}))
-    assert_receive {:finding, %{kind: "stale_needs_triage", ticket: "1"}}, 1_000
+    assert {:ok, pid} = start_sweep(state, &send(parent, {:finding, &1}))
+    :sys.get_state(pid)
+    refute_receive {:finding, _}, 50
 
-    Agent.update(tickets, &[ticket("2", ["needs-triage"], ~U[2026-10-16 10:00:00Z]) | &1])
-    send(pid, :sweep)
-    assert_receive {:finding, %{kind: "stale_needs_triage", ticket: "2"}}, 1_000
-    refute_receive {:finding, %{ticket: "1"}}, 50
+    Agent.update(state, fn {status, tickets} -> {status, [ticket("2", ["needs-triage"], ~U[2026-10-16 10:00:00Z]) | tickets]} end)
+    sweep_once(pid)
+    assert_receive {:finding, %{kind: "stale_needs_triage", ticket: 2}}, 1_000
+    refute_receive {:finding, %{ticket: 1}}, 50
 
     GenServer.stop(pid)
-    Agent.stop(tickets)
+    Agent.stop(state)
+  end
+
+  test "a stale-then-available projection cycle with an unchanged backlog wakes nothing" do
+    parent = self()
+    open = [ticket("1", ["needs-triage"], ~U[2026-10-16 09:00:00Z])]
+    {:ok, state} = Agent.start_link(fn -> {:unavailable, []} end)
+
+    assert {:ok, pid} = start_sweep(state, &send(parent, {:finding, &1}))
+
+    for status <- [:available, :stale, :unavailable, :available] do
+      Agent.update(state, fn _ -> {status, open} end)
+      sweep_once(pid)
+    end
+
+    refute_receive {:finding, _}, 50
+
+    GenServer.stop(pid)
+    Agent.stop(state)
+  end
+
+  test "a triage wake lands on the ticket's own topic" do
+    root = Aiur.TestSupport.tmp_root!("aiur-triage-wake")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+
+    inbox_opts = [name: nil, debounce_ms: 0, path: Path.join(root, "wakes.ndjson"), cursor_path: Path.join(root, "cursor.json"), pending_path: Path.join(root, "pending.json")]
+    assert {:ok, inbox} = Aiur.ExecutorWakeInbox.start_link(inbox_opts)
+    {:ok, state} = Agent.start_link(fn -> {:available, []} end)
+    assert {:ok, pid} = start_sweep(state, &ExecutorSweep.Wake.publish(&1, inbox))
+
+    Agent.update(state, fn _ -> {:available, [ticket("4466", ["needs-triage"], ~U[2026-10-16 09:00:00Z])]} end)
+    sweep_once(pid)
+
+    assert {:ok, [%{"topic" => "ticket.4466.agent.executor-sweep.finding", "ticket" => 4466, "kind" => "stale_needs_triage"}]} = Aiur.ExecutorWakeInbox.wait(1_000, inbox)
+
+    GenServer.stop(pid)
+    GenServer.stop(inbox)
+    Agent.stop(state)
   end
 end

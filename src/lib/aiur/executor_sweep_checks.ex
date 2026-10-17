@@ -250,8 +250,14 @@ defmodule Aiur.ExecutorSweep.Checks do
       |> Enum.map(fn ticket ->
         age = age_ms(ticket.created_at, now)
 
-        # The ticket keys the sweep fingerprint, so each newly stale ticket wakes the Executor.
-        finding("stale_needs_triage", 10, age, "Triage the ticket and set its queue state.", "Ticket #{ticket.identifier} has needed triage for #{duration(age)}.", ticket: ticket.identifier)
+        # The ticket keys the sweep fingerprint, so each newly stale ticket wakes the Executor; Wake routes only integer tickets.
+        number =
+          case Integer.parse(ticket.identifier) do
+            {n, ""} -> n
+            _ -> ticket.identifier
+          end
+
+        finding("stale_needs_triage", 10, age, "Triage the ticket and set its queue state.", "Ticket #{ticket.identifier} has needed triage for #{duration(age)}.", ticket: number)
       end)
 
     open_prs = MapSet.new(snapshot |> Map.get(:pull_requests, []) |> Enum.filter(&(value(&1, :state, "") == "open")) |> Enum.map(&value(&1, :issue_number, nil)))
