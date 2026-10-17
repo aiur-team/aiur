@@ -1,4 +1,4 @@
-Code.require_file("prewarm_fixture.exs", __DIR__)
+Code.require_file("prewarm_fixture.ex", __DIR__)
 Code.require_file(Path.expand("../control_cli/fixture.exs", __DIR__))
 
 defmodule Aiur.OrchestratorStatusCliWatchTest do

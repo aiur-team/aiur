@@ -9,8 +9,6 @@ defmodule Aiur.OrchestratorStatusCliBuildGateTest do
 
   alias Aiur.Orchestrator.ControlCLI.TestFixture
 
-  import TestFixture, except: [setup: 1]
-
   setup context do
     TestFixture.setup(context)
   end

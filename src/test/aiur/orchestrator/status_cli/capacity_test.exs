@@ -17,7 +17,7 @@ defmodule Aiur.OrchestratorStatusCliCapacityTest do
 
   alias Aiur.Orchestrator.StatusCLI, as: AgentControlCLI
 
-  defp unconstrained_capacity(overrides \\ %{}) do
+  defp unconstrained_capacity(overrides) do
     Map.merge(
       %{
         occupied: 0,
