@@ -45,6 +45,8 @@ Only required checks decide a failure: a red check that nothing requires does no
 
 User-cancelled CI runs stay pending. Landing watcher classifies failed groups from Actions logs and requeues approved PRs for infra, inherited, or known non-PR failures. Known tests match an open flake issue or base failure in 24h, and are untouched by the PR. Others route to rework with job/run details. It checks attribution and cancels stale groups.
 
+A test failing in merge groups of unrelated PRs gets a flake ticket, unless every failing run is over 12 hours old or a base-branch commit newer than the run changed the test file (caller `landing_watch_flake_gate`).
+
 An approved PR that is not landing acts only when every failed required run has a non-PR cause. Infrastructure failures and known flakes are rerun.
 
 A merge ref older than a base fix, a later merge that changed its workflow or a `.github/` or `scripts/` file its job uses, or a job the base workflow dropped is not rerun, because a rerun reuses the old merge commit; the watcher updates the branch from the base instead.
