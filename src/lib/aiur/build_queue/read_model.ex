@@ -354,27 +354,11 @@ defmodule Aiur.BuildQueue.ReadModel do
       start_trigger_source: if(is_nil(queue.start_trigger), do: :config, else: :queue),
       held: queue.held,
       progress: progress,
-      progress_reasons: progress_reasons(queue, items, progress, context),
+      progress_reasons: Progress.reasons(queue, items, progress, context.build_orders[queue.root]),
       edges: context.summary_edges,
       items: items
     }
   end
-
-  # Why a lane has no percent, so the panel never shows a bare "Unresolved" (#4819).
-  defp progress_reasons(_queue, _items, %{percent: percent}, _context) when is_number(percent), do: []
-
-  defp progress_reasons(%{kind: :build_order, root: root}, _items, _progress, context) do
-    case context.build_orders[root].source do
-      %{reasons: [_ | _] = reasons} -> reasons
-      %{freshness: :stale} -> [:projection_stale]
-      %{freshness: :current} -> [:members_unresolved]
-      _ -> [:unknown]
-    end
-  end
-
-  defp progress_reasons(_queue, [], _progress, _context), do: [:no_members]
-  defp progress_reasons(_queue, _items, %{resolution: :unknown}, _context), do: [:progress_unavailable]
-  defp progress_reasons(_queue, _items, _progress, _context), do: [:members_unresolved]
 
   defp unknown_item(member, context),
     do: item(member, %{state: :unknown, verdict: {:unknown, [:not_reconciled]}, rank: nil}, context)
