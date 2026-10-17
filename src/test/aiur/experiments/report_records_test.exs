@@ -63,7 +63,7 @@ defmodule Aiur.Experiments.ReportRecordsTest do
       assert {:ok, baseline} = Experiments.freeze(id, "before", context: ctx)
       assert baseline["observation_count"] == 1
       assert {:ok, detail} = Experiments.fetch(id)
-      assert detail.analysis["first_results_read_at"] == nil
+      assert detail.report_records["first_results_read_at"] == nil
       # Prepare server-owned evidence without exposing post-period values to a consumer.
       assert {:ok, _snapshot} = Snapshot.freeze(id, "after", context: ctx)
 

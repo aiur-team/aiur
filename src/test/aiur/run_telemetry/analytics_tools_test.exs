@@ -40,4 +40,15 @@ defmodule Aiur.RunTelemetry.AnalyticsToolsTest do
     refute File.exists?(Path.join(root, "analytics/tests"))
     assert Path.wildcard(Path.join(root, "analytics/**/__pycache__")) == []
   end
+
+  test "release step refuses unsafe release paths before deleting anything" do
+    source = Path.expand("../../../../analytics/experiment-stats", __DIR__)
+    assert File.regular?(source)
+
+    for path <- ["", "..", "analytics", "/", Path.expand("../../../..", __DIR__)] do
+      assert_raise ArgumentError, ~r/unsafe release path/, fn -> Aiur.MixProject.copy_analytics(%{path: path}) end
+    end
+
+    assert File.regular?(source)
+  end
 end

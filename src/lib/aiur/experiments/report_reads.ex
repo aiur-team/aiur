@@ -6,7 +6,7 @@ defmodule Aiur.Experiments.ReportReads do
   @spec detail(String.t(), {:ok, map()} | {:error, term()}) :: {:ok, map()} | {:error, term()}
   def detail(id, {:ok, detail}) do
     post? = not detail.read_only? and Enum.any?(detail.snapshots, &post_snapshot?/1)
-    with :ok <- record(id, post?), {:ok, records} <- ReportRecords.read(id), do: {:ok, Map.put(detail, :analysis, records)}
+    with :ok <- record(id, post?), {:ok, records} <- ReportRecords.read(id), do: {:ok, Map.put(detail, :report_records, records)}
   end
 
   def detail(_id, error), do: error

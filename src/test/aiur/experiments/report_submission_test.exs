@@ -94,7 +94,7 @@ defmodule Aiur.Experiments.ReportSubmissionTest do
     assert {:ok, %{"report" => second}} = Experiments.put_report(ctx.id, submitted)
     assert second["header"]["report_version"] == 2
     assert {:ok, detail} = Experiments.fetch(ctx.id)
-    assert detail.analysis["reports"] == [first, second]
+    assert detail.report_records["reports"] == [first, second]
     assert File.exists?(Paths.file(ctx.id, "report/contract.json"))
   end
 
