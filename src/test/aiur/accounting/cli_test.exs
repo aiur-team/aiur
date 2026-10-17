@@ -3,8 +3,8 @@ defmodule Aiur.Accounting.CLITest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.ProviderMeterProjection
   alias Aiur.Accounting.CLI, as: AgentControlCLI
+  alias Aiur.ProviderMeterProjection
   alias Aiur.Webhooks.{DeliveryMode, ModePresenter}
 
   setup do

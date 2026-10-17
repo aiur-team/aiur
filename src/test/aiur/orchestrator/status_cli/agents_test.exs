@@ -5,7 +5,7 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{DecisionStore}
+  alias Aiur.DecisionStore
   alias Aiur.Events.SubscriptionStore
 
   alias Aiur.Orchestrator.ControlCLI.TestFixture

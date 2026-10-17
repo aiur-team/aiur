@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
   @moduledoc false
-  alias Aiur.ControlCLI.DispatchAccount
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
+  alias Aiur.ControlCLI.DispatchAccount
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.Orchestrator.WaitingReason
   import Aiur.Orchestrator.ControlCLI.Output, only: [display_identifier: 1]

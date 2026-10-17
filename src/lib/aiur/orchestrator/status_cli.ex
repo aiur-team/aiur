@@ -1,21 +1,21 @@
 defmodule Aiur.Orchestrator.StatusCLI do
   @moduledoc false
-  alias Aiur.ControlCLI.CiWait
   alias Aiur.Commands
   alias Aiur.Config
+  alias Aiur.ControlCLI.CiWait
   alias Aiur.ExecutorAttention
-  alias Aiur.Orchestrator
   alias Aiur.GitHub.HoldPressure
+  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.SystemLoad
   alias Aiur.WorkflowStore.ReloadRejection
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.ControlCLI.Protocol, only: [control_query_timeout: 3, exit_marker: 1, guarded: 2, report_control_query_failure: 3]
-  alias Aiur.Orchestrator.StatusCLI.StatusTable
+  alias Aiur.Orchestrator.StatusCLI.AgentsTable
   alias Aiur.Orchestrator.StatusCLI.Capacity
   alias Aiur.Orchestrator.StatusCLI.Diagnostics
-  alias Aiur.Orchestrator.StatusCLI.AgentsTable
+  alias Aiur.Orchestrator.StatusCLI.StatusTable
   alias Aiur.Orchestrator.StatusCLI.Watch
 
   @status_timeout_ms 5_000

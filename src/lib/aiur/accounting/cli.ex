@@ -1,9 +1,9 @@
 defmodule Aiur.Accounting.CLI do
   @moduledoc false
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.ProviderMeters.CLI
   alias Aiur.AccountsCLI
   alias Aiur.ProviderMeterProjection
+  alias Aiur.ProviderMeters.CLI
   alias Aiur.Webhooks.ModePresenter
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
 

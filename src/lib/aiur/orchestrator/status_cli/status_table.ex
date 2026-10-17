@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.StatusCLI.StatusTable do
   @moduledoc false
-  alias Aiur.ControlCLI.DispatchAccount
   alias Aiur.Config
+  alias Aiur.ControlCLI.DispatchAccount
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason

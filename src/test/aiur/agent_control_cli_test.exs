@@ -5,7 +5,7 @@ defmodule Aiur.AgentControlCliTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI}
+  alias Aiur.AgentControlCLI
 
   alias Aiur.Orchestrator.ControlCLI.TestFixture
 

@@ -7,9 +7,9 @@ defmodule Aiur.Orchestrator.StatusCLI.Watch do
   alias Aiur.Orchestrator.WaitingReason
   import Aiur.Orchestrator.ControlCLI.Output, only: [display_identifier: 1]
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1]
-  alias Aiur.Orchestrator.StatusCLI.StatusTable
-  alias Aiur.Orchestrator.StatusCLI.Diagnostics
   alias Aiur.Orchestrator.StatusCLI.AgentsTable
+  alias Aiur.Orchestrator.StatusCLI.Diagnostics
+  alias Aiur.Orchestrator.StatusCLI.StatusTable
 
   # Preserve the node-global baseline across mixed-version RPCs.
   @watch_baseline_key {Aiur.AgentControlCLI, :watch_baseline}

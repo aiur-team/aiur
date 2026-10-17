@@ -3,11 +3,11 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
   alias Aiur.BuildGate
   alias Aiur.Config
   alias Aiur.ExecutorListener
+  alias Aiur.GitHub.CiReadiness
+  alias Aiur.GitHub.CodeOwners
   alias Aiur.Orchestrator
   alias Aiur.RepoBase
   alias Aiur.SupervisionHealth
-  alias Aiur.GitHub.CiReadiness
-  alias Aiur.GitHub.CodeOwners
 
   @prewarm_warming_phases [:cloning, :fetching, :building, :checking]
 

@@ -5,7 +5,7 @@ defmodule Aiur.ExecutorAttentionCliAlertsTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AlertLedger}
+  alias Aiur.AlertLedger
 
   alias Aiur.Orchestrator.ControlCLI.TestFixture
 

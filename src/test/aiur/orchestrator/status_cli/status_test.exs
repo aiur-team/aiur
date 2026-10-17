@@ -5,8 +5,8 @@ defmodule Aiur.OrchestratorStatusCliStatusTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{Issue}
   alias Aiur.ExecutorWakeInbox
+  alias Aiur.Issue
 
   alias Aiur.Orchestrator.ControlCLI.TestFixture
 

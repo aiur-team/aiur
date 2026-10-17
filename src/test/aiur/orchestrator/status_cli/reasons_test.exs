@@ -5,9 +5,9 @@ defmodule Aiur.OrchestratorStatusCliReasonsTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{Config, DispatchBudgetStore, Issue}
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.Orchestrator.{State}
+  alias Aiur.Orchestrator.State
+  alias Aiur.{Config, DispatchBudgetStore, Issue}
 
   alias Aiur.Orchestrator.ControlCLI.TestFixture
 

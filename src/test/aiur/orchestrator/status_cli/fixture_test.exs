@@ -3,7 +3,7 @@ Code.require_file(Path.expand("../control_cli/fixture.exs", __DIR__))
 defmodule Aiur.OrchestratorStatusCliFixtureTest do
   use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.{Lifecycle}
+  alias Aiur.Orchestrator.Lifecycle
 
   alias Aiur.Orchestrator.ControlCLI.TestFixture
 

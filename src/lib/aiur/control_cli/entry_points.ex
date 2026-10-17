@@ -1,6 +1,5 @@
 defmodule Aiur.ControlCLI.EntryPoints do
   @moduledoc false
-  alias Aiur.Workspace.Ownership
   alias Aiur.AnalyticsCLI
   alias Aiur.BuildOrdersCLI
   alias Aiur.CommandsCLI
@@ -8,6 +7,7 @@ defmodule Aiur.ControlCLI.EntryPoints do
   alias Aiur.GitHubCostCLI
   alias Aiur.GitHubUsageCLI
   alias Aiur.UnitsCLI
+  alias Aiur.Workspace.Ownership
   import Aiur.Orchestrator.ControlCLI.Output, only: [print_failure: 3]
   import Aiur.ControlCLI.Protocol, only: [control_error: 1, exit_marker: 1, guarded: 2]
 
