@@ -311,7 +311,7 @@ defmodule Aiur.Orchestrator.Slots do
   @spec resume_fleet_slot_available?(State.t(), map()) :: boolean()
   def resume_fleet_slot_available?(%State{} = state, running_entry) do
     others = Map.delete(state.running, get_in(running_entry, [:issue, Access.key(:id)]))
-    used_slots(state, others) < max_concurrent_agent_limit(state)
+    used_slots(state, others) < effective_concurrent_agent_limit(state)
   end
 
   @spec available_slots(State.t()) :: non_neg_integer()
