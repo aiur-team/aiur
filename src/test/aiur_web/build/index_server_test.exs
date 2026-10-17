@@ -133,6 +133,34 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert {:error, :epic_config_unavailable} = Index.window(pid, "Etc/UTC")
   end
 
+  test "a timed-out history refresh logs its cause and keeps the last good history as stale", %{pid: pid} do
+    flush_with(pid, parts([row(7)]))
+    send(pid, {:build_order_history_changed, %{}})
+    :sys.get_state(pid)
+    send(pid, :flush)
+    receive_barrier({:read_started, worker, _})
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        send(pid, {:read_timeout, :sys.get_state(pid).task.ref})
+        receive_barrier({:trace, ^pid, :receive, {:DOWN, _ref, :process, ^worker, :killed}})
+        :sys.get_state(pid)
+      end)
+
+    assert log =~ "build_index read_timeout after_ms=3500"
+    assert log =~ ~r/read_task_failed=:killed failure=timeout parts=.*history/
+    assert {:ok, %{rows: %{7 => _}, health: %{state: :stale, failure: :timeout}}} = :sys.get_state(pid).parts.history
+  end
+
+  test "a failed history part read keeps the last good rows on the page, stale at the last read", %{pid: pid} do
+    flush_with(pid, parts([row(7)]))
+    flush_with(pid, %{parts() | history: {:error, :read_failed}, health: {:error, :read_failed}})
+    assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
+    assert Enum.map(snapshot.sections.hist, & &1.id) == ["7"]
+    assert %{state: "stale", reason: "read_failed", observed_at: observed_at} = snapshot.sources.history
+    assert observed_at == now()
+  end
+
   test "first backfill page signals resync instead of flooding an unbounded empty window", %{pid: pid} do
     pending = %{health() | complete?: false, failure: :backfill_pending}
     p = %{parts() | health: pending, history: {:ok, %{rows: %{}, health: pending}}}

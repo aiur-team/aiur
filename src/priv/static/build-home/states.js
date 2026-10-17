@@ -32,8 +32,10 @@ export function ageText(src, now) {
   return Number.isFinite(src.observed_at) && Number.isFinite(now)
     ? `read ${fmtAge(now - src.observed_at)} (${fmtWhen(src.observed_at, now)})` : 'no successful read recorded';
 }
+// A sentence, never "Last no successful read recorded" (#4916).
+const lastText = (src, now) => Number.isFinite(src.observed_at) && Number.isFinite(now) ? 'Last ' + ageText(src, now) : 'No successful read recorded';
 export function emptyMark(sec, st, mctx) {
-  const { src, show } = st, age = ageText(src, mctx.now), why = reasonText(src.reason);
+  const { src, show } = st, last = lastText(src, mctx.now), why = reasonText(src.reason);
   const names = { hist: ['History', 'The build history', 'nothing has merged'], plan: ['Queue', 'The build queue', 'the queue is empty'], nq: ['Open tickets', 'The open-ticket index'] };
   const [name, subject, disclaimer] = names[sec];
   let label, sub;
@@ -41,7 +43,7 @@ export function emptyMark(sec, st, mctx) {
     label = { hist: 'History disabled', plan: 'Build queue disabled', nq: 'Open-ticket index disabled' }[sec]; sub = why + '.';
   } else if (['unavailable', 'incomplete'].includes(show)) {
     label = name + ' ' + show;
-    sub = `${subject} ${show === 'incomplete' ? 'was only partly read' : 'could not be read'} (${why}). Last ${age}.` + (disclaimer ? ` This does not mean ${disclaimer}.` : '');
+    sub = `${subject} ${show === 'incomplete' ? 'was only partly read' : 'could not be read'} (${why}). ${last}.` + (disclaimer ? ` This does not mean ${disclaimer}.` : '');
   } else if (show === 'filtered') {
     label = sec === 'hist' ? 'No history in the selected epics' : 'No planned tickets in the selected epics';
     sub = 'Clear the epic filter to see ' + (sec === 'hist' ? 'the loaded history.' : 'the build queue.');
@@ -54,7 +56,7 @@ export function emptyMark(sec, st, mctx) {
       ? `The build queue is empty. ${mctx.nqCount} open tickets are not queued — promote some to keep agents busy.`
       : 'The build queue is empty. The open-ticket index is unavailable, so the number not queued is unknown.';
   }
-  if (show === 'empty' && src.state === 'stale') sub += ` Last ${age}; this may be out of date.`;
+  if (show === 'empty' && src.state === 'stale') sub += ` ${last}; this may be out of date.`;
   const mark = { kind: 'empty', y: SEC, h: 96, label, sub };
   return src.state === 'ok' && show === 'empty' ? mark
     : { ...mark, source: keys[sec], state: src.state, observed_at: src.observed_at };

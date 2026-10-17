@@ -92,7 +92,9 @@ defmodule Aiur.AffectedTests do
         length(tests) > @max_affected_tests ->
           dropped = caller_directory_tests -- fallback_tests
 
-          Mix.shell().info(
+          # stderr keeps `--json` stdout a single parseable document (#4718).
+          IO.puts(
+            :stderr,
             "affected tests budget: widened set has #{length(tests)} tests; dropped #{length(dropped)} xref caller-directory tests, leaving #{length(fallback_tests)} fallback candidates"
           )
 
