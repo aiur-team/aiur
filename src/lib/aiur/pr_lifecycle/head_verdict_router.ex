@@ -5,8 +5,17 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
 
     * `CHANGES_REQUESTED` at the head moves `agent:human-review` or
       `agent:ci-wait` to `agent:rework`;
-    * `APPROVED` at the head, with no changes request there, moves
-      `agent:rework` to `agent:ci-wait`, so no worker pushes onto an approved PR.
+    * `APPROVED` at the head that supersedes the same reviewer's
+      `CHANGES_REQUESTED` at that same head moves `agent:rework` to
+      `agent:ci-wait`: the findings were answered without a push (for example
+      a PR-body fix), so no worker should push onto the approved PR.
+
+  An approval that does not follow a same-head changes request never routes.
+  CI failure, a merge-group failure and a restack conflict all move an approved
+  ticket to `agent:rework` with the approval still at the head; routing that
+  approval would undo them before the fixer pushes. An approval first seen on
+  an `agent:human-review` or `agent:ci-wait` ticket is marked routed for the
+  same reason.
 
   `Aiur.Orchestrator.CommentWake` routes a review submission when it is
   delivered, but a submission is delivered once and that path has racy exits
@@ -31,17 +40,23 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
   they add the new label before removing the old one and refuse if the ticket
   moved since it was read.
 
-  Opt-in with `pr_health.enabled`, like `Aiur.PRLifecycle.ReworkRequeue`.
+  Opt-in with `pr_health.enabled` and paced by `pr_health.interval_seconds`,
+  like `Aiur.PRLifecycle.ReworkRequeue`. A tick makes one open-pull-request
+  listing (one page for up to 100 open PRs) and re-reads a PR's reviews only
+  when its `head.sha` or `updated_at` changed since the last tick (a submitted
+  or dismissed review bumps `updated_at`). At the default 1800s cadence that is
+  2 listing calls an hour plus one reviews read per changed PR.
   """
 
   use Aiur.PeriodicWorker
 
   require Logger
+  alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.{Issue, Tracker}
+  alias Aiur.{Issue, TicketBranch, Tracker}
   alias Aiur.Orchestrator.TicketTransition
 
-  @default_interval_ms 5 * 60 * 1_000
+  @default_interval_ms 30 * 60 * 1_000
   @waiting_states ["human-review", "ci-wait"]
   @verdicts ~w(APPROVED CHANGES_REQUESTED DISMISSED)
 
@@ -57,13 +72,16 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
     state = %{
       interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
       tickets_fetcher: Keyword.get(opts, :tickets_fetcher, fn -> Tracker.fetch_issues_by_states(["rework" | @waiting_states]) end),
-      open_pr_fetcher: Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1),
+      open_prs_fetcher: Keyword.get(opts, :open_prs_fetcher, &GitHubClient.fetch_open_pull_requests/0),
       reviews_fetcher: Keyword.get(opts, :reviews_fetcher, &Aiur.CodeHost.fetch_classified_pr_reviews/1),
       tracker: Keyword.get(opts, :tracker, Tracker),
       enabled?: Keyword.get(opts, :enabled?, &default_enabled?/0),
       # Review ids already routed (or observed on a rework ticket). In memory: a
       # restart can route a disputed same-head review once more.
       routed: MapSet.new(),
+      # PR number => {head sha, updated_at, deciding review or nil}. The reviews
+      # read is skipped while both are unchanged.
+      verdicts: %{},
       start_paused?: Keyword.get(opts, :start_paused?, false)
     }
 
@@ -72,7 +90,16 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
 
   @impl Aiur.PeriodicWorker
   def tick(state) do
+    state = Map.put(state, :next_delay_ms, config_value(&GitHubConfig.pr_health_interval_ms/0, state.interval_ms))
     if state.enabled?.(), do: scan(state), else: state
+  end
+
+  defp config_value(fun, fallback) do
+    fun.()
+  rescue
+    _error -> fallback
+  catch
+    _kind, _reason -> fallback
   end
 
   defp default_enabled? do
@@ -84,36 +111,52 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
   end
 
   defp scan(state) do
-    case state.tickets_fetcher.() do
-      {:ok, tickets} when is_list(tickets) ->
-        Enum.reduce(tickets, state, &scan_ticket/2)
+    with {:ok, [_ | _] = tickets} <- state.tickets_fetcher.(),
+         {:ok, prs} when is_list(prs) <- state.open_prs_fetcher.() do
+      state = Enum.reduce(tickets, state, &scan_ticket(&1, prs, &2))
+      open = MapSet.new(prs, & &1["number"])
+      %{state | verdicts: Map.filter(state.verdicts, fn {number, _cached} -> number in open end)}
+    else
+      {:ok, _no_tickets} ->
+        state
 
       {:error, reason} ->
-        Logger.warning("HeadVerdictRouter ticket list failed: reason=#{inspect(reason)}")
+        Logger.warning("HeadVerdictRouter list failed: reason=#{inspect(reason)}")
         state
     end
   end
 
-  defp scan_ticket(%Issue{} = issue, state) do
+  defp scan_ticket(%Issue{} = issue, prs, state) do
     from_state = String.replace_prefix(issue.state || "", "agent:", "")
 
     with false <- Issue.parked?(issue),
-         %{"id" => id} = review <- live_verdict(issue, state),
+         %{} = pr <- Enum.find(prs, &ticket_pr?(&1, issue.identifier)),
+         {%{"id" => id} = review, state} <- live_verdict(pr, state),
          false <- MapSet.member?(state.routed, id) do
       route(issue, from_state, review, state)
     else
+      {nil, state} -> state
       _no_live_unrouted_verdict -> state
     end
   end
 
-  defp scan_ticket(_issue, state), do: state
+  defp scan_ticket(_issue, _prs, state), do: state
+
+  # The listing is newest first, so a ticket with two open PRs routes on the newer.
+  defp ticket_pr?(%{"head" => %{"ref" => ref}}, identifier), do: TicketBranch.ticket_branch?(ref, identifier)
+  defp ticket_pr?(_pr, _identifier), do: false
 
   defp route(_issue, "rework", %{"state" => "CHANGES_REQUESTED", "id" => id}, state), do: mark(state, id)
 
   defp route(issue, from_state, %{"state" => "CHANGES_REQUESTED"} = review, state) when from_state in @waiting_states,
     do: write(issue, from_state, "rework", review, state)
 
-  defp route(issue, "rework", %{"state" => "APPROVED"} = review, state), do: write(issue, "rework", "ci-wait", review, state)
+  defp route(issue, "rework", %{"state" => "APPROVED", :supersedes_changes_request => true} = review, state),
+    do: write(issue, "rework", "ci-wait", review, state)
+
+  defp route(_issue, from_state, %{"state" => "APPROVED", "id" => id}, state) when from_state in @waiting_states,
+    do: mark(state, id)
+
   defp route(_issue, _from_state, _review, state), do: state
 
   defp write(issue, from_state, to_state, %{"id" => id}, state) do
@@ -133,21 +176,32 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
 
   defp mark(state, id), do: %{state | routed: MapSet.put(state.routed, id)}
 
-  defp live_verdict(issue, state) do
-    with {:ok, %{"number" => number, "head" => %{"sha" => head}} = pr} when is_integer(number) and is_binary(head) <-
-           state.open_pr_fetcher.(issue.identifier),
-         true <- Map.get(pr, "state", "open") == "open",
-         {:ok, reviews} when is_list(reviews) <- state.reviews_fetcher.(number) do
-      verdict_at_head(reviews, head)
-    else
-      _no_open_pr_or_unreadable -> nil
+  defp live_verdict(%{"number" => number, "head" => %{"sha" => head}} = pr, state) when is_integer(number) and is_binary(head) do
+    updated_at = pr["updated_at"]
+
+    case state.verdicts do
+      %{^number => {^head, ^updated_at, review}} when is_binary(updated_at) ->
+        {review, state}
+
+      _changed_or_unseen ->
+        with "open" <- Map.get(pr, "state", "open"),
+             {:ok, reviews} when is_list(reviews) <- state.reviews_fetcher.(number) do
+          review = verdict_at_head(reviews, head)
+          {review, %{state | verdicts: Map.put(state.verdicts, number, {head, updated_at, review})}}
+        else
+          # Not cached: the next tick re-reads.
+          _closed_or_unreadable -> {nil, state}
+        end
     end
   end
+
+  defp live_verdict(_pr, state), do: {nil, state}
 
   @doc """
   The review that decides routing at `head`: an authoritative reviewer's latest
   verdict that is `CHANGES_REQUESTED` at `head`, else one that is `APPROVED` at
-  `head`, else `nil`.
+  `head`, else `nil`. An approval carries `supersedes_changes_request: true`
+  when that reviewer's previous verdict was `CHANGES_REQUESTED` at `head`.
   """
   @spec verdict_at_head([map()], String.t()) :: map() | nil
   def verdict_at_head(reviews, head) do
@@ -155,9 +209,15 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
       reviews
       |> Enum.filter(&(&1[:authoritative] == true and &1["state"] in @verdicts))
       |> Enum.group_by(&get_in(&1, ["user", "login"]))
-      |> Enum.map(fn {_login, verdicts} -> Enum.max_by(verdicts, &{&1["submitted_at"], &1["id"]}) end)
-      |> Enum.filter(&(&1["commit_id"] == head))
+      |> Enum.map(fn {_login, verdicts} -> Enum.sort_by(verdicts, &{&1["submitted_at"], &1["id"]}, :desc) end)
+      |> Enum.filter(&(hd(&1)["commit_id"] == head))
+      |> Enum.map(&with_supersede(&1, head))
 
     Enum.find(at_head, &(&1["state"] == "CHANGES_REQUESTED")) || Enum.find(at_head, &(&1["state"] == "APPROVED"))
+  end
+
+  defp with_supersede([latest | earlier], head) do
+    supersedes? = match?([%{"state" => "CHANGES_REQUESTED", "commit_id" => ^head} | _], earlier)
+    Map.put(latest, :supersedes_changes_request, supersedes?)
   end
 end

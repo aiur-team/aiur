@@ -1,7 +1,8 @@
 defmodule Aiur.PRLifecycle.HeadVerdictRouterTest do
   # #4811: the configured reviewer's CHANGES_REQUESTED at the PR's current head
-  # moves a waiting ticket to `agent:rework`; an APPROVED there moves a rework
-  # ticket to `agent:ci-wait`. Nothing else routes.
+  # moves a waiting ticket to `agent:rework`; an APPROVED there that supersedes a
+  # same-head changes request moves a rework ticket to `agent:ci-wait`. Nothing
+  # else routes.
   use Aiur.TestSupport
 
   alias Aiur.Issue
@@ -17,7 +18,11 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouterTest do
     end
   end
 
-  defp issue(state), do: %Issue{id: "3145", identifier: "3145", title: "t", state: state, state_labels: ["agent:#{state}"]}
+  defp issue(state, fields \\ []),
+    do: struct!(%Issue{id: "3145", identifier: "3145", title: "t", state: state, state_labels: ["agent:#{state}"]}, fields)
+
+  defp pr(fields \\ %{}),
+    do: Map.merge(%{"number" => 4805, "state" => "open", "head" => %{"sha" => @head, "ref" => "aiur/3145-fix"}, "updated_at" => "t1"}, fields)
 
   defp review(overrides) do
     Map.merge(
@@ -42,7 +47,7 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouterTest do
             enabled?: fn -> true end,
             tracker: FakeTracker,
             tickets_fetcher: fn -> {:ok, [issue("human-review")]} end,
-            open_pr_fetcher: fn "3145" -> {:ok, %{"number" => 4805, "state" => "open", "head" => %{"sha" => @head}}} end,
+            open_prs_fetcher: fn -> {:ok, [pr()]} end,
             reviews_fetcher: fn 4805 -> {:ok, [review(%{})]} end
           ],
           opts
@@ -107,8 +112,8 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouterTest do
   end
 
   test "ignores a closed or merged PR" do
-    HeadVerdictRouter.tick(worker(open_pr_fetcher: fn "3145" -> {:ok, nil} end))
-    HeadVerdictRouter.tick(worker(open_pr_fetcher: fn "3145" -> {:ok, %{"number" => 4805, "state" => "closed", "head" => %{"sha" => @head}}} end))
+    HeadVerdictRouter.tick(worker(open_prs_fetcher: fn -> {:ok, [pr(%{"head" => %{"sha" => @head, "ref" => "aiur/9999-other"}})]} end))
+    HeadVerdictRouter.tick(worker(open_prs_fetcher: fn -> {:ok, [pr(%{"state" => "closed"})]} end))
 
     refute_received {:state_write, _, _, _}
   end
@@ -132,18 +137,78 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouterTest do
     refute_received {:state_write, _, _, _}
   end
 
-  test "moves a rework ticket to ci-wait for an approval at the head" do
+  test "an approval with no prior changes request leaves a rework ticket in rework" do
+    # The CI-failure shape: CI moved an approved ticket to rework at the approved head.
     HeadVerdictRouter.tick(rework_worker([review(%{"state" => "APPROVED"})]))
+
+    refute_received {:state_write, _, _, _}
+  end
+
+  test "an approval after a changes request on an older head leaves a rework ticket in rework" do
+    request = review(%{"commit_id" => "sha-old"})
+    approval = review(%{"id" => 2, "state" => "APPROVED", "submitted_at" => "2026-10-17T02:00:00Z"})
+    HeadVerdictRouter.tick(rework_worker([request, approval]))
+
+    refute_received {:state_write, _, _, _}
+  end
+
+  test "an approval after the reviewer's same-head changes request moves a rework ticket to ci-wait" do
+    approval = review(%{"id" => 2, "state" => "APPROVED", "submitted_at" => "2026-10-17T02:00:00Z"})
+    HeadVerdictRouter.tick(rework_worker([review(%{}), approval]))
 
     assert_received {:state_write, "3145", "ci-wait", opts}
     assert opts[:expected_state] == "rework"
   end
 
-  test "an approval after the reviewer's changes request moves a rework ticket to ci-wait" do
+  test "an approval seen on a ci-wait ticket is not routed after CI moves the ticket to rework" do
     approval = review(%{"id" => 2, "state" => "APPROVED", "submitted_at" => "2026-10-17T02:00:00Z"})
-    HeadVerdictRouter.tick(rework_worker([review(%{}), approval]))
+    {:ok, ticket} = Agent.start_link(fn -> "ci-wait" end)
 
-    assert_received {:state_write, "3145", "ci-wait", _opts}
+    state =
+      worker(
+        tickets_fetcher: fn -> {:ok, [issue(Agent.get(ticket, & &1))]} end,
+        reviews_fetcher: fn 4805 -> {:ok, [review(%{}), approval]} end
+      )
+
+    state = HeadVerdictRouter.tick(state)
+    Agent.update(ticket, fn _ -> "rework" end)
+    HeadVerdictRouter.tick(state)
+
+    refute_received {:state_write, _, _, _}
+  end
+
+  test "skips a parked ticket" do
+    HeadVerdictRouter.tick(worker(tickets_fetcher: fn -> {:ok, [issue("human-review", parked: true)]} end))
+
+    refute_received {:state_write, _, _, _}
+  end
+
+  test "makes one open-PR listing per tick and re-reads reviews only when the PR changed" do
+    {:ok, calls} = Agent.start_link(fn -> %{listings: 0, reviews: 0} end)
+    {:ok, current} = Agent.start_link(fn -> pr() end)
+
+    state =
+      worker(
+        open_prs_fetcher: fn ->
+          Agent.update(calls, &Map.update!(&1, :listings, fn n -> n + 1 end))
+          {:ok, [Agent.get(current, & &1)]}
+        end,
+        reviews_fetcher: fn _number ->
+          Agent.update(calls, &Map.update!(&1, :reviews, fn n -> n + 1 end))
+          {:ok, [review(%{"state" => "COMMENTED"})]}
+        end
+      )
+
+    state = state |> HeadVerdictRouter.tick() |> HeadVerdictRouter.tick()
+    assert Agent.get(calls, & &1) == %{listings: 2, reviews: 1}
+
+    Agent.update(current, &Map.put(&1, "updated_at", "t2"))
+    state = HeadVerdictRouter.tick(state)
+    assert Agent.get(calls, & &1) == %{listings: 3, reviews: 2}
+
+    Agent.update(current, &Map.put(&1, "head", %{"sha" => "sha-new", "ref" => "aiur/3145-fix"}))
+    HeadVerdictRouter.tick(state)
+    assert Agent.get(calls, & &1) == %{listings: 4, reviews: 3}
   end
 
   test "ignores an approval on an older head for a rework ticket" do
