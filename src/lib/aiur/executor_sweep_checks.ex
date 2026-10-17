@@ -4,6 +4,8 @@ defmodule Aiur.ExecutorSweep.Checks do
   GitHub snapshot data. This module performs no I/O.
   """
 
+  alias Aiur.ExecutorSweep.TriageBacklog
+
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
 
   @doc """
@@ -243,15 +245,19 @@ defmodule Aiur.ExecutorSweep.Checks do
 
     stale_triage =
       snapshot
-      |> Map.get(:tickets, [])
-      |> Enum.flat_map(fn ticket ->
-        age = age_ms(date(value(ticket, :created_at, nil)), now)
+      |> Map.get(:open_tickets)
+      |> TriageBacklog.stale_tickets(now)
+      |> Enum.map(fn ticket ->
+        age = age_ms(ticket.created_at, now)
 
-        if "needs-triage" in labels(ticket) and age > 60 * 60_000 do
-          [finding("stale_needs_triage", 10, age, "Triage the ticket and set its queue state.", "Ticket #{value(ticket, :number, "?")} has needed triage for #{duration(age)}.")]
-        else
-          []
-        end
+        # The ticket keys the sweep fingerprint, so each newly stale ticket wakes the Executor; Wake routes only integer tickets.
+        number =
+          case Integer.parse(ticket.identifier) do
+            {n, ""} -> n
+            _ -> ticket.identifier
+          end
+
+        finding("stale_needs_triage", 10, age, "Triage the ticket and set its queue state.", "Ticket #{ticket.identifier} has needed triage for #{duration(age)}.", ticket: number)
       end)
 
     open_prs = MapSet.new(snapshot |> Map.get(:pull_requests, []) |> Enum.filter(&(value(&1, :state, "") == "open")) |> Enum.map(&value(&1, :issue_number, nil)))
