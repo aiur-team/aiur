@@ -91,7 +91,7 @@ test('unknown count is not zero', async ({ page }) => {
   expect(await page.evaluate(() => run(data(), {}, { ...sources, index: { state: 'unavailable' } }).secs.plan.marks[0].sub)).toBe('The build queue is empty. The open-ticket index is unavailable, so the number not queued is unknown.')
 })
 test('stale empty keeps age input', async ({ page }) => {
-  expect(await page.evaluate(() => run(data(), {}, { ...sources, queue: { state: 'stale', observed_at: 123456 } }).secs.plan.marks[0])).toEqual({ kind: 'empty', y: 36, h: 96, label: 'Nothing planned', sub: 'The build queue is empty. 0 open tickets are not queued — promote some to keep agents busy. Last no successful read recorded; this may be out of date.', source: 'queue', state: 'stale', observed_at: 123456 })
+  expect(await page.evaluate(() => run(data(), {}, { ...sources, queue: { state: 'stale', observed_at: 123456 } }).secs.plan.marks[0])).toEqual({ kind: 'empty', y: 36, h: 96, label: 'Nothing planned', sub: 'The build queue is empty. 0 open tickets are not queued — promote some to keep agents busy. No successful read recorded; this may be out of date.', source: 'queue', state: 'stale', observed_at: 123456 })
 })
 test('unknown wave', async ({ page }) => {
   expect(await page.evaluate(() => { const D = data(); D.plan = [null, 2, 0, 1, 1.5].map((wave, id) => ({ id, epic: 'a', wave })); return run(D).secs.plan.labels.map(lb => [lb.day, lb.t, lb.line]) })).toEqual([['W1', '1 · ready', false], ['W2', '1', true], ['W?', '3 · wave unknown', true]])
