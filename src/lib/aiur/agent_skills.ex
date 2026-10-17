@@ -94,6 +94,10 @@ defmodule Aiur.AgentSkills do
   @spec compound_engineering_version() :: String.t()
   def compound_engineering_version, do: @compound_engineering_version
 
+  @doc "The workspace-relative directories that `install/1` writes skills into."
+  @spec install_paths() :: [String.t()]
+  def install_paths, do: Enum.map(CodingAgent.skill_install_locations(), & &1.path)
+
   @doc false
   @spec remote_install_script(Path.t()) :: String.t()
   def remote_install_script(workspace) when is_binary(workspace) do
