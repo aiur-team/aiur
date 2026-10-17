@@ -3,6 +3,7 @@ defmodule Aiur.Experiments.ReportSubmissionTest do
   import ExUnit.CaptureIO
   alias Aiur.{Experiments, ExperimentsCLI}
   alias Aiur.Experiments.{Evidence, Paths, ReportRecords, ReportSubmission, Snapshot, StatsRunner, Store}
+  alias Aiur.TestSupport.RuntimeChildren
   @fixtures Path.expand("../../fixtures/experiments", __DIR__)
 
   setup do
@@ -19,7 +20,7 @@ defmodule Aiur.Experiments.ReportSubmissionTest do
     end)
 
     :ok = Aiur.TestSupport.ensure_pubsub_running()
-    :ok = Aiur.TestSupport.RuntimeChildren.ensure_aiur_supervisor_running()
+    :ok = RuntimeChildren.ensure_aiur_supervisor_running()
     start_supervised!(StatsRunner)
     start_supervised!({Store, catalog_context: %{reduce_dir: Path.expand("../../../../analytics", __DIR__)}})
 
