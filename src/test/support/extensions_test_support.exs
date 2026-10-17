@@ -2,6 +2,7 @@ defmodule Aiur.ExtensionsTestSupport do
   import ExUnit.Assertions
   import ExUnit.Callbacks
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.TestSupport.EndpointStubs
 
   defmodule StaticOrchestrator do
     use GenServer
@@ -62,7 +63,7 @@ defmodule Aiur.ExtensionsTestSupport do
       )
       |> Keyword.merge(overrides)
 
-    Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
+    Application.put_env(:aiur, AiurWeb.Endpoint, EndpointStubs.scope(endpoint_config))
     Aiur.TestSupport.start_owned_endpoint!()
   end
 

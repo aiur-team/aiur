@@ -108,8 +108,9 @@ defmodule Aiur.BackgroundCpu do
 
   @impl true
   # Tests inject readings through :background_cpu_source_override; a live scan would leak host CPU into them.
+  # Idle rather than :ignore, so SupervisionHealth does not count the test app's child as DOWN (#4896).
   def init(opts) do
-    if Application.get_env(:aiur, :env) == :test and not Keyword.get(opts, :force?, false), do: :ignore, else: start(opts)
+    if Application.get_env(:aiur, :env) == :test and not Keyword.get(opts, :force?, false), do: {:ok, :idle}, else: start(opts)
   end
 
   defp start(opts) do
