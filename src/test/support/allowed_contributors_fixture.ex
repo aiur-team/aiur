@@ -16,13 +16,13 @@ defmodule Aiur.AllowedContributorsFixture do
   @doc """
   Starts an intake server against the fake. Options: `:body` (allow-list
   text, or `:absent`), `:members` (`%{{org_login, user_login} => response}`),
-  `:rate_limit`, `:aiur_logins`. The clock starts at the real wall time; move it with `advance/2`.
+  `:rate_limit`, `:aiur_logins`. The clock starts at a fixed wall time; move it with `advance/2`.
   Returns `{server, agent}`; update the agent to change GitHub's answers.
   """
   @spec start(map(), keyword()) :: {pid(), pid()}
   def start(context, opts \\ []) do
     test = self()
-    {:ok, gh} = Agent.start_link(fn -> %{body: Keyword.get(opts, :body, "user 42\n"), members: Keyword.get(opts, :members, %{}), now: System.os_time(:millisecond)} end)
+    {:ok, gh} = Agent.start_link(fn -> %{body: Keyword.get(opts, :body, "user 42\n"), members: Keyword.get(opts, :members, %{}), now: 1_000_000, reads: 0} end)
     dir = Path.join(System.tmp_dir!(), "aiur-ac-#{System.unique_integer([:positive])}")
     ExUnit.Callbacks.on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     _ = context
@@ -52,6 +52,10 @@ defmodule Aiur.AllowedContributorsFixture do
   @spec advance(pid(), integer()) :: :ok
   def advance(gh, ms), do: Agent.update(gh, &%{&1 | now: &1.now + ms})
 
+  @doc "Returns the number of requests made to the fake GitHub API."
+  @spec read_count(pid()) :: non_neg_integer()
+  def read_count(gh), do: Agent.get(gh, & &1.reads)
+
   @doc "A candidate as the webhook producer would build it."
   @spec candidate(keyword()) :: map()
   def candidate(fields \\ []) do
@@ -76,7 +80,7 @@ defmodule Aiur.AllowedContributorsFixture do
 
   defp answer(gh, test, %{url: url} = req) do
     send(test, {:github_get, url})
-    state = Agent.get(gh, & &1)
+    state = Agent.get_and_update(gh, fn state -> {state, %{state | reads: state.reads + 1}} end)
 
     cond do
       String.ends_with?(url, "/repos/acme/app") -> {:ok, %{status: 200, body: %{"default_branch" => "main"}}}

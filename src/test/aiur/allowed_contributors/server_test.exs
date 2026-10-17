@@ -61,13 +61,16 @@ defmodule Aiur.AllowedContributors.ServerTest do
 
   test "an unreadable allow-list defers without remembering the issue, then accepts once readable", context do
     {server, gh} = Fixture.start(context, body: {:error, :timeout})
+    _ = :sys.get_state(server)
 
     assert {:deferred, :allowlist_unavailable} = AllowedContributors.observe(Fixture.candidate(), server)
     refute_received {:published, _, _, _}
+    initial_reads = Fixture.read_count(gh)
 
     # Still inside the on-demand retry window: no new read, still deferred.
     Agent.update(gh, &%{&1 | body: "user 42\n"})
     assert {:deferred, :allowlist_unavailable} = AllowedContributors.observe(Fixture.candidate(), server)
+    assert Fixture.read_count(gh) == initial_reads
 
     Fixture.advance(gh, 60_000)
     assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(), server)
