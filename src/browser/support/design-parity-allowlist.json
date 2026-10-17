@@ -195,5 +195,18 @@
       "date": null,
       "ref": "https://github.com/aiur-team/aiur/blob/research/refactor-findings/docs/research/experiments/x5/brainstorm.md#open-questions-for-kevin"
     }
+  },
+  {
+    "id": "section-source-state-copy",
+    "kind": "copy",
+    "selector": "#bd-vp",
+    "cells": {},
+    "reason": "S-9: unavailable, incomplete, disabled, filtered and window copy; stale source ages. Healthy design copy is unchanged.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "MP-E8-C9-T13 / DESIGN-E8 S-9"
+    }
   }
 ]
