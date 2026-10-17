@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.EventTopics do
     CommentWake,
     Dispatcher,
     Lifecycle,
+    MergedTicketReconciler.StrandedWork,
     MergeOrderAudit,
     OptimisticEvents,
     OptimisticGuardEffects,
@@ -39,7 +40,7 @@ defmodule Aiur.Orchestrator.EventTopics do
     do:
       state
       |> OptimisticEvents.merged(identifier, event)
-      |> CommentWake.mark_pr_merged_issue_done(identifier, pr_merged_opts(event))
+      |> StrandedWork.mark_merged(identifier, pr_merged_opts(event))
       |> RestackScheduler.merged(identifier, event)
       |> MergeOrderAudit.merged(identifier, event)
 
@@ -120,7 +121,8 @@ defmodule Aiur.Orchestrator.EventTopics do
 
     opts = [
       merged_by_login: get_in(pr, ["merged_by", "login"]),
-      pr_body: Map.get(pr, "body")
+      pr_body: Map.get(pr, "body"),
+      head_sha: get_in(pr, ["head", "sha"])
     ]
 
     if Map.has_key?(pr, "number"), do: Keyword.put(opts, :pr_number, pr["number"]), else: opts

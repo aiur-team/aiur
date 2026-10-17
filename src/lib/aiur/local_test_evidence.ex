@@ -54,14 +54,27 @@ defmodule Aiur.LocalTestEvidence do
   end
 
   defp commands(section) do
-    bullets = section |> String.split("\n") |> Enum.filter(&String.starts_with?(&1, "- "))
-    parsed = Enum.map(bullets, &Regex.run(~r/^- `(\S[^`]*)` -> (\S.*)$/, &1))
+    lines = String.split(section, "\n")
+    indexes = for {line, index} <- Enum.with_index(lines), String.starts_with?(line, "- "), do: index
+    parsed = Enum.map(indexes, &Regex.run(~r/^- `(\S[^`]*)` -> (\S.*)$/, Enum.at(lines, &1)))
 
-    if parsed == [] or Enum.any?(parsed, &is_nil/1) do
-      {:error, "Local tests requires command bullets with a nonempty -> result"}
-    else
-      {:ok, Enum.map(parsed, fn [_line, command, result] -> %{command: command, result: result} end)}
+    cond do
+      parsed == [] or Enum.any?(parsed, &is_nil/1) ->
+        {:error, "Local tests requires command bullets with a nonempty -> result"}
+
+      not contiguous_after_fields?(lines, indexes) ->
+        {:error,
+         "Local tests command bullets must be one unbroken list directly after Selection: " <>
+           "remove blank lines and prose between bullets, and move notes below the list"}
+
+      true ->
+        {:ok, Enum.map(parsed, fn [_line, command, result] -> %{command: command, result: result} end)}
     end
+  end
+
+  defp contiguous_after_fields?(lines, [first | _rest] = indexes) do
+    previous = lines |> Enum.take(first) |> Enum.reject(&(String.trim(&1) == "")) |> List.last("")
+    List.last(indexes) - first + 1 == length(indexes) and Regex.match?(~r/^(Policy|Tested head|Base|Selection):/, previous)
   end
 
   defp rank(mode), do: Enum.find_index(@modes, &(&1 == mode))
