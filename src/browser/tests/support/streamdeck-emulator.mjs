@@ -39,6 +39,9 @@ export async function openUnits(page, path = '/units') {
   await page.goto(path)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  // The socket connects before the view joins. A row click before the connected
+  // render is dropped, so the later remove has no selection and changes nothing.
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }
 
 export async function dragDialThroughAngles(page, dial, angles) {

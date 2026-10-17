@@ -118,6 +118,70 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
     end
   end
 
+  # #4826: a draft is still being worked, so it is never offered to a reviewer.
+  test "an open draft pull request is released to rework" do
+    opts =
+      Keyword.merge(opts(),
+        open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
+        pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "draft" => true, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
+        unresolved_threads_fetcher: fn _ -> {:ok, []} end,
+        reviews_fetcher: fn _ -> {:ok, []} end,
+        update_issue_state_fun: fn "3710", target, "in-progress" ->
+          send(self(), {:write, target})
+          :ok
+        end
+      )
+
+    {_released, [result]} = StartupClaimReconciler.reconcile(%State{}, [issue()], opts)
+    assert result.state == "rework"
+    assert_received {:write, "rework"}
+    refute_received {:write, "human-review"}
+  end
+
+  # #4826: boot-time budget timeouts starve the ancestry read; retry with backoff, never latch.
+  test "unavailable review-base ancestry retries with backoff until it resolves" do
+    test_pid = self()
+
+    failing =
+      Keyword.merge(opts(),
+        open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
+        pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
+        unresolved_threads_fetcher: fn _ -> {:ok, []} end,
+        reviews_fetcher: fn _ -> {:ok, []} end,
+        update_issue_state_fun: fn "3710", target, "in-progress" ->
+          send(test_pid, {:write, target})
+          {:error, :review_base_ancestry_unavailable}
+        end
+      )
+
+    # Writes at 0, 30s, 90s, 210s and 450s; polls in between are backing off.
+    held =
+      Enum.reduce([0, 10_000, 30_000, 60_000, 90_000, 210_000, 450_000], %State{}, fn now, current ->
+        {next, [%Issue{state: "in-progress"}]} = StartupClaimReconciler.reconcile(current, [issue()], Keyword.put(failing, :now_ms, now))
+        refute next.startup_claim_reconciliation_complete?
+        assert next.startup_claim_reconciliation_failures["3710"].attempts == 0
+        next
+      end)
+
+    for _ <- 1..5, do: assert_received({:write, "human-review"})
+    refute_received {:write, _}
+    assert held.startup_claim_reconciliation_failures["3710"].retry_at == 450_000 + 480_000
+
+    {early, _} = StartupClaimReconciler.reconcile(held, [issue()], Keyword.put(failing, :now_ms, 900_000))
+    refute_received {:write, _}
+
+    resolved =
+      Keyword.put(failing, :update_issue_state_fun, fn "3710", target, "in-progress" ->
+        send(test_pid, {:write, target})
+        :ok
+      end)
+
+    {released, [%Issue{state: "human-review"}]} = StartupClaimReconciler.reconcile(early, [issue()], Keyword.put(resolved, :now_ms, 930_000))
+    assert_received {:write, "human-review"}
+    assert released.startup_claim_reconciliation_failures == %{}
+    assert released.startup_claim_reconciliation_complete?
+  end
+
   defp issue, do: %Issue{id: "issue-3710", identifier: "3710", state: "in-progress", title: "Orphan"}
 
   defp opts do
