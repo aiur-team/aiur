@@ -159,6 +159,6 @@ defmodule AiurWeb.Build.Protocol do
 
   defp stale?(%{"index_generation" => generation}, current) when is_integer(generation) and is_integer(current), do: generation <= current
   defp stale?(_changes, _current), do: false
-  defp clock, do: AiurWeb.Endpoint.config(:build_resync_clock, &System.monotonic_time/1).(:millisecond)
-  defp writable?, do: AiurWeb.Endpoint.config(:dashboard_writable) == true
+  defp clock, do: AiurWeb.EndpointConfig.get(:build_resync_clock, &System.monotonic_time/1).(:millisecond)
+  defp writable?, do: AiurWeb.EndpointConfig.get(:dashboard_writable) == true
 end
