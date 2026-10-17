@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorSweep.ChecksTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
+  alias Aiur.ExecutorSweep.Checks
 
   test "puts the 23-hour unreviewed PR first and includes age" do
     now = ~U[2026-10-15 18:20:00Z]
@@ -174,20 +174,5 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{check: "old_decisions"}] = Enum.filter(findings, &(&1.kind == "sweep_check_failed"))
     assert Enum.any?(findings, &(&1.kind == "service_unhealthy"))
     assert Enum.any?(findings, &(&1.kind == "unmergeable_queue_entry"))
-  end
-
-  test "flags state-label counts on open tickets only" do
-    labels = fn names -> Enum.map(names, &%{"name" => &1}) end
-
-    snapshot =
-      SnapshotCache.build(
-        [],
-        [],
-        [{1084, []}, {1099, labels.(["agent:done", "agent:human-review"])}, {7, []}, {8, labels.(["agent:todo", "agent:rework"])}],
-        %{1084 => %{"state" => "closed"}, 1099 => %{"state" => "closed"}, 7 => %{"state" => "open"}, 8 => %{"state" => "open"}}
-      )
-
-    flagged = Checks.all(snapshot, ~U[2026-10-16 20:33:00Z]) |> Enum.filter(&(&1.kind == "invalid_state_labels")) |> Enum.map(& &1.ticket)
-    assert Enum.sort(flagged) == [7, 8]
   end
 end

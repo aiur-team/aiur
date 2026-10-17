@@ -226,8 +226,6 @@ defmodule Aiur.ExecutorSweep.Checks do
     labels_findings =
       snapshot
       |> Map.get(:tickets, [])
-      # A closed ticket is not dispatchable, so it has no state label to fix.
-      |> Enum.reject(&(value(&1, :state, nil) == "closed"))
       |> Enum.flat_map(fn ticket ->
         states = labels(ticket) |> Enum.filter(&(&1 in state_labels))
 

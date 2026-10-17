@@ -3,8 +3,10 @@ defmodule Aiur.ExecutorSweep do
   use GenServer
   require Logger
 
+  alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
   alias Aiur.ExecutorSweep.Wake
+  alias Aiur.JsonStore
 
   @interval_ms 5 * 60 * 1_000
 
@@ -42,7 +44,10 @@ defmodule Aiur.ExecutorSweep do
     interval_ms = Keyword.get_lazy(opts, :interval_ms, fn -> Application.get_env(:aiur, :executor_sweep_interval_ms, @interval_ms) end)
     if interval_ms > 0, do: send(self(), :sweep)
 
-    {:ok, %{seen: MapSet.new(), sweep_fun: Keyword.get(opts, :sweep_fun, &findings/0), publish_fun: Keyword.get(opts, :publish_fun, &publish/1), interval_ms: interval_ms}}
+    seen_path = Keyword.get_lazy(opts, :seen_path, &StatePaths.sweep_seen_path/0)
+
+    {:ok,
+     %{seen: read_seen(seen_path), seen_path: seen_path, sweep_fun: Keyword.get(opts, :sweep_fun, &findings/0), publish_fun: Keyword.get(opts, :publish_fun, &publish/1), interval_ms: interval_ms}}
   end
 
   @impl true
@@ -53,6 +58,7 @@ defmodule Aiur.ExecutorSweep do
       {:ok, findings} ->
         fingerprints = MapSet.new(findings, &fingerprint/1)
         findings |> Enum.reject(&(fingerprint(&1) in state.seen)) |> Enum.each(state.publish_fun)
+        if fingerprints != state.seen, do: write_seen(state.seen_path, fingerprints)
         {:noreply, %{state | seen: fingerprints}}
 
       :error ->
@@ -74,6 +80,25 @@ defmodule Aiur.ExecutorSweep do
     :error
   end
 
+  # `seen` survives a restart, so a boot re-publishes only findings that changed.
+  defp read_seen(path) do
+    case JsonStore.read(path, []) do
+      {:ok, list} when is_list(list) -> MapSet.new(list)
+      other -> skipped_seen(:read, other)
+    end
+  end
+
+  defp write_seen(path, fingerprints) do
+    JsonStore.write!(path, Enum.sort(fingerprints))
+  rescue
+    error -> skipped_seen(:write, error)
+  end
+
+  defp skipped_seen(op, reason) do
+    Logger.warning("Executor sweep could not #{op} its published findings: #{inspect(reason)}")
+    MapSet.new()
+  end
+
   defp publish(finding), do: Wake.publish(finding)
 
   defp fingerprint(finding) do
@@ -81,6 +106,7 @@ defmodule Aiur.ExecutorSweep do
     |> Map.take([:kind, :ticket, :issue_number, :pull_request, :head_sha, :decision, :merge_group, :queue_set, :service, :failure_class, :failed_checks, :check, :sources])
     |> :erlang.term_to_binary()
     |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   defp configured_threshold do

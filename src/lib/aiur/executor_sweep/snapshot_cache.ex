@@ -10,7 +10,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       pull_requests = entries(:pull_request, owner, name)
       branch_pull_requests = entries(:branch_pull_request, owner, name)
       reviews = entries(:pull_request_reviews, owner, name)
-      tickets = entries(:issue_labels, owner, name)
+      tickets = open_tickets()
       issues = Map.new(entries(:issue, owner, name))
       blocked_by = Map.new(entries(:issue_blocked_by, owner, name))
       timelines = Map.new(entries(:issue_timeline, owner, name))
@@ -30,6 +30,16 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     else
       _ -> Map.merge(%{pull_requests: [], tickets: []}, local_snapshot())
     end
+  end
+
+  # The store keeps label rows for closed issues and merged PRs, so ticket checks
+  # read the open-ticket projection, which excludes both.
+  @doc false
+  @spec open_tickets((-> Aiur.OpenTicketSource.Snapshot.t())) :: [{integer(), [String.t()]}]
+  def open_tickets(snapshot_fun \\ &Aiur.OpenTicketSource.snapshot/0) do
+    for %{identifier: identifier, labels: labels} <- snapshot_fun.().tickets, {number, ""} <- [Integer.parse(identifier)], do: {number, labels}
+  catch
+    :exit, _reason -> []
   end
 
   defp local_snapshot do
@@ -199,7 +209,6 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     %{
       number: number,
       labels: labels,
-      state: value(issue, "state", nil),
       created_at: value(issue, "created_at", nil),
       open_blocked_by: Enum.reject(blockers, closed?),
       closed_blockers: blockers |> Enum.filter(closed?) |> Enum.map(&value(&1, "number", nil))
