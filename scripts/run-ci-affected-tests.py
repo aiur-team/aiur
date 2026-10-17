@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Run the existing selector's command without evaluating it as shell code."""
 import os
+from pathlib import Path
 import shlex
 import subprocess
 import sys
 import time
 
 SELECTED_TEST_TIMEOUT_SECONDS = 600
+TIME_BOMB_CHECK = os.environ.get('AIUR_TIME_BOMB_CHECK', str(Path(__file__).with_name('check-test-time-bombs.py')))
 
 
 def run_timed(label, command, **options):
@@ -63,6 +65,8 @@ def main():
                 defer_to_merge_group(notice)
             else:
                 run_selected_tests(command)
+                run_timed('time-bomb rerun', [sys.executable, TIME_BOMB_CHECK, *command[4:]],
+                          timeout=SELECTED_TEST_TIMEOUT_SECONDS)
 
 
 if __name__ == '__main__':
