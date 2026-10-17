@@ -182,6 +182,57 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
     assert released.startup_claim_reconciliation_complete?
   end
 
+  # #4842: a deferral does not use up attempts, so its first alert must not promise a bounded retry count.
+  test "the first unavailable-ancestry alert describes the backoff retry" do
+    opts = ancestry_unavailable_opts(self())
+    {_held, _} = StartupClaimReconciler.reconcile(%State{}, [issue()], Keyword.put(opts, :now_ms, 0))
+
+    assert_received {:alert, "ticket.3710.agent.attention.startup_claim_reconciliation_failed", alert}
+    assert alert[:reason] =~ "retried with backoff"
+    assert alert[:reason] =~ "without using up release attempts"
+    refute alert[:reason] =~ "up to 3 times"
+    refute_received {:alert, _, _}
+  end
+
+  # #4842: some ancestry failures never clear, so alert once after an hour and keep backing off quietly.
+  test "persistent unavailable ancestry raises one attention after an hour and keeps backing off" do
+    opts = ancestry_unavailable_opts(self())
+
+    held =
+      Enum.reduce(0..7_200_000//30_000, %State{}, fn now, current ->
+        {next, [%Issue{state: "in-progress"}]} = StartupClaimReconciler.reconcile(current, [issue()], Keyword.put(opts, :now_ms, now))
+        next
+      end)
+
+    assert_received {:alert, _topic, first}
+    refute first[:message] =~ "over an hour"
+    assert_received {:alert, "ticket.3710.agent.attention.startup_claim_reconciliation_failed", persistent}
+    assert persistent[:message] =~ "over an hour"
+    assert persistent[:reason] =~ "300 or more files or over 100 commits"
+    assert persistent[:needs_attention]
+    refute_received {:alert, _, _}
+
+    entry = held.startup_claim_reconciliation_failures["3710"]
+    assert entry.persistent_alerted
+    assert entry.attempts == 0
+    assert entry.retry_at > 7_200_000
+    refute held.startup_claim_reconciliation_complete?
+  end
+
+  defp ancestry_unavailable_opts(test_pid) do
+    Keyword.merge(opts(),
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
+      pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
+      unresolved_threads_fetcher: fn _ -> {:ok, []} end,
+      reviews_fetcher: fn _ -> {:ok, []} end,
+      update_issue_state_fun: fn "3710", _target, "in-progress" -> {:error, :review_base_ancestry_unavailable} end,
+      emit_alert_fun: fn topic, alert ->
+        send(test_pid, {:alert, topic, alert})
+        :ok
+      end
+    )
+  end
+
   defp issue, do: %Issue{id: "issue-3710", identifier: "3710", state: "in-progress", title: "Orphan"}
 
   defp opts do
