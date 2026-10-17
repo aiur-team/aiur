@@ -81,8 +81,9 @@ defmodule Aiur.Events.TraceTest do
     :ok = DebugLog.subscribe()
     :ok = DebugLog.subscribe(identifier)
     assert {:ok, id, _count} = Publisher.publish(topic, %{})
-    assert_receive {:event_debug, entry}, 500
-    assert_receive {:event_debug, ^entry}, 500
+    assert_receive {:event_debug, %{topic: ^topic} = entry}, 500
+    assert_receive {:event_debug, %{topic: ^topic} = duplicate}, 500
+    assert duplicate == entry
     assert Map.delete(entry, :at) == %{kind: :publish, topic: topic, id: id, identifier: nil, body: %{}}
     assert is_integer(entry.at)
   end
