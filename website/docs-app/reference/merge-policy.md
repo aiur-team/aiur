@@ -86,6 +86,6 @@ Named workflows must run on every base push. For example, `[ci, "Publish Docker 
 
 Status reports `watcher=running|unavailable|not_running` for base CI and `landing_watcher=...` separately. The landing watcher follows approved heads through CI and queue, reruns failures with a non-PR cause, routes real failures to rework, and counts automatic merge-group requeues by hour. Starting base watching after boot requires a daemon restart.
 
-PR reruns spend the per-head budget (two per head) and share the 3-per-15-minute cap with merge-group requeues; that cap survives restarts. Each rerun posts its reason on the PR. A PR waiting on the cap appears in `aiur executor-sweep` as `approved_pr_rerun_pending`.
+PR reruns spend the per-head budget (two per head) and share the 3-per-15-minute cap with merge-group requeues; that cap survives restarts. Each rerun posts its reason on the PR. A PR waiting on the cap appears in `aiur executor-sweep` as `approved_pr_rerun_pending`. A PR whose failure needs a fresh merge ref (stale merge ref, newer CI change, superseded job) is not rerun and appears as `approved_pr_refresh_pending`; a head that spent its budget or is backing off is not reclassified.
 
 The landing watcher does not queue a PR whose ticket is in `agent:rework`, `agent:in-progress` or `agent:todo` (these win over a review label it still carries), so an Executor dequeue holds until the ticket returns to review.

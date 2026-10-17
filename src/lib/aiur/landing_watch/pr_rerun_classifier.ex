@@ -7,6 +7,10 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
   CI change merged after the run started, a job name the base workflow no longer
   defines, or a known flake in a test the PR does not touch. Anything else is
   the PR's own failure and routes to rework.
+
+  A rerun reuses the run's merge commit and workflow file, so only infrastructure
+  failures and known flakes are rerun. A stale merge ref, a newer CI change or a
+  superseded job needs a fresh merge ref instead (`:refresh`).
   """
 
   alias Aiur.GitHub.{CIRecovery, Client}
@@ -15,7 +19,7 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
   @failed ["failure", "timed_out", "startup_failure"]
   @passing ["success", "neutral", "skipped"]
 
-  @spec classify(map(), map(), [map()], keyword()) :: {:ok, {:rerun, String.t()} | :rework} | {:error, term()}
+  @spec classify(map(), map(), [map()], keyword()) :: {:ok, {:rerun | :refresh, String.t()} | :rework} | {:error, term()}
   def classify(observation, result, runs, opts) do
     if Classifier.infra_failure?(result, runs) do
       {:ok, {:rerun, "infrastructure failure"}}
@@ -32,14 +36,20 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
     Enum.reduce_while(failed, {:ok, []}, fn run, {:ok, reasons} ->
       case explain(run, observation, opts) do
         {:ok, nil} -> {:halt, {:ok, :rework}}
-        {:ok, reason} -> {:cont, {:ok, [reason | reasons]}}
+        {:ok, explained} -> {:cont, {:ok, [explained | reasons]}}
         {:error, _} = error -> {:halt, error}
       end
     end)
     |> case do
-      {:ok, reasons} when is_list(reasons) -> {:ok, {:rerun, reasons |> Enum.reverse() |> Enum.uniq() |> Enum.join("; ")}}
+      {:ok, reasons} when is_list(reasons) -> {:ok, remedy(Enum.reverse(reasons))}
       other -> other
     end
+  end
+
+  # One cause a rerun cannot fix makes the whole head wait for a fresh merge ref.
+  defp remedy(reasons) do
+    action = if Enum.any?(reasons, &match?({:refresh, _}, &1)), do: :refresh, else: :rerun
+    {action, for({^action, reason} <- reasons, uniq: true, do: reason) |> Enum.join("; ")}
   end
 
   defp explain(run, observation, opts) do
@@ -47,8 +57,8 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
     started = timestamp_ms(run["started_at"])
 
     cond do
-      Classifier.infrastructure_run?(run) -> {:ok, "infrastructure failure"}
-      stale_merge_ref?(jobs, started, opts) -> {:ok, "merge ref predates a fix on the base branch"}
+      Classifier.infrastructure_run?(run) -> {:ok, {:rerun, "infrastructure failure"}}
+      stale_merge_ref?(jobs, started, opts) -> {:ok, {:refresh, "merge ref predates a fix on the base branch"}}
       not is_integer(run["run_id"]) -> {:ok, nil}
       true -> explain_from_workflow(run, jobs, started, observation, opts)
     end
@@ -65,8 +75,8 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
       opts = Keyword.put(opts, :changed_paths_fun, fn _numbers, _opts -> {:ok, changed} end)
 
       cond do
-        merge = not own_workflow? and ci_change(merges, started, path, jobs, definitions) -> {:ok, "CI change merged in ##{merge["pr"]}"}
-        not own_workflow? and definitions != %{} and Enum.all?(jobs, &(not WorkflowTimeouts.defines_job?(definitions, &1["name"]))) -> {:ok, "superseded job name"}
+        merge = not own_workflow? and ci_change(merges, started, path, jobs, definitions) -> {:ok, {:refresh, "CI change merged in ##{merge["pr"]}"}}
+        not own_workflow? and definitions != %{} and Enum.all?(jobs, &(not WorkflowTimeouts.defines_job?(definitions, &1["name"]))) -> {:ok, {:refresh, "superseded job name"}}
         true -> known_flake(run, jobs, base, observation, opts)
       end
     end
@@ -145,14 +155,19 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
     run = Map.put(run, "pull_request_numbers", [observation.number])
     classifier_opts = MergeFailureOptions.build(run, [observation.number], jobs, evidence_opts, &MergeGroupFailureEvidence.job_log/2)
 
-    Enum.reduce_while(jobs, {:ok, "known flake"}, fn job, acc ->
+    Enum.reduce_while(jobs, {:ok, []}, fn job, {:ok, reasons} ->
       case MergeFailureClassifier.classify(run, [job], [], classifier_opts) do
-        {:ok, {:infra, _}} -> {:cont, {:ok, "infrastructure failure"}}
-        {:ok, {:known_non_pr, _}} -> {:cont, acc}
+        {:ok, {:infra, _}} -> {:cont, {:ok, ["infrastructure failure" | reasons]}}
+        {:ok, {:known_non_pr, _}} -> {:cont, {:ok, ["known flake" | reasons]}}
         {:ok, _} -> {:halt, {:ok, nil}}
         {:error, _} = error -> {:halt, error}
       end
     end)
+    |> case do
+      {:ok, [_ | _] = reasons} -> {:ok, {:rerun, reasons |> Enum.reverse() |> Enum.uniq() |> Enum.join("; ")}}
+      {:ok, _} -> {:ok, nil}
+      error -> error
+    end
   end
 
   defp timestamp_ms(value) when is_binary(value) do

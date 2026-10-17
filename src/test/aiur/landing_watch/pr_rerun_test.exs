@@ -40,11 +40,14 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     refute_received {:rerun, _}
   end
 
-  test "a job the base workflow no longer defines reruns as superseded" do
+  test "a job the base workflow no longer defines waits for a fresh merge ref, not a rerun" do
+    path = journal_path()
     renamed = %{"unit" => %{"name" => "unit (${{ matrix.partition }}/4)"}, "gate" => %{"name" => "ci gate"}}
-    assert :ok = LandingWatch.process(observation(), opts(journal_path(), workflow_definitions_fun: fn _, "main", _ -> {:ok, renamed} end))
-    assert_received {:comment, 17, body}
-    assert body =~ "superseded job name"
+    assert :ok = LandingWatch.process(observation(), opts(path, workflow_definitions_fun: fn _, "main", _ -> {:ok, renamed} end))
+    assert_refresh(path, "superseded job name")
+
+    assert :ok = LandingWatch.process(observation(), opts(path, rerun_classifier_fun: fn _, _, _, _ -> flunk("a waiting refresh skips classification") end))
+    refute_received {:rerun, _}
   end
 
   test "a job missing from the base workflow is the PR's own when the PR edits that workflow" do
@@ -62,22 +65,23 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     assert {:ok, []} = Journal.ci_merges(journal_path: path)
   end
 
-  test "a merge ref that predates a base-branch fix reruns" do
+  test "a merge ref that predates a base-branch fix waits for a fresh merge ref" do
+    path = journal_path()
+
     history = [
       %{completed_at: @started_ms - 60_000, checks: [%{name: "test (1/4)", conclusion: "failure"}]},
       %{completed_at: @started_ms + 60_000, checks: [%{name: "test (1/4)", conclusion: "success"}]}
     ]
 
-    assert :ok = LandingWatch.process(observation(), opts(journal_path(), main_history_fun: fn -> history end))
-    assert_received {:comment, 17, body}
-    assert body =~ "merge ref predates a fix on the base branch"
+    assert :ok = LandingWatch.process(observation(), opts(path, main_history_fun: fn -> history end))
+    assert_refresh(path, "merge ref predates a fix on the base branch")
 
     still_red = List.update_at(history, 1, &%{&1 | checks: [%{name: "test (1/4)", conclusion: "failure"}]})
     assert :ok = LandingWatch.process(observation(), opts(journal_path(), main_history_fun: fn -> still_red end))
     assert_received {:rework, _}
   end
 
-  test "a merged workflow change reruns older failed runs of that workflow only" do
+  test "a merged workflow change sends older failed runs of that workflow only to a fresh merge ref" do
     path = journal_path()
     merged_after = "2026-10-14T11:00:00Z"
 
@@ -94,10 +98,10 @@ defmodule Aiur.LandingWatch.PrRerunTest do
 
     assert :ok = record.(4602, [".github/workflows/ci.yml", "README.md"])
     assert :ok = LandingWatch.process(observation(), opts(path))
-    assert_received {:comment, 17, "Landing watcher reran the failed CI (ci gate) on approved head `head-sha`: CI change merged in #4602."}
+    assert_refresh(path, "CI change merged in #4602")
   end
 
-  test "a merged CI script reruns only failed jobs whose definition runs it" do
+  test "a merged CI script sends only failed jobs whose definition runs it to a fresh merge ref" do
     path = journal_path()
 
     record = fn number, paths ->
@@ -110,8 +114,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
 
     assert :ok = record.(4604, ["scripts/run-tests.sh"])
     assert :ok = LandingWatch.process(observation(), opts(path))
-    assert_received {:comment, 17, body}
-    assert body =~ "CI change merged in #4604"
+    assert_refresh(path, "CI change merged in #4604")
   end
 
   test "the shared 3-per-15-minute cap spans merge-group requeues and PR reruns across watcher restarts" do
@@ -135,6 +138,62 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     assert_receive {:rerun, 99}, 2_000
     assert eventually(fn -> LandingWatch.state(third).rerun_backlog == {:ok, []} end)
     stop_watcher(third)
+  end
+
+  test "an exhausted or backed-off head is not classified again" do
+    path = journal_path()
+    skip = [rerun_classifier_fun: fn _, _, _, _ -> flunk("a head the budget refuses skips classification") end]
+    now = @started_ms + 3_600_000
+
+    assert :ok = Journal.reserve_rerun(17, "head-sha", now - 1_000, journal_path: path)
+    assert :ok = LandingWatch.process(observation(), opts(path, skip))
+    refute_received {:rerun, _}
+
+    exhausted = journal_path()
+    assert :ok = Journal.reserve_rerun(17, "head-sha", now - 2 * 86_400_000, journal_path: exhausted)
+    assert :ok = Journal.reserve_rerun(17, "head-sha", now - 86_400_000, journal_path: exhausted)
+    parent = self()
+    alert = [alert_emitter: fn topic, _ -> send(parent, {:alert, topic}) && :ok end]
+
+    assert :ok = LandingWatch.process(observation(), opts(exhausted, skip ++ alert))
+    assert_received {:alert, "ticket.17.pr.ci_recovery.rerun_limit"}
+    assert :ok = LandingWatch.process(observation(), opts(exhausted, skip ++ alert))
+    refute_received {:alert, _}
+  end
+
+  test "reruns and classifier reads are metered under the landing watcher's caller" do
+    parent = self()
+
+    metered = [
+      actions_run_fun: fn 99, opts -> send(parent, {:caller, :read, opts[:caller]}) && {:ok, %{"path" => ".github/workflows/ci.yml"}} end,
+      rerun_fun: fn 99, opts -> send(parent, {:caller, :rerun, opts[:caller]}) && {:ok, %{}} end,
+      known_failure_patterns: ["test/aiur/flaky_test.exs"]
+    ]
+
+    assert :ok = LandingWatch.process(observation(), opts(journal_path(), metered))
+    assert_received {:caller, :read, "landing_watch_pr_rerun"}
+    assert_received {:caller, :rerun, "landing_watch_pr_rerun"}
+  end
+
+  test "a mix of infrastructure and known-flake jobs names both causes" do
+    second = %{"id" => 9, "name" => "test (2/4)", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => @started, "completed_at" => "2026-10-14T10:05:00Z"}
+
+    logs = fn
+      %{"id" => 7}, _ -> {:ok, @flaky_log}
+      %{"id" => 9}, _ -> {:ok, "Error: The runner lost communication with the server."}
+    end
+
+    mixed = [jobs_fun: fn 99, _ -> {:ok, [second | jobs()]} end, job_log_fun: logs, known_failure_patterns: ["test/aiur/flaky_test.exs"]]
+
+    assert :ok = LandingWatch.process(observation(), opts(journal_path(), mixed))
+    assert_received {:comment, 17, body}
+    assert body =~ ": infrastructure failure; known flake."
+  end
+
+  defp assert_refresh(path, reason) do
+    refute_received {:rerun, _}
+    refute_received {:comment, _, _}
+    assert {:ok, [%{"pr" => 17, "action" => "refresh", "reason" => ^reason, "checks" => ["ci gate"]}]} = Journal.rerun_backlog(journal_path: path)
   end
 
   defp run_watcher(observation, path, now) do

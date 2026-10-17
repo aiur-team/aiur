@@ -70,9 +70,11 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   end
 
   # A running watcher whose journal read failed is unknown (nil); no watcher has no backlog.
-  defp landing_rerun_backlog(%{rerun_backlog: {:ok, rows}}), do: rows
-  defp landing_rerun_backlog(%{rerun_backlog: {:error, _}}), do: nil
-  defp landing_rerun_backlog(_state), do: []
+  @doc false
+  @spec landing_rerun_backlog(map()) :: [map()] | nil
+  def landing_rerun_backlog(%{rerun_backlog: {:ok, rows}}), do: rows
+  def landing_rerun_backlog(%{rerun_backlog: {:error, _}}), do: nil
+  def landing_rerun_backlog(_state), do: []
 
   defp list_decisions do
     Aiur.Commands.list_decisions()

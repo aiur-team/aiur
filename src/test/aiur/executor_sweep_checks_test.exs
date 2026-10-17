@@ -185,5 +185,9 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert %{pull_request: 4610, head_sha: "abc", priority: 3, age_ms: 720_000} = finding
     assert finding.message == "Approved PR #4610 awaits an automatic CI rerun of ci gate (known flake) for 12m."
     assert [%{kind: "sweep_source_unavailable", sources: [:landing_rerun_backlog]}] = Checks.all(%{landing_rerun_backlog: nil}, now)
+
+    refresh = Map.merge(row, %{"action" => "refresh", "reason" => "superseded job name"})
+    assert [finding] = Checks.all(%{landing_rerun_backlog: [refresh]}, now) |> Enum.filter(&(&1.kind == "approved_pr_refresh_pending"))
+    assert finding.message == "Approved PR #4610 needs a fresh merge ref for ci gate (superseded job name); waiting 12m."
   end
 end

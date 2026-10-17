@@ -31,6 +31,15 @@ defmodule Aiur.LandingWatch.Journal do
     end)
   end
 
+  @doc "Why the per-head budget would refuse a rerun of this journal entry now, or nil."
+  @spec rerun_refusal(map(), integer()) :: :rerun_backoff | :rerun_limit_reached | :invalid_landing_watch_journal_entry | nil
+  def rerun_refusal(entry, now) do
+    case rerun_decision(entry["rerun_count"] || 0, entry["last_rerun_at"] || 0, now) do
+      :reserve -> nil
+      {:error, reason} -> reason
+    end
+  end
+
   @spec mark_rerun_pending(pos_integer(), String.t(), map(), keyword()) :: :ok | {:error, term()}
   def mark_rerun_pending(pr, head, row, opts \\ []) when is_integer(pr) and is_binary(head) and is_map(row) do
     update(opts, fn state ->

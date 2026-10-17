@@ -5,7 +5,8 @@ defmodule Aiur.LandingWatch.PrRerun do
 
   Each rerun spends the per-head budget and the shared automatic-requeue cap in
   one journal write. A head deferred by the shared cap stays in the journal's
-  rerun backlog until a later poll reruns it.
+  rerun backlog until a later poll reruns it. A head whose failure needs a fresh
+  merge ref is never rerun; it waits in the same backlog for the Executor.
   """
 
   alias Aiur.GitHub.{CIRecovery, Client}
@@ -14,33 +15,49 @@ defmodule Aiur.LandingWatch.PrRerun do
   alias Aiur.TicketBranch
 
   @rerun_conclusions ["cancelled", "failure", "timed_out", "startup_failure"]
+  @caller "landing_watch_pr_rerun"
 
   @spec handle_failure(map(), map(), [map()], keyword()) :: :ok | {:error, term()}
   def handle_failure(observation, result, runs, opts) do
     with {:ok, state} <- Journal.state(opts) do
-      marker = pr_caused_marker(runs, state)
+      marker = rework_marker(runs, state)
       entry = Map.get(state, "#{observation.number}:#{observation.head}", %{})
+      pending = Map.get(entry, "rerun_pending", %{})
+      github_opts = Keyword.put(opts, :caller, @caller)
+      refusal = Journal.rerun_refusal(entry, now(opts))
 
+      # Cached verdicts, a waiting refresh and a spent budget all skip the classifier's GitHub reads.
       cond do
         Map.has_key?(Map.get(entry, "alerts", %{}), marker) -> LandingWatch.rework(observation, result.failures, opts)
-        is_binary(get_in(entry, ["rerun_pending", "reason"])) -> request_reruns(observation, runs, entry["rerun_pending"]["reason"], opts)
-        true -> classify_and_route(observation, result, runs, marker, opts)
+        pending["action"] == "refresh" -> :ok
+        Map.has_key?(Map.get(entry, "alerts", %{}), "rerun-budget-exhausted") -> :ok
+        refusal == :rerun_backoff -> :ok
+        refusal == :rerun_limit_reached -> alert_limit(observation, opts)
+        is_binary(pending["reason"]) -> request_reruns(observation, runs, pending["reason"], github_opts)
+        true -> classify_and_route(observation, result, runs, marker, github_opts, opts)
       end
     end
   end
 
-  # A PR-caused verdict is cached per head, run set and latest CI merge, and a deferred head keeps its
+  # A rework verdict is cached per head, run set and latest CI merge, and a deferred head keeps its
   # reason, so later polls skip the log reads.
-  defp pr_caused_marker(runs, state) do
+  defp rework_marker(runs, state) do
     run_ids = runs |> Enum.map(&to_string(&1["run_id"])) |> Enum.sort() |> Enum.join("-")
     latest_ci_merge = state |> Map.get("ci_merges", []) |> List.first() |> then(&(&1 && &1["pr"]))
-    "pr-caused-#{run_ids}-ci-#{latest_ci_merge}"
+    "rework-verdict-#{run_ids}-ci-#{latest_ci_merge}"
   end
 
-  defp classify_and_route(observation, result, runs, marker, opts) do
-    case Keyword.get(opts, :rerun_classifier_fun, &PrRerunClassifier.classify/4).(observation, result, runs, opts) do
+  defp now(opts), do: Keyword.get(opts, :now_ms, System.system_time(:millisecond))
+
+  defp classify_and_route(observation, result, runs, marker, github_opts, opts) do
+    case Keyword.get(opts, :rerun_classifier_fun, &PrRerunClassifier.classify/4).(observation, result, runs, github_opts) do
       {:ok, {:rerun, reason}} ->
-        request_reruns(observation, runs, reason, opts)
+        request_reruns(observation, runs, reason, github_opts)
+
+      # A rerun reuses the old merge commit; only a fresh merge ref picks up the base fix.
+      {:ok, {:refresh, reason}} ->
+        row = %{"action" => "refresh", "reason" => reason, "checks" => failed_checks(runs), "since_ms" => now(opts)}
+        Journal.mark_rerun_pending(observation.number, observation.head, row, opts)
 
       {:ok, :rework} ->
         with {:ok, _} <- Journal.claim_alert(observation.number, observation.head, marker, opts),
@@ -53,7 +70,7 @@ defmodule Aiur.LandingWatch.PrRerun do
 
   defp request_reruns(observation, runs, reason, opts) do
     failed = Enum.filter(runs, &(Map.get(&1, "conclusion") in @rerun_conclusions))
-    now = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
+    now = now(opts)
 
     case Journal.reserve_automatic_rerun(observation.number, observation.head, now, opts) do
       :ok ->
@@ -62,7 +79,7 @@ defmodule Aiur.LandingWatch.PrRerun do
              do: Journal.clear_rerun_pending(observation.number, observation.head, opts)
 
       {:error, :merge_group_requeue_limit_reached} ->
-        row = %{"reason" => reason, "checks" => Enum.map(failed, & &1["name"]) |> Enum.uniq(), "since_ms" => now}
+        row = %{"reason" => reason, "checks" => failed_checks(runs), "since_ms" => now}
         Journal.mark_rerun_pending(observation.number, observation.head, row, opts)
 
       {:error, :rerun_backoff} ->
@@ -75,6 +92,8 @@ defmodule Aiur.LandingWatch.PrRerun do
         error
     end
   end
+
+  defp failed_checks(runs), do: for(run <- runs, run["conclusion"] in @rerun_conclusions, uniq: true, do: run["name"])
 
   defp rerun_all(runs, opts) do
     Enum.reduce_while(runs, :ok, fn run, :ok ->
