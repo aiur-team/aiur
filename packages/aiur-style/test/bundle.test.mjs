@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { componentCssFiles, isBundled, readableCss } from '../scripts/build.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -14,9 +15,15 @@ test('future regression: bundle includes every readable component and matches a 
     execFileSync(process.execPath, [path.join(root, 'scripts/build.mjs'), output]);
     const bundle = fs.readFileSync(path.join(output, 'aiur-style.css'), 'utf8');
     assert.equal(bundle, fs.readFileSync(path.join(root, 'dist/aiur-style.css'), 'utf8'));
-    for (const file of fs.readdirSync(path.join(root, 'src/css')).filter(file => file.endsWith('.css') && file !== 'vitepress.css')) {
+    const files = componentCssFiles();
+    assert.deepEqual(fs.readdirSync(path.join(output, 'css')).sort(), files, 'every emitted css/ file is checked below');
+    for (const file of fs.readdirSync(path.join(root, 'src/css'))) {
+      assert.ok(files.includes(file) || fs.existsSync(path.join(output, file)), `${file} must be emitted by the build`);
+    }
+    for (const file of files) {
       const source = fs.readFileSync(path.join(root, 'src/css', file), 'utf8');
-      assert.equal(fs.readFileSync(path.join(output, 'css', file), 'utf8'), source, `${file} stays readable`);
+      assert.equal(fs.readFileSync(path.join(output, 'css', file), 'utf8'), readableCss(source), `${file} stays readable`);
+      if (!isBundled(file)) continue;
       const rules = source.replace(/\s+/g, ' ').trim();
       assert.ok(bundle.replace(/\s+/g, ' ').includes(rules), `${file} rules must appear in the bundle`);
     }
