@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.AdoptedBoot do
       target = Config.target_cpu_pressure() || Config.target_load_average()
       envelope = EnvelopeResume.validate(state.load_envelope_state, target, System.schedulers_online())
       saved = max(EnvelopeResume.level(envelope, target) || 1, state.effective_concurrent_agents || 1)
-      effective = max(count, min(saved, Slots.max_concurrent_agent_limit(state)))
+      effective = max(Slots.used_slots(state), min(saved, Slots.max_concurrent_agent_limit(state)))
       %{state | effective_concurrent_agents: effective, load_envelope_state: Map.put(envelope, :bootstrap_complete?, true)}
     end
   end

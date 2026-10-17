@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.AdoptedBootTest do
   alias Aiur.AgentRunner.Handoff, as: Runner
   alias Aiur.GitHub.{DispatchAuthorization, Issues}
   alias Aiur.Handoff.{Adopter, Record}
-  alias Aiur.Orchestrator.{Dispatcher.Candidates, DispatchPolicy, EnvelopeResume, EnvelopeStore, PressureAdmission, Reconciler, Slots, State}
+  alias Aiur.Orchestrator.{AdoptedBoot, Dispatcher.Candidates, DispatchPolicy, EnvelopeResume, EnvelopeStore, PressureAdmission, Reconciler, Slots, State}
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("adopted-boot")
@@ -65,6 +65,12 @@ defmodule Aiur.Orchestrator.AdoptedBootTest do
     state = adopt(dir, 0, 4)
     assert state.effective_concurrent_agents == 1
     refute state.load_envelope_state.bootstrap_complete?
+  end
+
+  test "a non-reserving paused adopted entry does not raise capacity above occupancy" do
+    paused = %{adopted_from: "restart", control: %{status: :paused}, paused_reason: :ci_wait}
+    running = Map.new(1..3, &{Integer.to_string(&1), %{adopted_from: "restart"}}) |> Map.put("4", paused)
+    assert AdoptedBoot.restore(%{boot() | running: running}).effective_concurrent_agents == 3
   end
 
   test "adopted tickets skip only first-poll authorization while fresh state remains visible", %{dir: dir} do
