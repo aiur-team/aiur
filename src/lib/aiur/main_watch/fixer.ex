@@ -1,9 +1,7 @@
 defmodule Aiur.MainWatch.Fixer do
   @moduledoc "Files and reconciles fixer tickets from the base-CI background task."
-  alias Aiur.GitHub.{Config, LocalHold, MainFixer, ResourceStore, StatePolicy}
+  alias Aiur.GitHub.{Config, MainFixer, ResourceStore, StatePolicy}
   alias Aiur.MainWatch.{FixerGitHub, FixerWatchdog, State}
-
-  @create_hold_retries 3
 
   @spec reconcile([map()], map(), keyword()) :: :ok | {:error, term()}
   def reconcile(observations, watch, opts \\ [])
@@ -17,7 +15,8 @@ defmodule Aiur.MainWatch.Fixer do
       FixerWatchdog.check(issues, opts)
     else
       {:error, reason} = error ->
-        unless shared_budget_hold?(reason), do: alert("system.main.fixer.failed", %{reason: inspect(reason)}, opts)
+        topic = if shared_budget_hold?(reason), do: "system.main.fixer.held", else: "system.main.fixer.failed"
+        alert(topic, %{reason: inspect(reason)}, opts)
         error
     end
   end
@@ -83,42 +82,14 @@ defmodule Aiur.MainWatch.Fixer do
     state_label = if app?, do: StatePolicy.state_label(Config.label_prefix(), "todo"), else: "needs-triage"
     issue = %{"title" => "#{Aiur.Config.base_branch()} red at #{String.slice(observation.sha, 0, 12)}", "body" => body, "labels" => [state_label, "priority:1", "complexity:1", watch.fixer_label]}
 
-    with {:ok, created} <- create_with_hold_retry(issue, opts, @create_hold_retries) do
+    with {:ok, created} <- call(opts, :fixer_create, [issue, opts], &FixerGitHub.create/2) do
       if app?, do: refresh(opts), else: alert("system.main.fixer.needs_triage", %{issue: created["number"], reason: "PAT/shared identity cannot authorize daemon-filed work"}, opts)
       :ok
     end
   end
 
-  defp create_with_hold_retry(issue, opts, retries_left) do
-    result = call(opts, :fixer_create, [issue, opts], &FixerGitHub.create/2)
-
-    case result do
-      {:error, reason} when retries_left > 0 ->
-        retry_after_hold(result, shared_budget_reset(reason), issue, opts, retries_left)
-
-      _ ->
-        result
-    end
-  end
-
-  defp retry_after_hold(result, %DateTime{} = reset_at, issue, opts, retries_left) do
-    case LocalHold.wait_ms(%{hold: %{reset_at: reset_at}}, LocalHold.max_wait_ms()) do
-      {:wait, delay_ms} ->
-        Keyword.get(opts, :local_hold_sleep_fun, &Process.sleep/1).(delay_ms)
-        create_with_hold_retry(issue, opts, retries_left - 1)
-
-      :no_wait ->
-        result
-    end
-  end
-
-  defp retry_after_hold(result, _reset_at, _issue, _opts, _retries_left), do: result
-
   defp shared_budget_hold?({:aiur, :locally_held, %{reason: :shared_budget}}), do: true
   defp shared_budget_hold?(_reason), do: false
-
-  defp shared_budget_reset({:aiur, :locally_held, %{reason: :shared_budget, reset_at: %DateTime{} = reset_at}}), do: reset_at
-  defp shared_budget_reset(_reason), do: nil
 
   defp refresh(opts) do
     case Keyword.get(opts, :fixer_refresh, &Aiur.Orchestrator.request_refresh/0).() do

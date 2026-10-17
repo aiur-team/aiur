@@ -83,9 +83,9 @@ defmodule Aiur.MainWatch.FixerTest do
     assert Enum.any?(Agent.get(store, & &1.alerts), fn {topic, payload} -> topic == "system.main.fixer.needs_triage" and payload.issue == 1 end)
   end
 
-  test "shared budget hold retries create after reset and files exactly once", %{store: store, opts: opts} do
+  test "shared budget hold retries on the next reconcile and files exactly once", %{store: store, opts: opts} do
     attempts = start_supervised!({Agent, fn -> 0 end}, id: :create_attempts)
-    reset_at = DateTime.add(DateTime.utc_now(), 30, :millisecond)
+    reset_at = DateTime.add(DateTime.utc_now(), 50, :millisecond)
 
     hold =
       {:aiur, :locally_held, %{reason: :shared_budget, resource: "core", reset_at: reset_at}}
@@ -103,47 +103,19 @@ defmodule Aiur.MainWatch.FixerTest do
       end
     end
 
-    opts = Keyword.put(opts, :local_hold_sleep_fun, fn _ -> :ok end)
-    assert :ok = Fixer.reconcile([observation()], @watch, Keyword.put(opts, :fixer_create, create))
+    create_opts = Keyword.put(opts, :fixer_create, create)
+    assert {:error, ^hold} = Fixer.reconcile([observation()], @watch, create_opts)
+    assert Agent.get(attempts, & &1) == 1
+    assert Agent.get(store, & &1.issues) == []
+    assert [{"system.main.fixer.held", %{reason: reason}}] = Agent.get(store, & &1.alerts)
+    assert reason =~ "shared_budget"
+
+    Process.sleep(60)
+    assert :ok = Fixer.reconcile([observation()], @watch, create_opts)
     assert Agent.get(attempts, & &1) == 2
     assert length(Agent.get(store, & &1.issues)) == 1
-    assert Agent.get(store, & &1.alerts) == []
+    refute Enum.any?(Agent.get(store, & &1.alerts), fn {topic, _} -> topic == "system.main.fixer.failed" end)
     assert map_size(Agent.get(store, & &1.receipts)) == 1
-  end
-
-  test "shared budget hold stops after the bounded create retries", %{store: store, opts: opts} do
-    attempts = start_supervised!({Agent, fn -> 0 end}, id: :create_attempts)
-    reset_at = DateTime.add(DateTime.utc_now(), -1, :second)
-    hold = {:aiur, :locally_held, %{reason: :shared_budget, resource: "core", reset_at: reset_at}}
-
-    create = fn _, _ ->
-      Agent.update(attempts, &(&1 + 1))
-      {:error, hold}
-    end
-
-    assert {:error, ^hold} =
-             Fixer.reconcile([observation()], @watch, Keyword.put(opts, :fixer_create, create))
-
-    assert Agent.get(attempts, & &1) == 4
-    assert Agent.get(store, & &1.issues) == []
-    assert Agent.get(store, & &1.alerts) == []
-    assert map_size(Agent.get(store, & &1.receipts)) == 0
-  end
-
-  test "shared budget hold beyond wait ceiling fails without sleeping", %{store: store, opts: opts} do
-    attempts = start_supervised!({Agent, fn -> 0 end}, id: :create_attempts)
-    reset_at = DateTime.add(DateTime.utc_now(), 61, :second)
-    hold = {:aiur, :locally_held, %{reason: :shared_budget, resource: "core", reset_at: reset_at}}
-
-    create = fn _, _ ->
-      Agent.update(attempts, &(&1 + 1))
-      {:error, hold}
-    end
-
-    opts = Keyword.put(opts, :local_hold_sleep_fun, fn _ -> flunk("must not sleep beyond the wait ceiling") end)
-    assert {:error, ^hold} = Fixer.reconcile([observation()], @watch, Keyword.put(opts, :fixer_create, create))
-    assert Agent.get(attempts, & &1) == 1
-    assert Agent.get(store, & &1.alerts) == []
   end
 
   test "recovery comments without closing and missing PR raises attention", %{store: store, opts: opts} do
