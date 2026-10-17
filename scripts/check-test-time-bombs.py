@@ -20,6 +20,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATE = re.compile(r'(?<![0-9])(20[2-3][0-9])-([01][0-9])-([0-3][0-9])(?![0-9])')
@@ -67,7 +68,6 @@ FIXED_DATE_FILES = {
     'test/aiur/usage/price_table_deepseek_test.exs',
     'test/aiur/usage/price_table_test.exs',
     'test/aiur/usage/pricing_test.exs',
-    'test/aiur_engine_pre_pr_test.exs',
     'test/aiur_web/build/freshness_test.exs',
     'test/aiur_web/build/now_rows_test.exs',
     'test/aiur_web/build/planned_rows_test.exs',
@@ -93,7 +93,7 @@ def tracked_test_files():
     return [ROOT / name for name in out.decode().split('\0') if name]
 
 
-def shift_tree(days):
+def shifted_copies(days, directory):
     dated = []
     for path in tracked_test_files():
         try:
@@ -102,13 +102,17 @@ def shift_tree(days):
             continue
         shifted = shift_text(text, days)
         if shifted != text:
-            path.write_text(shifted, encoding='utf-8')
-            dated.append(path)
+            relative = path.relative_to(ROOT / 'src')
+            copy = pathlib.Path(directory) / relative
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            copy.write_text(shifted, encoding='utf-8')
+            dated.append(copy)
     return dated
 
 
 def select(requested, dated):
-    dated_tests = {str(p.relative_to(ROOT / 'src')) for p in dated if p.name.endswith('_test.exs')}
+    dated_tests = {p.as_posix() if not p.is_absolute() else p.relative_to(ROOT / 'src').as_posix()
+                   for p in dated if p.name.endswith('_test.exs')}
     # ponytail: a requested file without its own date literal is skipped even if it reads dated support fixtures.
     candidates = requested if requested else sorted(dated_tests)
     return [f for f in candidates if f in dated_tests and f not in FIXED_DATE_FILES]
@@ -125,8 +129,9 @@ def main():
     if dirty:
         sys.exit('check-test-time-bombs: src/test has uncommitted changes; commit or stash them first')
 
-    try:
-        files = select(args.files, shift_tree(args.days))
+    with tempfile.TemporaryDirectory(prefix='aiur-time-bombs-') as temp_dir:
+        shifted = shifted_copies(args.days, temp_dir)
+        files = select(args.files, [path.relative_to(temp_dir) for path in shifted])
         if not files:
             print('check-test-time-bombs: no dated test files to run')
             return 0
@@ -135,14 +140,14 @@ def main():
         status = 0
         for start in range(0, len(files), BATCH):
             batch = files[start:start + BATCH]
-            status = subprocess.run(['mix', 'test', '--max-cases', '4', *batch], cwd=ROOT / 'src').returncode or status
+            status = subprocess.run(['mise', 'exec', '--', 'mix', 'test', '--max-cases', '4',
+                                     *[str(pathlib.Path(temp_dir) / file) for file in batch]],
+                                    cwd=ROOT / 'src').returncode or status
         if status:
             print(f'::error::tests fail with fixture dates {args.days} days older; a fixed date is compared '
                   'with the real clock. Inject the clock or date the fixture relative to now (#4691).',
                   flush=True)
         return status
-    finally:
-        subprocess.run(['git', '-C', str(ROOT), 'checkout', '--', 'src/test'], check=True)
 
 
 if __name__ == '__main__':

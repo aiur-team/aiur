@@ -44,6 +44,9 @@ def main():
     print(selection, flush=True)
 
     commands = [line for line in selection.splitlines() if line.startswith('cd src && mise exec -- ')]
+    if os.environ.get('GITHUB_EVENT_NAME') == 'merge_group':
+        run_timed('time-bomb rerun', [sys.executable, TIME_BOMB_CHECK], timeout=SELECTED_TEST_TIMEOUT_SECONDS)
+        return
     if not commands:
         if '# no affected test files detected' not in selection:
             raise ValueError('selector did not produce a supported command')
@@ -56,6 +59,8 @@ def main():
                            for line in selection.splitlines()
                            if line.startswith('# full suite recommended: ')), 'unknown')
             defer_to_merge_group(f'Unsafe affected selection deferred to full CI in the merge queue: {reason}')
+            if os.environ.get('GITHUB_EVENT_NAME') != 'pull_request':
+                run_timed('time-bomb rerun', [sys.executable, TIME_BOMB_CHECK], timeout=SELECTED_TEST_TIMEOUT_SECONDS)
         elif command[:4] != ['mix', 'test', '--max-cases', '4']:
             raise ValueError('unsupported selector command')
         else:

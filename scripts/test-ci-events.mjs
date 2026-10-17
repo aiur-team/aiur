@@ -46,11 +46,12 @@ assert.ok(selected('merge_group', false).includes('ci-gate'), 'merge-group ci ga
 for (const event of ['merge_group', 'workflow_dispatch']) {
   const selectedFull = selected(event, true);
   for (const job of fullJobs) assert.ok(selectedFull.includes(job), `${event} requires ${job}`);
-  assert.ok(!selectedFull.includes('affected-tests'));
+  assert.equal(selectedFull.includes('affected-tests'), event === 'merge_group',
+    `${event} ${event === 'merge_group' ? 'runs' : 'skips'} the time-bomb guard job`);
 }
 assert.ok(jobs.get('ci-gate').includes('always()'), 'aggregate must run after failed dependencies');
 assert.ok(jobs.get('ci-gate').includes("github.event_name != 'schedule'"), 'schedule does not need the blocking gate');
-assert.ok(jobs.get('affected-tests').includes("github.event_name == 'pull_request'"), 'scoped selector only runs for PRs');
+assert.ok(jobs.get('affected-tests').includes("github.event_name == 'merge_group'"), 'merge queue also runs the time-bomb guard');
 assert.ok(jobs.get('changes').includes('affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"'));
 assert.ok(jobs.get('changes').includes('dialyzer: "${{ steps.classify.outputs.dialyzer }}"'));
 assert.ok(jobs.get('affected-tests').includes('AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}'));
@@ -106,7 +107,7 @@ assert.ok(readFileSync(new URL('../.github/actions/pre-handoff/action.yml', impo
 assert.ok(!jobs.get('workflow-security').includes("Set up Elixir for PR evidence\n        if:"));
 const affected = jobs.get('affected-tests');
 const affectedTimeout = Number(affected.match(/^    timeout-minutes: (\d+)$/m)?.[1]);
-assert.equal(affectedTimeout, 15, 'the job retains its original overall budget');
+assert.equal(affectedTimeout, 25, 'the job allows the bounded merge-queue time-bomb rerun');
 assert.ok(affected.includes('run-ci-affected-tests.sh'), 'affected-tests delegates setup and base selection to its helper');
 const affectedRunner = readFileSync(new URL('../scripts/run-ci-affected-tests.sh', import.meta.url), 'utf8');
 assert.ok(affectedRunner.includes('git rev-parse HEAD^1'), 'affected-tests uses the PR merge base, not a stale event payload');

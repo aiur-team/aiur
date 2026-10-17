@@ -129,6 +129,38 @@ else:
         self.assertEqual(self.run_selection('# no affected test files detected for the documentation-only change'),
                          (0, [], '# no affected test files detected for the documentation-only change\n\n'))
 
+    def test_merge_group_runs_time_bomb_guard_even_without_pr_selection(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
+            root = Path(scratch)
+            mix = root / 'mix'
+            mix.write_text('#!/usr/bin/env python3\nprint("# no affected test files detected")\n')
+            mix.chmod(0o755)
+            marker = root / 'time-bomb-ran'
+            guard = root / 'guard.py'
+            guard.write_text(f'import pathlib\npathlib.Path({str(marker)!r}).touch()\n')
+            result = subprocess.run([sys.executable, str(SCRIPT), 'base-sha'], capture_output=True,
+                                    env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                                             GITHUB_EVENT_NAME='merge_group',
+                                             AIUR_TIME_BOMB_CHECK=str(guard)))
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertTrue(marker.exists(), 'merge_group must run the guard with the full-suite path')
+
+    def test_full_suite_fallback_on_non_pr_runs_time_bomb_guard(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
+            root = Path(scratch)
+            mix = root / 'mix'
+            mix.write_text('#!/usr/bin/env python3\nprint("cd src && mise exec -- make ci")\n')
+            mix.chmod(0o755)
+            marker = root / 'time-bomb-ran'
+            guard = root / 'guard.py'
+            guard.write_text(f'import pathlib\npathlib.Path({str(marker)!r}).touch()\n')
+            result = subprocess.run([sys.executable, str(SCRIPT), 'base-sha'], capture_output=True,
+                                    env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                                             GITHUB_EVENT_NAME='workflow_dispatch',
+                                             AIUR_TIME_BOMB_CHECK=str(guard)))
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertTrue(marker.exists(), 'full-suite fallback must run the time-bomb guard')
+
     def test_failure_is_not_reported_as_success(self):
         self.assertNotEqual(self.run_selection('cd src && mise exec -- mix test --max-cases 4 test/a_test.exs', 1)[0], 0)
 
