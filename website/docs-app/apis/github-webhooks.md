@@ -56,6 +56,8 @@ A deposit records what Aiur is *holding*, never what it has *handled*. The two a
 
 A cold, corrupt or stopped cache falls back to fetching. It costs throughput, never correctness. Timelines persist (at most 1,000 bodies per repository). After boot, single-page evidence is ETag-revalidated against the current allowlist. Multi-page timelines and a `304` reporting a new page require a full refetch.
 
+After a handoff restart, adopted tickets skip first-poll authorization but keep their fresh lifecycle state.
+
 Comment, CI, and review-thread pollers consult these complete snapshots before
 building their GraphQL documents. A poll-written snapshot is only a baseline;
 it does not suppress the next poll. When a verified delivery advances that
