@@ -121,8 +121,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                   <span><span class="sr-only">Runtime </span>{runtime(row, @now, @view)}</span>
                 </div>
                 <div class="ut-latest-meta ut-agent-context mono num">
-                  <span title="Aiur orchestration turns in this running attempt">Turns {turn_count(row)}</span>
-                  <span title="Current context occupancy, separate from cumulative token usage">Context {AgentContextPresentation.compact(row[:context_usage])}</span>
+                  <span title={turn_count_title(row)}>Turns {turn_count(row)}</span>
+                  <span title={context_title(row)}>Context {context_usage(row)}</span>
                 </div>
               </td>
 
@@ -167,7 +167,29 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   end
 
   defp turn_count(%{turn_count: count}) when is_integer(count) and count >= 0, do: count
-  defp turn_count(_row), do: "—"
+  defp turn_count(row), do: unreported_label(row)
+
+  defp turn_count_title(%{turn_count: count}) when is_integer(count) and count >= 0,
+    do: "Aiur orchestration turns in this running attempt"
+
+  defp turn_count_title(row), do: unreported_title(row, "a turn count")
+
+  defp context_usage(%{context_usage: %{} = context}), do: AgentContextPresentation.compact(context)
+  defp context_usage(row), do: unreported_label(row)
+
+  defp context_title(%{context_usage: %{}}), do: "Current context occupancy, separate from cumulative token usage"
+  defp context_title(row), do: unreported_title(row, "context occupancy")
+
+  # A missing measurement names why it is missing instead of looking like an empty value.
+  defp unreported_label(row), do: if(running?(row), do: "not reported", else: "no attempt")
+
+  defp unreported_title(row, measurement) do
+    if running?(row),
+      do: "The #{row[:backend] || "agent"} backend has not reported #{measurement} for this attempt",
+      else: "No running attempt, so there is no #{measurement} to report"
+  end
+
+  defp running?(row), do: get_in(row, [:runtime, :bucket]) == :running
 
   attr(:token, :string, required: true)
   attr(:row, :map, required: true)
