@@ -78,8 +78,6 @@ defmodule Aiur.BuildGate.HookSnapshot do
       with :ok <- File.mkdir_p(stage),
            :ok <- write_files(files, stage),
            :ok <- seal(stage) do
-        # A damaged snapshot is replaced, not trusted.
-        _ = remove(target)
         rename(stage, target, files)
       end
 
@@ -87,12 +85,32 @@ defmodule Aiur.BuildGate.HookSnapshot do
     result
   end
 
+  # Never remove the target before re-checking it: a concurrent publisher may
+  # have just published it, and its hook may already be sourcing it (#4902).
   defp rename(stage, target, files) do
-    case File.rename(stage, target) do
-      :ok -> {:ok, hook(target)}
-      # A concurrent publisher won the race with identical content.
-      {:error, _reason} = error -> if intact?(target, files), do: {:ok, hook(target)}, else: error
+    with {:error, _reason} = error <- File.rename(stage, target),
+         false <- intact?(target, files) do
+      replace_damaged(stage, target, files, error)
+    else
+      _ -> {:ok, hook(target)}
     end
+  end
+
+  # A damaged snapshot is replaced, not trusted. Moving it aside keeps a
+  # concurrent repair from deleting the copy that replaced it.
+  defp replace_damaged(stage, target, files, error) do
+    aside = stage <> ".damaged"
+
+    result =
+      with :ok <- File.rename(target, aside),
+           :ok <- File.rename(stage, target) do
+        {:ok, hook(target)}
+      else
+        _ -> if intact?(target, files), do: {:ok, hook(target)}, else: error
+      end
+
+    _ = remove(aside)
+    result
   end
 
   defp write_files(files, stage) do

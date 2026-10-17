@@ -15,7 +15,6 @@ Aiur.BuildQueue.BuildOrderSourceTest	an unresponsive projection is tried once pe
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#4463
 Aiur.ExecutorListenerTest	a blocking Decision requested through DecisionStore wakes the Executor exactly once	#4633
 Aiur.AgentGitHubGuard.GraphqlAndPagination1Test	pr view consumes the graphql actor ceiling, not the core one	#4744
-AiurWeb.OperatorControlCenter.PayloadLoaderTest	slow cached load returns unavailable without starting an uncached retry	#4755
 Aiur.BuildOrder.ProgressObserverTest	unconfigured projection waits for reset then subscribes to its new catalog	#4755
 Aiur.AppServerStderrCaptureTest	app server logs Codex stderr before returning completed turn	#4756
 Aiur.Workspace.RefreshTest	run/3 reconstruction restores the governed GitHub wrapper and private config before dispatch	#4754

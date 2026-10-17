@@ -229,7 +229,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
       )
 
     send(view.pid, {:graph_projection_reset, 2})
-    assert render(view) =~ "Replacement root"
+    assert settle(view) =~ "Replacement root"
 
     calls = FakeDataSource.calls(source)
     unsubscribe_index = call_index(calls, {:unsubscribe_catalog, [repository()]})
@@ -263,7 +263,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
       )
 
     send(view.pid, {:graph_projection_reset, 3})
-    assert render(view) =~ "Restarted projection root"
+    assert settle(view) =~ "Restarted projection root"
   end
 
   test "reset authority rejects queued old-instance catalog and selected publications", %{
@@ -286,7 +286,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
     :ok = FakeDataSource.put_selected(source, new_selected)
 
     send(view.pid, {:graph_projection_reset, 2})
-    assert render(view) =~ "Ticket 70"
+    assert settle(view) =~ "Ticket 70"
 
     old_catalog =
       catalog_snapshot([root(first, "Queued old catalog")], 99, :healthy, repository(), 1)
