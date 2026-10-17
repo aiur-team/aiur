@@ -59,8 +59,8 @@ test('manual keyboard wraps, activates and preserves focus through cached and re
 test('daemon status follows snapshot and socket changes and escapes helper text', async ({ page }) => {
   for (const state of ['live', 'offline', 'stale', 'unknown']) {
     await page.evaluate(state => { m.ctx.snap = { daemon: { state } }; m.fx.renderTools() }, state)
-    await expect(page.locator('.bd-daemon')).toHaveText(state === 'unknown' ? 'Daemon status unknown' : `Daemon ${state}`)
-    expect(await page.locator('.bd-daemon').evaluate(el => el.classList.contains('off'))).toBe(state !== 'live')
+    await expect(page.locator('.bd-daemon')).toHaveText(state === 'unknown' ? 'Daemon up · fleet snapshot unread, no good reading yet' : `Daemon ${state}`)
+    expect(await page.locator('.bd-daemon').evaluate(el => el.classList.contains('off'))).toBe(!['live', 'unknown'].includes(state))
   }
   await page.evaluate(() => { m.ctx.snap = { daemon: { state: 'live' } }; m.fx.renderTools(); hook.disconnected() })
   await expect(page.locator('.bd-daemon')).toHaveText('Daemon unreachable')
