@@ -102,7 +102,7 @@ defmodule Aiur.TestTmpTest do
     refute output =~ "File.Error"
   end
 
-  test "suite-end removal retries a lost race, then warns and returns instead of raising", %{base: base} do
+  test "suite-end removal names the late writer even when a retry succeeds, and never raises", %{base: base} do
     root = Path.join(base, "run-root")
     File.mkdir_p!(Path.join(root, "late"))
     File.write!(Path.join([root, "late", "writer.log"]), "x")
@@ -110,14 +110,17 @@ defmodule Aiur.TestTmpTest do
 
     flaky = fn path ->
       case Agent.get_and_update(attempts, &{&1, &1 + 1}) do
-        0 -> {:error, :eexist, path}
+        0 -> {:error, :eexist, Path.join(path, "late")}
         _ -> File.rm_rf(path)
       end
     end
 
-    assert :ok = Aiur.TestTmp.remove_run_root(root, flaky, 3)
+    stderr = ExUnit.CaptureIO.capture_io(:stderr, fn -> assert :ok = Aiur.TestTmp.remove_run_root(root, flaky, 3) end)
     refute File.exists?(root)
     assert Agent.get(attempts, & &1) == 2
+    assert stderr =~ ":eexist at #{root}/late"
+    assert stderr =~ "late/writer.log"
+    refute stderr =~ "left test run root"
 
     File.mkdir_p!(Path.join(root, "late"))
     File.write!(Path.join([root, "late", "writer.log"]), "x")
