@@ -161,4 +161,9 @@ a.snav { text-decoration: none; }
 
 /* Reserve phone navigation space when operators enlarge the text. */
 @media (max-width: 960px) { .dashboard-shell { padding-bottom: 6.5rem; } }
+/* The rail spans the page so its border reaches the bottom; only the links stay pinned (#4886). */
+@media (min-width: 961px) {
+  .sidenav { position: relative; top: auto; align-self: stretch; height: auto; min-height: calc(100vh - 56px); }
+  .sidenav-nav { position: sticky; top: calc(56px + .6rem); }
+}
 @media (max-width: 360px) { .ax-menu { position: fixed; left: 1rem; top: 56px; } .sidenav-nav, .snav { min-width: 0; } .snav-label { max-width: 100%; text-overflow: ellipsis; } .bo-breakdown-row-top { flex-wrap: wrap; } }

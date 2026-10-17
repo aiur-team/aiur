@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Refresh the committed dashboard copy of the aiur-style build output (run `npm run build` in packages/aiur-style first).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+node packages/aiur-style/scripts/sync.mjs src/priv/static --only css,js,init,fonts,assets,tokens

@@ -28,16 +28,17 @@ defmodule Aiur.AgentRunner.ReworkFindings do
 
   def parse(_body), do: []
 
-  @doc "Returns the PR head, the latest blocking review's commit, and that review's parsed findings."
+  @doc "Returns the PR number and head, the latest blocking review's commit and time, and that review's parsed findings."
   @spec fetch(String.t(), keyword()) ::
-          {:ok, %{head: String.t() | nil, review_head: String.t() | nil, findings: [finding()]}} | {:error, term()}
+          {:ok, %{number: term(), head: String.t() | nil, review_head: String.t() | nil, review_at: String.t() | nil, findings: [finding()]}}
+          | {:error, term()}
   def fetch(identifier, opts \\ []) do
     fetch_reviews = Keyword.get(opts, :reviews_fetcher, &default_reviews/1)
 
     with {:ok, pr} <- ReworkGate.open_pr(identifier, opts),
          {:ok, reviews} <- fetch_reviews.(pr["number"]) do
       review = reviews |> ReworkGate.blocking_reviews() |> Enum.max_by(&{&1["submitted_at"], &1["id"]}, fn -> %{} end)
-      {:ok, %{head: ReworkGate.head_sha(pr), review_head: review["commit_id"], findings: parse(review["body"])}}
+      {:ok, %{number: pr["number"], head: ReworkGate.head_sha(pr), review_head: review["commit_id"], review_at: review["submitted_at"], findings: parse(review["body"])}}
     else
       {:skip, reason} -> {:error, reason}
       {:error, reason} -> {:error, reason}
@@ -66,6 +67,28 @@ defmodule Aiur.AgentRunner.ReworkFindings do
     end
   end
 
+  @doc """
+  Whether the PR body was edited after the review (#4944).
+
+  A review whose only blocker is the PR body is fixed by an edit, not a commit.
+  An unreadable edit time counts as no edit, so the no-commit refusal stands.
+  """
+  @spec body_edited_since?(term(), String.t() | nil, keyword()) :: boolean()
+  def body_edited_since?(number, review_at, opts \\ []) do
+    fetch_edit = Keyword.get(opts, :body_edit_fetcher, &default_body_edit/1)
+
+    with true <- is_integer(number) and is_binary(review_at),
+         {:ok, edited_at} when is_binary(edited_at) <- fetch_edit.(number),
+         {:ok, edited, _offset} <- DateTime.from_iso8601(edited_at),
+         {:ok, reviewed, _offset} <- DateTime.from_iso8601(review_at) do
+      DateTime.after?(edited, reviewed)
+    else
+      _no_edit -> false
+    end
+  end
+
+  defp default_body_edit(number), do: if(ReworkGate.available?(), do: Aiur.CodeHost.pull_request_body_edited_at(number), else: {:ok, nil})
+
   defp default_reviews(number) when is_integer(number) do
     if ReworkGate.available?(), do: Aiur.CodeHost.fetch_classified_pr_reviews(number), else: {:ok, []}
   end
@@ -91,15 +114,17 @@ defmodule Aiur.AgentRunner.ReworkFindings do
   `commits` and `files` come from the branch's own (first-parent, non-merge)
   commits since the review, so merging the base touches nothing. `:unknown`
   skips the commit and file checks when the workspace cannot be read.
+  `body_edited?` lifts only the no-commit refusal: a finding marked `fixed`
+  still needs its own commit.
   """
-  @spec validate([finding()], term(), [String.t()] | :unknown, [String.t()] | :unknown) :: :allow | {:blocked, [String.t()]}
-  def validate(findings, answers, commits, files) do
+  @spec validate([finding()], term(), [String.t()] | :unknown, [String.t()] | :unknown, boolean()) :: :allow | {:blocked, [String.t()]}
+  def validate(findings, answers, commits, files, body_edited? \\ false) do
     answers = if is_list(answers), do: Enum.filter(answers, &is_map/1), else: []
     by_id = Map.new(answers, &{to_string(field(&1, "id")), &1})
 
     reasons =
       Enum.flat_map(findings, &finding_reasons(&1, Map.get(by_id, &1.id), commits, files)) ++
-        no_commit_reason(findings, by_id, commits)
+        if(body_edited?, do: [], else: no_commit_reason(findings, by_id, commits))
 
     if reasons == [], do: :allow, else: {:blocked, reasons}
   end
@@ -128,10 +153,10 @@ defmodule Aiur.AgentRunner.ReworkFindings do
     commit_reason ++ file_reason
   end
 
-  # Disputing every finding is a legitimate handback without a new commit; anything else needs one.
+  # Disputing every finding is a legitimate handback without a new commit; anything else needs one or a body edit.
   defp no_commit_reason(findings, by_id, []) do
     all_disputed? = findings != [] and Enum.all?(findings, &(field(Map.get(by_id, &1.id, %{}), "status") == "disputed"))
-    if all_disputed?, do: [], else: ["no new commits since the review"]
+    if all_disputed?, do: [], else: ["no new commits or PR body edit since the review"]
   end
 
   defp no_commit_reason(_findings, _by_id, _commits), do: []

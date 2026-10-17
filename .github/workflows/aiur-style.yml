@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - 'packages/aiur-style/**'
+      - 'src/priv/static/aiur-style/**'
       - '.github/workflows/aiur-style.yml'
   pull_request:
     paths:
       - 'packages/aiur-style/**'
+      - 'src/priv/static/aiur-style/**'
       - '.github/workflows/aiur-style.yml'
 
 jobs:
@@ -38,6 +40,13 @@ jobs:
 
       - name: Check dist
         run: cd packages/aiur-style && npm run check-dist
+
+      - name: Check committed copy matches dist
+        run: |
+          cd src/priv/static/aiur-style
+          find . -type f | while read -r f; do
+            cmp "$f" "../../../../packages/aiur-style/dist/$f" || { echo "$f differs from dist; run scripts/sync-aiur-style"; exit 1; }
+          done
 
       - name: Verify packed assets
         run: |
