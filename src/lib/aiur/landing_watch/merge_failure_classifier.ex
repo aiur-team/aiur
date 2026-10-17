@@ -27,7 +27,7 @@ defmodule Aiur.LandingWatch.MergeFailureClassifier do
     Enum.reduce_while(jobs, {:ok, []}, fn job, {:ok, acc} ->
       case log_fun.(job, opts) do
         {:ok, log} when is_binary(log) -> {:cont, {:ok, acc ++ [%{job: job, log: log}]}}
-        {:error, _} -> {:halt, {:error, :job_log_unavailable}}
+        {:error, reason} -> {:halt, {:error, {:job_log, job["id"], reason}}}
         _ -> {:halt, {:error, :invalid_job_log}}
       end
     end)
