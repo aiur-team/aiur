@@ -32,6 +32,7 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
     |> assign(:source_reload_queued?, false)
     |> assign(:model, nil)
     |> assign(:adhoc_overlay, nil)
+    |> assign(:catalog_read_failed?, false)
   end
 
   @spec connect(Socket.t()) :: Socket.t()
@@ -46,9 +47,30 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
       )
 
     socket
-    |> reload_catalog()
+    |> load_catalog_async()
     |> ensure_reload()
   end
+
+  # The catalog read rereads every planning pack and scans the resource store.
+  # Run inline in the connected mount it can outlast the client's 10s join
+  # timeout under load, and every rejoin restarts it, so the page never connects (#4841).
+  defp load_catalog_async(socket) do
+    source = socket.assigns.source
+    start_async(socket, :build_order_catalog, fn -> Runtime.safe_source_call(source, :catalog, [], nil) end)
+  end
+
+  @spec complete_catalog(Socket.t(), term()) :: Socket.t()
+  def complete_catalog(socket, %Snapshot{} = snapshot) do
+    case accept_authority(socket, snapshot) do
+      {:ok, socket} -> put_catalog(socket, snapshot)
+      :ignored -> socket
+    end
+  end
+
+  def complete_catalog(socket, _unreadable), do: failed_catalog(socket)
+
+  @spec failed_catalog(Socket.t()) :: Socket.t()
+  def failed_catalog(socket), do: assign(socket, :catalog_read_failed?, true)
 
   @spec reset(Socket.t(), integer()) :: Socket.t()
   def reset(socket, authority_epoch) do
@@ -153,11 +175,20 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
 
     if catalog_refresh_allowed?(socket.assigns[:catalog_refresh_at_ms], now_ms) do
       _ = Runtime.safe_source_call(socket.assigns.source, :refresh_catalog, [], :ok)
-      assign(socket, :catalog_refresh_at_ms, now_ms)
+      socket |> assign(:catalog_refresh_at_ms, now_ms) |> retry_failed_catalog()
     else
       socket
     end
   end
+
+  defp retry_failed_catalog(%{assigns: %{catalog_read_failed?: true}} = socket) do
+    socket
+    |> assign(:catalog_read_failed?, false)
+    |> assign(:catalog_wait_started_at, Runtime.display_now())
+    |> load_catalog_async()
+  end
+
+  defp retry_failed_catalog(socket), do: socket
 
   defp catalog_refresh_allowed?(nil, _now_ms), do: true
 

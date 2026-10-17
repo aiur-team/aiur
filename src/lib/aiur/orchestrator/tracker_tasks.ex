@@ -125,11 +125,13 @@ defmodule Aiur.Orchestrator.TrackerTasks do
 
   # A paginated poll has transport deadlines per request, not an arbitrary batch deadline.
   defp task_timer(:dispatch_poll, _ref), do: nil
-  # Terminal state writes may be waiting for a one-hour GitHub Core budget
-  # reset. Their bounded LocalHold retry is the deadline; killing either task
-  # after the generic two-minute timeout would lose the terminal write.
+  # Terminal state writes, and the stranded-work reopen, may be waiting for a
+  # one-hour GitHub Core budget reset. Their bounded LocalHold retry is the
+  # deadline; killing the task after the generic two-minute timeout would lose
+  # the write.
   defp task_timer({:retry_exhausted, _issue_id}, _ref), do: nil
   defp task_timer({:merged_comment, _identifier}, _ref), do: nil
+  defp task_timer({:stranded_work, _identifier}, _ref), do: nil
   defp task_timer(_key, ref), do: Process.send_after(self(), {:tracker_task_timeout, ref}, @timeout_ms)
 
   defp cancel_timer(nil), do: :ok
