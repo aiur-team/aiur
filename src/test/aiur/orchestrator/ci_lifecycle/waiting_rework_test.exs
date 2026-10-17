@@ -8,25 +8,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitingReworkTest do
 
   setup :ci_lifecycle_setup
 
-  defp review(head), do: %{"state" => "CHANGES_REQUESTED", "commit_id" => head, "submitted_at" => "2026-10-13T00:00:00Z", "id" => 1, "user" => %{"login" => "reviewer"}, authoritative: true}
-
   for label <- ["ci-wait", "human-review"] do
-    test "first CI poll routes a #{label} ticket with current changes requested findings to rework" do
-      identifier = unique_identifier("restart-review-rework")
-      RecordingGitHubClient.record_to(self())
-
-      next =
-        poll_ci(
-          %State{},
-          issue(identifier, unquote(label)),
-          %{decision: :pending, head_sha: "review-head", pr_number: 4388, review_decision: "CHANGES_REQUESTED"},
-          reviews_fetcher: fn 4388, _opts -> {:ok, [review("review-head")]} end
-        )
-
-      assert_received {:tracker_update, ^identifier, "rework", [expected_state: unquote(label)]}
-      assert next.ci_lifecycle.poll_cache[identifier].review_decision == "CHANGES_REQUESTED"
-    end
-
     test "first CI poll routes a #{label} ticket with a conflicting PR to rework" do
       identifier = unique_identifier("restart-conflict-rework")
       RecordingGitHubClient.record_to(self())
@@ -58,21 +40,25 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitingReworkTest do
 
       refute_received {:tracker_update, ^identifier, "rework", _opts}
     end
-  end
 
-  test "sticky changes requested does not route a head that has a newer commit" do
-    # Future-regression guard: the sticky decision must not route an older-head review.
-    identifier = unique_identifier("restart-stale-review")
-    RecordingGitHubClient.record_to(self())
+    test "a #{label} conflicting PR approved at its head is left to LandingWatch" do
+      identifier = unique_identifier("approved-conflict")
+      RecordingGitHubClient.record_to(self())
+      result = %{decision: :pending, head_sha: "approved-head", pr_number: 4393, mergeable: "CONFLICTING", review_decision: "APPROVED", approved_review_head_sha: "approved-head"}
 
-    _next =
-      poll_ci(
-        %State{},
-        issue(identifier, "ci-wait"),
-        %{decision: :pending, head_sha: "new-head", pr_number: 4390, review_decision: "CHANGES_REQUESTED"},
-        reviews_fetcher: fn 4390, _opts -> {:ok, [review("reviewed-head")]} end
-      )
+      _next = poll_ci(%State{}, issue(identifier, unquote(label)), result)
 
-    refute_received {:tracker_update, ^identifier, "rework", _opts}
+      refute_received {:tracker_update, ^identifier, "rework", _opts}
+    end
+
+    test "a #{label} conflicting PR approved only at an older head is routed to rework" do
+      identifier = unique_identifier("stale-approved-conflict")
+      RecordingGitHubClient.record_to(self())
+      result = %{decision: :pending, head_sha: "new-head", pr_number: 4394, mergeable: "CONFLICTING", review_decision: "APPROVED", approved_review_head_sha: "old-head"}
+
+      _next = poll_ci(%State{}, issue(identifier, unquote(label)), result)
+
+      assert_received {:tracker_update, ^identifier, "rework", [expected_state: unquote(label)]}
+    end
   end
 end

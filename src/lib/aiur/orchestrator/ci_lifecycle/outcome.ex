@@ -4,7 +4,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   """
 
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert
@@ -149,46 +148,18 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   def recover_ci_poll_result(state, issue, result, opts) do
     result = Map.put(result, :ci_recovery_opts, opts)
 
-    waiting_state = Transition.effective_ci_state(issue)
-
-    cond do
-      waiting_state in [@ci_wait_state, @human_review_state] and
-          result[:mergeable] == "CONFLICTING" ->
-        route_rework(state, issue, result)
-
-      waiting_state in [@ci_wait_state, @human_review_state] and
-          result[:review_decision] == "CHANGES_REQUESTED" ->
-        reconcile_changes_requested(state, issue, result, opts)
-
-      true ->
-        recover_ci_poll_result_after_rework(state, issue, result, opts)
+    # Unapproved conflicts only: changes-requested belongs to HeadVerdictRouter (#4822),
+    # approved conflicts to LandingWatch (#4883).
+    if Transition.effective_ci_state(issue) in [@ci_wait_state, @human_review_state] and
+         result[:mergeable] == "CONFLICTING" and not approved_at_head?(result) do
+      route_rework(state, issue, result)
+    else
+      recover_ci_poll_result_after_rework(state, issue, result, opts)
     end
   end
 
-  defp reconcile_changes_requested(state, issue, result, opts) do
-    fetcher = Keyword.get(opts, :reviews_fetcher, &GitHubClient.fetch_classified_pr_reviews/2)
-
-    Poll.run_ci_effect(
-      state,
-      issue,
-      "review_rework_check",
-      fn -> fetcher.(result[:pr_number], opts) end,
-      fn current, reviews_result ->
-        current_finding? =
-          case reviews_result do
-            {:ok, reviews} when is_list(reviews) ->
-              Enum.any?(ReworkGate.blocking_reviews(reviews), &(&1["commit_id"] == result[:head_sha]))
-
-            _ ->
-              false
-          end
-
-        if current_finding?,
-          do: route_rework(current, issue, result),
-          else: recover_ci_poll_result_after_rework(current, issue, result, opts)
-      end
-    )
-  end
+  defp approved_at_head?(result),
+    do: result[:review_decision] == "APPROVED" and result[:approved_review_head_sha] == result[:head_sha]
 
   # A head routed back unchanged (e.g. a handback that left the conflict in
   # place) hits the #2422 per-head bound, which raises one attention instead of looping.
