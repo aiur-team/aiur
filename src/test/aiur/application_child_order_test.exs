@@ -115,7 +115,9 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.Opencode.PrewarmSupervisor,
     Aiur.AgentList.App,
     Aiur.AgentList.Input,
-    Aiur.LauncherWatchdog
+    Aiur.LauncherWatchdog,
+    Aiur.BackgroundCpu,
+    Aiur.PRLifecycle.HeadVerdictRouter
   ]
 
   # Add an ID => reason entry only when a new child must start before existing
