@@ -119,6 +119,7 @@ defmodule AiurWeb.Experiments.ChartsTest do
     assert length(Floki.find(chart, ".exp-median")) == 1
     assert length(Floki.find(chart, ".exp-point")) == 1
     assert Floki.find(chart, ".exp-box") == []
+    assert Floki.text(chart) =~ "100 to 100.11"
     times = html(Charts.time_series(metric, detail)) |> Floki.parse_fragment!()
     assert length(Floki.find(times, ".exp-outside")) == 1
     assert Floki.text(Floki.find(times, "tbody")) =~ "Outside window"

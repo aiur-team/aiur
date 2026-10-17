@@ -13,7 +13,7 @@ defmodule AiurWeb.Experiments.Styles do
     .exp-series-scroll,.exp-data-scroll{max-width:100%;overflow-x:auto}.exp-series-canvas{min-width:560px}
     #exp-charts summary{cursor:pointer;min-height:44px;display:flex;align-items:center}
     #exp-charts table{width:100%;border-collapse:collapse}#exp-charts td,#exp-charts th{padding:8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
-    .exp-grid{opacity:.15}.exp-zero{stroke-dasharray:4 4}.exp-ci{stroke-width:3}.exp-hollow{fill:var(--surface);stroke:var(--fg)}.exp-estimate{fill:var(--fg)}
+    .exp-grid{opacity:.15}.exp-zero{stroke-dasharray:4 4}.exp-ci{stroke-width:3}.exp-hollow circle{fill:none;stroke:var(--fg)}.exp-estimate circle{fill:var(--fg)}
     .exp-expected{fill:var(--accent);opacity:.12}.exp-box{fill:var(--surface-2);stroke:var(--muted)}
     .exp-point{stroke:var(--fg);stroke-width:.5}.exp-series-0{fill:var(--an-s1)}.exp-series-1{fill:var(--an-s2)}.exp-series-2{fill:var(--an-s3)}.exp-series-3{fill:var(--an-s4)}
     .exp-before{fill:var(--faint)}.exp-after{fill:var(--accent)}

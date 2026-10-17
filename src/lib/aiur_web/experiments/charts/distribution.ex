@@ -15,7 +15,7 @@ defmodule AiurWeb.Experiments.Charts.Distribution do
       end)
 
     rows = for group <- metric.groups, point <- group.points, do: [group.label, point["unit_id"], Svg.number(point["value"])]
-    summary = for group <- metric.groups, do: [group.label, group.n, Svg.number(group.median), Svg.number(group.q1), Svg.number(group.q3), inspect(group.whiskers)]
+    summary = for group <- metric.groups, do: [group.label, group.n, Svg.number(group.median), Svg.number(group.q1), Svg.number(group.q3), range(group.whiskers)]
     label = "#{metric.label} distribution in #{metric.unit}, #{metric.scale} scale; #{length(rows)} samples shown."
     Svg.wrap(label, 300, [ticks, groups]) <> Svg.table("Group distributions", ~w(Group N Median Q1 Q3 Whiskers), summary) <> Svg.table("Distribution samples", ~w(Group Sample Value), rows)
   end
@@ -42,6 +42,8 @@ defmodule AiurWeb.Experiments.Charts.Distribution do
 
   defp whisker({lo, hi}, x, domain, scale), do: Svg.line(x, position(lo, domain, scale), x, position(hi, domain, scale), "exp-whisker")
   defp whisker(nil, _x, _domain, _scale), do: ""
+  defp range({lo, hi}), do: "#{Svg.number(lo)} to #{Svg.number(hi)}"
+  defp range(nil), do: "Unavailable"
   defp valid?(value, "log"), do: is_number(value) and value > 0
   defp valid?(value, _), do: is_number(value)
   defp position(value, domain, scale), do: Svg.position(value, domain, {240, 20}, scale)
