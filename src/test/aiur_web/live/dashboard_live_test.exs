@@ -6126,19 +6126,15 @@ defmodule AiurWeb.DashboardLiveTest do
         secret_key_base: String.duplicate("s", 64),
         dashboard_writable: false,
         dashboard_auth_required: false,
-        control_center_cache: cache
+        control_center_cache: cache,
+        # Without a stub the Tickets panel reads the app-global OpenTicketSource, which other test modules feed (#4862).
+        open_tickets_fun: fn -> open_ticket_snapshot([]) end
       )
       |> Keyword.merge(overrides)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
 
-    on_exit(fn ->
-      case previous do
-        nil -> Application.delete_env(:aiur, AiurWeb.Endpoint)
-        config -> Application.put_env(:aiur, AiurWeb.Endpoint, config)
-      end
-    end)
-
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, AiurWeb.Endpoint, previous), else: Application.delete_env(:aiur, AiurWeb.Endpoint) end)
     Aiur.TestSupport.start_owned_endpoint!()
   end
 
