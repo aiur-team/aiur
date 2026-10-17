@@ -22,7 +22,8 @@ defmodule Aiur.GitHub.CIRecovery do
     end
   end
 
-  @spec read(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  # Text endpoints such as job logs return a binary body.
+  @spec read(String.t(), keyword()) :: {:ok, map() | binary()} | {:error, term()}
   def read(path, opts), do: request(:get, path, nil, opts)
 
   @spec rerun(integer(), keyword()) :: {:ok, map()} | {:error, term()}
