@@ -2,7 +2,7 @@ defmodule Aiur.TestScopeGuardTest do
   use ExUnit.Case, async: true
 
   test "installed module hook fails when a test leaves scope state changed" do
-    {output, status} = run_probe(~S|System.put_env("AIUR_DEV_TEST_TICKET_IDS", "leaked")|)
+    {output, status} = run_probe(~S|System.put_env("AIUR_DEV_TEST_STATE_DIR", "leaked")|)
 
     assert status == 1, output
     assert output =~ "test scope state leaked"

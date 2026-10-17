@@ -40,9 +40,7 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
       OpenIssueSnapshot.reset()
       on_exit(fn -> OpenIssueSnapshot.reset() end)
       Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
-      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
-      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "7")
+      Aiur.TestScopeGuard.put_ticket_scope!("7")
       parent = self()
       base_url = "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
       second_url = base_url <> "&page=2"
@@ -91,9 +89,7 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
     end
 
     test "pinned test scope skips out-of-scope provenance before dispatch authorization" do
-      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
-      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+      Aiur.TestScopeGuard.put_ticket_scope!("99")
 
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
