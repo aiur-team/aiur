@@ -65,19 +65,23 @@ defmodule Aiur.ExecutorSweep do
     case safe_sweep(state.sweep_fun) do
       {:ok, findings} ->
         complete? = not Enum.any?(findings, &(&1.kind == "sweep_source_unavailable"))
-        fingerprints = MapSet.new(findings, &fingerprint/1)
         # Without a seen file, the first sweep and the first complete one record the backlog instead of waking on it.
         quiet? = not state.seeded? and (complete? or state.seen == MapSet.new())
         unless quiet?, do: findings |> Enum.reject(&(fingerprint(&1) in state.seen)) |> Enum.each(state.publish_fun)
-        # An unavailable source hides its findings only for now; keep their fingerprints so they do not wake again.
-        seen = if complete?, do: fingerprints, else: MapSet.union(state.seen, fingerprints)
-        seeded? = state.seeded? or complete?
-        if seeded? and (seen != state.seen or not state.seeded?), do: write_seen(state.seen_path, seen)
-        {:noreply, %{state | seen: seen, seeded?: seeded?}}
+        {:noreply, record_seen(state, findings, complete?)}
 
       :error ->
         {:noreply, state}
     end
+  end
+
+  # An unavailable source hides its findings only for now; keep their fingerprints so they do not wake again.
+  defp record_seen(state, findings, complete?) do
+    fingerprints = MapSet.new(findings, &fingerprint/1)
+    seen = if complete?, do: fingerprints, else: MapSet.union(state.seen, fingerprints)
+    seeded? = state.seeded? or complete?
+    if seeded? and (seen != state.seen or not state.seeded?), do: write_seen(state.seen_path, seen)
+    %{state | seen: seen, seeded?: seeded?}
   end
 
   # A dependency that is down or still starting must not crash the sweep, or restarts can exhaust the app supervisor.
