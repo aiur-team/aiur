@@ -1,20 +1,18 @@
 defmodule AiurWeb.StreamdeckChannelCommandsTest do
   use AiurWeb.StreamdeckChannelCase
 
+  alias Aiur.TestSupport.EndpointStubs
+  alias AiurWeb.EndpointConfig
+
   describe "Commands" do
-    # The channel reads `Endpoint.config(:decision_store)` per call, so each
-    # test points it at a fresh fake store. The restore in `on_exit` uses
-    # `Application.put_env` — never `Endpoint.config_change`, whose ETS table is
-    # torn down before `on_exit` runs. The next test's setup re-applies the full
-    # endpoint config, which drops the stale `decision_store` entry.
+    # The channel reads `:decision_store` per call, so each test points it at a
+    # fresh fake store, scoped to the test (#4908).
     setup do
       decision = command_decision("AIUR-1")
       {:ok, store} = FakeDecisionStore.start_link(decision, self())
-      previous_config = Application.get_env(:aiur, Endpoint)
-      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, store)}, [])
+      EndpointStubs.put(decision_store: store)
 
       on_exit(fn ->
-        Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(store)
       end)
 
@@ -22,7 +20,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     end
 
     test "focus pushes the focused agent's Commands page", %{decision: decision} do
-      store = Endpoint.config(:decision_store)
+      store = EndpointConfig.get(:decision_store)
       assert is_pid(store) and Process.alive?(store)
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
@@ -112,11 +110,9 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     test "answer_command refuses a Command that is not the focused agent's" do
       decision = command_decision("AIUR-999")
       {:ok, other_store} = FakeDecisionStore.start_link(decision, self())
-      previous_config = Application.get_env(:aiur, Endpoint)
-      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, other_store)}, [])
+      EndpointStubs.put(decision_store: other_store)
 
       on_exit(fn ->
-        Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(other_store)
       end)
 
@@ -192,11 +188,9 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       # so a newly-added status can never silently become answerable.
       dismissed = %{command_decision("AIUR-1") | decision_status: :dismissed}
       {:ok, dismissed_store} = FakeDecisionStore.start_link(dismissed, self())
-      previous_config = Application.get_env(:aiur, Endpoint)
-      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, dismissed_store)}, [])
+      EndpointStubs.put(decision_store: dismissed_store)
 
       on_exit(fn ->
-        Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(dismissed_store)
       end)
 
@@ -232,11 +226,9 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
           filesystem_sync_fun: fn -> :ok end
         )
 
-      previous_config = Application.get_env(:aiur, Endpoint)
-      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, store)}, [])
+      EndpointStubs.put(decision_store: store)
 
       on_exit(fn ->
-        Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(store)
         Aiur.TestCleanup.rm_rf!(dir)
       end)
@@ -303,11 +295,9 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
           filesystem_sync_fun: fn -> :ok end
         )
 
-      previous_config = Application.get_env(:aiur, Endpoint)
-      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, store)}, [])
+      EndpointStubs.put(decision_store: store)
 
       on_exit(fn ->
-        Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(store)
         Aiur.TestCleanup.rm_rf!(dir)
       end)

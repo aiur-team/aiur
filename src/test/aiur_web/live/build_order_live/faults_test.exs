@@ -1,6 +1,8 @@
 defmodule AiurWeb.BuildOrderLive.FaultsTest do
   use AiurWeb.BuildOrderLiveCase
 
+  alias Aiur.TestSupport.EndpointStubs
+
   test "coalesces source invalidation bursts behind one in-flight cached read" do
     parent = self()
     counter = start_supervised!({Agent, fn -> 0 end})
@@ -314,17 +316,15 @@ defmodule AiurWeb.BuildOrderLive.FaultsTest do
       end
     )
 
-    endpoint_config =
-      Keyword.put(Application.get_env(:aiur, Endpoint), :live_conversation_resolve_fun, fn handle ->
+    EndpointStubs.put(
+      live_conversation_resolve_fun: fn handle ->
         case Enum.find(handles, fn {_number, candidate} -> candidate == handle end) do
           {7, _handle} -> {:ok, %{state: :live, messages: [%{content: "Current conversation"}]}}
           {8, _handle} -> {:ok, %{state: :stale, messages: [%{content: "Paused conversation"}]}}
           nil -> {:error, :unavailable}
         end
-      end)
-
-    Application.put_env(:aiur, Endpoint, endpoint_config)
-    :ok = Endpoint.config_change([{Endpoint, endpoint_config}], [])
+      end
+    )
 
     {:ok, view, _html} = live_settled("/build-orders/42")
     render_async(view, 2_000)
