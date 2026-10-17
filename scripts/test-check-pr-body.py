@@ -187,10 +187,10 @@ outside the example
             ('b1', 'b2'): main,
         }
         pr = {'body': f'## Local tests\nTested head: {tested}\n', 'head': {'sha': head},
-              'base': {'ref': 'main', 'repo': {'full_name': 'o/r'}}}
+              'base': {'sha': 'main'}}
         root = Path(__file__).resolve().parent.parent
         with patch.object(gate, 'is_ancestor', return_value=True), \
-             patch.object(gate, 'compare', side_effect=lambda _repo, base, ref: comparisons[(base, ref)]):
+             patch.object(gate, 'compare', side_effect=lambda _root, base, ref: comparisons[(base, ref)]):
             return gate.evidence_head(pr, root)
 
     def test_merge_of_main_only_accepts_the_tested_ancestor(self):

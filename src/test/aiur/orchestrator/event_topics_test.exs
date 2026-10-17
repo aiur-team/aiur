@@ -236,25 +236,29 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
         topic: "ticket.176.pr.merged",
         pr: %{
           "body" => "Refs #176 (merge does not close the ticket)",
-          "merged_by" => %{"login" => "its-everdred"}
+          "merged_by" => %{"login" => "its-everdred"},
+          "head" => %{"sha" => "4ab677b8b"}
         }
       }
 
       assert EventTopics.pr_merged_opts(event) == [
                merged_by_login: "its-everdred",
-               pr_body: "Refs #176 (merge does not close the ticket)"
+               pr_body: "Refs #176 (merge does not close the ticket)",
+               head_sha: "4ab677b8b"
              ]
     end
 
     test "reports a nil body and merger for an event carrying no pull request" do
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged"}) == [
                merged_by_login: nil,
-               pr_body: nil
+               pr_body: nil,
+               head_sha: nil
              ]
 
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged", pr: nil}) == [
                merged_by_login: nil,
-               pr_body: nil
+               pr_body: nil,
+               head_sha: nil
              ]
     end
   end
