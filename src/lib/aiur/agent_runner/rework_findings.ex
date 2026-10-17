@@ -9,7 +9,6 @@ defmodule Aiur.AgentRunner.ReworkFindings do
   never blocks a handback.
   """
 
-  alias Aiur.GitHub.PullRequestBodyEdit
   alias Aiur.Orchestrator.ReworkGate
 
   @type finding :: %{id: String.t(), file: String.t(), line: String.t(), ask: String.t()}
@@ -88,7 +87,7 @@ defmodule Aiur.AgentRunner.ReworkFindings do
     end
   end
 
-  defp default_body_edit(number), do: if(ReworkGate.available?(), do: PullRequestBodyEdit.last_edited_at(number), else: {:ok, nil})
+  defp default_body_edit(number), do: if(ReworkGate.available?(), do: Aiur.CodeHost.pull_request_body_edited_at(number), else: {:ok, nil})
 
   defp default_reviews(number) when is_integer(number) do
     if ReworkGate.available?(), do: Aiur.CodeHost.fetch_classified_pr_reviews(number), else: {:ok, []}
