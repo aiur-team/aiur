@@ -1,5 +1,4 @@
 # rule	target_module	reason
-R-declared	Aiur.AgentGitHubGuard	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Executor.StatePaths	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator.DispatchPolicy	U2 state-label contract; MP-R1-C9-T09 (G-1)

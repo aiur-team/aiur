@@ -2,7 +2,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   @moduledoc "Records repeated test failures from unrelated merge-group PRs."
 
   alias Aiur.GitHub.{CIRecovery, FailureEvidence, PullRequests}
-  alias Aiur.LandingWatch.{FlakeRecorder, Journal, QuarantinePR}
+  alias Aiur.LandingWatch.{FlakeFilingGate, FlakeRecorder, Journal, QuarantinePR}
   alias Aiur.TestQuarantine.Detector
 
   @window_ms 24 * 60 * 60 * 1_000
@@ -66,7 +66,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
          true <- prs != [],
          {:ok, jobs} <- Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2).(run["id"], opts),
          {:ok, failures} <- test_failures(jobs, opts) do
-      process_failures(failures, run, prs, opts)
+      process_failures(failures, run, prs, base, opts)
     else
       false -> :ok
       {:error, _} = error -> error
@@ -74,24 +74,30 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
     end
   end
 
-  defp process_failures(failures, run, prs, opts) do
+  defp process_failures(failures, run, prs, base, opts) do
     Enum.reduce_while(failures, :ok, fn failure, :ok ->
-      case maybe_quarantine(failure, run, prs, opts) do
+      case maybe_quarantine(failure, run, prs, base, opts) do
         :ok -> {:cont, :ok}
         {:error, _} = error -> {:halt, error}
       end
     end)
   end
 
-  defp maybe_quarantine(%{path: path} = failure, run, prs, opts) when is_binary(path) do
+  defp maybe_quarantine(%{path: path} = failure, run, prs, base, opts) when is_binary(path) do
     with {:ok, at_ms} <- run_time(run),
          :ok <- record_observations(failure, run, prs, path, at_ms, opts),
          {:ok, rows} <- Journal.failure_observations(opts),
-         {:ok, candidate} <- repeated(rows, failure),
-         do: record_flake(candidate, failure, run, opts)
+         {:ok, candidate} when candidate != nil <- repeated(rows, failure),
+         :file <- FlakeFilingGate.decide(failure, run, at_ms, rows, base, opts) do
+      record_flake(candidate, failure, run, opts)
+    else
+      {:ok, nil} -> :ok
+      {:skip, _reason} -> :ok
+      {:error, _} = error -> error
+    end
   end
 
-  defp maybe_quarantine(_failure, _run, _prs, _opts), do: :ok
+  defp maybe_quarantine(_failure, _run, _prs, _base, _opts), do: :ok
 
   defp record_observations(failure, run, prs, path, at_ms, opts) do
     Enum.reduce_while(prs, :ok, fn pr, :ok ->
@@ -173,8 +179,6 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
       {:error, _} = error -> error
     end
   end
-
-  defp record_flake(nil, _failure, _run, _opts), do: :ok
 
   defp record_flake(candidate, failure, run, opts) do
     issue_recorded_fun = fn ticket -> open_quarantine(candidate, ticket, opts) end
