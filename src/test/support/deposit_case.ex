@@ -44,7 +44,6 @@ defmodule Aiur.TestSupport.DepositCase do
       restore_env("GITHUB_TOKEN", prev_token)
       Publisher.set_tracked_fn(fn _ -> true end)
       WebhookPollFixture.clear_replay_window()
-      WebhookPollFixture.cancel_live_comment_retries()
       Application.delete_env(:aiur, :github_resource_store_path)
 
       if is_nil(Process.whereis(ResourceStore)) do
