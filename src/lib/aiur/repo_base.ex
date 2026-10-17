@@ -70,13 +70,11 @@ defmodule Aiur.RepoBase do
 
   @doc "Absolute path of the append-only executor findings file for `repo_url`."
   @spec findings_path(String.t()) :: Path.t()
-  def findings_path(repo_url) when is_binary(repo_url),
-    do: Path.join(meta_path(repo_url), "findings.ndjson")
+  def findings_path(repo_url) when is_binary(repo_url), do: Path.join(meta_path(repo_url), "findings.ndjson")
 
   @doc "Absolute path of the append-only Executor-to-operator asks file for `repo_url`."
   @spec asks_path(String.t()) :: Path.t()
-  def asks_path(repo_url) when is_binary(repo_url),
-    do: Path.join(meta_path(repo_url), "asks.ndjson")
+  def asks_path(repo_url) when is_binary(repo_url), do: Path.join(meta_path(repo_url), "asks.ndjson")
 
   @doc "Absolute path of per-boot executor retrospectives for `repo_url`."
   @spec retros_path(String.t()) :: Path.t()
@@ -84,21 +82,18 @@ defmodule Aiur.RepoBase do
 
   @doc "Absolute path of regenerable analytics outputs for `repo_url`."
   @spec analytics_path(String.t()) :: Path.t()
-  def analytics_path(repo_url) when is_binary(repo_url),
-    do: Path.join(repo_path(repo_url), "analytics")
+  def analytics_path(repo_url) when is_binary(repo_url), do: Path.join(repo_path(repo_url), "analytics")
 
   @spec experiments_path(String.t()) :: Path.t()
   def experiments_path(repo_url), do: Path.join(repo_path(repo_url), "experiments")
 
   @doc "Absolute path of replaceable Executor state for `repo_url`."
   @spec executor_path(String.t()) :: Path.t()
-  def executor_path(repo_url) when is_binary(repo_url),
-    do: Path.join(repo_path(repo_url), "executor")
+  def executor_path(repo_url) when is_binary(repo_url), do: Path.join(repo_path(repo_url), "executor")
 
   @doc "Absolute path of the current Executor handoff for `repo_url`."
   @spec handoff_path(String.t()) :: Path.t()
-  def handoff_path(repo_url) when is_binary(repo_url),
-    do: Path.join(executor_path(repo_url), "handoff.md")
+  def handoff_path(repo_url) when is_binary(repo_url), do: Path.join(executor_path(repo_url), "handoff.md")
 
   @doc "Creates the canonical repository state tree before any writer needs it."
   @spec ensure_state_tree(String.t()) :: :ok | {:error, term()}
@@ -172,11 +167,7 @@ defmodule Aiur.RepoBase do
 
   defp run_refresh_steps(base_path, repo_url, base_build) do
     with {:ok, changed?} <- prepare_clone(base_path, repo_url) do
-      Clone.maybe_build(
-        base_path,
-        base_build,
-        changed? or not Clone.built?(base_path, base_build)
-      )
+      Clone.maybe_build(base_path, base_build, changed? or not Clone.built?(base_path, base_build))
     end
   end
 
@@ -246,10 +237,7 @@ defmodule Aiur.RepoBase do
 
     case result do
       {:ok, base} ->
-        {:noreply,
-         state
-         |> Map.merge(%{phase: :ready, base_path: base, ready_head: head, freshness: :unknown})
-         |> clear_released_watchdog()}
+        {:noreply, state |> Map.merge(%{phase: :ready, base_path: base, ready_head: head, freshness: :unknown}) |> clear_released_watchdog()}
 
       {:error, reason} ->
         {:noreply, state |> Map.put(:phase, {:error, reason}) |> clear_dispatch_watchdog()}
@@ -282,10 +270,7 @@ defmodule Aiur.RepoBase do
     {:noreply, state |> clear_probe() |> probe_failed(:timeout) |> clear_released_watchdog()}
   end
 
-  def handle_info(
-        {:dispatch_hold_timeout, watchdog_ref},
-        %{dispatch_watchdog: %{ref: watchdog_ref}} = state
-      ) do
+  def handle_info({:dispatch_hold_timeout, watchdog_ref}, %{dispatch_watchdog: %{ref: watchdog_ref}} = state) do
     if hold_phase?(state.phase) do
       if hold_progress?(state) do
         # The hold's worker is still alive, so the operation is progressing (a
@@ -383,13 +368,7 @@ defmodule Aiur.RepoBase do
 
     {pid, ref} = spawn_monitor(fn -> build_worker(parent, base, repo_url, command) end)
 
-    %{
-      state
-      | phase: :building,
-        base_path: base,
-        build: %{pid: pid, ref: ref, head: nil},
-        freshness: :unknown
-    }
+    %{state | phase: :building, base_path: base, build: %{pid: pid, ref: ref, head: nil}, freshness: :unknown}
   end
 
   defp abort_build(%{build: %{}} = state) do
@@ -443,8 +422,7 @@ defmodule Aiur.RepoBase do
   defdelegate git_auth_env(token), to: Clone
 
   @doc false
-  @spec read_ledger(Path.t(), atom(), {module(), atom()} | nil) ::
-          {:ok, String.t()} | {:error, term()}
+  @spec read_ledger(Path.t(), atom(), {module(), atom()} | nil) :: {:ok, String.t()} | {:error, term()}
   defdelegate read_ledger(path, kind, validator), to: Aiur.RepoBase.Ledger
 
   # Pre-warm needs an enabled build command and an adapter-provided clone source.

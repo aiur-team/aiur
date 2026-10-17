@@ -28,11 +28,7 @@ defmodule Aiur.Workspace.TrackerBoundaryTest do
 
   test "prewarm retains its GitHub repository source for non-GitHub trackers" do
     for kind <- ["linear", "memory"] do
-      write_workflow_file!(Workflow.workflow_file_path(),
-        tracker_kind: kind,
-        tracker_repo: "owner/repo"
-      )
-
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: kind, tracker_repo: "owner/repo")
       assert Tracker.clone_url() == nil
       assert Aiur.RepoBase.Clone.clone_url() == "https://github.com/owner/repo.git"
     end
@@ -40,12 +36,7 @@ defmodule Aiur.Workspace.TrackerBoundaryTest do
 
   test "Linear repo segment retains whitespace for the existing path sanitizer" do
     root = Aiur.TestSupport.tmp_root!("workspace-linear-boundary")
-
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "linear",
-      tracker_project_slug: " project "
-    )
-
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear", tracker_project_slug: " project ")
     assert Tracker.workspace_repo_segment() == " project "
     assert Layout.issue_workspace_path(root, "17") == Path.join([root, "_project_", "17"])
   end

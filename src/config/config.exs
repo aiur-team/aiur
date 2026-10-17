@@ -47,12 +47,7 @@ config :aiur, :workspace_preflights, %{"github" => Aiur.GitHub.WorkspacePrefligh
 config :aiur, :repo_base_clone_url, {Aiur.GitHub.Tracker, :clone_url, []}
 config :aiur, :repo_base_git_token, {Aiur.GitHub.Config, :token, []}
 config :aiur, :workspace_git_credential_file, {Aiur.AgentGitHubGuard, :agent_token_path, []}
-
-config :aiur, :repo_ledger_validators, %{
-  asks: {Aiur.Commands, :validate_asks},
-  findings: {Aiur.Findings, :validate}
-}
-
+config :aiur, :repo_ledger_validators, %{asks: {Aiur.Commands, :validate_asks}, findings: {Aiur.Findings, :validate}}
 config :aiur, :agent_support_modules, [Aiur.AgentGitHubGuard]
 
 config :aiur, :tracker_fallback_kind, "linear"
@@ -303,11 +298,7 @@ if config_env() == :test do
   test_workflow_file_path = Path.join(test_log_root, "test.yaml")
   fixture = File.read!(Path.expand("../test/fixtures/test.yaml", __DIR__))
   workspace_root = Path.join(test_log_root, "workspaces")
-
-  File.write!(
-    test_workflow_file_path,
-    String.replace(fixture, "/tmp/aiur-test-workspaces", workspace_root)
-  )
+  File.write!(test_workflow_file_path, String.replace(fixture, "/tmp/aiur-test-workspaces", workspace_root))
 
   config :aiur, :workflow_file_path, test_workflow_file_path
 end

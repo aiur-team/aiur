@@ -17,9 +17,7 @@ defmodule Aiur.RepoBase.Clone do
 
   @spec clone_url() :: String.t() | nil
   def clone_url do
-    {module, function, args} =
-      Application.get_env(:aiur, :repo_base_clone_url, {Aiur.Tracker, :clone_url, []})
-
+    {module, function, args} = Application.get_env(:aiur, :repo_base_clone_url, {Aiur.Tracker, :clone_url, []})
     apply(module, function, args)
   end
 
@@ -112,9 +110,7 @@ defmodule Aiur.RepoBase.Clone do
   @doc false
   @spec git([String.t()], Path.t() | nil) :: {String.t(), non_neg_integer()}
   def git(args, nil), do: System.cmd("git", args, stderr_to_stdout: true, env: git_auth_env())
-
-  def git(args, cwd),
-    do: System.cmd("git", ["-C", cwd | args], stderr_to_stdout: true, env: git_auth_env())
+  def git(args, cwd), do: System.cmd("git", ["-C", cwd | args], stderr_to_stdout: true, env: git_auth_env())
 
   # Auth for networked git calls. Git never reads GITHUB_TOKEN on its own, so a
   # warm-base clone/fetch of a private repo 401s ("Password authentication is not
@@ -132,9 +128,7 @@ defmodule Aiur.RepoBase.Clone do
   # inert for the local rev-parse/reset calls that also route through `git/2`.
   @spec git_auth_env() :: [{String.t(), String.t()}]
   def git_auth_env do
-    {module, function, args} =
-      Application.get_env(:aiur, :repo_base_git_token, {Aiur.Workspace.NoToken, :token, []})
-
+    {module, function, args} = Application.get_env(:aiur, :repo_base_git_token, {Aiur.Workspace.NoToken, :token, []})
     git_auth_env(apply(module, function, args))
   end
 
@@ -223,8 +217,7 @@ defmodule Aiur.RepoBase.Clone do
   defp prewarm_script_hash(base_build) when is_binary(base_build),
     do: :crypto.hash(:sha256, base_build) |> Base.encode16(case: :lower)
 
-  defp prewarm_script_hash(_base_build),
-    do: :crypto.hash(:sha256, "") |> Base.encode16(case: :lower)
+  defp prewarm_script_hash(_base_build), do: :crypto.hash(:sha256, "") |> Base.encode16(case: :lower)
 
   defp repo_node_path(base_path), do: Path.dirname(base_path)
   defp base_record_path(base_path), do: Path.join(repo_node_path(base_path), @base_record)
