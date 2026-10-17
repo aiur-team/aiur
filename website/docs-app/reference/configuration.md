@@ -261,12 +261,9 @@ since the blocking `CHANGES_REQUESTED` review is moved to `agent:human-review`
 for the second look — GitHub keeps `reviewDecision = CHANGES_REQUESTED` until
 a brand-new review, so nothing else re-queues it.
 
-It also enables the **changes-requested router**: every 5 minutes, a ticket in
-`agent:human-review` or `agent:ci-wait` moves to `agent:rework` when the
-configured reviewer's latest verdict on its open PR is `CHANGES_REQUESTED` at
-the PR's current head. A review on an older head, a `COMMENTED` or `APPROVED`
-review, and a closed or merged PR leave the ticket where it is. Each review
-routes the ticket at most once.
+It also runs the **changes-requested router** every 5 minutes: an `agent:human-review`
+or `agent:ci-wait` ticket moves to `agent:rework`, once per review, when the configured
+reviewer's latest verdict on its open PR is `CHANGES_REQUESTED` at the PR head.
 
 A PR whose head only moved via merges of the base branch (own contribution
 unchanged) is NOT re-queued; it raises `system.pr_health.rework_merge_only` so
