@@ -116,7 +116,7 @@ def analyze(snapshot, spec, annotations=None):
             child = result["strata"][name] = rounded(child)
             child["summary_text"] = summarize(child, definition, groups)
         # Classify at full precision; serialize and summarize at the published precision.
-        _label(result, metric, settings["alpha"])
+        _label(result, metric, settings["alpha" if metric["primary"] else "fdr_q"])
         result = results[metric["id"]] = rounded(result)
         result["summary_text"] = summarize(result, metric, groups)
     primaries = {m["id"]: results[m["id"]]["status"] for m in metrics if m["primary"]}

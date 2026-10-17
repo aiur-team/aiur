@@ -115,7 +115,7 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
       Issue.parked?(issue) or
       Issue.queued?(issue) or
       MissingLabels.parked_marker?(issue) or
-      DispatchPolicy.todo_issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()) or
+      DispatchPolicy.issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()) or
       external_wait_state?(issue.state) or
       DispatchPolicy.normalize_issue_state(issue.state) == "todo"
   end
