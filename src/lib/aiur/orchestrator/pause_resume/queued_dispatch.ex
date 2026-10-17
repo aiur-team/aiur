@@ -149,7 +149,7 @@ defmodule Aiur.Orchestrator.PauseResume.QueuedDispatch do
   end
 
   defp dependency_resumability(issue, terminal_states) do
-    if DispatchPolicy.todo_issue_held_by_dependency?(issue, terminal_states) do
+    if DispatchPolicy.issue_held_by_dependency?(issue, terminal_states) do
       {:error, :waiting_for_dependencies}
     else
       :ok
