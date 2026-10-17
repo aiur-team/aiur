@@ -9,7 +9,12 @@ export const DESIGN_ORIGIN = 'http://design.parity.invalid'
 export const DESIGN_ROOT = fileURLToPath(new URL('../../test/fixtures/build_home/design-source/', import.meta.url)).replace(/\/$/, '')
 export const FIXTURE_META = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/manifest.json', import.meta.url), 'utf8'))
 const families = [['Bungee'], ['Space Grotesk'], ['JetBrains Mono']]
-const fontCSS = await readFile(new URL('./fixtures/google-fonts-css2.css', import.meta.url), 'utf8')
+// The product serves one aiur-style variable face per family; give the design's Google faces the same weight range and no subset range.
+const variableWeights = { 'Space Grotesk': '300 700', 'JetBrains Mono': '100 800' }
+const fontCSS = (await readFile(new URL('./fixtures/google-fonts-css2.css', import.meta.url), 'utf8')).replace(/@font-face \{[^}]*\}/g, face => {
+  const weights = variableWeights[face.match(/font-family: '([^']+)'/)[1]]
+  return weights ? face.replace(/font-weight: \d+;/, `font-weight: ${weights};`).replace(/\n\s*unicode-range: [^;]+;/, '') : face
+})
 const fontPaths = JSON.parse(await readFile(new URL('./fixtures/google-fonts-map.json', import.meta.url), 'utf8'))
 const failures = new WeakMap()
 
