@@ -91,3 +91,5 @@ PR reruns spend the per-head budget (two per head) and share the 3-per-15-minute
 A PR whose failure needs a fresh merge ref (stale merge ref, newer CI change, superseded job) is not rerun and appears as `approved_pr_refresh_pending`; a head that spent its budget or is backing off is not reclassified.
 
 The landing watcher does not queue a PR whose ticket is in `agent:rework`, `agent:in-progress` or `agent:todo` (these win over a review label it still carries), so an Executor dequeue holds until the ticket returns to review.
+
+When an approved PR conflicts with its base, the landing watcher takes it out of the merge queue, moves its ticket to `agent:rework`, clears `agent:paused`, and comments "rebase only" on the ticket. The approval stays in place so re-review can compare the contribution diff.

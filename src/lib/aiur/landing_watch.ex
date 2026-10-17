@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events.Exchange
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, MergeGroups, Observer, PrRerun}
+  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, Journal, MergeGroups, Observer, PrRerun}
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.PrMerge.Queue
   alias Aiur.TicketBranch
@@ -140,6 +140,8 @@ defmodule Aiur.LandingWatch do
 
     with true <- Classifier.approved_at_head?(raw),
          {:ok, true} <- current_approval.(number, opts),
+         # A conflict blocks landing whatever CI says, queued or not (#4729).
+         false <- ConflictRouting.conflicting?(observation),
          {:ok, required} <- required_result,
          {:ok, %{check_runs: runs, commit_status: commit_status}} <- ci_status.(head, opts) do
       result = Classifier.ci_verdict(runs, commit_status, %{"head" => %{"sha" => head}, "draft" => Map.get(raw, "isDraft")}, required_checks: {:ok, required})
@@ -150,6 +152,7 @@ defmodule Aiur.LandingWatch do
     else
       {:ok, false} -> :ok
       false -> :ok
+      true -> ConflictRouting.route(observation, &route_rework/3, opts)
       {:error, reason} -> {:error, reason}
       _ -> {:error, :invalid_approved_pull_request_observation}
     end
@@ -193,9 +196,6 @@ defmodule Aiur.LandingWatch do
 
   defp handle_verdict(%{mergeable: "MERGEABLE", merge_state_status: "CLEAN"} = observation, %{decision: :pending}, _runs, opts),
     do: landing_eligibility(observation, opts)
-
-  defp handle_verdict(%{mergeable: "CONFLICTING", merge_queue_entry: nil} = observation, %{decision: :pending}, _runs, opts),
-    do: route_rework(observation, [%{name: "Merge conflict with base"}], opts)
 
   defp handle_verdict(_observation, %{decision: :pending}, _runs, _opts), do: :ok
 
@@ -364,7 +364,7 @@ defmodule Aiur.LandingWatch do
         case transition_rework(observation, failures, opts) do
           {:error, :pull_request_not_linked_to_ticket_branch} ->
             log_unlinked_head_once(observation, opts)
-            :ok
+            not_routed(opts)
 
           result ->
             result
@@ -393,13 +393,23 @@ defmodule Aiur.LandingWatch do
           _ -> {:error, :ticket_rework_transition_unconfirmed}
         end
 
+      {:ok, issue, "rework"} ->
+        if Keyword.get(opts, :conflict_rework_claim) == :new do
+          :conflict_already_rework
+        else
+          Keyword.get(opts, :after_rework, fn _issue -> :ok end).(issue)
+        end
+
       {:ok, _issue, _state} ->
-        :ok
+        not_routed(opts)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  # A conflict route that moved nothing must release its claim (#4729).
+  defp not_routed(opts), do: if(Keyword.has_key?(opts, :conflict_rework_claim), do: :conflict_not_routed, else: :ok)
 
   defp emit_rework_alert(observation, failures, issue, opts) do
     run_link = Keyword.get(opts, :run_url)
@@ -408,7 +418,7 @@ defmodule Aiur.LandingWatch do
     message = "Approved PR ##{observation.number} moved ticket ##{issue} to rework: " <> evidence
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
     emitter.("system.pr.landing.rework", central: true, needs_attention: false, message: message, reason: message)
-    :ok
+    Keyword.get(opts, :after_rework, fn _issue -> :ok end).(issue)
   end
 
   defp fetch_ticket(observation, opts) do
