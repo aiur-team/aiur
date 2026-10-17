@@ -81,3 +81,5 @@ Actions read permission is required to attribute checks to workflows. Failed or 
 Named workflows must run on every base push. For example, `[ci, "Publish Docker Image"]` works when both run on every push; a path-filtered workflow can leave status on an older SHA. Merge-queue commits without push runs are skipped. The first Actions page must reach back to the oldest commit in the 20-commit window.
 
 Status reports `watcher=running|unavailable|not_running` for base CI and `landing_watcher=...` separately. The landing watcher follows approved heads through CI and queue, retries infra failures, routes real failures to rework, and counts automatic merge-group requeues by hour. Starting base watching after boot requires a daemon restart.
+
+The landing watcher does not queue a PR whose ticket is in `agent:rework`, `agent:in-progress` or `agent:todo` (these win over a review label it still carries), so an Executor dequeue holds until the ticket returns to review.

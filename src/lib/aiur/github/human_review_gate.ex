@@ -12,7 +12,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
   """
 
   alias Aiur.Config
-  alias Aiur.GitHub.{BotIdentity, HumanReviewContribution, PullRequests, ResourceFetch, ResourceStore, ReviewThreads, StatePolicy, Transport}
+  alias Aiur.GitHub.{BotIdentity, HumanReviewContribution, HumanReviewPathProbe, PullRequests, ResourceFetch, ResourceStore, ReviewThreads, StatePolicy, Transport}
 
   @approval_fields "headRefOid reviewDecision mergeQueueEntry { id } reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }"
 
@@ -173,7 +173,9 @@ defmodule Aiur.GitHub.HumanReviewGate do
          {:ok, base_sha} <- comparison_base(current_comparison) do
       compare_fun = fn compare_base, compare_head, per_page -> compare(context, compare_base, compare_head, per_page) end
 
-      HumanReviewContribution.unchanged?(approved_head, head, base_sha, current_comparison, compare_fun)
+      probe_fun = fn paths, from_sha, to_sha -> HumanReviewPathProbe.changed_paths(paths, from_sha, to_sha, context) end
+
+      HumanReviewContribution.unchanged?(approved_head, head, base_sha, current_comparison, compare_fun, probe_fun)
     end
   end
 
@@ -181,7 +183,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
     with {:ok, base_sha} <- comparison_base(comparison),
          {:ok, pr_files} <- changed_paths(comparison),
          {:ok, upstream} <- compare(context, head, base_sha),
-         {:ok, upstream_files} <- upstream_paths(upstream) do
+         {:ok, upstream_files} <- upstream_paths(upstream, pr_files, base_sha, context) do
       if MapSet.disjoint?(pr_files, upstream_files), do: :ok, else: stale
     end
   end
@@ -189,8 +191,13 @@ defmodule Aiur.GitHub.HumanReviewGate do
   defp comparison_base(%{"base_commit" => %{"sha" => sha}}) when is_binary(sha) and sha != "", do: {:ok, sha}
   defp comparison_base(_comparison), do: {:error, :review_base_ancestry_unavailable}
 
-  defp upstream_paths(%{"status" => status} = comparison) when status in ["ahead", "diverged"], do: changed_paths(comparison)
-  defp upstream_paths(_comparison), do: {:error, :review_base_ancestry_unavailable}
+  # A capped upstream list is incomplete, so probe the PR's own paths instead (#4533).
+  defp upstream_paths(%{"status" => status, "files" => files, "merge_base_commit" => %{"sha" => merge_base}}, pr_files, base_sha, context)
+       when status in ["ahead", "diverged"] and is_list(files) and length(files) >= 300 and is_binary(merge_base) and merge_base != "",
+       do: HumanReviewPathProbe.changed_paths(pr_files, merge_base, base_sha, context)
+
+  defp upstream_paths(%{"status" => status} = comparison, _pr_files, _base_sha, _context) when status in ["ahead", "diverged"], do: changed_paths(comparison)
+  defp upstream_paths(_comparison, _pr_files, _base_sha, _context), do: {:error, :review_base_ancestry_unavailable}
 
   defp changed_paths(%{"files" => files}) when is_list(files) and length(files) < 300 do
     Enum.reduce_while(files, {:ok, MapSet.new()}, &add_changed_path/2)
