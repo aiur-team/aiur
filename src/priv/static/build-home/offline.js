@@ -29,27 +29,34 @@ function banner(headline, heartbeat) {
   return { headline, detail: detail + ' Showing cached state — agent states and usage may be stale.' };
 }
 const HOLD = /hold|held|budget|rate_limit/;
-const ago = at => Number.isFinite(at) && nowMs() !== null ? fmtAge(nowMs() - at) : null;
+const since = at => Number.isFinite(at) && nowMs() !== null ? Math.max(0, nowMs() - at) : null;
+const brief = ms => ms < 60_000 ? '<1m' : ms < 3_600_000 ? `${Math.floor(ms / 60_000)}m`
+  : ms < 172_800_000 ? `${Math.floor(ms / 3_600_000)}h` : `${Math.floor(ms / 86_400_000)}d`;
+// The visible label stays phone-short (`short`); the title carries the full sentence.
 // A GitHub-backed source held by the shared budget is a field gap, not a daemon fault (#4770).
-function heldNote() {
+function heldNote(short) {
   const held = Object.entries(ctx.snap?.sources ?? {}).find(([, src]) => src?.state !== 'ok' && HOLD.test(String(src?.reason)));
   if (!held) return '';
-  const age = ago(held[1].observed_at);
-  return ` · ${held[0]} held by GitHub, ${age ? 'read ' + age : 'no read recorded'}`;
+  const ms = since(held[1].observed_at);
+  if (short) return ` · ${held[0]} held${ms === null ? '' : ' ' + brief(ms)}`;
+  return ` · ${held[0]} held by GitHub, ${ms === null ? 'no read recorded' : 'read ' + fmtAge(ms)}`;
 }
 // An open socket proves the daemon answers even while its fleet snapshot is unread.
-function unreadText(daemon) {
-  const age = ago(daemon?.heartbeat_at);
-  return 'Daemon up · fleet snapshot unread, ' + (age ? 'last good ' + age : 'no good reading yet');
+function unreadText(daemon, short) {
+  const ms = since(daemon?.heartbeat_at);
+  if (short) return 'Daemon up · unread' + (ms === null ? '' : ', last good ' + brief(ms));
+  return 'Daemon up · fleet snapshot unread, ' + (ms === null ? 'no good reading yet' : 'last good ' + fmtAge(ms));
 }
 export function daemonView() {
   const daemon = ctx.snap?.daemon, live = daemon?.state === 'live';
   const headline = st.linkDown ? 'Daemon unreachable'
     : daemon?.state === 'offline' ? 'Daemon offline' : daemon?.state === 'stale' ? 'Daemon stale' : null;
   const reachable = !headline && !live && Boolean(ctx.snap) && ctx.socket === 'up';
+  const text = short => headline || (live ? 'Daemon live' + heldNote(short)
+    : reachable ? unreadText(daemon, short) + heldNote(short) : 'Daemon status unknown');
   return {
     stale: Boolean(headline), dotOff: Boolean(headline) || !(live || reachable),
-    dotText: headline || (live ? 'Daemon live' + heldNote() : reachable ? unreadText(daemon) + heldNote() : 'Daemon status unknown'),
+    dotText: text(true), dotTitle: text(false),
     banner: headline ? banner(headline, st.linkDown ? st.downAt : daemon.heartbeat_at) : null,
     socketDown: st.linkDown,
   };
