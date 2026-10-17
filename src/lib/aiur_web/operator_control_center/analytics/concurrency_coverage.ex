@@ -1,6 +1,6 @@
 defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverage do
   @moduledoc """
-  Labels the peak-concurrency tile partial or unknown when the sampled agent
+  Labels the peak-concurrency tile partial or unknown when the active agent
   series sees fewer agents than the daemon's own occupied-slot peak, so an
   unsampled fleet never reads as an idle one.
   """
@@ -11,7 +11,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverage do
 
   def tile(%{kpis: %{peak_conc: peak}, pressure: %{peak_occupied: occupied}}, _scope, _sub)
       when is_number(occupied) and occupied > peak do
-    %{val: if(peak == 0, do: "unknown", else: peak), sub: "partial: #{occupied - peak} of #{occupied} occupied slots unsampled"}
+    %{val: if(peak == 0, do: "unknown", else: peak), sub: "partial: #{occupied - peak} of #{occupied} occupied slots not seen as active"}
   end
 
   def tile(%{kpis: %{peak_conc: peak}}, _scope, sub), do: %{val: peak, sub: sub}
