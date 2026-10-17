@@ -59,7 +59,9 @@ defmodule Aiur.ExecutorSweep.Checks do
           15,
           0,
           "Inspect the daemon log and fix the failing sweep check.",
-          "Executor sweep check #{check} failed: #{Exception.format_banner(:error, error, __STACKTRACE__)}", check: check)
+          "Executor sweep check #{check} failed: #{Exception.format_banner(:error, error, __STACKTRACE__)}",
+          check: check
+        )
       ]
   end
 
