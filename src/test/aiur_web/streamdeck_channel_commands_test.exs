@@ -19,13 +19,27 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       %{decision: decision}
     end
 
+    test "focus replies before a slow Commands store completes" do
+      decision = command_decision("AIUR-1")
+      {:ok, store} = FakeDecisionStore.start_link(decision, self(), 250)
+      EndpointStubs.put(decision_store: store)
+
+      on_exit(fn ->
+        Aiur.TestSupport.safe_stop(store)
+      end)
+
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_receive {:fake_decision_query, :hit}, 1_000
+    end
+
     test "focus pushes the focused agent's Commands page", %{decision: decision} do
       store = EndpointConfig.get(:decision_store)
       assert is_pid(store) and Process.alive?(store)
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
 
-      assert_push("commands", payload)
+      receive_barrier(%Message{event: "commands", payload: payload})
       assert_receive {:fake_decision_query, :hit}, 1000
       assert payload["identifier"] == "AIUR-1"
       assert [item] = payload["items"]
@@ -40,7 +54,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     test "commands_page replies with the next page" do
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       # The cursor is the opaque encoding the store hands back on the previous
       # page; a client passes it through untouched.
@@ -58,7 +72,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     test "answer_command records an operator-attributed answer" do
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       assert_reply(
         push(socket, "answer_command", %{
@@ -85,7 +99,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     test "answer_command sends a spoken custom response instead of an option" do
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       assert_reply(
         push(socket, "answer_command", %{
@@ -118,7 +132,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       assert_reply(
         push(socket, "answer_command", %{
@@ -135,7 +149,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     test "answer_command rejects a malformed payload outright" do
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       # Neither an option nor a custom response.
       assert_reply(
@@ -169,7 +183,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       # store.
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
       decision_id = command_decision("AIUR-1").decision_id
 
       for bad <- [
@@ -196,7 +210,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       assert_reply(
         push(socket, "answer_command", %{
@@ -256,7 +270,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"}, 1_000)
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       ref =
         push(socket, "answer_command", %{
@@ -325,7 +339,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       # The device answers the version it read; a different version is stale.
       stale_version = decision.version + 1

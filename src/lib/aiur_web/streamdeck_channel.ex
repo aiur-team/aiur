@@ -46,14 +46,10 @@ defmodule AiurWeb.StreamdeckChannel do
   @impl true
   def handle_in("focus", %{"identifier" => identifier}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 do
-    # Leaving the agent ends the hold with it: a dictation belongs to the agent
-    # it was started on, so it must not follow focus to another one.
-    socket = socket |> stop_voice_session() |> unsubscribe_focused()
-    {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
-
-    socket = assign(socket, focused_agent: identifier, transcript_relay: relay)
-    push(socket, "logs", logs_projection(identifier))
-    push(socket, "commands", commands_projection(identifier))
+    # Relay setup/teardown and projections may wait on other processes. Keep
+    # them behind the acknowledgement so focus remains responsive under load.
+    send(self(), {:streamdeck_focus_changed, identifier, socket})
+    socket = assign(socket, focused_agent: identifier, transcript_relay: nil, voice_session: nil)
     {:reply, {:ok, %{"focused" => identifier}}, socket}
   end
 
@@ -247,6 +243,20 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info(:fleet_changed, socket), do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
   def handle_info({:flush_fleet, token}, socket), do: AiurWeb.StreamdeckFleetUpdates.flush(socket, token)
+
+  def handle_info({:streamdeck_focus_changed, identifier, previous_socket}, %{assigns: %{focused_agent: identifier}} = socket) do
+    previous_socket |> stop_voice_session() |> unsubscribe_focused()
+    {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
+    socket = assign(socket, transcript_relay: relay)
+    push(socket, "logs", logs_projection(identifier))
+    push(socket, "commands", commands_projection(identifier))
+    {:noreply, socket}
+  end
+
+  def handle_info({:streamdeck_focus_changed, _identifier, previous_socket}, socket) do
+    previous_socket |> stop_voice_session() |> unsubscribe_focused()
+    {:noreply, socket}
+  end
 
   def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{} = snapshot}, socket) do
     push(socket, "usage", StreamdeckProjection.provider_meters(snapshot))
