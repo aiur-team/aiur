@@ -9,6 +9,9 @@ test.beforeEach(async ({ page }) => {
   const errors = []; page.columnErrors = errors
   // Resolve owned modules from this checkout even when the fixture uses a shared compiled release.
   await page.route(/\/build-home\/(columns|state|render|hook|match)\.js$/, route => route.fulfill({ path: fileURLToPath(new URL('../../priv/static/build-home/' + new URL(route.request().url()).pathname.split('/').at(-1), import.meta.url)), contentType: 'text/javascript' }))
+  await openLive(page)
+})
+async function openLive(page) {
   await page.goto('/build-fixture/live')
   await expect(page.locator('.bd-lane')).not.toHaveCount(0)
   await page.evaluate(async () => {
@@ -16,7 +19,7 @@ test.beforeEach(async ({ page }) => {
     window.ren = await import('/build-home/render.js'); window.ctx = st.ctx; window.S = st.S
     S.ready = false
   })
-})
+}
 test.afterEach(async ({ page }) => { expect(page.columnErrors).toEqual([]) })
 async function freeze(page) {
   const now = await page.evaluate(() => Date.now())
@@ -73,11 +76,17 @@ for (const general of [true, false]) test(`fallback uses payload general epics: 
 })
 
 for (const section of ['plan', 'hist']) test(`live ${section} epic invalidates visibility cache`, async ({ page }) => {
-  await page.evaluate(section => {
-    ctx.vp.scrollTop = section === 'plan' ? ctx.secs.plan.el.offsetTop : ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 500
-    cols.applyCols(cols.visibleCols(), true)
-  }, section)
-  expect(await page.evaluate(() => ctx.cols.includes('design'))).toBe(false)
+  let fresh = true
+  // Another worker's new-epic diff can add 'design' first; a reloaded snapshot does not have it.
+  await expect(async () => {
+    if (!fresh) await openLive(page)
+    fresh = false
+    await page.evaluate(section => {
+      ctx.vp.scrollTop = section === 'plan' ? ctx.secs.plan.el.offsetTop : ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 500
+      cols.applyCols(cols.visibleCols(), true)
+    }, section)
+    expect(await page.evaluate(() => ctx.cols.includes('design'))).toBe(false)
+  }).toPass()
   expect(await page.request.get(`/build-control/diff?name=${section}-new-epic`).then(r => r.status())).toBe(200)
   await expect.poll(() => page.evaluate(() => ctx.cols.includes('design'))).toBe(true)
   expect(await page.evaluate(() => ctx.cols.join('|') === ctx.D.order.filter(k => ctx.cols.includes(k)).join('|'))).toBe(true)
