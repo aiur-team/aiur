@@ -93,7 +93,8 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
 
     assert html =~ ~s(data-build-order-catalog-state="read_failed")
     assert html =~ "Build Order catalog read failed"
-    assert html =~ "returned no Build Order list after 3 seconds"
+    # The read failed at once; its age stays frozen at the failure (#4873).
+    assert html =~ "returned no Build Order list after 0 seconds"
 
     :ok = FakeDataSource.put_catalog(source, catalog_snapshot([root(identity(42, "NODE-42"), "Recovered root")], 1, :healthy))
     view |> element("#build-orders-refresh-catalog") |> render_click()

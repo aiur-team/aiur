@@ -64,4 +64,11 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
     closed_pr = Map.put(hd(prs), :state, "closed")
     assert [%{unchanged_pr_handoffs: 0}] = SnapshotCache.attach_rework_attempts(tickets, [closed_pr], attempts)
   end
+
+  test "a failed landing journal read leaves the rerun backlog unknown, not empty" do
+    row = %{"pr" => 17, "head" => "abc"}
+    assert SnapshotCache.landing_rerun_backlog(%{watcher: :running, rerun_backlog: {:ok, [row]}}) == [row]
+    assert SnapshotCache.landing_rerun_backlog(%{watcher: :running, rerun_backlog: {:error, :eacces}}) == nil
+    assert SnapshotCache.landing_rerun_backlog(%{watcher: :unavailable}) == []
+  end
 end

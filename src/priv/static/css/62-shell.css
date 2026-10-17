@@ -3,6 +3,8 @@
 
 html { overflow-x: hidden; }
 html { scrollbar-gutter: stable; }
+/* Phones: a reserved gutter or classic scrollbar leaves a strip beside the full-width shell (#4885). */
+@media (max-width: 480px) { html { scrollbar-gutter: auto; scrollbar-width: none; } }
 .app-shell { max-width: 1320px; margin: 0 auto; padding: 1.1rem 1.15rem 4rem; min-width: 0; }
 .dashboard-shell { display: grid; gap: 1rem; min-width: 0; }
 

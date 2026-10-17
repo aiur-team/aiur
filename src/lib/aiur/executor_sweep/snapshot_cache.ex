@@ -64,6 +64,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
 
     %{
       decisions: decisions,
+      open_tickets: Aiur.OpenTicketSource.snapshot(),
       queue_sets: Enum.map(queues, &%{id: &1.queue_id, held: &1.held}),
       idle_slots: idle_slots(fleet),
       focus_set: focus,
@@ -76,11 +77,19 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
         end),
       ci_wait: Map.get(fleet, :ci_wait, []),
       rework_attempts: Map.get(fleet, :rework_attempts, []),
+      landing_rerun_backlog: landing_rerun_backlog(safe_state(&Aiur.LandingWatch.state/0)),
       services: watcher_services() ++ List.wrap(dispatcher_service)
     }
   rescue
     _ -> %{decisions: [], queue_sets: [], idle_slots: 0, focus_set: nil, ci_wait: [], rework_attempts: [], services: []}
   end
+
+  # A running watcher whose journal read failed is unknown (nil); no watcher has no backlog.
+  @doc false
+  @spec landing_rerun_backlog(map()) :: [map()] | nil
+  def landing_rerun_backlog(%{rerun_backlog: {:ok, rows}}), do: rows
+  def landing_rerun_backlog(%{rerun_backlog: {:error, _}}), do: nil
+  def landing_rerun_backlog(_state), do: []
 
   defp list_decisions do
     Aiur.Commands.list_decisions()
