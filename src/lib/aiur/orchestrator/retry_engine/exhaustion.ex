@@ -164,7 +164,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
     DispatchPolicy.active_issue_state?(state, DispatchPolicy.active_state_set()) or
       DispatchPolicy.terminal_issue_state?(state, DispatchPolicy.terminal_state_set()) or
       DispatchPolicy.no_agent_work_state?(state) or
-      DispatchPolicy.normalize_issue_state(state) == "error"
+      DispatchPolicy.normalize_issue_state(state) in ["error", "human-review"]
   end
 
   defp valid_lifecycle_state?(_state), do: false
