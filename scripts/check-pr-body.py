@@ -64,7 +64,7 @@ def compare(root, base, head):
         if hunk:
             file['patch'] = chunk[hunk.start():].rstrip('\n')
     return {'status': 'ahead' if merge_base == base else 'diverged',
-            'merge_base_commit': {'sha': merge_base}, 'files': files}
+            'merge_base_commit': {'sha': merge_base}, 'files': files, 'complete': True}
 
 
 def is_ancestor(root, tested, head):

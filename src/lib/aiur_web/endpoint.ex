@@ -24,6 +24,15 @@ defmodule AiurWeb.Endpoint do
   plug(:authenticate_static_asset)
 
   plug(Plug.Static,
+    at: "/aiur-style/fonts",
+    from: {:aiur, "priv/static/aiur-style/fonts"},
+    gzip: false,
+    only: AiurWeb.StaticAssets.aiur_style_font_files(),
+    cache_control_for_etags: "public, max-age=31536000, immutable",
+    cache_control_for_vsn_requests: "public, max-age=31536000, immutable"
+  )
+
+  plug(Plug.Static,
     at: "/",
     from: :aiur,
     gzip: false,
