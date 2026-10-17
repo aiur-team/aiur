@@ -4,6 +4,7 @@ defmodule Aiur.AgentQueueStore do
   """
 
   alias Aiur.AgentQueueItem
+  alias Aiur.AgentQueueStore.TargetIndex
 
   @type t :: %__MODULE__{
           next_id: integer(),
@@ -75,7 +76,7 @@ defmodule Aiur.AgentQueueStore do
       store
       |> maybe_supersede_deduped(item, now)
       |> put_item(item)
-      |> index_item(item)
+      |> TargetIndex.add_item(item)
       |> append_pending_id(target_issue_identifier, item.id)
       |> bump_counters()
 
@@ -328,7 +329,7 @@ defmodule Aiur.AgentQueueStore do
   def list_visible_operator_messages(%__MODULE__{} = store, target_issue_identifier)
       when is_binary(target_issue_identifier) do
     store
-    |> target_items(target_issue_identifier)
+    |> TargetIndex.items_for(target_issue_identifier)
     |> Enum.filter(fn
       %AgentQueueItem{
         category: :operator_message,
@@ -345,14 +346,14 @@ defmodule Aiur.AgentQueueStore do
 
   @spec consume_delivered(t(), String.t()) :: {t(), [AgentQueueItem.t()]}
   def consume_delivered(%__MODULE__{} = store, target_issue_identifier) when is_binary(target_issue_identifier) do
-    update_delivered_items(store, target_issue_identifier, fn item ->
+    TargetIndex.update_delivered_items(store, target_issue_identifier, fn item ->
       %{item | status: :consumed, consumed_at: DateTime.utc_now(), failure_reason: nil}
     end)
   end
 
   @spec restore_delivered(t(), String.t()) :: {t(), [AgentQueueItem.t()]}
   def restore_delivered(%__MODULE__{} = store, target_issue_identifier) when is_binary(target_issue_identifier) do
-    update_delivered_items(store, target_issue_identifier, fn item ->
+    TargetIndex.update_delivered_items(store, target_issue_identifier, fn item ->
       %{
         item
         | status: :pending,
@@ -367,7 +368,7 @@ defmodule Aiur.AgentQueueStore do
 
   @spec fail_delivered(t(), String.t(), term()) :: {t(), [AgentQueueItem.t()]}
   def fail_delivered(%__MODULE__{} = store, target_issue_identifier, reason) when is_binary(target_issue_identifier) do
-    update_delivered_items(store, target_issue_identifier, fn item ->
+    TargetIndex.update_delivered_items(store, target_issue_identifier, fn item ->
       %{item | status: :failed, failed_at: DateTime.utc_now(), failure_reason: reason}
     end)
   end
@@ -530,17 +531,6 @@ defmodule Aiur.AgentQueueStore do
     %{store | items: Map.put(store.items, id, item)}
   end
 
-  defp index_item(%__MODULE__{} = store, %AgentQueueItem{id: id, target_issue_identifier: target}) do
-    %{store | item_ids_by_target: Map.update(store.item_ids_by_target, target, [id], &[id | &1])}
-  end
-
-  defp target_items(%__MODULE__{} = store, target_issue_identifier) do
-    store.item_ids_by_target
-    |> Map.get(target_issue_identifier, [])
-    |> Enum.map(&Map.get(store.items, &1))
-    |> Enum.reject(&is_nil/1)
-  end
-
   defp append_pending_id(%__MODULE__{} = store, target_issue_identifier, item_id) do
     pending_ids = Map.get(store.pending_ids_by_target, target_issue_identifier, [])
 
@@ -585,28 +575,4 @@ defmodule Aiur.AgentQueueStore do
         {store, nil}
     end
   end
-
-  defp update_delivered_items(%__MODULE__{} = store, target_issue_identifier, updater) do
-    store
-    |> target_items(target_issue_identifier)
-    |> Enum.filter(&match?(%AgentQueueItem{status: :delivered}, &1))
-    |> Enum.sort_by(& &1.sequence)
-    |> Enum.reduce({store, []}, fn item, {store_acc, updated_items} ->
-      updated = updater.(item)
-
-      next_store =
-        store_acc
-        |> put_item(updated)
-        |> maybe_append_pending_after_restore(updated)
-
-      {next_store, [updated | updated_items]}
-    end)
-    |> then(fn {updated_store, updated_items} -> {updated_store, Enum.reverse(updated_items)} end)
-  end
-
-  defp maybe_append_pending_after_restore(store, %AgentQueueItem{status: :pending, target_issue_identifier: target, id: id}) do
-    append_pending_id(store, target, id)
-  end
-
-  defp maybe_append_pending_after_restore(store, _item), do: store
 end
