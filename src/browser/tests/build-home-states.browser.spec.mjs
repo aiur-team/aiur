@@ -84,6 +84,12 @@ test('unknown clocks, missing sources and failed index never invent facts', asyn
     return { ages, missing, invalid, sub: mark('plan', P.sources.queue).sub }
   }, NOW)).toEqual({ ages: ['no successful read recorded', 'no successful read recorded'], missing: { show: 'unavailable', stale: false, src: { state: 'unavailable', observed_at: null, reason: 'unknown' } }, invalid: { show: 'unavailable', stale: false, src: { state: 'unavailable', observed_at: null, reason: 'unknown' } }, sub: 'The build queue is empty. The open-ticket index is unavailable, so the number not queued is unknown.' })
 })
+test('a failed read names its last successful read as a sentence', async ({ page }) => {
+  expect(await page.evaluate(NOW => [null, NOW - 240000].map(at => mark('hist', { state: 'unavailable', reason: 'read_failed', observed_at: at }).sub), NOW)).toEqual([
+    'The build history could not be read (read_failed). No successful read recorded. This does not mean nothing has merged.',
+    'The build history could not be read (read_failed). Last read 4 min ago (14:16). This does not mean nothing has merged.'
+  ])
+})
 test('reason tags are bounded and hostile copy is escaped by the marker factory', async ({ page }) => {
   expect(await page.evaluate(() => {
     const why = '<img src=x onerror="window.hacked=1">'
