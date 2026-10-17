@@ -1,7 +1,7 @@
 name: ci
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
   # The merge queue requires checks on its candidate ref (#1381).
   merge_group:
   push:
@@ -19,6 +19,8 @@ jobs:
   # Only ci gate is required: it rejects skipped jobs in the selected set.
   changes:
     name: changes
+    # Drafts skip CI until ready_for_review; a close only cancels the PR's queued run (#4942).
+    if: ${{ github.event.pull_request.draft != true && github.event.action != 'closed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: { contents: read, pull-requests: read }
@@ -71,7 +73,7 @@ jobs:
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Guard workflow triggers, action pins and PR body rollout
-        run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py
+        run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && node scripts/test-draft-ci-skip.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
       - name: Test human-only merge ruleset verifier
@@ -144,7 +146,7 @@ jobs:
         run: make build
   lint:
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event.pull_request.draft != true && github.event.action != 'closed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -623,7 +625,7 @@ jobs:
   ci-gate:
     name: ci gate
     needs: [changes, workflow-security, pre-handoff, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
-    if: ${{ always() }}
+    if: ${{ always() && github.event.pull_request.draft != true && github.event.action != 'closed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
