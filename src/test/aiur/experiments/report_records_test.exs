@@ -19,7 +19,7 @@ defmodule Aiur.Experiments.ReportRecordsTest do
     end)
 
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-    if !Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
     start_supervised!(Store)
     attrs = %{title: "Report example", design: %{kind: "before_after", change: %{type: "manual", ref: "test", time: "2026-10-09T00:00:00Z"}}, metrics: [%{ref: "delivery-speed/start_to_merge"}]}
     assert {:ok, spec} = Experiments.create(attrs, freeze: false)

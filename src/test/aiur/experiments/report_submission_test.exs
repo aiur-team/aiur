@@ -18,8 +18,8 @@ defmodule Aiur.Experiments.ReportSubmissionTest do
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
-    if !Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    if !Process.whereis(Aiur.TaskSupervisor), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
+    :ok = Aiur.TestSupport.RuntimeChildren.ensure_aiur_supervisor_running()
     start_supervised!(StatsRunner)
     start_supervised!({Store, catalog_context: %{reduce_dir: Path.expand("../../../../analytics", __DIR__)}})
 
