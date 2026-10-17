@@ -10,16 +10,10 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
     {:ok, data} = FixtureSource.full([])
 
     changes =
-      cond do
-        action == "skip" ->
-          %{resync: true}
-
-        params["name"] in ~w(card-pct-null card-clock-3h plan-new-epic hist-new-epic counts-changed counts-unknown) ->
-          named_diff(params["name"])
-
-        true ->
-          row = change_row(data, params)
-          %{now: data["now"], upsert: [row], remove: [], set: %{}, resync: false}
+      if action == "skip" do
+        %{resync: true}
+      else
+        diff_changes(data, params)
       end
 
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build-home:fixture", {:build_changes, changes})
@@ -33,6 +27,22 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
   end
 
   def configure(conn, _params), do: send_resp(conn, 404, "unknown build fixture control action")
+
+  defp diff_changes(_data, %{"name" => name}) when name in ~w(card-pct-null card-clock-3h plan-new-epic hist-new-epic counts-changed counts-unknown), do: named_diff(name)
+
+  defp diff_changes(data, %{"name" => "queue-unavailable"}) do
+    path = Path.expand("../../fixtures/build_home/diffs/queue-unavailable.json", __DIR__)
+    set = path |> File.read!() |> Jason.decode!()
+    %{now: data["now"], upsert: [], remove: [], set: set, resync: false}
+  end
+
+  defp diff_changes(data, %{"name" => "sources-ok"}) do
+    %{now: data["now"], upsert: [], remove: [], set: %{"sources" => data["sources"]}, resync: false}
+  end
+
+  defp diff_changes(data, params) do
+    %{now: data["now"], upsert: [change_row(data, params)], remove: [], set: %{}, resync: false}
+  end
 
   defp named_diff(name) do
     path = Path.expand("../../fixtures/build_home/diffs/#{name}.json", __DIR__)

@@ -207,9 +207,40 @@ defmodule Aiur.MixProject do
       aiur: [
         applications: [aiur: :permanent],
         include_executables_for: [:unix],
-        steps: [:assemble, &Aiur.MixProject.copy_cli_launcher/1]
+        steps: [:assemble, &Aiur.MixProject.copy_analytics/1, &Aiur.MixProject.copy_cli_launcher/1]
       ]
     ]
+  end
+
+  @doc "Copies runtime analytics tools, libraries and schemas without tests or bytecode."
+  def copy_analytics(release) do
+    source = Path.expand("../analytics", __DIR__)
+    target = Path.join(safe_release_root!(release.path), "analytics")
+    File.rm_rf!(target)
+    File.mkdir_p!(target)
+
+    for entry <- File.ls!(source), entry in ["lib", "schema"] or (File.regular?(Path.join(source, entry)) and Path.extname(entry) == "") do
+      File.cp_r!(Path.join(source, entry), Path.join(target, entry))
+    end
+
+    for path <- Path.wildcard(Path.join(target, "**/__pycache__")) ++ Path.wildcard(Path.join(target, "**/*.pyc")),
+        String.starts_with?(path, target <> "/"),
+        do: File.rm_rf!(path)
+
+    release
+  end
+
+  # Fail closed before any delete: the release root must be absolute and not the source tree or "/".
+  defp safe_release_root!(path) do
+    path = to_string(path)
+    expanded = Path.expand(path)
+    source_root = Path.expand("..", __DIR__)
+
+    if Path.type(path) != :absolute or expanded == "/" or String.starts_with?(source_root <> "/", expanded <> "/") do
+      raise ArgumentError, "refusing to copy analytics into unsafe release path: #{inspect(path)}"
+    end
+
+    expanded
   end
 
   # The escript build is retained as a fallback path that does not

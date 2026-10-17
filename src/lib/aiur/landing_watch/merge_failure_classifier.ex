@@ -27,7 +27,7 @@ defmodule Aiur.LandingWatch.MergeFailureClassifier do
     Enum.reduce_while(jobs, {:ok, []}, fn job, {:ok, acc} ->
       case log_fun.(job, opts) do
         {:ok, log} when is_binary(log) -> {:cont, {:ok, acc ++ [%{job: job, log: log}]}}
-        {:error, _} -> {:halt, {:error, :job_log_unavailable}}
+        {:error, reason} -> {:halt, {:error, {:job_log, job["id"], reason}}}
         _ -> {:halt, {:error, :invalid_job_log}}
       end
     end)
@@ -106,6 +106,9 @@ defmodule Aiur.LandingWatch.MergeFailureClassifier do
       _ -> nil
     end
   end
+
+  # PR-level runs name their pull request directly instead of through a queue branch.
+  defp run_prs(%{"pull_request_numbers" => numbers}) when is_list(numbers), do: numbers
 
   defp run_prs(%{"head_branch" => branch}) when is_binary(branch) do
     Regex.scan(~r/pr-(\d+)-/, branch, capture: :all_but_first) |> List.flatten() |> Enum.map(&String.to_integer/1)

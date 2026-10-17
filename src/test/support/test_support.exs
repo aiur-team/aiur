@@ -333,6 +333,7 @@ defmodule Aiur.TestSupport do
         # exiting `:shutdown`. Then reload it onto this test's config path.
         Aiur.TestSupport.ensure_runtime_children_running()
         if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
+        Aiur.TestSupport.ensure_orchestrator_running()
 
         Aiur.TestSupport.quiesce_live_orchestrator()
         Aiur.TestSupport.reset_global_state!()
@@ -384,6 +385,7 @@ defmodule Aiur.TestSupport do
   defdelegate await_process_down(process, timeout \\ 2_000), to: Aiur.TestSupport.Processes
   defdelegate await_supervised_restart(name, prior, timeout \\ 5_000), to: Aiur.TestSupport.Processes
   defdelegate ensure_runtime_children_running(), to: Aiur.TestSupport.RuntimeChildren
+  defdelegate ensure_orchestrator_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_branch_ref_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_resource_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_workflow_store_running(), to: Aiur.TestSupport.RuntimeChildren

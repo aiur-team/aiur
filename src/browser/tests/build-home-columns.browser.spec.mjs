@@ -18,13 +18,15 @@ test.beforeEach(async ({ page }) => {
 })
 test.afterEach(async ({ page }) => { expect(page.columnErrors).toEqual([]) })
 async function freeze(page) {
-  const now = await page.evaluate(() => Date.now())
+  // Dispose bootstrap timers (the 250ms scroll poll) before faking the clock: fake clear* cannot cancel native ids.
+  const now = await page.evaluate(() => { ctx.life.dispose(); return Date.now() })
   await page.clock.install({ time: now }); await page.clock.pauseAt(now + 1000)
   await page.evaluate(async () => {
-    // Isolate the timers under test from bootstrap resize/scroll callbacks.
-    ctx.life.dispose(); ctx.life = (await import('/build-home/life.js')).createLife()
+    ctx.life = (await import('/build-home/life.js')).createLife()
     ctx.laneEls.forEach(el => el.remove()); ctx.guideEls.forEach(el => el.remove())
     ctx.laneEls.clear(); ctx.guideEls.clear(); ctx.cols = []
+    // The fixture is shared across workers: another worker's /build-control/diff reaches this page via receive() → fx.dataChanged → flushLive → relayout → applyCols.
+    Object.assign(st.fx, { relayout() {}, update() {}, dataChanged() {}, flushLive() {} })
   })
 }
 

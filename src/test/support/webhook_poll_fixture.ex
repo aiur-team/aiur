@@ -5,7 +5,6 @@ defmodule Aiur.TestSupport.WebhookPollFixture do
   import Aiur.TestSupport.EventTicket
   alias Aiur.Events.GithubCommentsPoller
   alias Aiur.GitHub.ResourceStore
-  alias Aiur.Orchestrator.{CommentWake, State}
   @repo "owner/repo"
 
   defmacro __using__(_opts) do
@@ -38,7 +37,6 @@ defmodule Aiur.TestSupport.WebhookPollFixture do
 
       ResourceStore.reset()
       clear_replay_window()
-      cancel_live_comment_retries()
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
@@ -215,28 +213,6 @@ defmodule Aiur.TestSupport.WebhookPollFixture do
       :undefined -> :ok
       table -> :ets.delete_all_objects(table)
     end
-  end
-
-  # A comment delivery publishes on the shared bus, where the live orchestrator
-  # turns it into a comment-rework attempt. Without a tracker that attempt fails
-  # and retries for about 30 seconds, leaking attention alerts into later tests
-  # (#4812). Stop those retries when the test that caused them ends.
-  def cancel_live_comment_retries do
-    case Process.whereis(Aiur.Orchestrator) do
-      nil ->
-        :ok
-
-      pid ->
-        _ =
-          :sys.replace_state(pid, fn
-            %State{} = state -> CommentWake.cancel_comment_rework_retries(state)
-            other -> other
-          end)
-
-        :ok
-    end
-  catch
-    :exit, _reason -> :ok
   end
 
   def restart_store!(path) do
