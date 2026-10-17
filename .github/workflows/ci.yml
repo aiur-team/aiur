@@ -10,8 +10,7 @@ on:
     - cron: '23 7 * * *'
   # Manual head checks when pull_request synchronize does not create runs (#2397).
   workflow_dispatch:
-# Initial PR runs and main pushes supersede each other; queue groups and reruns
-# stay independent. merge-queue-ci.yml joins the PR group to cancel queued heads.
+# PR runs (merge-queue-ci.yml joins on enqueue) and main pushes supersede; queue groups and reruns don't.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ format('{0}-{1}', github.run_attempt == 1 && (github.event_name == 'pull_request' && github.event.pull_request.number || github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main') || github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ github.run_attempt == 1 && (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci:full') || github.event_name == 'push' && github.ref == 'refs/heads/main') }}
