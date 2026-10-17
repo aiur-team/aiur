@@ -1270,7 +1270,7 @@ defmodule Aiur.AppServerTest do
         "readOnlyAccess" => %{"type" => "fullAccess"},
         "networkAccess" => true,
         "excludeTmpdirEnvVar" => false,
-        "excludeSlashTmp" => false
+        "excludeSlashTmp" => true
       }
 
       assert Enum.any?(lines, fn line ->

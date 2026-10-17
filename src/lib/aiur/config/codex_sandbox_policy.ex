@@ -77,7 +77,10 @@ defmodule Aiur.Config.CodexSandboxPolicy do
       # like `mix test` before project code runs.
       "networkAccess" => true,
       "excludeTmpdirEnvVar" => false,
-      "excludeSlashTmp" => false
+      # Agents get a private TMPDIR inside the workspace. Keep direct writes to
+      # the shared host /tmp outside their sandbox while the workspace itself
+      # (including its private scratch directory) remains writable.
+      "excludeSlashTmp" => true
     }
   end
 
