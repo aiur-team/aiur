@@ -199,6 +199,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     %{
       number: number,
       labels: labels,
+      state: value(issue, "state", nil),
       created_at: value(issue, "created_at", nil),
       open_blocked_by: Enum.reject(blockers, closed?),
       closed_blockers: blockers |> Enum.filter(closed?) |> Enum.map(&value(&1, "number", nil))
