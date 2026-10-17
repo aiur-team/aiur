@@ -8,7 +8,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Issue
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Signal
   alias Aiur.Workspace
   alias Aiur.Workspace.WipPreservation
 
@@ -60,7 +61,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
       max_turns: max_turns
     }
 
-    Handoff.before_turn(app_session, turn_context)
+    app_session = Handoff.before_turn(app_session, turn_context)
 
     case if(Handoff.active_resume?(), do: :ok, else: Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host)) do
       :ok -> run_supported_turn(turn_context, app_session)
@@ -117,7 +118,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     lifecycle_attempt_id = Keyword.get(opts, :telemetry_attempt_id)
     operation_id = "turn:#{turn_number}"
 
-    Lifecycle.record(issue.identifier, lifecycle_attempt_id, :implement, :start, %{
+    Signal.lifecycle(issue.identifier, lifecycle_attempt_id, :implement, :start, %{
       operation_id: operation_id,
       turn_number: turn_number,
       backend: SessionLifecycle.session_backend_label(app_session)
@@ -133,7 +134,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
         on_safe_checkpoint: callbacks.on_safe_checkpoint,
         on_operator_message: callbacks.on_operator_message,
         on_operator_response: callbacks.on_operator_response,
-        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id)
+        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id, rework_head_sha: Keyword.get(opts, :rework_head_sha))
       )
 
     record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
@@ -236,10 +237,10 @@ defmodule Aiur.AgentRunner.TurnLoop do
       case result do
         {:ok, _session} -> {:success, nil}
         {:paused, _payload} -> {:paused, nil}
-        {:error, reason} -> {:failed, Lifecycle.reason_class(reason)}
+        {:error, reason} -> {:failed, Signal.reason_class(reason)}
       end
 
-    Lifecycle.record(issue.identifier, attempt_id, :implement, :end, %{
+    Signal.lifecycle(issue.identifier, attempt_id, :implement, :end, %{
       operation_id: operation_id,
       turn_number: turn_number,
       outcome: outcome,
@@ -435,8 +436,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
   defp active_issue_state?(state_name) when is_binary(state_name) do
     normalized_state = normalize_issue_state(state_name)
 
-    Config.settings!().tracker.active_states
-    |> Enum.any?(fn active_state -> normalize_issue_state(active_state) == normalized_state end)
+    not DispatchPolicy.no_agent_work_state?(normalized_state) and
+      Enum.any?(Config.settings!().tracker.active_states, &(normalize_issue_state(&1) == normalized_state))
   end
 
   defp active_issue_state?(_state_name), do: false

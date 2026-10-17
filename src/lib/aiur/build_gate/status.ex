@@ -249,10 +249,11 @@ defmodule Aiur.BuildGate.Status do
       pgid: int_field(fields, "pgid"),
       holder_pid: int_field(fields, "holder_pid"),
       command_pgid: command_pgid,
+      command_pid_namespace: Map.get(fields, "command_pid_namespace"),
       # A slot whose command process group is gone is "held, command gone" —
       # a leaked holder waiting on reparented daemons, not a running build
-      # (#2349). nil means the record cannot tell (no command_pgid).
-      command_alive?: command_alive?(command_pgid),
+      # (#2349). nil means the record cannot tell, including a missing namespace identity.
+      command_alive?: command_alive?(command_pgid, Map.get(fields, "command_pid_namespace")),
       phase: Map.get(fields, "phase"),
       command: Map.get(fields, "command"),
       started_at: started_at,
@@ -260,10 +261,10 @@ defmodule Aiur.BuildGate.Status do
     }
   end
 
-  defp command_alive?(command_pgid) when is_integer(command_pgid) and command_pgid > 0,
-    do: process_group_alive?(command_pgid)
+  defp command_alive?(command_pgid, namespace) when is_integer(command_pgid) and command_pgid > 0,
+    do: process_group_alive?(command_pgid, namespace)
 
-  defp command_alive?(_command_pgid), do: nil
+  defp command_alive?(_command_pgid, _namespace), do: nil
 
   # Durable `slot-N.hold-timeout` markers the detached lease holder writes when
   # it self-releases at the absolute max-hold cap (#2349). Reported on the
@@ -400,4 +401,77 @@ defmodule Aiur.BuildGate.Status do
   end
 
   def process_group_alive?(_pgid), do: false
+
+  defp process_group_alive?(_pgid, nil), do: nil
+
+  defp process_group_alive?(pgid, "pid:[" <> _ = namespace) when is_integer(pgid) do
+    if Regex.match?(~r/^pid:\[\d+\]$/, namespace) do
+      case File.read_link("/proc/self/ns/pid") do
+        {:ok, ^namespace} -> process_group_alive?(pgid)
+        {:ok, _other_namespace} -> namespaced_process_group_alive?(pgid, namespace)
+        _ -> nil
+      end
+    else
+      nil
+    end
+  end
+
+  defp process_group_alive?(_pgid, _namespace), do: nil
+
+  defp namespaced_process_group_alive?(pgid, namespace) do
+    case File.ls("/proc") do
+      {:ok, pids} -> scan_namespace_pids(pids, pgid, namespace)
+      _ -> nil
+    end
+  end
+
+  defp scan_namespace_pids(pids, pgid, namespace) do
+    Enum.reduce_while(pids, false, fn pid, alive ->
+      scan_namespace_pid(pid, alive, pgid, namespace)
+    end)
+  end
+
+  defp scan_namespace_pid(pid, alive, pgid, namespace) do
+    if String.match?(pid, ~r/^\d+$/) do
+      case namespaced_process_group_member?(pid, pgid, namespace) do
+        true -> {:halt, true}
+        :unknown -> {:halt, nil}
+        false -> {:cont, alive}
+      end
+    else
+      {:cont, alive}
+    end
+  end
+
+  defp namespaced_process_group_member?(pid, pgid, namespace) do
+    case File.read_link("/proc/#{pid}/ns/pid") do
+      {:ok, ^namespace} -> process_group_status(pid, pgid)
+      {:ok, _other_namespace} -> false
+      {:error, reason} when reason in [:enoent, :eacces, :eperm] -> false
+      _ -> :unknown
+    end
+  end
+
+  defp process_group_status(pid, pgid) do
+    case File.read("/proc/#{pid}/status") do
+      {:ok, status} ->
+        case Regex.run(~r/^NSpgid:\s+(\d+(?:\s+\d+)*)\s*$/m, status) do
+          [_, groups] ->
+            groups
+            |> String.split()
+            |> List.last()
+            |> String.to_integer()
+            |> then(&(&1 == pgid))
+
+          _ ->
+            :unknown
+        end
+
+      {:error, :enoent} ->
+        false
+
+      _ ->
+        :unknown
+    end
+  end
 end

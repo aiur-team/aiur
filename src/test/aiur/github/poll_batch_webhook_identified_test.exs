@@ -236,13 +236,15 @@ defmodule Aiur.GitHub.CIPollBatchWebhookIdentifiedTest do
         # any age is what `ReadCache.Policy` refuses on purpose.
         assert body["query"] =~ "statusCheckRollup"
         assert body["query"] =~ "isDraft reviewDecision mergeable mergeStateStatus"
+        assert body["query"] =~ "timelineItems(itemTypes: [REOPENED_EVENT], last: 1)"
 
-        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"delivered_0" => pull_request()}}}}}
+        node = Map.put(pull_request(), "timelineItems", %{"nodes" => [%{"createdAt" => "2026-10-16T07:54:00Z"}]})
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"delivered_0" => node}}}}}
       end
 
       assert {:ok, %{"42" => batch}} = CIPollBatch.fetch(["42"], request_fun: request_fun)
 
-      assert %{"number" => 77, "head" => %{"sha" => "head-77"}} = batch.pull_request
+      assert %{"number" => 77, "head" => %{"sha" => "head-77"}, "reopened_at" => "2026-10-16T07:54:00Z"} = batch.pull_request
       assert [%{"name" => "test", "conclusion" => "success"}] = batch.check_runs
     end
 

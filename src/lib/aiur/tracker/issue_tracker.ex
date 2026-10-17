@@ -28,6 +28,7 @@ defmodule Aiur.Tracker.IssueTracker do
   @callback ensure_labels([String.t()]) :: :ok | {:error, term()}
   @callback add_label(String.t(), String.t()) :: :ok | {:error, term()}
   @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
+  @callback reopen_issue(String.t()) :: :ok | {:error, term()}
 
   @callback config_module() :: module()
   @callback code_host() :: module() | nil
@@ -43,5 +44,6 @@ defmodule Aiur.Tracker.IssueTracker do
                       fetch_issue_states_by_ids_conditional: 2,
                       update_issue_state: 3,
                       add_label: 2,
-                      remove_label: 2
+                      remove_label: 2,
+                      reopen_issue: 1
 end

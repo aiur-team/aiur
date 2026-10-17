@@ -69,7 +69,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.PublicAuthorityTest do
       foreign_request = fn _request -> flunk("foreign authority must not reach GitHub") end
 
       assert {:error, %{error: :invalid_planning_authority, calls: 0, pages: 0}} =
-               ProductionGraph.fetch_catalog(repository: {"foreign-owner", "foreign-repo"}, request_fun: foreign_request)
+               ProductionGraph.fetch_catalog(repository: {"foreign-owner", "foreign-repo"}, token: "test-gh-token", request_fun: foreign_request)
 
       for invalid_bound <- [[root_limit: 1], [page_budget: 1], [call_budget: 1]] do
         assert {:error, %{error: :invalid_planning_authority, calls: 0, pages: 0}} =
@@ -90,6 +90,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.PublicAuthorityTest do
                  root_limit: 100,
                  page_budget: 4,
                  call_budget: 4,
+                 token: "test-gh-token",
                  request_fun: configured_request
                )
     end
@@ -123,6 +124,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.PublicAuthorityTest do
                  page_budget: 4,
                  call_budget: 4,
                  member_labels: true,
+                 token: "test-gh-token",
                  request_fun: labelled_request
                )
 
@@ -144,6 +146,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.PublicAuthorityTest do
                  root_limit: 100,
                  page_budget: 4,
                  call_budget: 4,
+                 token: "test-gh-token",
                  request_fun: cheap_request
                )
 

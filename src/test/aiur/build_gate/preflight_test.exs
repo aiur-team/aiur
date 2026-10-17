@@ -219,6 +219,7 @@ defmodule Aiur.BuildGate.PreflightTest do
       pgid=[0-9]+\n
       holder_pid=[1-9][0-9]*\n
       command_pgid=[1-9][0-9]*\n
+      command_pid_namespace=pid:\[[0-9]+\]\n
       phase=test\n
       command=test\n
       started_at=[0-9]+\n$/x

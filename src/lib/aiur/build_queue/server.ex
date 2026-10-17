@@ -59,6 +59,7 @@ defmodule Aiur.BuildQueue.Server do
       phase: :awaiting_first_observation,
       freshness: :unknown,
       document: nil,
+      native_blockers: %{},
       projections: [],
       observations: %{},
       observed_at_ms: nil,
@@ -180,10 +181,11 @@ defmodule Aiur.BuildQueue.Server do
     end
   end
 
-  def handle_call({:mutate, command}, _from, %{status: :running} = state) do
+  def handle_call({:mutate, command}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
     case ListCommands.prepare(state, command) do
-      {:ok, document, actions, observations} ->
+      {:ok, document, actions, observations, missing} ->
         {reply, state} = commit_mutation(state, document, actions, observations)
+        reply = if reply == :ok and missing != [], do: {:ok, {:not_observed, missing}}, else: reply
         {:reply, reply, request(state)}
 
       error ->
@@ -211,13 +213,14 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call({:release, target}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
     observations = Reconcile.observations(state)
 
-    with {:ok, document} <- Bookkeeping.release(state.document, target, observations, state.clock.(), "#{state.settings.tracker.github.label_prefix}:todo"),
+    with {:ok, document, unobserved} <- Bookkeeping.release(state.document, target, observations, state.clock.(), "#{state.settings.tracker.github.label_prefix}:todo"),
          :ok <- state.store.save(document) do
       Events.saved(state.document, document)
       released = for item <- state.document.items, item.issue_id == target or item.queue_id == target, do: item.issue_id
-      {:reply, :ok, request(%{state | document: document, holds: MapSet.difference(state.holds, MapSet.new(released))})}
+      result = if unobserved == [], do: :ok, else: {:ok, unobserved}
+      {:reply, result, request(%{state | document: document, holds: MapSet.difference(state.holds, MapSet.new(released))})}
     else
-      {:error, reason} when reason in [:not_found, :observation_unavailable] -> {:reply, {:error, reason}, state}
+      {:error, :not_found} = error -> {:reply, error, state}
       {:error, reason} -> {:reply, {:error, reason}, AttentionHealth.store(%{state | status: :store_unavailable})}
     end
   end
@@ -375,8 +378,11 @@ defmodule Aiur.BuildQueue.Server do
   # Marker requests survive pacing and restarts; replay them only once recovery has resolved the store.
   defp replay_list_markers(%{phase: :ready, status: status} = state, observations) when status in [:running, :writes_paused] do
     case ListCommands.pending(state.document) do
-      [] -> state
-      pending -> write(state, Enum.reject(pending, &Map.has_key?(state.source_verdicts, elem(&1, 1))), observations)
+      [] ->
+        state
+
+      pending ->
+        write(state, Enum.reject(pending, &Map.has_key?(state.source_verdicts, elem(&1, 1))), observations)
     end
   end
 
@@ -384,13 +390,14 @@ defmodule Aiur.BuildQueue.Server do
 
   defp plan(state, observations) do
     {projections, actions, observations, cache, holds, published, edges} = Reconcile.plan(state, observations)
+    native_blockers = ReadModel.cached_native_blockers(state.document, observations, state.tracker, Settings.terminal_states(state.settings))
     Measurement.record(state, projections)
     {state, health_actions} = AttentionHealth.plan(state, projections)
     actions = health_actions ++ actions
     state = %{state | planned_edges: edges}
     ids = Enum.map(edges, & &1.prerequisite)
     merged = Enum.reduce(observations, state.merged_at_ms, fn {id, row}, acc -> if row.merged_at_ms, do: Map.put_new(acc, id, row.merged_at_ms), else: acc end)
-    state = %{state | closure_cache: cache, holds: holds, published_pr_versions: published, merged_at_ms: Map.take(merged, ids)}
+    state = %{state | closure_cache: cache, holds: holds, published_pr_versions: published, merged_at_ms: Map.take(merged, ids), native_blockers: native_blockers}
     state = if state.phase == :ready and state.status != :store_unavailable, do: write(state, actions, observations), else: %{state | actions: actions}
     state = if state.phase != :ready and state.status != :store_unavailable, do: Enum.reduce(health_actions, state, &AttentionActions.execute(&2, &1)), else: state
     state = AttentionHealth.store(state)
@@ -408,8 +415,21 @@ defmodule Aiur.BuildQueue.Server do
     Reconcile.write_hints(projections, holds, state.document, state.settings, observations)
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build_queue:changed", {:build_queue_changed, state.status})
     state = %{state | projections: projections, observations: observations, actions: state.actions, holds: holds, hold_ages: ages, reconciles: state.reconciles + 1}
+    state = focus_starvation(state, projections)
     state = Progress.reconcile(state)
     if Enum.any?(actions, &match?({:dequeue, _}, &1)), do: request(state), else: state
+  end
+
+  defp focus_starvation(state, projections) do
+    decision = ReadModel.focus_starvation(state, projections)
+    key = {:focus_starved, nil}
+    latched? = Enum.any?(state.document.latches, &(&1.key == key))
+
+    case {decision, latched?} do
+      {{:starved, members}, false} -> AttentionActions.execute(Map.put(state, :focus_members, members), {:attention_open, key})
+      {:clear, true} -> AttentionActions.execute(state, {:attention_resolve, key})
+      _ -> state
+    end
   end
 
   defp write(state, actions, observations) do

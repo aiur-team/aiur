@@ -43,6 +43,9 @@ defmodule Aiur.Commands do
   @spec create_ask(String.t(), map()) :: {:ok, Aiur.Asks.ask()} | {:error, term()}
   defdelegate create_ask(repo, attrs), to: Aiur.Asks, as: :create
 
+  @spec decision_stale_topic(Aiur.Decision.t()) :: String.t()
+  defdelegate decision_stale_topic(decision), to: Aiur.DecisionAttentionSignals, as: :stale_topic
+
   @spec default_api() :: module()
   defdelegate default_api(), to: Aiur.Commands.Defaults
 
@@ -109,6 +112,9 @@ defmodule Aiur.Commands do
   @spec escalate_executor_command(String.t(), map(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
   defdelegate escalate_executor_command(decision_id, payload, server, timeout), to: Aiur.DecisionStore
 
+  @spec reclassify_authority(String.t(), map(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  defdelegate reclassify_authority(decision_id, payload, server), to: Aiur.DecisionStore
+
   @spec handle_revision_follow_up(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   defdelegate handle_revision_follow_up(decision_id, action_id), to: Aiur.DecisionStore
 
@@ -126,6 +132,9 @@ defmodule Aiur.Commands do
 
   @spec history(keyword()) :: [map()]
   defdelegate history(opts), to: Aiur.DecisionHistory, as: :list
+
+  @spec list_decisions() :: [Aiur.Decision.t()]
+  defdelegate list_decisions(), to: Aiur.DecisionStore, as: :list
 
   @spec metrics_snapshot(String.t()) :: {:ok, map()} | {:error, :not_found}
   defdelegate metrics_snapshot(decision_id), to: Aiur.DecisionMetrics, as: :snapshot

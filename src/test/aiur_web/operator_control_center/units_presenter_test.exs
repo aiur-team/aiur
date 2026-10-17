@@ -75,6 +75,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
                 tracker_identity: identity,
                 bucket: :running,
                 telemetry_attempt_id: "attempt-current",
+                turn_count: 3,
+                turn_count_observed?: true,
                 context_usage: %{
                   used_tokens: 1200,
                   window_tokens: 4000,
@@ -98,6 +100,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert row.telemetry_attempt_id == "attempt-current"
     assert row.context_usage == %{used_tokens: 1200, window_tokens: 4000, used_percent: 30.0}
     refute Map.has_key?(row.context_usage, :session_id)
+    assert row.turn_count == 3
+    assert row.field_sources.turn_count == :status_report
   end
 
   test "current orchestrator rows prevent a healthy empty membership from reporting Active 0" do

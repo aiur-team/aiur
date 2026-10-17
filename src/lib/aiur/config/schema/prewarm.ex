@@ -5,13 +5,21 @@ defmodule Aiur.Config.Schema.Prewarm do
 
   @primary_key false
   embedded_schema do
+    # @config-reference config-configuration-08 prewarm.enabled
+    # @config-detail prewarm.enabled | boolean | false | Opts into one warm base checkout. |
     field(:enabled, :boolean, default: false)
     # base_build is the one-time base build command. It is usually NOT written
     # inline: `base_build_file` points at a sibling script (`.aiur/prewarm`)
     # whose contents `Aiur.Workflow` reads into `base_build`, keeping the
     # multi-line shell out of the main config (mirrors `hooks_file`).
+    # @config-reference config-configuration-08 prewarm.base_build
+    # @config-detail prewarm.base_build | string | none | One-time base build command. |
     field(:base_build, :string)
+    # @config-reference config-configuration-08 prewarm.base_build_file
+    # @config-detail prewarm.base_build_file | string | none | Sibling script loaded into `base_build`. |
     field(:base_build_file, :string)
+    # @config-reference config-configuration-08 prewarm.poll_seconds
+    # @config-detail prewarm.poll_seconds | integer | 0 | Base-refresh interval; 0 disables polling. |
     field(:poll_seconds, :integer, default: 0)
   end
 

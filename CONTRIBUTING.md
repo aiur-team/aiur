@@ -358,6 +358,10 @@ Arrays have one member per line; string sets and exemption TSVs stay sorted.
 Workflow security enforces this layout with `scripts/check-hot-list-format.py`.
 Do not use union merges on JSON or sorted/unique exemption lists.
 
+Seams live one per file in `scripts/components/seams/`, named
+`<from>--<to_module>--<kind>.json`, never inline in `components.json`: two PRs
+that each add a seam then touch different files and merge without conflict.
+
 Every root config section and scalar field, env schema name, and public
 `Aiur.Config.Paths` function ending in `_dir` or `_path` must have exactly one
 owner in `owns.config`, `owns.env` or `owns.state`. Add the owner in the same PR

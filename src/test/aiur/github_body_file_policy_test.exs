@@ -14,12 +14,29 @@ defmodule Aiur.GitHubBodyFilePolicyTest do
   test "Aiur source never passes gh message bodies inline" do
     {paths, 0} = System.cmd("git", ["ls-files", "--" | @source_paths], cd: @repo_root)
 
-    offenders =
-      paths
-      |> String.split("\n", trim: true)
-      |> Enum.flat_map(&inline_gh_body_offenders/1)
+    assert source_offenders(@repo_root, String.split(paths, "\n", trim: true)) == []
+  end
 
-    assert offenders == []
+  @tag :tmp_dir
+  test "source scan reports fixture offenders", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "scripts"))
+
+    File.write!(Path.join(tmp_dir, "scripts/reply.sh"), """
+    #!/bin/sh
+    # gh pr comment 1 --body "$commented_out"
+    gh pr comment 42 --body "$reply"
+    gh pr comment 42 --body-file "$reply_file"
+    """)
+
+    File.write!(Path.join(tmp_dir, "README.md"), """
+    Prose may mention gh pr comment 1 --body "$text".
+    ```sh
+    gh issue comment 7 -b "$reply"
+    ```
+    """)
+
+    assert source_offenders(tmp_dir, ["scripts/reply.sh", "README.md", "missing.sh"]) ==
+             ["scripts/reply.sh:3", "README.md:3"]
   end
 
   test "guard distinguishes payload files from shell variables" do
@@ -31,14 +48,14 @@ defmodule Aiur.GitHubBodyFilePolicyTest do
     refute inline_gh_body_line?(~s(gh api graphql -F "body=@$reply_file"))
   end
 
-  defp inline_gh_body_offenders(path) do
-    case System.cmd("git", ["show", ":#{path}"], cd: @repo_root, stderr_to_stdout: true) do
-      {contents, 0} ->
-        offenders_from_contents(contents, path)
-
-      {_error, _status} ->
-        []
-    end
+  # Read in-process: one `git show` port per file timed out under CI load (#4853).
+  defp source_offenders(root, paths) do
+    Enum.flat_map(paths, fn path ->
+      case File.read(Path.join(root, path)) do
+        {:ok, contents} -> offenders_from_contents(contents, path)
+        {:error, _reason} -> []
+      end
+    end)
   end
 
   defp offenders_from_contents(contents, path) do

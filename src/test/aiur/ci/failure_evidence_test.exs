@@ -22,9 +22,11 @@ defmodule Aiur.CI.FailureEvidenceTest do
       end
     end
 
-    assert {:ok, [%{"title" => "first"}, %{"title" => "last"}]} = FailureEvidence.annotations(10, request_fun: request)
-    assert {:ok, [%{"title" => "first issue"}, %{"title" => "last issue"}]} = FailureEvidence.flake_issues(request_fun: request)
-    assert {:ok, [%{"title" => "first issue"}, %{"title" => "last issue"}]} = FailureEvidence.flake_issues(request_fun: fn _ -> flunk("cached issue listing should be reused") end)
+    assert {:ok, [%{"title" => "first"}, %{"title" => "last"}]} = FailureEvidence.annotations(10, token: "test-gh-token", request_fun: request)
+    assert {:ok, [%{"title" => "first issue"}, %{"title" => "last issue"}]} = FailureEvidence.flake_issues(token: "test-gh-token", request_fun: request)
+
+    assert {:ok, [%{"title" => "first issue"}, %{"title" => "last issue"}]} =
+             FailureEvidence.flake_issues(token: "test-gh-token", request_fun: fn _ -> flunk("cached issue listing should be reused") end)
   end
 
   test "a missing known-flaky file is empty, unreadable or invalid content is an error" do
@@ -33,7 +35,7 @@ defmodule Aiur.CI.FailureEvidenceTest do
           {403, %{}, :error},
           {200, %{"encoding" => "base64", "content" => "invalid!"}, {:error, :invalid_known_flakes_file}}
         ] do
-      result = FailureEvidence.known_flakes("sha", request_fun: fn _ -> {:ok, %{status: status, body: body}} end)
+      result = FailureEvidence.known_flakes("sha", token: "test-gh-token", request_fun: fn _ -> {:ok, %{status: status, body: body}} end)
       if expected == :error, do: assert({:error, {:github, :http, %{status: 403}}} = result), else: assert(result == expected)
     end
   end
@@ -43,7 +45,7 @@ defmodule Aiur.CI.FailureEvidenceTest do
       if url =~ "per_page", do: page([%{"title" => "first"}], "https://api.github.com/repos/owner/repo/check-runs/10/annotations?page=2"), else: {:ok, %{status: 502, body: %{}}}
     end
 
-    assert {:error, {:github, :http, %{status: 502}}} = FailureEvidence.annotations(10, request_fun: request)
+    assert {:error, {:github, :http, %{status: 502}}} = FailureEvidence.annotations(10, token: "test-gh-token", request_fun: request)
   end
 
   defp page(body, next \\ nil), do: {:ok, %{status: 200, body: body, headers: if(next, do: [{"link", "<#{next}>; rel=\"next\""}], else: [])}}

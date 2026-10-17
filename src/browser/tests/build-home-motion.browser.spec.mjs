@@ -1,3 +1,4 @@
+import { normalizeColumnCapture } from '../support/build-home-columns-motion.mjs'
 // One spec keeps the required mutations, sequence contracts, and sign-off gate collected together.
 import { openVisualRoute } from '../support/visual.mjs'
 import { test, expect } from '@playwright/test'
@@ -134,7 +135,7 @@ for (const name of Object.keys(SEQUENCES)) for (const reduce of [false, true]) {
     test.setTimeout(240_000)
     let reference
     for (let run = 0; run < 3; run++) {
-      const record = await designRecord(browser, name, { reduce })
+      const record = await designRecord(browser, name, { reduce, ...(name === 'history.window' ? { selectedCell: { ...cell, dataset: 'dense' } } : {}) })
       expect(record.reason, JSON.stringify(record)).toBeUndefined()
       expect(record.samples.length).toBeGreaterThan(0)
       if (name.startsWith('snap.') && name !== 'snap.scrollbar-drag') expect(record.frame).toHaveLength(name === 'snap.scroll-curve' ? 27 : 41)
@@ -244,7 +245,11 @@ function frameBarrier(pair, name, reduce) {
     if (aborted) return
     if (reduce && ['modal.open', 'modal.reduce', 'modal.url', 'modal.close'].includes(name)) return // S-18 records the admitted tkin difference numerically.
     if (count++ % 2 === 0) { pending = new Promise(done => { resolve = done }); return pending }
-    try { await expectDesignParity(pair, { name: `${name}-${fraction}`, region, preserveAnimations: true }) }
+    try {
+      // Column application can cross different clock frames; numeric records retain that timing.
+      if (name.startsWith('columns.')) await Promise.all([pair.design, pair.product].map(page => page.clock.setSystemTime(FIXTURE_META.now)))
+      await expectDesignParity(pair, { name: `${name}-${fraction}`, region, preserveAnimations: true })
+    }
     finally { resolve() }
   }
   return { frame, abort() { aborted = true; resolve?.() } }
@@ -254,13 +259,31 @@ for (const selectedCell of interactionCells) test.describe(`product interactions
   for (const name of Object.keys(SEQUENCES).filter(n => !['inventory', 'grain.static'].includes(n))) test(name, async ({ browser }) => {
     test.setTimeout(120_000)
     const owner = ownerFor(name), reduce = selectedCell.reducedMotion === 'reduce'
-    const pair = await openParityPair(browser, selectedCell, { ...await sequenceOptions(name, selectedCell), productAnchor: owner.anchor, productPending: owner.pending })
+    const pair = await openParityPair(browser, selectedCell, { ...await sequenceOptions(name, selectedCell), productAnchor: name.startsWith('columns.') ? undefined : owner.anchor, productPending: owner.pending })
     try {
-      const absent = owner.pending || (owner.anchor && !await pair.product.locator(owner.anchor).count()) || ((name.startsWith('columns.') || name === 'snap.scroll-curve') && !await pair.product.locator('.bd-cal [data-span="7"]').count())
+      const absent = owner.pending || (owner.anchor && !await pair.product.locator(owner.anchor).count() && !(name.startsWith('columns.') && await pair.product.locator('#bd-content.flow').count())) || (name === 'snap.scroll-curve' && !await pair.product.locator('.bd-cal [data-span="7"]').count())
       if (absent) missingPorts.add(`${name}: ${owner.owners.join(', ')}`)
       test.fixme(absent, `awaiting ${owner.owners.join(', ')}`)
+      if (name.startsWith('columns.')) {
+        await Promise.all([pair.design, pair.product].map(async page => {
+          await page.addInitScript(() => {
+            const every = window.setInterval.bind(window)
+            window.columnPolls = []
+            window.setInterval = (fn, ms, ...args) => {
+              const id = every(fn, ms, ...args)
+              if (ms === 250) columnPolls.push({ id, fn, args })
+              return id
+            }
+          })
+          await page.reload(); await waitParityReady(page, 'board', page === pair.design ? 'design' : 'product', true)
+          await page.clock.setSystemTime(FIXTURE_META.now)
+          await normalizeColumnCapture(page)
+        }))
+      }
       const entries = scopedEntries(pair.allowlist, selectedCell), barrier = frameBarrier(pair, name, reduce)
       const [design, product] = await Promise.all([runOn(pair.design, name, { reduce, onFrame: barrier.frame }).finally(barrier.abort), runOn(pair.product, name, { reduce, onFrame: barrier.frame, ids: FIXTURE_META.ids }).finally(barrier.abort)])
+      if (name.startsWith('columns.') && (!design.samples.length || !product.samples.length))
+        throw new Error(JSON.stringify({ design: design.reason, product: product.reason }))
       collectAllowlist(design, product, entries)
     } finally { await pair.close() }
   })

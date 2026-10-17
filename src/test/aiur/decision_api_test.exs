@@ -148,8 +148,7 @@ defmodule Aiur.DecisionApiTest do
         now: ~U[2026-07-12 11:00:00Z]
       )
 
-    assert {:ok, payload} =
-             DecisionApi.list(%{"limit" => "1"}, store: store, policy: @policy)
+    assert {:ok, payload} = DecisionApi.list(%{"limit" => "1"}, store: store, policy: @policy)
 
     assert %{
              "limit" => 1,
@@ -166,11 +165,10 @@ defmodule Aiur.DecisionApiTest do
     assert encoded["supervisor_policy"]["allowed"] == false
     assert encoded["supervisor_policy"]["reasons"] == ["human_required", "kind_not_allowed"]
 
-    assert {:ok, second_page} =
-             DecisionApi.list(%{limit: 1, cursor: cursor}, store: store, policy: @policy)
+    assert {:ok, page} = DecisionApi.list(%{limit: 1, cursor: cursor}, store: store, policy: @policy)
 
-    assert second_page["pagination"]["next_cursor"] == nil
-    assert [encoded_older] = second_page["decisions"]
+    assert page["pagination"]["next_cursor"] == nil
+    assert [encoded_older] = page["decisions"]
     assert encoded_older["decision_id"] == older.decision_id
     assert encoded_older["supervisor_policy"]["allowed"]
 
@@ -692,6 +690,7 @@ defmodule Aiur.DecisionApiTest do
                  "blocking" => true,
                  "kind" => "architecture",
                  "authority" => "human_required",
+                 "context" => %{"authority_basis" => "security"},
                  "reversibility" => "reversible"
                },
                [ticket: @ticket, source: @source, now: ~U[2026-07-12 10:30:00Z]],
@@ -934,6 +933,7 @@ defmodule Aiur.DecisionApiTest do
       "blocking" => blocking,
       "kind" => kind,
       "authority" => Atom.to_string(authority),
+      "context" => if(authority == :human_required, do: %{"authority_basis" => if(kind == "product", do: "product", else: "security")}, else: nil),
       "reversibility" => "reversible"
     }
 

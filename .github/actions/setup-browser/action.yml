@@ -19,10 +19,6 @@ runs:
       with:
         path: ~/.cache/ms-playwright
         key: ${{ runner.os }}-playwright-${{ hashFiles('src/browser/package-lock.json') }}
-    - name: Install browser harness dependencies
-      working-directory: src/browser
-      shell: bash
-      run: npm ci
     - name: Install Chromium
       working-directory: src/browser
       shell: bash

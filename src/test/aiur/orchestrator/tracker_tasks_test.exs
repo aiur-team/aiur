@@ -92,4 +92,13 @@ defmodule Aiur.Orchestrator.TrackerTasksTest do
     assert TrackerTasks.result(next, ref, :ok) == :unhandled
     assert TrackerTasks.timeout(next, ref) == next
   end
+
+  test "terminal state write tasks have no generic timeout" do
+    for key <- [{:retry_exhausted, "issue-1"}, {:merged_comment, "ticket-1"}] do
+      pending = TrackerTasks.start(%State{}, key, fn -> :written end, fn state, _ -> state end)
+      [job] = Map.values(pending.tracker_tasks)
+      assert job.timer == nil
+      TrackerTasks.stop(pending)
+    end
+  end
 end

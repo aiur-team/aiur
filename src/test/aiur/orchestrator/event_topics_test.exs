@@ -2,7 +2,134 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
   use ExUnit.Case, async: false
 
   alias Aiur.DecisionStore
-  alias Aiur.Orchestrator.{EventTopics, Lifecycle, State}
+  alias Aiur.Orchestrator.{EventTopics, Lifecycle, PushRouting, State}
+
+  test "a branch push raises one attention when the live PR Tested head is stale" do
+    identifier = "4611"
+    pushed_sha = String.duplicate("a", 40)
+    emitted = :atomics.new(1, [])
+
+    pr_fetch = fn number ->
+      assert number == String.to_integer(identifier)
+
+      {:ok,
+       %{
+         "number" => number + 1000,
+         "head" => %{"sha" => pushed_sha},
+         "body" => "Tested head: #{String.duplicate("b", 40)}"
+       }}
+    end
+
+    emitter = fn topic, opts ->
+      assert topic == "ticket.#{identifier}.pr.tested_head_stale"
+      assert opts[:needs_attention]
+      assert opts[:message] =~ "PR ##{identifier |> String.to_integer() |> Kernel.+(1000)}"
+      assert opts[:reason] =~ "Refresh the PR body's Tested head"
+      :atomics.add_get(emitted, 1, 1)
+      :ok
+    end
+
+    state = %State{}
+    event = %{topic: "ticket.#{identifier}.branch.push", sha: pushed_sha}
+    condition = :atomics.new(1, [])
+    condition_state = fn _ -> if :atomics.get(condition, 1) == 1, do: :firing, else: :unknown end
+
+    assert {:branch_push, ^identifier} = EventTopics.classify_event_topic(event.topic)
+
+    assert :atomics.get(emitted, 1) == 0
+
+    assert {:ok, _pr} = pr_fetch.(String.to_integer(identifier))
+
+    EventTopics.route(state, event,
+      pull_request_fetcher: pr_fetch,
+      alert_emitter: emitter,
+      condition_state: condition_state
+    )
+
+    assert :atomics.get(emitted, 1) == 1
+    :atomics.put(condition, 1, 1)
+
+    EventTopics.route(state, event,
+      pull_request_fetcher: pr_fetch,
+      alert_emitter: emitter,
+      condition_state: condition_state
+    )
+
+    assert :atomics.get(emitted, 1) == 1
+  end
+
+  test "a branch push does not alert when the PR body already names its head" do
+    identifier = Integer.to_string(System.unique_integer([:positive]))
+    pushed_sha = String.duplicate("c", 40)
+
+    pr_fetch = fn number ->
+      {:ok,
+       %{
+         "number" => number,
+         "head" => %{"sha" => pushed_sha},
+         "body" => "Tested head: #{pushed_sha}"
+       }}
+    end
+
+    emitter = fn _topic, _opts -> flunk("matching evidence must not raise attention") end
+
+    state = %State{}
+    event = %{topic: "ticket.#{identifier}.branch.push", sha: pushed_sha}
+
+    PushRouting.check_pr_body_head(state, identifier, event,
+      pull_request_fetcher: pr_fetch,
+      alert_emitter: emitter
+    )
+
+    PushRouting.check_pr_body_head(state, identifier, event,
+      pull_request_fetcher: pr_fetch,
+      alert_emitter: emitter
+    )
+  end
+
+  test "an older queued branch push still alerts when the live PR body is stale" do
+    identifier = Integer.to_string(System.unique_integer([:positive]))
+    pushed_sha = String.duplicate("d", 40)
+    live_head_sha = String.duplicate("e", 40)
+    emitted = :atomics.new(1, [])
+
+    pr_fetch = fn _number ->
+      {:ok,
+       %{
+         "number" => 9001,
+         "head" => %{"sha" => live_head_sha},
+         "body" => "Tested head: #{String.duplicate("f", 40)}"
+       }}
+    end
+
+    emitter = fn topic, opts ->
+      assert topic == "ticket.#{identifier}.pr.tested_head_stale"
+      assert opts[:message] =~ String.slice(live_head_sha, 0, 12)
+      :atomics.add_get(emitted, 1, 1)
+      :ok
+    end
+
+    condition = :atomics.new(1, [])
+    condition_state = fn _ -> if :atomics.get(condition, 1) == 1, do: :firing, else: :unknown end
+    event = %{topic: "ticket.#{identifier}.branch.push", sha: pushed_sha}
+
+    EventTopics.route(%State{}, event,
+      pull_request_fetcher: pr_fetch,
+      alert_emitter: emitter,
+      condition_state: condition_state
+    )
+
+    assert :atomics.get(emitted, 1) == 1
+    :atomics.put(condition, 1, 1)
+
+    EventTopics.route(%State{}, event,
+      pull_request_fetcher: pr_fetch,
+      alert_emitter: emitter,
+      condition_state: condition_state
+    )
+
+    assert :atomics.get(emitted, 1) == 1
+  end
 
   test "an answered Command wakes the idle dispatch poll for a stopped in-progress claim" do
     identifier = "answered-hold-#{System.unique_integer([:positive])}"
@@ -11,7 +138,10 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     decisions =
       for question <- ["Choose the implementation", "Confirm the acceptance"] do
         assert {:ok, %{decision: decision}} =
-                 DecisionStore.request(%{"question" => question, "blocking" => true}, ticket: %{identifier: identifier}, source: %{agent_id: "event-test", session_id: "s", event_id: nil})
+                 DecisionStore.request(%{"question" => question, "blocking" => true},
+                   ticket: %{identifier: identifier},
+                   source: %{agent_id: "event-test", session_id: "s", event_id: nil}
+                 )
 
         decision
       end
@@ -22,7 +152,11 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert {:ok, %{status: status}} =
                DecisionStore.answer(
                  decision.decision_id,
-                 %{"expected_version" => decision.version, "custom_response" => "Proceed", "idempotency_key" => decision.decision_id},
+                 %{
+                   "expected_version" => decision.version,
+                   "custom_response" => "Proceed",
+                   "idempotency_key" => decision.decision_id
+                 },
                  actor: %{kind: :operator, id: "event-test"}
                )
 
@@ -100,24 +234,31 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     test "carries the merger login and the PR body off the event" do
       event = %{
         topic: "ticket.176.pr.merged",
-        pr: %{"body" => "Refs #176 (merge does not close the ticket)", "merged_by" => %{"login" => "its-everdred"}}
+        pr: %{
+          "body" => "Refs #176 (merge does not close the ticket)",
+          "merged_by" => %{"login" => "its-everdred"},
+          "head" => %{"sha" => "4ab677b8b"}
+        }
       }
 
       assert EventTopics.pr_merged_opts(event) == [
                merged_by_login: "its-everdred",
-               pr_body: "Refs #176 (merge does not close the ticket)"
+               pr_body: "Refs #176 (merge does not close the ticket)",
+               head_sha: "4ab677b8b"
              ]
     end
 
     test "reports a nil body and merger for an event carrying no pull request" do
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged"}) == [
                merged_by_login: nil,
-               pr_body: nil
+               pr_body: nil,
+               head_sha: nil
              ]
 
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged", pr: nil}) == [
                merged_by_login: nil,
-               pr_body: nil
+               pr_body: nil,
+               head_sha: nil
              ]
     end
   end
@@ -142,8 +283,11 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     end
 
     test "reject prefixed and suffixed system branch push topics" do
-      assert EventTopics.parse_system_branch_push_topic("prefix.system.main.branch.push") == :nomatch
-      assert EventTopics.parse_system_branch_push_topic("system.main.branch.push.suffix") == :nomatch
+      assert EventTopics.parse_system_branch_push_topic("prefix.system.main.branch.push") ==
+               :nomatch
+
+      assert EventTopics.parse_system_branch_push_topic("system.main.branch.push.suffix") ==
+               :nomatch
     end
   end
 end

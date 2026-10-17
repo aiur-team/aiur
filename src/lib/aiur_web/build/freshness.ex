@@ -20,14 +20,13 @@ defmodule AiurWeb.Build.Freshness do
   | Unavailable/invalid provider, missing snapshot or unknown input | unavailable |
   | Explicitly disabled | disabled |
   """
-  alias Aiur.BuildOrder.ProviderHealth
+  alias Aiur.BuildOrder.SourceFreshness
   alias Aiur.{Orchestrator, PollCadence}
-  alias AiurWeb.Build.Usage
   alias AiurWeb.Endpoint
 
   @spec daemon(term(), integer()) :: map()
   def daemon({status, _, md}, now_ms) when status in [:current, :stale] and is_map(md) do
-    heartbeat = Usage.ms(Map.get(md, :observed_at))
+    heartbeat = SourceFreshness.ms(Map.get(md, :observed_at))
     state = if heartbeat, do: daemon_state(status, Map.get(md, :reason)), else: "unknown"
     %{state: state, heartbeat_at: heartbeat, observed_at: now_ms}
   end
@@ -49,25 +48,9 @@ defmodule AiurWeb.Build.Freshness do
   def push_daemon?(_, _), do: true
 
   @spec source(term()) :: map()
-  def source(%ProviderHealth{state: :healthy} = health) do
-    if ProviderHealth.usable?(health),
-      do: entry("ok", health.observed_at, nil),
-      else: entry("incomplete", health.observed_at, :incomplete)
-  end
-
-  def source(%ProviderHealth{state: :stale} = health), do: entry("stale", health.observed_at, health.failure)
-
-  def source(%ProviderHealth{state: state} = health) when state in [:unavailable, :structurally_invalid],
-    do: entry("unavailable", health.observed_at, health.failure || state)
-
-  def source({:current, _, md}) when is_map(md), do: entry("ok", Map.get(md, :observed_at), nil)
-  def source({:stale, _, md}) when is_map(md), do: entry("stale", Map.get(md, :observed_at), Map.get(md, :reason))
-  def source(reason) when reason in [:snapshot_unpublished, :orchestrator_unavailable], do: entry("unavailable", nil, reason)
-  def source({:disabled, reason}), do: entry("disabled", nil, reason)
-  def source(_), do: entry("unavailable", nil, :unknown)
+  defdelegate source(input), to: Aiur.BuildOrder.SourceFreshness
 
   defp daemon_state(:current, _), do: "live"
   defp daemon_state(:stale, :orchestrator_unavailable), do: "offline"
   defp daemon_state(:stale, _), do: "stale"
-  defp entry(state, time, reason), do: %{state: state, observed_at: Usage.ms(time), reason: if(is_nil(reason), do: nil, else: to_string(reason))}
 end

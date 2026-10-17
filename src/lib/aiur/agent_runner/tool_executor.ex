@@ -6,6 +6,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   """
 
   alias Aiur.AgentRunner.{DecisionAttention, EpicSetter, FeatureWriter, ToolCoordination, ToolEvents}
+  alias Aiur.AgentRunner.ToolExecutor.TicketStateSetter
 
   alias Aiur.{Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
@@ -121,8 +122,17 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         end,
         feature_writer: fn args -> FeatureWriter.write(issue, args, Keyword.get(opts, :feature_opts, [])) end,
         epic_setter: fn args -> EpicSetter.set(issue, args, Keyword.get(opts, :epic_opts, [])) end,
-        ticket_state_setter: fn state_name ->
-          ToolCoordination.set_ticket_state_for_issue(issue, state_name, coordination)
+        ticket_state_setter: fn state_name, review_findings ->
+          TicketStateSetter.write(
+            issue,
+            state_name,
+            coordination,
+            workspace,
+            worker_host,
+            Keyword.put(opts, :review_findings, review_findings),
+            &ToolCoordination.ticket_coordination_key/1,
+            &ToolCoordination.coordination_operation_opts/1
+          )
         end
       )
     end

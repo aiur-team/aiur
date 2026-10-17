@@ -10,7 +10,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
       selected: [selected_snapshot(first, "Release dashboard", 1, :healthy, members: [member(7)])]
     )
 
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, _view, html} = live_settled("/build-orders/42")
     document = Floki.parse_document!(html)
 
     assert route_title(document) == "Build Order #42"
@@ -23,7 +23,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
       selected: [selected_snapshot(first, "BO: Stream Deck Parity", 1, :healthy, members: [member(7)])]
     )
 
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, _view, html} = live_settled("/build-orders/42")
     assert selected_lede(Floki.parse_document!(html)) == "Stream Deck Parity"
   end
 
@@ -34,7 +34,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
         selected: []
       )
 
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, _view, html} = live_settled("/build-orders/42")
     assert html =~ ~s(data-build-order-status="selected_unavailable")
     assert html =~ "Could not read the plan"
     assert html =~ "Investigate why Build Order #42&#39;s plan could not be read."
@@ -68,7 +68,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
       selected: [selected]
     )
 
-    assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, view, html} = live_settled("/build-orders/42")
 
     # The breakdown region is now epics-only, each row with a coloured icon and bar.
     assert html =~ ~s(<section class="bo-breakdown")
@@ -104,7 +104,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
         sources_loader: fn -> sources_with_adhoc(adhoc_source_snapshot()) end
       )
 
-    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, view, _html} = live_settled("/build-orders/42")
     loads_before = Enum.count(FakeDataSource.calls(source), &match?({:load_sources, []}, &1))
 
     send(view.pid, {:build_order_adhoc_updated, adhoc_source_snapshot()})
@@ -134,7 +134,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
       sources_loader: fn -> Agent.get(sources, & &1) end
     )
 
-    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, view, _html} = live_settled("/build-orders/42")
     LiveViewAsync.render_after_refresh(view)
     assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="working"]), "agent live")
     assert has_element?(view, ~s([data-bo-card="7"]), "30%")
@@ -179,7 +179,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
       sources_loader: fn -> sources_for_stale_paused_member(member.identity, 80) end
     )
 
-    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, view, _html} = live_settled("/build-orders/42")
     render_async(view, 2_000)
 
     assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="plain"]), "Paused")
@@ -212,7 +212,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
   test "projection reset rolls the catalog subscription to the replacement repository", %{
     source: source
   } do
-    assert {:ok, view, _html} = live(build_conn(), "/build-orders")
+    assert {:ok, view, _html} = live_settled("/build-orders")
     replacement_repository = {"new-owner", "new-repo"}
     replacement = identity(52, "NEW-52", replacement_repository)
 
@@ -270,7 +270,7 @@ defmodule AiurWeb.BuildOrderLive.PatchingTest do
     source: source,
     first: first
   } do
-    assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, view, html} = live_settled("/build-orders/42")
     assert html =~ "Build Order #42"
 
     new_catalog =

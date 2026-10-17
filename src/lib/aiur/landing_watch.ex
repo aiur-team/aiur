@@ -31,7 +31,10 @@ defmodule Aiur.LandingWatch do
   end
 
   @impl true
-  def handle_call(:state, _from, state), do: {:reply, Map.take(state, [:watcher, :last_poll_at_ms, :last_error]), state}
+  def handle_call(:state, _from, state) do
+    requeues = Journal.merge_group_requeues_by_hour(state.opts)
+    {:reply, Map.merge(Map.take(state, [:watcher, :last_poll_at_ms, :last_error]), %{merge_group_requeues_by_hour: requeues}), state}
+  end
 
   @impl true
   def handle_info(:poll, %{task: task} = state) when not is_nil(task) do
@@ -189,14 +192,38 @@ defmodule Aiur.LandingWatch do
   defp handle_verdict(_observation, %{decision: :pending}, _runs, _opts), do: :ok
 
   defp handle_verdict(observation, %{decision: :failed} = result, runs, opts) do
-    if Classifier.infra_failure?(result, runs) do
-      request_infra_reruns(observation, runs, opts)
-    else
-      route_rework(observation, result.failures, opts)
+    case approved_landing?(observation) do
+      :landing ->
+        :ok
+
+      :unknown ->
+        emit_landing_state_attention(observation, opts)
+
+      :not_landing ->
+        if Classifier.infra_failure?(result, runs) do
+          request_infra_reruns(observation, runs, opts)
+        else
+          route_rework(observation, result.failures, opts)
+        end
     end
   end
 
   defp handle_verdict(observation, %{decision: :passed}, _runs, opts), do: landing_eligibility(observation, opts)
+
+  # `process/2` only reaches here for a PR approved at its head, and this poll's
+  # own GraphQL read carries the landing fields, so no extra request is needed.
+  defp approved_landing?(%{auto_merge_request: auto_merge, merge_queue_entry: entry}) when is_map(auto_merge) or is_map(entry), do: :landing
+  defp approved_landing?(%{auto_merge_request: nil, merge_queue_entry: nil}), do: :not_landing
+  defp approved_landing?(_observation), do: :unknown
+
+  defp emit_landing_state_attention(observation, opts) do
+    issue = TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"]))
+    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+    message = "Landing state for approved PR ##{observation.number} could not be confirmed; rework routing was held."
+
+    emitter.("system.pr.landing.state_unavailable", central: true, durable: true, needs_attention: true, issue: issue, message: message, reason: message)
+    :ok
+  end
 
   defp handle_person_cancel(observation, runs, opts) do
     issue = TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"]))
@@ -313,7 +340,17 @@ defmodule Aiur.LandingWatch do
         :ok
 
       true ->
-        revalidate_attribution_and_enqueue(observation, opts)
+        land_unless_ticket_active(observation, opts)
+    end
+  end
+
+  # A ticket back in rework or with a running agent owns its PR; an Executor dequeue must stick (#4772).
+  defp land_unless_ticket_active(observation, opts) do
+    case fetch_ticket(observation, opts) do
+      {:ok, _issue, state} when state in ["rework", "in-progress", "todo"] -> :ok
+      {:ok, _issue, _state} -> revalidate_attribution_and_enqueue(observation, opts)
+      {:error, :pull_request_not_linked_to_ticket_branch} -> revalidate_attribution_and_enqueue(observation, opts)
+      {:error, _} = error -> error
     end
   end
 
@@ -408,7 +445,10 @@ defmodule Aiur.LandingWatch do
   end
 
   defp emit_rework_alert(observation, failures, issue, opts) do
-    message = "Approved PR ##{observation.number} moved ticket ##{issue} to rework: " <> Enum.map_join(failures, "; ", &failure_text/1)
+    run_link = Keyword.get(opts, :run_url)
+    evidence = Enum.map_join(failures, "; ", &failure_text/1)
+    evidence = if is_binary(run_link), do: evidence <> " (#{run_link})", else: evidence
+    message = "Approved PR ##{observation.number} moved ticket ##{issue} to rework: " <> evidence
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
     emitter.("system.pr.landing.rework", central: true, needs_attention: false, message: message, reason: message)
     :ok
@@ -428,14 +468,13 @@ defmodule Aiur.LandingWatch do
     end
   end
 
+  @ticket_states ["rework", "in-progress", "todo", "human-review", "ci-wait", "merging"]
+
   defp fetch_ticket_state(issue, opts) do
     with {:ok, raw, _freshness} <- Client.fetch_issue_raw_conditional(issue, Keyword.put(opts, :revalidate, true)) do
-      case Enum.find(Map.get(raw, "labels", []), &(Map.get(&1, "name") in ["agent:human-review", "agent:ci-wait", "agent:merging"])) do
-        %{"name" => "agent:human-review"} -> {:ok, "human-review"}
-        %{"name" => "agent:ci-wait"} -> {:ok, "ci-wait"}
-        %{"name" => "agent:merging"} -> {:ok, "merging"}
-        _ -> {:ok, "other"}
-      end
+      names = Enum.map(Map.get(raw, "labels", []), &Map.get(&1, "name"))
+      # Gating states win: label edits add before they remove, so a ticket can briefly hold both.
+      {:ok, Enum.find(@ticket_states, "other", &("agent:#{&1}" in names))}
     end
   end
 

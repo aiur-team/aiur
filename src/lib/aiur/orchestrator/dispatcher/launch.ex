@@ -20,11 +20,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.OptimisticSlots
   alias Aiur.Orchestrator.RetryEngine
+  alias Aiur.Orchestrator.ReworkDispatchClaim
   alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TelemetryCohort
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
+  alias Aiur.Signal
 
   @doc false
   @spec recover_orphaned_claim(State.t(), Issue.t(), term(), term()) :: {State.t(), term()}
@@ -207,24 +209,34 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
         state
 
       worker_host ->
-        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, opts)
+        ReworkDispatchClaim.dispatch(
+          state,
+          issue,
+          attempt,
+          &spawn_issue_on_worker_host(&1, issue, attempt, recipient, worker_host, opts),
+          &Candidates.emit_dispatch_attempt_decline(&1, issue, &2, true),
+          &dispatch_input/2
+        )
     end
   end
 
   @doc false
   @spec select_worker_host(State.t(), term(), term()) :: term()
   def select_worker_host(state, issue, preferred_worker_host) do
-    if CodingAgent.remote_worker?(CodingAgent.backend_for(issue)) do
-      Slots.select_worker_host(state, preferred_worker_host)
-    else
-      if is_nil(preferred_worker_host), do: nil, else: :preferred_worker_unavailable
-    end
+    Slots.select_worker_host_for_issue(state, issue, preferred_worker_host)
+  end
+
+  defp dispatch_input(state, id) do
+    entry = Map.get(state.running, id)
+
+    {if(is_map(entry), do: Map.take(entry, [:pid, :ref, :session_id, :telemetry_attempt_id, :control, :lifecycle_fence]), else: entry), MapSet.member?(state.claimed, id),
+     Map.get(state.auto_resume, id), Map.get(state.retry_attempts, id)}
   end
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
     worker_generation = System.unique_integer([:positive, :monotonic])
-    lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
+    lifecycle_attempt_id = Signal.new_attempt_id(dispatch_attempt_ticket(issue))
     optimistic_blockers = if issue.optimistic_start, do: Enum.map(issue.optimistic_start.blockers, & &1.identifier), else: []
 
     if TelemetryLifecycle.enabled?() do
@@ -426,7 +438,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
   defp record_rework_resume(%Issue{} = issue, attempt_id) do
     if DispatchPolicy.normalize_issue_state(issue.state) == "rework" do
-      TelemetryLifecycle.record(
+      Signal.lifecycle(
         issue.identifier,
         attempt_id,
         :agent_resume,
