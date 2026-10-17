@@ -76,3 +76,13 @@ test('builders use passed filter state independently of global S', () => {
   const d = data({ nq: [row('nq')] }), own = { ...state, f: { ...state.f, epic: ['gone'] } };
   assert.ok(!listHTML(d, own, {}, P, P.now).includes('class="lr nq"'));
 });
+
+test('unsupported tracker retains its known cause and age; unknown tags remain unknown', () => {
+  const src = { state: 'unsupported', reason: 'tracker_unsupported', observed_at: P.now - 60000 };
+  assert.match(html({}, { ...P.sources, open_tickets: src }), /unavailable · this tracker has no open-ticket index · read 1 min ago/);
+  assert.match(html({}, { ...P.sources, open_tickets: { ...src, state: 'bogus' } }), /unavailable · unknown cause · no successful read recorded/);
+});
+test('loading history button stays disabled across list renders', () => {
+  assert.match(html({}, P.sources, { more: true, state: 'loading' }), /id="lr-more" disabled aria-busy="true"/);
+  assert.ok(!html({}, P.sources, { more: true, state: 'idle' }).includes('aria-busy'));
+});

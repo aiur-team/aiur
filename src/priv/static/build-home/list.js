@@ -60,7 +60,9 @@ function rowHTML(t, D, state) {
 }
 function secHead(sec, label, sub, rows, extra, D, state, history, P, now) {
   // Open-ticket availability already includes queue health; index is only the index reader's health.
-  const payload = sec === 'nq' ? { ...P, sources: { ...P.sources, index: P.sources?.open_tickets } } : P;
+  const open = P.sources?.open_tickets;
+  const index = open?.state === 'unsupported' ? { ...open, state: 'unavailable' } : open;
+  const payload = sec === 'nq' ? { ...P, sources: { ...P.sources, index } } : P;
   const st = sectionState(payload, D, history, sec, rows), note = headNote(sec, st, now);
   if (!rows.length && !extra && st.src.state === 'ok') return '';
   if (!rows.length && ['unavailable', 'incomplete', 'disabled'].includes(st.src.state)) {
@@ -75,7 +77,7 @@ export function listHTML(D, state, history, P, now) {
   rows.hist = D.hist.filter(t => t.end >= (state.histFrom || 0) && keep(t)).sort((a, b) => b.end - a.end);
   const labels = { now: '<i class="lh-live" aria-hidden="true"></i>Live', plan: 'Planned', nq: 'Not queued', hist: 'History' };
   const subs = { now: rows.now.length + ' running', plan: rows.plan.length + ' in build-queue order', nq: rows.nq.length + ' open', hist: rows.hist.length + ' loaded · newest first' };
-  const more = history.more ? '<div role="row"><div role="cell"><button type="button" class="lr-more" id="lr-more">Load earlier day</button></div></div>' : '';
+  const more = history.more ? '<div role="row"><div role="cell"><button type="button" class="lr-more" id="lr-more"' + (history.state === 'loading' ? ' disabled aria-busy="true"' : '') + '>Load earlier day</button></div></div>' : '';
   return '<div class="bd-list" role="table" aria-label="Build tickets" tabindex="-1"><div class="lr lr-h" role="row">' +
     ['id', 'tt', 'ep', 'st', 'ag', 'pg', 'dp'].map((key, i) => '<span class="c-' + key + '" role="columnheader">' + ['Ticket', 'Title', 'Epic', 'State', 'Agent', 'Progress', 'Deps'][i] + '</span>').join('') + '</div>' +
     ['now', 'plan', 'nq', 'hist'].map(sec => secHead(sec, labels[sec], subs[sec], rows[sec], sec === 'hist' ? more : '', D, state, history, P, now)).join('') + '</div>';
@@ -115,9 +117,9 @@ async function earlier(btn) {
   const focused = document.activeElement === btn, life = ctx.life, vp = ctx.vp;
   H.retryArmed = true; btn.disabled = true; btn.setAttribute('aria-busy', 'true');
   await loadEarlier();
-  // The success render happens before history clears its loading state.
-  if (btn.isConnected) { btn.disabled = false; btn.removeAttribute('aria-busy'); renderList(); }
-  if (focused && ctx.life === life && !life.disposed && document.activeElement === document.body) {
+  if (ctx.life !== life || life.disposed || ctx.vp !== vp || S.view !== 'list') return;
+  renderList();
+  if (focused && document.activeElement === document.body) {
     (vp.querySelector('#lr-more') || [...vp.querySelectorAll('.lr[data-id]')].at(-1) || vp.querySelector('.bd-list'))?.focus({ preventScroll: true });
   }
 }

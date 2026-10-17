@@ -82,6 +82,8 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
     const b = document.querySelector('#lr-more'); b.click(); b.click()
   })
   await expect(more).toBeDisabled(); await expect(more).toHaveAttribute('aria-busy', 'true')
+  await page.evaluate(async () => { const { fx } = await import('/build-home/state.js'); fx.renderList() })
+  await expect(more).toBeDisabled(); await expect(more).toHaveAttribute('aria-busy', 'true')
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
   await expect(more).toBeEnabled()
   await expect(more).toBeFocused()
