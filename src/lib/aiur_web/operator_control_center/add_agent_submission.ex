@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentSubmission do
 
   alias Aiur.GitHub.StatePolicy
   alias Aiur.{Orchestrator.TicketTransition, Tracker}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.AgentRoutingPreview
 
   @spec run(map()) :: map()
@@ -53,7 +53,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentSubmission do
     do: "Labels saved. Admission could not be confirmed; Check admission to retry."
 
   defp mutate(identifier, {action, label}, result) do
-    fun = Endpoint.config(:add_agent_fun) || (&TicketTransition.write_marker(&1, marker_action(&3), &2, writer: :add_agent_submission))
+    fun = EndpointConfig.get(:add_agent_fun) || (&TicketTransition.write_marker(&1, marker_action(&3), &2, writer: :add_agent_submission))
 
     case safe_call(fn -> call_label(fun, identifier, label, action) end) do
       :ok -> record(result, action, label)
@@ -85,7 +85,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentSubmission do
   defp observed_state(_issue), do: nil
 
   defp fetch_issue(identifier) do
-    fun = Endpoint.config(:add_agent_verify_fun) || (&Tracker.fetch_issue_states_by_ids/1)
+    fun = EndpointConfig.get(:add_agent_verify_fun) || (&Tracker.fetch_issue_states_by_ids/1)
     safe_call(fn -> fun.([identifier]) end)
   end
 

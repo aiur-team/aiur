@@ -278,7 +278,7 @@ defmodule Aiur.AgentRunner.Handoff do
   @doc false
   @spec attach(map(), pos_integer()) :: {:ok, map()} | {:error, term()}
   def attach(%{"transport" => %{"kind" => "relay"} = transport} = record, generation) do
-    with {:ok, port} <- RelayPort.attach(transport["directory"], generation, transport["acked_offset"]) do
+    with {:ok, port} <- RelayPort.attach(transport["directory"], generation, transport["acked_offset"], actor_meta(record)) do
       session = decode(record["session_state"]) |> Map.put(:port, port)
       session = restore_provider_store(session, decode(record["turn_state"]))
       Process.put(:handoff_replay_frames, decode(record["queued_frames"]))
@@ -289,9 +289,18 @@ defmodule Aiur.AgentRunner.Handoff do
   def attach(%{"transport" => %{"kind" => "repl", "socket" => socket}} = record, _generation) do
     session = decode(record["session_state"])
 
-    with {:ok, session} <- ReplAdoption.rebind(session, socket) do
+    with {:ok, session} <- ReplAdoption.rebind(session, socket, actor_meta(record)) do
       Enum.each(decode(record["queued_frames"]), &send(self(), {:claude_hook, session.identifier, &1}))
       {:ok, session}
+    end
+  end
+
+  # Fresh launches register their root with its ticket; an adopted root must too,
+  # or run telemetry cannot attribute it and analytics reads an idle fleet (#4829).
+  defp actor_meta(record) do
+    case record["turn_context"] && decode(record["turn_context"]) do
+      %{issue: %{identifier: ticket}} when is_binary(ticket) -> [ticket: ticket, backend: record["backend"], worker_host: nil, remote: false]
+      _other -> []
     end
   end
 

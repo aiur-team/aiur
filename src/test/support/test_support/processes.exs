@@ -1,4 +1,5 @@
 defmodule Aiur.TestSupport.Processes do
+  alias Aiur.TestSupport.EndpointStubs
   alias Aiur.TestSupport.RuntimeChildren
 
   @doc "Waits for tracked task completions until the orchestrator satisfies a state predicate."
@@ -187,6 +188,8 @@ defmodule Aiur.TestSupport.Processes do
   """
   @spec start_owned_endpoint!() :: pid()
   def start_owned_endpoint! do
+    refuse_global_endpoint_stubs!()
+
     case ExUnit.Callbacks.start_supervised({AiurWeb.Endpoint, []}) do
       {:ok, pid} ->
         pid
@@ -196,6 +199,15 @@ defmodule Aiur.TestSupport.Processes do
 
       {:error, reason} ->
         raise "failed to start AiurWeb.Endpoint under the test supervisor: #{inspect(reason)}"
+    end
+  end
+
+  # Every test that renders a dashboard reads the global env, so a stub there
+  # is called by foreign tests (#4908).
+  defp refuse_global_endpoint_stubs! do
+    case for({key, value} <- Application.get_env(:aiur, AiurWeb.Endpoint, []), EndpointStubs.stub?(value), do: key) do
+      [] -> :ok
+      keys -> raise "AiurWeb.Endpoint env holds test stubs #{inspect(keys)}; scope them with EndpointStubs.scope/1"
     end
   end
 

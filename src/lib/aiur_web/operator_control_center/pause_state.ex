@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
   import Phoenix.Component, only: [assign: 3]
   alias Aiur.{AgentPubSub, Orchestrator}
   alias Aiur.Orchestrator.{GlobalPause, SnapshotStore}
-  alias AiurWeb.{Endpoint, RefreshRelay}
+  alias AiurWeb.{EndpointConfig, RefreshRelay}
 
   @spec mount(Socket.t()) :: Socket.t()
   def mount(socket) do
@@ -16,7 +16,7 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
       [:fleet_changed]
     )
     |> assign(:globally_paused, pause_state())
-    |> assign(:writable, Endpoint.config(:dashboard_writable) == true)
+    |> assign(:writable, EndpointConfig.get(:dashboard_writable) == true)
     |> assign(:global_pause_error, nil)
   end
 
@@ -25,7 +25,7 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
 
   @spec toggle(Socket.t()) :: Socket.t()
   def toggle(socket) do
-    if Endpoint.config(:dashboard_writable) == true and is_boolean(socket.assigns.globally_paused) do
+    if EndpointConfig.get(:dashboard_writable) == true and is_boolean(socket.assigns.globally_paused) do
       do_toggle(socket)
     else
       socket
@@ -69,7 +69,7 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
 
   defp pause_state, do: pause_state(orchestrator())
 
-  defp orchestrator, do: Endpoint.config(:orchestrator) || Orchestrator
+  defp orchestrator, do: EndpointConfig.get(:orchestrator) || Orchestrator
 
   defp live_pause_state(orchestrator) do
     case GlobalPause.global_pause_status(orchestrator, 1_000) do

@@ -31,9 +31,9 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore, StatusReport}
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
-  alias Aiur.TestSupport.{LiveViewAsync, RefreshTrace}
+  alias Aiur.TestSupport.{EndpointStubs, LiveViewAsync, RefreshTrace}
   alias Aiur.Usage.Headless.Codex.ThreadUsage
-  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
+  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, EndpointConfig, ObservabilityPubSub, Presenter}
   alias AiurWeb.OperatorControlCenter.{AgentRoutingPreview, FleetFilters, Overview, PayloadLoader, UnitsPresenter}
 
   @endpoint AiurWeb.Endpoint
@@ -1196,7 +1196,7 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, view, _html} = live(build_conn(), "/")
     {:ok, second_view, _html} = live(build_conn(), "/")
     views = [view, second_view]
-    cache = AiurWeb.Endpoint.config(:control_center_cache)
+    cache = EndpointConfig.get(:control_center_cache)
 
     assert_bounded_reload_burst(views, List.duplicate(:observability_updated, 25), cache, orchestrator_name)
 
@@ -1498,7 +1498,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert :ok = DecisionMetrics.observe(request_event, new_metrics)
     assert_receive :decision_metrics_changed, 2_000
 
-    cache = AiurWeb.Endpoint.config(:control_center_cache)
+    cache = EndpointConfig.get(:control_center_cache)
     touch_cached_payloads(cache)
     assert map_size(:sys.get_state(cache).entries) == 1
     assert cached_payloads_fresh?(cache, 400)
@@ -3665,7 +3665,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    assert is_pid(AiurWeb.Endpoint.config(:control_center_cache))
+    assert is_pid(EndpointConfig.get(:control_center_cache))
 
     path = "/commands/#{decision.decision_id}"
     {:ok, view, initial_html} = live(build_conn(), path)
@@ -4511,13 +4511,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute wrong_repo_html =~ ~s(id="units-conversation-drawer")
     assert render(wrong_repo_view) =~ "Chat is unavailable for this ticket."
 
-    unknown_config =
-      Application.get_env(:aiur, AiurWeb.Endpoint, [])
-      |> Keyword.put(:live_conversation_resolve_fun, fn _resolved ->
-        {:ok, %{conversation_snapshot(handle) | state: :restart_unknown, messages: []}}
-      end)
-
-    :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, unknown_config}], [])
+    EndpointStubs.put(live_conversation_resolve_fun: fn _resolved -> {:ok, %{conversation_snapshot(handle) | state: :restart_unknown, messages: []}} end)
     {:ok, unknown_view, unknown_html} = live(build_conn(), path)
     refute unknown_html =~ ~s(id="units-conversation-drawer")
     assert render(unknown_view) =~ "Chat is unavailable for this ticket."
@@ -6132,7 +6126,7 @@ defmodule AiurWeb.DashboardLiveTest do
       )
       |> Keyword.merge(overrides)
 
-    Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
+    Application.put_env(:aiur, AiurWeb.Endpoint, EndpointStubs.scope(endpoint_config))
 
     on_exit(fn -> if previous, do: Application.put_env(:aiur, AiurWeb.Endpoint, previous), else: Application.delete_env(:aiur, AiurWeb.Endpoint) end)
     Aiur.TestSupport.start_owned_endpoint!()

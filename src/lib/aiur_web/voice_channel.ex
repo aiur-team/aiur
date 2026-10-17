@@ -20,7 +20,7 @@ defmodule AiurWeb.VoiceChannel do
   require Logger
 
   alias Aiur.Voice
-  alias AiurWeb.{Endpoint, FinancialDataAccess, VoiceSessionLimiter}
+  alias AiurWeb.{EndpointConfig, FinancialDataAccess, VoiceSessionLimiter}
 
   # An audio chunk larger than this is rejected outright: at 16 kHz mono PCM16,
   # 256 KiB is roughly 8 seconds of audio, well past any single dictation push
@@ -46,7 +46,7 @@ defmodule AiurWeb.VoiceChannel do
       when topic in ["voice:dictation", "voice:conversation"] do
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
-    with true <- Endpoint.config(:dashboard_writable) == true,
+    with true <- EndpointConfig.get(:dashboard_writable) == true,
          {:ok, ^generation} <- FinancialDataAccess.current_configuration_generation(),
          {:ok, lease} <- VoiceSessionLimiter.acquire(connection_generation) do
       join_stt(socket, generation, lease, topic)
@@ -295,6 +295,6 @@ defmodule AiurWeb.VoiceChannel do
   end
 
   defp max_session_audio_bytes do
-    Endpoint.config(:voice_max_session_audio_bytes) || @default_max_session_audio_bytes
+    EndpointConfig.get(:voice_max_session_audio_bytes) || @default_max_session_audio_bytes
   end
 end
