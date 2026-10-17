@@ -261,21 +261,18 @@ since the blocking `CHANGES_REQUESTED` review is moved to `agent:human-review`
 for the second look — GitHub keeps `reviewDecision = CHANGES_REQUESTED` until
 a brand-new review, so nothing else re-queues it.
 
-It also runs the **head-verdict router** on the same interval. At the open PR's head, the configured reviewer's
-`CHANGES_REQUESTED` moves `agent:human-review`, `agent:ci-wait` or `agent:error` to `agent:rework`; an `APPROVED` that
-follows their same-head `CHANGES_REQUESTED` moves `agent:rework` to `agent:ci-wait`.
+It also runs the **head-verdict router** on the same interval. At the open, non-draft PR's head, the configured
+reviewer's `CHANGES_REQUESTED` moves `agent:human-review`, `agent:ci-wait` or `agent:error` to `agent:rework`.
 
-An error ticket moved this way raises `system.pr_health.error_rework`. Draft PRs never route, and each review routes once.
+An `APPROVED` that follows their same-head `CHANGES_REQUESTED` moves `agent:rework` to `agent:ci-wait`. An error ticket
+moved to rework raises `system.pr_health.error_rework`. Each review routes once.
 
-A PR whose head only moved via merges of the base branch (own contribution
-unchanged) is NOT re-queued; it raises `system.pr_health.rework_merge_only` so
-the merge-only state is visible distinctly from genuine rework.
+A PR whose head only moved via merges of the base branch (own contribution unchanged) is NOT re-queued; it raises
+`system.pr_health.rework_merge_only` so the merge-only state is visible distinctly from genuine rework.
 
-A re-queue that the thread-clearance gate refuses (the reworked PR still has
-unresolved review threads — the normal state of a rework ticket) raises
-`system.pr_health.rework_requeue_failed`; the head is not throttled on a failed
-write, so the re-queue retries on the next tick instead of silently stranding
-the ticket in rework.
+A re-queue that the thread-clearance gate refuses (the reworked PR still has unresolved review threads — the normal
+state of a rework ticket) raises `system.pr_health.rework_requeue_failed`; the head is not throttled on a failed
+write, so the re-queue retries on the next tick instead of silently stranding the ticket in rework.
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-10 -->
 | --- | --- | --- | --- |
