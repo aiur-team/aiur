@@ -154,7 +154,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     cond do
       waiting_state in [@ci_wait_state, @human_review_state] and
           result[:mergeable] == "CONFLICTING" ->
-        Transition.transition_ci_ticket(state, issue, "rework")
+        route_rework(state, issue, result)
 
       waiting_state in [@ci_wait_state, @human_review_state] and
           result[:review_decision] == "CHANGES_REQUESTED" ->
@@ -184,10 +184,22 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
           end
 
         if current_finding?,
-          do: Transition.transition_ci_ticket(current, issue, "rework"),
+          do: route_rework(current, issue, result),
           else: recover_ci_poll_result_after_rework(current, issue, result, opts)
       end
     )
+  end
+
+  # A head routed back unchanged (e.g. a handback that left the conflict in
+  # place) hits the #2422 per-head bound, which raises one attention instead of looping.
+  defp route_rework(state, issue, result) do
+    issue_key = to_string(issue.id || issue.identifier)
+    head_sha = result[:head_sha]
+
+    case ReworkGate.verify_rework_attempt(state, issue_key, head_sha) do
+      {:ok, state} -> Transition.transition_ci_ticket(state, issue, "rework", &State.bump_rework_attempt(&1, issue_key, head_sha))
+      {:skip, _reason, state} -> state
+    end
   end
 
   defp recover_ci_poll_result_after_rework(state, issue, result, opts) do
