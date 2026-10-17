@@ -5,6 +5,7 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouterTest do
   # else routes.
   use Aiur.TestSupport
 
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Issue
   alias Aiur.PRLifecycle.HeadVerdictRouter
 
@@ -223,5 +224,12 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouterTest do
     HeadVerdictRouter.tick(rework_worker([approval, request]))
 
     refute_received {:state_write, _, _, _}
+  end
+
+  test "paces ticks from pr_health.interval_seconds, not the start option" do
+    state = HeadVerdictRouter.tick(worker(interval_ms: 5))
+
+    assert state.next_delay_ms == GitHubConfig.pr_health_interval_ms()
+    refute state.next_delay_ms == 5
   end
 end
