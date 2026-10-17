@@ -38,7 +38,7 @@ defmodule AiurWeb.StreamdeckChannel do
     send(self(), :streamdeck_snapshot)
     Process.send_after(self(), :streamdeck_auth_expired, max(expires_at_ms - System.system_time(:millisecond), 0))
 
-    {:ok, assign(socket, focused_agent: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, fleet_latch: latch)}
+    {:ok, assign(socket, focused_agent: nil, focus_token: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, fleet_latch: latch)}
   end
 
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
@@ -48,8 +48,9 @@ defmodule AiurWeb.StreamdeckChannel do
       when is_binary(identifier) and byte_size(identifier) in 1..200 do
     # Relay setup/teardown and projections may wait on other processes. Keep
     # them behind the acknowledgement so focus remains responsive under load.
-    send(self(), {:streamdeck_focus_changed, identifier, socket})
-    socket = assign(socket, focused_agent: identifier, transcript_relay: nil, voice_session: nil)
+    focus_token = make_ref()
+    send(self(), {:streamdeck_focus_changed, identifier, focus_token, socket})
+    socket = assign(socket, focused_agent: identifier, focus_token: focus_token, transcript_relay: nil, voice_session: nil)
     {:reply, {:ok, %{"focused" => identifier}}, socket}
   end
 
@@ -244,7 +245,10 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_info(:fleet_changed, socket), do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
   def handle_info({:flush_fleet, token}, socket), do: AiurWeb.StreamdeckFleetUpdates.flush(socket, token)
 
-  def handle_info({:streamdeck_focus_changed, identifier, previous_socket}, %{assigns: %{focused_agent: identifier}} = socket) do
+  def handle_info(
+        {:streamdeck_focus_changed, identifier, focus_token, previous_socket},
+        %{assigns: %{focused_agent: identifier, focus_token: focus_token}} = socket
+      ) do
     previous_socket |> stop_voice_session() |> unsubscribe_focused()
     {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
     socket = assign(socket, transcript_relay: relay)
@@ -253,7 +257,7 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, socket}
   end
 
-  def handle_info({:streamdeck_focus_changed, _identifier, previous_socket}, socket) do
+  def handle_info({:streamdeck_focus_changed, _identifier, _focus_token, previous_socket}, socket) do
     previous_socket |> stop_voice_session() |> unsubscribe_focused()
     {:noreply, socket}
   end

@@ -8,14 +8,21 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     @moduledoc false
     use GenServer
 
-    def start_link(delegate, delay_ms), do: GenServer.start_link(__MODULE__, {delegate, delay_ms})
+    def start_link(delegate, report), do: GenServer.start_link(__MODULE__, {delegate, report})
 
     @impl true
     def init(state), do: {:ok, state}
 
     @impl true
-    def handle_call({:retained_query, _query} = request, _from, {delegate, delay_ms} = state) do
-      Process.sleep(delay_ms)
+    def handle_call({:retained_query, _query} = request, _from, {delegate, report} = state) do
+      send(report, {:slow_query_waiting, self()})
+
+      receive do
+        :continue -> :ok
+      after
+        5_000 -> exit(:slow_query_gate_timed_out)
+      end
+
       {:reply, GenServer.call(delegate, request), state}
     end
 
@@ -39,7 +46,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
     test "focus replies before a slow Commands store completes" do
       delegate = EndpointConfig.get(:decision_store)
-      {:ok, store} = SlowDecisionStore.start_link(delegate, 250)
+      {:ok, store} = SlowDecisionStore.start_link(delegate, self())
       EndpointStubs.put(decision_store: store)
 
       on_exit(fn ->
@@ -48,6 +55,8 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      receive_barrier({:slow_query_waiting, store})
+      send(store, :continue)
       assert_receive {:fake_decision_query, :hit}, 1_000
     end
 

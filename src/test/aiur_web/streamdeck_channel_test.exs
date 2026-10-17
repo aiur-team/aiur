@@ -172,12 +172,14 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
     first_focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
     assert_reply(first_focus, :ok, %{"focused" => "AIUR-1"})
+    receive_barrier(%Message{event: "logs"})
 
     AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "first"))
     assert_push("transcript", %{"identifier" => "AIUR-1", "body" => "first"})
 
     second_focus = push(socket, "focus", %{"identifier" => "AIUR-2"})
     assert_reply(second_focus, :ok, %{"focused" => "AIUR-2"})
+    receive_barrier(%Message{event: "logs"})
 
     AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "ignored"))
     refute_push("transcript", _payload, 50)
@@ -298,6 +300,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
     focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
     assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+    receive_barrier(%Message{event: "logs"})
 
     AgentPubSub.broadcast_alert("AIUR-1", AgentEvents.alert_event("deploy", "Needs attention", severity: "warning"))
 
@@ -334,6 +337,24 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     send(socket.channel_pid, {:streamdeck_transcript, "AIUR-1", AgentEvents.transcript_event(:assistant, "stale")})
     refute_push("transcript", _payload, 50)
+  end
+
+  test "a deferred stale refocus cannot replace the live transcript relay" do
+    socket = joined_socket()
+    focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
+    assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+    assert_push("logs", _payload)
+
+    %{assigns: %{transcript_relay: relay, focus_token: focus_token}} = :sys.get_state(socket.channel_pid)
+    assert is_pid(relay)
+    assert is_reference(focus_token)
+
+    send(socket.channel_pid, {:streamdeck_focus_changed, "AIUR-1", make_ref(), socket})
+    %{assigns: %{transcript_relay: current_relay, focus_token: current_token}} = :sys.get_state(socket.channel_pid)
+
+    assert current_relay == relay
+    assert current_token == focus_token
+    assert Process.alive?(relay)
   end
 
   test "a transcript burst is coalesced to one latest event" do
