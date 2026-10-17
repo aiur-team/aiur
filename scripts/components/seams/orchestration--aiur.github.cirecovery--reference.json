@@ -8,7 +8,9 @@
     "src/lib/aiur/landing_watch/merge_group_failure_processor.ex",
     "src/lib/aiur/landing_watch/merge_group_quarantine.ex",
     "src/lib/aiur/landing_watch/merge_groups.ex",
+    "src/lib/aiur/landing_watch/pr_rerun.ex",
+    "src/lib/aiur/landing_watch/pr_rerun_classifier.ex",
     "src/lib/aiur/orchestrator/ci_lifecycle/outcome.ex"
   ],
-  "reason": "#4457: reuse governed CI jobs and bounded failed-job recovery; #4569: read failed merge-group job logs; #4570: inspect failed merge-group jobs for quarantine candidates; #4631: observe approved exact-head PRs before CI recovery"
+  "reason": "#4457: reuse governed CI jobs and bounded failed-job recovery; #4569: read failed merge-group job logs; #4570: inspect failed merge-group jobs for quarantine candidates; #4631: observe approved exact-head PRs before CI recovery; #4606: rerun approved PRs with non-PR failures and read their workflow paths"
 }

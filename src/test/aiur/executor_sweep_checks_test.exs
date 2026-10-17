@@ -182,4 +182,19 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert Enum.any?(findings, &(&1.kind == "service_unhealthy"))
     assert Enum.any?(findings, &(&1.kind == "unmergeable_queue_entry"))
   end
+
+  test "lists approved PRs waiting on the landing watcher's shared rerun cap" do
+    now = ~U[2026-10-15 18:20:00Z]
+    since = DateTime.to_unix(now, :millisecond) - 12 * 60_000
+    row = %{"pr" => 4610, "head" => "abc", "reason" => "known flake", "checks" => ["ci gate"], "since_ms" => since}
+
+    assert [finding] = Checks.all(%{landing_rerun_backlog: [row]}, now) |> Enum.filter(&(&1.kind == "approved_pr_rerun_pending"))
+    assert %{pull_request: 4610, head_sha: "abc", priority: 3, age_ms: 720_000} = finding
+    assert finding.message == "Approved PR #4610 awaits an automatic CI rerun of ci gate (known flake) for 12m."
+    assert [%{kind: "sweep_source_unavailable", sources: [:landing_rerun_backlog]}] = Checks.all(%{landing_rerun_backlog: nil}, now)
+
+    refresh = Map.merge(row, %{"action" => "refresh", "reason" => "superseded job name"})
+    assert [finding] = Checks.all(%{landing_rerun_backlog: [refresh]}, now) |> Enum.filter(&(&1.kind == "approved_pr_refresh_pending"))
+    assert finding.message == "Approved PR #4610 needs a fresh merge ref for ci gate (superseded job name); waiting 12m."
+  end
 end
