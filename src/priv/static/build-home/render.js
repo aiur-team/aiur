@@ -4,7 +4,7 @@ import { $ } from './dom.js';
 import { I } from './icons.js';
 import { dotSize } from './span.js';
 import { writeURL } from './url.js';
-import { computeLayout, measureFlow, histDays, makeMark, placeMark, makeLabel } from './layout.js';
+import { computeLayout, measureFlow, crowded, laneMax, fwdLanes, histDays, makeMark, placeMark, makeLabel } from './layout.js';
 import { H, syncHistory, loadEarlier, ensureDays, ensureFrom } from './history.js';
 import { takeAnchor, restoreAnchor } from './render-anchor.js';
 import { renderHeads } from './render-heads.js';
@@ -66,12 +66,15 @@ export function relayout({ live = false } = {}) {
   syncHistory();
   if (S.view === 'list') return fx.renderList();
   if (!ctx.content) viewport();
-  Object.assign(S, measureFlow(ctx.D, { vpW: ctx.vp.clientWidth, gut: gutW() }));
-  ctx.content.classList.toggle('flow', S.flow);
+  const dims = { vpW: ctx.vp.clientWidth, vpH: ctx.vp.clientHeight, gut: gutW() };
+  Object.assign(S, measureFlow(ctx.D, dims));
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
   const previousDetail = ctx.L?.det;
-  ctx.L = computeLayout(ctx.D, S, { vpW: ctx.vp.clientWidth, vpH: ctx.vp.clientHeight, gut: gutW() }, ctx.snap.sources, { history: H });
+  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H });
+  // The design counts only live and planned lanes; also flow when the packed day columns would still be slivers (#4769).
+  if (!S.flow && !S.feature && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H }); }
+  ctx.content.classList.toggle('flow', S.flow);
   const detailChanged = previousDetail !== ctx.L.det;
   ctx.svg.setAttribute('height', 0);
   ctx.vp.style.setProperty('--dot', dotSize(S.span));
@@ -122,7 +125,7 @@ function renderSection(s, keep, keepL, focused) {
     const uid = s + ':' + it.t.id; keep.add(uid);
     let el = ctx.R.get(uid);
     if (!el) { el = fx.makeCard(it); noanim(el); sec.layer.appendChild(el); ctx.R.set(uid, el); }
-    place(el, it);
+    el._it = it; place(el, it);
   }
   lay.marks.forEach((m, i) => {
     if (!overlaps(m.y, m.h)) return;
@@ -144,10 +147,7 @@ function renderSection(s, keep, keepL, focused) {
 }
 export function update(force) {
   if (!ctx.L || !ctx.content || S.loading || S.view === 'list') return;
-  const next = fx.visibleCols();
-  if (next.length && next.join('|') !== ctx.cols.join('|')) {
-    ctx.life.later('cols', force ? 0 : 220, () => { fx.applyCols(fx.visibleCols()); update(); });
-  }
+  fx.scheduleCols(force);
   const keep = new Set(), keepL = new Set();
   const focused = focusId() ?? ctx.a11y.focusId;
   ctx.a11y.focusId = focused;

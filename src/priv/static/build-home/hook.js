@@ -7,6 +7,7 @@ import { H } from './history.js';
 import { fromServer, flushURL } from './url.js';
 import './clock.js';
 import './render.js';
+import './columns.js';
 import './cards.js';
 import './offline.js';
 import './tools.js';

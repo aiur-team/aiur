@@ -62,6 +62,16 @@ for (const dataset of ['live', 'newrepo', 'noqueue']) test(`labels and markers m
 test('flow boundary', async ({ page }) => {
   expect(await page.evaluate(() => { const D = data(); D.now = ['a', 'b', 'c', 'd', 'e'].map(epic => ({ epic })); return [356, 370].map(vpW => layout.measureFlow(D, { vpW, gut: 46 })) })).toEqual([{ flow: true, K: 2 }, { flow: false, K: 2 }])
 })
+test('lane count follows the packed day columns (#4769)', async ({ page }) => {
+  expect(await page.evaluate(() => {
+    const day = Date.parse('2026-11-01T12:00:00-08:00'), D = data()
+    D.hist = [...'abcdefghijkl'].map((epic, i) => ({ id: 'h' + i, epic, end: day + i })).concat(['a', 'm', 'n'].map((epic, i) => ({ id: 'g' + i, epic, end: day + 864e5 + i })))
+    D.plan = [{ epic: 'x' }, { epic: 'a' }]
+    const L = run(D), fwd = layout.fwdLanes(D, state), all = L.secs.hist.h + 1000
+    return [layout.laneMax(L, new Set(), 1), layout.laneMax(L, new Set(), all), layout.laneMax(L, fwd, all), [...layout.fwdLanes(D, { f: { epic: ['x'] } })],
+      layout.crowded({ vpW: 1440, gut: 84 }, 18), layout.crowded({ vpW: 1440, gut: 84 }, 17)]
+  })).toEqual([12, 14, 15, ['x'], true, false])
+})
 test('zero viewport', async ({ page }) => {
   expect(await page.evaluate(() => { const L = run(data(6), { span: 2 }, sources, { vpW: 0, vpH: 0, gut: 46 }); return [L.det, L.ch, L.gap, Object.values(L.secs).every(s => Number.isFinite(s.h) && s.items.every(t => Number.isFinite(t.y) && Number.isFinite(t.h)))] })).toEqual(['line', 41, 9, true])
 })

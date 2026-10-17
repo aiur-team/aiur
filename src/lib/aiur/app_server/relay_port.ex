@@ -262,6 +262,12 @@ defmodule Aiur.AppServer.RelayPort do
   end
 
   @impl true
+  def handle_cast(:reap_orphans, state) do
+    _ = send_json(state.socket, %{op: "reap"})
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info({:tcp, socket, line}, %{socket: socket} = state) do
     state = consume(state.pending <> line, %{state | pending: ""})
     :inet.setopts(socket, active: :once)

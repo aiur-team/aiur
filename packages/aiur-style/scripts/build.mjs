@@ -7,19 +7,24 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 import { buildTokens, tokens } from '../src/tokens/build.mjs';
 
+const cssDir = path.join(packageRoot, 'src/css');
+// vitepress.css ships as its own entry point; every other source becomes dist/css/<file>.
+export const componentCssFiles = () =>
+  fs.readdirSync(cssDir).filter(file => file.endsWith('.css') && file !== 'vitepress.css').sort();
+// Font loading is opt-in; consumers adopt fonts.css in their migration.
+export const isBundled = file => file !== 'fonts.css';
+// Individual CSS lives one directory deeper than the consolidated stylesheet.
+export const readableCss = css => css.replaceAll("'./fonts/", "'../fonts/");
+
 export function build(outputDir = path.join(packageRoot, 'dist')) {
   fs.mkdirSync(path.join(outputDir, 'css'), { recursive: true });
   execFileSync(path.join(packageRoot, 'node_modules/.bin/tsc'),
     ['--project', path.join(packageRoot, 'tsconfig.json'), '--outDir', path.join(outputDir, 'js')],
     { cwd: packageRoot, stdio: 'inherit' });
-  const cssDir = path.join(packageRoot, 'src/css');
-  const cssFiles = fs.readdirSync(cssDir).filter(file => file.endsWith('.css') && file !== 'vitepress.css').sort();
-  const contents = cssFiles.map(file => {
+  const contents = componentCssFiles().map(file => {
     const css = fs.readFileSync(path.join(cssDir, file), 'utf8').replace(/\r\n/g, '\n');
-    // Individual CSS lives one directory deeper than the consolidated stylesheet.
-    fs.writeFileSync(path.join(outputDir, 'css', file), css.replaceAll("'./fonts/", "'../fonts/"));
-    // Font loading is opt-in; consumers adopt fonts.css in their migration.
-    return file === 'fonts.css' ? '' : css;
+    fs.writeFileSync(path.join(outputDir, 'css', file), readableCss(css));
+    return isBundled(file) ? css : '';
   });
   fs.writeFileSync(path.join(outputDir, 'aiur-style.css'), buildTokens(outputDir) + contents.join('\n').replace(/\n[ \t]*}/g, ' }'));
   fs.mkdirSync(path.join(outputDir, 'init'), { recursive: true });
