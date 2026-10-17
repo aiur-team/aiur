@@ -6,12 +6,13 @@ defmodule AiurWeb.ExperimentsChartsLiveTest do
   @endpoint Endpoint
 
   defmodule Facade do
+    alias Aiur.Experiments.ChartData
     def status, do: %{available?: true, store: :ok, capture: :on}
     def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, "chart-live-test")
     def metric_catalog, do: %{metrics: %{}}
     def list, do: {:ok, [%{id: "chart-example", title: "Example", status: "active", created_at: nil}]}
     def fetch("chart-example"), do: {:ok, Application.fetch_env!(:aiur, :chart_live_fixture)}
-    def chart_detail(id, opts), do: Aiur.Experiments.ChartData.attach(fetch(id), opts)
+    def chart_detail(id, opts), do: ChartData.attach(fetch(id), opts)
   end
 
   defp build_conn, do: Phoenix.ConnTest.build_conn() |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))

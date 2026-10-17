@@ -1,7 +1,7 @@
 defmodule Aiur.BrowserHarness.ExperimentsFixture do
   @moduledoc false
   import Plug.Conn
-  alias Aiur.Experiments.Spec
+  alias Aiur.Experiments.{Evidence, Spec}
   alias Aiur.RepoBase
 
   @fixtures Path.expand("../../aiur/experiments/fixtures", __DIR__)
@@ -52,7 +52,7 @@ defmodule Aiur.BrowserHarness.ExperimentsFixture do
     entries =
       Enum.map(detail["snapshots"], fn snapshot ->
         snapshot = snapshot |> Map.put("experiment_id", "release-speed") |> Map.put("sha256", nil) |> Map.delete("sha256")
-        snapshot = Map.put(snapshot, "sha256", Aiur.Experiments.Evidence.hash(snapshot))
+        snapshot = Map.put(snapshot, "sha256", Evidence.hash(snapshot))
         File.write!(Path.join(snapshots, "#{snapshot["window_name"]}.r1.json"), Jason.encode!(snapshot))
         Jason.encode!(%{"schema_version" => 1, "kind" => "frozen", "window" => snapshot["window_name"], "revision" => 1, "sha256" => snapshot["sha256"]})
       end)

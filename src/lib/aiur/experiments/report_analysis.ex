@@ -1,6 +1,6 @@
 defmodule Aiur.Experiments.ReportAnalysis do
   @moduledoc false
-  alias Aiur.Experiments.{AnalysisResult, AnalysisInput, Catalog, Evidence, Paths, Persistence, Reader, ReportEngine, ReportInput, ReportRecords, StatsRunner, WindowEvents}
+  alias Aiur.Experiments.{AnalysisInput, AnalysisResult, Catalog, Evidence, Paths, Persistence, Reader, ReportEngine, ReportInput, ReportRecords, StatsRunner, WindowEvents}
 
   @spec prepare(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def prepare(id, catalog_context) do

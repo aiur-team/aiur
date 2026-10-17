@@ -1,12 +1,13 @@
 defmodule AiurWeb.Experiments.ChartsTest do
   use ExUnit.Case, async: true
-  alias AiurWeb.Experiments.{Charts, ViewModel}
+  alias Aiur.Experiments.ChartData
+  alias AiurWeb.Experiments.{Charts, Styles, ViewModel}
   alias AiurWeb.Experiments.Charts.Svg
 
   defp fixture do
     raw = File.read!(Path.expand("../../aiur/experiments/fixtures/chart_detail.json", __DIR__)) |> Jason.decode!()
     detail = Map.new(raw, fn {key, value} -> {String.to_existing_atom(key), value} end)
-    {:ok, detail} = Aiur.Experiments.ChartData.attach({:ok, detail}, [])
+    {:ok, detail} = ChartData.attach({:ok, detail}, [])
     ViewModel.detail(detail)
   end
 
@@ -46,7 +47,7 @@ defmodule AiurWeb.Experiments.ChartsTest do
     assert Floki.text(chart) =~ "Before"
     assert Floki.text(chart) =~ "After"
     refute html(Charts.time_series(metric, detail)) =~ "exp-line-rule"
-    css = AiurWeb.Experiments.Styles.css()
+    css = Styles.css()
     assert css =~ ".exp-series-0{fill:var(--an-s1)}"
     assert css =~ ".exp-series-1{fill:var(--an-s2)}"
   end

@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments do
   @moduledoc "Versioned experiment specs and their durable audit trail."
 
-  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, ReportMarkdown, ReportReads, SampleStatus, Schema, Store, WindowEvents}
+  alias Aiur.Experiments.{Arms, Capture, Catalog, ChartData, ChartEvidence, Checkpointer, Evaluator, Journal, Paths, Reader, ReportMarkdown, ReportReads, SampleStatus, Schema, Store, WindowEvents}
 
   @spec metric_catalog() :: map()
   def metric_catalog, do: Catalog.load()
@@ -65,8 +65,8 @@ defmodule Aiur.Experiments do
   @spec chart_detail(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def chart_detail(id, opts \\ []) do
     with {:ok, detail} <- fetch(id) do
-      detail = Aiur.Experiments.ChartEvidence.attach(id, detail)
-      Aiur.Experiments.ChartData.attach({:ok, detail}, opts)
+      detail = ChartEvidence.attach(id, detail)
+      ChartData.attach({:ok, detail}, opts)
     end
   end
 
