@@ -74,6 +74,7 @@ defmodule AiurWeb.Experiments.ChartsTest do
     detail = fixture()
     metric = hd(detail.chart_metrics)
     chart = html(Charts.time_series(metric, detail))
+    assert length(Floki.find(Floki.parse_fragment!(chart), "svg .exp-grid")) == 4
     assert chart =~ "exp-frozen"
     assert chart =~ "exp-line-rule"
     assert chart =~ "v0.0.9"

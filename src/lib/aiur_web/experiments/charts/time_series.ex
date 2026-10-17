@@ -9,10 +9,17 @@ defmodule AiurWeb.Experiments.Charts.TimeSeries do
     times = Svg.domain(dates)
     values = Svg.domain(Enum.map(points, fn {_, _, point} -> point["value"] end), metric.scale)
     dots = Enum.map(points, &dot(&1, times, values, metric, detail))
-    body = [windows(detail, times), line_rule(detail, times), annotations(detail, times), rolling(metric, times, values), dots, axis(times)]
+    body = [windows(detail, times), value_grid(values, metric), line_rule(detail, times), annotations(detail, times), rolling(metric, times, values), dots, axis(times)]
     rows = Enum.map(points, fn {group, _, point} -> [group.label, point["unit_id"], point["at"], Svg.number(point["value"]), if(outside?(point, detail), do: "Outside window", else: "In window")] end)
     svg = Svg.wrap("#{metric.label} over time in #{metric.unit}; #{length(points)} samples. Group marker shapes match the distribution.", 280, body)
     ~s(<div class="exp-series-scroll"><div class="exp-series-canvas">#{svg}</div></div>) <> Svg.table("Time series samples", ~w(Group Sample Time Value Window), rows)
+  end
+
+  defp value_grid(values, metric) do
+    for value <- Svg.ticks(values, metric.scale) do
+      y = Svg.position(value, values, {235, 35}, metric.scale)
+      [Svg.line(55, y, 615, y, "exp-grid"), Svg.text(0, y, Svg.number(value))]
+    end
   end
 
   defp dot({group, index, point}, times, values, metric, detail) do
