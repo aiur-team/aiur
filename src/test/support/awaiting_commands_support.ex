@@ -46,8 +46,8 @@ defmodule Aiur.TestSupport.AwaitingCommands do
   @spec start(keyword()) :: GenServer.server()
   def start(counts) do
     name = Module.concat(__MODULE__, "Stub#{System.unique_integer([:positive])}")
-    {:ok, _pid} = GenServer.start_link(__MODULE__, Map.new(counts), name: name)
-    name
+    {:ok, pid} = GenServer.start_link(__MODULE__, Map.new(counts), name: name)
+    pid
   end
 
   @impl true
