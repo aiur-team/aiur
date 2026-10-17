@@ -95,7 +95,7 @@ It requires dashboard authentication and loads history by active day in the brow
 Live changes are coalesced; snapshots distinguish unavailable sources from empty sections.
 
 List (`?view=list`) shows Live, Planned, Not queued and newest-first History as table rows.
-Focus a ticket row and press Enter to open it; use **Load earlier day** to fetch more history.
+Ticket rows support keyboard focus. Use **Load earlier day** to fetch more history.
 Unknown values stay explicit, and degraded section headings show their source state and read age.
 
 The toolbar selects Timeline, Gantt or List and retains the view in the URL.

@@ -112,9 +112,13 @@ function bindOnce(vp) {
 }
 async function earlier(btn) {
   if (H.state === 'loading') return;
+  const focused = document.activeElement === btn, life = ctx.life, vp = ctx.vp;
   H.retryArmed = true; btn.disabled = true; btn.setAttribute('aria-busy', 'true');
   await loadEarlier();
   // The success render happens before history clears its loading state.
   if (btn.isConnected) { btn.disabled = false; btn.removeAttribute('aria-busy'); renderList(); }
+  if (focused && ctx.life === life && !life.disposed && document.activeElement === document.body) {
+    (vp.querySelector('#lr-more') || [...vp.querySelectorAll('.lr[data-id]')].at(-1) || vp.querySelector('.bd-list'))?.focus({ preventScroll: true });
+  }
 }
 Object.assign(fx, { renderList });
