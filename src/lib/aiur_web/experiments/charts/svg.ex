@@ -26,7 +26,7 @@ defmodule AiurWeb.Experiments.Charts.Svg do
 
   @spec marker(number(), number(), non_neg_integer(), String.t()) :: String.t()
   def marker(x, y, index, class \\ "exp-point") do
-    body = shape(x, y, rem(index, 4))
+    body = shape(x, y, index)
     ~s(<g class="#{escape(class)} exp-series-#{rem(index, 4)}">#{body}</g>)
   end
 
@@ -34,6 +34,8 @@ defmodule AiurWeb.Experiments.Charts.Svg do
   defp shape(x, y, 1), do: ~s(<rect x="#{x - 4}" y="#{y - 4}" width="8" height="8" />)
   defp shape(x, y, 2), do: ~s(<path d="M #{x} #{y - 5} L #{x - 5} #{y + 4} L #{x + 5} #{y + 4} Z" />)
   defp shape(x, y, 3), do: ~s(<path d="M #{x} #{y - 5} L #{x - 5} #{y} L #{x} #{y + 5} L #{x + 5} #{y} Z" />)
+
+  defp shape(x, y, index), do: ~s(<text x="#{x}" y="#{y + 3}" text-anchor="middle" font-size="9">#{index + 1}</text>)
 
   @spec domain([number()], String.t()) :: {number(), number()}
   def domain(values, scale \\ "linear") do

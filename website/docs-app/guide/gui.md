@@ -235,7 +235,7 @@ box-and-dot distribution and time series; metric and stratum selections are
 shareable through `?metric=` and `?stratum=`. Stratum chips appear only for stored
 stratum analyses.
 
-Cohorts use both colour and marker shape. On phones, the time
+Cohorts use both colour and marker shape; additional cohorts use numbered markers. On phones, the time
 series scrolls within its container. Every chart has a **Show data** table.
 
 Sample meters distinguish the minimum sample guard from estimated power

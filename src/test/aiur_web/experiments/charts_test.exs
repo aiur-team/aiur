@@ -142,4 +142,30 @@ defmodule AiurWeb.Experiments.ChartsTest do
     assert Floki.attribute(line, "y2") == ["20.0"]
     assert Floki.text(chart) =~ "n 600, showing 1"
   end
+
+  test "a fifth cohort keeps a distinct marker when the palette repeats" do
+    metric = hd(fixture().chart_metrics)
+    group = hd(metric.groups)
+    point = hd(group.points)
+    value = point["value"]
+
+    groups =
+      for index <- 0..4,
+          do: %{
+            group
+            | name: "cohort-#{index}",
+              label: "Cohort #{index + 1}",
+              n: 1,
+              median: value,
+              q1: value,
+              q3: value,
+              whiskers: {value, value},
+              points: [Map.put(point, "unit_id", "sample-#{index}")]
+          }
+
+    chart = html(Charts.distribution(%{metric | groups: groups, cohorts?: true})) |> Floki.parse_fragment!()
+    assert length(Floki.find(chart, "svg .exp-point")) == 5
+    assert length(Floki.find(chart, "svg .exp-series-0 circle")) == 1
+    assert Floki.text(Floki.find(chart, "svg .exp-series-0 text")) == "5"
+  end
 end
