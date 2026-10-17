@@ -41,4 +41,47 @@ defmodule Aiur.BuildOrder.IndexPagesTest do
     assert empty.history_meta == %{total: 0, undated: 0}
     assert empty.sources.history.state == "ok"
   end
+
+  test "a non-integer end in hist is skipped, never shown as the newest day" do
+    assert {:ok, index} = assemble(parts([row(1, %{end: ~U[2026-10-06 12:00:00Z]}), row(2, %{end: ~U[2026-10-07 12:00:00Z]})]))
+    base = Index.base(index)
+    [old, new] = base.hist
+
+    for bad <- [nil, :unknown] do
+      page = Index.window(%{base | hist: [old, %{new | num: 3, end: bad}, new]}, "Etc/UTC", now())
+      assert Enum.map(page.sections.hist, & &1.num) == [1, 2]
+    end
+  end
+
+  test "day walk matches a per-row reference across zones, DST and off-midnight cursors" do
+    start = ~U[2026-10-25 03:00:00Z]
+    rows = for n <- 1..400, do: row(n, %{end: DateTime.add(start, n * 4_877)})
+    assert {:ok, index} = assemble(parts(rows))
+
+    for zone <- ~w(Etc/UTC America/Los_Angeles Europe/London Asia/Kolkata),
+        before <- [nil | Enum.map([3, 99, 250, 401], &DateTime.to_unix(DateTime.add(start, &1 * 4_877), :millisecond))],
+        days <- [1, 2, 5] do
+      {rows, history} = if before, do: earlier!(index, before, zone, days), else: first!(index, zone)
+      {expected, from, more} = reference(index.hist, before, zone, if(before, do: days, else: 2))
+      assert {Enum.map(rows, & &1.num), history.from, history.more} == {Enum.map(expected, & &1.num), from, more}
+    end
+  end
+
+  defp first!(index, zone) do
+    page = Index.window(Index.base(index), zone, now())
+    {page.sections.hist, page.history}
+  end
+
+  defp earlier!(index, before, zone, days) do
+    {:ok, page} = Index.earlier(index, before, zone, days)
+    {page.rows, page.history}
+  end
+
+  # The pre-walk implementation: resolve every row's local midnight, then pick days.
+  defp reference(hist, before, zone, days) do
+    dated = Enum.map(hist, fn row -> {row, row.end |> DateTime.from_unix!(:millisecond) |> DateTime.shift_zone!(zone, Tz.TimeZoneDatabase) |> DateTime.to_date() |> Index.local_midnight(zone)} end)
+    available = dated |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.filter(&(is_nil(before) or &1 < before)) |> Enum.sort(:desc)
+    chosen = available |> Enum.take(days) |> MapSet.new()
+    {for({row, day} <- dated, MapSet.member?(chosen, day), do: row), Enum.min(chosen, fn -> before end), length(available) > days}
+  end
 end
