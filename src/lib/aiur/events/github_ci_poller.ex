@@ -303,7 +303,8 @@ defmodule Aiur.Events.GithubCIPoller do
           pr_number: pr_number,
           head_sha: observed_head_sha,
           draft?: Evaluation.pr_draft?(current_pr),
-          review_decision: Map.get(current_pr, "review_decision")
+          review_decision: Map.get(current_pr, "review_decision"),
+          mergeable: normalize_mergeable(Map.get(current_pr, "mergeable"))
         })
         |> log_classification()
 
@@ -320,6 +321,10 @@ defmodule Aiur.Events.GithubCIPoller do
         poll_error(target, reason)
     end
   end
+
+  defp normalize_mergeable(true), do: "MERGEABLE"
+  defp normalize_mergeable(false), do: "CONFLICTING"
+  defp normalize_mergeable(value), do: value
 
   defp log_classification(result) do
     Logger.debug(fn ->
