@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
@@ -28,21 +29,25 @@ async function freeze(page) {
   })
 }
 
+// The fixture broadcasts every diff to every worker's live page, so resend ours until it is the one shown.
+const changedInfra = JSON.parse(readFileSync(new URL('../../test/fixtures/build_home/diffs/counts-changed.json', import.meta.url))).set.counts.infra
 for (const name of ['counts-changed', 'counts-unknown']) test(`live ${name} refills existing lanes`, async ({ page }) => {
-  const before = await page.evaluate(() => {
+  await page.evaluate(() => {
     ctx.vp.scrollTop = ctx.secs.plan.el.offsetTop; ren.update(true)
     cols.applyCols(cols.visibleCols(), true)
     window.infra = ctx.laneEls.get('infra')
-    return ctx.D.counts.infra
   })
-  expect(await page.request.get('/build-control/diff?name=' + name).then(r => r.status())).toBe(200)
-  if (name === 'counts-changed') await expect(page.locator('.bd-lane[title="Infra"] em')).toHaveText(String(before + 3))
-  else {
-    await expect.poll(() => page.evaluate(() => ctx.D.counts)).toBeNull()
-    for (const em of await page.locator('.bd-lane:not(.lock):not(.leave) em').all()) {
-      await expect(em).toHaveText('—'); await expect(em).toHaveAttribute('title', 'Ticket count unavailable')
+  await expect(async () => {
+    expect(await page.request.get('/build-control/diff?name=' + name).then(r => r.status())).toBe(200)
+    const short = { timeout: 1000 }
+    if (name === 'counts-changed') await expect(page.locator('.bd-lane[title="Infra"] em')).toHaveText(String(changedInfra), short)
+    else {
+      await expect.poll(() => page.evaluate(() => ctx.D.counts), short).toBeNull()
+      for (const em of await page.locator('.bd-lane:not(.lock):not(.leave) em').all()) {
+        await expect(em).toHaveText('—', short); await expect(em).toHaveAttribute('title', 'Ticket count unavailable', short)
+      }
     }
-  }
+  }).toPass()
   expect(await page.evaluate(() => ctx.laneEls.get('infra') === infra)).toBe(true)
 })
 
