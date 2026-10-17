@@ -10,6 +10,8 @@ on:
     paths:
       - 'packages/aiur-style/**'
       - '.github/workflows/aiur-style.yml'
+  # Queue candidates rerun check-dist on the merged result (#4983); merge_group takes no paths filter.
+  merge_group:
 
 jobs:
   build-and-test:
