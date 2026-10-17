@@ -91,6 +91,8 @@ aiur_build_gate_phase_clock_unavailable_log() {
 
 aiur_build_gate_read_regular() {
   local path=$1 contents="" metadata_fd
+  # Byte semantics for read -N and ${#contents}: the limit is 4096 bytes.
+  local LC_ALL=C
 
   if [[ ! -e $path && ! -L $path ]]; then
     return 1
