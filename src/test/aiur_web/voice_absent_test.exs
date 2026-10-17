@@ -3,8 +3,8 @@ Code.require_file("fixtures/voice_provider.exs", __DIR__)
 defmodule AiurWeb.VoiceAbsentTest do
   use AiurWeb.StreamdeckChannelCase
 
-  alias AiurWeb.{VoiceSessionLimiter, VoiceSocket}
   alias AiurWeb.VoiceChannelTest.FakeVoiceProvider
+  alias AiurWeb.{VoiceSessionLimiter, VoiceSocket}
 
   @dashboard_reason "Voice input isn't installed in this Aiur. Typed messages work as usual."
 
