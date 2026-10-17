@@ -170,7 +170,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     RemoteControlMode.cleanup_stray_remote_control_servers()
     TrackedSet.reset(Enum.map(state.running, fn {_id, entry} -> entry.identifier end))
     install_event_tracked_fn(tracked_issue?)
-    subscribe_to_orchestrator_topics()
+    subscribe_to_orchestrator_topics(opts)
     subscribe_to_prewarm(opts)
     _ = LiveConversation.subscribe_restarts()
 
@@ -417,12 +417,21 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # Subscribe to the topics the orchestrator routes itself. These subscriptions
   # must be installed after startup cleanup and tracked-set initialization but
   # before the first tick is seeded.
-  defp subscribe_to_orchestrator_topics do
+  defp subscribe_to_orchestrator_topics(opts) do
     if Process.whereis(Exchange) do
-      Enum.each(@orchestrator_topics, &Exchange.subscribe/1)
+      Enum.each(@orchestrator_topics -- skipped_comment_topics(opts), &Exchange.subscribe/1)
     end
 
     :ok
+  end
+
+  # The test env keeps the supervised live orchestrator off comment topics:
+  # webhook tests publish comments it cannot resolve without a tracker (#4845).
+  defp skipped_comment_topics(opts) do
+    if Keyword.get(opts, :name) == Aiur.Orchestrator and
+         not Application.get_env(:aiur, :live_orchestrator_comment_topics?, true),
+       do: ["ticket.*.pr.review_comment", "ticket.*.issue.commented"],
+       else: []
   end
 
   defp subscribe_to_prewarm(opts) do

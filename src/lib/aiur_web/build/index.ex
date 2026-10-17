@@ -141,6 +141,7 @@ defmodule AiurWeb.Build.Index do
   end
 
   defp daemon_result(state, block) do
+    block = carry_heartbeat(block, state.daemon)
     changed? = Freshness.push_daemon?(state.daemon, block)
     generation = if changed?, do: state.generation + 1, else: state.generation
     if changed?, do: broadcast(state, %{index_generation: generation, now: clock(state), upsert: [], remove: [], set: %{daemon: block}, resync: false})
@@ -150,6 +151,10 @@ defmodule AiurWeb.Build.Index do
     :ets.insert(state.table, {:generation, generation})
     %{state | daemon_task: nil, daemon: block, generation: generation}
   end
+
+  # An unread snapshot keeps the last good heartbeat so the footer can state its age (#4770).
+  defp carry_heartbeat(%{state: "unknown", heartbeat_at: nil} = block, %{heartbeat_at: at}), do: %{block | heartbeat_at: at}
+  defp carry_heartbeat(block, _previous), do: block
 
   defp dirty(state, keys) do
     state = %{state | dirty: Enum.reduce(keys ++ [:settings, :repository], state.dirty, &MapSet.put(&2, &1))}
