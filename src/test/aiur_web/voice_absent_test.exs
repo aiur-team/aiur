@@ -28,7 +28,7 @@ defmodule AiurWeb.VoiceAbsentTest do
     assert Aiur.Voice.availability() == %{available: false, reason: :not_installed}
     assert {:error, %{reason: @dashboard_reason}} = subscribe_and_join(voice_socket(), "voice:dictation")
     deck = joined_socket()
-    assert_reply(push(deck, "voice_start", %{}), :error, %{reason: "not_installed"})
+    assert_reply(push(deck, "voice_start", %{}), :error, %{"reason" => "not_installed"})
     assert StreamdeckProjection.voice() == %{available: false, reason: "Voice isn't installed in this Aiur"}
   end
 
