@@ -44,15 +44,23 @@ defmodule Aiur.Experiments.ChartGroups do
         _key, _value -> nil
       end)
 
-    stratum_label(value) == selected
+    stratum_matches?(value, selected)
   end
 
   defp selected?(_row, _fields, _selected), do: false
 
+  defp stratum_matches?(value, selected) when is_list(value) do
+    case Jason.decode(selected) do
+      {:ok, other} when is_list(other) -> Enum.sort_by(value, &Jason.encode!/1) === Enum.sort_by(other, &Jason.encode!/1)
+      _invalid -> false
+    end
+  end
+
+  defp stratum_matches?(value, selected), do: stratum_label(value) == selected
+
   defp stratum_label(nil), do: "unknown"
   defp stratum_label(true), do: "True"
   defp stratum_label(false), do: "False"
-  defp stratum_label(value) when is_list(value), do: value |> Enum.sort_by(&Jason.encode!/1) |> Jason.encode!()
   defp stratum_label(value), do: to_string(value)
   defp group_order(%{"design" => %{"kind" => "ab", "cohorts" => cohorts}}), do: Enum.map(cohorts, & &1["id"])
   defp group_order(_spec), do: ~w(before after)

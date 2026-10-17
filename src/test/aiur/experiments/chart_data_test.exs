@@ -69,4 +69,25 @@ defmodule Aiur.Experiments.ChartDataTest do
     assert Enum.map(metric.groups, & &1.needed) == [60, 30]
     assert metric.scale == "log"
   end
+
+  test "tag-list strata match values across JSON Unicode escaping" do
+    detail = fixture()
+    [metric | _] = detail.spec["metrics"]
+    ref = metric["ref"]
+    key = ~S(["\u00e9","a"])
+    spec = Map.merge(detail.spec, %{"metrics" => [metric], "stratify_by" => ["tags.team"]})
+
+    snapshots =
+      for snapshot <- detail.snapshots do
+        evidence = snapshot["metrics"][ref]
+        points = Enum.map(evidence["observations"], &put_in(&1, ["attrs", "tags"], %{"team" => ["é", "a"]}))
+        Map.put(snapshot, "metrics", %{ref => Map.put(evidence, "observations", points)})
+      end
+
+    result = detail.analysis["metrics"][ref] |> Map.delete("strata")
+    analysis = Map.put(detail.analysis, "metrics", %{ref => Map.put(result, "strata", %{key => result})})
+    {:ok, projected} = ChartData.attach({:ok, %{detail | spec: spec, snapshots: snapshots, analysis: analysis}}, stratum: "tags.team:" <> key)
+    assert projected.stratum == "tags.team:" <> key
+    assert Enum.map(hd(projected.chart_metrics).groups, &length(&1.points)) == [12, 4]
+  end
 end
