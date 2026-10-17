@@ -30,7 +30,6 @@ defmodule Aiur.LandingWatch.PrRerun do
       cond do
         Map.has_key?(Map.get(entry, "alerts", %{}), marker) -> LandingWatch.rework(observation, result.failures, opts)
         pending["action"] == "refresh" -> :ok
-        Map.has_key?(Map.get(entry, "alerts", %{}), "rerun-budget-exhausted") -> :ok
         refusal == :rerun_backoff -> :ok
         refusal == :rerun_limit_reached -> alert_limit(observation, opts)
         is_binary(pending["reason"]) -> request_reruns(observation, runs, pending["reason"], github_opts)

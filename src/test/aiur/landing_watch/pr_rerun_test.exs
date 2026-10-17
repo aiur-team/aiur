@@ -190,6 +190,28 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     assert body =~ ": infrastructure failure; known flake."
   end
 
+  test "one cause a rerun cannot fix sends the whole head to a fresh merge ref" do
+    path = journal_path()
+    lint_run = %{failed_gate() | "id" => 51, "run_id" => 98, "name" => "lint"}
+    lint_job = %{"id" => 11, "name" => "lint", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => @started, "completed_at" => "2026-10-14T10:05:00Z"}
+
+    mixed = [
+      required_checks_fun: fn _ -> {:ok, [%{name: "lint", app_id: nil}, %{name: "ci gate", app_id: nil}]} end,
+      ci_status_fun: fn _, _ -> {:ok, %{check_runs: [lint_run, failed_gate()], commit_status: %{"state" => "success", "statuses" => []}}} end,
+      jobs_fun: fn
+        99, _ -> {:ok, jobs()}
+        98, _ -> {:ok, [lint_job]}
+      end,
+      actions_run_fun: fn _, _ -> {:ok, %{"path" => ".github/workflows/ci.yml"}} end,
+      known_failure_patterns: ["test/aiur/flaky_test.exs"]
+    ]
+
+    assert :ok = LandingWatch.process(observation(), opts(path, mixed))
+    refute_received {:rerun, _}
+    refute_received {:comment, _, _}
+    assert {:ok, [%{"pr" => 17, "action" => "refresh", "reason" => "superseded job name", "checks" => ["lint", "ci gate"]}]} = Journal.rerun_backlog(journal_path: path)
+  end
+
   defp assert_refresh(path, reason) do
     refute_received {:rerun, _}
     refute_received {:comment, _, _}
