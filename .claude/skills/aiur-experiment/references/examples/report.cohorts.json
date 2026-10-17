@@ -1,0 +1,193 @@
+{
+  "schema_version": "report.v1",
+  "header": {
+    "experiment_id": "cohort-example",
+    "title": "Claude versus Codex: descriptive cohort comparison",
+    "report_version": 1,
+    "analysis_type": "interim",
+    "generated_at": "2026-10-15T18:00:00Z",
+    "analyst": {
+      "role": "analyst",
+      "agent": "codex",
+      "model": "fixture",
+      "ticket": 3799
+    },
+    "stats_snapshot_hash": "stats-cohorts-fixture",
+    "events_snapshot_hash": "events-cohorts-fixture",
+    "preregistration_hash": "9fd6b0c0ab05eaf0cdc3bc5b4ab501d515427e0adbd361ff4baa6540fe099f03"
+  },
+  "summary": "Each backend cohort contains 40 tickets, below planned n=60. The Codex-minus-Claude median difference is -2 ms with 95% CI [-5, 1], p=0.2. At n=40 per cohort, this interim result is inconclusive and cannot support a backend recommendation.",
+  "preregistration": {
+    "record": {
+      "schema_version": "preregistration.v1",
+      "experiment_id": "cohort-example",
+      "registered_at": "2026-10-09T18:00:00Z",
+      "registered_by": {
+        "role": "analyst",
+        "agent": "codex",
+        "model": "fixture",
+        "ticket": 3801
+      },
+      "hypothesis": "Codex cohort start latency is at least 20 percent lower than Claude cohort start latency.",
+      "primary_metrics": [
+        {
+          "id": "delivery/start",
+          "expected": "decrease"
+        }
+      ],
+      "secondary_metrics": [],
+      "guardrail_metrics": [],
+      "alpha": 0.05,
+      "secondary_correction": "benjamini-hochberg",
+      "fdr_q": 0.1,
+      "mde": {
+        "metric": "delivery/start",
+        "relative": -0.2
+      },
+      "power_target": 0.8,
+      "planned_n_per_cohort": 60,
+      "projected_ready_at": "2026-10-23",
+      "stratify_by": [
+        "complexity"
+      ],
+      "exclusions": [],
+      "stopping_rule": "One confirmatory analysis at planned n.",
+      "baseline_snapshot_hash": "baseline-fixture",
+      "post_hoc": false,
+      "amendments": []
+    },
+    "deviations": []
+  },
+  "design": {
+    "kind": "cohorts",
+    "windows": {
+      "observation": {
+        "start": "2026-10-01",
+        "end": "2026-10-15"
+      }
+    },
+    "cohorts": [
+      {
+        "name": "claude",
+        "backend": "claude"
+      },
+      {
+        "name": "codex",
+        "backend": "codex"
+      }
+    ],
+    "unit_of_analysis": "ticket",
+    "inclusions": {
+      "claude": 40,
+      "codex": 40
+    },
+    "exclusions": {},
+    "strata": [
+      "complexity"
+    ]
+  },
+  "sample": {
+    "cohorts": [
+      {
+        "cohort": "claude",
+        "stratum": "pooled",
+        "n": 40,
+        "excluded": {}
+      },
+      {
+        "cohort": "codex",
+        "stratum": "pooled",
+        "n": 40,
+        "excluded": {}
+      }
+    ],
+    "balance": "Backend difference defines treatment; complexity standardized difference 0.01. Model and ticket-size balance unavailable. No planned allocation split: SRM unavailable.",
+    "srm_p": null
+  },
+  "results": [
+    {
+      "metric": "delivery/start",
+      "role": "primary",
+      "unit": "ms",
+      "n": {
+        "claude": 40,
+        "codex": 40
+      },
+      "median": {
+        "claude": 12,
+        "codex": 10
+      },
+      "iqr": {
+        "claude": [
+          8,
+          16
+        ],
+        "codex": [
+          7,
+          13
+        ]
+      },
+      "effect": {
+        "kind": "median_difference",
+        "value": -2
+      },
+      "ci95": [
+        -5,
+        1
+      ],
+      "p": 0.2,
+      "p_adjusted": 0.2,
+      "family": "holm-primary",
+      "power_at_mde": 0.65,
+      "mde_at_n": 0.3,
+      "n_needed_per_cohort": 60,
+      "engine_label": "inconclusive",
+      "label": "inconclusive",
+      "label_reason": "",
+      "modifiers": [],
+      "direction": "none"
+    }
+  ],
+  "confounders": [],
+  "sensitivity": [],
+  "threats": {
+    "internal": [
+      "Model and ticket-size balance unavailable; backend assignment may reflect selection.",
+      "No collected events in the fixture snapshot; this does not establish complete historical coverage."
+    ],
+    "construct": [
+      "Latency excludes review time."
+    ],
+    "external": [
+      "80 fixture tickets across 2 backends do not generalize to other models or repositories."
+    ],
+    "statistical_conclusion": [
+      "Interim at 40 of 60 planned tickets per cohort; no confirmatory claim.",
+      "Power 0.65; SRM unavailable because no planned split is supplied."
+    ]
+  },
+  "labels": [
+    "inconclusive"
+  ],
+  "recommendation": {
+    "action": "extend-window",
+    "why": "Need planned n=60 per cohort before one confirmatory look",
+    "condition": "Planned sample and balance evidence become available",
+    "next_analysis": {
+      "kind": "at_n",
+      "value": 60
+    }
+  },
+  "reproduce": {
+    "commands": [
+      "aiur experiments show cohort-example --json",
+      "aiur experiments stats cohort-example --json",
+      "aiur experiments events cohort-example --json"
+    ],
+    "snapshot_hashes": {
+      "stats": "stats-cohorts-fixture",
+      "events": "events-cohorts-fixture"
+    },
+    "analyst_computed": []
+  }
+}
