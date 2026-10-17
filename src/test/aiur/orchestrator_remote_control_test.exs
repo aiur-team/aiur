@@ -122,7 +122,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
     # The default test tracker is Linear, whose add_label/remove_label return
     # {:error, :unsupported} — a stand-in for any tracker write failure.
     setup do
-      claude_json = Aiur.TestSupport.tmp_root!("rc-claude") <> ".json"
+      claude_json = Aiur.TestSupport.tmp_root!("rc-claude-label-failure") <> ".json"
       Application.put_env(:aiur, :remote_control_claude_json, claude_json)
 
       on_exit(fn ->
@@ -166,7 +166,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
     setup do
       workspace = Aiur.TestSupport.tmp_root!("rc-ws")
       File.mkdir_p!(workspace)
-      claude_json = Aiur.TestSupport.tmp_root!("rc-claude") <> ".json"
+      claude_json = Aiur.TestSupport.tmp_root!("rc-claude-promote-demote") <> ".json"
 
       Application.put_env(:aiur, :remote_control_claude_json, claude_json)
       write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
@@ -276,27 +276,28 @@ defmodule Aiur.OrchestratorRemoteControlTest do
   end
 
   describe "ensure_remote_control_trust/2 (direct-dispatch trust seeding)" do
-    setup do
-      claude_json = Aiur.TestSupport.tmp_root!("rc-claude") <> ".json"
+    test "seeds hasTrustDialogAccepted for the workspace" do
+      workspace = "/home/op/code/aiur-workspaces/777"
+      claude_json = Aiur.TestSupport.tmp_root!("rc-claude-trust-seeding") <> ".json"
+      previous = Application.fetch_env(:aiur, :remote_control_claude_json)
       Application.put_env(:aiur, :remote_control_claude_json, claude_json)
 
       on_exit(fn ->
-        Application.delete_env(:aiur, :remote_control_claude_json)
-        File.rm(claude_json)
+        restore_trust_config(previous)
+        Aiur.TestCleanup.rm_rf!(claude_json)
       end)
 
-      {:ok, claude_json: claude_json}
-    end
+      result = Orchestrator.ensure_remote_control_trust(workspace)
+      restore_trust_config(previous)
 
-    test "seeds hasTrustDialogAccepted for the workspace", %{claude_json: claude_json} do
-      workspace = "/home/op/code/aiur-workspaces/777"
-
-      assert :ok = Orchestrator.ensure_remote_control_trust(workspace)
-
+      assert result == :ok
       config = claude_json |> File.read!() |> Jason.decode!()
       assert get_in(config, ["projects", workspace, "hasTrustDialogAccepted"]) == true
     end
   end
+
+  defp restore_trust_config({:ok, value}), do: Application.put_env(:aiur, :remote_control_claude_json, value)
+  defp restore_trust_config(:error), do: Application.delete_env(:aiur, :remote_control_claude_json)
 
   # Run `fun` with logs captured (re-dispatch spins a supervised task that
   # logs as it boots), forwarding its return value out of the capture.
