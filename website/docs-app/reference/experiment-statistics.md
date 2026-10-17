@@ -143,3 +143,14 @@ Overall statuses come only from primary metrics; flags are unioned without colla
 Result schema: `analytics/schema/experiment-result.v1.json`. The result body records the engine version and SHA256 hashes of full-precision input JSON (sorted keys, compact UTF-8 encoding). Seeds derive from experiment ID, metric ID, `pooled` and snapshot hash using the version-stable PCG32 generator.
 
 Outputs use sorted keys, ten significant digits, UTF-8 and a trailing newline. Two identical inputs and engine versions produce identical bodies; timestamps are excluded from `--check`. Summaries use the published rounded numbers.
+
+
+## Reports and labels
+
+Register with `aiur experiments preregister <id> --file prereg.json`. The server assigns time and `post_hoc` after results reads. Repeating registration requires a JSON `reason`; amendments preserve the original and flag post-hoc changes. Contracts: `src/priv/experiments/schema/`.
+
+Labels, weakest first: `not-enough-data`, `underpowered`, `inconclusive`, `no-effect-detected`, `significant`. An analyst may weaken engine labels with a reason, never strengthen them. Overall labels derive from primaries; chips show n, effect and CI, with unavailable values explicit.
+
+Every event ID appears once. High/`noted` confounders require `confounded`; sensitivity needs a linked analysis. Snapshot hashes and registration must match. Summary verdicts need numbers; below planned n, confirmatory becomes interim.
+
+After freezing both windows and collecting events, `aiur experiments stats <id> --json` returns the input hash and report-ready rows. `aiur experiments report submit <id> --file report.json` recomputes those inputs, rejects stale or invented numbers, and stores the next version. `show --json` exposes the report history.
