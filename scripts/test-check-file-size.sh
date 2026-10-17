@@ -6,6 +6,7 @@ python3 - "$repo_root" <<'PY'
 from pathlib import Path
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,9 @@ def write(repo, files):
         path = repo / name
         if data is None:
             path.unlink(missing_ok=True)
+        elif isinstance(data, tuple) and data[0] == 'symlink':
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.symlink_to(data[1])
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
@@ -85,10 +89,23 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
         ('empty count', {'file': b''}, {'file': lines(501)}, 1, 'base 0 -> head 501'),
         ('CRLF', {}, {'file': b'x\r\n' * 500}, 0, 'file: 500 lines'),
         ('unusual path', {}, {'tab\tline\nfile': lines(501)}, 1, 'tab\\tline\\nfile: base 0 -> head 501'),
+        ('new Claude skill source', {}, {'.claude/skills/aiur-agent/references/new.md': lines(1)}, 0, ''),
+        ('Claude skill source edit', {'.claude/skills/aiur-agent/SKILL.md': lines(1)}, {'.claude/skills/aiur-agent/SKILL.md': lines(2)}, 0, ''),
+        ('Claude skill symlink', {}, {'.claude/skills/aiur-agent': ('symlink', '../installed/aiur-agent')}, 1, 'tracked symlink under mounted skill path .claude/skills is rejected'),
+        ('Codex skill mount', {}, {'.codex/skills/new-skill': b'../.claude/skills/new-skill\n'}, 1, 'new tracked entry under mounted skill path .codex/skills is rejected'),
+        ('Muse skill mount', {}, {'.agents/skills/new-skill/SKILL.md': lines(1)}, 1, 'new tracked entry under mounted skill path .agents/skills is rejected'),
+        ('exact mount root', {}, {'.claude/skills': ('symlink', '../skills')}, 1, 'tracked symlink under mounted skill path .claude/skills is rejected'),
+        ('existing mounted skill edit', {'.codex/skills/aiur-agent': b'old target\n'}, {'.codex/skills/aiur-agent': b'new target\n'}, 0, ''),
+        ('existing mounted skill deletion', {'.agents/skills/old/SKILL.md': lines(1)}, {'.agents/skills/old/SKILL.md': None}, 0, ''),
+        ('rename out of Codex mount', {'.codex/skills/old.md': lines(1)}, {'.codex/skills/old.md': None, 'moved/old.md': lines(1)}, 0, ''),
     ]
     for title, before, after, expected, snippet in cases:
         for path in repo.iterdir():
-            if path.is_file() or path.is_symlink():
+            if path.name == '.git':
+                continue
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
                 path.unlink()
         write(repo, before)
         base = commit(repo)
@@ -250,3 +267,4 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     run(fixture, 2, '--json requires --census', '--json')
     print('PASS: census symlink exclusion, text transition and invalid arguments')
 PY
+python3 "$repo_root/scripts/test-prepare-skill-mount-merge.py"
