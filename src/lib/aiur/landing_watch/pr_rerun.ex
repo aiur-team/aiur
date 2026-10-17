@@ -28,7 +28,7 @@ defmodule Aiur.LandingWatch.PrRerun do
       github_opts = Keyword.put(opts, :caller, @caller)
       refusal = Journal.rerun_refusal(entry, now(opts))
 
-      # Cached verdicts, a waiting refresh and a spent budget all skip the classifier's GitHub reads.
+      # Cached verdicts, a deferred remedy and a spent budget all skip the classifier's GitHub reads.
       cond do
         Map.has_key?(Map.get(entry, "alerts", %{}), marker) -> LandingWatch.rework(observation, result.failures, opts)
         refusal == :rerun_backoff -> :ok
