@@ -17,6 +17,30 @@ export function measureFlow(D, dims) {
   const nEst = Math.max(4, new Set([...D.now, ...D.plan].map(colKey)).size);
   return { flow: avail / nEst < 62, K: Math.max(2, Math.floor(avail / 140)) };
 }
+// The design's 62 px lane minimum, measured on the lane applyCols draws (16 px gaps between lanes).
+export const crowded = (dims, n) => (dims.vpW - dims.gut - 14 - 16 * (n - 1)) / n < 62;
+export const fwdLanes = (D, S) => new Set([...D.plan, ...D.nq].filter(t => !S.f.epic.length || S.f.epic.includes(colKey(t))).map(colKey));
+// Most columns visibleCols can draw at any scroll position of an unflowed layout: the lanes of
+// every history day a viewport of height `span` touches, plus the forward set past history (#4769).
+export function laneMax(L, fwd, span) {
+  const hs = L.secs.hist, lanes = new Map(), days = [];
+  hs.items.forEach(it => {
+    if (!it.t.end) return;
+    const d = dayKey(it.t.end), last = days.at(-1);
+    if (!lanes.has(d)) lanes.set(d, new Set());
+    lanes.get(d).add(it.key);
+    if (last?.d === d) last.y1 = Math.max(last.y1, it.y + it.h); else days.push({ d, y0: it.y, y1: it.y + it.h });
+  });
+  const count = new Map(), bump = (d, s) => lanes.get(d).forEach(k => { const c = (count.get(k) || 0) + s; if (c) count.set(k, c); else count.delete(k); });
+  let max = fwd.size, j = 0;
+  days.forEach(day => {
+    while (j < days.length && days[j].y0 < day.y1 + span) bump(days[j++].d, 1);
+    const tail = day.y1 + span > hs.h + 40 ? [...fwd].filter(k => !count.has(k)).length : 0;
+    max = Math.max(max, count.size + tail);
+    bump(day.d, -1);
+  });
+  return max;
+}
 function emptyMark(sources, key, mark) {
   const source = sources?.[key];
   const state = ["ok", "stale", "incomplete", "unavailable", "disabled"].includes(source?.state) ? source.state : "unavailable";
