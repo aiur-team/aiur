@@ -59,6 +59,10 @@ CI runs the same checker in the `pr body` check, which reads the current PR
 body and head SHA; stale `Tested head` values fail. Editing the body reruns
 `pr body`, and `ci gate` requires its newest run, so a body fix needs no push.
 
+An older `Tested head` still passes when it is an ancestor of the head and the
+PR's contribution diff is identical, as for approval carry. A merge of the base
+alone needs no body edit. The check logs which mode passed.
+
 PRs opened at or before rollout are grandfathered out of the CI body gate.
 The cutoff is the first-parent commit that adds `scripts/check-pr-body.py` to
 the PR's base branch, so the feature commit date does not activate enforcement.

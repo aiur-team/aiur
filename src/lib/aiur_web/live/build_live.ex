@@ -149,7 +149,7 @@ defmodule AiurWeb.BuildLive do
         <div class="bd-vpw"><div class="bd-vp" id="bd-vp">
           <div class="bd-lanes"><div class="bd-skel-lanes"><i class="bd-skel-i" style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i></div></div>
           <div class="bd-skel"><i :for={_ <- 1..16}></i></div>
-          <div class="bd-loading"><span class="bd-spin"></span>Loading build timeline…</div>
+          <div class="bd-loading" role="status"><span class="bd-spin"></span>Loading build timeline…</div>
         </div><div class="bd-sb" id="bd-sb"><i></i></div><div class="bd-tree" id="bd-tree" hidden></div></div>
         <div class="bd-status" id="bd-status"></div>
       </div>
