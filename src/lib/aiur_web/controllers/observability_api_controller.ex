@@ -9,7 +9,7 @@ defmodule AiurWeb.ObservabilityApiController do
   alias Aiur.Conversation.History
   alias Aiur.Orchestrator
   alias Aiur.PollCadence
-  alias AiurWeb.{Endpoint, Presenter, StreamDeckGrid}
+  alias AiurWeb.{EndpointConfig, Presenter, StreamDeckGrid}
   alias Plug.Conn
 
   @spec state(Conn.t(), map()) :: Conn.t()
@@ -157,14 +157,14 @@ defmodule AiurWeb.ObservabilityApiController do
   end
 
   defp orchestrator do
-    Endpoint.config(:orchestrator) || Aiur.Orchestrator
+    EndpointConfig.get(:orchestrator) || Aiur.Orchestrator
   end
 
   # The configured value is the floor, not the tolerance: a fixed 15s window
   # against a 120s poll marks a healthy fleet stale for most of every cycle.
   # See `Aiur.PollCadence.snapshot_tolerance_ms/1`.
   defp snapshot_timeout_ms do
-    PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000, class: :dispatch)
+    PollCadence.snapshot_tolerance_ms(EndpointConfig.get(:snapshot_timeout_ms) || 15_000, class: :dispatch)
   end
 
   # The dashboard distinguishes a stopped Orchestrator from an empty read model,
