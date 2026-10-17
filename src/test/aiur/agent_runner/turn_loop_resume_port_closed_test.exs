@@ -43,6 +43,17 @@ defmodule Aiur.AgentRunner.TurnLoopResumePortClosedTest do
     %{workspace: workspace, issue: issue, orchestrator: orchestrator}
   end
 
+  test "two dispatches whose resumed first turn loses the port drop the thread", ctx do
+    capture_log(fn ->
+      assert @port_closed = dispatch(ctx, fn _turn -> @port_closed end)
+      assert {:ok, %{thread_id: "big"}} = SessionHandle.load(ctx.issue.identifier, "codex")
+
+      assert @port_closed = dispatch(ctx, fn _turn -> @port_closed end)
+    end)
+
+    assert SessionHandle.load(ctx.issue.identifier, "codex") == :none
+  end
+
   test "a port loss after the first turn completed does not count", ctx do
     later_loss = fn
       1 -> {:ok, %{thread_id: "big"}}
