@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "kind": "diff",
+  "epoch": "fixture",
+  "generation": 1,
+  "now": 1791408000000,
+  "upsert": [],
+  "remove": [],
+  "set": {
+    "counts": {
+      "bugs": 85,
+      "design": 0,
+      "infra": 77,
+      "docs": 47,
+      "f-khala-srv": 21,
+      "f-khala-ui": 27,
+      "f-pag-api": 38,
+      "f-pag-ui": 40,
+      "unsorted": 0
+    }
+  }
+}

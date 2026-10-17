@@ -191,11 +191,11 @@ if with_node:
             extra={'src/lib/foo.ex': '@external_resource(\n  "../../packages/a/x.json"\n)'})
     imports('resource_alias_chain_reported', '', 1, ('R-reverse-resource',),
             extra={'src/lib/foo.ex': '@path "../../packages/a/x.json"\n@resource @path\n@external_resource @resource'})
-    imports('external_resource_allowlisted', '', messages=('allowlisted', 'MP-R6 owns'),
+    imports('streamdeck_external_resource_into_package_rejected', '', 1, ('R-reverse-resource', 'packages/streamdeck/src/key-face-contract.json'),
             extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
                    '@contract_path Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)\n@external_resource @contract_path',
                    'packages/streamdeck/package.json': '{"name":"streamdeck"}'})
-    imports('allowlist_is_path_specific', '', 1, ('R-reverse-resource',),
+    imports('streamdeck_external_resource_into_other_package_rejected', '', 1, ('R-reverse-resource',),
             extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
                    '@external_resource "../../../packages/a/other.json"'})
 
@@ -238,7 +238,7 @@ if not selected or 'real_tree_passes' in selected:
     ran.add('real_tree_passes')
     result = subprocess.run([sys.executable, str(checker), '--rules', 'ownership'], text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '24 sections, 7 fields, 77 env vars, 28 state paths owned once' in result.stdout
+    assert '25 sections, 7 fields, 80 env vars, 28 state paths owned once' in result.stdout
     print('PASS: real_tree_passes')
 if not selected or 'malformed_json_exits_2' in selected:
     ran.add('malformed_json_exits_2')
@@ -492,6 +492,7 @@ assert not selected - ran, f'unknown/unexecuted cases: {selected - ran}'
 print('check-components guard: all selected cases passed')
 PY
 
+python3 "$repo_root/scripts/test-components-seam-merge.py"
 if [[ " $* " == *" --with-elixir "* ]]; then
   python3 "$repo_root/scripts/test-components-seams.py"
   python3 "$repo_root/scripts/test-pr-lifecycle-components.py"

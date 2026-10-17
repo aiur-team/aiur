@@ -13,6 +13,7 @@ CHECKER = REPO / 'scripts/check-components.py'
 SCHEMA = (REPO / 'components.schema.json').read_text()
 from components.manifest import read_manifest
 MANIFEST = read_manifest(REPO)
+MANIFEST['seams'] = [json.loads(path.read_text()) for path in sorted((REPO / 'scripts/components/seams').glob('*.json'))]
 SELECTED = set(sys.argv[1:])
 RAN = set()
 

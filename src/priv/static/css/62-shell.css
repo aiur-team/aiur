@@ -3,6 +3,8 @@
 
 html { overflow-x: hidden; }
 html { scrollbar-gutter: stable; }
+/* Phones: a reserved gutter or classic scrollbar leaves a strip beside the full-width shell (#4885). */
+@media (max-width: 480px) { html { scrollbar-gutter: auto; scrollbar-width: none; } }
 .app-shell { max-width: 1320px; margin: 0 auto; padding: 1.1rem 1.15rem 4rem; min-width: 0; }
 .dashboard-shell { display: grid; gap: 1rem; min-width: 0; }
 
@@ -77,6 +79,8 @@ html.nav-collapsed .ax-collapse svg { transform: scaleX(-1); }
   .app-layout, html.nav-collapsed .app-layout { grid-template-columns: 1fr; }
   .sidenav { top: auto; height: auto; padding: .35rem .5rem calc(.35rem + env(safe-area-inset-bottom, 0px)); }
   .sidenav .snav { border-radius: 10px; padding: .45rem .3rem; }
+  /* The design has five items; a sixth fits a 390px bar only without gaps (#4827). */
+  .sidenav-nav:has(> .snav:nth-child(6)) { gap: 0; }
   .ax-collapse { display: none; }
   .dashboard-shell { padding: 1rem .9rem 5.5rem; }
   html.nav-collapsed .snav-label { display: inline; }

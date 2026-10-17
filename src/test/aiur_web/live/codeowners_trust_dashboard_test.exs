@@ -5,6 +5,7 @@ defmodule AiurWeb.CodeownersTrustDashboardTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.GitHub.CodeOwners
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.ControlCenterCache
 
   @endpoint AiurWeb.Endpoint
@@ -16,6 +17,11 @@ defmodule AiurWeb.CodeownersTrustDashboardTest do
     File.write!(path, "* @acme/team\n")
     previous = Process.whereis(CodeOwners)
     if previous, do: Process.unregister(CodeOwners)
+    # The CodeOwners server resolves teams with the configured token.
+    token_key = {Aiur.GitHub.Config, :resolved_token}
+    previous_token = :persistent_term.get(token_key, :unset)
+    :persistent_term.put(token_key, "test-gh-token")
+    on_exit(fn -> if previous_token == :unset, do: :persistent_term.erase(token_key), else: :persistent_term.put(token_key, previous_token) end)
 
     on_exit(fn ->
       if previous && Process.alive?(previous), do: Process.register(previous, CodeOwners)
@@ -55,7 +61,7 @@ defmodule AiurWeb.CodeownersTrustDashboardTest do
         control_center_cache: cache
       )
 
-    Application.put_env(:aiur, AiurWeb.Endpoint, config)
+    Application.put_env(:aiur, AiurWeb.Endpoint, EndpointStubs.scope(config))
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, AiurWeb.Endpoint, previous), else: Application.delete_env(:aiur, AiurWeb.Endpoint)

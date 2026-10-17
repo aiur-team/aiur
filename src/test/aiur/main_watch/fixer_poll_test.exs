@@ -6,7 +6,6 @@ defmodule Aiur.MainWatch.FixerPollTest do
 
   test "background main-watch files a real red observation and retries write failures" do
     parent = self()
-    unless Process.whereis(Aiur.TaskSupervisor), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
     calls = start_supervised!({Agent, fn -> 0 end})
 
     red = %{
@@ -85,7 +84,6 @@ defmodule Aiur.MainWatch.FixerPollTest do
 
   test "compatibility guard: unavailable poll files nothing" do
     parent = self()
-    unless Process.whereis(Aiur.TaskSupervisor), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
 
     server =
       start_supervised!(
@@ -113,6 +111,41 @@ defmodule Aiur.MainWatch.FixerPollTest do
     receive_barrier({:saved_unavailable, data})
     assert data.unavailable == true
     assert MainWatch.state(server).status == :unknown
+  end
+
+  test "merge-group-only main SHA does not dispatch a fixer" do
+    parent = self()
+
+    server =
+      start_supervised!(
+        {MainWatch,
+         [
+           name: nil,
+           subscribe: false,
+           config: %{on_red: "dispatch_fixer", fixer_label: "main-fix", workflows: ["ci"], canary_minutes: 0},
+           repo: "owner/repo",
+           branch: "main",
+           actions_write: false,
+           debounce_ms: 0,
+           interval_ms: 60_000,
+           load_fun: fn _, _ -> Persistence.empty() end,
+           poll_fun: fn _, _, _ -> {:ok, %{observations: [], runs: [], commits: ["landed"], merge_groups: [], actions_write: false}} end,
+           save_fun: fn _, _, data ->
+             send(parent, {:saved_queue_only, data})
+             :ok
+           end,
+           emit_fun: fn topic, payload ->
+             send(parent, {:emitted_queue_only, topic, payload})
+             :ok
+           end,
+           fixer_open: fn _, _ -> flunk("queue-only SHA must not dispatch a fixer") end
+         ]}
+      )
+
+    receive_barrier({:saved_queue_only, data})
+    assert data.state.status == :unknown
+    assert MainWatch.state(server).status == :unknown
+    refute_received {:emitted_queue_only, "system.main.ci.failed", _}
   end
 
   defp flush_saved do

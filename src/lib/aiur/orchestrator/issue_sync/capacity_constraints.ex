@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
           not Issue.paused?(issue) and
           not Issue.parked?(issue) and
           DispatchPolicy.issue_routable_to_worker?(issue) and
-          !DispatchPolicy.todo_issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set())
+          !DispatchPolicy.issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set())
 
       _ ->
         false
@@ -64,7 +64,7 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
     issues
     |> Enum.filter(fn issue ->
       DispatchPolicy.candidate_issue?(issue, active_states, terminal_states) and
-        !DispatchPolicy.todo_issue_held_by_dependency?(issue, terminal_states)
+        !DispatchPolicy.issue_held_by_dependency?(issue, terminal_states)
     end)
     |> Enum.reject(fn issue ->
       Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) or

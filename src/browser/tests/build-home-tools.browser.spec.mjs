@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { expectSpanAuditClean } from './support/build-home-span-audit.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { openFixture, expectAuditClean } from './support/browser-helpers.mjs'
+import { openFixture } from './support/browser-helpers.mjs'
 
 test.beforeEach(async ({ page }) => {
   await openFixture(page)
@@ -58,8 +59,8 @@ test('manual keyboard wraps, activates and preserves focus through cached and re
 test('daemon status follows snapshot and socket changes and escapes helper text', async ({ page }) => {
   for (const state of ['live', 'offline', 'stale', 'unknown']) {
     await page.evaluate(state => { m.ctx.snap = { daemon: { state } }; m.fx.renderTools() }, state)
-    await expect(page.locator('.bd-daemon')).toHaveText(state === 'unknown' ? 'Daemon status unknown' : `Daemon ${state}`)
-    expect(await page.locator('.bd-daemon').evaluate(el => el.classList.contains('off'))).toBe(state !== 'live')
+    await expect(page.locator('.bd-daemon')).toHaveText(state === 'unknown' ? 'Daemon up · unread' : `Daemon ${state}`)
+    expect(await page.locator('.bd-daemon').evaluate(el => el.classList.contains('off'))).toBe(!['live', 'unknown'].includes(state))
   }
   await page.evaluate(() => { m.ctx.snap = { daemon: { state: 'live' } }; m.fx.renderTools(); hook.disconnected() })
   await expect(page.locator('.bd-daemon')).toHaveText('Daemon unreachable')
@@ -93,8 +94,27 @@ test('span HTML invalidates cache, list omits span controls, lifecycle releases 
 test('tabs and status have complete accessible roles in every view', async ({ page }) => {
   for (const name of ['Timeline', 'Gantt', 'List']) {
     await page.getByRole('tab', { name, exact: true }).click()
-    expectAuditClean(await new AxeBuilder({ page }).include('#bd-tools-l').include('#bd-tools').include('#bd-status').analyze())
+    expectSpanAuditClean(await new AxeBuilder({ page }).include('#bd-tools-l').include('#bd-tools').include('#bd-status').analyze())
   }
+})
+
+test('phone footer shows the whole held note and keeps the status dot', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.context().setHTTPCredentials(dashboardCredentials)
+  await page.goto('/build-fixture/live')
+  await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+  // Longest production source name and two-digit ages: the widest label the footer can get (#4770).
+  await page.evaluate(async () => {
+    const { ctx, fx } = await import('/build-home/state.js'); const { nowMs } = await import('/build-home/clock.js')
+    ctx.snap = { ...ctx.snap, daemon: { state: 'unknown', heartbeat_at: nowMs() - 59 * 60_000 },
+      sources: { ...ctx.snap.sources, open_tickets: { state: 'stale', observed_at: nowMs() - 47 * 3_600_000, reason: 'catch_up_held' } } }
+    fx.renderStatus()
+  })
+  const footer = page.locator('.bd-daemon')
+  await expect(footer).toHaveText('Daemon up · unread, last good 59m · open_tickets held 47h')
+  await expect(footer).toHaveAttribute('title', /open_tickets held by GitHub, read 47 h ago/)
+  expect(await footer.evaluate(el => ({ fits: el.scrollWidth <= el.clientWidth && el.getBoundingClientRect().right <= innerWidth,
+    dot: el.querySelector('i').getBoundingClientRect().width }))).toEqual({ fits: true, dot: 7 })
 })
 
 test('real LiveView URL history and server diff retain selected view and focused tab', async ({ page }) => {

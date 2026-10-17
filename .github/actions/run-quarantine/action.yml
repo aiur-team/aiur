@@ -1,5 +1,5 @@
 name: Run quarantined tests
-description: Run non-blocking quarantined tests with a dependency-only build cache
+description: Run list-selected quarantined tests with a dependency-only build cache
 runs:
   using: composite
   steps:
@@ -17,7 +17,9 @@ runs:
     - name: Run quarantined tests
       working-directory: src
       shell: bash
-      run: mix test --include quarantine --exclude test
+      env:
+        AIUR_RUN_QUARANTINED: "1"
+      run: python3 ../scripts/run-quarantined-tests.py
     - name: Prune first-party beams before the cache save
       if: ${{ always() }}
       working-directory: src

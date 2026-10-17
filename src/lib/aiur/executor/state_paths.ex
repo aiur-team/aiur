@@ -32,13 +32,34 @@ defmodule Aiur.Executor.StatePaths do
   @doc """
   Absolute directory holding durable Executor recording state.
 
-  Resolution order: an explicit `:executor_state_dir` application override
-  (tests and deliberate configuration), then the repository state node for the
-  configured GitHub repository, then a repository-agnostic leaf beneath the same
-  state root. Every branch survives a daemon restart; none of them is per-boot.
+  Scoped test runs use their required per-launch private state root. Ordinary
+  runs use an explicit `:executor_state_dir` application override (tests and
+  deliberate configuration), then the repository state node for the configured
+  GitHub repository, then a repository-agnostic leaf beneath the same state
+  root. Every branch survives a daemon restart; none of them is per-boot.
   """
   @spec dir() :: Path.t()
   def dir do
+    case sandbox_state_dir() do
+      {:ok, path} -> path
+      :ordinary -> configured_state_dir()
+    end
+  end
+
+  defp sandbox_state_dir do
+    case {System.get_env("AIUR_DEV_TEST_TICKET_IDS"), System.get_env("AIUR_DEV_TEST_STATE_DIR")} do
+      {scope, path} when is_binary(scope) and scope != "" and is_binary(path) and path != "" ->
+        {:ok, Path.join(path, "executor")}
+
+      {scope, _path} when is_binary(scope) and scope != "" ->
+        raise ArgumentError, "AIUR_DEV_TEST_STATE_DIR must name a per-launch sandbox state directory"
+
+      _ ->
+        :ordinary
+    end
+  end
+
+  defp configured_state_dir do
     case Application.get_env(:aiur, :executor_state_dir) do
       path when is_binary(path) and path != "" -> path
       _ -> resolve_dir()
@@ -87,6 +108,10 @@ defmodule Aiur.Executor.StatePaths do
   @doc "Durable store of consumer lease claims and their liveness evidence."
   @spec claims_path() :: Path.t()
   def claims_path, do: Path.join(dir(), "#{Paths.repo_name()}.executor.claims.json")
+
+  @doc "Fingerprints of the executor-sweep findings already published."
+  @spec sweep_seen_path() :: Path.t()
+  def sweep_seen_path, do: Path.join(dir(), "#{Paths.repo_name()}.executor.sweep.seen.json")
 
   @spec path_for(atom()) :: Path.t()
   def path_for(key) when is_map_key(@legacy_names, key),

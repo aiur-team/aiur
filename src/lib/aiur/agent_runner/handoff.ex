@@ -52,7 +52,7 @@ defmodule Aiur.AgentRunner.Handoff do
   end
 
   @doc false
-  @spec before_turn(map(), map()) :: :ok
+  @spec before_turn(map(), map()) :: map()
   def before_turn(session, context) do
     Process.put(:handoff_turn_context, context)
 
@@ -65,12 +65,16 @@ defmodule Aiur.AgentRunner.Handoff do
 
     if Process.get(:handoff_hold) do
       receive do
-        {:handoff_snapshot, from, ref} -> capture(session, nil, from, ref)
-        :handoff_abort -> Process.delete(:handoff_hold)
-      end
-    end
+        {:handoff_snapshot, from, ref} ->
+          capture(session, nil, from, ref)
 
-    :ok
+        :handoff_abort ->
+          Process.delete(:handoff_hold)
+          session
+      end
+    else
+      session
+    end
   end
 
   @doc false
@@ -92,8 +96,8 @@ defmodule Aiur.AgentRunner.Handoff do
     end
   end
 
-  @doc false
-  @spec capture(map(), map() | nil, pid(), reference()) :: no_return()
+  @doc "Park the runner for the new daemon; on abort return the live session so the caller resumes its own loop."
+  @spec capture(map(), map() | nil, pid(), reference()) :: map()
   def capture(session, state, from, ref) do
     context = Process.get(:handoff_turn_context, %{})
     {transport, frames} = detach(session)
@@ -113,7 +117,7 @@ defmodule Aiur.AgentRunner.Handoff do
 
     Process.put(:handoff_detached, is_nil(fallback_reason))
     send(from, {ref, {:ok, record}})
-    park(record)
+    park(record, session)
   end
 
   defp display_state do
@@ -125,22 +129,35 @@ defmodule Aiur.AgentRunner.Handoff do
     :exit, _ -> nil
   end
 
-  defp park(record) do
+  defp park(record, original_session) do
     receive do
       :handoff_abort ->
-        if record["fallback_reason"], do: exit(:normal)
-        generation = record["transport"]["generation"] || 0
+        resumed =
+          cond do
+            record["fallback_reason"] ->
+              original_session
 
-        case attach(record, generation + 1) do
-          {:ok, session} -> Aiur.CodingAgent.stop_session(session)
-          _ -> :ok
-        end
+            # The pane was never released, so only the drained hooks need to come back.
+            record["transport"]["kind"] == "repl" ->
+              Enum.each(decode(record["queued_frames"]), &send(self(), {:claude_hook, original_session.identifier, &1}))
+              original_session
 
-        exit(:normal)
+            true ->
+              generation = record["transport"]["generation"] || 0
+
+              case attach(record, generation + 1) do
+                {:ok, session} -> session
+                _ -> exit(:handoff_abort_restore_failed)
+              end
+          end
+
+        Process.put(:handoff_detached, false)
+        Process.delete(:handoff_hold)
+        resumed
 
       {:handoff_snapshot, from, ref} ->
         send(from, {ref, {:ok, record}})
-        park(record)
+        park(record, original_session)
     end
   end
 
@@ -261,7 +278,7 @@ defmodule Aiur.AgentRunner.Handoff do
   @doc false
   @spec attach(map(), pos_integer()) :: {:ok, map()} | {:error, term()}
   def attach(%{"transport" => %{"kind" => "relay"} = transport} = record, generation) do
-    with {:ok, port} <- RelayPort.attach(transport["directory"], generation, transport["acked_offset"]) do
+    with {:ok, port} <- RelayPort.attach(transport["directory"], generation, transport["acked_offset"], actor_meta(record)) do
       session = decode(record["session_state"]) |> Map.put(:port, port)
       session = restore_provider_store(session, decode(record["turn_state"]))
       Process.put(:handoff_replay_frames, decode(record["queued_frames"]))
@@ -272,9 +289,18 @@ defmodule Aiur.AgentRunner.Handoff do
   def attach(%{"transport" => %{"kind" => "repl", "socket" => socket}} = record, _generation) do
     session = decode(record["session_state"])
 
-    with {:ok, session} <- ReplAdoption.rebind(session, socket) do
+    with {:ok, session} <- ReplAdoption.rebind(session, socket, actor_meta(record)) do
       Enum.each(decode(record["queued_frames"]), &send(self(), {:claude_hook, session.identifier, &1}))
       {:ok, session}
+    end
+  end
+
+  # Fresh launches register their root with its ticket; an adopted root must too,
+  # or run telemetry cannot attribute it and analytics reads an idle fleet (#4829).
+  defp actor_meta(record) do
+    case record["turn_context"] && decode(record["turn_context"]) do
+      %{issue: %{identifier: ticket}} when is_binary(ticket) -> [ticket: ticket, backend: record["backend"], worker_host: nil, remote: false]
+      _other -> []
     end
   end
 

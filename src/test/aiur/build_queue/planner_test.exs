@@ -51,11 +51,30 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :promoted, verdict: :waiting}], [{:begin_withdraw, "1"}]} = Planner.plan(input)
   end
 
+  test "delayed fresh observation adopts pre-existing todo from retained attempt provenance" do
+    input = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo))
+    attempt = F.intent(input, :mark, target_labels: ~w(agent:queued), preexisting_todo?: true, outcome: :ok)
+    input = %{input | intents: [List.last(attempt.intents)]}
+
+    assert {[%{state: :promoted, verdict: :waiting}], [{:begin_withdraw, "1"}]} = Planner.plan(input)
+  end
+
   test "manual todo after a queue marker write remains an explicit promotion" do
     input = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo))
     input = F.intent(input, :mark, target_labels: ~w(agent:queued), preexisting_todo?: false, outcome: :ok)
 
     assert {[%{state: :overridden}], [{:mark_override, "1"}]} = Planner.plan(input)
+  end
+
+  test "observation older than the queue's own todo withdrawal is not a manual promotion" do
+    # Mark intents have aged out of the reconcile window; only the newer withdraw remains.
+    input = F.input() |> F.waiting() |> F.update_observation(labels: ~w(agent:queued agent:todo), observed_at_ms: 9_500)
+    withdrawn = F.intent(input, :withdraw, target_labels: ~w(agent:queued), recorded_at_ms: 9_800)
+    assert {[%{state: :unknown, reason: :awaiting_withdrawal_observation}], []} = Planner.plan(withdrawn)
+
+    for changes <- [[recorded_at_ms: 9_400], [outcome: {:error, :denied}], [target_labels: ~w(agent:queued agent:todo)]] do
+      assert {[%{state: :overridden}], [{:mark_override, "1"}]} = input |> F.intent(:withdraw, Keyword.merge([target_labels: ~w(agent:queued), recorded_at_ms: 9_800], changes)) |> Planner.plan()
+    end
   end
 
   test "external removal holds once and matching withdrawal intent permits management" do
@@ -125,6 +144,8 @@ defmodule Aiur.BuildQueue.PlannerTest do
   test "marker removal, closure, claims and saved overrides take precedence" do
     input = F.input() |> F.waiting() |> F.promoted()
     assert {[%{state: :removed}], [{:dequeue, "1"}]} = input |> F.update_observation(labels: []) |> Planner.plan()
+    # A failed closure read carries no labels; it must not dequeue the member (#4819).
+    assert {[%{state: :unknown, reason: :observation_unavailable}], []} = input |> F.update_observation(open?: :unknown, labels: []) |> Planner.plan()
 
     for {reason, state} <- [{"completed", :completed}, {"not_planned", :cancelled}, {"duplicate", :unknown}] do
       expected = if state == :completed, do: [{:unmark, "1"}], else: []

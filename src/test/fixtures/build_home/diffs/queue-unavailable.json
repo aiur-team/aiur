@@ -1,0 +1,35 @@
+{
+  "sources": {
+    "history": {
+      "state": "ok",
+      "observed_at": 1791408000000,
+      "reason": null
+    },
+    "features": {
+      "state": "ok",
+      "observed_at": 1791408000000,
+      "reason": null
+    },
+    "queue": {
+      "state": "unavailable",
+      "observed_at": 1791408000000,
+      "reason": "timeout"
+    },
+    "agents": {
+      "state": "ok",
+      "observed_at": 1791408000000,
+      "reason": null
+    },
+    "index": {
+      "state": "ok",
+      "observed_at": 1791408000000,
+      "reason": null
+    },
+    "open_tickets": {
+      "state": "ok",
+      "observed_at": 1791408000000,
+      "reason": null,
+      "truncated": false
+    }
+  }
+}

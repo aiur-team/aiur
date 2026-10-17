@@ -10,12 +10,15 @@ config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
 config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
 config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
 
-config :aiur, :signal, alert_sink: Aiur.Alerts
+config :aiur, :signal,
+  alert_sink: Aiur.Alerts,
+  lifecycle_sink: Aiur.RunTelemetry.Lifecycle
 
 config :aiur, :github_poll_owner, Aiur.Orchestrator
 config :aiur, :github_quota_recovery_target, Aiur.Orchestrator
 config :aiur, :github_activity_recorder, {Aiur.Webhooks, :record_activity}
 config :aiur, :github_state_start_recorder, {Aiur.BuildOrder.History, :note_start}
+config :aiur, :github_rework_ci_canceller, {Aiur.GitHub.ReworkCICancel, :cancel_async}
 
 # Sources are named here so the sweep's complete set is readable in one place.
 config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
@@ -125,7 +128,13 @@ if config_env() == :test do
   # Tests manage GITHUB_TOKEN themselves; a boot resolution would cache a nil
   # (no valid token in CI) and shadow the per-test env tokens.
   config :aiur, :resolve_github_token_on_boot, false
+  config :aiur, :github_rework_ci_canceller, nil
   config :aiur, :workspace_github_preflight_enabled, false
+  # Webhook tests publish comments on the shared bus; the supervised orchestrator
+  # must not turn them into tracker-less comment-rework attempts (#4845).
+  config :aiur, :live_orchestrator_comment_topics?, false
+  # Tests run with a per-test mise data dir, where the host's Erlang looks missing.
+  config :aiur, :toolchain_preflight_opts, mise: nil
   config :aiur, :github_quota_refresh?, false
   config :aiur, :elevenlabs_quota_refresh?, false
   config :aiur, :github_budget_enabled?, false
@@ -169,6 +178,16 @@ if config_env() == :test do
   # tests and emit degraded alerts into an unrelated test's isolated ledger).
   # Tests drive `check/1` deterministically on their own instances.
   config :aiur, :broker_timeout_check_interval_ms, 0
+
+  # The shared app's terminal-ticket fact capture must not reach GitHub across
+  # sequential test boundaries: other tests queue tickets into it, and its 5 s
+  # retry tick sends `POST /graphql` whenever a later test has set a token.
+  # Tests that exercise it start their own instance.
+  config :aiur, :run_telemetry_facts_capture?, false
+
+  # The shared app's Executor sweep must not read daemon state or enqueue wakes
+  # across test boundaries. Tests start their own instance with an interval.
+  config :aiur, :executor_sweep_interval_ms, 0
 
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.

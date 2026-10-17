@@ -6,6 +6,11 @@ defmodule Aiur.TestSupport.AwaitingCommands do
   The awaiting-Commands banner is on every route, so every route test needs a
   store that answers `:retained_counts`. This one answers exactly that, with the
   same shape the real store returns.
+
+  The store is installed in global Endpoint config, so any other process reading
+  `:decision_store` at the same time can call it. It answers the shared read
+  calls with empty results and every other call with an error, instead of
+  crashing (and taking the linked test with it) on an unexpected message.
   """
 
   use GenServer
@@ -66,4 +71,12 @@ defmodule Aiur.TestSupport.AwaitingCommands do
   def handle_call(:retained_counts, _from, counts) do
     {:reply, {:ok, %{counts: counts, health: :writable}}, counts}
   end
+
+  def handle_call({:recent_audit_history, _limit}, _from, counts) do
+    {:reply, %{records: [], contexts: %{}, actions: %{}, revisions: %{}}, counts}
+  end
+
+  def handle_call({:recent_decisions, _limit}, _from, counts), do: {:reply, [], counts}
+
+  def handle_call(_unexpected, _from, counts), do: {:reply, {:error, :unsupported_by_stub}, counts}
 end

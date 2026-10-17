@@ -60,9 +60,7 @@ defmodule Aiur.AgentControlCLI do
   # state and is handled separately.
   @prewarm_warming_phases [:cloning, :fetching, :building, :checking]
 
-  # `aiur watch` remembers the last board it reported (per-row signature) in a node-local persistent term so
-  # `--changes` can print only state-level deltas across one-shot RPC invocations. Updated at Executor cadence
-  # (minutes), so the persistent_term churn is negligible.
+  # `aiur watch --changes` stores its last per-row board signature between RPCs.
   @watch_baseline_key {__MODULE__, :watch_baseline}
   @watch_stuck_after_seconds 600
 
@@ -165,9 +163,9 @@ defmodule Aiur.AgentControlCLI do
     Commands.print_projection_status()
     print_codeowners_trust()
     ReloadRejection.print_status()
+    Aiur.Handoff.CLI.print_latest()
     Aiur.MergePolicyCLI.print()
     tracker_states = tracker_state_sets()
-
     # Count printed rows so hidden releases cannot inflate the headline (#1475).
     visible_statuses = Enum.filter(statuses, &visible_status_row?(&1, tracker_states))
 
@@ -326,6 +324,8 @@ defmodule Aiur.AgentControlCLI do
     guarded("executor-escalate", fn -> opts |> ExecutorCommandCLI.escalate(error_fun: &control_error/1) |> exit_marker() end)
   end
 
+  @spec executor_reclassify(keyword()) :: :ok
+  def executor_reclassify(opts) when is_list(opts), do: guarded("executor-reclassify", fn -> opts |> ExecutorCommandCLI.reclassify(error_fun: &control_error/1) |> exit_marker() end)
   @spec executor_moot(keyword()) :: :ok
   def executor_moot(opts) when is_list(opts) do
     guarded("executor-moot", fn -> opts |> ExecutorCommandCLI.moot(error_fun: &control_error/1) |> exit_marker() end)
@@ -571,6 +571,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp capacity_binding_label({:stale_poll, %{age_seconds: age}}), do: "dispatch poll stale (#{age}s ago)"
 
+  defp capacity_binding_label({:dispatch_cycle_stalled, detail}), do: CapacityBinding.dispatch_cycle_stalled_label(detail)
   defp capacity_binding_label({:awaiting_dispatch, %{ceiling: ceiling}}), do: "awaiting dispatch; ceiling: #{ceiling}"
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
   defp capacity_binding_label({:envelope, %{} = detail}), do: EnvelopeResume.label(detail)
@@ -583,8 +584,7 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
 
-  # Every admission measurement is rendered with the age of the sample it came
-  # from; otherwise old readings look current beside the live LOAD line (#2527).
+  # Include sample age so old admission readings do not look current (#2527).
   defp capacity_binding_label({:admission, hold}),
     do: admission_detail(hold) <> admission_sample_age(hold)
 
@@ -955,7 +955,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_build_gate_holder(%{kind: :slot} = holder) do
     identifiers = ["slot=#{Map.get(holder, :slot)}", "pid=#{Map.get(holder, :pid)}"]
-    annotation = if Map.get(holder, :command_alive?) == false, do: " (command gone)", else: ""
+    annotation = if Map.get(holder, :command_alive?) == false, do: " (command gone)", else: if(Map.get(holder, :command_alive?) == nil, do: " (command liveness unknown)", else: "")
     print_build_gate_line("HOLDER", identifiers, holder, "held", annotation)
   end
 

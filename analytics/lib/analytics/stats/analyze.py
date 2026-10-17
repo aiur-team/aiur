@@ -10,12 +10,15 @@ from .multiplicity import adjust
 from .ranks import min_achievable_p
 from .rng import seed_from
 from .summary_text import summarize
+from .stratification import stratify, submetric
 
 ENGINE_VERSION = "1.0.0"
 
 
 def _metric(metric, groups, annotations, settings, seed):
     flags = [] if metric["primary"] else ["exploratory"]
+    if metric.get("stratification_unavailable"):
+        flags.append("stratification_unavailable")
     if metric["kind"] == "bucketed":
         flags.append("autocorrelated_units")
     if any(metric["censored"].values()):
@@ -52,6 +55,9 @@ def _metric(metric, groups, annotations, settings, seed):
 def _label(result, metric, alpha):
     if "p_raw" not in result:
         return
+    if not result.get("primary_effect"):
+        result["status"] = "significant" if result["p_adj"] < alpha else "inconclusive"
+        return
     effect = result["effects"][result["primary_effect"]]
     lo, hi, estimate = effect["lo"], effect["hi"], effect["estimate"]
     null = effect["null"]
@@ -62,7 +68,7 @@ def _label(result, metric, alpha):
     if result["kind"] == "binary":
         baseline = metric["values"]
         baseline = next(iter(baseline.values()))
-        baseline = sum(baseline) / len(baseline)
+        baseline = effect.get("baseline", sum(baseline) / len(baseline))
     margin = metric["mde"] if relative else metric["mde"] * (baseline or 0)
     equivalent = (relative or result["kind"] == "binary") and bounded and margin > 0 and lo >= null - margin and hi <= null + margin
     result["status"] = ("significant" if result["p_adj"] < alpha else
@@ -82,7 +88,10 @@ def analyze(snapshot, spec, annotations=None):
     results = {}
     for metric in metrics:
         seed = seed_from(experiment_id, metric["id"], "pooled", inputs["snapshot_sha256"])
-        results[metric["id"]] = _metric(metric, groups, annotations, settings, seed)
+        result = _metric(metric, groups, annotations, settings, seed)
+        if "strata_rows" in metric:
+            stratify(result, metric, groups, annotations, settings, seed, _metric)
+        results[metric["id"]] = result
     for primary, method in ((True, "holm"), (False, "bh")):
         # Guarded hypotheses remain in the family as p=1, but have no test result.
         family = {m["id"]: results[m["id"]].get("p_raw", 1.0)
@@ -91,10 +100,23 @@ def analyze(snapshot, spec, annotations=None):
         for key, value in adjusted.items():
             if "p_raw" in results[key]:
                 results[key]["p_adj"] = value
+    strata_family = {(m["id"], name): child.get("p_raw", 1.0)
+                     for m in metrics for name, child in results[m["id"]].get("strata", {}).items()}
+    for (metric_id, name), p in adjust(strata_family, "bh").items():
+        child = results[metric_id]["strata"][name]
+        if "p_raw" in child:
+            child["p_adj"] = p
     for metric in metrics:
         result = results[metric["id"]]
+        for name, child in result.get("strata", {}).items():
+            # Binary equivalence needs this stratum's baseline, not the pooled one.
+            rows = metric["strata_rows"][name]
+            definition = submetric(metric, rows, groups)
+            _label(child, definition, settings["alpha"])
+            child = result["strata"][name] = rounded(child)
+            child["summary_text"] = summarize(child, definition, groups)
         # Classify at full precision; serialize and summarize at the published precision.
-        _label(result, metric, settings["alpha"])
+        _label(result, metric, settings["alpha" if metric["primary"] else "fdr_q"])
         result = results[metric["id"]] = rounded(result)
         result["summary_text"] = summarize(result, metric, groups)
     primaries = {m["id"]: results[m["id"]]["status"] for m in metrics if m["primary"]}

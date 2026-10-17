@@ -9,7 +9,7 @@ defmodule AiurWeb.DashboardPagesGate do
 
   @spec enabled?() :: boolean()
   def enabled? do
-    AiurWeb.Endpoint.config(:dashboard_pages) != false
+    AiurWeb.EndpointConfig.get(:dashboard_pages) != false
   rescue
     _ -> true
   end
