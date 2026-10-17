@@ -23,6 +23,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       {"unreviewed_prs", [:pull_requests, :tickets], fn -> unreviewed_prs(snapshot, now, unreviewed_minutes) end},
       {"old_decisions", [:decisions], fn -> old_decisions(snapshot, now) end},
       {"approved_prs", [:pull_requests], fn -> approved_prs(snapshot) end},
+      {"landing_rerun_backlog", [:landing_rerun_backlog], fn -> landing_rerun_backlog(snapshot, now) end},
       {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
       {"stale_merge_groups", [:merge_groups], fn -> stale_merge_groups(snapshot, now, stale_minutes) end},
       {"queue_sets", [:queue_sets, :idle_slots], fn -> queue_sets(snapshot) end},
@@ -132,6 +133,37 @@ defmodule Aiur.ExecutorSweep.Checks do
       failure_class: cause,
       failed_checks: classifications
     )
+  end
+
+  # Approved heads whose automatic rerun waits behind the shared 3-per-15-minute cap, or that need a fresh merge ref.
+  defp landing_rerun_backlog(snapshot, now) do
+    snapshot
+    |> Map.get(:landing_rerun_backlog, [])
+    |> Enum.map(fn row ->
+      since = value(row, :since_ms, nil)
+      age = if is_integer(since), do: max(DateTime.to_unix(now, :millisecond) - since, 0), else: 0
+      checks = Enum.join(value(row, :checks, []), ", ")
+      {pr, reason} = {value(row, :pr, "?"), value(row, :reason, "non-PR failure")}
+
+      {kind, action, message} =
+        if value(row, :action, nil) == "refresh" do
+          {"approved_pr_refresh_pending", "Update the branch from the base for a fresh merge ref; a rerun reuses the old one. The push may dismiss the approval.",
+           "Approved PR ##{pr} needs a fresh merge ref for #{checks} (#{reason}); waiting #{duration(age)}."}
+        else
+          {"approved_pr_rerun_pending", "Wait for the landing watcher's next rerun slot, or rerun the failed checks manually.",
+           "Approved PR ##{pr} awaits an automatic CI rerun of #{checks} (#{reason}) for #{duration(age)}."}
+        end
+
+      finding(
+        kind,
+        3,
+        age,
+        action,
+        message,
+        pull_request: value(row, :pr, nil),
+        head_sha: value(row, :head, nil)
+      )
+    end)
   end
 
   defp single_or_mixed([single]), do: single
