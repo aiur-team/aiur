@@ -228,10 +228,14 @@ analysis minimum, interval, p-value and effect cells say **not enough data**.
 
 The median-change chart shows stored percentage estimates and confidence
 intervals, with the expected direction labelled. Hollow points mean **not enough
-data**; no interval is drawn for those metrics. Select a metric to see its
+data**; no interval is drawn for those metrics.
+
+Select a metric to see its
 box-and-dot distribution and time series; metric and stratum selections are
 shareable through `?metric=` and `?stratum=`. Stratum chips appear only for stored
-stratum analyses. Cohorts use both colour and marker shape. On phones, the time
+stratum analyses.
+
+Cohorts use both colour and marker shape. On phones, the time
 series scrolls within its container. Every chart has a **Show data** table.
 
 Sample meters distinguish the minimum sample guard from estimated power
