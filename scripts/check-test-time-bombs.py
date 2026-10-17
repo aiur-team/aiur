@@ -57,6 +57,7 @@ FIXED_DATE_FILES = {
     'test/aiur/github/issues/datetime_test.exs',
     'test/aiur/github/transport_test.exs',
     'test/aiur/github_client/auth_and_errors_test.exs',
+    'test/aiur/landing_watch/pr_rerun_test.exs',
     'test/aiur/model_discovery_test.exs',
     'test/aiur/muse/meter_probe_test.exs',
     'test/aiur/run_telemetry/dataset_pr_timing_test.exs',
