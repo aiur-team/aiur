@@ -91,6 +91,8 @@ defmodule Aiur.PRLifecycle.ReworkRequeueTest do
       last_seen: Keyword.get(opts, :last_seen, %{}),
       merge_only_alerted: Keyword.get(opts, :merge_only_alerted, MapSet.new()),
       requeue_failed_alerted: Keyword.get(opts, :requeue_failed_alerted, MapSet.new()),
+      error_tickets_fetcher: fn -> {:ok, []} end,
+      error_rework_routed: MapSet.new(),
       local_hold_opts: Keyword.get(opts, :local_hold_opts, []),
       start_paused?: true
     }
