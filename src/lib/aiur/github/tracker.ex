@@ -276,6 +276,9 @@ defmodule Aiur.GitHub.Tracker do
   @impl Aiur.Tracker.CodeHost
   defdelegate withdraw_landing(number), to: Aiur.GitHub.LandingWithdrawal, as: :withdraw
 
+  @impl Aiur.Tracker.CodeHost
+  defdelegate pull_request_body_edited_at(number), to: Aiur.GitHub.PullRequestBodyEdit, as: :last_edited_at
+
   @impl Aiur.Tracker.IssueTracker
   defdelegate reopen_issue(issue_id), to: Aiur.GitHub.IssueReopen, as: :reopen
 

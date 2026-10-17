@@ -8,7 +8,9 @@ defmodule Aiur.Experiments.ReportInput do
          {:ok, annotations} <- Journal.read(Paths.file(id, "annotations.ndjson")),
          {:ok, windows} <- frozen_windows(id, spec) do
       arms = Arms.assign(spec, Enum.map(windows, fn {name, snapshot} -> {name, %{source: :frozen, metrics: snapshot["metrics"]}} end))
-      input = AnalysisInput.build(spec, annotations, arms)
+      comparison = if spec["design"]["kind"] == "ab", do: "observation", else: "after"
+      taken_at = get_in(Map.new(windows), [comparison, "window", "end"])
+      input = AnalysisInput.build(spec, annotations, arms, %{}, taken_at)
       hashes = Map.new(windows, fn {name, snapshot} -> {name, snapshot["sha256"]} end)
       input = Map.put(input, "frozen_snapshots", hashes) |> Map.delete("input_sha256")
       {:ok, %{id: id, spec: spec, annotations: annotations, input: Map.put(input, "input_sha256", Evidence.hash(input)), snapshots: hashes}}

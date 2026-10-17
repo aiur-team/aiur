@@ -47,7 +47,9 @@ User-cancelled CI runs stay pending. Landing watcher classifies failed groups fr
 
 An approved PR that is not landing acts only when every failed required run has a non-PR cause. Infrastructure failures and known flakes are rerun.
 
-A merge ref older than a base fix, a later merge that changed its workflow or a `.github/` or `scripts/` file its job uses, or a job the base workflow dropped is not rerun, because a rerun reuses the old merge commit; the PR waits for a fresh merge ref instead. Other failures route to rework.
+A merge ref older than a base fix, a later merge that changed its workflow or a `.github/` or `scripts/` file its job uses, or a job the base workflow dropped is not rerun, because a rerun reuses the old merge commit; the watcher updates the branch from the base instead.
+
+If the base changed the PR's own files, that refresh routes to rework instead. Other failures route to rework.
 
 The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
 
