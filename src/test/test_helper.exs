@@ -89,6 +89,13 @@ test_run_root =
 
 Application.put_env(:aiur, :test_run_root, test_run_root)
 
+# The run root's late writers (#4866): `Aiur.RunTelemetry.Writer` and
+# `Aiur.SaturationSentinel` read `:log_file` once at init, so one restarted
+# inside a workflow case keeps appending to that case's `<workflow_root>/log`
+# after teardown, until the VM exits. Stop the app before the root is removed;
+# `after_suite` callbacks run last-registered first.
+ExUnit.after_suite(fn _result -> Application.stop(:aiur) end)
+
 suite_runtime_state_dir = Application.fetch_env!(:aiur, :runtime_state_dir)
 
 unless Path.dirname(Aiur.AlertLedger.path()) == suite_runtime_state_dir do
@@ -106,6 +113,7 @@ Code.require_file("support/snapshot_support.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml_sections.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml.exs", __DIR__)
 Code.require_file("support/test_support/runtime_children.exs", __DIR__)
+Code.require_file("support/test_support/endpoint_stubs.exs", __DIR__)
 Code.require_file("support/test_support/processes.exs", __DIR__)
 Code.require_file("support/test_support/workflow_files.exs", __DIR__)
 Code.require_file("support/test_scope_guard.exs", __DIR__)
@@ -137,6 +145,8 @@ for file <- Enum.sort(Path.wildcard(Path.join(__DIR__, "support/**/*.{ex,exs}"))
 end
 
 Code.put_compiler_option(:no_warn_undefined, [])
+
+Aiur.TestSupport.EndpointStubs.init!()
 
 # Keep plain ExUnit.Case modules and between-case application timers from
 # publishing Orchestrator poll state or alerts into the suite-wide ledger.

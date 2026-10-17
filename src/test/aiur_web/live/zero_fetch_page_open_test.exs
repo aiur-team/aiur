@@ -47,6 +47,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   alias Aiur.GitHub.{Issues, ReadCache, ResourceStore}
   alias Aiur.Orchestrator.CommentPolling
   alias Aiur.RunTelemetry.FactsCapture
+  alias Aiur.TestSupport.EndpointStubs
   alias Aiur.TrackerIdentity
   alias AiurWeb.ControlCenterCache
 
@@ -119,7 +120,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
         control_center_cache: cache
       )
 
-    Application.put_env(:aiur, AiurWeb.Endpoint, config)
+    Application.put_env(:aiur, AiurWeb.Endpoint, EndpointStubs.scope(config))
 
     on_exit(fn ->
       case previous_endpoint do

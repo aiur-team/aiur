@@ -8,7 +8,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   @files ~w(live dense newrepo noqueue offline odd-edges unknowns hostile)
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
-  def datasets, do: @files ++ ~w(unavailable hold)
+  def datasets, do: @files ++ ~w(degraded unavailable hold)
 
   def configure_usage(:ok) do
     config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
@@ -19,7 +19,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   def read(:locked, _opts), do: Read.locked_usage()
 
   def read({:ok, _context}, _opts) do
-    result = if dataset([]) in @files, do: full([]), else: {:error, :fixture_unavailable}
+    result = if dataset([]) in (@files ++ ["degraded"]), do: full([]), else: {:error, :fixture_unavailable}
 
     case result do
       {:ok, data} -> data["usage"]
@@ -28,7 +28,21 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   end
 
   @impl true
-  def subscribe(_opts), do: Phoenix.PubSub.subscribe(Aiur.PubSub, "build-home:fixture")
+  def subscribe(_opts), do: Phoenix.PubSub.subscribe(Aiur.PubSub, topic(stream()))
+
+  def topic(nil), do: "build-home:fixture"
+  def topic(stream), do: "build-home:fixture:" <> stream
+
+  # The browser harness registers each page's transport under its stream key; see FixtureLiveSocket.
+  defp stream do
+    with pid when is_pid(pid) <- Process.get(:"$phx_transport_pid"),
+         true <- is_pid(Process.whereis(__MODULE__.Streams)),
+         [stream] <- Registry.keys(__MODULE__.Streams, pid) do
+      stream
+    else
+      _ -> nil
+    end
+  end
 
   @impl true
   def snapshot(opts) do
@@ -55,6 +69,25 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   def full(opts), do: load(dataset(opts), Keyword.get(opts, :dir, @dir))
   defp dataset(opts), do: Keyword.get(opts, :dataset, Application.get_env(:aiur, :build_fixture_dataset, "live"))
   defp load("unavailable", _dir), do: {:error, :fixture_unavailable}
+
+  defp load("degraded", dir) do
+    with {:ok, data} <- load("live", dir) do
+      now = data["now"]
+
+      sources =
+        data["sources"]
+        |> Map.put("history", %{"state" => "unavailable", "observed_at" => now - 12 * 60_000, "reason" => "timeout"})
+        |> Map.put("queue", %{"state" => "disabled", "observed_at" => nil, "reason" => "build queue is off in .aiur/config"})
+        |> Map.put("index", %{"state" => "stale", "observed_at" => now - 3 * 3_600_000, "reason" => nil})
+
+      {:ok,
+       data
+       |> put_in(["sections", "hist"], [])
+       |> put_in(["sections", "plan"], [])
+       |> Map.put("history", Map.merge(data["history"], %{"more" => false, "total" => 0, "undated" => 0}))
+       |> Map.put("sources", sources)}
+    end
+  end
 
   defp load("hold", _dir) do
     receive do

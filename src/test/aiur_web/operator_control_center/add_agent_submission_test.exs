@@ -2,6 +2,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentSubmissionTest do
   use Aiur.TestSupport
 
   alias Aiur.Issue
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.Endpoint
   alias AiurWeb.OperatorControlCenter.AddAgentSubmission
 
@@ -16,10 +17,13 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentSubmissionTest do
       Endpoint,
       Keyword.merge(previous || [],
         server: false,
-        secret_key_base: String.duplicate("s", 64),
-        add_agent_fun: fn _, _, _ -> flunk("current lifecycle and routing must not be rewritten") end,
-        add_agent_verify_fun: fn ["2101"] -> {:ok, [Agent.get(tracker, & &1)]} end
+        secret_key_base: String.duplicate("s", 64)
       )
+    )
+
+    EndpointStubs.put(
+      add_agent_fun: fn _, _, _ -> flunk("current lifecycle and routing must not be rewritten") end,
+      add_agent_verify_fun: fn ["2101"] -> {:ok, [Agent.get(tracker, & &1)]} end
     )
 
     Aiur.TestSupport.start_owned_endpoint!()

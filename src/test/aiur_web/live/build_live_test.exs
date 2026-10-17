@@ -71,6 +71,7 @@ defmodule AiurWeb.BuildLiveTest do
     assert length(Floki.find(root, ".bd-skel-lanes > i.bd-skel-i:first-child")) == 1
     assert length(Floki.find(root, "#bd-vp > .bd-skel > i")) == 16
     assert length(Floki.find(root, "#bd-vp > .bd-loading > span.bd-spin")) == 1
+    assert Floki.attribute(root, ".bd-loading", "role") == ["status"]
     assert Floki.find(root, ".bd-loading") |> Floki.text() |> String.trim() == "Loading build timeline…"
   end
 
