@@ -11,12 +11,7 @@ export async function transplant(browser, cell) {
   const pair = { design: await designContext.newPage(), product: await productContext.newPage(), cell,
     close: async () => { await designContext.close(); await productContext.close() } }
   try {
-    // Give the fixture's loading and state setup timers time to finish first.
-    await pair.design.clock.install({ time: FIXTURE_META.now })
     await openHomeState(pair.design, cell)
-    // Once the state is ready, hold time still so a mock active-agent stream
-    // cannot mutate shared progress during the analytics capture.
-    await pair.design.clock.pauseAt(FIXTURE_META.now)
     pair.allowlist = (await loadAllowlist()).filter(e => e.kind === 'design-style')
     await applyAllowlist(pair, cell)
     const rules = await census(pair.design)
@@ -39,6 +34,8 @@ export async function transplant(browser, cell) {
     await pair.product.route(`${origin}/home-css-transplant`, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/build-home/home.css"></head><body></body></html>' }))
     await pair.product.clock.setFixedTime(FIXTURE_META.now)
     await pair.product.goto(`${origin}/home-css-transplant`)
+    // Load faces before inserting nodes: Chromium resolves `ch` as 0.5em without a primary font and keeps it after the swap.
+    await pair.product.evaluate(() => Promise.all([...document.fonts].map(face => face.load())))
     await pair.product.evaluate(data => {
       data.html.forEach(([k, v]) => document.documentElement.setAttribute(k, v))
       Object.assign(document.documentElement.style, data.htmlStyle)
