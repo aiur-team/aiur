@@ -233,11 +233,8 @@ defmodule Aiur.AgentGitHubGuard.GraphqlAndPagination1Test do
     assert File.read!(context.calls) == "search repos\n"
   end
 
-  # Runs a guard call the actor ceiling must hold and returns the real broker's
-  # hold response. A proxy broker records that `wait` and answers with an
-  # unusable one, so the guard exits instead of sleeping out the hour. Killing
-  # the sleeping guard with `timeout` flaked (#4744): a TERM that lands after the
-  # guard's last trap check but before `sleep` execs is lost, and it sleeps on.
+  # A proxy turns a real broker wait into an unusable response so this test can
+  # observe the hold without killing a process during its sleep.
   defp run_held_guard(context, args, env) do
     proxy = Path.join(context.state_path, "hold-proxy-broker.py")
     holds = Path.join(context.state_path, "broker-holds")

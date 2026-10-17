@@ -255,24 +255,50 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
 
     assert %{"admissions" => [%{"endpoint_family" => "rate_limit", "billable" => false}]} = Jason.decode!(snapshot)
 
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
-
-    assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "api", "repos/owner/repo/issues/1670"],
-               env:
-                 guard_env(context) ++
-                   [
-                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
-                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
-                     {"AIUR_GITHUB_BUDGET_KEY", key},
-                     {"AIUR_GITHUB_BUDGET_BROKER", broker},
-                     {"AIUR_GITHUB_REQUESTS_PER_MINUTE", "1"},
-                     {"AIUR_GITHUB_STAGGER_MS", "0"}
-                   ],
-               stderr_to_stdout: true
-             )
+    assert String.starts_with?(
+             run_held_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_REQUESTS_PER_MINUTE: "1",
+               AIUR_GITHUB_STAGGER_MS: "0"
+             ),
+             "wait "
+           )
 
     refute File.exists?(context.calls)
+  end
+
+  defp run_held_guard(context, args, env) do
+    proxy = Path.join(context.state_path, "hold-proxy-broker.py")
+    holds = Path.join(context.state_path, "broker-holds")
+    File.mkdir_p!(context.state_path)
+
+    File.write!(proxy, """
+    import os, subprocess, sys
+    result = subprocess.run([sys.executable, os.environ["HOLD_PROXY_REAL_BROKER"], *sys.argv[1:]], capture_output=True, text=True)
+    sys.stderr.write(result.stderr)
+    if sys.argv[1] == "acquire" and result.stdout.startswith("wait"):
+        with open(os.environ["HOLD_PROXY_HOLDS"], "a") as holds:
+            holds.write(result.stdout)
+        print("wait 0")
+        sys.exit(0)
+    sys.stdout.write(result.stdout)
+    sys.exit(result.returncode)
+    """)
+
+    File.chmod!(proxy, 0o755)
+
+    proxy_env =
+      Keyword.merge(env,
+        AIUR_GITHUB_BUDGET_BROKER: proxy,
+        HOLD_PROXY_REAL_BROKER: Keyword.fetch!(env, :AIUR_GITHUB_BUDGET_BROKER),
+        HOLD_PROXY_HOLDS: holds
+      )
+
+    assert {output, 75} = run_guard(context, args, proxy_env)
+    assert output =~ "invalid or unusable wait response"
+    String.trim(File.read!(holds))
   end
 
   test "a guarded 304 response is reconciled as unbilled", context do

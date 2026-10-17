@@ -30,8 +30,12 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
     File.mkdir_p!(Path.dirname(hold_file))
     File.write!(hold_file, "#{System.os_time(:second) + 60}\n")
 
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
-    {_output, 124} = System.cmd(timeout, ["0.2", context.wrapper, "api", "repos/owner/repo/issues/1670"], env: guard_env(context), stderr_to_stdout: true)
+    {{output, 143}, sleep_calls} = run_guard_with_recorded_sleep(context, ["api", "repos/owner/repo/issues/1670"])
+    assert output =~ "aiur: GitHub quota backoff; waiting "
+
+    assert File.read!(sleep_calls)
+           |> String.split("\n", trim: true)
+           |> Enum.any?(fn seconds -> String.to_integer(seconds) > 0 end)
 
     refute File.exists?(context.calls)
   end
@@ -41,8 +45,12 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
     File.mkdir_p!(Path.dirname(hold_file))
     File.write!(hold_file, "#{System.os_time(:second) + 60}\n")
 
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
-    {_output, 124} = System.cmd(timeout, ["0.2", context.wrapper, "api", "repos/owner/repo/issues/1670"], env: guard_env(context), stderr_to_stdout: true)
+    {{output, 143}, sleep_calls} = run_guard_with_recorded_sleep(context, ["api", "repos/owner/repo/issues/1670"])
+    assert output =~ "aiur: GitHub quota backoff; waiting "
+
+    assert File.read!(sleep_calls)
+           |> String.split("\n", trim: true)
+           |> Enum.any?(fn seconds -> String.to_integer(seconds) > 0 end)
 
     refute File.exists?(context.calls)
   end
@@ -85,7 +93,7 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
         )
       end)
 
-    wait_for_calls(context.calls, 1)
+    wait_for_calls(context.calls, 1, 500)
 
     second =
       Task.async(fn ->
@@ -290,22 +298,15 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
     assert {"", 0} =
              System.cmd("python3", [broker, "hold", "--scope", "token", "--delay-ms", "2000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+    assert String.starts_with?(
+             run_held_guard(context, ["pr", "view", "1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker
+             ),
+             "wait "
+           )
 
-    assert {output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
-               env:
-                 guard_env(context) ++
-                   [
-                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
-                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
-                     {"AIUR_GITHUB_BUDGET_KEY", key},
-                     {"AIUR_GITHUB_BUDGET_BROKER", broker}
-                   ],
-               stderr_to_stdout: true
-             )
-
-    refute output =~ "aiur: github budget hold"
     refute File.exists?(context.calls)
   end
 
@@ -324,23 +325,68 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
     assert {"", 0} =
              System.cmd("python3", [broker, "hold", "--scope", "token", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+    assert String.starts_with?(
+             run_held_guard(context, ["pr", "view", "1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker
+             ),
+             "wait "
+           )
 
-    assert {output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
-               env:
-                 guard_env(context) ++
-                   [
-                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
-                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
-                     {"AIUR_GITHUB_BUDGET_KEY", key},
-                     {"AIUR_GITHUB_BUDGET_BROKER", broker}
-                   ],
-               stderr_to_stdout: true
-             )
-
-    refute output =~ "aiur: github budget hold"
     refute File.exists?(context.calls)
+  end
+
+  test "TERM interrupts an active broker hold sleep", context do
+    budget_root = Path.join(context.state_path, "term-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+    sleep_pid_file = Path.join(context.state_path, "active-sleep-pid")
+    sleep_bin = Path.join(context.state_path, "term-sleep-bin")
+    File.mkdir_p!(sleep_bin)
+
+    sleep = Path.join(sleep_bin, "sleep")
+
+    File.write!(sleep, """
+    #!/bin/sh
+    printf '%s\\n' "$$" > "$FAKE_SLEEP_PID_FILE"
+    exec /bin/sleep "$@"
+    """)
+
+    File.chmod!(sleep, 0o755)
+
+    assert {"", 0} =
+             System.cmd("python3", [broker, "hold", "--scope", "token", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    env =
+      guard_env(context) ++
+        [
+          {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+          {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
+          {"AIUR_GITHUB_BUDGET_KEY", key},
+          {"AIUR_GITHUB_BUDGET_BROKER", broker},
+          {"PATH", "#{sleep_bin}:#{System.get_env("PATH")}"},
+          {"FAKE_SLEEP_PID_FILE", sleep_pid_file}
+        ]
+
+    port =
+      Port.open({:spawn_executable, context.wrapper}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: Enum.map(["pr", "view", "1670"], &String.to_charlist/1),
+        env: Enum.map(env, fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end)
+      ])
+
+    {:os_pid, guard_pid} = Port.info(port, :os_pid)
+    on_exit(fn -> stop_process(guard_pid) end)
+    wait_until(fn -> File.exists?(sleep_pid_file) end)
+    sleep_pid = File.read!(sleep_pid_file) |> String.trim()
+    on_exit(fn -> stop_process(String.to_integer(sleep_pid)) end)
+
+    assert {"", 0} = System.cmd("kill", ["-TERM", Integer.to_string(guard_pid)])
+    assert_receive {^port, {:exit_status, 143}}, 2_000
+    assert {_, 1} = System.cmd("kill", ["-0", sleep_pid], stderr_to_stdout: true)
   end
 
   test "a guarded high-level command fails closed before native pagination can bypass admissions", context do
@@ -386,5 +432,66 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
     # (the lease-pool and audit key), so its single guarded admission books
     # resource=graphql while the family stays pulls.
     assert %{"admissions" => [%{"endpoint_family" => "pulls", "resource" => "graphql"}]} = Jason.decode!(snapshot)
+  end
+
+  defp run_guard_with_recorded_sleep(context, args) do
+    bin = Path.join(context.state_path, "recorded-sleep-bin")
+    calls = Path.join(context.state_path, "sleep-calls")
+    File.mkdir_p!(bin)
+    sleep = Path.join(bin, "sleep")
+
+    File.write!(sleep, """
+    #!/bin/sh
+    printf '%s\\n' "$*" >> "$FAKE_SLEEP_CALLS"
+    kill -TERM "$PPID"
+    exec /bin/sleep "$@"
+    """)
+
+    File.chmod!(sleep, 0o755)
+
+    result =
+      run_guard(context, args,
+        PATH: "#{bin}:#{System.get_env("PATH")}",
+        FAKE_SLEEP_CALLS: calls
+      )
+
+    {result, calls}
+  end
+
+  defp stop_process(pid) do
+    _ = System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+    :ok
+  end
+
+  defp run_held_guard(context, args, env) do
+    proxy = Path.join(context.state_path, "hold-proxy-broker.py")
+    holds = Path.join(context.state_path, "broker-holds")
+    File.mkdir_p!(context.state_path)
+
+    File.write!(proxy, """
+    import os, subprocess, sys
+    result = subprocess.run([sys.executable, os.environ["HOLD_PROXY_REAL_BROKER"], *sys.argv[1:]], capture_output=True, text=True)
+    sys.stderr.write(result.stderr)
+    if sys.argv[1] == "acquire" and result.stdout.startswith("wait"):
+        with open(os.environ["HOLD_PROXY_HOLDS"], "a") as holds:
+            holds.write(result.stdout)
+        print("wait 0")
+        sys.exit(0)
+    sys.stdout.write(result.stdout)
+    sys.exit(result.returncode)
+    """)
+
+    File.chmod!(proxy, 0o755)
+
+    proxy_env =
+      Keyword.merge(env,
+        AIUR_GITHUB_BUDGET_BROKER: proxy,
+        HOLD_PROXY_REAL_BROKER: Keyword.fetch!(env, :AIUR_GITHUB_BUDGET_BROKER),
+        HOLD_PROXY_HOLDS: holds
+      )
+
+    assert {output, 75} = run_guard(context, args, proxy_env)
+    assert output =~ "invalid or unusable wait response"
+    String.trim(File.read!(holds))
   end
 end

@@ -2,7 +2,7 @@
 # `marker_cleanup` is defined and armed beside the marker block itself, so the
 # early refusal exits do not leak a temp copy. Now that `budget_release` exists,
 # widen the same traps to release the budget lease as well.
-trap 'marker_cleanup; budget_release; exit 143' HUP INT TERM
+trap 'stop_interruptible_sleep; marker_cleanup; budget_release; exit 143' HUP INT TERM
 trap 'marker_cleanup; budget_release' 0
 
 secondary_delay_ms() {
@@ -161,7 +161,7 @@ fi
 if [ "$hold_until" -gt "$now" ]; then
   delay=$((hold_until - now))
   printf 'aiur: GitHub quota backoff; waiting %ss until %s\n' "$delay" "$(date -u -d "@$hold_until" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || printf '%s' "$hold_until")" >&2
-  sleep "$delay"
+  interruptible_sleep "$delay"
   now=$(date -u +%s)
 fi
 
