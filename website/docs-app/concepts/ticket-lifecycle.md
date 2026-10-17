@@ -116,8 +116,9 @@ the item's file. Merge commits do not count.
 
 The write is also refused with no commit since the review, unless every item
 is disputed or the PR body was edited after the review. A body edit covers a
-body-only fix; a `fixed` item still needs its commit. The write is also
-refused while GitHub reports the PR conflicting. The verified answers
+body-only fix; a `fixed` item still needs its commit.
+
+The write is also refused while GitHub reports the PR conflicting. The verified answers
 are posted as a `## Rework checklist` ticket comment for the re-review.
 
 Harmless base movement needs no merge or CI rerun. Workers check before handoff
