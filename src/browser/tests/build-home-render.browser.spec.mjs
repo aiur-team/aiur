@@ -286,7 +286,20 @@ test('span URL pages before settling and paging state survives server patches', 
 })
 
 test('replaced cards release noanim after two frames', async ({ page }) => {
-  await page.clock.install(); await page.clock.pauseAt(new Date())
+  await page.evaluate(() => {
+    const frames = new Map()
+    window.__frameQueue = frames
+    ctx.life.frame = (key, fn) => {
+      if (!frames.has(key)) frames.set(key, fn)
+    }
+    window.__advanceFrame = key => {
+      const frame = frames.get(key)
+      if (!frame) return false
+      frames.delete(key)
+      frame()
+      return true
+    }
+  })
   expect(await page.evaluate(() => {
     const [uid, el] = [...ctx.R][0], row = ctx.D.byId[el.dataset.id]
     for (let i = 0; i < 2; i++) {
@@ -297,6 +310,10 @@ test('replaced cards release noanim after two frames', async ({ page }) => {
     window.replacedCard = ctx.R.get(uid)
     return replacedCard !== el && replacedCard.classList.contains('noanim')
   })).toBe(true)
-  await page.clock.runFor(48)
+  expect(await page.evaluate(() => __frameQueue.has(replacedCard))).toBe(true)
+  expect(await page.evaluate(() => __advanceFrame(replacedCard))).toBe(true)
+  expect(await page.evaluate(() => replacedCard.classList.contains('noanim'))).toBe(true)
+  expect(await page.evaluate(() => __frameQueue.has(replacedCard))).toBe(true)
+  expect(await page.evaluate(() => __advanceFrame(replacedCard))).toBe(true)
   expect(await page.evaluate(() => replacedCard.isConnected && !replacedCard.classList.contains('noanim'))).toBe(true)
 })
