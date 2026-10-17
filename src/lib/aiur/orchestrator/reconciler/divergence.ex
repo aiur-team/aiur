@@ -74,7 +74,7 @@ defmodule Aiur.Orchestrator.Reconciler.Divergence do
   defp label_divergence(%{control: %{status: :paused}, paused_reason: :max_agent_duration}, %Issue{} = issue)
        when not is_nil(issue) do
     unless Issue.paused?(issue),
-      do: "State reconciliation detected divergence: local=paused(max_agent_duration) tracker=agent:#{issue.state}; operator resume is required."
+      do: "State reconciliation detected divergence: local=paused(max_agent_duration) tracker=agent:#{issue.state}; the automatic release did not complete, so operator resume is required."
   end
 
   defp label_divergence(%{control: %{status: status}}, %Issue{} = issue) when status in [:working, :sleeping] do
