@@ -38,7 +38,6 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     end
 
     test "focus replies before a slow Commands store completes" do
-      decision = command_decision("AIUR-1")
       delegate = EndpointConfig.get(:decision_store)
       {:ok, store} = SlowDecisionStore.start_link(delegate, 250)
       EndpointStubs.put(decision_store: store)
