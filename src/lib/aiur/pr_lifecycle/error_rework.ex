@@ -11,7 +11,9 @@ defmodule Aiur.PRLifecycle.ErrorRework do
 
   Runs inside the `ReworkRequeue` tick. A ticket is routed when its open PR's
   latest verdict from some trusted reviewer is `CHANGES_REQUESTED` — a later
-  approval or dismissal by the same reviewer supersedes it. Each
+  approval or dismissal by the same reviewer supersedes it. The PR must be
+  ready for review and the review must be on its current head: a push after
+  the review means the ticket already answered it. Each
   `{ticket, review}` pair is routed once per daemon lifetime, so a rework turn
   that ends back in `agent:error` is not looped on the same review; a new
   blocking review routes it again. Error tickets with no open PR, or whose PR
@@ -39,9 +41,11 @@ defmodule Aiur.PRLifecycle.ErrorRework do
   defp route_ticket(issue, state) do
     key = issue.identifier || issue.id
 
-    with {:ok, %{"number" => number} = pr} when is_integer(number) <- state.open_pr_fetcher.(key),
+    # A draft is still being worked; a missing draft flag or head fails closed.
+    with {:ok, %{"number" => number, "draft" => false, "head" => %{"sha" => head_sha}} = pr}
+         when is_integer(number) and is_binary(head_sha) <- state.open_pr_fetcher.(key),
          {:ok, reviews} when is_list(reviews) <- state.classified_reviews_fetcher.(number),
-         %{"id" => review_id} = review <- blocking_review(reviews),
+         %{"id" => review_id, "commit_id" => ^head_sha} = review <- blocking_review(reviews),
          false <- MapSet.member?(state.error_rework_routed, {key, review_id}) do
       write_rework(state, key, pr, review)
     else

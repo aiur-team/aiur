@@ -13,12 +13,14 @@ defmodule Aiur.PRLifecycle.ErrorReworkTest do
     )
   end
 
+  defp pr(overrides), do: Map.merge(%{"number" => 4478, "draft" => false, "head" => %{"sha" => "sha"}}, overrides)
+
   defp state(opts) do
     test_pid = self()
 
     %{
       error_tickets_fetcher: fn -> {:ok, Keyword.get(opts, :tickets, [issue("4463")])} end,
-      open_pr_fetcher: fn key -> Keyword.get(opts, :open_pr, fn _ -> {:ok, %{"number" => 4478}} end).(key) end,
+      open_pr_fetcher: fn key -> Keyword.get(opts, :open_pr, fn _ -> {:ok, pr(%{})} end).(key) end,
       classified_reviews_fetcher: fn 4478 -> {:ok, Keyword.get(opts, :reviews, [review(%{})])} end,
       state_writer: fn key, target ->
         send(test_pid, {:write, key, target})
@@ -46,6 +48,13 @@ defmodule Aiur.PRLifecycle.ErrorReworkTest do
   test "error tickets without an open PR keep their state" do
     ErrorRework.scan(state(open_pr: fn _ -> {:ok, nil} end))
     refute_received {:write, _key, _target}
+  end
+
+  test "a review on a stale head, a draft PR, or an unknown draft flag is not routed" do
+    for open_pr <- [pr(%{"head" => %{"sha" => "newer"}}), pr(%{"draft" => true}), Map.delete(pr(%{}), "draft")] do
+      ErrorRework.scan(state(open_pr: fn _ -> {:ok, open_pr} end))
+      refute_received {:write, _key, _target}
+    end
   end
 
   test "a superseded, untrusted, or absent blocking review is not routed" do
