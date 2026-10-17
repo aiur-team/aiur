@@ -30,14 +30,10 @@ defmodule Aiur.Docs.ControlCenterFixture do
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
 
+    # `SnapshotCache` owns the ETS table `SnapshotStore.publish/2` writes the fleet into.
     {:ok, _} =
       Supervisor.start_link(
-        [
-          {Phoenix.PubSub, name: Aiur.PubSub},
-          {Task.Supervisor, name: Aiur.TaskSupervisor},
-          # Owns the ETS table `SnapshotStore.publish/2` writes the fleet into.
-          Aiur.Orchestrator.SnapshotCache
-        ],
+        [{Phoenix.PubSub, name: Aiur.PubSub}, {Task.Supervisor, name: Aiur.TaskSupervisor}, Aiur.Orchestrator.SnapshotCache],
         strategy: :one_for_one
       )
 
