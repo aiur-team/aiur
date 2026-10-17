@@ -494,7 +494,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         current_display_source_opts(opts, display_tailer)
       )
 
-      result
+      SessionResume.track_resume_turn_start(session, issue.identifier, result)
     catch
       kind, reason ->
         MessageHandler.mark_live_conversation_degraded(
