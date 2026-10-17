@@ -48,14 +48,13 @@ defmodule AiurWeb.StreamdeckChannelCase do
     @moduledoc false
     use GenServer
 
-    def start_link(decision, report, query_delay_ms \\ 0), do: GenServer.start_link(__MODULE__, {decision, report, query_delay_ms})
+    def start_link(decision, report), do: GenServer.start_link(__MODULE__, {decision, report})
 
     @impl true
-    def init({decision, report, query_delay_ms}), do: {:ok, %{decision: decision, report: report, query_delay_ms: query_delay_ms}}
+    def init({decision, report}), do: {:ok, %{decision: decision, report: report}}
 
     @impl true
-    def handle_call({:retained_query, _query}, _from, %{decision: decision, query_delay_ms: query_delay_ms} = state) do
-      if query_delay_ms > 0, do: Process.sleep(query_delay_ms)
+    def handle_call({:retained_query, _query}, _from, %{decision: decision} = state) do
       send(state.report, {:fake_decision_query, :hit})
 
       {:reply,

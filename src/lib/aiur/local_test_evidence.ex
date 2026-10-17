@@ -58,9 +58,16 @@ defmodule Aiur.LocalTestEvidence do
     indexes = for {line, index} <- Enum.with_index(lines), String.starts_with?(line, "- "), do: index
     parsed = Enum.map(indexes, &Regex.run(~r/^- `(\S[^`]*)` -> (\S.*)$/, Enum.at(lines, &1)))
 
+    bad = Enum.find_index(parsed, &is_nil/1)
+
     cond do
-      parsed == [] or Enum.any?(parsed, &is_nil/1) ->
+      parsed == [] ->
         {:error, "Local tests requires command bullets with a nonempty -> result"}
+
+      bad != nil ->
+        {:error,
+         "Local tests command bullet must be exactly - `command` -> result: #{Enum.at(lines, Enum.at(indexes, bad))}. " <>
+           "Put notes after ->, not between the closing backtick and ->"}
 
       not contiguous_after_fields?(lines, indexes) ->
         {:error,

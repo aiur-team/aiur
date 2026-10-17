@@ -4,6 +4,24 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.EndpointConfig
 
+  defmodule SlowDecisionStore do
+    @moduledoc false
+    use GenServer
+
+    def start_link(delegate, delay_ms), do: GenServer.start_link(__MODULE__, {delegate, delay_ms})
+
+    @impl true
+    def init(state), do: {:ok, state}
+
+    @impl true
+    def handle_call({:retained_query, _query} = request, _from, {delegate, delay_ms} = state) do
+      Process.sleep(delay_ms)
+      {:reply, GenServer.call(delegate, request), state}
+    end
+
+    def handle_call(request, _from, {delegate, _delay_ms} = state), do: {:reply, GenServer.call(delegate, request), state}
+  end
+
   describe "Commands" do
     # The channel reads `:decision_store` per call, so each test points it at a
     # fresh fake store, scoped to the test (#4908).
@@ -21,7 +39,8 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
     test "focus replies before a slow Commands store completes" do
       decision = command_decision("AIUR-1")
-      {:ok, store} = FakeDecisionStore.start_link(decision, self(), 250)
+      delegate = EndpointConfig.get(:decision_store)
+      {:ok, store} = SlowDecisionStore.start_link(delegate, 250)
       EndpointStubs.put(decision_store: store)
 
       on_exit(fn ->
