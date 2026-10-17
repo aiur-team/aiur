@@ -3,9 +3,9 @@ defmodule AiurWeb.BuildOrderFloodTest do
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
   alias Aiur.{AgentPubSub, TrackerIdentity}
-  alias Aiur.TestSupport.LiveViewAsync
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, RootSummary}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.TestSupport.LiveViewAsync
   alias AiurWeb.Endpoint
   @endpoint Endpoint
 
