@@ -29,6 +29,10 @@ defmodule Aiur.GitHub.CIRecovery do
   @spec rerun(integer(), keyword()) :: {:ok, map()} | {:error, term()}
   def rerun(run, opts), do: request(:post, "/actions/runs/#{run}/rerun-failed-jobs", %{}, opts)
 
+  @doc "Merges the base into a PR branch for a fresh merge ref, only while its head is still `head`."
+  @spec update_branch(integer(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def update_branch(number, head, opts), do: request(:put, "/pulls/#{number}/update-branch", %{expected_head_sha: head}, opts)
+
   @spec jobs(integer(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def jobs(run, opts) when is_integer(run) and run > 0 do
     with {:ok, body} <- read("/actions/runs/#{run}/jobs?per_page=100", opts),
