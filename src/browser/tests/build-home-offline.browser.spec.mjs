@@ -115,6 +115,37 @@ test('no snapshot yet stays unknown', async ({ page }) => {
   await page.evaluate(() => { m.ctx.snap = null })
   expect(await page.evaluate(() => m.daemonView())).toMatchObject({ dotText: 'Daemon status unknown', dotOff: true })
 })
+// #4915: a slow first snapshot must not paint a red unknown over the daemon state the server already read.
+const mountWith = (page, hint) => page.evaluate(hint => {
+  m.ctx.life.dispose()
+  for (const id of ['bd-usage', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status']) {
+    if (!document.getElementById(id)) { const el = document.createElement('div'); el.id = id; m.ctx.root.append(el) }
+  }
+  document.querySelector('#bd-sb').innerHTML = '<i></i>'
+  if (hint === undefined) delete m.ctx.root.dataset.daemon; else m.ctx.root.dataset.daemon = JSON.stringify(hint)
+  hook.el = m.ctx.root; hook.pushEvent = () => new Promise(() => {}); hook.handleEvent = () => {}
+  hook.mounted()
+}, hint)
+test('mount paints the last known daemon state with its age before the first snapshot', async ({ page }) => {
+  await mountWith(page, { daemon: { state: 'live', heartbeat_at: NOW - 130000, observed_at: NOW - 120000 }, now: NOW })
+  await expect(page.locator('#bd-status .bd-daemon')).toHaveText('Daemon live · 2m ago')
+  await expect(page.locator('#bd-status .bd-daemon')).not.toHaveClass(/off/)
+  await expect(page.locator('#bd-status .bd-daemon')).toHaveAttribute('title', 'Daemon live, read 2 min ago')
+  // The first snapshot replaces the hint, so its age note goes away.
+  expect(await page.evaluate(() => { m.ctx.snap = { daemon: { state: 'stale', heartbeat_at: null } }; return m.daemonView().dotText })).toBe('Daemon stale')
+  await page.evaluate(() => hook.destroyed())
+})
+test('mount keeps unknown only when no daemon state was ever observed', async ({ page }) => {
+  for (const hint of [undefined, { daemon: null, now: NOW }, { daemon: { state: 'unknown', heartbeat_at: null, observed_at: NOW }, now: NOW }]) {
+    await mountWith(page, hint)
+    await expect(page.locator('#bd-status .bd-daemon')).toHaveText('Daemon status unknown')
+    await expect(page.locator('#bd-status .bd-daemon')).toHaveClass(/off/)
+    await page.evaluate(() => hook.destroyed())
+  }
+  await mountWith(page, { daemon: { state: 'unknown', heartbeat_at: NOW - 360000, observed_at: NOW }, now: NOW })
+  await expect(page.locator('#bd-status .bd-daemon')).toHaveText('Daemon up · unread, last good 6m · <1m ago')
+  await page.evaluate(() => hook.destroyed())
+})
 test('reconnect tears down the dropped socket once and times out without hiding banner', async ({ page }) => {
   await down(page); await page.clock.runFor(600)
   await page.locator('#bd-retry').click()

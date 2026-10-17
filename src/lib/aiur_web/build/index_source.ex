@@ -29,6 +29,15 @@ defmodule AiurWeb.Build.IndexSource do
   end
 
   @impl true
+  def daemon(opts) do
+    # ponytail: a mount waits on this call; 1 s caps it, and a busy index falls back to "unknown".
+    case guard(fn -> GenServer.call(server(opts), :daemon, 1_000) end) do
+      %{} = block -> block
+      _ -> nil
+    end
+  end
+
+  @impl true
   def earlier(before, zone, opts), do: call({:earlier, before, zone, Keyword.get(opts, :days, 1)}, opts)
 
   @spec ticket(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
