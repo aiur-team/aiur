@@ -106,7 +106,7 @@ for (const mode of ['total', 'start', 'source']) test(`header unknown branch: ${
 })
 
 test('headers keep design count formatting and empty strings', async ({ page }) => {
-  const result = await page.evaluate(() => heads.headHTML({ hist: [], plan: Array(1000), nq: Array(1000) }, { total: 0, more: false }, { history: { state: 'ok' } }, 0))
+  const result = await page.evaluate(() => heads.headHTML({ hist: [], plan: Array(1000), nq: Array(1000) }, { total: 0, more: false }, Object.fromEntries(['history', 'queue', 'index', 'agents', 'features'].map(key => [key, { state: 'ok' }])), 0))
   expect(result).toEqual({ hist: 'History <em>empty</em>', plan: 'Planned <em>1000 in build-queue order · dependency waves</em>', nq: 'Not queued <em>1000 open · not in the queue</em>' })
 })
 
