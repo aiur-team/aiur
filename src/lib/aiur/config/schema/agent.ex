@@ -242,9 +242,9 @@ defmodule Aiur.Config.Schema.Agent do
     field(:turn_timeout_ms, :integer, default: 3_600_000)
     # @config-reference config-configuration-agent-00 agent.stall_timeout_ms | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
     field(:stall_timeout_ms, :integer, default: 3_600_000)
-    # Safety checkpoint: pause an agent that has been actively running this
-    # many minutes (paused/blocked time excluded). 0 disables it.
-    # @config-reference config-configuration-agent-00 agent.max_agent_duration_minutes | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
+    # Runtime cap: pause an agent that has been actively running this
+    # many minutes (paused/blocked time excluded), then release it. 0 disables it.
+    # @config-reference config-configuration-agent-00 agent.max_agent_duration_minutes | integer | 60 | Active-runtime cap; the parked worker is released to rework or human-review. 0 disables it. |
     field(:max_agent_duration_minutes, :integer, default: 60)
     # A CI-wait pause releases its dispatch slot. If no terminal CI event is
     # observed in this window, wake the agent for one recovery check.
