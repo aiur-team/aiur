@@ -262,9 +262,10 @@ for the second look — GitHub keeps `reviewDecision = CHANGES_REQUESTED` until
 a brand-new review, so nothing else re-queues it.
 
 It also runs the **head-verdict router** on the same interval. At the open PR's head, the configured reviewer's
-`CHANGES_REQUESTED` moves `agent:human-review`, `agent:ci-wait` or `agent:error` to `agent:rework` (an error ticket also
-raises `system.pr_health.error_rework`); an `APPROVED` that follows their same-head `CHANGES_REQUESTED` moves
-`agent:rework` to `agent:ci-wait`. Draft PRs never route, and each review routes once.
+`CHANGES_REQUESTED` moves `agent:human-review`, `agent:ci-wait` or `agent:error` to `agent:rework`; an `APPROVED` that
+follows their same-head `CHANGES_REQUESTED` moves `agent:rework` to `agent:ci-wait`.
+
+An error ticket moved this way raises `system.pr_health.error_rework`. Draft PRs never route, and each review routes once.
 
 A PR whose head only moved via merges of the base branch (own contribution
 unchanged) is NOT re-queued; it raises `system.pr_health.rework_merge_only` so
