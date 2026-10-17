@@ -25,6 +25,8 @@ async function freeze(page) {
     ctx.life = (await import('/build-home/life.js')).createLife()
     ctx.laneEls.forEach(el => el.remove()); ctx.guideEls.forEach(el => el.remove())
     ctx.laneEls.clear(); ctx.guideEls.clear(); ctx.cols = []
+    // The fixture is shared across workers: another worker's /build-control/diff reaches this page via receive() → fx.dataChanged → flushLive → relayout → applyCols.
+    Object.assign(st.fx, { relayout() {}, update() {}, dataChanged() {}, flushLive() {} })
   })
 }
 
