@@ -182,6 +182,8 @@ defmodule Aiur.OrchestratorRemoteControlTest do
     end
 
     test "promote a headless claude agent: adds the label, stops the agent, re-dispatches", %{workspace: workspace} do
+      test_pid = self()
+      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
       agent_pid = spawn(fn -> Process.sleep(:infinity) end)
       agent_ref = Process.monitor(agent_pid)
 
@@ -208,6 +210,8 @@ defmodule Aiur.OrchestratorRemoteControlTest do
     end
 
     test "promote a codex agent re-dispatches it as claude-remote", %{workspace: workspace} do
+      test_pid = self()
+      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
       agent_pid = spawn(fn -> Process.sleep(:infinity) end)
       agent_ref = Process.monitor(agent_pid)
 
@@ -231,6 +235,8 @@ defmodule Aiur.OrchestratorRemoteControlTest do
     end
 
     test "demote a remote agent: removes the label, stops the agent, re-dispatches", %{workspace: workspace} do
+      test_pid = self()
+      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
       agent_pid = spawn(fn -> Process.sleep(:infinity) end)
       agent_ref = Process.monitor(agent_pid)
 

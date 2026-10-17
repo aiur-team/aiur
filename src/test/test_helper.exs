@@ -117,6 +117,7 @@ Code.require_file("support/test_support/endpoint_stubs.exs", __DIR__)
 Code.require_file("support/test_support/processes.exs", __DIR__)
 Code.require_file("support/test_support/workflow_files.exs", __DIR__)
 Code.require_file("support/test_scope_guard.exs", __DIR__)
+Code.require_file("support/test_support/lifecycle_leak_guard.ex", __DIR__)
 Code.require_file("support/test_support.exs", __DIR__)
 Code.require_file("support/test_cleanup.ex", __DIR__)
 Code.require_file("support/test_reset_support.ex", __DIR__)
@@ -147,6 +148,7 @@ end
 Code.put_compiler_option(:no_warn_undefined, [])
 
 Aiur.TestSupport.EndpointStubs.init!()
+Aiur.TestSupport.LifecycleLeakGuard.start!()
 
 # Keep plain ExUnit.Case modules and between-case application timers from
 # publishing Orchestrator poll state or alerts into the suite-wide ledger.

@@ -76,7 +76,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
     end
 
     {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
-    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
     pid
   end
 
