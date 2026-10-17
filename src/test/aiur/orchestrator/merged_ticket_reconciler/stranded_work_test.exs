@@ -11,11 +11,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWorkTest do
   # worker's head, the worker committed three more commits (its pushes were
   # refused while queued, so they stayed local), then the queue merged the PR.
   setup %{tmp_dir: root} do
-    # Inside an agent workspace PATH resolves `git` to the guard, which refuses `update-ref`.
-    real_git = System.get_env("AIUR_REAL_GIT") || System.find_executable("git")
-
     git = fn args ->
-      {out, 0} = System.cmd(real_git, ["-C", root, "-c", "user.name=t", "-c", "user.email=t@t" | args], stderr_to_stdout: true)
+      {out, 0} = Aiur.TestGit.cmd(["-C", root, "-c", "user.name=t", "-c", "user.email=t@t" | args])
       out
     end
 
