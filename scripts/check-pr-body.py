@@ -64,7 +64,7 @@ def compare(root, base, head):
         if hunk:
             file['patch'] = chunk[hunk.start():].rstrip('\n')
     return {'status': 'ahead' if merge_base == base else 'diverged',
-            'merge_base_commit': {'sha': merge_base}, 'files': files}
+            'merge_base_commit': {'sha': merge_base}, 'files': files, 'complete': True}
 
 
 def is_ancestor(root, tested, head):
@@ -117,7 +117,7 @@ def check_evidence(pr, root):
         body = Path(scratch) / 'body.md'
         body.write_text(pr['body'] or '', encoding='utf-8')
         return subprocess.run([
-            'elixir', '-r', 'src/lib/aiur/local_test_evidence.ex',
+            'elixir', '-r', 'src/lib/aiur/local_test_evidence.ex', '-r', 'src/lib/aiur/pr_body_lint.ex',
             '-r', 'src/lib/mix/tasks/pr_body.check.ex',
             '-e', 'Mix.start(); Mix.Tasks.PrBody.Check.run(System.argv())',
             '--', '--file', str(body), '--head', head,

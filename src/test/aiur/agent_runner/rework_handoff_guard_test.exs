@@ -142,4 +142,43 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
     assert executor.(fresh).("aiur_set_ticket_state", %{"state" => "ci-wait"})["success"]
     assert_receive {:state_write, "gid-evidence", "ci-wait"}, 100
   end
+
+  @tag :tmp_dir
+  test "with the worker's checkout, handoffs run the full PR body check against the live head", %{tmp_dir: workspace} do
+    head = String.duplicate("c", 40)
+    issue = %Issue{id: "gid-body", identifier: "4937", state: "in-progress"}
+    test_pid = self()
+
+    File.mkdir_p!(Path.join(workspace, ".github"))
+    File.write!(Path.join(workspace, ".github/pull_request_template.md"), "#### Summary\n\n- <!-- what changed -->\n\n## Local tests\n\nPolicy: <!-- mode -->\n")
+
+    evidence = fn tested ->
+      "## Local tests\n\nPolicy: partial\nTested head: #{tested}\nBase: main @ #{String.duplicate("d", 40)}\nSelection: focused\n- `mix test` -> pass\n"
+    end
+
+    handoff = fn body ->
+      ToolExecutor.build(issue, workspace, nil, %{},
+        coordination_runner: fn _key, operation, _opts -> operation.() end,
+        ticket_state_writer: fn issue_id, state ->
+          send(test_pid, {:state_write, issue_id, state})
+          :ok
+        end,
+        pull_request_fetcher: fn 4937 -> {:ok, %{"mergeable_state" => "clean"}} end,
+        open_pr_fetcher: fn "4937" -> {:ok, %{"number" => 4937, "body" => body, "head" => %{"sha" => head}}} end
+      ).("aiur_set_ticket_state", %{"state" => "human-review"})
+    end
+
+    # Evidence alone names the live head, but CI's body check also requires the template's headings.
+    response = handoff.(evidence.(head))
+    refute response["success"]
+    assert Jason.decode!(response["output"])["error"]["message"] =~ "Missing required heading: #### Summary"
+
+    stale = handoff.("#### Summary\n\n- Fix.\n\n" <> evidence.(String.duplicate("a", 40)))
+    refute stale["success"]
+    assert Jason.decode!(stale["output"])["error"]["message"] =~ "Tested head does not match PR head"
+    refute_received {:state_write, _, _}
+
+    assert handoff.("#### Summary\n\n- Fix.\n\n" <> evidence.(head))["success"]
+    assert_receive {:state_write, "gid-body", "human-review"}, 100
+  end
 end

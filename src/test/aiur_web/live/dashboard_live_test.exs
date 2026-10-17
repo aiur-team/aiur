@@ -5188,7 +5188,7 @@ defmodule AiurWeb.DashboardLiveTest do
     view |> element(~s(#add-agent-modal form)) |> render_change(%{"complexity" => "3"})
     view |> element(~s(#add-agent-modal form)) |> render_submit(%{})
 
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
 
     # The active-state label is what makes the ticket dispatchable at all, and the
     # complexity tag it replaces is removed rather than left to outrank it. The
@@ -5269,7 +5269,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute has_element?(view, "#add-agent-modal")
     # The socket processed Close before the boundary was released.
     send(worker, :continue)
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert render(view) =~ "Waiting for an agent to start"
     assert_received {:add_label, "complexity:3"}
     assert_received {:add_label, "model:codex-terra"}
@@ -5304,7 +5304,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     refute has_element?(view, "#add-agent-modal")
     send(orchestrator, :release_queued_demand)
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert render(view) =~ "Waiting for an agent to start"
     assert_received {:dashboard_refresh_requested, ^orchestrator}
   end
@@ -5330,7 +5330,7 @@ defmodule AiurWeb.DashboardLiveTest do
       {:ok, view, _} = live(build_conn(), "/")
       view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
       view |> element("#add-agent-modal form") |> render_submit(%{})
-      render_async(view)
+      LiveViewAsync.render_when_complete(view)
       refute_received {:queued_demand_received, ^orchestrator, _}
       refute has_element?(view, "#add-agent-modal")
     end
@@ -5398,13 +5398,13 @@ defmodule AiurWeb.DashboardLiveTest do
     |> element("#add-agent-modal form")
     |> render_submit(%{"backend" => "codex", "complexity" => "3"})
 
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert has_element?(view, "#add-agent-modal")
     assert render(view) =~ "removed complexity:5"
     assert render(view) =~ "offline"
     assert_received {:remove_label, "complexity:5"}
     view |> element("#add-agent-modal form") |> render_submit(%{})
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     refute_received {:remove_label, "complexity:5"}
     refute has_element?(view, "#add-agent-modal")
     assert render(view) =~ "dispatch authorization declined"
@@ -5439,14 +5439,14 @@ defmodule AiurWeb.DashboardLiveTest do
     assert render(view) =~ "Check admission"
     refute has_element?(view, "#add-agent-modal button[type=submit][disabled]")
     view |> element("#add-agent-modal form") |> render_submit(%{})
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert_received :admission_checked
     assert render(view) =~ "No admission is confirmed"
     Agent.update(authorization, fn _ -> :unknown end)
     view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
     view |> element("#add-agent-modal form") |> render_change(%{"backend" => "codex"})
     view |> element("#add-agent-modal form") |> render_submit(%{})
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert render(view) =~ "Admission could not be confirmed"
     refute render(view) =~ "Waiting for an agent to start"
   end

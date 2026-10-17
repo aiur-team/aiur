@@ -22,7 +22,16 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverage do
   def unknown?(%{kpis: %{peak_conc: peak}} = model, scope), do: peak == 0 and partial_reason(model, scope) != nil
 
   @spec tile(map(), term(), String.t()) :: %{val: term(), sub: String.t()}
-  def tile(%{kpis: %{peak_conc: peak}} = model, scope, sub), do: label(model, scope, peak, sub)
+  def tile(%{kpis: %{peak_conc: peak}} = model, scope, sub) do
+    case partial_reason(model, scope) do
+      nil ->
+        %{val: peak, sub: sub}
+
+      reason ->
+        val = if unknown?(model, scope), do: "unknown", else: peak
+        %{val: val, sub: "#{reason}; #{sub}"}
+    end
+  end
 
   @spec utilization(map(), term(), String.t()) :: %{val: term(), sub: String.t()}
   def utilization(%{kpis: %{mean_util_pct: pct}} = model, scope, sub), do: label(model, scope, "#{pct}%", sub)

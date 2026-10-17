@@ -22,7 +22,7 @@ defmodule AiurWeb.AnalyticsLive do
     UsageSummaryPresenter
   }
 
-  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, ConcurrencyCoverage, Loading, Presenter, Runtime, ScopeResolver, Styles}
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, ConcurrencyCoverage, LiveConcurrency, Loading, Presenter, Runtime, ScopeResolver, Styles}
 
   @usage_summary_max_age_ms 30_000
   # Matches the CLI: telemetry within this window is "just now", older telemetry shows elapsed age.
@@ -469,7 +469,7 @@ defmodule AiurWeb.AnalyticsLive do
     [
       Map.merge(
         %{label: "Peak concurrency", tone: nil},
-        ConcurrencyCoverage.tile(model, scope, "#{k.conc_now} #{if(present?, do: "now", else: "at run end")} / #{Presenter.cap_label(model)}")
+        ConcurrencyCoverage.tile(model, scope, "#{LiveConcurrency.label(model, present?, scope)} / #{Presenter.cap_label(model)}")
       ),
       Map.merge(%{label: "Mean utilization", tone: nil}, ConcurrencyCoverage.utilization(model, scope, "of #{model.cores} cores")),
       %{

@@ -306,6 +306,21 @@ html[data-theme="light"] .sd-device {
   --ack: #4fd6c4;
 }
 
+/* Gruvbox is the default palette; its dark ink differs from the :root pins above. */
+html[data-palette="gruvbox"][data-theme="light"] .sd-device {
+  --fg: #ebdbb2;
+  --muted: #bdae93;
+  --accent: #83a598;
+  --accent-ink: #a6c4b8;
+  --attention: #fabd2f;
+  --attention-ink: #fad276;
+  --blocking-ink: #fd8b7d;
+  --blocking-soft: rgba(251, 73, 52, 0.14);
+  --good: #b8bb26;
+  --good-ink: #cfd26a;
+  --super: #d3869b;
+}
+
 @media (max-width: 560px) {
   .sd-device {
     padding: 1.1rem 1.1rem 1.3rem;
