@@ -68,7 +68,7 @@ defmodule Aiur.AgentResourceGuard do
       orphans = Enum.reject(orphans_fun.(), &(&1.pid in roots))
       orphan_pids = MapSet.new(orphans, & &1.pid)
       # One /proc scan per tick, and none without agents: a pgrep per tree node took minutes on a loaded host (#4882).
-      opts = if roots == [], do: opts, else: Keyword.put_new_lazy(opts, :children_fun, fn -> proc_children_fun(opts) end)
+      opts = tick_children_opts(opts, roots)
       # An orphan can still sit in an agent's tree when a subreaper below the
       # root adopted it; it is reaped as an orphan, not counted toward the cap.
       trees = Enum.map(roots, &{&1, &1 |> collect_descendants(opts) |> Enum.uniq() |> Enum.reject(fn pid -> pid in orphan_pids end)})
@@ -383,6 +383,9 @@ defmodule Aiur.AgentResourceGuard do
         nil
     end
   end
+
+  defp tick_children_opts(opts, []), do: opts
+  defp tick_children_opts(opts, _roots), do: Keyword.put_new_lazy(opts, :children_fun, fn -> proc_children_fun(opts) end)
 
   defp proc_children_fun(opts) do
     index = Keyword.get(opts, :children_index_fun, fn -> children_index("/proc") end).()
