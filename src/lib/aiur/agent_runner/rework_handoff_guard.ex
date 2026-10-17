@@ -100,16 +100,18 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   defp findings_blockers(%Issue{state: rework} = issue, state, workspace, opts)
        when state in ["ci-wait", "human-review"] and rework in ["rework", "agent:rework"] do
     case ReworkFindings.fetch(issue.identifier, opts) do
-      {:ok, %{review_head: review_head, head: head, findings: findings}} when is_binary(review_head) ->
+      {:ok, %{review_head: review_head, head: head, findings: findings} = review} when is_binary(review_head) ->
         {commits, files} = ReworkFindings.branch_changes(workspace, review_head, head)
+        # evidence_blockers already held the body to the current head, so an edit after the review is a body fix (#4944).
+        body_edited? = commits == [] and ReworkFindings.body_edited_since?(review.number, review.review_at, opts)
 
-        case ReworkFindings.validate(findings, Keyword.get(opts, :review_findings), commits, files) do
+        case ReworkFindings.validate(findings, Keyword.get(opts, :review_findings), commits, files, body_edited?) do
           :allow ->
             {:allow, findings}
 
           {:blocked, reasons} ->
             {:refused, :rework_findings_unaddressed,
-             "Cannot hand ticket #{issue.identifier} back to #{state}: #{Enum.join(reasons, "; ")}. Pass every finding in `review_findings` as `fixed` (with its commit) or `disputed` (with evidence)."}
+             "Cannot hand ticket #{issue.identifier} back to #{state}: #{Enum.join(reasons, "; ")}. Pass every finding in `review_findings` as `fixed` (with its commit) or `disputed` (with evidence); a PR-body-only fix counts once the body is edited after the review."}
         end
 
       {:ok, _no_blocking_review} ->

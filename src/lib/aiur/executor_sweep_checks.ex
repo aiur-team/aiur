@@ -147,7 +147,7 @@ defmodule Aiur.ExecutorSweep.Checks do
 
       {kind, action, message} =
         if value(row, :action, nil) == "refresh" do
-          {"approved_pr_refresh_pending", "Update the branch from the base for a fresh merge ref; a rerun reuses the old one. The push may dismiss the approval.",
+          {"approved_pr_refresh_pending", "Wait for the landing watcher's next update-branch slot, or update the branch from the base manually. The push may dismiss the approval.",
            "Approved PR ##{pr} needs a fresh merge ref for #{checks} (#{reason}); waiting #{duration(age)}."}
         else
           {"approved_pr_rerun_pending", "Wait for the landing watcher's next rerun slot, or rerun the failed checks manually.",

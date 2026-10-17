@@ -196,7 +196,7 @@
           }
         },
         "power": {
-          "type": "object"
+          "$ref": "#/$defs/power"
         },
         "stratified": {
           "type": "object"
@@ -233,7 +233,8 @@
         "excluded_counts",
         "min_achievable_p",
         "adjustment",
-        "summary_text"
+        "summary_text",
+        "power"
       ],
       "allOf": [
         {
@@ -405,6 +406,80 @@
         "warnings",
         "overall"
       ]
+    },
+    "power": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "power_at_current_n",
+        "mde_at_current_n",
+        "samples_needed_per_group",
+        "samples_needed_noether",
+        "projected_p_if_effect_holds",
+        "eta_date",
+        "simulations",
+        "mc_se",
+        "baseline_group"
+      ],
+      "properties": {
+        "power_at_current_n": {
+          "type": ["number", "null"]
+        },
+        "mde_at_current_n": {
+          "type": ["number", "null"]
+        },
+        "projected_p_if_effect_holds": {
+          "type": ["number", "null"]
+        },
+        "mc_se": {
+          "type": ["number", "null"]
+        },
+        "days_needed": {
+          "type": ["number", "null"]
+        },
+        "accrual_per_day": {
+          "type": ["number", "null"]
+        },
+        "allocation_ratio": {
+          "type": ["number", "null"]
+        },
+        "status": {
+          "enum": [
+            "estimated",
+            "not_estimable"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "baseline_group": {
+          "type": "string"
+        },
+        "samples_needed_per_group": {
+          "oneOf": [
+            {
+              "type": ["integer", "null"],
+              "minimum": 5
+            },
+            {
+              "const": "> 5000"
+            }
+          ]
+        },
+        "samples_needed_noether": {
+          "type": ["integer", "null"],
+          "minimum": 5
+        },
+        "eta_date": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "simulations": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   }
 }
