@@ -81,6 +81,7 @@
     "Aiur.GitHub.TicketPullRequest",
     "Aiur.GitHub.Tracker",
     "Aiur.GitHub.Transport",
+    "Aiur.GitHub.WorkspacePreflight",
     "Aiur.GitHub.TrustSnapshot",
     "Aiur.GitHub.ViewStateSweep",
     "Aiur.GitHubCostCLI",
@@ -97,7 +98,8 @@
     "config",
     "kernel",
     "signal",
-    "tracker"
+    "tracker",
+    "workspace"
   ],
   "optional": [
     "event-bus",
