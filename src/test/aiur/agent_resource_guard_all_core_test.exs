@@ -62,6 +62,7 @@ defmodule Aiur.AgentResourceGuardAllCoreTest do
     for pid <- killed, do: assert_receive({:killed, ^pid}, 1000)
   end
 
+  # Guards against over-flagging; it passes without the all-core path too.
   test "fewer spinners than cores still wait out the busy window" do
     opts = opts(Enum.take(@spinners, 8), self())
 
@@ -75,6 +76,29 @@ defmodule Aiur.AgentResourceGuardAllCoreTest do
     assert ExecutorBindings.attention_topic?("ticket.4723.agent.attention.synthetic-load")
   end
 
+  test "each tick builds the children index once for all roots, and not at all without agents" do
+    test_pid = self()
+
+    index_fun = fn ->
+      send(test_pid, :index_built)
+      %{100 => [101], 101 => [150], 150 => @spinners}
+    end
+
+    opts = opts(@spinners, test_pid) |> Keyword.delete(:children_fun) |> Keyword.put(:children_index_fun, index_fun)
+
+    {[], tracked} = tick(opts, 0, %{})
+    assert_received :index_built
+    refute_received :index_built
+    assert {[%{root_pid: 101, reported: reported}], _tracked} = tick(opts, 1, tracked)
+    assert reported == Enum.drop(@spinners, 4)
+    assert_received :index_built
+    refute_received :index_built
+
+    assert {[], _tracked} = tick(Keyword.put(opts, :entries_fun, fn -> [] end), 2, %{})
+    refute_received :index_built
+  end
+
+  # Covers the real /proc reader; the scan count is pinned by the test above.
   test "descendants are read from one /proc scan when no children_fun is given" do
     sleep = System.find_executable("sleep")
     port = Port.open({:spawn_executable, sleep}, [:binary, args: ["30"]])
