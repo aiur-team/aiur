@@ -51,6 +51,13 @@ defmodule AiurWeb.AiurStyleSyncTest do
     font = get_authed("/aiur-style/fonts/SpaceGrotesk-Variable.woff2")
     assert font.status == 200
     assert Plug.Conn.get_resp_header(font, "cache-control") == ["public, max-age=31536000, immutable"]
+
+    bungee_url = "/aiur-style/fonts/Bungee-Regular.woff2"
+    assert "/dashboard.css" |> get_authed() |> response(200) =~ bungee_url
+    bungee = get_authed(bungee_url)
+    assert bungee.status == 200
+    assert Plug.Conn.get_resp_header(bungee, "cache-control") == ["public, max-age=31536000, immutable"]
+    assert binary_part(bungee.resp_body, 0, 4) == "wOF2"
   end
 
   test "aiur-style files require dashboard authentication" do
