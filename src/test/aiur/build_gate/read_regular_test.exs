@@ -59,12 +59,19 @@ defmodule Aiur.BuildGate.ReadRegularTest do
     assert read(dir, path) == "fail reason=metadata_not_regular\nstatus=125\n"
   end
 
-  defp read(dir, path) do
+  test "counts the 4096 limit in bytes under a UTF-8 locale", %{dir: dir} do
+    path = Path.join(dir, "multibyte")
+    # 1366 three-byte characters: 4098 bytes, but under 4096 characters.
+    File.write!(path, String.duplicate("€", 1366))
+    assert read(dir, path, [{"LC_ALL", "C.UTF-8"}]) == "fail reason=metadata_not_regular\nstatus=125\n"
+  end
+
+  defp read(dir, path, env \\ []) do
     process_bash = Path.join(Path.dirname(BuildGate.hook_path()), "build_gate/process.bash")
     bash = System.find_executable("bash")
 
     {output, 0} =
-      System.cmd("timeout", ["5", bash, "-c", @script, "_", process_bash, path], env: [{"PATH", Path.join(dir, "bin") <> ":/usr/bin:/bin"}, {"BASH_ENV", nil}])
+      System.cmd("timeout", ["5", bash, "-c", @script, "_", process_bash, path], env: [{"PATH", Path.join(dir, "bin") <> ":/usr/bin:/bin"}, {"BASH_ENV", nil} | env])
 
     refute File.exists?(Path.join(dir, "bin/python3.called"))
     output
