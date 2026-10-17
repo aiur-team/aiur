@@ -10,8 +10,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.BuildOrder.History
   alias Aiur.CodingAgent
   alias Aiur.Commands
-  alias Aiur.GitHub.LocalHold
   alias Aiur.Issue
+  alias Aiur.Tracker
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
@@ -162,10 +162,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
     # and retries the fetch; a hold beyond the ceiling or past the cap still
     # fails, so real starvation is not masked.
     result =
-      LocalHold.run(
-        fn -> issue_fetcher.([issue_id]) end,
-        LocalHold.caller_opts(opts)
-      )
+      Tracker.with_transient_retry(fn -> issue_fetcher.([issue_id]) end, opts)
 
     case result do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
