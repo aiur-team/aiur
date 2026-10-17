@@ -55,10 +55,25 @@ defmodule AiurWeb.DashboardPagesGateTest do
       end
     end
 
-    test "the JSON API still answers" do
+    # #4486: the body is the app-wide Monitor's cached report, which a sibling
+    # test's transient collection failure can leave instance-less for a tick.
+    test "the JSON API still answers, whatever the shared capability cache holds" do
+      monitor = Process.whereis(Aiur.Capabilities.Monitor)
+      :ok = :sys.suspend(monitor)
+      previous = :ets.lookup(:aiur_capabilities, :report)
+
+      on_exit(fn ->
+        :ets.delete(:aiur_capabilities, :report)
+        :ets.insert(:aiur_capabilities, previous)
+        :sys.resume(monitor)
+      end)
+
+      failed = %{machine: nil, instance: nil, repository: nil, executor: nil, capabilities: %{}, revision: 0, observed_at: "2026-10-15T03:23:19Z"}
+      :ets.insert(:aiur_capabilities, {:report, {failed, System.monotonic_time(:millisecond), :failed}})
+
       conn = get(authed(), "/api/v1/capabilities")
 
-      assert %{"instance" => %{"run_shape" => _}} = json_response(conn, 200)
+      assert %{"contract" => "aiur.capabilities", "instance" => nil} = json_response(conn, 200)
     end
 
     test "an unauthenticated page or asset probe gets the same 401 as an unknown path" do

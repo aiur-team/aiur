@@ -65,7 +65,7 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-00 agent.remote_control | boolean | false | Opts RC-capable backends into remote control. |
     field(:remote_control, :boolean, default: false)
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.relay | boolean | true | Runs local Codex app-server and headless Claude behind a detached relay that retains provider output between controller connections. `false` uses the direct Port transport. Remote SSH workers keep their existing transport; normal stop and the BEAM-death watchdog still reap agents. |
+    # @config-reference config-configuration-agent-00 agent.relay | boolean | true | Runs local Codex app-server and headless Claude behind a detached relay that retains provider output between controller connections. `false` uses the direct Port transport. Remote SSH workers keep their existing transport; normal stop and the BEAM-death watchdog still reap agents. On Linux the relay adopts every process an agent command leaves behind, even one that called `setsid` or was orphaned, and kills it at each turn's start and end and when the provider exits; the direct Port transport does not. |
     field(:relay, :boolean, default: true)
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.relay_orphan_timeout_seconds | integer | 1800 | Stops the provider process group after this many seconds without a relay controller. Must be positive. |
