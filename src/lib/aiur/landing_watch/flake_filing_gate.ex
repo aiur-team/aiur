@@ -27,6 +27,7 @@ defmodule Aiur.LandingWatch.FlakeFilingGate do
   # The test changed after the run when the newest base commit touching it is not in the run's head.
   defp test_changed_since_run?(%{path: path}, %{"head_sha" => head} = run, base, opts) when is_binary(path) and is_binary(head) do
     query = URI.encode_query(%{sha: base, path: path, per_page: 1})
+    opts = Keyword.put(opts, :caller, "landing_watch_flake_gate")
 
     with {:ok, [%{"sha" => latest} | _]} <- CIRecovery.read("/commits?" <> query, opts),
          {:ok, %{"status" => status}} <- CIRecovery.read("/compare/#{head}...#{latest}?per_page=1", opts) do
