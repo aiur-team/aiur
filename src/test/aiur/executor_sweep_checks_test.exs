@@ -52,6 +52,13 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{kind: "stale_merge_group", age_ms: 8_400_000}] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_merge_group"))
   end
 
+  test "a mergeable queue entry and a fresh merge group produce no finding" do
+    now = ~U[2026-10-15 18:20:00Z]
+    snapshot = %{merge_queue: [%{number: 9, mergeable: "MERGEABLE"}], merge_groups: [%{name: "run 45", state: "in_progress", started_at: now}]}
+
+    assert [] = Checks.all(snapshot, now)
+  end
+
   test "does not treat an old-head approval as current approval" do
     snapshot = %{pull_requests: [%{number: 10, state: "open", head_sha: "new", approved_head_sha: "old", review_decision: "APPROVED", in_merge_queue: false, auto_merge: false, required_checks: []}]}
 
@@ -92,10 +99,10 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
         %{number: 3, labels: ["agent:error"]},
         %{number: 4, labels: ["agent:human-review"], created_at: old, unchanged_pr_handoffs: 3},
         %{number: 5, labels: ["agent:rework"], open_blocked_by: [99]},
-        %{number: 6, labels: ["needs-triage"], created_at: ~U[2026-10-15 16:00:00Z]},
         %{number: 7, labels: ["agent:todo", "agent:rework"]},
         %{number: 12, labels: ["agent:paused"], closed_blockers: [90]}
       ],
+      open_tickets: %Aiur.OpenTicketSource.Snapshot{status: :available, tickets: [%{identifier: "6", labels: ["needs-triage"], created_at: ~U[2026-10-15 16:00:00Z]}]},
       services: [%{name: "watchers", status: "down"}, %{name: "dispatcher", status: "stalled"}]
     }
 

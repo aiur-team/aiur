@@ -4,6 +4,7 @@ defmodule Aiur.ExecutorAttention.CLI do
   alias Aiur.Executor.{Claims, Roster}
   alias Aiur.ExecutorAttention.DecisionEscalation
   alias Aiur.{ExecutorEvents, ExecutorListener, ExecutorWakeInbox}
+  alias Aiur.ExecutorSweep.TriageBacklog
 
   import Aiur.ControlCLI.Protocol, only: [control_error: 1, exit_marker: 1]
 
@@ -417,11 +418,12 @@ defmodule Aiur.ExecutorAttention.CLI do
     end
   end
 
-  @doc "Prints the `status` WAKES and DECISIONS lines."
+  @doc "Prints the `status` WAKES, DECISIONS and TRIAGE lines."
   @spec print_wake_status() :: :ok
   def print_wake_status do
     print_wakes()
     DecisionEscalation.print_status()
+    TriageBacklog.print_status()
   end
 
   defp print_wakes do

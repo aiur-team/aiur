@@ -1,6 +1,8 @@
 defmodule Aiur.LandingWatch.MergeGroups do
   @moduledoc "Cancels active merge-group runs that no longer belong to the live queue."
 
+  require Logger
+
   alias Aiur.GitHub.{CIRecovery, Transport}
   alias Aiur.LandingWatch.{MergeGroupFailureProcessor, MergeGroupQuarantine, MergeGroupRunFetcher, Observer}
 
@@ -23,7 +25,8 @@ defmodule Aiur.LandingWatch.MergeGroups do
             |> Enum.reject(&is_nil/1)
           )
 
-        cancel_runs(Enum.filter(runs, &stale?(&1, base, live)), opts)
+        group_heads = live |> Map.values() |> Enum.map(& &1.group_head) |> Enum.filter(&is_binary/1) |> MapSet.new()
+        cancel_runs(Enum.filter(runs, &(stale?(&1, base, live) or stale_group_head?(&1, group_heads))), opts)
       end
     end
   end
@@ -45,7 +48,8 @@ defmodule Aiur.LandingWatch.MergeGroups do
           %{
             head: Map.get(observation, :head),
             committed_at: Map.get(observation, :head_committed_at),
-            queue_head: get_in(entry, ["pullRequest", "headRefOid"])
+            queue_head: get_in(entry, ["pullRequest", "headRefOid"]),
+            group_head: get_in(entry, ["headCommit", "oid"])
           }}
 
   defp live_entry(_observation, _base), do: nil
@@ -73,6 +77,15 @@ defmodule Aiur.LandingWatch.MergeGroups do
 
   defp stale?(_run, _base, _live), do: false
 
+  # A queue rebuild keeps each PR queued but gives it a new group head, so a run
+  # whose head SHA no live entry carries holds a runner for a dead group (#4864).
+  # With no group heads observed there is nothing to compare, so cancel nothing.
+  defp stale_group_head?(%{"id" => id, "event" => "merge_group", "status" => status, "head_sha" => sha}, group_heads)
+       when is_integer(id) and is_binary(sha) and status in ["queued", "in_progress", "waiting", "requested"],
+       do: MapSet.size(group_heads) > 0 and not MapSet.member?(group_heads, sha)
+
+  defp stale_group_head?(_run, _group_heads), do: false
+
   defp current_entry?(nil, _run), do: false
 
   defp current_entry?(%{head: head, committed_at: committed_at, queue_head: queue_head}, %{
@@ -94,16 +107,19 @@ defmodule Aiur.LandingWatch.MergeGroups do
     end
   end
 
+  # A failed cancel is logged and skipped so one bad run cannot block the rest or fail the poll.
   defp cancel_runs(runs, opts) do
-    Enum.reduce(runs, :ok, &cancel_if_ok(&1, &2, opts))
+    opts = Keyword.put(opts, :caller, "landing_watch_stale_merge_group_cancel")
+    Enum.each(runs, &cancel_run(&1, opts))
   end
 
-  defp cancel_if_ok(_run, {:error, _} = error, _opts), do: error
-
-  defp cancel_if_ok(run, :ok, opts) do
+  defp cancel_run(run, opts) do
     case Keyword.get(opts, :cancel_fun, &CIRecovery.cancel/2).(run["id"], opts) do
-      :ok -> :ok
-      {:error, reason} -> {:error, {:merge_group_cancel_failed, run["id"], reason}}
+      :ok ->
+        Logger.info("landing watcher cancelled stale merge-group run #{run["id"]} head=#{run["head_sha"]} branch=#{run["head_branch"]}")
+
+      {:error, reason} ->
+        Logger.warning("landing watcher could not cancel stale merge-group run #{run["id"]}: #{inspect(reason)}")
     end
   end
 end
