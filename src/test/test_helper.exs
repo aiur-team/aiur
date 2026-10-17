@@ -89,6 +89,13 @@ test_run_root =
 
 Application.put_env(:aiur, :test_run_root, test_run_root)
 
+# The run root's late writers (#4866): `Aiur.RunTelemetry.Writer` and
+# `Aiur.SaturationSentinel` read `:log_file` once at init, so one restarted
+# inside a workflow case keeps appending to that case's `<workflow_root>/log`
+# after teardown, until the VM exits. Stop the app before the root is removed;
+# `after_suite` callbacks run last-registered first.
+ExUnit.after_suite(fn _result -> Application.stop(:aiur) end)
+
 suite_runtime_state_dir = Application.fetch_env!(:aiur, :runtime_state_dir)
 
 unless Path.dirname(Aiur.AlertLedger.path()) == suite_runtime_state_dir do
