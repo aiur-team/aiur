@@ -47,6 +47,21 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     assert body =~ "superseded job name"
   end
 
+  test "a job missing from the base workflow is the PR's own when the PR edits that workflow" do
+    renamed = %{"unit" => %{"name" => "unit (${{ matrix.partition }}/4)"}}
+    own = [workflow_definitions_fun: fn _, "main", _ -> {:ok, renamed} end, changed_paths_fun: fn 17, _ -> {:ok, [".github/workflows/ci.yml"]} end]
+    assert :ok = LandingWatch.process(observation(), opts(journal_path(), own))
+    assert_received {:rework, _}
+    refute_received {:rerun, _}
+  end
+
+  test "a merge into a stacked branch is not recorded as a base CI change" do
+    path = journal_path()
+    event = %{topic: "ticket.4605.pr.merged", pr: %{"number" => 4605, "base" => %{"ref" => "aiur/4600-parent"}}}
+    assert :ok = PrRerun.record_merge(event, journal_path: path, base_branch: "main", changed_paths_fun: fn _, _ -> flunk("a stacked merge needs no path read") end)
+    assert {:ok, []} = Journal.ci_merges(journal_path: path)
+  end
+
   test "a merge ref that predates a base-branch fix reruns" do
     history = [
       %{completed_at: @started_ms - 60_000, checks: [%{name: "test (1/4)", conclusion: "failure"}]},

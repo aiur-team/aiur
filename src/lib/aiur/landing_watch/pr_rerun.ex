@@ -10,7 +10,7 @@ defmodule Aiur.LandingWatch.PrRerun do
 
   alias Aiur.GitHub.{CIRecovery, Client}
   alias Aiur.LandingWatch
-  alias Aiur.LandingWatch.{Journal, PrRerunClassifier}
+  alias Aiur.LandingWatch.{Journal, MergeGroupRunFetcher, PrRerunClassifier}
   alias Aiur.TicketBranch
 
   @rerun_conclusions ["cancelled", "failure", "timed_out", "startup_failure"]
@@ -19,15 +19,18 @@ defmodule Aiur.LandingWatch.PrRerun do
   def handle_failure(observation, result, runs, opts) do
     with {:ok, state} <- Journal.state(opts) do
       marker = pr_caused_marker(runs, state)
-      alerts = get_in(state, ["#{observation.number}:#{observation.head}", "alerts"]) || %{}
+      entry = Map.get(state, "#{observation.number}:#{observation.head}", %{})
 
-      if Map.has_key?(alerts, marker),
-        do: LandingWatch.rework(observation, result.failures, opts),
-        else: classify_and_route(observation, result, runs, marker, opts)
+      cond do
+        Map.has_key?(Map.get(entry, "alerts", %{}), marker) -> LandingWatch.rework(observation, result.failures, opts)
+        is_binary(get_in(entry, ["rerun_pending", "reason"])) -> request_reruns(observation, runs, entry["rerun_pending"]["reason"], opts)
+        true -> classify_and_route(observation, result, runs, marker, opts)
+      end
     end
   end
 
-  # A PR-caused verdict is cached per head, run set and latest CI merge, so later polls skip the log reads.
+  # A PR-caused verdict is cached per head, run set and latest CI merge, and a deferred head keeps its
+  # reason, so later polls skip the log reads.
   defp pr_caused_marker(runs, state) do
     run_ids = runs |> Enum.map(&to_string(&1["run_id"])) |> Enum.sort() |> Enum.join("-")
     latest_ci_merge = state |> Map.get("ci_merges", []) |> List.first() |> then(&(&1 && &1["pr"]))
@@ -117,6 +120,7 @@ defmodule Aiur.LandingWatch.PrRerun do
   @spec record_merge(map(), keyword()) :: :ok | {:error, term()}
   def record_merge(event, opts) do
     with number when is_integer(number) <- merged_number(event),
+         true <- merged_into_base?(event, opts),
          {:ok, paths} when is_list(paths) <- Keyword.get(opts, :changed_paths_fun, &Client.fetch_pull_request_changed_paths/2).(number, opts) do
       case Enum.filter(paths, &(String.starts_with?(&1, ".github/") or String.starts_with?(&1, "scripts/"))) do
         [] -> :ok
@@ -127,6 +131,10 @@ defmodule Aiur.LandingWatch.PrRerun do
       _ -> :ok
     end
   end
+
+  # Firehose events carry the PR's base; a merge into a stacked branch changes no base CI.
+  defp merged_into_base?(%{pr: %{"base" => %{"ref" => ref}}}, opts) when is_binary(ref), do: MergeGroupRunFetcher.base_branch(opts) == {:ok, ref}
+  defp merged_into_base?(_event, _opts), do: true
 
   defp merged_number(%{pr: %{"number" => number}}), do: number
   defp merged_number(%{pr: number}) when is_integer(number), do: number

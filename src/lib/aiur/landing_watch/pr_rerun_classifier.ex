@@ -9,7 +9,7 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
   the PR's own failure and routes to rework.
   """
 
-  alias Aiur.GitHub.CIRecovery
+  alias Aiur.GitHub.{CIRecovery, Client}
   alias Aiur.LandingWatch.{Classifier, Journal, MergeFailureClassifier, MergeFailureOptions, MergeGroupFailureEvidence, MergeGroupRunFetcher, WorkflowTimeouts}
 
   @failed ["failure", "timed_out", "startup_failure"]
@@ -58,12 +58,25 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
     with {:ok, base} <- MergeGroupRunFetcher.base_branch(opts),
          {:ok, path} <- workflow_path(run, opts),
          {:ok, definitions} <- Keyword.get(opts, :workflow_definitions_fun, &WorkflowTimeouts.definitions/3).(path, base, opts),
-         {:ok, merges} <- Keyword.get(opts, :ci_merges_fun, &Journal.ci_merges/1).(opts) do
+         {:ok, merges} <- Keyword.get(opts, :ci_merges_fun, &Journal.ci_merges/1).(opts),
+         {:ok, changed} <- changed_paths(observation, opts) do
+      # A PR that edits its own workflow owns job additions and renames there.
+      own_workflow? = path in changed
+      opts = Keyword.put(opts, :changed_paths_fun, fn _numbers, _opts -> {:ok, changed} end)
+
       cond do
-        merge = ci_change(merges, started, path, jobs, definitions) -> {:ok, "CI change merged in ##{merge["pr"]}"}
-        definitions != %{} and Enum.all?(jobs, &(not WorkflowTimeouts.defines_job?(definitions, &1["name"]))) -> {:ok, "superseded job name"}
+        merge = not own_workflow? and ci_change(merges, started, path, jobs, definitions) -> {:ok, "CI change merged in ##{merge["pr"]}"}
+        not own_workflow? and definitions != %{} and Enum.all?(jobs, &(not WorkflowTimeouts.defines_job?(definitions, &1["name"]))) -> {:ok, "superseded job name"}
         true -> known_flake(run, jobs, base, observation, opts)
       end
+    end
+  end
+
+  defp changed_paths(observation, opts) do
+    case Keyword.get(opts, :changed_paths_fun, &Client.fetch_pull_request_changed_paths/2).(observation.number, opts) do
+      {:ok, paths} when is_list(paths) -> {:ok, paths}
+      {:error, _} = error -> error
+      _ -> {:error, :pull_request_changed_paths_unavailable}
     end
   end
 
