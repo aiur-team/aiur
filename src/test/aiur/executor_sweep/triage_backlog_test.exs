@@ -79,28 +79,39 @@ defmodule Aiur.ExecutorSweep.TriageBacklogTest do
     end
   end
 
-  defp start_sweep(state, publish_fun) do
+  # Mirrors the daemon: until the projection is available `tickets` is nil, so ticket hygiene reports its source unavailable.
+  defp start_sweep(state, publish_fun, seen_path) do
     sweep = fn ->
       {status, tickets} = Agent.get(state, & &1)
-      findings = Checks.all(%{open_tickets: %Snapshot{status: status, tickets: tickets}}, @now) |> Enum.filter(&(&1.kind == "stale_needs_triage"))
-      {findings, status == :available}
+      snapshot = %{open_tickets: %Snapshot{status: status, tickets: tickets}, tickets: if(status == :available, do: [], else: nil)}
+      snapshot |> Checks.all(@now) |> Enum.filter(&(&1.kind in ["stale_needs_triage", "sweep_source_unavailable"]))
     end
 
-    ExecutorSweep.start_link(name: nil, interval_ms: 60_000, sweep_fun: sweep, publish_fun: publish_fun)
+    {:ok, pid} = ExecutorSweep.start_link(name: nil, seen_path: seen_path, interval_ms: 60_000, sweep_fun: sweep, publish_fun: publish_fun)
+    :sys.get_state(pid)
+    {:ok, pid}
   end
 
   defp sweep_once(pid), do: send(pid, :sweep) && :sys.get_state(pid)
 
-  test "the backlog seen at boot is seeded silently; growth wakes the Executor per new ticket" do
+  defp seen_path do
+    root = Aiur.TestSupport.tmp_root!("aiur-triage-seen")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    File.mkdir_p!(root)
+    Path.join(root, "seen.json")
+  end
+
+  test "after a restart with a seen file, only a newly stale ticket wakes the Executor" do
     parent = self()
+    path = seen_path()
     {:ok, state} = Agent.start_link(fn -> {:available, [ticket("1", ["needs-triage"], ~U[2026-10-16 09:00:00Z])]} end)
 
-    assert {:ok, pid} = start_sweep(state, &send(parent, {:finding, &1}))
-    :sys.get_state(pid)
-    refute_receive {:finding, _}, 50
+    assert {:ok, pid} = start_sweep(state, &send(parent, {:finding, &1}), path)
+    GenServer.stop(pid)
+    assert File.exists?(path)
 
     Agent.update(state, fn {status, tickets} -> {status, [ticket("2", ["needs-triage"], ~U[2026-10-16 10:00:00Z]) | tickets]} end)
-    sweep_once(pid)
+    assert {:ok, pid} = start_sweep(state, &send(parent, {:finding, &1}), path)
     assert_receive {:finding, %{kind: "stale_needs_triage", ticket: 2}}, 1_000
     refute_receive {:finding, %{ticket: 1}}, 50
 
@@ -108,19 +119,19 @@ defmodule Aiur.ExecutorSweep.TriageBacklogTest do
     Agent.stop(state)
   end
 
-  test "a stale-then-available projection cycle with an unchanged backlog wakes nothing" do
+  test "an unavailable-then-available projection cycle with an unchanged backlog wakes nothing" do
     parent = self()
     open = [ticket("1", ["needs-triage"], ~U[2026-10-16 09:00:00Z])]
     {:ok, state} = Agent.start_link(fn -> {:unavailable, []} end)
 
-    assert {:ok, pid} = start_sweep(state, &send(parent, {:finding, &1}))
+    assert {:ok, pid} = start_sweep(state, &send(parent, {:finding, &1}), seen_path())
 
     for status <- [:available, :stale, :unavailable, :available] do
       Agent.update(state, fn _ -> {status, open} end)
       sweep_once(pid)
     end
 
-    refute_receive {:finding, _}, 50
+    refute_receive {:finding, %{kind: "stale_needs_triage"}}, 50
 
     GenServer.stop(pid)
     Agent.stop(state)
@@ -133,7 +144,7 @@ defmodule Aiur.ExecutorSweep.TriageBacklogTest do
     inbox_opts = [name: nil, debounce_ms: 0, path: Path.join(root, "wakes.ndjson"), cursor_path: Path.join(root, "cursor.json"), pending_path: Path.join(root, "pending.json")]
     assert {:ok, inbox} = Aiur.ExecutorWakeInbox.start_link(inbox_opts)
     {:ok, state} = Agent.start_link(fn -> {:available, []} end)
-    assert {:ok, pid} = start_sweep(state, &ExecutorSweep.Wake.publish(&1, inbox))
+    assert {:ok, pid} = start_sweep(state, &ExecutorSweep.Wake.publish(&1, inbox), seen_path())
 
     Agent.update(state, fn _ -> {:available, [ticket("4466", ["needs-triage"], ~U[2026-10-16 09:00:00Z])]} end)
     sweep_once(pid)
