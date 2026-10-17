@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.ReportSubmissionTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
   alias Aiur.{Experiments, ExperimentsCLI}
-  alias Aiur.Experiments.{Evidence, Paths, ReportRecords, ReportSubmission, Snapshot, StatsRunner, Store}
+  alias Aiur.Experiments.{Evidence, Paths, ReportInput, ReportRecords, ReportSubmission, Snapshot, StatsRunner, Store}
   alias Aiur.TestSupport.RuntimeChildren
   @fixtures Path.expand("../../fixtures/experiments", __DIR__)
 
@@ -74,6 +74,8 @@ defmodule Aiur.Experiments.ReportSubmissionTest do
   test "CLI submits against recomputed engine output, assigns versions and persists rendered report", ctx do
     output = capture_io(fn -> assert ExperimentsCLI.run(verb: :stats, argv: [ctx.id, "--json"]) == 0 end)
     stats = Jason.decode!(output)
+    assert {:ok, prepared} = ReportInput.prepare(ctx.id)
+    assert prepared.input["taken_at"] == "2026-10-10T00:00:00Z"
     assert stats["body"]["metrics"]["delivery-speed/start_to_merge"]["groups"]["before"]["n"] == 1
     submitted = report(stats, ctx.registration, ctx.events) |> put_in(["header", "report_version"], 999)
     parent = self()

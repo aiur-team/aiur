@@ -111,7 +111,7 @@ defmodule Aiur.Experiments.Auto.WindowManagerTest do
     refute_received :sampled
   end
 
-  test "missing X4 extends the persisted window and still ends at the maximum" do
+  test "unavailable sample evidence extends the persisted window and still ends at the maximum" do
     spec = create()
     pid = manager(clock: fn -> ~U[2026-01-15 00:00:00Z] end)
     evaluate(pid)
@@ -124,6 +124,29 @@ defmodule Aiur.Experiments.Auto.WindowManagerTest do
     assert due["status"] == "report_due"
     assert due["report_reason"] == "insufficient_data"
     assert due["windows"]["after"]["end"] == "2026-02-12T00:00:00Z"
+  end
+
+  test "default X4 provider closes a window with completed primary evidence" do
+    spec = create()
+
+    context = %{
+      clock: ~U[2026-02-01 00:00:00Z],
+      catalog: %{packs: %{}},
+      evaluate: fn refs, window, _ctx ->
+        row = %{"unit_id" => window["start"], "value" => 10, "at" => window["start"], "censored" => false}
+        Map.new(refs, &{&1, %{"coverage" => %{"state" => "captured"}, "observations" => [row, Map.merge(row, %{"unit_id" => window["start"] <> "-open", "censored" => true})]}})
+      end
+    }
+
+    for window <- ~w(before after), do: assert({:ok, _snapshot} = Experiments.freeze(spec.id, window, context: context))
+    assert {:ok, [sample]} = Experiments.sample_status(Experiments.Spec.to_map(spec))
+    assert sample == %{metric: "delivery-speed/start_to_merge", guard_met?: true, counts: %{"before" => 1, "after" => 1}, needed_n: 1}
+    strict = put_in(Experiments.Spec.to_map(spec), ["metrics", Access.at(0), "min_samples"], 2)
+    assert {:ok, [%{guard_met?: false, needed_n: 2}]} = Experiments.sample_status(strict)
+    evaluate(manager(clock: fn -> ~U[2026-01-15 00:00:00Z] end))
+    assert {:ok, %{spec: due}} = Experiments.fetch(spec.id)
+    assert due["status"] == "report_due"
+    assert due["report_reason"] == "guard_met"
   end
 
   test "facade truncation persists the reason and preserves terminal state" do
