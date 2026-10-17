@@ -24,7 +24,7 @@ defmodule Aiur.Claude.Repl.Reaper do
 
   # Teardown steps that touch the host process table, and so are injectable
   # from `stop_session/2` opts. Tests pass stubs; production passes none.
-  @host_seam_opts [:group_alive_fun, :group_cleanup_fun, :tree_kill_fun, :pid_alive_fun]
+  @host_seam_opts [:group_alive_fun, :group_cleanup_fun, :tree_kill_fun, :pid_alive_fun, :unregister_fun]
 
   @doc false
   @spec host_seam_opts() :: [atom()]
@@ -53,6 +53,7 @@ defmodule Aiur.Claude.Repl.Reaper do
     group_cleanup_fun = Keyword.get(opts, :group_cleanup_fun, &cleanup_process_group/3)
     tree_kill_fun = Keyword.get(opts, :tree_kill_fun, &ProcessTree.graceful_kill_tree/1)
     pid_alive_fun = Keyword.get(opts, :pid_alive_fun, &os_pid_alive?/1)
+    unregister_fun = Keyword.get(opts, :unregister_fun, &Aiur.ProcessReaper.unregister/1)
 
     group_result =
       cleanup_process_group(
@@ -73,8 +74,8 @@ defmodule Aiur.Claude.Repl.Reaper do
     result = cleanup_result(group_result, kill_result, pane_gone?, pid_gone?, group_gone?)
 
     if result == {:ok, :cleanup_proven} do
-      Aiur.ProcessReaper.unregister(Socket.pane_ref(tmux, pane_id))
-      Aiur.ProcessReaper.unregister({:os_pid, os_pid})
+      unregister_fun.(Socket.pane_ref(tmux, pane_id))
+      unregister_fun.({:os_pid, os_pid})
       clear_spool(session[:identifier])
     end
 

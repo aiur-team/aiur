@@ -94,7 +94,17 @@ defmodule Aiur.Claude.Repl.ReaperTest do
         workspace: "/ws"
       }
 
-      task = Task.async(fn -> Reaper.stop_session(session) end)
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          Reaper.stop_session(session,
+            unregister_fun: fn ref ->
+              send(parent, {:unregistered, ref})
+              :ok
+            end
+          )
+        end)
 
       assert_receive {:tmux_mock_out, "display-message -p -t %9 \#{pane_pid}"}, 1_000
       respond_error(tmux, "no pane\n")
@@ -106,6 +116,8 @@ defmodule Aiur.Claude.Repl.ReaperTest do
       respond_error(tmux, "no pane\n")
 
       assert Task.await(task, 2_000) == {:ok, :cleanup_proven}
+      assert_receive {:unregistered, {:pane, "%9"}}
+      assert_receive {:unregistered, {:os_pid, 2_147_480_000}}
     end
 
     test "trusts observed absence when the group signal races with process exit", %{tmux: tmux} do
