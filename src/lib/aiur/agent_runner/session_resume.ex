@@ -54,12 +54,14 @@ defmodule Aiur.AgentRunner.SessionResume do
 
   # A very large resumed thread can lose its transport at every turn start
   # (#4561), and each retry resumes the same thread again. After this many
-  # consecutive `port_closed` turn starts on one resumed thread, forget the
-  # thread so the next dispatch cold-starts from the workpad and branch.
+  # consecutive dispatches whose resumed first turn failed to start with
+  # `port_closed`, forget the thread so the next dispatch starts fresh from the
+  # workpad and branch.
   @resume_port_closed_limit 2
 
-  # Returns `result` unchanged. Best-effort: a handle write failure must never
-  # change the run's outcome.
+  # Called with the result of a dispatch's FIRST turn only: a later turn's
+  # port loss is not a resume failure. Returns `result` unchanged. Best-effort:
+  # a handle write failure must never change the run's outcome.
   @doc false
   @spec track_resume_turn_start(map(), String.t(), term(), keyword()) :: term()
   def track_resume_turn_start(session, identifier, result, opts \\ []) do
