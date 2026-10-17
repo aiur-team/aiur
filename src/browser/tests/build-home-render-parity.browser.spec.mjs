@@ -59,15 +59,11 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) for (con
       expect(product[i].contentWidth).toBe(design[i].contentWidth); expect(product[i].dot).toBe(design[i].dot)
       const h = parseFloat(design[i].h)
       for (const offset of [Math.max(0, h - 46), Math.max(0, h - 2046), 0]) {
-        // Apply the design's end-of-scroll clamp too: the product's phone inset under the bottom nav (#4827) scrolls further.
-        const clamp = await pair.design.evaluate(({ sec, offset }) => {
-          window.__E8Render.scroll(sec, offset); const vp = document.querySelector('#bd-vp')
-          return document.querySelector('#bd-sec-' + sec).offsetTop + offset - vp.scrollTop
-        }, { sec: design[i].sec, offset })
-        await pair.product.evaluate(async ({ sec, offset, clamp }) => {
+        await pair.design.evaluate(({ sec, offset }) => window.__E8Render.scroll(sec, offset), { sec: design[i].sec, offset })
+        await pair.product.evaluate(async ({ sec, offset }) => {
           const { ctx, fx } = await import('/build-home/state.js')
-          ctx.vp.scrollTop = ctx.secs[sec].el.offsetTop + offset - clamp; fx.update()
-        }, { sec: design[i].sec, offset, clamp })
+          ctx.vp.scrollTop = ctx.secs[sec].el.offsetTop + offset; fx.update()
+        }, { sec: design[i].sec, offset })
         const dc = (await read(pair.design))[i], pc = (await read(pair.product))[i]
         expect(pc.cards.map(card => card.id)).toEqual(dc.cards.map(card => card.id))
         for (let j = 0; j < dc.cards.length; j++) for (const key of ['top', 'height']) expect(Math.abs(pc.cards[j][key] - dc.cards[j][key])).toBeLessThanOrEqual(1)

@@ -22,7 +22,3 @@
 .bd-card.np .bd-in { border-color: color-mix(in srgb, var(--block-line) 45%, var(--line)); }
 .bd-card.np .bd-status { color: var(--muted); }
 .bd-card.bar.np .bd-in { background: color-mix(in srgb, var(--block) 35%, var(--faint)); }
-/* #4827: on phones the board runs under the fixed bottom nav; inset its scroll end so the last card clears it.
-   Padding (not height) keeps clientHeight, so layout tiers stay on design parity.
-   ponytail: 18.5rem approximates the shell header + toolbars above the board plus the nav; measure it in JS if the toolbar stack changes. */
-@media (max-width: 960px) { .bd-vp { padding-bottom: max(0px, calc(18.5rem + env(safe-area-inset-bottom, 0px) - 24vh)); } }
