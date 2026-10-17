@@ -18,6 +18,33 @@ defmodule Aiur.TestSupport.RuntimeChildren do
     end
   end
 
+  @doc """
+  Restarts the shared `Aiur.Orchestrator` when a prior test terminated it and
+  its own restart never ran or failed. One such leak otherwise fails every
+  later case in the partition that reads the live orchestrator (#4888).
+  """
+  @spec ensure_orchestrator_running() :: :ok | :error
+  def ensure_orchestrator_running do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(Aiur.Orchestrator) do
+      pid when is_pid(pid) -> :ok
+      nil -> restart_orchestrator()
+    end
+  end
+
+  # Any restart outcome (started, raced, failed init) is judged by the name.
+  defp restart_orchestrator do
+    _ = restart_orchestrator_child()
+    if Process.whereis(Aiur.Orchestrator), do: :ok, else: :error
+  end
+
+  defp restart_orchestrator_child do
+    Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
   @doc "Ensures the shared durable event ID generator is running after an application restart."
   @spec ensure_id_generator_running() :: :ok | :error
   def ensure_id_generator_running do
