@@ -83,8 +83,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   defdelegate issue_dispatch_authorized?(issue), to: Eligibility
   @spec issue_dispatch_authorization_deferred?(term()) :: boolean()
   defdelegate issue_dispatch_authorization_deferred?(issue), to: Eligibility
-  @spec todo_issue_held_by_dependency?(term(), MapSet.t()) :: boolean()
-  defdelegate todo_issue_held_by_dependency?(issue, terminal_states), to: Eligibility
+  @spec issue_held_by_dependency?(term(), MapSet.t()) :: boolean()
+  defdelegate issue_held_by_dependency?(issue, terminal_states), to: Eligibility
   @spec holding_blockers(term(), MapSet.t()) :: [term()]
   defdelegate holding_blockers(issue, terminal_states), to: Eligibility
   @spec optimistic_blockers(Issue.t()) :: [String.t()]
@@ -397,7 +397,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
        ) do
     cond do
       blocked_on_decision?(issue, blocked_ticket_ids) -> {:skip, :blocked_on_decision}
-      todo_issue_held_by_dependency?(issue, terminal_states) -> {:skip, :dependency}
+      issue_held_by_dependency?(issue, terminal_states) -> {:skip, :dependency}
       Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
       Map.has_key?(state.auto_resume, issue.id) -> {:skip, :auto_resume_pending}
       MapSet.member?(state.claimed, issue.id) -> {:skip, claimed_decline_reason(state, issue.id)}
@@ -464,6 +464,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
   def retry_candidate_issue?(%Issue{} = issue, terminal_states) do
     candidate_issue?(issue, active_state_set(), terminal_states) and
-      not todo_issue_held_by_dependency?(issue, terminal_states)
+      not issue_held_by_dependency?(issue, terminal_states)
   end
 end

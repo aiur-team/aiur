@@ -38,3 +38,24 @@ test('the timeline scrolled to its end shows its last card above the bottom nav'
   await expect.poll(lastBottom).toBeGreaterThan(0)
   await expect.poll(lastBottom).toBeLessThanOrEqual(navTop)
 })
+
+// #4885: a 390px desktop window has classic scrollbars, which the isMobile overlay scrollbars above hide.
+test.describe('with desktop-style scrollbars', () => {
+  test.use({ isMobile: false, hasTouch: false })
+
+  test('the page body fills the full window width', async ({ page }) => {
+    await open(page)
+    const width = await page.evaluate(() => ({ innerWidth, body: document.body.getBoundingClientRect().width }))
+    expect(width.body).toBe(width.innerWidth)
+  })
+
+  test('the board clips sideways overflow instead of scrolling', async ({ page }) => {
+    await open(page)
+    const vp = page.locator('#bd-vp')
+    await expect(vp).toHaveCSS('overflow-x', 'hidden')
+    const box = await vp.boundingBox()
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.wheel(300, 0)
+    await expect.poll(() => vp.evaluate(el => el.scrollLeft)).toBe(0)
+  })
+})
