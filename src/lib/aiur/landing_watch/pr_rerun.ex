@@ -82,9 +82,6 @@ defmodule Aiur.LandingWatch.PrRerun do
       :ok ->
         :ok
 
-      :deferred ->
-        :ok
-
       {:ok, []} ->
         request_remedy(observation, runs, :refresh, reason, opts)
 
@@ -115,6 +112,9 @@ defmodule Aiur.LandingWatch.PrRerun do
 
       :merge_group_requeue_limit_reached ->
         mark_refresh_pending(observation, runs, reason, opts)
+
+      refusal when is_atom(refusal) ->
+        {:error, refusal}
 
       {:error, _} = error ->
         error

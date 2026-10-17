@@ -283,6 +283,16 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     refute_received {:update_branch, _, _}
   end
 
+  test "a corrupt per-head journal entry returns an error instead of crashing the poll" do
+    path = journal_path()
+    File.write!(path, ~s({"17:head-sha":{"rerun_count":"x"}}))
+    armed = %{observation() | auto_merge_request: %{"enabledAt" => "2026-10-17T00:29:00Z"}}
+
+    refresh = [rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:refresh, "stale merge ref"}} end]
+
+    assert {:error, :invalid_landing_watch_journal_entry} = LandingWatch.process(armed, opts(path, refresh))
+  end
+
   defp assert_refresh(path, reason) do
     refute_received {:rerun, _}
     assert_received {:update_branch, 17, "head-sha"}

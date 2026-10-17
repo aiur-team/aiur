@@ -49,5 +49,6 @@ defmodule Aiur.Events.GithubCIPollerRequiredVerdictTest do
 
     assert %{decision: :failed, failures: failures} = poll(checks, request_fun: no_requests())
     assert Enum.map(failures, & &1.name) == ["ci / required"]
+    refute Map.has_key?(poll(checks, request_fun: no_requests()), :pending_reason)
   end
 end
