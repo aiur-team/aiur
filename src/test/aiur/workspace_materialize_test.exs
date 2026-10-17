@@ -199,9 +199,10 @@ defmodule Aiur.WorkspaceMaterializeTest do
   end
 
   defp branch(workspace) do
-    {out, 0} =
-      System.cmd("git", ["-C", workspace, "rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true)
-
-    String.trim(out)
+    workspace
+    |> Path.join(".git/HEAD")
+    |> File.read!()
+    |> String.trim()
+    |> String.replace_prefix("ref: refs/heads/", "")
   end
 end
