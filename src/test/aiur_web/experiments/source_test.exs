@@ -7,7 +7,9 @@ defmodule AiurWeb.Experiments.SourceTest do
     def metric_catalog, do: Process.get(:experiments_catalog, %{metrics: %{}})
     def list, do: Process.get(:experiments_list, {:ok, []})
     def fetch(id), do: Process.get({:experiments_detail, id}, {:error, :not_found})
-    def status, do: Process.get(:experiments_status, %{available?: true, store: :ok, capture: :off})
+    def status, do: Process.get(:experiments_status, %{available?: true, store: :ok, capture: :off}) |> run()
+    defp run(read) when is_function(read, 0), do: read.()
+    defp run(value), do: value
 
     def subscribe do
       send(self(), :subscribed_to_experiments)
@@ -69,6 +71,15 @@ defmodule AiurWeb.Experiments.SourceTest do
     assert Source.status() == %{available?: false, store: {:error, :disabled}, capture: :off}
     Process.put(:experiments_status, %{available?: false, store: {:error, {:unreadable, "/private/store"}}, capture: :on})
     assert Source.status() == %{available?: false, store: {:error, :store_unreadable}, capture: :on}
+  end
+
+  test "a raising or exiting read maps to the cause-neutral read_failed, not a store fault" do
+    Process.put(:experiments_catalog, :not_a_catalog)
+    assert ExUnit.CaptureLog.capture_log(fn -> assert Source.index() == {:error, :read_failed} end) =~ "experiments page index read failed"
+    Process.put({:experiments_detail, "boom"}, :not_a_result)
+    assert ExUnit.CaptureLog.capture_log(fn -> assert Source.detail("boom") == {:error, :read_failed} end) =~ "CaseClauseError"
+    Process.put(:experiments_status, fn -> exit(:noproc) end)
+    assert ExUnit.CaptureLog.capture_log(fn -> assert Source.status().store == {:error, :read_failed} end) =~ "experiments page status read failed"
   end
 
   test "subscription uses the facade" do

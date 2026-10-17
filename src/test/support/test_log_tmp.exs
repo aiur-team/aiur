@@ -12,7 +12,8 @@ defmodule Aiur.TestLogTmp do
   defp remove_dead_run!(path, owner, pid, alive?) do
     case File.lstat(path) do
       {:ok, %File.Stat{type: :directory, uid: ^owner}} ->
-        unless alive?.(pid), do: File.rm_rf!(path)
+        # Build-gate hook snapshots under a run's tmp dir are read-only.
+        unless alive?.(pid), do: System.cmd("chmod", ["-R", "u+w", path], stderr_to_stdout: true) && File.rm_rf!(path)
 
       {:ok, _} ->
         :ok
