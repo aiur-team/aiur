@@ -19,13 +19,14 @@ defmodule Aiur.BuildQueue.Observer do
   @doc "Adds closure evidence for queue members and prerequisites missing from an open listing taken at `observed_at_ms`."
   @spec enrich(map(), map(), integer()) :: {map(), map()}
   def enrich(state, open, observed_at_ms) do
-    ids = (Enum.map(state.document.edges, & &1.prerequisite) ++ Enum.map(state.document.items, & &1.issue_id)) |> Enum.uniq()
+    members = MapSet.new(state.document.items, & &1.issue_id)
+    ids = (Enum.map(state.document.edges, & &1.prerequisite) ++ MapSet.to_list(members)) |> Enum.uniq()
     cache = state |> Map.get(:closure_cache, %{}) |> Map.take(ids) |> Map.drop(Map.keys(open))
     age = Settings.observation_max_age_ms(state.settings)
-    Enum.reduce(ids, {open, cache}, &observe_missing(&1, &2, state.tracker, observed_at_ms, age))
+    Enum.reduce(ids, {open, cache}, &observe_missing(&1, &2, state.tracker, observed_at_ms, age, MapSet.member?(members, &1)))
   end
 
-  defp observe_missing(id, {observations, cache}, tracker, observed_at_ms, age) do
+  defp observe_missing(id, {observations, cache}, tracker, observed_at_ms, age, member?) do
     if Map.has_key?(observations, id) do
       {observations, cache}
     else
@@ -34,6 +35,8 @@ defmodule Aiur.BuildQueue.Observer do
 
       evidence =
         case closure do
+          # The open listing is complete, so a member it omits that a cached read calls open is stale evidence, not an unlabelled issue.
+          {:ok, %{open?: true}} when member? -> %{observation(id, :unknown, nil, [], observed_at_ms) | unavailable_reason: :closed_reason}
           {:ok, %{open?: open?, state_reason: reason}} -> observation(id, open?, reason, [], observed_at_ms)
           {:error, _} -> %{observation(id, :unknown, nil, [], observed_at_ms) | unavailable_reason: :closed_reason}
         end

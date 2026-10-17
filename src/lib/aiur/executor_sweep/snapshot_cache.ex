@@ -64,6 +64,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
 
     %{
       decisions: decisions,
+      open_tickets: Aiur.OpenTicketSource.snapshot(),
       queue_sets: Enum.map(queues, &%{id: &1.queue_id, held: &1.held}),
       idle_slots: idle_slots(fleet),
       focus_set: focus,
