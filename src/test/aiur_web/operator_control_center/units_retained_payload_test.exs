@@ -8,6 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.TestSupport.EndpointStubs
   alias Aiur.TrackerIdentity
   alias AiurWeb.{ControlCenterCache, Endpoint}
   alias AiurWeb.OperatorControlCenter.{PayloadLoader, UnitsPresenter, UnitsTable}
@@ -33,7 +34,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
       )
       |> Keyword.merge(overrides)
 
-    Application.put_env(:aiur, Endpoint, config)
+    Application.put_env(:aiur, Endpoint, EndpointStubs.scope(config))
     on_exit(fn -> Aiur.TestSupport.restore_app_env([{Endpoint, previous}]) end)
     Aiur.TestSupport.start_owned_endpoint!()
     clock

@@ -1,6 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.PayloadLoaderTest do
   use Aiur.TestSupport
 
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.{ControlCenterCache, Endpoint}
   alias AiurWeb.OperatorControlCenter.PayloadLoader
 
@@ -12,7 +13,8 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoaderTest do
     Application.put_env(
       :aiur,
       Endpoint,
-      Keyword.merge(previous || [],
+      (previous || [])
+      |> Keyword.merge(
         server: false,
         secret_key_base: String.duplicate("s", 64),
         control_center_cache: if(context[:missing_cache], do: :missing_payload_cache, else: cache),
@@ -27,6 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoaderTest do
           %{}
         end
       )
+      |> EndpointStubs.scope()
     )
 
     on_exit(fn -> Application.put_env(:aiur, Endpoint, previous) end)

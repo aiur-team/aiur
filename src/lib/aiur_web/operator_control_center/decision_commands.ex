@@ -7,7 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   import Phoenix.Component, only: [assign: 3]
 
   alias Aiur.{Commands, ExecutorEvents, Issue}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias Phoenix.LiveView.Socket
 
   @type reload_fun :: (Socket.t() -> Socket.t())
@@ -202,7 +202,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   # orchestrator's operator-message path already no-ops on a missing running
   # agent, so a single attempt covers both cases.
   defp notify_dismissed_agent(%{ticket: %{identifier: identifier}}) when is_binary(identifier) do
-    _ = Aiur.Orchestrator.send_operator_message(Endpoint.config(:orchestrator) || Aiur.Orchestrator, identifier, %{kind: :text, body: dismissal_text()})
+    _ = Aiur.Orchestrator.send_operator_message(EndpointConfig.get(:orchestrator) || Aiur.Orchestrator, identifier, %{kind: :text, body: dismissal_text()})
     :ok
   end
 
@@ -381,6 +381,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp command_error(:answer_missing), do: "No durable answer is available to retry."
   defp command_error(_reason), do: "The command was rejected. Canonical state was refreshed."
 
-  defp decision_store, do: Endpoint.config(:decision_store) || Commands.default_store()
-  defp decision_attention, do: Endpoint.config(:decision_attention) || Commands.default_attention()
+  defp decision_store, do: EndpointConfig.get(:decision_store) || Commands.default_store()
+  defp decision_attention, do: EndpointConfig.get(:decision_attention) || Commands.default_attention()
 end

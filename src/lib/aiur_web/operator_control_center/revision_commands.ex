@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   import Phoenix.Component, only: [assign: 3]
 
   alias Aiur.Commands
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.DecisionCommands
   alias Phoenix.LiveView.Socket
 
@@ -280,5 +280,5 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   defp follow_up_detail(form) when is_map(form), do: form |> Map.get("detail") |> trim_string()
   defp follow_up_detail(_form), do: ""
 
-  defp decision_store, do: Endpoint.config(:decision_store) || Commands.default_store()
+  defp decision_store, do: EndpointConfig.get(:decision_store) || Commands.default_store()
 end
