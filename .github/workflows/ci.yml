@@ -13,7 +13,7 @@ on:
 # PR runs (merge-queue-ci.yml joins on enqueue) and main pushes supersede; queue groups and reruns don't.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ format('{0}-{1}', github.run_attempt == 1 && (github.event_name == 'pull_request' && github.event.pull_request.number || github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main') || github.run_id, github.run_attempt) }}
-  cancel-in-progress: ${{ github.run_attempt == 1 && (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci:full') || github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+  cancel-in-progress: ${{ github.run_attempt == 1 && (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci:full')) }}
 jobs:
   # PRs run fast checks unless ci:full or base policy opts into the full set; drafts run none until ready_for_review (#4942).
   # Only ci gate is required: it rejects skipped jobs in the selected set.

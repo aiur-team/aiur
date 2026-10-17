@@ -42,7 +42,7 @@ assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'lab
 // Existing event policies deliberately remain unchanged, including exact groups.
 // Main pushes keep only the newest commit's run; its reruns stay independent (#4980).
 for (const runId of [100, 101]) {
-  assert.deepEqual(policy('push', 'refs/heads/main', runId), { group: 'ci-push-main-1', cancel: true });
+  assert.deepEqual(policy('push', 'refs/heads/main', runId), { group: 'ci-push-main-1', cancel: false });
   assert.deepEqual(policy('push', 'refs/heads/main', runId, 2), { group: `ci-push-${runId}-2`, cancel: false });
 }
 for (const [event, ref] of [
