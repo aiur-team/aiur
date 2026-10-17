@@ -113,10 +113,24 @@ defmodule Aiur.TestSupportTest do
 
     assert is_pid(Process.whereis(Aiur.Supervisor))
     assert is_pid(Process.whereis(Aiur.PubSub))
+    assert Aiur.Supervisor in process_ancestors(Process.whereis(Aiur.PubSub))
     assert is_pid(Process.whereis(ReadCache))
     assert :ok = CurrentRunMembership.subscribe()
     Phoenix.PubSub.unsubscribe(Aiur.PubSub, "current-run-membership:changed")
     assert ReadCache.snapshot().available?
+  end
+
+  # #4527: `terminate_child` on the live PubSub kills every linked subscriber
+  # sibling; their restarts into a missing registry exhaust the root restart
+  # budget, `Aiur.Supervisor` shuts down, and every later test in the shard
+  # fails. Crash an isolated tree instead (see SupervisionContractTest).
+  test "no test terminates the shared PubSub child under the live application" do
+    offenders =
+      for file <- Path.wildcard(Path.join(Path.expand("..", __DIR__), "**/*.{ex,exs}")),
+          File.read!(file) =~ ~r/terminate_child\([^,()]+,\s*Phoenix\.PubSub\.Supervisor\)/,
+          do: Path.relative_to_cwd(file)
+
+    assert offenders == []
   end
 
   test "ensure_runtime_children_running restores shared event and provider stores" do
@@ -134,6 +148,17 @@ defmodule Aiur.TestSupportTest do
     assert is_pid(Process.whereis(Aiur.ProviderMeters.Store))
     assert {:ok, id} = IdGenerator.reserve_durable_id()
     assert is_integer(id)
+  end
+
+  test "ensure_orchestrator_running restarts a terminated shared orchestrator" do
+    on_exit(fn -> Aiur.TestSupport.ensure_orchestrator_running() end)
+
+    assert is_pid(Process.whereis(Aiur.Orchestrator))
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
+    refute Process.whereis(Aiur.Orchestrator)
+
+    assert :ok = Aiur.TestSupport.ensure_orchestrator_running()
+    assert is_pid(Process.whereis(Aiur.Orchestrator))
   end
 
   test "ensure_read_cache_running recovers a stopped read cache (contained to one child)" do
@@ -172,5 +197,10 @@ defmodule Aiur.TestSupportTest do
 
     assert %{subscribed_to: [], last_seen_event_id: nil, open_attentions: []} =
              SubscriptionStore.snapshot(identifier)
+  end
+
+  defp process_ancestors(pid) do
+    {:dictionary, dictionary} = Process.info(pid, :dictionary)
+    Keyword.get(dictionary, :"$ancestors", [])
   end
 end

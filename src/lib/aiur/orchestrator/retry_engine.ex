@@ -12,6 +12,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.RetryEngine.AgentDown
   alias Aiur.Orchestrator.RetryEngine.Exhaustion
+  alias Aiur.Orchestrator.RetryEngine.HoldStreak
   alias Aiur.Orchestrator.RetryEngine.Lookup
   alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Orchestrator.RetryEngine.Scheduling
@@ -70,8 +71,11 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   @spec release_issue_claim(State.t(), String.t()) :: State.t()
   def release_issue_claim(%State{} = state, issue_id) do
-    %{state | claimed: MapSet.delete(state.claimed, issue_id)}
+    HoldStreak.clear(%{state | claimed: MapSet.delete(state.claimed, issue_id)}, issue_id)
   end
+
+  @spec clear_budget_hold_streak(State.t(), String.t()) :: State.t()
+  defdelegate clear_budget_hold_streak(state, issue_id), to: HoldStreak, as: :clear
 
   @spec handle_agent_down(State.t(), reference(), term()) :: {:noreply, State.t()}
   defdelegate handle_agent_down(state, ref, reason), to: AgentDown

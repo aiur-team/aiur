@@ -1,3 +1,4 @@
+# Cohesion: keep GitHub state-label swaps and their compensating writes together.
 defmodule Aiur.GitHub.IssueState do
   @moduledoc """
   Label-encoded issue state writes for GitHub issues.
@@ -9,7 +10,8 @@ defmodule Aiur.GitHub.IssueState do
   """
 
   alias Aiur.GitHub.Config
-  alias Aiur.GitHub.{Errors, HumanReviewGate, Issues, Labels, StatePolicy, Transport, WriteThrough}
+  alias Aiur.GitHub.{Errors, HumanReviewGate, Issues, Labels, LocalHold, StatePolicy, Transport, WriteThrough}
+  require Logger
 
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_number, state_name, opts \\ [])
@@ -18,6 +20,7 @@ defmodule Aiur.GitHub.IssueState do
          {:ok, token} <- Transport.require_token() do
       prefix = Config.label_prefix()
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      request_fun = retry_local_holds(request_fun, opts)
       issue_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
 
       update_context = %{
@@ -109,11 +112,6 @@ defmodule Aiur.GitHub.IssueState do
          :ok <- HumanReviewGate.verify_human_review_review_threads_clear(context, state_name),
          {:ok, current_issue_body} <- revalidate_expected_state(context, issue_body) do
       if closed_issue?(current_issue_body) and StatePolicy.active_target_state?(state_name) do
-        # The target is an active state but the issue reads as closed, so no
-        # active state label can be written. Removing the stale active labels
-        # and returning `:ok` reported a successful transition for a write that
-        # did not happen — a stale cached body would strand an open ticket
-        # while recording success (#2420). Report it honestly instead.
         handle_closed_active_target(context, current_issue_body)
       else
         swap_and_maybe_close_issue(context, current_issue_body, state_name, new_label)
@@ -121,9 +119,6 @@ defmodule Aiur.GitHub.IssueState do
     end
   end
 
-  # A closed issue cannot carry an active state label; the honest result of
-  # stripping the stale active labels is an error naming the unfulfilled write,
-  # not a false `:ok` (#2420).
   defp handle_closed_active_target(context, current_issue_body) do
     case remove_active_state_labels(
            context.request_fun,
@@ -207,24 +202,53 @@ defmodule Aiur.GitHub.IssueState do
   end
 
   @spec swap_labels(map(), map(), String.t(), String.t()) :: :ok | {:error, term()}
-  def swap_labels(context, issue_body, state_name, new_label) do
-    # Add the new state label BEFORE removing the old ones (#2420). Remove-then-
-    # add left the ticket carrying zero `agent:*` state labels between the two
-    # calls, and any POST failure stranded it there permanently — invisible to
-    # dispatch and unrepaired by any reconciler. Add-first means a failure
-    # between the calls leaves *two* state labels (recoverable and detectable)
-    # instead of zero, and the removal set excludes the just-added label.
-    with :ok <- add_state_label(context, state_name, new_label) do
+  def swap_labels(context, _issue_body, state_name, new_label) do
+    # Add-first prevents a zero-label window; failures after add are rolled back.
+    case add_state_label(context, state_name, new_label) do
+      :ok ->
+        case complete_label_swap(context, new_label) do
+          :ok -> :ok
+          {:error, _reason} = error -> compensate_added_state_label(context, new_label, error)
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp complete_label_swap(context, new_label) do
+    with {:ok, current_issue_body} <- fetch_current_issue_body(context) do
       remove_state_labels(
         context.request_fun,
         context.token,
         context.owner,
         context.repo,
         context.issue_number,
-        issue_body,
+        current_issue_body,
         context.prefix,
         exclude: [new_label]
       )
+    end
+  end
+
+  defp compensate_added_state_label(context, new_label, original_error) do
+    case remove_label(context.issue_number, new_label, request_fun: context.request_fun) do
+      :ok ->
+        original_error
+
+      {:error, rollback_error} ->
+        Logger.warning("Failed to compensate state label swap issue=#{context.issue_number} label=#{new_label}: #{inspect(rollback_error)}")
+        original_error
+    end
+  end
+
+  defp fetch_current_issue_body(context) do
+    case Issues.fetch_issue_raw_conditional(
+           context.issue_number,
+           issue_read_opts(context) |> Keyword.put(:revalidate, true)
+         ) do
+      {:ok, issue_body, _outcome} -> {:ok, issue_body}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -283,25 +307,40 @@ defmodule Aiur.GitHub.IssueState do
     end
   end
 
-  # Options for the shared issue conditional reader. The token is passed
-  # explicitly so `Transport.require_token/1` never falls through to its
-  # `:request_fun` test seam in production (the caller's real token wins either
-  # way), and `request_fun` is forwarded only when the caller supplied one —
-  # a caller with no override must not be handed the synthetic test token.
-  defp issue_read_opts(%{opts: opts, request_fun: request_fun, token: token}) do
-    if Keyword.has_key?(opts, :request_fun) do
-      [token: token, request_fun: request_fun]
-    else
-      [token: token]
+  defp issue_read_opts(%{request_fun: request_fun, token: token}),
+    do: [token: token, request_fun: request_fun]
+
+  defp retry_local_holds(request_fun, opts) do
+    fn request ->
+      request_fun
+      |> retry_request(request, opts)
+      |> restore_local_hold_error()
     end
   end
+
+  defp retry_request(request_fun, request, opts) do
+    LocalHold.run(fn -> classify_raw_local_hold(request_fun.(request)) end, LocalHold.caller_opts(opts))
+  end
+
+  defp classify_raw_local_hold({:error, {:aiur, :locally_held, _hold}} = error),
+    do: {:error, Errors.classify_error(error)}
+
+  defp classify_raw_local_hold({:error, :github_budget_broker_timeout}),
+    do: {:error, Errors.classify_error({:error, :github_budget_broker_timeout})}
+
+  defp classify_raw_local_hold(response), do: response
+
+  defp restore_local_hold_error({:error, {:github, :local_hold, %{reason: {:aiur, :locally_held, _hold} = reason}}}),
+    do: {:error, reason}
+
+  defp restore_local_hold_error({:error, {:github, :local_hold, %{reason: :github_budget_broker_timeout}}}),
+    do: {:error, :github_budget_broker_timeout}
+
+  defp restore_local_hold_error(response), do: response
 
   @spec remove_state_labels(function(), String.t(), String.t(), String.t(), String.t(), map(), String.t(), keyword()) ::
           :ok | {:error, term()}
   def remove_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix, opts \\ []) do
-    # Labels named in `exclude` are left on the issue. `swap_labels/4` adds the
-    # new state label before calling this and passes it through so the swap
-    # cannot delete the label it just added (#2420).
     excluded = Keyword.get(opts, :exclude, []) |> Enum.map(&normalize_label_name/1)
 
     issue_body

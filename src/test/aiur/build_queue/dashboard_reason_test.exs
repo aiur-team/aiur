@@ -22,6 +22,18 @@ defmodule Aiur.BuildQueue.DashboardReasonTest do
     end
   end
 
+  test "a lane without a percent names why: emptied list queue and unread adopted root" do
+    state = state()
+    empty = %Model.Queue{hd(state.document.queues) | id: "q-f2", name: "f2-keep-agents"}
+    root = %Model.Queue{empty | id: "q-root", name: "f4-home", kind: :build_order, root: 42}
+    state = put_in(state, [:document, :queues], state.document.queues ++ [empty, root])
+    queues = Map.new(ReadModel.build(state).queues, &{&1.queue_id, &1})
+
+    assert queues["q-f2"].items == []
+    assert queues["q-f2"].progress_reasons == [:no_members]
+    assert queues["q-root"].progress_reasons == [:projection_unavailable]
+  end
+
   defp state do
     now = ~U[2026-10-09 00:00:00Z]
     queue = %Model.Queue{id: "q-abcd", name: "Next", kind: :list, root: nil, held: false, generation: 0, created_at: now}

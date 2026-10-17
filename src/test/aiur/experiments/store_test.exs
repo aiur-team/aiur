@@ -42,7 +42,7 @@ defmodule Aiur.Experiments.StoreTest do
     failure_key = {Store, :startup_failure}
     previous_failure = :persistent_term.get(failure_key, :disabled)
     Application.put_env(:aiur, :experiments_dir, root)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
 
     on_exit(fn ->
       if previous_failure == :disabled, do: :persistent_term.erase(failure_key), else: :persistent_term.put(failure_key, previous_failure)

@@ -2,13 +2,14 @@ defmodule AiurWeb.BuildLiveUsageTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
   alias Aiur.ProviderMeterRefresh
   alias Aiur.TestSupport.BuildHome.FixtureSource
+  alias Aiur.TestSupport.EndpointStubs
   alias Aiur.TestSupport.LiveViewAsync
   alias AiurWeb.Build.{Read, Usage}
-  alias AiurWeb.{Endpoint, FinancialData, FinancialDataAccess}
+  alias AiurWeb.{Endpoint, EndpointConfig, FinancialData, FinancialDataAccess}
 
   defmodule UsageSpy do
     def read(_financial, opts) do
-      send(Endpoint.config(:build_usage_test_pid), {:usage_read, opts})
+      send(EndpointConfig.get(:build_usage_test_pid), {:usage_read, opts})
       if Endpoint.config(:build_usage_revoke_on_read), do: ProtocolCase.revoke_access()
       Endpoint.config(:build_usage_test_block)
     end
@@ -38,10 +39,10 @@ defmodule AiurWeb.BuildLiveUsageTest do
     Phoenix.Config.put(Endpoint, :build_usage_revoke_on_snapshot, false)
     Phoenix.Config.put(Endpoint, :build_usage_revoke_on_read, false)
     Phoenix.Config.put(Endpoint, :build_usage_source, UsageSpy)
-    Phoenix.Config.put(Endpoint, :build_usage_test_pid, self())
+    EndpointStubs.put(build_usage_test_pid: self())
     Phoenix.Config.put(Endpoint, :build_usage_test_block, data()["usage"])
     owner = self()
-    Phoenix.Config.put(Endpoint, :build_usage_flush_timer, fn pid, event, ms -> send(owner, {:flush_timer, pid, event, ms}) end)
+    EndpointStubs.put(build_usage_flush_timer: fn pid, event, ms -> send(owner, {:flush_timer, pid, event, ms}) end)
     :ok
   end
 

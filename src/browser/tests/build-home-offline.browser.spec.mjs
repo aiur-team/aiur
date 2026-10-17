@@ -85,15 +85,35 @@ test('missing and malformed heartbeat never render a plausible timestamp', async
   await page.clock.runFor(600)
   await expect(page.locator('.bd-offline')).toContainText('no heartbeat recorded')
 })
-test('unknown daemon never becomes live', async ({ page }) => {
+test('unread daemon on an open socket says up with the last good age and never becomes live', async ({ page }) => {
   for (const state of ['unknown', 'bogus', undefined]) {
     await daemon(page, state)
     expect(await page.evaluate(() => ({ view: m.daemonView(), live: m.ctx.offline.isLive() }))).toMatchObject({
-      view: { dotText: 'Daemon status unknown', dotOff: true, banner: null, stale: false }, live: false,
+      view: { dotText: 'Daemon up · unread, last good 6m', dotTitle: 'Daemon up · fleet snapshot unread, last good 6 min ago', dotOff: false, banner: null, stale: false }, live: false,
     })
     await expect(page.locator('.bd-offline')).toHaveCount(0)
     await expect(page.locator('#build-root')).not.toHaveClass(/stale/)
   }
+})
+test('a GitHub-held source with a live daemon is named with its age, never as an unknown daemon', async ({ page }) => {
+  // Shape from Aiur.BuildOrder.Index.Sources: a held catch-up marks history stale; index is always ok.
+  const held = { history: { state: 'stale', observed_at: NOW - 120000, reason: 'catch_up_held' }, index: { state: 'ok', observed_at: NOW, reason: null } }
+  const view = (state, heartbeat) => page.evaluate(({ state, heartbeat, held }) => {
+    m.ctx.snap = { daemon: { state, heartbeat_at: heartbeat }, sources: held }; return m.daemonView()
+  }, { state, heartbeat, held })
+  expect(await view('live', NOW)).toMatchObject({
+    dotText: 'Daemon live · history held 2m', dotTitle: 'Daemon live · history held by GitHub, read 2 min ago', dotOff: false,
+  })
+  expect(await view('unknown', null)).toMatchObject({
+    dotText: 'Daemon up · unread · history held 2m',
+    dotTitle: 'Daemon up · fleet snapshot unread, no good reading yet · history held by GitHub, read 2 min ago', dotOff: false, banner: null,
+  })
+  await down(page); await page.clock.runFor(600)
+  expect(await view('unknown', null)).toMatchObject({ dotText: 'Daemon unreachable', dotOff: true, stale: true })
+})
+test('no snapshot yet stays unknown', async ({ page }) => {
+  await page.evaluate(() => { m.ctx.snap = null })
+  expect(await page.evaluate(() => m.daemonView())).toMatchObject({ dotText: 'Daemon status unknown', dotOff: true })
 })
 test('reconnect tears down the dropped socket once and times out without hiding banner', async ({ page }) => {
   await down(page); await page.clock.runFor(600)

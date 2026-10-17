@@ -2,6 +2,8 @@ defmodule AiurWeb.BuildLiveReadTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
   import ExUnit.CaptureLog
 
+  alias Aiur.TestSupport.EndpointStubs
+
   for mode <- [:raise, :exit, :invalid, :error] do
     test "resync safely rejects #{mode} source and remains alive" do
       source(mode: unquote(mode))
@@ -29,8 +31,7 @@ defmodule AiurWeb.BuildLiveReadTest do
     render_async(view)
     flush_reads()
     {:ok, clock} = Agent.start_link(fn -> 10_000 end)
-    Phoenix.Config.put(AiurWeb.Endpoint, :build_resync_clock, fn _ -> Agent.get(clock, & &1) end)
-    on_exit(fn -> :ets.whereis(AiurWeb.Endpoint) != :undefined && Phoenix.Config.put(AiurWeb.Endpoint, :build_resync_clock, &System.monotonic_time/1) end)
+    EndpointStubs.put(build_resync_clock: fn _ -> Agent.get(clock, & &1) end)
     ref = make_ref()
     pid = self()
     :telemetry.attach(ref, [:aiur, :build, :resync_throttled], fn _, m, _, _ -> send(pid, {:throttled, m.count}) end, nil)

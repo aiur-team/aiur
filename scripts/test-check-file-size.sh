@@ -6,6 +6,7 @@ python3 - "$repo_root" <<'PY'
 from pathlib import Path
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,11 +18,12 @@ job = workflow.split('  workflow-security:', 1)[1].split('  build:', 1)[0]
 assert 'docs_only' not in job
 assert 'fetch-depth: 0' in job
 assert 'run: bash scripts/test-check-file-size.sh' in job
-for name, expression in [('EVENT_NAME', 'github.event_name'), ('PR_BASE', 'github.event.pull_request.base.sha'),
-                         ('MERGE_BASE', 'github.event.merge_group.base_sha'), ('PUSH_BEFORE', 'github.event.before')]:
-    assert f'{name}: ${{{{ {expression} }}}}' in job
-step = job.split('      - name: File size gate\n', 1)[1]
-script = '\n'.join(line[10:] for line in step.split('        run: |\n', 1)[1].splitlines() if line.startswith('          '))
+handoff = workflow.split('  pre-handoff:', 1)[1].split('  workflow-security:', 1)[0]
+action = (source / '.github/actions/pre-handoff/action.yml').read_text()
+assert 'fetch-depth: 0' in handoff and 'uses: ./.github/actions/pre-handoff' in handoff
+assert 'run: scripts/run-pre-handoff-guards.sh' in action and 'GH_TOKEN' not in action
+assert 'python3 scripts/check-file-size.py --base <BASE_SHA>' in (source / 'scripts/pre-handoff-guards.list').read_text()
+assert 'File size gate' not in workflow
 
 
 def git(repo, *args):
@@ -39,6 +41,9 @@ def write(repo, files):
         path = repo / name
         if data is None:
             path.unlink(missing_ok=True)
+        elif isinstance(data, tuple) and data[0] == 'symlink':
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.symlink_to(data[1])
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
@@ -84,10 +89,23 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
         ('empty count', {'file': b''}, {'file': lines(501)}, 1, 'base 0 -> head 501'),
         ('CRLF', {}, {'file': b'x\r\n' * 500}, 0, 'file: 500 lines'),
         ('unusual path', {}, {'tab\tline\nfile': lines(501)}, 1, 'tab\\tline\\nfile: base 0 -> head 501'),
+        ('new Claude skill source', {}, {'.claude/skills/aiur-agent/references/new.md': lines(1)}, 0, ''),
+        ('Claude skill source edit', {'.claude/skills/aiur-agent/SKILL.md': lines(1)}, {'.claude/skills/aiur-agent/SKILL.md': lines(2)}, 0, ''),
+        ('Claude skill symlink', {}, {'.claude/skills/aiur-agent': ('symlink', '../installed/aiur-agent')}, 1, 'tracked symlink under mounted skill path .claude/skills is rejected'),
+        ('Codex skill mount', {}, {'.codex/skills/new-skill': b'../.claude/skills/new-skill\n'}, 1, 'new tracked entry under mounted skill path .codex/skills is rejected'),
+        ('Muse skill mount', {}, {'.agents/skills/new-skill/SKILL.md': lines(1)}, 1, 'new tracked entry under mounted skill path .agents/skills is rejected'),
+        ('exact mount root', {}, {'.claude/skills': ('symlink', '../skills')}, 1, 'tracked symlink under mounted skill path .claude/skills is rejected'),
+        ('existing mounted skill edit', {'.codex/skills/aiur-agent': b'old target\n'}, {'.codex/skills/aiur-agent': b'new target\n'}, 0, ''),
+        ('existing mounted skill deletion', {'.agents/skills/old/SKILL.md': lines(1)}, {'.agents/skills/old/SKILL.md': None}, 0, ''),
+        ('rename out of Codex mount', {'.codex/skills/old.md': lines(1)}, {'.codex/skills/old.md': None, 'moved/old.md': lines(1)}, 0, ''),
     ]
     for title, before, after, expected, snippet in cases:
         for path in repo.iterdir():
-            if path.is_file() or path.is_symlink():
+            if path.name == '.git':
+                continue
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
                 path.unlink()
         write(repo, before)
         base = commit(repo)
@@ -115,24 +133,11 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     (repo / 'scripts').mkdir()
     (repo / 'scripts/check-file-size.py').write_bytes(checker.read_bytes())
     (repo / 'scripts/file_size_census.py').write_bytes((checker.parent / 'file_size_census.py').read_bytes())
-    env = dict(os.environ, PR_BASE=base, MERGE_BASE=base, PUSH_BEFORE=base)
-    for event, before in [('pull_request', base), ('merge_group', base), ('push', base), ('push', '0' * 40)]:
-        result = subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', script], cwd=repo,
-                                env=dict(env, EVENT_NAME=event, PUSH_BEFORE=before), capture_output=True, text=True)
-        assert result.returncode == 1 and 'base 480 -> head 520' in result.stdout, result
-        print(f'PASS: workflow {event} baseline {"zeros" if before.startswith("000") else "event"}')
     git(repo, 'config', 'remote.origin.url', str(repo))
     git(repo, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*')
     git(repo, 'update-ref', 'refs/remotes/origin/integration', base)
+    git(repo, 'update-ref', 'refs/remotes/origin/main', base)
     git(repo, 'branch', '--set-upstream-to=origin/integration', 'feature')
-    for detached in [False, True]:
-        if detached:
-            git(repo, 'update-ref', '--no-deref', 'HEAD', head)
-            git(repo, 'update-ref', 'refs/remotes/origin/main', base)
-        result = subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', script], cwd=repo,
-                                env=dict(env, EVENT_NAME='workflow_dispatch'), capture_output=True, text=True)
-        assert result.returncode == 1 and 'base 480 -> head 520' in result.stdout, result
-        print(f'PASS: workflow_dispatch {"detached fallback" if detached else "upstream"}')
     run(repo, 1, 'base 480 -> head 520')
     print('PASS: default merge base with origin/main')
     run(repo, 1, 'base not available; fetch origin/main', '--base', 'missing-base')
@@ -149,10 +154,6 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     write(repo, {'website/docs-app/oversized.md': lines(501)})
     head = commit(repo)
     assert git(repo, 'diff', '--name-only', base, head) == 'website/docs-app/oversized.md'
-    result = subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', script], cwd=repo,
-                            env=dict(env, EVENT_NAME='pull_request', PR_BASE=base), capture_output=True, text=True)
-    assert result.returncode == 1 and 'website/docs-app/oversized.md: base 0 -> head 501' in result.stdout, result
-    print('PASS: website-only PR fixture runs the workflow gate')
 
     # Lockfile class: a fake npm "regenerates" whatever FAKE_LOCK holds, so each case controls the tool's output.
     tools = root / 'tools'
@@ -266,3 +267,4 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     run(fixture, 2, '--json requires --census', '--json')
     print('PASS: census symlink exclusion, text transition and invalid arguments')
 PY
+python3 "$repo_root/scripts/test-prepare-skill-mount-merge.py"

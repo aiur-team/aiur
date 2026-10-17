@@ -1,6 +1,11 @@
 defmodule Aiur.Config.Schema.MuseBackend do
   @moduledoc "Validation for native Muse backend settings."
 
+  # @config-reference config-configuration-agent-03 agent.backend_configs.muse.command | non-empty string | `muse serve` | Command launching the native Muse MSP server. |
+  # @config-reference config-configuration-agent-03 agent.backend_configs.muse.trust_workspace | boolean | `false` | Allows Muse to load workspace-local skills and rules. `aiur init` asks explicitly before writing `true`. |
+  # @config-reference config-configuration-agent-03 agent.backend_configs.muse.approval_mode | string | `onRequest` | Muse approval mode: `allowAll`, `promptUnmatched`, `onRequest`, or `denyUnmatched`. |
+  # @config-reference config-configuration-agent-03 agent.backend_configs.muse.model | string or nil | nil | Optional Muse model override; omit to use the CLI default. |
+  # @config-reference config-configuration-agent-03 agent.backend_configs.muse.provider_id | string or nil | nil | Optional Muse provider identifier. |
   @allowed ~w(command trust_workspace approval_mode model provider_id enabled)
   @approval_modes ~w(allowAll promptUnmatched onRequest denyUnmatched)
 

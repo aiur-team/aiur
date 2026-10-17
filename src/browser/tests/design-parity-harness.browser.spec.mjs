@@ -163,26 +163,31 @@ test('loading phase holds the skeleton', async ({ browser }) => {
   await delay(1000)
   expect((await page.screenshot({ animations: 'disabled', scale: 'device' })).equals(a)).toBe(true)
 })
+// Synthetic captures: a real page.screenshot here can hit the same Chromium transient on the retry (#4054).
 test('settle guard survives a transient capture failure', async () => {
   let n = 0
+  let calls = 0
+  let failed = false
   const target = { screenshot: async () => {
-    if (++n === 4) {
+    calls++
+    if (n === 3 && !failed) {
+      failed = true
       throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
     }
-    return Buffer.from([n])
+    return Buffer.from([n++])
   } }
   await expect(captureStable(target, { scale: 'device' })).rejects.toThrow('design did not settle after 10 captures')
-  expect(n).toBe(11)
+  expect(n).toBe(10)
+  expect(calls).toBe(11)
 })
-test('stable capture recovers from a transient capture failure', async ({ page }) => {
-  await page.setContent('<div>stable</div>')
+test('stable capture recovers from a transient capture failure', async () => {
   const opts = { scale: 'device' }
-  const expected = await page.screenshot(opts)
+  const expected = Buffer.from('stable')
   let calls = 0
   const target = { screenshot: async options => {
     expect(options).toBe(opts)
     if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
-    return page.screenshot(options)
+    return Buffer.from('stable')
   } }
   expect((await captureStable(target, opts)).equals(expected)).toBe(true)
   expect(calls).toBe(3)

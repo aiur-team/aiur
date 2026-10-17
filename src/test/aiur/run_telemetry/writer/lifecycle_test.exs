@@ -237,6 +237,7 @@ defmodule Aiur.RunTelemetry.Writer.LifecycleTest do
 
     assert {:ok, %{count: 0}} =
              GithubFirehose.poll(
+               token: "test-gh-token",
                request_fun: fn _request ->
                  {:ok, %{status: 200, headers: [{"ETag", ~s("writer-merge")}], body: [firehose_event]}}
                end,
@@ -285,6 +286,7 @@ defmodule Aiur.RunTelemetry.Writer.LifecycleTest do
 
     assert {:ok, %{count: 1}} =
              GithubFirehose.poll(
+               token: "test-gh-token",
                request_fun: fn _request ->
                  {:ok, %{status: 200, headers: [{"ETag", ~s("live-writer-merge")}], body: [firehose_event]}}
                end,

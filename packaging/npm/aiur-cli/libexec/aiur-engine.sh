@@ -63,7 +63,7 @@ engine_source="${BASH_SOURCE[0]}"
 
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session control commands executor_commands report_commands lifecycle upgrade pre_pr"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -81,12 +81,13 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur logout <harness> <name> [--purge]  remove a backend account
        aiur --bg [--no-dashboard] [--executor] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
-       aiur restart [--no-build] [run flags]  stop, refresh the build, start again (detached)
-       aiur status           show agent status
-       aiur agents           show each agent's state + current activity
+       aiur restart [--keep-agents] [--no-build] [run flags]  stop, refresh the build, start again (detached)
+       aiur status [--handoff [--json]]  show agent status or last handoff
+       aiur agents [--json]   show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
+       aiur executor-reclassify <decision-id> --expected-version <n> --rationale <text> [--executor-id <id>]
        aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  read queue; add/remove/reorder/order/hold/release/recover/clear steer it
@@ -111,16 +112,17 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
        aiur alerts [--needs-attention] [--limit <n> | --all]  show structured alert feed
+       aiur executor-sweep [--json] [--apply]  inspect local Executor findings
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur listen [--topic <pattern> | --ticket <id>]  stream events as JSON lines
        aiur executor-listen [--topic <pattern>]  deprecated alias for listen
-       aiur executor-wait [--timeout <seconds>] [--json]  block until Executor work arrives
+       aiur executor-wait [--timeout <seconds>] [--session-id <uuid> [--harness codex]] [--json]  block until Executor work arrives
        aiur executor-fast-forward <wake-id> [--as <id>]  acknowledge an externally covered wake prefix
        aiur executor-emit <topic> --payload <json>  publish an Executor event
        aiur executor-subscribe|executor-unsubscribe <pattern>
        aiur executor-subscriptions  list persistent Executor bindings
        aiur workspace-recover <ticket-identifier> <generation>  release a held workspace after verified provider exit
-       aiur executor-roster [--json]  list Executor consumers with their liveness evidence
+       aiur executor-roster [--json]  list Executor consumers; executor-session [--json] reads the live Executor harness session
        aiur executor-claim [--as <id>]  claim the wake stream, or refuse and name the live owner
        aiur executor-release [--as <id>]  give up this consumer's claim
        aiur executor-revoke <consumer-id>  operator-only revoke of a live owner's claim
@@ -216,6 +218,7 @@ aiur_engine_main() {
     ask | asks)
       run_asks "$@"
       ;;
+    # @cli-reference aiur --bg | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | aiur --bg
     --bg)
       dispatch_run "$@"
       ;;
@@ -248,6 +251,10 @@ aiur_engine_main() {
       shift
       cmd_executor_escalate "$@"
       ;;
+    executor-reclassify)
+      shift
+      cmd_executor_reclassify "$@"
+      ;;
     executor-moot)
       shift
       cmd_executor_moot "$@"
@@ -279,6 +286,10 @@ aiur_engine_main() {
       shift
       cmd_alerts "$@"
       ;;
+    executor-sweep)
+      shift
+      cmd_executor_sweep "$@"
+      ;;
     watch)
       shift
       cmd_watch "$@"
@@ -303,10 +314,8 @@ aiur_engine_main() {
       shift
       cmd_executor_subscriptions "$@"
       ;;
-    executor-roster)
-      shift
-      cmd_executor_roster "$@"
-      ;;
+    executor-roster | executor-session)
+      shift; "cmd_${cmd//-/_}" "$@" ;;
     executor-fast-forward)
       shift
       cmd_executor_fast_forward "$@"
@@ -387,6 +396,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-feature.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-executor-session.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-experiments.sh"
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   aiur_engine_main "$@"

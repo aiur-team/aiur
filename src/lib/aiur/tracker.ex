@@ -30,6 +30,16 @@ defmodule Aiur.Tracker do
     if Code.ensure_loaded?(tracker) and function_exported?(tracker, :blocked_by, 1), do: dispatch_blocked_by(tracker, issue_id), else: {:error, :unsupported}
   end
 
+  @doc "Reads native prerequisites from the tracker's cache without revalidation."
+  @spec cached_blocked_by(Aiur.Issue.t()) :: {:ok, Aiur.Issue.t()} | {:error, term()}
+  def cached_blocked_by(%Aiur.Issue{} = issue) do
+    tracker = adapter()
+
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :cached_blocked_by, 1),
+      do: tracker.cached_blocked_by(issue),
+      else: {:error, :unsupported}
+  end
+
   defp dispatch_blocked_by(tracker, issue_id), do: tracker.blocked_by(issue_id)
 
   @doc "Reads closure evidence, failing closed when the tracker does not support it."
@@ -109,6 +119,13 @@ defmodule Aiur.Tracker do
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) do
     adapter().create_comment(issue_id, body)
+  end
+
+  @doc "Reopens a closed issue; trackers that never auto-close an issue have nothing to undo."
+  @spec reopen_issue(String.t()) :: :ok | {:error, term()}
+  def reopen_issue(issue_id) do
+    tracker_adapter = adapter()
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, :reopen_issue, 1), do: tracker_adapter.reopen_issue(issue_id), else: :ok
   end
 
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}

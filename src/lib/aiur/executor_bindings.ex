@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorBindings do
   @moduledoc false
 
-  alias Aiur.ExecutorEvents
+  alias Aiur.{Events.Topic, ExecutorEvents}
 
   @defaults [
     {"executor.#", "commands:auto"},
@@ -14,6 +14,8 @@ defmodule Aiur.ExecutorBindings do
     {"system.dispatch.todo_capacity_exceeded", "dispatch:auto"},
     {"system.tracker.auth_preflight_failed", "dispatch:auto"},
     {"system.tracker.auth_preflight_failed.resolved", "dispatch:auto"},
+    {"system.toolchain.erlang_missing", "dispatch:auto"},
+    {"system.toolchain.erlang_missing.resolved", "dispatch:auto"},
     {"system.fleet.capacity.backoff", "dispatch:auto"},
     {"system.fleet.capacity.resumed", "dispatch:auto"},
     {"system.fleet.contradictory_state_labels", "dispatch:auto"},
@@ -41,6 +43,7 @@ defmodule Aiur.ExecutorBindings do
     {"system.main.ci.canary", "attention:auto"},
     {"system.main.ci.unavailable", "attention:auto"},
     {"system.main.fixer.*", "attention:auto"},
+    {"system.agent.synthetic_load_cap", "attention:auto"},
     {"ticket.*.ci.passed", "ci:auto"},
     {"ticket.*.ci.failed", "ci:auto"},
     {"ticket.*.pr.ready_for_review", "pr:auto"},
@@ -53,6 +56,13 @@ defmodule Aiur.ExecutorBindings do
 
   @spec patterns() :: [String.t()]
   def patterns, do: Enum.map(@defaults, &elem(&1, 0))
+
+  @spec attention_topic?(String.t()) :: boolean()
+  def attention_topic?(topic) do
+    Enum.any?(@defaults, fn {pattern, class} ->
+      class == "attention:auto" and String.starts_with?(pattern, "ticket.") and Topic.matches?(pattern, topic)
+    end)
+  end
 
   @spec allowlisted?(String.t()) :: boolean()
   def allowlisted?(pattern) when is_binary(pattern) do

@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   alias Aiur.Alerts
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Errors
+  alias Aiur.GitHub.LocalHold
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.RetryEngine.PollFailure
@@ -17,7 +18,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   defp finalize_exhausted_issue(issue_id, identifier, metadata, exhaustion_reason, opts) do
     case rework_handoff_state(identifier, metadata[:rework_head_sha], metadata) do
       {:ok, state_name} ->
-        case TicketTransition.write_state(identifier, state_name, Keyword.put(opts, :writer, :retry_engine)) do
+        case write_after_budget_hold(identifier, state_name, opts) do
           :ok ->
             emit_rework_handoff_attention(identifier, state_name)
             :ok
@@ -81,6 +82,9 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
     Errors.retryable_github_error?(Errors.classify_error({:error, reason}))
   end
 
+  defp transient_exhaustion_reason?({:issue_state_refresh_failed, reason}),
+    do: transient_exhaustion_reason?(reason)
+
   defp transient_exhaustion_reason?(reason), do: Errors.retryable_github_error?(reason)
 
   # Exposed (`@doc false`) as a test seam: the distinct `{:error,
@@ -106,7 +110,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
     else
       Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
 
-      case TicketTransition.write_state(identifier, "error", Keyword.put(opts, :writer, :retry_engine)) do
+      case write_after_budget_hold(identifier, "error", opts) do
         :ok ->
           message =
             "Agent entered error after retry exhaustion; automatic retry is no longer scheduled." <>
@@ -144,6 +148,18 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
           {:error, {:no_state_label_written, identifier}}
       end
     end
+  end
+
+  # Retry-exhaustion state writes are terminal and cannot be recovered by a
+  # later agent turn. Keep the tracker task alive through the broker's rolling
+  # Core reset, then apply the write once admission resumes. The retry task has
+  # no fixed task timeout for this reason; LocalHold still bounds each wait and
+  # limits repeated holds.
+  defp write_after_budget_hold(identifier, state_name, opts) do
+    LocalHold.run(
+      fn -> TicketTransition.write_state(identifier, state_name, Keyword.put(opts, :writer, :retry_engine)) end,
+      LocalHold.caller_opts(opts) |> Keyword.put(:max_wait_ms, 3_600_000)
+    )
   end
 
   defp rework_handoff_state(identifier, original_head, metadata) do

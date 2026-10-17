@@ -43,7 +43,7 @@ tracker:
     # Host-local coordination for daemons and agent `gh` calls sharing one token.
     max_inflight: 4
     max_inflight_per_endpoint: 2
-    requests_per_minute: 120
+    requests_per_minute: 300
     stagger_ms: 75
     # Per-actor hourly ceilings (0 disables): billable Core (REST) / GraphQL /
     # search responses in a rolling hour. 304s reconcile as free. The GraphQL

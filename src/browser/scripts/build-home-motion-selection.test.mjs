@@ -30,7 +30,7 @@ function collect(config, full) {
 
 test('routine motion collects every determinism case; full mode preserves the original matrix', () => {
   const routine = collect('playwright.build-home-motion.config.mjs', false)
-  assert.equal(routine.titles.filter(title => title.startsWith('design determinism:')).length, 68)
+  assert.equal(routine.titles.filter(title => title.startsWith('design determinism:')).length, 72)
   assert.equal(routine.titles.filter(title => title.startsWith('clock probe:')).length, 2)
   assert.ok(routine.titles.every(title => /^(clock probe:|harness self-check:|design determinism:)/.test(title)))
   assert.equal(routine.config.workers, 2)

@@ -1,5 +1,8 @@
+import { columnSequence } from './build-home-columns-motion.mjs'
+import { spanState } from './build-home-span-state.mjs'
+import { historySequence } from './build-home-history-motion.mjs'
 import { scrollbar } from './build-home-scrollbar-motion.mjs'
-// The ticket requires one support module: measurements and sequence ownership stay together.
+// Shared records and ownership stay together; feature sequences live beside them.
 // Motion records use the same allowlist as screenshot parity. Design bytes stay untouched.
 import { captureStable } from './design-parity.mjs'
 export const motionPathMatches = (pattern, path) => new RegExp(`^${pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(path.replace(/^reduce\.live-toggle\.animation\.tkin(?=\.)/, 'modal.reduce.animation.tkin'))
@@ -128,10 +131,11 @@ export async function pausedAnimations(page, selector, { trigger, event = 'click
 }
 
 export const OWNER = {
-  sb: { owners: ['MP-E8-C9-T03'], pending: true, anchor: '#bd-sb' },
+  'history': { owners: ['MP-E8-C9-T03'], anchor: '#build-root[data-bd-paging]' },
+  sb: { owners: ['MP-E8-C9-T03'], anchor: '#bd-sb' },
   'snap.scroll-curve': { owners: ['MP-E8-C9-T08', 'MP-E8-C10-T01', 'MP-E8-C9-T10'], anchor: '#bd-nowbtn' },
   'snap': { owners: ['MP-E8-C9-T08'], anchor: '.bd-now-h > b' },
-  'columns': { owners: ['MP-E8-C9-T04', 'MP-E8-C9-T10'], anchor: '.bd-content .bd-lane' },
+  'columns': { owners: ['MP-E8-C9-T04'], anchor: '.bd-content .bd-lane' },
   'view.span': { owners: ['MP-E8-C9-T10'], anchor: '.bd-zoom [data-z]' },
   'view.switch.graph': { owners: ['MP-E8-C10-T01'], pending: true },
   'view.switch.gantt': { owners: ['MP-E8-C9-T09'], pending: true },
@@ -267,29 +271,6 @@ async function scrollbarDrag(page, ctx) {
   return { samples: [during, after] }
 }
 
-async function columns(page, ctx) {
-  if (await page.locator('#bd-content').evaluate(el => el.classList.contains('flow'))) return { samples: [await state(page, ctx)], mode: 'flow' }
-  // Month loads older days; week zoom preserves them without paging during measurement.
-  await click(page, '.bd-cal [data-span="7"]')
-  await page.clock.runFor(16)
-  await page.clock.runFor(704)
-  const samples = [], initial = await page.locator('.bd-lane:not(.leave)').evaluateAll(nodes => nodes.map(el => el.title))
-  await scrollTo(page, 270)
-  let applyAt = null, removeAt = null, leaving = false, animation = {}
-  for (let elapsed = 16; elapsed <= 800; elapsed += 16) {
-    await page.clock.runFor(16)
-    const lanes = await page.locator('.bd-lane').evaluateAll(nodes => nodes.map(el => ({ key: el.title, classes: [...el.classList].sort(), left: el.style.left, width: el.style.width })))
-    const current = lanes.filter(lane => !lane.classes.includes('leave')).map(lane => lane.key), leave = lanes.some(lane => lane.classes.includes('leave'))
-    if (applyAt === null && JSON.stringify(current) !== JSON.stringify(initial)) {
-      applyAt = elapsed; animation = await cssMotion(page, '.bd-lanes', ctx)
-    }
-    if (leave) leaving = true
-    if (leaving && !leave && removeAt === null) removeAt = elapsed
-    samples.push(Object.fromEntries(lanes.map(lane => [lane.key, lane])))
-  }
-  if (applyAt === null || removeAt === null) throw new Error(`unreachable column enter/leave ${JSON.stringify({ initial, applyAt, removeAt, final: await page.locator('.bd-lane').allTextContents() })}`)
-  return { samples, dom: await state(page, ctx), applyAt, removeAt, animation }
-}
 
 async function view(page, ctx, mode) {
   if (mode !== 'span') {
@@ -303,13 +284,13 @@ async function view(page, ctx, mode) {
   const samples = []
   for (const span of await page.locator(input).evaluateAll(nodes => nodes.map(el => el.dataset.span))) {
     await click(page, `.bd-cal [data-span="${span}"]`, true); await page.clock.runFor(32)
-    samples.push(await state(page, ctx))
+    samples.push(await spanState(page))
   }
   for (const direction of ['1', '-1']) for (let step = 0; step < 30; step++) {
     const button = page.locator(`.bd-zoom [data-z="${direction}"]`)
     if (!await button.count()) throw new Error('unreachable zoom control')
     const disabled = await button.isDisabled()
-    samples.push({ ...await state(page, ctx), disabled })
+    samples.push({ ...await spanState(page), disabled })
     if (disabled) break
     await click(page, `.bd-zoom [data-z="${direction}"]`, true); await page.clock.runFor(32)
     if (step === 29) throw new Error('zoom did not reach its endpoint')
@@ -470,12 +451,13 @@ async function inventory(page, ctx) {
 }
 
 export const SEQUENCES = {
+  ...Object.fromEntries(['load-earlier', 'window'].map(name => [`history.${name}`, (page, ctx) => historySequence(page, ctx, name)])),
   ...Object.fromEntries(['scroll-reveal', 'drag', 'track-click'].map(action => [`sb.${action}`, (page, ctx) => scrollbar(page, ctx, action)])),
   ...Object.fromEntries(['settle-near-top', 'settle-near-bottom', 'pinned', 'guard-up', 'guard-down', 'tall-band', 'list-view'].map(kind => [`snap.${kind}`, (page, ctx) => snap(page, ctx, kind)])),
   'snap.scroll-curve': scrollCurve,
   'snap.scrollbar-drag': scrollbarDrag,
   'snap.reduce': (page, ctx) => snap(page, ctx, 'settle-near-top'),
-  'columns.enter-leave': columns, 'columns.reduce': columns,
+  ...Object.fromEntries(['columns.enter-leave', 'columns.reduce'].map(name => [name, (page, ctx) => columnSequence(page, ctx, { click, cssMotion, state, scrollTo })])),
   ...Object.fromEntries(['graph', 'gantt', 'list'].map(mode => [`view.switch.${mode}`, (page, ctx) => view(page, ctx, mode)])),
   'view.span': (page, ctx) => view(page, ctx, 'span'),
   'filter.dim': (page, ctx) => filter(page, ctx, 'dim'),

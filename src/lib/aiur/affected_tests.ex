@@ -6,17 +6,20 @@ defmodule Aiur.AffectedTests do
 
   Paths are repo-relative as `git diff --name-only` emits them (e.g.
   `src/lib/aiur/foo.ex`). A changed `src/lib/**/X.ex` maps to its sibling
-  `src/test/**/X_test.exs`; a changed `*_test.exs` maps to itself. The caller may
-  add direct xref dependents via `:dependent_sources`, and those source paths
-  are mapped the same way. Deleted function, option-key, atom, and string
-  references can add every test file that still contains one, regardless of its
-  directory depth. Changes that cannot be classified safely — including test
-  support, executable/build files, Gettext `.po` files, `mix.exs`/`mix.lock`, and
-  runtime config — force the full suite.
+  `src/test/**/X_test.exs` and the tests in its module directory. Direct xref
+  callers add tests in their module directories too; oversized selections use
+  full CI.
+
+  A changed `*_test.exs` maps to itself. Deleted function, option-key, atom,
+  and string references can add every test file that still contains one,
+  regardless of its directory depth. Changes that cannot be classified safely
+  — including test support, executable/build files, Gettext `.po` files,
+  `mix.exs`/`mix.lock`, and runtime config — force the full suite.
   """
 
   @type path :: String.t()
   @common_literal_terms MapSet.new(~w(error is_binary ok open per_page state))
+  @max_affected_tests 400
 
   @doc """
   Map changed repo-relative paths to `{:scoped, test_files}` or `{:full, reason}`.
@@ -29,7 +32,12 @@ defmodule Aiur.AffectedTests do
     * `:reference_tests` — test files containing references deleted by the diff.
   """
   @spec select([path], keyword()) :: {:scoped, [path]} | {:full, String.t()}
-  def select(changed, opts \\ []) do
+  def select(changed, opts \\ []), do: changed |> select_with_candidates(opts) |> elem(0)
+
+  @doc false
+  @spec select_with_candidates([path], keyword()) ::
+          {{:scoped, [path]} | {:full, String.t()}, [path], [path]}
+  def select_with_candidates(changed, opts \\ []) do
     base = Keyword.get(opts, :base_dir, ".")
     exists? = Keyword.get(opts, :exists?, fn p -> File.exists?(Path.join(base, p)) end)
     dependent_sources = Keyword.get(opts, :dependent_sources, [])
@@ -37,35 +45,87 @@ defmodule Aiur.AffectedTests do
     changed = Enum.uniq(changed)
     unknown = Enum.reject(changed, &recognized?/1)
 
-    cond do
-      changed == [] ->
-        {:scoped, []}
+    result =
+      cond do
+        changed == [] ->
+          {{:scoped, []}, [], []}
 
-      Enum.any?(changed, &forces_full?/1) ->
-        {:full, "changed files include test support / gettext / mix / config paths that a scoped run cannot capture"}
+        Enum.any?(changed, &forces_full?/1) ->
+          {:full, "changed files include test support / gettext / mix / config paths that a scoped run cannot capture"}
 
-      unknown != [] ->
-        {:full, "changed files cannot be classified safely: #{Enum.join(unknown, ", ")}"}
+        unknown != [] ->
+          {:full, "changed files cannot be classified safely: #{Enum.join(unknown, ", ")}"}
 
-      true ->
-        scoped_tests(changed, dependent_sources, reference_tests, exists?)
+        true ->
+          scoped_tests(base, changed, dependent_sources, reference_tests, exists?)
+      end
+
+    case result do
+      {selection, candidates, fallback} when is_list(candidates) and is_list(fallback) ->
+        {selection, candidates, fallback}
+
+      selection ->
+        {selection, [], []}
     end
   end
 
-  defp scoped_tests(changed, dependent_sources, reference_tests, exists?) do
+  defp scoped_tests(base, changed, dependent_sources, reference_tests, exists?) do
     sources = Enum.filter(changed, &library_source?/1)
 
-    tests =
+    exact_tests =
       (changed ++ dependent_sources ++ reference_tests)
       |> Enum.flat_map(&test_candidates/1)
       |> Enum.uniq()
       |> Enum.filter(exists?)
 
-    if sources != [] and tests == [] do
-      {:full, "no direct or xref-dependent tests were found for changed library sources"}
-    else
-      {:scoped, tests}
-    end
+    changed_directory_tests = changed_directory_tests(base, changed, exists?) |> Enum.uniq()
+    caller_directory_tests = changed_directory_tests(base, dependent_sources, exists?) |> Enum.uniq()
+    tests = Enum.uniq(exact_tests ++ changed_directory_tests ++ caller_directory_tests)
+
+    fallback_tests = Enum.uniq(exact_tests ++ changed_directory_tests)
+
+    selection =
+      cond do
+        sources != [] and tests == [] ->
+          {:full, "no direct or xref-dependent tests were found for changed library sources"}
+
+        length(tests) > @max_affected_tests ->
+          dropped = caller_directory_tests -- fallback_tests
+
+          # stderr keeps `--json` stdout a single parseable document (#4718).
+          IO.puts(
+            :stderr,
+            "affected tests budget: widened set has #{length(tests)} tests; dropped #{length(dropped)} xref caller-directory tests, leaving #{length(fallback_tests)} fallback candidates"
+          )
+
+          if fallback_tests == [] or length(fallback_tests) > @max_affected_tests do
+            {:full, "affected test fallback exceeds #{@max_affected_tests} files (#{length(fallback_tests)} candidates after dropping caller-directory expansion)"}
+          else
+            {:scoped, fallback_tests}
+          end
+
+        true ->
+          {:scoped, tests}
+      end
+
+    {selection, tests, fallback_tests}
+  end
+
+  defp changed_directory_tests(base, changed, exists?) do
+    changed
+    |> Enum.filter(&library_source?/1)
+    |> Enum.flat_map(&directory_test_files(base, &1))
+    |> Enum.filter(exists?)
+  end
+
+  defp directory_test_files(base, "src/lib/" <> rest) do
+    directory = rest |> Path.dirname() |> then(&"src/test/#{&1}")
+
+    directory
+    |> then(&Path.join(base, &1))
+    |> Path.join("*_test.exs")
+    |> Path.wildcard()
+    |> Enum.map(&Path.relative_to(&1, base))
   end
 
   @spec test_candidates(path) :: [path]
@@ -142,7 +202,8 @@ defmodule Aiur.AffectedTests do
     MapSet.new(structural_terms ++ literal_terms)
   end
 
-  defp captures(text, regex), do: Regex.scan(regex, text, capture: :all_but_first) |> List.flatten()
+  defp captures(text, regex),
+    do: Regex.scan(regex, text, capture: :all_but_first) |> List.flatten()
 
   defp contains_any?(path, patterns) do
     case File.read(path) do

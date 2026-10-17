@@ -1,0 +1,24 @@
+name: Pre-handoff guards
+description: Run selected tests, Dialyzer, and structural handoff guards.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Elixir and project dependencies
+      uses: ./.github/actions/setup-elixir
+    - name: Cache Dialyzer PLT
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: src/_build/dev/*.plt*
+        key: ${{ runner.os }}-plt-${{ hashFiles('src/mix.lock') }}
+        restore-keys: ${{ runner.os }}-plt-
+    - name: Test PR evidence and handoff guard
+      shell: bash
+      run: python3 scripts/test-check-pr-body.py && python3 scripts/test-check-pr-body-compare.py && python3 scripts/test-check-pr-body-check-run.py && bash scripts/test-pre-handoff-guards.sh
+    - name: Run pre-handoff guards
+      shell: bash
+      env:
+        AIUR_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        AIUR_MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        AIUR_PUSH_BEFORE: ${{ github.event.before }}
+      run: scripts/run-pre-handoff-guards.sh

@@ -15,7 +15,7 @@ defmodule Aiur.AgentTools.TicketStateTest do
         TicketState.execute(
           "aiur_set_ticket_state",
           %{"state" => "human-review"},
-          ticket_state_setter: fn state -> {:ok, %{state: state}} end
+          ticket_state_setter: fn state, nil -> {:ok, %{state: state}} end
         )
 
       assert response["success"] == true
@@ -31,7 +31,7 @@ defmodule Aiur.AgentTools.TicketStateTest do
           TicketState.execute(
             "aiur_set_ticket_state",
             %{"state" => given},
-            ticket_state_setter: fn state -> {:ok, state} end
+            ticket_state_setter: fn state, _findings -> {:ok, state} end
           )
 
         assert response["success"] == true
@@ -48,7 +48,7 @@ defmodule Aiur.AgentTools.TicketStateTest do
           TicketState.execute(
             "aiur_set_ticket_state",
             %{"state" => refused},
-            ticket_state_setter: fn _state -> flunk("must not write #{refused}") end
+            ticket_state_setter: fn _state, _findings -> flunk("must not write #{refused}") end
           )
 
         assert response["success"] == false
@@ -59,13 +59,13 @@ defmodule Aiur.AgentTools.TicketStateTest do
     test "missing or non-string state is refused before any write" do
       assert %{"success" => false} =
                response =
-               TicketState.execute("aiur_set_ticket_state", %{}, ticket_state_setter: fn _ -> flunk("no write") end)
+               TicketState.execute("aiur_set_ticket_state", %{}, ticket_state_setter: fn _, _ -> flunk("no write") end)
 
       assert Jason.decode!(response["output"])["error"]["message"] =~ "required"
 
       assert %{"success" => false} =
                bad =
-               TicketState.execute("aiur_set_ticket_state", %{"state" => 7}, ticket_state_setter: fn _ -> flunk("no write") end)
+               TicketState.execute("aiur_set_ticket_state", %{"state" => 7}, ticket_state_setter: fn _, _ -> flunk("no write") end)
 
       assert Jason.decode!(bad["output"])["error"]["message"] =~ "string"
     end
@@ -75,7 +75,7 @@ defmodule Aiur.AgentTools.TicketStateTest do
         TicketState.execute(
           "aiur_set_ticket_state",
           %{"state" => "ci-wait"},
-          ticket_state_setter: fn _state -> {:error, {:stale_issue_state, "ci-wait", "rework"}} end
+          ticket_state_setter: fn _state, _findings -> {:error, {:stale_issue_state, "ci-wait", "rework"}} end
         )
 
       assert response["success"] == false
@@ -98,7 +98,7 @@ defmodule Aiur.AgentTools.TicketStateTest do
       assert spec["description"] =~ "ONLY"
 
       response =
-        Dispatch.execute("aiur_set_ticket_state", %{"state" => "in-progress"}, ticket_state_setter: fn state -> {:ok, state} end)
+        Dispatch.execute("aiur_set_ticket_state", %{"state" => "in-progress"}, ticket_state_setter: fn state, _findings -> {:ok, state} end)
 
       assert response["success"] == true
       assert Jason.decode!(response["output"])["state"] == "in-progress"

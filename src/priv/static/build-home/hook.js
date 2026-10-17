@@ -3,14 +3,20 @@ import { createLife } from './life.js';
 import { shell } from './shell.js';
 import { decide } from './protocol.js';
 import { acceptSnapshot, applyDiff } from './store.js';
+import { H } from './history.js';
 import { fromServer, flushURL } from './url.js';
 import './clock.js';
-import './layout.js';
+import './render.js';
+import './columns.js';
+import './cards.js';
 import './offline.js';
 import './tools.js';
+import './span.js';
+import './states.js';
 
 export function writeOwnData() {
-  Object.assign(ctx.root.dataset, { buildHomeHook: 'mounted', bdMounted: '', buildSocket: ctx.socket });
+  if (ctx.bdStates != null) ctx.root.dataset.bdStates = ctx.bdStates;
+  Object.assign(ctx.root.dataset, { buildHomeHook: 'mounted', bdMounted: '', bdPaging: H.state, buildSocket: ctx.socket });
   if (ctx.proto.epoch !== null) {
     ctx.root.dataset.buildEpoch = ctx.proto.epoch;
     ctx.root.dataset.buildGeneration = ctx.proto.generation;
@@ -46,6 +52,7 @@ export function receive(msg) {
         if (msg.kind === 'diff') resync(); else fx.renderUnavailable('invalid');
         return;
       }
+      fx.tickCardAges();
       if (msg.kind === 'snapshot') { if (first) firstPaint(); else repaint(); }
       else { fx.dataChanged(msg); fx.drawEdgesSoon(30); }
       writeOwnData();

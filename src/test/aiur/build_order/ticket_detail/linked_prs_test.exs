@@ -33,6 +33,7 @@ defmodule Aiur.BuildOrder.TicketDetailLinkedPrsTest do
              fetch(identity,
                configured_repo: @configured,
                now: observed_at,
+               token: "test-gh-token",
                request_fun: fn request ->
                  assert request.url == "https://api.github.com/repos/owner/repo/issues/42"
                  {:ok, %{status: 200, body: issue(42, "I42")}}
@@ -110,6 +111,7 @@ defmodule Aiur.BuildOrder.TicketDetailLinkedPrsTest do
             }} =
              TicketDetail.fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: request_fun
              )
   end
@@ -145,6 +147,7 @@ defmodule Aiur.BuildOrder.TicketDetailLinkedPrsTest do
       assert {:error, ^expected_failure} =
                TicketDetail.fetch(identity,
                  configured_repo: @configured,
+                 token: "test-gh-token",
                  request_fun: request_fun
                )
     end
@@ -166,6 +169,7 @@ defmodule Aiur.BuildOrder.TicketDetailLinkedPrsTest do
                  relationship_reader: fn _identity, _repository ->
                    {:ok, %{nodes: [invalid], truncated?: false}}
                  end,
+                 token: "test-gh-token",
                  request_fun: fn _request -> {:ok, %{status: 200, body: issue(42, "I42")}} end
                )
     end
@@ -192,6 +196,7 @@ defmodule Aiur.BuildOrder.TicketDetailLinkedPrsTest do
                     truncated?: false
                   }}
                end,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: issue(42, "I42")}} end
              )
   end
@@ -210,6 +215,7 @@ defmodule Aiur.BuildOrder.TicketDetailLinkedPrsTest do
                  relationship_reader: fn _identity, _repository ->
                    {:ok, %{nodes: nodes, truncated?: false}}
                  end,
+                 token: "test-gh-token",
                  request_fun: fn _request -> {:ok, %{status: 200, body: issue(42, "I42")}} end
                )
     end
