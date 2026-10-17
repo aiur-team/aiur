@@ -15,7 +15,7 @@ defmodule AiurWeb.Experiments.ChartsTest do
 
   test "AE1 draws sixteen samples, a hollow guard without CI and six remaining after the line" do
     detail = fixture()
-    metric = hd(detail.chart_metrics)
+    metric = hd(detail.chart_metrics) |> Map.put(:effect, %{estimate: -30, lo: -45, hi: -10})
     forest = html(Charts.forest([metric]))
     assert forest =~ "exp-hollow"
     assert forest =~ "not enough data"
@@ -61,6 +61,8 @@ defmodule AiurWeb.Experiments.ChartsTest do
     refute first =~ "<script>"
     assert Floki.find(Floki.parse_fragment!(first), "[onload]") == []
     assert first =~ "&lt;b&gt;Group&lt;/b&gt;"
+    assert Svg.ticks({0, 1}, "linear") == [0.0, 0.25, 0.5, 0.75, 1.0]
+    assert Svg.ticks({0, 37}, "linear") == [0.0, 10.0, 20.0, 30.0]
     assert Svg.ticks({0.5, 9000}, "log") == [1.0, 10.0, 100.0, 1000.0]
     assert Svg.position(10, {1, 100}, {0, 100}, "log") == 50.0
     assert Svg.position(100, {1, 100}, {0, 100}, "log") == 100.0
