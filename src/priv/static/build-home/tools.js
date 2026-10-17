@@ -48,7 +48,7 @@ export function renderStatus() {
   const key = S.view === 'list' ? '' : '<span class="bd-key"><span class="bd-leg"><span class="bd-leg-l"></span>Cleared</span>' +
     '<span class="bd-leg"><span class="bd-leg-l d"></span>Pending</span>' +
     (S.view === 'gantt' ? '<span class="bd-leg"><span class="bd-leg-h"></span>Planned estimate</span>' : '') + '</span>';
-  host.innerHTML = `<span class="bd-daemon${daemon.dotOff ? ' off' : ''}"><i></i>${esc(daemon.dotText)}</span>` + key;
+  host.innerHTML = `<span class="bd-daemon${daemon.dotOff ? ' off' : ''}" title="${esc(daemon.dotTitle ?? daemon.dotText)}"><i></i>${esc(daemon.dotText)}</span>` + key;
 }
 export function renderTools() { renderControls(); renderStatus(); }
 export function setView(view) {

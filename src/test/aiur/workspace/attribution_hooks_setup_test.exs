@@ -144,6 +144,20 @@ defmodule Aiur.Workspace.AttributionHooksSetupTest do
       assert status != 0, output
       assert output =~ "refusing to push commit #{sha} (bad update)"
     end
+
+    test "#{installer}: an existing branch pushed after merging a base with an AI-trailer commit pushes" do
+      workspace = pushed_main_workspace!(unquote(install), "base-merge")
+      git!(workspace, ["checkout", "--quiet", "-b", "feature"])
+      commit!(workspace, "clean new commit")
+      assert {_output, 0} = push(workspace, "feature")
+      git!(workspace, ["checkout", "--quiet", "main"])
+      commit!(workspace, "landed on main\n\nCo-authored-by: Claude <noreply@anthropic.com>")
+      git!(workspace, ["push", "--quiet", "--no-verify", "origin", "main"])
+      git!(workspace, ["checkout", "--quiet", "feature"])
+      git!(workspace, ["merge", "--quiet", "--no-ff", "--no-edit", "main"])
+
+      assert {_output, 0} = push(workspace, "feature")
+    end
   end
 
   # A clone whose pushed main already carries an AI-trailer commit, as old squash merges do.
