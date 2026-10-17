@@ -4,9 +4,15 @@ defmodule Aiur.GitHub.HumanReviewContribution do
   @moduledoc false
 
   @doc false
-  @spec unchanged?(String.t(), String.t(), String.t(), map(), (String.t(), String.t(), pos_integer() -> {:ok, map()} | {:error, term()})) ::
-          {:ok, boolean()} | {:error, term()}
-  def unchanged?(approved_head, head, base_sha, current_comparison, compare_fun) do
+  @spec unchanged?(
+          String.t(),
+          String.t(),
+          String.t(),
+          map(),
+          (String.t(), String.t(), pos_integer() -> {:ok, map()} | {:error, term()}),
+          (MapSet.t(), String.t(), String.t() -> {:ok, MapSet.t()} | {:error, term()})
+        ) :: {:ok, boolean()} | {:error, term()}
+  def unchanged?(approved_head, head, base_sha, current_comparison, compare_fun, probe_fun) do
     with {:ok, approved_comparison} <- compare_fun.(base_sha, approved_head, 100),
          {:ok, approved_merge_base} <- merge_base_sha(approved_comparison),
          {:ok, base_comparison} <- compare_fun.(approved_merge_base, base_sha, 100),
@@ -17,7 +23,7 @@ defmodule Aiur.GitHub.HumanReviewContribution do
          {:ok, approved_fingerprint} <- contribution_fingerprint(approved_diff),
          {:ok, current_fingerprint} <- contribution_fingerprint(current_comparison),
          contribution_paths = contribution_paths(approved_fingerprint, current_fingerprint),
-         {:ok, base_hunks} <- base_hunk_offsets(base_comparison, contribution_paths) do
+         {:ok, base_hunks} <- base_hunk_offsets(base_comparison, contribution_paths, &probe_fun.(&1, approved_merge_base, base_sha)) do
       {:ok, same_contribution?(approved_fingerprint, current_fingerprint, base_hunks)}
     end
   end
@@ -165,7 +171,24 @@ defmodule Aiur.GitHub.HumanReviewContribution do
     |> MapSet.new()
   end
 
-  defp base_hunk_offsets(%{"files" => files}, contribution_paths) when is_list(files) and length(files) < 300 do
+  # GitHub caps the file list at 300 (#4533); unlisted contribution paths must
+  # then be proven untouched upstream, or no hunk offsets can be trusted.
+  defp base_hunk_offsets(%{"files" => files}, contribution_paths, probe) when is_list(files) and length(files) >= 300 do
+    listed = for %{"filename" => filename} when is_binary(filename) <- files, into: MapSet.new(), do: filename
+
+    case probe.(MapSet.difference(contribution_paths, listed)) do
+      {:ok, changed} ->
+        if MapSet.size(changed) == 0, do: listed_hunk_offsets(files, contribution_paths), else: {:error, :review_base_ancestry_unavailable}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp base_hunk_offsets(%{"files" => files}, contribution_paths, _probe) when is_list(files), do: listed_hunk_offsets(files, contribution_paths)
+  defp base_hunk_offsets(_comparison, _contribution_paths, _probe), do: {:error, :review_base_ancestry_unavailable}
+
+  defp listed_hunk_offsets(files, contribution_paths) do
     Enum.reduce_while(files, {:ok, %{}}, fn
       %{"filename" => filename, "patch" => patch}, {:ok, offsets} when is_binary(filename) and is_binary(patch) ->
         parse_relevant_base_file(filename, patch, offsets, contribution_paths)
@@ -180,8 +203,6 @@ defmodule Aiur.GitHub.HumanReviewContribution do
         {:halt, {:error, :review_base_ancestry_unavailable}}
     end)
   end
-
-  defp base_hunk_offsets(_comparison, _contribution_paths), do: {:error, :review_base_ancestry_unavailable}
 
   defp parse_relevant_base_file(filename, patch, offsets, contribution_paths) do
     if MapSet.member?(contribution_paths, filename) do
