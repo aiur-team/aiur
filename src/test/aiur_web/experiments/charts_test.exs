@@ -23,6 +23,7 @@ defmodule AiurWeb.Experiments.ChartsTest do
     assert html(Charts.power([metric], detail)) =~ "needs 6 more after the line"
     distribution = html(Charts.distribution(metric)) |> Floki.parse_fragment!()
     assert length(Floki.find(distribution, "svg .exp-point")) == 16
+    assert Floki.text(distribution) =~ "100 to 100.11"
     assert length(Floki.find(distribution, "table caption") |> Enum.filter(&(Floki.text(&1) == "Distribution samples"))) == 1
     assert length(Floki.find(distribution, "details:last-child tbody tr")) == 16
   end
@@ -97,6 +98,12 @@ defmodule AiurWeb.Experiments.ChartsTest do
     assert Enum.at(cells, 4) == "Unavailable"
     assert Enum.at(cells, 5) == "Unavailable"
     refute chart =~ "0% power"
+    group = hd(metric.groups)
+    empty = %{group | n: 0, median: nil, q1: nil, q3: nil, whiskers: nil, points: []}
+    assert empty.whiskers == nil
+    distribution = html(Charts.distribution(%{metric | groups: [empty]})) |> Floki.parse_fragment!()
+    summary_cells = Floki.find(distribution, "details:first-child tbody td") |> Enum.map(&Floki.text/1)
+    assert List.last(summary_cells) == "Unavailable"
   end
 
   test "power targets render the supplied effect and power, never invented defaults" do
@@ -119,7 +126,6 @@ defmodule AiurWeb.Experiments.ChartsTest do
     assert length(Floki.find(chart, ".exp-median")) == 1
     assert length(Floki.find(chart, ".exp-point")) == 1
     assert Floki.find(chart, ".exp-box") == []
-    assert Floki.text(chart) =~ "100 to 100.11"
     times = html(Charts.time_series(metric, detail)) |> Floki.parse_fragment!()
     assert length(Floki.find(times, ".exp-outside")) == 1
     assert Floki.text(Floki.find(times, "tbody")) =~ "Outside window"
