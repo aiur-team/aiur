@@ -32,6 +32,7 @@ export async function openHomeState(page, cell) {
   if (cell.interaction === 'usage') await page.locator('.ax-seg').first().click()
   if (cell.interaction === 'lock' || cell.interaction === 'tree') {
     const lockTab = page.locator('.bd-lt [data-lt="lock"]')
+    // This helper opens only the design mock; product receives this locked DOM via transplant.
     await expect(async () => {
       await page.locator('.bd-card.plan').first().hover({ force: true })
       await lockTab.click({ force: true })
