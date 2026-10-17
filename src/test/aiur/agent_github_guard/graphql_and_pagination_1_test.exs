@@ -164,11 +164,9 @@ defmodule Aiur.AgentGitHubGuard.GraphqlAndPagination1Test do
   test "pr view consumes the graphql actor ceiling, not the core one", context do
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
 
     # The per-actor ceiling is keyed by the broker consumer. Pin it to one
-    # literal so the two invocations below — one spawned directly, one through
-    # `timeout`, whose wrapper PPID differs — are the same actor and the ceiling
+    # literal so the invocations below are the same actor and the ceiling
     # accumulates deterministically in every environment. Relying on the ambient
     # AIUR_GITHUB_BUDGET_CONSUMER made this pass in agent workspaces (where it is
     # set) and fail in CI (where it is not).
@@ -189,22 +187,8 @@ defmodule Aiur.AgentGitHubGuard.GraphqlAndPagination1Test do
     ]
 
     assert {"ok\n", 0} = run_guard(context, ["pr", "view", "1670"], graphql_env)
-
-    assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
-               env:
-                 guard_env(context) ++
-                   [
-                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
-                     {"AIUR_GITHUB_BUDGET_ROOT", graphql_budget},
-                     {"AIUR_GITHUB_BUDGET_KEY", key},
-                     {"AIUR_GITHUB_BUDGET_BROKER", broker},
-                     {"AIUR_GITHUB_BUDGET_CONSUMER", consumer},
-                     {"AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR", "1"},
-                     {"AIUR_GITHUB_CORE_LIMIT_PER_HOUR", "0"}
-                   ],
-               stderr_to_stdout: true
-             )
+    assert "wait actor " <> _ms = run_held_guard(context, ["pr", "view", "1670"], graphql_env)
+    assert File.read!(context.calls) == "pr view\n"
 
     # A core ceiling of 1 with the graphql ceiling disabled: `pr view` is
     # admitted repeatedly because it never touches the core budget.
@@ -226,7 +210,6 @@ defmodule Aiur.AgentGitHubGuard.GraphqlAndPagination1Test do
   test "a search subcommand consumes the search actor ceiling, not the core one", context do
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
 
     # `gh search repos` is metered as `search` (~30 req/min), its own pool, so
     # it must spend against a search ceiling rather than the core or graphql
@@ -246,23 +229,45 @@ defmodule Aiur.AgentGitHubGuard.GraphqlAndPagination1Test do
     ]
 
     assert {"ok\n", 0} = run_guard(context, ["search", "repos", "state:open"], search_env)
+    assert "wait actor " <> _ms = run_held_guard(context, ["search", "repos", "state:open"], search_env)
+    assert File.read!(context.calls) == "search repos\n"
+  end
 
-    assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "search", "repos", "state:open"],
-               env:
-                 guard_env(context) ++
-                   [
-                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
-                     {"AIUR_GITHUB_BUDGET_ROOT", search_budget},
-                     {"AIUR_GITHUB_BUDGET_KEY", key},
-                     {"AIUR_GITHUB_BUDGET_BROKER", broker},
-                     {"AIUR_GITHUB_BUDGET_CONSUMER", consumer},
-                     {"AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR", "1"},
-                     {"AIUR_GITHUB_CORE_LIMIT_PER_HOUR", "0"},
-                     {"AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR", "0"}
-                   ],
-               stderr_to_stdout: true
-             )
+  # Runs a guard call the actor ceiling must hold and returns the real broker's
+  # hold response. A proxy broker records that `wait` and answers with an
+  # unusable one, so the guard exits instead of sleeping out the hour. Killing
+  # the sleeping guard with `timeout` flaked (#4744): a TERM that lands after the
+  # guard's last trap check but before `sleep` execs is lost, and it sleeps on.
+  defp run_held_guard(context, args, env) do
+    proxy = Path.join(context.state_path, "hold-proxy-broker.py")
+    holds = Path.join(context.state_path, "broker-holds")
+    File.mkdir_p!(context.state_path)
+
+    File.write!(proxy, """
+    import os, subprocess, sys
+    result = subprocess.run([sys.executable, os.environ["HOLD_PROXY_REAL_BROKER"], *sys.argv[1:]], capture_output=True, text=True)
+    sys.stderr.write(result.stderr)
+    if sys.argv[1] == "acquire" and result.stdout.startswith("wait"):
+        with open(os.environ["HOLD_PROXY_HOLDS"], "a") as holds:
+            holds.write(result.stdout)
+        print("wait 0")
+        sys.exit(0)
+    sys.stdout.write(result.stdout)
+    sys.exit(result.returncode)
+    """)
+
+    File.chmod!(proxy, 0o755)
+
+    proxy_env =
+      Keyword.merge(env,
+        AIUR_GITHUB_BUDGET_BROKER: proxy,
+        HOLD_PROXY_REAL_BROKER: Keyword.fetch!(env, :AIUR_GITHUB_BUDGET_BROKER),
+        HOLD_PROXY_HOLDS: holds
+      )
+
+    assert {output, 75} = run_guard(context, args, proxy_env)
+    assert output =~ "invalid or unusable wait response"
+    String.trim(File.read!(holds))
   end
 
   test "a paginated api call preserves its original command shape", context do
