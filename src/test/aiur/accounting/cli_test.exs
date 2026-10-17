@@ -99,13 +99,6 @@ defmodule Aiur.Accounting.CLITest do
     assert capture_io(fn -> AgentControlCLI.usage(ctx.projection) end) =~ "3h ago"
   end
 
-  test "the bar saturates rather than overflowing" do
-    assert AgentControlCLI.usage_bar(0) == String.duplicate("░", 10)
-    assert AgentControlCLI.usage_bar(100) == String.duplicate("█", 10)
-    assert AgentControlCLI.usage_bar(140) == String.duplicate("█", 10)
-    assert AgentControlCLI.usage_bar(-20) == String.duplicate("░", 10)
-  end
-
   describe "per-repo event delivery mode prints alongside the meters" do
     test "each repo names its mode, last delivery, and reason for polling", ctx do
       output = capture_io(fn -> AgentControlCLI.usage(ctx.projection, delivery_modes: delivery_mode_rows()) end)

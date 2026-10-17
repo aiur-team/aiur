@@ -9,4 +9,11 @@ defmodule Aiur.AgentControlCLIUsageTest do
       assert signature in exported
     end
   end
+
+  test "the bar saturates rather than overflowing" do
+    assert Aiur.AgentControlCLI.usage_bar(0) == String.duplicate("░", 10)
+    assert Aiur.AgentControlCLI.usage_bar(100) == String.duplicate("█", 10)
+    assert Aiur.AgentControlCLI.usage_bar(140) == String.duplicate("█", 10)
+    assert Aiur.AgentControlCLI.usage_bar(-20) == String.duplicate("░", 10)
+  end
 end

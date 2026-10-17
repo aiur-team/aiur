@@ -38,7 +38,7 @@ defmodule Aiur.ExecutorAttentionCliAlertsTest do
 
       assert capture_io(fn -> AgentControlCLI.alerts(needs_attention: true) end) =~ "ticket.51.agent.paused"
 
-      assert capture_io(fn -> AgentControlCLI.watch(mode: :full, blocking_asks: []) end) =~
+      assert capture_io(fn -> Aiur.Orchestrator.StatusCLI.watch(mode: :full, blocking_asks: []) end) =~
                "#51"
     end
 
