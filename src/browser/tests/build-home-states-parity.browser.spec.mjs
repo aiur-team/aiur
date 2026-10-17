@@ -49,7 +49,8 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['light', 'dark']) 
   })
 }
 for (const width of [1440, 390]) test(`degraded marker retains design geometry ${width}`, async ({ browser }) => {
-  const pair = await openParityPair(browser, { viewport: { width, height: 900 }, theme: 'dark', palette: 'aiur', dataset: 'newrepo' })
+  // The design is specified at 390 with phone (overlay) scrollbars, as in PARITY_VIEWPORTS (#4885).
+  const pair = await openParityPair(browser, { ...PARITY_VIEWPORTS.find(v => v.viewport.width === width), viewport: { width, height: 900 }, theme: 'dark', palette: 'aiur', dataset: 'newrepo' })
   try {
     await pair.product.goto(new URL('/build-fixture/degraded', pair.product.url()).href)
     await expect(pair.product.locator('#bd-content')).toHaveCount(1)

@@ -295,7 +295,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       waiting_reason:
         WaitingReason.for_idle(
           Map.get(issue, :state),
-          DispatchPolicy.todo_issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()),
+          DispatchPolicy.issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()),
           open_decision_count,
           queue_set_order?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :queue_set_order,
           optimistic_share?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :optimistic_share,

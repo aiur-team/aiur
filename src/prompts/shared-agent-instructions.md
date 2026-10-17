@@ -364,3 +364,12 @@ constructing an alternate harness. Executor-root manual test runs are allowed
 only outside agent turns.
 
 A resumed dependent with `refs/aiur/restack/pending/<branch>` or `refs/aiur/restack/conflict/<branch>` must inspect that receipt and follow the restack recipe before ordinary base integration. The startup hook preserves local divergence and conflict receipts for you to reconcile.
+
+### Never generate real CPU load
+
+Never run `yes`, `stress`, or a shell busy loop such as
+`while :; do :; done` to reproduce a load-sensitive flake, and never start one
+per core. Inject the load through the code's test seam instead. Aiur reports
+such loops to the Executor as your ticket's attention, naming your workspace,
+and kills them where configured. The `aiur-agent` skill's `conventions.md` has
+the full rule.
