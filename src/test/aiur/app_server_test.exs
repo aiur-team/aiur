@@ -1266,7 +1266,7 @@ defmodule Aiur.AppServerTest do
 
       expected_turn_policy = %{
         "type" => "workspaceWrite",
-        "writableRoots" => [remote_workspace, Path.join(remote_workspace, ".git"), Path.join(remote_workspace, ".agents")],
+        "writableRoots" => [remote_workspace, Path.join(remote_workspace, ".git"), Path.join(remote_workspace, ".agents"), Path.join(remote_workspace, ".codex")],
         "readOnlyAccess" => %{"type" => "fullAccess"},
         "networkAccess" => true,
         "excludeTmpdirEnvVar" => false,
