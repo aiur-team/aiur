@@ -11,7 +11,7 @@ defmodule AiurWeb.Experiments.Charts.Forest do
     height = length(metrics) * 85 + 35
     axis = [Svg.line(340, 10, 340, height - 20, "exp-zero"), Svg.text(330, height - 4, "0%"), Svg.text(100, height - 4, "#{Svg.number(-extent)}%"), Svg.text(555, height - 4, "#{Svg.number(extent)}%")]
     table = Svg.table("Median changes and confidence intervals", ~w(Metric Estimate Low High Evidence), Enum.map(metrics, &table_row/1))
-    Svg.wrap("Median changes in percent with confidence intervals; hollow points mean not enough data.", height, [body, axis]) <> table
+    Svg.wrap("Median changes in percent with confidence intervals; hollow points mean not enough data or unavailable estimates.", height, [body, axis]) <> table
   end
 
   defp row(metric, y, domain) do

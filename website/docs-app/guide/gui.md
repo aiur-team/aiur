@@ -227,8 +227,8 @@ analyst labels. Below the
 analysis minimum, interval, p-value and effect cells say **not enough data**.
 
 The median-change chart shows stored percentage estimates and confidence
-intervals, with the expected direction labelled. Hollow points mean **not enough
-data**; no interval is drawn for those metrics.
+intervals, with the expected direction labelled. Hollow points mark **not enough
+data** or unavailable estimates; no interval is drawn below the sample minimum.
 
 Select a metric to see its
 box-and-dot distribution and time series; metric and stratum selections are
