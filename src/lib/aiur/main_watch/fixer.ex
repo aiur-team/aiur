@@ -94,25 +94,25 @@ defmodule Aiur.MainWatch.Fixer do
 
     case result do
       {:error, reason} when retries_left > 0 ->
-        case shared_budget_reset(reason) do
-          %DateTime{} = reset_at ->
-            case LocalHold.wait_ms(%{hold: %{reset_at: reset_at}}, LocalHold.max_wait_ms()) do
-              {:wait, delay_ms} ->
-                Keyword.get(opts, :local_hold_sleep_fun, &Process.sleep/1).(delay_ms)
-                create_with_hold_retry(issue, opts, retries_left - 1)
-
-              :no_wait ->
-                result
-            end
-
-          nil ->
-            result
-        end
+        retry_after_hold(result, shared_budget_reset(reason), issue, opts, retries_left)
 
       _ ->
         result
     end
   end
+
+  defp retry_after_hold(result, %DateTime{} = reset_at, issue, opts, retries_left) do
+    case LocalHold.wait_ms(%{hold: %{reset_at: reset_at}}, LocalHold.max_wait_ms()) do
+      {:wait, delay_ms} ->
+        Keyword.get(opts, :local_hold_sleep_fun, &Process.sleep/1).(delay_ms)
+        create_with_hold_retry(issue, opts, retries_left - 1)
+
+      :no_wait ->
+        result
+    end
+  end
+
+  defp retry_after_hold(result, _reset_at, _issue, _opts, _retries_left), do: result
 
   defp shared_budget_hold?({:aiur, :locally_held, %{reason: :shared_budget}}), do: true
   defp shared_budget_hold?(_reason), do: false
