@@ -123,7 +123,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "credits" => nullable(object(%{"pct" => nullable({:range, 0, 100}), "left" => :string, "tip" => list({:pair, :string})})),
       "none" => :boolean,
       "lines" => nullable(list(object(line()))),
-      "icon" => nullable({:literal, "github"}),
+      "icon" => nullable(enum(~w(github bars))),
       "stale" => :boolean,
       "observed_at" => nullable(:integer),
       "note" => nullable(:string)

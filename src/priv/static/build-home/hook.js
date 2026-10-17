@@ -11,6 +11,8 @@ import './columns.js';
 import './cards.js';
 import './offline.js';
 import './tools.js';
+import './usage.js';
+
 import './span.js';
 import './states.js';
 

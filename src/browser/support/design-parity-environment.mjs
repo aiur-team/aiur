@@ -12,6 +12,13 @@ const families = [['Bungee'], ['Space Grotesk'], ['JetBrains Mono']]
 const fontCSS = await readFile(new URL('./fixtures/google-fonts-css2.css', import.meta.url), 'utf8')
 const fontPaths = JSON.parse(await readFile(new URL('./fixtures/google-fonts-map.json', import.meta.url), 'utf8'))
 const failures = new WeakMap()
+// Compare the same logo bytes on both sides: the original 3840px DeepSeek
+// raster drifts when Chromium downsamples it to 20px, and Codex has two SVGs.
+// Keep the imported originals and their hashes frozen as design evidence.
+const canonicalLogos = new Map([
+  ['/assets/deepseek-logo.png', new URL('../../priv/static/build-home/logos/deepseek-logo.png', import.meta.url)],
+  ['/assets/codex-color.svg', new URL('../../priv/static/codex-color.svg', import.meta.url)]
+])
 
 export function checkPage(page) {
   const errors = failures.get(page) ?? []
@@ -74,6 +81,7 @@ export async function routeDesign(page) {
     if (url.href === 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js') return route.fulfill({ contentType: 'application/javascript', body: '' })
     if (url.origin === DESIGN_ORIGIN) {
       if (url.pathname === '/blank') return route.fulfill({ contentType: 'text/html', body: '<!doctype html>' })
+      if (canonicalLogos.has(url.pathname)) return route.fulfill({ path: fileURLToPath(canonicalLogos.get(url.pathname)) })
       const file = resolveDesignPath(url.pathname)
       if (!file) return route.fulfill({ status: 404, body: 'path outside design root' })
       try { return await route.fulfill({ path: file }) } catch (error) { errors.push(`design request unavailable: ${url.href}: ${error.message}`) }
