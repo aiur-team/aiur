@@ -6,20 +6,26 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   case template, so the shared setup can say who ran before it had to restart
   the orchestrator. The shared teardown fails a sync test that ends with the
   orchestrator down, so the leaking test fails itself instead of its
-  successors. A sync plain `ExUnit.Case` test that ends with it down is
-  recorded by the formatter and fails the run in `verify_suite!/0`.
+  successors. A plain `ExUnit.Case` leak is recorded when the next sync
+  `Aiur.TestSupport` setup has to restart it, or when the suite ends with it
+  down, and `verify_suite!/0` then fails the run.
+
+  Leaks are never judged inside the formatter: its events are casts that land
+  after later tests have started, so what it would see belongs to them.
   """
   use GenServer
 
   alias Aiur.TestSupport.RuntimeChildren
 
+  # persistent_term, not GenServer state: after_suite callbacks run once formatters have stopped.
   @suite_leaks_key {__MODULE__, :suite_leaks}
+  @last_finished_key {__MODULE__, :last_finished}
 
   @impl true
   def init(_opts) do
     Process.register(self(), __MODULE__)
-    # persistent_term, not GenServer state: after_suite callbacks run once formatters have stopped.
     :persistent_term.put(@suite_leaks_key, [])
+    :persistent_term.put(@last_finished_key, nil)
     {:ok, nil}
   end
 
@@ -29,13 +35,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
   def handle_cast({:test_finished, %ExUnit.Test{} = test}, _last) do
     name = "#{inspect(test.module)}: #{test.name}"
-
-    # Aiur.TestSupport tests are restored by their teardown first, so only plain ExUnit.Case leaks land here.
-    if not test.tags[:async] and is_nil(Process.whereis(Aiur.Orchestrator)) do
-      IO.puts(:stderr, "#{name} left Aiur.Orchestrator down")
-      :persistent_term.put(@suite_leaks_key, :persistent_term.get(@suite_leaks_key) ++ [name])
-    end
-
+    :persistent_term.put(@last_finished_key, name)
     {:noreply, name}
   end
 
@@ -44,9 +44,11 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   @impl true
   def handle_call(:last_finished, _from, last), do: {:reply, last, last}
 
-  @doc "Fails the suite when a synchronous plain ExUnit case leaked the orchestrator."
+  @doc "Fails the suite when a plain ExUnit case leaked the orchestrator. Runs after the formatters stop."
   @spec verify_suite!() :: :ok
   def verify_suite! do
+    if is_nil(Process.whereis(Aiur.Orchestrator)), do: record_leak(:persistent_term.get(@last_finished_key, nil))
+
     case :persistent_term.get(@suite_leaks_key, []) do
       [] -> :ok
       leaks -> raise "plain ExUnit tests left Aiur.Orchestrator down: #{Enum.join(leaks, ", ")}"
@@ -57,7 +59,10 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   @spec ensure_running(map()) :: :ok | :error
   def ensure_running(context) do
     if is_nil(Process.whereis(Aiur.Orchestrator)) do
-      IO.puts(:stderr, "Aiur.Orchestrator was down before #{test_name(context)}; last finished test: #{last_finished() || "unknown"}")
+      last = last_finished()
+      IO.puts(:stderr, "Aiur.Orchestrator was down before #{test_name(context)}; last finished test: #{last || "unknown"}")
+      # Async neighbours may hold the name briefly; only a sync setup proves the previous test leaked it.
+      unless context[:async], do: record_leak(last)
     end
 
     RuntimeChildren.ensure_orchestrator_running()
@@ -83,6 +88,8 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
     :ok
   end
+
+  defp record_leak(name), do: :persistent_term.put(@suite_leaks_key, :persistent_term.get(@suite_leaks_key, []) ++ [name || "unknown"])
 
   defp last_finished do
     GenServer.call(__MODULE__, :last_finished, 1_000)
