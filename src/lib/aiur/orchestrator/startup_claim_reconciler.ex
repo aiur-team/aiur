@@ -13,6 +13,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   alias Aiur.Orchestrator.StartupClaimReconciler.{BootMarker, Observation, Release}
 
   @max_release_attempts 3
+  @ancestry_backoff_ms 30_000
+  @ancestry_backoff_cap_ms 600_000
 
   @spec reconcile(State.t(), [Issue.t()], keyword()) :: {State.t(), [Issue.t()]}
   def reconcile(state, issues, opts \\ [])
@@ -113,6 +115,9 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
       TrackerTasks.issue_pending?(state, issue.id) ->
         {:retry, state, nil}
 
+      backing_off?(state, issue, opts) ->
+        {:retry, state, issue}
+
       retry_exhausted?(state, issue) ->
         # Already latched this boot: leave the claim in place and never
         # re-attempt it, and do not block pass completion.
@@ -172,9 +177,10 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
         {:ok, state, %{issue | state: target, state_labels: [target]}}
 
       {:defer, reason} ->
-        attempts = get_in(state.startup_claim_reconciliation_failures, [issue.identifier, :attempts]) || 0
+        entry = Map.get(state.startup_claim_reconciliation_failures, issue.identifier, %{})
+        attempts = Map.get(entry, :attempts, 0)
         emit_release_failed(state, issue, reason, attempts, opts)
-        failures = Map.put(state.startup_claim_reconciliation_failures, issue.identifier, %{reason: reason, attempts: attempts})
+        failures = Map.put(state.startup_claim_reconciliation_failures, issue.identifier, deferred_entry(entry, reason, attempts, opts))
         {:retry, %{state | startup_claim_reconciliation_failures: failures}, issue}
 
       {:error, reason} ->
@@ -277,6 +283,24 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
         %{state | startup_claim_reconciliation_failures: failures}
     end
   end
+
+  # Ancestry reads retry with exponential backoff rather than on every candidate poll.
+  defp deferred_entry(entry, :review_base_ancestry_unavailable = reason, attempts, opts) do
+    defers = Map.get(entry, :defers, 0)
+    delay = min(@ancestry_backoff_ms * Integer.pow(2, defers), @ancestry_backoff_cap_ms)
+    %{reason: reason, attempts: attempts, defers: defers + 1, retry_at: now_ms(opts) + delay}
+  end
+
+  defp deferred_entry(_entry, reason, attempts, _opts), do: %{reason: reason, attempts: attempts}
+
+  defp backing_off?(%State{} = state, %Issue{identifier: identifier}, opts) do
+    case Map.get(state.startup_claim_reconciliation_failures, identifier) do
+      %{retry_at: retry_at} -> now_ms(opts) < retry_at
+      _other -> false
+    end
+  end
+
+  defp now_ms(opts), do: Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
 
   defp retry_exhausted?(%State{} = state, %Issue{identifier: identifier}) do
     case Map.get(state.startup_claim_reconciliation_failures, identifier) do

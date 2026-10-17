@@ -14,7 +14,7 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
         action == "skip" ->
           %{resync: true}
 
-        params["name"] in ~w(card-pct-null card-clock-3h) ->
+        params["name"] in ~w(card-pct-null card-clock-3h plan-new-epic hist-new-epic counts-changed counts-unknown) ->
           named_diff(params["name"])
 
         true ->
