@@ -134,6 +134,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
     Aiur.Experiments.Checkpointer,
+    Aiur.Experiments.StatsRunner,
     {Aiur.Experiments.Auto, [recording?: true, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]]},
     Aiur.BuildOrder.Features.LabelProjection,
     Aiur.LandingWatch,
