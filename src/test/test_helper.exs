@@ -113,6 +113,7 @@ Code.require_file("support/snapshot_support.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml_sections.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml.exs", __DIR__)
 Code.require_file("support/test_support/runtime_children.exs", __DIR__)
+Code.require_file("support/test_support/endpoint_stubs.exs", __DIR__)
 Code.require_file("support/test_support/processes.exs", __DIR__)
 Code.require_file("support/test_support/workflow_files.exs", __DIR__)
 Code.require_file("support/test_scope_guard.exs", __DIR__)
@@ -144,6 +145,8 @@ for file <- Enum.sort(Path.wildcard(Path.join(__DIR__, "support/**/*.{ex,exs}"))
 end
 
 Code.put_compiler_option(:no_warn_undefined, [])
+
+Aiur.TestSupport.EndpointStubs.init!()
 
 # Keep plain ExUnit.Case modules and between-case application timers from
 # publishing Orchestrator poll state or alerts into the suite-wide ledger.
