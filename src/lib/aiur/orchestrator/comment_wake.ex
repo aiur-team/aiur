@@ -165,10 +165,10 @@ defmodule Aiur.Orchestrator.CommentWake do
   # `MergedTicketReconciler.merged_ticket_target/2` pass the decided
   # `:target_state` (the reconciler does, so its terminal path does not
   # re-enumerate the open-PR listing); everyone else — the live webhook route —
-  # computes it here so no path can write `done` without first checking that
-  # the merged PR actually claimed to close the ticket, and then that no other
-  # open PR remains.
-  defp merged_issue_target_state(identifier, opts) do
+  # computes it here so no path can write `done` without first checking that the
+  # merged PR actually claimed to close the ticket, and then that no other open PR remains.
+  @spec merged_issue_target_state(String.t() | integer(), keyword()) :: String.t() | {:error, term()}
+  def merged_issue_target_state(identifier, opts) do
     case Keyword.get(opts, :target_state) do
       target when target in ["done", "rework", "human-review"] ->
         target

@@ -81,12 +81,14 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   def issue_dispatch_authorization_deferred?(%Issue{dispatch_authorization: :deferred}), do: true
   def issue_dispatch_authorization_deferred?(_issue), do: false
 
-  @spec todo_issue_held_by_dependency?(term(), MapSet.t()) :: boolean()
-  def todo_issue_held_by_dependency?(%Issue{state: state} = issue, terminal_states) when is_binary(state) do
-    normalize_issue_state(state) == "todo" and holding_blockers(issue, terminal_states) != []
+  # Rework waits too: a dependent PR stacked on an open blocker's PR cannot progress,
+  # so dispatching it only burns no-op rework turns (#4898).
+  @spec issue_held_by_dependency?(term(), MapSet.t()) :: boolean()
+  def issue_held_by_dependency?(%Issue{state: state} = issue, terminal_states) when is_binary(state) do
+    normalize_issue_state(state) in ["todo", "rework"] and holding_blockers(issue, terminal_states) != []
   end
 
-  def todo_issue_held_by_dependency?(_issue, _terminal_states), do: false
+  def issue_held_by_dependency?(_issue, _terminal_states), do: false
 
   @doc "The hydrated blockers whose effective start-trigger verdict still holds dispatch."
   @spec holding_blockers(term(), MapSet.t()) :: [term()]

@@ -79,6 +79,9 @@ jobs:
       - name: Build docs
         working-directory: website/docs-app
         run: bun run build
+      - name: Test components loader
+        working-directory: website/docs-app
+        run: bun run test:components
       - name: Install browser
         run: npx playwright install --with-deps chromium
       - name: Test brand accessibility and theme navigation
