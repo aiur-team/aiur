@@ -82,14 +82,14 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @shared_prompt_path"
     ],
     "aiur_web/static_assets.ex" => [
-      "@dashboard_css_glob Path.expand(\"../../priv/static/css/*.css\", __DIR__)",
+      "@dashboard_css_glob Path.relative_to(Path.expand(\"../../priv/static/css/*.css\", __DIR__), File.cwd!(), force: true)",
       "for part <- @dashboard_css_parts, do: @external_resource(part)",
       "@dashboard_fonts_path Path.expand(\"../../priv/static/dashboard-fonts.css\", __DIR__)",
       "@dashboard_palette_path Path.expand(\"../../priv/static/dashboard-palette.css\", __DIR__)",
-      "@external_resource @dashboard_fonts_path",
-      "@external_resource @dashboard_palette_path",
+      "@external_resource Path.relative_to(@dashboard_fonts_path, File.cwd!(), force: true)",
+      "@external_resource Path.relative_to(@dashboard_palette_path, File.cwd!(), force: true)",
       "@dom_svg_layout_adapter_path Path.expand(\"../../priv/static/aiur-dom-svg-layout-adapter.js\", __DIR__)",
-      "@external_resource @dom_svg_layout_adapter_path",
+      "@external_resource Path.relative_to(@dom_svg_layout_adapter_path, File.cwd!(), force: true)",
       "@external_resource @phoenix_html_js_path",
       "@external_resource @phoenix_js_path",
       "@external_resource @phoenix_live_view_js_path"

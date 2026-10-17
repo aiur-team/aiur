@@ -127,6 +127,9 @@
   a sandbox cannot unlink or replace a held slot. Linux admission uses a lock-owning
   subreaper, so sandbox-local PID/PGID values are diagnostic only and detached Mix
   descendants keep their slot until they exit.
+  Agents source a content-addressed copy of the hook from
+  `~/.aiur/build-gate.hooks/<digest>/`, so a release rebuild or restart never removes
+  the hook a running agent already holds.
   Agent transcripts emit
   `aiur_build_gate` queue/acquire/release/timeout signals, and `aiur status` reports
   active or queued contention.
