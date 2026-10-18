@@ -28,12 +28,16 @@ defmodule Aiur.OrchestratorBlockingHttpSupport do
       restore_application_env(:supervision_health_status_fun, previous_health_fun)
       restore_application_env(:github_request_deadline_ms, previous_deadline)
 
-      if Process.alive?(pid) do
-        :sys.replace_state(pid, fn _state -> original_state end)
-      end
+      restore_orchestrator(pid, original_state)
     end)
 
     {:ok, orchestrator: pid}
+  end
+
+  defp restore_orchestrator(pid, original_state) do
+    if Process.alive?(pid) do
+      :sys.replace_state(pid, fn _state -> original_state end)
+    end
   end
 
   # The tracker gate is what this file cannot arrange from the shared workflow

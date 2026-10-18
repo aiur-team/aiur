@@ -8,6 +8,7 @@ defmodule Aiur.OrchestratorLifecycleSupport do
   alias Aiur.{Issue, Orchestrator, Workflow}
 
   defmodule HermeticReworkGitHubClient do
+    @moduledoc false
     def update_issue_state(issue_id, state_name) do
       if is_pid(recipient()), do: send(recipient(), {:hermetic_rework_update, issue_id, state_name})
 
@@ -43,6 +44,7 @@ defmodule Aiur.OrchestratorLifecycleSupport do
   end
 
   defmodule ResumeRefreshGitHubClient do
+    @moduledoc false
     def fetch_issue_states_by_ids(_issue_ids) do
       Agent.get_and_update(agent(), fn [result | rest] -> {result, rest} end)
     end

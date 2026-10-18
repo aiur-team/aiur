@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.State do
   @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{ControlLifecycle}
+  alias Aiur.Orchestrator.ControlLifecycle
 
   @default_dispatch_recovery %{
     workspace_ownership: %{waits: %{}, ready: %{}},

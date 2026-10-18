@@ -1,9 +1,6 @@
 defmodule Aiur.Orchestrator.Client do
   @moduledoc "Client forwarding for the Orchestrator RPC facade, with the original server defaults."
-  alias Aiur.Orchestrator.Interrupts
-  alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting}
-  alias Aiur.Orchestrator.{Slots, StatusReport}
-  alias Aiur.Orchestrator.{SnapshotStore, TelemetryEvents}
+  alias Aiur.Orchestrator.{GlobalPause, Interrupts, Lifecycle, PauseResume, PriorityControl, PushRouting, Slots, SnapshotStore, StatusReport, TelemetryEvents}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
