@@ -5,6 +5,22 @@ defmodule Aiur.GitHub.Tracker do
 
   @behaviour Aiur.Tracker.IssueTracker
 
+  alias Aiur.GitHub.BoundedBlockedBy
+  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.Config
+  alias Aiur.GitHub.CycleFetchCache
+  alias Aiur.GitHub.IssueCreation
+  alias Aiur.GitHub.IssueLookup
+  alias Aiur.GitHub.Issues
+  alias Aiur.GitHub.Labels
+  alias Aiur.GitHub.LocalHold
+  alias Aiur.GitHub.OpenIssueSnapshot
+  alias Aiur.GitHub.TicketPullRequest
+  alias Aiur.GitHub.Transport
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.TestTicketScope
+
   @impl Aiur.Tracker.IssueTracker
   def config_module, do: Aiur.GitHub.Config
 
@@ -28,22 +44,6 @@ defmodule Aiur.GitHub.Tracker do
 
   @impl Aiur.Tracker.IssueTracker
   defdelegate format_preflight_error(reason), to: Aiur.GitHub.AuthPreflight, as: :format_auth_preflight_error
-
-  alias Aiur.GitHub.BoundedBlockedBy
-  alias Aiur.GitHub.Client
-  alias Aiur.GitHub.Config
-  alias Aiur.GitHub.CycleFetchCache
-  alias Aiur.GitHub.IssueCreation
-  alias Aiur.GitHub.IssueLookup
-  alias Aiur.GitHub.Issues
-  alias Aiur.GitHub.Labels
-  alias Aiur.GitHub.LocalHold
-  alias Aiur.GitHub.OpenIssueSnapshot
-  alias Aiur.GitHub.TicketPullRequest
-  alias Aiur.GitHub.Transport
-  alias Aiur.Issue
-  alias Aiur.Orchestrator.DispatchPolicy
-  alias Aiur.TestTicketScope
 
   @impl Aiur.Tracker.IssueTracker
   @spec create_issue(map(), keyword()) :: {:ok, map()} | {:error, term()}
