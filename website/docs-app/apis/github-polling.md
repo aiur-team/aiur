@@ -45,7 +45,14 @@ Only required checks decide a failure: a red check that nothing requires does no
 
 User-cancelled CI runs stay pending. Landing watcher classifies failed groups from Actions logs and requeues approved PRs for infra, inherited, or known non-PR failures. Known tests match an open flake issue or base failure in 24h, and are untouched by the PR. Others route to rework with job/run details. It checks attribution and cancels stale groups.
 
-A test failing in merge groups of unrelated PRs gets a flake ticket, unless every failing run is over 12 hours old or a base-branch commit newer than the run changed the test file (caller `landing_watch_flake_gate`).
+The landing watcher quarantines a flaky test within 24 hours (caller `landing_watch_flake_gate` for the age check):
+
+- **Qualifies:** a failure in two merge groups whose PRs did not touch the test, or a base-branch failure whose rerun of the same commit then passes. A later green commit is not evidence; it may be the fix of a regression.
+- **Never counts:** a failure where the failing commit or the group's PRs changed the test file or the `src/lib` file it mirrors; any failure while the newest base-branch run fails the test (a regression for the main-watch fixer), including merge-group failures recorded meanwhile.
+- **Actions:** a `priority:2` `agent:todo` flake ticket with the run links; an auto-merging `aiur/quarantine/` PR adding one line to `src/test/quarantine.txt` (ExUnit) or `src/browser/quarantine.txt` (Playwright, a whole spec file, as the shared `aiur-test-failure` reporter names it); a requeue of the approved PRs those failures dropped. No ticket when every failing run is over 12 hours old or a newer base-branch commit changed the test file.
+- **OrchestratorGuard:** the guard names the last test to finish, not the cause, so its failures only add run evidence to one `OrchestratorGuard` flake ticket and skip no test. The intentional-failure browser probes are never annotated.
+- **Retries:** decisions come from the landing journal, so a GitHub error retries without new CI reads. Each step (quarantine PR, requeue, scan of a red base-branch commit) backs off from 1 to 32 minutes and stops after 7 failures in 24 hours with `system.pr.landing.quarantine_gave_up`. A retry reuses a quarantine branch that already holds the entry.
+- **CI:** blocking CI skips listed tests. On main pushes the non-blocking `quarantined tests` job and a step of browser smoke shard 4 run them. Merging the fix ticket's PR opens a PR that lifts the entry.
 
 An approved PR that is not landing acts only when every failed required run has a non-PR cause. Infrastructure failures and known flakes are rerun.
 

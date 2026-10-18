@@ -12,7 +12,7 @@
     "check:elk": "node --test scripts/vendor-elk.test.mjs && node scripts/check-vendored-elk.mjs",
     "fixture:preflight": "cd .. && mise exec -- mix compile --warnings-as-errors",
     "fixture:server": "node scripts/start-fixture.mjs",
-    "test:admission": "node --test scripts/browser-admission.test.mjs",
+    "test:admission": "node --test scripts/browser-admission.test.mjs scripts/browser-quarantine.test.mjs",
     "test": "npm run test:core && npm run test:home-css",
     "test:build-home-columns": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-columns.browser.spec.mjs tests/build-home-columns-parity.browser.spec.mjs --config playwright.design-parity.config.mjs && node scripts/run-browser-tests.mjs tests/build-home-motion.browser.spec.mjs --config playwright.design-parity.config.mjs --grep 'product interactions.*columns\\.|product inventory/grain live 1440 dark gruvbox no-preference.*grain.static.*bd-lanes'",
     "test:build-home-layout": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-layout.browser.spec.mjs",

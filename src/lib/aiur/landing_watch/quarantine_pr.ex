@@ -1,22 +1,40 @@
 defmodule Aiur.LandingWatch.QuarantinePR do
-  @moduledoc "Opens a reviewable one-line PR for a repeatedly failing test."
+  @moduledoc """
+  Opens an auto-merging one-line PR that quarantines a repeatedly failing test.
+
+  Every step is safe to repeat, so a transient GitHub error on one poll is retried on the
+  next: an existing branch is moved to the new commit and an existing PR is reused.
+  """
 
   alias Aiur.Config.TrackerSettings
   alias Aiur.GitHub.{Errors, Transport}
 
   @branch_prefix "aiur/quarantine/"
+  @exunit_list "src/test/quarantine.txt"
+  @browser_list "src/browser/quarantine.txt"
 
-  @spec open(map(), pos_integer(), keyword()) :: {:ok, map()} | {:error, term()}
+  @auto_merge """
+  mutation($id: ID!) {
+    enablePullRequestAutoMerge(input: {pullRequestId: $id}) { pullRequest { number } }
+  }
+  """
+
+  @doc "The quarantine list for a test identity: Playwright specs (`BrowserSpec :: src/browser/tests/<spec>`) use the browser list."
+  @spec list_path(String.t()) :: String.t()
+  def list_path(identity), do: if(String.starts_with?(identity, "BrowserSpec :: "), do: @browser_list, else: @exunit_list)
+
+  @spec open(map(), pos_integer(), keyword()) :: {:ok, map() | :already_quarantined} | {:error, term()}
   def open(%{identity: identity, observations: observations}, ticket, opts) when is_binary(identity) and is_list(observations) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts),
          base <- Keyword.get_lazy(opts, :base_branch, &TrackerSettings.base_branch/0),
-         opts <- Keyword.put(opts, :base_branch, base),
-         {:ok, existing} <- list_contents(owner, repo, token, base, opts),
-         {:ok, entry} <- entry(identity, ticket, existing),
+         ctx <- %{owner: owner, repo: repo, token: token, base: base, path: list_path(identity), opts: opts},
+         {:ok, existing} <- list_contents(ctx),
+         {:ok, contents} <- entry(identity, ticket, existing),
          {:ok, branch} <- branch_name(identity, base),
-         :ok <- publish_list_file(owner, repo, token, base, branch, entry, opts),
-         {:ok, pr} <- create_pull_request(owner, repo, token, branch, ticket, observations, opts) do
+         {:ok, base_sha, commit_sha} <- reuse_or_publish(ctx, branch, contents, identity),
+         {:ok, pr} <- pull_request(ctx, branch, identity, ticket, observations, base_sha, commit_sha),
+         :ok <- enable_auto_merge(ctx, pr) do
       {:ok, pr}
     else
       {:error, :already_quarantined} -> {:ok, :already_quarantined}
@@ -30,15 +48,49 @@ defmodule Aiur.LandingWatch.QuarantinePR do
     case String.split(identity, " :: ", parts: 2) do
       [module, name] ->
         line = Enum.join([module, name, "##{ticket}"], "\t")
-        append_entry({:ok, contents}, line)
+        if listed?(contents, identity), do: {:error, :already_quarantined}, else: {:ok, String.trim_trailing(contents) <> "\n" <> line <> "\n"}
 
       _ ->
         {:error, :invalid_quarantine_identity}
     end
   end
 
-  defp append_entry({:ok, contents}, line) do
-    if line in String.split(contents, "\n"), do: {:error, :already_quarantined}, else: {:ok, contents |> String.trim_trailing() |> Kernel.<>("\n" <> line <> "\n")}
+  defp listed?(contents, identity) do
+    [module, name] = String.split(identity, " :: ", parts: 2)
+    contents |> String.split("\n") |> Enum.any?(&String.starts_with?(&1, module <> "\t" <> name <> "\t"))
+  end
+
+  # An earlier attempt that already committed the entry is reused, so a retry after an
+  # auto-merge or PR error never writes a new head (which would restart the PR's CI).
+  defp reuse_or_publish(ctx, branch, contents, identity) do
+    case get(ctx, "git/ref/heads/#{branch}", "landing_watch_quarantine_branch") do
+      {:ok, %{"object" => %{"sha" => head}}} ->
+        reuse_if_listed(ctx, branch, head, contents, identity)
+
+      {:error, {:github, _, %{status: 404}}} ->
+        publish_list_file(ctx, branch, contents, identity)
+
+      {:ok, _} ->
+        {:error, :invalid_quarantine_git_response}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp reuse_if_listed(ctx, branch, head, contents, identity) do
+    case fetch_list_contents(%{ctx | base: branch}) do
+      {:ok, existing} -> if listed?(existing, identity), do: reuse(ctx, head), else: publish_list_file(ctx, branch, contents, identity)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp reuse(ctx, head) do
+    case get(ctx, "git/ref/heads/#{ctx.base}", "quarantine_pr_base") do
+      {:ok, %{"object" => %{"sha" => base_sha}}} -> {:ok, base_sha, head}
+      {:ok, _} -> {:error, :invalid_quarantine_git_response}
+      {:error, _} = error -> error
+    end
   end
 
   defp branch_name(identity, base) do
@@ -46,112 +98,147 @@ defmodule Aiur.LandingWatch.QuarantinePR do
     {:ok, @branch_prefix <> slug <> "-" <> to_string(base)}
   end
 
-  defp list_contents(owner, repo, token, base, opts) do
-    case Keyword.get(opts, :quarantine_list_fun) do
+  defp list_contents(ctx) do
+    case Keyword.get(ctx.opts, :quarantine_list_fun) do
       fun when is_function(fun, 0) -> fun.()
-      _ -> fetch_list_contents(owner, repo, token, base, opts)
+      _ -> fetch_list_contents(ctx)
     end
   end
 
-  defp fetch_list_contents(owner, repo, token, base, opts) do
-    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/contents/src/test/quarantine.txt?ref=#{base}"
-
-    case request(opts).(%{method: :get, url: url, token: token, caller: "landing_watch_quarantine_contents"}) do
-      {:ok, %{status: 200, body: %{"encoding" => "base64", "content" => encoded}}} ->
+  defp fetch_list_contents(ctx) do
+    case get(ctx, "contents/#{ctx.path}?ref=#{ctx.base}", "landing_watch_quarantine_contents") do
+      {:ok, %{"encoding" => "base64", "content" => encoded}} ->
         case Base.decode64(String.replace(encoded, ~r/\s/, "")) do
           {:ok, contents} -> {:ok, contents}
           :error -> {:error, :invalid_quarantine_list_encoding}
         end
 
-      {:ok, response} ->
-        {:error, Errors.github_status_error(response)}
+      {:ok, _} ->
+        {:error, :invalid_quarantine_list}
+
+      # The browser list is created by its first entry.
+      {:error, {:github, _, %{status: 404}}} ->
+        {:ok, "# BrowserSpec, spec path (as the failure annotation names it), and tracking ticket. Tabs delimit fields.\n"}
 
       {:error, _} = error ->
         error
     end
   end
 
-  defp publish_list_file(owner, repo, token, base, branch, contents, opts) do
-    with {:ok, ref_sha} <- create_ref(owner, repo, token, base, branch, opts),
-         {:ok, base_tree} <- base_tree(owner, repo, token, base, opts),
-         {:ok, blob} <- create_blob(owner, repo, contents, opts),
-         {:ok, tree} <- create_tree(owner, repo, base_tree, blob, opts),
-         {:ok, commit} <- create_commit(owner, repo, "Quarantine repeated flaky test", tree, [ref_sha], opts) do
-      update_ref(owner, repo, branch, commit, opts)
-    end
-  end
-
-  defp create_ref(owner, repo, token, base, branch, opts) do
-    with {:ok, sha} <- base_sha(owner, repo, token, base, opts),
-         {:ok, response} <- call(opts, :post, "repos/#{owner}/#{repo}/git/refs", %{"ref" => "refs/heads/#{branch}", "sha" => sha}),
-         %{"object" => %{"sha" => sha}} <- response do
-      {:ok, sha}
+  defp publish_list_file(ctx, branch, contents, identity) do
+    with {:ok, %{"object" => %{"sha" => base_sha}}} <- get(ctx, "git/ref/heads/#{ctx.base}", "quarantine_pr_base"),
+         {:ok, %{"tree" => %{"sha" => base_tree}}} <- get(ctx, "git/commits/#{base_sha}", "quarantine_pr_base_tree"),
+         {:ok, %{"sha" => blob}} <- write(ctx, :post, "git/blobs", %{"content" => contents, "encoding" => "utf-8"}),
+         {:ok, %{"sha" => tree}} <- write(ctx, :post, "git/trees", %{"base_tree" => base_tree, "tree" => [%{"path" => ctx.path, "mode" => "100644", "type" => "blob", "sha" => blob}]}),
+         {:ok, %{"sha" => commit}} <- write(ctx, :post, "git/commits", %{"message" => "Quarantine flaky test #{identity}", "tree" => tree, "parents" => [base_sha]}),
+         :ok <- point_branch(ctx, branch, commit) do
+      {:ok, base_sha, commit}
     else
-      {:error, _} = error -> error
-      _ -> {:error, :invalid_quarantine_ref}
-    end
-  end
-
-  defp base_sha(owner, repo, token, branch, opts) do
-    case request(opts).(%{method: :get, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}/git/ref/heads/#{branch}", token: token, caller: "quarantine_pr_base"}) do
-      {:ok, %{status: 200, body: %{"object" => %{"sha" => sha}}}} -> {:ok, sha}
-      {:ok, response} -> {:error, Errors.github_status_error(response)}
+      {:ok, _unexpected} -> {:error, :invalid_quarantine_git_response}
       {:error, _} = error -> error
     end
   end
 
-  defp base_tree(owner, repo, token, branch, opts) do
-    case request(opts).(%{method: :get, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}/git/ref/heads/#{branch}", token: token, caller: "quarantine_pr_base_tree"}) do
-      {:ok, %{status: 200, body: %{"object" => %{"sha" => commit}}}} ->
-        case request(opts).(%{method: :get, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}/git/commits/#{commit}", token: token, caller: "quarantine_pr_base_tree"}) do
-          {:ok, %{status: 200, body: %{"tree" => %{"sha" => sha}}}} -> {:ok, sha}
-          {:ok, response} -> {:error, Errors.github_status_error(response)}
-          {:error, _} = error -> error
-        end
-
-      {:ok, response} ->
-        {:error, Errors.github_status_error(response)}
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp create_blob(owner, repo, contents, opts) do
-    call(opts, :post, "repos/#{owner}/#{repo}/git/blobs", %{"content" => contents, "encoding" => "utf-8"})
-  end
-
-  defp create_tree(owner, repo, base, blob, opts) do
-    call(opts, :post, "repos/#{owner}/#{repo}/git/trees", %{"base_tree" => base, "tree" => [%{"path" => "src/test/quarantine.txt", "mode" => "100644", "type" => "blob", "sha" => blob["sha"]}]})
-  end
-
-  defp create_commit(owner, repo, message, tree, parents, opts) do
-    call(opts, :post, "repos/#{owner}/#{repo}/git/commits", %{"message" => message, "tree" => tree["sha"], "parents" => parents})
-  end
-
-  defp update_ref(owner, repo, branch, commit, opts) do
-    call(opts, :patch, "repos/#{owner}/#{repo}/git/refs/heads/#{branch}", %{"sha" => commit["sha"], "force" => false}) |> expect_ok()
-  end
-
-  defp create_pull_request(owner, repo, _token, branch, ticket, observations, opts) do
-    runs = Enum.map_join(observations, "\n", &"- #{&1.run_url}")
-    body = "Adds the repeated flaky test to the quarantine list.\n\nRefs ##{ticket}\n\nObserved failures in independent PR runs:\n#{runs}"
-
-    call(opts, :post, "repos/#{owner}/#{repo}/pulls", %{
-      "title" => "Quarantine repeated flaky test",
-      "head" => branch,
-      "base" => Keyword.get_lazy(opts, :base_branch, &TrackerSettings.base_branch/0),
-      "body" => body
-    })
-  end
-
-  defp call(opts, method, path, body) do
-    case request(opts).(%{method: method, url: "#{Transport.base_url()}/#{path}", token: elem(Transport.require_token(opts), 1), caller: "landing_watch_quarantine_pr", body: body}) do
-      {:ok, %{status: status, body: response}} when status in 200..201 and is_map(response) -> {:ok, response}
-      {:ok, response} -> {:error, Errors.github_status_error(response)}
+  # A branch left by an earlier, interrupted attempt is moved to the new commit.
+  defp point_branch(ctx, branch, commit) do
+    case write(ctx, :post, "git/refs", %{"ref" => "refs/heads/#{branch}", "sha" => commit}) do
+      {:ok, _} -> :ok
+      {:error, {:github, _, %{status: 422}}} -> write(ctx, :patch, "git/refs/heads/#{branch}", %{"sha" => commit, "force" => true}) |> expect_ok()
       {:error, _} = error -> error
     end
   end
+
+  defp pull_request(ctx, branch, identity, ticket, observations, base_sha, commit_sha) do
+    body = %{"title" => "Quarantine flaky test #{identity}", "head" => branch, "base" => ctx.base, "body" => body(ctx, identity, ticket, observations, base_sha, commit_sha)}
+
+    case write(ctx, :post, "pulls", body) do
+      {:ok, pr} -> {:ok, pr}
+      {:error, {:github, _, %{status: 422}}} -> existing_pull_request(ctx, branch)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp existing_pull_request(ctx, branch) do
+    query = URI.encode_query(%{head: "#{ctx.owner}:#{branch}", state: "open"})
+
+    case get(ctx, "pulls?" <> query, "landing_watch_quarantine_pr") do
+      {:ok, [pr | _]} -> {:ok, pr}
+      {:ok, _} -> {:error, :quarantine_pull_request_not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc false
+  @spec body(map(), String.t(), pos_integer(), [map()], String.t(), String.t()) :: String.t()
+  def body(ctx, identity, ticket, observations, base_sha, commit_sha) do
+    runs = observations |> Enum.map(& &1.run_url) |> Enum.uniq() |> Enum.map_join("\n", &"- #{&1}")
+    list = ctx.path
+
+    """
+    Refs ##{ticket}
+
+    #### Context
+
+    `#{identity}` failed in base-branch CI, or in two merge groups whose PRs did not touch it, within 24 hours.
+
+    #### TL;DR
+
+    *Skip one flaky test in blocking CI until ##{ticket} fixes it.*
+
+    #### Summary
+
+    - Adds one line to `#{list}`; blocking CI skips the test and the non-blocking quarantine job still runs it.
+    - The landing watcher opened this PR. Failed runs:
+    #{runs}
+
+    #### Alternatives
+
+    - Leave the test blocking: every failure drops approved PRs from the merge queue.
+
+    #### Complexity routing
+
+    - Signal: complexity:1
+    - Skills used: none (automatic quarantine)
+    - Rationale: one generated list entry
+    - Adjustment: none
+
+    #### Docs
+
+    - [x] Docs not required
+
+    ## Local tests
+
+    Policy: none
+    Tested head: #{commit_sha}
+    Base: #{ctx.base} @ #{base_sha}
+    Selection: a quarantine-list entry changes no code; CI checks the list format
+    - `none` -> not run; the daemon generated this list change
+    """
+  end
+
+  defp enable_auto_merge(ctx, %{"node_id" => id}) when is_binary(id) do
+    case Transport.github_graphql(request(ctx.opts), ctx.token, @auto_merge, %{"id" => id}, caller: "landing_watch_quarantine_auto_merge") do
+      {:ok, %{"data" => %{"enablePullRequestAutoMerge" => %{}}}} -> :ok
+      {:ok, _} -> {:error, :quarantine_auto_merge_unconfirmed}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp enable_auto_merge(_ctx, _pr), do: {:error, :quarantine_pull_request_missing_node_id}
+
+  defp get(ctx, path, caller) do
+    request(ctx.opts).(%{method: :get, url: "#{Transport.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/#{path}", token: ctx.token, caller: caller})
+    |> response()
+  end
+
+  defp write(ctx, method, path, body) do
+    request(ctx.opts).(%{method: method, url: "#{Transport.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/#{path}", token: ctx.token, caller: "landing_watch_quarantine_pr", body: body})
+    |> response()
+  end
+
+  defp response({:ok, %{status: status, body: body}}) when status in 200..201, do: {:ok, body}
+  defp response({:ok, %{status: _} = response}), do: {:error, Errors.github_status_error(response)}
+  defp response({:error, _} = error), do: error
 
   defp expect_ok({:ok, _}), do: :ok
   defp expect_ok(error), do: error
