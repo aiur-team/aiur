@@ -9,7 +9,7 @@ defmodule Aiur.Alerts do
   alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, AlertFeed, AlertLedger, Issue}
   alias Aiur.Alerts.{Config, Sound}
   alias Aiur.Config.Paths
-  alias Aiur.Events.{Publisher, Topic}
+  alias Aiur.Events
   alias Aiur.Signal
 
   @type definition :: %{
@@ -27,14 +27,14 @@ defmodule Aiur.Alerts do
 
   @doc """
   Returns the alert definition whose YAML pattern key matches `topic`
-  via `Aiur.Events.Topic.matches?/2`. Walks patterns in specificity
+  via `Aiur.Events.matches?/2`. Walks patterns in specificity
   order (more literal segments → first); ties broken lexicographically.
   Returns `nil` if no pattern matches.
   """
   @spec definition_for_topic(String.t()) :: definition() | nil
   def definition_for_topic(topic) when is_binary(topic) do
     Enum.find_value(sorted_patterns(), fn {pattern, definition} ->
-      if Topic.matches?(pattern, topic), do: definition
+      if Events.matches?(pattern, topic), do: definition
     end)
   end
 
@@ -43,7 +43,7 @@ defmodule Aiur.Alerts do
   defp sorted_patterns do
     definitions()
     |> Enum.to_list()
-    |> Enum.sort_by(fn {pattern, _def} -> {-Topic.specificity_score(pattern), pattern} end)
+    |> Enum.sort_by(fn {pattern, _def} -> {-Events.specificity_score(pattern), pattern} end)
   end
 
   @spec emit_system(String.t(), keyword()) :: :ok | {:error, term()}
@@ -260,7 +260,7 @@ defmodule Aiur.Alerts do
 
     payload = if Keyword.get(opts, :refs_only, false), do: Keyword.get(opts, :exchange_payload, %{}), else: payload
 
-    Publisher.publish(topic, payload,
+    Events.publish(topic, payload,
       issue_number: issue_number_for(opts),
       bypass_contamination: Keyword.get(opts, :bypass_contamination, false) or Aiur.ExecutorBindings.attention_topic?(topic),
       identity: Keyword.get(opts, :observation_identity),

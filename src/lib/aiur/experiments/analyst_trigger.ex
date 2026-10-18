@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.AnalystTrigger do
   @moduledoc false
   use GenServer
   require Logger
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
   alias Aiur.Experiments
   alias Aiur.Experiments.{Reader, ReportRecords, SampleStatus}
 
@@ -11,8 +11,8 @@ defmodule Aiur.Experiments.AnalystTrigger do
 
   @impl true
   def init(opts) do
-    :ok = Exchange.subscribe("system.experiment.*.*")
-    :ok = Exchange.subscribe("experiment.*")
+    :ok = Events.subscribe("system.experiment.*.*")
+    :ok = Events.subscribe("experiment.*")
     state = %{enabled: Keyword.get(opts, :enabled, &enabled?/0), request: Keyword.get(opts, :request, &Experiments.analyze/2), interval: Keyword.get(opts, :interval_ms, 60_000)}
     unless opts[:start_paused?], do: send(self(), :reconcile)
     {:ok, state}

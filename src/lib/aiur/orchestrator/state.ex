@@ -32,6 +32,7 @@ defmodule Aiur.Orchestrator.State do
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
+          priority_dispatch_reservations: %{optional(String.t()) => pos_integer()},
           load_envelope_state: map(),
           capacity_hold:
             %{
@@ -338,7 +339,8 @@ defmodule Aiur.Orchestrator.State do
     orphaned_agent_reap_count: 0,
     control_lifecycle: %ControlLifecycle{},
     prewarm_hold_ticks: 0,
-    prewarm_hold_since_ms: nil
+    prewarm_hold_since_ms: nil,
+    priority_dispatch_reservations: %{}
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}

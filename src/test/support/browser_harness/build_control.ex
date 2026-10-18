@@ -48,7 +48,8 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
 
   def configure(conn, _params), do: send_resp(conn, 404, "unknown build fixture control action")
 
-  defp diff_changes(_data, %{"name" => name}) when name in ~w(card-pct-null card-clock-3h plan-new-epic hist-new-epic counts-changed counts-unknown), do: named_diff(name)
+  defp diff_changes(_data, %{"name" => name}) when name in ~w(card-pct-null card-clock-3h plan-new-epic hist-new-epic counts-changed counts-unknown edge-state-cleared edge-unknown),
+    do: named_diff(name)
 
   defp diff_changes(data, %{"name" => "queue-unavailable"}) do
     path = Path.expand("../../fixtures/build_home/diffs/queue-unavailable.json", __DIR__)

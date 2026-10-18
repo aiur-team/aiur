@@ -3,7 +3,7 @@ defmodule Aiur.MainWatch do
   use GenServer
   require Logger
   alias Aiur.Config
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.{ResourceStore, Transport}
   alias Aiur.MainWatch.{Canary, Fixer, GitHub, Persistence, State, Suspects}
@@ -45,8 +45,8 @@ defmodule Aiur.MainWatch do
     repo = Keyword.get_lazy(opts, :repo, &GitHubConfig.repo/0)
     interval = Keyword.get_lazy(opts, :interval_ms, fn -> Config.settings!().polling.interval_seconds * 1_000 end)
     subscribe = Keyword.get(opts, :subscribe, true)
-    if subscribe, do: Exchange.subscribe("system.#{branch}.branch.push")
-    if subscribe, do: Exchange.subscribe("system.pr.merged")
+    if subscribe, do: Events.subscribe("system.#{branch}.branch.push")
+    if subscribe, do: Events.subscribe("system.pr.merged")
     data = Keyword.get(opts, :load_fun, &Persistence.load/2).(repo, branch)
     send(self(), :poll)
     {:ok, %{data: data, config: config, branch: branch, repo: repo, interval: interval, opts: opts, task: nil, dirty: false, debounce: nil}}

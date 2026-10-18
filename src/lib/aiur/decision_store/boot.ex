@@ -17,7 +17,7 @@ defmodule Aiur.DecisionStore.Boot do
   alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.DecisionStore.Requests
   alias Aiur.DecisionStore.RetainedSnapshot
-  alias Aiur.Events.IdGenerator
+  alias Aiur.Events
   alias Aiur.ExecutorCommandAttention
   alias Aiur.ExecutorEvents
   alias Aiur.Journal
@@ -83,7 +83,7 @@ defmodule Aiur.DecisionStore.Boot do
         dispatch_scheduler: Keyword.get(opts, :dispatch_scheduler, &Process.send_after/3),
         revision_follow_up_projector: revision_projector,
         revision_follow_up_resolver: revision_resolver,
-        event_id_reserver: Keyword.get(opts, :event_id_reserver, &IdGenerator.reserve_durable_id/0),
+        event_id_reserver: Keyword.get(opts, :event_id_reserver, &Events.reserve_durable_id/0),
         executor_attention_opener: Keyword.get(opts, :executor_attention_opener, &ExecutorCommandAttention.open/3),
         executor_request_boot_reconciler: Keyword.get(opts, :executor_request_boot_reconciler, &ExecutorEvents.reconcile_requested/1),
         executor_request_publisher: Keyword.get(opts, :executor_request_publisher, &ExecutorEvents.publish_requested/1),

@@ -11,7 +11,8 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
   require Logger
 
   alias Aiur.AgentRunner.{CommentContext, EventsDigest}
-  alias Aiur.Events.{SubscriptionStore, Topic, UniversalSubscriptions}
+  alias Aiur.Events
+  alias Aiur.Events.{SubscriptionStore, UniversalSubscriptions}
   alias Aiur.{Issue, IssueLog}
 
   @doc false
@@ -69,7 +70,7 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
   # Deliver a bootstrap digest of missed events on the first turn
   # after agent (re)start. The subscriber's cursor lives in its own
   # SubscriptionStore; the events themselves are persisted to the
-  # PUBLISHER's per-issue log via `Aiur.Events.Publisher.record_emit_marker/3`
+  # publisher's per-issue emit marker in `Aiur.IssueLog`
   # (which uses the ticket-id from the topic, not the subscriber's id).
   # Bootstrap therefore must read from each publisher log the
   # subscriber subscribes to, not from the subscriber's own log.
@@ -129,7 +130,7 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
 
   defp matches_any_pattern?(topic, patterns) when is_binary(topic) do
     Enum.any?(patterns, fn pattern ->
-      is_binary(pattern) and Topic.matches?(pattern, topic)
+      is_binary(pattern) and Events.matches?(pattern, topic)
     end)
   end
 

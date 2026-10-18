@@ -30,7 +30,7 @@ defmodule Aiur.AgentRunner.ToolEvents do
 
   # The only structured request routed through the durable DecisionStore
   # service — everything else keeps the existing generic publish path
-  # below unchanged. `Publisher.publish/3` itself also rejects this topic
+  # below unchanged. `Events.publish/3` itself also rejects this topic
   # family, so this is the sole production ingress, not just a preference.
   @spec emit_agent_event(map(), String.t(), String.t(), map()) :: term()
   def emit_agent_event(

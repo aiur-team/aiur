@@ -47,6 +47,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     max_concurrent_agents: :dispatch,
     session_max_concurrent_agents: :dispatch,
     effective_concurrent_agents: :dispatch,
+    priority_dispatch_reservations: :dispatch,
     load_envelope_state: :dispatch,
     capacity_hold: :dispatch,
     dispatch_hold: :dispatch,

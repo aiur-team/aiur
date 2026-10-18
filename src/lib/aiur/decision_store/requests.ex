@@ -9,7 +9,7 @@ defmodule Aiur.DecisionStore.Requests do
   alias Aiur.DecisionStore.Dedup
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionValidation
-  alias Aiur.Events.IdGenerator
+  alias Aiur.Events
   alias Aiur.ExecutorCommandAttention
   alias Aiur.ExecutorEvents
 
@@ -278,7 +278,7 @@ defmodule Aiur.DecisionStore.Requests do
 
   @spec accept(term(), term()) :: term()
   def accept(decision, state) do
-    case IdGenerator.reserve_durable_id() do
+    case Events.reserve_durable_id() do
       {:ok, event_id} -> Persistence.persist_and_notify(decision, event_id, state)
       {:error, :not_durable} -> {:reply, {:error, :event_id_not_durable}, state}
     end

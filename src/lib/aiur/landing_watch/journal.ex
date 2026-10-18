@@ -31,6 +31,25 @@ defmodule Aiur.LandingWatch.Journal do
     end)
   end
 
+  @doc "Reserves a per-head attempt and as many shared slots as available for individual workflow reruns."
+  @spec reserve_automatic_reruns(pos_integer(), String.t(), integer(), pos_integer(), keyword()) ::
+          {:ok, pos_integer()} | {:error, term()}
+  def reserve_automatic_reruns(pr, head, now, requested, opts \\ [])
+      when is_integer(pr) and is_binary(head) and is_integer(requested) and requested > 0 do
+    update(opts, fn state ->
+      case reserve_rerun_entry(state, key(pr, head), now) do
+        {:ok, reserved_state} -> MergeGroupJournal.take_requeue_slots(reserved_state, now, requested)
+        {:error, _} = error -> error
+      end
+    end)
+  end
+
+  @doc "Reserves only shared workflow-rerun slots for the remaining runs of an already-budgeted head."
+  @spec reserve_automatic_rerun_slots(integer(), pos_integer(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
+  def reserve_automatic_rerun_slots(now, requested, opts \\ []) when is_integer(requested) and requested > 0 do
+    update(opts, &MergeGroupJournal.take_requeue_slots(&1, now, requested))
+  end
+
   @doc "Why the per-head budget would refuse a rerun of this journal entry now, or nil."
   @spec rerun_refusal(map(), integer()) :: :rerun_backoff | :rerun_limit_reached | :invalid_landing_watch_journal_entry | nil
   def rerun_refusal(entry, now) do
