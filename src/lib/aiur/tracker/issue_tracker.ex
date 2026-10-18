@@ -15,6 +15,9 @@ defmodule Aiur.Tracker.IssueTracker do
 
   @callback open_issue_labels(pos_integer()) :: open_issue_labels_result()
   @callback refresh_open_issue_labels() :: :ok | {:error, term()}
+  @callback fetch_candidate_issues_conditional(map()) :: {:ok, [term()], map()} | {:error, term()}
+  @callback hydrate_blocked_by(Aiur.Issue.t()) :: {:ok, Aiur.Issue.t()} | {:error, term()}
+  @callback with_transient_retry((-> term()), keyword()) :: term()
   @callback fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
@@ -35,6 +38,9 @@ defmodule Aiur.Tracker.IssueTracker do
 
   @optional_callbacks config_module: 0,
                       code_host: 0,
+                      fetch_candidate_issues_conditional: 1,
+                      hydrate_blocked_by: 1,
+                      with_transient_retry: 2,
                       ticket_pull_request: 1,
                       blocked_by: 1,
                       issue_closure: 2,
