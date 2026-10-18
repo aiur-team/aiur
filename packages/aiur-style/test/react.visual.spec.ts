@@ -1,6 +1,13 @@
-import { test, expect, type TestInfo } from '@playwright/test';
+import { test, expect, type TestInfo, type Page } from '@playwright/test';
 import { PNG } from 'pngjs';
 import pixelmatch from 'pixelmatch';
+
+async function capture(page: Page) {
+  // Tracing can request a screenshot before Chromium has painted its first frame.
+  await page.evaluate(() => new Promise<void>(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  return page.screenshot({ animations: 'disabled' });
+}
 
 async function compare(actual: Buffer, expected: Buffer, name: string, info: TestInfo) {
   const a = PNG.sync.read(actual);
@@ -20,24 +27,25 @@ for (const theme of ['light', 'dark']) {
         await page.goto(`shell.html?theme=${theme}`);
         await page.evaluate(() => document.fonts.ready);
         // Compare against the running vanilla gallery, without creating or updating baselines.
-        const expanded = await page.screenshot({ animations: 'disabled' });
+        const expanded = await capture(page);
         let collapsed: Buffer | undefined;
         if (viewport.width >= 960) {
           await page.getByRole('button', { name: 'Collapse navigation' }).click();
           await page.mouse.move(700, 500);
-          collapsed = await page.screenshot({ animations: 'disabled' });
+          collapsed = await capture(page);
         }
         await page.evaluate(() => localStorage.clear());
         await page.goto(`react.html?theme=${theme}`);
         await expect(page.locator('.aiur-shell')).toBeVisible();
         await page.evaluate(() => document.fonts.ready);
         await testInfo.attach('vanilla-expanded.png', { body: expanded, contentType: 'image/png' });
-        await testInfo.attach('react-expanded.png', { body: await page.screenshot(), contentType: 'image/png' });
-        await compare(await page.screenshot({ animations: 'disabled' }), expanded, 'expanded', testInfo);
+        const actual = await capture(page);
+        await testInfo.attach('react-expanded.png', { body: actual, contentType: 'image/png' });
+        await compare(actual, expanded, 'expanded', testInfo);
         if (collapsed) {
           await page.getByRole('button', { name: 'Collapse navigation' }).click();
           await page.mouse.move(700, 500);
-          await compare(await page.screenshot({ animations: 'disabled' }), collapsed, 'collapsed', testInfo);
+          await compare(await capture(page), collapsed, 'collapsed', testInfo);
         }
       });
     });
