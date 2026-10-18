@@ -28,6 +28,8 @@ config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
 config :aiur, :process_reaper_pane_killer, {Aiur.Tmux.Socket, :kill_pane}
 config :aiur, :pause_containment_result_target, Aiur.Orchestrator
 
+config :aiur, :agent_environment_contributors, [Aiur.GitHub.AgentEnvironmentContributor]
+
 config :aiur, :turn_sandbox_root_contributors, [
   Aiur.AgentEnvironment.SandboxRoots,
   Aiur.GitHub.Budget.SandboxRoots,
@@ -39,6 +41,14 @@ config :aiur, :tracker_adapters, %{
   "linear" => Aiur.Linear.Tracker,
   "memory" => Aiur.Memory.Tracker
 }
+
+config :aiur, :workspace_preflights, %{"github" => Aiur.GitHub.WorkspacePreflight}
+# Prewarm historically resolves the GitHub origin even with another issue tracker.
+config :aiur, :repo_base_clone_url, {Aiur.GitHub.Tracker, :clone_url, []}
+config :aiur, :repo_base_git_token, {Aiur.GitHub.Config, :token, []}
+config :aiur, :workspace_git_credential_file, {Aiur.AgentGitHubGuard, :agent_token_path, []}
+config :aiur, :repo_ledger_validators, %{asks: {Aiur.Commands, :validate_asks}, findings: {Aiur.Findings, :validate}}
+config :aiur, :agent_support_modules, [Aiur.AgentGitHubGuard]
 
 config :aiur, :tracker_fallback_kind, "linear"
 

@@ -108,11 +108,11 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
       publish({ ...core.state, selectedOption: optionIndex, commandsError: null });
       return;
     }
-    if (index === COMMANDS_MIC && isAnswerable(command.status)) {
+    if (index === COMMANDS_MIC && isAnswerable(command)) {
       holdMic();
       return;
     }
-    if (index === COMMANDS_APPROVE && core.state.commandDictation && isAnswerable(command.status)) {
+    if (index === COMMANDS_APPROVE && core.state.commandDictation && isAnswerable(command)) {
       // Fire-and-forget: the key derivation is async (SHA-256), so the answer
       // is sent once the digest resolves.
       void approveCommand(command);

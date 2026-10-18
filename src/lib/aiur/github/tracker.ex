@@ -15,14 +15,25 @@ defmodule Aiur.GitHub.Tracker do
   alias Aiur.GitHub.BoundedBlockedBy
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
+  alias Aiur.GitHub.IssueCreation
+  alias Aiur.GitHub.IssueLookup
   alias Aiur.GitHub.Issues
   alias Aiur.GitHub.Labels
+  alias Aiur.GitHub.LocalHold
   alias Aiur.GitHub.OpenIssueSnapshot
   alias Aiur.GitHub.TicketPullRequest
   alias Aiur.GitHub.Transport
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.TestTicketScope
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec create_issue(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def create_issue(attrs, opts), do: IssueCreation.create(attrs, opts)
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec find_issue(String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def find_issue(marker, opts), do: IssueLookup.find(marker, opts)
 
   @impl Aiur.Tracker.IssueTracker
   @spec blocked_by(String.t()) :: {:ok, [String.t()]} | {:error, term()}
@@ -87,6 +98,17 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
+  def workspace_repo_segment, do: Config.repo()
+
+  @impl Aiur.Tracker.IssueTracker
+  def clone_url do
+    case Config.repo() do
+      repo when is_binary(repo) and repo != "" -> "https://github.com/#{repo}.git"
+      _ -> nil
+    end
+  end
+
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.repo()
 
@@ -111,6 +133,7 @@ defmodule Aiur.GitHub.Tracker do
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues, do: client_module().fetch_candidate_issues()
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_candidate_issues_conditional(map()) ::
           {:ok, [term()], map()} | {:error, term()}
   def fetch_candidate_issues_conditional(cache) when is_map(cache) do
@@ -125,6 +148,10 @@ defmodule Aiur.GitHub.Tracker do
 
     TestTicketScope.filter_result(result)
   end
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec with_transient_retry((-> term()), keyword()) :: term()
+  def with_transient_retry(fun, opts), do: LocalHold.run(fun, LocalHold.caller_opts(opts))
 
   @spec auth_preflight() :: :ok | {:error, term()}
   def auth_preflight do
@@ -193,6 +220,7 @@ defmodule Aiur.GitHub.Tracker do
   than by tracker size. A failed dependency read returns `{:error, reason}` and
   the dispatcher holds dispatch (fail-closed).
   """
+  @impl Aiur.Tracker.IssueTracker
   @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
   def hydrate_blocked_by(%Issue{} = issue), do: client_module().hydrate_blocked_by(issue)
 
@@ -275,6 +303,9 @@ defmodule Aiur.GitHub.Tracker do
 
   @impl Aiur.Tracker.CodeHost
   defdelegate withdraw_landing(number), to: Aiur.GitHub.LandingWithdrawal, as: :withdraw
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate pull_request_body_edited_at(number), to: Aiur.GitHub.PullRequestBodyEdit, as: :last_edited_at
 
   @impl Aiur.Tracker.IssueTracker
   defdelegate reopen_issue(issue_id), to: Aiur.GitHub.IssueReopen, as: :reopen

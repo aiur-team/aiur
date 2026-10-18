@@ -33,6 +33,8 @@ The build timeline at `/build` labels daemon state separately from socket reacha
 
 While the socket is open but the fleet snapshot is unread, such as during startup, the footer reads “Daemon up · unread” with the age of the last good reading. A source that a GitHub budget hold delays is named in the footer with the age of its last read, for example “history held 2m”. Hover the footer for the full sentence.
 
+Before the first timeline load finishes, the footer shows the last daemon state the server read, with its age. A recent reading can show “Daemon live · <1m ago”; a reading 30 seconds old or older shows “Daemon stale” with its age and the dot turned off. It reads “Daemon status unknown” only when no daemon state has been observed yet.
+
 History, queue and open-ticket headers label stale or partial reads with their age. Failed reads show unavailable markers instead of empty sections; disabled sources keep their reason. Filters and unloaded history days have distinct empty messages. Before the first snapshot, the timeline shows a loading skeleton; a failed initial read stops its animation.
 
 **Reconnect** retries a dropped socket immediately, or requests a fresh snapshot when the socket is open. It reads “Reconnecting…” while pending and returns to **Reconnect** after ten seconds if the page is still degraded. This control also works with read-only access.
@@ -60,7 +62,9 @@ On narrow screens, scroll within the **Build queue** table to see prerequisites,
 
 The operator-facing UI and CLI call these records **Commands**.
 
-Open the settings cog in the sticky top bar to pause or resume all agents, change the theme, or switch between Gruvbox (the default) and the aiur palette. Pause requires writable access and a known fleet state; an unavailable state reads “Pause state unknown”. The “All agents paused” chip appears only when pause is confirmed.
+Open the settings cog in the sticky top bar to pause or resume new agent starts, change the theme, or switch between Gruvbox (the default) and the aiur palette. A global pause leaves existing agents running and observed; pause an individual agent from its row for containment.
+
+Pause requires writable access and a known fleet state; an unavailable state reads “Pause state unknown”. The “New starts paused” chip appears only when pause is confirmed.
 
 The theme starts dark until you toggle it. Both choices stay in this browser; another tab keeps its current palette until reload. Fonts are served by the dashboard, including offline.
 
@@ -93,6 +97,10 @@ The `sort` query parameter preserves the selected table, column, and direction i
 The temporary, unlinked `/build` route reads the repository timeline from local stores.
 It requires dashboard authentication and loads history by active day in the browser’s time zone.
 Live changes are coalesced; snapshots distinguish unavailable sources from empty sections.
+
+List (`?view=list`) shows Live, Planned, Not queued and newest-first History as table rows.
+Ticket rows support keyboard focus. Use **Load earlier day** to fetch more history.
+Unknown values stay explicit, and degraded section headings show their source state and read age.
 
 The toolbar selects Timeline, Gantt or List and retains the view in the URL.
 Use Left/Right arrows or Home/End to move between view tabs, then Enter or Space
@@ -209,6 +217,10 @@ Retained Analytics charts use at most 180 evenly spaced resource observations pe
 Full log combines the newest materialized prior runs that fit a bounded projection with the current telemetry stream. Its source label states how many retained runs are included. Without materialized history, only raw files up to 1 MiB can be analyzed; larger files report unavailable rather than trigger an unbounded parse.
 
 Retained summaries that exceed the read budget also report unavailable.
+
+The Build page usage strip shows API budgets and provider windows or credits. Hover or focus a usage line for account details, observation age, and budget holds.
+
+Unknown readings stay marked as unobserved; expired windows and stale readings are identified explicitly. Reset labels refresh every 30 seconds while the tab is visible. Locked sessions show an authentication message without financial values.
 
 ### Read an experiment
 

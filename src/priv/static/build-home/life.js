@@ -4,6 +4,7 @@ export function createLife() {
   const own = off => { offs.add(off); return () => { off(); offs.delete(off); }; };
   return {
     get disposed() { return disposed; },
+    cleanup(fn) { return own(fn); },
     on(target, type, fn, opts) {
       target.addEventListener(type, fn, opts);
       return own(() => target.removeEventListener(type, fn, opts));

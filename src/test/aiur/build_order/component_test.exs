@@ -95,6 +95,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.BuildOrder.PackStatus, [poll_on_start: true]},
     {Aiur.OpenTicketSource, [poll_on_start: true]},
     {Aiur.GitHub.ViewStateSweep, [sources: [Aiur.BuildOrder.PackStatus]]},
+    Aiur.GitHub.Listeners,
     {Aiur.Orchestrator, [name: Aiur.Orchestrator, initial_poll?: true]},
     Aiur.BuildQueue.Server,
     Aiur.DecisionExpiry,
@@ -141,6 +142,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.ExecutorSweep,
     Aiur.Experiments.Auto.Notifier,
     Aiur.Experiments.Auto.WindowManager,
+    Aiur.Experiments.Analyst,
+    Aiur.Experiments.AnalystTrigger,
     Aiur.LandingWatch.QuarantineLifter,
     AiurWeb.Build.IndexSupervisor
   ]

@@ -1,0 +1,62 @@
+{
+  "v": 1,
+  "kind": "diff",
+  "epoch": "fixture",
+  "generation": 1,
+  "now": 1791408000000,
+  "upsert": [
+    {
+      "id": "615",
+      "num": 615,
+      "title": "Backfill cursors for old events",
+      "type": "feature",
+      "epic": "f-pag-api",
+      "feature": "pag",
+      "also": [],
+      "cx": 4,
+      "pts": 5,
+      "sec": "plan",
+      "ord": 8,
+      "start": null,
+      "start_src": "unknown",
+      "end": null,
+      "created": 1791319471664,
+      "status": "queued",
+      "pct": 0,
+      "agent": null,
+      "est": 5,
+      "override": null,
+      "added": true,
+      "deps": [
+        "607"
+      ],
+      "children": [
+        "625",
+        "627",
+        "628",
+        "631",
+        "633",
+        "634",
+        "635",
+        "642"
+      ],
+      "dep_states": {
+        "607": "cleared"
+      },
+      "deps_missing": 0,
+      "wave": 2,
+      "qpos": 9,
+      "cue": {
+        "held": null,
+        "promoted": null,
+        "wait": null,
+        "waitAny": true,
+        "failed": null,
+        "blockedChain": false
+      },
+      "pr": null
+    }
+  ],
+  "remove": [],
+  "set": {}
+}

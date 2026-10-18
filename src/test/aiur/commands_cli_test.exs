@@ -97,6 +97,31 @@ defmodule Aiur.CommandsCLITest do
            }
   end
 
+  test "expired unanswered blocking Commands remain in the open filter and can be answered", %{store: store} do
+    decision = request!(store, "expired-blocking", true, authority: "supervisor_allowed")
+    assert {:ok, %{decision: expired}} = DecisionStore.expire(decision.decision_id, "agent_not_running", [now: ~U[2026-08-08 11:00:00Z]], store)
+    assert expired.decision_status == :expired
+
+    assert {:ok, open} = CommandsCLI.build(filter: :open, decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end)
+    assert [row] = open["data"]["page"]["decisions"]
+    assert row["decision_id"] == decision.decision_id
+    assert row["decision_status"] == "expired"
+    assert row["options"] == [%{"id" => "ship", "label" => "Ship", "description" => "Deploy the change.", "risk" => "low", "benefits" => nil, "drawbacks" => nil}]
+
+    assert {:ok, %{status: :accepted, decision: answered}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "answer-after-expiry", "expected_version" => decision.version, "option_id" => "ship"},
+               [actor: %{kind: :executor, id: "codex-executor"}],
+               store
+             )
+
+    assert answered.decision_status == :decided
+    assert answered.answer.selected_option_id == "ship"
+    assert {:ok, after_answer} = CommandsCLI.build(filter: :open, decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end)
+    assert after_answer["data"]["page"]["decisions"] == []
+  end
+
   test "renders an exact detail and keeps dispatch pending distinct from resolved", %{store: store} do
     decision = request!(store, "dispatch-pending", false)
 
@@ -166,7 +191,7 @@ defmodule Aiur.CommandsCLITest do
     assert message =~ "only supports --ticket"
   end
 
-  defp request!(store, source_id, blocking) do
+  defp request!(store, source_id, blocking, extra \\ []) do
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(
                %{
@@ -174,6 +199,8 @@ defmodule Aiur.CommandsCLITest do
                  "question" => "Should #{source_id} ship?",
                  "blocking" => blocking,
                  "reversibility" => "reversible",
+                 "authority" => Keyword.get(extra, :authority, "human_required"),
+                 "context" => %{"authority_basis" => "security"},
                  "options" => [%{"id" => "ship", "label" => "Ship", "description" => "Deploy the change.", "risk" => "low"}]
                },
                [ticket: @ticket, source: @source, now: ~U[2026-08-08 10:00:00Z]],

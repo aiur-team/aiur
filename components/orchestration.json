@@ -8,6 +8,7 @@
     "src/lib/aiur/agent_queue.ex",
     "src/lib/aiur/agent_queue_item.ex",
     "src/lib/aiur/agent_queue_store.ex",
+    "src/lib/aiur/agent_queue_store/**",
     "src/lib/aiur/current_run_membership.ex",
     "src/lib/aiur/current_run_membership/**",
     "src/lib/aiur/dispatch_budget_store.ex",
@@ -25,7 +26,8 @@
     "src/lib/aiur/recent_merge/**",
     "src/lib/aiur/recent_merge_store.ex",
     "src/lib/aiur/test_quarantine.ex",
-    "src/lib/aiur/test_quarantine/**"
+    "src/lib/aiur/test_quarantine/**",
+    "src/lib/aiur/ticket_markers.ex"
   ],
   "facades": [
     "*"
@@ -87,5 +89,8 @@
     "worker"
   ],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "forbid": [
+    "Aiur.GitHub.Listeners.*"
+  ]
 }

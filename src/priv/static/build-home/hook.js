@@ -9,10 +9,14 @@ import './clock.js';
 import './render.js';
 import './columns.js';
 import './cards.js';
-import './offline.js';
+import { seedDaemon } from './offline.js';
 import './tools.js';
+import './usage.js';
+
 import './span.js';
+import './edges.js';
 import './states.js';
+import './list.js';
 
 export function writeOwnData() {
   if (ctx.bdStates != null) ctx.root.dataset.bdStates = ctx.bdStates;
@@ -83,7 +87,7 @@ export function createBuildHomeHook() {
     mounted() {
       let urlState;
       try { urlState = JSON.parse(this.el.dataset.urlState || '{}'); } catch { urlState = {}; }
-      resetState(urlState);
+      resetState(urlState); seedDaemon(this.el.dataset.daemon);
       ctx.root = this.el; ctx.life = createLife(); ctx.resync = resync;
       ctx.push = (e, p) => this.pushEvent(e, p); ctx.reload = () => location.reload();
       this.buildLife = ctx.life;

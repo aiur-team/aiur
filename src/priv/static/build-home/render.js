@@ -19,7 +19,7 @@ export function viewport() {
       '<div class="bd-content" id="bd-content">' +
         '<div class="bd-lanes" id="bd-lanes"><span class="bd-lane-g">' + (S.view === "gantt" ? "Time" : "Order") + "</span></div>" +
         '<div class="bd-guides" id="bd-guides"></div>' +
-        '<svg class="bd-edges" id="bd-edges"></svg>' +
+        '<svg class="bd-edges" id="bd-edges" aria-hidden="true"></svg>' +
         '<section class="bd-sec" id="bd-sec-hist"><div class="bd-sech"></div><div class="bd-layer"></div></section>' +
         '<div class="bd-now" id="bd-now"><div class="bd-now-h"></div><div class="bd-layer"></div></div>' +
         '<section class="bd-sec" id="bd-sec-plan"><div class="bd-sech"></div><div class="bd-layer"></div></section>' +

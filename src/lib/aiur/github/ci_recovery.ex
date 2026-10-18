@@ -22,12 +22,16 @@ defmodule Aiur.GitHub.CIRecovery do
     end
   end
 
-  # Text endpoints such as job logs return a binary body.
-  @spec read(String.t(), keyword()) :: {:ok, map() | binary()} | {:error, term()}
+  # Text endpoints such as job logs return a binary body; list endpoints such as commits return a list.
+  @spec read(String.t(), keyword()) :: {:ok, map() | list() | binary()} | {:error, term()}
   def read(path, opts), do: request(:get, path, nil, opts)
 
   @spec rerun(integer(), keyword()) :: {:ok, map()} | {:error, term()}
   def rerun(run, opts), do: request(:post, "/actions/runs/#{run}/rerun-failed-jobs", %{}, opts)
+
+  @doc "Merges the base into a PR branch for a fresh merge ref, only while its head is still `head`."
+  @spec update_branch(integer(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def update_branch(number, head, opts), do: request(:put, "/pulls/#{number}/update-branch", %{expected_head_sha: head}, opts)
 
   @spec jobs(integer(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def jobs(run, opts) when is_integer(run) and run > 0 do

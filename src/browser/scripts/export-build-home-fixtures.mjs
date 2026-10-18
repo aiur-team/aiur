@@ -102,6 +102,10 @@ export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}
   hostile.sections.plan[0].override = { hours: 1, reason: '" onmouseover="window.__xss=1', by: 'fixture', at: NOW };
   files['hostile.json'] = encode({ snapshot: hostile, invalid_title_base64: Buffer.from([65, 255, 66]).toString('base64') });
   files['usage-sets.json'] = encode(PSETS);
+  for (const n of [2, 7]) files[`usage/n${n}.json`] = encode(mapRawToPayload({
+    meta: { now: NOW, tz: TZ }, data: raw(dataFor('live')),
+    usage: { models: PSETS[n], apis: API_ROWS }, daemon: JSON.parse(files['live.json']).daemon,
+  }).usage);
   const offsets = new Set();
   for (const text of Object.values(files)) walk(decode(text), v => {
     if (Number.isFinite(v) && v >= 1.7e12 && v <= 1.9e12) offsets.add(-new Date(v).getTimezoneOffset());
@@ -154,6 +158,7 @@ function main(args) {
   if (check) return checkFiles(files, out);
   mkdirSync(out, { recursive: true });
   for (const [f, text] of Object.entries(files)) {
+    mkdirSync(resolve(out, f, '..'), { recursive: true });
     writeFileSync(join(out, `${f}.tmp`), text);
     renameSync(join(out, `${f}.tmp`), join(out, f));
   }

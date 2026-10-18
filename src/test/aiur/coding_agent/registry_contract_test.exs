@@ -34,6 +34,29 @@ defmodule Aiur.CodingAgent.RegistryContractTest do
     for {key, entry} <- Registry.entries(), reason <- List.wrap(check.(key, entry)), do: {key, reason}
   end
 
+  @delivery_values %{
+    transport: [:unknown, :app_server_stdio, :tmux_pane, :msp_stdio, :in_process_http, :acp_stdio],
+    mid_turn_inject: [:none, :native],
+    pull_tool: [false, true],
+    native_question: [:none, :native]
+  }
+
+  # Future regression guard: validates declarations as providers evolve; outside the C1 baseline.
+  @tag r7_characterization: false
+  test "delivery declarations use only known fields and values" do
+    assert failures(fn _key, entry ->
+             for {field, value} <- Map.get(entry, :delivery, %{}),
+                 not valid_delivery_value?(field, value),
+                 do: {:bad_delivery, field, value}
+           end) == []
+  end
+
+  defp valid_delivery_value?(:hook_boundaries, value),
+    do: is_list(value) and Enum.all?(value, &(&1 in [:prompt, :tool, :stop]))
+
+  defp valid_delivery_value?(field, value),
+    do: Map.has_key?(@delivery_values, field) and value in Map.fetch!(@delivery_values, field)
+
   test "registry is not empty" do
     assert map_size(Registry.entries()) > 0
   end

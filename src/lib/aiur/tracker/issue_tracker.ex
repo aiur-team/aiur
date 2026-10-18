@@ -15,6 +15,9 @@ defmodule Aiur.Tracker.IssueTracker do
 
   @callback open_issue_labels(pos_integer()) :: open_issue_labels_result()
   @callback refresh_open_issue_labels() :: :ok | {:error, term()}
+  @callback fetch_candidate_issues_conditional(map()) :: {:ok, [term()], map()} | {:error, term()}
+  @callback hydrate_blocked_by(Aiur.Issue.t()) :: {:ok, Aiur.Issue.t()} | {:error, term()}
+  @callback with_transient_retry((-> term()), keyword()) :: term()
   @callback fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
@@ -22,6 +25,8 @@ defmodule Aiur.Tracker.IssueTracker do
   @callback fetch_issue_states_by_ids_conditional([String.t()], map()) ::
               {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
+  @callback create_issue(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback find_issue(String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
   @callback fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   @callback update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   @callback update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
@@ -30,11 +35,21 @@ defmodule Aiur.Tracker.IssueTracker do
   @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
   @callback reopen_issue(String.t()) :: :ok | {:error, term()}
 
+  @callback clone_url() :: String.t() | nil
+  @callback workspace_repo_segment() :: String.t() | nil
+
   @callback config_module() :: module()
   @callback code_host() :: module() | nil
 
-  @optional_callbacks config_module: 0,
+  @optional_callbacks clone_url: 0,
+                      workspace_repo_segment: 0,
+                      config_module: 0,
+                      create_issue: 2,
+                      find_issue: 2,
                       code_host: 0,
+                      fetch_candidate_issues_conditional: 1,
+                      hydrate_blocked_by: 1,
+                      with_transient_retry: 2,
                       ticket_pull_request: 1,
                       blocked_by: 1,
                       issue_closure: 2,

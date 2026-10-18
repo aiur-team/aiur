@@ -51,6 +51,7 @@ export function applyCols(next, immediate) {
   syncKeyed(ctx.guideEls, ctx.guidesEl, "bd-guide", () => {}, (el, k) => { const c = ctx.colMap[k]; el.style.left = (c.x - gap / 2) + "px"; el.style.width = (c.w + gap) + "px"; });
   ctx.R.forEach((el) => place(el, el._it));
   ctx.L.band.items.forEach((it) => place(it.el, it));
+  ctx.svg.classList.remove("hide");
   fx.drawEdgesSoon(immediate ? 0 : 420);
 }
 function syncKeyed(map, host, cls, fill, pos) {

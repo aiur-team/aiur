@@ -99,6 +99,8 @@ See `docs/security/daemon-token-posture.md` in this repository for the full setu
 
 ## What the agent guard governs
 
+Governed `gh` calls have a 120-second maximum runtime. `AIUR_GH_CALL_TIMEOUT_SECONDS` may lower that bound for controlled runs; larger values are capped at 120 seconds. A timed-out call is terminated with its child processes and exits with status 124. Long-running commands such as `gh run watch` and `gh pr checks --watch` are subject to the same limit.
+
 Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon scrubs them from every agent environment and instead writes the bot PAT to a
 credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard
 reads.
@@ -141,7 +143,9 @@ When a comparison is capped, one GraphQL read compares each PR path's object id 
 
 Comparison reads are attributed to `human_review_base_ancestry` and always contact GitHub because base movement can change verdicts. Orphan recovery reads `orphan_claim_mergeability` only after REST reports `mergeable: false`, and `orphan_claim_approval_state` after a stale-base write fails. No quota savings are claimed.
 
-A head pushed after approval is classified once per approved/new head pair: one `pulls/{n}` read and up to three compare reads, attributed to `approval_carry`.
+A head pushed after approval is classified once per approved/new head pair by the CI poller: one `pulls/{n}` read and up to three compare reads, attributed to `approval_carry`.
+
+A worker's `human-review` handback also reads the PR's approval (one GraphQL read, `approved_handoff`) and, when the approved commit is not the head, repeats the `approval_carry` reads on every such handback.
 
 The approval carries only when the contribution diff (merge base to head) is identical, context included; hunk positions may shift with base edits above them. Any conflict resolution does not carry. The PR body `Tested head` must name the new head.
 
