@@ -3,7 +3,7 @@
   "to_module": "Aiur.ExperimentsCLI",
   "kind": "reference",
   "only_paths": [
-    "src/lib/aiur/agent_control_cli.ex"
+    "src/lib/aiur/control_cli/entry_points.ex"
   ],
   "reason": "#3806 control RPC delegates experiments commands to the optional component facade"
 }
