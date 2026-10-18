@@ -203,10 +203,10 @@ was produced. The workspace's mocked tests do not fill that gap.
 
 ## Remaining post-deploy checks
 
-These steps remain necessary to complete acceptance. They require the
-Executor's repository root or physical equipment and were not run here.
+These checks require the Executor's repository root or physical equipment
+and were not run here. Complete steps 1–3 and either voice step 4 or 5.
 The PR repeats every exact step under `## Local tests` as a
-`Post-deploy check:`; partial observations below do not complete them.
+`Post-deploy check:`; the partial observations above do not complete them.
 
 1. From the Executor repo root, update to main, run `scripts/aiurdev restart`,
    and confirm the loaded build's repo/commit stamp matches that main SHA.
