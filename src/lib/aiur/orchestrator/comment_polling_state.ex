@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.CommentPollingState do
   @moduledoc "Adapts the in-place comment poll to State and folds lifecycle observations in order."
   alias Aiur.Orchestrator.{CommentPolling, ReadyForReviewTransitions, State, TrackerHealth}
-  alias Aiur.Orchestrator.CommentPolling.Reconcile
+  alias Aiur.PrReadyLedgerStore
 
   @spec poll_github_comments(State.t(), keyword()) :: State.t()
   def poll_github_comments(state, opts \\ []), do: run(state, :poll_github_comments, [], opts) |> elem(0)
@@ -30,16 +30,19 @@ defmodule Aiur.Orchestrator.CommentPollingState do
   def reconcile_retry_delay_ms(state), do: CommentPolling.reconcile_retry_delay_ms(CommentPolling.input(state))
 
   defp run(state, function, args, opts) do
-    opts = opts |> Keyword.put(:pr_review_seen_at, state.pr_review_seen_at) |> Keyword.put(:pr_ready_ledger, state.pr_ready_ledger) |> Keyword.put(:poll_frozen, state.poll_frozen)
+    opts =
+      opts
+      |> Keyword.put(:pr_review_seen_at, state.pr_review_seen_at)
+      |> Keyword.put(:pr_ready_ledger, state.pr_ready_ledger)
+      |> Keyword.put(:load_pr_ready_ledger, &PrReadyLedgerStore.load/0)
+      |> Keyword.put(:poll_frozen, state.poll_frozen)
+
     {cursor, outcome} = apply(CommentPolling, function, [state.github_comment_cursor, CommentPolling.input(state)] ++ args ++ [opts])
     state = fold(%{state | github_comment_cursor: cursor}, outcome)
 
-    # Connectivity changes the retry delay; schedule against the freshly folded State.
-    state =
-      case Map.get(outcome, :reconcile) do
-        {minimum, replace?} -> %{state | github_comment_cursor: Reconcile.schedule(cursor, CommentPolling.input(state), minimum, replace?, opts)}
-        nil -> state
-      end
+    # Connectivity changes the retry delay; finish against the freshly folded State.
+    cursor = CommentPolling.finish(cursor, CommentPolling.input(state), outcome, opts)
+    state = %{state | github_comment_cursor: cursor}
 
     {state, outcome}
   end

@@ -154,7 +154,7 @@ defmodule Aiur.Orchestrator.CommentPolling.Poll do
   defp ready_ledger(opts) do
     case Keyword.get(opts, :pr_ready_ledger) do
       ledger when is_map(ledger) -> ledger
-      _unloaded -> Aiur.PrReadyLedgerStore.load()
+      _unloaded -> Keyword.get(opts, :load_pr_ready_ledger, fn -> %{} end).()
     end
   end
 

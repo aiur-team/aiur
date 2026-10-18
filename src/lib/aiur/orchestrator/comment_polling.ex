@@ -135,6 +135,15 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   def run_scheduled_reconcile(%Cursor{} = cursor, %Input{}, _stale_token, _opts), do: {cursor, %{}}
 
+  @doc false
+  @spec finish(Cursor.t(), Input.t(), map(), keyword()) :: Cursor.t()
+  def finish(%Cursor{} = cursor, %Input{} = input, outcome, opts) do
+    case Map.get(outcome, :reconcile) do
+      {minimum, replace?} -> Reconcile.schedule(cursor, input, minimum, replace?, opts)
+      nil -> cursor
+    end
+  end
+
   @spec reconcile_retry_delay_ms(Input.t()) :: non_neg_integer()
   def reconcile_retry_delay_ms(%Input{} = input), do: max(@retry_delay_ms, input.next_github_delay_ms || 0)
   @spec terminate_poll(map() | nil) :: :ok
