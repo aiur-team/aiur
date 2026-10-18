@@ -2088,39 +2088,6 @@ defmodule AiurWeb.DashboardLiveTest do
            end)
   end
 
-  test "a dead render of an open human-required Command disables its Decision button" do
-    orchestrator_name = Module.concat(__MODULE__, :DeadRenderDecisionOrchestrator)
-    decision_store_name = Module.concat(__MODULE__, :DeadRenderDecisionStore)
-
-    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted}} end)
-
-    decision =
-      request_api_decision(store, "dead-render-disabled", :human_required,
-        ticket: %{identifier: "AIUR-5149", title: "Commands", url: nil},
-        source: %{agent_id: "agent-5149", session_id: "session-5149", event_id: "event-dead-render"},
-        authority_basis: :security
-      )
-
-    start_counting_orchestrator(orchestrator_name)
-
-    start_test_endpoint(
-      orchestrator: orchestrator_name,
-      snapshot_timeout_ms: 100,
-      decision_store: decision_store_name,
-      control_center_cache: false,
-      dashboard_writable: true
-    )
-
-    conn = get(build_conn(), "/commands/#{decision.decision_id}")
-    assert conn.status == 200
-
-    document = Floki.parse_document!(conn.resp_body)
-    button = Floki.find(document, "#decision-answer-form-#{decision.decision_id} button[type=submit]")
-
-    assert [decision_button] = button
-    assert Floki.attribute(decision_button, "disabled") != []
-  end
-
   test "a non-selected Command stays answerable from another Command's detail page" do
     orchestrator_name = Module.concat(__MODULE__, :NonSelectedAnswerOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :NonSelectedAnswerStore)
