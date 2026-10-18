@@ -60,6 +60,9 @@ defmodule Aiur.CodingAgent.Backend do
   One registry entry in `Aiur.CodingAgent.backends/0`. Required keys
   exist on every backend; optional keys are declared capabilities:
 
+    * `:delivery` — non-derivable transport, mid-turn injection, pull-tool,
+      hook-boundary and native-question facts for `Aiur.Harness.Capabilities`.
+      Omitted declarations get conservative defaults.
     * `:immediate_delivery` — Executor messages pass straight through
       to the live process instead of holding at a checkpoint.
     * `:remote_transport` — the backend an RC-promoted session
@@ -91,6 +94,7 @@ defmodule Aiur.CodingAgent.Backend do
           required(:models) => [String.t()],
           optional(:model_aliases) => :native | :derived,
           required(:efforts) => [String.t()],
+          optional(:delivery) => map(),
           optional(:immediate_delivery) => boolean(),
           optional(:remote_transport) => CodingAgent.backend(),
           optional(:fallback_backend) => CodingAgent.backend(),
