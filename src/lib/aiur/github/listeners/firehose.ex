@@ -14,6 +14,8 @@ defmodule Aiur.GitHub.Listeners.Firehose do
             firehose_truncation_alert_active: false,
             firehose_truncation_alert_resolution_emitted: false,
             recent_merge_persistence_failures: 0,
+            pending_poll: nil,
+            poll_queue: :queue.new(),
             outcome: %{connectivity: [], poll_interval: nil}
 
   @recent_merge_persistence_retry_limit 3
@@ -22,15 +24,69 @@ defmodule Aiur.GitHub.Listeners.Firehose do
   def start_link(opts), do: GenServer.start_link(__MODULE__, :ok, Keyword.take(opts, [:name]))
 
   @impl true
-  def init(:ok), do: {:ok, %__MODULE__{}}
+  def init(:ok) do
+    Process.flag(:trap_exit, true)
+    {:ok, %__MODULE__{}}
+  end
 
   @impl true
-  def handle_call(:reset, _from, _state), do: {:reply, :ok, %__MODULE__{}}
+  def handle_call(:reset, _from, state) do
+    stop_poll(state.pending_poll)
+    if state.pending_poll, do: GenServer.reply(state.pending_poll.from, {:error, :firehose_reset})
+    for {from, _opts} <- :queue.to_list(state.poll_queue), do: GenServer.reply(from, {:error, :firehose_reset})
+    {:reply, :ok, %__MODULE__{}}
+  end
 
-  def handle_call({:poll, opts}, _from, state) do
+  def handle_call({:poll, opts}, from, %{pending_poll: nil} = state), do: {:noreply, start_poll(state, from, opts)}
+
+  def handle_call({:poll, opts}, from, state),
+    do: {:noreply, %{state | poll_queue: :queue.in({from, opts}, state.poll_queue)}}
+
+  @impl true
+  def handle_info({ref, result}, %{pending_poll: %{task: %{ref: ref}} = poll} = state) do
+    Process.demonitor(ref, [:flush])
+    Process.demonitor(poll.caller_ref, [:flush])
+    next = apply_result(%{state | pending_poll: nil}, result, poll.opts)
+    GenServer.reply(poll.from, next.outcome)
+    {:noreply, next_poll(next)}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{pending_poll: %{task: %{ref: ref}} = poll} = state) do
+    Process.demonitor(poll.caller_ref, [:flush])
+    {:stop, reason, %{state | pending_poll: nil}}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{pending_poll: %{caller_ref: ref} = poll} = state) do
+    stop_poll(poll)
+    {:noreply, next_poll(%{state | pending_poll: nil})}
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_reason, state), do: stop_poll(state.pending_poll)
+
+  # Keep cancellation beside cursor application so reset cannot accept a late worker result.
+  defp start_poll(state, from, opts) do
     poll_opts = opts |> Keyword.put_new(:etag, state.events_etag) |> Keyword.put_new(:last_event_id, state.events_last_id)
-    state = apply_result(%{state | outcome: %{connectivity: [], poll_interval: nil}}, GithubFirehose.poll(poll_opts), opts)
-    {:reply, state.outcome, state}
+    caller_ref = Process.monitor(elem(from, 0))
+    task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> GithubFirehose.poll(poll_opts) end)
+    %{state | pending_poll: %{task: task, from: from, caller_ref: caller_ref, opts: opts}, outcome: %{connectivity: [], poll_interval: nil}}
+  end
+
+  defp next_poll(state) do
+    case :queue.out(state.poll_queue) do
+      {{:value, {from, opts}}, rest} -> start_poll(%{state | poll_queue: rest}, from, opts)
+      {:empty, _} -> state
+    end
+  end
+
+  defp stop_poll(nil), do: :ok
+
+  defp stop_poll(poll) do
+    Process.demonitor(poll.caller_ref, [:flush])
+    Task.shutdown(poll.task, :brutal_kill)
+    :ok
   end
 
   defp apply_result(state, {:ok, %{etag: etag, last_event_id: last_event_id} = result}, opts) do

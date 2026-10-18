@@ -67,6 +67,59 @@ defmodule Aiur.GitHub.Listeners.LifecycleTest do
     assert continued.github_connectivity[:firehose] == nil
   end
 
+  @tag timeout: 5_000
+  test "reset cancels an in-flight poll without waiting for the external read" do
+    parent = self()
+
+    poll =
+      Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
+        Listeners.poll_firehose(
+          request_fun: fn _ ->
+            send(parent, {:held_poll, self()})
+
+            receive do
+              :release_poll -> {:ok, %{status: 304, headers: [], body: ""}}
+            end
+          end
+        )
+      end)
+
+    receive_barrier({:held_poll, worker})
+    on_exit(fn -> send(worker, :release_poll) end)
+    monitor = Process.monitor(worker)
+    assert :ok = Listeners.reset()
+    receive_barrier({:DOWN, ^monitor, :process, ^worker, _reason})
+    assert Task.await(poll) == {:error, :firehose_reset}
+    assert_empty_cursor_request()
+  end
+
+  @tag timeout: 5_000
+  test "caller death cancels its held read and preserves the prior cursor" do
+    seed_cursor()
+    parent = self()
+
+    poll =
+      Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
+        Listeners.poll_firehose(
+          request_fun: fn _ ->
+            send(parent, {:held_read, self()})
+
+            receive do
+              :release_poll -> {:ok, %{status: 304, headers: [], body: ""}}
+            end
+          end
+        )
+      end)
+
+    receive_barrier({:held_read, worker})
+    on_exit(fn -> send(worker, :release_poll) end)
+    monitor = Process.monitor(worker)
+    Process.exit(poll.pid, :kill)
+    receive_barrier({:DOWN, ^monitor, :process, ^worker, _reason})
+    assert :sys.get_state(Firehose).events_etag == "seed-etag"
+    assert :sys.get_state(Firehose).events_last_id == "seen"
+  end
+
   test "outcome fold preserves failure then recovery order and applies the advertised interval" do
     outcome = %{connectivity: [{:firehose, {:error, {:github, :dns, %{}}}}, {:firehose, :ok}], poll_interval: 60}
     next = FirehosePolling.apply_outcome(%State{}, outcome)

@@ -12,7 +12,7 @@ defmodule Aiur.GitHub.Listeners do
   @impl true
   def init(_opts), do: Supervisor.init([{Firehose, name: Firehose}], strategy: :one_for_one)
 
-  @spec poll_firehose(keyword()) :: outcome()
+  @spec poll_firehose(keyword()) :: outcome() | {:error, :firehose_reset}
   def poll_firehose(opts \\ []), do: GenServer.call(Keyword.get(opts, :server, Firehose), {:poll, opts}, :infinity)
 
   @spec reset() :: :ok
