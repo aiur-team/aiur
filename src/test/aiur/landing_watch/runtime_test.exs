@@ -215,7 +215,8 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                alert_emitter: fn topic, details ->
                  send(parent, {:alert, topic, details})
                  :ok
-               end
+               end,
+               journal_path: journal_path()
              )
 
     refute_received {:alert, "ticket.17.pr.ci_recovery.rerun_skipped", _}

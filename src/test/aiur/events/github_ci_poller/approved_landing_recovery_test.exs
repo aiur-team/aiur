@@ -34,10 +34,9 @@ defmodule Aiur.Events.GithubCIPoller.ApprovedLandingRecoveryTest do
   end
 
   test "a cancelled head run while queued does not create a recovery hold or attention", ctx do
-    result = Map.merge(ctx.result, %{pending_reason: :ci_cancelled, merge_queue_entry: %{"id" => "MQE_1"}})
-    opts = Keyword.put(ctx.opts, :ci_recovery_enabled, true)
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, merge_queue_entry: %{"id" => "MQE_1"}})
 
-    assert %{decision: :failed} = Recovery.recover(ctx.issue, result, opts)
+    assert ^result = Recovery.recover(ctx.issue, result, ctx.opts)
     refute_received {:attention, _}
   end
 

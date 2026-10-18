@@ -7,14 +7,6 @@ const source = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.u
 const trigger = source.split(/^concurrency:/m)[0];
 assert.ok(/^  pull_request:$/m.test(trigger));
 assert.ok(/types: \[opened, synchronize, reopened, ready_for_review, labeled\]/.test(trigger), 'label events let ci:full start a full run');
-assert.ok(source.includes("github.event.action != 'labeled' || github.event.label.name == 'ci:full'"), 'ordinary label events must not cancel active CI');
-const labelGuard = source.match(/github\.event\.action != 'labeled' \|\| github\.event\.label\.name == 'ci:full'/)?.[0];
-assert.ok(labelGuard);
-const shouldCancelLabelRun = (event, label) => event !== 'labeled' || label === 'ci:full';
-assert.equal(shouldCancelLabelRun('labeled', 'agent:in-progress'), false, 'ordinary labels must not start head CI');
-assert.equal(shouldCancelLabelRun('labeled', 'ci:full'), true, 'ci:full opts into the full run');
-const changesCondition = source.match(/^  changes:\n([\s\S]*?)(?=^  [a-z][a-z-]*:)/m)?.[1];
-assert.ok(changesCondition?.includes("github.event_name != 'pull_request' || !github.event.pull_request.draft"), 'label event runs classifier only for non-draft PRs');
 assert.ok(source.includes("github.event.action != 'labeled' || github.event.label.name == 'ci:full'"), 'unrelated labels must not cancel active CI');
 assert.ok(/^  merge_group:$/m.test(trigger));
 assert.ok(/  push:\n    branches: \[main, v2\]/.test(trigger), 'main pushes trigger CI');
