@@ -110,7 +110,7 @@ defmodule AiurEngineOneshotTest do
     end
   end
 
-  test "run-only environment scrub removes the operator readiness token" do
+  test "run environment retains the operator readiness token for daemon assessment" do
     dir = Aiur.TestSupport.tmp_root!("aiur-readiness-env")
     File.mkdir_p!(dir)
     File.write!(Path.join(dir, ".env"), "AIUR_CI_READINESS_TOKEN=operator-only\n")
@@ -127,11 +127,12 @@ defmodule AiurEngineOneshotTest do
         stderr_to_stdout: true
       )
 
-    assert out =~ "LOADED=operator-only|RUN=unset"
+    assert out =~ "LOADED=operator-only|RUN=operator-only"
 
     engine = Aiur.EngineSource.text()
     assert engine =~ ~r/load_dotenv\s+scrub_run_only_env/
-    assert engine =~ "printf 'unset AIUR_CI_READINESS_TOKEN\\n'"
+    refute engine =~ "printf 'unset AIUR_CI_READINESS_TOKEN\\n'"
+    assert engine =~ "AIUR_CLI_VERSION AIUR_CI_READINESS_TOKEN; do"
   end
 
   test "init intentionally retains the operator readiness token" do

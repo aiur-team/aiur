@@ -323,7 +323,7 @@ defmodule Aiur.Codex.Approvals do
         execute.()
 
       {:ok, identity, fingerprint} ->
-        ToolCallLedger.execute(identity, fingerprint, execute, tool_call_ledger(context))
+        ToolCallLedger.execute_cancellable(identity, fingerprint, execute, tool_call_ledger(context))
 
       {:error, reason} ->
         {:error, reason}

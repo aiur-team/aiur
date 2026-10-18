@@ -12,7 +12,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
   """
 
   alias Aiur.Config
-  alias Aiur.GitHub.{BotIdentity, PullRequests, ResourceFetch, ResourceStore, ReviewThreads, StatePolicy, Transport}
+  alias Aiur.GitHub.{BotIdentity, HumanReviewContribution, HumanReviewPathProbe, PullRequests, ResourceFetch, ResourceStore, ReviewThreads, StatePolicy, Transport}
 
   @approval_fields "headRefOid reviewDecision mergeQueueEntry { id } reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }"
 
@@ -134,9 +134,9 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   defp verify_base_ancestry(_context, _pr, true), do: {:error, :review_base_ancestry_unavailable}
 
-  defp compare(context, base, head) do
+  defp compare(context, base, head, per_page \\ 1) do
     comparison = "#{URI.encode(base, &URI.char_unreserved?/1)}...#{URI.encode(head, &URI.char_unreserved?/1)}"
-    url = "#{Transport.base_url()}/repos/#{repo_full_name()}/compare/#{comparison}?per_page=1"
+    url = "#{Transport.base_url()}/repos/#{repo_full_name()}/compare/#{comparison}?per_page=#{per_page}"
     # Branch movement cannot reuse a previous compatibility verdict.
     Transport.fetch_json_map(context.request_fun, context.token, url, caller: "human_review_base_ancestry")
   end
@@ -145,11 +145,37 @@ defmodule Aiur.GitHub.HumanReviewGate do
     stale = {:error, {:stale_review_base, %{pr_number: pr_number, base_branch: base, head_sha: head}}}
 
     case current_mergeability(context, pr_number, base, head) do
-      {:ok, :conflicting} -> stale
-      # An approved head in the merge queue, or armed to enter it, is tested merged with the base before it lands (#4204).
-      {:ok, :merge_queue} -> :ok
-      {:ok, :mergeable} -> verify_disjoint_paths(context, head, comparison, stale)
-      {:error, _reason} = error -> error
+      result -> stale_base_result(result, context, base, head, comparison, stale)
+    end
+  end
+
+  defp stale_base_result({:ok, :conflicting}, _context, _base, _head, _comparison, stale), do: stale
+
+  # An approved head in the merge queue, or armed to enter it, is tested merged with the base before it lands (#4204).
+  defp stale_base_result({:ok, verdict}, _context, _base, _head, _comparison, _stale) when verdict in [:merge_queue, :approved_head], do: :ok
+
+  defp stale_base_result({:ok, :mergeable}, context, _base, head, comparison, stale),
+    do: verify_disjoint_paths(context, head, comparison, stale)
+
+  defp stale_base_result({:ok, {:mergeable, approved_head}}, context, base, head, _comparison, stale),
+    do: merge_only_result(merge_only_since_approval(context, base, approved_head, head), stale)
+
+  defp stale_base_result({:error, _reason} = error, _context, _base, _head, _comparison, _stale), do: error
+
+  defp merge_only_result({:ok, true}, _stale), do: :ok
+  defp merge_only_result({:ok, false}, stale), do: stale
+  defp merge_only_result({:error, _reason} = error, _stale), do: error
+
+  defp merge_only_since_approval(_context, _base, head, head), do: {:ok, false}
+
+  defp merge_only_since_approval(context, base, approved_head, head) do
+    with {:ok, current_comparison} <- compare(context, base, head, 100),
+         {:ok, base_sha} <- comparison_base(current_comparison) do
+      compare_fun = fn compare_base, compare_head, per_page -> compare(context, compare_base, compare_head, per_page) end
+
+      probe_fun = fn paths, from_sha, to_sha -> HumanReviewPathProbe.changed_paths(paths, from_sha, to_sha, context) end
+
+      HumanReviewContribution.unchanged?(approved_head, head, base_sha, current_comparison, compare_fun, probe_fun)
     end
   end
 
@@ -157,7 +183,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
     with {:ok, base_sha} <- comparison_base(comparison),
          {:ok, pr_files} <- changed_paths(comparison),
          {:ok, upstream} <- compare(context, head, base_sha),
-         {:ok, upstream_files} <- upstream_paths(upstream) do
+         {:ok, upstream_files} <- upstream_paths(upstream, pr_files, base_sha, context) do
       if MapSet.disjoint?(pr_files, upstream_files), do: :ok, else: stale
     end
   end
@@ -165,8 +191,13 @@ defmodule Aiur.GitHub.HumanReviewGate do
   defp comparison_base(%{"base_commit" => %{"sha" => sha}}) when is_binary(sha) and sha != "", do: {:ok, sha}
   defp comparison_base(_comparison), do: {:error, :review_base_ancestry_unavailable}
 
-  defp upstream_paths(%{"status" => status} = comparison) when status in ["ahead", "diverged"], do: changed_paths(comparison)
-  defp upstream_paths(_comparison), do: {:error, :review_base_ancestry_unavailable}
+  # A capped upstream list is incomplete, so probe the PR's own paths instead (#4533).
+  defp upstream_paths(%{"status" => status, "files" => files, "merge_base_commit" => %{"sha" => merge_base}}, pr_files, base_sha, context)
+       when status in ["ahead", "diverged"] and is_list(files) and length(files) >= 300 and is_binary(merge_base) and merge_base != "",
+       do: HumanReviewPathProbe.changed_paths(pr_files, merge_base, base_sha, context)
+
+  defp upstream_paths(%{"status" => status} = comparison, _pr_files, _base_sha, _context) when status in ["ahead", "diverged"], do: changed_paths(comparison)
+  defp upstream_paths(_comparison, _pr_files, _base_sha, _context), do: {:error, :review_base_ancestry_unavailable}
 
   defp changed_paths(%{"files" => files}) when is_list(files) and length(files) < 300 do
     Enum.reduce_while(files, {:ok, MapSet.new()}, &add_changed_path/2)
@@ -203,8 +234,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
       {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => status} = pr}}}}
       when status in ["MERGEABLE", "UNKNOWN"] ->
         # UNKNOWN supplies no conflict signal; unless the approved head is already landing, the pinned REST comparisons must still establish disjoint paths.
-        landing? = approved_at_head?(pr) and (is_map(pr["mergeQueueEntry"]) or is_map(pr["autoMergeRequest"]))
-        if landing?, do: {:ok, :merge_queue}, else: {:ok, :mergeable}
+        mergeability_for_approval(pr)
 
       {:ok, _body} ->
         {:error, :review_base_ancestry_unavailable}
@@ -213,6 +243,28 @@ defmodule Aiur.GitHub.HumanReviewGate do
         error
     end
   end
+
+  defp mergeability_for_approval(pr) do
+    landing? = approved_at_head?(pr) and (is_map(pr["mergeQueueEntry"]) or is_map(pr["autoMergeRequest"]))
+    approved_head = approved_commit(pr)
+
+    approval_mergeability(pr, landing?, approved_head)
+  end
+
+  defp approval_mergeability(_pr, true, _approved_head), do: {:ok, :merge_queue}
+
+  # Preserve overlap-only handoff for a human-approved exact head. The caller
+  # still rejects conflicts before consulting this result.
+  defp approval_mergeability(pr, false, approved_head), do: approval_mergeability(pr, approved_head)
+
+  defp approval_mergeability(pr, approved_head) do
+    if approved_at_head?(pr), do: {:ok, :approved_head}, else: previous_approval_mergeability(pr, approved_head)
+  end
+
+  defp previous_approval_mergeability(%{"headRefOid" => head}, approved_head) when is_binary(approved_head) and approved_head != head,
+    do: {:ok, {:mergeable, approved_head}}
+
+  defp previous_approval_mergeability(_pr, _approved_head), do: {:ok, :mergeable}
 
   @doc false
   @spec verify_pr_review_threads_clear(map(), integer(), String.t()) :: :ok | {:error, term()}
@@ -349,6 +401,9 @@ defmodule Aiur.GitHub.HumanReviewGate do
   # `reviewDecision` stays APPROVED after a later push unless the ruleset dismisses stale approvals, so the approval must name the current head.
   defp approved_at_head?(%{"reviewDecision" => "APPROVED", "headRefOid" => head, "reviews" => %{"nodes" => [%{"commit" => %{"oid" => head}}]}}) when is_binary(head), do: true
   defp approved_at_head?(_pull_request), do: false
+
+  defp approved_commit(%{"reviewDecision" => "APPROVED", "reviews" => %{"nodes" => [%{"commit" => %{"oid" => oid}}]}}) when is_binary(oid) and oid != "", do: oid
+  defp approved_commit(_pull_request), do: nil
 
   # An unresolvable repository identity means no store key, which `ResourceFetch`
   # already treats as the storeless path — the read still happens, exactly as it

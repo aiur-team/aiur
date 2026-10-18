@@ -190,7 +190,7 @@ Plus `blocking`, `question`, `options` (2–5 bounded alternatives,
 
 The Executor may answer a Command directly, but only within a floor the code
 enforces rather than one the Executor's prompt is trusted to observe
-(`src/lib/aiur/decision_store.ex:1283-1303`). A non-operator answer is accepted
+(`decision_store/answers.ex`). A non-operator answer is accepted
 **only if both** hold:
 
 - `authority` is `supervisor_allowed` or `supervisor_preferred` —
@@ -208,25 +208,26 @@ is fail-closed by construction: `normalize_policy/1` defaults to
 `%{allowed_kinds: [], allow_non_reversible: false}` on malformed input
 (`decision_authority.ex:110`).
 
-Classification is consequence-based and defaults delegable. A request that
-omits `authority`/`reversibility` is normalized to `supervisor_allowed` +
-`reversible` (`src/lib/aiur/decision_validation.ex`), so reversible
-engineering calls land inside the Executor floor instead of stranding the
-agent.
+Classification is consequence-based and defaults delegable: a request that
+omits `authority`/`reversibility` becomes `supervisor_allowed` + `reversible`
+(`src/lib/aiur/decision_validation.ex`), so reversible engineering calls stay
+inside the Executor floor.
 
 Known Command types carry an explicit policy in
 `src/lib/aiur/decision_command_type.ex` (re-review `kind: "rework_review"` →
 `supervisor_preferred`; sequencing `kind: "sequencing"` →
 `supervisor_allowed`; pre-OCC `legacy_attention` stays `human_required`).
 
-Because omission defaults to the floor, a Command that is genuinely
-irreversible, involves spend, or changes product direction must declare
-`authority: human_required` explicitly or it will be Executor-answerable.
+An irreversible, spend, publication, product, or security Command must declare
+`authority: human_required` and a `context.authority_basis` of `product`,
+`spend`, `external_publication`, or `security`; a missing or unknown basis is
+rejected. An Executor may reclassify an open decision without that basis or
+legacy attention, recording a reason.
 
 The parallel `supervisor` path additionally requires the answer's declared
 `policy_basis` to match the Decision's own authority/kind/reversibility, or it
 fails `{:supervisor_basis, :decision_mismatch}`
-(`decision_store.ex:1263-1281`).
+(`decision_store/answers.ex`).
 
 **Operator-facing consequence:** if a Command is irreversible or marked
 `human_required`, your Executor cannot answer it — it will escalate, and the
@@ -238,16 +239,16 @@ ticket stays paused until you answer. The CLI even tells you so: on
 
 - **Escalation does not change the Command's status.** It appends an attributed
   `:executor_escalated` event and the Command stays exactly as answerable as
-  before (`decision_store.ex:158-173`), so the operator can still answer it. A
+  before (`decision_store/requests.ex`), so the operator can still answer it. A
   durable operator attention is opened idempotently on topic
   `ticket.<id>.agent.attention.executor-command-<digest>` and cleared on any
   terminal decision (`src/lib/aiur/executor_command_attention.ex:7-30`).
 - **A blocking Command cannot be dismissed.**
-  `{:error, {:conflict, :blocking_requires_answer}}` (`decision_store.ex:1518-1548`)
+  `{:error, {:conflict, :blocking_requires_answer}}` (`decision_store/withdrawals.ex`)
   — the answer path, including a custom response, is what releases the agent.
 - **The pause is a dispatch gate, not an in-process block.** `blocked_ticket_ids`
-  collects tickets with an open blocking Command (`decision_store.ex:938-950,
-  :1570-1587`); the dispatcher refreshes it each poll and **fails closed** on
+  collects tickets with an open blocking Command (`decision_store/calls.ex`,
+  `decision_store/withdrawals.ex`); the dispatcher refreshes it each poll and **fails closed** on
   store outage (`dispatcher.ex:453-459`, `dispatch_policy/eligibility.ex:181-185` →
   `{:skip, :blocked_on_decision}` at `dispatch_policy.ex:393`). A ticket that opens a blocking
   Command while already running has its agent stopped by the reconciler, which
@@ -366,6 +367,7 @@ Grouped by channel:
 | `system.dispatch.prewarm_blocked` / `.resolved` | `dispatch:auto` |
 | `system.dispatch.todo_capacity_exceeded` | `dispatch:auto` |
 | `system.tracker.auth_preflight_failed` / `.resolved` | `dispatch:auto` |
+| `system.toolchain.erlang_missing` / `.resolved` | `dispatch:auto` |
 | `system.fleet.capacity.backoff` / `system.fleet.capacity.resumed` | `dispatch:auto` |
 | `system.github.connectivity_lost` | `dispatch:auto` |
 | `system.queue.attention.#` (including `.resolved`) | `dispatch:auto` |
@@ -427,6 +429,10 @@ Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route bo
 `agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
 reviews without inline threads.
 
+A trusted `CHANGES_REQUESTED` review also takes
+the PR out of the merge queue, turns its auto-merge off, and records both on the
+ticket; a later Executor approval lands it through the normal merge path.
+
 Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
 `Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
 fix requested “before merge”. Clean summaries such as “No blockers; waiting on
@@ -436,7 +442,7 @@ Failed CI in `agent:human-review` routes to rework when that head already passed
 CI or the head changed. An inherited failure on a dismissed head remains held;
 the existing test-only one-poll retry still applies.
 
-An operator comment directs the same agent.
+An operator comment directs the same agent. After rework, the slot is released only when a known dispatch head differs from the open PR head and no operator message is queued; unknown or unchanged heads keep it working. Pending checks go to `agent:ci-wait`; completed checks, including failures, go to `agent:human-review` for CI lifecycle handling.
 
 One precondition is worth naming: **`agent:rework` is gated.**
 `ReworkGate.verify_open_pr/2` (`src/lib/aiur/orchestrator/rework_gate.ex:23-34`)
@@ -451,10 +457,7 @@ Merge the PR yourself or delegate it to your Executor. `agent:merging` →
 (`merged_ticket_reconciler.ex:92-129`) — but only when the PR body claims the
 ticket and the ticket has no blocking open pull request.
 
-**The PR body decides, not the branch.** A ticket's PR is matched by its
-`aiur/<ticket>-<slug>` head branch, which says the PR belongs to the ticket,
-not that it completes it. Only a documented closing keyword — `Closes`,
-`Fixes` or `Resolves` followed by `#<ticket>` — lets a merge stamp `done`.
+**The PR body decides, not the branch.** A ticket's PR is matched by its `aiur/<ticket>-<slug>` head branch, which says the PR belongs to the ticket, not that it completes it. Only a documented closing keyword — `Closes`, `Fixes` or `Resolves` followed by `#<ticket>` — lets a merge stamp `done`.
 
 Write `Refs #<ticket>` instead when the merge is deliberately only part of the
 acceptance — a proof ticket whose other half is deployed evidence, say. The
@@ -468,9 +471,11 @@ leaves one still open routes the ticket to `rework` (that PR has unresolved
 review findings) or `human-review` (it is merely awaiting review) instead of
 `done`, keeping the remaining PR's findings dispatchable.
 
-A stale draft — one with no update within the staleness window — does not block
-`done`: a superseded attempt left open must not pin its ticket out of its
-terminal state.
+**Work committed after the queued head is kept.** It applies only to a merge that would stamp `done`, so the `Refs` and two-PR rules come first, and only to a running worker in a local workspace. It looks for non-merge commits that neither the merged head nor the base contains and whose patches the merged head lacks, so a local rebase is not new scope.
+
+If it finds any, Aiur reopens the ticket as `in-progress`, keeps the worker, and tells it to open a new PR from the base. If the reopen or the `in-progress` write fails, Aiur still keeps the worker and raises an Executor attention naming the failed step. Uncommitted edits and remote workers are not checked.
+
+A stale draft — one with no update within the staleness window — does not block `done`: a superseded attempt left open must not pin its ticket out of its terminal state.
 
 The agent never self-merges.
 
@@ -486,3 +491,9 @@ The agent never self-merges.
   rework gate refuses it.
 - **A draft PR left behind.** An approved, green draft never auto-merges — the
   agent must mark it ready for review before handing off.
+- **A local GitHub budget hold that never clears.** Hold retries never use up
+  the retry budget, so the ticket retries forever. After 30 minutes of
+  consecutive holds Aiur raises one
+  `ticket.<id>.agent.attention.budget-hold-persistent` naming the hold reason
+  and `reset_at`. The next committed dispatch, a retry for any other reason, or
+  a released claim resolves it.

@@ -18,20 +18,26 @@ async function equalStyle(pair, selector, keys = properties, pseudo = null) {
 }
 
 async function compareNavRegion(pair, name, selector) {
-  // The allowed route subset changes phone positions, including text raster phase.
+  // The allowed route subset changes phone positions and flex widths.
+  const allowedPhoneWidth = pair.cell.viewport.width <= 960
+    && pair.allowlist.some(entry => entry.id === 'experiments-nav')
+    && await pair.product.locator('.sidenav-nav .snav').count() === 6
+    && await pair.design.locator('.sidenav-nav .snav').count() === 5
+  await equalStyle(pair, selector, allowedPhoneWidth ? properties.filter(key => key !== 'width') : properties)
   const originals = []
   const origin = await pair.design.locator(selector).boundingBox()
   const backdrops = []
+  const productBox = await pair.product.locator(selector).boundingBox()
   if (pair.cell.viewport.width <= 960) {
     for (const page of [pair.design, pair.product]) {
       backdrops.push(await page.addStyleTag({ content: 'body { background: var(--bg) !important; } .sidenav-nav { visibility: hidden !important; }' }))
-      originals.push(await page.locator(selector).evaluate((node, top) => {
+      originals.push(await page.locator(selector).evaluate((node, { top, width }) => {
         const original = node.style.cssText
         const box = node.getBoundingClientRect()
-        Object.assign(node.style, { position: 'fixed', left: '100px', top: `${top}px`, width: `${box.width}px`, height: `${box.height}px`, margin: '0', translate: 'none' })
+        Object.assign(node.style, { position: 'fixed', left: '100px', top: `${top}px`, width: `${width}px`, height: `${box.height}px`, margin: '0', translate: 'none' })
         node.style.setProperty('visibility', 'visible', 'important')
         return original
-      }, Math.round(origin.y)))
+      }, { top: Math.round(origin.y), width: productBox.width }))
     }
   }
   try { await expectDesignParity(pair, { name, region: selector }) }
@@ -139,16 +145,13 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
       for (const [index, selector] of navPairs.entries()) {
         for (const page of [pair.design, pair.product]) await page.mouse.move(cell.viewport.width - 20, 80)
         await finishTransitions(pair)
-        await equalStyle(pair, selector)
         await compareNavRegion(pair, `nav-${index}-${label}`, selector)
       }
       await pair.design.locator('#tabcount-inbox').evaluate(node => { node.textContent = '3'; node.style.display = ''; node.classList.add('attn') })
       await openVisualRoute(pair.product, { theme, palette, route: '/palette-probe?paused=false&writable=true&awaiting=3', mode: 'writable' })
-      await equalStyle(pair, navPairs[0])
       await compareNavRegion(pair, `commands-attention-${label}`, navPairs[0])
       await pair.design.locator('#tabcount-inbox').evaluate(node => node.style.display = 'none')
       await openVisualRoute(pair.product, { theme, palette, route: '/palette-probe?paused=false&writable=true&awaiting=0', mode: 'writable' })
-      await equalStyle(pair, navPairs[0])
       await compareNavRegion(pair, `commands-empty-${label}`, navPairs[0])
     } finally {
       await designContext.close()

@@ -46,15 +46,23 @@ defmodule Aiur.GitHub.TransportTest do
     assert Transport.parse_repo() == {:error, {:invalid_github_repo, "owner/repo/extra"}}
   end
 
-  test "resolves token from opts, request_fun seam, then config" do
+  test "resolves token from opts, then config" do
     assert Transport.require_token(token: "opts-token") == {:ok, "opts-token"}
-    assert Transport.require_token(request_fun: fn _ -> :ok end) == {:ok, "test-gh-token"}
     assert Transport.require_token([]) == {:ok, "config-token"}
 
     System.delete_env("GITHUB_TOKEN")
     :persistent_term.erase(@token_cache_key)
 
     assert Transport.require_token([]) == {:error, :missing_github_token}
+  end
+
+  # #4556: production wrappers such as `MainWatch.bounded_requests/1` add a
+  # request_fun without a token; that must still send the configured token.
+  test "production-shaped opts with a request_fun resolve the configured token" do
+    :persistent_term.put(@token_cache_key, "runtime-pat")
+    opts = [request_fun: &Transport.default_request_fun/1, caller: "main_watch_commits"]
+
+    assert Transport.require_token(opts) == {:ok, "runtime-pat"}
   end
 
   test "builds default and versioned GitHub headers" do

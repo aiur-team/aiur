@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
   alias Aiur.Orchestrator.ControlLifecycle
+  alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.SnapshotPublisher
   alias Aiur.Orchestrator.SnapshotStore
@@ -123,6 +124,19 @@ defmodule Aiur.Orchestrator.StatusReport do
     end
   end
 
+  @spec has_live_owner_api(GenServer.server(), String.t(), timeout()) :: boolean() | :unknown
+  def has_live_owner_api(server, identifier, timeout) do
+    if State.alive?(server) do
+      try do
+        GenServer.call(server, {:has_live_owner, identifier}, timeout)
+      catch
+        :exit, _ -> :unknown
+      end
+    else
+      :unknown
+    end
+  end
+
   @spec notify_dashboard(State.t()) :: :ok
   def notify_dashboard(state) do
     # `snapshot_ready?` means this generation has completed a poll attempt, so a
@@ -190,6 +204,10 @@ defmodule Aiur.Orchestrator.StatusReport do
       :last_polled_issues,
       :tracker_observations,
       :last_dispatch_poll_at_ms,
+      :dispatch_cycle_started_at_ms,
+      :last_dispatch_cycle_completed_at_ms,
+      :dispatch_cycle_stalled?,
+      :dispatch_cycle_stage,
       :load_envelope_state,
       :max_concurrent_agents,
       :next_poll_due_at_ms,
@@ -198,6 +216,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :idle_poll_backoff,
       :poll_interval_ms,
       :retry_attempts,
+      :rework_attempts,
       :auto_resume,
       :released_claims,
       :running,
@@ -309,6 +328,23 @@ defmodule Aiur.Orchestrator.StatusReport do
       |> Enum.reject(&is_nil/1)
 
     {:reply, identifiers, state}
+  end
+
+  @spec has_live_owner(State.t(), String.t()) :: {:reply, boolean(), State.t()}
+  def has_live_owner(%State{} = state, identifier) do
+    issue_id =
+      state.last_polled_issues
+      |> Map.values()
+      |> Enum.find_value(identifier, fn issue -> if issue.identifier == identifier, do: issue.id end)
+
+    ownership = state.dispatch_recovery.workspace_ownership
+
+    live? =
+      not is_nil(State.find_running_by_identifier(state.running, identifier)) or
+        IssueSync.owned_or_scheduled?(state, issue_id) or
+        Map.has_key?(ownership.waits, identifier) or Map.has_key?(ownership.ready, issue_id)
+
+    {:reply, live?, state}
   end
 
   @spec status(State.t()) :: {:reply, [map()], State.t()}

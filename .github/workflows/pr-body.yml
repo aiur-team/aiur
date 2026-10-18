@@ -1,0 +1,49 @@
+name: pr body
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+concurrency:
+  group: pr-body-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  pr-body:
+    name: pr body
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Set up Elixir for evidence validation
+        uses: erlef/setup-beam@e6d7c94229049569db56a7ad5a540c051a010af9 # v1.20.4
+        with:
+          otp-version: '28'
+          elixir-version: '1.19.5'
+      - name: Check PR body and local-test evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr-evidence.json"
+          python3 scripts/check-pr-body.py --pr-json "$RUNNER_TEMP/pr-evidence.json" --base "$PR_BASE"
+  gate-rerun:
+    name: Re-run only a failed ci gate
+    needs: pr-body
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Re-run only a failed ci gate
+        if: ${{ needs.pr-body.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/rerun-failed-ci-gate.py

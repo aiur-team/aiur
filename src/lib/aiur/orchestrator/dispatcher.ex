@@ -12,6 +12,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.CommentPolling
   alias Aiur.Orchestrator.DispatchBatch
   alias Aiur.Orchestrator.DispatchCandidates
+  alias Aiur.Orchestrator.DispatchCycleCompletion
+  alias Aiur.Orchestrator.DispatchCycleLiveness
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
   alias Aiur.Orchestrator.Dispatcher.Candidates
@@ -24,6 +26,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.MergedTicketReconciler
   alias Aiur.Orchestrator.PausedCandidatePoll
+  alias Aiur.Orchestrator.PollTiming
   alias Aiur.Orchestrator.PrAnchored
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.Slots
@@ -131,12 +134,30 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec run_poll_cycle(State.t()) :: {:noreply, State.t()}
   def run_poll_cycle(%State{} = state) do
-    if TrackerTasks.running?(state, :startup_workspace_cleanup) do
+    if TrackerTasks.running?(state, :startup_workspace_cleanup),
+      do: {:noreply, Lifecycle.schedule_tick(state, 100)},
+      else: state |> DispatchCycleLiveness.start() |> continue_poll_cycle()
+  end
+
+  defp continue_poll_cycle(state) do
+    if dispatch_chain_pending?(state) or dispatch_poll_running?(state) do
       {:noreply, Lifecycle.schedule_tick(state, 100)}
     else
-      start_poll_cycle(state)
+      start_and_watch_poll_cycle(state)
     end
   end
+
+  defp start_and_watch_poll_cycle(state) do
+    case start_poll_cycle(state) do
+      {:noreply, next} = result ->
+        if dispatch_poll_running?(next),
+          do: {:noreply, Lifecycle.schedule_tick(next, 100)},
+          else: result
+    end
+  end
+
+  defp dispatch_poll_running?(state),
+    do: TrackerTasks.running?(state, :dispatch_poll) or TrackerTasks.running?(state, :ci_poll)
 
   defp start_poll_cycle(state) do
     cond do
@@ -167,37 +188,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end)
   end
 
-  defp finish_poll_cycle(state) do
-    schedule = TrackerHealth.poll_schedule(state)
-
-    state =
-      state
-      |> Lifecycle.schedule_tick(schedule.delay_ms)
-      |> Map.put(:effective_poll_interval_ms, schedule.delay_ms)
-      |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
-      # Keep the first poll at the base interval; idle widening starts after an observed cycle (#2138).
-      |> Map.update!(:poll_cycles_completed, &(&1 + 1))
-      # The GitHub poll floor is measured from here, so an event that pulls
-      # the next tick forward cannot land it closer than the floor allows.
-      |> Map.put(:last_dispatch_poll_at_ms, System.monotonic_time(:millisecond))
-      # Counted first, then pruned: a hint whose budget this cycle exhausted
-      # is dropped here, and a ticket this poll finally showed is dropped
-      # because the ordinary demand scan sees it now (#2640).
-      |> TrackerHealth.prune_queued_demand_hints()
-
-    # Every freshness threshold is a multiple of the cadence actually in force,
-    # so each class's effective interval — idle backoff, webhook widening and
-    # GitHub's own floors already composed in — is published where any reader
-    # can derive from it. See `Aiur.PollCadence` and
-    # `TrackerHealth.publish_poll_cadence/2` (#2309).
-    :ok = TrackerHealth.publish_poll_cadence(state, schedule)
-
-    state = %{state | poll_check_in_progress: false}
-
-    state = StatusReport.sync_waiting_for_human_episodes(state, DateTime.utc_now())
-    StatusReport.notify_dashboard(state)
-    state
-  end
+  @doc false
+  @spec finish_poll_cycle(State.t()) :: State.t()
+  defdelegate finish_poll_cycle(state), to: DispatchCycleCompletion, as: :finish
 
   defp start_poll_reads(state) do
     state
@@ -225,6 +218,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     TrackerTasks.start(state, :dispatch_poll, fn -> fetch_fun.(cache) end, fn current, result ->
       current
       |> dispatch_candidate_poll(fetch_candidate_issues_fun: &Candidates.apply_candidate_result(&1, result))
+      |> PollTiming.complete(result)
       |> finish_poll_cycle()
     end)
   end
@@ -391,7 +385,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states, Map.values(state.last_polled_issues)), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+    {candidates, held} =
+      DispatchCandidates.partition(issues, terminal_states, Map.values(state.last_polled_issues))
+
+    state = Candidates.hold_cached_dependencies(state, held, active_states, terminal_states)
+    choose_issues_in_order(state, candidates, opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
   defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),

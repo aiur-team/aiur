@@ -1,0 +1,485 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "experiment-result/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "generated_at",
+    "body"
+  ],
+  "properties": {
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "body": {
+      "$ref": "#/$defs/body"
+    }
+  },
+  "$defs": {
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "n_censored": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "median": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "q1": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "q3": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "iqr": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "p90": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rate": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "exposure": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "events": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "n",
+        "n_censored"
+      ]
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "duration",
+            "count",
+            "binary",
+            "rate",
+            "bucketed"
+          ]
+        },
+        "groups": {
+          "type": "object",
+          "minProperties": 2,
+          "maxProperties": 2,
+          "additionalProperties": {
+            "$ref": "#/$defs/group"
+          }
+        },
+        "status": {
+          "enum": [
+            "insufficient_data",
+            "inconclusive",
+            "significant",
+            "practically_equivalent"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "improved",
+            "regressed",
+            "no_change"
+          ]
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "analyst_flags": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "excluded_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "min_achievable_p": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "adjustment": {
+          "enum": [
+            "holm",
+            "bh"
+          ]
+        },
+        "summary_text": {
+          "type": "string"
+        },
+        "tests": {
+          "type": "object"
+        },
+        "effects": {
+          "type": "object"
+        },
+        "primary_effect": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "p_raw": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "p_adj": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "strata": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/metric"
+          }
+        },
+        "power": {
+          "$ref": "#/$defs/power"
+        },
+        "stratified": {
+          "type": "object"
+        },
+        "unstratified": {
+          "type": "object"
+        },
+        "strata_dropped": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "composition": {
+          "type": "object"
+        },
+        "strata_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "p_raw_source": {
+          "const": "stratified"
+        }
+      },
+      "required": [
+        "kind",
+        "groups",
+        "status",
+        "direction",
+        "flags",
+        "analyst_flags",
+        "excluded_counts",
+        "min_achievable_p",
+        "adjustment",
+        "summary_text",
+        "power"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "insufficient_data"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "tests"
+                  ]
+                },
+                {
+                  "required": [
+                    "effects"
+                  ]
+                },
+                {
+                  "required": [
+                    "p_raw"
+                  ]
+                },
+                {
+                  "required": [
+                    "p_adj"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "tests",
+              "effects",
+              "primary_effect",
+              "p_raw",
+              "p_adj"
+            ]
+          }
+        }
+      ]
+    },
+    "body": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "experiment-result/v1"
+        },
+        "experiment_id": {
+          "type": "string"
+        },
+        "group_order": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "engine": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "const": "experiment-stats"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ]
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "snapshot_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "spec_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "annotations_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "snapshot_sha256",
+            "spec_sha256",
+            "annotations_sha256"
+          ]
+        },
+        "defaults": {
+          "type": "object"
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/metric"
+          }
+        },
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "overall": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "primary_statuses": {
+              "type": "object",
+              "additionalProperties": {
+                "enum": [
+                  "insufficient_data",
+                  "inconclusive",
+                  "significant",
+                  "practically_equivalent"
+                ]
+              }
+            },
+            "note": {
+              "type": "string"
+            },
+            "flags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "primary_statuses",
+            "note",
+            "flags"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "experiment_id",
+        "group_order",
+        "engine",
+        "inputs",
+        "defaults",
+        "metrics",
+        "exclusions",
+        "warnings",
+        "overall"
+      ]
+    },
+    "power": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "power_at_current_n",
+        "mde_at_current_n",
+        "samples_needed_per_group",
+        "samples_needed_noether",
+        "projected_p_if_effect_holds",
+        "eta_date",
+        "simulations",
+        "mc_se",
+        "baseline_group"
+      ],
+      "properties": {
+        "power_at_current_n": {
+          "type": ["number", "null"]
+        },
+        "mde_at_current_n": {
+          "type": ["number", "null"]
+        },
+        "projected_p_if_effect_holds": {
+          "type": ["number", "null"]
+        },
+        "mc_se": {
+          "type": ["number", "null"]
+        },
+        "days_needed": {
+          "type": ["number", "null"]
+        },
+        "accrual_per_day": {
+          "type": ["number", "null"]
+        },
+        "allocation_ratio": {
+          "type": ["number", "null"]
+        },
+        "status": {
+          "enum": [
+            "estimated",
+            "not_estimable"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "baseline_group": {
+          "type": "string"
+        },
+        "samples_needed_per_group": {
+          "oneOf": [
+            {
+              "type": ["integer", "null"],
+              "minimum": 5
+            },
+            {
+              "const": "> 5000"
+            }
+          ]
+        },
+        "samples_needed_noether": {
+          "type": ["integer", "null"],
+          "minimum": 5
+        },
+        "eta_date": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "simulations": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

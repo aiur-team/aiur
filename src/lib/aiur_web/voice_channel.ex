@@ -1,11 +1,11 @@
 defmodule AiurWeb.VoiceChannel do
   @moduledoc """
   Browser dictation channel: the second producer feeding the shared
-  ElevenLabs transcription path.
+  provider-neutral transcription path.
 
   The browser captures audio with `getUserMedia` (it cannot run the Node
   sidecar's PipeWire capture), pushes raw PCM chunks here, and this channel
-  owns a server-side `Aiur.ElevenLabs.Realtime` session. Transcript frames are
+  owns a server-side `Aiur.Voice` session. Transcript frames are
   streamed back to the browser so the composer shows live partial text and
   settles to finals. Dictation waits for the operator to press Send; the
   separate conversation topic uses the same normal send path after an explicit
@@ -19,8 +19,8 @@ defmodule AiurWeb.VoiceChannel do
 
   require Logger
 
-  alias Aiur.ElevenLabs.{Realtime, TTS}
-  alias AiurWeb.{Endpoint, FinancialDataAccess, VoiceSessionLimiter}
+  alias Aiur.Voice
+  alias AiurWeb.{EndpointConfig, FinancialDataAccess, VoiceSessionLimiter}
 
   # An audio chunk larger than this is rejected outright: at 16 kHz mono PCM16,
   # 256 KiB is roughly 8 seconds of audio, well past any single dictation push
@@ -46,7 +46,7 @@ defmodule AiurWeb.VoiceChannel do
       when topic in ["voice:dictation", "voice:conversation"] do
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
-    with true <- Endpoint.config(:dashboard_writable) == true,
+    with true <- EndpointConfig.get(:dashboard_writable) == true,
          {:ok, ^generation} <- FinancialDataAccess.current_configuration_generation(),
          {:ok, lease} <- VoiceSessionLimiter.acquire(connection_generation) do
       join_stt(socket, generation, lease, topic)
@@ -62,11 +62,11 @@ defmodule AiurWeb.VoiceChannel do
   def join(_topic, _payload, _socket), do: {:error, %{reason: "invalid_topic"}}
 
   defp join_stt(socket, generation, lease, topic) do
-    case start_stt(socket) do
-      {:ok, %{pid: pid}} ->
+    case start_stt() do
+      {:ok, session} ->
         {:ok,
          socket
-         |> assign(:stt, %{pid: pid})
+         |> assign(:stt, session)
          |> assign(:voice_mode, if(topic == "voice:conversation", do: :conversation, else: :dictation))
          |> assign(:voice_tts, nil)
          |> assign(:voice_tts_spoken?, false)
@@ -87,7 +87,7 @@ defmodule AiurWeb.VoiceChannel do
         audio_bytes = socket.assigns.voice_audio_bytes + byte_size(pcm)
 
         if audio_bytes <= max_session_audio_bytes() do
-          Realtime.push(socket.assigns.stt.pid, data)
+          Voice.push(socket.assigns.stt, data)
           {:noreply, assign(socket, :voice_audio_bytes, audio_bytes)}
         else
           push(socket, "error", %{"reason" => "Dictation reached the five-minute limit. Review the text and start again."})
@@ -108,7 +108,7 @@ defmodule AiurWeb.VoiceChannel do
   @impl true
   def handle_in("stop", _payload, socket) do
     case socket.assigns.stt do
-      %{pid: pid} -> Realtime.commit(pid)
+      %{pid: _pid} = session -> Voice.commit(session)
       nil -> push(socket, "stopped", %{"text" => ""})
     end
 
@@ -195,8 +195,8 @@ defmodule AiurWeb.VoiceChannel do
   @impl true
   def terminate(_reason, socket) do
     case socket.assigns[:stt] do
-      %{pid: pid} when is_pid(pid) ->
-        Realtime.stop(pid)
+      %{pid: pid} = session when is_pid(pid) ->
+        Voice.stop(session)
 
       _ ->
         :ok
@@ -232,60 +232,29 @@ defmodule AiurWeb.VoiceChannel do
 
   # --- helpers -------------------------------------------------------------
 
-  # The STT session is injected through the endpoint config so channel tests
-  # drive a fake transcriber; production uses the same
-  # `Aiur.ElevenLabs.Realtime` session as Stream Deck voice input.
-  defp start_stt(socket) do
-    case Endpoint.config(:voice_stt_start_fun) do
-      fun when is_function(fun, 1) ->
-        safe_start(fun, socket)
-
-      _ ->
-        start_realtime()
-    end
-  end
-
-  defp start_realtime do
-    case Realtime.start(owner: self()) do
-      {:ok, pid} ->
-        {:ok, %{pid: pid}}
+  defp start_stt do
+    case Voice.start_transcription(owner: self()) do
+      {:ok, session} ->
+        {:ok, session}
 
       {:error, :unconfigured} ->
         {:error, "ElevenLabs speech-to-text is not configured. Dictation is unavailable; ask the Executor to run `aiur init` and add an ElevenLabs API key."}
 
       {:error, reason} ->
-        Logger.warning("voice dictation: ElevenLabs realtime session failed to start: #{inspect(reason)}")
+        Logger.warning("voice dictation: transcription session failed to start: #{inspect(reason)}")
         {:error, "Speech-to-text could not start. Check the daemon log and retry."}
     end
   rescue
     error ->
-      Logger.warning("voice dictation: ElevenLabs STT setup failed: #{inspect(error)}")
+      Logger.warning("voice dictation: STT setup failed: #{inspect(error)}")
       {:error, "Speech-to-text is unavailable right now."}
   catch
     _kind, _reason ->
       {:error, "Speech-to-text is unavailable right now."}
   end
 
-  defp safe_start(fun, socket) do
-    case fun.(socket) do
-      {:ok, %{pid: pid}} when is_pid(pid) ->
-        {:ok, %{pid: pid}}
-
-      {:error, _reason} = error ->
-        error
-
-      _other ->
-        {:error, "Speech-to-text could not start."}
-    end
-  catch
-    _kind, _reason -> {:error, "Speech-to-text could not start."}
-  end
-
-  defp start_tts(socket, text) do
-    case Endpoint.config(:voice_tts_start_fun) do
-      fun when is_function(fun, 2) -> fun.(socket, text)
-      _ -> TTS.start(self(), text)
-    end
+  defp start_tts(text) do
+    Voice.start_speech(self(), text, [])
   catch
     _kind, _reason -> {:error, :unavailable}
   end
@@ -294,7 +263,7 @@ defmodule AiurWeb.VoiceChannel do
     authority = socket.assigns.voice_authority.connection_generation
 
     with {:ok, lease} <- VoiceSessionLimiter.acquire(authority) do
-      case start_tts(socket, text) do
+      case start_tts(text) do
         {:ok, pid} ->
           {:ok, pid, lease}
 
@@ -326,6 +295,6 @@ defmodule AiurWeb.VoiceChannel do
   end
 
   defp max_session_audio_bytes do
-    Endpoint.config(:voice_max_session_audio_bytes) || @default_max_session_audio_bytes
+    EndpointConfig.get(:voice_max_session_audio_bytes) || @default_max_session_audio_bytes
   end
 end

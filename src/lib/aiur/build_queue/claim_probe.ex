@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.ClaimProbe do
   @moduledoc "The build queue's runtime ownership and demand boundary."
 
-  @type claim_status :: :claimed | :unclaimed | {:declined, atom() | {:queue_set_order, String.t()}}
+  @type claim_status :: :claimed | :unclaimed | :authorization_pending | {:declined, atom() | {:queue_set_order, String.t()}}
   @type result :: %{String.t() => claim_status()} | :unavailable
 
   @callback status([String.t()]) :: result()

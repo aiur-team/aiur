@@ -10,8 +10,7 @@ defmodule Aiur.Orchestrator.PushRouting.ClearedDependency do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State, TrackerTasks}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State, TicketTransition, TrackerTasks}
 
   @doc false
   @spec maybe_resume_blockee_on_cleared_dependency(
@@ -286,7 +285,7 @@ defmodule Aiur.Orchestrator.PushRouting.ClearedDependency do
   defp resume_cleared_dependency_blockee(state, match, blockee, blocker, clearance) do
     %{entry: entry, blockee_identifier: blockee_identifier, blocker_identifier: blocker_identifier} = match
 
-    case Orchestrator.resume_paused_issue(state, entry, false) do
+    case TicketTransition.apply_effect(state, {:resume_paused, entry, false}) do
       {{:ok, :resumed}, next_state} ->
         Logger.info("Auto-resume on cleared blocker dependency: blockee=#{blockee_identifier} blocker=#{blocker_identifier}")
 

@@ -14,6 +14,12 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
 
   alias Aiur.TrackerIdentity
 
+  alias Aiur.Orchestrator.ControlLifecycle.Restore
+  import Aiur.Orchestrator.ControlLifecycle.Validation, only: [validate_request: 1, rejection: 2, rejection: 3, rejection_message: 1]
+
+  import Aiur.Orchestrator.ControlLifecycle.Records,
+    only: [build_request: 2, same_intent?: 2, supersede_pending: 3, put_new_request: 2, put_record: 2, clear_pending: 3, pending_request?: 2, put_snapshot_request: 2]
+
   @protocol_version 1
   @default_history_limit 32
   # Daemon lifecycle events (daemon start/stop) are carried in the same durable
@@ -372,7 +378,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
     %{
       version: @protocol_version,
       records: records,
-      daemon_events: Enum.map(lifecycle.daemon_events, &daemon_event_payload/1)
+      daemon_events: Enum.map(lifecycle.daemon_events, &Restore.daemon_event_payload/1)
     }
   end
 
@@ -389,7 +395,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   @spec record_daemon_event(t(), :start | :stop, map()) :: t()
   def record_daemon_event(%__MODULE__{} = lifecycle, kind, attrs)
       when kind in @daemon_kinds and is_map(attrs) do
-    event = build_daemon_event(kind, attrs)
+    event = Restore.build_daemon_event(kind, attrs)
 
     if Enum.any?(lifecycle.daemon_events, &(&1.kind == kind and &1.run_id == event.run_id)) do
       lifecycle
@@ -416,33 +422,16 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
 
   @doc false
   @spec merge(t(), t()) :: t()
-  def merge(%__MODULE__{} = lifecycle, %__MODULE__{} = other) do
-    records =
-      Map.merge(lifecycle.records, other.records, fn _request_id, left, right ->
-        Enum.max_by([left, right], &request_transition_key/1)
-      end)
-
-    history_limit = max(lifecycle.history_limit, other.history_limit)
-    created_at = earliest_datetime(lifecycle.created_at, other.created_at)
-
-    merged =
-      records
-      |> Map.values()
-      |> Enum.sort_by(&request_history_key/1)
-      |> Enum.reduce(new(now: created_at, history_limit: history_limit), &put_restored_request(&2, &1))
-      |> trim_restored_history()
-
-    merge_daemon_events(merged, %{lifecycle | daemon_events: lifecycle.daemon_events ++ other.daemon_events})
-  end
+  defdelegate merge(lifecycle, other), to: Restore
 
   @doc "Restores a previously redacted lifecycle projection, skipping invalid records."
   @spec restore(term(), keyword()) :: t()
   def restore(%{"version" => @protocol_version, "records" => records} = persisted, opts) when is_list(records) do
-    restore_records(records, opts) |> put_restored_daemon_events(persisted)
+    Restore.restore(records, persisted, opts)
   end
 
   def restore(%{version: @protocol_version, records: records} = persisted, opts) when is_list(records) do
-    restore_records(records, opts) |> put_restored_daemon_events(persisted)
+    Restore.restore(records, persisted, opts)
   end
 
   def restore(_persisted, opts), do: new(opts)
@@ -470,436 +459,8 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
     }
   end
 
-  defp validate_request(attrs) do
-    attrs
-    |> request_validations()
-    |> Enum.find(:ok, &match?({:error, _}, &1))
-  end
-
-  defp request_validations(attrs) do
-    [
-      validate_request_id(attrs),
-      validate_issue_id(attrs),
-      validate_tracker_identity(attrs),
-      validate_action(attrs),
-      validate_generation(attrs),
-      validate_expected_status(attrs),
-      validate_expected_version(attrs),
-      validate_requester(attrs)
-    ]
-  end
-
-  defp validate_request_id(attrs) do
-    if valid_request_id?(Map.get(attrs, :request_id)),
-      do: :ok,
-      else: {:error, rejection(:control_failed, "request ID must be a non-empty string or positive integer")}
-  end
-
-  defp validate_issue_id(attrs) do
-    if valid_issue_id?(Map.get(attrs, :issue_id)),
-      do: :ok,
-      else: {:error, rejection(:not_found, "unit identifier is required")}
-  end
-
-  defp validate_tracker_identity(attrs) do
-    if TrackerIdentity.joinable?(Map.get(attrs, :tracker_identity)),
-      do: :ok,
-      else: {:error, rejection(:not_eligible, "unit does not have a joinable repository-qualified identity")}
-  end
-
-  defp validate_action(attrs) do
-    if Map.get(attrs, :action) in @actions,
-      do: :ok,
-      else: {:error, rejection(:unsupported, "control action must be pause or resume")}
-  end
-
-  defp validate_generation(attrs) do
-    if valid_generation?(Map.get(attrs, :generation)),
-      do: :ok,
-      else: {:error, rejection(:stale_generation, "worker generation is required")}
-  end
-
-  defp validate_expected_status(attrs) do
-    if is_atom(Map.get(attrs, :expected_status)),
-      do: :ok,
-      else: {:error, rejection(:control_failed, "expected authoritative status is required")}
-  end
-
-  defp validate_expected_version(attrs) do
-    if valid_expected_version?(Map.get(attrs, :expected_version)),
-      do: :ok,
-      else: {:error, rejection(:control_failed, "expected authoritative version must be a non-negative integer")}
-  end
-
-  defp validate_requester(attrs) do
-    if Map.get(attrs, :requester) in @requesters,
-      do: :ok,
-      else: {:error, rejection(:control_failed, "requester class is required")}
-  end
-
-  defp build_request(attrs, now) do
-    %{
-      protocol_version: @protocol_version,
-      request_id: attrs.request_id,
-      issue_id: attrs.issue_id,
-      tracker_identity: attrs.tracker_identity,
-      action: attrs.action,
-      generation: attrs.generation,
-      expected_status: attrs.expected_status,
-      expected_version: attrs.expected_version,
-      requester: attrs.requester,
-      status: :requested,
-      requested_at: now,
-      accepted_at: nil,
-      applied_at: nil,
-      rejected_at: nil,
-      rejection: nil,
-      expiry: nil
-    }
-  end
-
-  defp same_intent?(record, attrs) do
-    Enum.all?(
-      [:issue_id, :tracker_identity, :action, :generation, :expected_status, :expected_version, :requester],
-      &(Map.get(record, &1) == Map.get(attrs, &1))
-    )
-  end
-
-  defp request_history_key(request) do
-    {DateTime.to_unix(request.requested_at, :microsecond), to_string(request.request_id)}
-  end
-
-  defp request_transition_key(request) do
-    {DateTime.to_unix(request_transition_at(request), :microsecond), status_rank(request.status)}
-  end
-
-  defp request_transition_at(%{status: :applied, applied_at: %DateTime{} = at}), do: at
-  defp request_transition_at(%{status: :rejected, rejected_at: %DateTime{} = at}), do: at
-  defp request_transition_at(%{status: :expired, expiry: %{at: %DateTime{} = at}}), do: at
-  defp request_transition_at(%{status: :accepted, accepted_at: %DateTime{} = at}), do: at
-  defp request_transition_at(request), do: request.requested_at
-
-  defp status_rank(:requested), do: 0
-  defp status_rank(:accepted), do: 1
-  defp status_rank(status) when status in [:applied, :rejected, :expired], do: 2
-
-  defp earliest_datetime(nil, right), do: right
-  defp earliest_datetime(left, nil), do: left
-  defp earliest_datetime(%DateTime{} = left, %DateTime{} = right), do: Enum.min_by([left, right], &DateTime.to_unix(&1, :microsecond))
-
-  defp supersede_pending(lifecycle, issue_id, now) do
-    case current_pending(lifecycle, issue_id) do
-      nil ->
-        lifecycle
-
-      request ->
-        superseded = %{
-          request
-          | status: :rejected,
-            rejected_at: now,
-            rejection: rejection(:superseded, "a newer control intent superseded this pending request")
-        }
-
-        lifecycle
-        |> put_record(superseded)
-        |> clear_pending(issue_id, request.request_id)
-    end
-  end
-
-  defp put_new_request(lifecycle, request) do
-    history_ids = Map.update(lifecycle.history_ids, request.issue_id, [request.request_id], &(&1 ++ [request.request_id]))
-
-    lifecycle
-    |> Map.put(:history_ids, history_ids)
-    |> put_record(request)
-    |> put_in([Access.key(:pending), request.issue_id], request.request_id)
-    |> trim_history(request.issue_id)
-  end
-
-  defp put_record(lifecycle, request), do: put_in(lifecycle.records[request.request_id], request)
-
-  defp clear_pending(lifecycle, issue_id, request_id) do
-    if lifecycle.pending[issue_id] == request_id do
-      update_in(lifecycle.pending, &Map.delete(&1, issue_id))
-    else
-      lifecycle
-    end
-  end
-
-  defp pending_request?(lifecycle, request), do: lifecycle.pending[request.issue_id] == request.request_id
-
-  defp trim_history(lifecycle, issue_id) do
-    ids = Map.fetch!(lifecycle.history_ids, issue_id)
-    overflow = max(length(ids) - lifecycle.history_limit, 0)
-
-    {discarded, retained} = Enum.split(ids, overflow)
-
-    records =
-      Enum.reduce(discarded, lifecycle.records, fn request_id, records ->
-        if Map.get(lifecycle.pending, issue_id) == request_id do
-          records
-        else
-          Map.delete(records, request_id)
-        end
-      end)
-
-    %{lifecycle | records: records, history_ids: Map.put(lifecycle.history_ids, issue_id, retained)}
-  end
-
   defp identity_payload(%TrackerIdentity{} = identity) do
     Map.take(identity, [:version, :status, :kind, :owner, :repository, :provider_id, :identifier, :reason])
-  end
-
-  defp restore_records(records, opts) do
-    records
-    |> Enum.reduce(new(opts), fn raw, lifecycle ->
-      case restore_record(raw) do
-        {:ok, request} -> put_restored_request(lifecycle, request)
-        :error -> lifecycle
-      end
-    end)
-    |> trim_restored_history()
-  end
-
-  defp restore_record(raw) when is_map(raw) do
-    with request_id <- persisted_value(raw, :request_id),
-         true <- valid_request_id?(request_id),
-         issue_id <- persisted_value(raw, :issue_id),
-         true <- valid_issue_id?(issue_id),
-         {:ok, tracker_identity} <- restore_identity(persisted_value(raw, :tracker_identity)),
-         {:ok, action} <- persisted_atom(persisted_value(raw, :action), @actions),
-         generation <- persisted_value(raw, :generation),
-         true <- valid_generation?(generation),
-         {:ok, expected_status} <- persisted_atom(persisted_value(raw, :expected_status), @expected_statuses),
-         expected_version <- persisted_value(raw, :expected_version),
-         true <- valid_expected_version?(expected_version),
-         {:ok, requester} <- persisted_atom(persisted_value(raw, :requester), @requesters),
-         {:ok, status} <- persisted_atom(persisted_value(raw, :status), @statuses),
-         {:ok, requested_at} <- restore_datetime(persisted_value(raw, :requested_at)) do
-      {:ok,
-       %{
-         protocol_version: @protocol_version,
-         request_id: request_id,
-         issue_id: issue_id,
-         tracker_identity: tracker_identity,
-         action: action,
-         generation: generation,
-         expected_status: expected_status,
-         expected_version: expected_version,
-         requester: requester,
-         status: status,
-         requested_at: requested_at,
-         accepted_at: restore_optional_datetime(persisted_value(raw, :accepted_at)),
-         applied_at: restore_optional_datetime(persisted_value(raw, :applied_at)),
-         rejected_at: restore_optional_datetime(persisted_value(raw, :rejected_at)),
-         rejection: restore_rejection(persisted_value(raw, :rejection)),
-         expiry: restore_expiry(persisted_value(raw, :expiry))
-       }}
-    else
-      _ -> :error
-    end
-  end
-
-  defp restore_record(_raw), do: :error
-
-  defp put_restored_request(lifecycle, request) do
-    history_ids = Map.update(lifecycle.history_ids, request.issue_id, [request.request_id], &(&1 ++ [request.request_id]))
-
-    lifecycle = %{
-      lifecycle
-      | records: Map.put(lifecycle.records, request.request_id, request),
-        history_ids: history_ids
-    }
-
-    if request.status in @pending_statuses do
-      put_in(lifecycle.pending[request.issue_id], request.request_id)
-    else
-      lifecycle
-    end
-  end
-
-  defp trim_restored_history(lifecycle) do
-    Enum.reduce(Map.keys(lifecycle.history_ids), lifecycle, &trim_history(&2, &1))
-  end
-
-  defp build_daemon_event(kind, attrs) do
-    %{
-      kind: kind,
-      at: daemon_event_at(attrs),
-      run_id: Map.get(attrs, :run_id) || "",
-      os_pid: Map.get(attrs, :os_pid) || "",
-      ppid: string_or_nil(Map.get(attrs, :ppid)),
-      ppid_comm: string_or_nil(Map.get(attrs, :ppid_comm)),
-      hostname: string_or_nil(Map.get(attrs, :hostname))
-    }
-  end
-
-  defp daemon_event_payload(event) do
-    %{
-      kind: event.kind,
-      at: event.at,
-      run_id: event.run_id,
-      os_pid: event.os_pid,
-      ppid: event.ppid,
-      ppid_comm: event.ppid_comm,
-      hostname: event.hostname
-    }
-  end
-
-  defp put_restored_daemon_events(lifecycle, persisted) do
-    events =
-      case persisted_value(persisted, :daemon_events) do
-        raw when is_list(raw) -> Enum.flat_map(raw, &restore_daemon_event/1)
-        _ -> []
-      end
-
-    %{lifecycle | daemon_events: Enum.take(events, -@daemon_event_limit)}
-  rescue
-    _ -> lifecycle
-  end
-
-  defp restore_daemon_event(raw) when is_map(raw) do
-    with {:ok, kind} <- persisted_atom(persisted_value(raw, :kind), @daemon_kinds),
-         {:ok, at} <- restore_datetime(persisted_value(raw, :at)),
-         run_id when is_binary(run_id) and run_id != "" <- persisted_value(raw, :run_id) do
-      [
-        build_daemon_event(kind, %{
-          at: at,
-          run_id: run_id,
-          os_pid: persisted_value(raw, :os_pid),
-          ppid: persisted_value(raw, :ppid),
-          ppid_comm: persisted_value(raw, :ppid_comm),
-          hostname: persisted_value(raw, :hostname)
-        })
-      ]
-    else
-      _ -> []
-    end
-  end
-
-  defp restore_daemon_event(_raw), do: []
-
-  defp daemon_event_at(attrs) do
-    case Map.get(attrs, :at) do
-      %DateTime{} = value -> value
-      _ -> now!([])
-    end
-  end
-
-  defp string_or_nil(value) when is_binary(value) and value != "", do: value
-  defp string_or_nil(_value), do: nil
-
-  defp restore_identity(raw) when is_map(raw) do
-    with {:ok, status} <- persisted_atom(persisted_value(raw, :status), [:joinable, :unjoinable]),
-         {:ok, kind} <- persisted_atom(persisted_value(raw, :kind), [:github]),
-         {:ok, reason} <- persisted_optional_atom(persisted_value(raw, :reason), TrackerIdentity.unjoinable(:legacy).reason |> List.wrap()),
-         version when is_integer(version) and version > 0 <- persisted_value(raw, :version) do
-      {:ok,
-       %TrackerIdentity{
-         version: version,
-         status: status,
-         kind: kind,
-         owner: persisted_value(raw, :owner),
-         repository: persisted_value(raw, :repository),
-         provider_id: persisted_value(raw, :provider_id),
-         identifier: persisted_value(raw, :identifier),
-         reason: reason
-       }}
-    else
-      _ -> :error
-    end
-  end
-
-  defp restore_identity(_raw), do: :error
-
-  defp restore_datetime(%DateTime{} = value), do: {:ok, value}
-
-  defp restore_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> {:ok, datetime}
-      _ -> :error
-    end
-  end
-
-  defp restore_datetime(_value), do: :error
-
-  defp restore_optional_datetime(nil), do: nil
-
-  defp restore_optional_datetime(value) do
-    case restore_datetime(value) do
-      {:ok, datetime} -> datetime
-      :error -> nil
-    end
-  end
-
-  defp restore_rejection(nil), do: nil
-
-  defp restore_rejection(raw) when is_map(raw) do
-    with {:ok, class} <- persisted_atom(persisted_value(raw, :class), @rejection_classes),
-         message when is_binary(message) <- persisted_value(raw, :message) do
-      %{class: class, message: message}
-      |> maybe_put_rejection_condition(restore_rejection_condition(persisted_value(raw, :condition)))
-    else
-      _ -> nil
-    end
-  end
-
-  defp restore_rejection(_raw), do: nil
-
-  defp restore_rejection_condition(raw) when is_map(raw) do
-    with {:ok, control_status} <- persisted_atom(persisted_value(raw, :control_status), @expected_statuses),
-         {:ok, pause_reason} <- persisted_optional_atom(persisted_value(raw, :pause_reason), pause_reasons()) do
-      %{control_status: control_status, pause_reason: pause_reason}
-    else
-      _ -> nil
-    end
-  end
-
-  defp restore_rejection_condition(_raw), do: nil
-
-  defp maybe_put_rejection_condition(rejection, nil), do: rejection
-  defp maybe_put_rejection_condition(rejection, condition), do: Map.put(rejection, :condition, condition)
-
-  defp restore_expiry(nil), do: nil
-
-  defp restore_expiry(raw) when is_map(raw) do
-    with {:ok, reason} <- persisted_atom(persisted_value(raw, :reason), @expiry_reasons),
-         {:ok, at} <- restore_datetime(persisted_value(raw, :at)) do
-      %{reason: reason, at: at}
-    else
-      _ -> nil
-    end
-  end
-
-  defp restore_expiry(_raw), do: nil
-
-  defp persisted_value(raw, key), do: Map.get(raw, key, Map.get(raw, Atom.to_string(key)))
-
-  defp persisted_atom(value, allowed) when is_atom(value) do
-    if value in allowed, do: {:ok, value}, else: :error
-  end
-
-  defp persisted_atom(value, allowed) when is_binary(value) do
-    Enum.find_value(allowed, :error, fn atom -> if Atom.to_string(atom) == value, do: {:ok, atom} end)
-  end
-
-  defp persisted_atom(_value, _allowed), do: :error
-
-  defp persisted_optional_atom(nil, _allowed), do: {:ok, nil}
-  defp persisted_optional_atom(value, allowed), do: persisted_atom(value, allowed)
-
-  defp pause_reasons do
-    [
-      :before_run_failure,
-      :blocker_dependency,
-      :ci_wait,
-      :global_pause,
-      :label_override,
-      :max_agent_duration,
-      :operator_pause,
-      :rate_limit_fallback_recovery,
-      :usage_limit_exhausted
-    ]
   end
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
@@ -912,39 +473,16 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
     end
   end
 
-  defp valid_request_id?(value), do: (is_binary(value) and value != "") or (is_integer(value) and value > 0)
-  defp valid_issue_id?(value), do: not is_nil(value)
-  defp valid_generation?(value), do: (is_binary(value) and value != "") or (is_integer(value) and value >= 0)
-  defp valid_expected_version?(value), do: is_integer(value) and value >= 0
-
-  defp put_snapshot_request(lifecycle, request) do
-    %{
-      lifecycle
-      | history_ids: Map.update(lifecycle.history_ids, request.issue_id, [request.request_id], &(&1 ++ [request.request_id])),
-        records: Map.put(lifecycle.records, request.request_id, request)
-    }
-  end
-
-  defp rejection(class, message), do: %{class: class, message: message}
-
-  defp rejection(class, message, opts) do
-    case Keyword.get(opts, :condition) do
-      %{control_status: control_status, pause_reason: pause_reason}
-      when is_atom(control_status) and (is_atom(pause_reason) or is_nil(pause_reason)) ->
-        %{class: class, message: message, condition: %{control_status: control_status, pause_reason: pause_reason}}
-
-      _condition ->
-        rejection(class, message)
-    end
-  end
-
-  defp rejection_message(:not_found), do: "target unit was not found"
-  defp rejection_message(:not_eligible), do: "target unit is not eligible for control"
-  defp rejection_message(:unsupported), do: "target worker does not support this control"
-  defp rejection_message(:stale_generation), do: "target worker generation is no longer current"
-  defp rejection_message(:worker_unavailable), do: "target worker is unavailable"
-  defp rejection_message(:already_in_state), do: "target is already in the requested state"
-  defp rejection_message(:control_failed), do: "control routing failed"
-  defp rejection_message(:pause_release_failed), do: "worker could not release the active pause containment"
-  defp rejection_message(:superseded), do: "a newer control intent superseded this request"
+  @doc false
+  @spec allowed_values(atom()) :: pos_integer() | [atom()]
+  def allowed_values(:protocol_version), do: @protocol_version
+  def allowed_values(:actions), do: @actions
+  def allowed_values(:requesters), do: @requesters
+  def allowed_values(:expected_statuses), do: @expected_statuses
+  def allowed_values(:statuses), do: @statuses
+  def allowed_values(:pending_statuses), do: @pending_statuses
+  def allowed_values(:rejection_classes), do: @rejection_classes
+  def allowed_values(:expiry_reasons), do: @expiry_reasons
+  def allowed_values(:daemon_kinds), do: @daemon_kinds
+  def allowed_values(:daemon_event_limit), do: @daemon_event_limit
 end

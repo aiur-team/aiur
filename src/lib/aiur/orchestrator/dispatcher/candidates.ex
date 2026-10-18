@@ -8,10 +8,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Alerts
   alias Aiur.Commands
   alias Aiur.Config
+  alias Aiur.GitHub.LocalHold
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Issue
+  alias Aiur.Orchestrator.AdoptedBoot
   alias Aiur.Orchestrator.Dispatcher.Launch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.OptimisticSlots
   alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.Slots
@@ -102,8 +105,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   @doc false
   @spec candidate_list_cache(State.t()) :: map()
-  def candidate_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
-    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:candidate_list_cache, %{})
+  def candidate_list_cache(%State{ci_lifecycle: ci_lifecycle} = state) do
+    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:candidate_list_cache, %{}) |> AdoptedBoot.candidate_cache(state)
   end
 
   defp put_candidate_list_cache(%State{} = state, cache) do
@@ -150,6 +153,19 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     do: clear_dispatch_decline(state, issue)
 
   @doc false
+  @spec hold_cached_dependencies(State.t(), [Issue.t()], term(), term()) :: State.t()
+  def hold_cached_dependencies(%State{globally_paused: true} = state, _held, _active, _terminal), do: state
+
+  def hold_cached_dependencies(state, held, active, terminal) do
+    Enum.reduce(held, state, fn issue, state ->
+      case Launch.recover_orphaned_claim(state, %{issue | blocked_by: []}, active, terminal) do
+        {state, :dispatch} -> emit_dispatch_attempt_decline(state, issue, :dependency, false)
+        {state, {:skip, reason}} -> maybe_emit_dispatch_decline(state, issue, reason)
+      end
+    end)
+  end
+
+  @doc false
   @spec start_dispatch_validation(State.t(), term(), term(), term(), keyword()) :: State.t()
   def start_dispatch_validation(state, issue, attempt, preferred_worker_host, opts) do
     expected = dispatch_input(state, issue.id)
@@ -168,7 +184,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   defp fetch_dispatch_validation(blocked_ids, issue, opts) do
     case held_by_dependency_before_refresh(blocked_ids, issue, opts) do
-      {:held, hydrated, _terminal_states} -> {:held, hydrated}
+      {:held, hydrated, _terminal_states} -> {:held, HoldDecline.observe(hydrated)}
       :continue -> refresh_dispatch_validation(issue, opts)
     end
   end
@@ -178,7 +194,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
     case Launch.revalidate_issue_for_dispatch(issue, fetcher, DispatchPolicy.terminal_state_set(), opts) do
-      {:ok, refreshed} -> {:validated, refreshed, hydrator.(refreshed)}
+      {:ok, refreshed} -> {:validated, refreshed, HoldDecline.observe(LocalHold.run(fn -> hydrator.(refreshed) end, LocalHold.caller_opts(opts)))}
       other -> other
     end
   end
@@ -220,7 +236,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   defp apply_dispatch_validation(state, issue, _attempt, _host, _opts, result) do
     Logger.warning("Asynchronous dispatch validation declined: #{State.issue_context(issue)} result=#{inspect(result)}")
-    emit_dispatch_attempt_decline(state, issue, :tracker_revalidation_failed, true)
+    emit_dispatch_attempt_decline(state, issue, HoldDecline.classify(issue, result, :tracker_revalidation_failed), true)
   end
 
   defp dispatch_input(state, id) do
@@ -230,7 +246,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
      Map.get(state.auto_resume, id), Map.get(state.retry_attempts, id)}
   end
 
-  # A todo ticket held by an open dependency cannot dispatch whatever its
+  # A todo or rework ticket held by an open dependency cannot dispatch whatever its
   # refreshed state says, so the dependency gate runs first and a held ticket
   # spends no `issue_by_id` refresh and no `dispatch_authorization` read. Before
   # #2714 every held dependent paid both on every pass, which was a third of a
@@ -240,7 +256,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   # with no dependency hold, and an issue also held on a blocking Command
   # (whose decline reason takes precedence) all take the ordinary path, which
   # refreshes the issue and runs every gate again, fail-closed as before. The
-  # gate needs the candidate to be `todo`, and the candidate's state is the
+  # gate needs the candidate to be `todo` or `rework`, and the candidate's state is the
   # latest tracker poll's.
   defp held_by_dependency_before_refresh(blocked_ids, %Issue{} = issue, opts) do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
@@ -248,7 +264,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     with false <- DispatchPolicy.blocked_on_decision?(issue, blocked_ids),
          {:ok, %Issue{} = hydrated} <- hydrator.(issue),
          terminal_states = DispatchPolicy.terminal_state_set(),
-         true <- DispatchPolicy.todo_issue_held_by_dependency?(hydrated, terminal_states) do
+         true <- DispatchPolicy.issue_held_by_dependency?(hydrated, terminal_states) do
       {:held, hydrated, terminal_states}
     else
       _not_held -> :continue
@@ -308,7 +324,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
             "#{inspect(reason)} (fail-closed: unknown blockers hold dispatch)"
         )
 
-        emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
+        emit_dispatch_attempt_decline(state, refreshed_issue, HoldDecline.classify(refreshed_issue, {:error, reason}, :dependency_hydration_failed), true)
 
       # A hydrator that returns an unexpected shape must never crash the
       # orchestrator; treat it as unknown blockers and hold dispatch.
@@ -318,14 +334,14 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
             "#{State.issue_context(refreshed_issue)}: #{inspect(other)} (fail-closed)"
         )
 
-        emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
+        emit_dispatch_attempt_decline(state, refreshed_issue, HoldDecline.classify(refreshed_issue, {:error, other}, :dependency_hydration_failed), true)
     end
   end
 
   defp dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts) do
     terminal_states = DispatchPolicy.terminal_state_set()
 
-    if DispatchPolicy.todo_issue_held_by_dependency?(hydrated, terminal_states) do
+    if DispatchPolicy.issue_held_by_dependency?(hydrated, terminal_states) do
       Logger.info(
         "Skipping dispatch; #{State.issue_context(hydrated)} " <>
           DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)
@@ -378,7 +394,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
       issue,
       reason,
       "Ticket #{issue.identifier} was selected but dispatch stopped: #{inspect(reason)}",
-      attention?
+      attention? and reason != HoldDecline.hold_reason()
     )
   end
 
@@ -409,7 +425,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   defp maybe_resolve_dispatch_decline(%State{} = state, %Issue{} = issue) do
     case Map.get(state.dispatch_declines, issue.id) do
-      reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed, :dependency_hydration_failed] ->
+      reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed, :rework_claim_failed, :dependency_hydration_failed] ->
         Alerts.emit_custom(
           dispatch_decline_topic(issue, true) <> ".resolved",
           "Dispatch decline cleared for #{issue.identifier}.",

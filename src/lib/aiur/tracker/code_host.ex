@@ -12,5 +12,7 @@ defmodule Aiur.Tracker.CodeHost do
   @callback optimistic_blocker(String.t() | integer(), integer() | nil) :: {:ok, map() | nil} | {:error, term()}
   @callback park_pull_request(String.t() | integer()) :: :ok | {:error, term()}
   @callback comment_optimistic_park(String.t() | integer(), String.t() | integer(), term()) :: :ok | {:error, term()}
-  @optional_callbacks optimistic_blocker: 2, park_pull_request: 1, comment_optimistic_park: 3
+  @callback withdraw_landing(integer()) :: {:ok, [atom()]} | {:error, term(), [atom()]}
+  @callback pull_request_body_edited_at(integer()) :: {:ok, String.t() | nil} | {:error, term()}
+  @optional_callbacks optimistic_blocker: 2, park_pull_request: 1, comment_optimistic_park: 3, withdraw_landing: 1, pull_request_body_edited_at: 1
 end

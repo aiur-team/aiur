@@ -1,0 +1,193 @@
+defmodule Aiur.AgentRunner.ReworkFindings do
+  @moduledoc """
+  The review findings a rework turn must answer (#4654).
+
+  Findings come from the numbered `file:line` items in the latest blocking
+  review body, the shape Executor reviews use. Each finding keeps the number the
+  reviewer gave it, so the worker answers `1`, `2`, ... exactly as the review
+  reads. An item without `file:line` is not a finding, so a review without any
+  never blocks a handback.
+  """
+
+  alias Aiur.Orchestrator.ReworkGate
+
+  @type finding :: %{id: String.t(), file: String.t(), line: String.t(), ask: String.t()}
+
+  @item ~r/^\s*(\d+)[.)]\s+(.+)$/
+  @location ~r/([A-Za-z0-9_.\/-]+\.[A-Za-z0-9]+):~?(\d+)/
+
+  @doc "Parses the numbered `file:line` items of a review body."
+  @spec parse(term()) :: [finding()]
+  def parse(body) when is_binary(body) do
+    for line <- String.split(body, "\n"),
+        [_, id, text] <- [Regex.run(@item, line)],
+        [_, file, line_no] <- [Regex.run(@location, text)] do
+      %{id: id, file: file, line: line_no, ask: ask(text)}
+    end
+  end
+
+  def parse(_body), do: []
+
+  @doc "Returns the PR number and head, the latest blocking review's commit and time, and that review's parsed findings."
+  @spec fetch(String.t(), keyword()) ::
+          {:ok, %{number: term(), head: String.t() | nil, review_head: String.t() | nil, review_at: String.t() | nil, findings: [finding()]}}
+          | {:error, term()}
+  def fetch(identifier, opts \\ []) do
+    fetch_reviews = Keyword.get(opts, :reviews_fetcher, &default_reviews/1)
+
+    with {:ok, pr} <- ReworkGate.open_pr(identifier, opts),
+         {:ok, reviews} <- fetch_reviews.(pr["number"]) do
+      review = reviews |> ReworkGate.blocking_reviews() |> Enum.max_by(&{&1["submitted_at"], &1["id"]}, fn -> %{} end)
+      {:ok, %{number: pr["number"], head: ReworkGate.head_sha(pr), review_head: review["commit_id"], review_at: review["submitted_at"], findings: parse(review["body"])}}
+    else
+      {:skip, reason} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  The branch's own commits and changed files from `review_head` to `head`.
+
+  First-parent, non-merge commits only, so merging the base changes nothing.
+  When the workspace cannot answer (a remote worker host, a missing object),
+  only a moved head counts as a commit and the commit and file checks are skipped.
+  """
+  @spec branch_changes(Path.t() | nil, String.t(), String.t() | nil) :: {[String.t()] | :unknown, [String.t()] | :unknown}
+  def branch_changes(_workspace, review_head, head) when head in [nil, review_head], do: {[], :unknown}
+
+  def branch_changes(workspace, review_head, head) do
+    log = ["log", "--first-parent", "--no-merges", "#{review_head}..#{head}"]
+
+    with true <- is_binary(workspace) and File.dir?(workspace),
+         {commits, 0} <- System.cmd("git", ["-C", workspace | log] ++ ["--format=%H"], stderr_to_stdout: true),
+         {files, 0} <- System.cmd("git", ["-C", workspace | log] ++ ["--format=", "--name-only"], stderr_to_stdout: true) do
+      {String.split(commits), files |> String.split("\n", trim: true) |> Enum.uniq()}
+    else
+      _unreadable -> {:unknown, :unknown}
+    end
+  end
+
+  @doc """
+  Whether the PR body was edited after the review (#4944).
+
+  A review whose only blocker is the PR body is fixed by an edit, not a commit.
+  An unreadable edit time counts as no edit, so the no-commit refusal stands.
+  """
+  @spec body_edited_since?(term(), String.t() | nil, keyword()) :: boolean()
+  def body_edited_since?(number, review_at, opts \\ []) do
+    fetch_edit = Keyword.get(opts, :body_edit_fetcher, &default_body_edit/1)
+
+    with true <- is_integer(number) and is_binary(review_at),
+         {:ok, edited_at} when is_binary(edited_at) <- fetch_edit.(number),
+         {:ok, edited, _offset} <- DateTime.from_iso8601(edited_at),
+         {:ok, reviewed, _offset} <- DateTime.from_iso8601(review_at) do
+      DateTime.after?(edited, reviewed)
+    else
+      _no_edit -> false
+    end
+  end
+
+  defp default_body_edit(number), do: if(ReworkGate.available?(), do: Aiur.CodeHost.pull_request_body_edited_at(number), else: {:ok, nil})
+
+  defp default_reviews(number) when is_integer(number) do
+    if ReworkGate.available?(), do: Aiur.CodeHost.fetch_classified_pr_reviews(number), else: {:ok, []}
+  end
+
+  defp default_reviews(_number), do: {:ok, []}
+
+  @doc "Renders the findings as the rework prompt's checklist; empty when there are none."
+  @spec prompt_section([finding()]) :: String.t()
+  def prompt_section([]), do: ""
+
+  def prompt_section(findings) do
+    """
+
+    Review findings checklist (#4654): answer every item when you call `aiur_set_ticket_state` to hand back, in its `review_findings` argument.
+    Mark each `fixed` with the commit that changes the named file, or `disputed` with concrete evidence. The handback is refused while any item is unanswered, a `fixed` commit is not on the branch since the review, or its file was not changed since the review.
+    #{Enum.map_join(findings, "\n", &"- #{&1.id}. `#{&1.file}:#{&1.line}` — #{&1.ask}")}
+    """
+  end
+
+  @doc """
+  Checks the worker's answers against the findings and the commits since the review.
+
+  `commits` and `files` come from the branch's own (first-parent, non-merge)
+  commits since the review, so merging the base touches nothing. `:unknown`
+  skips the commit and file checks when the workspace cannot be read.
+  `body_edited?` lifts only the no-commit refusal: a finding marked `fixed`
+  still needs its own commit.
+  """
+  @spec validate([finding()], term(), [String.t()] | :unknown, [String.t()] | :unknown, boolean()) :: :allow | {:blocked, [String.t()]}
+  def validate(findings, answers, commits, files, body_edited? \\ false) do
+    answers = if is_list(answers), do: Enum.filter(answers, &is_map/1), else: []
+    by_id = Map.new(answers, &{to_string(field(&1, "id")), &1})
+
+    reasons =
+      Enum.flat_map(findings, &finding_reasons(&1, Map.get(by_id, &1.id), commits, files)) ++
+        if(body_edited?, do: [], else: no_commit_reason(findings, by_id, commits))
+
+    if reasons == [], do: :allow, else: {:blocked, reasons}
+  end
+
+  defp finding_reasons(finding, nil, _commits, _files), do: ["finding #{label(finding)} is unchecked: #{finding.ask}"]
+
+  defp finding_reasons(finding, answer, commits, files) do
+    case field(answer, "status") do
+      "disputed" -> if blank?(field(answer, "evidence")), do: ["finding #{label(finding)} is disputed without evidence"], else: []
+      "fixed" -> fixed_reasons(finding, field(answer, "commit"), commits, files)
+      _other -> ["finding #{label(finding)} must be marked fixed or disputed"]
+    end
+  end
+
+  defp fixed_reasons(_finding, _commit, :unknown, _files), do: []
+
+  defp fixed_reasons(finding, commit, commits, files) do
+    commit_reason =
+      if is_binary(commit) and String.length(commit) >= 7 and Enum.any?(commits, &String.starts_with?(&1, commit)),
+        do: [],
+        else: ["finding #{label(finding)} is marked fixed by #{inspect(commit)}, which is not a commit since the review"]
+
+    file_reason =
+      if files == :unknown or Enum.any?(files, &same_file?(&1, finding.file)), do: [], else: ["finding #{label(finding)} is marked fixed but #{finding.file} was not changed since the review"]
+
+    commit_reason ++ file_reason
+  end
+
+  # Disputing every finding is a legitimate handback without a new commit; anything else needs one or a body edit.
+  defp no_commit_reason(findings, by_id, []) do
+    all_disputed? = findings != [] and Enum.all?(findings, &(field(Map.get(by_id, &1.id, %{}), "status") == "disputed"))
+    if all_disputed?, do: [], else: ["no new commits or PR body edit since the review"]
+  end
+
+  defp no_commit_reason(_findings, _by_id, _commits), do: []
+
+  @doc "The ticket comment that carries the worker's answers to the re-review."
+  @spec comment_body([finding()], [map()]) :: String.t()
+  def comment_body(findings, answers) do
+    by_id = Map.new(answers, &{to_string(field(&1, "id")), &1})
+
+    rows =
+      Enum.map_join(findings, "\n", fn finding ->
+        answer = Map.get(by_id, finding.id, %{})
+        detail = if field(answer, "status") == "fixed", do: "commit `#{field(answer, "commit")}`", else: field(answer, "evidence")
+        "- [x] #{finding.id}. `#{finding.file}:#{finding.line}` — #{finding.ask}\n  **#{field(answer, "status")}**: #{detail}"
+      end)
+
+    "## Rework checklist\n\nThe worker's answers to the latest review's findings, verified before this handback.\n\n" <> rows <> "\n"
+  end
+
+  # Reviews name a file by basename or without `src/`; the branch lists repo-relative paths.
+  defp same_file?(changed, file), do: changed == file or String.ends_with?(changed, "/" <> file)
+
+  defp label(finding), do: "#{finding.id} (#{finding.file}:#{finding.line})"
+
+  defp ask(text) do
+    text = String.trim(text)
+    if String.length(text) > 200, do: String.slice(text, 0, 197) <> "...", else: text
+  end
+
+  # Tool arguments arrive as decoded JSON, so keys are strings.
+  defp field(map, key), do: Map.get(map, key)
+
+  defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
+end

@@ -20,6 +20,7 @@ defmodule Aiur.Config.Schema do
     EnvResolver,
     Errors,
     Events,
+    Executor,
     Experiments,
     Hooks,
     MergePolicy,
@@ -42,20 +43,37 @@ defmodule Aiur.Config.Schema do
   require Agent
   require Tracker
   require BuildQueue
+  require Experiments
 
   @primary_key false
 
   @type t :: %__MODULE__{}
 
   embedded_schema do
+    # @config-reference config-configuration-00 max_vertical_panes
+    # @config-detail max_vertical_panes | integer | 3 | Caps visible agent chat panes. |
     field(:max_vertical_panes, :integer, default: 3)
+    # @config-reference config-configuration-00 pre_warmed_sessions
+    # @config-detail pre_warmed_sessions | integer | 3 | Number of opencode sessions booted early; 0 disables pre-warm. |
     field(:pre_warmed_sessions, :integer, default: 3)
+    # @config-reference config-configuration-00 max_log_history_mb
+    # @config-detail max_log_history_mb | integer | 1000 | Caps persistent log history in MB. |
     field(:max_log_history_mb, :integer, default: 1000)
+    # @config-reference config-configuration-00 prompt_file
+    # @config-detail prompt_file | string | nil | Per-repository Liquid prompt template. |
+    # @config-reference config-configuration-00 hooks_file
+    # @config-detail hooks_file | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
     field(:prompt_file, :string)
+    # @config-reference config-configuration-00 debug
+    # @config-detail debug | boolean | false | Enables debug-level file logging without the CLI debug flag; background runs already retain normal-level logs. |
     field(:debug, :boolean, default: false)
     # Configurable Executor takeover advisory alerts (#1182). `0` disables the
     # corresponding alert; negative values are rejected by the changeset.
+    # @config-reference config-configuration-00 executor_takeover_first_alert_hours
+    # @config-detail executor_takeover_first_alert_hours | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
     field(:executor_takeover_first_alert_hours, :integer, default: 8)
+    # @config-reference config-configuration-00 executor_takeover_continuous_alert_hours
+    # @config-detail executor_takeover_continuous_alert_hours | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
     field(:executor_takeover_continuous_alert_hours, :integer, default: 1)
 
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
@@ -82,6 +100,8 @@ defmodule Aiur.Config.Schema do
     embeds_one(:webhooks, Webhooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:elevenlabs, ElevenLabs, on_replace: :update, defaults_to_struct: true)
     embeds_one(:upgrade, Upgrade, on_replace: :update, defaults_to_struct: true)
+    # Keep the Executor sweep settings in the same parsed settings snapshot.
+    embeds_one(:executor, Executor, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
@@ -193,6 +213,7 @@ defmodule Aiur.Config.Schema do
     |> validate_raw_non_negative_integer(attrs, "executor_takeover_first_alert_hours")
     |> validate_raw_non_negative_integer(attrs, "executor_takeover_continuous_alert_hours")
     |> cast_embed(:tracker, with: &Tracker.changeset/2)
+    |> cast_embed(:executor, with: &Executor.changeset/2)
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
     |> cast_embed(:worker, with: &Worker.changeset/2)

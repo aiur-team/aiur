@@ -2,8 +2,28 @@ defmodule Aiur.Application.ChildrenTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Application, as: AiurApp
+  alias Aiur.Executor.StatePaths
 
   describe "child_specs/1 run-shape gating" do
+    test "IdGenerator child spec supplies the application-owned floor sources" do
+      for shape <- [[interactive_cli?: true, headless?: false, dashboard?: true], [interactive_cli?: false, headless?: true, dashboard?: false]] do
+        child =
+          shape
+          |> AiurApp.child_specs()
+          |> Enum.find(fn
+            {Aiur.Events.IdGenerator, _opts} -> true
+            Aiur.Events.IdGenerator -> true
+            _ -> false
+          end)
+          |> Supervisor.child_spec([])
+
+        assert child.id == Aiur.Events.IdGenerator
+        assert {Aiur.Events.IdGenerator, :start_link, [opts]} = child.start
+        assert Keyword.fetch!(opts, :floor_files).() == [StatePaths.journal_path()]
+        assert Keyword.fetch!(opts, :legacy_counter_files) == (&Aiur.IdFloorSources.legacy_counter_files/0)
+      end
+    end
+
     @terminal_only [
       Aiur.Tmux,
       Aiur.PaneManager,
@@ -37,6 +57,7 @@ defmodule Aiur.Application.ChildrenTest do
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
+      Aiur.GitHub.HoldPressure,
       Aiur.RecentMergeStore,
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,
@@ -46,6 +67,7 @@ defmodule Aiur.Application.ChildrenTest do
       Aiur.Claude.Telemetry,
       Aiur.BuildOrder.TicketHistoryProvider,
       Aiur.DaemonHeartbeatWriter,
+      Aiur.ExecutorSweep,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -327,6 +349,7 @@ defmodule Aiur.Application.ChildrenTest do
       # The flake this guards (#1745): a live ticker replaces the singleton
       # BranchRefStore's refs mid-test, so a synthetic ref recorded by one test
       # vanishes before that test asserts on it.
+      assert :ok = Aiur.TestSupport.ensure_branch_ref_store_running()
       assert is_pid(Process.whereis(Aiur.Events.BranchRefStore))
       refute Process.whereis(Aiur.Events.LsRemoteTicker)
     end

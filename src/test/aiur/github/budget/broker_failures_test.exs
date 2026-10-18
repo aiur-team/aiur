@@ -14,19 +14,25 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
   test "database lock cannot hold admission beyond its wall-clock budget", %{root: root} do
     broker_pid_path = Path.join(root, "broker.pid")
     python = broker_wrapper(root, broker_pid_path)
-    opts = [state_dir: root, enabled?: true]
+
+    opts = [
+      state_dir: root,
+      enabled?: true,
+      kill_fun: fn pid ->
+        Process.sleep(500)
+        System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+      end
+    ]
+
     token = "locked-budget-token"
 
-    # Create the schema before taking an exclusive lock so the broker blocks
-    # specifically on SQLite admission rather than setup.
+    # Create schema first so the exclusive lock blocks admission, not setup.
     assert %{inflight: %{}} = Budget.snapshot(token, opts)
     lock = lock_database(Budget.database_path(opts))
 
     started_at = System.monotonic_time(:millisecond)
 
-    # The broker never answers within the 300 ms deadline, so this is the
-    # distinguishable timeout verdict rather than the malformed-reply
-    # `:github_budget_broker_unavailable` (#2286).
+    # A lock beyond the 300 ms deadline must classify as timeout, not malformed (#2286).
     assert {:error, :github_budget_broker_timeout} =
              Budget.acquire(
                request(token, "/repos/owner/repo/issues/1477"),
@@ -37,7 +43,7 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
     assert elapsed_ms >= 250
     assert elapsed_ms < 1_000
     broker_pid = broker_pid_path |> File.read!() |> String.trim()
-    wait_until(fn -> not os_process_alive?(broker_pid) end)
+    assert_process_exits(broker_pid)
 
     close_port(lock)
   end
@@ -48,10 +54,8 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
     opts = [state_dir: root, enabled?: true]
     request = request("locked-release-token", "/repos/owner/repo/issues/1477")
 
-    # The setup acquire spawns `python3` and creates the broker database. That is
-    # not the window under test, so it must not be charged the 300 ms deadline
-    # the release is measured against. A loaded runner can spend more than that
-    # on one admission before the database lock is even taken (#1983).
+    # Exclude setup acquire from the 300 ms release deadline; loaded runners can
+    # spend longer than that creating the broker database (#1983).
     assert {:ok, lease} = Budget.acquire(request, opts)
     lock = lock_database(Budget.database_path(opts))
     deadline_at = System.monotonic_time(:millisecond) + 300
@@ -70,7 +74,7 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
     assert elapsed_ms >= 250
     assert elapsed_ms < 1_000
     broker_pid = broker_pid_path |> File.read!() |> String.trim()
-    wait_until(fn -> not os_process_alive?(broker_pid) end)
+    assert_process_exits(broker_pid)
 
     close_port(lock)
   end
@@ -97,7 +101,7 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
     Process.exit(caller, :kill)
 
     assert_receive {:DOWN, ^caller_ref, :process, ^caller, :killed}, 2_000
-    wait_until(fn -> not os_process_alive?(broker_pid) end)
+    assert_process_exits(broker_pid)
     close_port(lock)
   end
 

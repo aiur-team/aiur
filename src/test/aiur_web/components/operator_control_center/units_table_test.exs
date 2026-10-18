@@ -75,8 +75,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
       })
 
     assert html =~ "No recent activity"
-    assert html =~ "Turns —"
-    assert html =~ "Context —"
+    assert html =~ "Turns no attempt"
+    assert html =~ "Context no attempt"
     # Unknown progress facts are omitted rather than labelled "Unavailable"/"Unknown".
     refute html =~ "Progress source"
     refute html =~ "Latest evidence"
@@ -103,6 +103,23 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
 
     assert html =~ "Turns 0"
     assert html =~ "Context 50k/? ctx"
+  end
+
+  test "a running unit without turn or context measurements says not reported and why" do
+    row = %{row() | turn_count: nil, context_usage: nil, backend: "claude"}
+
+    html =
+      render_component(&UnitsTable.units_table/1, %{
+        view: view([row]),
+        now: ~U[2026-07-17 12:00:00Z]
+      })
+
+    assert html =~ ~s(title="The claude backend has not reported a turn count for this attempt">Turns not reported<)
+    assert html =~ ~s(title="The claude backend has not reported context occupancy for this attempt">Context not reported<)
+    refute html =~ "Turns —"
+    refute html =~ "Context —"
+    refute html =~ "Turns 0"
+    refute html =~ ~r/Context 0[^%]/
   end
 
   test "marks measured zero and completion without semantic recoloring" do

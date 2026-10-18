@@ -23,6 +23,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 workflow="$root/.github/workflows/ci.yml"
+quarantine_action="$root/.github/actions/run-quarantine/action.yml"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -41,51 +42,53 @@ violation() {
 check_workflow() {
   local path="$1"
   local quarantine_job
-  local run_defaults
-  quarantine_job="$(sed -n '/^  quarantine:$/,/^  analytics:$/p' "$path")"
+  local action_path="${2:-$quarantine_action}"
+  quarantine_job="$(sed -n '/^  quarantine:$/,/^  home-css:$/p' "$path")"
 
   if [[ -z "$quarantine_job" ]]; then
     violation "workflow $path has no quarantine job to guard"
     return 1
   fi
 
-  if ! grep -Fq 'path: src/_build/test/lib' <<<"$quarantine_job"; then
+  if ! grep -Fq './.github/actions/run-quarantine' <<<"$quarantine_job"; then
+    violation "quarantine job must invoke the guarded composite action"
+    return 1
+  fi
+  if ! grep -Fq 'path: src/_build/test/lib' "$action_path"; then
     violation "quarantine job must cache only dependency apps (path: src/_build/test/lib)"
     return 1
   fi
-  if grep -Eq '^[[:space:]]*path:[[:space:]]*src/_build[[:space:]]*$' <<<"$quarantine_job"; then
+  if grep -Eq '^[[:space:]]*path:[[:space:]]*src/_build[[:space:]]*$' "$action_path"; then
     violation "quarantine job must not cache the whole _build directory (path: src/_build)"
     return 1
   fi
-  if grep -Fq 'restore-keys:' <<<"$quarantine_job"; then
+  if grep -Fq 'restore-keys:' "$action_path"; then
     violation "quarantine job must not use restore-keys (the 'Unchecked dependencies for environment test' guard)"
     return 1
   fi
-  if ! grep -Fq "hashFiles('src/mix.lock', 'src/mix.exs')" <<<"$quarantine_job"; then
+  if ! grep -Fq "hashFiles('src/mix.lock', 'src/mix.exs')" "$action_path"; then
     violation "quarantine cache key must cover mix.lock and mix.exs"
-    return 1
-  fi
-  run_defaults="$(sed -n '/^    defaults:$/,/^    steps:$/p' <<<"$quarantine_job")"
-  if ! grep -Eq '^[[:space:]]*working-directory:[[:space:]]*src[[:space:]]*$' <<<"$run_defaults"; then
-    violation "quarantine job must keep run steps rooted at src"
     return 1
   fi
   # Both prunes are load-bearing: the pre-test drop is what forces the fresh
   # first-party compile, and the post-test prune keeps the saved cache
-  # dependency-only. Because run steps inherit `working-directory: src`, their
-  # paths must be relative to src rather than the repository workspace.
-  if [[ "$(grep -Fc 'run: rm -rf _build/test/lib/aiur' <<<"$quarantine_job")" -ne 2 ]]; then
+  # dependency-only. Explicit working directories keep paths relative to src.
+  if [[ "$(grep -Fc 'run: rm -rf _build/test/lib/aiur' "$action_path")" -ne 2 ]]; then
     violation "quarantine job must prune _build/test/lib/aiur twice relative to its src working directory"
     return 1
   fi
-  if grep -Fq 'rm -rf src/_build/test/lib/aiur' <<<"$quarantine_job"; then
+  if grep -Fq 'rm -rf src/_build/test/lib/aiur' "$action_path"; then
     violation "quarantine prune must not repeat src under working-directory: src"
     return 1
   fi
-  grep -Fq 'Drop first-party beams' <<<"$quarantine_job" ||
+  grep -Fq 'Drop first-party beams' "$action_path" ||
     { violation "quarantine job must drop the first-party app dir before running tests"; return 1; }
-  grep -Fq 'Prune first-party beams before the cache save' <<<"$quarantine_job" ||
+  grep -Fq 'Prune first-party beams before the cache save' "$action_path" ||
     { violation "quarantine job must prune the first-party app dir before the cache save"; return 1; }
+  if [[ "$(grep -Fc 'working-directory: src' "$action_path")" -ne 3 ]]; then
+    violation "quarantine action must keep all run steps rooted at src"
+    return 1
+  fi
 
   # The dialyzer PLT cache (`src/_build/dev/*.plt*`) is a data file, not app
   # beams, and is the only other _build cache in the workflow.
@@ -110,12 +113,13 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/aiur-quarantine-cache.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
 make_fixture() {
-  # Start from the real workflow and apply a sed mutation, so the fixture always
-  # reflects the current quarantine job structure.
+  # Keep the real job wrapper and mutate an isolated copy of the composite
+  # action so negative cases exercise the guarded implementation.
   local out="$1"
   local mutation="$2"
   cp "$workflow" "$out"
-  sed -i "$mutation" "$out"
+  cp "$quarantine_action" "$out.action.yml"
+  sed -i "$mutation" "$out.action.yml"
 }
 
 expect_rejection() {
@@ -123,7 +127,7 @@ expect_rejection() {
   local reason="$2"
   local expected="$3"
   local output
-  if output="$(check_workflow "$fixture" 2>&1)"; then
+  if output="$(check_workflow "$fixture" "$fixture.action.yml" 2>&1)"; then
     fail "guard accepted a workflow that $reason"
   fi
   grep -Fq "$expected" <<<"$output" ||
@@ -137,7 +141,7 @@ expect_rejection "$work/whole-build.yml" \
   "must not cache the whole _build directory"
 
 make_fixture "$work/restore-keys.yml" \
-  '/^          key: ${{ runner.os }}-quarantine-build-deps-/i\          restore-keys: ${{ runner.os }}-quarantine-build-'
+  '/key: .*quarantine-build-deps-/i\        restore-keys: ${{ runner.os }}-quarantine-build-'
 expect_rejection "$work/restore-keys.yml" \
   "adds a restore-keys fallback" \
   "must not use restore-keys"
@@ -160,7 +164,8 @@ expect_rejection "$work/wrong-working-directory-path.yml" \
 
 # Delete the pre-test "Drop first-party beams" step block entirely.
 cp "$workflow" "$work/no-pre-prune.yml"
-python3 - "$work/no-pre-prune.yml" <<'PY'
+cp "$quarantine_action" "$work/no-pre-prune.yml.action.yml"
+python3 - "$work/no-pre-prune.yml.action.yml" <<'PY'
 import sys
 path = sys.argv[1]
 out = []

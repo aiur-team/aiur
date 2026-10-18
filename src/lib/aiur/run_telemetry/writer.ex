@@ -26,21 +26,15 @@ defmodule Aiur.RunTelemetry.Writer do
 
   alias Aiur.Events.Exchange
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.{FactsCapture, Lifecycle, Retention, RunContext, Summaries}
+  alias Aiur.RunTelemetry.{FactsCapture, LedgerRetention, Lifecycle, RunContext, Summaries}
   alias Aiur.RunTelemetry.Writer.Encoding
   alias Aiur.RunTelemetry.Writer.Retention, as: WriterRetention
 
-  @external_event_patterns [
-    "ticket.*.pr.opened",
-    "ticket.*.pr.merged",
-    "ticket.*.issue.commented",
-    "ticket.*.pr.review_comment"
-  ]
+  @external_event_patterns Aiur.RunTelemetry.DaemonEvents.patterns()
 
   @max_pending_casts 256
   @admission_key {__MODULE__, :pending_casts}
 
-  # Atomics slots shared between callers and the writer process.
   @pending_index 1
   @dropped_index 2
   @overflow_logged_index 3
@@ -106,7 +100,7 @@ defmodule Aiur.RunTelemetry.Writer do
     boot_id = Keyword.get_lazy(opts, :boot_id, &RunTelemetry.boot_id/0)
     retention = Keyword.get_lazy(opts, :retention, &RunTelemetry.telemetry_retention/0)
 
-    case Retention.prune(path, retention |> Keyword.put(:now, clock.()) |> Keyword.put(:protected_boot_id, boot_id)) do
+    case LedgerRetention.prune(path, retention |> Keyword.put(:now, clock.()) |> Keyword.put(:protected_boot_id, boot_id)) do
       :ok -> :ok
       {:error, reason} -> Logger.warning("run_telemetry retention_failed path=#{path} reason=#{inspect(reason)}")
     end
@@ -224,6 +218,7 @@ defmodule Aiur.RunTelemetry.Writer do
         _ -> :ok
       end)
 
+      Summaries.materialize_if_facts(records)
       WriterRetention.maybe_prune(state)
     else
       {:error, reason} -> warn_write_failure(state, reason)

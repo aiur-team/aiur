@@ -5,6 +5,7 @@ defmodule Aiur.Application.Children do
 
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{BlockerProgress, Config}
 
   @doc """
@@ -77,6 +78,11 @@ defmodule Aiur.Application.Children do
       # or `handle_cast` at all — just `init/1` and a catch-all `handle_info/2`.
       Aiur.Webhooks.ModeTable,
       Aiur.Capabilities.Table,
+      # Owns the turn table agent tasks write. Ahead of `Aiur.TaskSupervisor`
+      # and the Orchestrator so adopted or redispatched tasks never find it
+      # missing, and so a later child's `:rest_for_one` restart cannot delete
+      # it under live tasks (#4664).
+      Aiur.Opencode.ActiveTurns,
       # `Aiur.PubSub.Boot` wraps `{Phoenix.PubSub, name: Aiur.PubSub}` and waits for a previous incarnation's registry names to be released before starting.
       # Without that wait, a PubSub crash restarts into its own still-registered partitions, fails three times inside a millisecond,
       # and takes this whole supervisor down with it (#2557).
@@ -131,15 +137,16 @@ defmodule Aiur.Application.Children do
       # retry path it observes lives in `Aiur.GitHub.LocalHold`; this process
       # owns the sliding-window rate and alert latch.
       Aiur.GitHub.BrokerTimeout,
+      Aiur.GitHub.HoldPressure,
       Aiur.GitHub.BudgetBroker,
-      # The ElevenLabs account credit quota, read on its own schedule. Absent an
-      # API key it observes nothing at all, so an unconfigured account costs a
-      # boot-time config read and never a request.
-      Aiur.ElevenLabs.Quota,
+      Aiur.Voice.child_specs(),
       Aiur.TicketContext.child_specs(:early, opts),
       BuildOrders.child_specs(:early, opts),
-      Aiur.Events.IdGenerator,
+      {Aiur.Events.IdGenerator, floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
+      # Subscribe before the orchestrator's immediate first poll so a merge
+      # observed during startup also reaches the durable checklist.
+      Aiur.PostDeployChecklist,
       Aiur.Events.BranchRefStore,
       # Restart-durable GitHub state keyed by resource identity. Starts before
       # the Publisher and before anything that polls or receives, so the first
@@ -196,7 +203,7 @@ defmodule Aiur.Application.Children do
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
-      Aiur.DecisionAttention,
+      {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.OptimisticLedger,
       Aiur.Orchestrator.TrackedSet,
@@ -247,7 +254,6 @@ defmodule Aiur.Application.Children do
       # mode. Aiur.HttpServer retains its own bind and credential guards.
       dashboard_children(dashboard?, Keyword.get(opts, :dashboard_pages?, true), tailscale_funnel?),
       Aiur.Opencode.TokenRegistry,
-      Aiur.Opencode.ActiveTurns,
       # Chat-pane machinery — UI-only, never read by a headless run.
       unless(headless?, do: Aiur.Opencode.PaneSupervisor),
       Aiur.Opencode.SessionSupervisor,
@@ -262,7 +268,29 @@ defmodule Aiur.Application.Children do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children ++ [Aiur.BackgroundCpu] ++ Aiur.Experiments.children(recording?) ++ BuildOrders.child_specs(:label_projection, opts))
+    |> Kernel.++(
+      cli_children ++
+        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter] ++
+        Aiur.Experiments.children(recording?) ++
+        Auto.child_specs(recording?: recording?, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]) ++
+        BuildOrders.child_specs(:label_projection, opts) ++
+        landing_watch_children() ++
+        executor_sweep_children() ++
+        Aiur.Experiments.window_children(recording?) ++
+        quarantine_lifter_children() ++ List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
+    )
+  end
+
+  defp landing_watch_children do
+    if AiurConfig.tracker_kind() == "github", do: [Aiur.LandingWatch], else: []
+  end
+
+  defp quarantine_lifter_children do
+    if AiurConfig.tracker_kind() == "github", do: [Aiur.LandingWatch.QuarantineLifter], else: []
+  end
+
+  defp executor_sweep_children do
+    if AiurConfig.tracker_kind() == "github", do: [Aiur.ExecutorSweep], else: []
   end
 
   defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil

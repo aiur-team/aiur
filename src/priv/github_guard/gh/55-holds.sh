@@ -53,7 +53,20 @@ write_hold() {
 # Reads already consult both dirs (`consider_resource_holds` below), so writes
 # publish to both too; an unwritable shared dir fails quietly and leaves the
 # workspace hold in place.
+#
+# A primary window resets within an hour and a secondary limit lasts minutes,
+# so a deadline past `hold_max_ahead` is corrupt (a skewed clock or a test
+# fixture) and would park the whole fleet until it expires (#4698). Writers
+# refuse it; readers ignore it and leave it for the daemon to remove and alert.
+# An empty state path publishes nothing and never falls back to `~/.aiur`.
+hold_max_ahead=3660
+
 publish_hold() {
+  if [ "$2" -gt $(( $(date -u +%s) + hold_max_ahead )) ]; then
+    printf 'aiur: refusing implausible %s until %s (more than %ss ahead)\n' "$1" "$2" "$hold_max_ahead" >&2
+    return 0
+  fi
+
   if [ -n "$agent_quota_dir" ]; then write_hold "$agent_quota_dir/$1" "$2"; fi
 
   if [ -n "$quota_dir" ] && [ "$quota_dir" != "$agent_quota_dir" ]; then
@@ -69,7 +82,9 @@ consider_hold() {
     ''|*[!0-9]*) return ;;
   esac
 
-  if [ "$candidate" -gt "$now" ]; then
+  if [ "$candidate" -gt $((now + hold_max_ahead)) ]; then
+    printf 'aiur: ignoring implausible hold %s until %s\n' "$1" "$candidate" >&2
+  elif [ "$candidate" -gt "$now" ]; then
     if [ "$candidate" -gt "$hold_until" ]; then hold_until=$candidate; fi
   else
     rm -f "$1" 2>/dev/null || true

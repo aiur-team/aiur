@@ -66,9 +66,9 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  alias AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, GithubWebhook, Streamdeck}
+  alias AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
 
-  require AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, GithubWebhook, Streamdeck}
+  require AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
 
   # The receiver must precede every dashboard scope.
   GithubWebhook.receiver()
@@ -78,6 +78,7 @@ defmodule AiurWeb.Router do
   Decisions.method_catches()
   DashboardPages.static_assets()
   DashboardPages.pages()
+  Experiments.pages()
   Api.agent_writes()
   Api.machine_writes()
   Streamdeck.session()
@@ -126,7 +127,7 @@ defmodule AiurWeb.Router do
   end
 
   defp dashboard_writable? do
-    AiurWeb.Endpoint.config(:dashboard_writable) == true
+    AiurWeb.EndpointConfig.get(:dashboard_writable) == true
   rescue
     _ -> false
   end

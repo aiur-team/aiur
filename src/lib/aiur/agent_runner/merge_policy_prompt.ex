@@ -12,6 +12,8 @@ defmodule Aiur.AgentRunner.MergePolicyPrompt do
     Record evidence under `## Local tests` in every PR body: `Policy`, `Tested head` (the full 40-character pushed commit SHA),
     `Base` (ref and SHA), `Selection` (why these tests cover the change), and command bullets: ``- `command` -> result``.
     Record actual results, including failures or blockers. Update the evidence after every push; never claim unrun tests passed.
+    Order at handoff: push, create the PR, refresh `Tested head: <sha>` and `Base: <ref> @ <sha>` as plain SHAs (in Aiur, rerun `aiur pre-pr`), then hand off.
+    `aiur_set_ticket_state` refuses `ci-wait` and `human-review` while the body fails `mix pr_body.check` at the PR head, a stale `Tested head` included.
     #{ci_note(policy.ci)}
 
     """

@@ -20,7 +20,7 @@ test('dashboard page loads return no HTTP 404 responses', async ({ page }) => {
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)
 
-  for (const path of ['/', '/units', '/commands', '/build-orders', '/analytics']) {
+  for (const path of ['/', '/units', '/commands', '/build-orders', '/analytics', '/experiments']) {
     await page.goto(path)
     await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   }
@@ -184,6 +184,13 @@ for (const { width, isMobile } of routeShellViewports) {
         await nextPaint(page)
 
         expect((await topbar.boundingBox()).y).toBeCloseTo(initialTop, 0)
+        // The sidebar runs the full page height on a long page, and its links stay pinned (#4886).
+        const rail = await page.evaluate(() => ({
+          sidebar: document.querySelector('aside.sidenav').getBoundingClientRect().bottom,
+          layout: document.querySelector('.app-layout').getBoundingClientRect().bottom
+        }))
+        expect(rail.sidebar).toBeCloseTo(rail.layout, 0)
+        await expect(page.locator('a.snav').first()).toBeInViewport()
       }
 
       const accessibility = await new AxeBuilder({ page }).analyze()
@@ -193,3 +200,32 @@ for (const { width, isMobile } of routeShellViewports) {
     }
   })
 }
+
+test('a stored light theme never paints a dark frame and the toggle persists under aiur-theme', async ({ page }) => {
+  await openFixture(page)
+  await page.context().setHTTPCredentials(dashboardCredentials)
+  await page.addInitScript(() => {
+    window.localStorage.setItem('aiur-theme', 'light')
+    window.__themes = []
+    // documentElement does not exist yet at init time. Records every data-theme the document takes after the server's "dark" markup default.
+    new MutationObserver(() => window.__themes.push(document.documentElement.dataset.theme))
+      .observe(document, { attributes: true, subtree: true, attributeFilter: ['data-theme'] })
+    requestAnimationFrame(() => window.__themes.push(document.documentElement.dataset.theme))
+  })
+
+  await page.goto('/palette-probe') // the production root layout
+  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+
+  const themes = await page.evaluate(() => window.__themes)
+  expect(themes).toContain('light')
+  expect(themes).not.toContain('dark')
+  expect(await page.evaluate(() => document.fonts.check('16px "Space Grotesk"'))).toBe(true)
+  // The pre-paint work comes from the aiur-style script, not an inline copy, and the toggle imports its module.
+  expect(await page.locator('script[src="/aiur-style/init/theme-init.js"]').count()).toBe(1)
+  expect(await page.evaluate(() => [...document.scripts].some((s) => !s.src && s.textContent.includes('aiur-theme')))).toBe(false)
+  expect(await page.evaluate(() => performance.getEntriesByType('resource').some((r) => r.name.endsWith('/aiur-style/js/theme.js')))).toBe(true)
+
+  await page.locator('#theme-toggle').evaluate((button) => button.click())
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  expect(await page.evaluate(() => window.localStorage.getItem('aiur-theme'))).toBe('dark')
+})

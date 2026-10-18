@@ -116,8 +116,7 @@ defmodule Aiur.GitHub.ResourceStore do
 
   ## The validator/body contract — read this before adding a reader
 
-  A validator and a body are separable, and the separation is what makes a
-  `304` dangerous. Three states exist and each one binds the reader differently:
+  A validator and a body are separable, and the separation is what makes a `304` dangerous. Three states exist and each one binds the reader differently:
 
     * **body + validator** — the normal state after `put_resource/3`. A `304`
       means "what you hold is current": serve the held body and publish exactly
@@ -304,15 +303,16 @@ defmodule Aiur.GitHub.ResourceStore do
     :issue,
     :issue_labels,
     :pr_review_thread,
-    # Complete selection families shared by the GraphQL pollers and webhook
-    # deltas. They deliberately exclude strict review/merge verdict fields.
     :pr_review_threads,
     :ci_contexts,
+    :commit_ci_check_runs,
+    :commit_ci_status,
+    :landing_merge_group_runs,
     :ci_failure_digest,
     :main_watch,
     :flake_issues,
-    # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
+    :issue_timeline,
     :pr_issue_comments,
     # The two repo-wide comment streams. `Aiur.Orchestrator.CommandScan` used to
     # keep their validators under its own call-site names, so its cached state

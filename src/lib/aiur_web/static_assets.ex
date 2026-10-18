@@ -3,8 +3,8 @@ defmodule AiurWeb.StaticAssets do
 
   alias Aiur.CodingAgent
 
-  # Ordered partials; see priv/static/css/README.md.
-  @dashboard_css_glob Path.expand("../../priv/static/css/*.css", __DIR__)
+  # Ordered partials (priv/static/css/README.md), relative so a copied warm build globs its own.
+  @dashboard_css_glob Path.relative_to(Path.expand("../../priv/static/css/*.css", __DIR__), File.cwd!(), force: true)
   @dashboard_css_parts @dashboard_css_glob |> Path.wildcard() |> Enum.sort()
   @dashboard_fonts_path Path.expand("../../priv/static/dashboard-fonts.css", __DIR__)
   @dashboard_palette_path Path.expand("../../priv/static/dashboard-palette.css", __DIR__)
@@ -15,6 +15,7 @@ defmodule AiurWeb.StaticAssets do
   @layout_vendor_path "priv/static/vendor/elk/0.11.1"
 
   @revalidated_static_paths ~w(
+    aiur-style
     aiur-dom-svg-layout
     aiur-dom-svg-layout-adapter.js
     aiur-dom-svg-layout-loader.js
@@ -32,6 +33,8 @@ defmodule AiurWeb.StaticAssets do
     voice-capture-worklet.js
   )
   @long_lived_static_paths ~w(aiur-logo.png fonts)
+  # Served immutably at /aiur-style/fonts; the rest of /aiur-style revalidates.
+  @aiur_style_font_files ~w(Bungee-Regular.woff2 JetBrainsMono-Variable.woff2 SpaceGrotesk-Variable.woff2)
 
   @layout_asset_definitions %{
     engine: %{name: "engine", revision: "elk-0.11.1", file: "elk-worker.min.js"},
@@ -61,9 +64,9 @@ defmodule AiurWeb.StaticAssets do
   }
 
   for part <- @dashboard_css_parts, do: @external_resource(part)
-  @external_resource @dashboard_fonts_path
-  @external_resource @dashboard_palette_path
-  @external_resource @dom_svg_layout_adapter_path
+  @external_resource Path.relative_to(@dashboard_fonts_path, File.cwd!(), force: true)
+  @external_resource Path.relative_to(@dashboard_palette_path, File.cwd!(), force: true)
+  @external_resource Path.relative_to(@dom_svg_layout_adapter_path, File.cwd!(), force: true)
   @external_resource @phoenix_html_js_path
   @external_resource @phoenix_js_path
   @external_resource @phoenix_live_view_js_path
@@ -94,6 +97,9 @@ defmodule AiurWeb.StaticAssets do
 
   @spec long_lived_static_paths() :: [String.t()]
   def long_lived_static_paths, do: @long_lived_static_paths
+
+  @spec aiur_style_font_files() :: [String.t()]
+  def aiur_style_font_files, do: @aiur_style_font_files
 
   @spec provider_asset_paths() :: [String.t()]
   def provider_asset_paths do

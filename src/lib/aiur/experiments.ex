@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments do
   @moduledoc "Versioned experiment specs and their durable audit trail."
 
-  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, Schema, Store}
+  alias Aiur.Experiments.{Arms, Capture, Catalog, Checkpointer, Evaluator, Journal, Paths, Reader, ReportMarkdown, ReportReads, SampleStatus, Schema, Store, WindowEvents}
 
   @spec metric_catalog() :: map()
   def metric_catalog, do: Catalog.load()
@@ -10,7 +10,10 @@ defmodule Aiur.Experiments do
   def observations(refs, window, context \\ %{}), do: Evaluator.observations(refs, window, context)
 
   @spec children(boolean()) :: [module()]
-  def children(recording?), do: if(child(recording?), do: [Store, Capture, Checkpointer], else: [])
+  def children(recording?), do: if(child(recording?), do: [Store, Capture, Checkpointer, Aiur.Experiments.StatsRunner], else: [])
+
+  @spec window_children(boolean()) :: [module()]
+  def window_children(recording?), do: if(child(recording?), do: [Aiur.Experiments.Auto.Notifier, Aiur.Experiments.Auto.WindowManager], else: [])
 
   @spec child(boolean()) :: module() | nil
   def child(false), do: nil
@@ -57,26 +60,68 @@ defmodule Aiur.Experiments do
   end
 
   @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
-  def fetch(id), do: Reader.fetch(id)
+  def fetch(id), do: ReportReads.detail(id, Reader.fetch(id))
+
+  @spec events(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def events(id, opts \\ []) do
+    task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> prepare_events(id, opts) end)
+    result = Task.yield(task, Keyword.get(opts, :timeout_ms, 120_000)) || Task.shutdown(task, :brutal_kill)
+    finish_events(result, id, opts)
+  catch
+    :exit, _reason -> {:error, :events_collection_unavailable}
+  end
+
+  defp prepare_events(id, opts) do
+    with {:ok, spec, read_only?} <- Reader.spec(id) do
+      cached_events(WindowEvents.snapshot(spec), spec, read_only?, opts)
+    end
+  end
+
+  defp cached_events({:ok, snapshot}, spec, read_only?, opts) do
+    if opts[:refresh], do: collect_events(spec, read_only?, opts), else: {:cached, snapshot}
+  end
+
+  defp cached_events({:error, :not_found}, spec, read_only?, opts), do: collect_events(spec, read_only?, opts)
+  defp cached_events(error, _spec, _read_only?, _opts), do: error
+  defp collect_events(_spec, true, _opts), do: {:error, :store_read_only}
+  defp collect_events(spec, false, opts), do: {:collected, WindowEvents.collect(spec, opts)}
+
+  defp finish_events({:ok, {:cached, snapshot}}, _id, _opts), do: {:ok, snapshot}
+  defp finish_events({:ok, {:collected, snapshot}}, id, opts), do: mutate({:events_snapshot, id, snapshot, Keyword.get(opts, :refresh, false)})
+  defp finish_events({:ok, {:error, _reason} = error}, _id, _opts), do: error
+  defp finish_events(nil, _id, _opts), do: {:error, :events_collection_timeout}
+  defp finish_events({:exit, _reason}, _id, _opts), do: {:error, :events_collection_failed}
 
   @spec create(map(), keyword()) :: {:ok, Aiur.Experiments.Spec.t()} | {:error, term()}
   def create(attrs, opts \\ []), do: mutate({:create, attrs, opts})
 
   @spec freeze(String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
   def freeze(id, window \\ nil, opts \\ []) do
-    if Paths.valid_id?(id), do: mutate({:freeze, id, window, opts}), else: {:error, :not_found}
+    if Paths.valid_id?(id), do: ReportReads.snapshot(id, mutate({:freeze, id, window, opts})), else: {:error, :not_found}
   end
 
   @spec arms(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def arms(id, opts \\ []), do: Arms.read(id, opts)
+  def arms(id, opts \\ []), do: ReportReads.arms(id, Arms.read(id, opts))
 
   @spec export_analysis_input(String.t()) :: {:ok, map()} | {:error, term()}
   def export_analysis_input(id) do
-    if Paths.valid_id?(id), do: mutate({:export_analysis_input, id}), else: {:error, :not_found}
+    if Paths.valid_id?(id), do: ReportReads.input(id, mutate({:export_analysis_input, id})), else: {:error, :not_found}
   end
+
+  @doc "Completed-unit minimum-sample guards for pre-registered primary metrics."
+  @spec sample_status(map()) :: {:ok, [map()]} | {:error, term()}
+  def sample_status(spec), do: SampleStatus.read(spec)
 
   @spec checkpoint(String.t(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def checkpoint(id, now), do: mutate({:checkpoint, id, now})
+
+  @doc false
+  @spec manage_window(String.t(), term(), map(), DateTime.t(), term()) :: term()
+  def manage_window(id, samples, config, now, truncation \\ nil), do: mutate({:manage_window, id, samples, config, now, truncation})
+
+  @doc false
+  @spec window_spec(String.t()) :: {:ok, map(), boolean()} | {:error, term()}
+  def window_spec(id), do: mutate({:window_spec, id})
 
   @spec amend(String.t(), map(), term()) :: {:ok, Aiur.Experiments.Spec.t()} | {:error, term()}
   def amend(id, changes, actor), do: mutate({:amend, id, changes, actor, "amended"})
@@ -98,6 +143,21 @@ defmodule Aiur.Experiments do
       {:error, :not_found}
     end
   end
+
+  @spec stats(String.t()) :: {:ok, map()} | {:error, term()}
+  def stats(id), do: mutate({:stats, id})
+
+  @spec put_report(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def put_report(id, report), do: mutate({:put_report, id, report})
+
+  @spec report_markdown(map()) :: String.t()
+  def report_markdown(report), do: ReportMarkdown.render(report)
+
+  @spec put_preregistration(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def put_preregistration(id, attrs), do: mutate({:put_preregistration, id, attrs})
+
+  @spec record_results_read(String.t()) :: :ok | {:error, term()}
+  def record_results_read(id), do: mutate({:record_results_read, id})
 
   @spec report_dir(String.t()) :: Path.t()
   def report_dir(id), do: Paths.file(id, "report")

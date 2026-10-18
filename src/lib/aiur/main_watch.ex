@@ -6,7 +6,7 @@ defmodule Aiur.MainWatch do
   alias Aiur.Events.Exchange
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.{ResourceStore, Transport}
-  alias Aiur.MainWatch.{Canary, GitHub, Persistence, State, Suspects}
+  alias Aiur.MainWatch.{Canary, Fixer, GitHub, Persistence, State, Suspects}
   alias Aiur.MergePolicy
 
   @request_limit 64
@@ -55,7 +55,14 @@ defmodule Aiur.MainWatch do
   @impl true
   def handle_call(:state, _from, server) do
     watcher = if server.data.unavailable, do: :unavailable, else: :running
-    state = server.data.state |> Map.put(:unavailable, server.data.unavailable) |> Map.put(:watcher, watcher)
+
+    state =
+      server.data.state
+      |> Map.put(:unavailable, server.data.unavailable)
+      |> Map.put(:watcher, watcher)
+      |> Map.put(:last_error, Map.get(server.data, :last_error))
+      |> Map.put(:merge_groups, Map.get(server.data, :merge_groups, []))
+
     {:reply, state, server}
   end
 
@@ -109,7 +116,14 @@ defmodule Aiur.MainWatch do
 
   defp start_poll(server) do
     poll = Keyword.get(server.opts, :poll_fun, &GitHub.poll/3)
-    opts = server.opts |> Keyword.put(:history, server.data.state.history) |> bounded_requests()
+
+    opts =
+      server.opts
+      |> Keyword.put(:history, server.data.state.history)
+      |> Keyword.put(:commit_etag, Map.get(server.data, :commit_etag))
+      |> Keyword.put(:commits, Map.get(server.data, :commit_window, server.data.commits))
+      |> Keyword.put(:commit_dates, Map.get(server.data, :commit_dates, []))
+      |> bounded_requests()
 
     task =
       Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
@@ -150,6 +164,10 @@ defmodule Aiur.MainWatch do
           Map.put(observation, :suspect_merges, suspects.(state.last_green_sha, observation.sha, result.commits, server.data.early_merges, server.opts))
         end
       end)
+
+    fixer_latest = Enum.map(latest, &Map.put(&1, :last_green_sha, state.last_green_sha))
+    # Filing errors raise their own attention and retry next poll; CI observations still advance.
+    Fixer.reconcile(older ++ fixer_latest, server.config, server.opts)
 
     completed = completed_at(result, server.data)
 
@@ -220,7 +238,17 @@ defmodule Aiur.MainWatch do
 
   defp consume({:ok, result}, server) do
     now = Keyword.get(server.opts, :now_fun, fn -> System.system_time(:millisecond) end).()
-    data = %{server.data | commits: commit_order(result.commits, server.data.commits), unavailable: false}
+
+    data =
+      server.data
+      |> Map.put(:commits, commit_order(result.commits, server.data.commits))
+      |> Map.put(:commit_window, result.commits)
+      |> Map.put(:commit_dates, Map.get(result, :commit_dates, []))
+      |> Map.put(:commit_etag, Map.get(result, :commit_etag))
+      |> Map.put(:merge_groups, Map.get(result, :merge_groups, []))
+      |> Map.put(:unavailable, false)
+      |> Map.put(:last_error, nil)
+
     data = observe(data, result.observations, now)
     data = %{data | commits: retained_commits(data.commits, data.state.history)}
     data = %{data | pending: data.pending ++ result.flake_events, last_completed_at: completed_at(result, server.data)}
@@ -232,9 +260,26 @@ defmodule Aiur.MainWatch do
     Logger.warning("main-watch reconcile unavailable: #{inspect(reason)}")
     pending = server.data.pending
     event = {"system.main.ci.unavailable", %{reason: inspect(reason)}}
-    data = if server.data.unavailable, do: server.data, else: %{server.data | unavailable: true, pending: pending ++ [event]}
+
+    data =
+      if server.data.unavailable do
+        Map.put(server.data, :last_error, status_error(reason))
+      else
+        server.data |> Map.put(:unavailable, true) |> Map.put(:last_error, status_error(reason)) |> Map.put(:pending, pending ++ [event])
+      end
+
     save(%{server | data: data})
   end
+
+  defp status_error({:github, :auth, %{status: 401, caller: caller, credential: credential}}),
+    do: "GitHub rejected #{credential} with HTTP 401 during #{caller}"
+
+  defp status_error({:github, :auth, %{status: 401}}), do: "GitHub rejected the configured credential with HTTP 401"
+  defp status_error({:github, classification, %{status: status}}) when is_integer(status), do: "GitHub #{classification} (HTTP #{status})"
+  defp status_error({:github, classification, _detail}), do: "GitHub #{classification}"
+  defp status_error({:poll_crashed, _reason}), do: "poll worker crashed"
+  defp status_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp status_error(_reason), do: "poll failed"
 
   defp observe(data, [], now), do: %{data | state: State.record_history(data.state, %{checks: [], completed_at: nil}, now)}
 

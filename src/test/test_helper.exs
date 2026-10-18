@@ -4,6 +4,8 @@ contaminating_env_vars = [
   "ERL_AFLAGS",
   "AIUR_DASHBOARD_USERNAME",
   "AIUR_DASHBOARD_PASSWORD",
+  "AIUR_DEV_TEST_TICKET_IDS",
+  "AIUR_DEV_TEST_STATE_DIR",
   "AIUR_DEBUG",
   "AIUR_SUPERVISOR_TOKEN",
   "AIUR_NODE",
@@ -11,6 +13,7 @@ contaminating_env_vars = [
   "AIUR_TMUX_CONF",
   "AIUR_TMUX_SESSION",
   "AIUR_TMUX_SOCKET",
+  "AIUR_AGENT_TMUX_SOCKET",
   "AIUR_LOGS_ROOT"
 ]
 
@@ -47,12 +50,37 @@ File.mkdir_p!(Path.dirname(global_log_file))
 # excluded elsewhere (e.g. macOS dev) rather than silently passing.
 real_proc_exclude = if File.dir?("/proc"), do: [], else: [:real_proc]
 
+workspace_root = Path.expand("../..", __DIR__)
+
+manual_sandbox_reset_exclude =
+  if System.get_env("AIUR_AGENT_WORKSPACE") || String.contains?(workspace_root, "/aiur-workspaces/"),
+    do: [:manual_sandbox_reset],
+    else: []
+
 # `:external` tests call a third-party API over the network with a real
 # credential. They are evidence gathered on demand — a measurement or a contract
 # check against the live provider — never a gate, because a gate that needs the
 # internet and someone's API key fails for reasons that have nothing to do with
 # the change under test. Run one with `mix test --only external`.
-ExUnit.start(exclude: [:external, :perf_regression, :quarantine] ++ real_proc_exclude)
+quarantine_path = Path.join(__DIR__, "quarantine.txt")
+
+quarantine_entries =
+  case Aiur.TestQuarantine.read(quarantine_path) do
+    {:ok, entries} -> entries
+    {:error, reason} -> raise "invalid test quarantine list #{quarantine_path}: #{inspect(reason)}"
+  end
+
+quarantine_filters =
+  if System.get_env("AIUR_RUN_QUARANTINED") == "1",
+    do: [],
+    else: Aiur.TestQuarantine.filters(quarantine_entries)
+
+ExUnit.start(
+  exclude:
+    [:external, :perf_regression, :quarantine] ++
+      real_proc_exclude ++
+      manual_sandbox_reset_exclude ++ quarantine_filters
+)
 
 Code.require_file("support/test_tmp.exs", __DIR__)
 
@@ -60,6 +88,19 @@ test_run_root =
   Aiur.TestTmp.start!(Path.join(System.tmp_dir!(), "aiur-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"))
 
 Application.put_env(:aiur, :test_run_root, test_run_root)
+
+# The run root's late writers (#4866): `Aiur.RunTelemetry.Writer` and
+# `Aiur.SaturationSentinel` read `:log_file` once at init, so one restarted
+# inside a workflow case keeps appending to that case's `<workflow_root>/log`
+# after teardown, until the VM exits. Stop the app before the root is removed;
+# `after_suite` callbacks run last-registered first.
+ExUnit.after_suite(fn _result -> Application.stop(:aiur) end)
+
+suite_runtime_state_dir = Application.fetch_env!(:aiur, :runtime_state_dir)
+
+unless Path.dirname(Aiur.AlertLedger.path()) == suite_runtime_state_dir do
+  raise "alert ledger must use the suite runtime state root #{suite_runtime_state_dir}"
+end
 
 ExUnit.after_suite(fn _result ->
   # Best-effort: IdGenerator's terminate/2 flush at VM shutdown may
@@ -72,8 +113,10 @@ Code.require_file("support/snapshot_support.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml_sections.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml.exs", __DIR__)
 Code.require_file("support/test_support/runtime_children.exs", __DIR__)
+Code.require_file("support/test_support/endpoint_stubs.exs", __DIR__)
 Code.require_file("support/test_support/processes.exs", __DIR__)
 Code.require_file("support/test_support/workflow_files.exs", __DIR__)
+Code.require_file("support/test_scope_guard.exs", __DIR__)
 Code.require_file("support/test_support.exs", __DIR__)
 Code.require_file("support/test_cleanup.ex", __DIR__)
 Code.require_file("support/test_reset_support.ex", __DIR__)
@@ -94,9 +137,7 @@ Code.require_file("support/agent_github_guard_test_support.ex", __DIR__)
 Code.require_file("support/agent_github_guard_cache_support.ex", __DIR__)
 Code.require_file("support/agent_github_guard_case.ex", __DIR__)
 
-# Support loads by glob, so a new support file needs no line here. The explicit list below
-# stays only until the queue of open PRs has drained (#4219); do not add to it.
-# Sorted order puts some callers ahead of the support module they call at runtime.
+# Support loads by glob, so a new support file needs no line here.
 Code.put_compiler_option(:no_warn_undefined, :all)
 
 for file <- Enum.sort(Path.wildcard(Path.join(__DIR__, "support/**/*.{ex,exs}"))) do
@@ -105,64 +146,8 @@ end
 
 Code.put_compiler_option(:no_warn_undefined, [])
 
-Code.require_file("support/engine_source.ex", __DIR__)
-Code.require_file("support/engine_case.ex", __DIR__)
-Code.require_file("support/wake_inbox_ack.ex", __DIR__)
-Code.require_file("support/dashboard_font_assertions.ex", __DIR__)
-Code.require_file("support/muse_fixture.exs", __DIR__)
-Code.require_file("support/decision_dispatch_test_support.ex", __DIR__)
-Code.require_file("support/init_case.ex", __DIR__)
-Code.require_file("support/repo_base_case.ex", __DIR__)
-Code.require_file("support/wip_preservation_fixtures.ex", __DIR__)
-Code.require_file("support/rejected_workflow.ex", __DIR__)
-Code.require_file("support/dispatcher_test_support.ex", __DIR__)
-Code.require_file("support/dispatcher_blocked_by_cost_support.ex", __DIR__)
-Code.require_file("support/claude_meter_test_support.exs", __DIR__)
-Code.require_file("support/build_order_github_graph_test_adapter.ex", __DIR__)
-Code.require_file("support/build_order_github_graph_fixtures.ex", __DIR__)
-Code.require_file("support/build_order_graph_projection_support.ex", __DIR__)
-Code.require_file("support/build_order_shared_resource_store_support.ex", __DIR__)
-Code.require_file("support/history_backfill_fixture.ex", __DIR__)
-Code.require_file("support/browser_harness/fixtures.ex", __DIR__)
-Code.require_file("support/usage_ledger_support.ex", __DIR__)
-Code.require_file("support/usage_aggregate_support.ex", __DIR__)
-Code.require_file("support/usage_ledger_recovery_support.ex", __DIR__)
-Code.require_file("support/price_table_support.ex", __DIR__)
-Code.require_file("support/provider_account_generation_support.ex", __DIR__)
-Code.require_file("support/allowed_contributors_fixture.ex", __DIR__)
-Code.require_file("support/fake_usage_adapter.ex", __DIR__)
-Code.require_file("support/grouped_scopes_support.ex", __DIR__)
-Code.require_file("support/awaiting_commands_support.ex", __DIR__)
-Code.require_file("support/snapshot_fence_support.ex", __DIR__)
-Code.require_file("support/orchestrator_deactivate_support.ex", __DIR__)
-Code.require_file("support/tracker_task_drain_support.ex", __DIR__)
-Code.require_file("support/webhook_mode_contract.exs", __DIR__)
+Aiur.TestSupport.EndpointStubs.init!()
 
-Code.require_file("support/build_home/fixture_source.ex", __DIR__)
-Code.require_file("support/build_home/protocol_case.ex", __DIR__)
-Code.require_file("support/streamdeck_live_case.ex", __DIR__)
-Code.require_file("support/streamdeck_channel_case.ex", __DIR__)
-Code.require_file("support/webhook_deliveries.ex", __DIR__)
-Code.require_file("support/comments_poller_fixture.ex", __DIR__)
-Code.require_file("support/ci_poller_fixture.ex", __DIR__)
-Code.require_file("support/webhook_equivalence_fixture.ex", __DIR__)
-Code.require_file("support/webhook_poll_fixture.ex", __DIR__)
-Code.require_file("support/slot_policy_fakes.ex", __DIR__)
-Code.require_file("support/pane_manager_test_support.ex", __DIR__)
-Code.require_file("support/agent_list_app_mocks.ex", __DIR__)
-Code.require_file("support/agent_list_renderer_support.ex", __DIR__)
-Code.require_file("support/webhook_tail_case.ex", __DIR__)
-Code.require_file("support/github_webhook_receiver_case.ex", __DIR__)
-Code.require_file("support/mutation_fixture.ex", __DIR__)
-Code.require_file("support/deposit_fixture.ex", __DIR__)
-Code.require_file("support/feature_label_fixture.ex", __DIR__)
-Code.require_file("support/build_home/usage_inputs.ex", __DIR__)
-Code.require_file("support/build_order_live_case.ex", __DIR__)
-Code.require_file("support/planning_source_case.ex", __DIR__)
-Code.require_file("support/pack_status_case.ex", __DIR__)
-Code.require_file("support/build_order_presenter_case.ex", __DIR__)
-Code.require_file("support/open_ai_compat_agent_support.ex", __DIR__)
-Code.require_file("support/deposit_case.ex", __DIR__)
-Code.require_file("support/live_conversation_support.ex", __DIR__)
-Code.require_file("support/live_e2e/linear_api.ex", __DIR__)
-Code.require_file("support/live_e2e/worker_setup.ex", __DIR__)
+# Keep plain ExUnit.Case modules and between-case application timers from
+# publishing Orchestrator poll state or alerts into the suite-wide ledger.
+Aiur.TestSupport.quiesce_live_orchestrator()

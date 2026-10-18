@@ -32,6 +32,8 @@ After `mise run setup`, `aiurdev` is on your `PATH`:
 
 Pure control commands (`agents`, `status`, `set`, `pause`, `resume`, `message`, `units`, and `stop`) reuse the existing dev release when it is complete, even if sources are newer. They control the already-running node, so a stale-source rebuild would not update that session. Run/start paths and explicit `aiurdev build` still rebuild when needed.
 
+Development and release builds generate pinned offline ELK assets with `npm ci --ignore-scripts` and `npm run vendor:elk -- --check` in `src/browser`. The first build needs network access or a populated npm cache. Generation must match the tracked manifest; a failure stops the build and prints the recovery command. The build log records the engine SHA-256.
+
 `restart` reuses the existing release for that pre-dispatch step too, but for the opposite reason: it rebuilds between its own stop and start, so rebuilding first would rewrite the release under the still-live BEAM.
 
 `--todo` is a standalone GitHub operation and does not require a running Aiur session. It derives labels from the current config. `--only` removes the queue label from other pending tickets but leaves in-progress work untouched.
@@ -114,5 +116,7 @@ These manual test modes are blocked inside agent issue workspaces because they m
 ### GitHub CI handoff safety
 
 After CI passes, Aiur persists the approved PR head before handing the ticket back to its agent. A later CI observation for that exact SHA cannot return the ticket from human review to rework, even when the poll retained a stale `ci-wait` issue snapshot from before the handoff.
+
+The landing watcher separately owns approved PRs through the queue. A fresh required-check failure on the currently approved head can route its ticket to rework; stale `ci-wait` snapshots remain suppressed by the handoff guard.
 
 A CI failure for a different SHA supersedes the approval and remains eligible for the normal rework path. Check runs whose names end in `(non-blocking)` are advisory and do not affect the lifecycle decision.

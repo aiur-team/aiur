@@ -171,18 +171,13 @@ defmodule Aiur.GitHub.BudgetTestSupport do
     path
   end
 
-  def os_process_alive?(pid) do
-    case System.cmd("ps", ["-o", "stat=", "-p", pid], stderr_to_stdout: true) do
-      {status, 0} -> not String.starts_with?(String.trim(status), "Z")
-      {_output, _status} -> false
-    end
-  end
+  def assert_process_exits(pid),
+    do:
+      assert(
+        {_, 0} =
+          System.cmd("timeout", ["3s", "bash", "-c", "while IFS= read -r s < /proc/$1/stat; do s=${s##*) }; s=${s%% *}; [[ $s == Z ]] && exit 0; sleep 0.01; done", "_", pid], stderr_to_stdout: true)
+      )
 
-  # The window is generous (3s at 10ms a tick) because every caller waits on
-  # broker-subprocess lifecycle — spawning, or reaping after a deadline kill —
-  # and each `ps`/`File` probe is itself a subprocess that can stall under the
-  # four-way parallel coverage load that this file's flakes were filed against
-  # (#2286).
   def wait_until(predicate, attempts \\ 300) do
     cond do
       predicate.() -> :ok

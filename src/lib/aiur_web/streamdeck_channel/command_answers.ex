@@ -6,7 +6,7 @@ defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
   """
 
   alias Aiur.Commands
-  alias AiurWeb.{Endpoint, StreamdeckCommands}
+  alias AiurWeb.{EndpointConfig, StreamdeckCommands}
 
   # The focused agent's Commands page. An unreadable store is projected as
   # explicitly unavailable rather than as an empty history, so the device says
@@ -125,5 +125,5 @@ defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
   def command_store(_socket), do: command_store()
 
   @spec command_store() :: term()
-  def command_store, do: Endpoint.config(:decision_store) || Commands.default_store()
+  def command_store, do: EndpointConfig.get(:decision_store) || Commands.default_store()
 end

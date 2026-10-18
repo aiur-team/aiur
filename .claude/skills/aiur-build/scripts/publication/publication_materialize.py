@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from publication_client import MATERIALIZATION_TRANSACTION, PublicationError
+from pack_format import format_pack
 
 
 def atomic_write_bundle(publisher, files: dict[Path, str]) -> None:
@@ -211,7 +212,7 @@ def write_materialized(publisher, fresh: dict[str, Any]) -> None:
             "root_reconciliation_comment_matches": [fresh["comment"]],
         }
     files = {
-        publisher.context.build_path: json.dumps(build, indent=1) + "\n",
+        publisher.context.build_path: format_pack(build),
         publisher.context.publication_path: json.dumps(publication, indent=2) + "\n",
         publisher.context.root_document: publisher.context.specs[publisher.context.root_id].body,
     }

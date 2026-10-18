@@ -45,6 +45,44 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
     evaluation(classification, failed_checks)
   end
 
+  # A failure that started before the PR's last reopen describes a run the
+  # reopen superseded, not the current CI state (#4672). Only the batch carries
+  # the reopen time; without one the verdict stands.
+  @doc false
+  @spec ignore_stale_failures(map(), [map()], map(), map()) :: map()
+  def ignore_stale_failures(%{decision: :failed} = result, check_runs, commit_status, pr) do
+    with reopened_at when is_integer(reopened_at) <- timestamp_seconds(Map.get(pr, "reopened_at")),
+         failures when failures != [] <- stale_failure_evidence(check_runs, commit_status),
+         true <- Enum.all?(failures, &(&1 != nil and &1 < reopened_at)) do
+      %{decision: :pending, pending_reason: :stale_ci_evidence, failures: []}
+    else
+      _other -> result
+    end
+  end
+
+  def ignore_stale_failures(result, _check_runs, _commit_status, _pr), do: result
+
+  defp stale_failure_evidence(check_runs, commit_status) do
+    check_times =
+      check_runs
+      |> blocking_check_runs()
+      |> latest_check_runs_per_workflow_and_name()
+      |> Enum.filter(&(Map.get(&1, "status") == "completed" and Map.get(&1, "conclusion") in @failed_conclusions))
+      |> Enum.map(&failure_evidence_timestamp/1)
+
+    status_times =
+      commit_status
+      |> Map.get("statuses", [])
+      |> Enum.filter(&(Map.get(&1, "state") in @failed_statuses))
+      |> Enum.map(&failure_evidence_timestamp/1)
+
+    check_times ++ status_times
+  end
+
+  defp failure_evidence_timestamp(evidence) do
+    timestamp_seconds(Map.get(evidence, "started_at") || Map.get(evidence, "created_at") || get_in(evidence, ["check_suite", "created_at"]))
+  end
+
   # Callers reach this only after reading the head sha, so its absence is a bug.
   @doc false
   @spec enforce_required_checks(map(), [map()], map(), map(), keyword()) :: map()
@@ -159,15 +197,12 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
     Map.get(check_run, "started_at") || Map.get(check_run, "completed_at") || ""
   end
 
-  defp non_blocking_check?(check_run) do
-    case Map.get(check_run, "name") do
-      name when is_binary(name) ->
-        name |> String.trim() |> String.downcase() |> String.ends_with?("(non-blocking)")
+  defp non_blocking_check?(check_run), do: non_blocking_name?(Map.get(check_run, "name"))
 
-      _ ->
-        false
-    end
-  end
+  @doc "True for check names that CI marks with the `(non-blocking)` suffix."
+  @spec non_blocking_name?(term()) :: boolean()
+  def non_blocking_name?(name) when is_binary(name), do: name |> String.trim() |> String.downcase() |> String.ends_with?("(non-blocking)")
+  def non_blocking_name?(_name), do: false
 
   defp blocking_check_runs(check_runs) do
     check_runs

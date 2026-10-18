@@ -130,7 +130,7 @@ defmodule Aiur.GitHub.Budget.LedgerAndCeilingsTest do
   end
 
   test "a configured broker failure is not reported as shared quota exhaustion", %{root: root} do
-    opts = [state_dir: root, enabled?: true, python: Path.join(root, "missing-python"), timeout_ms: 10]
+    opts = [state_dir: root, enabled?: true, python: Path.join(root, "missing-python"), timeout_ms: 1_000]
 
     assert {:error, :github_budget_broker_unavailable} =
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)

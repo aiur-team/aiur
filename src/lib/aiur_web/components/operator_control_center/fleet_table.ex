@@ -61,12 +61,14 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
               </td>
               <td data-label="State" data-sort-value={row.state || row.bucket}>
                 <span class={state_chip_class(row.state)}>{humanize(row.state || row.bucket)}</span>
+                <span :if={row[:adopted_from]} class="chip" title={"Adopted from handoff " <> row.adopted_from}>adopted</span>
                 <span class="fleet-latest-meta">{ci_review(row)}</span>
                 <span class="fleet-latest-meta">{ObservationAge.row_label(row)}</span>
               </td>
               <td data-label="Waiting" data-sort-value={row.waiting_reason || ""}><span class={waiting_chip_class(row.waiting_reason)}>{humanize(row.waiting_reason)}</span></td>
               <td data-label="Latest" data-sort-value={row[:last_event_at] || ""}>
                 <span class="fleet-latest" title={latest(row)}>{latest(row)}</span>
+                <code :if={row[:repl_attach_command]} class="fleet-latest-meta">{row.repl_attach_command}</code>
                 <span :if={row[:last_event_at]} class="fleet-latest-meta mono">{row.last_event_at}</span>
               </td>
               <td class="mono num" data-label="Elapsed" data-sort-value={row[:runtime_seconds] || ""}>{runtime(row, @now)}</td>

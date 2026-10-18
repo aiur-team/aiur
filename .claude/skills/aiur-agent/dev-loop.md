@@ -155,7 +155,10 @@ blocking finding is the only enforcement they have.
 In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
 `aiurdev pre-pr`) from the branch checkout. Paste its complete result block
 into the PR body; it records the merged `origin/main` SHA and each gate result.
-It never pushes and refuses a dirty checkout.
+It never pushes and refuses a dirty checkout. Once a PR exists it rewrites the
+body's `Tested head:` and `Base:` lines; with no PR yet it skips that. So the
+order is: push, `gh pr create`, `aiur pre-pr` again, then hand off;
+`aiur_set_ticket_state` refuses `ci-wait`/`human-review` while the body fails `mix pr_body.check` at the PR head.
 
 **Resolve validation from the target repository first.** Read [`validation.md`](validation.md).
 The Elixir examples below apply only to Aiur's Elixir core.
@@ -177,12 +180,10 @@ The Elixir examples below apply only to Aiur's Elixir core.
    changed to their sibling test files and prints the exact root-runnable test
    command (or advises `make ci` when the change cannot be scoped safely).
    Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness.
-   In every PR body, include `## Local tests` with `Policy`, the full pushed
-   `Tested head` SHA, `Base` ref and SHA, `Selection`, and exact command bullets
-   (``- `command` -> result``). Record actual failures/blockers and refresh after
-   every push. Validate with `mix pr_body.check --file <body>`; reviewers compare
-   the head and selection against the diff. Never replace evidence with checkboxes.
-   Before marking the PR ready or handing off to CI/review, run all required checks and fix any failures:
+   Follow `src/prompts/shared-agent-instructions.md` for PR body evidence,
+   pre-handoff guards, and test cleanup; validate each body with
+   `mix pr_body.check --file <body>`. Before marking the PR ready or handing
+   off to CI/review, run all required checks and fix any failures:
 
    - From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
    - From the repository root: `python3 scripts/check-bare-assert-receive.py`.
@@ -380,12 +381,14 @@ The Elixir examples below apply only to Aiur's Elixir core.
     A fetch/probe error or incomplete path list does not permit handoff.
 
     **An approved PR is exempt from integration** (`reviewDecision` is
-    `APPROVED`): never merge or rebase the base into it unless GitHub reports
-    `mergeable: CONFLICTING`, and say why in a PR comment when it does. The
-    merge queue tests the merge; a refresh push only cancels in-flight CI and
-    risks the approval, and it cannot fix a red or cancelled check. The agent
-    `git` guard refuses a push to a PR in the merge queue unless it is
-    conflicting or has changes requested.
+    `APPROVED` at the exact current head): never merge or rebase the base into
+    it solely for overlap or staleness. A genuine `mergeable: CONFLICTING`
+    verdict still requires integration; say why in a PR comment. The merge
+    queue tests the merge; a refresh push only cancels in-flight CI and risks
+    the approval, and it cannot fix a red or cancelled check. The state writer
+    still requires the exact head's full required-check gate before handoff.
+    The agent `git` guard refuses a push to a PR in the merge queue unless it
+    is conflicting or has changes requested.
 
     If paths overlap or the merge conflicts, allow up to 3 integrations per
     handoff without asking, recording the pre-merge head and rescue ref first.
@@ -455,10 +458,7 @@ when ready.
 
 ## Manual CLI verification before opening a PR
 
-Before opening the draft PR, run the CLI locally and manually exercise all new
-functionality end-to-end. If the CLI fails to run, debug and fix the issues — do
-not skip verification or give up. Only open the draft PR once the requested
-functionality is confirmed working in the CLI.
+Run the CLI and exercise new functionality before the draft PR when the workspace can do so. For workspace-inaccessible hands-on checks, do not raise a decision or pause: finish automated work and add `Post-deploy check: <exact steps>` under `## Local tests`; the Executor runs it after deployment. Name required physical equipment.
 
 Manual CLI verification is in addition to the scoped local pre-PR verification
 gate above, not a replacement for it. A PR is not ready for human review until
@@ -471,29 +471,19 @@ use compile, format and affected tests with the four-case cap, plus
 Use the target repository's required CI gate; Aiur runs fast checks on PRs and
 full CI in the merge queue. Do not loop locally on unrelated suite flakes.
 
-## Closing keyword in the PR description
-
-Every PR description must start with `Closes #N` (or `Fixes` / `Resolves`) for the
-originating issue so GitHub auto-closes it on merge. Multiple issues:
-`Closes #43, #46`.
-
 ## PR description shape
 
-Keep PR descriptions concise. Assume reviewers have the issue, workpad, and prior
-discussion for full problem context. Use this shape:
+Write every PR body from `.github/pull_request_template.md`; the required body
+gate checks that structure and the local-test evidence. Keep the closing keyword
+from the template (`Closes #N`, or `Refs #N` when the PR delivers only part of
+its ticket), and fill every section, including `#### Complexity routing` and
+the strict `## Local tests` evidence block. Keep `Policy:`, `Tested head:` and
+`Base:` as plain lines, not list items or backticks; include `Base:` as
+`<ref> @ <40-character-sha>`, and each command as `` `command` -> result ``.
+Put the commands in one unbroken bullet list right after `Selection:`, with no
+blank lines or prose between bullets, and write notes below the list.
 
-```markdown
-Closes #N
-
-# Problem
-
-One short paragraph or 2-3 bullets describing the issue being fixed.
-
-# Solution
-
-3-6 bullets covering the meaningful implementation and validation.
-```
-
-Do not include complexity-routing explanations, model names, AI tool names, or
-long process narratives in PR descriptions. Mention validation only as concrete
-checks that passed or known checks that still need attention.
+After every push, update `Tested head:` to the new full head SHA. Before
+handoff, run `python3 scripts/check-pr-body.py --pr-json <(gh api
+repos/{owner}/{repo}/pulls/<N>) --base <base-sha>` and confirm it prints
+`PR body format OK`.
