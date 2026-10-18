@@ -81,6 +81,36 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     assert_received {:rework, _}
   end
 
+  test "main recovery reruns only approved auto-merge failures started during the red interval" do
+    path = journal_path()
+    armed = %{observation() | auto_merge_request: %{"enabledAt" => "2026-10-14T09:00:00Z"}}
+    run = failed_gate() |> Map.put("started_at", @started)
+
+    assert :ok =
+             LandingWatch.process(
+               armed,
+               opts(path,
+                 main_ci_recovery_window: {@started_ms - 60_000, @started_ms + 60_000},
+                 ci_status_fun: fn _, _ -> {:ok, %{check_runs: [run], commit_status: %{"state" => "success", "statuses" => []}}} end
+               )
+             )
+
+    assert_received {:rerun, 99}
+    assert_received {:comment, 17, "Landing watcher reran the failed CI (ci gate) on approved head `head-sha`: main CI recovered."}
+
+    outside = %{run | "started_at" => "2026-10-14T09:58:00Z"}
+
+    assert :ok =
+             LandingWatch.process(
+               armed,
+               opts(journal_path(),
+                 main_ci_recovery_window: {@started_ms - 60_000, @started_ms + 60_000},
+                 ci_status_fun: fn _, _ -> {:ok, %{check_runs: [outside], commit_status: %{"state" => "success", "statuses" => []}}} end,
+                 rerun_fun: fn _, _ -> flunk("a failure outside the recovered red interval must not rerun") end
+               )
+             )
+  end
+
   test "a merged workflow change sends older failed runs of that workflow only to a fresh merge ref" do
     path = journal_path()
     merged_after = "2026-10-14T11:00:00Z"

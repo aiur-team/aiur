@@ -19,6 +19,20 @@ defmodule Aiur.LandingWatch.PrRerun do
   @rerun_conclusions ["cancelled", "failure", "timed_out", "startup_failure"]
   @caller "landing_watch_pr_rerun"
 
+  @doc false
+  @spec recover_main_ci(map(), [map()], {integer(), integer()}, keyword()) :: :ok | {:error, term()}
+  def recover_main_ci(observation, runs, {red_since, recovered_at}, opts) do
+    failed =
+      Enum.filter(runs, fn run ->
+        started = timestamp_ms(run["started_at"])
+
+        run["status"] == "completed" and run["conclusion"] in ["failure", "timed_out", "startup_failure"] and
+          is_integer(started) and started >= red_since and started <= recovered_at
+      end)
+
+    if failed == [], do: :ok, else: request_remedy(observation, failed, :rerun, "main CI recovered", opts)
+  end
+
   @spec handle_failure(map(), map(), [map()], keyword()) :: :ok | {:error, term()}
   def handle_failure(observation, result, runs, opts) do
     with {:ok, state} <- Journal.state(opts) do
@@ -48,6 +62,15 @@ defmodule Aiur.LandingWatch.PrRerun do
   end
 
   defp now(opts), do: Keyword.get(opts, :now_ms, System.system_time(:millisecond))
+
+  defp timestamp_ms(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _} -> DateTime.to_unix(datetime, :millisecond)
+      _ -> nil
+    end
+  end
+
+  defp timestamp_ms(_), do: nil
 
   defp classify_and_route(observation, result, runs, marker, github_opts, opts) do
     case Keyword.get(opts, :rerun_classifier_fun, &PrRerunClassifier.classify/4).(observation, result, runs, github_opts) do

@@ -39,7 +39,7 @@ defmodule Aiur.MainWatch.StateTest do
 
   test "recovery emits once and pending or cancelled runs cannot replace completed state" do
     {state, [_]} = observe(State.new(), "a", 1, "failure")
-    {state, [{"system.main.ci.failed.resolved", %{sha: "b"}}]} = observe(state, "b", 2, "success")
+    {state, [{"system.main.ci.failed.resolved", %{sha: "b", red_since: 1, recovered_at: 2}}]} = observe(state, "b", 2, "success")
     assert state.last_green_sha == "b"
     assert state.red_since == nil
     {state, []} = observe(state, "b", 2, "success")

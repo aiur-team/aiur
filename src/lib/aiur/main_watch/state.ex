@@ -97,6 +97,8 @@ defmodule Aiur.MainWatch.State do
       run_urls: Map.get(observation, :run_urls, []),
       failing_checks: Enum.filter(observation.checks, &(&1.conclusion in @failing)),
       failing_tests: observation.digest.tests,
+      red_since: state.red_since,
+      recovered_at: observation.completed_at,
       last_green_sha: state.last_green_sha,
       suspect_merges: Map.get(observation, :suspect_merges, [])
     }
