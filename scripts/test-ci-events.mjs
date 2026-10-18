@@ -35,6 +35,12 @@ assert.deepEqual(selected('pull_request', false, false, { action: 'ready_for_rev
 const website = readFileSync(new URL('../.github/workflows/website.yml', import.meta.url), 'utf8');
 assert.ok(website.includes('types: [opened, synchronize, reopened, ready_for_review, closed]'), 'website starts on ready and cancels on close');
 assert.ok(website.includes("  guards:\n    if: ${{ github.event.pull_request.draft != true && github.event.action != 'closed' }}"), 'website skips drafts and closed PRs');
+const aiurStyle = readFileSync(new URL('../.github/workflows/aiur-style.yml', import.meta.url), 'utf8');
+assert.ok(/^  merge_group:$/m.test(aiurStyle.split(/^jobs:/m)[0]), 'aiur-style checks dist on merge queue candidates (#4983)');
+const [queueDist, buildAndTest] = aiurStyle.split(/^  build-and-test:\n/m);
+assert.ok(queueDist.includes("if: ${{ github.event_name == 'merge_group' }}") && queueDist.includes('npm run check-dist'), 'queue job runs check-dist');
+assert.ok(!queueDist.includes('test:visual') && !queueDist.includes('container:'), 'queue job skips the Playwright visual suite');
+assert.ok(buildAndTest.startsWith("    if: ${{ github.event_name != 'merge_group' }}\n"), 'full aiur-style suite stays off merge groups');
 assert.ok(selected('pull_request', false, true).includes('dialyzer'), 'PR changing src/lib Elixir runs dialyzer');
 assert.ok(!selected('pull_request', false, false).includes('dialyzer'), 'docs-only PR skips dialyzer');
 console.log(`Fast PR jobs (non-CI changes): ${selected('pull_request', false).sort().join(', ')}`);
