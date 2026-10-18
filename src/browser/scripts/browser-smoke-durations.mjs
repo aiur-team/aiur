@@ -1,10 +1,10 @@
-// Recorded browser smoke suite durations in seconds: the slowest of 10 ci runs on main and merge_group,
-// 2026-10-18 (runs 39094806634..39097522749). check-browser-smoke-shards.mjs sums them per shard and fails
-// when a shard passes 75% of its budget. Refresh from a shard log's "suite durations" lines when a suite grows.
-// The shard runner runs `fixture:preflight` (mix compile) before its suites, inside the same deadline.
-export const preflightSeconds = 75
-// ponytail: a discovered suite with no recorded time counts as this estimate; record it after its first ci run.
-export const unrecordedSeconds = 60
+// Recorded browser smoke suite durations in seconds: the slowest of 11 ci runs on main and merge_group
+// (2026-10-18, runs 39094806634..39100789804). check-browser-smoke-shards.mjs sums them per shard
+// and fails when a shard passes 75% of its budget or runs a suite missing here. Refresh from a shard log's
+// "suite durations" lines when a suite grows or a new one lands.
+// The shard runner runs `fixture:preflight` (mix compile) before its suites, inside the same deadline;
+// run 39100789804 spent 80-120s per shard outside its suites.
+export const preflightSeconds = 120
 export const recordedSeconds = {
   'test:home-css-ci': 5,
   'test:admission': 1,
@@ -40,7 +40,7 @@ export const recordedSeconds = {
   'test:design-parity': 178,
   'test:palette': 16,
   'test:tokens': 27,
-  'test:shell-parity': 156,
+  'test:shell-parity': 169,
   'test:build-home': 89,
   'test:build-home-motion': 508,
   'test:build-home-offline': 12,
@@ -50,7 +50,7 @@ export const recordedSeconds = {
   'test:build-home-span': 22,
   'test:build-home-span-parity': 207,
   'test:build-home-cards:1': 133,
-  'test:build-home-cards:2': 261,
+  'test:build-home-cards:2': 269,
   'test:build-home-cards:3': 220,
   'test:build-home-cards:4': 298,
   'test:build-home-states-parity': 200,

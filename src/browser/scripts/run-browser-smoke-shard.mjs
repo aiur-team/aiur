@@ -18,7 +18,7 @@ export const shards = {
 
 // Below the job's timeout-minutes, so a slow shard reports its slowest suites instead of being cancelled.
 export const budgetMs = 19 * 60_000;
-export { preflightSeconds, recordedSeconds, unrecordedSeconds } from './browser-smoke-durations.mjs';
+export { preflightSeconds, recordedSeconds } from './browser-smoke-durations.mjs';
 
 function reportSlowest(heading, timings, limit = 10) {
   console.error(heading);
