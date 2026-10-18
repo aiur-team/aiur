@@ -214,9 +214,7 @@ The Analytics ticket timeline marks the earliest PR-open time. Open PRs appear i
 
 Retained Analytics charts use at most 180 evenly spaced resource observations per actor, including the first and last. Chart detail is sampled; headline CPU totals and resource peaks use the full retained profiles.
 
-Full log combines the newest materialized prior runs that fit a bounded projection with the current telemetry stream. Its source label states how many retained runs are included. Without materialized history, only raw files up to 1 MiB can be analyzed; larger files report unavailable rather than trigger an unbounded parse.
-
-Retained summaries that exceed the read budget also report unavailable.
+Latest-run fallback and Full log decode at most 45 MiB of retained summaries per cold load. Full log combines the newest runs that fit its bounded projection with current telemetry; the source line reports included runs and omissions. Latest-run fallback names skipped newer runs there. Analytics reports unavailable when no retained summary fits. Without materialized history, only raw files up to 1 MiB can be analyzed; larger files report unavailable rather than trigger an unbounded parse.
 
 The Build page usage strip shows API budgets and provider windows or credits. Hover or focus a usage line for account details, observation age, and budget holds.
 

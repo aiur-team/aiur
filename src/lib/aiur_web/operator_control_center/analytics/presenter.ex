@@ -64,9 +64,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       (a Build Order's member count) rather than inferring it from telemetry.
 
   Unavailable reasons distinguish an idle fleet from a persistence failure:
-  `:no_telemetry` means nothing analyzable was recorded, while
-  `:retained_unreadable` means retained run summaries exist but could not be
-  decoded, and `:error` is an unexpected analysis failure.
+  `:no_telemetry` means nothing analyzable was recorded, `:retained_scan_limited`
+  means no retained summary fit the cold scan budget, `:retained_unreadable` means
+  retained summaries could not be decoded, and `:error` is an unexpected failure.
   """
   @spec load(keyword()) :: {:ok, model()} | {:unavailable, atom()}
   def load(opts \\ []) do

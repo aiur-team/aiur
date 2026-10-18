@@ -123,7 +123,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
       end
     ]
 
-    assert {:ok, ^dataset} = LatestRun.load(Path.join(root, "missing.ndjson"), "live", &analyzable?/1, opts)
+    assert {:ok, result} = LatestRun.load(Path.join(root, "missing.ndjson"), "live", &analyzable?/1, opts)
+    assert Map.drop(result, [:retained_runs]) == dataset
+    assert result.retained_runs == %{included: 1, total: 3, skipped_large: 0, skipped_newer: 0}
 
     receive_barrier({:indexed, "boot-middle"})
     receive_barrier({:indexed, "boot-new"})

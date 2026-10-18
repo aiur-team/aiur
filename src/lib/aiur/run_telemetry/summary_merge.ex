@@ -7,7 +7,6 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
   # Live decode throughput is about 10 MB/s under load. Keep the cold pass
   # below five seconds while leaving room for indexing and projection work.
   @max_scan_bytes 45 * 1024 * 1024
-  @large_summary_bytes 128 * 1024 * 1024
 
   @doc "Loads and merges retained projections one boot at a time."
   @spec load(Path.t(), String.t() | nil) :: {:ok, map()} | {:error, term()}
@@ -79,29 +78,21 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
   defp decode_summaries(entries, opts) do
     dataset_loader = Keyword.get(opts, :summary_dataset_loader, &Summaries.load_dataset/1)
     max_scan_bytes = Keyword.get(opts, :max_scan_bytes, @max_scan_bytes)
-    allow_large_fallback = not Keyword.has_key?(opts, :summary_dataset_loader)
 
     {datasets, used_bytes, skipped_large} =
       Enum.reduce_while(entries, {[], 0, 0}, fn entry, acc ->
-        decode_summary(entry, acc, dataset_loader, max_scan_bytes, length(entries), allow_large_fallback)
+        decode_summary(entry, acc, dataset_loader, max_scan_bytes)
       end)
 
     {datasets, used_bytes, skipped_large}
   end
 
-  defp decode_summary({_observed_at, _boot, file_bytes}, {datasets, used_bytes, skipped}, _loader, max_scan_bytes, _entry_count, _allow_large_fallback)
+  defp decode_summary({_observed_at, _boot, file_bytes}, {datasets, used_bytes, skipped}, _loader, max_scan_bytes)
        when used_bytes + file_bytes > max_scan_bytes and datasets != [] do
     {:cont, {datasets, used_bytes, skipped + 1}}
   end
 
-  defp decode_summary({_observed_at, boot, file_bytes}, {datasets, used_bytes, skipped}, loader, _max_scan_bytes, 1, true)
-       when datasets == [] and file_bytes > @large_summary_bytes do
-    # A sole retained run remains usable: SummaryReader bounds the decoded
-    # projection in memory while streaming its materialized source.
-    load_candidate(boot, datasets, used_bytes, skipped, file_bytes, loader)
-  end
-
-  defp decode_summary({_observed_at, boot, file_bytes}, {datasets, used_bytes, skipped}, loader, max_scan_bytes, _entry_count, _allow_large_fallback) do
+  defp decode_summary({_observed_at, boot, file_bytes}, {datasets, used_bytes, skipped}, loader, max_scan_bytes) do
     if used_bytes + file_bytes > max_scan_bytes do
       {:cont, {datasets, used_bytes, skipped + 1}}
     else
