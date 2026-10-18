@@ -128,7 +128,13 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
       # Only a trusted verdict on this head is current; old CHANGES_REQUESTED is sticky.
       head = get_in(pr, ["head", "sha"])
       findings? = is_binary(head) and reviews |> ReworkGate.blocking_reviews() |> Enum.any?(&(&1["commit_id"] == head))
-      {:ok, if(findings?, do: "rework", else: "human-review")}
+      approved? = is_binary(head) and Enum.any?(reviews, &(&1[:authoritative] == true and &1["state"] == "APPROVED" and &1["commit_id"] == head))
+
+      if findings? do
+        {:ok, "rework"}
+      else
+        {:ok, if(approved?, do: "ci-wait", else: "human-review")}
+      end
     end
   end
 
