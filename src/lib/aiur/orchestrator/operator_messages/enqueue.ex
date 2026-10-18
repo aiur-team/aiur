@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   @max_operator_message_chars 8_000
 
   alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, OperatorWaitLog}
+  alias Aiur.AgentQueueStore.TargetIndex
   alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, PauseResume, State, TicketTransition}
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
 
@@ -79,16 +80,12 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   # after the original item was delivered or consumed.
   defp reject_already_queued_events(%AgentQueueStore{} = queue_store, events) do
     Enum.reject(events, fn event ->
-      case event_id(event) do
+      case TargetIndex.event_id(event) do
         id when is_integer(id) -> AgentQueueStore.queued_event_id?(queue_store, id)
         _ -> false
       end
     end)
   end
-
-  defp event_id(event) when is_map(event), do: Map.get(event, :id) || Map.get(event, "id")
-
-  defp event_id(_event), do: nil
 
   @spec enqueue_operator_message(State.t(), String.t(), String.t(), map(), :plain | :correlated) ::
           {{:ok, integer() | map()} | {:error, term()}, State.t()}

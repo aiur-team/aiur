@@ -51,6 +51,8 @@ defmodule Aiur.AgentQueueStore.TargetIndex do
 
   defp event_ids(_item), do: []
 
-  defp event_id(event) when is_map(event), do: Map.get(event, :id) || Map.get(event, "id")
-  defp event_id(_event), do: nil
+  @doc false
+  @spec event_id(term()) :: term() | nil
+  def event_id(event) when is_map(event), do: Map.get(event, :id) || Map.get(event, "id")
+  def event_id(_event), do: nil
 end
