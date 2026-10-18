@@ -95,15 +95,11 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
     state = EnvelopeResume.persist(state, fresh?, probes.schedulers, now_ms)
 
     case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
+      {:hold, %{signal: :cpu_pressure} = reason} ->
+        hold_for_cpu_pressure(state, reason, issues, choose_fun, now_ms, opts)
+
       {:hold, reason} ->
-        # Every admission signal is sampled independently above, so the binding
-        # signal is normally already recorded and re-recording it would add a
-        # duplicate identity. Fall back to it only when nothing was sampled, so
-        # a held fleet always carries at least one constraint and
-        # `capacity_starved` can never read an empty list and silently clear.
-        state
-        |> CapacityConstraints.record_fallback_binding_constraint(reason)
-        |> reconcile_capacity_hold({:hold, reason}, now_ms, opts)
+        hold_dispatch(state, reason, now_ms, opts)
 
       :dispatch ->
         state =
@@ -117,6 +113,25 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
         choose_fun.(state, issues)
     end
   end
+
+  defp hold_for_cpu_pressure(state, reason, issues, choose_fun, now_ms, opts) do
+    state = hold_dispatch(state, reason, now_ms, opts)
+    urgent = Enum.filter(issues, &urgent_priority?/1)
+
+    if urgent == [], do: state, else: choose_fun.(state, urgent)
+  end
+
+  defp hold_dispatch(state, reason, now_ms, opts) do
+    # Every admission signal is sampled independently above, so the binding
+    # signal is normally already recorded. Fall back only when none was sampled.
+    state
+    |> CapacityConstraints.record_fallback_binding_constraint(reason)
+    |> reconcile_capacity_hold({:hold, reason}, now_ms, opts)
+  end
+
+  # A P1 may run under PSI pressure; lower priority work stays behind the gate.
+  defp urgent_priority?(%Issue{priority: 1}), do: true
+  defp urgent_priority?(_issue), do: false
 
   # Shared host-pressure probe reads for the normal dispatch path
   # (`maybe_choose_under_load/4`) and the auto-resume admission mirror

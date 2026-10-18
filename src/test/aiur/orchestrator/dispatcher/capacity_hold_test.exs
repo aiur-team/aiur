@@ -13,6 +13,48 @@ defmodule Aiur.Orchestrator.Dispatcher.CapacityHoldTest do
       ]
     end
 
+    test "CPU pressure admits P1 tickets while keeping P3 tickets held" do
+      probes = fn ->
+        %{
+          cpu_pressure: %{avg60: 80.0},
+          pressure_threshold: 60.0,
+          pressure_target: 30.0,
+          cpu_snapshot: :unavailable,
+          memory_mb: :unavailable,
+          memory_threshold_mb: nil,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: :unavailable,
+          load_threshold: nil,
+          target: nil,
+          provider_backends: [],
+          github_quota: :available
+        }
+      end
+
+      p1 = %{issue("urgent") | priority: 1}
+      p3 = %{issue("routine") | priority: 3}
+
+      choose = fn state, selected ->
+        send(self(), {:selected, Enum.map(selected, & &1.id)})
+        state
+      end
+
+      held =
+        Dispatcher.maybe_choose_under_load(
+          %State{max_concurrent_agents: 4, effective_concurrent_agents: 4},
+          [p1, p3],
+          choose,
+          admission_probes_fun: probes
+        )
+
+      assert held.capacity_hold.signal == :cpu_pressure
+      assert_received {:selected, ["urgent"]}
+      refute_received {:selected, ["routine"]}
+    end
+
     test "dispatch cycle refreshes stale provider usage before admitting ready work" do
       path = Aiur.TestSupport.tmp_root!("aiur-dispatch-provider-refresh") <> ".json"
       on_exit(fn -> File.rm(path) end)
