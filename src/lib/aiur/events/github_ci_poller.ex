@@ -306,6 +306,7 @@ defmodule Aiur.Events.GithubCIPoller do
           review_decision: Map.get(current_pr, "review_decision"),
           mergeable: normalize_mergeable(Map.get(current_pr, "mergeable"))
         })
+        |> Map.merge(Evaluation.merge_queue_observation(current_pr))
         |> log_classification()
 
       {:ok, current_head_sha} ->

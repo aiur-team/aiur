@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
 
   alias Aiur.Alerts
   alias Aiur.Issue
+  alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.IssueSync.LabelWrites
   alias Aiur.Orchestrator.IssueSync.MissingLabels
@@ -57,19 +58,24 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
           State.t()
   def sync_stranded_ticket_reconciliation(%State{} = state, issues, update_state_fun)
       when is_list(issues) and is_function(update_state_fun, 2) do
-    Enum.reduce(issues, state, fn issue, state_acc ->
-      if stranded_ticket?(state_acc, issue) do
-        requeue_stranded_ticket(state_acc, issue, update_state_fun)
-      else
-        state_acc
-      end
-    end)
+    Enum.reduce(issues, state, &reconcile_candidate(&1, &2, update_state_fun))
   end
 
   def sync_stranded_ticket_reconciliation(%State{} = state, _issues, _update_state_fun), do: state
 
+  defp reconcile_candidate(issue, state, update_state_fun) do
+    cond do
+      not stranded_ticket?(state, issue) -> state
+      CiLifecycle.approved_and_armed?(state, issue) -> restore_ci_wait(state, issue, update_state_fun)
+      true -> requeue_stranded_ticket(state, issue, update_state_fun)
+    end
+  end
+
   defp stranded_ticket?(%State{} = state, %Issue{id: issue_id} = issue) do
     cond do
+      not open_nonterminal?(issue) ->
+        false
+
       owned_or_scheduled?(state, issue_id) ->
         false
 
@@ -151,13 +157,47 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
       {:stranded_repair, issue.id},
       fn -> update_state_fun.(issue.identifier, restored) end,
       fn current, result ->
-        if Reconciler.issue_input(current, issue.id) == input and stranded_ticket?(current, issue) do
+        if Reconciler.issue_input(current, issue.id) == input and stranded_ticket?(current, issue) and
+             not CiLifecycle.approved_and_armed?(current, issue) do
           apply_stranded_repair(current, issue, restored, result)
         else
           Lifecycle.wake_tick(current)
         end
       end
     )
+  end
+
+  defp restore_ci_wait(state, issue, update_state_fun) do
+    input = Reconciler.issue_input(state, issue.id)
+
+    TrackerTasks.run(state, {:stranded_repair, issue.id}, fn -> update_state_fun.(issue.identifier, "ci-wait") end, fn current, result ->
+      apply_ci_wait_restore(current, issue, input, result)
+    end)
+  end
+
+  defp apply_ci_wait_restore(current, issue, input, result) do
+    latest = Map.get(current.last_polled_issues, issue.id, issue)
+
+    if Reconciler.issue_input(current, issue.id) == input and stranded_ticket?(current, latest) and CiLifecycle.approved_and_armed?(current, latest) do
+      case result do
+        :ok -> %{current | released_claims: Map.delete(current.released_claims, issue.id)}
+        {:error, reason} -> log_ci_wait_restore_failure(current, issue, reason)
+      end
+    else
+      Lifecycle.wake_tick(current)
+    end
+  end
+
+  defp log_ci_wait_restore_failure(state, issue, reason) do
+    Logger.warning("Stranded approved ticket CI-wait restore failed for #{State.issue_context(issue)}: #{inspect(reason)}")
+    state
+  end
+
+  defp open_nonterminal?(%Issue{} = issue) do
+    state = DispatchPolicy.normalize_issue_state(issue.state)
+
+    state not in ["closed", "done"] and
+      not DispatchPolicy.terminal_issue_state?(issue.state, DispatchPolicy.terminal_state_set())
   end
 
   defp apply_stranded_repair(state, issue, restored, result) do
