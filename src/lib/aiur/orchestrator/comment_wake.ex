@@ -170,7 +170,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   @spec merged_issue_target_state(String.t() | integer(), keyword()) :: String.t() | {:error, term()}
   def merged_issue_target_state(identifier, opts) do
     case Keyword.get(opts, :target_state) do
-      target when target in ["done", "rework", "human-review"] ->
+      target when target in ["done", "rework", "ci-wait", "human-review"] ->
         target
 
       _other ->
@@ -1711,7 +1711,7 @@ defmodule Aiur.Orchestrator.CommentWake do
             LocalHold.caller_opts(Keyword.put(opts, :local_hold_max_wait_ms, 3_600_000))
           )
 
-        target when target in ["rework", "human-review"] ->
+        target when target in ["rework", "ci-wait", "human-review"] ->
           update_issue_state_fun.(to_string(identifier), target)
 
         {:error, _} = error ->
@@ -1748,7 +1748,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           current
         end
 
-      {target, :ok} when target in ["rework", "human-review"] ->
+      {target, :ok} when target in ["rework", "ci-wait", "human-review"] ->
         current
 
       {_, {:error, reason}} ->

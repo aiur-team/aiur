@@ -298,8 +298,8 @@ defmodule Aiur.Orchestrator.ReworkGate do
   @doc "True when the PR's approval carries to its head: approved at the head, or only merge drift since (#4965)."
   @spec approval_carries_to_head?(integer(), keyword()) :: boolean()
   def approval_carries_to_head?(number, opts \\ []) do
-    approval = Keyword.get(opts, :pull_request_approval_fetcher, &default_approval_fetcher/1)
-    classifier = Keyword.get(opts, :approval_carry_classifier, &GithubCIPoller.classify_approval_carry/4)
+    approval = Keyword.get(opts, :pull_request_approval_fetcher) || (&default_approval_fetcher/1)
+    classifier = Keyword.get(opts, :approval_carry_classifier) || (&GithubCIPoller.classify_approval_carry/4)
 
     case approval.(number) do
       {:ok, {head, head}} when is_binary(head) -> true
@@ -307,6 +307,32 @@ defmodule Aiur.Orchestrator.ReworkGate do
       _unapproved_or_unreadable -> false
     end
   end
+
+  @doc "Routes a post-agent handoff from the current review verdict, falling back to the caller's CI-derived state."
+  @spec post_agent_handoff_target(map(), String.t(), keyword()) :: String.t()
+  def post_agent_handoff_target(pr, fallback, opts \\ [])
+
+  def post_agent_handoff_target(pr, fallback, opts) when is_map(pr) and is_binary(fallback) do
+    number = Map.get(pr, "number") || Map.get(pr, :number)
+    head = head_sha(pr)
+    fetch_reviews = Keyword.get(opts, :reviews_fetcher) || (&default_reviews_fetcher/1)
+
+    with number when is_integer(number) <- number,
+         head when is_binary(head) <- head,
+         {:ok, reviews} when is_list(reviews) <- fetch_reviews.(number) do
+      blocking_at_head? = Enum.any?(blocking_reviews(reviews), &(&1["commit_id"] == head))
+
+      cond do
+        blocking_at_head? -> "rework"
+        approval_carries_to_head?(number, opts) -> "ci-wait"
+        true -> fallback
+      end
+    else
+      _missing_verdict -> fallback
+    end
+  end
+
+  def post_agent_handoff_target(_pr, fallback, _opts), do: fallback
 
   defp default_approval_fetcher(number) do
     if available?(), do: GitHubClient.pull_request_approval(number, caller: "approved_handoff"), else: {:error, :unavailable}
@@ -327,7 +353,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
     current_head = head_sha(pr)
 
     if head_moved?(current_head, original_head) do
-      {:handoff, ci_handoff_state(current_head, opts)}
+      {:handoff, post_agent_handoff_target(pr, ci_handoff_state(current_head, opts), opts)}
     else
       pr
       |> superseded_review_handoff(current_head, opts)
@@ -369,7 +395,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
          {:ok, pr} <- open_pr(issue_key, opts),
          head when is_binary(head) and head != "" <- head_sha(pr),
          true <- head != original do
-      {:handoff, ci_handoff_state(head, opts)}
+      {:handoff, post_agent_handoff_target(pr, ci_handoff_state(head, opts), opts)}
     else
       _ -> :none
     end
@@ -383,7 +409,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
          {:ok, reviews} <- (Keyword.get(opts, :reviews_fetcher) || (&default_reviews_fetcher/1)).(Map.get(pr, "number")),
          [_ | _] = blocking <- blocking_reviews(reviews),
          false <- Enum.any?(blocking, &(&1["commit_id"] == head)) do
-      {:handoff, ci_handoff_state(head, opts)}
+      {:handoff, post_agent_handoff_target(pr, ci_handoff_state(head, opts), Keyword.put(opts, :reviews_fetcher, fn _ -> {:ok, reviews} end))}
     else
       _not_superseded -> :none
     end

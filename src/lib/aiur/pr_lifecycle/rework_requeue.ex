@@ -61,7 +61,7 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.LocalHold
   alias Aiur.{Issue, Signal, Tracker}
-  alias Aiur.Orchestrator.TicketTransition
+  alias Aiur.Orchestrator.{ReworkGate, TicketTransition}
 
   @default_interval_ms 30 * 60 * 1_000
 
@@ -82,6 +82,8 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
       tickets_fetcher: Keyword.get(opts, :tickets_fetcher, &default_tickets/0),
       open_pr_fetcher: Keyword.get(opts, :open_pr_fetcher, &default_open_pr/1),
       reviews_fetcher: Keyword.get(opts, :reviews_fetcher, &default_reviews/1),
+      pull_request_approval_fetcher: Keyword.get(opts, :pull_request_approval_fetcher),
+      approval_carry_classifier: Keyword.get(opts, :approval_carry_classifier),
       diff_fetcher: Keyword.get(opts, :diff_fetcher, &default_diff/1),
       state_writer: Keyword.get(opts, :state_writer, &TicketTransition.write_state(&1, &2, writer: :rework_requeue)),
       alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2),
@@ -262,37 +264,17 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
   # Findings
   # ---------------------------------------------------------------------------
 
-  defp apply_finding({issue, :addressed, _pr, head_sha}, state) do
+  defp apply_finding({issue, :addressed, pr, head_sha}, state) do
     key = issue_key(issue)
 
-    # The human-review write is a GitHub call, and a short self-clearing local
-    # budget hold used to refuse it outright — the `rework_requeue_failed`
-    # alert that stranded a CI-green rework ticket in `agent:rework` (#2444).
-    # The shared helper waits the hold out and retries the write, so the ticket
-    # completes the transition to `agent:human-review`; a hold beyond the
-    # ceiling or past the cap still falls through to the alert below.
-    case LocalHold.run(
-           fn -> state.state_writer.(to_string(key), "human-review") end,
-           LocalHold.caller_opts(state.local_hold_opts)
-         ) do
-      :ok ->
-        Logger.info("ReworkRequeue re-queued reworked PR for review: issue=#{key} -> agent:human-review")
+    target =
+      ReworkGate.post_agent_handoff_target(pr, "human-review",
+        reviews_fetcher: state.reviews_fetcher,
+        pull_request_approval_fetcher: state.pull_request_approval_fetcher,
+        approval_carry_classifier: state.approval_carry_classifier
+      )
 
-        # Throttle only a *successful* re-queue: the head is now settled and a
-        # steady-state tick must not re-read it.
-        cache_last_seen(state, key, head_sha, :addressed)
-
-      {:error, reason} ->
-        Logger.warning("ReworkRequeue re-queue failed: issue=#{key} reason=#{inspect(reason)}")
-
-        # The write went through the standard state-update path, whose
-        # thread-clearance gate refuses `human-review` while unresolved review
-        # threads remain — the normal state of a rework ticket. Surface it once
-        # as a needs-attention alert and leave the head UNCACHED so the next
-        # tick retries: a re-queue the gate refuses must not silently strand
-        # the ticket in rework forever.
-        alert_requeue_failed(state, key, reason)
-    end
+    write_addressed_rework(key, head_sha, state, target)
   end
 
   defp apply_finding({issue, :merge_only, pr, _head_sha}, state) do
@@ -323,6 +305,25 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
   end
 
   defp apply_finding({_issue, _classification, _pr, _head_sha}, state), do: state
+
+  defp write_addressed_rework(_key, _head_sha, state, "rework"), do: state
+
+  defp write_addressed_rework(key, head_sha, state, target) do
+    # The write is a GitHub call, and a short local budget hold used to refuse
+    # it outright (#2444). LocalHold waits it out before retrying.
+    case LocalHold.run(
+           fn -> state.state_writer.(to_string(key), target) end,
+           LocalHold.caller_opts(state.local_hold_opts)
+         ) do
+      :ok ->
+        Logger.info("ReworkRequeue re-queued reworked PR: issue=#{key} -> agent:#{target}")
+        cache_last_seen(state, key, head_sha, :addressed)
+
+      {:error, reason} ->
+        Logger.warning("ReworkRequeue re-queue failed: issue=#{key} reason=#{inspect(reason)}")
+        alert_requeue_failed(state, key, reason)
+    end
+  end
 
   # A re-queue write failure is surfaced once per ticket while it stays in
   # rework; pruned when it leaves rework (see prune_requeue_failed_alerted/2).

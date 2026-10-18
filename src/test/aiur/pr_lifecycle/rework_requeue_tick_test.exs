@@ -80,6 +80,8 @@ defmodule Aiur.PRLifecycle.ReworkRequeueTickTest do
           assert number == 2346
           {:ok, [review(%{})]}
         end),
+      pull_request_approval_fetcher: Keyword.get(opts, :pull_request_approval_fetcher, fn _ -> {:ok, {@head_sha, nil}} end),
+      approval_carry_classifier: Keyword.get(opts, :approval_carry_classifier),
       diff_fetcher:
         Keyword.get(opts, :diff_fetcher, fn
           {@base_sha, @review_commit} -> {:ok, default_diff_files()}
@@ -135,6 +137,23 @@ defmodule Aiur.PRLifecycle.ReworkRequeueTickTest do
       assert_receive {:reviews_fetch, 2346}, 1000
       refute_received {:reviews_fetch, 2337}
       assert_receive {:state_write, "2337", "human-review"}, 1000
+    end
+
+    test "an addressed rework PR with an approval carried to its head moves to ci-wait" do
+      state =
+        base_state(
+          tickets_fetcher: fn -> {:ok, [issue(%{})]} end,
+          pull_request_approval_fetcher: fn 2346 -> {:ok, {@head_sha, @head_sha}} end,
+          state_writer: fn id, state_name ->
+            send(self(), {:state_write, id, state_name})
+            :ok
+          end
+        )
+
+      result = ReworkRequeue.tick(state)
+
+      assert_receive {:state_write, "2337", "ci-wait"}, 1000
+      assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :addressed}}} = result
     end
 
     test "a re-queue refused by the state writer alerts and is not throttled" do

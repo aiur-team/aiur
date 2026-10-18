@@ -36,7 +36,7 @@ defmodule Aiur.Orchestrator.MergedTicketOpenPRTest do
            [
              %{
                "number" => 2318,
-               "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+               "head" => %{"sha" => "head-2318", "ref" => "aiur/2307-agents-run-stale-budget"},
                "review_decision" => "CHANGES_REQUESTED"
              }
            ]}
@@ -103,7 +103,7 @@ defmodule Aiur.Orchestrator.MergedTicketOpenPRTest do
     assert log =~ ":no_unresolved_review_threads"
   end
 
-  test "a merged PR routes a ticket to human-review when its remaining open PR merely awaits review" do
+  test "a merged PR routes a ticket with an approved remaining PR to ci-wait" do
     issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
     parent = self()
 
@@ -122,18 +122,20 @@ defmodule Aiur.Orchestrator.MergedTicketOpenPRTest do
            [
              %{
                "number" => 2318,
-               "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+               "head" => %{"sha" => "head-2318", "ref" => "aiur/2307-agents-run-stale-budget"},
                "review_decision" => "APPROVED"
              }
            ]}
-        end
+        end,
+        reviews_fetcher: fn 2318 -> {:ok, []} end,
+        pull_request_approval_fetcher: fn 2318 -> {:ok, {"head-2318", "head-2318"}} end
       )
 
-    assert_receive {:transition, "1570", "human-review", "in-progress"}, 1000
+    assert_receive {:transition, "1570", "ci-wait", "in-progress"}, 1000
     refute_receive {:transition, "1570", "done", _expected}, 100
     assert issues == []
     assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}, 1000
-    assert opts[:message] =~ "human-review instead of done"
+    assert opts[:message] =~ "ci-wait instead of done"
   end
 
   test "a stale draft left open after a merge does not pin the ticket out of done" do

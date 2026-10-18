@@ -100,7 +100,7 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
         pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
         unresolved_threads_fetcher: fn _ -> {:ok, []} end,
         reviews_fetcher: fn _ -> {:ok, [approval]} end,
-        queued_approval_fetcher: fn _ -> {:ok, true} end,
+        pull_request_approval_fetcher: fn 42 -> {:ok, {"head", "head"}} end,
         update_issue_state_fun: fn "3710", target, "in-progress" ->
           send(self(), {:write, target})
           :ok

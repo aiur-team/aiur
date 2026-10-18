@@ -12,11 +12,9 @@ defmodule Aiur.AgentRunner.ApprovedHandoff do
   alias Aiur.Orchestrator.ReworkGate
 
   @spec target_state(Issue.t(), String.t(), keyword()) :: String.t()
-  def target_state(%Issue{state: issue_state} = issue, "human-review", opts) when issue_state not in ["rework", "agent:rework"] do
-    with {:ok, %{"number" => number}} when is_integer(number) <- ReworkGate.open_pr(issue.identifier, opts),
-         true <- ReworkGate.approval_carries_to_head?(number, opts) do
-      "ci-wait"
-    else
+  def target_state(%Issue{} = issue, "human-review", opts) do
+    case ReworkGate.open_pr(issue.identifier, opts) do
+      {:ok, pr} -> ReworkGate.post_agent_handoff_target(pr, "human-review", opts)
       _ -> "human-review"
     end
   end
