@@ -192,10 +192,22 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   end
 
   defp apply_current_dispatch_validation(current, expected, issue, attempt, host, opts, result) do
-    cond do
-      dispatch_input(current, issue.id) != expected -> current
-      current.globally_paused -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
-      true -> apply_dispatch_validation(current, issue, attempt, host, opts, result)
+    next =
+      cond do
+        dispatch_input(current, issue.id) != expected -> current
+        current.globally_paused -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
+        true -> apply_dispatch_validation(current, issue, attempt, host, opts, result)
+      end
+
+    clear_finished_priority_reservation(next, issue.id)
+  end
+
+  defp clear_finished_priority_reservation(state, issue_id) do
+    if Map.has_key?(state.priority_dispatch_reservations, issue_id) and
+         (Map.has_key?(state.running, issue_id) or not TrackerTasks.issue_pending?(state, issue_id)) do
+      %{state | priority_dispatch_reservations: Map.delete(state.priority_dispatch_reservations, issue_id)}
+    else
+      state
     end
   end
 
