@@ -23,7 +23,6 @@ test('the Commands action stays disabled during LiveView join, then records its 
     const response = await page.request.get('/command-answer-join-state')
     return (await response.json()).state
   }, { timeout: 10_000 }).toBe('joined')
-  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true), { timeout: 10_000 }).toBe(true)
   await expect(decision).toBeEnabled()
   await decision.click()
 

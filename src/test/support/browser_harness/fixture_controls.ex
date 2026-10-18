@@ -54,12 +54,12 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
 
   alias Aiur.DecisionStore
   alias Aiur.Events.IdGenerator
-  alias AiurWeb.OperatorControlCenter.DecisionPresenter
 
   @store __MODULE__.Store
 
   def configure(conn, _params) do
     decision = seed_decision!()
+    Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, true)
     :persistent_term.put({__MODULE__, :join_delay_ms}, 4_000)
     :persistent_term.put({__MODULE__, :join_state}, :waiting)
     redirect(conn, to: "/commands/#{decision.decision_id}")
@@ -90,13 +90,7 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
     end
   end
 
-  def presented(decision_id) do
-    with {:ok, decision} <- current(decision_id), [row] <- DecisionPresenter.present(decision) do
-      {:ok, row}
-    else
-      _ -> :error
-    end
-  end
+  def configured?, do: is_binary(:persistent_term.get({__MODULE__, :decision_id}, nil))
 
   def join_delay_ms, do: :persistent_term.get({__MODULE__, :join_delay_ms}, 0)
   def join_started!, do: :persistent_term.put({__MODULE__, :join_state}, :joining)

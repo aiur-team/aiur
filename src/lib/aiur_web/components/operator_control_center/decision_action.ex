@@ -118,6 +118,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-click="defer-decision"
               phx-value-decision-id={@decision.decision_id}
               phx-disable-with="Deferring…"
+              disabled={!@live_connected}
             >{if @decision.decision_status == :deferred, do: "Notify Executor again", else: "Defer to Executor"}</button>
             <button
               :if={@dismissible?}
@@ -128,6 +129,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-disable-with="×"
               aria-label="Dismiss blocker"
               title="Dismiss blocker"
+              disabled={!@live_connected}
             >×</button>
             <button
               :if={@acknowledgeable?}
@@ -136,6 +138,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-click="dismiss-decision"
               phx-value-decision-id={@decision.decision_id}
               phx-disable-with="Acknowledging…"
+              disabled={!@live_connected}
             >Acknowledge</button>
             <button class="btn" type="submit" disabled={!@live_connected} phx-disable-with="Recording…">{if @decision.decision_status in [:dismissed, :deferred], do: "Change choice", else: "Decision"}</button>
           </div>

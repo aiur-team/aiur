@@ -833,7 +833,7 @@ defmodule AiurWeb.DashboardLive do
           expanded_decision={@selected_decision}
           history={@payload.history}
           action_state={history_action_state(@decision_actions, @selected_decision_id)}
-          writable={@writable} live_connected={Map.get(assigns, :live_connected, true)}
+          writable={Map.get(assigns, :writable, false)} live_connected={Map.get(assigns, :live_connected, true)}
           filter={@decision_filter}
           query={@decision_query}
           time_zone={@time_zone}
