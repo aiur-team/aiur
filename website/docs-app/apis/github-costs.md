@@ -57,6 +57,8 @@ Main-watch matches push or merge_group runs to the landed SHA and queue base. Co
 
 Failure events carry tests, flake classifications and suspects. Evidence uses existing CI callers; associations use `main_watch_suspects`, permissions `main_watch_permissions`, and reruns `main_watch_canary`. Actions write is cached until daemon restart; permission changes require a restart.
 
+Main-watch reruns failed jobs once per commit when one test fails and its path was untouched. Digest evidence and Actions write permission are required; incomplete or changed paths skip it. Callers: `main_watch_commit_files` and `main_watch_single_test_rerun`. A pass feeds same-commit recovery; a failed rerun stays red for the fixer. No saving is claimed.
+
 An idle completed head or any active watched run suppresses canaries; an eligible cancellation without write permission raises one persisted attention. Status distinguishes a running, unavailable or absent watcher and shows retained SHA and completed-run age after errors or poll crashes.
 
 
