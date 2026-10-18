@@ -41,6 +41,7 @@ R-declared	Aiur.MergePolicyCLI	MP-R1-C9-T14 moved CLI adapter retains the existi
 R-declared	Aiur.Opencode.ActiveTurns	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.SlotRegistry	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.OperatorWaitLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.PRLifecycle.PostAgentRouting	#5063 Shared verdict routing is consumed by each orchestrator handoff path.
 R-declared	Aiur.PauseContainment	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ProcessReaper	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ProgressRetention	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -109,6 +110,7 @@ R-optional	Aiur.Opencode.ActiveTurns	baseline 22b2fa407c5d4218d25d63b1aa17472aec
 R-optional	Aiur.Opencode.SlotRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.OperatorWaitLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Orchestrator.CommentPolling	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.PRLifecycle.PostAgentRouting	#5063 Shared verdict routing is consumed by each orchestrator handoff path.
 R-optional	Aiur.PollCadence	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.SupervisionHealth	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-optional	Aiur.SystemCpu	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -120,6 +122,4 @@ R-optional	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the
 R-optional	Aiur.Webhooks	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Webhooks.IntervalPolicy	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.UnitsPresentation	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
-R-declared	Aiur.PRLifecycle.PostAgentRouting	#5063 Shared verdict routing is consumed by each orchestrator handoff path.
-R-optional	Aiur.PRLifecycle.PostAgentRouting	#5063 Shared verdict routing is consumed by each orchestrator handoff path.
 R-private	Aiur.PRLifecycle.PostAgentRouting	#5063 Shared verdict routing is consumed by each orchestrator handoff path.
