@@ -123,7 +123,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedProjectionTest do
     newest = put_in(template, [:provenance, :time_range, :end], timestamps["new"])
     older = put_in(template, [:provenance, :time_range, :end], timestamps["old"])
 
-    index_loader = fn boot -> {:ok, timestamps[boot], 100, 80} end
+    index_loader = fn boot -> {:ok, timestamps[boot], 100, 80 * 1024 * 1024} end
 
     dataset_loader = fn boot ->
       send(parent, {:decoded_summary, boot})
@@ -135,9 +135,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedProjectionTest do
                Path.join(root, "missing.ndjson"),
                "live",
                summary_index_loader: index_loader,
-               summary_dataset_loader: dataset_loader,
-               max_summary_bytes: 100,
-               max_scan_bytes: 100
+               summary_dataset_loader: dataset_loader
              )
 
     assert merged.retained_runs.included == 1
@@ -148,11 +146,16 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedProjectionTest do
   test "full log does not decode a summary beyond the retained byte cap", %{root: root} do
     File.mkdir_p!(Path.dirname(Summaries.run_summary_path("oversized")))
     parent = self()
-    index_loader = fn "oversized" -> {:ok, "2026-07-12T00:00:16Z", 100, 101} end
+    {:ok, dataset} = @fixture |> File.read!() |> Summaries.decode_summary()
+
+    index_loader = fn boot ->
+      send(parent, {:indexed_oversized, boot})
+      {:ok, "2026-07-12T00:00:16Z", 100, 128 * 1024 * 1024 + 1}
+    end
 
     dataset_loader = fn _boot ->
       send(parent, :decoded_oversized)
-      flunk("oversized summary decoded")
+      {:ok, dataset}
     end
 
     assert {:error, :retained_unreadable} =
@@ -161,9 +164,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedProjectionTest do
                "live",
                summary_index_loader: index_loader,
                summary_dataset_loader: dataset_loader,
-               max_summary_bytes: 100
+               max_scan_bytes: 256 * 1024 * 1024
              )
 
+    assert_receive {:indexed_oversized, "oversized"}
     refute_receive :decoded_oversized
   end
 
