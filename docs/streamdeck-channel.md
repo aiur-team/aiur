@@ -28,10 +28,10 @@ use the shared domain sources directly.
 
 | Module | Role | Needs the sidecar? | Other consumers |
 | --- | --- | --- | --- |
-| `Aiur.Conversation.Anchors` | Shared event-to-transcript anchoring | No | `Aiur.Conversation.History` |
+| `Aiur.Conversation.Anchors` | Shared event-to-transcript anchoring | No | No non-deck consumer yet; MP-E4 conversations planned. `History` re-exports it; production caller: `StreamdeckLogs`. |
 | `AiurWeb.StreamdeckProjection` | Fleet, voice availability, decisions and transcript DTOs for the deck channel | No | `/streamdeck` emulator |
 | `AiurWeb.StreamdeckCommands` | Command history and answer DTOs; actor `streamdeck` | No | Emulator |
-| `AiurWeb.StreamDeckGrid` | Key ranking for the grid | No | `GET /api/v1/streamdeck/grid` |
+| `AiurWeb.StreamDeckGrid` | Key ranking for the grid | No | `GET /api/v1/streamdeck/grid`, emulator, `AiurWeb.StreamdeckFleet` |
 | `AiurWeb.StreamdeckTranscriptRelay` | Throttled live transcript push | No | Emulator |
 | `AiurWeb.StreamdeckLogs`, `AiurWeb.StreamdeckStrip`, `AiurWeb.StreamdeckKeyFaceContract` | Deck presentation: paging, LIVE, log windows and key faces | No; the emulator renders them | — |
 | `AiurWeb.StreamdeckAuth`, `AiurWeb.StreamdeckSocket`, `AiurWeb.StreamdeckChannel` | Deck transport | Only for a physical deck | — |
