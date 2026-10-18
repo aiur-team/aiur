@@ -81,15 +81,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     {:ok, orchestrator} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator)
 
     # The GitHub comment poll's pull-request discovery uses CommentPollBatch and
-    # POSTs /graphql. It is an Orchestrator poll, but its owned async task is not
-    # in tracker_tasks, so waiting on that map alone can leave it racing this
-    # transport counter. Freeze the source poll cycle and drain its outstanding
+    # POSTs /graphql. Its listener-owned async task is not in tracker_tasks,
+    # so waiting on that map alone can leave it racing this transport counter. Freeze the source poll cycle and drain its outstanding
     # comment batch before installing the counter below. The delayed startup
     # cycle is fenced by poll_frozen too.
     _frozen_state = Aiur.TestSupport.freeze_live_orchestrator()
 
     Aiur.TestSupport.await_orchestrator_state(orchestrator, fn state ->
-      map_size(state.tracker_tasks) == 0 and is_nil(state.github_comment_cursor.poll)
+      map_size(state.tracker_tasks) == 0 and is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
     end)
 
     if context[:comment_poll_leak_probe] do
@@ -275,14 +274,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       # open. Seed one reconcile target so an unfrozen cycle reaches the
       # CommentPollBatch GraphQL lookup; when the source is fenced, this message
       # is discarded before any GitHub request can start.
-      :sys.replace_state(Aiur.Orchestrator, fn state ->
-        %{state | github_comment_cursor: %{state.github_comment_cursor | reconcile_targets: MapSet.new(["4584"])}}
-      end)
+      state = :sys.get_state(Aiur.Orchestrator)
+      CommentPolling.request_reconcile(state, %{kind: :review_thread, ticket: "4584"})
+      :sys.get_state(Aiur.GitHub.Listeners.Comments)
 
       send(Aiur.Orchestrator, :run_poll_cycle)
 
       Aiur.TestSupport.await_orchestrator_state(Aiur.Orchestrator, fn state ->
-        map_size(state.tracker_tasks) == 0 and is_nil(state.github_comment_cursor.poll)
+        map_size(state.tracker_tasks) == 0 and is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
       end)
 
       # The page's own periodic ticks — a 1s clock, a 15s GitHub-quota snapshot

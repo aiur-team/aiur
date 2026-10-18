@@ -3,6 +3,8 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
 
   import Aiur.OrchestratorBlockingHttpSupport
 
+  alias Aiur.GitHub.Listeners.Comments
+  alias Aiur.GitHub.Listeners.Comments.{Cursor, Driver}
   alias Aiur.GitHub.Transport
   alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
 
@@ -10,6 +12,8 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
   @stopping_owner_name :orchestrator_blocking_http_stopping_owner
 
   setup do
+    GenServer.call(Comments, :reset)
+    on_exit(fn -> GenServer.call(Comments, :reset) end)
     setup_orchestrator()
   end
 
@@ -35,10 +39,11 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
           CommentPolling.start_async(state, comment_poll_opts(hanging_fetcher))
         end)
 
-      next_state = await_async_started(next_state)
+      poll = await_comment_poll()
       assert_receive :comment_poll_started, 5_000
       assert div(elapsed_us, 1_000) < 1_000
-      assert %{ref: ref} = next_state.github_comment_cursor.poll
+      assert next_state == state
+      assert %{ref: ref} = poll
       assert is_reference(ref)
     end
 
@@ -53,10 +58,11 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
       opts = comment_poll_opts(hanging_fetcher)
 
       state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, opts)
-      state = await_async_started(state)
+      poll = await_comment_poll()
       assert_receive :comment_poll_started, 5_000
 
-      assert CommentPolling.start_async(state, opts).github_comment_cursor.poll == state.github_comment_cursor.poll
+      assert CommentPolling.start_async(state, opts) == state
+      assert comment_cursor().poll == poll
       refute_receive :comment_poll_started, 500
     end
 
@@ -64,17 +70,18 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
       running = Map.new(1..13, fn issue -> {to_string(issue), %{identifier: to_string(issue)}} end)
 
       opts =
-        comment_poll_opts(fn _states -> {:ok, []} end) ++
+        comment_poll_opts(fn _states -> Process.sleep(:infinity) end) ++
           [setup_timeout: 300_000, max_concurrency: 4, timeout: 60_000, human_review_comment_target_limit: 1, watch_comment_target_limit: 1]
 
-      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: running}, opts)
+      CommentPolling.start_async(%Aiur.Orchestrator.State{running: running}, opts)
+      poll = await_comment_poll()
 
       # Thirteen running targets plus the two configured review/watch slots
       # need four complete waves. The independently bounded setup phase and a
       # scheduling margin are additive, so neither legitimate setup work nor
       # the final target wave can be mistaken for a hung poll.
-      assert state.github_comment_cursor.poll.abandon_after_ms > 300_000 + 4 * 60_000
-      CommentPolling.terminate_poll(state.github_comment_cursor.poll)
+      assert poll.abandon_after_ms > 300_000 + 4 * 60_000
+      Driver.terminate_poll(poll)
     end
 
     test "slow setup and the final target wave remain owned until their combined bound", %{orchestrator: pid} do
@@ -119,14 +126,11 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
             issue: %Aiur.Issue{id: "57", identifier: "57", state: "in-progress", title: "Slow setup"}
           }
         })
-        # This fixture owns exactly one running target plus two configured
-        # slots; pending reconciliation from the shared process adds waves.
-        |> Map.update!(:github_comment_cursor, &%{&1 | reconcile_targets: MapSet.new()})
         |> CommentPolling.start_async(opts)
       end)
 
       assert_receive {:slow_setup_started, setup_worker}, 5_000
-      poll = :sys.get_state(pid).github_comment_cursor.poll
+      poll = comment_cursor().poll
       assert poll.abandon_after_ms == setup_timeout + 3 * target_timeout + 30_000
 
       # Re-entering at the end of the setup allowance must retain the same
@@ -135,6 +139,8 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
       send(setup_worker, :finish_slow_setup)
 
       assert_receive {:slow_target_started, target_worker}, 5_000
+      assert_orchestrator_answers(pid)
+      assert :sys.get_state(pid).running["57"].identifier == "57"
 
       # One running target plus the configured review/watch maxima is three
       # complete waves at max_concurrency=1. Even at the end of that combined
@@ -142,7 +148,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
       assert_same_poll_at_elapsed(pid, opts, poll, setup_timeout + 3 * target_timeout - 1)
       send(target_worker, :finish_slow_target)
 
-      wait_until(fn -> :sys.get_state(pid).github_comment_cursor.poll == nil end)
+      wait_until(fn -> comment_cursor().poll == nil end)
     end
 
     test "bounded setup reaps a hanging request descendant before answering" do
@@ -158,14 +164,15 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
       end
 
       opts = comment_poll_opts(review_issue_fetcher) ++ [setup_timeout: 250]
-      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, opts)
-      state = await_async_started(state)
+      CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, opts)
+      poll = await_comment_poll()
       assert_receive {:setup_request_started, setup_worker, request_worker}, 5_000
 
-      assert_receive {:github_comments_polled, _ref, {:error, :setup_deadline_exceeded}}, 2_000
+      assert_receive {:github_listener_outcome, :comments, %{completion: completion}}, 2_000
+      assert is_reference(completion)
       wait_until(fn -> not Process.alive?(setup_worker) end)
       wait_until(fn -> not Process.alive?(request_worker) end)
-      wait_until(fn -> not Process.alive?(state.github_comment_cursor.poll.pid) end)
+      wait_until(fn -> not Process.alive?(poll.pid) end)
     end
 
     test "terminates an expired poll before starting its replacement" do
@@ -181,22 +188,23 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
       # Ownership is registry-scoped; isolate this poll from unrelated tests
       # that also use the default nil snapshot key under coverage load.
       state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}, snapshot_key: self()}, opts)
-      state = await_async_started(state)
+      poll = await_comment_poll()
       assert_receive {:comment_poll_started, first_pid}, 5_000
-      first_poll = state.github_comment_cursor.poll.pid
+      first_poll = poll.pid
 
-      expired_at = System.monotonic_time(:millisecond) - state.github_comment_cursor.poll.abandon_after_ms - 1
-      expired_state = put_in(state.github_comment_cursor.poll.started_at_ms, expired_at)
-      next_state = CommentPolling.start_async(expired_state, opts)
-      next_state = await_async_started(next_state)
+      expired_at = System.monotonic_time(:millisecond) - poll.abandon_after_ms - 1
+      :sys.replace_state(Comments, &put_in(&1.cursor.poll.started_at_ms, expired_at))
+      CommentPolling.start_async(state, opts)
+      wait_until(fn -> comment_cursor().poll.ref != poll.ref end)
+      next_poll = await_comment_poll()
 
       wait_until(fn -> not Process.alive?(first_pid) end)
       refute Process.alive?(first_poll)
       assert_receive {:comment_poll_started, second_pid}, 5_000
       assert second_pid != first_pid
-      assert next_state.github_comment_cursor.poll.pid != first_poll
+      assert next_poll.pid != first_poll
       assert Process.alive?(second_pid)
-      CommentPolling.terminate_poll(next_state.github_comment_cursor.poll)
+      Driver.terminate_poll(next_poll)
     end
 
     test "terminates target descendants before replacing an expired poll" do
@@ -214,35 +222,52 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
       opts = Keyword.put(comment_poll_opts(fn _states -> {:ok, []} end), :request_fun, request_fun)
       state = %Aiur.Orchestrator.State{running: %{"57" => %{identifier: "57"}}}
 
-      first_state = CommentPolling.start_async(state, opts)
-      first_state = await_async_started(first_state)
+      CommentPolling.start_async(state, opts)
+      first_poll = await_comment_poll()
       assert_receive {:comment_request_started, first_target, first_request}, 5_000
 
-      expired_at = System.monotonic_time(:millisecond) - first_state.github_comment_cursor.poll.abandon_after_ms - 1
-      expired_state = put_in(first_state.github_comment_cursor.poll.started_at_ms, expired_at)
-      second_state = CommentPolling.start_async(expired_state, opts)
-      second_state = await_async_started(second_state)
+      expired_at = System.monotonic_time(:millisecond) - first_poll.abandon_after_ms - 1
+      :sys.replace_state(Comments, &put_in(&1.cursor.poll.started_at_ms, expired_at))
+      CommentPolling.start_async(state, opts)
+      wait_until(fn -> comment_cursor().poll.ref != first_poll.ref end)
+      second_poll = await_comment_poll()
 
       wait_until(fn -> not Process.alive?(first_target) end)
       wait_until(fn -> not Process.alive?(first_request) end)
       assert_receive {:comment_request_started, second_target, second_request}, 5_000
       assert second_target != first_target
 
-      Process.exit(second_state.github_comment_cursor.poll.pid, :kill)
+      Process.exit(second_poll.pid, :kill)
       wait_until(fn -> not Process.alive?(second_request) end)
     end
 
     test "termination does not hang after a completed poll waits for release" do
-      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, comment_poll_opts(fn _states -> {:ok, []} end))
-      state = await_async_started(state)
-      poll = state.github_comment_cursor.poll
+      test_pid = self()
 
-      wait_until(fn -> not Process.alive?(poll.pid) end)
-      assert Process.alive?(poll.owner)
+      fetcher = fn _states ->
+        send(test_pid, {:finishable_setup, self()})
 
-      terminator = Task.async(fn -> CommentPolling.terminate_poll(poll) end)
-      assert Task.await(terminator, 1_000) == :ok
-      assert_receive {:github_comments_polled, _ref, _payload}, 1000
+        receive do
+          :finish -> {:ok, []}
+        end
+      end
+
+      CommentPolling.start_async(%Aiur.Orchestrator.State{}, comment_poll_opts(fetcher))
+      poll = await_comment_poll()
+      assert_receive {:finishable_setup, worker}, 5_000
+      :sys.suspend(Comments)
+
+      try do
+        send(worker, :finish)
+        wait_until(fn -> not Process.alive?(poll.pid) end)
+        assert Process.alive?(poll.owner)
+        terminator = Task.async(fn -> Driver.terminate_poll(poll) end)
+        assert Task.await(terminator, 1_000) == :ok
+      after
+        :sys.resume(Comments)
+      end
+
+      assert_receive {:github_listener_outcome, :comments, _outcome}, 1000
     end
 
     test "termination reaps the poll tree if its owner dies before acknowledging" do
@@ -260,7 +285,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
           end)
 
         send(test_pid, {:before_ack_poll, poll})
-        result = CommentPolling.terminate_poll(%{pid: poll, owner: owner, monitor_ref: monitor_ref})
+        result = Driver.terminate_poll(%{pid: poll, owner: owner, monitor_ref: monitor_ref})
         send(test_pid, {:before_ack_result, result})
       end)
 
@@ -301,8 +326,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
       refute Process.alive?(target)
       refute Process.alive?(request)
 
-      next_state = :sys.get_state(successor)
-      CommentPolling.terminate_poll(next_state.github_comment_cursor.poll)
+      Driver.terminate_poll(comment_cursor().poll)
       refute Process.alive?(next_poll)
       wait_until(fn -> not Process.alive?(next_request) end)
     end
@@ -319,12 +343,12 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
 
       assert :ok = stop_supervised(child_id)
 
-      refute Process.alive?(poll)
-      refute Process.alive?(target)
-      refute Process.alive?(request)
       assert_receive {:DOWN, ^poll_ref, :process, ^poll, :killed}, 1000
       assert_receive {:DOWN, ^target_ref, :process, ^target, _reason}, 1000
       assert_receive {:DOWN, ^request_ref, :process, ^request, _reason}, 1000
+      refute Process.alive?(poll)
+      refute Process.alive?(target)
+      refute Process.alive?(request)
       refute Process.whereis(name)
     end
 
@@ -341,25 +365,26 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
 
       opts = comment_poll_opts(review_issue_fetcher)
 
+      :sys.replace_state(Comments, &put_in(&1.cursor.issue_list_cache, %{etag: "comments-only"}))
+
       :sys.replace_state(pid, fn state ->
         state = put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], %{etag: "shared-before"})
-        state = %{state | github_comment_cursor: %{state.github_comment_cursor | issue_list_cache: %{etag: "comments-only"}}}
         CommentPolling.start_async(state, opts)
       end)
 
       assert_receive {:comment_target_refresh_started, worker}, 5_000
 
       :sys.replace_state(pid, fn state ->
-        state = put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], %{etag: "shared-after"})
-        %{state | github_comment_cursor: %{state.github_comment_cursor | issue_list_cache: %{etag: "in-flight-sentinel"}}}
+        put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], %{etag: "shared-after"})
       end)
 
+      :sys.replace_state(Comments, &put_in(&1.cursor.issue_list_cache, %{etag: "in-flight-sentinel"}))
       send(worker, :finish_comment_target_refresh)
-      wait_until(fn -> :sys.get_state(pid).github_comment_cursor.poll == nil end)
+      wait_until(fn -> comment_cursor().poll == nil end)
 
       final_state = :sys.get_state(pid)
       assert final_state.ci_lifecycle.poll_cache[:issue_list_cache] == %{etag: "shared-after"}
-      assert final_state.github_comment_cursor.issue_list_cache == %{etag: "comments-only"}
+      assert comment_cursor().issue_list_cache == %{etag: "comments-only"}
     end
 
     test "production DOWN routing clears a failed comment poll", %{orchestrator: pid} do
@@ -375,14 +400,16 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
       end)
 
       assert_receive :comment_target_refresh_crashing, 5_000
-      wait_until(fn -> :sys.get_state(pid).github_comment_cursor.poll == nil end)
+      wait_until(fn -> comment_cursor().poll == nil end)
       assert Process.alive?(pid)
     end
 
-    test "drops a straggler from a poll the state is no longer waiting for" do
-      state = %Aiur.Orchestrator.State{running: %{}, github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{since: %{"57" => "2026-06-24T11:00:00Z"}}}
-
-      assert CommentPolling.apply_async(state, make_ref(), {:error, :boom}) == state
+    test "drops a straggler from a poll the listener is no longer waiting for" do
+      cursor = %Cursor{since: %{"57" => "2026-06-24T11:00:00Z"}}
+      :sys.replace_state(Comments, &%{&1 | cursor: cursor})
+      send(Comments, {:github_comments_polled, make_ref(), {:error, :boom}})
+      assert comment_cursor() == cursor
+      refute_receive {:github_listener_outcome, :comments, _outcome}, 100
     end
   end
 end
