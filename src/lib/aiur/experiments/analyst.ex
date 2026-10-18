@@ -22,6 +22,7 @@ defmodule Aiur.Experiments.Analyst do
   def init(opts) do
     deps = %{
       create: Keyword.get(opts, :create, &Tracker.create_issue/1),
+      daemon_account: Keyword.get(opts, :daemon_account, &Aiur.Tracker.DispatchProvenance.daemon_account/0),
       find: Keyword.get(opts, :find, &Tracker.find_issue/2),
       labels: Keyword.get(opts, :labels, &Tracker.ensure_labels/1),
       promote: Keyword.get(opts, :promote, &promote/1),

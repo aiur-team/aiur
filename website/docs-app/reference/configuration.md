@@ -3,6 +3,8 @@ Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file
 
 Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
+Daemon-filed experiment analysis tickets have a narrow [local-provenance security exception](/apis/github-auth#who-aiur-trusts). A daemon author or body marker alone never grants dispatch trust; the matching request must remain open in the local store.
+
 ## Environment variables
 
 Environment variables are declared once in the env schema (`Aiur.Env.Schema`), which validates them at startup and generates the checked-in `.env.example` (run `mix aiur.env.example` from `src/` to regenerate; a CI check fails when the example drifts from the schema).

@@ -39,6 +39,8 @@ defmodule Aiur.Experiments.Store do
     :persistent_term.erase({__MODULE__, :startup_failure})
 
     with :ok <- Aiur.Journal.ensure_directory(Paths.root()), :ok <- Persistence.recover() do
+      Aiur.Tracker.DispatchProvenance.register(&Aiur.Experiments.AnalysisProvenance.check/1)
+
       {:ok,
        %{
          evaluation: nil,

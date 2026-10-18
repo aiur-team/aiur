@@ -109,6 +109,9 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @spec daemon_account() :: String.t() | nil
+  def daemon_account, do: Config.daemon_account()
+
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.repo()
 
