@@ -1,5 +1,5 @@
 defmodule Aiur.Muse.TurnTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
