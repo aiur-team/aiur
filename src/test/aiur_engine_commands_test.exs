@@ -69,17 +69,33 @@ defmodule AiurEngineCommandsTest do
     assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
   end
 
-  test "operator answer requires explicit operator authority and safely routes an option" do
-    {out, 0} =
+  test "operator answer refuses agent processes before contacting the daemon" do
+    {out, 64} =
       run_sourced_engine(
         ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_operator_answer 'decision:42' --option build_content --operator|,
         []
       )
 
-    assert out =~ "RPC:Aiur.AgentControlCLI.operator_answer(["
-    assert out =~ "decision_id: Base.decode64!(\"ZGVjaXNpb246NDI=\")"
-    assert out =~ "option_id: Base.decode64!(\"YnVpbGRfY29udGVudA==\")"
-    assert out =~ "operator: true"
+    assert out =~ "agents and Executors must not run it"
+    refute out =~ "RPC:"
+
+    {noninteractive, 64} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_operator_answer 'decision:42' --option build_content --operator|,
+        [
+          {"AIUR_AGENT_BIN", nil},
+          {"AIUR_AGENT_MIX_SCHEDULERS", nil},
+          {"AIUR_AGENT_QUOTA_STATE_PATH", nil},
+          {"AIUR_AGENT_TMPFILE", nil},
+          {"AIUR_AGENT_TMUX_SOCKET", nil},
+          {"AIUR_AGENT_WORKSPACE", nil},
+          {"CLAUDECODE", nil},
+          {"CODEX_THREAD_ID", nil}
+        ]
+      )
+
+    assert noninteractive =~ "requires an interactive terminal"
+    refute noninteractive =~ "RPC:"
 
     {missing, 64} = run_sourced_engine("cmd_operator_answer decision:42 --option yes", [])
     assert missing =~ "answer requires --operator"
