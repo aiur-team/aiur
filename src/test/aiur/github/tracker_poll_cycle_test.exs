@@ -1,6 +1,7 @@
 defmodule Aiur.GitHub.TrackerPollCycleTest do
   use Aiur.TestSupport, async: false
 
+  alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.CycleFetchCache
   alias Aiur.Tracker
 
@@ -40,6 +41,6 @@ defmodule Aiur.GitHub.TrackerPollCycleTest do
 
   test "GitHub preflight formatting preserves its diagnostic" do
     reason = {:github_auth_preflight_failed, %{reason: :bad_credentials, repo: "example/repo"}}
-    assert Tracker.format_preflight_error(reason) == Aiur.GitHub.AuthPreflight.format_auth_preflight_error(reason)
+    assert Tracker.format_preflight_error(reason) == AuthPreflight.format_auth_preflight_error(reason)
   end
 end

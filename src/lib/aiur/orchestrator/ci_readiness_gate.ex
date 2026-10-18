@@ -23,7 +23,7 @@ defmodule Aiur.Orchestrator.CiReadinessGate do
   end
 
   defp do_maybe_warn_ci_readiness(%State{ci_readiness_checked: true} = state) do
-    if not is_nil(CodeHost.ci_readiness()) do
+    if CodeHost.ci_readiness() do
       reconcile_completed_ci_readiness(state)
     else
       state
