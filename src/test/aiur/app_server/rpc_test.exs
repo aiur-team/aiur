@@ -5,6 +5,9 @@ defmodule Aiur.AppServer.RpcTest do
 
   alias Aiur.AppServer.Rpc
 
+  # Bound hangs without timing out successful fixtures during coverage startup.
+  @script_response_timeout_ms 30_000
+
   describe "send_line/2" do
     test "writes Jason encoded bytes with a trailing newline" do
       port =
@@ -15,7 +18,7 @@ defmodule Aiur.AppServer.RpcTest do
         ])
 
       assert true = Rpc.send_line(port, %{"id" => 1, "method" => "ping"})
-      assert_receive {^port, {:data, {:eol, line}}}, 1_000
+      assert_receive {^port, {:data, {:eol, line}}}, @script_response_timeout_ms
       assert Jason.decode!(line) == %{"id" => 1, "method" => "ping"}
 
       Port.close(port)
@@ -40,7 +43,7 @@ defmodule Aiur.AppServer.RpcTest do
     test "returns matching result response" do
       port = script_port(~s(printf '%s\\n' '{"id":42,"result":{"ok":true}}'))
 
-      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 42, 1_000, "", "Test")
+      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 42, @script_response_timeout_ms, "", "Test")
     end
 
     test "skips unrelated JSON and non-JSON lines" do
@@ -52,7 +55,7 @@ defmodule Aiur.AppServer.RpcTest do
 
       port = script_port(command)
 
-      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 42, 1_000, "", "Test")
+      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 42, @script_response_timeout_ms, "", "Test")
     end
 
     test "routes a lifecycle notification that arrives before its awaited response" do
@@ -69,8 +72,10 @@ defmodule Aiur.AppServer.RpcTest do
         :handled
       end
 
-      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 42, 1_000, "", "Test", handler)
-      assert_receive {:routed_lifecycle, "account/updated", "chatgpt"}, 2_000
+      assert {:ok, %{"ok" => true}} =
+               Rpc.with_timeout_response(port, 42, @script_response_timeout_ms, "", "Test", handler)
+
+      assert_receive {:routed_lifecycle, "account/updated", "chatgpt"}, @script_response_timeout_ms
     end
 
     test "returns timeout and port exit errors" do
@@ -79,7 +84,9 @@ defmodule Aiur.AppServer.RpcTest do
       Port.close(idle_port)
 
       exit_port = script_port("exit 7")
-      assert {:error, {:port_exit, 7}} = Rpc.with_timeout_response(exit_port, 42, 1_000, "", "Test")
+
+      assert {:error, {:port_exit, 7}} =
+               Rpc.with_timeout_response(exit_port, 42, @script_response_timeout_ms, "", "Test")
     end
 
     test "keeps an ordinary response after a missing sensitive response" do
@@ -91,7 +98,7 @@ defmodule Aiur.AppServer.RpcTest do
 
       release_script_port(port)
 
-      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test")
+      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, @script_response_timeout_ms, "", "Test")
     end
 
     test "quarantines malformed late sensitive output with its retained id" do
@@ -110,7 +117,7 @@ defmodule Aiur.AppServer.RpcTest do
 
       release_script_port(port)
 
-      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test")
+      assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, @script_response_timeout_ms, "", "Test")
     end
 
     test "quarantines malformed late sensitive output with an escaped id key" do
@@ -129,7 +136,11 @@ defmodule Aiur.AppServer.RpcTest do
 
       release_script_port(port)
 
-      log = capture_log(fn -> assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test") end)
+      log =
+        capture_log(fn ->
+          assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, @script_response_timeout_ms, "", "Test")
+        end)
+
       assert log =~ "Test sensitive response stream output redacted"
       refute log =~ secret
     end
@@ -150,7 +161,11 @@ defmodule Aiur.AppServer.RpcTest do
 
       release_script_port(port)
 
-      log = capture_log(fn -> assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test") end)
+      log =
+        capture_log(fn ->
+          assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, @script_response_timeout_ms, "", "Test")
+        end)
+
       assert log =~ "Test sensitive response stream output redacted"
       refute log =~ secret
     end
@@ -171,7 +186,11 @@ defmodule Aiur.AppServer.RpcTest do
 
       release_script_port(port)
 
-      log = capture_log(fn -> assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test") end)
+      log =
+        capture_log(fn ->
+          assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, @script_response_timeout_ms, "", "Test")
+        end)
+
       assert log =~ "Test sensitive response stream output redacted"
       refute log =~ secret
     end
@@ -196,7 +215,7 @@ defmodule Aiur.AppServer.RpcTest do
       log =
         capture_log(fn ->
           assert {:ok, %{"ok" => true}} =
-                   Rpc.with_timeout_response(port, 6, 1_000, "", "Test", fn payload ->
+                   Rpc.with_timeout_response(port, 6, @script_response_timeout_ms, "", "Test", fn payload ->
                      send(test_pid, {:unexpected_notification, payload})
                      :handled
                    end)
@@ -222,7 +241,11 @@ defmodule Aiur.AppServer.RpcTest do
 
       release_script_port(port)
 
-      log = capture_log(fn -> assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test") end)
+      log =
+        capture_log(fn ->
+          assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, @script_response_timeout_ms, "", "Test")
+        end)
+
       refute log =~ secret
     end
 
@@ -243,12 +266,12 @@ defmodule Aiur.AppServer.RpcTest do
       release_script_port(port)
 
       assert {:ok, %{"ok" => true}} =
-               Rpc.with_timeout_response(port, 6, 1_000, "", "Test", fn payload ->
+               Rpc.with_timeout_response(port, 6, @script_response_timeout_ms, "", "Test", fn payload ->
                  send(test_pid, {:id_colliding_request, payload})
                  :handled
                end)
 
-      assert_receive {:id_colliding_request, %{"id" => 5, "method" => "server/request"}}, 2_000
+      assert_receive {:id_colliding_request, %{"id" => 5, "method" => "server/request"}}, @script_response_timeout_ms
     end
   end
 
@@ -261,7 +284,7 @@ defmodule Aiur.AppServer.RpcTest do
       :binary,
       :exit_status,
       :stderr_to_stdout,
-      args: [~c"-lc", String.to_charlist(command)],
+      args: [~c"-c", String.to_charlist(command)],
       line: 64_000
     ])
   end
