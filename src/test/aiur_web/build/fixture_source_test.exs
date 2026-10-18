@@ -1,10 +1,10 @@
 defmodule AiurWeb.Build.FixtureSourceTest do
   use Aiur.TestSupport
   alias Aiur.TestSupport.BuildHome.FixtureSource
-  alias AiurWeb.Build.DataSource
+  alias AiurWeb.Build.{DataSource, Payload}
 
   test "every dataset serves its initial window with the frozen now" do
-    for dataset <- ~w(live dense newrepo noqueue offline odd-edges unknowns hostile) do
+    for dataset <- ~w(live dense newrepo noqueue offline odd-edges unknowns hostile list-edges) do
       assert {:ok, json} = FixtureSource.snapshot(dataset: dataset)
       assert json["now"] == 1_791_408_000_000
       path = Path.expand("../../fixtures/build_home/#{dataset}.json", __DIR__)
@@ -14,6 +14,13 @@ defmodule AiurWeb.Build.FixtureSourceTest do
       assert json["history"]["total"] == length(full["sections"]["hist"])
       assert json["history"]["tz"] == "America/Los_Angeles"
     end
+  end
+
+  test "list edges reach the strict payload schema" do
+    assert {:ok, json} = FixtureSource.full(dataset: "list-edges")
+    assert Payload.validate(json) == :ok
+    assert Enum.map(json["sections"]["hist"], & &1["status"]) |> Enum.take(2) == ["not_planned", "closed"]
+    assert json["sources"]["open_tickets"]["state"] == "unavailable"
   end
 
   test "source call merges socket options with injection without adding an arity" do
@@ -28,7 +35,7 @@ defmodule AiurWeb.Build.FixtureSourceTest do
   end
 
   test "unknown, non-dataset, missing and invalid fixtures are errors" do
-    assert FixtureSource.datasets() == ~w(live dense newrepo noqueue offline odd-edges unknowns hostile degraded unavailable hold)
+    assert FixtureSource.datasets() == ~w(live dense newrepo noqueue offline odd-edges unknowns hostile list-edges degraded unavailable hold)
     for dataset <- ~w(nope manifest usage-sets ../live), do: assert(FixtureSource.snapshot(dataset: dataset) == {:error, :unknown_dataset})
     assert FixtureSource.snapshot(dataset: "unavailable") == {:error, :fixture_unavailable}
     dir = Aiur.TestSupport.tmp_root!("build-home-missing")

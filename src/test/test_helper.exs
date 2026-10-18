@@ -77,7 +77,7 @@ quarantine_filters =
 
 ExUnit.start(
   exclude:
-    [:external, :perf_regression, :quarantine] ++
+    [:external, :perf_regression, :quarantine, :orchestrator_guard_probe] ++
       real_proc_exclude ++
       manual_sandbox_reset_exclude ++ quarantine_filters
 )
@@ -112,7 +112,11 @@ end)
 Code.require_file("support/snapshot_support.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml_sections.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml.exs", __DIR__)
+Code.require_file("support/test_support/orchestrator_child.exs", __DIR__)
 Code.require_file("support/test_support/runtime_children.exs", __DIR__)
+Code.require_file("support/test_support/orchestrator_guard.exs", __DIR__)
+ExUnit.configure(formatters: ExUnit.configuration()[:formatters] ++ [Aiur.TestSupport.OrchestratorGuard])
+ExUnit.after_suite(fn _result -> Aiur.TestSupport.OrchestratorGuard.verify_suite!() end)
 Code.require_file("support/test_support/endpoint_stubs.exs", __DIR__)
 Code.require_file("support/test_support/processes.exs", __DIR__)
 Code.require_file("support/test_support/workflow_files.exs", __DIR__)

@@ -137,6 +137,7 @@ defmodule Aiur.MixProject do
         "test/support/test_support/workflow_yaml_sections.exs",
         "test/support/test_support/workflow_yaml.exs",
         "test/support/test_support/runtime_children.exs",
+        "test/support/test_support/orchestrator_guard.exs",
         "test/support/test_support/processes.exs",
         "test/support/test_support/workflow_files.exs",
         "test/support/test_reset_support.ex"
