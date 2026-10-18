@@ -174,6 +174,12 @@ defmodule Aiur.AppServerTest do
 
   defp expected_runtime_policy(policy, _workspace), do: policy
 
+  defp lock_namespace_excluded?(%{"type" => "workspaceWrite", "writableRoots" => roots}) do
+    Aiur.BuildGate.lock_dir() not in roots
+  end
+
+  defp lock_namespace_excluded?(_policy), do: true
+
   defp add_expected_root(root, policy) do
     Map.update(policy, "writableRoots", [root], &append_expected_root(&1, root))
   end

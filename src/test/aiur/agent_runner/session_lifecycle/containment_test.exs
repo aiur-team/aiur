@@ -2,7 +2,6 @@ defmodule Aiur.AgentRunner.SessionLifecycle.ContainmentTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.TrackerIdentity
   alias Aiur.Workspace.Ownership
@@ -365,18 +364,6 @@ defmodule Aiur.AgentRunner.SessionLifecycle.ContainmentTest do
       Process.sleep(25)
       assert_eventually(fun, attempts - 1)
     end
-  end
-
-  defp tracker_identity(identifier) do
-    %TrackerIdentity{
-      status: :joinable,
-      kind: :github,
-      owner: "owner",
-      repository: "repo",
-      provider_id: "provider-#{identifier}",
-      identifier: identifier,
-      reason: nil
-    }
   end
 
   defp telemetry_identity do
