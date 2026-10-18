@@ -1,5 +1,6 @@
 defmodule Aiur.AgentRunner.SessionCleanup do
   @moduledoc false
+  alias Aiur.AgentRunner.SessionIdentity
   alias Aiur.CodingAgent
   alias Aiur.Workspace.Ownership
 
@@ -24,7 +25,7 @@ defmodule Aiur.AgentRunner.SessionCleanup do
           cleanup_failure
       end
     after
-      CodingAgent.revoke_launch_telemetry(Aiur.AgentRunner.SessionIdentity.session_backend!(session), Map.get(session, :telemetry_launch))
+      CodingAgent.revoke_launch_telemetry(SessionIdentity.session_backend!(session), Map.get(session, :telemetry_launch))
     end
   catch
     kind, reason ->

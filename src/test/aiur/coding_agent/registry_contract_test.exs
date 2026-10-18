@@ -79,9 +79,10 @@ defmodule Aiur.CodingAgent.RegistryContractTest do
 
     missing ++
       for {key, exports} <- callbacks,
-          module = entry[key],
+          Map.has_key?(entry, key),
+          module <- [Map.fetch!(entry, key)],
           {fun, arity} <- exports,
-          not (Code.ensure_loaded?(module) and function_exported?(module, fun, arity)),
+          not (is_atom(module) and Code.ensure_loaded?(module) and function_exported?(module, fun, arity)),
           do: {:missing_capability_callback, key, fun, arity}
   end
 

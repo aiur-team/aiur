@@ -213,7 +213,12 @@ defmodule Aiur.AgentRunner.SessionDisplay do
     rc? = Map.get(session, :remote_control, false)
     opts = opts |> put_live_conversation_session_id(session) |> maybe_put_display_authority(should_display_tail?(session_backend!(session), rc?, issue.identifier))
     tailer = maybe_start_display_tailer(session, issue, rc?, opts)
-    if tailer, do: CodingAgent.display_tailer(session_backend!(session)).restore_handoff(tailer, Keyword.get(opts, :handoff_display_state))
+
+    if tailer do
+      module = CodingAgent.display_tailer(session_backend!(session))
+      module.restore_handoff(tailer, Keyword.get(opts, :handoff_display_state))
+    end
+
     Process.put(:handoff_display_tailer, tailer)
     {tailer, maybe_put_display_source_resolver(opts, tailer, session_backend!(session))}
   end
