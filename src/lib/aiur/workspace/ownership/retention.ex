@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.Ownership.Retention do
   @moduledoc false
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Guardian.Receipt
 
@@ -36,7 +36,7 @@ defmodule Aiur.Workspace.Ownership.Retention do
   @spec resolve(map()) :: :ok | {:error, term()}
   def resolve(%{retained_cause: cause} = lease) when is_binary(cause) do
     message = "Workspace retained lease released for #{lease.ticket} (generation #{lease.generation})."
-    Alerts.emit_system("ticket.#{lease.ticket}.workspace.workspace_lease_retained.resolved", issue: lease.ticket, message: message, reason: message, needs_attention: false)
+    Signal.alert("ticket.#{lease.ticket}.workspace.workspace_lease_retained.resolved", issue: lease.ticket, message: message, reason: message, needs_attention: false)
   end
 
   def resolve(_lease), do: :ok

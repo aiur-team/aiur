@@ -3,11 +3,7 @@ defmodule Aiur.Workspace.Hooks do
 
   require Logger
   alias Aiur.{AgentBuildGuard, BuildGate, Config, RepoBase, Signal}
-  alias Aiur.GitHub.AuthPreflight
-  alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Workspace.{Context, Reconstruction, Remote}
+  alias Aiur.Workspace.{Context, Preflight, Reconstruction, Remote}
 
   @spec run_after_create(Path.t(), map(), boolean() | :materialized, String.t() | nil) ::
           :ok | {:error, term()}
@@ -233,39 +229,39 @@ defmodule Aiur.Workspace.Hooks do
   @doc false
   @spec run_github_preflight(Path.t(), map(), String.t() | nil) :: :ok | {:error, term()}
   def run_github_preflight(workspace, issue_context, worker_host) do
-    if github_workspace_preflight_enabled?() do
-      case run_workspace_github_preflight(workspace, worker_host) do
+    if preflight = Preflight.registered() do
+      case preflight.run(workspace, worker_host) do
         :ok ->
           :ok
 
         {:error, reason} ->
-          handle_github_preflight_failure(workspace, issue_context, worker_host, reason)
+          handle_github_preflight_failure(preflight, workspace, issue_context, worker_host, reason)
 
         other ->
-          handle_github_preflight_unexpected(workspace, issue_context, worker_host, other)
+          handle_github_preflight_unexpected(preflight, workspace, issue_context, worker_host, other)
       end
     else
       :ok
     end
   end
 
-  defp handle_github_preflight_failure(workspace, issue_context, worker_host, reason) do
+  defp handle_github_preflight_failure(preflight, workspace, issue_context, worker_host, reason) do
     # A local budget hold is a local counter trip, not lost connectivity:
     # raising `system.github.connectivity_lost` for it would send the
     # operator on a DNS/credential hunt for a condition no network or App
     # change can fix (#2429). Provisioning still fails closed — the hold
     # has to clear before the workspace can be used — it just does not
     # fire the wrong blocker.
-    unless AuthPreflight.local_hold_reason?(reason) do
-      emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason)
+    unless preflight.local_hold?(reason) do
+      emit_workspace_github_preflight_alert(preflight, workspace, issue_context, worker_host, reason)
     end
 
     {:error, {:workspace_github_connectivity_failed, workspace, reason}}
   end
 
-  defp handle_github_preflight_unexpected(workspace, issue_context, worker_host, other) do
+  defp handle_github_preflight_unexpected(preflight, workspace, issue_context, worker_host, other) do
     reason = {:unexpected_workspace_github_preflight_result, other}
-    emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason)
+    emit_workspace_github_preflight_alert(preflight, workspace, issue_context, worker_host, reason)
     {:error, {:workspace_github_connectivity_failed, workspace, reason}}
   end
 
@@ -284,7 +280,7 @@ defmodule Aiur.Workspace.Hooks do
     remote? = Keyword.get(opts, :remote?, false)
 
     repository_env =
-      case github_repo_url() do
+      case Aiur.Tracker.clone_url() do
         nil ->
           [{"AIUR_REPO_STATE_PATH", repo_state_path(Aiur.AgentEnvironment.neutral_repo_url(), remote?)}]
 
@@ -304,15 +300,6 @@ defmodule Aiur.Workspace.Hooks do
     end
   end
 
-  defp github_repo_url do
-    with "github" <- Config.settings!().tracker.kind,
-         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-      "https://github.com/#{repo}.git"
-    else
-      _ -> nil
-    end
-  end
-
   defp repo_state_path(repo_url, true), do: Path.join("~", RepoBase.repo_relative_path(repo_url))
   defp repo_state_path(repo_url, false), do: RepoBase.repo_path(repo_url)
 
@@ -328,29 +315,8 @@ defmodule Aiur.Workspace.Hooks do
     end
   end
 
-  defp github_workspace_preflight_enabled? do
-    Application.get_env(:aiur, :workspace_github_preflight_enabled, true) == true and
-      Config.tracker_kind() == "github"
-  rescue
-    _ -> false
-  end
-
-  defp run_workspace_github_preflight(workspace, worker_host) do
-    fun =
-      Application.get_env(:aiur, :workspace_github_preflight_fun, fn _workspace, _worker_host ->
-        GitHubTracker.auth_preflight()
-      end)
-
-    cond do
-      is_function(fun, 2) -> fun.(workspace, worker_host)
-      is_function(fun, 1) -> fun.(workspace)
-      is_function(fun, 0) -> fun.()
-      true -> {:error, {:invalid_workspace_github_preflight_fun, inspect(fun)}}
-    end
-  end
-
-  defp emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason) do
-    message = github_workspace_preflight_message(workspace, issue_context, reason)
+  defp emit_workspace_github_preflight_alert(preflight, workspace, issue_context, worker_host, reason) do
+    message = preflight.failure_message(workspace, issue_context, reason)
 
     Signal.agent_alert("system.github.connectivity_lost", message,
       reason: message,
@@ -359,23 +325,5 @@ defmodule Aiur.Workspace.Hooks do
       workspace: workspace,
       worker_host: worker_host
     )
-  end
-
-  defp github_workspace_preflight_message(workspace, issue_context, reason) do
-    repo = GitHubConfig.repo() || "(unknown repo)"
-    formatted = GitHubClient.format_auth_preflight_error(reason)
-
-    "GitHub workspace preflight failed #{Context.log_context(issue_context)} workspace=#{workspace} " <>
-      "repo=#{repo}. Probe: #{github_preflight_probe(repo)}. Reason: #{formatted}"
-  end
-
-  defp github_preflight_probe("(unknown repo)") do
-    "GET https://api.github.com/rate_limit"
-  end
-
-  defp github_preflight_probe(repo) do
-    "GET https://api.github.com/rate_limit; " <>
-      "GET https://api.github.com/repos/#{repo}; " <>
-      "GET https://api.github.com/repos/#{repo}/issues?state=open&per_page=1"
   end
 end
