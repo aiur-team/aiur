@@ -6,7 +6,8 @@ defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Events.GithubCommentsPoller
   alias Aiur.GitHub.ResourceStore
-  alias Aiur.Orchestrator.{CommentPolling, ReadyForReviewTransitions, State}
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State}
   @repo "owner/repo"
   @dedup_table Aiur.Events.Publisher.Dedup
 
@@ -120,7 +121,7 @@ defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
     assert {:ok, %{errors: []}} = poll_result
 
     ref = make_ref()
-    CommentPolling.apply_async(%{state | github_comment_poll: %{ref: ref}}, ref, {:ok, %{}, [], {[target], poll_result}})
+    CommentPolling.apply_async(%{state | github_comment_cursor: %{state.github_comment_cursor | poll: %{ref: ref}}}, ref, {:ok, %{}, [], {[target], poll_result}})
   end
 
   def history_response({:status, status}), do: {:ok, %{status: status, body: %{"message" => "Not Found"}}}

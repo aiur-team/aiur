@@ -11,11 +11,17 @@ defmodule Aiur.BuildOrder.Index.Parts do
 
   @spec safe(atom(), (-> term())) :: term()
   def safe(part, fun) do
-    fun.()
-  rescue
-    error -> failed(part, {error.__struct__, Exception.message(error)})
-  catch
-    kind, reason -> failed(part, {kind, reason})
+    Process.put(:aiur_build_index_read_part, part)
+
+    try do
+      fun.()
+    rescue
+      error -> failed(part, {error.__struct__, Exception.message(error)})
+    catch
+      kind, reason -> failed(part, {kind, reason})
+    after
+      Process.delete(:aiur_build_index_read_part)
+    end
   end
 
   defp failed(part, reason) do

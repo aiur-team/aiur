@@ -19,6 +19,7 @@ EXUNIT_RUNS, EXUNIT_REDUCED_RUNS, EXUNIT_FULL_LIMIT, EXUNIT_MAX_FILES = 10, 3, 1
 MAX_CASES = 8
 SPEC_REPEATS, SPEC_REDUCED_REPEATS, SPEC_FULL_LIMIT, SPEC_MAX_FILES = 5, 2, 3, 10
 RUN_TIMEOUT_SECONDS = 300
+BROWSER_RUN_TIMEOUT_SECONDS = 20 * 60
 BUDGET_SECONDS = int(os.environ.get('AIUR_SOAK_BUDGET_SECONDS', str(12 * 60)))
 BROWSER_ROOT = Path(os.environ.get('AIUR_SOAK_BROWSER_ROOT', Path(__file__).resolve().parent.parent / 'src/browser'))
 
@@ -38,18 +39,55 @@ def repeats(count, full, reduced, full_limit, max_files):
     return full if count <= full_limit else reduced
 
 
-def browser_config(spec, scripts):
-    """The --config the browser smoke suite runs this spec with: '' for the default, None if it never runs it."""
-    for command in scripts.values():
+def smoke_scripts(scripts):
+    """Follow the same npm aliases as smoke, ignoring opt-in/full-only scripts."""
+    pending = ['test:core', 'test:home-css']
+    seen = set()
+    while pending:
+        name = pending.pop(0)
+        if name in seen or name not in scripts:
+            continue
+        seen.add(name)
+        command = scripts[name]
+        yield command
         for segment in command.split('&&'):
             tokens = shlex.split(segment)
-            if 'scripts/run-browser-tests.mjs' in tokens and spec in tokens:
-                return tokens[tokens.index('--config') + 1] if '--config' in tokens else ''
+            if 'npm' in tokens:
+                index = tokens.index('npm')
+                if tokens[index + 1:index + 2] == ['run'] and len(tokens) > index + 2:
+                    pending.append(tokens[index + 2])
+
+
+def browser_invocations(spec, scripts):
+    """Keep every smoke registration's filters/options, rather than just its first config."""
+    invocations = []
+    registered = False
+    for command in smoke_scripts(scripts):
+        for segment in command.split('&&'):
+            tokens = shlex.split(segment)
+            runner = 'scripts/run-browser-tests.mjs'
+            if runner not in tokens or spec not in tokens:
+                continue
+            registered = True
+            index = tokens.index(runner)
+            # Only soak the changed spec, retaining grep, config, worker and shard selections.
+            args = [token for token in tokens[index + 1:]
+                    if not (token.startswith('tests/') and token.endswith('.spec.mjs') and token != spec)]
+            assignments = [token for token in tokens[:index - 1] if '=' in token]
+            invocation = [*(['env', *assignments] if assignments else []), 'node', runner, *args]
+            if invocation not in invocations:
+                invocations.append(invocation)
+    if registered:
+        return invocations
     name = Path(spec).name
-    # Mirrors browser-suites.mjs: unregistered build-home suites are discovered by name.
-    if spec == f'tests/{name}' and name.startswith('build-home-') and name.endswith('.browser.spec.mjs'):
-        return 'playwright.design-parity.config.mjs' if name.endswith('-parity.browser.spec.mjs') else ''
-    return None
+    # Mirrors browser-suites.mjs: only entirely unregistered home specs are discovered.
+    mentioned = any(spec in shlex.split(segment) for command in scripts.values()
+                    for segment in command.split('&&'))
+    if (not mentioned and spec == f'tests/{name}' and name.startswith('build-home-')
+            and name.endswith('.browser.spec.mjs')):
+        config = ['--config', 'playwright.design-parity.config.mjs'] if name.endswith('-parity.browser.spec.mjs') else []
+        return [['node', 'scripts/run-browser-tests.mjs', spec, *config]]
+    return []
 
 
 def select(base):
@@ -74,11 +112,11 @@ def load_list(name, prefix, suffix):
     return files
 
 
-def run(command, cwd=None):
+def run(command, cwd=None, timeout=RUN_TIMEOUT_SECONDS):
     try:
-        return subprocess.run(command, cwd=cwd, timeout=RUN_TIMEOUT_SECONDS).returncode
+        return subprocess.run(command, cwd=cwd, timeout=timeout).returncode
     except subprocess.TimeoutExpired:
-        notice(f'soak run exceeded {RUN_TIMEOUT_SECONDS}s', 'error')
+        notice(f'soak run exceeded {timeout:.0f}s', 'error')
         return 124
 
 
@@ -117,24 +155,29 @@ def soak_exunit():
 def soak_browser():
     specs = load_list('SOAK_SPECS', 'tests/', '.spec.mjs')
     scripts = json.loads((BROWSER_ROOT / 'package.json').read_text())['scripts']
-    configs = {spec: browser_config(spec, scripts) for spec in specs}
-    for spec in [spec for spec, config in configs.items() if config is None]:
-        notice(f'Playwright soak skipped {spec}: the browser smoke suite does not run it')
-    runnable = [spec for spec, config in configs.items() if config is not None]
+    invocations = {spec: browser_invocations(spec, scripts) for spec in specs}
+    for spec, commands in invocations.items():
+        if not commands:
+            notice(f'Playwright soak skipped {spec}: the browser smoke suite does not run it')
+    runnable = [spec for spec, commands in invocations.items() if commands]
     n = plan_runs('Playwright', len(runnable), SPEC_REPEATS, SPEC_REDUCED_REPEATS, SPEC_FULL_LIMIT, SPEC_MAX_FILES)
     started = time.monotonic()
     for spec in runnable if n else []:
-        if time.monotonic() - started >= BUDGET_SECONDS:
-            notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec}')
-            break
-        config = ['--config', configs[spec]] if configs[spec] else []
-        command = ['node', 'scripts/run-browser-tests.mjs', spec, *config, f'--repeat-each={n}']
-        print(f'::group::Playwright soak: {spec} x{n}', flush=True)
-        status = run(command, cwd=BROWSER_ROOT)
-        print('::endgroup::', flush=True)
-        if status != 0:
-            notice(f'Playwright soak failed for {spec}. Reproduce: cd src/browser && {shlex.join(command)}', 'error')
-            return 1
+        for invocation in invocations[spec]:
+            elapsed = time.monotonic() - started
+            if elapsed >= BUDGET_SECONDS:
+                notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec}')
+                return 0
+            command = [*invocation, f'--repeat-each={n}']
+            print(f'::group::Playwright soak: {shlex.join(command)}', flush=True)
+            # Apply the overall budget between invocations, as for ExUnit. Routine
+            # motion repetitions can exceed 300s. Keep total browser runtime within
+            # 20 minutes, leaving setup/cleanup time inside the 25-minute job.
+            status = run(command, cwd=BROWSER_ROOT, timeout=max(1, BROWSER_RUN_TIMEOUT_SECONDS - elapsed))
+            print('::endgroup::', flush=True)
+            if status != 0:
+                notice(f'Playwright soak failed for {spec}. Reproduce: cd src/browser && {shlex.join(command)}', 'error')
+                return 1
     return 0
 
 

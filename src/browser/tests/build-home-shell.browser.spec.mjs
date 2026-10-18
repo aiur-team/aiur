@@ -106,12 +106,12 @@ test('B1 skeleton stays past the design timer until a payload arrives', async ({
 
 test('B2 unavailable state and error replies remove the spinner', async ({ page }) => {
   await open(page, 'unavailable')
-  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · source unavailable')
+  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · build index read failed')
   await patch(page)
-  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · unknown cause')
+  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · unknown cause (unknown)')
   await expect(page.locator('.bd-spin, #bd-content, .bd-mk.empty')).toHaveCount(0)
   await page.evaluate(async () => (await import('/build-home/hook.js')).receive({ v: 1, kind: 'error', reason: 'unavailable' }))
-  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · source unavailable')
+  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · unknown cause (unavailable)')
   expect((await state(page)).loading).toBe(true)
 })
 

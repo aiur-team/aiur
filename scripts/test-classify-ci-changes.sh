@@ -83,7 +83,7 @@ grep -Fxq 'dialyzer=false' "$test_dir/out"
 for path in scripts/check-ci-gate.py scripts/classify-ci-changes.sh scripts/ci-policy.rb scripts/ci-test-selection.exs scripts/run-ci-affected-tests.py src/lib/aiur/affected_tests.ex src/lib/mix/tasks/aiur.affected_tests.ex; do
   expect 'docs_only=false full_ci=true' pull_request false "[{\"filename\":\"$path\"}]"
 done
-for event in push merge_group workflow_dispatch; do
+for event in push workflow_dispatch; do
   if [[ "$event" == push ]]; then
     GITHUB_REF=refs/heads/v2 expect 'docs_only=false full_ci=true' "$event" true '[]'
   else
@@ -111,4 +111,5 @@ grep -Eq 'outputs:.*full_ci:.*steps\.classify\.outputs\.full_ci' "$workflow"
 grep -Eq 'outputs:.*affected_paths_b64:.*steps\.classify\.outputs\.affected_paths_b64' "$workflow"
 grep -Fq 'run: bash scripts/classify-ci-changes.sh' "$workflow"
 grep -Fq 'run: bash scripts/test-classify-ci-changes.sh' "$workflow"
+python3 "$root/scripts/test-classify-home-ci.py"
 echo 'CI classifier event, policy, rename and draft tests passed'

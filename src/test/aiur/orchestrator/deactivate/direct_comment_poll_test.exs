@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
   alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.CommentPolling
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
 
   import Aiur.OrchestratorDeactivateSupport
 
@@ -58,7 +58,9 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
 
       state = %Orchestrator.State{
         running: %{},
-        github_comments_since: "2026-06-24T11:00:00Z"
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: "2026-06-24T11:00:00Z"
+        }
       }
 
       next =
@@ -69,7 +71,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
 
-      assert next.github_comments_since == %{"57" => "2026-06-24T11:00:00Z"}
+      assert next.github_comment_cursor.since == %{"57" => "2026-06-24T11:00:00Z"}
 
       receive_barrier(
         {:event,
@@ -123,7 +125,9 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
 
       state = %Orchestrator.State{
         running: %{},
-        github_comments_since: "2026-06-24T11:00:00Z"
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: "2026-06-24T11:00:00Z"
+        }
       }
 
       next =
@@ -134,7 +138,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
 
-      assert next.github_comments_since == %{"63" => "2026-06-24T11:59:59Z"}
+      assert next.github_comment_cursor.since == %{"63" => "2026-06-24T11:59:59Z"}
 
       receive_barrier(
         {:event,
@@ -224,7 +228,9 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
             control: %{status: :working}
           }
         },
-        github_comments_since: "2026-06-24T11:00:00Z"
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: "2026-06-24T11:00:00Z"
+        }
       }
 
       next =
@@ -235,7 +241,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [human_review_issue]} end
         )
 
-      assert next.github_comments_since == %{
+      assert next.github_comment_cursor.since == %{
                "42" => "2026-06-24T11:59:59Z",
                "57" => "2026-06-24T11:00:00Z"
              }
@@ -285,11 +291,13 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
 
       state = %Orchestrator.State{
         running: %{},
-        github_comments_since: %{
-          "10" => "2026-06-24T12:00:00Z",
-          "11" => "2026-06-24T10:00:00Z",
-          "12" => "2026-06-24T11:00:00Z",
-          "13" => "2026-06-24T09:00:00Z"
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: %{
+            "10" => "2026-06-24T12:00:00Z",
+            "11" => "2026-06-24T10:00:00Z",
+            "12" => "2026-06-24T11:00:00Z",
+            "13" => "2026-06-24T09:00:00Z"
+          }
         }
       }
 
@@ -320,14 +328,14 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollTest do
         assert String.contains?(url, "per_page=100")
       end
 
-      assert next.github_comments_since == %{
+      assert next.github_comment_cursor.since == %{
                "10" => "2026-06-24T12:00:00Z",
                "11" => "2026-06-24T10:00:00Z",
                "12" => "2026-06-24T11:00:00Z",
                "13" => "2026-06-24T09:00:00Z"
              }
 
-      assert next.github_comment_issue_updated_at == %{
+      assert next.github_comment_cursor.issue_updated_at == %{
                "11" => "2026-06-24T12:00:00Z",
                "13" => "2026-06-24T12:00:00Z"
              }

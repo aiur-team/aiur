@@ -20,6 +20,52 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
   setup :ci_lifecycle_setup
 
   describe "CI lifecycle coordination" do
+    test "only broker timeouts bypass CI cadence after a failed target lookup" do
+      PollCadence.forget_effective_interval_ms()
+      PollCadence.publish_effective_interval_ms(120_000, class: :ci)
+      on_exit(&PollCadence.forget_effective_interval_ms/0)
+      ticket = issue(unique_identifier("ci-broker-retry"), "ci-wait")
+
+      failures = [
+        {:github, :local_hold, %{reason: :github_budget_broker_timeout}},
+        {:aiur, :locally_held, %{reason: :shared_budget}},
+        {:github, :http, %{status: 500}}
+      ]
+
+      for failure <- failures do
+        calls = :ets.new(:ci_broker_retry_calls, [:set, :public])
+        :ets.insert(calls, {:count, 0})
+
+        opts = [
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [ticket]} end,
+          ci_poller: fn _targets, _opts ->
+            :ets.update_counter(calls, :count, 1)
+            {:ok, %{results: [], errors: [{ticket.identifier, {:pr_lookup, failure}}]}}
+          end,
+          parked_ready_alert_loader: fn -> MapSet.new() end,
+          draft_stall_alert_loader: fn -> MapSet.new() end
+        ]
+
+        failed = CiLifecycle.poll_github_ci(%State{}, opts)
+
+        if failure == hd(failures) do
+          assert failed.last_ci_poll_started_at_ms == nil
+          retried = CiLifecycle.poll_github_ci(failed, opts)
+          assert :ets.lookup_element(calls, :count, 2) == 2
+          assert is_integer(retried.last_ci_poll_started_at_ms)
+          assert retried.ci_lifecycle.broker_fast_retry_pending? == false
+          _cadence_limited = CiLifecycle.poll_github_ci(retried, opts)
+          assert :ets.lookup_element(calls, :count, 2) == 2
+        else
+          assert is_integer(failed.last_ci_poll_started_at_ms)
+          _still_on_cadence = CiLifecycle.poll_github_ci(failed, opts)
+          assert :ets.lookup_element(calls, :count, 2) == 1
+        end
+
+        :ets.delete(calls)
+      end
+    end
+
     test "CI poll fetch runs outside the owner and late results preserve current state" do
       recipient = self()
       ticket = issue(unique_identifier("async-ci"), "human-review")

@@ -8,7 +8,7 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   alias Aiur.GitHub.{Errors, Transport}
   alias Aiur.LandingWatch.Journal
 
-  @list_path "src/test/quarantine.txt"
+  @list_paths ["src/test/quarantine.txt", "src/browser/quarantine.txt"]
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -62,7 +62,7 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   end
 
   defp lift_claimed(ticket, claim, opts) do
-    result = fetch_list(ticket, opts)
+    result = Enum.reduce(@list_paths, :ok, fn path, acc -> if acc == :ok, do: fetch_list(ticket, path, opts), else: acc end)
     if result == :ok, do: :ok, else: release_claim(claim, opts, result)
   end
 
@@ -73,27 +73,29 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
     end
   end
 
-  defp fetch_list(ticket, opts) do
-    with {:ok, context} <- context(opts),
+  defp fetch_list(ticket, path, opts) do
+    with {:ok, context} <- context(path, opts),
          {:ok, contents, file_sha} <- get_contents(context, opts),
          {:ok, updated} <- remove_ticket(contents, ticket),
          :ok <- open_removal_pr(context, file_sha, updated, ticket, opts) do
       :ok
     else
       {:error, :ticket_not_quarantined} -> :ok
+      # The browser list exists only once a spec has been quarantined.
+      {:error, {:github, _, %{status: 404}}} -> :ok
       {:error, _} = error -> error
     end
   end
 
-  defp context(opts) do
+  defp context(path, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
-      {:ok, %{owner: owner, repo: repo, token: token, base: Keyword.get_lazy(opts, :base_branch, &TrackerSettings.base_branch/0)}}
+      {:ok, %{path: path, owner: owner, repo: repo, token: token, base: Keyword.get_lazy(opts, :base_branch, &TrackerSettings.base_branch/0)}}
     end
   end
 
   defp get_contents(context, opts) do
-    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/contents/#{@list_path}?ref=#{context.base}"
+    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/contents/#{context.path}?ref=#{context.base}"
 
     case request(opts).(%{method: :get, url: url, token: context.token, caller: "quarantine_lift_contents"}) do
       {:ok, %{status: 200, body: %{"content" => encoded, "sha" => sha, "encoding" => "base64"}}} ->
@@ -126,7 +128,8 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   end
 
   defp open_removal_pr(context, file_sha, contents, ticket, opts) do
-    branch = "aiur/quarantine-lift-#{ticket}-#{context.base}"
+    suffix = if context.path == hd(@list_paths), do: "", else: "-browser"
+    branch = "aiur/quarantine-lift-#{ticket}-#{context.base}#{suffix}"
 
     with {:ok, base_sha} <- base_sha(context, opts),
          :ok <- create_branch(context, branch, base_sha, opts),
@@ -152,7 +155,7 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   end
 
   defp update_file(context, branch, sha, contents, opts) do
-    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/contents/#{@list_path}"
+    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/contents/#{context.path}"
     body = %{"message" => "Lift fixed test quarantine", "content" => Base.encode64(contents), "branch" => branch, "sha" => sha}
     expect_write(request(opts).(%{method: :put, url: url, token: context.token, caller: "quarantine_lift_file", body: body}), [200])
   end

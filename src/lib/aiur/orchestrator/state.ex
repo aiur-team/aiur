@@ -71,6 +71,7 @@ defmodule Aiur.Orchestrator.State do
           status_observed_at: DateTime.t() | nil,
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
+            optional(:broker_fast_retry_pending?) => boolean(),
             approved_heads: map(),
             passed_heads: map(),
             test_failure_heads: map(),
@@ -141,16 +142,8 @@ defmodule Aiur.Orchestrator.State do
           agent_rate_limits: map() | nil,
           codex_totals: map() | nil,
           codex_rate_limits: map() | nil,
-          github_comments_since: String.t() | map() | nil,
-          github_comment_etags: map(),
-          github_comment_issue_updated_at: map(),
-          github_comment_issue_list_cache: map(),
-          github_comment_poll: map() | nil,
-          github_comment_reconcile_targets: MapSet.t(String.t()),
-          github_comment_reconcile_timer: map() | nil,
-          # Monotonic time the asynchronous comment poll last started, used to throttle
-          # it to the `:review` class cadence (#2309). `nil` until the first start.
-          last_comment_poll_started_at_ms: integer() | nil,
+          github_comment_cursor: Aiur.Orchestrator.CommentPolling.Cursor.t(),
+          github_command_scan_etags: map(),
           # Monotonic time the CI poll last ran, used to throttle it to the
           # `:ci` class cadence (#2309). `nil` until the first run.
           last_ci_poll_started_at_ms: integer() | nil,
@@ -248,7 +241,8 @@ defmodule Aiur.Orchestrator.State do
       base_repair_invalidations: %{},
       poll_cache: %{},
       rewakes: %{},
-      parked_ready_alerts: nil
+      parked_ready_alerts: nil,
+      broker_fast_retry_pending?: false
     },
     todo_over_capacity_alert_active: false,
     prewarm_blocked_alert_active: false,
@@ -299,18 +293,8 @@ defmodule Aiur.Orchestrator.State do
     agent_rate_limits: nil,
     codex_totals: nil,
     codex_rate_limits: nil,
-    github_comments_since: nil,
-    github_comment_etags: %{},
-    github_comment_issue_updated_at: %{},
-    # Separate conditional comment cache prevents late completion replacing newer synchronous fetches.
-    github_comment_issue_list_cache: %{},
-    # The pid and monitor let lifecycle shutdown reap the asynchronous comment poll.
-    github_comment_poll: nil,
-    # Review-thread webhook hints arriving during a poll stay queued for its follow-up.
-    github_comment_reconcile_targets: MapSet.new(),
-    # One delayed reconcile wake; its token fences stale timers after GitHub backoff.
-    github_comment_reconcile_timer: nil,
-    last_comment_poll_started_at_ms: nil,
+    github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{},
+    github_command_scan_etags: %{},
     last_ci_poll_started_at_ms: nil,
     pr_review_seen_at: %{},
     pr_ready_ledger: nil,

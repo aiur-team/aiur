@@ -4,7 +4,8 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   alias Aiur.GitHub.{AgentMarker, Errors, Transport}
   alias Aiur.LandingWatch.Journal
 
-  @labels ["bug", "agent:todo", "priority:1"]
+  # Priority 2: the quarantine PR unblocks the merge queue, so the fix need not preempt other work.
+  @labels ["bug", "agent:todo", "priority:2", "flake"]
 
   @spec record(map(), map(), [pos_integer()], keyword()) :: :ok | {:error, term()}
   def record(failure, run, passed_prs, opts) do
@@ -84,8 +85,18 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   end
 
   defp comment_existing(number, evidence, request, token, owner, repo) do
-    case comment(number, evidence, request, token, owner, repo) do
-      :ok -> {:ok, number}
+    with :ok <- add_flake_label(number, request, token, owner, repo),
+         :ok <- comment(number, evidence, request, token, owner, repo) do
+      {:ok, number}
+    end
+  end
+
+  defp add_flake_label(number, request, token, owner, repo) do
+    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{number}/labels"
+
+    case request.(%{method: :post, url: url, token: token, caller: "landing_watch_flake_label", body: %{"labels" => ["flake"]}}) do
+      {:ok, %{status: status}} when status in [200, 201] -> :ok
+      {:ok, response} -> {:error, Errors.github_status_error(response)}
       {:error, _} = error -> error
     end
   end
@@ -120,6 +131,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   defp evidence(failure, run, passed_prs) do
     [
       "Run ID: #{run["id"]}",
+      "Run: #{run["html_url"] || "unknown"}",
       "Job: #{failure.job}",
       "Failing test: #{failure.module} :: #{failure.name}",
       "Error excerpt: #{failure.excerpt}",
@@ -139,6 +151,9 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
       central: true,
       durable: true,
       needs_attention: false,
+      # The issue was just filed, so the contamination filter does not track it yet; without
+      # this the durable publish is :filtered and the quarantine PR is never opened.
+      bypass_contamination: true,
       issue: Integer.to_string(issue),
       message: message,
       reason: message,

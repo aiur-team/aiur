@@ -182,7 +182,7 @@ defmodule Aiur.MainWatch do
         _ -> :ok
       end
 
-    flake_events = flake_rerun(latest, state, result, now, server)
+    flake_events = flake_rerun(latest, state, result, now, server) ++ single_test_rerun(latest, state, result, now, server)
     result |> Map.put(:observations, older ++ latest) |> Map.put(:canary_outcome, outcome) |> Map.put(:flake_events, flake_events)
   end
 
@@ -219,6 +219,66 @@ defmodule Aiur.MainWatch do
   end
 
   defp flake_rerun([], _state, _result, _now, _server), do: []
+
+  defp single_test_rerun([observation], state, result, now, server) do
+    runs = failed_runs(observation.sha, result.runs)
+
+    if observation.sha != state.sha and single_test_candidate?(observation, runs) and result.actions_write do
+      rerun_if_untouched(observation, runs, now, server)
+    else
+      []
+    end
+  end
+
+  defp single_test_rerun([], _state, _result, _now, _server), do: []
+
+  defp failed_runs(sha, runs), do: Enum.filter(runs, &(&1.sha == sha and &1.conclusion == "failure"))
+
+  defp single_test_candidate?(observation, runs) do
+    digest = observation.digest
+    tests = digest.tests
+
+    digest.test_only and not digest.flake_only and not digest.truncated and single_test_path?(tests) and valid_failed_runs?(runs)
+  end
+
+  defp single_test_path?([%{path: path}]), do: is_binary(path) and path != ""
+  defp single_test_path?(_tests), do: false
+
+  defp valid_failed_runs?([_ | _] = runs), do: Enum.all?(runs, &(is_integer(&1.id) and &1.id > 0))
+  defp valid_failed_runs?(_runs), do: false
+
+  defp rerun_if_untouched(observation, runs, now, server) do
+    changed_paths = Keyword.get(server.opts, :changed_paths_fun, &GitHub.changed_paths/2)
+
+    case changed_paths.(observation.sha, server.opts) do
+      {:ok, paths} when is_list(paths) -> rerun_if_path_untouched(observation, runs, paths, now, server)
+      _ -> []
+    end
+  end
+
+  defp rerun_if_path_untouched(observation, runs, changed_paths, now, server) do
+    if hd(observation.digest.tests).path in changed_paths, do: [], else: rerun_single_test_runs(observation, runs, now, server)
+  end
+
+  defp rerun_single_test_runs(observation, runs, now, server) do
+    reserve = Keyword.get(server.opts, :reserve_single_test_rerun_fun, &reserve_single_test_rerun/4)
+
+    case reserve.(server.repo, observation.sha, now, server.opts) do
+      :ok ->
+        rerun = Keyword.get(server.opts, :rerun_failed_jobs_fun, &GitHub.rerun_failed_jobs/2)
+        outcome = Enum.map(runs, fn run -> {run.id, rerun.(run.id, server.opts)} end)
+        payload = %{sha: observation.sha, signature: observation.digest.signature, outcome: outcome_payload(outcome), run_urls: observation.run_urls}
+        [{"system.#{server.branch}.ci.flake_rerun", payload}]
+
+      _ ->
+        []
+    end
+  end
+
+  defp reserve_single_test_rerun(repo, sha, now, _opts) do
+    # A commit SHA is immutable; keep its reservation for the maximum supported run lifetime.
+    Persistence.reserve_rerun(repo, "single-test:" <> sha, now, 100 * 365 * 24 * 60 * 60_000)
+  end
 
   defp flake_outcome(_runs, false, _now, _server), do: {:error, :actions_write_unavailable}
   defp flake_outcome(runs, true, now, server), do: Enum.map(runs, fn run -> {run.id, rerun(run.id, "#{server.branch}:flake:#{run.id}", now, 7 * 24 * 60 * 60_000, server)} end)

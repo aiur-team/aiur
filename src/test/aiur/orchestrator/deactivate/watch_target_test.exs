@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
 
   alias Aiur.Events.Exchange
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.CommentPolling
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
 
   import Aiur.OrchestratorDeactivateSupport
 
@@ -58,7 +58,9 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
 
       state = %Orchestrator.State{
         running: %{},
-        github_comments_since: "2026-06-25T00:00:00Z"
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: "2026-06-25T00:00:00Z"
+        }
       }
 
       next =
@@ -70,7 +72,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
           watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [watch_pr]} end
         )
 
-      assert next.github_comments_since == %{"314" => "2026-06-25T00:00:00Z"}
+      assert next.github_comment_cursor.since == %{"314" => "2026-06-25T00:00:00Z"}
 
       receive_barrier(
         {:event,
@@ -130,9 +132,11 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
 
       state = %Orchestrator.State{
         running: %{},
-        github_comments_since: %{
-          "100" => "2026-06-25T00:00:00Z",
-          "200" => "2026-06-25T00:00:00Z"
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: %{
+            "100" => "2026-06-25T00:00:00Z",
+            "200" => "2026-06-25T00:00:00Z"
+          }
         }
       }
 
@@ -147,7 +151,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
         )
 
       # Healthy target advanced (−1s rewind); flaky target held its cursor.
-      assert next.github_comments_since == %{
+      assert next.github_comment_cursor.since == %{
                "100" => "2026-06-25T00:59:59Z",
                "200" => "2026-06-25T00:00:00Z"
              }
@@ -195,7 +199,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
         end
       end
 
-      state = %Orchestrator.State{running: %{}, github_comments_since: %{}}
+      state = %Orchestrator.State{running: %{}, github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{since: %{}}}
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
@@ -246,7 +250,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
         {:ok, %{status: 200, body: []}}
       end
 
-      state = %Orchestrator.State{running: %{}, github_comments_since: %{}}
+      state = %Orchestrator.State{running: %{}, github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{since: %{}}}
 
       next =
         CommentPolling.poll_github_comments(state,
