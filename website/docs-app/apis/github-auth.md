@@ -105,7 +105,7 @@ See `docs/security/daemon-token-posture.md` in this repository for the full setu
 
 ## What the agent guard governs
 
-Governed `gh` calls have a 120-second maximum runtime. `AIUR_GH_CALL_TIMEOUT_SECONDS` may lower that bound for controlled runs; larger values are capped at 120 seconds. A timed-out call is terminated with its child processes and exits with status 124. Long-running commands such as `gh run watch` and `gh pr checks --watch` are subject to the same limit.
+Governed `gh` calls run for at most 120 seconds. `AIUR_GH_CALL_TIMEOUT_SECONDS` may lower the cap. On timeout, the supervisor terminates child processes and exits 124; `gh run watch` and `gh pr checks --watch` share the limit. It sources its body from an anonymous pipe, so caller-writable `TMPDIR` cannot replace it.
 
 Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon scrubs them from every agent environment and instead writes the bot PAT to a
 credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard
