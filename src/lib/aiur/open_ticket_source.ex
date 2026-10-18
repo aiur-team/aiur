@@ -66,10 +66,15 @@ defmodule Aiur.OpenTicketSource do
 
   @doc "Returns the current open-ticket snapshot."
   @spec snapshot(GenServer.server()) :: Snapshot.t()
-  def snapshot(server \\ __MODULE__) do
-    GenServer.call(server, :snapshot)
+  def snapshot(server \\ __MODULE__), do: snapshot(server, 5_000)
+
+  @doc false
+  @spec snapshot(GenServer.server(), timeout()) :: Snapshot.t() | {:error, :timeout | :unavailable}
+  def snapshot(server, timeout) do
+    GenServer.call(server, :snapshot, timeout)
   catch
-    :exit, _reason -> %Snapshot{}
+    :exit, {:timeout, _call} -> {:error, :timeout}
+    :exit, _reason -> {:error, :unavailable}
   end
 
   @doc "Subscribes the caller to open-ticket change broadcasts."

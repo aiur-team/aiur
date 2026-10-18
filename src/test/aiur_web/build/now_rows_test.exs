@@ -17,7 +17,11 @@ defmodule AiurWeb.Build.NowRowsTest do
       {row(%{runtime: %{bucket: :running, work_state: :deactivated}}), nil}
     ]
 
-    for {input, expected} <- cases, do: assert(facts(input).agent.state == expected)
+    for {input, expected} <- cases do
+      result = facts(input)
+      assert result.agent.state == expected
+      assert result.status == if(expected in ["error", "retries"], do: "failed", else: "running")
+    end
   end
 
   test "policy stuck reasons beat command and paused; retry backoff is error" do

@@ -91,7 +91,7 @@ defmodule AiurWeb.Build.NowRows do
       id: row.identity.identifier,
       num: num,
       sec: "now",
-      status: "running",
+      status: if(agent_state(row) in ["error", "retries"], do: "failed", else: "running"),
       ord: num,
       start: start,
       # The session start is the agent's dispatch; an unknown start has an unknown source (MP-E8-C4-T04).
