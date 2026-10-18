@@ -59,13 +59,15 @@ defmodule Aiur.Experiments.AnalysisDispatch do
   end
 
   defp send_or_reconcile(_status, request, attrs, deps) do
-    result =
-      case deps.labels.(attrs.labels) do
-        :ok -> classify(deps.create.(attrs))
-        {:error, reason} -> {:retryable, reason}
-      end
+    with {:ok, pending} <- Experiments.update_analysis_dispatch(request["experiment_id"], request["request_id"], %{"daemon_login" => deps.daemon_account.()}) do
+      result =
+        case deps.labels.(attrs.labels) do
+          :ok -> classify(deps.create.(attrs))
+          {:error, reason} -> {:retryable, reason}
+        end
 
-    finish(request, result, deps)
+      finish(pending, result, deps)
+    end
   end
 
   # The lower bound predates every possible POST. Never advance it on retries.
