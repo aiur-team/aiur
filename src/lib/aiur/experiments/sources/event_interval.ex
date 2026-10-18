@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments.Sources.EventInterval do
   @moduledoc false
 
-  alias Aiur.Events.Topic
+  alias Aiur.Events
   alias Aiur.Experiments.Observation
   alias Aiur.Experiments.Sources.Common
 
@@ -28,8 +28,8 @@ defmodule Aiur.Experiments.Sources.EventInterval do
   end
 
   defp interval(events, source, window, ctx) do
-    start = Enum.find(events, &Topic.matches?(source["start"], &1["topic"]))
-    finish = start && Enum.find(events, &(Topic.matches?(source["end"], &1["topic"]) and DateTime.compare(&1["at"], start["at"]) != :lt))
+    start = Enum.find(events, &Events.matches?(source["start"], &1["topic"]))
+    finish = start && Enum.find(events, &(Events.matches?(source["end"], &1["topic"]) and DateTime.compare(&1["at"], start["at"]) != :lt))
 
     interval_row(start, finish, window, ctx)
   end

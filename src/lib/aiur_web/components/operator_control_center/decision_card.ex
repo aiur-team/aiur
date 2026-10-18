@@ -90,7 +90,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
       </.link>
 
       <DecisionAction.decision_action
-        :if={!@selected and @decision.decision_status in [:open, :deferred, :dismissed]}
+        :if={
+          !@selected and
+            (@decision.decision_status in [:open, :deferred, :dismissed] or
+               (@decision.decision_status == :expired and @decision.blocking and is_nil(@decision.answer)))
+        }
         decision={@decision}
         state={@action_state}
         writable={@writable}

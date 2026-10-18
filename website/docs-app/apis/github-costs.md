@@ -92,3 +92,15 @@ ResourceStore labels discover epics between polls.
 Closed completed members
 missing RecentMergeStore evidence use a bounded linked-PR GraphQL read for merge
 time and SHA. Incomplete or refused reads preserve state for retry. No saving is claimed.
+
+## Experiment analyst tickets
+
+Analysis requests create issues as `experiment_analysis_create`, with dispatch labels and a nonce marker in the same POST. Label definitions are ensured first.
+
+Uncertain writes reconcile as `experiment_analysis_reconcile`, using pages of 100 open and closed issues. The window begins at the first creation attempt minus five minutes for clock skew. Older journals use the original request time.
+
+GitHub's [`since` filter](https://docs.github.com/en/rest/issues/issues#list-repository-issues) filters update time. Results sort by creation time descending; a bounded scan ends at the first row created before the window, a match, or the last page. It can pass page ten. Legacy lookups without a usable time window retain the ten-page safety limit.
+
+Failed or incomplete reads never authorize a POST. After backoff, a complete scan proving absence permits creation with the same request and nonce.
+
+Attached-ticket failure detection uses the daemon's complete, fresh open-issue label snapshot through the tracker facade. It adds no per-ticket poll. The listing must have begun after the request's latest revision; its completion time cannot prove closure. Missing observation provenance also cannot prove closure. No quota saving is claimed.

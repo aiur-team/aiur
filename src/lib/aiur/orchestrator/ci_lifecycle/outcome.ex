@@ -87,15 +87,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   # failed CI poll does not add another GitHub request (#4631).
   defp approved_landing_pr?(
          %Issue{},
-         %{
-           decision: :failed,
-           review_decision: "APPROVED",
-           auto_merge_request: auto_merge_request,
-           merge_queue_entry: merge_queue_entry
-         }
+         %{decision: :failed, review_decision: "APPROVED", auto_merge_request: auto_merge_request, merge_queue_entry: merge_queue_entry} = result
        )
        when is_map(auto_merge_request) or is_map(merge_queue_entry) do
-    true
+    Map.get(result, :pending_reason) != :merge_queue_dropped
   end
 
   defp approved_landing_pr?(_issue, _result), do: false
@@ -197,7 +192,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   end
 
   defp ci_recovery_required?(state, issue, result) do
-    ci_failure_or_hold?(state, issue, result) and is_integer(result[:pr_number]) and
+    result[:pending_reason] != :merge_queue_dropped and ci_failure_or_hold?(state, issue, result) and is_integer(result[:pr_number]) and
       not Issue.paused?(issue) and not LifecycleFence.handoff_blocked?(state, issue)
   end
 

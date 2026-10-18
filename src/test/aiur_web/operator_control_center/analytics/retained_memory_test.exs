@@ -25,7 +25,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedMemoryTest do
   end
 
   @tag timeout: 120_000
-  test "presenter peak VM growth stays below 150 MiB for one and three cold requests on 210 MB summaries", %{root: root} do
+  test "presenter refuses 210 MB summaries within the 150 MiB VM growth bound", %{root: root} do
     for {session, callers} <- [{:current, 1}, {:current, 3}, {:cross, 3}] do
       Application.put_env(:aiur, :analytics_repo, "memory/test-#{session}-#{callers}")
       path = Summaries.run_summary_path("retained")
@@ -36,7 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedMemoryTest do
       tasks = for _ <- 1..callers, do: Task.async(fn -> Presenter.load(session: session, telemetry_file: Path.join(root, "missing.ndjson")) end)
       {peak, results} = observe(tasks, baseline, [])
       assert peak - baseline < @bound, "peak VM growth #{peak - baseline} bytes exceeds #{@bound}"
-      assert Enum.all?(results, &match?({:ok, %{available?: true}}, &1))
+      assert Enum.all?(results, &match?({:unavailable, :retained_scan_limited}, &1))
     end
   end
 

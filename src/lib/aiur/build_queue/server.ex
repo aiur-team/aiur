@@ -469,7 +469,7 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   defp bind(state, pid) do
-    Enum.each(@patterns, &Exchange.subscribe(&1, state.exchange))
+    Enum.each(@patterns, &Aiur.Events.subscribe(&1, state.exchange))
     Process.monitor(pid)
     %{state | exchange_pid: pid}
   catch

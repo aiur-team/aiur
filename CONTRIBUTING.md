@@ -174,6 +174,16 @@ Pull requests, draft or ready, run the fast set: `changes`, workflow security
 repository guards), affected tests on the merge with the base, and the aggregate
 `ci gate`. Mark completed work ready **before** entering `agent:ci-wait`.
 
+A PR also soaks the tests it adds or modifies (`scripts/ci-soak.py`): each
+changed ExUnit file runs 10 times, one `mix test` per fresh `--seed`, at
+`--max-cases 8`; each changed Playwright spec runs with `--repeat-each=5`. Any
+failure fails `ci gate`. **To reproduce a soak failure, copy the command from the
+`::error::` line**, for example
+`cd src && mix test --seed 482913 --max-cases 8 test/aiur/foo_test.exs`; the
+seed fixes the test order, so the same seed fails the same way. Fix the test
+before merging it. See
+[PR checks](website/docs-app/reference/pr-checks.md) for the limits.
+
 Merge groups and manual dispatches run the full set, including coverage, tests,
 Dialyzer, browser harness, release smoke, analytics and Stream Deck checks.
 `merge_policy.full_ci_labels`, `full_ci_paths`, and unsafe affected-test selections

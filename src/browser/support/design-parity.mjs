@@ -186,6 +186,13 @@ async function one(page, region, side) {
   return target
 }
 
+async function settleRegionImages(page, region) {
+  await page.locator(region).evaluate(async root => {
+    const images = [...root.querySelectorAll('img')]
+    await Promise.all(images.map(image => image.decode()))
+  })
+}
+
 export async function capturePairEvidence(pair) {
   for (const side of ['design', 'product']) {
     if (!pair[side].isClosed()) await pair[side].screenshot({ path: test.info().outputPath(`${side}.png`), animations: 'disabled', caret: 'hide', scale: 'device' })
@@ -225,17 +232,18 @@ async function captureParityPixels(pair, { name, region, fullPage, preserveAnima
   const product = region ? await one(pair.product, region, 'product') : pair.product
   const opts = { animations: preserveAnimations ? 'allow' : 'disabled', caret: 'hide', scale: 'device', maskColor: '#ff00ff', ...(region ? {} : { fullPage }) }
   await pair.design.bringToFront()
+  if (region) await settleRegionImages(pair.design, region)
   const png = await captureStable(design, { ...opts, mask: designMask }, preserveAnimations && region ? pair.design : undefined)
   await pair.product.bringToFront()
+  if (region) await settleRegionImages(pair.product, region)
   checkPage(pair.design)
   checkPage(pair.product)
   const file = test.info().snapshotPath(`${name}.png`, { kind: 'screenshot' })
   await mkdir(path.dirname(file), { recursive: true })
   await writeFile(file, png)
-  if (preserveAnimations && region) {
-    const actual = await captureStable(product, { ...opts, mask: productMask }, pair.product)
-    expect(actual).toMatchSnapshot(`${name}.png`, { threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
-  } else await expect(product).toHaveScreenshot(`${name}.png`, { ...opts, mask: productMask, threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
+  // Use the same capture protocol on both sides, including rounded image clips.
+  const actual = await captureStable(product, { ...opts, mask: productMask }, preserveAnimations && region ? pair.product : undefined)
+  expect(actual).toMatchSnapshot(`${name}.png`, { threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
   checkPage(pair.design)
   checkPage(pair.product)
 }

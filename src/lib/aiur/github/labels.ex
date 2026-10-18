@@ -25,16 +25,22 @@ defmodule Aiur.GitHub.Labels do
   # consumes `state_labels/1` directly so this remains the single source.
   @state_suffixes ~w(todo in-progress ci-wait human-review rework merging done error cancelled canceled)
 
-  # Marker labels. NOT lifecycle states — the orchestrator never treats these as
-  # dispatch states. Kept out of `@state_suffixes` so they never enter the state
-  # machine, but created by `label_set/2` so `aiur init` seeds them and the
-  # Executor can apply them.
+  # Static marker labels. NOT lifecycle states — the orchestrator never treats
+  # these as dispatch states. Owner-valued Executor labels are dynamic and are
+  # ensured by `aiur take` when one is written.
   @watch_suffix "watch"
   @paused_suffix "paused"
   @parked_suffix "parked"
+  @executor_suffix "executor"
   @queued_suffix "queued"
   @rate_limit_fallback_suffix "rate-limit-fallback"
-  @marker_suffixes [@watch_suffix, @paused_suffix, @parked_suffix, @queued_suffix, @rate_limit_fallback_suffix]
+  @marker_suffixes [
+    @watch_suffix,
+    @paused_suffix,
+    @parked_suffix,
+    @queued_suffix,
+    @rate_limit_fallback_suffix
+  ]
 
   @type request :: %{
           method: :post,
@@ -70,6 +76,10 @@ defmodule Aiur.GitHub.Labels do
   @spec parked_labels(String.t()) :: [String.t()]
   def parked_labels(prefix), do: ["#{prefix}:#{@parked_suffix}"]
 
+  @doc "Prefix for the owner-valued Executor hold marker."
+  @spec executor_label_prefix(String.t()) :: String.t()
+  def executor_label_prefix(prefix), do: "#{prefix}:#{@executor_suffix}:"
+
   @doc "The build-queue marker label, given the prefix (e.g. `agent:queued`)."
   @spec queued_labels(String.t()) :: [String.t()]
   def queued_labels(prefix), do: ["#{prefix}:#{@queued_suffix}"]
@@ -84,9 +94,16 @@ defmodule Aiur.GitHub.Labels do
   @doc "Labels required for the configured rate-limit fallback pair."
   @spec required_rate_limit_fallback_labels(String.t()) :: [String.t()]
   def required_rate_limit_fallback_labels(prefix),
-    do: required_rate_limit_fallback_labels(prefix, CodingAgent.default_backend(), CodingAgent.default_rate_limit_fallback())
+    do:
+      required_rate_limit_fallback_labels(
+        prefix,
+        CodingAgent.default_backend(),
+        CodingAgent.default_rate_limit_fallback()
+      )
 
-  @spec required_rate_limit_fallback_labels(String.t(), String.t(), String.t() | nil) :: [String.t()]
+  @spec required_rate_limit_fallback_labels(String.t(), String.t(), String.t() | nil) :: [
+          String.t()
+        ]
   def required_rate_limit_fallback_labels(prefix, _primary, fallback) do
     rate_limit_fallback_marker_labels(prefix) ++
       case fallback do
@@ -98,12 +115,17 @@ defmodule Aiur.GitHub.Labels do
   @doc "Whether a prefixed-label suffix is a marker rather than a workflow state."
   @spec marker_suffix?(term()) :: boolean()
   def marker_suffix?(suffix) when is_binary(suffix),
-    do: String.downcase(String.trim(suffix)) in @marker_suffixes
+    do: marker_name?(String.downcase(String.trim(suffix)))
 
   def marker_suffix?(_suffix), do: false
 
+  defp marker_name?("executor:" <> _owner), do: true
+  defp marker_name?("executor"), do: true
+  defp marker_name?(suffix), do: suffix in @marker_suffixes
+
   @spec model_labels([String.t()], (String.t() -> [String.t()])) :: [String.t()]
-  def model_labels(backends, ids_for \\ &CodingAgent.models/1), do: CodingAgent.override_labels(backends, ids_for)
+  def model_labels(backends, ids_for \\ &CodingAgent.models/1),
+    do: CodingAgent.override_labels(backends, ids_for)
 
   # The `model:remote` flag (force remote-control on at launch) only
   # makes sense when the claude backend is chosen; it pairs with a
@@ -138,9 +160,18 @@ defmodule Aiur.GitHub.Labels do
   end
 
   def describe(label) do
-    case String.split(label, ":", parts: 2) do
-      [_prefix, suffix] -> state_description(suffix)
-      _ -> ""
+    case String.split(label, ":") do
+      [_prefix, "executor", owner] when owner != "" ->
+        "Executor-owned by #{owner}: no dispatch, no fleet slot"
+
+      [_prefix, "executor"] ->
+        "Executor-owned by unknown owner: no dispatch, no fleet slot"
+
+      [_prefix, suffix] ->
+        state_description(suffix)
+
+      _ ->
+        ""
     end
   end
 

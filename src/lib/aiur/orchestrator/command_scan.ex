@@ -30,8 +30,8 @@ defmodule Aiur.Orchestrator.CommandScan do
 
   require Logger
 
-  alias Aiur.Config
-  alias Aiur.Events.{GithubKeys, PrCommandScanner, Publisher, Sanitizer}
+  alias Aiur.{Config, Events}
+  alias Aiur.Events.{GithubKeys, PrCommandScanner, Sanitizer}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.{State, TrackerTasks}
@@ -328,7 +328,7 @@ defmodule Aiur.Orchestrator.CommandScan do
       %{issue_number: target, comment: comment}
       |> Sanitizer.github_payload(actor)
 
-    Publisher.publish(
+    Events.publish(
       "ticket.#{target}.pr.review_comment",
       payload,
       issue_number: target,

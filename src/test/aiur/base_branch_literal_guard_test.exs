@@ -28,9 +28,12 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|defp attention?(topic, _payload), do: topic in ["system.main.ci.failed", "system.main.ci.canary", "system.main.ci.unavailable", "system.main.ci.flake_rerun"]|
     ],
     "aiur/main_watch/state.ex" => [
-      ~S|events = if state.status == :red, do: [{"system.main.ci.failed.resolved", payload}], else: []|,
+      ~S|events = if state.status == :red, do: [{"system.main.ci.failed.resolved", recovery}], else: []|,
       ~S|topic = if flaked, do: "system.main.ci.flaked", else: "system.main.ci.failed"|
     ],
+    # This recovery protocol's event topic and PR comment are fixed identifiers.
+    "aiur/landing_watch.ex" => [~S|"system.main.ci.failed.resolved"|],
+    "aiur/landing_watch/pr_rerun.ex" => [~S|"main CI recovered"|],
     # Fixer topics and evidence markers are protocol identifiers, independent of the base branch.
     "aiur/main_watch/fixer.ex" => [
       ~S|"system.main.fixer.failed"|,

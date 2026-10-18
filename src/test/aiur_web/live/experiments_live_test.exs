@@ -10,6 +10,7 @@ defmodule AiurWeb.ExperimentsLiveTest do
     def status, do: fail(:status) || state().status
     def list, do: fail(:list) || state().list
     def fetch(id), do: fail(:fetch) || Map.get(state().details, id, {:error, :not_found})
+    def chart_detail(id, _opts), do: fetch(id)
     defp state, do: Application.fetch_env!(:aiur, :experiment_live_fixture)
 
     defp fail(read) do

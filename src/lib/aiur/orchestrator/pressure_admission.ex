@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   alias Aiur.{Config, SystemPressure}
   alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Slots, State, SustainedLoad}
 
+  @priority_bypass_pressure_ceiling 90.0
+
   @spec sample() :: map()
   def sample do
     pressure = SystemPressure.cpu()
@@ -33,6 +35,28 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   end
 
   def cpu_gate(probes), do: fallback_cpu_gate(probes)
+
+  @doc false
+  @spec priority_bypass_allowed?(map()) :: boolean()
+  def priority_bypass_allowed?(sample) when is_map(sample) do
+    pressure = get_in(sample, [:cpu_pressure, :avg60])
+    load = Map.get(sample, :load, :unavailable)
+    threshold = Map.get(sample, :load_threshold) || Config.max_load_average()
+    schedulers = Map.get(sample, :schedulers)
+
+    cond do
+      is_number(pressure) ->
+        pressure <= @priority_bypass_pressure_ceiling
+
+      is_number(load) and is_number(threshold) and threshold > 0 and is_integer(schedulers) and schedulers > 0 ->
+        load <= threshold * schedulers
+
+      true ->
+        false
+    end
+  end
+
+  def priority_bypass_allowed?(_sample), do: false
 
   defp raw_load_gate(probes) do
     case DispatchPolicy.load_gate(probes.load, probes.load_threshold, probes.schedulers) do

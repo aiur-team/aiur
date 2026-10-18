@@ -4,7 +4,17 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
   require Logger
 
   alias Aiur.{CurrentRunMembership, Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, HumanReview, LifecycleFence, MembershipLifecycle, PauseResume, State}
+
+  alias Aiur.Orchestrator.{
+    CiLifecycle,
+    DispatchPolicy,
+    HumanReview,
+    LifecycleFence,
+    MembershipLifecycle,
+    PauseResume,
+    State
+  }
+
   alias Aiur.Orchestrator.Reconciler.{Divergence, Reactivation}
 
   @doc false
@@ -37,7 +47,11 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
   end
 
   defp terminate_recorded_terminal_issue(state, issue, mark_reconciled_fun) do
-    if CurrentRunMembership.set_terminal_verification_pending(&CurrentRunMembership.set_terminal_verification_pending/2, issue.tracker_identity, false) in [:ok, :skipped] do
+    if CurrentRunMembership.set_terminal_verification_pending(
+         &CurrentRunMembership.set_terminal_verification_pending/2,
+         issue.tracker_identity,
+         false
+       ) in [:ok, :skipped] do
       {state, [{:terminate, issue.id, true}]}
     else
       mark_membership_unavailable(state, mark_reconciled_fun, issue.tracker_identity)
@@ -59,14 +73,26 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
         terminal_states,
         observe_membership_fun
       ) do
-    if Issue.parked?(issue) do
+    if Issue.held?(issue) do
       park_running_issue(state, issue)
     else
-      reconcile_unparked_issue_state(state, issue, active_states, terminal_states, observe_membership_fun)
+      reconcile_unparked_issue_state(
+        state,
+        issue,
+        active_states,
+        terminal_states,
+        observe_membership_fun
+      )
     end
   end
 
-  defp reconcile_unparked_issue_state(state, issue, active_states, terminal_states, observe_membership_fun) do
+  defp reconcile_unparked_issue_state(
+         state,
+         issue,
+         active_states,
+         terminal_states,
+         observe_membership_fun
+       ) do
     cond do
       !DispatchPolicy.issue_routable_to_worker?(issue) ->
         Logger.info([
@@ -216,7 +242,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
 
   defp park_running_issue(state, issue) do
     case Map.get(state.running, issue.id) do
-      %{control: %{status: status}} when status in [:working, :starting, :resuming] ->
+      %{control: %{status: status}} when status in [:working, :starting, :resuming, :paused] ->
         {state, [{:terminate, issue.id, false}]}
 
       _ ->
@@ -225,7 +251,13 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
   end
 
   defp mark_membership_unavailable(state, mark_reconciled_fun, identity) do
-    _ = CurrentRunMembership.set_terminal_verification_pending(&CurrentRunMembership.set_terminal_verification_pending/2, identity, true)
+    _ =
+      CurrentRunMembership.set_terminal_verification_pending(
+        &CurrentRunMembership.set_terminal_verification_pending/2,
+        identity,
+        true
+      )
+
     _ = mark_reconciled_fun.(:unavailable)
     state
   rescue

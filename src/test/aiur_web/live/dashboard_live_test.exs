@@ -624,7 +624,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
       assert html =~ "ax-mi on"
       assert html =~ ~s(aria-checked="true")
-      assert html =~ "Resume all agents"
+      assert html =~ "Resume new starts"
       refute html =~ "global-pause-banner"
     end
 
@@ -656,9 +656,9 @@ defmodule AiurWeb.DashboardLiveTest do
       assert html =~ ~s(id="ax-pause")
       assert html =~ ~s(phx-click="toggle-global-pause")
       assert html =~ ~s(aria-checked="false")
-      assert html =~ "Pause all agents"
+      assert html =~ "Pause new starts"
       refute html =~ "ax-mi on"
-      refute html =~ ~s|aria-label="Resume all agents"|
+      refute html =~ ~s|aria-label="Resume new starts"|
     end
 
     test "renders a resume affordance while the daemon is globally paused" do
@@ -666,7 +666,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
       assert html =~ "ax-mi on"
       assert html =~ ~s(aria-checked="true")
-      assert html =~ "Resume all agents"
+      assert html =~ "Resume new starts"
       refute html =~ "global-pause-banner"
       refute html =~ "lift the global pause"
     end

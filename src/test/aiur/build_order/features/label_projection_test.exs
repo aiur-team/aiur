@@ -192,6 +192,8 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
       Aiur.ExecutorSweep,
       Aiur.Experiments.Auto.Notifier,
       Aiur.Experiments.Auto.WindowManager,
+      Aiur.Experiments.Analyst,
+      Aiur.Experiments.AnalystTrigger,
       Aiur.LandingWatch.QuarantineLifter
     ]
 

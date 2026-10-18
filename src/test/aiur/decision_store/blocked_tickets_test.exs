@@ -100,6 +100,33 @@ defmodule Aiur.DecisionStore.BlockedTicketsTest do
       refute MapSet.member?(ids, "33")
     end
 
+    test "an expired blocker stays answerable but does not strand a later dispatch", %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{"question" => "Can the next worker retry?", "blocking" => true})
+
+      assert {:ok, %{status: :accepted, decision: %{decision_status: :expired}}} =
+               DecisionStore.expire(
+                 decision.decision_id,
+                 "agent_not_running",
+                 [now: DateTime.add(decision.created_at, 600, :second)],
+                 pid
+               )
+
+      assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
+      refute MapSet.member?(ids, "979")
+
+      assert {:ok, %{decisions: [retained]}} =
+               DecisionStore.retained_query(
+                 %{limit: 25, cursor: nil, lifecycle: :open, search: nil, ticket: nil},
+                 pid
+               )
+
+      assert retained.decision_id == decision.decision_id
+      assert retained.decision_status == :expired
+    end
+
     test "option-less legacy attentions never gate dispatch, but real blockers do", %{dir: dir} do
       pid = start_store!(dir)
       slug = "decision-delivery-act-1"

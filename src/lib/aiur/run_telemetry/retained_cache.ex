@@ -15,22 +15,27 @@ defmodule Aiur.RunTelemetry.RetainedCache do
     end
   end
 
-  @doc "File metadata identity for retained summaries excluding the current boot."
-  @spec identity(String.t() | nil) :: tuple()
+  @doc "Identity of retained summary files, excluding the current boot."
+  @spec identity(String.t() | nil) :: term()
   def identity(current_boot) do
-    summaries =
-      Summaries.summary_boot_ids()
-      |> Enum.reject(&(&1 == current_boot))
-      |> Enum.map(fn boot_id ->
-        path = Summaries.run_summary_path(boot_id)
+    {Summaries.state_node(), current_boot, summaries_identity(current_boot)}
+  end
 
-        case File.stat(path, time: :posix) do
-          {:ok, stat} -> {boot_id, stat.size, stat.mtime}
-          {:error, reason} -> {boot_id, reason}
-        end
-      end)
+  @doc false
+  @spec summaries_identity(String.t() | nil) :: [{String.t(), tuple()}]
+  def summaries_identity(current_boot) do
+    Summaries.summary_boot_ids()
+    |> Enum.reject(&(&1 == current_boot))
+    |> Enum.map(fn boot -> {boot, file_identity(Summaries.run_summary_path(boot))} end)
+  end
 
-    {Summaries.state_node(), current_boot, summaries}
+  @doc false
+  @spec file_identity(Path.t()) :: tuple()
+  def file_identity(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, stat} -> {stat.inode, stat.size, stat.mtime, stat.ctime}
+      {:error, reason} -> {reason}
+    end
   end
 
   defp ensure_started do
