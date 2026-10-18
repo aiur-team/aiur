@@ -84,9 +84,55 @@ defmodule Aiur.Orchestrator.Dispatcher.PressurePriorityAdmissionTest do
       )
 
     assert held.capacity_hold.signal == :cpu_pressure
+    assert held.effective_concurrent_agents == 5
+    assert held.priority_dispatch_reservations == %{}
     assert_received {:candidate, "urgent", slots, :dispatch, _dispatched}
     assert slots > 0
     refute_received {:candidate, "routine", _, _, _}
+  end
+
+  test "repeated P1 bypasses stay tied to the envelope and cannot leak slots to P3" do
+    first = %{issue("urgent-first") | priority: 1}
+    second = %{issue("urgent-second") | priority: 1}
+    p3 = %{issue("routine") | priority: 3}
+
+    record_reservation = fn selected_state, [candidate] ->
+      send(self(), {:reservation, candidate.id, selected_state.priority_dispatch_reservations[candidate.id]})
+      selected_state
+    end
+
+    first_poll =
+      Dispatcher.maybe_choose_under_load(state(7), [first], record_reservation,
+        admission_probes_fun: fn -> probes() end,
+        now_ms: 1_001
+      )
+
+    assert first_poll.effective_concurrent_agents == 5
+    assert_received {:reservation, "urgent-first", first_limit}
+    assert first_limit <= first_poll.effective_concurrent_agents + 4
+
+    second_poll =
+      Dispatcher.maybe_choose_under_load(%{first_poll | running: running_agents(8), priority_dispatch_reservations: %{}}, [second], record_reservation,
+        admission_probes_fun: fn -> probes(%{sample_id: :second_sample, sampled_at_ms: 2_000}) end,
+        now_ms: 2_001
+      )
+
+    assert_received {:reservation, "urgent-second", second_limit}
+    assert second_limit <= second_poll.effective_concurrent_agents + 4
+    assert second_poll.effective_concurrent_agents < 12
+
+    no_p3 = fn selected_state, [routine] ->
+      assert {:skip, :fleet_capacity} = DispatchPolicy.dispatch_decision(routine, selected_state)
+      selected_state
+    end
+
+    after_pressure_clears =
+      Dispatcher.maybe_choose_under_load(%{second_poll | running: running_agents(9)}, [p3], no_p3,
+        admission_probes_fun: fn -> probes(%{cpu_pressure: %{avg60: 50.0}, sample_id: :third_sample, sampled_at_ms: 3_000}) end,
+        now_ms: 3_001
+      )
+
+    refute Map.has_key?(after_pressure_clears.priority_dispatch_reservations, p3.id)
   end
 
   test "a P1 stays held above the PSI hard ceiling" do

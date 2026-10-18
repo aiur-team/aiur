@@ -113,11 +113,16 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
       maximum = Slots.max_concurrent_agent_limit(state)
       used = Slots.used_slots(state)
       bypass_limit = min(maximum, effective + @pressure_bypass_slots)
+      reserved = map_size(state.priority_dispatch_reservations) - if(Map.has_key?(state.priority_dispatch_reservations, urgent.id), do: 1, else: 0)
 
-      if used < bypass_limit do
-        # The raised limit must remain in state while dispatch validation is
-        # asynchronous; the callback rechecks Slots before starting the agent.
-        choose_fun.(%{state | effective_concurrent_agents: bypass_limit}, [urgent])
+      if used + reserved < bypass_limit do
+        # Keep the temporary ceiling tied to this P1 while validation is
+        # asynchronous. The envelope itself must remain unchanged after this
+        # poll, or later polls would compound the allowance.
+        reservations = Map.put(state.priority_dispatch_reservations, urgent.id, bypass_limit)
+        dispatch_state = %{state | effective_concurrent_agents: bypass_limit, priority_dispatch_reservations: reservations}
+        chosen = choose_fun.(dispatch_state, [urgent])
+        %{chosen | effective_concurrent_agents: state.effective_concurrent_agents}
       else
         state
       end
