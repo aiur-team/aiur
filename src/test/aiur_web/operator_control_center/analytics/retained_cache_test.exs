@@ -67,6 +67,36 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
     assert :ets.lookup(table, :oversized) == []
   end
 
+  test "retained identity uses a bounded directory signature rather than enumerating boot summaries" do
+    root = Aiur.TestSupport.tmp_root!("retained-identity")
+    previous = for key <- [:repo_base_root, :analytics_repo], do: {key, Application.fetch_env(:aiur, key)}
+    Application.put_env(:aiur, :repo_base_root, root)
+    Application.put_env(:aiur, :analytics_repo, "test/retained-identity")
+    runs = Path.join(Aiur.RepoBase.repo_path("test/retained-identity"), "analytics/runs")
+    File.mkdir_p!(Path.join(runs, "boot-a"))
+    summary = Path.join([runs, "boot-a", "run-summary.json"])
+    File.write!(summary, "old")
+    identity = RetainedCache.directory_identity(runs)
+
+    on_exit(fn ->
+      Aiur.TestSupport.restore_app_env(previous)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    File.write!(summary, "replacement with a different size")
+    assert RetainedCache.directory_identity(runs) == identity
+
+    path = Path.join(runs, "boot-b")
+    File.mkdir_p!(path)
+    refute RetainedCache.directory_identity(runs) == identity
+
+    # Directory metadata has second-resolution timestamps; the warm cache
+    # expires so a boot created within that second is still detected.
+    key = {RetainedCache, :directory_identity, runs}
+    :persistent_term.put(key, {identity, System.monotonic_time(:millisecond) - 1_001})
+    assert RetainedCache.identity("current") |> elem(2) == RetainedCache.directory_identity(runs)
+  end
+
   defp analyzable?(dataset), do: map_size(dataset.tickets) > 0
 
   defp await_waiters(id, count, attempts \\ 100) do

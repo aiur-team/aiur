@@ -15,22 +15,37 @@ defmodule Aiur.RunTelemetry.RetainedCache do
     end
   end
 
-  @doc "File metadata identity for retained summaries excluding the current boot."
+  @identity_ttl_ms 1_000
+
+  @doc "Short-lived directory identity for retained summaries excluding the current boot."
   @spec identity(String.t() | nil) :: tuple()
   def identity(current_boot) do
-    summaries =
-      Summaries.summary_boot_ids()
-      |> Enum.reject(&(&1 == current_boot))
-      |> Enum.map(fn boot_id ->
-        path = Summaries.run_summary_path(boot_id)
+    {Summaries.state_node(), current_boot, cached_directory_identity(Summaries.runs_dir())}
+  end
 
-        case File.stat(path, time: :posix) do
-          {:ok, stat} -> {boot_id, stat.size, stat.mtime}
-          {:error, reason} -> {boot_id, reason}
-        end
-      end)
+  @doc false
+  @spec directory_identity(Path.t()) :: tuple()
+  def directory_identity(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, stat} -> {stat.inode, stat.size, stat.mtime, stat.ctime}
+      {:error, reason} -> {reason}
+    end
+  end
 
-    {Summaries.state_node(), current_boot, summaries}
+  defp cached_directory_identity(path) do
+    key = {__MODULE__, :directory_identity, path}
+    now = System.monotonic_time(:millisecond)
+
+    case :persistent_term.get(key, nil) do
+      {identity, checked_at} when now - checked_at < @identity_ttl_ms -> identity
+      _expired -> refresh_directory_identity(key, path, now)
+    end
+  end
+
+  defp refresh_directory_identity(key, path, now) do
+    identity = directory_identity(path)
+    :persistent_term.put(key, {identity, now})
+    identity
   end
 
   defp ensure_started do
