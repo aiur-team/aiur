@@ -68,7 +68,8 @@ defmodule Aiur.MainWatch.State do
 
   defp green(state, observation) do
     payload = payload(state, observation)
-    events = if state.status == :red, do: [{"system.main.ci.failed.resolved", payload}], else: []
+    recovery = Map.merge(payload, %{red_since: state.red_since, recovered_at: observation.completed_at})
+    events = if state.status == :red, do: [{"system.main.ci.failed.resolved", recovery}], else: []
     {%{state | status: :green, sha: observation.sha, last_green_sha: observation.sha, red_since: nil, completed_at: observation.completed_at}, events}
   end
 
@@ -97,8 +98,6 @@ defmodule Aiur.MainWatch.State do
       run_urls: Map.get(observation, :run_urls, []),
       failing_checks: Enum.filter(observation.checks, &(&1.conclusion in @failing)),
       failing_tests: observation.digest.tests,
-      red_since: state.red_since,
-      recovered_at: observation.completed_at,
       last_green_sha: state.last_green_sha,
       suspect_merges: Map.get(observation, :suspect_merges, [])
     }
