@@ -83,14 +83,18 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
     if used_bytes + file_bytes > max_scan_bytes do
       {:halt, acc}
     else
-      case loader.(boot) do
-        {:ok, dataset} ->
-          candidate = [dataset | datasets] |> Enum.sort_by(&get_in(&1, [:provenance, :time_range, :end]), :desc)
-          if :erlang.external_size(candidate) <= @projection_budget_bytes, do: {:cont, {candidate, used_bytes + file_bytes}}, else: {:halt, acc}
+      load_candidate(boot, datasets, used_bytes, file_bytes, loader)
+    end
+  end
 
-        {:error, _reason} ->
-          {:cont, {datasets, used_bytes + file_bytes}}
-      end
+  defp load_candidate(boot, datasets, used_bytes, file_bytes, loader) do
+    case loader.(boot) do
+      {:ok, dataset} ->
+        candidate = [dataset | datasets] |> Enum.sort_by(&get_in(&1, [:provenance, :time_range, :end]), :desc)
+        if :erlang.external_size(candidate) <= @projection_budget_bytes, do: {:cont, {candidate, used_bytes + file_bytes}}, else: {:halt, {datasets, used_bytes}}
+
+      {:error, _reason} ->
+        {:cont, {datasets, used_bytes + file_bytes}}
     end
   end
 
