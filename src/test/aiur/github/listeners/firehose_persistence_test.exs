@@ -123,6 +123,7 @@ defmodule Aiur.GitHub.Listeners.FirehosePersistenceTest do
       refute_received {:persistence_alert, _, _, _}
 
       fourth = poll_firehose(third, opts)
+      health = Aiur.Orchestrator.FirehosePolling.apply_outcome(health, fourth.outcome)
 
       assert fourth.events_etag == "new-etag"
       assert fourth.events_last_id == "new-merge"

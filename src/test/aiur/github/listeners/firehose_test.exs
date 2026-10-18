@@ -1,6 +1,8 @@
 defmodule Aiur.GitHub.Listeners.FirehoseTest do
   use Aiur.TestSupport
 
+  # Cursor and window cases share one poll fixture so latch transitions stay together.
+
   alias Aiur.AlertLedger
   alias Aiur.Events.Exchange
   alias Aiur.GitHub.Listeners.Firehose
