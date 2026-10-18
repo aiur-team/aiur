@@ -1,8 +1,9 @@
 # Fragment of the assembled `gh` guard (Aiur.AgentGitHubGuard.Script); not a standalone script.
 # `marker_cleanup` is defined and armed beside the marker block itself, so the
-# early refusal exits do not leak a temp copy. Now that `budget_release` exists,
-# widen the same traps to release the budget lease as well.
-trap 'marker_cleanup; budget_release; exit 143' HUP INT TERM
+# early refusal exits do not leak a temp copy. On a signal, stop lease renewal
+# without synchronously calling a broker that may be the command being killed;
+# the lease stays counted until its TTL expires.
+trap 'marker_cleanup; budget_stop_renewal; trap - 0; exit 143' HUP INT TERM
 trap 'marker_cleanup; budget_release' 0
 
 secondary_delay_ms() {
@@ -237,4 +238,3 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
   # column sits between the resource and the fingerprint (#2299).
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$consumer" "$direction" "$track_resource" "$call_site" "${budget_key:-}" "$$" >> "$events_file" 2>/dev/null || true
 fi
-

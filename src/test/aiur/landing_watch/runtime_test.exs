@@ -202,6 +202,26 @@ defmodule Aiur.LandingWatch.RuntimeTest do
     assert Keyword.fetch!(details, :durable)
   end
 
+  test "cancelled head CI for a queued PR does not raise a person-cancelled alert" do
+    parent = self()
+    observation = %{approved_observation() | merge_queue_entry: %{"id" => "MQE_1"}}
+    cancelled = Map.put(failed_gate(), "conclusion", "cancelled")
+
+    assert :ok =
+             LandingWatch.process(observation,
+               approved_fun: fn _, _ -> {:ok, true} end,
+               required_checks_fun: fn _ -> {:ok, [%{name: "ci gate", app_id: nil}]} end,
+               ci_status_fun: fn _, _ -> {:ok, %{check_runs: [cancelled], commit_status: %{"state" => "success", "statuses" => []}}} end,
+               alert_emitter: fn topic, details ->
+                 send(parent, {:alert, topic, details})
+                 :ok
+               end,
+               journal_path: journal_path()
+             )
+
+    refute_received {:alert, "ticket.17.pr.ci_recovery.rerun_skipped", _}
+  end
+
   test "person-cancelled alert is emitted once per PR head and run across polls" do
     parent = self()
     observation = approved_observation()

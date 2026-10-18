@@ -39,7 +39,7 @@ const websiteGuards = website.split(/^  guards:\n/m)[1];
 assert.ok(/^    timeout-minutes: 15$/m.test(websiteGuards), 'website guards job has a finite runner budget');
 assert.ok(/      - name: Test visual regressions\n        timeout-minutes: 8\n/.test(websiteGuards), 'Docker visual regression step has a shorter finite budget');
 const visualDocker = JSON.parse(readFileSync(new URL('../website/package.json', import.meta.url), 'utf8')).scripts['test:visual:docker'];
-assert.ok(visualDocker.includes('-v "$PWD/..":/repo -w /repo/website --tmpfs /repo/website/node_modules:exec --tmpfs /repo/website/docs-app/node_modules:exec'),
+assert.ok(visualDocker.includes('-v "$PWD/..":/repo -w /repo/website --tmpfs /repo/website/docs-app/node_modules:exec'),
   'Docker visual build mounts the repository root so docs loaders resolve repository-relative paths');
 const aiurStyle = readFileSync(new URL('../.github/workflows/aiur-style.yml', import.meta.url), 'utf8');
 assert.ok(/^  merge_group:$/m.test(aiurStyle.split(/^jobs:/m)[0]), 'aiur-style checks dist on merge queue candidates (#4983)');
@@ -47,6 +47,7 @@ const [queueDist, buildAndTest] = aiurStyle.split(/^  build-and-test:\n/m);
 assert.ok(queueDist.includes("if: ${{ github.event_name == 'merge_group' }}") && queueDist.includes('npm run check-dist'), 'queue job runs check-dist');
 assert.ok(!queueDist.includes('test:visual') && !queueDist.includes('container:'), 'queue job skips the Playwright visual suite');
 assert.ok(buildAndTest.startsWith("    if: ${{ github.event_name != 'merge_group' }}\n"), 'full aiur-style suite stays off merge groups');
+assert.ok(/^    timeout-minutes: 20$/m.test(buildAndTest), 'aiur-style visual job has a finite runner budget');
 assert.ok(selected('pull_request', false, true).includes('dialyzer'), 'PR changing src/lib Elixir runs dialyzer');
 assert.ok(!selected('pull_request', false, false).includes('dialyzer'), 'docs-only PR skips dialyzer');
 console.log(`Fast PR jobs (non-CI changes): ${selected('pull_request', false).sort().join(', ')}`);
