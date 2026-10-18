@@ -2,7 +2,7 @@ defmodule AiurWeb.Experiments.Report do
   @moduledoc false
   use Phoenix.Component
 
-  alias Aiur.DisplaySanitizer
+  alias Aiur.{DisplaySanitizer, Experiments}
   alias AiurWeb.Markdown
 
   attr(:report, :map, default: nil)
@@ -39,7 +39,7 @@ defmodule AiurWeb.Experiments.Report do
         results_at = times |> Enum.reject(&is_nil/1) |> Enum.max(DateTime, fn -> nil end)
 
         prepare(%{
-          markdown: Aiur.Experiments.report_markdown(report),
+          markdown: Experiments.report_markdown(report),
           author: if(author != "", do: author),
           written_at: header["generated_at"],
           results_at: if(results_at, do: DateTime.to_iso8601(results_at))
