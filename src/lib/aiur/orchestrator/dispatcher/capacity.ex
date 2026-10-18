@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   alias Aiur.SystemCpu
 
   @capacity_backoff_alert_ms 30_000
+  @pressure_bypass_slots 4
   # Sample under a prewarm hold: flickering ready/:building across ticks drops
   # `load`/`memory`/`fd` from the constraint set, and IssueSync restarts the age
   # of a persistent gate. Probe only when ready work exists,
@@ -105,9 +106,24 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
 
   defp hold_dispatch(state, %{signal: :cpu_pressure} = reason, issues, choose_fun, now_ms, opts) do
     state = hold_dispatch(state, reason, now_ms, opts)
-    urgent = Enum.filter(issues, &urgent_priority?/1)
+    urgent = Enum.find(issues, &urgent_priority?/1)
 
-    if urgent == [], do: state, else: choose_fun.(state, urgent)
+    if urgent && PressureAdmission.priority_bypass_allowed?(state.dispatch_capacity_sample) do
+      effective = Slots.effective_concurrent_agent_limit(state)
+      maximum = Slots.max_concurrent_agent_limit(state)
+      used = Slots.used_slots(state)
+      bypass_limit = min(maximum, effective + @pressure_bypass_slots)
+
+      if used < bypass_limit do
+        # The raised limit must remain in state while dispatch validation is
+        # asynchronous; the callback rechecks Slots before starting the agent.
+        choose_fun.(%{state | effective_concurrent_agents: bypass_limit}, [urgent])
+      else
+        state
+      end
+    else
+      state
+    end
   end
 
   defp hold_dispatch(state, reason, _issues, _choose_fun, now_ms, opts) do
