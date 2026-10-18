@@ -159,7 +159,9 @@ defmodule Aiur.LandingWatch do
 
   @doc false
   @spec rework(map(), [map()], keyword()) :: :ok | {:error, term()}
-  def rework(observation, failures, opts), do: route_rework(observation, failures, opts)
+  def rework(observation, failures, opts) do
+    if Keyword.get(opts, :hold_rework, false), do: :ok, else: route_rework(observation, failures, opts)
+  end
 
   defp hydrate_failed_jobs(runs, opts) do
     runs
@@ -209,6 +211,10 @@ defmodule Aiur.LandingWatch do
 
       :not_landing ->
         PrRerun.handle_failure(observation, result, runs, opts)
+
+      # Auto-merge never enqueues a red head, so only a rerun or refresh lands it (#4930); rework stays held (#4684).
+      :auto_merge ->
+        PrRerun.handle_failure(observation, result, runs, Keyword.put(opts, :hold_rework, true))
     end
   end
 
@@ -216,7 +222,8 @@ defmodule Aiur.LandingWatch do
 
   # `process/2` only reaches here for a PR approved at its head, and this poll's
   # own GraphQL read carries the landing fields, so no extra request is needed.
-  defp approved_landing?(%{auto_merge_request: auto_merge, merge_queue_entry: entry}) when is_map(auto_merge) or is_map(entry), do: :landing
+  defp approved_landing?(%{merge_queue_entry: entry}) when is_map(entry), do: :landing
+  defp approved_landing?(%{auto_merge_request: auto_merge, merge_queue_entry: nil}) when is_map(auto_merge), do: :auto_merge
   defp approved_landing?(%{auto_merge_request: nil, merge_queue_entry: nil}), do: :not_landing
   defp approved_landing?(_observation), do: :unknown
 

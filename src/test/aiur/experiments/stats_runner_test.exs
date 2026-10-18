@@ -30,12 +30,19 @@ defmodule Aiur.Experiments.StatsRunnerTest do
   end
 
   test "timeout kills the tool before returning", %{root: root, opts: opts} do
-    pidfile = Path.join(root, "pid")
-    tools = tool(root, "import os, time\nopen(#{inspect(pidfile)}, 'w').write(str(os.getpid()))\ntime.sleep(60)")
+    lock = Path.join(root, "lock")
+    started = Path.join(root, "started")
+
+    tools =
+      tool(
+        root,
+        "import fcntl, time\nf = open(#{inspect(lock)}, 'w')\nfcntl.flock(f, fcntl.LOCK_EX)\nopen(#{inspect(started)}, 'w').close()\ntime.sleep(3600)"
+      )
+
     assert StatsRunner.recompute(root, Keyword.merge(opts, reduce_dir: tools, timeout_ms: 1000)) == {:error, :timeout}
-    pid = File.read!(pidfile)
-    assert {_output, status} = System.cmd("kill", ["-0", pid], stderr_to_stdout: true)
-    assert status != 0
+    # The kernel drops the tool's lock only when it exits, so this blocks until the kill lands (a missed kill hangs the test).
+    assert {_output, 0} = System.cmd("flock", [lock, "true"], stderr_to_stdout: true)
+    assert File.exists?(started)
   end
 
   test "concurrent calls run sequentially even across directories", %{root: root, opts: opts} do

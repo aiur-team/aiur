@@ -28,6 +28,8 @@ config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
 config :aiur, :process_reaper_pane_killer, {Aiur.Tmux.Socket, :kill_pane}
 config :aiur, :pause_containment_result_target, Aiur.Orchestrator
 
+config :aiur, :agent_environment_contributors, [Aiur.GitHub.AgentEnvironmentContributor]
+
 config :aiur, :turn_sandbox_root_contributors, [
   Aiur.AgentEnvironment.SandboxRoots,
   Aiur.GitHub.Budget.SandboxRoots,

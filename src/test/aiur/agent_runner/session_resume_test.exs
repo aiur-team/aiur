@@ -57,6 +57,70 @@ defmodule Aiur.AgentRunner.SessionResumeTest do
     end
   end
 
+  describe "track_resume_turn_start/4" do
+    setup do
+      dir = Aiur.TestSupport.tmp_root!("aiur_session_resume_port_closed")
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+      opts = [dir: dir, hostname: "h", repo_name: "resume-test"]
+      :ok = SessionHandle.save("4561", %{backend: "codex", thread_id: "big"}, opts)
+      %{opts: opts}
+    end
+
+    @port_closed {:error, {:turn_start_failed, :port_closed}}
+
+    test "drops the resumed thread after two consecutive port_closed turn starts", %{opts: opts} do
+      resumed = %{resumed: true, thread_id: "big"}
+
+      assert SessionResume.track_resume_turn_start(resumed, "4561", @port_closed, opts) == @port_closed
+      assert {:ok, %{thread_id: "big"}} = SessionHandle.load("4561", "codex", opts)
+
+      capture_log(fn ->
+        assert SessionResume.track_resume_turn_start(resumed, "4561", @port_closed, opts) == @port_closed
+      end)
+
+      assert SessionHandle.load("4561", "codex", opts) == :none
+
+      # The fresh session's handle resumes normally afterwards.
+      :ok = SessionHandle.save("4561", %{backend: "codex", thread_id: "fresh"}, opts)
+      assert {:ok, %{thread_id: "fresh"}} = SessionHandle.load("4561", "codex", opts)
+    end
+
+    test "a resumed turn that gets past start resets the count", %{opts: opts} do
+      resumed = %{resumed: true, thread_id: "big"}
+
+      SessionResume.track_resume_turn_start(resumed, "4561", @port_closed, opts)
+      SessionResume.track_resume_turn_start(resumed, "4561", {:ok, %{}}, opts)
+      SessionResume.track_resume_turn_start(resumed, "4561", @port_closed, opts)
+
+      assert {:ok, %{thread_id: "big"}} = SessionHandle.load("4561", "codex", opts)
+    end
+
+    test "fresh sessions and other failures never drop the thread", %{opts: opts} do
+      fresh = %{resumed: false, thread_id: "big"}
+      resumed = %{resumed: true, thread_id: "big"}
+
+      for _ <- 1..3, do: SessionResume.track_resume_turn_start(fresh, "4561", @port_closed, opts)
+      for _ <- 1..3, do: SessionResume.track_resume_turn_start(resumed, "4561", {:error, {:turn_start_failed, :response_timeout}}, opts)
+
+      assert {:ok, %{thread_id: "big"}} = SessionHandle.load("4561", "codex", opts)
+    end
+
+    test "the fresh session after a drop gets continuation prompt opts", %{opts: opts} do
+      resumed = %{resumed: true, thread_id: "big"}
+      fresh = %{resumed: false, thread_id: "fresh"}
+
+      assert SessionResume.put_first_turn_opts([], fresh, "4561", opts) == [resumed: false]
+
+      capture_log(fn ->
+        for _ <- 1..2, do: SessionResume.track_resume_turn_start(resumed, "4561", @port_closed, opts)
+      end)
+
+      first_turn_opts = SessionResume.put_first_turn_opts([], fresh, "4561", opts)
+      assert first_turn_opts[:prior_work] and first_turn_opts[:abandoned_thread]
+      assert SessionResume.put_first_turn_opts([], resumed, "4561", opts) == [resumed: true]
+    end
+  end
+
   describe "persist_handle_best_effort/3" do
     test "returns :ok for a valid handle write" do
       dir = Aiur.TestSupport.tmp_root!("aiur_session_resume_test")

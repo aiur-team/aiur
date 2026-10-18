@@ -62,7 +62,6 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
   alias Aiur.GitHub.LocalHold
   alias Aiur.{Issue, Signal, Tracker}
   alias Aiur.Orchestrator.TicketTransition
-  alias Aiur.PRLifecycle.ErrorRework
 
   @default_interval_ms 30 * 60 * 1_000
 
@@ -81,10 +80,6 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
     state = %{
       interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
       tickets_fetcher: Keyword.get(opts, :tickets_fetcher, &default_tickets/0),
-      error_tickets_fetcher: Keyword.get(opts, :error_tickets_fetcher, fn -> Tracker.fetch_issues_by_states(["error"]) end),
-      classified_reviews_fetcher: Keyword.get(opts, :classified_reviews_fetcher, &Aiur.CodeHost.fetch_classified_pr_reviews/1),
-      # `{ticket, review_id}` pairs `ErrorRework` already routed to rework (#4535).
-      error_rework_routed: MapSet.new(),
       open_pr_fetcher: Keyword.get(opts, :open_pr_fetcher, &default_open_pr/1),
       reviews_fetcher: Keyword.get(opts, :reviews_fetcher, &default_reviews/1),
       diff_fetcher: Keyword.get(opts, :diff_fetcher, &default_diff/1),
@@ -116,7 +111,7 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
     state = refresh_from_config(state)
 
     if state.enabled?.() do
-      state |> scan() |> ErrorRework.scan()
+      scan(state)
     else
       state
     end
