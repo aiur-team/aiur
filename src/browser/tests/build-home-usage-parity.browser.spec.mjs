@@ -6,7 +6,7 @@ test.setTimeout(90_000)
 // The board and shell are still being ported; compare the complete usage region.
 for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark','light']) for (const palette of ['aiur','gruvbox']) for (const count of [2,4,7]) {
   test(`usage ${viewport.viewport.width} ${theme} ${palette} n${count}`, async ({ browser }) => {
-    const pair = await openParityPair(browser, { ...viewport, theme, palette, dataset:'live' }, { motion:true, query:`models=${count}` })
+    const pair = await openParityPair(browser, { ...viewport, theme, palette, dataset:'live' }, { productPending:true, motion:true, query:`models=${count}` })
     try {
       await expect(pair.product.locator('.ax-usage')).toBeVisible()
       if (count !== 4) expect((await pair.product.request.get(`/build-control/usage?name=n${count}`)).status()).toBe(200)
