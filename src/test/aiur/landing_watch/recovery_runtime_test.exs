@@ -71,7 +71,35 @@ defmodule Aiur.LandingWatch.RecoveryRuntimeTest do
     GenServer.stop(pid)
   end
 
-  test "a crashed main recovery poll retries its window" do
+  test "a recovery poll does not start a second ordinary poll timer chain" do
+    parent = self()
+    server = {:global, {__MODULE__, make_ref()}}
+
+    {:ok, pid} =
+      LandingWatch.start_link(
+        name: server,
+        interval_ms: 200,
+        subscribe: false,
+        observe_fun: fn opts ->
+          type = if Keyword.has_key?(opts, :main_ci_recovery_window), do: :recovery, else: :ordinary
+          send(parent, {:poll_started, type})
+          {:ok, []}
+        end,
+        queue_reconcile_fun: fn _, _ -> :ok end
+      )
+
+    assert_receive {:poll_started, :ordinary}, 1_000
+    assert_receive {:poll_started, :ordinary}, 1_000
+    send(pid, {:event, %{topic: "system.main.ci.failed.resolved", red_since: 10, recovered_at: 20}})
+    assert_receive {:poll_started, :recovery}, 1_000
+
+    ordinary_after_recovery = count_ordinary_polls(System.monotonic_time(:millisecond) + 550, 0)
+
+    assert ordinary_after_recovery == 2
+    GenServer.stop(pid)
+  end
+
+  test "a crashed main recovery poll retries its window once" do
     parent = self()
     server = {:global, {__MODULE__, make_ref()}}
     {:ok, attempts} = Agent.start_link(fn -> %{ordinary: 0, recovery: 0} end)
@@ -102,8 +130,7 @@ defmodule Aiur.LandingWatch.RecoveryRuntimeTest do
                 end)
 
               send(parent, {:recovery_poll_attempt, attempt, window})
-              if attempt == 1, do: raise("recovery observer crashed")
-              {:ok, []}
+              raise("recovery observer crashed #{attempt}")
           end
         end,
         queue_reconcile_fun: fn _, _ -> :ok end
@@ -115,7 +142,19 @@ defmodule Aiur.LandingWatch.RecoveryRuntimeTest do
 
     assert_receive {:recovery_poll_attempt, 1, {50, 60}}, 1_000
     assert_receive {:recovery_poll_attempt, 2, {50, 60}}, 1_000
+    refute_receive {:recovery_poll_attempt, _, _}, 60
     GenServer.stop(pid)
     Agent.stop(attempts)
+  end
+
+  defp count_ordinary_polls(deadline, count) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {:poll_started, :ordinary} -> count_ordinary_polls(deadline, count + 1)
+      {:poll_started, :recovery} -> count_ordinary_polls(deadline, count)
+    after
+      remaining -> count
+    end
   end
 end

@@ -46,6 +46,13 @@ defmodule Aiur.MainWatch.StateTest do
     for conclusion <- [nil, "cancelled"], do: assert({^state, []} = observe(state, "c", 3, conclusion))
   end
 
+  test "recovery window starts when the first red workflow run starts" do
+    started = observation("red", 20, "failure") |> Map.put(:started_at, 10)
+    {state, [{"system.main.ci.failed", _payload}]} = State.observe(State.new(), started, 20)
+    assert state.red_since == 10
+    {_, [{"system.main.ci.failed.resolved", %{red_since: 10, recovered_at: 30}}]} = observe(state, "green", 30, "success")
+  end
+
   test "history does not emit old red before newest completed green" do
     state = State.record_history(State.new(), observation("a", 1, "failure"), 3)
     assert state.status == :unknown

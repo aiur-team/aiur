@@ -57,7 +57,7 @@ defmodule Aiur.MainWatch.State do
   end
 
   defp remember(state, observation) do
-    entry = Map.take(observation, [:sha, :completed_at, :checks, :digest, :run_fingerprint, :failed_workflow, :run_urls, :suspect_merges])
+    entry = Map.take(observation, [:sha, :started_at, :completed_at, :checks, :digest, :run_fingerprint, :failed_workflow, :run_urls, :suspect_merges])
     history = Enum.reject(state.history, &(&1.sha == entry.sha)) ++ [entry]
     %{state | history: history}
   end
@@ -81,7 +81,8 @@ defmodule Aiur.MainWatch.State do
     emitted? = Enum.any?(state.emitted_signatures, fn {previous, _at} -> previous == signature end)
     events = if emitted?, do: [], else: [{topic, payload(state, observation)}]
     signatures = if emitted?, do: state.emitted_signatures, else: [{signature, observation.completed_at} | state.emitted_signatures]
-    since = if state.status == :red, do: state.red_since, else: observation.completed_at
+    first_red_at = Map.get(observation, :started_at) || observation.completed_at
+    since = if state.status == :red, do: state.red_since, else: first_red_at
     {%{state | status: :red, sha: observation.sha, red_since: since, completed_at: observation.completed_at, emitted_signatures: signatures}, events}
   end
 

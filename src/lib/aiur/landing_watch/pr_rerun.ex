@@ -31,7 +31,17 @@ defmodule Aiur.LandingWatch.PrRerun do
           is_integer(started) and started >= red_since and started <= recovered_at
       end)
 
-    if failed == [], do: :ok, else: request_remedy(observation, failed, :rerun, "main CI recovered", opts)
+    cond do
+      failed == [] ->
+        :ok
+
+      Enum.any?(failed, &PrRerunClassifier.stale_merge_ref?(&1, opts)) ->
+        stale = Enum.filter(failed, &PrRerunClassifier.stale_merge_ref?(&1, opts))
+        request_remedy(observation, stale, :refresh, "merge ref predates a fix on the base branch", opts)
+
+      true ->
+        request_remedy(observation, failed, :rerun, "main CI recovered", opts)
+    end
   end
 
   @spec handle_failure(map(), map(), [map()], keyword()) :: :ok | {:error, term()}

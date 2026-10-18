@@ -7,6 +7,7 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Events.Exchange
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
   alias Aiur.LandingWatch.{Attribution, Classifier, Journal, MergeGroups, Observer, PrRerun}
+  alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.PrMerge.Queue
   alias Aiur.TicketBranch
@@ -30,7 +31,9 @@ defmodule Aiur.LandingWatch do
     # CI-file merges let older failed PR runs rerun instead of routing to rework.
     if Keyword.get(opts, :subscribe, true), do: Enum.each(["system.pr.merged", "ticket.*.pr.merged", "system.main.ci.failed.resolved"], &Exchange.subscribe/1)
     send(self(), :poll)
-    {:ok, %{watcher: :running, last_poll_at_ms: nil, last_error: nil, interval_ms: interval, opts: opts, task: nil, pending_recovery_window: nil, active_recovery_window: nil}}
+
+    {:ok,
+     %{watcher: :running, last_poll_at_ms: nil, last_error: nil, interval_ms: interval, opts: opts, task: nil, pending_recovery_window: nil, active_recovery_window: nil, active_recovery_attempt: 0}}
   end
 
   @impl true
@@ -61,21 +64,20 @@ defmodule Aiur.LandingWatch do
 
     case state.task do
       nil ->
-        send(self(), {:poll_recovery, window})
+        send(self(), {:poll_recovery, window, 0})
         {:noreply, state}
 
       _task ->
-        {:noreply, %{state | pending_recovery_window: window}}
+        {:noreply, %{state | pending_recovery_window: {window, 0}}}
     end
   end
 
-  def handle_info({:poll_recovery, window}, state) do
+  def handle_info({:poll_recovery, window, attempt}, state) do
     if state.task do
-      {:noreply, %{state | pending_recovery_window: window}}
+      {:noreply, %{state | pending_recovery_window: {window, attempt}}}
     else
-      Process.send_after(self(), :poll, state.interval_ms)
       task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> poll(Keyword.put(state.opts, :main_ci_recovery_window, window)) end)
-      {:noreply, %{state | task: task, active_recovery_window: window}}
+      {:noreply, %{state | task: task, active_recovery_window: window, active_recovery_attempt: attempt}}
     end
   end
 
@@ -85,21 +87,21 @@ defmodule Aiur.LandingWatch do
 
     case result do
       :ok ->
-        next = %{state | task: nil, watcher: :running, last_poll_at_ms: now, last_error: nil, active_recovery_window: nil}
-        if next.pending_recovery_window, do: send(self(), {:poll_recovery, next.pending_recovery_window})
+        next = %{state | task: nil, watcher: :running, last_poll_at_ms: now, last_error: nil, active_recovery_window: nil, active_recovery_attempt: 0}
+        if next.pending_recovery_window, do: send(self(), RecoveryRuntime.message(next.pending_recovery_window))
         {:noreply, %{next | pending_recovery_window: nil}}
 
       {:error, reason} ->
         Logger.warning("landing watcher poll unavailable: #{inspect(reason)}")
         next = %{state | task: nil, watcher: :unavailable, last_poll_at_ms: now, last_error: inspect(reason)}
-        {:noreply, retry_or_drain_recovery(next)}
+        {:noreply, RecoveryRuntime.retry_or_drain(next)}
     end
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref}} = state) do
     Logger.warning("landing watcher poll crashed: #{inspect(reason)}")
     next = %{state | task: nil, watcher: :unavailable, last_error: inspect(reason)}
-    {:noreply, retry_or_drain_recovery(next)}
+    {:noreply, RecoveryRuntime.retry_or_drain(next)}
   end
 
   def handle_info({:event, %{topic: topic} = event}, state) when is_binary(topic) do
@@ -108,18 +110,6 @@ defmodule Aiur.LandingWatch do
   end
 
   def handle_info(_message, state), do: {:noreply, state}
-
-  defp retry_or_drain_recovery(%{active_recovery_window: window} = state) when not is_nil(window) do
-    Process.send_after(self(), {:poll_recovery, window}, state.interval_ms)
-    %{state | active_recovery_window: nil}
-  end
-
-  defp retry_or_drain_recovery(%{pending_recovery_window: window} = state) when not is_nil(window) do
-    send(self(), {:poll_recovery, window})
-    %{state | pending_recovery_window: nil}
-  end
-
-  defp retry_or_drain_recovery(state), do: state
 
   @doc false
   @spec poll(keyword()) :: :ok | {:error, term()}
