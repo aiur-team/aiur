@@ -33,42 +33,10 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
   end
 
   defp load_retained(summaries, opts) do
-    index_loader = Keyword.get(opts, :summary_index_loader, &SummaryIndex.time_range_end/1)
-    dataset_loader = Keyword.get(opts, :summary_dataset_loader, &Summaries.load_dataset/1)
-
-    max_summary_bytes = Keyword.get(opts, :max_summary_bytes, @max_summary_bytes)
-
-    entries =
-      Enum.reduce(summaries, [], fn boot, entries ->
-        case index_loader.(boot) do
-          {:ok, observed_at, _tail_bytes, file_bytes} ->
-            if file_bytes > max_summary_bytes, do: entries, else: [{observed_at, boot, file_bytes} | entries]
-
-          {:error, _reason, _tail_bytes, _file_bytes} ->
-            entries
-        end
-      end)
-
-    {datasets, _used_bytes} =
-      entries
-      |> Enum.sort_by(&elem(&1, 0), :desc)
-      |> Enum.reduce_while({[], 0}, fn {_observed_at, boot, file_bytes}, {datasets, used_bytes} ->
-        if used_bytes + file_bytes > Keyword.get(opts, :max_scan_bytes, @max_scan_bytes) do
-          {:halt, {datasets, used_bytes}}
-        else
-          case dataset_loader.(boot) do
-            {:ok, dataset} ->
-              candidate = [dataset | datasets] |> Enum.sort_by(&get_in(&1, [:provenance, :time_range, :end]), :desc)
-
-              if :erlang.external_size(candidate) <= @projection_budget_bytes,
-                do: {:cont, {candidate, used_bytes + file_bytes}},
-                else: {:halt, {datasets, used_bytes}}
-
-            {:error, _reason} ->
-              {:cont, {datasets, used_bytes + file_bytes}}
-          end
-        end
-      end)
+    datasets =
+      summaries
+      |> index_summaries(opts)
+      |> decode_summaries(opts)
 
     case datasets do
       datasets when is_list(datasets) and datasets != [] ->
@@ -79,6 +47,50 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
 
       _other ->
         {:error, :retained_unreadable}
+    end
+  end
+
+  defp index_summaries(summaries, opts) do
+    index_loader = Keyword.get(opts, :summary_index_loader, &SummaryIndex.time_range_end/1)
+    max_summary_bytes = Keyword.get(opts, :max_summary_bytes, @max_summary_bytes)
+
+    summaries
+    |> Enum.reduce([], fn boot, entries ->
+      case index_loader.(boot) do
+        {:ok, observed_at, _tail_bytes, file_bytes} when file_bytes <= max_summary_bytes ->
+          [{observed_at, boot, file_bytes} | entries]
+
+        _other ->
+          entries
+      end
+    end)
+    |> Enum.sort_by(&elem(&1, 0), :desc)
+  end
+
+  defp decode_summaries(entries, opts) do
+    dataset_loader = Keyword.get(opts, :summary_dataset_loader, &Summaries.load_dataset/1)
+    max_scan_bytes = Keyword.get(opts, :max_scan_bytes, @max_scan_bytes)
+
+    {datasets, _used_bytes} =
+      Enum.reduce_while(entries, {[], 0}, fn entry, acc ->
+        decode_summary(entry, acc, dataset_loader, max_scan_bytes)
+      end)
+
+    datasets
+  end
+
+  defp decode_summary({_observed_at, boot, file_bytes}, {datasets, used_bytes} = acc, loader, max_scan_bytes) do
+    if used_bytes + file_bytes > max_scan_bytes do
+      {:halt, acc}
+    else
+      case loader.(boot) do
+        {:ok, dataset} ->
+          candidate = [dataset | datasets] |> Enum.sort_by(&get_in(&1, [:provenance, :time_range, :end]), :desc)
+          if :erlang.external_size(candidate) <= @projection_budget_bytes, do: {:cont, {candidate, used_bytes + file_bytes}}, else: {:halt, acc}
+
+        {:error, _reason} ->
+          {:cont, {datasets, used_bytes + file_bytes}}
+      end
     end
   end
 
