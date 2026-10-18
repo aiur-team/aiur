@@ -13,6 +13,8 @@
     "src/lib/aiur/events/ls_remote_ticker.ex",
     "src/lib/aiur/events/pr_command_scanner.ex",
     "src/lib/aiur/events/sanitizer.ex",
+    "src/lib/aiur/github/listeners.ex",
+    "src/lib/aiur/github/listeners/**",
     "src/lib/aiur/main_watch.ex",
     "src/lib/aiur/main_watch/**",
     "src/lib/aiur/orchestrator/comment_polling*.ex",
@@ -28,7 +30,6 @@
   "facades": [
     "*"
   ],
-  "facade_pending": "MP-R1-C1-T02",
   "requires": [
     "config",
     "event-bus",
@@ -71,5 +72,6 @@
   ],
   "capabilities": [
     "webhook_ingress"
-  ]
+  ],
+  "facade_pending": "MP-R1-C1-T02"
 }
