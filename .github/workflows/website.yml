@@ -40,6 +40,7 @@ jobs:
   guards:
     if: ${{ github.event.pull_request.draft != true && github.event.action != 'closed' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: website
@@ -90,6 +91,7 @@ jobs:
       - name: Test brand accessibility and theme navigation
         run: npm run test:brand
       - name: Test visual regressions
+        timeout-minutes: 8
         run: |
           npm run test:visual:docker
       - name: Upload visual test results on failure

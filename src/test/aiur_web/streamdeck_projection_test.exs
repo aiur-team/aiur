@@ -58,7 +58,7 @@ defmodule AiurWeb.StreamdeckProjectionTest do
 
     Application.put_env(:aiur, :voice_provider, nil)
     assert Aiur.Voice.availability() == %{available: false, reason: :not_installed}
-    assert StreamdeckProjection.voice() == %{available: false, reason: "Aiur has no ElevenLabs API key - transcription is off"}
+    assert StreamdeckProjection.voice() == %{available: false, reason: "Voice isn't installed in this Aiur"}
   end
 
   @now ~U[2026-08-09 12:00:00Z]

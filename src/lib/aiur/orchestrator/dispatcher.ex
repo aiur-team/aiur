@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.Dispatcher.HoldsAndAlerts
   alias Aiur.Orchestrator.Dispatcher.Launch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.FirehosePolling
   alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.MergedTicketReconciler
@@ -196,7 +197,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state
     |> CiReadinessAdmission.maybe_warn_ci_readiness()
     |> TrackedSet.refresh()
-    |> CommentPolling.start_firehose(&after_firehose/1, &TrackerTasks.start/4)
+    |> FirehosePolling.start(&after_firehose/1, &TrackerTasks.start/4)
   end
 
   defp after_firehose(state) do
@@ -268,7 +269,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp prepare_candidate_poll(%State{} = state) do
     state = CiReadinessAdmission.maybe_warn_ci_readiness(state)
     state = TrackedSet.refresh(state)
-    state = CommentPolling.poll_github_firehose(state)
+    state = FirehosePolling.poll(state)
     # Issued, not awaited: the Orchestrator was captured parked in this poll's
     # `Task.async_stream` fan-out with 5,729 messages behind it on an idle host
     # (#1837). The answer arrives as `{:github_comments_polled, ...}`.

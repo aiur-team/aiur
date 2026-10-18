@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
   alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.GitHub.Listeners
   alias Aiur.Handoff.Adopter
   alias Aiur.Handoff.Protection
 
@@ -90,11 +91,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
   def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
     :ok = TestTicketScope.validate!()
     :ok = Protection.reset()
+    if Process.whereis(Listeners), do: Listeners.reset()
     :ok = ProcessReaper.handoff([])
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
     Process.flag(:trap_exit, true)
-
     now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
 
