@@ -95,22 +95,23 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
     state = EnvelopeResume.persist(state, fresh?, probes.schedulers, now_ms)
 
     case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
-      {:hold, %{signal: :cpu_pressure} = reason} ->
-        hold_for_cpu_pressure(state, reason, issues, choose_fun, now_ms, opts)
-
       {:hold, reason} ->
-        hold_dispatch(state, reason, now_ms, opts)
+        hold_dispatch(state, reason, issues, choose_fun, now_ms, opts)
 
       :dispatch ->
         dispatch_after_envelope(state, issues, choose_fun, {envelope_value, envelope_target, envelope_schedulers}, queued_demand?, now_ms, opts)
     end
   end
 
-  defp hold_for_cpu_pressure(state, reason, issues, choose_fun, now_ms, opts) do
+  defp hold_dispatch(state, %{signal: :cpu_pressure} = reason, issues, choose_fun, now_ms, opts) do
     state = hold_dispatch(state, reason, now_ms, opts)
     urgent = Enum.filter(issues, &urgent_priority?/1)
 
     if urgent == [], do: state, else: choose_fun.(state, urgent)
+  end
+
+  defp hold_dispatch(state, reason, _issues, _choose_fun, now_ms, opts) do
+    hold_dispatch(state, reason, now_ms, opts)
   end
 
   defp hold_dispatch(state, reason, now_ms, opts) do
