@@ -151,7 +151,7 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
           joinCount: window.liveSocket?.main?.joinCount
         }
       }
-      return new Promise(resolve => {
+      return new Promise((resolve, reject) => {
         window.releasePage = () => {
           const release = window.__aiurB4Release
           release.state = 'sent'
@@ -161,7 +161,7 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
           }
           window.__aiurB4Record('push-sent')
           const pending = push(event, params)
-          return pending.then(reply => {
+          pending.then(reply => {
             release.state = 'resolved'
             window.__aiurB4Record('push-resolved')
             resolve(reply)
@@ -169,7 +169,7 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
             release.state = 'rejected'
             release.error = String(error)
             window.__aiurB4Record('push-rejected')
-            throw error
+            reject(error)
           })
         }
       })
@@ -181,9 +181,10 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
   await expect(more).toBeDisabled(); await expect(more).toHaveAttribute('aria-busy', 'true')
   const cdp = await page.context().newCDPSession(page)
   try {
+    // Keep the CDP call synchronous; observe the delayed push result through the page's lifecycle state.
     const evaluation = await cdp.send('Runtime.evaluate', {
-      expression: 'window.releasePage()',
-      awaitPromise: true,
+      expression: 'void window.releasePage()',
+      awaitPromise: false,
       returnByValue: true
     })
     if (evaluation.exceptionDetails) {
@@ -210,6 +211,7 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
       b4CdpErrors.push({ kind: 'session-detach-error', error: error.message })
     })
   }
+  await expect.poll(() => page.evaluate(() => window.__aiurB4Release.state)).toMatch(/^(resolved|rejected)$/)
   expect(await page.evaluate(() => window.__aiurB4Release.state)).toBe('resolved')
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
   await expect(more).toBeEnabled()
