@@ -246,6 +246,9 @@ defmodule Aiur.Orchestrator.StatusReport do
       base_repair_invalidations: %{},
       poll_cache: poll_cache,
       rewakes: %{},
+      # The dashboard does not render the one-shot CI retry marker, so keep its
+      # default in the reduced lifecycle map instead of copying live state.
+      broker_fast_retry_pending?: false,
       # The dashboard never renders the parked-ready ledger, so the projection
       # carries the struct default rather than copying the live one. It still
       # has to be present: `State.t()` declares `ci_lifecycle` as a closed map,
