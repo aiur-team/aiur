@@ -72,6 +72,69 @@ defmodule Aiur.MainWatch.GitHub do
 
   def rerun(_, _), do: {:error, :invalid_actions_run_id}
 
+  @spec rerun_failed_jobs(pos_integer(), keyword()) :: :ok | {:error, term()}
+  def rerun_failed_jobs(id, opts \\ [])
+
+  def rerun_failed_jobs(id, opts) when is_integer(id) and id > 0 do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request = %{method: :post, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs/#{id}/rerun-failed-jobs", token: token, body: %{}, caller: "main_watch_single_test_rerun"}
+
+      case request_fun(opts).(request) do
+        {:ok, %{status: status}} when status in [201, 202] -> :ok
+        {:ok, response} -> {:error, Errors.github_status_error(response)}
+        {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  def rerun_failed_jobs(_, _), do: {:error, :invalid_actions_run_id}
+
+  @spec changed_paths(String.t(), keyword()) :: {:ok, [String.t()]} | {:error, term()}
+  def changed_paths(sha, opts) when is_binary(sha) and sha != "" do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits/#{URI.encode(sha)}"
+
+      case request_fun(opts).(github_request(token, "main_watch_commit_files", opts) |> Map.put(:url, url)) do
+        {:ok, %{status: 200, body: %{"files" => files}} = response} when is_list(files) ->
+          commit_paths(files, response)
+
+        {:ok, response} ->
+          {:error, request_error(response, "main_watch_commit_files", opts)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  def changed_paths(_, _), do: {:error, :invalid_main_commit_sha}
+
+  defp commit_paths(files, response) do
+    if Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+      {:error, :main_commit_files_incomplete}
+    else
+      collect_commit_paths(files)
+    end
+  end
+
+  defp collect_commit_paths(files) do
+    Enum.reduce_while(files, {:ok, []}, fn
+      %{} = file, {:ok, paths} ->
+        file_paths = [Map.get(file, "filename"), Map.get(file, "previous_filename")] |> Enum.reject(&is_nil/1)
+
+        if file_paths != [] and Enum.all?(file_paths, &(is_binary(&1) and &1 != "")) do
+          {:cont, {:ok, paths ++ file_paths}}
+        else
+          {:halt, {:error, :invalid_main_commit_files}}
+        end
+
+      _, _ ->
+        {:halt, {:error, :invalid_main_commit_files}}
+    end)
+  end
+
   defp commits(owner, repo, branch, token, opts) do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits?" <> URI.encode_query(%{sha: branch, per_page: 20})
 

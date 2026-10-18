@@ -3,7 +3,7 @@
   {Aiur.Opencode.SlotPolicy, :max_concurrent_agents, "False positive: SlotPolicy updates its own struct, whose max_concurrent_agents field shares the State name."},
   {Aiur.Orchestrator.AutoResume, :last_polled_issues, "Baseline core write in Aiur.Orchestrator.AutoResume; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.CiLifecycle.Transition, :running, "Baseline lifecycle write in Aiur.Orchestrator.CiLifecycle; retain until this responsibility moves to its field owner."},
-  {Aiur.Orchestrator.CommentPolling, :pr_review_seen_at, "Baseline pr_lifecycle write in Aiur.Orchestrator.CommentPolling; retain until this responsibility moves to its field owner."},
+  {Aiur.Orchestrator.CommentPollingState, :pr_review_seen_at, "Existing comment-poll PR observation write moved to the State adapter."},
   {Aiur.Orchestrator.CommentWake, :running, "Baseline lifecycle write in Aiur.Orchestrator.CommentWake; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.DispatchCycleCompletion, :effective_poll_interval_ms, "Cycle completion updates core scheduling telemetry; retain until core owns that update."},
   {Aiur.Orchestrator.DispatchCycleCompletion, :idle_poll_backoff, "Cycle completion updates core scheduling telemetry; retain until core owns that update."},
