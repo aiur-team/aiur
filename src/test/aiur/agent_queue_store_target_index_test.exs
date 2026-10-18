@@ -23,26 +23,32 @@ defmodule Aiur.AgentQueueStoreTargetIndexTest do
     assert cost.(10_000) < 2 * cost.(100)
   end
 
-  test "queued event ID lookup cost does not grow with unrelated queue history" do
-    lookup_cost = fn other_items ->
+  test "duplicate digest enqueue cost does not grow with unrelated queue history" do
+    duplicate_cost = fn other_items ->
       store =
         Enum.reduce(1..other_items, AgentQueueStore.new(), fn n, acc ->
           {acc, _item} = AgentQueueStore.enqueue(acc, AgentQueue.operator_message("MT-OTHER-#{n}", "x"))
           acc
         end)
 
-      {store, event_item} =
-        AgentQueue.coordination_event("MT-EVENT", :events_digest, %{events: [%{id: 73_501}]})
-        |> then(&AgentQueueStore.enqueue(store, &1))
+      event = %{id: 73_501, topic: "ticket.MT-EVENT.branch.push"}
+      digest = AgentQueue.coordination_event("MT-EVENT", :events_digest, %{events: [event]})
+      {store, item} = AgentQueueStore.enqueue(store, digest)
+      {store, _item} = AgentQueueStore.mark_failed(store, item.id, :recorded)
+      state = %Aiur.Orchestrator.State{queue_store: store}
 
-      {store, _failed} = AgentQueueStore.mark_failed(store, event_item.id, :recorded)
+      warmed = Aiur.Orchestrator.OperatorMessages.enqueue_event_digest_item(state, "MT-EVENT", [event], event)
+      assert warmed.queue_store.next_id == store.next_id
+      :erlang.garbage_collect(self())
       {:reductions, before} = Process.info(self(), :reductions)
-      assert AgentQueueStore.queued_event_id?(store, 73_501)
-      {:reductions, after_lookup} = Process.info(self(), :reductions)
-      after_lookup - before
+      next = Aiur.Orchestrator.OperatorMessages.enqueue_event_digest_item(state, "MT-EVENT", [event], event)
+      assert next.queue_store.next_id == store.next_id
+      assert map_size(next.queue_store.items) == map_size(store.items)
+      {:reductions, after_enqueue} = Process.info(self(), :reductions)
+      after_enqueue - before
     end
 
-    # Rebuilding the ID set from `items` makes lookup reductions scale with unrelated history.
-    assert lookup_cost.(10_000) < 2 * lookup_cost.(100)
+    # Scanning every stored item to reject a duplicate makes this path scale with history.
+    assert duplicate_cost.(10_000) < 2 * duplicate_cost.(100)
   end
 end

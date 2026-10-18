@@ -2,6 +2,7 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
   use Aiur.TestSupport
 
   alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
+  alias Aiur.{AgentQueue, AgentQueueStore}
 
   defp running_entry(issue_id, identifier, status) do
     %{
@@ -122,6 +123,32 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
       assert elapsed_us < 1_000_000
 
       assert %{max: 4} = Orchestrator.max_concurrent_agents(name)
+    end
+
+    test "sets the cap within its RPC budget with 25 agents and 500 queued messages (#4962)" do
+      name = Module.concat(__MODULE__, :BackloggedLatency)
+      pid = start_orchestrator(name)
+
+      running =
+        Map.new(1..25, fn n ->
+          identifier = "MT-RUNNING-#{n}"
+          {identifier, running_entry("issue-#{n}", identifier, :working)}
+        end)
+
+      queue_store =
+        Enum.reduce(1..500, AgentQueueStore.new(), fn n, store ->
+          identifier = "MT-RUNNING-#{rem(n - 1, 25) + 1}"
+          {next, _item} = AgentQueueStore.enqueue(store, AgentQueue.operator_message(identifier, "backlog #{n}"))
+          next
+        end)
+
+      :sys.replace_state(pid, fn state -> %{state | running: running, queue_store: queue_store} end)
+
+      {elapsed_us, {:ok, %{max: 4, active: 25}}} =
+        :timer.tc(fn -> Orchestrator.set_max_concurrent_agents(name, 4) end)
+
+      assert elapsed_us < 10_000_000
+      assert %{max: 4, active: 25} = Orchestrator.max_concurrent_agents(name)
     end
 
     test "an idempotent write does not pay the full cost (#2137)" do
