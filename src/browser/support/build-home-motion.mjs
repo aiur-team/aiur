@@ -139,7 +139,7 @@ export const OWNER = {
   'view.span': { owners: ['MP-E8-C9-T10'], anchor: '.bd-zoom [data-z]' },
   'view.switch.graph': { owners: ['MP-E8-C10-T01'], pending: true },
   'view.switch.gantt': { owners: ['MP-E8-C9-T09'], pending: true },
-  'view.switch.list': { owners: ['MP-E8-C9-T12'], pending: true },
+  'view.switch.list': { owners: ['MP-E8-C9-T12'] },
   'filter': { owners: ['MP-E8-C10-T02'], anchor: '.bd-fg' },
   'feature': { owners: ['MP-E8-C10-T03'], pending: true, anchor: '.bd-fg[data-g="feature"]' },
   'modal': { owners: ['MP-E8-C11-T01'], anchor: '#tk-modal.bdm' },

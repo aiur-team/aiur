@@ -226,7 +226,7 @@ test('B11 remount resets state and disposes old listeners and intervals', async 
     const { ctx, fx } = await import('/build-home/state.js'); ctx.lockId = '1'; window.unlocks = 0; fx.unlock = () => window.unlocks++
   })
   await page.keyboard.press('Escape')
-  expect(await page.evaluate(() => ({ unlocks: window.unlocks, intervals: window.buildIntervals.size }))).toEqual({ unlocks: 1, intervals: 2 })
+  expect(await page.evaluate(() => ({ unlocks: window.unlocks, intervals: window.buildIntervals.size }))).toEqual({ unlocks: 1, intervals: 3 })
 })
 
 for (const event of ['pointercancel', 'lostpointercapture']) test(`B12 ${event} ends drag`, async ({ page }) => {

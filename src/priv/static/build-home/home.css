@@ -17,8 +17,29 @@
 @import url("home/16-list-models.css");
 @import url("home/17-responsive-light.css");
 @import url("home/18-palette-fixes.css");
-/* MP-E8 additions: states the design does not show (C9-T05; S-17, EC-08) */
+
+/* MP-E8-C10-T04: states the design lacks */
+.ax-seg.none { background: none; border: 1px dashed var(--line-strong); box-sizing: border-box; }
+.ax-r2.stale .ax-lns, .ax-ln.stale { opacity: .55; }
+span.ax-cnt { display: inline-block; }
+#ax-cnt { cursor: default; }
+span.ax-cnt:hover { color: var(--muted); background: none; }
+.ax-usage.locked { grid-template-columns: 1fr; }
+.ax-uc.lock p { margin: 0; font: .68rem/1.4 "JetBrains Mono", monospace; }
+.ax-uc.lock p b { color: var(--muted); font-weight: 600; }
+
+/* MP-E8 additions: states the design does not show (C9-T05; S-17, EC-08; S-13 sizes: C9-T06) */
 .bd-cx.unk, html[data-theme="light"] .bd-cx.unk { color: var(--faint) !important; }
 .bd-card.np .bd-in { border-color: color-mix(in srgb, var(--block-line) 45%, var(--line)); }
 .bd-card.np .bd-status { color: var(--muted); }
 .bd-card.bar.np .bd-in { background: color-mix(in srgb, var(--block) 35%, var(--faint)); }
+
+.bd-ag > .ax-mono { width: 100%; height: 100%; border-radius: 50%; font-size: .57em; }
+.bd-card.line .bd-lg.ax-mono { width: 1.75em; height: 1.75em; flex: none; border-radius: 50%; font-size: .6em; }
+
+/* list (C9-T12; S-17, S-13, S-12, S-9) */
+.lst.st-np { border-color: color-mix(in srgb, var(--block-line) 45%, var(--line)); color: var(--muted); }
+.lst.st-np u { background: color-mix(in srgb, var(--block) 45%, var(--faint)); }
+.c-ag .ax-mono { width: 15px; height: 15px; font-size: .5rem; }
+.lr[data-id]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.lh[data-st] em { white-space: normal; }

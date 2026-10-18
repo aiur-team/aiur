@@ -15,7 +15,8 @@ defmodule Aiur.MainWatch.Fixer do
       FixerWatchdog.check(issues, opts)
     else
       {:error, reason} = error ->
-        alert("system.main.fixer.failed", %{reason: inspect(reason)}, opts)
+        topic = if shared_budget_hold?(reason), do: "system.main.fixer.held", else: "system.main.fixer.failed"
+        alert(topic, %{reason: inspect(reason)}, opts)
         error
     end
   end
@@ -86,6 +87,9 @@ defmodule Aiur.MainWatch.Fixer do
       :ok
     end
   end
+
+  defp shared_budget_hold?({:aiur, :locally_held, %{reason: :shared_budget}}), do: true
+  defp shared_budget_hold?(_reason), do: false
 
   defp refresh(opts) do
     case Keyword.get(opts, :fixer_refresh, &Aiur.Orchestrator.request_refresh/0).() do

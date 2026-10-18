@@ -76,6 +76,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
 
     # Clear prior comment work and finish startup cleanup before counting.
+    on_exit(fn -> assert :ok = Aiur.TestSupport.ensure_orchestrator_running() end)
     :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
     {:ok, orchestrator} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator)
 

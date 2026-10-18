@@ -260,8 +260,8 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   end
 
   defp pause_label(nil), do: "Pause state unknown"
-  defp pause_label(true), do: "Resume all agents"
-  defp pause_label(false), do: "Pause all agents"
+  defp pause_label(true), do: "Resume new starts"
+  defp pause_label(false), do: "Pause new starts"
 
   defp pause_title(nil, _writable), do: "The daemon's pause state is not available"
   defp pause_title(_paused, false), do: "Read-only dashboard: pausing is unavailable"

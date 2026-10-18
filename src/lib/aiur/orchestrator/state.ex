@@ -1,8 +1,7 @@
 defmodule Aiur.Orchestrator.State do
   @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
-  alias Aiur.LiveConversation.Source, as: LiveConversationSource
-  alias Aiur.Orchestrator.{CiLifecycle, ControlLifecycle, PauseResume, StatusReport}
+  alias Aiur.Orchestrator.ControlLifecycle
 
   @default_dispatch_recovery %{
     workspace_ownership: %{waits: %{}, ready: %{}},
@@ -33,6 +32,7 @@ defmodule Aiur.Orchestrator.State do
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
+          priority_dispatch_reservations: %{optional(String.t()) => pos_integer()},
           load_envelope_state: map(),
           capacity_hold:
             %{
@@ -141,11 +141,6 @@ defmodule Aiur.Orchestrator.State do
           agent_rate_limits: map() | nil,
           codex_totals: map() | nil,
           codex_rate_limits: map() | nil,
-          events_etag: String.t() | nil,
-          events_last_id: String.t() | nil,
-          firehose_partial_streak: non_neg_integer(),
-          firehose_truncation_alert_active: boolean(),
-          firehose_truncation_alert_resolution_emitted: boolean(),
           github_comments_since: String.t() | map() | nil,
           github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
@@ -303,11 +298,6 @@ defmodule Aiur.Orchestrator.State do
     agent_rate_limits: nil,
     codex_totals: nil,
     codex_rate_limits: nil,
-    events_etag: nil,
-    events_last_id: nil,
-    firehose_partial_streak: 0,
-    firehose_truncation_alert_active: false,
-    firehose_truncation_alert_resolution_emitted: false,
     github_comments_since: nil,
     github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
@@ -349,675 +339,90 @@ defmodule Aiur.Orchestrator.State do
     orphaned_agent_reap_count: 0,
     control_lifecycle: %ControlLifecycle{},
     prewarm_hold_ticks: 0,
-    prewarm_hold_since_ms: nil
+    prewarm_hold_since_ms: nil,
+    priority_dispatch_reservations: %{}
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}
-  def handle_worker_runtime_info(%__MODULE__{running: running} = state, issue_id, runtime_info)
-      when is_binary(issue_id) and is_map(runtime_info) do
-    case Map.get(running, issue_id) do
-      nil ->
-        {:noreply, state}
-
-      running_entry ->
-        updated_running_entry =
-          running_entry
-          |> maybe_put_runtime_value(:worker_host, runtime_info[:worker_host])
-          |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
-          |> maybe_put_runtime_value(:rework_head_sha, runtime_info[:rework_head_sha])
-          |> maybe_put_live_conversation(runtime_info[:live_conversation])
-
-        if updated_running_entry == running_entry do
-          {:noreply, state}
-        else
-          next_state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
-          StatusReport.notify_dashboard(next_state)
-          {:noreply, next_state}
-        end
-    end
-  end
-
+  defdelegate handle_worker_runtime_info(state, issue_id, runtime_info), to: __MODULE__.RuntimeInfo
   @spec handle_live_conversation_restart(t(), String.t(), DateTime.t()) :: {:noreply, t()}
-  def handle_live_conversation_restart(%__MODULE__{} = state, projection_epoch, observed_at)
-      when is_binary(projection_epoch) and is_struct(observed_at, DateTime) do
-    running =
-      Map.new(state.running, fn {issue_id, entry} ->
-        generation = get_in(entry, [:control, :generation])
-
-        status = %{
-          projection_epoch: projection_epoch,
-          revision: 0,
-          source_revision: 0,
-          generation_handle: nil,
-          source: nil,
-          state: :restart_unknown,
-          health: :unknown,
-          freshness: :unknown,
-          observed_at: observed_at
-        }
-
-        fence = %{
-          projection_epoch: projection_epoch,
-          revision: 0,
-          source_revision: 0,
-          source: nil,
-          worker_generation: generation,
-          restart_locked?: true
-        }
-
-        {issue_id,
-         entry
-         |> Map.put(:live_conversation, status)
-         |> Map.put(:live_conversation_fence, fence)}
-      end)
-
-    next_state = %{state | running: running}
-
-    if next_state == state do
-      {:noreply, state}
-    else
-      StatusReport.notify_dashboard(next_state)
-      {:noreply, next_state}
-    end
-  end
-
-  def handle_live_conversation_restart(%__MODULE__{} = state, _projection_epoch, _observed_at),
-    do: {:noreply, state}
-
+  defdelegate handle_live_conversation_restart(state, projection_epoch, observed_at), to: __MODULE__.RuntimeInfo
   @spec handle_repl_session_runtime(t(), String.t(), map()) :: {:noreply, t()}
-  def handle_repl_session_runtime(%__MODULE__{running: running} = state, issue_id, info)
-      when is_binary(issue_id) and is_map(info) do
-    case Map.get(running, issue_id) do
-      nil ->
-        {:noreply, state}
-
-      running_entry ->
-        updated_running_entry =
-          running_entry
-          |> maybe_put_runtime_value(:repl_pane_id, info[:pane_id])
-          |> maybe_put_runtime_value(:repl_tmux_socket, info[:tmux_socket])
-          |> maybe_put_runtime_value(:repl_os_pid, info[:os_pid])
-          |> maybe_put_runtime_value(:headless_os_pid, info[:headless_os_pid])
-          |> maybe_put_runtime_value(:headless_process_group_id, info[:headless_process_group_id])
-          |> maybe_put_runtime_value(:repl_rc_session_url, info[:session_url])
-
-        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
-    end
-  end
-
+  defdelegate handle_repl_session_runtime(state, issue_id, info), to: __MODULE__.RuntimeInfo
   @spec handle_session_execution_info(t(), String.t(), map()) :: {:noreply, t()}
-  def handle_session_execution_info(
-        %__MODULE__{running: running} = state,
-        issue_id,
-        %{backend: backend} = info
-      )
-      when is_binary(issue_id) and is_binary(backend) do
-    case Map.get(running, issue_id) do
-      nil ->
-        {:noreply, state}
-
-      running_entry ->
-        session_execution = %{
-          backend: backend,
-          requested_model: optional_runtime_string(info[:requested_model]),
-          resolved_model: nil,
-          effort: optional_runtime_string(info[:effort]),
-          account: optional_runtime_string(info[:account]),
-          account_selection_reason: optional_runtime_string(info[:account_selection_reason])
-        }
-
-        {:noreply, put_session_execution(state, issue_id, running_entry, session_execution)}
-    end
-  end
-
-  @doc """
-  Records the model a running session reported actually serving its turns.
-
-  The route names a backend and at most a model tag; which concrete version
-  answered is only knowable once the agent is running, and it arrives after
-  the session's execution facts. Merge it so a late observation names the
-  model on the dashboard without erasing the backend and route that were
-  already reported.
-  """
+  defdelegate handle_session_execution_info(state, issue_id, info), to: __MODULE__.RuntimeInfo
   @spec handle_session_resolved_model(t(), String.t(), String.t()) :: {:noreply, t()}
-  def handle_session_resolved_model(%__MODULE__{running: running} = state, issue_id, model)
-      when is_binary(issue_id) and is_binary(model) and model != "" do
-    with running_entry when is_map(running_entry) <- Map.get(running, issue_id),
-         %{} = execution <- Map.get(running_entry, :session_execution),
-         false <- Map.get(execution, :resolved_model) == model do
-      {:noreply, put_session_execution(state, issue_id, running_entry, Map.put(execution, :resolved_model, model))}
-    else
-      _unchanged -> {:noreply, state}
-    end
-  end
-
-  def handle_session_resolved_model(%__MODULE__{} = state, _issue_id, _model), do: {:noreply, state}
-
-  defp put_session_execution(%__MODULE__{running: running} = state, issue_id, running_entry, session_execution) do
-    updated_state =
-      %{state | running: Map.put(running, issue_id, Map.put(running_entry, :session_execution, session_execution))}
-
-    StatusReport.notify_dashboard(updated_state)
-    updated_state
-  end
-
+  defdelegate handle_session_resolved_model(state, issue_id, model), to: __MODULE__.RuntimeInfo
   @spec note_agent_activity(t(), String.t()) :: t()
-  # Claude hook activity is the liveness signal for backends without codex updates.
-  def note_agent_activity(%__MODULE__{} = state, identifier) when is_binary(identifier) do
-    case find_running_key_by_identifier(state.running, identifier) do
-      nil ->
-        state
-
-      issue_id ->
-        update_in(
-          state.running,
-          &PauseResume.reset_last_codex_timestamp(&1, issue_id, DateTime.utc_now())
-        )
-    end
-  end
-
+  defdelegate note_agent_activity(state, identifier), to: __MODULE__.RuntimeInfo
   @spec alive?(term()) :: boolean()
-  defdelegate alive?(name), to: Aiur.Orchestrator.State.ProcessLiveness
+  defdelegate alive?(name), to: __MODULE__.RuntimeInfo
   @spec maybe_put_runtime_value(term(), term(), term()) :: term()
-  def maybe_put_runtime_value(running_entry, _key, nil), do: running_entry
-
-  def maybe_put_runtime_value(running_entry, key, value) when is_map(running_entry) do
-    Map.put(running_entry, key, value)
-  end
-
-  defp optional_runtime_string(value) when is_binary(value), do: value
-  defp optional_runtime_string(_value), do: nil
-
-  defp maybe_put_live_conversation(running_entry, nil), do: running_entry
-
-  defp maybe_put_live_conversation(running_entry, status) do
-    with %{} = status <- live_conversation_runtime(status),
-         true <- authoritative_live_conversation_status?(running_entry, status) do
-      fence = %{
-        projection_epoch: status.projection_epoch,
-        revision: status.revision,
-        source_revision: status.source_revision,
-        source: status.source,
-        worker_generation: status.source.worker_generation,
-        restart_locked?: false
-      }
-
-      running_entry
-      |> Map.put(:live_conversation, status)
-      |> Map.put(:live_conversation_fence, fence)
-    else
-      _invalid_or_stale -> running_entry
-    end
-  end
-
-  defp live_conversation_runtime(%{} = status) do
-    if valid_runtime_identity?(status) and valid_runtime_revisions?(status) and
-         valid_runtime_enums?(status) and is_struct(Map.get(status, :observed_at), DateTime) do
-      Map.take(status, [
-        :projection_epoch,
-        :revision,
-        :source_revision,
-        :generation_handle,
-        :source,
-        :state,
-        :health,
-        :freshness,
-        :observed_at
-      ])
-    end
-  end
-
-  defp live_conversation_runtime(_status), do: nil
-
-  defp valid_runtime_identity?(status) do
-    valid_projection_epoch?(Map.get(status, :projection_epoch)) and
-      valid_conversation_handle?(Map.get(status, :generation_handle)) and
-      valid_conversation_source?(Map.get(status, :source))
-  end
-
-  defp valid_runtime_revisions?(status) do
-    revision = Map.get(status, :revision)
-    source_revision = Map.get(status, :source_revision)
-
-    is_integer(revision) and revision > 0 and is_integer(source_revision) and
-      source_revision > 0 and source_revision <= revision
-  end
-
-  defp valid_runtime_enums?(status) do
-    Map.get(status, :state) in [:live, :ended, :known_empty, :stale, :unavailable, :restart_unknown] and
-      Map.get(status, :health) in [:healthy, :unavailable, :unknown] and
-      Map.get(status, :freshness) in [:current, :stale, :unknown]
-  end
-
-  defp authoritative_live_conversation_status?(running_entry, status) do
-    expected_generation = get_in(running_entry, [:control, :generation])
-
-    status.source.worker_generation == expected_generation and
-      matching_live_identity?(running_entry, status.source.identity) and
-      newer_live_conversation_status?(running_entry, status)
-  end
-
-  defp matching_live_identity?(running_entry, identity) do
-    case Issue.tracker_identity(Map.get(running_entry, :issue)) do
-      %{kind: kind, owner: owner, repository: repository, identifier: identifier} ->
-        identity == %{
-          version: 1,
-          kind: kind,
-          owner: owner,
-          repository: repository,
-          identifier: identifier
-        }
-
-      _missing ->
-        false
-    end
-  end
-
-  defp newer_live_conversation_status?(running_entry, status) do
-    case Map.get(running_entry, :live_conversation_fence) do
-      nil ->
-        true
-
-      %{projection_epoch: epoch} when epoch != status.projection_epoch ->
-        false
-
-      %{restart_locked?: true} ->
-        status.state == :ended
-
-      %{revision: revision} when status.revision <= revision ->
-        false
-
-      %{source: source, source_revision: source_revision} ->
-        source == status.source or status.source_revision > source_revision
-
-      _invalid_fence ->
-        false
-    end
-  end
-
-  defp valid_projection_epoch?("projection:" <> digest) do
-    byte_size(digest) == 43 and Regex.match?(~r/^[A-Za-z0-9_-]+$/, digest)
-  end
-
-  defp valid_projection_epoch?(_epoch), do: false
-
-  defp valid_conversation_handle?(handle), do: LiveConversationSource.valid_handle?(handle)
-
-  defp valid_conversation_source?(%{
-         identity: %{
-           version: 1,
-           kind: :github,
-           owner: owner,
-           repository: repository,
-           identifier: identifier
-         },
-         run_id: run_id,
-         attempt_id: attempt_id,
-         session_id: session_id,
-         backend: backend,
-         worker_generation: generation
-       }) do
-    Enum.all?([owner, repository, identifier, run_id, attempt_id, backend], &valid_runtime_field?/1) and
-      valid_runtime_session?(session_id) and is_integer(generation) and generation > 0
-  end
-
-  defp valid_conversation_source?(_source), do: false
-  defp valid_runtime_session?(nil), do: true
-
-  defp valid_runtime_session?("session:" <> digest) do
-    byte_size(digest) == 43 and Regex.match?(~r/^[A-Za-z0-9_-]+$/, digest)
-  end
-
-  defp valid_runtime_session?(_session), do: false
-
-  defp valid_runtime_field?(field), do: is_binary(field) and field != "" and byte_size(field) <= 256
-
+  defdelegate maybe_put_runtime_value(entry, key, value), to: __MODULE__.RuntimeInfo
   @spec find_issue_id_for_ref(map(), term()) :: term() | nil
-  def find_issue_id_for_ref(running, ref) do
-    running
-    |> Enum.find_value(fn {issue_id, %{ref: running_ref}} ->
-      if running_ref == ref, do: issue_id
-    end)
-  end
-
+  defdelegate find_issue_id_for_ref(running, ref), to: __MODULE__.RunningEntries
   @spec running_entry_session_id(term()) :: String.t()
-  def running_entry_session_id(%{session_id: session_id}) when is_binary(session_id),
-    do: session_id
-
-  def running_entry_session_id(_running_entry), do: "n/a"
-
+  defdelegate running_entry_session_id(entry), to: __MODULE__.RunningEntries
   @spec issue_context(Issue.t()) :: String.t()
-  def issue_context(%Issue{id: issue_id, identifier: identifier}) do
-    "issue_id=#{issue_id} issue_identifier=#{identifier}"
-  end
-
+  defdelegate issue_context(issue), to: __MODULE__.RunningEntries
   @spec active_running_count(term()) :: non_neg_integer()
-  def active_running_count(running) when is_map(running) do
-    Enum.count(running, fn
-      {_issue_id, entry} -> active_running_entry?(entry)
-    end)
-  end
-
-  def active_running_count(_running), do: 0
-
+  defdelegate active_running_count(running), to: __MODULE__.RunningEntries
   @spec paused_running_count(term()) :: non_neg_integer()
-  def paused_running_count(running) when is_map(running) do
-    Enum.count(running, fn
-      {_issue_id, entry} -> paused_running_entry?(entry)
-    end)
-  end
-
-  def paused_running_count(_running), do: 0
-
-  # Paused entries that keep their fleet reservation. A deliberate/Executor
-  # pause holds its slot so the polling loop cannot auto-claim replacement
-  # work. CI-wait, dependency-blocked, and duration-capped pauses are the
-  # exception: the daemon owns that wait (or the agent has simply hit its time
-  # cap and is parked for review), so the parked runner releases normal
-  # dispatch capacity — holding the slot would convert the time cap into a
-  # capacity leak where parked agents accumulate against the fleet limit
-  # (#2329).
-  # A provider usage limit belongs here for the same reason: the account, not
-  # this agent, is what the fleet waits on. Any pause on a `ci-wait` ticket
-  # releases too: its PR is handed off and the daemon owns that wait (#4694).
-  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :optimistic_blocker_failed, :max_agent_duration, :usage_limit_exhausted]
-
+  defdelegate paused_running_count(running), to: __MODULE__.RunningEntries
   @spec non_reserving_pause_reason?(term()) :: boolean()
-  def non_reserving_pause_reason?(reason), do: reason in @non_reserving_pause_reasons
-
+  defdelegate non_reserving_pause_reason?(reason), to: __MODULE__.RunningEntries
   @spec reserved_paused_running_count(term()) :: non_neg_integer()
-  def reserved_paused_running_count(running) when is_map(running) do
-    Enum.count(running, fn
-      {_issue_id, %{paused_reason: reason}} when reason in @non_reserving_pause_reasons -> false
-      {_issue_id, entry} -> paused_running_entry?(entry) and not CiLifecycle.ci_wait_state?(get_in(entry, [:issue, Access.key(:state)]))
-    end)
-  end
-
-  def reserved_paused_running_count(_running), do: 0
-
+  defdelegate reserved_paused_running_count(running), to: __MODULE__.RunningEntries
   @spec active_running_entry?(term()) :: boolean()
-  def active_running_entry?(entry) when is_map(entry) do
-    not (completed_running_entry?(entry) or paused_running_entry?(entry) or
-           deactivated_running_entry?(entry) or error_running_entry?(entry))
-  end
-
-  def active_running_entry?(_entry), do: false
+  defdelegate active_running_entry?(entry), to: __MODULE__.RunningEntries
   @spec paused_running_entry?(term()) :: boolean()
-  def paused_running_entry?(entry) when is_map(entry) do
-    (get_in(entry, [:control, :status]) || :working) == :paused
-  end
-
-  def paused_running_entry?(_entry), do: false
-
+  defdelegate paused_running_entry?(entry), to: __MODULE__.RunningEntries
   @spec error_running_entry?(term()) :: boolean()
-  def error_running_entry?(entry) when is_map(entry) do
-    (get_in(entry, [:control, :status]) || :working) == :error
-  end
-
-  def error_running_entry?(_entry), do: false
-
+  defdelegate error_running_entry?(entry), to: __MODULE__.RunningEntries
   @spec sleeping_running_entry?(term()) :: boolean()
-  def sleeping_running_entry?(entry) when is_map(entry) do
-    (get_in(entry, [:control, :status]) || :working) == :sleeping
-  end
-
-  def sleeping_running_entry?(_entry), do: false
-
+  defdelegate sleeping_running_entry?(entry), to: __MODULE__.RunningEntries
   @spec completed_running_entry?(term()) :: boolean()
-  def completed_running_entry?(entry) when is_map(entry) do
-    get_in(entry, [:control, :status]) == :completed
-  end
-
-  def completed_running_entry?(_entry), do: false
-
+  defdelegate completed_running_entry?(entry), to: __MODULE__.RunningEntries
   @spec completed_provenance?(term()) :: boolean()
-  def completed_provenance?(entry) when is_map(entry) do
-    completed_running_entry?(entry) or Map.get(entry, :completed_provenance) == true
-  end
-
-  def completed_provenance?(_entry), do: false
-
+  defdelegate completed_provenance?(entry), to: __MODULE__.RunningEntries
   @spec deactivated_running_entry?(term()) :: boolean()
-  def deactivated_running_entry?(entry) when is_map(entry) do
-    get_in(entry, [:control, :status]) == :deactivated
-  end
-
-  def deactivated_running_entry?(_entry), do: false
-
+  defdelegate deactivated_running_entry?(entry), to: __MODULE__.RunningEntries
   @spec find_running_key_by_identifier(map(), String.t()) :: term() | nil
-  def find_running_key_by_identifier(running, identifier) do
-    Enum.find_value(running, fn
-      {issue_id, %{identifier: id}} -> if to_string(id) == identifier, do: issue_id, else: nil
-      _ -> nil
-    end)
-  end
-
-  # Freeze the runtime clock while the agent is paused and shift
-  # `started_at` forward on resume so `now - started_at` excludes the
-  # paused interval. The age column in the agent list (and any other
-  # consumer of `running_seconds/2`) stops advancing while paused.
+  defdelegate find_running_key_by_identifier(running, identifier), to: __MODULE__.RunningEntries
   @spec apply_pause_runtime_clock(map(), atom(), atom(), term()) :: map()
-  def apply_pause_runtime_clock(entry, :working, :paused, now) when is_map(entry) do
-    Map.put(entry, :paused_at, now)
-  end
-
-  def apply_pause_runtime_clock(entry, :paused, :working, now) when is_map(entry) do
-    shift_started_at_by_pause(entry, now)
-  end
-
-  def apply_pause_runtime_clock(entry, _previous, _next, _now), do: entry
-
+  defdelegate apply_pause_runtime_clock(entry, previous, next, now), to: __MODULE__.RunningEntries
   @spec thaw_pause_clock(map(), term(), atom(), term()) :: map()
-  def thaw_pause_clock(running, issue_id, previous_status, now) when is_map(running) do
-    case Map.get(running, issue_id) do
-      nil ->
-        running
-
-      entry ->
-        Map.put(running, issue_id, shift_started_at_by_pause_if(entry, previous_status, now))
-    end
-  end
-
+  defdelegate thaw_pause_clock(running, issue_id, previous_status, now), to: __MODULE__.RunningEntries
   @spec shift_started_at_by_pause_if(map(), atom(), term()) :: map()
-  def shift_started_at_by_pause_if(entry, :paused, now),
-    do: shift_started_at_by_pause(entry, now)
-
-  def shift_started_at_by_pause_if(entry, _previous, _now), do: entry
-
-  # A duration-capped pause is owned by `reset_duration_clock_if_capped/4`
-  # (Executor resume -> fresh budget, automated resume -> preserve overrun),
-  # so the thaw must only un-freeze the pause clock (clear `paused_at`) and
-  # must NOT credit the paused interval back into `started_at`. Crediting it
-  # would advance `started_at` toward now and silently reset the overrun on
-  # an automated resume — the exact #420 leak. Other pauses keep the normal
-  # "exclude the paused interval" shift.
+  defdelegate shift_started_at_by_pause_if(entry, previous, now), to: __MODULE__.RunningEntries
   @spec shift_started_at_by_pause(map(), term()) :: map()
-  def shift_started_at_by_pause(%{paused_reason: :max_agent_duration} = entry, %DateTime{}) do
-    Map.put(entry, :paused_at, nil)
-  end
-
-  def shift_started_at_by_pause(%{paused_at: %DateTime{} = paused_at} = entry, %DateTime{} = now) do
-    paused_for = max(0, DateTime.diff(now, paused_at, :second))
-
-    entry
-    |> Map.update(:started_at, nil, fn
-      %DateTime{} = started_at -> DateTime.add(started_at, paused_for, :second)
-      other -> other
-    end)
-    |> Map.put(:paused_at, nil)
-  end
-
-  def shift_started_at_by_pause(entry, _now), do: entry
-
+  defdelegate shift_started_at_by_pause(entry, now), to: __MODULE__.RunningEntries
   @spec issue_tag(term()) :: String.t() | nil
-  def issue_tag(%Issue{} = issue) do
-    issue
-    |> Issue.label_names()
-    |> Enum.find(fn label -> is_binary(label) and String.starts_with?(label, "agent:") end)
-  end
-
-  def issue_tag(_issue), do: nil
-
+  defdelegate issue_tag(issue), to: __MODULE__.RunningEntries
   @spec find_running_by_identifier(map(), String.t()) :: map() | nil
-  def find_running_by_identifier(running, issue_identifier) do
-    Enum.find_value(running, fn
-      {_issue_id, %{identifier: identifier} = entry} ->
-        if to_string(identifier) == issue_identifier, do: entry, else: nil
+  defdelegate find_running_by_identifier(running, issue_identifier), to: __MODULE__.RunningEntries
 
-      _ ->
-        nil
-    end)
-  end
-
-  @doc false
   @spec find_unique_running_by_identity(map(), TrackerIdentity.t()) ::
           {:ok, map(), String.t()} | {:error, :no_running_agent | :ambiguous_identifier}
-  def find_unique_running_by_identity(running, %TrackerIdentity{} = identity) when is_map(running) do
-    identity_key = TrackerIdentity.github_key(identity)
-
-    exact_matches =
-      Enum.flat_map(running, fn
-        {_issue_id, entry} when is_map(entry) ->
-          if running_identity_key(entry) == identity_key and not is_nil(identity_key), do: [entry], else: []
-
-        _entry ->
-          []
-      end)
-
-    case exact_matches do
-      [entry] -> unique_identifier_target(running, entry)
-      _matches -> {:error, if(exact_matches == [], do: :no_running_agent, else: :ambiguous_identifier)}
-    end
-  end
-
-  def find_unique_running_by_identity(_running, _identity), do: {:error, :no_running_agent}
-
-  defp unique_identifier_target(running, entry) do
-    identifier = entry |> Map.get(:identifier) |> to_string()
-
-    matches =
-      Enum.count(running, fn
-        {_issue_id, %{identifier: candidate}} -> to_string(candidate) == identifier
-        _entry -> false
-      end)
-
-    if identifier != "" and matches == 1,
-      do: {:ok, entry, identifier},
-      else: {:error, :ambiguous_identifier}
-  end
-
-  defp running_identity_key(entry) do
-    identity =
-      Map.get(entry, :tracker_identity) ||
-        case Map.get(entry, :issue) do
-          %Issue{} = issue -> Issue.tracker_identity(issue)
-          _issue -> nil
-        end
-
-    TrackerIdentity.github_key(identity)
-  end
-
+  defdelegate find_unique_running_by_identity(running, identity), to: __MODULE__.RunningEntries
   @spec find_running_by_repl_pane_id(map(), term()) :: map() | nil
-  def find_running_by_repl_pane_id(running, pane_id) do
-    Enum.find_value(running, fn
-      {_issue_id, %{repl_pane_id: ^pane_id} = entry} -> entry
-      _ -> nil
-    end)
-  end
-
+  defdelegate find_running_by_repl_pane_id(running, pane_id), to: __MODULE__.RunningEntries
   @spec pop_running_entry(t(), term()) :: {term(), t()}
-  def pop_running_entry(state, issue_id) do
-    {Map.get(state.running, issue_id), %{state | running: Map.delete(state.running, issue_id)}}
-  end
-
+  defdelegate pop_running_entry(state, issue_id), to: __MODULE__.RunningEntries
   @spec running_seconds(term(), term()) :: non_neg_integer()
-  def running_seconds(%DateTime{} = started_at, %DateTime{} = now) do
-    max(0, DateTime.diff(now, started_at, :second))
-  end
-
-  def running_seconds(_started_at, _now), do: 0
-
-  # Wall-clock seconds the agent has spent *actively working*. If the
-  # entry is currently paused, the clock is frozen at the moment of
-  # pause; on resume `shift_started_at_by_pause/2` shifts `started_at`
-  # forward so any future delta excludes the paused interval.
+  defdelegate running_seconds(started_at, now), to: __MODULE__.RunningEntries
   @spec effective_runtime_seconds(term(), DateTime.t()) :: non_neg_integer()
-  def effective_runtime_seconds(entry, %DateTime{} = now) when is_map(entry) do
-    case {Map.get(entry, :started_at), Map.get(entry, :paused_at)} do
-      {%DateTime{} = started_at, %DateTime{} = paused_at} ->
-        running_seconds(started_at, paused_at)
-
-      {started_at, _} ->
-        running_seconds(started_at, now)
-    end
-  end
-
-  def effective_runtime_seconds(_entry, _now), do: 0
-  # --- Rework-attempt bound (#2422) ------------------------------------------
-  #
-  # The same head SHA must not re-enter `agent:rework` more than
-  # `rework_attempt_limit/0` times: when rework completes and the gating signal
-  # has not moved, the next routing is a stuck condition, and the bound raises
-  # a single attention instead of looping. A new head SHA starts a fresh count,
-  # so a genuine rework push is never affected. All helpers are nil-safe on the
-  # head SHA — when the head cannot be read the bound is skipped rather than
-  # refusing a rework the writer cannot key.
-
-  @rework_attempt_limit 3
-
-  @doc false
+  defdelegate effective_runtime_seconds(entry, now), to: __MODULE__.RunningEntries
   @spec rework_attempt_limit() :: pos_integer()
-  def rework_attempt_limit do
-    case Application.get_env(:aiur, :rework_attempt_limit) do
-      limit when is_integer(limit) and limit > 0 -> limit
-      _ -> @rework_attempt_limit
-    end
-  end
-
-  @doc false
+  defdelegate rework_attempt_limit(), to: __MODULE__.RunningEntries
   @spec rework_attempt_count(t(), String.t(), String.t() | nil) :: non_neg_integer()
-  def rework_attempt_count(%__MODULE__{} = state, issue_id, head_sha)
-      when is_binary(issue_id) do
-    if is_binary(head_sha) do
-      Map.get(state.rework_attempts, {issue_id, head_sha}, 0)
-    else
-      0
-    end
-  end
-
-  @doc false
+  defdelegate rework_attempt_count(state, issue_id, head_sha), to: __MODULE__.RunningEntries
   @spec rework_attempt_limit_reached?(t(), String.t(), String.t() | nil) :: boolean()
-  def rework_attempt_limit_reached?(%__MODULE__{} = state, issue_id, head_sha)
-      when is_binary(issue_id) do
-    rework_attempt_count(state, issue_id, head_sha) >= rework_attempt_limit()
-  end
-
-  @doc false
-  # Records that the ticket was routed to rework for `head_sha`. Called by the
-  # rework writers only after the `rework` write actually succeeded, so a failed
-  # tracker write never consumes the bound.
+  defdelegate rework_attempt_limit_reached?(state, issue_id, head_sha), to: __MODULE__.RunningEntries
   @spec bump_rework_attempt(t(), String.t(), String.t() | nil) :: t()
-  def bump_rework_attempt(%__MODULE__{} = state, issue_id, head_sha)
-      when is_binary(issue_id) do
-    if is_binary(head_sha) do
-      count = rework_attempt_count(state, issue_id, head_sha)
-      %{state | rework_attempts: Map.put(state.rework_attempts, {issue_id, head_sha}, count + 1)}
-    else
-      state
-    end
-  end
-
-  @doc false
+  defdelegate bump_rework_attempt(state, issue_id, head_sha), to: __MODULE__.RunningEntries
   @spec rework_attempt_alerted?(t(), String.t(), String.t()) :: boolean()
-  def rework_attempt_alerted?(%__MODULE__{} = state, issue_id, head_sha)
-      when is_binary(issue_id) and is_binary(head_sha) do
-    MapSet.member?(state.rework_attempt_alerted, {issue_id, head_sha})
-  end
-
-  @doc false
+  defdelegate rework_attempt_alerted?(state, issue_id, head_sha), to: __MODULE__.RunningEntries
   @spec mark_rework_attempt_alerted(t(), String.t(), String.t()) :: t()
-  def mark_rework_attempt_alerted(%__MODULE__{} = state, issue_id, head_sha)
-      when is_binary(issue_id) and is_binary(head_sha) do
-    %{state | rework_attempt_alerted: MapSet.put(state.rework_attempt_alerted, {issue_id, head_sha})}
-  end
+  defdelegate mark_rework_attempt_alerted(state, issue_id, head_sha), to: __MODULE__.RunningEntries
 end

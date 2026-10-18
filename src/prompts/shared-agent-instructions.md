@@ -68,7 +68,7 @@ waits for GitHub to report the pushed head, then rewrites the body's
 the PR. Before the PR exists it skips that step, so the order at handoff is:
 push, `gh pr create`, run `aiur pre-pr` again to refresh the body, then hand
 off. `aiur_set_ticket_state` refuses `ci-wait` and `human-review` while the
-body's `Tested head` is not the PR head.
+body fails `mix pr_body.check` at the PR head, a stale `Tested head` included.
 
 Every PR body must follow `.github/pull_request_template.md`, including its
 `## Local tests` evidence. Before each handoff, run

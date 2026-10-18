@@ -5,9 +5,12 @@ defmodule Aiur.AgentGitHubGuard.Script do
   Each guard is one shell script, kept under `priv/github_guard/<guard>/` as
   ordered fragments so every control is reviewable on its own. The fragments
   are concatenated at compile time and installed as one file: the guard decides
-  agent context from its own install directory, and a runtime `source` would
-  add agent-writable files to that security boundary. A fragment is not a
-  valid script alone and is never run alone.
+  agent context from its own install directory. The `gh` deadline launcher
+  sources its assembled body from a private, short-lived temporary file so the
+  supervising shell can preserve the wrapper path as `$0` and inherit caller
+  stdin; that file is created with private permissions and removed when the
+  supervisor exits. A fragment is not a valid script alone and is never run
+  alone.
 
   The first line of every fragment is a header naming the assembled guard. It
   is dropped during assembly; a fragment without it fails compilation.
@@ -18,7 +21,7 @@ defmodule Aiur.AgentGitHubGuard.Script do
   # directory in file-name order, so list order and name order must agree.
   @parts [
     gh: ~w(
-      00-identity 10-classify 15-disposition 20-merge-gate 30-state-cache-shapes
+      00-deadline 00-identity 10-classify 15-disposition 20-merge-gate 30-state-cache-shapes
       35-state-cache-store 40-broker 50-paginated-api 55-holds 60-output
     ),
     git: ~w(00-destructive 10-worktree-push)

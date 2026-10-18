@@ -8,6 +8,8 @@ on:
         required: true
         type: string
   pull_request:
+    # Drafts skip until ready_for_review; a close only cancels the PR's queued run (#4942).
+    types: [opened, synchronize, reopened, ready_for_review, closed]
     paths:
       - "website/**"
       - "components.json"
@@ -36,7 +38,9 @@ concurrency:
 
 jobs:
   guards:
+    if: ${{ github.event.pull_request.draft != true && github.event.action != 'closed' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: website
@@ -87,6 +91,7 @@ jobs:
       - name: Test brand accessibility and theme navigation
         run: npm run test:brand
       - name: Test visual regressions
+        timeout-minutes: 8
         run: |
           npm run test:visual:docker
       - name: Upload visual test results on failure

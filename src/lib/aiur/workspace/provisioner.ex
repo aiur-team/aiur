@@ -86,6 +86,18 @@ defmodule Aiur.Workspace.Provisioner do
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
   def ensure_workspace(workspace, nil, pr_head_ref, branch_name, lifecycle, start_point)
       when is_binary(branch_name) do
+    with :ok <- Bootstrap.set_aside_runtime_scratch(workspace) do
+      ensure_local_workspace(workspace, pr_head_ref, branch_name, lifecycle, start_point)
+    end
+  end
+
+  def ensure_workspace(workspace, worker_host, _pr_head_ref, _branch_name, lifecycle, _start_point)
+      when is_binary(worker_host) do
+    Bootstrap.record_prewarm_point(lifecycle, :remote, :unavailable)
+    ensure_workspace(workspace, worker_host)
+  end
+
+  defp ensure_local_workspace(workspace, pr_head_ref, branch_name, lifecycle, start_point) do
     cond do
       Checkout.valid_workspace?(workspace) ->
         Bootstrap.record_prewarm_point(lifecycle, :existing, :skipped)
@@ -114,28 +126,11 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
-  def ensure_workspace(workspace, worker_host, _pr_head_ref, _branch_name, lifecycle, _start_point)
-      when is_binary(worker_host) do
-    Bootstrap.record_prewarm_point(lifecycle, :remote, :unavailable)
-    ensure_workspace(workspace, worker_host)
-  end
-
   @spec ensure_workspace(Path.t(), worker_host()) ::
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
   def ensure_workspace(workspace, nil) do
-    cond do
-      Checkout.valid_workspace?(workspace) ->
-        {:ok, workspace, false}
-
-      File.dir?(workspace) and Bootstrap.git_metadata_present?(workspace) ->
-        {:ok, workspace, false}
-
-      true ->
-        case workspace_readiness(workspace) do
-          :ready -> {:ok, workspace, false}
-          :bootstrap -> Bootstrap.ensure_bootstrap_workspace(workspace, legacy_branch_name(workspace), nil, nil, nil)
-          {:error, reason} -> {:error, reason}
-        end
+    with :ok <- Bootstrap.set_aside_runtime_scratch(workspace) do
+      ensure_local_workspace(workspace)
     end
   end
 
@@ -153,6 +148,23 @@ defmodule Aiur.Workspace.Provisioner do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp ensure_local_workspace(workspace) do
+    cond do
+      Checkout.valid_workspace?(workspace) ->
+        {:ok, workspace, false}
+
+      File.dir?(workspace) and Bootstrap.git_metadata_present?(workspace) ->
+        {:ok, workspace, false}
+
+      true ->
+        case workspace_readiness(workspace) do
+          :ready -> {:ok, workspace, false}
+          :bootstrap -> Bootstrap.ensure_bootstrap_workspace(workspace, legacy_branch_name(workspace), nil, nil, nil)
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 

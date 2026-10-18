@@ -10,15 +10,15 @@ on:
     - cron: '23 7 * * *'
   # Manual head checks when pull_request synchronize does not create runs (#2397).
   workflow_dispatch:
-# Initial PR runs supersede each other; queue groups and reruns stay independent.
+# PR runs (merge-queue-ci.yml joins on enqueue) and main pushes supersede; queue groups and reruns don't.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && (github.event.action != 'labeled' || github.event.label.name == 'ci:full') }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ format('{0}-{1}', github.run_attempt == 1 && (github.event_name == 'pull_request' && github.event.pull_request.number || github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main') || github.run_id, github.run_attempt) }}
+  cancel-in-progress: ${{ github.run_attempt == 1 && (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci:full')) }}
 jobs:
-  # PRs run fast checks unless ci:full or base policy opts into the full set.
+  # PRs run fast checks unless ci:full or base policy opts into the full set; drafts run none until ready_for_review (#4942).
   # Only ci gate is required: it rejects skipped jobs in the selected set.
   changes:
-    name: changes
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: { contents: read, pull-requests: read }
@@ -93,7 +93,7 @@ jobs:
       - name: Test CI change classifier
         run: bash scripts/test-classify-ci-changes.sh
       - name: Test CI concurrency
-        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py
+        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-check-test-time-bombs.py
       - name: Verify live merge rulesets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -144,7 +144,7 @@ jobs:
         run: make build
   lint:
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -444,7 +444,7 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make dialyzer
   browser:
-    name: browser smoke (${{ matrix.shard }}/5)
+    name: browser smoke (${{ matrix.shard }}/7)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
@@ -454,12 +454,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { shard: 1, verify_fixtures: true, upload_evidence: true }
-          - { shard: 2, visual_regression: first }
-          - { shard: 3 }
-          - { shard: 4 }
-          - { shard: 5, visual_regression: second }
+        shard: [1, 2, 3, 4, 5, 6, 7]
+        include: [{ shard: 1, verify_fixtures: true, upload_evidence: true },
+          { shard: 2, visual_regression: first },
+          { shard: 5, visual_regression: second },
+          { shard: 7, upload_evidence: true }]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -623,7 +622,7 @@ jobs:
   ci-gate:
     name: ci gate
     needs: [changes, workflow-security, pre-handoff, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

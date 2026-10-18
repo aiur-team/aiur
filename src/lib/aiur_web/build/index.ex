@@ -2,7 +2,8 @@ defmodule AiurWeb.Build.Index do
   @moduledoc "One async, coalescing build-home index per dashboard daemon."
   use GenServer
   alias Aiur.BuildOrder.Index, as: Core
-  alias AiurWeb.Build.{Freshness, IndexReader}
+  alias AiurWeb.Build.{Freshness, HistoryCarry, IndexReader}
+  require Logger
   @window 250
   @signals %{
     build_order_history_changed: ~w(history health catch_up planned not_queued)a,
@@ -55,7 +56,8 @@ defmodule AiurWeb.Build.Index do
         table = :ets.new(__MODULE__, [:protected, read_concurrency: true])
         :ets.insert(table, {:generation, 0})
 
-        {:ok, %{parts: %{}, index: {:error, :loading}, generation: 0, dirty: MapSet.new(), timer: nil, task: nil, daemon: nil, daemon_task: nil, waiting: [], table: table, opts: opts},
+        {:ok,
+         %{parts: %{}, index: {:error, :loading}, generation: 0, dirty: MapSet.new(), timer: nil, task: nil, daemon: nil, daemon_task: nil, waiting: [], table: table, opts: opts, history_at: nil},
          {:continue, :load}}
 
       {:error, reason} ->
@@ -72,6 +74,8 @@ defmodule AiurWeb.Build.Index do
   @impl true
   def handle_call(:table, from, %{index: {:error, :loading}} = state), do: {:noreply, %{state | waiting: [from | state.waiting]}}
   def handle_call(:table, _from, state), do: {:reply, {:ok, state.table, clock(state)}, state}
+  # Answers while the index still loads, so a mount can show the last daemon reading at once (#4915).
+  def handle_call(:daemon, _from, state), do: {:reply, state.daemon, state}
 
   def handle_call({:earlier, before, zone, days}, _from, state) do
     reply = with {:ok, index} <- state.index, do: Core.earlier(index, before, zone, days)
@@ -98,21 +102,22 @@ defmodule AiurWeb.Build.Index do
   def handle_info({ref, parts}, %{task: %{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
     Process.cancel_timer(state.task.deadline)
-    {:noreply, finish(%{state | task: nil}, parts)}
+    {:noreply, finish(%{state | task: nil}, parts, state.task.dirty)}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref, dirty: keys}} = state) do
-    require Logger
-    Logger.warning("build_index read_task_failed=#{inspect(reason)}")
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref, dirty: dirty}} = state) do
     Process.cancel_timer(state.task.deadline)
-    keys = if keys == :all, do: Map.keys(state.parts) ++ ~w(settings history now planned not_queued)a, else: MapSet.to_list(keys)
-    parts = Enum.reduce(keys, state.parts, &Map.put(&2, &1, {:error, :read_failed}))
-    {:noreply, finish(%{state | task: nil}, parts)}
+    keys = if dirty == :all, do: Map.keys(state.parts) ++ ~w(settings history now planned not_queued)a, else: MapSet.to_list(dirty)
+    failure = if state.task[:timed_out?], do: :timeout, else: :read_failed
+    Logger.warning("build_index read_task_failed=#{inspect(reason, limit: 20, printable_limit: 200)} failure=#{failure} parts=#{Enum.join(Enum.uniq(keys), ",")}")
+    parts = Enum.reduce(keys, state.parts, &Map.put(&2, &1, {:error, failure}))
+    {:noreply, finish(%{state | task: nil}, parts, dirty)}
   end
 
   def handle_info({:read_timeout, ref}, %{task: %{ref: ref, pid: pid}} = state) do
+    Logger.warning("build_index read_timeout after_ms=#{Keyword.get(state.opts, :read_timeout, 3_500)} stack=#{inspect(Process.info(pid, :current_stacktrace), limit: 8)}")
     Process.exit(pid, :kill)
-    {:noreply, state}
+    {:noreply, put_in(state.task[:timed_out?], true)}
   end
 
   def handle_info(:daemon_tick, %{daemon_task: nil} = state) do
@@ -178,12 +183,13 @@ defmodule AiurWeb.Build.Index do
     %{state | dirty: MapSet.new(), task: %{ref: task.ref, pid: task.pid, dirty: keys, deadline: deadline}}
   end
 
-  defp finish(state, parts) do
+  defp finish(state, parts, keys) do
+    {parts, history_at} = HistoryCarry.carry(state.parts, parts, keys, state.history_at, clock(state))
     next = Core.assemble(parts, now: clock(state))
     changes = changes(state.index, next)
     generation = if changes, do: state.generation + 1, else: state.generation
     if changes, do: broadcast(state, Map.merge(changes, %{index_generation: generation, now: clock(state)}))
-    state = %{state | parts: parts, index: next, generation: generation}
+    state = %{state | parts: parts, index: next, generation: generation, history_at: history_at}
     :ets.insert(state.table, {:index, with({:ok, index} <- next, do: {:ok, Core.base(index)})})
     :ets.insert(state.table, {:generation, generation})
     Enum.each(state.waiting, &GenServer.reply(&1, {:ok, state.table, clock(state)}))

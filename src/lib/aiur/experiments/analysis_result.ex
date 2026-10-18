@@ -10,12 +10,20 @@ defmodule Aiur.Experiments.AnalysisResult do
 
       {:ok, %{"body" => %{"schema_version" => "experiment-result/v1", "experiment_id" => ^id, "metrics" => metrics, "group_order" => [a, b]} = body}}
       when is_map(metrics) and is_binary(a) and is_binary(b) and a != b ->
-        if valid?(body, spec), do: {:ok, body}, else: {:error, :unreadable}
+        with :ok <- validate(body, spec), do: {:ok, body}
 
       _invalid ->
         {:error, :unreadable}
     end
   end
+
+  @spec validate(term(), map()) :: :ok | {:error, :unreadable}
+  def validate(%{"schema_version" => "experiment-result/v1", "experiment_id" => id, "metrics" => metrics, "group_order" => [a, b]} = body, spec)
+      when is_map(metrics) and is_binary(a) and is_binary(b) and a != b do
+    if id == spec["id"] and valid?(body, spec), do: :ok, else: {:error, :unreadable}
+  end
+
+  def validate(_body, _spec), do: {:error, :unreadable}
 
   defp valid?(body, spec) do
     minimum = get_in(body, ["defaults", "min_samples"])

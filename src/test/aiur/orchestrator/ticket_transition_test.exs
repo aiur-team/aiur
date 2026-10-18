@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.TicketTransitionTest do
   use Aiur.TestSupport
   import ExUnit.CaptureLog
-  alias Aiur.{Issue, Tracker, Workflow}
+  alias Aiur.{Issue, TicketMarkers, Tracker, Workflow}
   alias Aiur.Orchestrator.{PauseResume, TicketTransition}
   alias Aiur.PRLifecycle.ReworkRequeue
 
@@ -113,16 +113,16 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
     end
   end
 
-  test "marker writes record action and label, including failures" do
-    assert :ok = TicketTransition.write_marker("7", :add, "agent:paused", writer: :pause_resume)
+  test "public marker writes record action and label, including failures" do
+    assert :ok = TicketMarkers.write("7", :add, "agent:paused", writer: :pause_resume)
     assert_received {:memory_tracker_add_label, "7", "agent:paused"}
     assert_received {[:aiur, :ticket_transition], _, %{action: :add, to: "agent:paused", writer: :pause_resume, outcome: :ok}}
-    assert :ok = TicketTransition.write_marker("7", :remove, "agent:paused", writer: :pause_resume)
+    assert :ok = TicketMarkers.write("7", :remove, "agent:paused", writer: :pause_resume)
     assert {:ok, [%Issue{labels: []}]} = Tracker.fetch_issue_states_by_ids(["7"])
     assert_received {[:aiur, :ticket_transition], _, %{action: :remove, to: "agent:paused", writer: :pause_resume, outcome: :ok}}
     use_client()
     Process.put(:transition_result, {:error, {:github, :timeout, %{reason: :timeout}}})
-    assert {:error, {:github, :timeout, %{reason: :timeout}}} = TicketTransition.write_marker("7", :add, "agent:paused", writer: :pause_resume)
+    assert {:error, {:github, :timeout, %{reason: :timeout}}} = TicketMarkers.write("7", :add, "agent:paused", writer: :pause_resume)
     assert_received {[:aiur, :ticket_transition], _, %{action: :add, outcome: :unknown}}
   end
 
