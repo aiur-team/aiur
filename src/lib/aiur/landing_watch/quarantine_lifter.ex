@@ -4,7 +4,7 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   require Logger
 
   alias Aiur.Config.TrackerSettings
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
   alias Aiur.GitHub.{Errors, Transport}
   alias Aiur.LandingWatch.Journal
 
@@ -30,7 +30,7 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
 
   @impl true
   def init(opts) do
-    if Keyword.get(opts, :subscribe?, true), do: :ok = Exchange.subscribe("ticket.*.pr.merged")
+    if Keyword.get(opts, :subscribe?, true), do: :ok = Events.subscribe("ticket.*.pr.merged")
     {:ok, opts}
   end
 

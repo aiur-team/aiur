@@ -1,7 +1,7 @@
 defmodule Aiur.PrMerge.Record do
   @moduledoc false
   alias Aiur.ControlCLI.Protocol
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
   alias Aiur.GitHub.Transport
   alias Aiur.JSONSafe
   @spec append(map(), String.t()) :: :ok | {:error, term()}
@@ -82,7 +82,7 @@ defmodule Aiur.PrMerge.Record do
          } <- raw,
          true <- base == settings.tracker.base_branch and is_binary(actor) and is_binary(merged_at),
          verified <- %{repo: repo, pr: number, sha: head, merged_sha: merged_sha, state: "merged", actor: actor, merged_at: merged_at},
-         {:ok, _id, _subscribers} <- Keyword.get(opts, :publish, &Publisher.publish/3).("system.pr.merged", verified, source: :pr_merge_cli) do
+         {:ok, _id, _subscribers} <- Keyword.get(opts, :publish, &Events.publish/3).("system.pr.merged", verified, source: :pr_merge_cli) do
       :ok
     else
       _ -> {:error, :unverified_merge}

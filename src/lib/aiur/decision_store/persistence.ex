@@ -16,7 +16,7 @@ defmodule Aiur.DecisionStore.Persistence do
   alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.DecisionStore.Requests
   alias Aiur.DecisionStore.RetainedSnapshot
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
   alias Aiur.Journal
   alias Aiur.Signal
 
@@ -223,7 +223,7 @@ defmodule Aiur.DecisionStore.Persistence do
     topic = "ticket.#{decision.ticket.identifier}.agent.decision.#{Requests.lifecycle_slug(event.type)}"
 
     try do
-      Publisher.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id, digest_source: :orchestrator)
+      Events.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id, digest_source: :orchestrator)
     rescue
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end
