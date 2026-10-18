@@ -1,4 +1,6 @@
 defmodule Aiur.GitHub.ResourceStore.CheckpointTest do
+  # These tests share the real store lifecycle because each guards the relation
+  # between ETS mutations, cached checkpoint rows, periodic writes, and restart.
   use Aiur.TestSupport
 
   alias Aiur.GitHub.ResourceStore
@@ -140,6 +142,28 @@ defmodule Aiur.GitHub.ResourceStore.CheckpointTest do
     assert %{"data" => %{"generation" => 2}} = entries["issue|owner|repo|9906"]
   end
 
+  test "delete and recreate cannot reuse a cached key revision", %{path: path} do
+    restart_store!(path)
+    key = ResourceStore.key(:issue, "owner", "repo", 9913)
+    ResourceStore.put_resource(key, %{"generation" => 1})
+    [{^key, stale_entry}] = :ets.lookup(Aiur.GitHub.ResourceStore.Table, key)
+
+    encoded =
+      Checkpoint.cached_entry(Aiur.GitHub.ResourceStore.Table, key, stale_entry, fn current ->
+        assert :ok = ResourceStore.forget(key)
+        assert :ok = ResourceStore.put_resource(key, %{"generation" => 2})
+
+        [Jason.encode!("issue|owner|repo|9913"), ?:, Jason.encode!(%{"data" => current.data})]
+      end)
+
+    assert %{"issue|owner|repo|9913" => %{"data" => %{"generation" => 1}}} =
+             Jason.decode!("{#{IO.iodata_to_binary(encoded)}}")
+
+    assert :ok = ResourceStore.flush()
+    assert %{"entries" => entries} = read_checkpoint(path)
+    assert %{"data" => %{"generation" => 2}} = entries["issue|owner|repo|9913"]
+  end
+
   test "clear persists removed entries on a periodic checkpoint", %{path: path} do
     restart_store!(path)
     key = ResourceStore.key(:issue, "owner", "repo", 9907)
@@ -181,6 +205,35 @@ defmodule Aiur.GitHub.ResourceStore.CheckpointTest do
     restart_store!(path)
     assert ResourceStore.data(old_key) == nil
     assert [{{:sub_issue, "owner", "repo", "new"}, _entry}] = ResourceStore.list(:sub_issue, "owner", "repo")
+  end
+
+  test "membership replacement refreshes retained keys and evicts removed cache rows", %{path: path} do
+    restart_store!(path)
+
+    assert :ok =
+             ResourceStore.replace_membership("owner", "repo", [], [
+               {"retained", %{"generation" => 1}},
+               {"removed", %{"generation" => 1}}
+             ])
+
+    assert :ok = ResourceStore.flush()
+    retained_key = ResourceStore.key(:sub_issue, "owner", "repo", "retained")
+    removed_key = ResourceStore.key(:sub_issue, "owner", "repo", "removed")
+    expected = ResourceStore.list(:sub_issue, "owner", "repo") |> Enum.sort()
+
+    assert :ok =
+             ResourceStore.replace_membership("owner", "repo", expected, [
+               {"retained", %{"generation" => 2}}
+             ])
+
+    checkpoint_result!(:written)
+    entries = read_checkpoint(path)["entries"]
+    assert %{"data" => %{"generation" => 2}} = entries["sub_issue|owner|repo|retained"]
+    refute Map.has_key?(entries, "sub_issue|owner|repo|removed")
+    assert :ets.lookup(Checkpoint.EncodedEntries, removed_key) == []
+    restart_store!(path)
+    assert ResourceStore.data(retained_key) == %{"generation" => 2}
+    assert ResourceStore.data(removed_key) == nil
   end
 
   test "sweep deletions persist on a periodic checkpoint", %{path: path} do
