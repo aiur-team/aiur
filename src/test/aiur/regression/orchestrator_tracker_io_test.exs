@@ -9,11 +9,9 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   alias Aiur.GitHub.{Config, DispatchAuthorization, ReadCache, Transport}
   alias Aiur.Orchestrator.{Dispatcher, GlobalPause, OperatorMessages, PauseResume, PriorityControl, RetryEngine, SnapshotStore, StatusReport}
 
-  # Handlers answer inside the production control budget. A short owner step
-  # still fsyncs its durable stores, which took seconds on a loaded host, so a
-  # tighter budget timed out without any tracker work in the owner. The tracker
-  # barriers in these cases are held until released, so a handler that blocks
-  # on the tracker still never answers.
+  # Handlers answer inside the production control budget. Local store fsyncs took seconds on a loaded host,
+  # so a tighter budget timed out without tracker work in the owner. The tracker barriers remain held until
+  # released, so a handler that blocks on the tracker still never answers.
   @control_budget_ms 5_000
   @answer_ms @control_budget_ms + 1_000
 
@@ -481,10 +479,12 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   end
 
   defp trace_handler_io(server) do
-    # Workspace callbacks read config locally; they are not tracker I/O.
+    # Config/provider lookups, error formatting and cache scope are local; underlying tracker I/O remains traced.
     tracker_patterns =
       Enum.flat_map([{Aiur.Tracker.IssueTracker, Aiur.Tracker}, {Aiur.Tracker.CodeHost, Aiur.CodeHost}], fn {behaviour, facade} ->
-        for {function, arity} <- behaviour.behaviour_info(:callbacks), function not in [:open_issue_labels, :clone_url, :workspace_repo_segment], do: {facade, function, arity}
+        for {function, arity} <- behaviour.behaviour_info(:callbacks),
+            function not in [:open_issue_labels, :clone_url, :workspace_repo_segment, :ci_readiness, :format_preflight_error, :with_poll_cycle],
+            do: {facade, function, arity}
       end)
 
     patterns =
@@ -509,7 +509,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     Enum.each(patterns, &:erlang.trace_pattern(&1, false, [:local]))
 
     Enum.each(patterns, fn {module, function, _arity} ->
-      refute_received {:trace, ^server, :call, {^module, ^function, _args}}, "an orchestrator handler performed remote work"
+      refute_received {:trace, ^server, :call, {^module, ^function, _args}}, "an orchestrator handler performed remote work: #{inspect(module)}.#{function}"
     end)
   end
 
