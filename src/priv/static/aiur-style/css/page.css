@@ -1,0 +1,73 @@
+/* Dashboard AS-02 reference: f03be54a9. Values preserved. */
+@layer aiur.components {
+  .aiur-page {
+    display: grid;
+    min-width: 0;
+    gap: 1rem;
+  }
+  .aiur-page__header {
+    min-width: 0;
+  }
+  .aiur-page__eyebrow {
+    margin: 0;
+    color: var(--aiur-color-muted-app);
+    font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .aiur-page__title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0.25rem 0 0;
+    font-family: "Bungee", "Space Grotesk", "Avenir Next", sans-serif;
+    font-size: clamp(1.15rem, 2.2vw, 1.6rem);
+    font-weight: 400;
+    letter-spacing: 0.02em;
+  }
+  .aiur-page__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.5em;
+    height: 1.5em;
+    border-radius: 0.42em;
+    background: var(--aiur-color-surface-2);
+    border: 1px solid var(--aiur-color-line);
+    color: var(--aiur-color-accent-ink);
+  }
+  .aiur-page__icon svg {
+    display: block;
+    width: 0.82em;
+    height: 0.82em;
+  }
+  .aiur-page__back {
+    text-decoration: none;
+  }
+  .aiur-page__back:hover {
+    background: var(--aiur-color-surface-3);
+    border-color: var(--aiur-color-line-strong);
+  }
+  .aiur-page__back:focus-visible {
+    outline: 2px solid var(--aiur-color-accent);
+    outline-offset: 2px;
+  }
+  .aiur-page__description {
+    max-width: 52rem;
+    margin: 0.35rem 0 0;
+    color: var(--aiur-color-muted-app);
+    font-size: 0.9rem;
+  }
+  @media (min-width: 960px) {
+    .aiur-page {
+      max-width: var(--aiur-shell-measure);
+      width: 100%;
+      margin-inline: auto;
+      padding-inline: 1.15rem;
+      padding-block-end: 1rem;
+    }
+  }
+}
