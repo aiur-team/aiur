@@ -123,7 +123,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedProjectionTest do
     newest = put_in(template, [:provenance, :time_range, :end], timestamps["new"])
     older = put_in(template, [:provenance, :time_range, :end], timestamps["old"])
 
-    index_loader = fn boot -> {:ok, timestamps[boot], 100, 80 * 1024 * 1024} end
+    index_loader = fn boot -> {:ok, timestamps[boot], 100, 30 * 1024 * 1024} end
 
     dataset_loader = fn boot ->
       send(parent, {:decoded_summary, boot})
@@ -158,17 +158,32 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedProjectionTest do
       {:ok, dataset}
     end
 
-    assert {:error, :retained_unreadable} =
+    assert {:error, :retained_scan_limited} =
              SummaryMerge.load(
                Path.join(root, "missing.ndjson"),
                "live",
                summary_index_loader: index_loader,
                summary_dataset_loader: dataset_loader,
-               max_scan_bytes: 256 * 1024 * 1024
+               max_scan_bytes: 1
              )
 
     assert_receive {:indexed_oversized, "oversized"}, 100
     refute_receive :decoded_oversized, 100
+  end
+
+  test "the full-log presenter reports scan limits without claiming summaries are corrupt", %{root: root} do
+    path = Summaries.run_summary_path("limited")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "{}")
+
+    opts = [
+      max_scan_bytes: 1,
+      summary_index_loader: fn _boot -> {:ok, "2026-07-12T00:00:16Z", 100, 2} end,
+      summary_dataset_loader: fn _boot -> flunk("scan budget must reject this summary before decoding") end
+    ]
+
+    assert {:unavailable, :retained_scan_limited} =
+             Presenter.load(Keyword.merge(opts, session: :cross, telemetry_file: Path.join(root, "missing.ndjson")))
   end
 
   defp analyzable?(dataset), do: map_size(dataset.tickets) > 0

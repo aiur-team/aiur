@@ -23,7 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   @type model :: %{
           available?: boolean(),
-          retained_runs: %{included: non_neg_integer(), total: non_neg_integer()} | nil,
+          retained_runs: map() | nil,
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
           source_boot_id: String.t() | nil,
           source_observed_at: String.t() | nil,
@@ -82,7 +82,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           LatestRun.load(file, current_boot_id(), analyzable?, opts)
 
         :cross ->
-          cross_session(file)
+          cross_session(file, opts)
 
         _other ->
           Dataset.build(file, [])
@@ -95,14 +95,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       {:error, {:no_telemetry_files, _paths}} ->
         {:unavailable, :no_telemetry}
 
-      {:error, :retained_unreadable} ->
-        {:unavailable, :retained_unreadable}
+      {:error, reason} when reason in [:retained_unreadable, :retained_scan_limited] ->
+        {:unavailable, reason}
     end
   rescue
     _error -> {:unavailable, :error}
   end
 
-  defp cross_session(file), do: SummaryMerge.load(file, current_boot_id())
+  defp cross_session(file, opts), do: SummaryMerge.load(file, current_boot_id(), opts)
 
   # A readable stream that contains nothing for this scope is "no telemetry", not
   # a zero-cost build: rendering empty charts and zeroed KPIs would claim a build

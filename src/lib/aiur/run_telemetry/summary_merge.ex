@@ -4,8 +4,10 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
   alias Aiur.RunTelemetry.{Dataset, RetainedCache, Summaries, SummaryIndex, SummaryReader}
 
   @projection_budget_bytes 24 * 1024 * 1024
-  @max_summary_bytes 128 * 1024 * 1024
-  @max_scan_bytes 128 * 1024 * 1024
+  # Live decode throughput is about 10 MB/s under load. Keep the cold pass
+  # below five seconds while leaving room for indexing and projection work.
+  @max_scan_bytes 45 * 1024 * 1024
+  @large_summary_bytes 128 * 1024 * 1024
 
   @doc "Loads and merges retained projections one boot at a time."
   @spec load(Path.t(), String.t() | nil) :: {:ok, map()} | {:error, term()}
@@ -16,7 +18,7 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
     if summaries == [] do
       bounded_raw(file)
     else
-      key = RetainedCache.identity(current)
+      key = Keyword.get_lazy(opts, :cache_identity, fn -> RetainedCache.identity(current) end)
       retained = RetainedCache.fetch(__MODULE__, key, fn -> load_retained(summaries, opts) end, max_value_bytes: 24 * 1024 * 1024)
 
       with {:ok, dataset} <- retained, do: {:ok, merge_live(file, current, dataset)}
@@ -33,7 +35,7 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
   end
 
   defp load_retained(summaries, opts) do
-    datasets =
+    {datasets, _scan_bytes, skipped_large} =
       summaries
       |> index_summaries(opts)
       |> decode_summaries(opts)
@@ -41,23 +43,30 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
     case datasets do
       datasets when is_list(datasets) and datasets != [] ->
         case trim(datasets) do
-          :unfit -> {:error, :retained_unreadable}
-          {included, merged} -> {:ok, Map.put(merged, :retained_runs, %{included: length(included), total: length(summaries)})}
+          :unfit ->
+            {:error, :retained_unreadable}
+
+          {included, merged} ->
+            {:ok,
+             Map.put(merged, :retained_runs, %{
+               included: length(included),
+               total: length(summaries),
+               skipped_large: skipped_large
+             })}
         end
 
       _other ->
-        {:error, :retained_unreadable}
+        if skipped_large > 0, do: {:error, :retained_scan_limited}, else: {:error, :retained_unreadable}
     end
   end
 
   defp index_summaries(summaries, opts) do
     index_loader = Keyword.get(opts, :summary_index_loader, &SummaryIndex.time_range_end/1)
-    max_summary_bytes = Keyword.get(opts, :max_summary_bytes, @max_summary_bytes)
 
     summaries
     |> Enum.reduce([], fn boot, entries ->
       case index_loader.(boot) do
-        {:ok, observed_at, _tail_bytes, file_bytes} when file_bytes <= max_summary_bytes ->
+        {:ok, observed_at, _tail_bytes, file_bytes} ->
           [{observed_at, boot, file_bytes} | entries]
 
         _other ->
@@ -70,31 +79,47 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
   defp decode_summaries(entries, opts) do
     dataset_loader = Keyword.get(opts, :summary_dataset_loader, &Summaries.load_dataset/1)
     max_scan_bytes = Keyword.get(opts, :max_scan_bytes, @max_scan_bytes)
+    allow_large_fallback = not Keyword.has_key?(opts, :summary_dataset_loader)
 
-    {datasets, _used_bytes} =
-      Enum.reduce_while(entries, {[], 0}, fn entry, acc ->
-        decode_summary(entry, acc, dataset_loader, max_scan_bytes)
+    {datasets, used_bytes, skipped_large} =
+      Enum.reduce_while(entries, {[], 0, 0}, fn entry, acc ->
+        decode_summary(entry, acc, dataset_loader, max_scan_bytes, length(entries), allow_large_fallback)
       end)
 
-    datasets
+    {datasets, used_bytes, skipped_large}
   end
 
-  defp decode_summary({_observed_at, boot, file_bytes}, {datasets, used_bytes} = acc, loader, max_scan_bytes) do
+  defp decode_summary({_observed_at, _boot, file_bytes}, {datasets, used_bytes, skipped}, _loader, max_scan_bytes, _entry_count, _allow_large_fallback)
+       when used_bytes + file_bytes > max_scan_bytes and datasets != [] do
+    {:cont, {datasets, used_bytes, skipped + 1}}
+  end
+
+  defp decode_summary({_observed_at, boot, file_bytes}, {datasets, used_bytes, skipped}, loader, _max_scan_bytes, 1, true)
+       when datasets == [] and file_bytes > @large_summary_bytes do
+    # A sole retained run remains usable: SummaryReader bounds the decoded
+    # projection in memory while streaming its materialized source.
+    load_candidate(boot, datasets, used_bytes, skipped, file_bytes, loader)
+  end
+
+  defp decode_summary({_observed_at, boot, file_bytes}, {datasets, used_bytes, skipped}, loader, max_scan_bytes, _entry_count, _allow_large_fallback) do
     if used_bytes + file_bytes > max_scan_bytes do
-      {:halt, acc}
+      {:cont, {datasets, used_bytes, skipped + 1}}
     else
-      load_candidate(boot, datasets, used_bytes, file_bytes, loader)
+      load_candidate(boot, datasets, used_bytes, skipped, file_bytes, loader)
     end
   end
 
-  defp load_candidate(boot, datasets, used_bytes, file_bytes, loader) do
+  defp load_candidate(boot, datasets, used_bytes, skipped, file_bytes, loader) do
     case loader.(boot) do
       {:ok, dataset} ->
         candidate = [dataset | datasets] |> Enum.sort_by(&get_in(&1, [:provenance, :time_range, :end]), :desc)
-        if :erlang.external_size(candidate) <= @projection_budget_bytes, do: {:cont, {candidate, used_bytes + file_bytes}}, else: {:halt, {datasets, used_bytes}}
+
+        if :erlang.external_size(candidate) <= @projection_budget_bytes,
+          do: {:cont, {candidate, used_bytes + file_bytes, skipped}},
+          else: {:halt, {datasets, used_bytes, skipped}}
 
       {:error, _reason} ->
-        {:cont, {datasets, used_bytes + file_bytes}}
+        {:cont, {datasets, used_bytes + file_bytes, skipped}}
     end
   end
 

@@ -99,14 +99,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
 
   defp index_summary(boot_id, {indexed, unreadable?}, opts) do
     index_loader = Keyword.get(opts, :summary_index_loader, &SummaryIndex.time_range_end/1)
-    max_summary_bytes = Keyword.get(opts, :max_summary_bytes, 128 * 1024 * 1024)
 
     case index_loader.(boot_id) do
-      {:ok, observed_at, _bytes_read, file_bytes} when file_bytes <= max_summary_bytes ->
+      {:ok, observed_at, _bytes_read, _file_bytes} ->
         {[{observed_at, boot_id} | indexed], unreadable?}
-
-      {:ok, _observed_at, _bytes_read, _file_bytes} ->
-        {indexed, true}
 
       {:error, _reason, _bytes_read, _file_bytes} ->
         {indexed, true}
