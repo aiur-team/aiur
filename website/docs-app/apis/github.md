@@ -132,3 +132,7 @@ See [GitHub credentials and security](/apis/github-auth#human-review-base-checks
 ##### Writes stay on their own identity
 
 See [GitHub API budgets](/apis/github-budgets#credential-pooling).
+
+## Experiment analyst tickets
+
+See [Per-caller costs](/apis/github-costs#experiment-analyst-tickets) for issue creation, nonce reconciliation and cached ticket-state observations.

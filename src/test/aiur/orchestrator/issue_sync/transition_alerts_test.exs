@@ -117,6 +117,58 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlertsTest do
     assert [%{"topic" => "ticket.its-everdred/aiur#handoff.agent.handoff.human_review"}] = ExecutorWakeInbox.pending()
   end
 
+  describe "handoff wake from both the tracker refresh and the CI poll" do
+    setup do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
+      start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+      :ok
+    end
+
+    test "publishes one wake per head, filled from an approval at that head" do
+      {listener, sha} = observe_handoff_twice("handoff-approved", 4799, fn sha -> [review("APPROVED", sha)] end)
+      :sys.get_state(listener)
+
+      assert {:ok, [%{"head_sha" => ^sha, "last_review_sha" => ^sha, "needs_attention" => false, "count" => 1}]} = ExecutorWakeInbox.wait(500)
+    end
+
+    test "keeps needs_attention when the latest review is at an older head" do
+      older = String.duplicate("0", 40)
+      {listener, sha} = observe_handoff_twice("handoff-stale-review", 4800, fn _sha -> [review("APPROVED", older)] end)
+      :sys.get_state(listener)
+
+      assert {:ok, [%{"head_sha" => ^sha, "last_review_sha" => ^older, "needs_attention" => true}]} = ExecutorWakeInbox.wait(500)
+    end
+  end
+
+  defp observe_handoff_twice(name, pr_number, reviews) do
+    previous = issue(name, "in-progress")
+    current = %{previous | state: "human-review"}
+    listener = start_supervised!({ExecutorListener, name: Module.concat(__MODULE__, name), patterns: ["ticket.#{previous.identifier}.agent.handoff.human_review"]})
+    sha = 40 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower) |> binary_part(0, 40)
+    pr = %{"number" => pr_number, "head" => %{"sha" => sha}, "user" => %{"login" => "agent-bot"}}
+    :ok = ResourceStore.put_resource(ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id), pr)
+    :ok = ResourceStore.put_resource(ResourceStore.key_for_repo(:pull_request_reviews, "its-everdred/aiur", pr_number), reviews.(sha))
+
+    state =
+      IssueSync.sync_polled_issue_state(
+        %State{last_polled_issues: %{previous.id => previous}, human_review_observed_ids: MapSet.new()},
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    # The CI poll keeps its own observed set, so it sees the same flip as new.
+    _ = IssueSync.observe_human_review_handoffs(state, [current])
+    {listener, sha}
+  end
+
+  defp review(state, sha),
+    do: %{"user" => %{"login" => "reviewer"}, "state" => state, "commit_id" => sha, "submitted_at" => "2026-10-16T01:24:00Z"}
+
   test "resolves an observed error attention when the issue moves to human-review" do
     Publisher.set_tracked_fn(fn _ -> true end)
     on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)

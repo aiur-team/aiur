@@ -3,7 +3,7 @@
 # Keep the complete governed call, including broker and real-gh descendants,
 # inside one process group so a deadline can terminate every child.
 if command -v python3 >/dev/null 2>&1; then
-  exec python3 -c '
+  exec python3 -I -c '
 import os, signal, subprocess, sys, tempfile
 
 script = sys.argv[1]

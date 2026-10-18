@@ -19,8 +19,17 @@ defmodule Aiur.Events do
   @spec subscribe(String.t()) :: :ok
   defdelegate subscribe(pattern), to: Exchange
 
+  @spec subscribe(String.t(), GenServer.server()) :: :ok
+  defdelegate subscribe(pattern, server), to: Exchange
+
   @spec unsubscribe(String.t()) :: :ok
   defdelegate unsubscribe(pattern), to: Exchange
+
+  @spec unsubscribe(String.t(), GenServer.server()) :: :ok
+  defdelegate unsubscribe(pattern, server), to: Exchange
+
+  @spec specificity_score(String.t()) :: integer()
+  defdelegate specificity_score(pattern), to: Topic
 
   @spec bindings_for(pid()) :: [String.t()]
   defdelegate bindings_for(pid), to: Exchange

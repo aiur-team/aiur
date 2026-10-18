@@ -24,10 +24,13 @@ defmodule AiurWeb.Experiments.Source do
   end
 
   @spec detail(String.t()) :: {:ok, map()} | {:error, :not_found | :store_unreadable | :read_failed}
-  def detail(id), do: guarded(:detail, fn -> read_detail(id) end, {:error, :read_failed})
+  def detail(id), do: detail(id, [])
 
-  defp read_detail(id) do
-    case facade().fetch(id) do
+  @spec detail(String.t(), keyword()) :: {:ok, map()} | {:error, :not_found | :store_unreadable | :read_failed}
+  def detail(id, opts), do: guarded(:detail, fn -> read_detail(id, opts) end, {:error, :read_failed})
+
+  defp read_detail(id, opts) do
+    case facade().chart_detail(id, opts) do
       {:ok, detail} -> {:ok, detail |> ViewModel.detail(facade().metric_catalog().metrics) |> Map.put(:id, id)}
       {:error, :not_found} -> {:error, :not_found}
       {:error, _reason} -> {:error, :store_unreadable}
