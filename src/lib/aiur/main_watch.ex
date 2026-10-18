@@ -268,7 +268,7 @@ defmodule Aiur.MainWatch do
         rerun = Keyword.get(server.opts, :rerun_failed_jobs_fun, &GitHub.rerun_failed_jobs/2)
         outcome = Enum.map(runs, fn run -> {run.id, rerun.(run.id, server.opts)} end)
         payload = %{sha: observation.sha, signature: observation.digest.signature, outcome: outcome_payload(outcome), run_urls: observation.run_urls}
-        [{"system.main.ci.flake_rerun", payload}]
+        [{"system.#{server.branch}.ci.flake_rerun", payload}]
 
       _ ->
         []
@@ -277,7 +277,7 @@ defmodule Aiur.MainWatch do
 
   defp reserve_single_test_rerun(repo, sha, now, _opts) do
     # A commit SHA is immutable; keep its reservation for the maximum supported run lifetime.
-    Persistence.reserve_rerun(repo, "main-single-test:" <> sha, now, 100 * 365 * 24 * 60 * 60_000)
+    Persistence.reserve_rerun(repo, "single-test:" <> sha, now, 100 * 365 * 24 * 60 * 60_000)
   end
 
   defp flake_outcome(_runs, false, _now, _server), do: {:error, :actions_write_unavailable}

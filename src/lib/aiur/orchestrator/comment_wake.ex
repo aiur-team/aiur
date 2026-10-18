@@ -1696,20 +1696,12 @@ defmodule Aiur.Orchestrator.CommentWake do
         LocalHold.caller_opts(opts)
       )
 
-    result =
-      case target do
-        "done" ->
-          LocalHold.run(
-            fn -> update_issue_state_fun.(to_string(identifier), "done") |> Alerts.StaleNotClosed.resolve_on_ok(identifier) end,
-            LocalHold.caller_opts(Keyword.put(opts, :local_hold_max_wait_ms, 3_600_000))
-          )
+    {target, result} =
+      target
+      |> then(&MergeTransition.write_terminal_target(&1, identifier, update_issue_state_fun, opts))
+      |> then(&MergeTransition.normalize({target, &1}))
 
-        target when target in ["rework", "ci-wait", "human-review"] ->
-          update_issue_state_fun.(to_string(identifier), target)
-
-        {:error, _} = error ->
-          error
-      end
+    result = if target == "done", do: Alerts.StaleNotClosed.resolve_on_ok(result, identifier), else: result
 
     audit_merge_attribution(identifier, MergeAttribution.resolve(merged_by_login, opts), merger_allowed_fun, emit_alert_fun)
     refresh_other_closed_issues(identifier, opts)

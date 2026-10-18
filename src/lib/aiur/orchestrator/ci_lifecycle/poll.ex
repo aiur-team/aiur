@@ -5,8 +5,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
   alias Aiur.CIApprovalStore
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.GitHub.CIPollBatch
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Outcome
@@ -270,6 +269,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
           # Webhook-displaced reads have no effects; held bodies never answer CI (R10).
           state
         else
+          result = classify_merge_queue_departure(state, issue, result)
           ProgressStore.ci_identity(CiLifecycle.ci_target_for_issue(issue), result)
 
           state
@@ -283,6 +283,17 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
       _ ->
         state
+    end
+  end
+
+  defp classify_merge_queue_departure(state, issue, result) do
+    target = CiLifecycle.ci_target_for_issue(issue)
+    previous = get_in(state.ci_lifecycle, [:poll_cache, target])
+
+    if MergeQueue.failed_entry_dropped?(result, previous) do
+      Map.merge(result, %{decision: :failed, pending_reason: :merge_queue_dropped, failures: [%{name: "merge queue", kind: "merge_queue", result: "dropped after queue checks"}]})
+    else
+      result
     end
   end
 
