@@ -9,7 +9,6 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   alias Aiur.Alerts
   alias Aiur.Commands
   alias Aiur.Config
-  alias Aiur.Tracker
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.Dispatcher.Candidates
@@ -19,6 +18,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
+  alias Aiur.Tracker
 
   # The prewarm gate holds the whole fleet while the warm base builds/clones.
   # That can persist across many poll cycles, so the hold is logged at most once

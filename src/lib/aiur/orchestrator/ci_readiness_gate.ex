@@ -4,9 +4,9 @@ defmodule Aiur.Orchestrator.CiReadinessGate do
   """
 
   alias Aiur.Alerts
-  alias Aiur.Config
   alias Aiur.CodeHost
   alias Aiur.CodeHost.CiReadiness
+  alias Aiur.Config
   alias Aiur.Orchestrator.State
 
   @ci_readiness_timeout_ms 5_000

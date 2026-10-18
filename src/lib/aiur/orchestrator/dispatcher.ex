@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.CiReadinessGate
   alias Aiur.Orchestrator.CommandScan
   alias Aiur.Orchestrator.CommentPolling
   alias Aiur.Orchestrator.DispatchBatch
@@ -17,7 +18,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
   alias Aiur.Orchestrator.Dispatcher.Candidates
   alias Aiur.Orchestrator.Dispatcher.Capacity
-  alias Aiur.Orchestrator.CiReadinessGate
   alias Aiur.Orchestrator.Dispatcher.HoldsAndAlerts
   alias Aiur.Orchestrator.Dispatcher.Launch
   alias Aiur.Orchestrator.DispatchPolicy
@@ -36,8 +36,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.TrackedSet
   alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Orchestrator.TrackerTasks
-  alias Aiur.Tracker
   alias Aiur.RepoBase
+  alias Aiur.Tracker
 
   # Stable entry points; each responsibility lives under dispatcher/.
   @doc false
