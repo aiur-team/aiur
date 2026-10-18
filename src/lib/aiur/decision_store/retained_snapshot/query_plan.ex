@@ -42,8 +42,15 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   defp candidate(index, %{search: search} = query) when is_binary(search),
     do: RetainedIndex.search(index, search, ordering(query))
 
-  defp candidate(index, %{lifecycle: :open} = query), do: union(index, @open_statuses, query)
-  defp candidate(index, %{lifecycle: :awaiting} = query), do: union(index, @awaiting_statuses, query)
+  defp candidate(index, %{lifecycle: :open} = query) do
+    union(index, @open_statuses, query)
+    |> :gb_sets.union(RetainedIndex.recoverable_expired(index, ordering(query)))
+  end
+
+  defp candidate(index, %{lifecycle: :awaiting} = query) do
+    union(index, @awaiting_statuses, query)
+    |> :gb_sets.union(RetainedIndex.recoverable_expired(index, ordering(query)))
+  end
 
   defp candidate(index, %{lifecycle: lifecycle} = query) when lifecycle in @lifecycle_statuses,
     do: RetainedIndex.lifecycle(index, lifecycle, ordering(query))
@@ -64,8 +71,13 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   end
 
   defp lifecycle_match?(_decision, nil), do: true
-  defp lifecycle_match?(decision, :open), do: decision.decision_status in @open_statuses
-  defp lifecycle_match?(decision, :awaiting), do: decision.decision_status in @awaiting_statuses
+  defp lifecycle_match?(%Decision{decision_status: :expired, blocking: true, answer: nil}, :open), do: true
+  defp lifecycle_match?(decision, :open), do: decision.decision_status in [:open, :deferred]
+
+  defp lifecycle_match?(%Decision{decision_status: :expired, blocking: true, answer: nil}, :awaiting),
+    do: true
+
+  defp lifecycle_match?(decision, :awaiting), do: decision.decision_status == :open
   defp lifecycle_match?(decision, :historic), do: decision.decision_status in @historic_statuses
   defp lifecycle_match?(decision, :history), do: decision.decision_status in @history_statuses
   defp lifecycle_match?(decision, lifecycle), do: decision.decision_status == lifecycle
