@@ -246,7 +246,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     refute_received {:delivery_retry_scheduled, _, _}
     GenServer.stop(store)
 
-    assert [] = AlertFeed.list(roots: [fresh_log_root], needs_attention: true)
+    assert [] = AlertFeed.list(roots: [], log_roots: [fresh_log_root], needs_attention: true)
   end
 
   describe "classify_event_topic/1" do
