@@ -20,12 +20,24 @@ defmodule AiurWeb.Experiments.ChartsTest do
     assert forest =~ "exp-hollow"
     assert forest =~ "not enough data"
     refute forest =~ "exp-ci"
+    [forest_row] = Floki.find(Floki.parse_fragment!(forest), "tbody tr")
+    assert Enum.map(Floki.find(forest_row, "td"), &Floki.text/1) == [metric.label, "not enough data", "not enough data", "not enough data", "not enough data"]
     assert html(Charts.power([metric], detail)) =~ "needs 6 more after the line"
     distribution = html(Charts.distribution(metric)) |> Floki.parse_fragment!()
     assert length(Floki.find(distribution, "svg .exp-point")) == 16
     assert Floki.text(distribution) =~ "100 to 100.11"
     assert length(Floki.find(distribution, "table caption") |> Enum.filter(&(Floki.text(&1) == "Distribution samples"))) == 1
     assert length(Floki.find(distribution, "details:last-child tbody tr")) == 16
+  end
+
+  test "an unguarded missing effect stays unavailable in the forest and every estimate cell" do
+    metric = hd(fixture().chart_metrics) |> Map.merge(%{guarded?: false, effect: %{estimate: nil, lo: nil, hi: nil}})
+    chart = html(Charts.forest([metric])) |> Floki.parse_fragment!()
+    assert Floki.text(Floki.find(chart, "svg")) =~ "Percent change unavailable"
+    assert length(Floki.find(chart, "svg .exp-hollow")) == 1
+    assert Floki.find(chart, "svg .exp-ci") == []
+    [row] = Floki.find(chart, "tbody tr")
+    assert Enum.map(Floki.find(row, "td"), &Floki.text/1) == [metric.label, "Unavailable", "Unavailable", "Unavailable", "Stored evidence"]
   end
 
   test "AE3 expected direction occupies the negative side and crossing CI stays neutral" do

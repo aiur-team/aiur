@@ -243,6 +243,9 @@ Cohorts use both colour and marker shape; additional cohorts use numbered marker
 series scrolls within its container. Every chart has a **Show data** table.
 
 Sample meters distinguish the minimum sample guard from estimated power
-requirements. Missing estimates remain unavailable. Sample points come from
+requirements. Missing estimates and sample counts remain unavailable; captured
+empty samples show zero.
+
+Sample points come from
 frozen snapshots; if none exist, the page says so and shows only stored group
 summaries. Rolling medians appear only when supplied in the stored analysis.

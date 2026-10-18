@@ -30,9 +30,7 @@ defmodule AiurWeb.Experiments.Source do
   def detail(id, opts), do: guarded(:detail, fn -> read_detail(id, opts) end, {:error, :read_failed})
 
   defp read_detail(id, opts) do
-    result = if function_exported?(facade(), :chart_detail, 2), do: facade().chart_detail(id, opts), else: facade().fetch(id)
-
-    case result do
+    case facade().chart_detail(id, opts) do
       {:ok, detail} -> {:ok, detail |> ViewModel.detail(facade().metric_catalog().metrics) |> Map.put(:id, id)}
       {:error, :not_found} -> {:error, :not_found}
       {:error, _reason} -> {:error, :store_unreadable}

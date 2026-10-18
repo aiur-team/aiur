@@ -25,7 +25,7 @@ defmodule Aiur.Experiments.ChartData do
   defp metric(spec, result, analysis, detail, selected) do
     result = result || %{}
     result = if selected, do: get_in(result, ["strata", selected]) || %{}, else: result
-    minimum = get_in(analysis, ["defaults", "min_samples"]) || detail.spec["min_samples"]
+    minimum = spec["min_samples"] || get_in(analysis, ["defaults", "min_samples"]) || detail.spec["min_samples"]
     groups = ChartGroups.build(detail, spec["ref"], result, Map.get(analysis, "group_order", []), selected)
 
     %{
@@ -34,7 +34,7 @@ defmodule Aiur.Experiments.ChartData do
       expected: spec["direction"],
       scale: scale(result, groups),
       groups: Enum.map(groups, &Map.put(&1, :needed, samples_needed(&1.name, result))),
-      guarded?: result["status"] == "insufficient_data" or Enum.any?(groups, &(&1.n < minimum)),
+      guarded?: result["status"] == "insufficient_data" or Enum.any?(groups, &(not is_integer(&1.n) or &1.n < minimum)),
       effect: percent(get_in(result, ["effects", "median_ratio"])),
       power: Map.get(result, "power", %{}),
       minimum: minimum,

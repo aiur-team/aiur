@@ -8,18 +8,20 @@ defmodule Aiur.Experiments.ChartGroups do
     windows = Enum.map(snapshots, fn {name, snapshot} -> {name, %{source: :frozen, metrics: snapshot["metrics"] || %{}}} end)
     arms = Arms.assign(detail.spec, windows)["arms"]
     order = if order == [], do: group_order(detail.spec), else: order
-    Enum.map(order, &group(&1, get_in(result, ["groups", &1]) || %{}, get_in(arms, [&1, "metrics", ref, "observations"]) || [], detail.spec, stratum))
+    Enum.map(order, &group(&1, get_in(result, ["groups", &1]) || %{}, get_in(arms, [&1, "metrics", ref]) || %{}, detail.spec, stratum))
   end
 
-  defp group(name, summary, rows, spec, stratum) do
+  defp group(name, summary, evidence, spec, stratum) do
+    rows = evidence["observations"] || []
+    captured? = get_in(evidence, ["coverage", "state"]) in ["captured", "partial"]
     points = rows |> Enum.reject(& &1["censored"]) |> Enum.filter(&selected?(&1, spec["stratify_by"], stratum)) |> Enum.sort_by(&{&1["at"], &1["unit_id"]})
 
-    summary = descriptive(summary, points)
+    summary = if captured?, do: descriptive(summary, points), else: summary
 
     %{
       name: name,
       label: label(spec, name),
-      n: summary["n"] || length(points),
+      n: summary["n"] || if(captured?, do: length(points)),
       median: summary["median"],
       q1: summary["q1"],
       q3: summary["q3"],
