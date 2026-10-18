@@ -99,7 +99,6 @@ defmodule AiurWeb.Build.Protocol do
   end
 
   defp snapshot_reply({:error, reason}, socket, _opts), do: {:reply, Payload.error(error_reason(reason)), socket}
-  defp snapshot_reply(_error, socket, _opts), do: {:reply, Payload.error(:read_failed), socket}
 
   defp page_reply({:ok, page}, socket) do
     message = Payload.earlier(page, socket.assigns.build_epoch, socket.assigns.build_generation)
@@ -107,7 +106,6 @@ defmodule AiurWeb.Build.Protocol do
   end
 
   defp page_reply({:error, reason}, socket), do: {:reply, Payload.error(error_reason(reason)), socket}
-  defp page_reply(_error, socket), do: {:reply, Payload.error(:read_failed), socket}
 
   defp push_change(socket, changes, opts) do
     changes = if opts[:financial] == :locked, do: update_in(changes["set"], &Map.delete(&1, "usage")), else: changes
