@@ -39,7 +39,8 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
         send(parent, {:quarantine_candidate, ticket, candidate})
         {:ok, %{number: 901}}
       end,
-      cancel_fun: fn _, _ -> :ok end
+      cancel_fun: fn _, _ -> :ok end,
+      main_history_fun: fn -> [] end
     ]
 
     assert :ok = MergeGroups.cancel_stale([], opts)
@@ -73,7 +74,7 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
       end
     ]
 
-    assert :ok = MergeGroupQuarantine.process_completed([run], "main", opts)
+    assert :ok = MergeGroupQuarantine.process_completed([run], [], "main", Keyword.put(opts, :main_history_fun, fn -> [] end))
     assert_received {:changed_paths, 51}
     assert_received {:changed_paths, 52}
     refute_received {:changed_paths, _}
@@ -83,7 +84,11 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
     run = failed_run(512, "pr-53-a", "https://github.com/test-org/test-repo/actions/runs/512", "2026-10-01T10:00:00Z")
 
     assert :ok =
-             MergeGroupQuarantine.process_completed([run], "main", jobs_fun: fn _run, _opts -> flunk("stale runs must not fetch jobs") end)
+             MergeGroupQuarantine.process_completed([run], [], "main",
+               journal_path: Path.join(System.tmp_dir!(), "mgq-stale-#{System.unique_integer([:positive])}.json"),
+               main_history_fun: fn -> [] end,
+               jobs_fun: fn _run, _opts -> flunk("stale runs must not fetch jobs") end
+             )
   end
 
   defp minutes_ago(minutes), do: DateTime.utc_now() |> DateTime.add(-minutes * 60) |> DateTime.to_iso8601()
