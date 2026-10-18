@@ -255,7 +255,12 @@ defmodule Aiur.MainWatch.GitHub do
       {:ok,
        %{
          sha: sha,
-         started_at: runs |> Enum.map(& &1.started_at) |> Enum.reject(&is_nil/1) |> Enum.min(fn -> nil end),
+         started_at:
+           runs
+           |> Enum.filter(&(&1.conclusion in ["failure", "timed_out", "startup_failure"]))
+           |> Enum.map(& &1.started_at)
+           |> Enum.reject(&is_nil/1)
+           |> Enum.min(fn -> nil end),
          completed_at: runs |> Enum.map(& &1.completed_at) |> Enum.max(),
          checks: Enum.map(checks, &%{name: &1["name"], conclusion: &1["conclusion"]}),
          digest: digest,

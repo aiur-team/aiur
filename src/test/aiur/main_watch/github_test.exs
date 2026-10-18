@@ -101,7 +101,11 @@ defmodule Aiur.MainWatch.GitHubTest do
   end
 
   test "empty workflow configuration watches every push workflow" do
-    runs = [run(13, "any-red", "ci", "completed", "success"), run(14, "any-red", "build", "completed", "failure")]
+    runs = [
+      Map.put(run(13, "any-red", "ci", "completed", "success"), "created_at", "2026-10-14T09:00:00Z"),
+      Map.put(run(14, "any-red", "build", "completed", "failure"), "created_at", "2026-10-14T10:00:00Z")
+    ]
+
     checks = [check(1, 1, "success"), check(2, 2, "failure")]
 
     assert {:ok, %{observations: [observation]}} =
@@ -109,6 +113,7 @@ defmodule Aiur.MainWatch.GitHubTest do
 
     assert observation.sha == "any-red"
     assert observation.failed_workflow
+    assert observation.started_at == DateTime.to_unix(~U[2026-10-14 10:00:00Z], :millisecond)
     assert Enum.sort(Enum.map(observation.checks, &{&1.name, &1.conclusion})) == [{"test", "failure"}, {"test", "success"}]
   end
 
