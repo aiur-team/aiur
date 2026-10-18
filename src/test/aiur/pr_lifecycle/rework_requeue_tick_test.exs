@@ -156,7 +156,7 @@ defmodule Aiur.PRLifecycle.ReworkRequeueTickTest do
       assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :addressed}}} = result
     end
 
-    test "a blocking review at the current head leaves the addressed ticket in rework without writing" do
+    test "a blocking review at the current head leaves the ticket in rework without writing" do
       state =
         base_state(
           tickets_fetcher: fn -> {:ok, [issue(%{})]} end,
