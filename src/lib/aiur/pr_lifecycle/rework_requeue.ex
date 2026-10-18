@@ -61,7 +61,8 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.LocalHold
   alias Aiur.{Issue, Signal, Tracker}
-  alias Aiur.Orchestrator.{ReworkGate, TicketTransition}
+  alias Aiur.Orchestrator.TicketTransition
+  alias Aiur.PRLifecycle.PostAgentRouting
 
   @default_interval_ms 30 * 60 * 1_000
 
@@ -85,7 +86,12 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
       pull_request_approval_fetcher: Keyword.get(opts, :pull_request_approval_fetcher),
       approval_carry_classifier: Keyword.get(opts, :approval_carry_classifier),
       diff_fetcher: Keyword.get(opts, :diff_fetcher, &default_diff/1),
-      state_writer: Keyword.get(opts, :state_writer, &TicketTransition.write_state(&1, &2, writer: :rework_requeue)),
+      state_writer:
+        Keyword.get(
+          opts,
+          :state_writer,
+          &TicketTransition.write_state(&1, &2, writer: :rework_requeue)
+        ),
       alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2),
       enabled?: Keyword.get(opts, :enabled?, &default_enabled?/0),
       # Per-ticket throttle: id => %{head_sha: String.t(), classification: atom()}.
@@ -123,7 +129,11 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
   # a restart; falls back to the previous value when the workflow config is not
   # readable at that moment (early boot, mid-reload).
   defp refresh_from_config(state) do
-    Map.put(state, :next_delay_ms, config_value(&GitHubConfig.pr_health_interval_ms/0, state.interval_ms))
+    Map.put(
+      state,
+      :next_delay_ms,
+      config_value(&GitHubConfig.pr_health_interval_ms/0, state.interval_ms)
+    )
   end
 
   defp config_value(fun, fallback) do
@@ -157,7 +167,8 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
     end
   end
 
-  defp default_diff({base_sha, head_sha}), do: GitHubClient.fetch_compare_files(base_sha, head_sha)
+  defp default_diff({base_sha, head_sha}),
+    do: GitHubClient.fetch_compare_files(base_sha, head_sha)
 
   # ---------------------------------------------------------------------------
   # Scan
@@ -268,7 +279,7 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
     key = issue_key(issue)
 
     target =
-      ReworkGate.post_agent_handoff_target(pr, "human-review",
+      PostAgentRouting.route(pr, "human-review",
         reviews_fetcher: state.reviews_fetcher,
         pull_request_approval_fetcher: state.pull_request_approval_fetcher,
         approval_carry_classifier: state.approval_carry_classifier
