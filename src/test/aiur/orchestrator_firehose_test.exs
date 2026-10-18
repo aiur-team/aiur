@@ -6,7 +6,8 @@ defmodule Aiur.OrchestratorFirehoseTest do
   alias Aiur.GitHub.Listeners
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{CommentPolling, FirehosePolling, TrackerHealth}
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
+  alias Aiur.Orchestrator.{FirehosePolling, TrackerHealth}
   alias Aiur.Workflow
 
   setup do

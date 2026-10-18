@@ -8,7 +8,8 @@ defmodule Aiur.OrchestratorBlockingHttpSupport do
   alias Aiur.GitHub.{Budget, Transport}
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{CommentPolling, SnapshotStore, StatusReport}
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
+  alias Aiur.Orchestrator.{SnapshotStore, StatusReport}
 
   @locked_release_deadline_ms 1_500
 
@@ -70,12 +71,12 @@ defmodule Aiur.OrchestratorBlockingHttpSupport do
     end)
 
     assert_receive {:owned_comment_request_started, target, request}, 5_000
-    wait_until(fn -> is_pid(:sys.get_state(orchestrator).github_comment_poll.pid) end)
-    poll = :sys.get_state(orchestrator).github_comment_poll.pid
+    wait_until(fn -> is_pid(:sys.get_state(orchestrator).github_comment_cursor.poll.pid) end)
+    poll = :sys.get_state(orchestrator).github_comment_cursor.poll.pid
     {poll, target, request}
   end
 
-  def await_async_started(%Aiur.Orchestrator.State{github_comment_poll: %{ref: ref, owner: owner}} = state) do
+  def await_async_started(%Aiur.Orchestrator.State{github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{poll: %{ref: ref, owner: owner}}} = state) do
     receive do
       {:github_comment_poll_started, ^ref, ^owner, pid} ->
         CommentPolling.apply_async_started(state, ref, owner, pid)
@@ -131,7 +132,7 @@ defmodule Aiur.OrchestratorBlockingHttpSupport do
       assert_receive {:DOWN, ^work_ref, :process, ^work_process, _reason}, 5_000
     end
 
-    wait_until(fn -> :sys.get_state(orchestrator).github_comment_poll == nil end)
+    wait_until(fn -> :sys.get_state(orchestrator).github_comment_cursor.poll == nil end)
 
     refute Process.alive?(poll)
   end
@@ -155,11 +156,11 @@ defmodule Aiur.OrchestratorBlockingHttpSupport do
 
   def assert_same_poll_at_elapsed(orchestrator, opts, poll, elapsed_ms) do
     :sys.replace_state(orchestrator, fn state ->
-      state = put_in(state.github_comment_poll.started_at_ms, System.monotonic_time(:millisecond) - elapsed_ms)
+      state = put_in(state.github_comment_cursor.poll.started_at_ms, System.monotonic_time(:millisecond) - elapsed_ms)
       CommentPolling.start_async(state, opts)
     end)
 
-    current_poll = :sys.get_state(orchestrator).github_comment_poll
+    current_poll = :sys.get_state(orchestrator).github_comment_cursor.poll
     assert current_poll.ref == poll.ref
     assert current_poll.owner == poll.owner
     assert current_poll.pid == poll.pid

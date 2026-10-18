@@ -27,6 +27,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentQueueStore, Issue}
+  alias Aiur.Orchestrator.CommentPolling
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.{CommentWake, State}
 
@@ -55,8 +56,10 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: false,
-      github_comments_since: %{},
-      github_comment_issue_updated_at: %{},
+      github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+        since: %{},
+        issue_updated_at: %{}
+      },
       github_connectivity: %{},
       github_poll_delays: %{},
       github_command_scan_since: nil
@@ -133,7 +136,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     state = base_state(%{})
 
     {:ok, targets, _review_targets, _watch_targets} =
-      TargetSelection.github_comment_poll_targets(state,
+      TargetSelection.github_comment_poll_targets(state.github_comment_cursor, CommentPolling.input(state),
         review_issue_fetcher: fn states -> {:ok, Enum.filter([issue], &(&1.state in states))} end,
         review_pull_request_fetcher: fn _identifier -> {:ok, %{"number" => 337}} end
       )
