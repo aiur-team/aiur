@@ -4,8 +4,10 @@ defmodule Aiur.LandingWatch do
   require Logger
 
   alias Aiur.Alerts
+  alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, MergeGroups, Observer}
+  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, MergeGroups, Observer, PrRerun}
+  alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.PrMerge.Queue
   alias Aiur.TicketBranch
@@ -26,21 +28,28 @@ defmodule Aiur.LandingWatch do
   @impl true
   def init(opts) do
     interval = Keyword.get(opts, :interval_ms, @default_interval_ms)
+    # CI-file merges let older failed PR runs rerun instead of routing to rework.
+    if Keyword.get(opts, :subscribe, true), do: Enum.each(["system.pr.merged", "ticket.*.pr.merged", "system.main.ci.failed.resolved"], &Events.subscribe/1)
     send(self(), :poll)
-    {:ok, %{watcher: :running, last_poll_at_ms: nil, last_error: nil, interval_ms: interval, opts: opts, task: nil}}
+
+    {:ok,
+     %{watcher: :running, last_poll_at_ms: nil, last_error: nil, interval_ms: interval, opts: opts, task: nil, pending_recovery_window: nil, active_recovery_window: nil, active_recovery_attempt: 0}}
   end
 
   @impl true
-  def handle_call(:state, _from, state), do: {:reply, Map.take(state, [:watcher, :last_poll_at_ms, :last_error]), state}
+  def handle_call(:state, _from, state) do
+    extra = %{merge_group_requeues_by_hour: Journal.merge_group_requeues_by_hour(state.opts), rerun_backlog: Journal.rerun_backlog(state.opts)}
+    {:reply, Map.merge(Map.take(state, [:watcher, :last_poll_at_ms, :last_error]), extra), state}
+  end
 
   @impl true
   def handle_info(:poll, %{task: task} = state) when not is_nil(task) do
-    Process.send_after(self(), :poll, state.interval_ms)
+    schedule_poll(state)
     {:noreply, state}
   end
 
   def handle_info(:poll, state) do
-    Process.send_after(self(), :poll, state.interval_ms)
+    schedule_poll(state)
     task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> poll(state.opts) end)
     {:noreply, %{state | task: task, watcher: :running}}
   rescue
@@ -49,26 +58,62 @@ defmodule Aiur.LandingWatch do
       {:noreply, %{state | watcher: :unavailable, last_error: :poll_start_failed}}
   end
 
+  def handle_info({:event, %{topic: "system.main.ci.failed.resolved", red_since: red_since, recovered_at: recovered_at}}, state)
+      when is_integer(red_since) and is_integer(recovered_at) and red_since <= recovered_at do
+    window = {red_since, recovered_at}
+
+    case state.task do
+      nil ->
+        send(self(), {:poll_recovery, window, 0})
+        {:noreply, state}
+
+      _task ->
+        {:noreply, %{state | pending_recovery_window: {window, 0}}}
+    end
+  end
+
+  def handle_info({:poll_recovery, window, attempt}, state) do
+    if state.task do
+      {:noreply, %{state | pending_recovery_window: {window, attempt}}}
+    else
+      task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> poll(Keyword.put(state.opts, :main_ci_recovery_window, window)) end)
+      {:noreply, %{state | task: task, active_recovery_window: window, active_recovery_attempt: attempt}}
+    end
+  end
+
   def handle_info({ref, result}, %{task: %{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
     now = System.system_time(:millisecond)
 
     case result do
       :ok ->
-        {:noreply, %{state | task: nil, watcher: :running, last_poll_at_ms: now, last_error: nil}}
+        next = %{state | task: nil, watcher: :running, last_poll_at_ms: now, last_error: nil, active_recovery_window: nil, active_recovery_attempt: 0}
+        if next.pending_recovery_window, do: send(self(), RecoveryRuntime.message(next.pending_recovery_window))
+        {:noreply, %{next | pending_recovery_window: nil}}
 
       {:error, reason} ->
         Logger.warning("landing watcher poll unavailable: #{inspect(reason)}")
-        {:noreply, %{state | task: nil, watcher: :unavailable, last_poll_at_ms: now, last_error: inspect(reason)}}
+        next = %{state | task: nil, watcher: :unavailable, last_poll_at_ms: now, last_error: inspect(reason)}
+        {:noreply, RecoveryRuntime.retry_or_drain(next)}
     end
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref}} = state) do
     Logger.warning("landing watcher poll crashed: #{inspect(reason)}")
-    {:noreply, %{state | task: nil, watcher: :unavailable, last_error: inspect(reason)}}
+    next = %{state | task: nil, watcher: :unavailable, last_error: inspect(reason)}
+    {:noreply, RecoveryRuntime.retry_or_drain(next)}
+  end
+
+  def handle_info({:event, %{topic: topic} = event}, state) when is_binary(topic) do
+    Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> PrRerun.record_merge(event, state.opts) end)
+    {:noreply, state}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp schedule_poll(state) do
+    Keyword.get(state.opts, :send_after_fun, &Process.send_after/3).(self(), :poll, state.interval_ms)
+  end
 
   @doc false
   @spec poll(keyword()) :: :ok | {:error, term()}
@@ -148,7 +193,9 @@ defmodule Aiur.LandingWatch do
 
   @doc false
   @spec rework(map(), [map()], keyword()) :: :ok | {:error, term()}
-  def rework(observation, failures, opts), do: route_rework(observation, failures, opts)
+  def rework(observation, failures, opts) do
+    if Keyword.get(opts, :hold_rework, false), do: :ok, else: route_rework(observation, failures, opts)
+  end
 
   defp hydrate_failed_jobs(runs, opts) do
     runs
@@ -177,6 +224,9 @@ defmodule Aiur.LandingWatch do
     end
   end
 
+  defp handle_verdict(%{merge_queue_entry: entry}, %{decision: :pending, pending_reason: :ci_cancelled}, _runs, _opts) when is_map(entry),
+    do: :ok
+
   defp handle_verdict(observation, %{decision: :pending, pending_reason: :ci_cancelled}, runs, opts),
     do: handle_person_cancel(observation, runs, opts)
 
@@ -189,14 +239,45 @@ defmodule Aiur.LandingWatch do
   defp handle_verdict(_observation, %{decision: :pending}, _runs, _opts), do: :ok
 
   defp handle_verdict(observation, %{decision: :failed} = result, runs, opts) do
-    if Classifier.infra_failure?(result, runs) do
-      request_infra_reruns(observation, runs, opts)
-    else
-      route_rework(observation, result.failures, opts)
+    case approved_landing?(observation) do
+      :landing ->
+        :ok
+
+      :unknown ->
+        emit_landing_state_attention(observation, opts)
+
+      :not_landing ->
+        PrRerun.handle_failure(observation, result, runs, opts)
+
+      # Auto-merge never enqueues a red head, so only a rerun or refresh lands it (#4930); rework stays held (#4684).
+      :auto_merge ->
+        case Keyword.get(opts, :main_ci_recovery_window) do
+          {red_since, recovered_at} = window when is_integer(red_since) and is_integer(recovered_at) ->
+            PrRerun.recover_main_ci(observation, runs, window, opts)
+
+          _ ->
+            PrRerun.handle_failure(observation, result, runs, Keyword.put(opts, :hold_rework, true))
+        end
     end
   end
 
   defp handle_verdict(observation, %{decision: :passed}, _runs, opts), do: landing_eligibility(observation, opts)
+
+  # `process/2` only reaches here for a PR approved at its head, and this poll's
+  # own GraphQL read carries the landing fields, so no extra request is needed.
+  defp approved_landing?(%{merge_queue_entry: entry}) when is_map(entry), do: :landing
+  defp approved_landing?(%{auto_merge_request: auto_merge, merge_queue_entry: nil}) when is_map(auto_merge), do: :auto_merge
+  defp approved_landing?(%{auto_merge_request: nil, merge_queue_entry: nil}), do: :not_landing
+  defp approved_landing?(_observation), do: :unknown
+
+  defp emit_landing_state_attention(observation, opts) do
+    issue = TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"]))
+    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+    message = "Landing state for approved PR ##{observation.number} could not be confirmed; rework routing was held."
+
+    emitter.("system.pr.landing.state_unavailable", central: true, durable: true, needs_attention: true, issue: issue, message: message, reason: message)
+    :ok
+  end
 
   defp handle_person_cancel(observation, runs, opts) do
     issue = TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"]))
@@ -223,44 +304,9 @@ defmodule Aiur.LandingWatch do
     emit_once(observation, marker, topic, message, "cancelled_run", true, opts)
   end
 
-  defp request_infra_reruns(observation, runs, opts) do
-    failed = Enum.filter(runs, &(Map.get(&1, "conclusion") in ["cancelled", "failure", "timed_out", "startup_failure"]))
-
-    now = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
-
-    case Journal.reserve_rerun(observation.number, observation.head, now, opts) do
-      :ok -> Enum.reduce(failed, :ok, &rerun_if_ok(&1, &2, observation, opts))
-      {:error, reason} -> normalize_recovery_result(handle_rerun_error(observation, reason, opts))
-    end
-  end
-
-  defp rerun_if_ok(_run, {:error, _} = error, _observation, _opts), do: error
-
-  defp rerun_if_ok(run, :ok, observation, opts) do
-    case rerun_one(observation, run, opts) do
-      :ok -> :ok
-      {:error, reason} -> normalize_recovery_result(handle_rerun_error(observation, reason, opts))
-    end
-  end
-
-  defp normalize_recovery_result({:halt, :ok}), do: :ok
-  defp normalize_recovery_result({:halt, {:error, _} = error}), do: error
-
-  defp handle_rerun_error(observation, :rerun_limit_reached, opts) do
-    issue = TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"]))
-    message = "Approved PR ##{observation.number} exhausted its infra rerun budget for head #{observation.head}; manual CI recovery is needed."
-    topic = if is_binary(issue), do: "ticket.#{issue}.pr.ci_recovery.rerun_limit", else: "system.pr.ci_recovery.rerun_limit"
-
-    case emit_once(observation, "rerun-budget-exhausted", topic, message, "rerun_limit_reached", true, opts) do
-      :ok -> {:halt, :ok}
-      {:error, _} = error -> {:halt, error}
-    end
-  end
-
-  defp handle_rerun_error(_observation, :rerun_backoff, _opts), do: {:halt, :ok}
-  defp handle_rerun_error(_observation, reason, _opts), do: {:halt, {:error, reason}}
-
-  defp emit_once(observation, marker, topic, message, reason, needs_attention, opts) do
+  @doc false
+  @spec emit_once(map(), String.t(), String.t(), String.t(), String.t(), boolean(), keyword()) :: :ok | {:error, term()}
+  def emit_once(observation, marker, topic, message, reason, needs_attention, opts) do
     case Journal.claim_alert(observation.number, observation.head, marker, opts) do
       {:ok, :new} ->
         emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
@@ -286,18 +332,6 @@ defmodule Aiur.LandingWatch do
     end
   end
 
-  defp rerun_one(_observation, run, opts) do
-    id = Map.get(run, "run_id")
-
-    with true <- is_integer(id) and id > 0,
-         {:ok, _} <- Keyword.get(opts, :rerun_fun, &CIRecovery.rerun/2).(id, opts) do
-      :ok
-    else
-      false -> {:error, :missing_actions_run_id}
-      {:error, _} = error -> error
-    end
-  end
-
   defp landing_eligibility(observation, opts) do
     cond do
       is_map(observation.merge_queue_entry) or is_map(observation.auto_merge_request) ->
@@ -313,7 +347,17 @@ defmodule Aiur.LandingWatch do
         :ok
 
       true ->
-        revalidate_attribution_and_enqueue(observation, opts)
+        land_unless_ticket_active(observation, opts)
+    end
+  end
+
+  # A ticket back in rework or with a running agent owns its PR; an Executor dequeue must stick (#4772).
+  defp land_unless_ticket_active(observation, opts) do
+    case fetch_ticket(observation, opts) do
+      {:ok, _issue, state} when state in ["rework", "in-progress", "todo"] -> :ok
+      {:ok, _issue, _state} -> revalidate_attribution_and_enqueue(observation, opts)
+      {:error, :pull_request_not_linked_to_ticket_branch} -> revalidate_attribution_and_enqueue(observation, opts)
+      {:error, _} = error -> error
     end
   end
 
@@ -408,7 +452,10 @@ defmodule Aiur.LandingWatch do
   end
 
   defp emit_rework_alert(observation, failures, issue, opts) do
-    message = "Approved PR ##{observation.number} moved ticket ##{issue} to rework: " <> Enum.map_join(failures, "; ", &failure_text/1)
+    run_link = Keyword.get(opts, :run_url)
+    evidence = Enum.map_join(failures, "; ", &failure_text/1)
+    evidence = if is_binary(run_link), do: evidence <> " (#{run_link})", else: evidence
+    message = "Approved PR ##{observation.number} moved ticket ##{issue} to rework: " <> evidence
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
     emitter.("system.pr.landing.rework", central: true, needs_attention: false, message: message, reason: message)
     :ok
@@ -428,14 +475,13 @@ defmodule Aiur.LandingWatch do
     end
   end
 
+  @ticket_states ["rework", "in-progress", "todo", "human-review", "ci-wait", "merging"]
+
   defp fetch_ticket_state(issue, opts) do
     with {:ok, raw, _freshness} <- Client.fetch_issue_raw_conditional(issue, Keyword.put(opts, :revalidate, true)) do
-      case Enum.find(Map.get(raw, "labels", []), &(Map.get(&1, "name") in ["agent:human-review", "agent:ci-wait", "agent:merging"])) do
-        %{"name" => "agent:human-review"} -> {:ok, "human-review"}
-        %{"name" => "agent:ci-wait"} -> {:ok, "ci-wait"}
-        %{"name" => "agent:merging"} -> {:ok, "merging"}
-        _ -> {:ok, "other"}
-      end
+      names = Enum.map(Map.get(raw, "labels", []), &Map.get(&1, "name"))
+      # Gating states win: label edits add before they remove, so a ticket can briefly hold both.
+      {:ok, Enum.find(@ticket_states, "other", &("agent:#{&1}" in names))}
     end
   end
 

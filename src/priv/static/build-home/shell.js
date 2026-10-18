@@ -59,6 +59,13 @@ export function shell() {
   life.on(vp, 'scroll', () => {
     fx.liveGuard(); fx.markScrolling(); life.frame('scroll-update', () => fx.update());
   }, { passive: true });
+  // #4827: on phones the fixed bottom nav covers the board's end, so reaching it scrolls the page clear; the shell's bottom padding leaves room.
+  const nav = document.querySelector('.sidenav');
+  life.on(vp, 'scroll', () => {
+    if (!nav || getComputedStyle(nav).position !== 'fixed' || vp.scrollTop + vp.clientHeight < vp.scrollHeight - 1) return;
+    const over = vp.getBoundingClientRect().bottom - nav.getBoundingClientRect().top;
+    if (over > 0) window.scrollBy(0, over);
+  }, { passive: true });
   let lastST = -1;
   life.every(250, () => {
     fx.flushLive();

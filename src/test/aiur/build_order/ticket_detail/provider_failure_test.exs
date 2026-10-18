@@ -88,12 +88,14 @@ defmodule Aiur.BuildOrder.TicketDetailProviderFailureTest do
     assert {:error, %Failure{kind: :not_found}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 404, body: %{"message" => "private /tmp/response"}}} end
              )
 
     assert {:error, %Failure{kind: :rate_limited, retry_after: 30}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 429, headers: [{"retry-after", "30"}], body: %{"message" => "limit"}}} end
              )
   end
@@ -106,6 +108,7 @@ defmodule Aiur.BuildOrder.TicketDetailProviderFailureTest do
       assert {:error, %Failure{kind: :rate_limited, retry_after: ^expected}} =
                fetch(identity,
                  configured_repo: @configured,
+                 token: "test-gh-token",
                  request_fun: fn _request ->
                    {:ok, %{status: 429, headers: [{"retry-after", Integer.to_string(retry_after)}], body: %{"message" => "limit"}}}
                  end
@@ -126,6 +129,7 @@ defmodule Aiur.BuildOrder.TicketDetailProviderFailureTest do
       assert {:error, %Failure{kind: ^expected_failure} = failure} =
                fetch(identity,
                  configured_repo: @configured,
+                 token: "test-gh-token",
                  request_fun: fn _request -> response end
                )
 
@@ -139,6 +143,7 @@ defmodule Aiur.BuildOrder.TicketDetailProviderFailureTest do
     assert {:error, %Failure{kind: :schema}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: ["not", "an", "issue"]}} end
              )
   end
@@ -150,6 +155,7 @@ defmodule Aiur.BuildOrder.TicketDetailProviderFailureTest do
              fetch(identity,
                configured_repo: @configured,
                max_description_bytes: 8,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", "too long!")}} end
              )
   end
@@ -161,6 +167,7 @@ defmodule Aiur.BuildOrder.TicketDetailProviderFailureTest do
              fetch(identity,
                configured_repo: @configured,
                max_description_bytes: 1_000_000,
+               token: "test-gh-token",
                request_fun: fn _request ->
                  {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", String.duplicate("a", 16_385))}}
                end
@@ -180,6 +187,7 @@ defmodule Aiur.BuildOrder.TicketDetailProviderFailureTest do
       assert {:error, %Failure{kind: :validation}} =
                fetch(identity,
                  configured_repo: @configured,
+                 token: "test-gh-token",
                  request_fun: fn _request -> {:ok, %{status: 200, body: issue}} end
                )
     end

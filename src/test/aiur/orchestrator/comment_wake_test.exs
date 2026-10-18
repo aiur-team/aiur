@@ -29,10 +29,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: false,
-      events_etag: nil,
-      events_last_id: nil,
-      github_comments_since: %{},
-      github_comment_issue_updated_at: %{},
+      github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{since: %{}, issue_updated_at: %{}},
       github_connectivity: %{},
       github_poll_delays: %{},
       github_command_scan_since: nil
@@ -960,7 +957,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       parent = self()
       identity = issue.tracker_identity
-      reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
+      reset_at = DateTime.add(DateTime.utc_now(), 5, :minute)
       hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
       detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
       {:ok, counter} = Agent.start_link(fn -> 0 end)
@@ -1006,7 +1003,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     # error.
     test "a merged-PR local hold beyond the ceiling still fails and the existing alert fires" do
       state = base_state()
-      reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
+      reset_at = DateTime.add(DateTime.utc_now(), 3_700, :second)
       hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
       detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
 
@@ -1044,7 +1041,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       }
 
       parent = self()
-      reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
+      reset_at = DateTime.add(DateTime.utc_now(), 3_700, :second)
       hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
       detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
 

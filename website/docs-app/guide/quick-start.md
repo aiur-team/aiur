@@ -63,7 +63,7 @@ The wizard offers these setup steps:
 | Recreate | `aiur init --force` refreshes config while preserving sibling scaffold files. |
 | Route agents | Collects backends, models, limits, readiness, and lifecycle labels. |
 
-Add `agent:todo` to the issues you want worked. If agents are hitting rate limits, consider the optional [GitHub App setup](/apis/github#github-app-authentication).
+Add `agent:todo` to the issues you want worked. If agents are hitting rate limits, consider the optional [GitHub App setup](/apis/github-auth#github-app-authentication).
 
 GitHub Free does not expose rulesets or classic branch protection for private repositories. When GitHub reports that plan limit during CI-readiness setup, `aiur init` shows GitHub's explanation and continues without saving a full readiness assessment. Make the repository public or upgrade its plan to enable that verification.
 

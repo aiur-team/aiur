@@ -6,9 +6,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderLifecycleTest do
   alias Aiur.{TicketObservation, TrackerIdentity}
 
   setup do
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
 
     :ok
   end

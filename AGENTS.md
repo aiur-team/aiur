@@ -242,8 +242,8 @@ speaks HTTP directly is metered by GitHub's anonymous limit, not by Aiur's
 guard — the ledger counts governed `gh`/`git` calls, and only those.
 
 **Before changing anything that talks to GitHub — polling, budgets, the read
-cache, webhooks, credentials — read
-[`website/docs-app/apis/github.md`](website/docs-app/apis/github.md).** It is
+cache, webhooks, credentials — read the GitHub API docs index and topic pages
+in `website/docs-app/apis/`.** It is
 the source of truth for how Aiur uses the GitHub API: what it polls and how
 often, how the Core/GraphQL budgets are metered and attributed, how to read
 `aiur github-cost` without misinterpreting it, which reads the cache refuses on
@@ -332,6 +332,10 @@ discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
 author-side rule so the check happens before review, not for the first time in
 review.
 
+A fixed fixture date must never meet the real clock: inject `now`, or date the
+fixture relative to `DateTime.utc_now()`. CI's affected-tests job reruns dated
+tests with every date literal 35 days older (`scripts/check-test-time-bombs.py`).
+
 ## Computed ages and collapsed causes — author-side checks
 
 Two more dashboard rules recur in review — an age computed but never rendered,
@@ -369,7 +373,7 @@ A PR claiming a quota, latency, or cost saving must state, in the PR body:
    never produces. `aiur github-cost` gives per-caller points, calls, and
    rate; the local ledger and the App-token `/rate_limit` give the
    credential-side view. Read
-   [`website/docs-app/apis/github.md`](website/docs-app/apis/github.md)
+   [`website/docs-app/apis/github-budgets.md`](website/docs-app/apis/github-budgets.md)
    ("Reading these numbers without fooling yourself") before measuring.
 3. **What must be true at merge for the saving to occur.** If the saving needs
    a config change, ship that change in the PR — or say plainly that the

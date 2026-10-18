@@ -49,6 +49,65 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitFallbackTest do
       assert event.message =~ "return to agent:ci-wait"
     end
 
+    test "approved queued PRs stay parked when the CI-wait fallback expires" do
+      identifier = unique_identifier("ci-rewake-queued-pr")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      armed =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+        |> put_in([Access.key(:ci_lifecycle), :poll_cache, identifier], %{
+          decision: :pending,
+          tracker_state: "ci-wait",
+          head_sha: "queued-head",
+          review_decision: "APPROVED",
+          merge_queue_entry: %{"id" => "queue-entry", "state" => "AWAITING_CHECKS"}
+        })
+
+      token = armed.ci_lifecycle.rewakes[identifier].token
+      assert armed.ci_lifecycle.poll_cache[identifier].review_decision == "APPROVED"
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+      sync_recorder(recorder)
+
+      assert next.running[identifier].issue.state == "ci-wait"
+      assert next.running[identifier].control.status == :paused
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+      refute_received {:recorded, _position, _message}
+    end
+
+    test "approved auto-merge PRs stay parked when the CI-wait fallback expires" do
+      identifier = unique_identifier("ci-rewake-auto-merge-pr")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      armed =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+        |> put_in([Access.key(:ci_lifecycle), :poll_cache, identifier], %{
+          decision: :pending,
+          tracker_state: "ci-wait",
+          head_sha: "auto-merge-head",
+          review_decision: "APPROVED",
+          auto_merge_request: %{"enabledAt" => "2026-10-14T00:00:00Z"}
+        })
+
+      token = armed.ci_lifecycle.rewakes[identifier].token
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+      sync_recorder(recorder)
+
+      assert next.running[identifier].issue.state == "ci-wait"
+      assert next.running[identifier].control.status == :paused
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+      refute_received {:recorded, _position, _message}
+    end
+
     test "stale fallback tokens cannot wake a CI-wait runner" do
       identifier = unique_identifier("ci-stale-rewake")
       recorder = start_recorder()

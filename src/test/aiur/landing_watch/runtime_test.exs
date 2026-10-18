@@ -50,11 +50,16 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                  send(parent, :rerun)
                  {:ok, %{}}
                end,
+               comment_fun: fn number, body, _ ->
+                 send(parent, {:comment, number, body})
+                 {:ok, %{}}
+               end,
                journal_path: path,
                now_ms: 1_000_000
              )
 
     assert_received :rerun
+    assert_received {:comment, 17, "Landing watcher reran the failed CI (ci gate) on approved head `head-sha`: infrastructure failure."}
     assert %{"17:head-sha" => %{"rerun_count" => 1, "last_rerun_at" => 1_000_000}} = Jason.decode!(File.read!(path))
 
     assert :ok =
@@ -92,6 +97,7 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                  send(parent, {:rerun, run_id})
                  {:ok, %{}}
                end,
+               comment_fun: fn _, _, _ -> {:ok, %{}} end,
                journal_path: path,
                now_ms: 1_000_000
              )
@@ -114,6 +120,8 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                jobs_fun: fn 99, _ ->
                  {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T00:00:00Z", "completed_at" => "2026-10-14T00:00:10Z"}]}
                end,
+               rerun_classifier_fun: fn _, _, _, _ -> {:ok, :rework} end,
+               journal_path: journal_path(),
                rework_fun: fn observation, failures, _ ->
                  send(parent, {:rework, observation.number, failures})
                  :ok
@@ -154,6 +162,8 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                jobs_fun: fn 99, _ ->
                  {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T00:00:00Z", "completed_at" => "2026-10-14T00:00:10Z"}]}
                end,
+               rerun_classifier_fun: fn _, _, _, _ -> {:ok, :rework} end,
+               journal_path: journal_path(),
                ticket_state_fun: fn "17", _ -> {:ok, "human-review"} end,
                transition_fun: fn id, target, options ->
                  send(parent, {:transition, id, target, options})
@@ -190,6 +200,26 @@ defmodule Aiur.LandingWatch.RuntimeTest do
     assert_received {:alert, "ticket.17.pr.ci_recovery.rerun_skipped", details}
     assert Keyword.fetch!(details, :reason) == "cancelled_run"
     assert Keyword.fetch!(details, :durable)
+  end
+
+  test "cancelled head CI for a queued PR does not raise a person-cancelled alert" do
+    parent = self()
+    observation = %{approved_observation() | merge_queue_entry: %{"id" => "MQE_1"}}
+    cancelled = Map.put(failed_gate(), "conclusion", "cancelled")
+
+    assert :ok =
+             LandingWatch.process(observation,
+               approved_fun: fn _, _ -> {:ok, true} end,
+               required_checks_fun: fn _ -> {:ok, [%{name: "ci gate", app_id: nil}]} end,
+               ci_status_fun: fn _, _ -> {:ok, %{check_runs: [cancelled], commit_status: %{"state" => "success", "statuses" => []}}} end,
+               alert_emitter: fn topic, details ->
+                 send(parent, {:alert, topic, details})
+                 :ok
+               end,
+               journal_path: journal_path()
+             )
+
+    refute_received {:alert, "ticket.17.pr.ci_recovery.rerun_skipped", _}
   end
 
   test "person-cancelled alert is emitted once per PR head and run across polls" do
@@ -307,6 +337,7 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                ci_status_fun: fn _, _ -> {:ok, %{check_runs: [successful], commit_status: %{"state" => "success", "statuses" => []}}} end,
                revalidate_fun: fn 17, "head-sha", _ -> :ok end,
                attribution_fun: fn _ -> {:ok, :clean} end,
+               ticket_state_fun: fn "17", _ -> {:ok, "human-review"} end,
                enqueue_fun: fn pr ->
                  send(parent, {:enqueued, pr.node_id, pr.head})
                  {:ok, "entry-1"}
@@ -325,6 +356,7 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                ci_status_fun: fn _, _ -> {:ok, %{check_runs: [successful], commit_status: %{"state" => "success", "statuses" => []}}} end,
                revalidate_fun: fn 17, "head-sha", _ -> :ok end,
                attribution_fun: fn _ -> {:ok, {:ai_attribution, "Co-Authored-By: Codex"}} end,
+               ticket_state_fun: fn "17", _ -> {:ok, "human-review"} end,
                rework_fun: fn _, failures, _ ->
                  send(parent, {:attribution_rework, failures})
                  :ok
@@ -347,6 +379,7 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                ci_status_fun: fn _, _ -> {:ok, %{check_runs: [pending], commit_status: %{"state" => "pending", "statuses" => []}}} end,
                revalidate_fun: fn 17, "head-sha", _ -> :ok end,
                attribution_fun: fn _ -> {:ok, :clean} end,
+               ticket_state_fun: fn "17", _ -> {:ok, "human-review"} end,
                enqueue_fun: fn _ ->
                  send(parent, :queued_while_pending)
                  {:ok, "entry-pending"}
@@ -368,6 +401,7 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                end,
                revalidate_fun: fn _, _, _ -> {:error, :approval_or_head_changed} end,
                attribution_fun: fn _ -> flunk("must revalidate approval before reading attribution") end,
+               ticket_state_fun: fn "17", _ -> {:ok, "human-review"} end,
                enqueue_fun: fn _ -> flunk("must not enqueue after approval changed") end
              )
   end
@@ -385,6 +419,8 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                jobs_fun: fn _, _ ->
                  {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T00:00:00Z", "completed_at" => "2026-10-14T00:00:10Z"}]}
                end,
+               rerun_classifier_fun: fn _, _, _, _ -> {:ok, :rework} end,
+               journal_path: journal_path(),
                ticket_state_fun: fn "17", _ -> {:ok, "merging"} end,
                transition_fun: fn id, target, options ->
                  send(parent, {:transition, id, target, options})

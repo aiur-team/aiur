@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.Issues do
   """
 
   require Logger
-  alias Aiur.{Bounded, Config, GitHub, Issue, TestTicketScope, TrackerIdentity}
+  alias Aiur.{Bounded, Config, GitHub, GitHub.IssueExecutorOwner, Issue, TestTicketScope, TrackerIdentity}
 
   alias Aiur.GitHub.{
     BoundedBlockedBy,
@@ -28,9 +28,8 @@ defmodule Aiur.GitHub.Issues do
   # bodies are full specifications measured 2.9 MiB across 45 issues (#2533).
   # The bound is sized to the endpoint's real ceiling rather than an observed
   # backlog: GitHub caps a page at 100 issues and a body at 64 KiB, so one page
-  # of maximal bodies plus metadata stays under 16 MiB. A response that still
-  # exceeds it is reported as `:response_too_large` by `conditional_get/4`
-  # instead of the self-contradictory `{:github, :http, %{status: 200}}`.
+  # of maximal bodies plus metadata stays under 16 MiB. A response that still exceeds it
+  # is reported as `:response_too_large` by `conditional_get/4` instead of the self-contradictory `{:github, :http, %{status: 200}}`.
   @max_issue_list_response_bytes 16_777_216
 
   @spec max_issue_response_bytes() :: pos_integer()
@@ -169,7 +168,7 @@ defmodule Aiur.GitHub.Issues do
   # asking to be *sure*, and the conditional request that answers that is free
   # when nothing changed.
   defp stored_issue(key, opts) do
-    if Keyword.get(opts, :revalidate, false) do
+    if Keyword.get(opts, :revalidate, false) or Keyword.get(opts, :unconditional, false) do
       nil
     else
       servable_within(ResourceStore.fetch(key), Keyword.get(opts, :freshness_ms))
@@ -191,7 +190,7 @@ defmodule Aiur.GitHub.Issues do
   defp revalidate_raw_issue(issue_number, owner, repo, token, key, opts, retried_without_validator?) do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
-    etag = if retried_without_validator?, do: nil, else: ResourceStore.etag(key)
+    etag = if retried_without_validator? or Keyword.get(opts, :unconditional, false), do: nil, else: ResourceStore.etag(key)
 
     request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes, caller: Keyword.get(opts, :caller, "issue_raw_conditional")}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
@@ -378,7 +377,7 @@ defmodule Aiur.GitHub.Issues do
   defp do_fetch_candidate_issues_conditional(cache, opts) do
     with {:ok, issues, ctx, updated_cache} <- list_open_issues_conditional(cache, opts) do
       active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
-      {:ok, filter_and_authorize_candidates_with_degenerate(issues, active_states, ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix), updated_cache}
+      {:ok, filter_and_authorize_candidates_with_degenerate(issues, active_states, ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix, cache), updated_cache}
     end
   end
 
@@ -428,14 +427,14 @@ defmodule Aiur.GitHub.Issues do
 
   # Keep fresh non-dispatchable workflow states as evidence for next-poll label repair.
   # Only dispatchable candidates go through authorization; terminal tickets remain excluded.
-  defp filter_and_authorize_candidates_with_degenerate(issues, active_states, request_fun, token, owner, repo, prefix) do
+  defp filter_and_authorize_candidates_with_degenerate(issues, active_states, request_fun, token, owner, repo, prefix, cache) do
     {dispatchable, rest} =
       Enum.split_with(issues, fn issue ->
         is_binary(issue.state) and
           MapSet.member?(active_states, StatePolicy.normalize_state(issue.state))
       end)
 
-    authorized = authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
+    authorized = GitHub.CandidateAuthorization.authorize(dispatchable, cache, &authorize_dispatches(&1, request_fun, token, owner, repo, prefix))
 
     healable =
       rest
@@ -978,6 +977,7 @@ defmodule Aiur.GitHub.Issues do
       dispatch_authorization: :deferred,
       paused: paused_label?(label_names, prefix),
       parked: parked_label?(label_names, prefix),
+      executor_owner: IssueExecutorOwner.from_labels(label_names, prefix),
       queued: queued_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
       assigned_to_worker: true,
@@ -1051,7 +1051,7 @@ defmodule Aiur.GitHub.Issues do
 
   # Reduces GitHub's native dependency issue objects to the same `blocked_by`
   # shape Linear's normalize_issue produces (`%{id, identifier, state, url}`)
-  # so the dispatch gate (`DispatchPolicy.todo_issue_held_by_dependency?`)
+  # so the dispatch gate (`DispatchPolicy.issue_held_by_dependency?`)
   # and the blocker event machinery consume them unchanged. Blocker state comes
   # from the same source as the issue itself: `agent:*` labels, with a raw
   # `state: "closed"` resolving to the terminal "Closed". A blocker with no

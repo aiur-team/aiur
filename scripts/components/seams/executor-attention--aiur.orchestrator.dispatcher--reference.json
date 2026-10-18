@@ -1,0 +1,9 @@
+{
+  "from": "executor-attention",
+  "to_module": "Aiur.Orchestrator.Dispatcher",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/alert_feed/backfill.ex"
+  ],
+  "reason": "#3943: boot alert reconciliation checks whether the active tracker is GitHub"
+}

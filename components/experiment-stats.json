@@ -6,7 +6,8 @@
   "paths": [
     "analytics/experiment-stats",
     "analytics/lib/analytics/experiment_stats_cmd.py",
-    "analytics/lib/analytics/stats/**"
+    "analytics/lib/analytics/stats/**",
+    "analytics/schema/experiment-result.v1.json"
   ],
   "facades": [
     "analytics.stats.analyze",
@@ -24,7 +25,7 @@
   "prior": [],
   "dependency_kind": "optional",
   "summary": "Computes reproducible statistical results from frozen generic experiments.",
-  "status": "optional",
+  "status": "experimental",
   "install": {
     "type": "included"
   },

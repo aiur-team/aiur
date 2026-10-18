@@ -12,7 +12,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
   """
 
   alias Aiur.Config
-  alias Aiur.GitHub.{BotIdentity, HumanReviewContribution, PullRequests, ResourceFetch, ResourceStore, ReviewThreads, StatePolicy, Transport}
+  alias Aiur.GitHub.{BotIdentity, HumanReviewContribution, HumanReviewPathProbe, PullRequests, ResourceFetch, ResourceStore, ReviewThreads, StatePolicy, Transport}
 
   @approval_fields "headRefOid reviewDecision mergeQueueEntry { id } reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }"
 
@@ -54,6 +54,12 @@ defmodule Aiur.GitHub.HumanReviewGate do
   @doc false
   @spec pull_request_approved_at_head?(integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
   def pull_request_approved_at_head?(pr_number, opts \\ []) do
+    with {:ok, {head, approved}} <- pull_request_approval(pr_number, opts), do: {:ok, approved == head}
+  end
+
+  @doc "The PR head and the commit its standing approval names (`nil` unless `reviewDecision` is APPROVED)."
+  @spec pull_request_approval(integer(), keyword()) :: {:ok, {String.t(), String.t() | nil}} | {:error, term()}
+  def pull_request_approval(pr_number, opts \\ []) do
     query =
       "query AiurPullRequestApprovalAtHead($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefOid reviewDecision reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } } } }"
 
@@ -61,12 +67,12 @@ defmodule Aiur.GitHub.HumanReviewGate do
          {:ok, {owner, name}} <- Transport.parse_repo(),
          {:ok, %{"data" => %{"repository" => %{"pullRequest" => pr}}}} <-
            Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
-             caller: "orphan_claim_approval_state"
+             caller: Keyword.get(opts, :caller, "orphan_claim_approval_state")
            ) do
       case pr do
         %{"headRefOid" => head, "reviewDecision" => decision, "reviews" => %{"nodes" => nodes}}
         when is_binary(head) and decision in [nil, "APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] and is_list(nodes) ->
-          {:ok, approved_at_head?(pr)}
+          {:ok, {head, approved_commit(pr)}}
 
         _invalid ->
           {:error, :invalid_pull_request_approval}
@@ -173,7 +179,9 @@ defmodule Aiur.GitHub.HumanReviewGate do
          {:ok, base_sha} <- comparison_base(current_comparison) do
       compare_fun = fn compare_base, compare_head, per_page -> compare(context, compare_base, compare_head, per_page) end
 
-      HumanReviewContribution.unchanged?(approved_head, head, base_sha, current_comparison, compare_fun)
+      probe_fun = fn paths, from_sha, to_sha -> HumanReviewPathProbe.changed_paths(paths, from_sha, to_sha, context) end
+
+      HumanReviewContribution.unchanged?(approved_head, head, base_sha, current_comparison, compare_fun, probe_fun)
     end
   end
 
@@ -181,7 +189,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
     with {:ok, base_sha} <- comparison_base(comparison),
          {:ok, pr_files} <- changed_paths(comparison),
          {:ok, upstream} <- compare(context, head, base_sha),
-         {:ok, upstream_files} <- upstream_paths(upstream) do
+         {:ok, upstream_files} <- upstream_paths(upstream, pr_files, base_sha, context) do
       if MapSet.disjoint?(pr_files, upstream_files), do: :ok, else: stale
     end
   end
@@ -189,8 +197,13 @@ defmodule Aiur.GitHub.HumanReviewGate do
   defp comparison_base(%{"base_commit" => %{"sha" => sha}}) when is_binary(sha) and sha != "", do: {:ok, sha}
   defp comparison_base(_comparison), do: {:error, :review_base_ancestry_unavailable}
 
-  defp upstream_paths(%{"status" => status} = comparison) when status in ["ahead", "diverged"], do: changed_paths(comparison)
-  defp upstream_paths(_comparison), do: {:error, :review_base_ancestry_unavailable}
+  # A capped upstream list is incomplete, so probe the PR's own paths instead (#4533).
+  defp upstream_paths(%{"status" => status, "files" => files, "merge_base_commit" => %{"sha" => merge_base}}, pr_files, base_sha, context)
+       when status in ["ahead", "diverged"] and is_list(files) and length(files) >= 300 and is_binary(merge_base) and merge_base != "",
+       do: HumanReviewPathProbe.changed_paths(pr_files, merge_base, base_sha, context)
+
+  defp upstream_paths(%{"status" => status} = comparison, _pr_files, _base_sha, _context) when status in ["ahead", "diverged"], do: changed_paths(comparison)
+  defp upstream_paths(_comparison, _pr_files, _base_sha, _context), do: {:error, :review_base_ancestry_unavailable}
 
   defp changed_paths(%{"files" => files}) when is_list(files) and length(files) < 300 do
     Enum.reduce_while(files, {:ok, MapSet.new()}, &add_changed_path/2)

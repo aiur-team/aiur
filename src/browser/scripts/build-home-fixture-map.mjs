@@ -41,9 +41,10 @@ export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = 
     order: data.order, counts: Object.fromEntries(data.order.map(k => [k, data.counts[k] ?? 0])),
     sections: Object.fromEntries(sections.map(sec => [sec, data[sec].map(row)])),
     history: { from: null, more: false, total: data.hist.length, undated: 0, tz: meta.tz },
-    sources: Object.fromEntries(['history', 'features', 'queue', 'agents', 'index'].map(k => [k, { state: 'ok', observed_at: meta.now, reason: null }])),
+    sources: Object.fromEntries(['history', 'features', 'queue', 'agents', 'index', 'open_tickets'].map(k => [k, { state: 'ok', observed_at: meta.now, reason: null, ...(k === 'open_tickets' ? { truncated: false } : {}) }])),
     usage: { state: 'authorized', observed_at: meta.now,
       apis: [provider({ name: 'GitHub', icon: 'github', lines: usage.apis.filter(a => ['core', 'gql'].includes(a.tag))
-        .map(a => ({ ...a, acc: [a.pct ?? null], tip: a.rows })) })],
+        .map(a => ({ ...a, acc: [a.pct ?? null], tip: a.rows })) }),
+        ...usage.apis.filter(a => a.tag === 'credits').map(a => provider({ name: 'Search', icon: 'bars', lines: [{ ...a, acc: [a.pct ?? null], tip: a.rows }] }))],
       providers: usage.models.map(provider) }, daemon };
 }

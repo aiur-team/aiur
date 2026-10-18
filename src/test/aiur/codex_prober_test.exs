@@ -152,6 +152,7 @@ defmodule Aiur.CodexProberTest do
       Task.async(fn ->
         CodexProber.probe_async("codex",
           path: path,
+          enabled?: true,
           now: now,
           fetch_limits_fun: fn ->
             send(parent, {:provider_probe_started, self()})
@@ -168,5 +169,28 @@ defmodule Aiur.CodexProberTest do
     assert_receive {:probe_result, result}, 1_000
     assert result == :ok
     assert ModelAvailability.load(path)["backends"]["codex"]["hourly"]["used"] == 4
+  end
+
+  test "probe_async is disabled by default in the test environment" do
+    runtime_root = Aiur.TestSupport.tmp_root!("aiur-codex-disabled-runtime")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(runtime_root) end)
+    Aiur.TestSupport.put_runtime_state_dir!(runtime_root)
+
+    path = Aiur.TestSupport.tmp_root!("aiur-codex-disabled-probe") <> ".json"
+    on_exit(fn -> File.rm(path) end)
+    parent = self()
+
+    assert :ok =
+             CodexProber.probe_async("codex",
+               path: path,
+               fetch_limits_fun: fn ->
+                 send(parent, :unexpected_probe)
+                 {:ok, %{"rateLimits" => %{"primary" => %{"usedPercent" => 4}}}}
+               end
+             )
+
+    refute_receive :unexpected_probe, 100
+    refute File.exists?(path)
+    refute File.exists?(Path.join([runtime_root, "agent-relays"]))
   end
 end

@@ -41,6 +41,12 @@ defmodule Aiur.CodeHost do
   @spec comment_optimistic_park(String.t() | integer(), String.t() | integer(), term()) :: :ok | {:error, term()}
   def comment_optimistic_park(dependent, blocker, cause), do: optimistic_call(:comment_optimistic_park, [dependent, blocker, cause])
 
+  @spec withdraw_landing(integer()) :: {:ok, [atom()]} | {:error, term(), [atom()]} | {:error, term()}
+  def withdraw_landing(number), do: optimistic_call(:withdraw_landing, [number])
+
+  @spec pull_request_body_edited_at(integer()) :: {:ok, String.t() | nil} | {:error, term()}
+  def pull_request_body_edited_at(number), do: optimistic_call(:pull_request_body_edited_at, [number])
+
   defp optimistic_call(function, arguments) do
     adapter = adapter()
 

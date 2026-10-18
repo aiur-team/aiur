@@ -49,6 +49,16 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       # keeps the full operating contract so a cold thread still knows the ticket
       assert prompt =~ issue.title
       refute prompt == PromptBuilder.build_prompt(issue, prior_work: true)
+      refute prompt =~ "previous agent thread was abandoned"
+    end
+
+    test "a fresh session that replaced an abandoned thread says so" do
+      issue = %Issue{id: "4561", identifier: "4561", title: "Big thread", state: "in-progress"}
+
+      prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, abandoned_thread: true], 1, nil)
+
+      assert prompt =~ "do not restart the ticket from scratch"
+      assert prompt =~ "previous agent thread was abandoned after it repeatedly lost its transport"
     end
 
     test "turn one cold start delegates to PromptBuilder" do
@@ -124,6 +134,22 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       assert prompt =~ issue.description
       assert prompt =~ "generic cold-start phase order"
       refute prompt == PromptBuilder.build_prompt(issue, [])
+    end
+
+    test "turn one cold rework lists the latest review's findings as the handback checklist" do
+      issue = %Issue{id: "4654", identifier: "4654", title: "Checklist", state: "rework"}
+      body = "Request changes.\n\n1. lib/a.ex:44 drop the nil key\n2. No location here.\n"
+
+      opts = [
+        open_pr_fetcher: fn "4654" -> {:ok, %{"number" => 7}} end,
+        reviews_fetcher: fn 7 -> {:ok, [%{"state" => "CHANGES_REQUESTED", "body" => body, "submitted_at" => "t", "id" => 1, "user" => %{"login" => "r"}, authoritative: true}]} end
+      ]
+
+      prompt = TurnPrompt.build_turn_prompt(issue, opts, 1, nil)
+
+      assert prompt =~ "Review findings checklist"
+      assert prompt =~ "- 1. `lib/a.ex:44` — lib/a.ex:44 drop the nil key"
+      refute prompt =~ "- 2."
     end
 
     test "turn one resumed rework still uses restart continuation guidance" do

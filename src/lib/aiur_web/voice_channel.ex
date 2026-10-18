@@ -20,7 +20,7 @@ defmodule AiurWeb.VoiceChannel do
   require Logger
 
   alias Aiur.Voice
-  alias AiurWeb.{Endpoint, FinancialDataAccess, VoiceSessionLimiter}
+  alias AiurWeb.{EndpointConfig, FinancialDataAccess, VoiceSessionLimiter}
 
   # An audio chunk larger than this is rejected outright: at 16 kHz mono PCM16,
   # 256 KiB is roughly 8 seconds of audio, well past any single dictation push
@@ -29,6 +29,7 @@ defmodule AiurWeb.VoiceChannel do
   @max_audio_bytes 262_144
   @max_audio_base64_bytes 4 * div(@max_audio_bytes + 2, 3)
   @default_max_session_audio_bytes 9_600_000
+  @voice_not_installed_reason "Voice input isn't installed in this Aiur. Typed messages work as usual."
 
   @impl true
   def join(
@@ -46,7 +47,7 @@ defmodule AiurWeb.VoiceChannel do
       when topic in ["voice:dictation", "voice:conversation"] do
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
-    with true <- Endpoint.config(:dashboard_writable) == true,
+    with true <- EndpointConfig.get(:dashboard_writable) == true,
          {:ok, ^generation} <- FinancialDataAccess.current_configuration_generation(),
          {:ok, lease} <- VoiceSessionLimiter.acquire(connection_generation) do
       join_stt(socket, generation, lease, topic)
@@ -237,6 +238,9 @@ defmodule AiurWeb.VoiceChannel do
       {:ok, session} ->
         {:ok, session}
 
+      {:error, :not_installed} ->
+        {:error, @voice_not_installed_reason}
+
       {:error, :unconfigured} ->
         {:error, "ElevenLabs speech-to-text is not configured. Dictation is unavailable; ask the Executor to run `aiur init` and add an ElevenLabs API key."}
 
@@ -277,6 +281,8 @@ defmodule AiurWeb.VoiceChannel do
   defp tts_error(:unconfigured),
     do: "ElevenLabs text-to-speech is not configured. Add elevenlabs.voice_id and grant the key Text to Speech permission."
 
+  defp tts_error(:not_installed), do: @voice_not_installed_reason
+
   defp tts_error(:empty_text), do: "There is no agent reply to speak."
   defp tts_error(:text_too_large), do: "This agent reply is too long to speak."
   defp tts_error(:capacity), do: "Too many dashboard voice replies are active. Try again shortly."
@@ -295,6 +301,6 @@ defmodule AiurWeb.VoiceChannel do
   end
 
   defp max_session_audio_bytes do
-    Endpoint.config(:voice_max_session_audio_bytes) || @default_max_session_audio_bytes
+    EndpointConfig.get(:voice_max_session_audio_bytes) || @default_max_session_audio_bytes
   end
 end

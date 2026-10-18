@@ -1,6 +1,8 @@
 defmodule AiurWeb.BuildOrderLive.FaultsTest do
   use AiurWeb.BuildOrderLiveCase
 
+  alias Aiur.TestSupport.EndpointStubs
+
   test "coalesces source invalidation bursts behind one in-flight cached read" do
     parent = self()
     counter = start_supervised!({Agent, fn -> 0 end})
@@ -38,7 +40,7 @@ defmodule AiurWeb.BuildOrderLive.FaultsTest do
     first: first,
     second: second
   } do
-    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, _html} = live_settled("/build-orders/42")
     html = render_patch(view, "/build-orders/43")
 
     assert html =~ ~s(data-build-order-root="43")
@@ -59,7 +61,7 @@ defmodule AiurWeb.BuildOrderLive.FaultsTest do
     first: first,
     second: second
   } do
-    {:ok, view, html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, html} = live_settled("/build-orders/42")
     assert html =~ "Valid empty graph"
 
     send(
@@ -92,7 +94,7 @@ defmodule AiurWeb.BuildOrderLive.FaultsTest do
   test "collapses structurally invalid selected data into one copyable page-level state", %{
     first: first
   } do
-    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, _html} = live_settled("/build-orders/42")
 
     invalid = SelectedRoot.new(RootSummary.new(%{}), [], health(2, :healthy))
     send(view.pid, {:graph_projection_generation, selected_snapshot(first, invalid, 2, :healthy)})
@@ -118,7 +120,7 @@ defmodule AiurWeb.BuildOrderLive.FaultsTest do
   # card that blamed `rate_limited` for a malformed graph — a card count of 1 is
   # no better than six if the one card names the wrong reason.
   test "names the structural fault, not the fail-closed provider health failure", %{first: first} do
-    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, _html} = live_settled("/build-orders/42")
 
     invalid = SelectedRoot.new(root(first, "Malformed planning graph"), [:not_a_member], health(2, :unavailable, failure: :rate_limited))
 
@@ -160,7 +162,7 @@ defmodule AiurWeb.BuildOrderLive.FaultsTest do
         context_loader: loader
       )
 
-    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, _html} = live_settled("/build-orders/42")
     view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
 
     assert_receive {:context_load_started, loader_pid, selected_identity}, 2_000
@@ -211,7 +213,7 @@ defmodule AiurWeb.BuildOrderLive.FaultsTest do
         context_loader: loader
       )
 
-    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, _html} = live_settled("/build-orders/42")
     view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
     assert_receive {:context_load_started, loader_pid, old_context_identity}, 2_000
 
@@ -250,7 +252,7 @@ defmodule AiurWeb.BuildOrderLive.FaultsTest do
         context_loader: loader
       )
 
-    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, _html} = live_settled("/build-orders/42")
     view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
 
     assert_receive {:context_load_started, 1, first_loader, selected_identity}, 2_000
@@ -278,7 +280,7 @@ defmodule AiurWeb.BuildOrderLive.FaultsTest do
         selected: [selected]
       )
 
-    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, _html} = live_settled("/build-orders/42")
     view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
     render_async(view, 2_000)
     calls_before = FakeDataSource.calls(source)
@@ -314,19 +316,17 @@ defmodule AiurWeb.BuildOrderLive.FaultsTest do
       end
     )
 
-    endpoint_config =
-      Keyword.put(Application.get_env(:aiur, Endpoint), :live_conversation_resolve_fun, fn handle ->
+    EndpointStubs.put(
+      live_conversation_resolve_fun: fn handle ->
         case Enum.find(handles, fn {_number, candidate} -> candidate == handle end) do
           {7, _handle} -> {:ok, %{state: :live, messages: [%{content: "Current conversation"}]}}
           {8, _handle} -> {:ok, %{state: :stale, messages: [%{content: "Paused conversation"}]}}
           nil -> {:error, :unavailable}
         end
-      end)
+      end
+    )
 
-    Application.put_env(:aiur, Endpoint, endpoint_config)
-    :ok = Endpoint.config_change([{Endpoint, endpoint_config}], [])
-
-    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, _html} = live_settled("/build-orders/42")
     render_async(view, 2_000)
     assert render(view) =~ "Estimated work progress"
 
@@ -359,7 +359,7 @@ defmodule AiurWeb.BuildOrderLive.FaultsTest do
         selected: [selected]
       )
 
-    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, _html} = live_settled("/build-orders/42")
     view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
     render_async(view, 2_000)
     selected_identity = identity(7, "NODE-7")

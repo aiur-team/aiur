@@ -11,7 +11,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   alias Aiur.{Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
   alias Aiur.AgentTools.Dispatch
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
 
@@ -74,7 +74,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       enqueue: coordination.enqueue,
       run: coordination.run,
       issue: issue,
-      publish: Keyword.get(opts, :event_bus_publisher, &Publisher.publish/3),
+      publish: Keyword.get(opts, :event_bus_publisher, &Events.publish/3),
       publication_recorder:
         Keyword.get(opts, :event_publication_recorder, fn record ->
           EventPublicationLog.write(workspace, record)
@@ -122,14 +122,14 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         end,
         feature_writer: fn args -> FeatureWriter.write(issue, args, Keyword.get(opts, :feature_opts, [])) end,
         epic_setter: fn args -> EpicSetter.set(issue, args, Keyword.get(opts, :epic_opts, [])) end,
-        ticket_state_setter: fn state_name ->
+        ticket_state_setter: fn state_name, review_findings ->
           TicketStateSetter.write(
             issue,
             state_name,
             coordination,
             workspace,
             worker_host,
-            opts,
+            Keyword.put(opts, :review_findings, review_findings),
             &ToolCoordination.ticket_coordination_key/1,
             &ToolCoordination.coordination_operation_opts/1
           )

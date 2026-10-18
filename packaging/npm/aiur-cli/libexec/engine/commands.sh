@@ -39,8 +39,20 @@ parse_issue_targets() {
 }
 cmd_status() {
   [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
-  [ "$#" -eq 0 ] || die "status does not accept arguments"
-  run_control_rpc "Aiur.AgentControlCLI.status()"
+  if [ "$#" -eq 0 ]; then
+    run_control_rpc "Aiur.AgentControlCLI.status()"
+  else
+    local handoff=0 json=false arg
+    for arg in "$@"; do
+      case "$arg" in
+        --handoff) handoff=1 ;;
+        --json) json=true ;;
+        *) die "status accepts --handoff [--json]" ;;
+      esac
+    done
+    [ "$handoff" -eq 1 ] || die "status --json requires --handoff"
+    run_control_rpc "Aiur.Handoff.CLI.report(json: $json)"
+  fi
 }
 
 # `aiur usage` — Codex/Claude limit headroom from the daemon's meter
@@ -93,7 +105,6 @@ cmd_pause_resume() {
   shift
 
   [ "$command" != park ] || { [ "$#" -gt 0 ] && parse_issue_targets "$@" && [ "$parsed_all" -eq 0 ]; } || { echo "aiur: park expects explicit issue IDs (e.g. aiur park 44 45)" >&2; exit 64; }
-
   # Bare `aiur pause` / `aiur resume` (no IDs, no --all) flips the single
   # global pause switch: a daemon-wide halt distinct from per-agent pause.
   if [ "$#" -eq 0 ]; then
@@ -114,6 +125,19 @@ cmd_pause_resume() {
   fi
 
   run_control_rpc "$expression"
+}
+
+cmd_executor_ownership() {
+  local command="$1"
+  shift
+  local owner="${AIUR_EXECUTOR_OWNER:-${USER:-executor}}"
+  owner="$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/^-*//; s/-*$//' | cut -c1-30)"
+  [ -n "$owner" ] || owner=executor
+  if ! parse_issue_targets "$@" || [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: $command expects explicit issue IDs (e.g. aiur $command 44 45)" >&2
+    exit 64
+  fi
+  run_control_rpc "Aiur.AgentControlCLI.${command}($(elixir_list_literal "${parsed_targets[@]}"), \"$owner\")"
 }
 
 # `aiur reset-budget <id>...` — clear the lifetime dispatch latch for one or
@@ -199,8 +223,12 @@ cmd_message() {
 # `aiur agents` — concise one-line-per-agent state + current activity from a
 # live node (the headless equivalent of the dashboard / aiur-status skill).
 cmd_agents() {
-  [ "$#" -eq 0 ] || die "agents does not accept arguments"
-  run_control_rpc "Aiur.AgentControlCLI.agents()"
+  if [ "$#" -eq 1 ] && [ "$1" = --json ]; then
+    run_control_rpc "Aiur.Handoff.CLI.agents()"
+  else
+    [ "$#" -eq 0 ] || die "agents accepts only --json"
+    run_control_rpc "Aiur.AgentControlCLI.agents()"
+  fi
 }
 
 # `aiur commands` — read the dashboard's retained Decision projection without

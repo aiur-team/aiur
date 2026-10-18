@@ -1,7 +1,8 @@
 defmodule Aiur.Orchestrator.CommentPollingTest do
   use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.{CommentPolling, State}
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
+  alias Aiur.Orchestrator.State
   alias Aiur.PollCadence
 
   setup do
@@ -42,10 +43,10 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: false,
-      events_etag: nil,
-      events_last_id: nil,
-      github_comments_since: %{},
-      github_comment_issue_updated_at: %{},
+      github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+        since: %{},
+        issue_updated_at: %{}
+      },
       github_connectivity: %{},
       github_poll_delays: %{},
       github_command_scan_since: nil
@@ -81,129 +82,27 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
     # `Aiur.PerClassCadenceTest`.
     test "does not start a poll while within the published review cadence" do
       PollCadence.publish_effective_interval_ms(300_000, class: :review)
-      state = %{base_state() | last_comment_poll_started_at_ms: System.monotonic_time(:millisecond)}
+      state = %{base_state() | github_comment_cursor: %{base_state().github_comment_cursor | last_started_at_ms: System.monotonic_time(:millisecond)}}
 
       result = CommentPolling.start_async(state)
 
-      assert result.github_comment_poll == nil
-      assert result.last_comment_poll_started_at_ms == state.last_comment_poll_started_at_ms
+      assert result.github_comment_cursor.poll == nil
+      assert result.github_comment_cursor.last_started_at_ms == state.github_comment_cursor.last_started_at_ms
     end
 
     test "a recent start does not throttle before the review cadence is published" do
       PollCadence.forget_effective_interval_ms()
-      state = %{base_state() | last_comment_poll_started_at_ms: System.monotonic_time(:millisecond)}
+      state = %{base_state() | github_comment_cursor: %{base_state().github_comment_cursor | last_started_at_ms: System.monotonic_time(:millisecond)}}
 
       result = CommentPolling.start_async(state)
 
-      assert result.github_comment_poll != nil
+      assert result.github_comment_cursor.poll != nil
       # Clean up the spawned owner/poll so nothing leaks past the test.
-      terminate_spawned_poll(result.github_comment_poll)
+      terminate_spawned_poll(result.github_comment_cursor.poll)
     end
 
     defp terminate_spawned_poll(%{owner: owner}) when is_pid(owner), do: Process.exit(owner, :kill)
     defp terminate_spawned_poll(_poll), do: :ok
-  end
-
-  describe "poll_github_firehose/2" do
-    test "preserves stored etag on :not_modified response" do
-      state = %{base_state() | events_etag: "abc123"}
-      parent = self()
-
-      request_fun = fn request ->
-        send(parent, {:firehose_request, request})
-        {:ok, %{status: 304, headers: [{"ETag", "abc123"}, {"X-Poll-Interval", "60"}], body: ""}}
-      end
-
-      result = CommentPolling.poll_github_firehose(state, request_fun: request_fun)
-
-      assert result.events_etag == "abc123"
-      assert_receive {:firehose_request, %{etag: "abc123"}}, 1000
-    end
-
-    test "persistent merge-store failure retries finitely, degrades, alerts, and advances" do
-      state = %{
-        base_state()
-        | events_etag: "previous-etag",
-          events_last_id: "last-seen"
-      }
-
-      event = %{
-        "id" => "new-merge",
-        "type" => "PullRequestEvent",
-        "created_at" => "2026-07-12T18:00:00Z",
-        "repo" => %{"name" => "owner/repo"},
-        "payload" => %{
-          "action" => "closed",
-          "pull_request" => %{
-            "number" => 42,
-            "title" => "Merged feature",
-            "body" => "Durable outcome",
-            "html_url" => "https://github.com/owner/repo/pull/42",
-            "merged" => true,
-            "merged_at" => "2026-07-12T18:00:00Z",
-            "head" => %{"ref" => "aiur/983-history", "sha" => "head-42"}
-          }
-        }
-      }
-
-      request_fun = fn
-        %{etag: "new-etag"} ->
-          {:ok, %{status: 304, headers: [{"ETag", "new-etag"}], body: ""}}
-
-        %{etag: "previous-etag"} ->
-          {:ok, %{status: 200, headers: [{"ETag", "new-etag"}], body: [event, %{"id" => "last-seen"}]}}
-      end
-
-      {:ok, attempts} = Agent.start_link(fn -> 0 end)
-      parent = self()
-
-      opts = [
-        request_fun: request_fun,
-        recent_merge_fun: fn _merge ->
-          Agent.update(attempts, &(&1 + 1))
-          {:error, {:store_unavailable, {:unavailable, :read_only}}}
-        end,
-        recent_merge_alert_fun: fn topic, message, alert_opts ->
-          send(parent, {:persistence_alert, topic, message, alert_opts})
-          :ok
-        end,
-        boot_time: ~U[2026-07-12 17:00:00Z] |> DateTime.to_unix(),
-        run_id: "current-run"
-      ]
-
-      first = CommentPolling.poll_github_firehose(state, opts)
-      second = CommentPolling.poll_github_firehose(first, opts)
-
-      assert first.events_etag == "previous-etag"
-      assert first.events_last_id == "last-seen"
-      assert second.events_etag == "previous-etag"
-      assert second.events_last_id == "last-seen"
-
-      third = CommentPolling.poll_github_firehose(second, opts)
-
-      assert third.events_etag == "new-etag"
-      assert third.events_last_id == "new-merge"
-      # A local persistence failure is not lost connectivity: the catch-all no
-      # longer stamps it `:transport`, so it lands `:unclassified` and backs off
-      # at the conservative base rather than on the network escalation curve
-      # (#2429 F2). The persistence alert below is the intended operator signal.
-      assert third.github_connectivity[:recent_merge_store] == {:unclassified, 3}
-      assert third.github_poll_delays[:recent_merge_store] == 1_000
-      assert Agent.get(attempts, & &1) == 3
-
-      assert_receive {:persistence_alert, "recent_merge_store.persistence_failed", message, alert_opts}, 1000
-      assert message =~ "read-only"
-      assert alert_opts[:needs_attention]
-      refute_receive {:persistence_alert, _, _, _}, 100
-
-      fourth = CommentPolling.poll_github_firehose(third, opts)
-
-      assert fourth.events_etag == "new-etag"
-      assert fourth.events_last_id == "new-merge"
-      assert fourth.github_connectivity[:recent_merge_store] == {:unclassified, 3}
-      assert Agent.get(attempts, & &1) == 3
-      refute_receive {:persistence_alert, _, _, _}, 100
-    end
   end
 
   # #2601: target discovery and the `/reviews` read are wired together through
@@ -259,7 +158,7 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
           end
         ]
 
-        state = %{base_state() | github_comments_since: %{"164" => "2026-09-10T00:00:00Z"}}
+        state = %{base_state() | github_comment_cursor: %{base_state().github_comment_cursor | since: %{"164" => "2026-09-10T00:00:00Z"}}}
 
         assert is_struct(CommentPolling.poll_github_comments(state, opts), State)
 

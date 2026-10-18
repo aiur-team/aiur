@@ -5,8 +5,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
   alias Aiur.CIApprovalStore
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.GitHub.CIPollBatch
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Outcome
@@ -107,10 +106,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
     case observation do
       :no_targets ->
-        state
+        complete_no_target_poll(state)
 
       {started_at, :held} ->
-        %{state | last_ci_poll_started_at_ms: started_at}
+        Logger.warning("GithubCIPoller held by local budget; retaining the normal poll cadence")
+        state |> Map.put(:last_ci_poll_started_at_ms, started_at) |> clear_broker_retry_pending()
 
       {started_at, result} ->
         state = %{state | last_ci_poll_started_at_ms: started_at}
@@ -119,7 +119,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
   end
 
   defp apply_ci_poll(state, {:error, reason}, _generations, _baseline, _opts) do
-    Logger.warning("GithubCIPoller target refresh skipped; reason=#{inspect(reason)}")
+    state = schedule_ci_retry(state, reason, "target refresh")
+
     TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
   end
 
@@ -131,10 +132,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     |> log_ci_poll_errors(errors)
     |> apply_ci_poll_results(results, issues_by_target, opts)
     |> RestackScheduler.reconcile(Map.values(issues_by_target))
+    |> retry_ci_poll_on_errors(errors)
   end
 
   defp apply_ci_observation(state, {:error, reason}, _targets, _issues, _opts) do
-    Logger.warning("GithubCIPoller failed; reason=#{inspect(reason)}")
+    state = schedule_ci_retry(state, reason, "poll")
+
     TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
   end
 
@@ -239,6 +242,78 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     state
   end
 
+  defp retry_ci_poll_on_errors(state, []), do: clear_broker_retry_pending(state)
+
+  defp retry_ci_poll_on_errors(state, errors) do
+    if Enum.any?(errors, &broker_timeout_error?/1) do
+      if Map.get(state.ci_lifecycle, :broker_fast_retry_pending?, false) do
+        Logger.warning("GithubCIPoller broker timeout repeated after immediate retry; retaining the normal poll cadence")
+        clear_broker_retry_pending(state)
+      else
+        Logger.warning("GithubCIPoller broker timeout; retrying the full target set once on the next orchestrator tick after #{length(errors)} target failure(s)")
+        state |> Map.put(:last_ci_poll_started_at_ms, nil) |> put_broker_retry_pending(true)
+      end
+    else
+      Logger.warning("GithubCIPoller partial failures; retaining the normal poll cadence count=#{length(errors)}")
+      clear_broker_retry_pending(state)
+    end
+  end
+
+  defp schedule_ci_retry(state, reason, stage) do
+    if broker_timeout_error?(reason) do
+      if Map.get(state.ci_lifecycle, :broker_fast_retry_pending?, false) do
+        Logger.warning("GithubCIPoller #{stage} broker timeout repeated after immediate retry; retaining the normal poll cadence reason=#{inspect(reason)}")
+
+        state
+        |> ensure_ci_poll_timestamp()
+        |> clear_broker_retry_pending()
+      else
+        Logger.warning("GithubCIPoller #{stage} broker timeout; retrying once on the next orchestrator tick reason=#{inspect(reason)}")
+        state |> Map.put(:last_ci_poll_started_at_ms, nil) |> put_broker_retry_pending(true)
+      end
+    else
+      Logger.warning("GithubCIPoller #{stage} failed; retaining the normal poll cadence reason=#{inspect(reason)}")
+
+      state
+      |> Map.put(:last_ci_poll_started_at_ms, System.monotonic_time(:millisecond))
+      |> clear_broker_retry_pending()
+    end
+  end
+
+  defp put_broker_retry_pending(state, pending?) do
+    %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :broker_fast_retry_pending?, pending?)}
+  end
+
+  defp clear_broker_retry_pending(state), do: put_broker_retry_pending(state, false)
+
+  defp complete_no_target_poll(state) do
+    if Map.get(state.ci_lifecycle, :broker_fast_retry_pending?, false) do
+      state
+      |> Map.put(:last_ci_poll_started_at_ms, System.monotonic_time(:millisecond))
+      |> clear_broker_retry_pending()
+    else
+      state
+    end
+  end
+
+  defp ensure_ci_poll_timestamp(%{last_ci_poll_started_at_ms: nil} = state),
+    do: %{state | last_ci_poll_started_at_ms: System.monotonic_time(:millisecond)}
+
+  defp ensure_ci_poll_timestamp(state), do: state
+
+  defp broker_timeout_error?(:github_budget_broker_timeout), do: true
+
+  defp broker_timeout_error?(term) when is_tuple(term),
+    do: term |> Tuple.to_list() |> Enum.any?(&broker_timeout_error?/1)
+
+  defp broker_timeout_error?(term) when is_map(term),
+    do: term |> Map.values() |> Enum.any?(&broker_timeout_error?/1)
+
+  defp broker_timeout_error?(term) when is_list(term),
+    do: Enum.any?(term, &broker_timeout_error?/1)
+
+  defp broker_timeout_error?(_term), do: false
+
   defp apply_ci_poll_results(state, results, issues_by_target, opts) do
     Enum.reduce(results, state, fn result, state_acc ->
       apply_ci_poll_result_for_target(state_acc, result, issues_by_target, opts)
@@ -270,6 +345,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
           # Webhook-displaced reads have no effects; held bodies never answer CI (R10).
           state
         else
+          result = classify_merge_queue_departure(state, issue, result)
           ProgressStore.ci_identity(CiLifecycle.ci_target_for_issue(issue), result)
 
           state
@@ -283,6 +359,17 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
       _ ->
         state
+    end
+  end
+
+  defp classify_merge_queue_departure(state, issue, result) do
+    target = CiLifecycle.ci_target_for_issue(issue)
+    previous = get_in(state.ci_lifecycle, [:poll_cache, target])
+
+    if MergeQueue.failed_entry_dropped?(result, previous) do
+      Map.merge(result, %{decision: :failed, pending_reason: :merge_queue_dropped, failures: [%{name: "merge queue", kind: "merge_queue", result: "dropped after queue checks"}]})
+    else
+      result
     end
   end
 

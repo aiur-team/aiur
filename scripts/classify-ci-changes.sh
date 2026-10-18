@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Merge groups and v2/main pushes run full CI; main schedule pushes are quarantine-only.
 set -euo pipefail
+if [[ "$EVENT_NAME" == merge_group ]]; then
+  python3 scripts/classify-home-ci.py "$GITHUB_EVENT_PATH" "${GITHUB_WORKSPACE:-.}" >> "$GITHUB_OUTPUT"
+else
+  echo 'home_changed=false' >> "$GITHUB_OUTPUT"
+fi
 if [[ "$EVENT_NAME" != pull_request ]]; then
   if [[ "$EVENT_NAME" == merge_group || "$EVENT_NAME" == workflow_dispatch || "${GITHUB_REF:-}" == refs/heads/v2 || ("$EVENT_NAME" == push && "${GITHUB_REF:-}" == refs/heads/main) ]]; then
     printf 'full_ci=true\ndocs_only=false\n' >> "$GITHUB_OUTPUT"
@@ -30,13 +35,22 @@ if ! jq -e '[.[] | select(.type == "required_status_checks") | .parameters.requi
 fi
 if [[ "${EVENT_NAME}" == pull_request ]] && grep -qx 'full_ci=false' "$scratch/classification" && ! grep -qx 'docs_only=true' "$scratch/classification"; then
   jq -r '.[] | .filename, (.previous_filename // empty)' "$scratch/files.json" > "$scratch/paths"
-  selection="$(elixir -r src/lib/aiur/affected_tests.ex scripts/ci-test-selection.exs "$scratch/paths")"
+  base_sha="$(jq -er '.base.sha' "$scratch/pr.json")"
+  if ! selection="$(AIUR_CI_CHANGED_PATHS_B64="$(jq -cj '[.[] | .filename, (.previous_filename | select(. != null))] | unique' "$scratch/files.json" | base64 -w0)" AIUR_BASE_SHA="$base_sha" "${MIX_BIN:-mix}" run --no-start scripts/ci-test-selection.exs "$scratch/paths" 2> >(tee -a "$GITHUB_STEP_SUMMARY" >&2))"; then
+    printf '%s\n' 'affected test selection failed; forcing full CI' >&2
+    printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification"
+    selection=full
+  fi
   case "$selection" in
     full) printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification" ;;
     scoped:*)
-      selected_tests="${selection#scoped:}"
-      # A 525-file selection reached 7,840 tests; keep that size on full CI.
-      if (( selected_tests > 400 )); then
+      selected_count="${selection#scoped:}"
+      if [[ ! "$selected_count" =~ ^[0-9]+$ ]]; then
+        echo "unsupported affected selection count: $selection" >&2
+        exit 1
+      fi
+      if (( selected_count > 400 )); then
+        echo "affected test selection exceeded 400 files ($selected_count); forcing full CI" >&2
         printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification"
       fi
       ;;

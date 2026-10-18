@@ -122,7 +122,7 @@ export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null
   }
 }
 
-export function extractCapacityReadings(kpis, text = '') {
+export function extractCapacityReadings(kpis) {
   const readings = []
 
   for (const kpi of kpis) {
@@ -140,10 +140,6 @@ export function extractCapacityReadings(kpis, text = '') {
 
   if (readings.length > 0) return readings
 
-  const capacityPattern = /(\d+)\s+now\s*\/\s*(\d+)\s+cap/gi
-  for (const match of text.matchAll(capacityPattern)) {
-    readings.push({ label: 'current concurrency', value: Number(match[1]), cap: Number(match[2]) })
-  }
   return readings
 }
 
@@ -500,7 +496,7 @@ async function runPageCapture(page, name, route, knownNoise) {
   }))
   snapshot.status = status
   snapshot.navigationError ||= navigationError
-  snapshot.capacityReadings = extractCapacityReadings(snapshot.kpis || [], snapshot.text)
+  snapshot.capacityReadings = extractCapacityReadings(snapshot.kpis || [])
   const assessment = analyzeDashboardSnapshot(name, snapshot, EXPECTED_CAPACITY, EXPECTED_ACTIVE_AGENTS)
   const unexpectedConsoleErrors = consoleErrors.filter((entry) => !isKnownNoise(entry, knownNoise))
   const unexpectedFailedRequests = failedRequests.filter((entry) => !isKnownNoise(entry, knownNoise))

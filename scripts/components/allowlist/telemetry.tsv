@@ -2,7 +2,7 @@
 R-declared	Aiur.BuildGate	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.DaemonLifecycle	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Events.Exchange	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Events	#3361: migrate the existing baseline subscription through the event-bus facade
 R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator.CommentWake	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ProcessReaper	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839

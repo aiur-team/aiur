@@ -1,0 +1,9 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.RunTelemetry.RunContext",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/handoff.ex"
+  ],
+  "reason": "#3844 reuse build-stamp identity for versioned daemon handoffs"
+}

@@ -1,7 +1,7 @@
 # rule	target_module	reason
-R-declared	AiurWeb.Endpoint	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	AiurWeb.EndpointConfig	#4908 endpoint config seam, replaces the AiurWeb.Endpoint read
 R-declared	AiurWeb.FinancialDataAccess	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-down	Aiur.Init.ElevenLabs	#3455 voice contribution reuses wizard bodies until MP-R5-C3-T01 relocates them
 R-down	Aiur.Init.ResumeSummary	#3455 voice contribution preserves saved summary until MP-R5-C3-T01 relocates it
-R-down	AiurWeb.Endpoint	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	AiurWeb.EndpointConfig	#4908 endpoint config seam, replaces the AiurWeb.Endpoint read
 R-down	AiurWeb.FinancialDataAccess	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

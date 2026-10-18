@@ -42,6 +42,10 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     %{
       ci_wait:
         state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Enum.filter(fn {_target, ci} -> ci[:tracker_state] == "ci-wait" end) |> Enum.map(fn {target, ci} -> Map.put(ci, :identifier, target) end),
+      rework_attempts:
+        Enum.map(state.rework_attempts, fn {{issue_id, head_sha}, count} ->
+          %{issue_id: issue_id, head_sha: head_sha, count: count}
+        end),
       running: running,
       retrying: retrying,
       idle: idle,
@@ -67,6 +71,12 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
         idle_backoff: state.idle_poll_backoff,
         tracker_snapshot_fresh?: state.candidate_snapshot_fresh?,
         class_intervals: PollCadence.effective_intervals()
+      },
+      dispatch_cycle: %{
+        started_at_ms: state.dispatch_cycle_started_at_ms,
+        last_completed_at_ms: state.last_dispatch_cycle_completed_at_ms,
+        stalled?: state.dispatch_cycle_stalled?,
+        stage: state.dispatch_cycle_stage
       }
     }
     |> StatusObservation.attach(state, now)
@@ -147,6 +157,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       repl_attach_command: Socket.attach_command(metadata),
       live_conversation: Map.get(metadata, :live_conversation),
       codex_app_server_pid: Map.get(metadata, :codex_app_server_pid),
+      provider_pid: metadata[:codex_app_server_pid] || metadata[:repl_os_pid] || metadata[:headless_os_pid],
       agent_input_tokens: Map.get(metadata, :agent_input_tokens, 0),
       agent_output_tokens: Map.get(metadata, :agent_output_tokens, 0),
       agent_total_tokens: Map.get(metadata, :agent_total_tokens, 0),
@@ -161,6 +172,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       work_state: work_state,
       pause_reason: pause_reason,
       tracker_paused: Issue.paused?(metadata.issue),
+      executor_owner: Issue.executor_owner(metadata.issue),
       queue_depth: capabilities.queue_depth,
       pending_operator_messages: OM.pending_operator_messages_for_issue(state, metadata.identifier),
       control: capabilities,
@@ -274,6 +286,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       title: issue.title,
       url: issue.url,
       tracker_paused: Issue.paused?(issue),
+      executor_owner: Issue.executor_owner(issue),
       queue_depth: OM.queue_depth_for_issue(state, identifier),
       # #1453 supplies the idle-reason evidence; #1457 renders it.
       dispatch_latch: idle_evidence.dispatch_latch,

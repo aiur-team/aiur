@@ -1,9 +1,9 @@
 # Fragment of the assembled `gh` guard (Aiur.AgentGitHubGuard.Script); not a standalone script.
 budget_command() {
   if [ -n "$budget_identity_key" ]; then
-    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key" --identity-key "$budget_identity_key"
+    python3 -I "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key" --identity-key "$budget_identity_key"
   else
-    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
+    python3 -I "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
   fi
 }
 
@@ -52,7 +52,7 @@ valid_budget_lease() {
 valid_budget_hold_reset() {
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
 
-  python3 - "$1" <<'PY'
+  python3 -I - "$1" <<'PY'
 import sys
 import time
 
@@ -100,7 +100,7 @@ budget_acquire() {
       $budget_ignore_flag $budget_cache_flags $budget_billable_flag \
       --max-inflight "${AIUR_GITHUB_MAX_INFLIGHT:-4}" \
       --max-inflight-per-endpoint "${AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT:-2}" \
-      --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-120}" \
+      --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-300}" \
       --stagger-ms "${AIUR_GITHUB_STAGGER_MS:-75}" --lease-ttl-ms "$budget_lease_ttl_ms" \
       --core-limit "${AIUR_GITHUB_CORE_LIMIT_PER_HOUR:-0}" \
       --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" \
@@ -233,13 +233,17 @@ budget_acquire() {
 }
 
 budget_release() {
+  budget_stop_renewal
+  [ -n "$budget_lease" ] || return 0
+  budget_command release --lease-id "$budget_lease" >/dev/null 2>&1 || true
+  budget_lease=
+}
+
+budget_stop_renewal() {
   if [ -n "$budget_renewal_pid" ]; then
     kill "$budget_renewal_pid" 2>/dev/null || true
     budget_renewal_pid=
   fi
-  [ -n "$budget_lease" ] || return 0
-  budget_command release --lease-id "$budget_lease" >/dev/null 2>&1 || true
-  budget_lease=
 }
 
 # A stale-broker acquire abort: the ledger's schema trigger refused this

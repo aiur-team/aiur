@@ -167,6 +167,12 @@ export default withMermaid(defineConfig({
           text: 'APIs',
           items: [
             { text: 'GitHub', link: '/apis/github' },
+            { text: 'GitHub polling', link: '/apis/github-polling' },
+            { text: 'GitHub API budgets', link: '/apis/github-budgets' },
+            { text: 'GitHub per-caller costs', link: '/apis/github-costs' },
+            { text: 'GitHub webhooks', link: '/apis/github-webhooks' },
+            { text: 'GitHub credentials', link: '/apis/github-auth' },
+            { text: 'Shared agent reads', link: '/apis/github-agent-cache' },
             { text: 'CI failure evidence', link: '/apis/ci-failure-evidence' },
             { text: 'ElevenLabs', link: '/apis/elevenlabs' }
           ]
@@ -179,6 +185,7 @@ export default withMermaid(defineConfig({
             { text: 'Configuration: build_order', link: '/reference/configuration-build-order' },
             { text: 'Configuration notes', link: '/reference/configuration-notes' },
             { text: 'Merge Policy', link: '/reference/merge-policy' },
+            { text: 'PR checks', link: '/reference/pr-checks' },
             { text: 'Experiment Statistics', link: '/reference/experiment-statistics' },
             { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
           ]

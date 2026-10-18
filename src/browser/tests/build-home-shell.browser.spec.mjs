@@ -2,6 +2,7 @@
 import { expect, test } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
+// Shell lifecycle cases share one live fixture to verify transitions across mounts.
 const pageErrors = new WeakMap()
 test.beforeEach(({ page }) => { const errors = []; pageErrors.set(page, errors); page.on('pageerror', error => errors.push(error.message)) })
 test.afterEach(({ page }) => { expect(pageErrors.get(page), 'uncaught browser errors').toEqual([]) })
@@ -105,12 +106,12 @@ test('B1 skeleton stays past the design timer until a payload arrives', async ({
 
 test('B2 unavailable state and error replies remove the spinner', async ({ page }) => {
   await open(page, 'unavailable')
-  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · source unavailable')
+  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · build index read failed')
   await patch(page)
-  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · unknown cause')
+  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · unknown cause (unknown)')
   await expect(page.locator('.bd-spin, #bd-content, .bd-mk.empty')).toHaveCount(0)
   await page.evaluate(async () => (await import('/build-home/hook.js')).receive({ v: 1, kind: 'error', reason: 'unavailable' }))
-  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · source unavailable')
+  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · unknown cause (unavailable)')
   expect((await state(page)).loading).toBe(true)
 })
 
@@ -226,7 +227,7 @@ test('B11 remount resets state and disposes old listeners and intervals', async 
     const { ctx, fx } = await import('/build-home/state.js'); ctx.lockId = '1'; window.unlocks = 0; fx.unlock = () => window.unlocks++
   })
   await page.keyboard.press('Escape')
-  expect(await page.evaluate(() => ({ unlocks: window.unlocks, intervals: window.buildIntervals.size }))).toEqual({ unlocks: 1, intervals: 2 })
+  expect(await page.evaluate(() => ({ unlocks: window.unlocks, intervals: window.buildIntervals.size }))).toEqual({ unlocks: 1, intervals: 3 })
 })
 
 for (const event of ['pointercancel', 'lostpointercapture']) test(`B12 ${event} ends drag`, async ({ page }) => {

@@ -14,11 +14,26 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.GitHub.Issues, as: GitHubIssues
   alias Aiur.{Issue, Tracker}
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TicketTransition, TrackerTasks}
+
+  alias Aiur.Orchestrator.{
+    CommentWakeDecline,
+    Dispatcher,
+    DispatchPolicy,
+    MembershipLifecycle,
+    MergedTicketReconciler,
+    PrAnchored,
+    PushRouting,
+    ReviewFreshness,
+    ReworkGate,
+    State,
+    TicketTransition,
+    TrackerTasks
+  }
+
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, OptimisticLedger, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
@@ -165,12 +180,12 @@ defmodule Aiur.Orchestrator.CommentWake do
   # `MergedTicketReconciler.merged_ticket_target/2` pass the decided
   # `:target_state` (the reconciler does, so its terminal path does not
   # re-enumerate the open-PR listing); everyone else — the live webhook route —
-  # computes it here so no path can write `done` without first checking that
-  # the merged PR actually claimed to close the ticket, and then that no other
-  # open PR remains.
-  defp merged_issue_target_state(identifier, opts) do
+  # computes it here so no path can write `done` without first checking that the
+  # merged PR actually claimed to close the ticket, and then that no other open PR remains.
+  @spec merged_issue_target_state(String.t() | integer(), keyword()) :: String.t() | {:error, term()}
+  def merged_issue_target_state(identifier, opts) do
     case Keyword.get(opts, :target_state) do
-      target when target in ["done", "rework", "human-review"] ->
+      target when target in ["done", "rework", "ci-wait", "human-review"] ->
         target
 
       _other ->
@@ -555,8 +570,8 @@ defmodule Aiur.Orchestrator.CommentWake do
     case result do
       {:ok, %Issue{} = issue} ->
         cond do
-          Issue.parked?(issue) ->
-            {:skip, :parked}
+          Issue.held?(issue) ->
+            {:skip, if(Issue.parked?(issue), do: :parked, else: :executor_owned)}
 
           DispatchPolicy.normalize_issue_state(issue.state) == "" ->
             {:skip, :unlabeled_issue}
@@ -688,6 +703,10 @@ defmodule Aiur.Orchestrator.CommentWake do
       benign_review_pass_comment?(event) ->
         state
 
+      # A live rework worker gets the review; a finished one may have handed off since the last poll (#4601).
+      live_rework_worker?(running_entry) ->
+        OperatorMessages.enqueue_event_digest_item(state, to_string(issue_number), [event], event)
+
       true ->
         identifier = to_string(issue_number)
 
@@ -704,15 +723,13 @@ defmodule Aiur.Orchestrator.CommentWake do
           event,
           Map.get(running_entry, :telemetry_attempt_id),
           attempt,
-          fn arg1 ->
-            apply_active_comment_protection(
-              arg1,
-              {attempt, event, issue_number, source}
-            )
-          end
+          &apply_active_comment_protection(&1, {attempt, event, issue_number, source})
         )
     end
   end
+
+  defp live_rework_worker?(%{issue: %Issue{state: issue_state}, control: %{status: :working}}), do: DispatchPolicy.normalize_issue_state(issue_state) == "rework"
+  defp live_rework_worker?(_running_entry), do: false
 
   # A gate refusal on the running-entry path used to be the quietest outcome in
   # the whole comment-wake chain: no label write, no retry, no log line, no
@@ -1047,23 +1064,13 @@ defmodule Aiur.Orchestrator.CommentWake do
       # log at all — a paused, parked, already-running or unauthorized ticket
       # simply never woke and nothing said why. #2797 owns the general
       # silent-decline pattern; this is the one on the rework-comment path.
-      paused = issue.paused
-      parked = issue.parked
-      running = Map.has_key?(state.running, issue.id)
-
-      reason_details =
-        case {paused, parked, running} do
-          {true, _, _} -> "issue is paused"
-          {_, true, _} -> "issue is parked"
-          {_, _, true} -> "issue is already running"
-          _ -> "dispatch policy does not permit this state"
-        end
+      reason_details = CommentWakeDecline.reason_details(issue, Map.has_key?(state.running, issue.id))
 
       Alerts.emit_custom(
         "ticket.#{issue.identifier}.agent.attention.comment_wake_dispatch_declined",
         "Comment on issue #{issue.identifier} was not acted on: #{reason_details}",
         issue: issue.identifier,
-        reason: dispatch_decline_reason(reason_details, issue),
+        reason: CommentWakeDecline.describe(reason_details, issue),
         needs_attention: false,
         severity: "info",
         event_source: :system
@@ -1074,18 +1081,6 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp dispatch_decline_reason("issue is paused", _issue),
-    do: "Dispatch policy refused to wake the paused issue. Remedy: resume the issue, then retry the comment delivery."
-
-  defp dispatch_decline_reason("issue is parked", _issue),
-    do: "Dispatch policy refused to wake the parked issue. Remedy: resume it explicitly to clear the park marker."
-
-  defp dispatch_decline_reason("issue is already running", _issue),
-    do: "Dispatch policy refused a duplicate wake for an issue with a running agent. Remedy: let that agent finish or send the comment to its session."
-
-  defp dispatch_decline_reason(_details, issue),
-    do: "Dispatch policy refused the issue in state #{inspect(issue.state)}. Remedy: move it to an active state eligible for dispatch, then retry the comment delivery."
-
   # The successful state transition above captures the comment's rework intent,
   # but dispatch admission must continue to use the subsequently fetched state.
   # When that read is stale-but-active, record the intent only after a worker is
@@ -1094,7 +1089,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     case Map.get(state.running, issue.id) do
       %{pid: pid, issue: %Issue{} = dispatched_issue} = entry when is_pid(pid) ->
         if DispatchPolicy.normalize_issue_state(dispatched_issue.state) != "rework" do
-          Lifecycle.record(
+          Signal.lifecycle(
             issue.identifier,
             Map.get(entry, :telemetry_attempt_id),
             :agent_resume,
@@ -1259,7 +1254,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   # and the ticket never leaves `agent:human-review` (#2473). The review
   # submission *is* the outstanding finding, so it is handed to the gate as an
   # equivalent signal. What stops that from re-entering #2422's rework loop is
-  # that a review submission is delivered once — `Aiur.Events.Publisher` drops
+  # that a review submission is delivered once — the `Aiur.Events` publish boundary drops
   # a redelivery on the durable `{:pr_review, …}` resource identity before it
   # ever reaches the gate — NOT `ReviewFreshness`, whose staleness half is
   # inert on webhook deliveries. `ReworkGate`'s `no_thread_verdict/1` carries
@@ -1335,7 +1330,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     case update_issue_state_fun.(to_string(issue_key), "rework") do
       :ok ->
-        Lifecycle.record(
+        Signal.lifecycle(
           to_string(telemetry_ticket),
           attempt_id,
           :rework_start,
@@ -1567,10 +1562,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp apply_active_comment_protection(
-         outcome,
-         {attempt, event, issue_number, source}
-       ) do
+  defp apply_active_comment_protection(outcome, {attempt, event, issue_number, source}) do
     case outcome do
       {:ok, state} ->
         state
@@ -1581,7 +1573,7 @@ defmodule Aiur.Orchestrator.CommentWake do
             "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
         )
 
-        # A review submission is delivered ONCE. `Aiur.Events.Publisher`
+        # A review submission is delivered ONCE. The `Aiur.Events` publish boundary
         # marks `{:pr_review, owner, repo, review_id}` handled for 72h at
         # `resource_version = submitted_at`, and the poller's
         # `pr_review_seen_at` watermark advances past that `submitted_at` in
@@ -1704,20 +1696,12 @@ defmodule Aiur.Orchestrator.CommentWake do
         LocalHold.caller_opts(opts)
       )
 
-    result =
-      case target do
-        "done" ->
-          LocalHold.run(
-            fn -> update_issue_state_fun.(to_string(identifier), "done") |> Alerts.StaleNotClosed.resolve_on_ok(identifier) end,
-            LocalHold.caller_opts(opts)
-          )
+    {target, result} =
+      target
+      |> then(&MergeTransition.write_terminal_target(&1, identifier, update_issue_state_fun, opts))
+      |> then(&MergeTransition.normalize({target, &1}))
 
-        target when target in ["rework", "human-review"] ->
-          update_issue_state_fun.(to_string(identifier), target)
-
-        {:error, _} = error ->
-          error
-      end
+    result = if target == "done", do: Alerts.StaleNotClosed.resolve_on_ok(result, identifier), else: result
 
     audit_merge_attribution(identifier, MergeAttribution.resolve(merged_by_login, opts), merger_allowed_fun, emit_alert_fun)
     refresh_other_closed_issues(identifier, opts)
@@ -1749,7 +1733,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           current
         end
 
-      {target, :ok} when target in ["rework", "human-review"] ->
+      {target, :ok} when target in ["rework", "ci-wait", "human-review"] ->
         current
 
       {_, {:error, reason}} ->

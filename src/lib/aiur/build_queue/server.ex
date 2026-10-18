@@ -181,10 +181,11 @@ defmodule Aiur.BuildQueue.Server do
     end
   end
 
-  def handle_call({:mutate, command}, _from, %{status: :running} = state) do
+  def handle_call({:mutate, command}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
     case ListCommands.prepare(state, command) do
-      {:ok, document, actions, observations} ->
+      {:ok, document, actions, observations, missing} ->
         {reply, state} = commit_mutation(state, document, actions, observations)
+        reply = if reply == :ok and missing != [], do: {:ok, {:not_observed, missing}}, else: reply
         {:reply, reply, request(state)}
 
       error ->
@@ -377,8 +378,11 @@ defmodule Aiur.BuildQueue.Server do
   # Marker requests survive pacing and restarts; replay them only once recovery has resolved the store.
   defp replay_list_markers(%{phase: :ready, status: status} = state, observations) when status in [:running, :writes_paused] do
     case ListCommands.pending(state.document) do
-      [] -> state
-      pending -> write(state, Enum.reject(pending, &Map.has_key?(state.source_verdicts, elem(&1, 1))), observations)
+      [] ->
+        state
+
+      pending ->
+        write(state, Enum.reject(pending, &Map.has_key?(state.source_verdicts, elem(&1, 1))), observations)
     end
   end
 
@@ -465,7 +469,7 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   defp bind(state, pid) do
-    Enum.each(@patterns, &Exchange.subscribe(&1, state.exchange))
+    Enum.each(@patterns, &Aiur.Events.subscribe(&1, state.exchange))
     Process.monitor(pid)
     %{state | exchange_pid: pid}
   catch

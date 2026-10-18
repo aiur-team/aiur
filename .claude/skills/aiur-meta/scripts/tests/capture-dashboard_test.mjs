@@ -294,6 +294,13 @@ test('extracts the peak card value separately from current concurrency and its c
   assert.deepEqual(result.issues.filter((issue) => issue.kind === 'capacity-overrun').map((issue) => issue.detail), ['peak concurrency is 33 above its cap 32'])
 })
 
+test('does not read capacity numbers from unrelated page text', () => {
+  const ticketTitle = "Ticket #4159: '17 now / 16 cap'"
+  const readings = extractCapacityReadings([], ticketTitle)
+
+  assert.deepEqual(readings, [])
+})
+
 test('a precondition verdict says did not run, never attention', () => {
   const verdict = didNotRunVerdict('AIUR_DASHBOARD_PASSWORD is not set; the dashboard refuses all requests without it.')
 

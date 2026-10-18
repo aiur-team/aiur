@@ -54,7 +54,7 @@ new_control() {
 }
 MODULE
 printf '%s\n' 'source "$(dirname "${BASH_SOURCE[0]}")/aiur-new-control.sh"' >>"$root/packaging/npm/aiur-cli/libexec/aiur-engine.sh"
-cat >>"$root/website/docs-app/reference/build-history-commands.md" <<'DOC'
+cat >>"$root/website/docs-app/reference/cli-options.md" <<'DOC'
 | `--new-flag` | Select the new mode. | `aiur status --new-flag` |
 DOC
 if output="$(run_check "$root")"; then

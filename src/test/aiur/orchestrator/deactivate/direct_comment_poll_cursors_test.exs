@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
   alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.CommentPolling
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
 
   import Aiur.OrchestratorDeactivateSupport
 
@@ -40,19 +40,22 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
 
       state = %Orchestrator.State{
         running: %{},
-        github_comments_since: %{"57" => "2026-06-24T11:59:59Z"},
-        github_comment_issue_updated_at: %{"57" => updated_at}
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: %{"57" => "2026-06-24T11:59:59Z"},
+          issue_updated_at: %{"57" => updated_at}
+        }
       }
 
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end
         )
 
-      assert next.github_comments_since == %{"57" => "2026-06-24T11:59:59Z"}
-      assert next.github_comment_issue_updated_at == %{"57" => updated_at}
+      assert next.github_comment_cursor.since == %{"57" => "2026-06-24T11:59:59Z"}
+      assert next.github_comment_cursor.issue_updated_at == %{"57" => updated_at}
       # The synchronous poll return proves all eligible requests were issued.
       refute_received {:unexpected_comment_request, _url}
     end
@@ -103,13 +106,16 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
 
       state = %Orchestrator.State{
         running: %{},
-        github_comments_since: %{"57" => "2026-06-24T11:59:59Z"},
-        github_comment_issue_updated_at: %{"57" => issue_updated_at}
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: %{"57" => "2026-06-24T11:59:59Z"},
+          issue_updated_at: %{"57" => issue_updated_at}
+        }
       }
 
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [issue]} end,
           review_pull_request_fetcher: fn "57" -> {:ok, %{"number" => 61, "updated_at" => pr_updated_at}} end
@@ -119,7 +125,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
       # The synchronous poll return proves target discovery is complete.
       refute_received {:unexpected_pull_request_lookup, _url}
 
-      assert next.github_comment_issue_updated_at == %{
+      assert next.github_comment_cursor.issue_updated_at == %{
                "57" => "issue=#{issue_updated_at};pr=#{pr_updated_at}"
              }
     end
@@ -160,16 +166,19 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
 
       state = %Orchestrator.State{
         running: %{},
-        github_comments_since: %{
-          "10" => "2026-06-24T09:00:00Z",
-          "11" => "2026-06-24T10:00:00Z"
-        },
-        github_comment_issue_updated_at: %{"10" => updated_at}
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: %{
+            "10" => "2026-06-24T09:00:00Z",
+            "11" => "2026-06-24T10:00:00Z"
+          },
+          issue_updated_at: %{"10" => updated_at}
+        }
       }
 
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, issues} end,
           human_review_comment_target_limit: 1,
@@ -188,7 +197,7 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
       assert String.contains?(pulls_11, "state=open")
       assert String.contains?(pulls_11, "per_page=100")
 
-      assert next.github_comment_issue_updated_at == %{
+      assert next.github_comment_cursor.issue_updated_at == %{
                "10" => updated_at,
                "11" => updated_at
              }
@@ -244,26 +253,29 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
             control: %{status: :working}
           }
         },
-        github_comments_since: %{
-          "42" => "2026-06-24T11:00:00Z",
-          "57" => "2026-06-24T11:00:00Z"
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: %{
+            "42" => "2026-06-24T11:00:00Z",
+            "57" => "2026-06-24T11:00:00Z"
+          }
         }
       }
 
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, [human_review_issue]} end,
           max_concurrency: 1
         )
 
-      assert next.github_comments_since == %{
+      assert next.github_comment_cursor.since == %{
                "42" => "2026-06-24T12:02:59Z",
                "57" => "2026-06-24T11:00:00Z"
              }
 
-      assert next.github_comment_issue_updated_at == %{}
+      assert next.github_comment_cursor.issue_updated_at == %{}
       assert next.github_poll_delays == %{}
       receive_barrier({:event, %{topic: "ticket.42.issue.commented", message: "running target still advances"}})
     after
@@ -310,17 +322,20 @@ defmodule Aiur.Orchestrator.Deactivate.DirectCommentPollCursorsTest do
             control: %{status: :working}
           }
         },
-        github_comments_since: "2026-06-24T11:00:00Z"
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: "2026-06-24T11:00:00Z"
+        }
       }
 
       next =
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
+          token: "test-gh-token",
           request_fun: request_fun,
           review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:error, :tracker_down} end
         )
 
-      assert next.github_comments_since == "2026-06-24T11:00:00Z"
+      assert next.github_comment_cursor.since == "2026-06-24T11:00:00Z"
       # The synchronous poll return proves both request and publish paths have
       # finished for this cycle.
       refute_received {:unexpected_comment_request, _url}

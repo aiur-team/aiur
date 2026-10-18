@@ -34,7 +34,7 @@ aiur_build_gate_run_linux() (
   local queue_dir locks_dir queue_candidate queue_file queue_token queue_fd
   local command_pid_file="" command_ready_file="" command_status_file="" command_status_ack_file=""
   local holder_ready_file="" holder_started_file=""
-  local command_pgid holder_pid parent_pid python_binary retained status
+  local command_pgid command_pid_namespace holder_pid parent_pid python_binary retained status
   local deadline handshake_deadline holder_handshake_seconds=2 holder_ack_seconds=5 slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
   local available_memory_mb memory_deferred=0 memory_unavailable_logged=0
 
@@ -336,9 +336,11 @@ aiur_build_gate_run_linux() (
           return 125
         fi
 
+        command_pid_namespace=$(readlink "/proc/$command_pgid/ns/pid" 2>/dev/null) || command_pid_namespace=
+
         if ! aiur_build_gate_publish_owner_v2 \
           "$gate_dir" "$slot_owner" "$token" "$phase" "$owner_pid" "$owner_pgid" "$*" \
-          "$holder_pid" "$command_pgid"; then
+          "$holder_pid" "$command_pgid" "$command_pid_namespace"; then
           aiur_build_gate_stop_holder "$holder_pid"
           rm -f "$command_pid_file" "$command_ready_file" "$command_status_file" "$command_status_ack_file" \
             "$holder_ready_file" "$holder_started_file" 2>/dev/null || true

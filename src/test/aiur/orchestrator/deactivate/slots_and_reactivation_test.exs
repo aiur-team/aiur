@@ -122,6 +122,14 @@ defmodule Aiur.Orchestrator.Deactivate.SlotsAndReactivationTest do
       issue_id = "issue-relabel-1"
       issue_identifier = "RL-1"
 
+      runtime_root = Path.join(test_root, "runtime-state")
+      Aiur.TestSupport.put_runtime_state_dir!(runtime_root)
+
+      on_exit(fn ->
+        assert Path.wildcard(Path.join([runtime_root, "agent-relays", "*", "relay.json"])) == []
+        assert Path.wildcard(Path.join([runtime_root, "agent-relays", "*"])) == []
+      end)
+
       try do
         write_workflow_file!(Workflow.workflow_file_path(),
           workspace_root: test_root,

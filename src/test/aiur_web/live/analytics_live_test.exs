@@ -417,7 +417,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ ~s(data-source-kind="live")
     assert html =~ "live boot"
     # A live boot is the only source that may speak in the present tense.
-    assert html =~ ~r/an-kpi-sub">\d+ now \//
+    assert html =~ ~r/an-kpi-sub">occupancy unavailable \/.*cap/
     assert html =~ ~r/an-kpi-sub">this run</
   end
 
@@ -962,7 +962,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
   test "re-reads the awaiting count on a Command signal and on its own tick" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
-    store = Endpoint.config(:decision_store)
+    store = AiurWeb.EndpointConfig.get(:decision_store)
 
     {:ok, view, html} = loaded_live(build_conn(), "/analytics")
     assert html =~ "2 units awaiting commands"

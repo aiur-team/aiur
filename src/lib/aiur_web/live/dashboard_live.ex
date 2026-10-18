@@ -22,7 +22,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.UsageAggregate
   alias AiurWeb.BuildOrder.TicketContextPresenter
   alias AiurWeb.DashboardLive.{Controls, Summaries, UnitsPanel}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
 
@@ -1020,7 +1020,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp normalize_filter(_filter), do: :all
-  defp dashboard_writable?, do: Endpoint.config(:dashboard_writable) == true
+  defp dashboard_writable?, do: EndpointConfig.get(:dashboard_writable) == true
 
   # The browser reports its IANA timezone through the LiveSocket connect params.
   # Fall back to UTC when it is missing (initial render, fixture, or a browser
@@ -1185,7 +1185,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp schedule_usage_summary_flush do
-    case Endpoint.config(:usage_summary_flush_timer) do
+    case EndpointConfig.get(:usage_summary_flush_timer) do
       timer when is_function(timer, 3) -> timer.(self(), :flush_usage_summary, @usage_summary_flush_ms)
       _other -> Process.send_after(self(), :flush_usage_summary, @usage_summary_flush_ms)
     end
@@ -1416,14 +1416,14 @@ defmodule AiurWeb.DashboardLive do
   defp reload_provider_meters(context, message), do: provider_meter_source().reload(context, message)
 
   defp provider_meter_source do
-    case Endpoint.config(:provider_meter_source) do
+    case EndpointConfig.get(:provider_meter_source) do
       module when is_atom(module) and not is_nil(module) -> module
       _other -> ProviderMeterSource
     end
   end
 
   defp schedule_provider_meters_flush do
-    case Endpoint.config(:provider_meters_flush_timer) do
+    case EndpointConfig.get(:provider_meters_flush_timer) do
       timer when is_function(timer, 3) -> timer.(self(), :flush_provider_meters, @provider_meters_flush_ms)
       _other -> Process.send_after(self(), :flush_provider_meters, @provider_meters_flush_ms)
     end
@@ -1529,7 +1529,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp subscribe_ticket_context_resets do
     _result =
-      case Endpoint.config(:ticket_context_reset_subscribe_fun) do
+      case EndpointConfig.get(:ticket_context_reset_subscribe_fun) do
         fun when is_function(fun, 0) -> fun.()
         _fun -> subscribe_default_ticket_context_resets()
       end
@@ -1566,7 +1566,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp call_context(config_key, default, identity) do
-    fun = Endpoint.config(config_key) || default
+    fun = EndpointConfig.get(config_key) || default
     fun.(identity)
   rescue
     _error -> {:error, :unavailable}
@@ -1694,7 +1694,7 @@ defmodule AiurWeb.DashboardLive do
     {usage_snapshot, usage_error} =
       case Map.get(row, :identity) do
         %TrackerIdentity{} = identity ->
-          usage_snapshot_fun = Endpoint.config(:usage_snapshot_fun) || (&UsageSnapshotService.current/2)
+          usage_snapshot_fun = EndpointConfig.get(:usage_snapshot_fun) || (&UsageSnapshotService.current/2)
 
           case usage_snapshot_fun.(identity.identifier || "current agent", usage_opts) do
             {:ok, usage} -> {usage, nil}
@@ -1845,7 +1845,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp call_conversation(config_key, default, handle) do
-    fun = Endpoint.config(config_key) || default
+    fun = EndpointConfig.get(config_key) || default
     fun.(handle)
   rescue
     _error -> {:error, :unavailable}
@@ -2264,7 +2264,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp send_agent_message(target, text, message_id) do
-    case Endpoint.config(:agent_chat_send_fun) do
+    case EndpointConfig.get(:agent_chat_send_fun) do
       fun when is_function(fun, 3) -> fun.(target, text, message_id: message_id)
       fun when is_function(fun, 2) -> fun.(target, text)
       _fun -> AgentChat.send(target, text, message_id: message_id)

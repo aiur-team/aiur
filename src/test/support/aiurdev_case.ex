@@ -17,6 +17,18 @@ defmodule Aiur.TestSupport.AiurdevCase do
     File.mkdir_p!(libexec)
     # `--test` resets the sandbox from $repo_root/src; the dir must exist to cd into.
     File.mkdir_p!(Path.join(root, "src"))
+    browser = Path.join(root, "src/browser")
+    File.mkdir_p!(browser)
+    # chmod on the fake launcher rounds its mtime to seconds; seed inputs older.
+    for file <- ["package.json", "package-lock.json"] do
+      File.write!(Path.join(browser, file), "{}")
+      File.touch!(Path.join(browser, file), {{2000, 1, 1}, {0, 0, 0}})
+    end
+
+    assets = Path.join(root, "src/priv/static/vendor/elk/0.11.1")
+    File.mkdir_p!(assets)
+    for file <- ["elk-worker.min.js", "aiur-layout-worker.js", "aiur-layout-client.js", "manifest.json"], do: File.write!(Path.join(assets, file), "fixture")
+    File.touch!(Path.join(assets, "manifest.json"), {{2000, 1, 1}, {0, 0, 0}})
     File.write!(Path.join(root, ".aiur-test-tickets.json"), ~s({"tickets":[99,100,101]}))
     engine = Path.join(libexec, "aiur-engine.sh")
 
@@ -30,6 +42,7 @@ defmodule Aiur.TestSupport.AiurdevCase do
         "    echo \"ENGINE_ARGS: $*\"\n" <>
         "    echo \"AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
         "    echo \"AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}\"\n" <>
+        "    echo \"AIUR_GITHUB_BUDGET_DIR: ${AIUR_GITHUB_BUDGET_DIR:-}\"\n" <>
         "    echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
         "    echo \"AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
         "    echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
@@ -58,6 +71,8 @@ defmodule Aiur.TestSupport.AiurdevCase do
         "echo \"AIUR_DEBUG: ${AIUR_DEBUG:-}\"\n" <>
         "echo \"AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
         "echo \"AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}\"\n" <>
+        "echo \"AIUR_GITHUB_BUDGET_DIR: ${AIUR_GITHUB_BUDGET_DIR:-}\"\n" <>
+        "echo \"AIUR_RECORD_TEST_TICKET_IDS: ${AIUR_RECORD_TEST_TICKET_IDS:-}\"\n" <>
         "echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
         "echo \"AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
         "echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
@@ -168,11 +183,26 @@ defmodule Aiur.TestSupport.AiurdevCase do
       echo "MISE: $*"
       echo "MISE_AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}"
       echo "MISE_AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}"
+      echo "MISE_AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}"
+      echo "MISE_AIUR_GITHUB_BUDGET_DIR: ${AIUR_GITHUB_BUDGET_DIR:-}"
+      echo "MISE_AIUR_DEV_TEST_RUN_ID: ${AIUR_DEV_TEST_RUN_ID:-}"
+      echo "MISE_AIUR_DEV_TEST_STATE_DIR: ${AIUR_DEV_TEST_STATE_DIR:-}"
       echo "MISE_AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}"
       echo "MISE_XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}"
       echo "MISE_XDG_STATE_HOME: ${XDG_STATE_HOME:-}"
       echo "MISE_XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-}"
       echo "MISE_AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}"
+      if [ "${1:-}" = "exec" ] && [ "${3:-}" = "npm" ]; then
+        [ -z "${AIUR_FAKE_NPM_LOG:-}" ] || echo "${*:3}" >> "$AIUR_FAKE_NPM_LOG"
+        [ "${AIUR_FAKE_NPM_FAIL:-}" != "${4:-}" ] || exit 8
+        if [ "${4:-}" = "run" ]; then
+          mkdir -p ../priv/static/vendor/elk/0.11.1
+          for file in elk-worker.min.js aiur-layout-worker.js aiur-layout-client.js; do
+            echo generated > "../priv/static/vendor/elk/0.11.1/$file"
+          done
+        fi
+        exit 0
+      fi
       if [ "${1:-}" = "exec" ] && [ "${2:-}" = "--" ] && [ "${3:-}" = "mix" ]; then
         case "${4:-}" in
           deps.get|compile)

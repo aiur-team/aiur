@@ -10,12 +10,15 @@ config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
 config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
 config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
 
-config :aiur, :signal, alert_sink: Aiur.Alerts
+config :aiur, :signal,
+  alert_sink: Aiur.Alerts,
+  lifecycle_sink: Aiur.RunTelemetry.Lifecycle
 
 config :aiur, :github_poll_owner, Aiur.Orchestrator
 config :aiur, :github_quota_recovery_target, Aiur.Orchestrator
 config :aiur, :github_activity_recorder, {Aiur.Webhooks, :record_activity}
 config :aiur, :github_state_start_recorder, {Aiur.BuildOrder.History, :note_start}
+config :aiur, :github_rework_ci_canceller, {Aiur.GitHub.ReworkCICancel, :cancel_async}
 
 # Sources are named here so the sweep's complete set is readable in one place.
 config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
@@ -24,6 +27,8 @@ config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
 # through these names instead of referencing them.
 config :aiur, :process_reaper_pane_killer, {Aiur.Tmux.Socket, :kill_pane}
 config :aiur, :pause_containment_result_target, Aiur.Orchestrator
+
+config :aiur, :agent_environment_contributors, [Aiur.GitHub.AgentEnvironmentContributor]
 
 config :aiur, :turn_sandbox_root_contributors, [
   Aiur.AgentEnvironment.SandboxRoots,
@@ -36,6 +41,14 @@ config :aiur, :tracker_adapters, %{
   "linear" => Aiur.Linear.Tracker,
   "memory" => Aiur.Memory.Tracker
 }
+
+config :aiur, :workspace_preflights, %{"github" => Aiur.GitHub.WorkspacePreflight}
+# Prewarm historically resolves the GitHub origin even with another issue tracker.
+config :aiur, :repo_base_clone_url, {Aiur.GitHub.Tracker, :clone_url, []}
+config :aiur, :repo_base_git_token, {Aiur.GitHub.Config, :token, []}
+config :aiur, :workspace_git_credential_file, {Aiur.AgentGitHubGuard, :agent_token_path, []}
+config :aiur, :repo_ledger_validators, %{asks: {Aiur.Commands, :validate_asks}, findings: {Aiur.Findings, :validate}}
+config :aiur, :agent_support_modules, [Aiur.AgentGitHubGuard]
 
 config :aiur, :tracker_fallback_kind, "linear"
 
@@ -125,7 +138,13 @@ if config_env() == :test do
   # Tests manage GITHUB_TOKEN themselves; a boot resolution would cache a nil
   # (no valid token in CI) and shadow the per-test env tokens.
   config :aiur, :resolve_github_token_on_boot, false
+  config :aiur, :github_rework_ci_canceller, nil
   config :aiur, :workspace_github_preflight_enabled, false
+  # Webhook tests publish comments on the shared bus; the supervised orchestrator
+  # must not turn them into tracker-less comment-rework attempts (#4845).
+  config :aiur, :live_orchestrator_comment_topics?, false
+  # Tests run with a per-test mise data dir, where the host's Erlang looks missing.
+  config :aiur, :toolchain_preflight_opts, mise: nil
   config :aiur, :github_quota_refresh?, false
   config :aiur, :elevenlabs_quota_refresh?, false
   config :aiur, :github_budget_enabled?, false
@@ -169,6 +188,16 @@ if config_env() == :test do
   # tests and emit degraded alerts into an unrelated test's isolated ledger).
   # Tests drive `check/1` deterministically on their own instances.
   config :aiur, :broker_timeout_check_interval_ms, 0
+
+  # The shared app's terminal-ticket fact capture must not reach GitHub across
+  # sequential test boundaries: other tests queue tickets into it, and its 5 s
+  # retry tick sends `POST /graphql` whenever a later test has set a token.
+  # Tests that exercise it start their own instance.
+  config :aiur, :run_telemetry_facts_capture?, false
+
+  # The shared app's Executor sweep must not read daemon state or enqueue wakes
+  # across test boundaries. Tests start their own instance with an interval.
+  config :aiur, :executor_sweep_interval_ms, 0
 
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.
@@ -243,6 +272,10 @@ if config_env() == :test do
   # per-VM isolation. Aiur.TestSupport gives each case its own root.
   config :aiur, :machine_state_dir, Path.join(test_log_root, "machine")
   config :aiur, :runtime_state_dir, Path.join(test_log_root, "runtime-state")
+  # Background Codex probes launch relay processes outside a test's lifecycle;
+  # tests that cover this behavior opt in explicitly to avoid writing into
+  # another case's runtime root.
+  config :aiur, :codex_usage_probe_async?, false
   config :aiur, :workspace_ownership_sync_fun, fn -> :ok end
 
   config :aiur, :server_host_override, "127.0.0.1"

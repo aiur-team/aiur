@@ -28,12 +28,12 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
       end
     end
 
-    assert {:ok, checks} = CiReadiness.fetch_required_checks(repo: "owner/repo", base_branch: "release/next", request_fun: request_fun)
+    assert {:ok, checks} = CiReadiness.fetch_required_checks(repo: "owner/repo", base_branch: "release/next", token: "test-gh-token", request_fun: request_fun)
     assert Enum.sort_by(checks, & &1.name) == [%{name: "full", app_id: 15_368}, %{name: "legacy", app_id: nil}]
-    assert {:error, _reason} = CiReadiness.fetch_required_checks(repo: "owner/repo", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
+    assert {:error, _reason} = CiReadiness.fetch_required_checks(repo: "owner/repo", token: "test-gh-token", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
   end
 
-  test "PR workflow runs five fast jobs and the event gate produces the required check" do
+  test "PR workflow runs seven fast jobs, including soak, and the event gate produces the required check" do
     root = Path.expand("../../../../..", __DIR__)
     workflow = File.read!(Path.join(root, ".github/workflows/ci.yml"))
     parsed = YamlElixir.read_from_string!(workflow)
@@ -41,14 +41,21 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     assert Map.has_key?(parsed["on"], "merge_group")
     assert parsed["on"]["push"]["branches"] == ["main", "v2"]
     gate = "needs.changes.outputs.full_ci == 'true'"
-    fast = ~w(affected-tests changes ci-gate lint workflow-security)
-    selected = for {id, job} <- parsed["jobs"], id != "quarantine", not String.contains?(Map.get(job, "if", ""), gate), do: id
+    fast = ~w(affected-tests changes ci-gate lint pre-handoff soak workflow-security)
+    # Queue-only jobs are separate from the PR's fast/full selection.
+    selected = for {id, job} <- parsed["jobs"], id not in ~w(quarantine home-parity), not String.contains?(Map.get(job, "if", ""), gate), do: id
     assert Enum.sort(selected) == fast
 
-    for {id, job} <- parsed["jobs"], id not in fast and id != "quarantine" do
+    for {id, job} <- parsed["jobs"], id not in fast and id not in ~w(quarantine home-parity) do
       assert String.contains?(job["if"], gate)
     end
 
+    home = parsed["jobs"]["home-parity"]
+    assert home["if"] == "${{ !cancelled() && github.event_name == 'merge_group' && needs.changes.outputs.home_changed == 'true' }}"
+    assert home["uses"] == "./.github/workflows/home-parity.yml"
+    assert home["needs"] == "changes"
+    assert home["permissions"] == %{"contents" => "read"}
+    assert "home-parity" in parsed["jobs"]["ci-gate"]["needs"]
     assert parsed["jobs"]["ci-gate"]["if"] =~ "always()"
     declaration = root |> Path.join("docs/security/human-only-merge-ruleset.json") |> File.read!() |> Jason.decode!()
     checks = declaration["rules"] |> Enum.find(&(&1["type"] == "required_status_checks")) |> get_in(["parameters", "required_status_checks"])
@@ -190,7 +197,16 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
   test "dispatch reports the operator token required instead of accepting a persisted ready result" do
     path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
-    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path, request_fun: fn _ -> flunk("readiness must not use daemon authentication") end]
+
+    opts = [
+      repo: "owner/repo",
+      base_branch: "develop",
+      config_fingerprint: "config-a",
+      path: path,
+      token: "test-gh-token",
+      request_fun: fn _ -> flunk("readiness must not use daemon authentication") end
+    ]
+
     original_token = System.get_env(CiReadiness.operator_token_env())
     System.delete_env(CiReadiness.operator_token_env())
 
@@ -320,7 +336,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     end
 
     assert {:error, {:github, :timeout, _}} =
-             CiReadiness.check(repo: "owner/repo", base_branch: "develop", request_fun: request_fun, timeout_ms: 1)
+             CiReadiness.check(repo: "owner/repo", base_branch: "develop", token: "test-gh-token", request_fun: request_fun, timeout_ms: 1)
   end
 
   test "formats a ready assessment for operator status output" do

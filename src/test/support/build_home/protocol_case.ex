@@ -22,7 +22,7 @@ defmodule Aiur.TestSupport.BuildHome.ProtocolCase do
 
     defp result(:raise, _opts), do: raise("source raised")
     defp result(:exit, _opts), do: exit(:source_exit)
-    defp result(:error, _opts), do: {:error, :source_down}
+    defp result(:error, opts), do: {:error, Keyword.get(opts, :error_reason, :source_down)}
     defp result(:hold, _opts), do: receive(do: (:release -> {:error, :unavailable}))
 
     defp result(:invalid, opts) do

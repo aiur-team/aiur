@@ -10,7 +10,7 @@ defmodule Aiur.GitHub.CIRecovery do
            Transport.github_graphql(
              Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
              token,
-             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid isDraft state reviewDecision mergeQueueEntry{id}}}}",
+             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid isDraft state reviewDecision autoMergeRequest{enabledAt} mergeQueueEntry{id}}}}",
              %{owner: owner, repo: repo, number: number},
              caller: "ci_recovery"
            ),
@@ -22,11 +22,16 @@ defmodule Aiur.GitHub.CIRecovery do
     end
   end
 
-  @spec read(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  # Text endpoints such as job logs return a binary body; list endpoints such as commits return a list.
+  @spec read(String.t(), keyword()) :: {:ok, map() | list() | binary()} | {:error, term()}
   def read(path, opts), do: request(:get, path, nil, opts)
 
   @spec rerun(integer(), keyword()) :: {:ok, map()} | {:error, term()}
   def rerun(run, opts), do: request(:post, "/actions/runs/#{run}/rerun-failed-jobs", %{}, opts)
+
+  @doc "Merges the base into a PR branch for a fresh merge ref, only while its head is still `head`."
+  @spec update_branch(integer(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def update_branch(number, head, opts), do: request(:put, "/pulls/#{number}/update-branch", %{expected_head_sha: head}, opts)
 
   @spec jobs(integer(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def jobs(run, opts) when is_integer(run) and run > 0 do
@@ -55,7 +60,7 @@ defmodule Aiur.GitHub.CIRecovery do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      req = %{method: method, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}#{path}", token: token, caller: "ci_recovery"}
+      req = %{method: method, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}#{path}", token: token, caller: Keyword.get(opts, :caller, "ci_recovery")}
       req = if method == :get, do: req, else: Map.put(req, :body, body)
 
       case request.(req) do

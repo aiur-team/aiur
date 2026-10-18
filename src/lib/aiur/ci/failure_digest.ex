@@ -124,23 +124,31 @@ defmodule Aiur.CI.FailureDigest do
   defp other_failures?(annotations) do
     coverage_exit? = Enum.any?(annotations || [], &routine_coverage_exit?/1)
     derived? = derived_from(annotations) != []
-    Enum.any?(annotations || [], &substantive_failure?(&1, coverage_exit?, derived?))
+    browser_spec_exit? = Enum.any?(annotations || [], &browser_spec_failure?/1)
+    Enum.any?(annotations || [], &substantive_failure?(&1, coverage_exit?, derived?, browser_spec_exit?))
   end
+
+  defp browser_spec_failure?(%{"title" => "aiur-test-failure", "path" => "src/browser/tests/" <> path, "message" => "new-failure :: BrowserSpec :: " <> _}) do
+    String.ends_with?(path, ".spec.mjs") and not String.contains?(path, "..")
+  end
+
+  defp browser_spec_failure?(_), do: false
 
   defp routine_coverage_exit?(%{"annotation_level" => "failure", "message" => message}) when is_binary(message),
     do: Regex.match?(~r/\Acoverage partition [1-4] failed with status 2; full log follows in the next step\z/, message)
 
   defp routine_coverage_exit?(_), do: false
 
-  defp substantive_failure?(%{"annotation_level" => "failure", "message" => message} = annotation, coverage_exit?, derived?) do
+  defp substantive_failure?(%{"annotation_level" => "failure", "message" => message} = annotation, coverage_exit?, derived?, browser_spec_exit?) do
     # GitHub adds its own exit annotation; ignore it only beside the matching coverage wrapper.
     routine_exit = routine_coverage_exit?(annotation) or (coverage_exit? and message == "Process completed with exit code 2.")
     derived_exit = derived? and (annotation["title"] == "aiur-derived-failure" or message == "Process completed with exit code 1.")
-    annotation["title"] != "aiur-test-failure" and not routine_exit and not derived_exit
+    browser_exit = browser_spec_exit? and message == "Process completed with exit code 1."
+    annotation["title"] != "aiur-test-failure" and not routine_exit and not derived_exit and not browser_exit
   end
 
-  defp substantive_failure?(%{"annotation_level" => "failure"}, _, _), do: true
-  defp substantive_failure?(_, _, _), do: false
+  defp substantive_failure?(%{"annotation_level" => "failure"}, _, _, _), do: true
+  defp substantive_failure?(_, _, _, _), do: false
 
   defp derived_from(annotations) do
     case Enum.filter(annotations || [], &(&1["title"] == "aiur-derived-failure")) do

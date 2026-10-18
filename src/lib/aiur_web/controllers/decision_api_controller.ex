@@ -10,7 +10,7 @@ defmodule AiurWeb.DecisionApiController do
   use Phoenix.Controller, formats: [:json]
 
   alias Aiur.DecisionApi
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias Plug.Conn
 
   @spec index(Conn.t(), map()) :: Conn.t()
@@ -184,7 +184,7 @@ defmodule AiurWeb.DecisionApiController do
   end
 
   defp endpoint_config(key) do
-    Endpoint.config(key)
+    EndpointConfig.get(key)
   rescue
     _error -> nil
   catch

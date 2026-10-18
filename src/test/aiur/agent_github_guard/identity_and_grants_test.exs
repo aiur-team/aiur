@@ -38,11 +38,11 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
     assert %{"admissions" => [%{"endpoint_family" => "issues"}]} = Jason.decode!(snapshot)
   end
 
-  test "auth token remains local when a configured budget cannot start", context do
+  test "auth token is refused when python3 cannot enforce the call deadline", context do
     budget_root = Path.join(context.state_path, "host-budget")
     path = isolated_command_path(context, ~w(shasum))
 
-    assert {"ok\n", 0} =
+    assert {output, 127} =
              run_guard(context, ["auth", "token"],
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
                AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
@@ -50,14 +50,15 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                PATH: path
              )
 
-    assert File.read!(context.calls) == "auth token\n"
+    assert output =~ "python3 is required to enforce the governed gh call deadline"
+    refute File.exists?(context.calls)
   end
 
-  test "an explicitly disabled budget permits network calls without python3", context do
+  test "an explicitly disabled budget still requires python3 for the call deadline", context do
     budget_root = Path.join(context.state_path, "host-budget")
     path = isolated_command_path(context, ~w(shasum))
 
-    assert {"ok\n", 0} =
+    assert {output, 127} =
              run_guard(context, ["api", "repos/owner/repo/issues/1670"],
                AIUR_GITHUB_BUDGET_ENABLED: "0",
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
@@ -66,7 +67,8 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                PATH: path
              )
 
-    assert File.read!(context.calls) == "api repos/owner/repo/issues/1670\n"
+    assert output =~ "python3 is required to enforce the governed gh call deadline"
+    refute File.exists?(context.calls)
   end
 
   test "a malformed broker wait response refuses the real gh command", context do
@@ -247,6 +249,7 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
     reset = System.os_time(:second) + 3_600
+    before_ms = System.os_time(:millisecond)
 
     assert {_output, 1} =
              run_guard(context, ["api", "repos/owner/repo/issues/1670"],
@@ -262,15 +265,16 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                FAKE_RATE_LIMIT: "4077 #{reset} 4405 #{reset}"
              )
 
+    after_ms = System.os_time(:millisecond)
+
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
     assert %{"cooldown_until_ms" => cooldown_until} = Jason.decode!(snapshot)
-    # The wrapper command and SQLite snapshot consume a small part of the
-    # advertised two-second window; keep enough margin for a loaded host while
-    # still distinguishing Retry-After from the 60-second fallback.
-    assert cooldown_until >= System.os_time(:millisecond) + 1_500
-    assert cooldown_until <= System.os_time(:millisecond) + 3_000
+    # The broker stamps now + Retry-After while the guard runs, so bracket it
+    # with clocks read before and after the guard rather than a later wall clock.
+    assert cooldown_until >= before_ms + 2_000
+    assert cooldown_until <= after_ms + 2_000
   end
 
   test "a successful exhausted API response holds the budgeted resource globally", context do

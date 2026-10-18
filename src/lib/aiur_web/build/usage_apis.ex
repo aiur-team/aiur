@@ -1,5 +1,6 @@
 defmodule AiurWeb.Build.UsageAPIs do
   @moduledoc false
+  alias Aiur.BuildOrder.SourceFreshness
   alias AiurWeb.Build.Usage
   @labels %{"core" => {"core", "Requests left"}, "graphql" => {"gql", "Points left"}}
 
@@ -14,7 +15,7 @@ defmodule AiurWeb.Build.UsageAPIs do
       end
 
     lines = Enum.map(~w(core graphql), &github_line(snapshot, &1, now))
-    observations = snapshot.windows |> Map.values() |> Enum.map(&Usage.ms(Map.get(&1, :observed_at))) |> Enum.reject(&is_nil/1)
+    observations = snapshot.windows |> Map.values() |> Enum.map(&SourceFreshness.ms(Map.get(&1, :observed_at))) |> Enum.reject(&is_nil/1)
     %{Usage.row("GitHub") | icon: "github", lines: lines, observed_at: Enum.max(observations, fn -> nil end), stale: Enum.any?(lines, &ended?(&1.reset_at, now))}
   end
 
@@ -25,7 +26,7 @@ defmodule AiurWeb.Build.UsageAPIs do
 
     case window do
       %{used_percent: percent, limit: limit, remaining: remaining} when is_number(percent) and is_number(limit) and limit > 0 and is_number(remaining) ->
-        reset = Usage.ms(window.reset_at)
+        reset = SourceFreshness.ms(window.reset_at)
         %{base | acc: [Usage.percent(percent)], reset_at: reset, tip: [[label, "#{commas(remaining)} of #{commas(limit)}"]], hold_until: hold_until(snapshot, resource, window, now)}
 
       _ ->
@@ -35,9 +36,9 @@ defmodule AiurWeb.Build.UsageAPIs do
   end
 
   defp hold_until(snapshot, resource, window, now) do
-    reset = Usage.ms(window.reset_at)
+    reset = SourceFreshness.ms(window.reset_at)
     floor = if window.remaining * 100 <= window.limit * 10 and future?(reset, now), do: reset
-    backoff = snapshot |> Map.get(:backoffs, []) |> Enum.filter(&(&1.resource == resource)) |> Enum.map(&Usage.ms(&1.until)) |> Enum.filter(&future?(&1, now)) |> Enum.max(fn -> nil end)
+    backoff = snapshot |> Map.get(:backoffs, []) |> Enum.filter(&(&1.resource == resource)) |> Enum.map(&SourceFreshness.ms(&1.until)) |> Enum.filter(&future?(&1, now)) |> Enum.max(fn -> nil end)
     later(floor, backoff)
   end
 
@@ -46,13 +47,13 @@ defmodule AiurWeb.Build.UsageAPIs do
   defp elevenlabs_rows(snapshot, now) do
     {percent, reset, text} =
       case snapshot do
-        %{state: :observed, window: window} -> {Usage.percent(window.used_percent), Usage.ms(window.reset_at), Usage.compact_number(window.remaining)}
+        %{state: :observed, window: window} -> {Usage.percent(window.used_percent), SourceFreshness.ms(window.reset_at), Usage.compact_number(window.remaining)}
         %{state: :failed, failure: failure} -> {nil, nil, Usage.elevenlabs_failure(failure)}
         _ -> {nil, nil, "not observed yet"}
       end
 
     line = %{tag: "credits", acc: [percent], reset_at: reset, win: nil, tip: [["Credits left", text]], hold_until: nil}
-    [%{Usage.row("ElevenLabs") | mono: "E", lines: [line], observed_at: Usage.ms(Map.get(snapshot, :observed_at)), stale: ended?(reset, now)}]
+    [%{Usage.row("ElevenLabs") | mono: "E", lines: [line], observed_at: SourceFreshness.ms(Map.get(snapshot, :observed_at)), stale: ended?(reset, now)}]
   end
 
   defp commas(number), do: number |> round() |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")

@@ -1,0 +1,73 @@
+name: soak
+# Called by ci.yml on pull requests: repeat the tests the PR adds or modifies so a flake fails that PR.
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  select:
+    name: select changed tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs: {soak: "${{ steps.select.outputs.soak }}", soak_tests: "${{ steps.select.outputs.soak_tests }}", soak_browser: "${{ steps.select.outputs.soak_browser }}", soak_specs: "${{ steps.select.outputs.soak_specs }}"}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Select tests to soak
+        id: select
+        run: python3 scripts/ci-soak.py select HEAD^1 >> "$GITHUB_OUTPUT"
+  exunit:
+    name: soak changed tests
+    needs: select
+    if: ${{ needs.select.outputs.soak == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults: { run: { working-directory: src } }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        working-directory: .
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Set up Elixir
+        uses: ./.github/actions/setup-elixir
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: Compile tests
+        env:
+          MIX_ENV: test
+        run: mix compile
+      - name: Soak changed ExUnit files
+        env:
+          SOAK_TESTS: ${{ needs.select.outputs.soak_tests }}
+        run: python3 ../scripts/ci-soak.py exunit
+  browser:
+    name: soak changed browser specs
+    needs: select
+    if: ${{ needs.select.outputs.soak_browser == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Set up browser harness
+        uses: ./.github/actions/setup-browser
+      - name: Compile fixture
+        working-directory: src/browser
+        run: apt-get install -y --no-install-recommends python3 && npm run fixture:preflight
+      - name: Soak changed Playwright specs
+        working-directory: src/browser
+        env:
+          SOAK_SPECS: ${{ needs.select.outputs.soak_specs }}
+        run: python3 ../../scripts/ci-soak.py browser

@@ -4,7 +4,7 @@ defmodule Aiur.Workspace.Provisioner.Bootstrap do
   # Readiness, log-safe reconstruction and prewarm materialization share the
   # same filesystem safety decisions and reconstruction lock.
   alias Aiur.{Config, RepoBase}
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
   alias Aiur.Workspace.{Checkout, Materialize, Reconstruction, Remote}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
@@ -131,6 +131,36 @@ defmodule Aiur.Workspace.Provisioner.Bootstrap do
 
       true ->
         create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle, start_point)
+    end
+  end
+
+  # A worker lost mid-provisioning can leave only `.aiur-runtime/` scratch
+  # (#4970). Nothing there is work, so move it aside (never delete) and let the
+  # caller bootstrap a missing path; any other content stays ambiguous.
+  @doc false
+  @spec set_aside_runtime_scratch(Path.t()) :: :ok | {:error, term()}
+  def set_aside_runtime_scratch(workspace) when is_binary(workspace) do
+    Reconstruction.with_log_lock(workspace, fn ->
+      if runtime_scratch_only?(workspace), do: set_aside(workspace), else: :ok
+    end)
+  end
+
+  defp set_aside(workspace) do
+    stale = "#{workspace}.stale-#{Calendar.strftime(DateTime.utc_now(), "%Y%m%dT%H%M%S%fZ")}"
+
+    case File.rename(workspace, stale) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:workspace_set_aside_failed, workspace, reason}}
+    end
+  end
+
+  defp runtime_scratch_only?(workspace) do
+    with {:ok, %File.Stat{type: :directory}} <- File.lstat(workspace),
+         {:ok, entries} <- File.ls(workspace),
+         {:ok, %File.Stat{type: :directory}} <- File.lstat(Path.join(workspace, ".aiur-runtime")) do
+      entries == [".aiur-runtime"]
+    else
+      _ -> false
     end
   end
 
@@ -267,7 +297,7 @@ defmodule Aiur.Workspace.Provisioner.Bootstrap do
             record_prewarm(lifecycle, :end, %{
               prewarm_outcome: :materialize_failed,
               outcome: :failed,
-              reason_class: Lifecycle.reason_class(reason)
+              reason_class: Signal.reason_class(reason)
             })
 
             record_prewarm_point(lifecycle, :cold_fallback, :success)
@@ -312,12 +342,12 @@ defmodule Aiur.Workspace.Provisioner.Bootstrap do
          metadata
        )
        when is_binary(ticket) and is_function(recorder, 3) do
-    Lifecycle.record(ticket, attempt_id, :prewarm, boundary, metadata, recorder: recorder)
+    Signal.lifecycle(ticket, attempt_id, :prewarm, boundary, metadata, recorder: recorder)
   end
 
   defp record_prewarm(%{ticket: ticket, attempt_id: attempt_id}, boundary, metadata)
        when is_binary(ticket) do
-    Lifecycle.record(ticket, attempt_id, :prewarm, boundary, metadata)
+    Signal.lifecycle(ticket, attempt_id, :prewarm, boundary, metadata)
   end
 
   defp record_prewarm(_lifecycle, _boundary, _metadata), do: :ok

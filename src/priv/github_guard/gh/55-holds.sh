@@ -1,8 +1,9 @@
 # Fragment of the assembled `gh` guard (Aiur.AgentGitHubGuard.Script); not a standalone script.
 # `marker_cleanup` is defined and armed beside the marker block itself, so the
-# early refusal exits do not leak a temp copy. Now that `budget_release` exists,
-# widen the same traps to release the budget lease as well.
-trap 'marker_cleanup; budget_release; exit 143' HUP INT TERM
+# early refusal exits do not leak a temp copy. On a signal, stop lease renewal
+# without synchronously calling a broker that may be the command being killed;
+# the lease stays counted until its TTL expires.
+trap 'marker_cleanup; budget_stop_renewal; trap - 0; exit 143' HUP INT TERM
 trap 'marker_cleanup; budget_release' 0
 
 secondary_delay_ms() {
@@ -53,7 +54,20 @@ write_hold() {
 # Reads already consult both dirs (`consider_resource_holds` below), so writes
 # publish to both too; an unwritable shared dir fails quietly and leaves the
 # workspace hold in place.
+#
+# A primary window resets within an hour and a secondary limit lasts minutes,
+# so a deadline past `hold_max_ahead` is corrupt (a skewed clock or a test
+# fixture) and would park the whole fleet until it expires (#4698). Writers
+# refuse it; readers ignore it and leave it for the daemon to remove and alert.
+# An empty state path publishes nothing and never falls back to `~/.aiur`.
+hold_max_ahead=3660
+
 publish_hold() {
+  if [ "$2" -gt $(( $(date -u +%s) + hold_max_ahead )) ]; then
+    printf 'aiur: refusing implausible %s until %s (more than %ss ahead)\n' "$1" "$2" "$hold_max_ahead" >&2
+    return 0
+  fi
+
   if [ -n "$agent_quota_dir" ]; then write_hold "$agent_quota_dir/$1" "$2"; fi
 
   if [ -n "$quota_dir" ] && [ "$quota_dir" != "$agent_quota_dir" ]; then
@@ -69,7 +83,9 @@ consider_hold() {
     ''|*[!0-9]*) return ;;
   esac
 
-  if [ "$candidate" -gt "$now" ]; then
+  if [ "$candidate" -gt $((now + hold_max_ahead)) ]; then
+    printf 'aiur: ignoring implausible hold %s until %s\n' "$1" "$candidate" >&2
+  elif [ "$candidate" -gt "$now" ]; then
     if [ "$candidate" -gt "$hold_until" ]; then hold_until=$candidate; fi
   else
     rm -f "$1" 2>/dev/null || true
@@ -222,4 +238,3 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
   # column sits between the resource and the fingerprint (#2299).
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$consumer" "$direction" "$track_resource" "$call_site" "${budget_key:-}" "$$" >> "$events_file" 2>/dev/null || true
 fi
-
