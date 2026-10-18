@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   alias Aiur.Orchestrator.PressureAdmission
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RunTelemetry
   alias Aiur.SystemCpu
 
@@ -106,33 +107,48 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
 
   defp hold_dispatch(state, %{signal: :cpu_pressure} = reason, issues, choose_fun, now_ms, opts) do
     state = hold_dispatch(state, reason, now_ms, opts)
-    urgent = Enum.find(issues, &urgent_priority?/1)
 
-    if urgent && PressureAdmission.priority_bypass_allowed?(state.dispatch_capacity_sample) do
-      effective = Slots.effective_concurrent_agent_limit(state)
-      maximum = Slots.max_concurrent_agent_limit(state)
-      used = Slots.used_slots(state)
-      bypass_limit = min(maximum, effective + @pressure_bypass_slots)
-      reserved = map_size(state.priority_dispatch_reservations) - if(Map.has_key?(state.priority_dispatch_reservations, urgent.id), do: 1, else: 0)
+    if PressureAdmission.priority_bypass_allowed?(state.dispatch_capacity_sample),
+      do: dispatch_urgent_under_pressure(state, issues, choose_fun),
+      else: state
+  end
 
-      if used + reserved < bypass_limit do
-        # Keep the temporary ceiling tied to this P1 while validation is
-        # asynchronous. The envelope itself must remain unchanged after this
-        # poll, or later polls would compound the allowance.
-        reservations = Map.put(state.priority_dispatch_reservations, urgent.id, bypass_limit)
-        dispatch_state = %{state | effective_concurrent_agents: bypass_limit, priority_dispatch_reservations: reservations}
-        chosen = choose_fun.(dispatch_state, [urgent])
-        %{chosen | effective_concurrent_agents: state.effective_concurrent_agents}
-      else
-        state
-      end
+  defp hold_dispatch(state, reason, _issues, _choose_fun, now_ms, opts) do
+    hold_dispatch(state, reason, now_ms, opts)
+  end
+
+  defp dispatch_urgent_under_pressure(state, issues, choose_fun) do
+    effective = Slots.effective_concurrent_agent_limit(state)
+    bypass_limit = min(Slots.max_concurrent_agent_limit(state), effective + @pressure_bypass_slots)
+    bypass_policy_state = %{state | effective_concurrent_agents: bypass_limit}
+    urgent = Enum.find(issues, &(urgent_priority?(&1) and DispatchPolicy.dispatch_candidate?(&1, bypass_policy_state)))
+
+    if urgent && has_priority_bypass_slot?(state, urgent, bypass_limit) do
+      dispatch_reserved_priority_issue(state, urgent, bypass_limit, choose_fun)
     else
       state
     end
   end
 
-  defp hold_dispatch(state, reason, _issues, _choose_fun, now_ms, opts) do
-    hold_dispatch(state, reason, now_ms, opts)
+  defp has_priority_bypass_slot?(state, issue, bypass_limit) do
+    reserved = map_size(state.priority_dispatch_reservations) - if(Map.has_key?(state.priority_dispatch_reservations, issue.id), do: 1, else: 0)
+    Slots.used_slots(state) + reserved < bypass_limit
+  end
+
+  defp dispatch_reserved_priority_issue(state, urgent, bypass_limit, choose_fun) do
+    # Keep the temporary ceiling tied to this P1 while validation is
+    # asynchronous. The envelope itself must remain unchanged after this poll,
+    # or later polls would compound the allowance.
+    reservations = Map.put(state.priority_dispatch_reservations, urgent.id, bypass_limit)
+    dispatch_state = %{state | effective_concurrent_agents: bypass_limit, priority_dispatch_reservations: reservations}
+    chosen = choose_fun.(dispatch_state, [urgent])
+    chosen = %{chosen | effective_concurrent_agents: state.effective_concurrent_agents}
+
+    if TrackerTasks.running?(chosen, {:dispatch, urgent.id}) do
+      chosen
+    else
+      %{chosen | priority_dispatch_reservations: Map.delete(chosen.priority_dispatch_reservations, urgent.id)}
+    end
   end
 
   defp hold_dispatch(state, reason, now_ms, opts) do

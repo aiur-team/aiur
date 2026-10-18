@@ -91,6 +91,54 @@ defmodule Aiur.Orchestrator.Dispatcher.PressurePriorityAdmissionTest do
     refute_received {:candidate, "routine", _, _, _}
   end
 
+  test "a running P1 is skipped so a waiting P1 can use the pressure bypass" do
+    running_p1 = %{issue("urgent-running") | priority: 1}
+    waiting_p1 = %{issue("urgent-waiting") | priority: 1}
+    running = running_agents(6) |> Map.put(running_p1.id, Map.put(running_entry(running_p1.id), :issue, running_p1))
+
+    state = %{state(7) | running: running}
+
+    choose = fn selected_state, [selected] ->
+      assert selected.id == waiting_p1.id
+      Process.put({Aiur.Handoff, :dispatch_hold}, true)
+
+      try do
+        dispatched =
+          Dispatcher.maybe_choose(selected_state, [selected],
+            issue_fetcher: fn [_id] -> {:ok, [waiting_p1]} end,
+            blocked_by_hydrator: fn issue -> {:ok, issue} end
+          )
+
+        send(self(), {:selected, selected.id, selected_state.priority_dispatch_reservations[selected.id], dispatched})
+        dispatched
+      after
+        Process.delete({Aiur.Handoff, :dispatch_hold})
+      end
+    end
+
+    result =
+      Dispatcher.maybe_choose_under_load(state, [running_p1, waiting_p1], choose,
+        admission_probes_fun: fn -> probes() end,
+        now_ms: 1_001
+      )
+
+    assert_received {:selected, "urgent-waiting", 9, _dispatched}
+    assert result.priority_dispatch_reservations == %{}
+  end
+
+  test "a skipped chooser does not leave a priority reservation" do
+    p1 = %{issue("urgent-skipped") | priority: 1}
+
+    result =
+      Dispatcher.maybe_choose_under_load(state(7), [p1], fn chosen_state, [_selected] -> chosen_state end,
+        admission_probes_fun: fn -> probes() end,
+        now_ms: 1_001
+      )
+
+    assert result.priority_dispatch_reservations == %{}
+    refute Enum.any?(result.tracker_tasks, fn {_ref, job} -> job.key == {:dispatch, p1.id} end)
+  end
+
   test "repeated P1 bypasses stay tied to the envelope and cannot leak slots to P3" do
     first = %{issue("urgent-first") | priority: 1}
     second = %{issue("urgent-second") | priority: 1}
