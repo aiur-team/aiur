@@ -7,10 +7,16 @@ import { H } from './history.js';
 import { fromServer, flushURL } from './url.js';
 import './clock.js';
 import './render.js';
-import './offline.js';
+import './columns.js';
+import './cards.js';
+import { seedDaemon } from './offline.js';
 import './tools.js';
+import './span.js';
+import './states.js';
+import './list.js';
 
 export function writeOwnData() {
+  if (ctx.bdStates != null) ctx.root.dataset.bdStates = ctx.bdStates;
   Object.assign(ctx.root.dataset, { buildHomeHook: 'mounted', bdMounted: '', bdPaging: H.state, buildSocket: ctx.socket });
   if (ctx.proto.epoch !== null) {
     ctx.root.dataset.buildEpoch = ctx.proto.epoch;
@@ -47,6 +53,7 @@ export function receive(msg) {
         if (msg.kind === 'diff') resync(); else fx.renderUnavailable('invalid');
         return;
       }
+      fx.tickCardAges();
       if (msg.kind === 'snapshot') { if (first) firstPaint(); else repaint(); }
       else { fx.dataChanged(msg); fx.drawEdgesSoon(30); }
       writeOwnData();
@@ -77,7 +84,7 @@ export function createBuildHomeHook() {
     mounted() {
       let urlState;
       try { urlState = JSON.parse(this.el.dataset.urlState || '{}'); } catch { urlState = {}; }
-      resetState(urlState);
+      resetState(urlState); seedDaemon(this.el.dataset.daemon);
       ctx.root = this.el; ctx.life = createLife(); ctx.resync = resync;
       ctx.push = (e, p) => this.pushEvent(e, p); ctx.reload = () => location.reload();
       this.buildLife = ctx.life;

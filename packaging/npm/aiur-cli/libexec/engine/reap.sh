@@ -238,6 +238,7 @@ start_beam_death_watchdog() {
   (
     seen="$initial_seen"
     while :; do
+      [ ! -s "$pidfile.handoff" ] || exit 0
       if pgrep -f -- "$beam_pattern" >/dev/null 2>&1; then
         seen=1
       elif supervisor_is_alive "$supervisor_file"; then
@@ -251,13 +252,19 @@ start_beam_death_watchdog() {
     # its presence means an intentional exit (consume it, no crash record).
     # Anything else is an unexpected exit worth a durable record before reaping.
     if [ -n "$stop_sentinel" ] && [ -f "$stop_sentinel" ]; then
+      if [[ "$(cat "$stop_sentinel")" == handoff=* ]]; then
+        rm -f "$stop_sentinel" 2>/dev/null || true
+        exit 0
+      fi
       rm -f "$stop_sentinel" 2>/dev/null || true
     elif [ -n "$crash_marker" ] || [ -n "$run_log_dir" ] || [ -n "$alert_ledger_path_file" ]; then
       record_beam_crash "$node" "$run_log_dir" "$crash_marker" "$alert_ledger_path_file" "$dump_baseline_file"
     fi
+    [ ! -s "$pidfile.handoff" ] || exit 0
     reap_aiur_agents "$socket" "$pidfile"
     reap_workspace_cwd_from_file "$workspace_root_file"
     rm -f "$alert_ledger_path_file" "$dump_baseline_file" "$supervisor_file" "${AIUR_ARGV_FILE:-}" 2>/dev/null || true
+    cleanup_test_launch_private_state
   ) >/dev/null 2>&1 &
   printf '%s\n' "$!"
 }

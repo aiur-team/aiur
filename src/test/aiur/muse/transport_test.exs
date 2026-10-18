@@ -45,9 +45,10 @@ defmodule Aiur.Muse.TransportTest do
 
   @tag :tmp_dir
   test "a write into a provider that closed stdin reports the port exit before the deadline", %{tmp_dir: dir} do
-    {:ok, port} = Transport.start(dir, "exec 0<&-; echo closed; sleep 30")
+    # The leading stderr line stands in for host shell noise merged into stdout (#4926).
+    {:ok, port} = Transport.start(dir, "echo noise >&2; exec 0<&-; echo closed; sleep 30")
     on_exit(fn -> Transport.stop(port) end)
-    assert_receive {^port, {:data, {:eol, "closed"}}}, 5_000
+    drain_until_line(port, "closed")
 
     frame = %{"jsonrpc" => "2.0", "id" => 9, "method" => "turn/start", "params" => %{}}
     assert {:error, {:port_exit, :epipe}} = Transport.request(port, frame, 3_000)
@@ -56,6 +57,16 @@ defmodule Aiur.Muse.TransportTest do
   test "remote workspaces are rejected before process launch" do
     assert {:error, :remote_worker_unsupported} = Transport.start("/missing", "muse serve", worker_host: "worker")
     assert {:error, :workspace_not_found} = Transport.start("/missing-aiur-muse-workspace", "muse serve")
+  end
+
+  # A pattern-matched receive would skip earlier lines and leave them for Transport.request to read.
+  defp drain_until_line(port, line) do
+    receive do
+      {^port, {:data, {:eol, ^line}}} -> :ok
+      {^port, {:data, _other}} -> drain_until_line(port, line)
+    after
+      5_000 -> flunk("provider never printed #{inspect(line)}")
+    end
   end
 
   defp fixture_port(script) do

@@ -1,0 +1,10 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.GitHub.Listeners",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/orchestrator/firehose_polling.ex",
+    "src/lib/aiur/orchestrator/lifecycle.ex"
+  ],
+  "reason": "#3325 preserve dispatch order and restart cursor reset through the optional listener facade"
+}

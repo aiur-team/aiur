@@ -8,6 +8,7 @@
     "src/lib/aiur/agent_queue.ex",
     "src/lib/aiur/agent_queue_item.ex",
     "src/lib/aiur/agent_queue_store.ex",
+    "src/lib/aiur/agent_queue_store/**",
     "src/lib/aiur/current_run_membership.ex",
     "src/lib/aiur/current_run_membership/**",
     "src/lib/aiur/dispatch_budget_store.ex",
@@ -15,6 +16,7 @@
     "src/lib/aiur/handoff/adopter.ex",
     "src/lib/aiur/handoff/compatibility.ex",
     "src/lib/aiur/handoff/fallback.ex",
+    "src/lib/aiur/handoff/report.ex",
     "src/lib/aiur/landing_watch.ex",
     "src/lib/aiur/landing_watch/**",
     "src/lib/aiur/orchestrator.ex",
@@ -22,7 +24,9 @@
     "src/lib/aiur/pr_ready_ledger_store.ex",
     "src/lib/aiur/recent_merge.ex",
     "src/lib/aiur/recent_merge/**",
-    "src/lib/aiur/recent_merge_store.ex"
+    "src/lib/aiur/recent_merge_store.ex",
+    "src/lib/aiur/test_quarantine.ex",
+    "src/lib/aiur/test_quarantine/**"
   ],
   "facades": [
     "*"
@@ -84,5 +88,8 @@
     "worker"
   ],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "forbid": [
+    "Aiur.GitHub.Listeners.*"
+  ]
 }

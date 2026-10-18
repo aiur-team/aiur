@@ -19,6 +19,31 @@ defmodule Aiur.Orchestrator.RetryEngine.ExhaustionTest do
     def update_issue_state(_issue_id, _state_name, _opts), do: :ok
   end
 
+  defmodule MovedToCiWaitGitHubClient do
+    def update_issue_state(_issue_id, _state_name), do: update_issue_state(nil, nil, [])
+
+    def update_issue_state(_issue_id, _state_name, _opts) do
+      actual = Process.get(:exhaustion_stale_actual, "ci-wait")
+      {:error, {:stale_issue_state, "in-progress", actual}}
+    end
+  end
+
+  defmodule HeldThenSucceedingGitHubClient do
+    def update_issue_state(_issue_id, _state_name), do: update_issue_state(nil, nil, [])
+
+    def update_issue_state(_issue_id, _state_name, _opts) do
+      attempts = Process.get(:held_state_write_attempts, 0)
+      Process.put(:held_state_write_attempts, attempts + 1)
+
+      if attempts == 0 do
+        hold = %{resource: "core", reason: :shared_budget, reset_at: DateTime.add(DateTime.utc_now(), -1, :second)}
+        {:error, {:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}}
+      else
+        :ok
+      end
+    end
+  end
+
   describe "retry_exhausted alert (#1317)" do
     test "give-up alert includes the underlying error, not just a generic headline" do
       # The Publisher contamination filter's tracked_fn is process-global
@@ -96,6 +121,110 @@ defmodule Aiur.Orchestrator.RetryEngine.ExhaustionTest do
       end)
     end
 
+    test "a moved ticket records one stale write without raising a write-failed alert" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.MT-MOVED.agent.attention.error-state-write-failed")
+      handler = {__MODULE__, :stale_exhaustion_write, self()}
+      :ok = :telemetry.attach(handler, [:aiur, :ticket_transition], fn event, measurements, meta, pid -> send(pid, {:ticket_transition, event, measurements, meta}) end, self())
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        :telemetry.detach(handler)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      with_github_tracker!(fn ->
+        Application.put_env(:aiur, :github_client_module, MovedToCiWaitGitHubClient)
+
+        RetryEngine.schedule_issue_retry(
+          %State{last_polled_issues: %{"issue-moved" => %Aiur.Issue{id: "issue-moved", state: "in-progress"}}},
+          "issue-moved",
+          Config.max_retry_attempts() + 1,
+          %{
+            identifier: "MT-MOVED",
+            error: "agent exited: boom",
+            rework_head_sha: nil,
+            open_pr_fetcher: fn _ -> {:ok, nil} end,
+            delay_type: :failure
+          }
+        )
+
+        assert_receive {:ticket_transition, [:aiur, :ticket_transition], %{},
+                        %{issue_id: "MT-MOVED", to: "error", expected: "in-progress", outcome: {:error, {:stale_issue_state, "in-progress", "ci-wait"}}}},
+                       500
+
+        refute_receive {:ticket_transition, [:aiur, :ticket_transition], _, _}, 100
+        refute_receive {:event, %{topic: "ticket.MT-MOVED.agent.attention.error-state-write-failed"}}, 100
+      end)
+    end
+
+    test "a stale human-review state is settled even when it is not configured active" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.MT-REVIEW-MOVED.agent.attention.error-state-write-failed")
+      handler = {__MODULE__, :human_review_stale_exhaustion_write, self()}
+      :ok = :telemetry.attach(handler, [:aiur, :ticket_transition], fn event, measurements, meta, pid -> send(pid, {:ticket_transition, event, measurements, meta}) end, self())
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        :telemetry.detach(handler)
+        Process.delete(:exhaustion_stale_actual)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      with_github_tracker!(fn ->
+        Application.put_env(:aiur, :github_client_module, MovedToCiWaitGitHubClient)
+        Process.put(:exhaustion_stale_actual, "human-review")
+
+        RetryEngine.schedule_issue_retry(
+          %State{last_polled_issues: %{"issue-review-moved" => %Aiur.Issue{id: "issue-review-moved", state: "in-progress"}}},
+          "issue-review-moved",
+          Config.max_retry_attempts() + 1,
+          %{
+            identifier: "MT-REVIEW-MOVED",
+            error: "agent exited: boom",
+            rework_head_sha: nil,
+            open_pr_fetcher: fn _ -> {:ok, nil} end,
+            delay_type: :failure
+          }
+        )
+
+        assert_receive {:ticket_transition, [:aiur, :ticket_transition], %{},
+                        %{issue_id: "MT-REVIEW-MOVED", to: "error", expected: "in-progress", outcome: {:error, {:stale_issue_state, "in-progress", "human-review"}}}},
+                       500
+
+        refute_receive {:ticket_transition, [:aiur, :ticket_transition], _, _}, 100
+        refute_receive {:event, %{topic: "ticket.MT-REVIEW-MOVED.agent.attention.error-state-write-failed"}}, 100
+      end)
+    end
+
+    test "future stale-state suppression still alerts for unrecognized states" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.MT-UNKNOWN-MOVED.agent.attention.error-state-write-failed")
+      handler = {__MODULE__, :unknown_stale_exhaustion_write, self()}
+      :ok = :telemetry.attach(handler, [:aiur, :ticket_transition], fn event, measurements, meta, pid -> send(pid, {:ticket_transition, event, measurements, meta}) end, self())
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        :telemetry.detach(handler)
+        Process.delete(:exhaustion_stale_actual)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      with_github_tracker!(fn ->
+        Application.put_env(:aiur, :github_client_module, MovedToCiWaitGitHubClient)
+        Process.put(:exhaustion_stale_actual, "not-a-lifecycle-state")
+
+        assert {:error, {:no_state_label_written, "MT-UNKNOWN-MOVED"}} =
+                 RetryEngine.move_exhausted_issue_to_error_state("issue-unknown-moved", "MT-UNKNOWN-MOVED", "agent exited: boom")
+
+        assert_receive {:ticket_transition, [:aiur, :ticket_transition], %{},
+                        %{issue_id: "MT-UNKNOWN-MOVED", to: "error", outcome: {:error, {:stale_issue_state, "in-progress", "not-a-lifecycle-state"}}}},
+                       500
+
+        assert_receive {:event, %{topic: "ticket.MT-UNKNOWN-MOVED.agent.attention.error-state-write-failed"}}, 500
+      end)
+    end
+
     test "a successful terminal error-state write reports :alert_emitted and alerts" do
       Publisher.set_tracked_fn(fn _ -> true end)
       :ok = Exchange.subscribe("ticket.MT-WRITE-OK.agent.attention.error-retry_exhausted")
@@ -115,6 +244,44 @@ defmodule Aiur.Orchestrator.RetryEngine.ExhaustionTest do
                ) == :alert_emitted
 
         assert_receive {:event, %{topic: "ticket.MT-WRITE-OK.agent.attention.error-retry_exhausted"}}, 500
+      end)
+    end
+
+    test "a terminal state write retries and applies after a shared budget hold" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.MT-WRITE-HELD.agent.attention.error-retry_exhausted")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      with_github_tracker!(fn ->
+        Application.put_env(:aiur, :github_client_module, HeldThenSucceedingGitHubClient)
+        Process.put(:held_state_write_attempts, 0)
+
+        assert :alert_emitted =
+                 RetryEngine.move_exhausted_issue_to_error_state(
+                   "issue-write-held",
+                   "MT-WRITE-HELD",
+                   "agent exited: boom"
+                 )
+
+        assert Process.get(:held_state_write_attempts) == 2
+        assert_receive {:event, %{topic: "ticket.MT-WRITE-HELD.agent.attention.error-retry_exhausted"}}, 500
+      end)
+    end
+
+    test "a held issue-state refresh is transient and does not write terminal error" do
+      with_github_tracker!(fn ->
+        Application.put_env(:aiur, :github_client_module, FailingGitHubClient)
+
+        assert :ok =
+                 RetryEngine.move_exhausted_issue_to_error_state(
+                   "issue-refresh-held",
+                   "MT-REFRESH-HELD",
+                   {:issue_state_refresh_failed, {:aiur, :locally_held, %{resource: "core", reason: :shared_budget, reset_at: DateTime.utc_now()}}}
+                 )
       end)
     end
   end

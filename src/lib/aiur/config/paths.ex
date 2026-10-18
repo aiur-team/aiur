@@ -60,9 +60,10 @@ defmodule Aiur.Config.Paths do
   """
   @spec decision_state_dir() :: {:ok, Path.t()} | {:error, atom()}
   def decision_state_dir do
-    case Application.get_env(:aiur, :decision_state_dir) do
-      path when is_binary(path) and path != "" -> {:ok, path}
-      _ -> resolve_decision_state_dir()
+    case Aiur.TestRunState.decision_state_override(Application.get_env(:aiur, :decision_state_dir)) do
+      {:ok, path} -> {:ok, path}
+      :resolve -> resolve_decision_state_dir()
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -458,10 +459,7 @@ defmodule Aiur.Config.Paths do
   end
 
   defp decision_state_root do
-    case System.get_env("AIUR_BG_STATE_DIR") do
-      root when is_binary(root) and root != "" -> root
-      _ -> Path.join(File.cwd!(), ".aiur-state")
-    end
+    Aiur.TestRunState.decision_state_root(Path.join(File.cwd!(), ".aiur-state"))
   end
 
   defp contain_within_root(root, candidate) do

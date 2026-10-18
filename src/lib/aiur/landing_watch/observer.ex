@@ -37,11 +37,13 @@ defmodule Aiur.LandingWatch.Observer do
            Transport.github_graphql(
              Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
              token,
-             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid reviewDecision reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}",
+             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid reviewDecision autoMergeRequest{enabledAt} mergeQueueEntry { id } reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}",
              %{owner: owner, repo: repo, number: number},
              caller: "landing_watch_revalidate"
            ),
-         true <- Map.get(pr, "headRefOid") == expected_head and Classifier.approved_at_head?(pr) do
+         true <-
+           Map.get(pr, "headRefOid") == expected_head and Classifier.approved_at_head?(pr) and
+             is_nil(Map.get(pr, "mergeQueueEntry")) and is_nil(Map.get(pr, "autoMergeRequest")) do
       :ok
     else
       {:error, _} = error -> error
@@ -120,7 +122,7 @@ defmodule Aiur.LandingWatch.Observer do
 
   defp fields do
     "number id state headRefOid baseRefName isDraft reviewDecision mergeable " <>
-      "mergeStateStatus autoMergeRequest { enabledAt } mergeQueueEntry { id pullRequest { id headRefOid } } " <>
+      "mergeStateStatus autoMergeRequest { enabledAt } mergeQueueEntry { id headCommit { oid } pullRequest { id headRefOid } } " <>
       "reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } " <>
       "commits(last: 1) { nodes { commit { committedDate } } }"
   end

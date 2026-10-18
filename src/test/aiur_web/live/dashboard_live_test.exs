@@ -31,9 +31,9 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore, StatusReport}
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
-  alias Aiur.TestSupport.{LiveViewAsync, RefreshTrace}
+  alias Aiur.TestSupport.{EndpointStubs, LiveViewAsync, RefreshTrace}
   alias Aiur.Usage.Headless.Codex.ThreadUsage
-  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
+  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, EndpointConfig, ObservabilityPubSub, Presenter}
   alias AiurWeb.OperatorControlCenter.{AgentRoutingPreview, FleetFilters, Overview, PayloadLoader, UnitsPresenter}
 
   @endpoint AiurWeb.Endpoint
@@ -1196,7 +1196,7 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, view, _html} = live(build_conn(), "/")
     {:ok, second_view, _html} = live(build_conn(), "/")
     views = [view, second_view]
-    cache = AiurWeb.Endpoint.config(:control_center_cache)
+    cache = EndpointConfig.get(:control_center_cache)
 
     assert_bounded_reload_burst(views, List.duplicate(:observability_updated, 25), cache, orchestrator_name)
 
@@ -1498,7 +1498,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert :ok = DecisionMetrics.observe(request_event, new_metrics)
     assert_receive :decision_metrics_changed, 2_000
 
-    cache = AiurWeb.Endpoint.config(:control_center_cache)
+    cache = EndpointConfig.get(:control_center_cache)
     touch_cached_payloads(cache)
     assert map_size(:sys.get_state(cache).entries) == 1
     assert cached_payloads_fresh?(cache, 400)
@@ -3250,7 +3250,8 @@ defmodule AiurWeb.DashboardLiveTest do
     store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
 
     assert {:ok, %{decision: live_decision}} =
-             DecisionStore.request(
+             Aiur.DecisionStoreCase.request(
+               store,
                %{
                  "source_id" => "dashboard-dismiss-notify-live",
                  "question" => "Should the dashboard ship this change?",
@@ -3259,11 +3260,8 @@ defmodule AiurWeb.DashboardLiveTest do
                  "reversibility" => "reversible",
                  "options" => [%{"id" => "ship", "label" => "Ship it"}]
                },
-               [
-                 ticket: %{identifier: "987", title: "Operator Control Center", url: nil},
-                 source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-dismiss-notify-live"}
-               ],
-               store
+               ticket: %{identifier: "987", title: "Operator Control Center", url: nil},
+               source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-dismiss-notify-live"}
              )
 
     start_test_endpoint(
@@ -3296,7 +3294,8 @@ defmodule AiurWeb.DashboardLiveTest do
     :sys.replace_state(orchestrator, &%{&1 | running: %{}})
 
     assert {:ok, %{decision: gone_decision}} =
-             DecisionStore.request(
+             Aiur.DecisionStoreCase.request(
+               store,
                %{
                  "source_id" => "dashboard-dismiss-notify-gone",
                  "question" => "Should the dashboard ship this change?",
@@ -3305,11 +3304,8 @@ defmodule AiurWeb.DashboardLiveTest do
                  "reversibility" => "reversible",
                  "options" => [%{"id" => "ship", "label" => "Ship it"}]
                },
-               [
-                 ticket: %{identifier: "988", title: "Operator Control Center", url: nil},
-                 source: %{agent_id: "agent-988", session_id: "session-988", event_id: "event-dismiss-notify-gone"}
-               ],
-               store
+               ticket: %{identifier: "988", title: "Operator Control Center", url: nil},
+               source: %{agent_id: "agent-988", session_id: "session-988", event_id: "event-dismiss-notify-gone"}
              )
 
     {:ok, gone_view, _html} = live(build_conn(), "/commands/#{gone_decision.decision_id}")
@@ -3669,7 +3665,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    assert is_pid(AiurWeb.Endpoint.config(:control_center_cache))
+    assert is_pid(EndpointConfig.get(:control_center_cache))
 
     path = "/commands/#{decision.decision_id}"
     {:ok, view, initial_html} = live(build_conn(), path)
@@ -4515,13 +4511,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute wrong_repo_html =~ ~s(id="units-conversation-drawer")
     assert render(wrong_repo_view) =~ "Chat is unavailable for this ticket."
 
-    unknown_config =
-      Application.get_env(:aiur, AiurWeb.Endpoint, [])
-      |> Keyword.put(:live_conversation_resolve_fun, fn _resolved ->
-        {:ok, %{conversation_snapshot(handle) | state: :restart_unknown, messages: []}}
-      end)
-
-    :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, unknown_config}], [])
+    EndpointStubs.put(live_conversation_resolve_fun: fn _resolved -> {:ok, %{conversation_snapshot(handle) | state: :restart_unknown, messages: []}} end)
     {:ok, unknown_view, unknown_html} = live(build_conn(), path)
     refute unknown_html =~ ~s(id="units-conversation-drawer")
     assert render(unknown_view) =~ "Chat is unavailable for this ticket."
@@ -5198,7 +5188,7 @@ defmodule AiurWeb.DashboardLiveTest do
     view |> element(~s(#add-agent-modal form)) |> render_change(%{"complexity" => "3"})
     view |> element(~s(#add-agent-modal form)) |> render_submit(%{})
 
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
 
     # The active-state label is what makes the ticket dispatchable at all, and the
     # complexity tag it replaces is removed rather than left to outrank it. The
@@ -5279,7 +5269,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute has_element?(view, "#add-agent-modal")
     # The socket processed Close before the boundary was released.
     send(worker, :continue)
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert render(view) =~ "Waiting for an agent to start"
     assert_received {:add_label, "complexity:3"}
     assert_received {:add_label, "model:codex-terra"}
@@ -5314,7 +5304,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     refute has_element?(view, "#add-agent-modal")
     send(orchestrator, :release_queued_demand)
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert render(view) =~ "Waiting for an agent to start"
     assert_received {:dashboard_refresh_requested, ^orchestrator}
   end
@@ -5340,7 +5330,7 @@ defmodule AiurWeb.DashboardLiveTest do
       {:ok, view, _} = live(build_conn(), "/")
       view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
       view |> element("#add-agent-modal form") |> render_submit(%{})
-      render_async(view)
+      LiveViewAsync.render_when_complete(view)
       refute_received {:queued_demand_received, ^orchestrator, _}
       refute has_element?(view, "#add-agent-modal")
     end
@@ -5408,13 +5398,13 @@ defmodule AiurWeb.DashboardLiveTest do
     |> element("#add-agent-modal form")
     |> render_submit(%{"backend" => "codex", "complexity" => "3"})
 
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert has_element?(view, "#add-agent-modal")
     assert render(view) =~ "removed complexity:5"
     assert render(view) =~ "offline"
     assert_received {:remove_label, "complexity:5"}
     view |> element("#add-agent-modal form") |> render_submit(%{})
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     refute_received {:remove_label, "complexity:5"}
     refute has_element?(view, "#add-agent-modal")
     assert render(view) =~ "dispatch authorization declined"
@@ -5449,14 +5439,14 @@ defmodule AiurWeb.DashboardLiveTest do
     assert render(view) =~ "Check admission"
     refute has_element?(view, "#add-agent-modal button[type=submit][disabled]")
     view |> element("#add-agent-modal form") |> render_submit(%{})
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert_received :admission_checked
     assert render(view) =~ "No admission is confirmed"
     Agent.update(authorization, fn _ -> :unknown end)
     view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
     view |> element("#add-agent-modal form") |> render_change(%{"backend" => "codex"})
     view |> element("#add-agent-modal form") |> render_submit(%{})
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert render(view) =~ "Admission could not be confirmed"
     refute render(view) =~ "Waiting for an agent to start"
   end
@@ -6130,19 +6120,15 @@ defmodule AiurWeb.DashboardLiveTest do
         secret_key_base: String.duplicate("s", 64),
         dashboard_writable: false,
         dashboard_auth_required: false,
-        control_center_cache: cache
+        control_center_cache: cache,
+        # Without a stub the Tickets panel reads the app-global OpenTicketSource, which other test modules feed (#4862).
+        open_tickets_fun: fn -> open_ticket_snapshot([]) end
       )
       |> Keyword.merge(overrides)
 
-    Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
+    Application.put_env(:aiur, AiurWeb.Endpoint, EndpointStubs.scope(endpoint_config))
 
-    on_exit(fn ->
-      case previous do
-        nil -> Application.delete_env(:aiur, AiurWeb.Endpoint)
-        config -> Application.put_env(:aiur, AiurWeb.Endpoint, config)
-      end
-    end)
-
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, AiurWeb.Endpoint, previous), else: Application.delete_env(:aiur, AiurWeb.Endpoint) end)
     Aiur.TestSupport.start_owned_endpoint!()
   end
 
@@ -6300,7 +6286,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
   defp request_api_decision(store, source_id, authority, opts \\ []) do
     assert {:ok, %{decision: decision}} =
-             DecisionStore.request(
+             Aiur.DecisionStoreCase.request(
+               store,
                %{
                  "source_id" => source_id,
                  "question" => "Choose #{source_id}?",
@@ -6315,8 +6302,7 @@ defmodule AiurWeb.DashboardLiveTest do
                    source: %{agent_id: "agent-984", session_id: "session-984", event_id: "event-#{source_id}"}
                  ],
                  opts
-               ),
-               store
+               )
              )
 
     decision
@@ -6327,7 +6313,7 @@ defmodule AiurWeb.DashboardLiveTest do
              DecisionStore.request(
                %{
                  "source_id" => source_id,
-                 "question" => "Should the dashboard ship this change?",
+                 "question" => Aiur.DecisionStoreCase.question_with_identity("Should the dashboard ship this change?", source_id),
                  "blocking" => true,
                  "urgency" => "critical",
                  "reversibility" => "reversible",
@@ -6413,7 +6399,7 @@ defmodule AiurWeb.DashboardLiveTest do
     request =
       %{
         "source_id" => source_id,
-        "question" => "Should the dashboard ship this change?",
+        "question" => Aiur.DecisionStoreCase.question_with_identity("Should the dashboard ship this change?", source_id),
         "blocking" => blocking?,
         "urgency" => "critical",
         "reversibility" => reversibility,

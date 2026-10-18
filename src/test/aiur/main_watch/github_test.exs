@@ -42,6 +42,91 @@ defmodule Aiur.MainWatch.GitHubTest do
     assert hd(result.observations).completed_at == DateTime.to_unix(~U[2026-10-10 00:00:00Z], :millisecond)
   end
 
+  test "newest completed push ci failure wins over a newer cancelled rerun" do
+    request = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/commits?") ->
+          ok([%{"sha" => "failed-push"}])
+
+        String.contains?(url, "/actions/runs?") and URI.decode_query(URI.parse(url).query)["event"] == "push" ->
+          ok(%{
+            "workflow_runs" => [
+              Map.merge(run(8, "failed-push", "ci", "completed", "failure"), %{"updated_at" => "2026-10-14T12:00:00Z"}),
+              Map.merge(run(9, "failed-push", "ci", "completed", "cancelled"), %{"updated_at" => "2026-10-15T12:00:00Z"})
+            ]
+          })
+
+        String.contains?(url, "/actions/runs?") ->
+          ok(%{"workflow_runs" => []})
+
+        String.contains?(url, "/check-runs?") ->
+          ok(%{"check_runs" => [check(1, 1, "failure")]})
+
+        String.contains?(url, "/annotations?") ->
+          ok([])
+
+        String.contains?(url, "/contents/") ->
+          ok(%{"encoding" => "base64", "content" => ""})
+
+        String.contains?(url, "/issues?") ->
+          ok([])
+
+        String.ends_with?(url, "/status") ->
+          ok(%{"statuses" => []})
+
+        true ->
+          flunk("unexpected request #{url}")
+      end
+    end
+
+    assert {:ok, %{observations: [observation], runs: [newest, previous]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
+    assert observation.sha == "failed-push"
+    assert observation.failed_workflow
+    assert observation.checks == [%{name: "test", conclusion: "failure"}]
+    assert newest.id == 9
+    assert newest.conclusion == "cancelled"
+    assert previous.id == 8
+  end
+
+  test "configured non-ci workflow failure makes main red" do
+    build = run(12, "build-red", "build", "completed", "failure")
+    failure = check(2, 2, "failure")
+
+    assert {:ok, %{observations: [observation]}} =
+             GitHub.poll("main", ["build"], token: "test-gh-token", request_fun: evidence_request([build], [failure]), actions_write: false)
+
+    assert observation.sha == "build-red"
+    assert observation.failed_workflow
+    assert observation.checks == [%{name: "test", conclusion: "failure"}]
+  end
+
+  test "empty workflow configuration watches every push workflow" do
+    runs = [run(13, "any-red", "ci", "completed", "success"), run(14, "any-red", "build", "completed", "failure")]
+    checks = [check(1, 1, "success"), check(2, 2, "failure")]
+
+    assert {:ok, %{observations: [observation]}} =
+             GitHub.poll("main", [], token: "test-gh-token", request_fun: evidence_request(runs, checks), actions_write: false)
+
+    assert observation.sha == "any-red"
+    assert observation.failed_workflow
+    assert Enum.sort(Enum.map(observation.checks, &{&1.name, &1.conclusion})) == [{"test", "failure"}, {"test", "success"}]
+  end
+
+  test "a failed non-blocking quarantine job leaves main green without a failure event" do
+    # continue-on-error keeps the workflow run green while its check run fails.
+    runs = [run(15, "quarantine-red", "ci", "completed", "success")]
+    quarantine = Map.merge(check(2, 1, "failure"), %{"name" => "quarantined tests (non-blocking)"})
+    request = evidence_request(runs, [check(1, 1, "success"), quarantine])
+
+    assert {:ok, %{observations: [observation]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
+    assert observation.checks == [%{name: "test", conclusion: "success"}]
+    assert {%{status: :green}, []} = State.observe(State.new(), observation, observation.completed_at)
+
+    stale = %{observation | checks: [%{name: "quarantined tests (non-blocking)", conclusion: "failure"} | observation.checks]}
+    assert {:ok, %{observations: [rebuilt]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false, history: [stale])
+    assert rebuilt.checks == observation.checks
+  end
+
   test "reports the failing caller and credential class on an unrecoverable 401" do
     request = fn _request -> {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}} end
 
@@ -144,6 +229,71 @@ defmodule Aiur.MainWatch.GitHubTest do
     assert observation.digest.checks == []
   end
 
+  test "future regression guard: retained commit window without aligned dates bypasses stale ETag" do
+    request = fn request ->
+      if String.contains?(request.url, "/commits?") do
+        refute Map.has_key?(request, :etag)
+        {:ok, %{status: 200, body: [%{"sha" => "fresh", "commit" => %{"committer" => %{"date" => "2026-10-10T00:00:00Z"}}}]}}
+      else
+        ok(%{"workflow_runs" => []})
+      end
+    end
+
+    assert {:ok, result} =
+             GitHub.poll("main", ["ci"],
+               token: "test-gh-token",
+               request_fun: request,
+               commit_etag: "\"old-validator\"",
+               commits: ["old-commit"],
+               commit_dates: [],
+               actions_write: false
+             )
+
+    assert result.commits == ["fresh"]
+  end
+
+  test "unchanged commit window sends its ETag and reuses aligned snapshot on 304" do
+    date = DateTime.to_unix(~U[2026-10-10 00:00:00Z], :millisecond)
+
+    request = fn request ->
+      if String.contains?(request.url, "/commits?") do
+        assert request.etag == "\"main-v1\""
+        {:ok, %{status: 304, headers: [{"etag", "\"main-v1\""}]}}
+      else
+        ok(%{"workflow_runs" => []})
+      end
+    end
+
+    assert {:ok, result} =
+             GitHub.poll("main", ["ci"],
+               token: "test-gh-token",
+               request_fun: request,
+               commit_etag: "\"main-v1\"",
+               commits: ["retained-sha"],
+               commit_dates: [date],
+               actions_write: false
+             )
+
+    assert result.commits == ["retained-sha"]
+    assert result.commit_dates == [date]
+    assert result.commit_etag == "\"main-v1\""
+  end
+
+  test "commit window page with a next link is read and keeps its ETag" do
+    request = fn request ->
+      if String.contains?(request.url, "/commits?") do
+        headers = [{"etag", "\"main-v2\""}, {"link", "<https://api.github.com/next>; rel=\"next\""}]
+        {:ok, %{status: 200, headers: headers, body: [%{"sha" => "newest", "commit" => %{"committer" => %{"date" => "2026-10-10T00:00:00Z"}}}]}}
+      else
+        ok(%{"workflow_runs" => []})
+      end
+    end
+
+    assert {:ok, result} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
+    assert result.commits == ["newest"]
+    assert result.commit_etag == "\"main-v2\""
+  end
+
   test "one branch census reuses completed history and refreshes a changed rerun" do
     shas = Enum.map(1..20, &"counted-#{&1}")
     runs = Enum.with_index(shas, 1) |> Enum.map(fn {sha, id} -> run(id, sha, "ci", "completed", "success") end)
@@ -232,6 +382,26 @@ defmodule Aiur.MainWatch.GitHubTest do
     end
   end
 
+  test "retains active merge-group runs outside the pushed commit window" do
+    merge_group =
+      run(44, "queue-sha", "ci", "in_progress", nil)
+      |> Map.merge(%{"event" => "merge_group", "head_branch" => "gh-readonly-queue/main/pr-4-merge", "created_at" => "2026-10-15T18:00:00Z"})
+
+    request = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/commits?") -> ok([%{"sha" => "base-sha", "commit" => %{"committer" => %{"date" => "2026-10-15T17:00:00Z"}}}])
+        String.contains?(url, "/actions/runs?") and URI.decode_query(URI.parse(url).query)["event"] == "push" -> ok(%{"workflow_runs" => []})
+        String.contains?(url, "/actions/runs?") -> ok(%{"workflow_runs" => [merge_group, %{merge_group | "id" => 43, "status" => "completed", "conclusion" => "success"}]})
+        true -> flunk("an active merge-group snapshot must not fetch check evidence: #{url}")
+      end
+    end
+
+    assert {:ok, %{runs: [], merge_groups: [run]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
+    assert run.event == "merge_group"
+    assert run.status == "in_progress"
+    assert run.started_at == DateTime.to_unix(~U[2026-10-15 18:00:00Z], :millisecond)
+  end
+
   test "pagination and provider errors cannot produce a partial green verdict" do
     for response <- [{:ok, %{status: 200, body: %{"workflow_runs" => []}, headers: [{"link", "<https://api.github.com/next>; rel=\"next\""}]}}, {:ok, %{status: 403, body: %{}}}] do
       request = fn %{url: url} -> if String.contains?(url, "/commits?"), do: ok([%{"sha" => "abc"}]), else: response end
@@ -286,6 +456,25 @@ defmodule Aiur.MainWatch.GitHubTest do
         true -> flunk("must not fetch older pages: #{url}")
       end
     end
+  end
+
+  defp evidence_request(runs, checks) do
+    fn %{url: url} -> evidence_response(url, runs, checks) end
+  end
+
+  defp evidence_response(url, runs, checks) do
+    routes = [
+      {"/commits?", ok([%{"sha" => hd(runs)["head_sha"]}])},
+      {"event=push", ok(%{"workflow_runs" => runs})},
+      {"/actions/runs?", ok(%{"workflow_runs" => []})},
+      {"/check-runs?", ok(%{"check_runs" => checks})},
+      {"/status", ok(%{"statuses" => []})},
+      {"/annotations?", ok([])},
+      {"/contents/", ok(%{"encoding" => "base64", "content" => ""})},
+      {"/issues?", ok([])}
+    ]
+
+    Enum.find_value(routes, fn {path, response} -> if String.contains?(url, path), do: response end) || flunk("unexpected request #{url}")
   end
 
   defp run(id, sha, name, status, conclusion),

@@ -9,7 +9,7 @@ defmodule Aiur.Events.BusBoundaryTest do
   # not the whole `Aiur.Events` namespace: Sanitizer, BranchRefStore and
   # CommentFilter belong to github-listeners (CR-R2-1(b)).
   @allowed_modules ~w(Aiur.Events Aiur.Events.SubscriptionStoreRegistry
-                      Aiur.Config Aiur.JsonStore)
+                      Aiur.Config Aiur.JsonStore Aiur.Journal Aiur.JSONSafe)
 
   # {member_file, referenced_module} => ticket that removes the edge.
   # Seam tickets delete their rows; that deletion is the proof the edge is gone.
@@ -64,6 +64,10 @@ defmodule Aiur.Events.BusBoundaryTest do
     |> String.contains?("# aiur:event-bus-boundary-member")
   end
 
+  test "journal belongs to the event-bus boundary" do
+    assert "events/journal.ex" in members()
+  end
+
   test "a boundary-member marker discovers a newly added event module" do
     lib = Path.join(System.tmp_dir!(), "aiur-boundary-#{System.unique_integer([:positive])}")
     events = Path.join(lib, "events")
@@ -76,27 +80,31 @@ defmodule Aiur.Events.BusBoundaryTest do
     assert "events/new_boundary_member.ex" in members(lib)
   end
 
-  defp allowed?(mod) do
-    mod in @allowed_modules or mod in member_modules() or
+  defp allowed?(mod, members) do
+    mod in @allowed_modules or MapSet.member?(members, mod) or
       Enum.any?(~w(Aiur.Config Aiur.JsonStore), &String.starts_with?(mod, &1 <> "."))
   end
 
-  defp member_modules do
-    for file <- members() do
+  defp member_modules(files) do
+    for file <- files do
       "Aiur." <> (file |> String.trim_trailing(".ex") |> Path.split() |> Enum.map_join(".", &Macro.camelize/1))
     end
+    |> MapSet.new()
   end
 
-  defp edges do
-    for file <- members(),
+  defp edges(files, known_members) do
+    for file <- files,
         mod <- @lib |> Path.join(file) |> File.read!() |> references(),
-        not allowed?(mod),
+        not allowed?(mod, known_members),
         do: {file, mod}
   end
 
   test "event-bus members reference only kernel, config, members, or recorded ratchet edges" do
+    files = members()
+    known_members = member_modules(files)
+
     unrecorded =
-      for {file, mod} = edge <- edges(), not is_map_key(@ratchet, edge) do
+      for {file, mod} = edge <- edges(files, known_members), not is_map_key(@ratchet, edge) do
         "#{file} -> #{mod}"
       end
 
@@ -104,7 +112,8 @@ defmodule Aiur.Events.BusBoundaryTest do
   end
 
   test "every recorded ratchet edge still exists (remove the entry when the seam lands)" do
-    current = MapSet.new(edges())
+    files = members()
+    current = MapSet.new(edges(files, member_modules(files)))
 
     stale =
       for {{file, mod} = edge, ticket} <- @ratchet, not MapSet.member?(current, edge) do

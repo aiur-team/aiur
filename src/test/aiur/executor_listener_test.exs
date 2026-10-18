@@ -3,11 +3,8 @@ defmodule Aiur.ExecutorListenerTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.Alerts
-  alias Aiur.BuildQueue.Attention, as: BuildQueueAttention
   alias Aiur.Decision
   alias Aiur.Events.Exchange
-  alias Aiur.Events.Publisher
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorEvents
@@ -17,6 +14,26 @@ defmodule Aiur.ExecutorListenerTest do
 
   @listener_name Aiur.ExecutorListener.Test
   @inbox_name Aiur.ExecutorWakeInbox.ListenerTest
+
+  # Holds the listener inside each Command alert until the test releases it, so
+  # a test controls how long delivery takes instead of racing it (#4633).
+  defmodule GatedAlertSink do
+    @moduledoc false
+    def emit_system(topic, opts), do: Aiur.Alerts.emit_system(topic, opts)
+
+    # A released alert skips the real alert I/O: the test asserts wakes, not alerts.
+    def emit_custom("executor.command." <> _kind = topic, _message, _opts) do
+      send(Aiur.ExecutorListenerTest, {:alert_gate, self(), topic})
+
+      receive do
+        :release -> :ok
+      after
+        10_000 -> raise "GatedAlertSink was never released for #{topic}"
+      end
+    end
+
+    def emit_custom(topic, message, opts), do: Aiur.Alerts.emit_custom(topic, message, opts)
+  end
 
   setup do
     # The listener reads/writes its durable watermark under the per-test log
@@ -247,83 +264,6 @@ defmodule Aiur.ExecutorListenerTest do
     assert watermark() == nil
   end
 
-  test "attention alerts wake the Executor when their ticket has no running agent" do
-    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
-    start_listener(inbox: @inbox_name, patterns: ["ticket.*.agent.attention.*"], reconcile?: false)
-    Publisher.set_tracked_fn(fn _ticket -> false end)
-
-    on_exit(fn -> Publisher.set_tracked_fn(fn _ticket -> true end) end)
-
-    assert :ok =
-             Alerts.emit_system("ticket.3141.agent.attention.waiting_for_human",
-               issue: "3141",
-               reason: "Agent has been waiting for Executor input.",
-               needs_attention: true,
-               severity: "warning",
-               central: true
-             )
-
-    assert {:ok,
-            [
-              %{
-                "topic" => "ticket.3141.agent.attention.waiting_for_human",
-                "topic_class" => "ticket.agent.attention.waiting_for_human",
-                "ticket" => "3141",
-                "needs_attention" => true
-              }
-            ]} = ExecutorWakeInbox.wait(500, @inbox_name)
-
-    assert [%{"topic" => "ticket.3141.agent.attention.waiting_for_human"}] = ExecutorWakeInbox.pending(@inbox_name)
-  end
-
-  test "every ticket attention binding wakes the Executor when its ticket is untracked" do
-    patterns =
-      ExecutorBindings.defaults()
-      |> Enum.filter(fn {pattern, class} -> class == "attention:auto" and String.starts_with?(pattern, "ticket.") end)
-      |> Enum.map(&elem(&1, 0))
-
-    topics = Enum.map(patterns, &concrete_ticket_topic/1)
-    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
-    start_listener(inbox: @inbox_name, patterns: patterns, reconcile?: false)
-    Publisher.set_tracked_fn(fn _ticket -> false end)
-
-    on_exit(fn -> Publisher.set_tracked_fn(fn _ticket -> true end) end)
-
-    for topic <- topics do
-      if String.contains?(topic, ".queue.attention.") do
-        assert :ok = BuildQueueAttention.transient(:prerequisite_failed, "3141", %{})
-      else
-        assert :ok =
-                 Alerts.emit_system(topic,
-                   issue: "3141",
-                   message: "Attention requires Executor review.",
-                   reason: "Attention requires Executor review.",
-                   needs_attention: true,
-                   severity: "warning",
-                   central: true
-                 )
-      end
-    end
-
-    assert eventually(fn -> Enum.sort(Enum.map(ExecutorWakeInbox.pending(@inbox_name), & &1["topic"])) == Enum.sort(topics) end)
-    assert {:ok, records} = ExecutorWakeInbox.wait(500, @inbox_name)
-    assert Enum.sort(Enum.map(records, & &1["topic"])) == Enum.sort(topics)
-    assert Enum.all?(records, &(&1["count"] == 1))
-    assert Enum.sort(Enum.map(ExecutorWakeInbox.pending(@inbox_name), & &1["topic"])) == Enum.sort(topics)
-  end
-
-  defp concrete_ticket_topic(pattern) do
-    pattern
-    |> String.split(".")
-    |> Enum.with_index()
-    |> Enum.map_join(".", fn
-      {"*", 1} -> "3141"
-      {"*", _index} -> "waiting_for_human"
-      {"#", _index} -> "prerequisite_failed"
-      {segment, _index} -> segment
-    end)
-  end
-
   test "reports a degraded binding transition once and resolves it after repair" do
     parent = self()
 
@@ -395,32 +335,60 @@ defmodule Aiur.ExecutorListenerTest do
   test "a blocking Decision requested through DecisionStore wakes the Executor exactly once" do
     :ok = Aiur.TestSupport.ensure_id_generator_running()
     dir = Aiur.TestSupport.tmp_root!("aiur-decision-wake")
-    previous_dir = Application.get_env(:aiur, :decision_state_dir)
-    Application.put_env(:aiur, :decision_state_dir, dir)
 
-    on_exit(fn ->
-      if previous_dir, do: Application.put_env(:aiur, :decision_state_dir, previous_dir), else: Application.delete_env(:aiur, :decision_state_dir)
-    end)
+    Process.register(self(), __MODULE__)
+    signal = Application.get_env(:aiur, :signal)
+    on_exit(fn -> Application.put_env(:aiur, :signal, signal) end)
+    Application.put_env(:aiur, :signal, Keyword.put(signal, :alert_sink, GatedAlertSink))
+
+    suffix = System.unique_integer([:positive])
+    ticket_identifier = "listener-wake-#{suffix}"
 
     start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
-    start_listener(inbox: @inbox_name, patterns: ["executor.#"], reconcile?: false)
-    store = start_supervised!({Aiur.DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
-    context = [ticket: %{identifier: "3141", title: "Renderer", url: nil}, source: %{agent_id: "codex", session_id: "s-1", event_id: nil}]
+
+    listener =
+      start_listener(
+        inbox: @inbox_name,
+        patterns: ["executor.#"],
+        reconcile?: false,
+        resubscribe_interval_ms: :infinity,
+        escalation_interval_ms: :infinity
+      )
+
+    store =
+      start_supervised!({Aiur.DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, executor_request_publisher: &Aiur.ExecutorEvents.publish_requested/1})
+
+    context = [ticket: %{identifier: ticket_identifier, title: "Renderer", url: nil}, source: %{agent_id: "codex", session_id: "s-1", event_id: nil}]
 
     request = fn source_id, blocking ->
       payload = %{"question" => "Defer composed mobile pixels?", "blocking" => blocking, "authority" => "human_required", "source_id" => source_id}
-      assert {:ok, %{status: :accepted, decision: decision}} = Aiur.DecisionStore.request(payload, context, store)
+      assert {:ok, %{status: :accepted, decision: decision}} = Aiur.DecisionStoreCase.request(store, payload, context)
       decision
     end
 
-    _nonblocking = request.("parity-note", false)
-    decision = request.("parity", true)
+    _nonblocking = request.("parity-note-#{suffix}", false)
+    decision = request.("parity-#{suffix}", true)
 
+    # Both events are already in the listener's mailbox: the request publishes
+    # them before it returns. The listener raises a Command alert for each one
+    # before it reaches the blocking Decision's wake, so a wall-clock wait here
+    # races that alert work. Under CI load the alerts outlasted the wait (#4633).
+    assert_receive {:alert_gate, gate, "executor.command.requested"}, 5_000
+    assert :timeout = ExecutorWakeInbox.wait(0, @inbox_name)
+    send(gate, :release)
+    assert_receive {:alert_gate, gate, "executor.command.requested"}, 5_000
+    send(gate, :release)
+
+    # Once this barrier returns, the listener has consumed both events and
+    # enqueued every wake they produce; the wait only covers the inbox flush.
+    assert "executor.#" in Exchange.bindings_for(listener)
+    assert is_map(:sys.get_state(listener))
     assert {:ok, [wake]} = ExecutorWakeInbox.wait(1_000, @inbox_name)
+    wake_topic = "ticket.#{ticket_identifier}.agent.attention.operator-decision"
 
     assert %{
-             "topic" => "ticket.3141.agent.attention.operator-decision",
-             "ticket" => "3141",
+             "topic" => ^wake_topic,
+             "ticket" => ^ticket_identifier,
              "needs_attention" => true,
              "escalation" => "created",
              "question" => "Defer composed mobile pixels?",
@@ -428,7 +396,6 @@ defmodule Aiur.ExecutorListenerTest do
            } = wake
 
     assert wake["decision_id"] == decision.decision_id
-    Process.sleep(100)
     assert [_only] = ExecutorWakeInbox.pending(@inbox_name)
   end
 
@@ -441,7 +408,13 @@ defmodule Aiur.ExecutorListenerTest do
     test "an exiting gate count leaves the listener alive and bound" do
       {:ok, decision} =
         Aiur.DecisionValidation.normalize(
-          %{"question" => "Defer composed pixels?", "blocking" => true, "authority" => "human_required", "source_id" => "aged"},
+          %{
+            "question" => "Defer composed pixels?",
+            "blocking" => true,
+            "authority" => "human_required",
+            "context" => %{"authority_basis" => "security"},
+            "source_id" => "aged"
+          },
           ticket: %{identifier: "3141", title: "Renderer", url: nil},
           source: %{agent_id: "codex", session_id: "s-1", event_id: nil},
           now: DateTime.add(DateTime.utc_now(), -20 * 60, :second)

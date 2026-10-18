@@ -33,6 +33,29 @@ defmodule AiurExperimentsEngineTest do
              "RPC:Aiur.AgentControlCLI.experiments([verb: :events, argv: [ Base.decode64!(\"#{Base.encode64("delivery-change")}\"), Base.decode64!(\"#{Base.encode64("--json")}\"), Base.decode64!(\"#{Base.encode64("--refresh")}\")]])\n"
   end
 
+  test "preregister reads a caller file and transports JSON without shell interpolation" do
+    payload = ~s|{"hypothesis":"$(touch unwanted); significant at n=40"}|
+    {output, 0} = run_engine(["experiments", "preregister", "latency", "--file", "-", "--json"], payload)
+    assert output =~ "verb: :preregister"
+    assert output =~ Base.encode64("--contract-json=" <> payload)
+    refute output =~ payload
+    assert {error, 64} = run_engine(["experiments", "preregister", "latency", "--file"])
+    assert error =~ "--file requires a file or -"
+    assert {error, 64} = run_engine(["experiments", "preregister", "latency", "--contract-json={}"])
+    assert error =~ "use --file"
+  end
+
+  test "report submit and stats dispatch use the same safe RPC path" do
+    payload = ~s|{"summary":"significant at n=40"}|
+    {output, 0} = run_engine(["experiments", "report", "submit", "latency", "--file", "-"], payload)
+    assert output =~ "verb: :report_submit"
+    assert output =~ Base.encode64("--contract-json=" <> payload)
+    {output, 0} = run_engine(["experiments", "stats", "latency", "--json"])
+    assert output =~ "verb: :stats"
+    assert {error, 64} = run_engine(["experiments", "report", "latency"])
+    assert error =~ "report expects submit"
+  end
+
   test "freeze transports the window, revision reason and JSON option through RPC" do
     args = ["baseline", "--window", "before", "--reason", ~s|$(touch unwanted); "reason"|, "--json"]
     {output, 0} = run_engine(["experiments", "freeze" | args])

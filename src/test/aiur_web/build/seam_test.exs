@@ -2,10 +2,11 @@ defmodule AiurWeb.Build.SeamTest do
   use ExUnit.Case, async: true
 
   @root Path.expand("../../..", __DIR__)
-  # C3-T02 uses Endpoint only for dashboard_writable; C3-T03 adds legacy Units decoding.
+  # C3-T02 uses Endpoint (read through EndpointConfig) only for dashboard_writable; C3-T03 adds legacy Units decoding.
   # C8-T01 Now-band rows read the Units catalog through its policy, tracker identity, and pause-reason facades;
   # components.json declares these (dashboard-ui requires projections, kernel and orchestration).
-  @allowed ~w(AiurWeb.BuildLive AiurWeb.Endpoint Aiur.BuildQueue Aiur.AgentChat AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL Aiur.Projections.UnitsPolicy Aiur.TrackerIdentity Aiur.Orchestrator.State)
+  # MP-E8-C8-T04 reads C8-T01 Units through the existing shared payload cache.
+  @allowed ~w(AiurWeb.OperatorControlCenter.PayloadLoader AiurWeb.BuildLive AiurWeb.Endpoint AiurWeb.EndpointConfig Aiur.BuildQueue Aiur.AgentChat AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL Aiur.Projections.UnitsPolicy Aiur.TrackerIdentity Aiur.Orchestrator.State)
   @usage_facades [
     # Authorized usage reads configured Claude account labels.
     "Aiur.Accounts",

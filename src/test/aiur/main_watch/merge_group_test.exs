@@ -7,47 +7,72 @@ defmodule Aiur.MainWatch.MergeGroupTest do
     :ok
   end
 
-  test "landed main commit is covered by its exact-SHA merge group without a push CI run" do
-    assert {:ok, %{observations: [observation], runs: [run]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(), actions_write: false)
-    assert observation.sha == "landed"
-    assert observation.checks == [%{name: "ci gate", conclusion: "success"}]
-    refute observation.failed_workflow
-    assert run.id == 42
-    assert run.url == "https://github.com/owner/repo/actions/runs/42"
+  test "merge-group run on landed main SHA is not a main health observation" do
+    assert {:ok, %{observations: [], runs: [], merge_groups: []}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(%{}, false, true), actions_write: false)
   end
 
-  test "future guard: wrong queue base or SHA cannot cover main" do
+  test "cancelled newest push falls back to the newest completed push run" do
+    assert {:ok, %{observations: [observation], runs: runs}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request_with_pushes(), actions_write: false)
+    assert observation.sha == "landed"
+    assert Enum.map(runs, & &1.id) == [44, 43]
+    assert observation.checks == [%{name: "ci gate", conclusion: "success"}]
+  end
+
+  test "future guard: wrong queue base or SHA cannot appear in main runs" do
     for override <- [%{"head_sha" => "other"}, %{"head_branch" => "gh-readonly-queue/develop/pr-1-base"}] do
-      assert {:ok, %{observations: [], runs: []}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(override), actions_write: false)
+      assert {:ok, %{observations: [], runs: []}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(override, false, false), actions_write: false)
     end
   end
 
-  test "unreadable queue census cannot yield partial green from push runs" do
-    assert {:error, {:github, :http, %{status: 403}}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(%{}, true), actions_write: false)
+  defp request(override, fail?, no_push?), do: &request_response(&1, override, fail?, no_push?)
+
+  defp request_response(%{url: url}, override, fail?, no_push?) do
+    cond do
+      String.contains?(url, "/commits?") ->
+        ok([%{"sha" => "landed"}])
+
+      String.contains?(url, "/actions/runs?") and String.contains?(url, "event=push") ->
+        push_response(override, fail?, no_push?)
+
+      String.contains?(url, "/actions/runs?") ->
+        ok(%{"workflow_runs" => [Map.merge(queue_run(), override)]})
+
+      String.contains?(url, "/check-runs?") ->
+        ok(%{"check_runs" => [%{"id" => 1, "name" => "ci gate", "status" => "completed", "conclusion" => "success", "check_suite" => %{"id" => 8}, "app" => %{"slug" => "github-actions"}}]})
+
+      String.ends_with?(url, "/status") ->
+        ok(%{"statuses" => []})
+    end
   end
 
-  defp request(override \\ %{}, fail? \\ false) do
+  defp push_response(_override, _fail?, true), do: ok(%{"workflow_runs" => []})
+  defp push_response(_override, true, false), do: ok(%{"workflow_runs" => [push_run(), Map.merge(push_run(), %{"id" => 44, "conclusion" => "cancelled", "updated_at" => "2026-10-12T16:00:00Z"})]})
+  defp push_response(override, false, false), do: ok(%{"workflow_runs" => [Map.merge(push_run(), override)]})
+
+  defp request_with_pushes do
     fn %{url: url} ->
       cond do
         String.contains?(url, "/commits?") ->
           ok([%{"sha" => "landed"}])
 
         String.contains?(url, "/actions/runs?") and String.contains?(url, "event=push") ->
-          ok(%{"workflow_runs" => []})
-
-        String.contains?(url, "/actions/runs?") and fail? ->
-          {:ok, %{status: 403, body: %{}}}
+          ok(%{"workflow_runs" => [push_run(), Map.merge(push_run(), %{"id" => 44, "conclusion" => "cancelled", "updated_at" => "2026-10-12T16:00:00Z"})]})
 
         String.contains?(url, "/actions/runs?") ->
-          ok(%{"workflow_runs" => [Map.merge(queue_run(), override)]})
+          ok(%{"workflow_runs" => [queue_run() |> Map.merge(%{"conclusion" => "failure"})]})
 
         String.contains?(url, "/check-runs?") ->
-          ok(%{"check_runs" => [%{"id" => 1, "name" => "ci gate", "status" => "completed", "conclusion" => "success", "check_suite" => %{"id" => 7}, "app" => %{"slug" => "github-actions"}}]})
+          ok(%{"check_runs" => [%{"id" => 1, "name" => "ci gate", "status" => "completed", "conclusion" => "success", "check_suite" => %{"id" => 8}, "app" => %{"slug" => "github-actions"}}]})
 
         String.ends_with?(url, "/status") ->
           ok(%{"statuses" => []})
       end
     end
+  end
+
+  defp push_run do
+    queue_run()
+    |> Map.merge(%{"id" => 43, "event" => "push", "head_branch" => "main", "check_suite_id" => 8, "conclusion" => "success", "status" => "completed"})
   end
 
   defp queue_run do

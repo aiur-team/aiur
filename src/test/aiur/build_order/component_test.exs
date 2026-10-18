@@ -11,6 +11,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
   @foreground [
     Aiur.Webhooks.ModeTable,
     Aiur.Capabilities.Table,
+    Aiur.Opencode.ActiveTurns,
     {Aiur.PubSub.Boot, [name: Aiur.PubSub]},
     Aiur.AgentPubSub.FleetRefresh,
     {Registry, [keys: :unique, name: Aiur.IssueLog.Registry]},
@@ -94,6 +95,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.BuildOrder.PackStatus, [poll_on_start: true]},
     {Aiur.OpenTicketSource, [poll_on_start: true]},
     {Aiur.GitHub.ViewStateSweep, [sources: [Aiur.BuildOrder.PackStatus]]},
+    Aiur.GitHub.Listeners,
     {Aiur.Orchestrator, [name: Aiur.Orchestrator, initial_poll?: true]},
     Aiur.BuildQueue.Server,
     Aiur.DecisionExpiry,
@@ -114,7 +116,6 @@ defmodule Aiur.BuildOrder.ComponentTest do
     AiurWeb.FinancialData.Supervisor,
     {Aiur.HttpServer, dashboard_pages?: true},
     Aiur.Opencode.TokenRegistry,
-    Aiur.Opencode.ActiveTurns,
     Aiur.Opencode.PaneSupervisor,
     Aiur.Opencode.SessionSupervisor,
     Aiur.Opencode.BridgeSupervisor,
@@ -130,14 +131,19 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.AgentList.Input,
     Aiur.LauncherWatchdog,
     Aiur.BackgroundCpu,
+    Aiur.PRLifecycle.HeadVerdictRouter,
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
     Aiur.Experiments.Checkpointer,
+    Aiur.Experiments.StatsRunner,
     {Aiur.Experiments.Auto, [recording?: true, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]]},
     Aiur.BuildOrder.Features.LabelProjection,
     Aiur.LandingWatch,
+    Aiur.ExecutorSweep,
     Aiur.Experiments.Auto.Notifier,
-    Aiur.Experiments.Auto.WindowManager
+    Aiur.Experiments.Auto.WindowManager,
+    Aiur.LandingWatch.QuarantineLifter,
+    AiurWeb.Build.IndexSupervisor
   ]
 
   setup do
@@ -160,7 +166,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
 
     without_dashboard =
       @foreground
-      |> Enum.reject(&(&1 in [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, {Aiur.HttpServer, dashboard_pages?: true}]))
+      |> Enum.reject(&(&1 in [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, AiurWeb.Build.IndexSupervisor, {Aiur.HttpServer, dashboard_pages?: true}]))
       |> Enum.map(fn
         {Aiur.OpenTicketSource, _} -> {Aiur.OpenTicketSource, poll_on_start: false}
         spec -> spec

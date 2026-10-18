@@ -3,9 +3,10 @@ defmodule Aiur.ExecutorAttention.CLI do
   alias Aiur.ControlCLI.Reasons
   alias Aiur.Executor.{Claims, Roster}
   alias Aiur.ExecutorAttention.DecisionEscalation
-  alias Aiur.{ExecutorEvents, ExecutorListener, ExecutorWakeInbox}
+  alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorListener, ExecutorWakeInbox}
+  alias Aiur.ExecutorSweep.TriageBacklog
 
-  import Aiur.ControlCLI.Protocol, only: [control_error: 1, exit_marker: 1]
+  import Aiur.ControlCLI.Protocol, only: [control_error: 1, error_marker: 0, exit_marker: 1, guarded: 2]
 
   @spec executor_emit(String.t(), String.t()) :: :ok
   def executor_emit(topic, payload_json) when is_binary(topic) and is_binary(payload_json) do
@@ -417,11 +418,12 @@ defmodule Aiur.ExecutorAttention.CLI do
     end
   end
 
-  @doc "Prints the `status` WAKES and DECISIONS lines."
+  @doc "Prints the `status` WAKES, DECISIONS and TRIAGE lines."
   @spec print_wake_status() :: :ok
   def print_wake_status do
     print_wakes()
     DecisionEscalation.print_status()
+    TriageBacklog.print_status()
   end
 
   defp print_wakes do
@@ -453,5 +455,22 @@ defmodule Aiur.ExecutorAttention.CLI do
   defp executor_subscription_result({:error, reason}, _action, _topic) do
     IO.puts(:stderr, "aiur: executor subscription rejected (#{Reasons.format_reason(reason)})")
     exit_marker(1)
+  end
+
+  @spec alerts(keyword()) :: :ok
+  def alerts(opts \\ []) do
+    guarded("alerts", fn -> opts |> Aiur.AlertsCLI.run() |> exit_marker() end)
+  end
+
+  @spec executor_listen_validate(String.t()) :: no_return()
+  def executor_listen_validate(topic) do
+    case ExecutorEvents.validate_binding_topic(topic) do
+      :ok ->
+        exit_marker(0)
+
+      {:error, reason} ->
+        IO.puts(error_marker() <> "aiur: listen topic rejected (#{inspect(reason)}); allowed bindings: #{Enum.join(ExecutorBindings.patterns(), ", ")}")
+        exit_marker(64)
+    end
   end
 end

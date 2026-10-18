@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.Ownership.Retention do
   @moduledoc false
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.Workspace.Ownership
 
   @spec mark(map(), String.t() | nil) :: map()
@@ -19,7 +19,7 @@ defmodule Aiur.Workspace.Ownership.Retention do
     {lease, _} = Registry.update_value(state.registry, state.lease.ticket, &Map.merge(&1, %{retained_since: since, retained_cause: cause}))
     message = "Workspace retained for #{lease.ticket} (generation #{lease.generation}) since #{since || "unknown"}: #{cause}."
 
-    Alerts.emit_system("ticket.#{lease.ticket}.workspace.workspace_lease_retained",
+    Signal.alert("ticket.#{lease.ticket}.workspace.workspace_lease_retained",
       issue: lease.ticket,
       message: message,
       reason: message,
@@ -34,7 +34,7 @@ defmodule Aiur.Workspace.Ownership.Retention do
   @spec resolve(map()) :: :ok | {:error, term()}
   def resolve(%{retained_cause: cause} = lease) when is_binary(cause) do
     message = "Workspace retained lease released for #{lease.ticket} (generation #{lease.generation})."
-    Alerts.emit_system("ticket.#{lease.ticket}.workspace.workspace_lease_retained.resolved", issue: lease.ticket, message: message, reason: message, needs_attention: false)
+    Signal.alert("ticket.#{lease.ticket}.workspace.workspace_lease_retained.resolved", issue: lease.ticket, message: message, reason: message, needs_attention: false)
   end
 
   def resolve(_lease), do: :ok

@@ -30,6 +30,31 @@ defmodule Aiur.Workspace.RefreshTest do
     assert :ok = Refresh.run(workspace, issue_context, nil)
   end
 
+  test "run/3 refreshes outdated attribution hooks and preserves a repository hook", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
+    init_repo!(workspace)
+    hook_path = Path.join(workspace, ".git/hooks/pre-push")
+    File.write!(hook_path, "#!/bin/sh\n# stale Aiur hook\nexit 0\n")
+    File.chmod!(hook_path, 0o755)
+    before_run_marker = Path.join(test_root, "before-run-completed")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_before_run: "touch #{Aiur.Shell.escape(before_run_marker)}"
+    )
+
+    issue = %{id: 1, identifier: "test", state: "todo", labels: [], pr_head_ref: nil}
+    assert :ok = Refresh.run(workspace, issue, nil)
+
+    assert File.regular?(before_run_marker)
+    current_hook = File.read!(hook_path)
+    assert current_hook =~ "aiur-attribution-pre-push"
+    refute current_hook =~ "stale Aiur hook"
+    assert File.read!(hook_path <> ".aiur-original") =~ "stale Aiur hook"
+  end
+
   test "run/3 stages a logs-only workspace before before_run and preserves prior logs", %{
     workspace: workspace,
     test_root: test_root

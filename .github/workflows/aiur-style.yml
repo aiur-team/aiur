@@ -5,15 +5,53 @@ on:
     branches: [main]
     paths:
       - 'packages/aiur-style/**'
+      - 'src/priv/static/aiur-style/**'
       - '.github/workflows/aiur-style.yml'
   pull_request:
     paths:
       - 'packages/aiur-style/**'
+      - 'src/priv/static/aiur-style/**'
       - '.github/workflows/aiur-style.yml'
+  # Queue candidates rerun check-dist on the merged result (#4983); merge_group takes no paths filter.
+  merge_group:
 
 jobs:
-  build-and-test:
+  # Light queue job: no Playwright container or visual suite, and a no-op unless the merge touches aiur-style.
+  queue-dist:
+    if: ${{ github.event_name == 'merge_group' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Detect aiur-style changes
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          git fetch --depth=1 origin "$BASE_SHA"
+          if git diff --quiet "$BASE_SHA" HEAD -- packages/aiur-style src/priv/static/aiur-style .github/workflows/aiur-style.yml; then
+            echo "touched=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "touched=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        if: ${{ steps.changes.outputs.touched == 'true' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: 'packages/aiur-style/package-lock.json'
+
+      - name: Check dist
+        if: ${{ steps.changes.outputs.touched == 'true' }}
+        run: cd packages/aiur-style && npm ci --ignore-scripts && npm run build && npm run check-dist
+
+  build-and-test:
+    if: ${{ github.event_name != 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     container: mcr.microsoft.com/playwright:v1.61.1-noble
 
     strategy:
@@ -38,6 +76,13 @@ jobs:
 
       - name: Check dist
         run: cd packages/aiur-style && npm run check-dist
+
+      - name: Check committed copy matches dist
+        run: |
+          cd src/priv/static/aiur-style
+          find . -type f | while read -r f; do
+            cmp "$f" "../../../../packages/aiur-style/dist/$f" || { echo "$f differs from dist; run scripts/sync-aiur-style"; exit 1; }
+          done
 
       - name: Verify packed assets
         run: |

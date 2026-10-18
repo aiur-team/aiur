@@ -150,6 +150,17 @@ defmodule Aiur.TestSupportTest do
     assert is_integer(id)
   end
 
+  test "ensure_orchestrator_running restarts a terminated shared orchestrator" do
+    on_exit(fn -> Aiur.TestSupport.ensure_orchestrator_running() end)
+
+    assert is_pid(Process.whereis(Aiur.Orchestrator))
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
+    refute Process.whereis(Aiur.Orchestrator)
+
+    assert :ok = Aiur.TestSupport.ensure_orchestrator_running()
+    assert is_pid(Process.whereis(Aiur.Orchestrator))
+  end
+
   test "ensure_read_cache_running recovers a stopped read cache (contained to one child)" do
     on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
 

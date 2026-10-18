@@ -13,18 +13,38 @@ assert.ok(/  push:\n    branches: \[main, v2\]/.test(trigger), 'main pushes trig
 assert.ok(/  schedule:\n    - cron:/.test(trigger), 'scheduled CI is configured');
 const jobs = new Map([...source.split(/^jobs:\n/m)[1].matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:|$(?![\s\S]))/gm)]
   .map(([, id, body]) => [id, body]));
-const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'browser-2', 'browser-3', 'browser-4', 'home-css', 'layout-release', 'analytics', 'streamdeck'];
-const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'ci-gate'];
-function selected(event, full, dialyzer = false) {
-  return [...jobs].filter(([, body]) => {
-    const expression = body.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
-    return !expression || runInNewContext(expression, {
-      github: { event_name: event, ref: event === 'push' ? 'refs/heads/main' : '' }, cancelled: () => false, always: () => true,
-      needs: { changes: { result: 'success', outputs: { full_ci: String(full), dialyzer: String(dialyzer) } } },
-    });
-  }).map(([id]) => id);
+const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css', 'layout-release', 'analytics', 'streamdeck', 'pre-handoff'];
+const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'ci-gate', 'pre-handoff'];
+function selected(event, full, dialyzer = false, payload = { pull_request: {} }) {
+  const condition = (body) => body.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
+  const run = (expression, changes) => !expression || runInNewContext(expression, {
+    github: { event_name: event, event: payload, ref: event === 'push' ? 'refs/heads/main' : '' }, cancelled: () => false, always: () => true,
+    needs: { changes, 'pre-handoff': { result: changes.result } },
+  });
+  const changesRuns = run(condition(jobs.get('changes')), {});
+  const changes = changesRuns ? { result: 'success', outputs: { full_ci: String(full), dialyzer: String(dialyzer) } } : { result: 'skipped', outputs: {} };
+  // Every other job needs changes, so a skipped changes skips it unless a status function overrides that.
+  return [...jobs].filter(([id, body]) => id === 'changes' ? changesRuns
+    : (changesRuns || /always\(\)|cancelled\(\)/.test(condition(body) ?? '')) && run(condition(body), changes)).map(([id]) => id);
 }
 assert.deepEqual(selected('pull_request', false).sort(), fastJobs.sort(), 'PR without Elixir source changes selects only fast jobs');
+for (const payload of [{ pull_request: { draft: true } }, { action: 'labeled', pull_request: { draft: true } }]) {
+  assert.deepEqual(selected('pull_request', true, true, payload), [], `no CI job holds a runner for ${JSON.stringify(payload)} (#4942)`);
+}
+assert.deepEqual(selected('pull_request', false, false, { action: 'ready_for_review', pull_request: { draft: false } }).sort(), fastJobs.sort(), 'marking a draft ready runs CI');
+const website = readFileSync(new URL('../.github/workflows/website.yml', import.meta.url), 'utf8');
+assert.ok(website.includes('types: [opened, synchronize, reopened, ready_for_review, closed]'), 'website starts on ready and cancels on close');
+assert.ok(website.includes("  guards:\n    if: ${{ github.event.pull_request.draft != true && github.event.action != 'closed' }}"), 'website skips drafts and closed PRs');
+const websiteGuards = website.split(/^  guards:\n/m)[1];
+assert.ok(/^    timeout-minutes: 15$/m.test(websiteGuards), 'website guards job has a finite runner budget');
+assert.ok(/      - name: Test visual regressions\n        timeout-minutes: 8\n/.test(websiteGuards), 'Docker visual regression step has a shorter finite budget');
+const aiurStyle = readFileSync(new URL('../.github/workflows/aiur-style.yml', import.meta.url), 'utf8');
+assert.ok(/^  merge_group:$/m.test(aiurStyle.split(/^jobs:/m)[0]), 'aiur-style checks dist on merge queue candidates (#4983)');
+const [queueDist, buildAndTest] = aiurStyle.split(/^  build-and-test:\n/m);
+assert.ok(queueDist.includes("if: ${{ github.event_name == 'merge_group' }}") && queueDist.includes('npm run check-dist'), 'queue job runs check-dist');
+assert.ok(!queueDist.includes('test:visual') && !queueDist.includes('container:'), 'queue job skips the Playwright visual suite');
+assert.ok(buildAndTest.startsWith("    if: ${{ github.event_name != 'merge_group' }}\n"), 'full aiur-style suite stays off merge groups');
+assert.ok(/^    timeout-minutes: 20$/m.test(buildAndTest), 'aiur-style visual job has a finite runner budget');
 assert.ok(selected('pull_request', false, true).includes('dialyzer'), 'PR changing src/lib Elixir runs dialyzer');
 assert.ok(!selected('pull_request', false, false).includes('dialyzer'), 'docs-only PR skips dialyzer');
 console.log(`Fast PR jobs (non-CI changes): ${selected('pull_request', false).sort().join(', ')}`);
@@ -87,31 +107,49 @@ assert.notEqual(gate('schedule', true, false).status, 0, 'gate refuses unsupport
 assert.ok(jobs.has('quarantine'), 'quarantine job remains available for scheduled/main runs');
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'schedule'"));
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'push' && github.ref == 'refs/heads/main'"));
-assert.ok(jobs.get('workflow-security').includes('Set up Elixir for evidence and classifier tests'));
+assert.ok(jobs.get('workflow-security').includes('timeout-minutes: 5'), 'security job keeps its original short budget');
+assert.ok(jobs.get('workflow-security').includes("needs['pre-handoff'].result"),
+  'required workflow security check fails when pre-handoff checks fail');
+assert.ok(jobs.get('pre-handoff').includes('./.github/actions/pre-handoff'), 'bounded pre-handoff job runs its dedicated action');
+assert.ok(readFileSync(new URL('../.github/actions/pre-handoff/action.yml', import.meta.url), 'utf8')
+  .includes('uses: ./.github/actions/setup-elixir'), 'pre-handoff action sets up Elixir');
 assert.ok(!jobs.get('workflow-security').includes("Set up Elixir for PR evidence\n        if:"));
 const affected = jobs.get('affected-tests');
+const affectedTimeout = Number(affected.match(/^    timeout-minutes: (\d+)$/m)?.[1]);
+assert.equal(affectedTimeout, 15, 'the job retains its original overall budget');
+assert.ok(affected.includes('run-ci-affected-tests.sh'), 'affected-tests delegates setup and base selection to its helper');
+const affectedRunner = readFileSync(new URL('../scripts/run-ci-affected-tests.sh', import.meta.url), 'utf8');
+assert.ok(affectedRunner.includes('git rev-parse HEAD^1'), 'affected-tests uses the PR merge base, not a stale event payload');
+assert.ok(affectedRunner.includes('affected-tests merge base: $PR_BASE'), 'affected-tests logs the base used for selection');
+assert.ok(affectedRunner.includes('affected-tests dependency setup duration: $((SECONDS - started))s'),
+  'affected-tests logs dependency setup duration');
 for (const guard of ['base_branch_literal_guard', 'state_owners', 'placement_rule', 'non_transition_facade', 'waiting_descriptor', 'application_child_order', 'health_scanner_child_order']) {
   assert.ok(affected.includes(`${guard}_test.exs`), `fast CI includes ${guard}`);
 }
-assert.ok(affected.includes('run-ci-affected-tests.py "$PR_BASE"'));
+assert.ok(affectedRunner.includes('run-ci-affected-tests.py "$PR_BASE"'));
 assert.ok(jobs.get('lint').includes('mix compile --warnings-as-errors'));
 assert.ok(jobs.get('workflow-security').includes('node scripts/test-ci-events.mjs'));
 const packageJson = JSON.parse(readFileSync(new URL('../src/browser/package.json', import.meta.url), 'utf8'));
 const coreCommands = [...packageJson.scripts['test:core'].matchAll(/npm run (test:[\w:-]+)/g)].map(([, name]) => name);
-const shardScript = readFileSync(new URL('../src/browser/scripts/run-browser-smoke-shard.mjs', import.meta.url), 'utf8');
-const shardCommands = [...shardScript.matchAll(/'(test:[\w:-]+)'/g)].map(([, name]) => name);
+const { shards } = await import('../src/browser/scripts/run-browser-smoke-shard.mjs');
+const browserSuites = await import('../src/browser/scripts/browser-suites.mjs');
+const shardCommands = Object.values(browserSuites.shardCommands(shards)).flat().filter((name) => name.startsWith('test:'));
+assert.ok(coreCommands.includes(browserSuites.SUITE_SCRIPT), 'test:core runs discovered home suites');
+coreCommands.splice(coreCommands.indexOf(browserSuites.SUITE_SCRIPT), 1, ...browserSuites.discoverSuites().map(browserSuites.suiteCommand));
 for (const command of coreCommands) {
   assert.equal(shardCommands.filter((name) => name === command).length, 1, `${command} appears in exactly one browser shard`);
 }
 assert.deepEqual([...new Set(shardCommands)].sort(), [...new Set(coreCommands)].sort(), 'shards match npm test:core commands');
-for (const [job, shard] of [['browser', 1], ['browser-2', 2], ['browser-3', 3], ['browser-4', 4]]) {
-  assert.ok(jobs.get(job).includes('./.github/actions/browser-smoke'), `${job} uses the shared browser action`);
-  assert.ok(jobs.get(job).includes('actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'), `${job} checks out before the local action`);
-  assert.ok(jobs.get(job).includes('timeout-minutes: 15'), `${job} retains its 15-minute timeout`);
-  assert.ok(jobs.get(job).includes(`shard: ${shard}`), `${job} selects shard ${shard}`);
-}
+const browserJob = jobs.get('browser');
+assert.ok(browserJob.includes('./.github/actions/browser-smoke'), 'browser uses the shared browser action');
+assert.ok(browserJob.includes('actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'), 'browser checks out before the local action');
+assert.ok(browserJob.includes('timeout-minutes: 22'), 'browser has headroom beyond the 9-minute shard target');
+assert.ok(browserJob.includes(`shard: [${Object.keys(shards).join(', ')}]`), 'browser matrix selects every shard in the shard map');
 const browserAction = readFileSync(new URL('../.github/actions/browser-smoke/action.yml', import.meta.url), 'utf8');
 assert.ok(browserAction.includes('using: composite'), 'shared browser setup is an allowed local composite action');
+assert.ok(!browserAction.includes('report-ci-run-attempt.sh'), 'the workflow job, not the action, discloses reruns once');
 assert.ok(browserAction.includes('run: node scripts/run-browser-smoke-shard.mjs ${{ inputs.shard }}'), 'shared action runs its selected shard');
+assert.ok(browserAction.includes('Report slowest browser smoke suites'), 'shared action reports per-suite timings after success or timeout');
+assert.ok(browserAction.includes('if: ${{ always() }}'), 'timing report runs after a shard timeout');
 assert.ok(!source.includes('npm run test:core'), 'no single job runs the unsharded browser suite');
 console.log('CI event selection and aggregate failure tests passed');

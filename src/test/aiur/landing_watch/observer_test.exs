@@ -60,9 +60,10 @@ defmodule Aiur.LandingWatch.ObserverTest do
   end
 
   test "approval revalidation requires the exact current head" do
-    request = fn request ->
-      query = request[:body]["query"]
+    base_request = fn graphql_request ->
+      query = graphql_request[:body]["query"]
       assert query =~ "headRefOid"
+      assert query =~ "mergeQueueEntry"
 
       {:ok,
        %{
@@ -71,8 +72,15 @@ defmodule Aiur.LandingWatch.ObserverTest do
        }}
     end
 
-    assert {:error, :approval_or_head_changed} = Observer.revalidate_approved_head(17, "old-head", token: "test-gh-token", request_fun: request)
-    assert :ok = Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: request)
+    assert {:error, :approval_or_head_changed} = Observer.revalidate_approved_head(17, "old-head", token: "test-gh-token", request_fun: base_request)
+    assert :ok = Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: base_request)
+
+    queued_request = fn graphql_request ->
+      {:ok, response} = base_request.(graphql_request)
+      {:ok, put_in(response, [:body, "data", "repository", "pullRequest", "mergeQueueEntry"], %{"id" => "entry-17"})}
+    end
+
+    assert {:error, :approval_or_head_changed} = Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: queued_request)
   end
 
   test "queue refresh batches only approved or already queued PRs" do

@@ -181,6 +181,20 @@ defmodule AiurWeb.BuildQueuePanelTest do
     end
   end
 
+  test "an unresolved lane renders its reason and the governing source's age (#4819)" do
+    fixture = view(:running)
+    list = %{hd(fixture.model.queues) | name: "f2-keep-agents", items: [], progress: %{completed: nil, total: 0, percent: nil, resolved: 0, resolution: :empty}}
+    root = %{list | queue_id: "q-1234", kind: :build_order, root: 42, name: "f4-home"}
+    fixture = put_in(fixture, [:model, :queues], [Map.put(list, :progress_reasons, [:no_members]), Map.put(root, :progress_reasons, [:projection_unavailable])])
+    fixture = put_in(fixture, [:model, :sources, "tracker_observation", :age_ms], 12_000)
+    fixture = put_in(fixture, [:model, :sources, "build_order:42"], %{state: :unavailable, observed_at: nil, age_ms: nil, freshness: :unknown, reasons: [:projection_unavailable]})
+    document = render_component(&Panel.panel/1, view: fixture, now: @now) |> Floki.parse_document!()
+    reason = &(document |> Floki.find("[data-queue-id='#{&1}'] [data-queue-progress-reason]") |> Floki.text() |> String.split() |> Enum.join(" "))
+    assert reason.("q-abcd") == "No members · Age: 12s ago"
+    assert reason.("q-1234") == "Projection unavailable · Age: Unknown"
+    assert Floki.find(document, "[data-queue-id='q-abcd'] table") == []
+  end
+
   defp view(status) do
     item = %{
       number: 13,

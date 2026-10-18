@@ -119,7 +119,7 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
     budget_root = Path.join(context.state_path, "host-budget")
     path = isolated_command_path(context, ~w(shasum))
 
-    assert {output, 75} =
+    assert {output, 127} =
              run_guard(context, ["api", "repos/owner/repo/issues/1670"],
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
                AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
@@ -127,9 +127,8 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
                PATH: path
              )
 
-    assert output =~ "shared budget unavailable"
+    assert output =~ "python3 is required to enforce the governed gh call deadline"
     assert output =~ "python3"
-    assert output =~ "refusing uncoordinated request"
     refute File.exists?(context.calls)
   end
 
@@ -137,7 +136,7 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
     budget_root = Path.join(context.state_path, "host-budget")
     path = isolated_command_path(context, ~w(shasum))
 
-    assert {output, 75} =
+    assert {output, 127} =
              run_guard(context, ["api", "rate_limit"],
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
                AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
@@ -145,9 +144,8 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
                PATH: path
              )
 
-    assert output =~ "shared budget unavailable"
+    assert output =~ "python3 is required to enforce the governed gh call deadline"
     assert output =~ "python3"
-    assert output =~ "refusing uncoordinated request"
     refute File.exists?(context.calls)
   end
 
@@ -233,8 +231,6 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
   # probe exactly as it would be by a billed call (#2284's "no quota can still
   # cost a slot"). One rate_limit admission is therefore enough to hold the
   # next request in the same minute.
-  # Flaky in merge groups; fix tracked in #4463.
-  @tag :quarantine
   test "a non-billable rate_limit probe still consumes a rate-per-minute pacing slot", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)

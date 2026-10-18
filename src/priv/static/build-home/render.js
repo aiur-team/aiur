@@ -1,8 +1,10 @@
 import { S, ctx, fx, gutW, LH, onReset, renderChrome } from './state.js';
+import { syncStates } from './states.js';
 import { $ } from './dom.js';
 import { I } from './icons.js';
+import { dotSize } from './span.js';
 import { writeURL } from './url.js';
-import { computeLayout, measureFlow, histDays, makeMark, placeMark, makeLabel } from './layout.js';
+import { computeLayout, measureFlow, crowded, laneMax, fwdLanes, histDays, makeMark, placeMark, makeLabel } from './layout.js';
 import { H, syncHistory, loadEarlier, ensureDays, ensureFrom } from './history.js';
 import { takeAnchor, restoreAnchor } from './render-anchor.js';
 import { renderHeads } from './render-heads.js';
@@ -41,8 +43,8 @@ export function viewport() {
       const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid]); return; }
       const st = e.target.closest("[data-ast]"); if (st) { const v = st.dataset.ast.split(","), same = S.f.astate.join(",") === v.join(","); S.f.astate = same ? [] : v; if (S.liveMin && !same) { S.liveMin = false; writeURL(); relayout(); } fx.filtersChanged(); return; }
       const c = e.target.closest(".bd-card");
-      if (ctx.lockId) { if (c && fx.chainOf(ctx.lockId).has(c.dataset.id)) fx.openModal(ctx.D.byId[c.dataset.id]); return; }
-      if (c) fx.openModal(ctx.D.byId[c.dataset.id]);
+      if (ctx.lockId) { if (c && fx.chainOf(ctx.lockId).has(c.dataset.id)) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c }); return; }
+      if (c) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c });
     });
   }
 
@@ -58,24 +60,32 @@ function restoreFocus(id) {
 }
 export function relayout({ live = false } = {}) {
   if (S.loading) return fx.renderLoading();
+  syncStates();
   const reconnect = H.epoch !== null && H.epoch !== ctx.proto.epoch;
   const anchor = reconnect ? takeAnchor() : null, oldFrom = S.histFrom, focused = focusId();
   syncHistory();
   if (S.view === 'list') return fx.renderList();
   if (!ctx.content) viewport();
-  Object.assign(S, measureFlow(ctx.D, { vpW: ctx.vp.clientWidth, gut: gutW() }));
-  ctx.content.classList.toggle('flow', S.flow);
+  const dims = { vpW: ctx.vp.clientWidth, vpH: ctx.vp.clientHeight, gut: gutW() };
+  Object.assign(S, measureFlow(ctx.D, dims));
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
-  ctx.L = computeLayout(ctx.D, S, { vpW: ctx.vp.clientWidth, vpH: ctx.vp.clientHeight, gut: gutW() }, ctx.snap.sources);
+  const previousDetail = ctx.L?.det;
+  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H });
+  // The design counts only live and planned lanes; also flow when the packed day columns would still be slivers (#4769).
+  if (!S.flow && !S.feature && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H }); }
+  ctx.content.classList.toggle('flow', S.flow);
+  const detailChanged = previousDetail !== ctx.L.det;
   ctx.svg.setAttribute('height', 0);
-  ctx.vp.style.setProperty('--dot', Math.max(14, 30 - 16 * Math.log(S.span) / Math.log(3)).toFixed(1) + 'px');
+  ctx.vp.style.setProperty('--dot', dotSize(S.span));
   for (const [uid, el] of ctx.R) {
     const id = el.dataset.id;
-    if (!live || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
+    if (!live || detailChanged || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
     else noanim(el);
   }
-  ctx.RL.forEach(el => el.remove()); ctx.RL.clear();
+  for (const [uid, el] of ctx.RL) {
+    if (!live || !uid.includes(':m')) { el.remove(); ctx.RL.delete(uid); }
+  }
   renderHeads();
   for (const sec of ['hist', 'plan', 'nq']) ctx.secs[sec].el.style.height = ctx.L.secs[sec].h + 'px';
   ctx.bandEl.style.height = ctx.L.band.h + 'px'; fx.renderBand();
@@ -115,13 +125,16 @@ function renderSection(s, keep, keepL, focused) {
     const uid = s + ':' + it.t.id; keep.add(uid);
     let el = ctx.R.get(uid);
     if (!el) { el = fx.makeCard(it); noanim(el); sec.layer.appendChild(el); ctx.R.set(uid, el); }
-    place(el, it);
+    el._it = it; place(el, it);
   }
   lay.marks.forEach((m, i) => {
     if (!overlaps(m.y, m.h)) return;
     const uid = s + ':m' + i; keepL.add(uid);
     let el = ctx.RL.get(uid);
     if (!el) { el = makeMark(m); sec.layer.appendChild(el); ctx.RL.set(uid, el); }
+    el.className = 'bd-mk ' + m.kind;
+    const text = makeMark(m).innerHTML;
+    if (el.dataset.txt !== text) { el.innerHTML = text; el.dataset.txt = text; }
     placeMark(el, m, ctx.content.offsetWidth, gutW());
   });
   lay.labels.forEach((lb, i) => {
@@ -134,10 +147,7 @@ function renderSection(s, keep, keepL, focused) {
 }
 export function update(force) {
   if (!ctx.L || !ctx.content || S.loading || S.view === 'list') return;
-  const next = fx.visibleCols();
-  if (next.length && next.join('|') !== ctx.cols.join('|')) {
-    ctx.life.later('cols', force ? 0 : 220, () => { fx.applyCols(fx.visibleCols()); update(); });
-  }
+  fx.scheduleCols(force);
   const keep = new Set(), keepL = new Set();
   const focused = focusId() ?? ctx.a11y.focusId;
   ctx.a11y.focusId = focused;
@@ -163,6 +173,10 @@ export function onDataChanged(msg) {
   pendingLive.dirty = true;
   if (!deferred()) ctx.life.frame('live', flushLive);
 }
+export function requestLivePass() {
+  pendingLive.dirty = true;
+  ctx.life.frame('live', flushLive);
+}
 export function flushLive() {
   if (!pendingLive.dirty || deferred()) return;
   const anchor = takeAnchor();
@@ -170,4 +184,4 @@ export function flushLive() {
   pendingLive.changed.clear(); pendingLive.removed.clear(); pendingLive.dirty = false;
   performance.mark('build-home-live-pass');
 }
-Object.assign(fx, { viewport, relayout, update, dataChanged: onDataChanged, flushLive, renderHeads });
+Object.assign(fx, { viewport, relayout, update, dataChanged: onDataChanged, flushLive, requestLivePass, renderHeads });

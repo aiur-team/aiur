@@ -106,7 +106,7 @@ for (const mode of ['total', 'start', 'source']) test(`header unknown branch: ${
 })
 
 test('headers keep design count formatting and empty strings', async ({ page }) => {
-  const result = await page.evaluate(() => heads.headHTML({ hist: [], plan: Array(1000), nq: Array(1000) }, { total: 0, more: false }, { history: { state: 'ok' } }, 0))
+  const result = await page.evaluate(() => heads.headHTML({ hist: [], plan: Array(1000), nq: Array(1000) }, { total: 0, more: false }, Object.fromEntries(['history', 'queue', 'index', 'agents', 'features'].map(key => [key, { state: 'ok' }])), 0))
   expect(result).toEqual({ hist: 'History <em>empty</em>', plan: 'Planned <em>1000 in build-queue order · dependency waves</em>', nq: 'Not queued <em>1000 open · not in the queue</em>' })
 })
 
@@ -286,7 +286,13 @@ test('span URL pages before settling and paging state survives server patches', 
 })
 
 test('replaced cards release noanim after two frames', async ({ page }) => {
-  await page.clock.install(); await page.clock.pauseAt(new Date())
+  // Stub the browser primitive, not ctx.life.frame, so the real keyed scheduler stays under test.
+  await page.evaluate(() => {
+    const q = new Map(); let id = 0
+    window.requestAnimationFrame = fn => { q.set(++id, fn); return id }
+    window.cancelAnimationFrame = i => { q.delete(i) }
+    window.__step = () => { const batch = [...q.values()]; q.clear(); batch.forEach(fn => fn(performance.now())) }
+  })
   expect(await page.evaluate(() => {
     const [uid, el] = [...ctx.R][0], row = ctx.D.byId[el.dataset.id]
     for (let i = 0; i < 2; i++) {
@@ -297,6 +303,8 @@ test('replaced cards release noanim after two frames', async ({ page }) => {
     window.replacedCard = ctx.R.get(uid)
     return replacedCard !== el && replacedCard.classList.contains('noanim')
   })).toBe(true)
-  await page.clock.runFor(48)
+  await page.evaluate(() => __step())
+  expect(await page.evaluate(() => replacedCard.classList.contains('noanim'))).toBe(true)
+  await page.evaluate(() => __step())
   expect(await page.evaluate(() => replacedCard.isConnected && !replacedCard.classList.contains('noanim'))).toBe(true)
 })

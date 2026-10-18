@@ -8,7 +8,6 @@ defmodule Aiur.MainWatchTest do
   alias Aiur.MainWatch.{Persistence, State}
 
   setup do
-    unless Process.whereis(Aiur.TaskSupervisor), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
     :ok
   end
 
@@ -44,6 +43,36 @@ defmodule Aiur.MainWatchTest do
     assert_received {:emitted, "system.main.ci.failed", %{sha: "red"}}
     assert_received {:emitted, "system.main.ci.unavailable", %{reason: ":github_offline"}}
     refute_received {:emitted, _, _}
+  end
+
+  test "restored ETag snapshot is passed into the next poll" do
+    parent = self()
+    date = DateTime.to_unix(~U[2026-10-10 00:00:00Z], :millisecond)
+
+    initial = %{
+      Persistence.empty()
+      | commits: ["retained-sha"],
+        commit_window: ["retained-sha"],
+        commit_dates: [date],
+        commit_etag: "\"main-v1\""
+    }
+
+    poll = fn _branch, _workflows, opts ->
+      send(parent, {:poll_started, self(), opts})
+
+      receive do
+        {:complete, result} -> result
+      end
+    end
+
+    _server = launch(initial, poll_fun: poll)
+    assert_receive {:poll_started, worker, opts}, 1_000
+    assert opts[:commit_etag] == "\"main-v1\""
+    assert opts[:commits] == ["retained-sha"]
+    assert opts[:commit_dates] == [date]
+    send(worker, {:complete, {:ok, result([])}})
+    assert_receive {:saved, _persisted}, 1_000
+    stop_supervised!(MainWatch)
   end
 
   test "unavailable watcher keeps a sanitized auth diagnostic through restart" do

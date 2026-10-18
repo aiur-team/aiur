@@ -1,0 +1,97 @@
+{
+  "experiment_id": "report-example",
+  "stats_snapshot_hash": "stats-fixture",
+  "preregistration": {
+    "schema_version": "preregistration.v1",
+    "experiment_id": "report-example",
+    "registered_at": "2026-10-09T18:00:00Z",
+    "registered_by": {
+      "role": "analyst",
+      "agent": "codex",
+      "model": "fixture",
+      "ticket": 3801
+    },
+    "hypothesis": "Latency decreases by 20 percent.",
+    "primary_metrics": [
+      {
+        "id": "delivery/start",
+        "expected": "decrease"
+      }
+    ],
+    "secondary_metrics": [],
+    "guardrail_metrics": [],
+    "alpha": 0.05,
+    "secondary_correction": "benjamini-hochberg",
+    "fdr_q": 0.1,
+    "mde": {
+      "metric": "delivery/start",
+      "relative": -0.2
+    },
+    "power_target": 0.8,
+    "planned_n_per_cohort": 40,
+    "projected_ready_at": "2026-10-23",
+    "stratify_by": [
+      "complexity"
+    ],
+    "exclusions": [],
+    "stopping_rule": "One confirmatory analysis at planned n.",
+    "baseline_snapshot_hash": "baseline-fixture",
+    "post_hoc": false,
+    "amendments": []
+  },
+  "events": {
+    "snapshot_hash": "events-fixture",
+    "events": [
+      {
+        "event_id": "cap-1"
+      },
+      {
+        "event_id": "red-1"
+      }
+    ]
+  },
+  "engine_labels": {
+    "delivery/start": "inconclusive"
+  },
+  "engine_results": {
+    "delivery/start": {
+      "metric": "delivery/start",
+      "role": "primary",
+      "unit": "ms",
+      "n": {
+        "before": 40,
+        "after": 40
+      },
+      "median": {
+        "before": 12,
+        "after": 10
+      },
+      "iqr": {
+        "before": [
+          8,
+          16
+        ],
+        "after": [
+          7,
+          13
+        ]
+      },
+      "effect": {
+        "kind": "median_difference",
+        "value": -2
+      },
+      "ci95": [
+        -5,
+        1
+      ],
+      "p": 0.2,
+      "p_adjusted": 0.2,
+      "family": "holm-primary",
+      "power_at_mde": 0.65,
+      "mde_at_n": 0.3,
+      "n_needed_per_cohort": 60,
+      "engine_label": "inconclusive",
+      "direction": "none"
+    }
+  }
+}

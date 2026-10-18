@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.PauseResume.WorkerControl do
 
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Orchestrator.DurationCapRelease
   alias Aiur.Orchestrator.GithubBudgetPause
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.OperatorMessages
@@ -100,6 +101,7 @@ defmodule Aiur.Orchestrator.PauseResume.WorkerControl do
 
     state = finalize_applied_resume(state, issue_id, request)
     state = maybe_auto_resume_spurious_worker_pause(state, updated_running_entry, status)
+    state = DurationCapRelease.maybe_release(state, updated_running_entry, status)
     StatusReport.notify_dashboard(state)
     {:noreply, state}
   end

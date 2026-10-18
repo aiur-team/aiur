@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
   @moduledoc false
   require Logger
 
-  alias Aiur.{Config, Events.Publisher}
+  alias Aiur.{Config, Events}
   alias Aiur.Orchestrator.{EnvelopeStore, State}
 
   @spec boot(map()) :: map()
@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
   defp seed(base, record) do
     payload = %{resume_level: record.resume_level, age_seconds: DateTime.diff(DateTime.utc_now(), record.recorded_at)}
 
-    case Publisher.publish("system.fleet.capacity.resume_seeded", payload, source: "orchestrator") do
+    case Events.publish("system.fleet.capacity.resume_seeded", payload, source: "orchestrator") do
       {:error, reason} -> Logger.warning("Envelope resume event failed: #{inspect(reason)}")
       _ -> :ok
     end

@@ -10,7 +10,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.BuildOrder.History
   alias Aiur.CodingAgent
   alias Aiur.Commands
-  alias Aiur.GitHub.LocalHold
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher.Budgets
@@ -26,6 +25,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TelemetryCohort
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
+  alias Aiur.Signal
+  alias Aiur.Tracker
 
   @doc false
   @spec recover_orphaned_claim(State.t(), Issue.t(), term(), term()) :: {State.t(), term()}
@@ -161,10 +162,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
     # and retries the fetch; a hold beyond the ceiling or past the cap still
     # fails, so real starvation is not masked.
     result =
-      LocalHold.run(
-        fn -> issue_fetcher.([issue_id]) end,
-        LocalHold.caller_opts(opts)
-      )
+      Tracker.with_transient_retry(fn -> issue_fetcher.([issue_id]) end, opts)
 
     case result do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
@@ -211,6 +209,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
         ReworkDispatchClaim.dispatch(
           state,
           issue,
+          attempt,
           &spawn_issue_on_worker_host(&1, issue, attempt, recipient, worker_host, opts),
           &Candidates.emit_dispatch_attempt_decline(&1, issue, &2, true),
           &dispatch_input/2
@@ -234,7 +233,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
     worker_generation = System.unique_integer([:positive, :monotonic])
-    lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
+    lifecycle_attempt_id = Signal.new_attempt_id(dispatch_attempt_ticket(issue))
     optimistic_blockers = if issue.optimistic_start, do: Enum.map(issue.optimistic_start.blockers, & &1.identifier), else: []
 
     if TelemetryLifecycle.enabled?() do
@@ -436,7 +435,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
   defp record_rework_resume(%Issue{} = issue, attempt_id) do
     if DispatchPolicy.normalize_issue_state(issue.state) == "rework" do
-      TelemetryLifecycle.record(
+      Signal.lifecycle(
         issue.identifier,
         attempt_id,
         :agent_resume,
