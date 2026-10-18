@@ -194,9 +194,12 @@ defmodule Aiur.DeliveryEntryPointsTest do
     Process.unlink(fake)
     Process.register(fake, name)
 
+    # Give the name back before stopping the fake: a stray call that crashed it
+    # (#4909) must fail this test, not leave the name empty for every later one.
     on_exit(fn ->
-      if Process.alive?(fake), do: GenServer.stop(fake)
+      if Process.whereis(name) == fake, do: Process.unregister(name)
       if is_pid(original) and Process.alive?(original), do: Process.register(original, name)
+      if Process.alive?(fake), do: GenServer.stop(fake)
     end)
   end
 end

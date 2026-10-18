@@ -1,6 +1,4 @@
 defmodule Aiur.GitHub.Budget do
-  alias Aiur.GitHub.Budget.StateDir
-
   @moduledoc """
   Coordinates GitHub request admission across local Aiur instances.
 
@@ -9,45 +7,11 @@ defmodule Aiur.GitHub.Budget do
   starts, and rate-limit cooldowns with the agent `gh` wrapper.
   """
 
-  alias Aiur.{Config, Signal}
-  alias Aiur.GitHub.{BudgetBroker, CredentialHeadroom, EndpointPolicy, GraphQLErrors, Transport}
+  alias Aiur.GitHub.Budget.{BrokerPort, ResponseLimits, Settings, StateDir}
+  alias Aiur.GitHub.{CredentialHeadroom, EndpointPolicy}
+  alias Aiur.Signal
 
   require Logger
-
-  # Keep this source-tree path strictly compile-time-only so changes to the
-  # broker invalidate the module. Runtime calls resolve `priv/` from the
-  # installed application because release layouts do not retain this checkout.
-  @broker_source_path Path.expand("../../../priv/github_budget.py", __DIR__)
-  @external_resource @broker_source_path
-  @default_max_inflight 4
-  @default_max_inflight_per_endpoint 2
-  @default_requests_per_minute 300
-  @default_stagger_ms 75
-  @default_timeout_ms 30_000
-  @lease_grace_ms 5_000
-  @retry_floor_ms 5
-  @command_cleanup_ms 25
-  # Per-actor hourly ceilings (#2181): how many billable Core / GraphQL /
-  # search responses one actor (the daemon, or each agent workspace) may consume
-  # in a rolling hour before its own requests hold. A completed `304` is
-  # reconciled as free. These remain request counts, not GraphQL point budgets.
-  # `0` disables a ceiling.
-  #
-  # The GraphQL defaults were raised in #2299 because the guard now books the
-  # high-level `gh` reads (`pr view|list|status|checks`, `issue view|list`,
-  # `gh api graphql`) to the GraphQL window: the App-token daemon measured
-  # ~3,400-4,300 GraphQL-wire requests/hour, so the pre-fix daemon default of
-  # 2,000 would have stalled the fleet on merge. The agent GraphQL ceiling is
-  # raised too so a single agent's normal loop has headroom under the re-booked
-  # window. These stay request counts, never GraphQL point budgets. `search` is
-  # a third, much lower GitHub window (~30 requests/minute), so it gets its own
-  # ceiling instead of folding into core or graphql.
-  @default_daemon_core_limit_per_hour 3000
-  @default_daemon_graphql_limit_per_hour 4500
-  @default_daemon_search_limit_per_hour 600
-  @default_agent_core_limit_per_hour 250
-  @default_agent_graphql_limit_per_hour 600
-  @default_agent_search_limit_per_hour 600
 
   @type lease :: %{id: String.t(), token_key: String.t()}
   @type hold :: %{resource: String.t(), reset_at: DateTime.t(), reason: atom()}
@@ -59,6 +23,13 @@ defmodule Aiur.GitHub.Budget do
           | :bypass
 
   @release_topic "github:budget:lease_release"
+
+  # Keep this source-tree path strictly compile-time-only so changes to the
+  # broker invalidate the module. Runtime calls resolve `priv/` from the
+  # installed application because release layouts do not retain this checkout.
+  @broker_source_path Path.expand("../../../priv/github_budget.py", __DIR__)
+  @external_resource @broker_source_path
+  @retry_floor_ms 5
 
   @spec enabled?(keyword()) :: boolean()
   def enabled?(opts \\ []) do
@@ -77,7 +48,7 @@ defmodule Aiur.GitHub.Budget do
   """
   @spec warn_metering_unavailable(keyword()) :: :ok
   def warn_metering_unavailable(opts \\ []) do
-    if enabled?(opts) and is_nil(python_executable(opts)) do
+    if enabled?(opts) and is_nil(BrokerPort.python_executable(opts)) do
       Logger.warning(
         "aiur_boot phase=budget_metering_disabled reason=python3_not_found " <>
           "GitHub budget metering is disabled because python3 was not found on this box; " <>
@@ -109,30 +80,7 @@ defmodule Aiur.GitHub.Budget do
   def database_path(opts \\ []), do: Path.join(state_dir(opts), "budget.sqlite3")
 
   @spec ensure_state_dir(keyword()) :: :ok | {:error, term()}
-  def ensure_state_dir(opts \\ []) do
-    path = state_dir(opts)
-
-    case File.lstat(path) do
-      {:ok, %File.Stat{type: :directory}} -> :ok
-      {:ok, %File.Stat{type: type}} -> {:error, {:unsafe_budget_state_dir, path, type}}
-      {:error, :enoent} -> create_state_dir(path)
-      {:error, reason} -> {:error, {:budget_state_dir_unavailable, path, reason}}
-    end
-  end
-
-  defp create_state_dir(path) do
-    case File.mkdir_p(path) do
-      :ok ->
-        case File.lstat(path) do
-          {:ok, %File.Stat{type: :directory}} -> :ok
-          {:ok, %File.Stat{type: type}} -> {:error, {:unsafe_budget_state_dir, path, type}}
-          {:error, reason} -> {:error, {:budget_state_dir_unavailable, path, reason}}
-        end
-
-      {:error, reason} ->
-        {:error, {:budget_state_dir_unavailable, path, reason}}
-    end
-  end
+  def ensure_state_dir(opts \\ []), do: StateDir.ensure(opts)
 
   @spec broker_path(keyword()) :: Path.t()
   def broker_path(opts \\ []) do
@@ -147,7 +95,7 @@ defmodule Aiur.GitHub.Budget do
 
   @doc "Configuration exported to the agent-side `gh` wrapper."
   @spec guard_settings(keyword()) :: map()
-  def guard_settings(opts \\ []), do: settings(opts)
+  def guard_settings(opts \\ []), do: Settings.settings(opts)
 
   @spec acquire(map(), keyword()) ::
           {:ok, lease()}
@@ -158,9 +106,9 @@ defmodule Aiur.GitHub.Budget do
     with true <- enabled?(opts),
          token when is_binary(token) <- Map.get(request, :token),
          key when is_binary(key) <- token_key(token) do
-      case python_executable(opts) do
+      case BrokerPort.python_executable(opts) do
         python when is_binary(python) ->
-          do_acquire(request, key, python, identity_opts(request, opts), deadline(opts))
+          do_acquire(request, key, python, identity_opts(request, opts), Settings.deadline(opts))
 
         nil ->
           # No python3 on the box, so the broker cannot run at all. Fail open to
@@ -190,8 +138,8 @@ defmodule Aiur.GitHub.Budget do
   def release(lease, opts \\ [])
 
   def release(%{id: id, token_key: key}, opts) when is_binary(id) and is_binary(key) do
-    budget_ms = max(command_deadline(opts) - System.monotonic_time(:millisecond), 0)
-    publish_release(id, key, budget_ms, command(["release", "--lease-id", id], key, opts))
+    budget_ms = max(Settings.command_deadline(opts) - System.monotonic_time(:millisecond), 0)
+    publish_release(id, key, budget_ms, BrokerPort.command(["release", "--lease-id", id], key, opts))
     :ok
   end
 
@@ -243,7 +191,7 @@ defmodule Aiur.GitHub.Budget do
 
   defp reconcile_response(%{id: id, token_key: key}, {:ok, %{status: 304}}, opts)
        when is_binary(id) and is_binary(key) do
-    case command(["reconcile", "--lease-id", id, "--status", "304"], key, opts) do
+    case BrokerPort.command(["reconcile", "--lease-id", id, "--status", "304"], key, opts) do
       {:ok, _output} -> :ok
       # `command` already logs the broker failure generically; this names the
       # reconcile specifically so a stale broker (one without the `reconcile`
@@ -262,10 +210,10 @@ defmodule Aiur.GitHub.Budget do
   def snapshot(token, opts \\ []) when is_binary(token) do
     key = token_key(token)
 
-    case command(["snapshot"], key, identity_opts(%{}, opts)) do
+    case BrokerPort.command(["snapshot"], key, identity_opts(%{}, opts)) do
       {:ok, output} ->
         case Jason.decode(String.trim(output)) do
-          {:ok, snapshot} -> atomize_snapshot(snapshot)
+          {:ok, snapshot} -> ResponseLimits.atomize_snapshot(snapshot)
           _invalid -> %{cooldown_until_ms: 0, inflight: %{}, admissions: []}
         end
 
@@ -289,10 +237,10 @@ defmodule Aiur.GitHub.Budget do
   """
   @spec usage(keyword()) :: map()
   def usage(opts \\ []) do
-    case command(["usage"], "", Keyword.put(opts, :include_token_key, false)) do
+    case BrokerPort.command(["usage"], "", Keyword.put(opts, :include_token_key, false)) do
       {:ok, output} ->
         case Jason.decode(String.trim(output)) do
-          {:ok, %{"actors" => actors}} -> %{actors: Enum.map(actors, &atomize_actor/1)}
+          {:ok, %{"actors" => actors}} -> %{actors: Enum.map(actors, &ResponseLimits.atomize_actor/1)}
           _invalid -> %{actors: []}
         end
 
@@ -312,7 +260,7 @@ defmodule Aiur.GitHub.Budget do
   defp do_acquire(request, key, python, opts, deadline_at) do
     command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, deadline_at)
 
-    case command(acquire_args(request, opts), key, command_opts) do
+    case BrokerPort.command(acquire_args(request, opts), key, command_opts) do
       {:ok, "granted " <> id} ->
         grant_or_hold(String.trim(id), request, key)
 
@@ -411,10 +359,10 @@ defmodule Aiur.GitHub.Budget do
   defp local_usage(key, resource, opts) do
     usage_opts = opts |> Keyword.drop([:deadline_at]) |> Keyword.put(:timeout_ms, 1_000)
 
-    case command(["meter", "--consumer-key", consumer_key(opts), "--resource", resource], key, usage_opts) do
+    case BrokerPort.command(["meter", "--consumer-key", Settings.consumer_key(opts), "--resource", resource], key, usage_opts) do
       {:ok, output} ->
         case Jason.decode(String.trim(output)) do
-          {:ok, meter} -> atomize_usage_figure(meter)
+          {:ok, meter} -> ResponseLimits.atomize_usage_figure(meter)
           _invalid -> nil
         end
 
@@ -424,8 +372,8 @@ defmodule Aiur.GitHub.Budget do
   end
 
   defp acquire_args(request, opts) do
-    settings = settings(opts)
-    {core_limit, graphql_limit, search_limit} = actor_limits(consumer_identity(opts), settings)
+    settings = Settings.settings(opts)
+    {core_limit, graphql_limit, search_limit} = actor_limits(Settings.consumer_identity(opts), settings)
     family = endpoint_family(request)
 
     # Endpoints GitHub does not meter (e.g. `/rate_limit`) are admitted for
@@ -439,9 +387,9 @@ defmodule Aiur.GitHub.Budget do
       "--resource",
       request_resource(request),
       "--consumer-key",
-      consumer_key(opts),
+      Settings.consumer_key(opts),
       "--consumer-label",
-      consumer_identity(opts),
+      Settings.consumer_identity(opts),
       "--endpoint-family",
       family,
       "--max-inflight",
@@ -478,7 +426,7 @@ defmodule Aiur.GitHub.Budget do
 
   defp hold(key, scope, resource, delay_ms, opts) do
     _ =
-      command(
+      BrokerPort.command(
         ["hold", "--scope", Atom.to_string(scope), "--resource", resource, "--delay-ms", Integer.to_string(delay_ms)],
         key,
         opts
@@ -486,245 +434,6 @@ defmodule Aiur.GitHub.Budget do
 
     :ok
   end
-
-  defp command(args, key, opts) when is_binary(key) do
-    with true <- enabled?(opts),
-         python when is_binary(python) <- Keyword.get(opts, :python, python_executable(opts)) do
-      token_args =
-        if Keyword.get(opts, :include_token_key, true) do
-          ["--db", database_path(opts), "--token-key", key]
-        else
-          # `usage` spans every credential the broker has seen, so it takes no
-          # token key (the broker command refuses one).
-          ["--db", database_path(opts)]
-        end
-
-      identity_args =
-        case Keyword.get(opts, :credential_key) do
-          identity_key when is_binary(identity_key) and identity_key != "" -> ["--identity-key", identity_key]
-          _missing -> []
-        end
-
-      command_args = [broker_path(opts) | args] ++ token_args ++ identity_args
-
-      case broker_command(python, command_args, command_deadline(opts), opts) do
-        {:ok, output, 0} -> {:ok, output}
-        {:ok, output, status} -> broker_unavailable(status, output)
-        {:error, reason} -> broker_unavailable(:exception, inspect(reason))
-        :timeout -> broker_timeout()
-      end
-    else
-      _unavailable -> :bypass
-    end
-  rescue
-    error -> broker_unavailable(:exception, Exception.message(error))
-  end
-
-  defp broker_command(python, [broker | args] = command_args, deadline_at, opts) do
-    # Explicit injection retains the one-shot path; production uses the resident broker.
-    server = Keyword.get(opts, :broker_server, BudgetBroker)
-
-    if (Keyword.has_key?(opts, :broker_server) || Process.whereis(BudgetBroker)) && not Keyword.has_key?(opts, :broker_path) && python == System.find_executable("python3") do
-      BudgetBroker.command(server, broker, args, deadline_at)
-    else
-      port_command(python, command_args, deadline_at, Keyword.get(opts, :kill_fun))
-    end
-  end
-
-  defp port_command(executable, args, deadline_at, kill_fun) do
-    remaining_ms = max(deadline_at - System.monotonic_time(:millisecond), 0)
-
-    if remaining_ms == 0 do
-      :timeout
-    else
-      caller = self()
-      result_ref = Process.alias()
-
-      {guardian, guardian_ref} =
-        spawn_monitor(fn ->
-          result = owned_port_command(caller, executable, args, deadline_at, kill_fun)
-          send(result_ref, {result_ref, self(), result})
-        end)
-
-      receive do
-        {^result_ref, ^guardian, result} ->
-          Process.unalias(result_ref) && Process.demonitor(guardian_ref, [:flush])
-          result
-
-        {:DOWN, ^guardian_ref, :process, ^guardian, reason} ->
-          {:error, reason}
-      after
-        remaining_ms ->
-          Process.unalias(result_ref)
-
-          receive do
-            {^result_ref, ^guardian, result} ->
-              Process.demonitor(guardian_ref, [:flush])
-              result
-
-            {:DOWN, ^guardian_ref, :process, ^guardian, reason} ->
-              {:error, reason}
-          after
-            0 ->
-              Process.demonitor(guardian_ref, [:flush])
-              :timeout
-          end
-      end
-    end
-  end
-
-  defp owned_port_command(caller, executable, args, deadline_at, kill_fun) do
-    caller_ref = Process.monitor(caller)
-
-    port =
-      Port.open(
-        {:spawn_executable, String.to_charlist(executable)},
-        [:binary, :exit_status, :stderr_to_stdout, :use_stdio, args: Enum.map(args, &String.to_charlist/1)]
-      )
-
-    await_port(port, caller, caller_ref, deadline_at, [], kill_fun)
-  end
-
-  defp await_port(port, caller, caller_ref, deadline_at, output, kill_fun) do
-    remaining_ms = max(deadline_at - System.monotonic_time(:millisecond) - @command_cleanup_ms, 0)
-
-    receive do
-      {^port, {:data, data}} ->
-        await_port(port, caller, caller_ref, deadline_at, [data | output], kill_fun)
-
-      {^port, {:exit_status, status}} ->
-        Process.demonitor(caller_ref, [:flush])
-        {:ok, output |> Enum.reverse() |> IO.iodata_to_binary(), status}
-
-      {:DOWN, ^caller_ref, :process, ^caller, _reason} ->
-        terminate_port(port, min(deadline_at, System.monotonic_time(:millisecond) + @command_cleanup_ms), kill_fun)
-        :timeout
-    after
-      remaining_ms ->
-        Process.demonitor(caller_ref, [:flush])
-        terminate_port(port, deadline_at, kill_fun)
-        :timeout
-    end
-  end
-
-  defp terminate_port(port, deadline_at, kill_fun) do
-    case Port.info(port, :os_pid) do
-      {:os_pid, os_pid} -> if is_function(kill_fun, 1), do: kill_fun.(os_pid), else: System.cmd("kill", ["-KILL", Integer.to_string(os_pid)], stderr_to_stdout: true)
-      nil -> :ok
-    end
-
-    receive do
-      {^port, {:exit_status, _status}} -> :ok
-    after
-      max(deadline_at - System.monotonic_time(:millisecond), 0) -> :ok
-    end
-
-    if Port.info(port), do: Port.close(port)
-    flush_port(port)
-  rescue
-    ArgumentError -> :ok
-  end
-
-  defp flush_port(port) do
-    receive do
-      {^port, _message} -> flush_port(port)
-    after
-      0 -> :ok
-    end
-  end
-
-  defp broker_unavailable(status, output) do
-    Logger.warning("github_budget_broker_unavailable status=#{inspect(status)} output=#{inspect(String.trim(output))}")
-    {:error, :github_budget_broker_unavailable}
-  end
-
-  defp broker_timeout do
-    Logger.warning("github_budget_broker_timeout")
-    {:error, :github_budget_broker_timeout}
-  end
-
-  defp python_executable(opts), do: Keyword.get(opts, :python, System.find_executable("python3"))
-
-  defp settings(opts) do
-    github = github_settings(opts)
-    timeout_ms = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
-    lease_timeout_ms = Keyword.get(opts, :lease_timeout_ms, timeout_ms)
-
-    %{
-      max_inflight: positive(Keyword.get(opts, :max_inflight, Map.get(github, :max_inflight, @default_max_inflight)), @default_max_inflight),
-      max_inflight_per_endpoint:
-        positive(
-          Keyword.get(opts, :max_inflight_per_endpoint, Map.get(github, :max_inflight_per_endpoint, @default_max_inflight_per_endpoint)),
-          @default_max_inflight_per_endpoint
-        ),
-      requests_per_minute:
-        positive(
-          Keyword.get(opts, :requests_per_minute, Map.get(github, :requests_per_minute, @default_requests_per_minute)),
-          @default_requests_per_minute
-        ),
-      stagger_ms: nonnegative(Keyword.get(opts, :stagger_ms, Map.get(github, :stagger_ms, @default_stagger_ms)), @default_stagger_ms),
-      lease_ttl_ms: positive(lease_timeout_ms, @default_timeout_ms) * 2 + @lease_grace_ms,
-      daemon_core_limit_per_hour:
-        nonnegative(
-          Keyword.get(opts, :daemon_core_limit_per_hour, Map.get(github, :daemon_core_limit_per_hour, @default_daemon_core_limit_per_hour)),
-          @default_daemon_core_limit_per_hour
-        ),
-      daemon_graphql_limit_per_hour:
-        nonnegative(
-          Keyword.get(opts, :daemon_graphql_limit_per_hour, Map.get(github, :daemon_graphql_limit_per_hour, @default_daemon_graphql_limit_per_hour)),
-          @default_daemon_graphql_limit_per_hour
-        ),
-      daemon_search_limit_per_hour:
-        nonnegative(
-          Keyword.get(opts, :daemon_search_limit_per_hour, Map.get(github, :daemon_search_limit_per_hour, @default_daemon_search_limit_per_hour)),
-          @default_daemon_search_limit_per_hour
-        ),
-      agent_core_limit_per_hour:
-        nonnegative(
-          Keyword.get(opts, :agent_core_limit_per_hour, Map.get(github, :agent_core_limit_per_hour, @default_agent_core_limit_per_hour)),
-          @default_agent_core_limit_per_hour
-        ),
-      agent_graphql_limit_per_hour:
-        nonnegative(
-          Keyword.get(opts, :agent_graphql_limit_per_hour, Map.get(github, :agent_graphql_limit_per_hour, @default_agent_graphql_limit_per_hour)),
-          @default_agent_graphql_limit_per_hour
-        ),
-      agent_search_limit_per_hour:
-        nonnegative(
-          Keyword.get(opts, :agent_search_limit_per_hour, Map.get(github, :agent_search_limit_per_hour, @default_agent_search_limit_per_hour)),
-          @default_agent_search_limit_per_hour
-        )
-    }
-  end
-
-  defp github_settings(opts) do
-    case Keyword.get(opts, :github_settings, Application.get_env(:aiur, :github_budget_settings_override)) do
-      %{max_inflight: _value} = settings ->
-        settings
-
-      _ ->
-        case Config.settings() do
-          {:ok, %{tracker: %{github: settings}}} -> Map.from_struct(settings)
-          _unavailable -> %{}
-        end
-    end
-  rescue
-    _unavailable -> %{}
-  end
-
-  defp deadline(opts), do: System.monotonic_time(:millisecond) + positive(Keyword.get(opts, :timeout_ms, @default_timeout_ms), @default_timeout_ms)
-
-  defp command_deadline(opts) do
-    Keyword.get_lazy(opts, :deadline_at, fn -> deadline(opts) end)
-  end
-
-  defp consumer_identity(opts) do
-    Keyword.get(opts, :consumer_key) ||
-      System.get_env("AIUR_GITHUB_BUDGET_CONSUMER") ||
-      "daemon:#{node()}"
-  end
-
-  defp consumer_key(opts), do: token_key(consumer_identity(opts))
 
   defp hold(request, delay_ms, reason) do
     %{resource: request_resource(request), reset_at: DateTime.add(DateTime.utc_now(), ceil(delay_ms / 1_000), :second), reason: reason}
@@ -737,11 +446,11 @@ defmodule Aiur.GitHub.Budget do
   defp observe_response(key, request, response, opts) do
     opts = identity_opts(request, opts)
     headers = Map.get(response, :headers, [])
-    resource = response_resource(headers, request)
+    resource = ResponseLimits.response_resource(headers, request)
 
-    case limit_hold(response, headers) do
+    case ResponseLimits.limit_hold(response, headers) do
       {:resource, delay} when is_binary(resource) ->
-        log_resource_hold(resource, headers, request, delay)
+        ResponseLimits.log_resource_hold(resource, headers, request, delay)
         hold(key, :resource, resource, delay, opts)
 
       {:resource, _delay} ->
@@ -766,154 +475,5 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  defp limit_hold(response, headers) do
-    cond do
-      GraphQLErrors.secondary_rate_limited_response?(response) -> {:token, retry_after_ms(response)}
-      remaining(headers) == 0 -> primary_limit_hold(headers, response)
-      true -> :none
-    end
-  end
-
-  defp primary_limit_hold(headers, response) do
-    case reset_after_ms(headers) do
-      delay when is_integer(delay) and delay > 0 -> {:resource, delay}
-      _missing -> {:token, retry_after_ms(response)}
-    end
-  end
-
-  defp retry_after_ms(response) do
-    case GraphQLErrors.retry_after(response) do
-      seconds when is_integer(seconds) and seconds > 0 -> min(seconds * 1_000, 60 * 60 * 1_000)
-      _missing -> 60 * 1_000
-    end
-  end
-
-  defp reset_after_ms(headers) do
-    headers
-    |> Transport.header("x-ratelimit-reset")
-    |> reset_delay_ms()
-  end
-
-  defp reset_delay_ms(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {reset, ""} -> reset_delay_ms(reset)
-      _invalid -> nil
-    end
-  end
-
-  defp reset_delay_ms(value) when is_integer(value), do: max(value * 1_000 - System.system_time(:millisecond), 1)
-  defp reset_delay_ms(_missing), do: nil
-
-  defp remaining(headers) do
-    case Transport.header(headers, "x-ratelimit-remaining") do
-      value when is_binary(value) -> parse_integer(value)
-      value when is_integer(value) -> value
-      _missing -> nil
-    end
-  end
-
-  # A resource hold is only ever issued for a pool the request actually targets
-  # or that the response names as one we model. The response's
-  # `x-ratelimit-resource` header is authoritative when it names `core`,
-  # `graphql`, or `search`; an absent header falls back to the request's own
-  # pool; a header naming any other pool (which GitHub uses for
-  # `integration_manifest`, `code_scanning_upload`, …) resolves to `nil` so the
-  # caller skips the hold instead of misattributing that pool's exhaustion to
-  # `core` (#2409).
-  defp response_resource(headers, request) do
-    case Transport.header(headers, "x-ratelimit-resource") do
-      resource when resource in ["core", "graphql", "search"] -> resource
-      nil -> request_resource(request)
-      _other_pool -> nil
-    end
-  end
-
-  # Acceptance #2409: a hold decision must say which ceiling it hit and what was
-  # measured. Log every issued resource hold with the observed remaining (0 is
-  # what triggered it), the ceiling (`x-ratelimit-limit`), and the reset so a
-  # post-incident read of the daemon log can tell a real exhaustion from a
-  # misattribution without guessing.
-  defp log_resource_hold(resource, headers, request, delay_ms) do
-    Logger.warning(
-      "github_budget_resource_hold resource=#{resource} " <>
-        "remaining=#{inspect(remaining(headers))} " <>
-        "limit=#{inspect(nonnegative_parse(Transport.header(headers, "x-ratelimit-limit")))} " <>
-        "reset_after_ms=#{delay_ms} " <>
-        "x_ratelimit_reset=#{inspect(Transport.header(headers, "x-ratelimit-reset"))} " <>
-        "url=#{inspect(Map.get(request, :url))}"
-    )
-  end
-
-  defp nonnegative_parse(nil), do: nil
-  defp nonnegative_parse(value) when is_binary(value), do: parse_integer(value)
-  defp nonnegative_parse(value) when is_integer(value), do: value
-
-  defp parse_integer(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _invalid -> nil
-    end
-  end
-
-  defp atomize_snapshot(%{"cooldown_until_ms" => cooldown, "inflight" => inflight, "admissions" => admissions}) do
-    %{
-      cooldown_until_ms: cooldown,
-      inflight: inflight,
-      admissions:
-        Enum.map(admissions, fn admission ->
-          %{
-            endpoint_family: admission["endpoint_family"],
-            resource: admission["resource"],
-            admitted_at_ms: admission["admitted_at_ms"],
-            # `billable = false` is a reconciled `304`; `billable_reason`
-            # records why the broker stopped billing the row (`"304"`) so the
-            # running system can verify reconciliation happened and tell it
-            # apart from any other unbilled state instead of reading a bare
-            # flag.
-            billable: Map.get(admission, "billable", true),
-            billable_reason: Map.get(admission, "billable_reason")
-          }
-        end)
-    }
-  end
-
-  defp atomize_snapshot(_snapshot), do: %{cooldown_until_ms: 0, inflight: %{}, admissions: []}
-
-  defp atomize_actor(actor) when is_map(actor) do
-    %{
-      token_key: Map.get(actor, "token_key", ""),
-      consumer_key: Map.get(actor, "consumer_key", ""),
-      consumer_label: Map.get(actor, "consumer_label", ""),
-      core: atomize_usage_figure(Map.get(actor, "core")),
-      graphql: atomize_usage_figure(Map.get(actor, "graphql")),
-      search: atomize_usage_figure(Map.get(actor, "search"))
-    }
-  end
-
-  defp atomize_actor(_actor),
-    do: %{
-      token_key: "",
-      consumer_key: "",
-      consumer_label: "",
-      core: atomize_usage_figure(nil),
-      graphql: atomize_usage_figure(nil),
-      search: atomize_usage_figure(nil)
-    }
-
-  defp atomize_usage_figure(figure) when is_map(figure) do
-    %{
-      used: Map.get(figure, "used", 0),
-      limit: Map.get(figure, "limit", 0),
-      reset_at_ms: Map.get(figure, "reset_at_ms")
-    }
-  end
-
-  defp atomize_usage_figure(_figure), do: %{used: 0, limit: 0, reset_at_ms: nil}
-
   defp valid_lease_id?(id), do: String.match?(id, ~r/\A[a-f0-9]{32}\z/)
-
-  defp positive(value, _default) when is_integer(value) and value > 0, do: value
-  defp positive(_value, default), do: default
-  defp nonnegative(value, _default) when is_integer(value) and value >= 0, do: value
-  defp nonnegative(_value, default), do: default
 end

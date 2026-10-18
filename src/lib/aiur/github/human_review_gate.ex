@@ -54,6 +54,12 @@ defmodule Aiur.GitHub.HumanReviewGate do
   @doc false
   @spec pull_request_approved_at_head?(integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
   def pull_request_approved_at_head?(pr_number, opts \\ []) do
+    with {:ok, {head, approved}} <- pull_request_approval(pr_number, opts), do: {:ok, approved == head}
+  end
+
+  @doc "The PR head and the commit its standing approval names (`nil` unless `reviewDecision` is APPROVED)."
+  @spec pull_request_approval(integer(), keyword()) :: {:ok, {String.t(), String.t() | nil}} | {:error, term()}
+  def pull_request_approval(pr_number, opts \\ []) do
     query =
       "query AiurPullRequestApprovalAtHead($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefOid reviewDecision reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } } } }"
 
@@ -61,12 +67,12 @@ defmodule Aiur.GitHub.HumanReviewGate do
          {:ok, {owner, name}} <- Transport.parse_repo(),
          {:ok, %{"data" => %{"repository" => %{"pullRequest" => pr}}}} <-
            Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
-             caller: "orphan_claim_approval_state"
+             caller: Keyword.get(opts, :caller, "orphan_claim_approval_state")
            ) do
       case pr do
         %{"headRefOid" => head, "reviewDecision" => decision, "reviews" => %{"nodes" => nodes}}
         when is_binary(head) and decision in [nil, "APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] and is_list(nodes) ->
-          {:ok, approved_at_head?(pr)}
+          {:ok, {head, approved_commit(pr)}}
 
         _invalid ->
           {:error, :invalid_pull_request_approval}

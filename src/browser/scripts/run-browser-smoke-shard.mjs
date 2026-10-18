@@ -11,7 +11,7 @@ export const shards = {
   2: ['test:shell-width', 'test:command-history', 'test:build-order', 'test:build-queue', 'test:interaction', 'test:time-brush', 'test:performance', 'test:responsive', 'test:layout', 'test:ticket-context', 'test:shell-parity', 'test:streamdeck', 'test:quota-panel', 'test:streamdeck-flow', 'test:palette', 'test:build-home-cards:2'],
   3: ['test:build-home-motion', 'test:build-home-offline', 'test:experiments', 'test:build-home-states-parity', 'test:build-home-cards:3'],
   4: ['test:design-parity', 'test:build-home-tools', 'test:build-home', 'test:build-home-span-parity', 'test:build-home-cards:4'],
-  5: ['test:build-home-assets', 'test:build-home-layout', 'test:build-home-render', 'test:build-home-span', 'test:build-home-columns'],
+  5: ['test:build-home-list-unit', 'test:build-home-assets', 'test:build-home-layout', 'test:build-home-render', 'test:build-home-span', 'test:build-home-columns'],
 };
 
 function reportSlowest(heading, timings, limit = 10) {
