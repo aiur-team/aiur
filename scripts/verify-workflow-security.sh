@@ -137,7 +137,8 @@ for pin_path in "${pin_paths[@]}"; do
         fi
 
         if [[ "$reference" == ./* ]]; then
-          if [[ "$reference" != ./.github/actions/* ]]; then
+          # A same-repo reusable workflow is as trusted as a local action; it must be a direct child file.
+          if [[ "$reference" != ./.github/actions/* && ! "$reference" =~ ^\./\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml$ ]]; then
             line_unpinned=1
           fi
 
