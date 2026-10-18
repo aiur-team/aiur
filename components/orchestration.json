@@ -26,7 +26,8 @@
     "src/lib/aiur/recent_merge/**",
     "src/lib/aiur/recent_merge_store.ex",
     "src/lib/aiur/test_quarantine.ex",
-    "src/lib/aiur/test_quarantine/**"
+    "src/lib/aiur/test_quarantine/**",
+    "src/lib/aiur/ticket_markers.ex"
   ],
   "facades": [
     "*"

@@ -41,7 +41,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
   end
 
   test "every shell page renders the orchestrator's current global pause state" do
-    for {paused, label} <- [{false, "Pause all agents"}, {true, "Resume all agents"}] do
+    for {paused, label} <- [{false, "Pause new starts"}, {true, "Resume new starts"}] do
       for path <- ["/analytics", "/build-orders", "/build", "/streamdeck", "/post-deploy"] do
         assert {:ok, _} = GlobalPause.set_global_pause(paused)
         {:ok, view, html} = live(authorized_conn(), path)
@@ -53,7 +53,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
         refute has_element?(view, "#ax-pause[disabled]"), path
 
         target = not paused
-        expected_after_click = if target, do: "Resume all agents", else: "Pause all agents"
+        expected_after_click = if target, do: "Resume new starts", else: "Pause new starts"
         assert view |> element("#ax-pause") |> render_click() =~ expected_after_click, path
         assert {:ok, %{globally_paused: ^target}} = GlobalPause.global_pause_status()
 
@@ -70,7 +70,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
     assert {:ok, _} = GlobalPause.set_global_pause(true)
 
     Process.sleep(600)
-    assert render(view) =~ "Resume all agents"
+    assert render(view) =~ "Resume new starts"
     assert has_element?(view, "#ax-pause[aria-checked=true]")
   end
 
@@ -103,7 +103,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
     reconfigure_endpoint(:dashboard_writable, false)
     {:ok, view, html} = live(authorized_conn(), "/analytics")
 
-    assert html =~ "Pause all agents"
+    assert html =~ "Pause new starts"
     assert has_element?(view, "#ax-pause[disabled]")
     render_click(view, "toggle-global-pause", %{})
     assert {:ok, %{globally_paused: false}} = GlobalPause.global_pause_status()

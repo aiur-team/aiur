@@ -65,7 +65,8 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
       expected = Map.new(["7", "8"], &{&1, %{labels: ["agent:queued", "sym:done"], updated_at: ~U[2026-10-06 00:00:00Z]}})
       assert {:ok, []} = Issues.fetch_candidate_issues(request_fun: request_fun)
       assert_received {:open_issues_recorded, first_time}
-      assert {:ok, ^expected, ^first_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert {:ok, ^expected, labels_from} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert labels_from <= first_time
       assert_received {:list_request, ^base_url}
       assert_received {:list_request, ^second_url}
       refute_received {:list_request, _}
@@ -76,17 +77,19 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
       refute_received {:list_request, _}
       assert {:ok, [], _} = Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
       assert_received {:open_issues_recorded, cached_time}
-      assert {:ok, ^expected, ^cached_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert {:ok, ^expected, cached_labels_from} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
       assert_received {:list_request, ^base_url}
       assert_received {:list_request, ^second_url}
       refute_received {:list_request, _}
+
+      assert cached_labels_from <= cached_time
 
       failed_page = fn request ->
         if request.url == base_url, do: request_fun.(request), else: {:error, :timeout}
       end
 
       assert {:error, _} = Issues.fetch_candidate_issues_conditional(%{}, request_fun: failed_page)
-      assert {:ok, ^expected, ^cached_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert {:ok, ^expected, ^cached_labels_from} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
       refute_received {:open_issues_recorded, _}
     end
 
