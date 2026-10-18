@@ -1,11 +1,12 @@
 defmodule Aiur.OrchestratorFirehoseTest do
   use Aiur.TestSupport
 
-  alias Aiur.Issue
   alias Aiur.Events.Exchange
   alias Aiur.GitHub.Connectivity
+  alias Aiur.GitHub.Listeners
+  alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{CommentPolling, TrackerHealth}
+  alias Aiur.Orchestrator.{CommentPolling, FirehosePolling, TrackerHealth}
   alias Aiur.Workflow
 
   setup do
@@ -24,8 +25,8 @@ defmodule Aiur.OrchestratorFirehoseTest do
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
     end)
 
-    if is_nil(Process.whereis(Aiur.GitHub.Listeners)), do: start_supervised!(Aiur.GitHub.Listeners)
-    Aiur.GitHub.Listeners.reset()
+    if is_nil(Process.whereis(Listeners)), do: start_supervised!(Listeners)
+    Listeners.reset()
     :ok
   end
 
@@ -40,7 +41,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
 
     state =
       Enum.reduce(1..Connectivity.escalation_threshold(), %Orchestrator.State{}, fn _i, acc ->
-        Aiur.Orchestrator.FirehosePolling.poll(acc, request_fun: stub)
+        FirehosePolling.poll(acc, request_fun: stub)
       end)
 
     # The streak is tracked as a classified :dns break under the firehose source.
@@ -53,10 +54,10 @@ defmodule Aiur.OrchestratorFirehoseTest do
   test "firehose next poll delay grows with repeated DNS failures" do
     stub = fn _req -> {:error, %Req.TransportError{reason: :nxdomain}} end
 
-    state1 = Aiur.Orchestrator.FirehosePolling.poll(%Orchestrator.State{}, request_fun: stub)
+    state1 = FirehosePolling.poll(%Orchestrator.State{}, request_fun: stub)
     assert TrackerHealth.github_next_poll_delay_ms(state1) == 1_000
 
-    state2 = Aiur.Orchestrator.FirehosePolling.poll(state1, request_fun: stub)
+    state2 = FirehosePolling.poll(state1, request_fun: stub)
     assert TrackerHealth.github_next_poll_delay_ms(state2) == 2_000
   end
 
@@ -65,7 +66,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
       {:ok, %{status: 429, headers: [{"Retry-After", "7"}], body: %{"message" => "rate limited"}}}
     end
 
-    state = Aiur.Orchestrator.FirehosePolling.poll(%Orchestrator.State{}, request_fun: stub)
+    state = FirehosePolling.poll(%Orchestrator.State{}, request_fun: stub)
 
     assert {:rate_limited, 1} = state.github_connectivity[:firehose]
     assert TrackerHealth.github_next_poll_delay_ms(state) == 7_000
@@ -76,7 +77,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
       {:ok, %{status: 200, headers: [{"ETag", ~s("e")}, {"X-Poll-Interval", "13"}], body: []}}
     end
 
-    state = Aiur.Orchestrator.FirehosePolling.poll(%Orchestrator.State{}, request_fun: stub)
+    state = FirehosePolling.poll(%Orchestrator.State{}, request_fun: stub)
 
     assert state.github_connectivity[:firehose] == nil
     assert TrackerHealth.github_next_poll_delay_ms(state) == 13_000
@@ -123,11 +124,11 @@ defmodule Aiur.OrchestratorFirehoseTest do
       {:ok, %{status: 200, headers: [{"ETag", ~s("e")}], body: body}}
     end
 
-    state = Aiur.Orchestrator.FirehosePolling.poll(%Orchestrator.State{}, request_fun: fail)
+    state = FirehosePolling.poll(%Orchestrator.State{}, request_fun: fail)
     assert {:dns, 1} = state.github_connectivity[:firehose]
     assert TrackerHealth.github_next_poll_delay_ms(state) == 1_000
 
-    recovered = Aiur.Orchestrator.FirehosePolling.poll(state, request_fun: ok)
+    recovered = FirehosePolling.poll(state, request_fun: ok)
     assert recovered.github_connectivity[:firehose] == nil
     assert TrackerHealth.github_next_poll_delay_ms(recovered) == 60_000
   end

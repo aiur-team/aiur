@@ -2,7 +2,9 @@ defmodule Aiur.GitHub.Listeners.FirehosePersistenceTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.Exchange
+  alias Aiur.GitHub.Listeners
   alias Aiur.GitHub.Listeners.Firehose
+  alias Aiur.Orchestrator.{FirehosePolling, State}
   alias Aiur.Workflow
 
   setup do
@@ -21,8 +23,8 @@ defmodule Aiur.GitHub.Listeners.FirehosePersistenceTest do
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
     end)
 
-    if is_nil(Process.whereis(Aiur.GitHub.Listeners)), do: start_supervised!(Aiur.GitHub.Listeners)
-    Aiur.GitHub.Listeners.reset()
+    if is_nil(Process.whereis(Listeners)), do: start_supervised!(Listeners)
+    Listeners.reset()
     :ok
   end
 
@@ -103,8 +105,8 @@ defmodule Aiur.GitHub.Listeners.FirehosePersistenceTest do
       third = poll_firehose(second, opts)
 
       health =
-        Enum.reduce([first, second, third], %Aiur.Orchestrator.State{}, fn listener, state ->
-          Aiur.Orchestrator.FirehosePolling.apply_outcome(state, listener.outcome)
+        Enum.reduce([first, second, third], %State{}, fn listener, state ->
+          FirehosePolling.apply_outcome(state, listener.outcome)
         end)
 
       assert third.events_etag == "new-etag"
@@ -123,7 +125,7 @@ defmodule Aiur.GitHub.Listeners.FirehosePersistenceTest do
       refute_received {:persistence_alert, _, _, _}
 
       fourth = poll_firehose(third, opts)
-      health = Aiur.Orchestrator.FirehosePolling.apply_outcome(health, fourth.outcome)
+      health = FirehosePolling.apply_outcome(health, fourth.outcome)
 
       assert fourth.events_etag == "new-etag"
       assert fourth.events_last_id == "new-merge"
@@ -135,7 +137,7 @@ defmodule Aiur.GitHub.Listeners.FirehosePersistenceTest do
 
   defp poll_firehose(state, opts) do
     :sys.replace_state(Firehose, fn _ -> state end)
-    Aiur.GitHub.Listeners.poll_firehose(opts)
+    Listeners.poll_firehose(opts)
     :sys.get_state(Firehose)
   end
 end

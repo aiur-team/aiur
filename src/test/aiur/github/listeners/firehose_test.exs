@@ -5,6 +5,7 @@ defmodule Aiur.GitHub.Listeners.FirehoseTest do
 
   alias Aiur.AlertLedger
   alias Aiur.Events.Exchange
+  alias Aiur.GitHub.Listeners
   alias Aiur.GitHub.Listeners.Firehose
   alias Aiur.Workflow
 
@@ -24,8 +25,8 @@ defmodule Aiur.GitHub.Listeners.FirehoseTest do
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
     end)
 
-    if is_nil(Process.whereis(Aiur.GitHub.Listeners)), do: start_supervised!(Aiur.GitHub.Listeners)
-    Aiur.GitHub.Listeners.reset()
+    if is_nil(Process.whereis(Listeners)), do: start_supervised!(Listeners)
+    Listeners.reset()
     :ok
   end
 
@@ -293,7 +294,7 @@ defmodule Aiur.GitHub.Listeners.FirehoseTest do
 
   defp poll_firehose(state, opts) do
     :sys.replace_state(Firehose, fn _ -> state end)
-    Aiur.GitHub.Listeners.poll_firehose(opts)
+    Listeners.poll_firehose(opts)
     :sys.get_state(Firehose)
   end
 
