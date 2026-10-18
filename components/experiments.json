@@ -28,6 +28,7 @@
     "event-bus",
     "identity",
     "kernel",
+    "orchestration",
     "workspace"
   ],
   "optional": [

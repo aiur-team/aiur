@@ -451,6 +451,7 @@ The daemon owns [experiment](../concepts/experiments) writes through control RPC
 
 | Key | Type | Default | Description | <!-- generated-reference:config-configuration-20 -->
 | --- | --- | --- | --- |
+| `experiments.analyst.auto_request` | boolean | true | Request analysts automatically; false keeps on-demand CLI analysis available. |
 | `experiments.auto.after_days` | integer | 14 | Initial after window length in days; positive. |
 | `experiments.auto.after_max_days` | integer | 42 | Maximum after window days; at least after_days. |
 | `experiments.auto.after_step_days` | integer | 7 | After window extension in days; positive. |

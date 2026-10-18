@@ -180,9 +180,33 @@ defmodule Aiur.DecisionStore.Requests do
   @spec evaluate_and_apply(term(), term(), term()) :: term()
   def evaluate_and_apply(decision, requested_version, state) do
     case evaluate(decision, requested_version, state) do
-      {:duplicate, existing} -> {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
-      {:reject, reason} -> {:reply, {:error, {:conflict, reason}}, state}
-      {:accept, decision} -> accept(decision, state)
+      {:duplicate, existing} ->
+        {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
+
+      {:reject, reason} ->
+        {:reply, {:error, {:conflict, reason}}, state}
+
+      {:accept, decision} ->
+        accept(decision, state)
+
+      {:supersede_expired, decision, expired} ->
+        accept_expired_reraise(decision, expired, state)
+    end
+  end
+
+  # Persist and publish the replacement before retiring the old expired row.
+  # If the replacement append fails, the existing answerable record stays
+  # available for an Executor instead of being lost to a premature moot.
+  defp accept_expired_reraise(decision, expired, state) do
+    case accept(decision, state) do
+      {:reply, {:ok, result}, accepted_state} ->
+        case Dedup.moot_expired_reraise(accepted_state, expired, decision) do
+          {:ok, next_state} -> {:reply, {:ok, result}, next_state}
+          {:error, reason} -> {:reply, {:ok, result}, Persistence.journal_failure_state(accepted_state, reason)}
+        end
+
+      other ->
+        other
     end
   end
 
@@ -201,8 +225,16 @@ defmodule Aiur.DecisionStore.Requests do
   # the new one as a duplicate of the existing Command rather than appending it.
   defp evaluate_fresh(decision, 1, state) do
     case Dedup.find_creation_duplicate(decision, state) do
-      nil -> {:accept, %{decision | version: 1}}
-      existing -> {:duplicate, existing}
+      nil ->
+        decision = %{decision | version: 1}
+
+        case Dedup.find_expired_reraise_duplicate(decision, state) do
+          nil -> {:accept, decision}
+          expired -> {:supersede_expired, decision, expired}
+        end
+
+      existing ->
+        {:duplicate, existing}
     end
   end
 
@@ -210,15 +242,27 @@ defmodule Aiur.DecisionStore.Requests do
     do: {:reject, {:version_gap, requested_version, nil}}
 
   defp evaluate_against_existing(decision, requested_version, existing) do
+    case identical_expired_retry(decision, requested_version, existing) do
+      true -> {:accept, %{decision | version: existing.version + 1}}
+      false -> evaluate_existing_version(decision, requested_version, existing)
+    end
+  end
+
+  defp identical_expired_retry(decision, requested_version, existing) do
+    expired_unanswered_blocking?(existing) and requested_version == existing.version and
+      decision.content_hash == existing.content_hash
+  end
+
+  defp evaluate_existing_version(decision, requested_version, existing) do
     cond do
+      requested_version == existing.version + 1 ->
+        {:accept, %{decision | version: requested_version}}
+
       requested_version == existing.version and decision.content_hash == existing.content_hash ->
         {:duplicate, existing}
 
       requested_version == existing.version ->
         {:reject, {:idempotency_conflict, requested_version}}
-
-      requested_version == existing.version + 1 ->
-        {:accept, %{decision | version: requested_version}}
 
       requested_version < existing.version ->
         {:reject, {:stale_version, requested_version, existing.version}}
@@ -226,6 +270,10 @@ defmodule Aiur.DecisionStore.Requests do
       true ->
         {:reject, {:version_gap, requested_version, existing.version}}
     end
+  end
+
+  defp expired_unanswered_blocking?(decision) do
+    decision.decision_status == :expired and decision.blocking and is_nil(decision.answer)
   end
 
   @spec accept(term(), term()) :: term()

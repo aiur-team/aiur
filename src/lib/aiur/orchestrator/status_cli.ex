@@ -10,7 +10,6 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.SystemLoad
   alias Aiur.WorkflowStore.ReloadRejection
-  alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.ControlCLI.Protocol, only: [control_query_timeout: 3, exit_marker: 1, guarded: 2, report_control_query_failure: 3]
   alias Aiur.Orchestrator.StatusCLI.AgentsTable
   alias Aiur.Orchestrator.StatusCLI.Capacity
@@ -56,7 +55,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   defp render_fleet_rows(query, opts, timeout_ms, {snapshot, freshness}, statuses, render) do
     case Diagnostics.print_global_pause_banner(global_pause_opts(opts, snapshot), timeout_ms) do
       :ok ->
-        print_snapshot_freshness(freshness)
+        Aiur.AgentControlCLIFreshness.print(freshness, Map.get(snapshot, :global_pause))
         StatusObservation.print_groups(snapshot)
         render.(snapshot, statuses)
 
@@ -95,20 +94,6 @@ defmodule Aiur.Orchestrator.StatusCLI do
         opts
     end
   end
-
-  defp print_snapshot_freshness(%{status: :stale} = freshness) do
-    IO.puts(
-      "STALE FLEET VIEW — showing the last-known-good snapshot, #{UnitsPresentation.age_label(Map.get(freshness, :age_seconds))} old" <>
-        stale_snapshot_reason(Map.get(freshness, :reason))
-    )
-  end
-
-  defp print_snapshot_freshness(freshness), do: IO.puts("FLEET SNAPSHOT " <> StatusObservation.label(freshness))
-
-  defp stale_snapshot_reason(:snapshot_timeout), do: " (the orchestrator is busy)"
-  defp stale_snapshot_reason(:snapshot_stalled), do: " (the orchestrator has stopped publishing)"
-  defp stale_snapshot_reason(:orchestrator_unavailable), do: " (the orchestrator is unavailable)"
-  defp stale_snapshot_reason(_reason), do: ""
 
   defp print_status_report(statuses, snapshot, opts) do
     Diagnostics.print_executor_listener_status()
@@ -202,7 +187,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
 
       case fleet_view(opts, timeout_ms) do
         {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
-          print_snapshot_freshness(freshness)
+          Aiur.AgentControlCLIFreshness.print(freshness, Map.get(snapshot, :global_pause))
           AgentsTable.print_agents_table(running ++ Map.get(snapshot, :retrying, []) ++ Map.get(snapshot, :idle, []))
           exit_marker(0)
 

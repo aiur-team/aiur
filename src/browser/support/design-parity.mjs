@@ -232,10 +232,9 @@ async function captureParityPixels(pair, { name, region, fullPage, preserveAnima
   const file = test.info().snapshotPath(`${name}.png`, { kind: 'screenshot' })
   await mkdir(path.dirname(file), { recursive: true })
   await writeFile(file, png)
-  if (preserveAnimations && region) {
-    const actual = await captureStable(product, { ...opts, mask: productMask }, pair.product)
-    expect(actual).toMatchSnapshot(`${name}.png`, { threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
-  } else await expect(product).toHaveScreenshot(`${name}.png`, { ...opts, mask: productMask, threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
+  // Use the same capture protocol on both sides, including rounded image clips.
+  const actual = await captureStable(product, { ...opts, mask: productMask }, preserveAnimations && region ? pair.product : undefined)
+  expect(actual).toMatchSnapshot(`${name}.png`, { threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
   checkPage(pair.design)
   checkPage(pair.product)
 }

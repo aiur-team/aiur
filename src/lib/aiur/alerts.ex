@@ -264,6 +264,7 @@ defmodule Aiur.Alerts do
       issue_number: issue_number_for(opts),
       bypass_contamination: Keyword.get(opts, :bypass_contamination, false) or Aiur.ExecutorBindings.attention_topic?(topic),
       identity: Keyword.get(opts, :observation_identity),
+      dedup_key: Keyword.get(opts, :dedup_key),
       resource: Keyword.get(opts, :resource),
       resource_version: Keyword.get(opts, :resource_version),
       resource_source: Keyword.get(opts, :resource_source, :poll),

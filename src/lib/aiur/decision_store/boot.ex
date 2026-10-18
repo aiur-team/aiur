@@ -105,6 +105,7 @@ defmodule Aiur.DecisionStore.Boot do
       Requests.reconcile_requested_executor_notifications(state)
       Requests.reconcile_deferred_executor_notifications(state)
       FailureAttention.schedule_failure_attention_reprojection(state)
+      schedule_closed_expired_blocker_mooting(state)
 
       Dispatch.schedule_dispatch_work(
         state,
@@ -115,6 +116,50 @@ defmodule Aiur.DecisionStore.Boot do
 
     {:noreply, state}
   end
+
+  # Old expired blocking Commands remain in durable history and visible query
+  # results. Retire only those whose ticket is confirmed terminal, so the open
+  # banner does not count questions nobody can act on. The tracker read is
+  # batched and detached; failures fail open and leave the records answerable.
+  defp schedule_closed_expired_blocker_mooting(state) do
+    decisions = Enum.filter(Map.values(state.current), &expired_blocking_unanswered?/1)
+
+    if decisions != [] do
+      store = self()
+      resolver = state.terminal_ticket_resolver
+      moot_fun = &DecisionStore.moot/4
+
+      Task.start(fn ->
+        moot_closed_expired_blockers(store, resolver, moot_fun, decisions)
+      end)
+    end
+  end
+
+  defp moot_closed_expired_blockers(store, resolver, moot_fun, decisions) do
+    identifiers = decisions |> Enum.map(& &1.ticket.identifier) |> Enum.uniq()
+
+    terminal =
+      case resolver.(identifiers) do
+        {:ok, %MapSet{} = ids} -> ids
+        {:ok, ids} when is_list(ids) -> MapSet.new(ids)
+        {:error, reason} -> raise "terminal ticket lookup failed: #{inspect(reason)}"
+      end
+
+    Enum.each(decisions, fn decision ->
+      if MapSet.member?(terminal, decision.ticket.identifier) do
+        moot_fun.(decision.decision_id, %{"reason_class" => "ticket_closed"}, [actor: %{kind: :system, id: "decision-store"}], store)
+      end
+    end)
+  rescue
+    error ->
+      Logger.warning("aiur_decision_store phase=closed_expired_blocker_reconciliation_failed error=#{Exception.message(error)}")
+  catch
+    kind, reason ->
+      Logger.warning("aiur_decision_store phase=closed_expired_blocker_reconciliation_failed kind=#{kind} reason=#{inspect(reason)}")
+  end
+
+  defp expired_blocking_unanswered?(%{decision_status: :expired, blocking: true, answer: nil}), do: true
+  defp expired_blocking_unanswered?(_decision), do: false
 
   @spec boot(term(), term()) :: term()
   def boot(dir, filesystem_sync_fun) do
