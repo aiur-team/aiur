@@ -49,6 +49,16 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       # keeps the full operating contract so a cold thread still knows the ticket
       assert prompt =~ issue.title
       refute prompt == PromptBuilder.build_prompt(issue, prior_work: true)
+      refute prompt =~ "previous agent thread was abandoned"
+    end
+
+    test "a fresh session that replaced an abandoned thread says so" do
+      issue = %Issue{id: "4561", identifier: "4561", title: "Big thread", state: "in-progress"}
+
+      prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, abandoned_thread: true], 1, nil)
+
+      assert prompt =~ "do not restart the ticket from scratch"
+      assert prompt =~ "previous agent thread was abandoned after it repeatedly lost its transport"
     end
 
     test "turn one cold start delegates to PromptBuilder" do

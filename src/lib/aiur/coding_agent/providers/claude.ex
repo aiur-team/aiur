@@ -17,6 +17,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       configurable: true,
       accounts: %{kind: :profile, multi: :available, usage: :claude_api, supported: true},
       init_order: 0,
+      # Requires aiur-claude >= 1.1.0; provider_error provenance needs a later sibling revision.
       default_command: "aiur-claude",
       model_catalog: &ModelCatalog.extract_claude/1,
       install_hint: "install it with: npm install -g aiur-claude",

@@ -111,7 +111,7 @@ export async function waitParityReady(page, phase = 'board', side = 'design', mo
   if (phase !== 'shell') {
     await expect.poll(() => page.evaluate(({ phase, side }) => phase === 'loading'
       ? !!document.querySelector('.bd-loading')
-      : !!document.querySelector('#bd-content') && !document.querySelector('.bd-loading') && (side === 'design' || !!document.querySelector('#build-root[data-bd-mounted][data-bd-paging="idle"]')),
+      : !!document.querySelector('#bd-content, .bd-list') && !document.querySelector('.bd-loading') && (side === 'design' || !!document.querySelector('#build-root[data-bd-mounted][data-bd-paging="idle"]')),
     { phase, side }), { timeout: 10_000, message: `${side} not ready: ${phase === 'board' ? '.bd-loading still present or board not mounted' : 'loading skeleton absent'} after 10 s` }).toBe(true)
   }
   const frames = page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
