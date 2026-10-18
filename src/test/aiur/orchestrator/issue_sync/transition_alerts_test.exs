@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlertsTest do
 
   import Aiur.IssueSyncTestSupport
 
+  alias Aiur.DecisionAttention
   alias Aiur.Events.Exchange
   alias Aiur.Events.Publisher
   alias Aiur.ExecutorListener
@@ -11,6 +12,28 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlertsTest do
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.State
+
+  test "issue poll resolves a stranded reminder after observing ci-wait" do
+    ticket = %{issue("stranded-ci-wait", "ci-wait") | identifier: "stranded-ci-wait"}
+    topic = "ticket.#{ticket.identifier}.agent.attention.stranded-requeued"
+
+    assert :ok = DecisionAttention.open(ticket, nil, nil, "stranded-requeued", "Restore dispatch")
+    assert Enum.any?(Aiur.AlertFeed.list(), &(&1["topic"] == topic and &1["needs_attention"]))
+
+    state =
+      IssueSync.sync_polled_issue_state(
+        %State{},
+        [ticket],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    refute Enum.any?(Aiur.AlertFeed.list(), &(&1["topic"] == topic and &1["needs_attention"]))
+    refute MapSet.member?(state.active_attention_topics, topic)
+  end
 
   test "alerts when the tracker adds or removes agent:paused" do
     Publisher.set_tracked_fn(fn _ -> true end)

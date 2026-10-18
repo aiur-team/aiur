@@ -55,6 +55,8 @@ export const recordedSeconds = {
   'test:build-home-cards:4': 298,
   'test:build-home-states-parity': 200,
   'test:build-home-list-unit': 1,
+  // Run 39091360816, job 117578322274: agents took 21.8s (rounded up).
+  'test:browser-suite -- build-home-agents': 22,
   'test:browser-suite -- build-home-list': 26,
   'test:browser-suite -- build-home-list-parity': 57,
   'test:browser-suite -- build-home-mobile-fit': 12,
