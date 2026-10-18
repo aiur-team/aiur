@@ -8,8 +8,8 @@ defmodule Aiur.OrchestratorBlockingHttpSupport do
   alias Aiur.GitHub.{Budget, Transport}
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{SnapshotStore, StatusReport}
   alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
+  alias Aiur.Orchestrator.{SnapshotStore, StatusReport}
 
   @locked_release_deadline_ms 1_500
 

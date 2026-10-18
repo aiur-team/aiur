@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.CommentPollingTest do
   use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.{State}
   alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
+  alias Aiur.Orchestrator.State
   alias Aiur.PollCadence
 
   setup do

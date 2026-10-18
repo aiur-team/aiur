@@ -1,8 +1,9 @@
 defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
   use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
+  alias Aiur.Orchestrator.CommentPolling, as: PollInputs
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
   alias Aiur.Orchestrator.State
 
   test "duplicate webhook hints coalesce while polling is frozen" do
@@ -364,7 +365,7 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
       watch_comment_target_limit: 1
     ]
 
-    assert {:ok, targets, [], []} = TargetSelection.github_comment_poll_targets(state.github_comment_cursor, Aiur.Orchestrator.CommentPolling.input(state), opts)
+    assert {:ok, targets, [], []} = TargetSelection.github_comment_poll_targets(state.github_comment_cursor, PollInputs.input(state), opts)
     assert MapSet.new(targets) == MapSet.new(["7", "42", "43"])
   end
 
@@ -383,14 +384,14 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
       watch_pull_request_fetcher: fn _label -> flunk("watch discovery must not run") end
     ]
 
-    assert {:ok, targets, [], []} = TargetSelection.github_comment_poll_targets(state.github_comment_cursor, Aiur.Orchestrator.CommentPolling.input(state), opts)
+    assert {:ok, targets, [], []} = TargetSelection.github_comment_poll_targets(state.github_comment_cursor, PollInputs.input(state), opts)
     assert MapSet.new(targets) == MapSet.new(["42", "43"])
 
     assert {:ok, cached_targets, [], [], %{etag: "held"}} =
-             TargetSelection.github_comment_poll_targets_with_cache(state.github_comment_cursor, Aiur.Orchestrator.CommentPolling.input(state), opts)
+             TargetSelection.github_comment_poll_targets_with_cache(state.github_comment_cursor, PollInputs.input(state), opts)
 
     assert MapSet.new(cached_targets) == MapSet.new(["42", "43"])
-    assert TargetSelection.max_comment_poll_target_count(state.github_comment_cursor, Aiur.Orchestrator.CommentPolling.input(state), opts) == 2
+    assert TargetSelection.max_comment_poll_target_count(state.github_comment_cursor, PollInputs.input(state), opts) == 2
   end
 
   test "webhook reconcile selection claims deterministic bounded batches" do
@@ -403,9 +404,9 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
 
     opts = [reconcile_only: true, reconcile_target_limit: 2]
 
-    assert {:ok, ["42", "43"], [], []} = TargetSelection.github_comment_poll_targets(state.github_comment_cursor, Aiur.Orchestrator.CommentPolling.input(state), opts)
-    assert TargetSelection.reconcile_targets_for_poll(state.github_comment_cursor, Aiur.Orchestrator.CommentPolling.input(state), opts) == MapSet.new(["42", "43"])
-    assert TargetSelection.max_comment_poll_target_count(state.github_comment_cursor, Aiur.Orchestrator.CommentPolling.input(state), opts) == 2
+    assert {:ok, ["42", "43"], [], []} = TargetSelection.github_comment_poll_targets(state.github_comment_cursor, PollInputs.input(state), opts)
+    assert TargetSelection.reconcile_targets_for_poll(state.github_comment_cursor, PollInputs.input(state), opts) == MapSet.new(["42", "43"])
+    assert TargetSelection.max_comment_poll_target_count(state.github_comment_cursor, PollInputs.input(state), opts) == 2
   end
 
   test "irrelevant reconcile hints do not enter the comment queue" do

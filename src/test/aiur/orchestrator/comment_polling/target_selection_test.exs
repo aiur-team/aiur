@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, Workflow}
+  alias Aiur.Orchestrator.CommentPolling
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.State
 
@@ -44,7 +45,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     ]
 
     assert {:ok, ["42", "57", "99"], [review_target], [watch_target]} =
-             TargetSelection.github_comment_poll_targets(state.github_comment_cursor, Aiur.Orchestrator.CommentPolling.input(state), opts)
+             TargetSelection.github_comment_poll_targets(state.github_comment_cursor, CommentPolling.input(state), opts)
 
     assert review_target == %{
              target: "57",
@@ -94,7 +95,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
         watch_pull_request_fetcher: fn "agent:watch" -> {:ok, []} end
       ]
 
-      TargetSelection.github_comment_poll_targets(state.github_comment_cursor, Aiur.Orchestrator.CommentPolling.input(state), opts)
+      TargetSelection.github_comment_poll_targets(state.github_comment_cursor, CommentPolling.input(state), opts)
     end
 
     assert {:ok, ["164"], [%{target: "164"}], []} =
@@ -118,7 +119,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     ]
 
     assert {:error, :tracker_down} =
-             TargetSelection.github_comment_poll_targets(%Aiur.Orchestrator.CommentPolling.Cursor{}, Aiur.Orchestrator.CommentPolling.input(%State{}), opts)
+             TargetSelection.github_comment_poll_targets(%Aiur.Orchestrator.CommentPolling.Cursor{}, CommentPolling.input(%State{}), opts)
 
     refute_receive :unexpected_watch_fetch, 100
   end

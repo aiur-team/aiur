@@ -6,8 +6,8 @@ defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Events.GithubCommentsPoller
   alias Aiur.GitHub.ResourceStore
-  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State}
   alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State}
   @repo "owner/repo"
   @dedup_table Aiur.Events.Publisher.Dedup
 
