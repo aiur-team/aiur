@@ -33,7 +33,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
   webhook delivery and a poll of the same transition produce one event.
   """
 
-  alias Aiur.Events.{GithubKeys, Publisher}
+  alias Aiur.{Events, Events.GithubKeys}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.State
   alias Aiur.PrReadyLedgerStore
@@ -203,7 +203,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
 
     case repo_fun.() do
       repo when is_binary(repo) and repo != "" ->
-        Publisher.publish(
+        Events.publish(
           "ticket.#{ticket}.pr.ready_for_review",
           ready_payload(repo, pr_number, observation.head_sha, observation, opts),
           issue_number: ticket,

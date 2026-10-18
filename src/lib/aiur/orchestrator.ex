@@ -26,7 +26,7 @@ defmodule Aiur.Orchestrator do
   @impl true
   def terminate(reason, state), do: Lifecycle.terminate(reason, state)
 
-  # Publisher reads ETS here; a GenServer call back into this process would deadlock.
+  # The Aiur.Events publish boundary reads ETS here; a GenServer call back into this process would deadlock.
   @doc false
   @spec issue_tracked?(String.t() | integer() | nil) :: boolean()
   def issue_tracked?(nil), do: false

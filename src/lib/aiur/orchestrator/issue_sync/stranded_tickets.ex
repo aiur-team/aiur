@@ -116,7 +116,7 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
       Issue.queued?(issue) or
       MissingLabels.parked_marker?(issue) or
       DispatchPolicy.issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()) or
-      external_wait_state?(issue.state) or
+      external_wait_state?(issue) or
       DispatchPolicy.normalize_issue_state(issue.state) == "todo"
   end
 
@@ -156,32 +156,71 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
   defp apply_stranded_repair(state, issue, restored, result) do
     case result do
       :ok ->
-        alert_stranded_ticket_requeued(state, issue, restored)
+        state = alert_stranded_ticket_requeued(state, issue, restored, label_state_changed?(issue, restored))
 
         Logger.warning("Re-queueing stranded ticket #{State.issue_context(issue)} -> #{restored}")
 
-        %{state | released_claims: Map.delete(state.released_claims, issue.id)}
+        %{
+          state
+          | released_claims: Map.delete(state.released_claims, issue.id)
+        }
 
       {:error, reason} ->
         Logger.warning("Stranded ticket re-queue failed for #{State.issue_context(issue)}: #{inspect(reason)}")
 
-        state
+        alert_stranded_ticket_requeue_failed(state, issue, restored, reason)
     end
   end
 
   # A stranded ticket is surfaced with a needs-attention alert; the check
   # against the already-active attention set keeps a ticket that fails its
   # restore from alerting on every poll.
-  defp alert_stranded_ticket_requeued(%State{} = state, %Issue{} = issue, restored) do
+  defp alert_stranded_ticket_requeued(%State{} = state, %Issue{} = issue, restored, changed?) do
     topic = "ticket.#{issue.identifier}.agent.attention.stranded-requeued"
+
+    {message, reason} =
+      if changed? do
+        {
+          "Ticket #{issue.identifier} was open with no live agent and no scheduled claim; re-queued to #{restored}.",
+          "Ticket #{issue.identifier} had no live owner and no scheduled claim; restored #{restored} so dispatch can claim it again."
+        }
+      else
+        {
+          "Ticket #{issue.identifier} was already in #{restored}; its abandoned claim was cleared for dispatch.",
+          "Ticket #{issue.identifier} already had the #{restored} state label; no label change was needed to clear the abandoned claim."
+        }
+      end
 
     unless TransitionAlerts.active_attention?(state, topic) do
       Alerts.emit_system(topic,
         issue: issue.identifier,
-        message: "Ticket #{issue.identifier} was open with no live agent and no scheduled claim; re-queued to #{restored}.",
-        reason:
-          "Ticket #{issue.identifier} had no live owner and no scheduled claim (a released claim or degenerate label set); " <>
-            "restored #{restored} so dispatch can claim it again.",
+        message: message,
+        reason: reason,
+        needs_attention: true,
+        severity: "warning",
+        central: true
+      )
+    end
+
+    state
+  end
+
+  defp label_state_changed?(%Issue{state_labels: labels}, restored) when is_list(labels) do
+    labels |> Enum.map(&DispatchPolicy.normalize_state_label/1) |> Enum.reject(&(&1 == "")) != [DispatchPolicy.normalize_state_label(restored)]
+  end
+
+  defp label_state_changed?(%Issue{state: current}, restored) do
+    DispatchPolicy.normalize_state_label(current) != DispatchPolicy.normalize_state_label(restored)
+  end
+
+  defp alert_stranded_ticket_requeue_failed(%State{} = state, %Issue{} = issue, restored, reason) do
+    topic = "ticket.#{issue.identifier}.agent.attention.stranded-requeue-failed"
+
+    unless TransitionAlerts.active_attention?(state, topic) do
+      Alerts.emit_system(topic,
+        issue: issue.identifier,
+        message: "Ticket #{issue.identifier} could not be re-queued to #{restored}.",
+        reason: "The tracker rejected the stranded-ticket state restore: #{inspect(reason)}.",
         needs_attention: true,
         severity: "warning",
         central: true
@@ -194,7 +233,11 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
   # States where an open ticket is deliberately waiting on something external
   # (CI, human review, or an operator/error recovery) need no agent claim, so a
   # lack of one is not a strand.
-  defp external_wait_state?(state_name) do
-    DispatchPolicy.normalize_issue_state(state_name) in ["ci-wait", "human-review", "error"]
+  defp external_wait_state?(%Issue{} = issue) do
+    DispatchPolicy.normalize_issue_state(issue.state) in ["ci-wait", "human-review", "error", "merging"] or
+      Enum.any?(issue.state_labels || [], fn label ->
+        normalized = DispatchPolicy.normalize_issue_state(label)
+        normalized in ["ci-wait", "human-review", "error", "merging"]
+      end)
   end
 end

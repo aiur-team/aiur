@@ -137,7 +137,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
   # re-derived every cycle the way `reviewDecision` was. Read the guard in the
   # publisher, not here:
   #
-  #   * `Aiur.Events.Publisher` consults `resource_processed?/1` BEFORE its
+  #   * the `Aiur.Events` publish boundary consults `resource_processed?/1` BEFORE its
   #     volatile dedup window. A review publishes as
   #     `{:pr_review, owner, repo, review_id}` at `resource_version =
   #     submitted_at`, which is immutable for a review, and `ResourceStore`

@@ -350,7 +350,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       Req.Test.json(conn, [])
     end)
 
-    Req.Test.allow(__MODULE__, self(), server)
+    for client <- [server, Process.whereis(Aiur.GitHub.Listeners.Firehose)], do: Req.Test.allow(__MODULE__, self(), client)
     patterns = [{Aiur.Events.GithubFirehose, :poll, :_}, {Aiur.Events.GithubCIPoller, :poll, :_}, {Aiur.Tracker, :fetch_candidate_issues, :_}]
     Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
     :erlang.trace(server, true, [:call, {:tracer, self()}])

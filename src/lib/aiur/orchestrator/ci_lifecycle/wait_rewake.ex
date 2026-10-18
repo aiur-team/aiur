@@ -4,8 +4,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitRewake do
   """
 
   alias Aiur.Config
+  alias Aiur.Events
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.Events.IdGenerator
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Poll
@@ -199,7 +199,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitRewake do
         "A green or skipped gh pr checks aggregate alone is not a full pass; otherwise return to agent:ci-wait without polling."
 
     event = %{
-      id: IdGenerator.next_id(),
+      id: Events.next_id(),
       topic: "ticket.#{identifier}.ci.rewake",
       source: :system,
       reason: :ci_wait_timeout,
