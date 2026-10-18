@@ -127,12 +127,21 @@ const mountWith = (page, hint) => page.evaluate(hint => {
   hook.mounted()
 }, hint)
 test('mount paints the last known daemon state with its age before the first snapshot', async ({ page }) => {
-  await mountWith(page, { daemon: { state: 'live', heartbeat_at: NOW - 130000, observed_at: NOW - 120000 }, now: NOW })
-  await expect(page.locator('#bd-status .bd-daemon')).toHaveText('Daemon live · 2m ago')
+  await mountWith(page, { daemon: { state: 'live', heartbeat_at: NOW - 2000, observed_at: NOW - 1000 }, now: NOW })
+  await expect(page.locator('#bd-status .bd-daemon')).toHaveText('Daemon live · <1m ago')
   await expect(page.locator('#bd-status .bd-daemon')).not.toHaveClass(/off/)
-  await expect(page.locator('#bd-status .bd-daemon')).toHaveAttribute('title', 'Daemon live, read 2 min ago')
+  await expect(page.locator('#bd-status .bd-daemon')).toHaveAttribute('title', 'Daemon live, read less than 1 min ago')
   // The first snapshot replaces the hint, so its age note goes away.
   expect(await page.evaluate(() => { m.ctx.snap = { daemon: { state: 'stale', heartbeat_at: null } }; return m.daemonView().dotText })).toBe('Daemon stale')
+  await page.evaluate(() => hook.destroyed())
+})
+test('an old live mount hint is stale and never paints as live', async ({ page }) => {
+  await mountWith(page, { daemon: { state: 'live', heartbeat_at: NOW - 7200000, observed_at: NOW - 7000 }, now: NOW })
+  await expect(page.locator('#bd-status .bd-daemon')).toHaveText('Daemon stale · <1m ago')
+  await expect(page.locator('#bd-status .bd-daemon')).toHaveClass(/off/)
+  expect(await page.evaluate(() => ({ view: m.daemonView(), live: m.ctx.offline.isLive() }))).toMatchObject({
+    view: { stale: true, dotOff: true, dotText: 'Daemon stale · <1m ago' }, live: false,
+  })
   await page.evaluate(() => hook.destroyed())
 })
 test('mount keeps unknown only when no daemon state was ever observed', async ({ page }) => {

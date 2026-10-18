@@ -62,9 +62,16 @@ function readAge(at, short) {
 }
 export function daemonView() {
   const hint = ctx.snap ? null : ctx.mountDaemon ?? null;
-  const daemon = hint ?? ctx.snap?.daemon, live = daemon?.state === 'live';
+  const daemon = hint ?? ctx.snap?.daemon;
+  // A mount hint is only a cached reading. Once it is old, don't let its former
+  // live state keep the footer green while the page has no fresh snapshot.
+  const hintAge = hint && Number.isFinite(hint.observed_at) && nowMs() !== null
+    ? Math.max(0, nowMs() - hint.observed_at) : null;
+  const hintStale = Boolean(hint && (hintAge === null || hintAge >= 6_000));
+  const live = daemon?.state === 'live' && !hintStale;
   const headline = st.linkDown ? 'Daemon unreachable'
-    : daemon?.state === 'offline' ? 'Daemon offline' : daemon?.state === 'stale' ? 'Daemon stale' : null;
+    : hintStale || daemon?.state === 'stale' ? 'Daemon stale'
+      : daemon?.state === 'offline' ? 'Daemon offline' : null;
   const reachable = !headline && !live && Boolean(ctx.snap || hint) && ctx.socket === 'up';
   const text = short => (headline || (live ? 'Daemon live' + heldNote(short)
     : reachable ? unreadText(daemon, short) + heldNote(short) : 'Daemon status unknown'))
