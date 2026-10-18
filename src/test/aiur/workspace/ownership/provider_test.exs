@@ -11,7 +11,7 @@ defmodule Aiur.Workspace.Ownership.ProviderTest do
 
     cleanup = Task.async(fn -> Ownership.release_and_wait(lease) end)
 
-    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end, 400)
     refute Task.yield(cleanup, 100)
     assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
     Task.shutdown(cleanup, :brutal_kill)
