@@ -141,7 +141,7 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
   defp scan_ticket(%Issue{} = issue, prs, state) do
     from_state = String.replace_prefix(issue.state || "", "agent:", "")
 
-    with false <- Issue.parked?(issue) or (from_state == "error" and Issue.paused?(issue)),
+    with false <- Issue.held?(issue) or (from_state == "error" and Issue.paused?(issue)),
          %{"draft" => false} = pr <- Enum.find(prs, &ticket_pr?(&1, issue.identifier)),
          {%{"id" => id} = review, state} <- live_verdict(pr, state),
          false <- MapSet.member?(state.routed, routed_key(from_state, id)) do

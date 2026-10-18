@@ -7,8 +7,15 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacityTest do
   alias Aiur.Events.Exchange
   alias Aiur.Events.Publisher
   alias Aiur.Orchestrator.IssueSync
+  alias Aiur.Orchestrator.IssueSync.CapacityConstraints
   alias Aiur.Orchestrator.State
   alias Aiur.Workflow
+
+  test "Executor-owned todo tickets are excluded from routable capacity work" do
+    held = %{issue("held", "todo") | executor_owner: "codex"}
+
+    assert CapacityConstraints.routable_todo_issues([held]) == []
+  end
 
   test "emits a fleet starvation alert after one configured poll interval" do
     Publisher.set_tracked_fn(fn _ -> true end)
@@ -62,7 +69,13 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacityTest do
     ready = for id <- 1..8, do: issue("ramp-#{id}", "todo")
     sample = %{load: 0.7, target: 1.0, schedulers: 16}
 
-    starting = %State{max_concurrent_agents: 20, effective_concurrent_agents: 1, running: running_agents(1), dispatch_capacity_sample: sample}
+    starting = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 1,
+      running: running_agents(1),
+      dispatch_capacity_sample: sample
+    }
+
     first = IssueSync.sync_fleet_capacity_starved_alert(starting, ready, 1_000)
 
     second =
@@ -165,7 +178,10 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacityTest do
   end
 
   test "reports a per-state ceiling as the binding constraint" do
-    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents_by_state: %{"todo" => 3})
+    write_workflow_file!(Workflow.workflow_file_path(),
+      max_concurrent_agents_by_state: %{"todo" => 3}
+    )
+
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.fleet.capacity.starved")
 

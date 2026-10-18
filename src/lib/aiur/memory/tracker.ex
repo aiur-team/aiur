@@ -114,7 +114,10 @@ defmodule Aiur.Memory.Tracker do
   end
 
   @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
-  def ensure_labels(_labels), do: :ok
+  def ensure_labels(labels) do
+    send_event({:memory_tracker_ensure_labels, labels})
+    :ok
+  end
 
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
   def add_label(issue_id, label) do
@@ -148,11 +151,19 @@ defmodule Aiur.Memory.Tracker do
 
       index ->
         %Issue{state: current_state} = Enum.at(issues, index)
-        expected = if expected_state == :none, do: :none, else: normalize_state_slug(expected_state)
+
+        expected =
+          if expected_state == :none, do: :none, else: normalize_state_slug(expected_state)
+
         actual = normalize_state_slug(current_state)
 
         if actual == expected or (expected == :none and actual == "") do
-          Application.put_env(:aiur, :memory_tracker_issues, List.update_at(issues, index, &%{&1 | state: state_name}))
+          Application.put_env(
+            :aiur,
+            :memory_tracker_issues,
+            List.update_at(issues, index, &%{&1 | state: state_name})
+          )
+
           send_event({:memory_tracker_state_update, issue_id, state_name})
           :ok
         else

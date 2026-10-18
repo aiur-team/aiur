@@ -10,6 +10,23 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTicketsTest do
   alias Aiur.Orchestrator.State
 
   describe "sync_stranded_ticket_reconciliation (#2361)" do
+    test "an Executor-owned released claim is not re-queued or announced as stranded" do
+      held = %{
+        issue("held", "in-progress")
+        | executor_owner: "codex",
+          state_labels: ["in-progress"]
+      }
+
+      state = %State{released_claims: %{held.id => %{cause: :tracker_retry_exhausted}}}
+
+      assert ^state =
+               IssueSync.sync_stranded_ticket_reconciliation(
+                 state,
+                 [held],
+                 fn _id, _target -> flunk("must leave an Executor-owned ticket unchanged") end
+               )
+    end
+
     test "strand sweep treats a queued marker-only ticket as legitimately unowned" do
       topic = "ticket.its-everdred/aiur#queued.agent.attention.stranded-requeued"
       Publisher.set_tracked_fn(fn _ -> true end)

@@ -37,6 +37,7 @@ defmodule Aiur.Orchestrator.StatusCLI.StatusTable do
         waiting_reason_detail(status),
         dispatch_decline_detail(status),
         pause_reason_detail(status),
+        executor_owner_detail(status),
         blocked_by_detail(status),
         last_failure_detail(status)
       ]
@@ -73,6 +74,11 @@ defmodule Aiur.Orchestrator.StatusCLI.StatusTable do
     do: "pause_reason=#{reason}"
 
   defp pause_reason_detail(_status), do: nil
+
+  defp executor_owner_detail(%{executor_owner: owner}) when is_binary(owner) and owner != "",
+    do: "executor_owned_by=#{owner}"
+
+  defp executor_owner_detail(_status), do: nil
 
   defp blocked_by_detail(%{waiting_reason: :waiting_for_dependency, blocked_by: blockers})
        when is_list(blockers) do

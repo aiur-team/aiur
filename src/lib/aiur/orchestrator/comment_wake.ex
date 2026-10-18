@@ -14,7 +14,22 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.GitHub.Issues, as: GitHubIssues
   alias Aiur.{Issue, Tracker}
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TicketTransition, TrackerTasks}
+
+  alias Aiur.Orchestrator.{
+    CommentWakeDecline,
+    Dispatcher,
+    DispatchPolicy,
+    MembershipLifecycle,
+    MergedTicketReconciler,
+    PrAnchored,
+    PushRouting,
+    ReviewFreshness,
+    ReworkGate,
+    State,
+    TicketTransition,
+    TrackerTasks
+  }
+
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, OptimisticLedger, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
@@ -170,7 +185,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   @spec merged_issue_target_state(String.t() | integer(), keyword()) :: String.t() | {:error, term()}
   def merged_issue_target_state(identifier, opts) do
     case Keyword.get(opts, :target_state) do
-      target when target in ["done", "rework", "human-review"] ->
+      target when target in ["done", "rework", "ci-wait", "human-review"] ->
         target
 
       _other ->
@@ -555,8 +570,8 @@ defmodule Aiur.Orchestrator.CommentWake do
     case result do
       {:ok, %Issue{} = issue} ->
         cond do
-          Issue.parked?(issue) ->
-            {:skip, :parked}
+          Issue.held?(issue) ->
+            {:skip, if(Issue.parked?(issue), do: :parked, else: :executor_owned)}
 
           DispatchPolicy.normalize_issue_state(issue.state) == "" ->
             {:skip, :unlabeled_issue}
@@ -1049,23 +1064,13 @@ defmodule Aiur.Orchestrator.CommentWake do
       # log at all — a paused, parked, already-running or unauthorized ticket
       # simply never woke and nothing said why. #2797 owns the general
       # silent-decline pattern; this is the one on the rework-comment path.
-      paused = issue.paused
-      parked = issue.parked
-      running = Map.has_key?(state.running, issue.id)
-
-      reason_details =
-        case {paused, parked, running} do
-          {true, _, _} -> "issue is paused"
-          {_, true, _} -> "issue is parked"
-          {_, _, true} -> "issue is already running"
-          _ -> "dispatch policy does not permit this state"
-        end
+      reason_details = CommentWakeDecline.reason_details(issue, Map.has_key?(state.running, issue.id))
 
       Alerts.emit_custom(
         "ticket.#{issue.identifier}.agent.attention.comment_wake_dispatch_declined",
         "Comment on issue #{issue.identifier} was not acted on: #{reason_details}",
         issue: issue.identifier,
-        reason: dispatch_decline_reason(reason_details, issue),
+        reason: CommentWakeDecline.describe(reason_details, issue),
         needs_attention: false,
         severity: "info",
         event_source: :system
@@ -1075,18 +1080,6 @@ defmodule Aiur.Orchestrator.CommentWake do
       state
     end
   end
-
-  defp dispatch_decline_reason("issue is paused", _issue),
-    do: "Dispatch policy refused to wake the paused issue. Remedy: resume the issue, then retry the comment delivery."
-
-  defp dispatch_decline_reason("issue is parked", _issue),
-    do: "Dispatch policy refused to wake the parked issue. Remedy: resume it explicitly to clear the park marker."
-
-  defp dispatch_decline_reason("issue is already running", _issue),
-    do: "Dispatch policy refused a duplicate wake for an issue with a running agent. Remedy: let that agent finish or send the comment to its session."
-
-  defp dispatch_decline_reason(_details, issue),
-    do: "Dispatch policy refused the issue in state #{inspect(issue.state)}. Remedy: move it to an active state eligible for dispatch, then retry the comment delivery."
 
   # The successful state transition above captures the comment's rework intent,
   # but dispatch admission must continue to use the subsequently fetched state.
@@ -1711,7 +1704,7 @@ defmodule Aiur.Orchestrator.CommentWake do
             LocalHold.caller_opts(Keyword.put(opts, :local_hold_max_wait_ms, 3_600_000))
           )
 
-        target when target in ["rework", "human-review"] ->
+        target when target in ["rework", "ci-wait", "human-review"] ->
           update_issue_state_fun.(to_string(identifier), target)
 
         {:error, _} = error ->
@@ -1748,7 +1741,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           current
         end
 
-      {target, :ok} when target in ["rework", "human-review"] ->
+      {target, :ok} when target in ["rework", "ci-wait", "human-review"] ->
         current
 
       {_, {:error, reason}} ->
