@@ -102,15 +102,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
         hold_dispatch(state, reason, now_ms, opts)
 
       :dispatch ->
-        state =
-          reconcile_capacity_hold(
-            state,
-            envelope_hold(state, envelope_value, envelope_target, envelope_schedulers, queued_demand?),
-            now_ms,
-            opts
-          )
-
-        choose_fun.(state, issues)
+        dispatch_after_envelope(state, issues, choose_fun, {envelope_value, envelope_target, envelope_schedulers}, queued_demand?, now_ms, opts)
     end
   end
 
@@ -127,6 +119,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
     state
     |> CapacityConstraints.record_fallback_binding_constraint(reason)
     |> reconcile_capacity_hold({:hold, reason}, now_ms, opts)
+  end
+
+  defp dispatch_after_envelope(state, issues, choose_fun, envelope, queued_demand?, now_ms, opts) do
+    {value, target, schedulers} = envelope
+    hold = envelope_hold(state, value, target, schedulers, queued_demand?)
+    state = reconcile_capacity_hold(state, hold, now_ms, opts)
+    choose_fun.(state, issues)
   end
 
   # A P1 may run under PSI pressure; lower priority work stays behind the gate.
