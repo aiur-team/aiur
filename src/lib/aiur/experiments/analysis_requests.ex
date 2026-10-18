@@ -37,7 +37,8 @@ defmodule Aiur.Experiments.AnalysisRequests do
 
   @spec dispatch(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def dispatch(id, request_id, fields) do
-    allowed = ~w(first_creating_ms dispatch_requested ticket_status dispatch_attempts next_attempt_ms routing_promoted dispatched_analysis_type promotion_attempts promotion_next_attempt_ms)
+    allowed =
+      ~w(daemon_login first_creating_ms dispatch_requested ticket_status dispatch_attempts next_attempt_ms routing_promoted dispatched_analysis_type promotion_attempts promotion_next_attempt_ms)
 
     if Enum.all?(Map.keys(fields), &(&1 in allowed)) do
       update(id, request_id, &dispatch_fields(&1, fields))
