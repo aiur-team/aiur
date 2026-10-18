@@ -235,7 +235,7 @@ test('edge fields preserve design children and classify each blocker', () => {
 test('odd edges are registered outside the design parity datasets', () => {
   const meta = JSON.parse(files['manifest.json']);
   assert.deepEqual(meta.datasets, ['live', 'dense', 'newrepo', 'noqueue', 'offline']);
-  assert.deepEqual(meta.extra_datasets, ['odd-edges']);
+  assert.deepEqual(meta.extra_datasets, ['odd-edges', 'now0', 'now24']);
   const history = fixture('odd-edges-history');
   const odd = fixture('odd-edges');
   assert.equal(history.rows.length, 12);

@@ -303,5 +303,18 @@
       "date": null,
       "ref": "C4-T05 / DESIGN-E8 S-24 / #3145"
     }
+  },
+  {
+    "id": "now-band-eta-pending",
+    "kind": "copy",
+    "selector": "#bd-vp",
+    "cells": {},
+    "reason": "C7-T03 replaces ETA placeholder with capacity-aware etaLabel; removed by C7-T03",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "MP-E8-C9-T08 Decisions 3 / C7-T03"
+    }
   }
 ]
