@@ -2,11 +2,13 @@ defmodule Aiur.RunTelemetryTest do
   use ExUnit.Case, async: false
 
   alias Aiur.{Config, RunTelemetry, Workflow, WorkflowStore}
+  alias Aiur.Config.Paths
   alias Aiur.RunTelemetry.{Dashboard, Lifecycle, Writer}
   alias Aiur.Workflow
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-run-telemetry")
+    repo = "test-org/test-repo-#{System.pid()}-#{System.unique_integer([:positive])}"
     prior_repo_root = Application.fetch_env(:aiur, :repo_base_root)
     Application.put_env(:aiur, :repo_base_root, root)
 
@@ -19,7 +21,7 @@ defmodule Aiur.RunTelemetryTest do
       end
     end)
 
-    %{root: root}
+    %{root: root, repo: repo}
   end
 
   test "telemetry_file/0 lives beside the daemon log", %{root: root} do
@@ -83,6 +85,28 @@ defmodule Aiur.RunTelemetryTest do
   defp restore_persistent_term(key, :unset), do: :persistent_term.erase(key)
   defp restore_persistent_term(key, value), do: :persistent_term.put(key, value)
 
+  test "repo config fixtures use an isolated repository state path", %{repo: repo, root: root} do
+    config = Path.join(root, "isolated-repo-config.yaml")
+    File.mkdir_p!(root)
+
+    File.write!(config, """
+    tracker:
+      kind: github
+      github:
+        repo: #{repo}
+        label_prefix: agent
+    """)
+
+    use_workflow_path!(config)
+
+    repo_state = Paths.repo_state_path(repo)
+    shared_repo_state = Paths.repo_state_path("test-org/test-repo")
+
+    assert Path.basename(repo_state) =~ ~r/^test-repo-\d+-\d+$/
+    assert repo_state != shared_repo_state
+    assert Path.dirname(repo_state) == Path.join(root, "test-org")
+  end
+
   defp with_log_file(log_file, fun) do
     original_log_file = Application.get_env(:aiur, :log_file)
 
@@ -115,7 +139,7 @@ defmodule Aiur.RunTelemetryTest do
     assert :ok = RunTelemetry.record(:lifecycle, %{event: :dispatch})
   end
 
-  test "telemetry_enabled: false disables recording via the real boot path", %{root: root} do
+  test "telemetry_enabled: false disables recording via the real boot path", %{root: root, repo: repo} do
     enabled_key = {Aiur.RunTelemetry, :telemetry_enabled}
     original_pt = :persistent_term.get(enabled_key, :unset)
 
@@ -126,7 +150,7 @@ defmodule Aiur.RunTelemetryTest do
     tracker:
       kind: github
       github:
-        repo: test-org/test-repo
+        repo: #{repo}
         label_prefix: agent
     observability:
       telemetry_enabled: false
@@ -261,7 +285,7 @@ defmodule Aiur.RunTelemetryTest do
     assert File.read!(output) =~ "<!doctype html>"
   end
 
-  test "Config.telemetry_enabled?/0 defaults to true when observability is omitted", %{root: root} do
+  test "Config.telemetry_enabled?/0 defaults to true when observability is omitted", %{root: root, repo: repo} do
     default_config = Path.join(root, "defaultconfig.yaml")
     File.mkdir_p!(root)
 
@@ -269,7 +293,7 @@ defmodule Aiur.RunTelemetryTest do
     tracker:
       kind: github
       github:
-        repo: test-org/test-repo
+        repo: #{repo}
         label_prefix: agent
     """)
 
@@ -277,7 +301,7 @@ defmodule Aiur.RunTelemetryTest do
     assert Config.telemetry_enabled?() == true
   end
 
-  test "Config.telemetry_enabled?/0 returns to the default when the config goes missing", %{root: root} do
+  test "Config.telemetry_enabled?/0 returns to the default when the config goes missing", %{root: root, repo: repo} do
     disabled_config = Path.join(root, "disabled-then-missingconfig.yaml")
     File.mkdir_p!(root)
 
@@ -285,7 +309,7 @@ defmodule Aiur.RunTelemetryTest do
     tracker:
       kind: github
       github:
-        repo: test-org/test-repo
+        repo: #{repo}
         label_prefix: agent
     observability:
       telemetry_enabled: false
