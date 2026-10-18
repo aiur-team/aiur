@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionProjectionTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.{Decision, DecisionEvent, DecisionProjection, DecisionProvenance, DecisionValidation}
+  alias Aiur.{DecisionEvent, DecisionProjection, DecisionProvenance, DecisionValidation}
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
 
