@@ -11,7 +11,7 @@ defmodule Aiur.Workspace.Ownership.Retention do
 
   def mark(%{lease: %{retained_cause: previous}} = state, cause) when is_binary(previous) do
     {lease, _} = Registry.update_value(state.registry, state.lease.ticket, &Map.put(&1, :retained_cause, cause))
-    %{state | lease: lease}
+    Receipt.update_phase(%{state | lease: lease}, :reaping)
   end
 
   def mark(state, cause) do
