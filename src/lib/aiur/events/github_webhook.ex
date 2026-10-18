@@ -61,9 +61,9 @@ defmodule Aiur.Events.GithubWebhook do
   alias Aiur.AllowedContributors
   alias Aiur.AllowedContributors.Candidate
   alias Aiur.Config
-  alias Aiur.Events.GithubWebhook.{Deposit, Normalizer, ReadyTransition, ThreadResolver}
   alias Aiur.Events
-  alias Aiur.Events.{Sanitizer}
+  alias Aiur.Events.GithubWebhook.{Deposit, Normalizer, ReadyTransition, ThreadResolver}
+  alias Aiur.Events.Sanitizer
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Issues
   alias Aiur.GitHub.StatePolicy
