@@ -25,6 +25,28 @@ defmodule AiurWeb.Experiments.Report do
     """
   end
 
+  @spec from_detail(map()) :: map() | nil
+  def from_detail(detail) do
+    case detail |> Map.get(:report_records, %{}) |> Map.get("reports", []) |> List.last() do
+      nil ->
+        nil
+
+      report ->
+        header = report["header"]
+        analyst = header["analyst"]
+        author = Enum.join(Enum.reject([analyst["agent"], analyst["model"]], &is_nil/1), " / ")
+        times = Enum.map(Map.get(detail, :snapshots, []), &datetime(&1["computed_at"]))
+        results_at = times |> Enum.reject(&is_nil/1) |> Enum.max(DateTime, fn -> nil end)
+
+        prepare(%{
+          markdown: Aiur.Experiments.report_markdown(report),
+          author: if(author != "", do: author),
+          written_at: header["generated_at"],
+          results_at: if(results_at, do: DateTime.to_iso8601(results_at))
+        })
+    end
+  end
+
   @spec prepare(map() | nil) :: map() | nil
   def prepare(nil), do: nil
 

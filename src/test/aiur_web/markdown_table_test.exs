@@ -40,9 +40,22 @@ defmodule AiurWeb.MarkdownTableTest do
   end
 
   test "heading offset starts report headings at h3 and caps at h6" do
-    html = Markdown.render("# Report\n\n###### Details", heading_offset: 2) |> safe_to_string()
+    html = Markdown.render("# Report\nIntroduction\n\n###### Details\nEvidence", heading_offset: 2) |> safe_to_string()
     assert html =~ "<h3>Report</h3>"
     assert html =~ "<h6>Details</h6>"
+    assert html =~ "<p>Introduction</p>"
+    assert html =~ "<p>Evidence</p>"
+  end
+
+  test "wide ragged tables fall back to bounded escaped text instead of amplifying padding" do
+    header = Enum.join(List.duplicate("column", 64), " | ")
+    delimiter = Enum.join(List.duplicate("---", 64), " | ")
+    rows = List.duplicate("|", 63) ++ ["| <script>tail</script> |"]
+    html = html(Enum.join([header, delimiter | rows], "\n"))
+    refute html =~ "<table>"
+    assert html =~ "<p>column"
+    assert html =~ "&lt;script&gt;tail&lt;/script&gt;"
+    assert byte_size(html) < 10_000
   end
 
   defp html(text), do: text |> Markdown.render() |> safe_to_string()

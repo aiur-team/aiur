@@ -25,6 +25,7 @@ defmodule AiurWeb.Markdown do
   @strong ~r/\*\*([^*]+)\*\*/
   @em ~r/(?<!\*)\*([^*]+)\*(?!\*)/
   @safe_link_schemes ~w(http https)
+  @max_table_cells 4_096
 
   @spec render(term(), keyword()) :: Phoenix.HTML.Safe.t()
   def render(text, options \\ [])
@@ -73,38 +74,56 @@ defmodule AiurWeb.Markdown do
     lines
     |> Enum.chunk_by(&(&1 == ""))
     |> Enum.reject(&match?(["" | _], &1))
-    |> Enum.map_join("\n", &render_blocks(&1, offset))
+    |> Enum.map(&render_blocks(&1, offset))
+    |> Enum.intersperse("\n")
+    |> IO.iodata_to_binary()
   end
 
   defp render_blocks([], _offset), do: ""
 
-  defp render_blocks([header, delimiter | rest] = lines, offset) do
+  defp render_blocks([first | rest] = lines, offset) do
+    if Regex.match?(@heading, first), do: [render_heading(first, offset), render_blocks(rest, offset)], else: render_table_or_block(lines, offset)
+  end
+
+  defp render_table_or_block([header, delimiter | rest] = lines, offset) do
     case Table.alignments(header, delimiter) do
       nil ->
         render_non_table(lines, offset)
 
       alignments ->
         {rows, remaining} = Enum.split_while(rest, &Table.row?/1)
-        Table.render(header, rows, alignments, &inline(escape(&1))) <> render_blocks(remaining, offset)
+        [render_table(header, delimiter, rows, alignments), render_blocks(remaining, offset)]
     end
   end
 
-  defp render_blocks(lines, offset), do: render_non_table(lines, offset)
+  defp render_table_or_block(lines, offset), do: render_non_table(lines, offset)
+
+  defp render_table(header, delimiter, rows, alignments) do
+    if (length(rows) + 1) * length(alignments) <= @max_table_cells do
+      Table.render(header, rows, alignments, &inline(escape(&1)))
+    else
+      render_paragraph([header, delimiter | rows])
+    end
+  end
 
   defp render_non_table(lines, offset) do
     {before, remaining} = take_until_table(lines, [])
-    render_block(before, offset) <> render_blocks(remaining, offset)
+    [render_block(before, offset), render_blocks(remaining, offset)]
   end
 
   defp take_until_table([header, delimiter | rest] = lines, acc) do
-    if Table.alignments(header, delimiter) do
+    if Regex.match?(@heading, header) or Table.alignments(header, delimiter) do
       {Enum.reverse(acc), lines}
     else
       take_until_table([delimiter | rest], [header | acc])
     end
   end
 
-  defp take_until_table(lines, acc), do: {Enum.reverse(acc) ++ lines, []}
+  defp take_until_table([line], acc) do
+    if Regex.match?(@heading, line), do: {Enum.reverse(acc), [line]}, else: {Enum.reverse(acc) ++ [line], []}
+  end
+
+  defp take_until_table([], acc), do: {Enum.reverse(acc), []}
 
   defp render_block([first | _] = lines, offset) do
     cond do

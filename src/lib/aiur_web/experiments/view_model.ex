@@ -40,7 +40,7 @@ defmodule AiurWeb.Experiments.ViewModel do
       frozen_baseline: frozen_baseline(spec, Map.get(detail, :snapshots, [])),
       pack_changed_since_freeze?: Map.get(detail, :pack_changed_since_freeze, false),
       annotations: Map.get(detail, :annotations, []),
-      report: Report.prepare(Map.get(detail, :report)),
+      report: Report.from_detail(detail),
       read_only?: Map.get(detail, :read_only?, false)
     })
   end
