@@ -15,7 +15,7 @@ defmodule Aiur.DecisionMetrics do
   alias Aiur.DecisionMetrics.{Bootstrap, Collector, Options, Sample, Window, Writer}
   alias Aiur.DecisionPubSub
   alias Aiur.DecisionStore
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
   alias Aiur.Metrics
 
   @patterns ["ticket.*.agent.decision.#", "ticket.*.agent.attention.#"]
@@ -61,7 +61,7 @@ defmodule Aiur.DecisionMetrics do
 
   @impl true
   def init(opts) do
-    if Keyword.get(opts, :subscribe?, true), do: Enum.each(@patterns, &Exchange.subscribe/1)
+    if Keyword.get(opts, :subscribe?, true), do: Enum.each(@patterns, &Events.subscribe/1)
 
     {writer, owned_writer?} = Bootstrap.writer(opts)
     loaded = Writer.load(writer)
