@@ -3,7 +3,7 @@ defmodule Aiur.Experiments.Analyst do
   use GenServer
   require Logger
   alias Aiur.Experiments
-  alias Aiur.Experiments.{AnalysisDispatch, AnalysisRequests, AnalystBrief}
+  alias Aiur.Experiments.{AnalysisDispatch, AnalysisRequests, AnalysisTicketLifecycle, AnalystBrief}
   alias Aiur.Tracker
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -25,7 +25,8 @@ defmodule Aiur.Experiments.Analyst do
       labels: Keyword.get(opts, :labels, &Tracker.ensure_labels/1),
       promote: Keyword.get(opts, :promote, &promote/1),
       clock: Keyword.get(opts, :clock, fn -> System.system_time(:millisecond) end),
-      alert: Keyword.get(opts, :alert, &alert/1)
+      alert: Keyword.get(opts, :alert, &alert/1),
+      open_tickets: Keyword.get(opts, :open_tickets, fn -> Tracker.open_issue_labels(120_000) end)
     }
 
     state = %{deps: deps, interval: Keyword.get(opts, :interval_ms, 60_000)}
@@ -64,15 +65,33 @@ defmodule Aiur.Experiments.Analyst do
   defp dispatch(request, attrs, opts, deps), do: if(opts[:local], do: {:ok, request}, else: AnalysisDispatch.ticket(request, attrs, deps))
 
   defp retry_open(deps) do
-    with {:ok, rows} <- Experiments.list(), do: Enum.each(rows, &retry_experiment(&1.id, deps))
+    snapshot = deps.open_tickets.()
+    with {:ok, rows} <- Experiments.list(), do: Enum.each(rows, &retry_experiment(&1.id, deps, snapshot))
   end
 
-  defp retry_experiment(id, deps) do
-    with :ok <- Experiments.reconcile_analysis_requests(id), {:ok, requests} <- Experiments.analysis_requests(id), do: Enum.each(requests, &retry_one(&1, deps))
+  defp retry_experiment(id, deps, snapshot) do
+    with :ok <- Experiments.reconcile_analysis_requests(id), {:ok, requests} <- Experiments.analysis_requests(id) do
+      Enum.each(requests, &reconcile_ticket(&1, deps, snapshot))
+    end
+  end
+
+  defp reconcile_ticket(request, deps, snapshot) do
+    case AnalysisTicketLifecycle.failure(request, snapshot, deps.clock.()) do
+      nil -> retry_one(request, deps)
+      reason -> fail(request, reason, deps)
+    end
+  end
+
+  defp fail(request, reason, deps) do
+    case Experiments.fail_analysis_request(request["experiment_id"], request["request_id"], reason) do
+      {:ok, failed} -> deps.alert.(failed)
+      {:error, :request_closed} -> :ok
+      {:error, reason} -> Logger.warning("Experiment analyst failure could not be recorded for #{request["experiment_id"]}: #{inspect(reason)}")
+    end
   end
 
   defp retry_one(request, deps) do
-    if request["state"] == "open" and request["dispatch_requested"] and retry_due?(request, deps.clock.()) do
+    if request["state"] == "open" and request["dispatch_requested"] == true and retry_due?(request, deps.clock.()) do
       with {:ok, attrs} <- AnalystBrief.build(request["experiment_id"], request), do: AnalysisDispatch.ticket(request, attrs, deps)
     end
   end
@@ -85,9 +104,14 @@ defmodule Aiur.Experiments.Analyst do
 
   defp alert(request) do
     Aiur.Alerts.emit_system("system.experiments.analyst_failed",
-      message: "Analysis ticket unavailable for #{request["experiment_id"]}; request #{request["request_id"]} remains open",
+      message: failure_message(request),
       needs_attention: true
     )
+  end
+
+  defp failure_message(request) do
+    status = if request["state"] == "failed", do: "failed: #{request["failure_reason"]}", else: "remains open"
+    "Analysis ticket unavailable for #{request["experiment_id"]}; request #{request["request_id"]} #{status}"
   end
 
   defp promote(number) do

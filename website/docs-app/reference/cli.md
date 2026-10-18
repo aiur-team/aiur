@@ -265,7 +265,8 @@ Fleet-capacity and build-gate evidence have independent source states: stale fle
 
 | Command | What it does | Example |
 | --- | --- | --- |
-| `aiur experiments analyze <id> [--mode spec\|report] [--local] [--json]` | Creates or reuses an analyst ticket; defaults to spec without registration, otherwise report. `--local` prints the brief and files no ticket. | `aiur experiments analyze delivery-change --local` |
+| `aiur experiments analyze <id> [--mode spec\|report] [--local] [--json]` | Creates or reuses an analyst ticket; defaults to spec without registration, otherwise report. | `aiur experiments analyze delivery-change` |
+| `aiur experiments analyze <id> --local` | Prints the analyst brief without filing a ticket; omitting `--local` creates or reuses an analyst ticket. | `aiur experiments analyze delivery-change --local` |
 | `aiur experiments list [--status <status>] [--kind before_after\|ab] [--json]` | Lists experiment summaries, including `--status report_due` or `reported`; corrupt specs appear as unreadable rows. | `aiur experiments list --status active --json` |
 | `aiur experiments metrics [--json]` | Lists metric definitions and rejected pack files from the base checkout. | `aiur experiments metrics --json` |
 | `aiur experiments events <id> [--json] [--refresh]` | Freezes window events with stable IDs, a hash and missing sources; refresh appends a snapshot. | `aiur experiments events delivery-change --json` |

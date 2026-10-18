@@ -135,8 +135,4 @@ See [GitHub API budgets](/apis/github-budgets#credential-pooling).
 
 ## Experiment analyst tickets
 
-Analysis requests create issues through the quota-accounted transport as `experiment_analysis_create`, with dispatch labels and a nonce marker in the same POST.
-
-Ambiguous writes use bounded REST issue-list reads as `experiment_analysis_reconcile` (up to ten pages of 100, including closed issues); missing or incomplete evidence leaves the request open for operator recovery, without another POST.
-
-Label definitions are ensured before creation. No quota saving is claimed.
+See [Per-caller costs](/apis/github-costs#experiment-analyst-tickets) for issue creation, nonce reconciliation and cached ticket-state observations.

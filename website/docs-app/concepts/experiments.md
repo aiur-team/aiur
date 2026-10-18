@@ -235,9 +235,9 @@ Tickets carry `agent:todo`, `experiment-analysis`, complexity 2 (3 for confirmat
 
 Briefs expose the spec, metric definitions, baseline and counts; they exclude after-period values. Follow the analyst skill's baseline-planning availability checks before registering.
 
-A validated submission fulfills its matching open request; a downgraded interim report leaves a confirmatory request open and the CLI exits 1 despite storing the result.
+A matching stored submission fulfills its request; interim results leave confirmatory requests open (CLI exits 1). Closed or done tickets without a matching submission become `failed` with attention; manual analyze opens a new request.
 
-Ticket writes and confirmatory routing promotions back off and raise attention after three failures; uncertain creates reconcile by nonce and never blindly POST again.
+Ticket and routing writes back off and alert after three failures. After backoff, uncertain creates reconcile by nonce; only a complete lookup proving absence permits another POST with the same nonce.
 
 Set `experiments.analyst.auto_request: false` for CLI-only requests; disabled telemetry starts no experiment workers.
 

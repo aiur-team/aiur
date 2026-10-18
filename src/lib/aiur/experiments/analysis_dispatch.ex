@@ -43,23 +43,33 @@ defmodule Aiur.Experiments.AnalysisDispatch do
     fields = %{"dispatch_requested" => true, "ticket_status" => "creating", "dispatch_attempts" => attempts, "dispatched_analysis_type" => type, "next_attempt_ms" => deps.clock.() + backoff(attempts)}
 
     with {:ok, pending} <- Experiments.update_analysis_dispatch(request["experiment_id"], request["request_id"], fields) do
-      result = send_or_reconcile(request, attrs, deps)
-      finish(pending, result, deps)
+      send_or_reconcile(request["ticket_status"], pending, attrs, deps)
     end
   end
 
-  defp send_or_reconcile(%{"ticket_status" => status} = request, _attrs, deps) when status in ["creating", "uncertain"] do
+  defp send_or_reconcile(status, request, attrs, deps) when status in ["creating", "uncertain"] do
     case deps.find.(AnalysisTicket.marker(request)) do
-      {:ok, nil} -> {:uncertain, :outcome_unknown}
-      {:ok, ticket} -> {:ok, ticket}
-      {:error, reason} -> {:uncertain, reason}
+      {:ok, nil} -> resend(request, attrs, deps)
+      {:ok, ticket} -> finish(request, {:ok, ticket}, deps)
+      {:error, reason} -> finish(request, {:uncertain, reason}, deps)
     end
   end
 
-  defp send_or_reconcile(_request, attrs, deps) do
-    case deps.labels.(attrs.labels) do
-      :ok -> classify(deps.create.(attrs))
-      {:error, reason} -> {:retryable, reason}
+  defp send_or_reconcile(_status, request, attrs, deps) do
+    result =
+      case deps.labels.(attrs.labels) do
+        :ok -> classify(deps.create.(attrs))
+        {:error, reason} -> {:retryable, reason}
+      end
+
+    finish(request, result, deps)
+  end
+
+  defp resend(request, attrs, deps) do
+    fields = %{"dispatched_analysis_type" => request["analysis_type"]}
+
+    with {:ok, pending} <- Experiments.update_analysis_dispatch(request["experiment_id"], request["request_id"], fields) do
+      send_or_reconcile(nil, pending, attrs, deps)
     end
   end
 

@@ -81,7 +81,7 @@ defmodule Aiur.Experiments.AnalysisRequests do
 
   defp valid_record?(row) do
     Enum.all?(~w(request_id experiment_id nonce), &(is_binary(row[&1]) and row[&1] != "")) and
-      row["mode"] in ~w(spec report) and row["state"] in ~w(open fulfilled cancelled) and
+      row["mode"] in ~w(spec report) and row["state"] in ~w(open fulfilled cancelled failed) and
       valid_revision?(row) and valid_analysis_type?(row)
   end
 
@@ -125,6 +125,15 @@ defmodule Aiur.Experiments.AnalysisRequests do
   end
 
   def cancel(_id, _request_id, _reason), do: {:error, :invalid_reason}
+
+  @spec fail(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def fail(id, request_id, reason) when is_binary(reason) and reason != "" do
+    update(id, request_id, fn request ->
+      if request["state"] == "open", do: {:ok, Map.merge(request, %{"state" => "failed", "failure_reason" => reason})}, else: {:error, :request_closed}
+    end)
+  end
+
+  def fail(_id, _request_id, _reason), do: {:error, :invalid_reason}
 
   defp matching_submission?(request, %{"mode" => mode, "version" => version} = submission) when is_integer(version) and version > 0 do
     mode == request["mode"] and (mode == "spec" or submission["analysis_type"] == request["analysis_type"])

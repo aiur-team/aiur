@@ -121,6 +121,9 @@ defmodule Aiur.Experiments do
   @spec fulfill_analysis_request(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def fulfill_analysis_request(id, request_id, submission), do: mutate({:analysis_request_update, :fulfill, id, request_id, submission})
 
+  @spec fail_analysis_request(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def fail_analysis_request(id, request_id, reason), do: mutate({:fail_analysis_request, id, request_id, reason})
+
   @spec cancel_analysis_request(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def cancel_analysis_request(id, request_id, reason), do: mutate({:analysis_request_update, :cancel, id, request_id, reason})
 

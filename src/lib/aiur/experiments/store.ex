@@ -60,6 +60,11 @@ defmodule Aiur.Experiments.Store do
 
   def handle_call({:analysis_request, id, mode, opts}, _from, state), do: {:reply, AnalysisRequests.request(id, mode, opts), state}
 
+  def handle_call({:fail_analysis_request, id, request_id, reason}, _from, state) do
+    result = with :ok <- AnalysisRecovery.reconcile(id), do: AnalysisRequests.fail(id, request_id, reason)
+    {:reply, result, state}
+  end
+
   def handle_call({:analysis_request_update, action, id, request_id, value}, _from, state) when action in [:attach_ticket, :fulfill, :cancel, :dispatch],
     do: {:reply, apply(AnalysisRequests, action, [id, request_id, value]), state}
 
