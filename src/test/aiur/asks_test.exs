@@ -4,9 +4,9 @@ defmodule Aiur.AsksTest do
   alias Aiur.{Asks, RepoBase}
 
   setup do
-    # Each case gets its own repo identity. The state root is configured by the
-    # test environment and shared safely, while Application env is VM-global:
-    # rebinding :repo_base_root here races async tests that use the same setting.
+    # Do not rebind the VM-global state root or remove a per-test tree here. A
+    # stray writer can resolve the root and create cache sidecars while teardown
+    # recursively removes it; the unique repo slug also isolates this ledger.
     {:ok, repo: "https://github.com/owner/asks-#{System.pid()}-#{System.unique_integer([:positive])}.git"}
   end
 
