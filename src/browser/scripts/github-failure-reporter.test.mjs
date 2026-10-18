@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -32,10 +31,25 @@ test('browser failure reporter marks overflow as truncated', () => {
   assert.equal(lines.at(-1), '::error title=aiur-test-failure::truncated :: and 1 more')
 })
 
-test('Playwright config wires the GitHub reporter only for Actions runs', () => {
-  const config = readFileSync(path.join(browserRoot, 'playwright.config.mjs'), 'utf8')
-  assert.match(config, /GITHUB_ACTIONS === 'true'/)
-  assert.match(config, /github-failure-reporter\.mjs/)
+test('Playwright config wires the GitHub reporter only for Actions runs', async () => {
+  const previousActions = process.env.GITHUB_ACTIONS
+  const previousPort = process.env.AIUR_BROWSER_PORT
+
+  try {
+    process.env.GITHUB_ACTIONS = 'true'
+    process.env.AIUR_BROWSER_PORT = '43211'
+    const { default: actionsConfig } = await import('../playwright.config.mjs?github-reporter-test')
+    assert.deepEqual(actionsConfig.reporter, [['line'], ['./support/github-failure-reporter.mjs']])
+
+    process.env.GITHUB_ACTIONS = 'false'
+    const { default: localConfig } = await import('../playwright.config.mjs?local-reporter-test')
+    assert.equal(localConfig.reporter, 'list')
+  } finally {
+    if (previousActions === undefined) delete process.env.GITHUB_ACTIONS
+    else process.env.GITHUB_ACTIONS = previousActions
+    if (previousPort === undefined) delete process.env.AIUR_BROWSER_PORT
+    else process.env.AIUR_BROWSER_PORT = previousPort
+  }
 })
 
 test('reporter writes annotations only when running in GitHub Actions', () => {
