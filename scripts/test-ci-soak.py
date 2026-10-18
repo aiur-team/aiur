@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise ci-soak.py selection and runners against a temp git repo and fake mix/node executables."""
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -7,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).with_name('ci-soak.py')
 FAKE = '''#!/usr/bin/env python3
@@ -35,6 +37,7 @@ class SoakTest(unittest.TestCase):
         self.browser = self.root / 'browser'
         self.browser.mkdir()
         (self.browser / 'package.json').write_text(json.dumps({'scripts': {
+            'test:core': 'npm run test:a && npm run test:p',
             'test:a': 'npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/a.spec.mjs',
             'test:p': 'node scripts/run-browser-tests.mjs tests/p.spec.mjs --config playwright.design-parity.config.mjs',
         }}))
@@ -139,6 +142,78 @@ class SoakTest(unittest.TestCase):
             [str(self.browser), 'scripts/run-browser-tests.mjs', 'tests/build-home-x-parity.browser.spec.mjs',
              '--config', 'playwright.design-parity.config.mjs', '--repeat-each=5']])
         self.assertIn('Playwright soak skipped tests/failure-evidence.spec.mjs', result.stdout)
+
+    def test_browser_keeps_every_smoke_selection_and_deduplicates_aliases(self):
+        spec = 'tests/shared.spec.mjs'
+        commands = {
+            'test:core': 'npm run test:columns && npm run test:motion && npm run test:band && npm run test:duplicate',
+            'test:columns': f'TZ=America/Los_Angeles node scripts/run-browser-tests.mjs {spec} tests/other.spec.mjs '
+                            '--config parity.mjs --grep "columns[.]"',
+            'test:motion': f'node scripts/run-browser-tests.mjs {spec} --config routine.mjs',
+            'test:band': f'node scripts/run-browser-tests.mjs {spec} --config band.mjs '
+                         '--grep "mobile snap" --fully-parallel --workers=2 --shard=1/4',
+            'test:duplicate': f'node scripts/run-browser-tests.mjs {spec} --config routine.mjs',
+            'test:full': f'node scripts/run-browser-tests.mjs {spec} --config full.mjs',
+        }
+        (self.browser / 'package.json').write_text(json.dumps({'scripts': commands}))
+        result, calls = self.soak('browser', SOAK_SPECS=json.dumps([spec]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([call[2:] for call in calls], [
+            [spec, '--config', 'parity.mjs', '--grep', 'columns[.]', '--repeat-each=5'],
+            [spec, '--config', 'routine.mjs', '--repeat-each=5'],
+            [spec, '--config', 'band.mjs', '--grep', 'mobile snap', '--fully-parallel',
+             '--workers=2', '--shard=1/4', '--repeat-each=5']])
+        # A failure in a later registration must fail the soak, too.
+        self.calls.unlink()
+        result, calls = self.soak('browser', SOAK_SPECS=json.dumps([spec]), FAIL_ON='band.mjs')
+        self.assertEqual((result.returncode, len(calls)), (1, 3))
+        self.assertIn('--grep \'mobile snap\' --fully-parallel --workers=2 --shard=1/4', result.stdout)
+
+    def test_browser_does_not_discover_an_opt_in_only_registered_home_spec(self):
+        (self.browser / 'package.json').write_text(json.dumps({'scripts': {
+            'test:core': 'node --test scripts/unit.test.mjs',
+            'test:home:full': 'node scripts/run-browser-tests.mjs tests/build-home-full.browser.spec.mjs'
+        }}))
+        result, calls = self.soak('browser', SOAK_SPECS='["tests/build-home-full.browser.spec.mjs"]')
+        self.assertEqual((result.returncode, calls), (0, []))
+        self.assertIn('browser smoke suite does not run it', result.stdout)
+
+    def test_browser_budget_stops_between_bounded_routine_invocations(self):
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs", "tests/p.spec.mjs"]'}), \
+                patch.object(module, 'BROWSER_ROOT', self.browser), \
+                patch.object(module, 'BUDGET_SECONDS', 720), \
+                patch.object(module.time, 'monotonic', side_effect=[0, 0, 721]), \
+                patch.object(module, 'run', return_value=0) as runner, \
+                patch.object(module, 'notice') as notices:
+            self.assertEqual(module.soak_browser(), 0)
+        runner.assert_called_once_with(
+            ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs', '--repeat-each=5'],
+            cwd=self.browser, timeout=1200)
+        notices.assert_called_once_with('Playwright soak stopped at its 720s budget before tests/p.spec.mjs')
+
+    def test_later_invocation_cannot_exceed_the_browser_job_runtime_bound(self):
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs", "tests/p.spec.mjs"]'}), \
+                patch.object(module, 'BROWSER_ROOT', self.browser), \
+                patch.object(module.time, 'monotonic', side_effect=[0, 0, 700]), \
+                patch.object(module, 'run', return_value=0) as runner:
+            self.assertEqual(module.soak_browser(), 0)
+        self.assertEqual([call.kwargs['timeout'] for call in runner.call_args_list], [1200, 500])
+
+    def test_browser_timeout_fails_instead_of_claiming_a_pass(self):
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        command = ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs']
+        with patch.object(module.subprocess, 'run', side_effect=subprocess.TimeoutExpired(command, 1200)), \
+                patch.object(module, 'notice') as notices:
+            self.assertEqual(module.run(command, timeout=1200), 124)
+        notices.assert_called_once_with('soak run exceeded 1200s', 'error')
 
     def test_browser_failure_fails_with_a_reproduce_command(self):
         result, calls = self.soak('browser', SOAK_SPECS='["tests/a.spec.mjs", "tests/p.spec.mjs"]', FAIL_ON='tests/a.spec.mjs')

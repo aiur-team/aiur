@@ -37,11 +37,27 @@ for (const dataset of ['live', 'dense']) test(`windowed edge count follows visib
 
 test('B4/B12 odd edges draw cycles, failed and unknown without errors', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message))
+  // Static edge pixels must not inherit a live snap's queued scroll animation.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.clock.install({ time: 1791408000000 })
+  await page.clock.pauseAt(1791408000000)
   // Pin the reviewed baseline palette: the shell default is independent of OS colorScheme.
   await page.addInitScript(() => { localStorage.setItem('aiur-theme', 'light'); localStorage.setItem('aiur-palette', 'gruvbox') })
   await open(page, 'odd-edges')
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   await expect(page.locator('html')).toHaveAttribute('data-palette', 'gruvbox')
+  await page.evaluate(() => document.fonts.ready)
+  await page.clock.runFor(1000)
+  // Exercise the real scroll handler before pinning: an existing guard's unlock
+  // remains pending. Without reduced motion its queued frames recycle edge 19.
+  await page.evaluate(() => {
+    const { ctx } = st, vp = ctx.vp, top = ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 46
+    vp.scrollTop = top; vp.dispatchEvent(new Event('scroll'))
+    vp.scrollTop -= 90; vp.dispatchEvent(new Event('scroll'))
+  })
+  expect(await page.evaluate(() => st.ctx.snapping)).toBe(true)
+  // Edge-only captures isolate deliberate scroll positions from live snapping.
+  await page.evaluate(() => { st.ctx.snapping = true })
   const edges = await page.evaluate(() => {
     const { ctx, fx } = st, result = {}
     for (const sec of ['hist', 'nq']) {
@@ -52,17 +68,46 @@ test('B4/B12 odd edges draw cycles, failed and unknown without errors', async ({
   })
   expect(edges).toMatchObject({ 12: 'bd-e bad', 19: 'bd-e', 1: 'bd-e bl', 2: 'bd-e bl', 3: 'bd-e bl', 4: 'bd-e bl', 5: 'bd-e bl' })
   info.annotations.push({ type: 'pending-sign-off', description: 'S-24 odd edges / C4-T05' })
-  for (const [name, id] of [['order-violation', '12'], ['unknown', '19'], ['two-cycle', '1'], ['three-cycle', '3']]) {
-    await page.evaluate(id => {
+  for (const [name, ids] of [['order-violation', ['12']], ['unknown', ['19']], ['two-cycle', ['1', '2']], ['three-cycle', ['3', '4', '5']]]) {
+    const [id] = ids
+    const positioned = await page.evaluate(id => {
       const { ctx, fx } = st
       const item = Object.values(ctx.L.secs).flatMap(sec => sec.items).find(it => it.t.id === id)
       ctx.vp.scrollTop = ctx.secs[item.t.sec].el.offsetTop + item.y - 100; fx.update(); fx.drawEdges(true)
+      return ctx.vp.scrollTop
     }, id)
+    // Capture latency must not let an old snap recycle either endpoint.
+    if (name === 'unknown') await page.clock.runFor(600)
+    expect(await page.locator('#bd-vp').evaluate(vp => vp.scrollTop)).toBe(positioned)
     await expect(page.locator(`.bd-card[data-id="${id}"]`)).toBeVisible()
-    // Hide cards and chrome so the baseline records the edge layer only.
-    const hide = await page.addStyleTag({ content: 'body * { visibility: hidden !important } #bd-edges, #bd-edges * { visibility: visible !important }' })
-    await expect(page.locator('#bd-edges')).toHaveScreenshot(`${name}.png`)
+    // Capture only this case's rendered lines and arrows in their own bounds;
+    // scrolling the tall original SVG would recycle the windowed endpoints.
+    const captured = await page.evaluate(ids => {
+      const svg = st.ctx.svg, copy = svg.cloneNode(false), paths = []
+      for (const id of ids) {
+        const hits = [...svg.querySelectorAll(`.bd-eh[data-e="${id}"]`)]
+        if (hits.length !== 1) throw new Error(`Expected one rendered edge for ${id}, got ${hits.length}`)
+        const line = hits[0].nextElementSibling
+        paths.push(line, line.nextElementSibling)
+      }
+      const boxes = paths.map(path => path.getBBox()), pad = 8
+      const x = Math.floor(Math.min(...boxes.map(box => box.x))) - pad
+      const y = Math.floor(Math.min(...boxes.map(box => box.y))) - pad
+      const width = Math.ceil(Math.max(...boxes.map(box => box.x + box.width))) + pad - x
+      const height = Math.ceil(Math.max(...boxes.map(box => box.y + box.height))) + pad - y
+      copy.id = 'edge-capture'
+      copy.setAttribute('viewBox', `${x} ${y} ${width} ${height}`)
+      copy.setAttribute('width', width); copy.setAttribute('height', height)
+      paths.forEach(path => copy.appendChild(path.cloneNode(true)))
+      Object.assign(copy.style, { position: 'fixed', top: '0px', left: '0px', width: width + 'px', height: height + 'px', zIndex: '99999' })
+      st.ctx.root.appendChild(copy)
+      return copy.querySelectorAll('.bd-e').length
+    }, ids)
+    expect(captured).toBe(ids.length)
+    const hide = await page.addStyleTag({ content: 'body * { visibility: hidden !important } #edge-capture, #edge-capture * { visibility: visible !important }' })
+    await expect(page.locator('#edge-capture')).toHaveScreenshot(`${name}.png`)
     await hide.evaluate(el => el.remove())
+    await page.locator('#edge-capture').evaluate(el => el.remove())
   }
   expect(errors).toEqual([])
 })
