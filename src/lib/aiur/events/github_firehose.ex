@@ -1,7 +1,7 @@
 defmodule Aiur.Events.GithubFirehose do
   @moduledoc """
   Polls GitHub `/repos/{owner}/{repo}/events` and translates each
-  relevant event into an `Aiur.Events.Publisher.publish/3` call.
+  relevant event into an `Aiur.Events.publish/3` call.
 
   The orchestrator calls `poll/2` inside `:run_poll_cycle` with the
   cached ETag; this module returns the updated ETag for the next call.
@@ -36,7 +36,8 @@ defmodule Aiur.Events.GithubFirehose do
   require Logger
 
   alias Aiur.{Boot, RecentMerge, RecentMergeStore, RunTelemetry}
-  alias Aiur.Events.{GithubKeys, PostDeployChecks, Publisher, Sanitizer}
+  alias Aiur.Events
+  alias Aiur.Events.{GithubKeys, PostDeployChecks, Sanitizer}
   alias Aiur.GitHub.Client
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.StartTrigger.ProgressStore
@@ -362,7 +363,7 @@ defmodule Aiur.Events.GithubFirehose do
 
       {topic, payload, publish_opts} ->
         sanitized = Sanitizer.github_payload(payload, Keyword.get(publish_opts, :actor))
-        Publisher.publish(topic, sanitized, publish_opts)
+        Events.publish(topic, sanitized, publish_opts)
     end
   rescue
     error ->
