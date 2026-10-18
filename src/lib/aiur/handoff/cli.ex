@@ -3,6 +3,8 @@ defmodule Aiur.Handoff.CLI do
   import Aiur.ControlCLI.Protocol, only: [guarded: 2, exit_marker: 1, error_marker: 0]
   alias Aiur.Handoff.Report
 
+  @preflight_snapshot_timeout_ms 120_000
+
   @spec print_latest(keyword()) :: :ok
   def print_latest(opts \\ []) do
     case Report.latest(opts) do
@@ -12,16 +14,26 @@ defmodule Aiur.Handoff.CLI do
     end
   end
 
-  @spec prepare() :: :ok
-  def prepare do
+  @spec prepare(keyword()) :: :ok
+  def prepare(opts \\ []) do
     guarded("restart --keep-agents", fn ->
-      snapshot = Aiur.Orchestrator.snapshot()
-      capable = Enum.any?(snapshot.running, &(&1[:backend] in ["codex", "claude", "claude-repl"]))
+      timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, @preflight_snapshot_timeout_ms)
 
-      if snapshot.running == [] or capable do
-        prepare_running()
-      else
-        failure("no running agent supports handoff")
+      case Aiur.Orchestrator.snapshot(Aiur.Orchestrator, timeout_ms) do
+        :timeout ->
+          failure("running daemon did not answer the handoff query within #{Aiur.ControlCLI.Protocol.format_timeout_budget(timeout_ms)} (control RPC blocked); retry the restart")
+
+        :unavailable ->
+          failure("orchestrator is not running")
+
+        snapshot ->
+          capable = Enum.any?(snapshot.running, &(&1[:backend] in ["codex", "claude", "claude-repl"]))
+
+          if snapshot.running == [] or capable do
+            prepare_running()
+          else
+            failure("no running agent supports handoff")
+          end
       end
     end)
   end
