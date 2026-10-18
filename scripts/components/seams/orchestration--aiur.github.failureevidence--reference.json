@@ -5,7 +5,7 @@
   "only_paths": [
     "src/lib/aiur/landing_watch/merge_group_failure_evidence.ex",
     "src/lib/aiur/landing_watch/merge_group_failure_processor.ex",
-    "src/lib/aiur/landing_watch/merge_group_quarantine.ex"
+    "src/lib/aiur/landing_watch/quarantine_annotations.ex"
   ],
-  "reason": "#4457: classify merge-group failures against required test evidence; #4569: include open flake signatures; #4570: identify failed tests for quarantine"
+  "reason": "#4457: classify merge-group failures against required test evidence; #4569: include open flake signatures; #4570: identify failed tests for quarantine; #5135: read quarantine and orchestrator-guard annotations"
 }

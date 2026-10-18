@@ -27,6 +27,12 @@ runs:
         AIUR_BROWSER_TIMING_FILE: ${{ runner.temp }}/browser-smoke-timings-${{ inputs.shard }}.jsonl
       run: node scripts/run-browser-smoke-shard.mjs ${{ inputs.shard }}
       shell: bash
+    # Non-blocking: quarantined specs run on main pushes only, and their failures never fail the shard.
+    - name: Run quarantined browser specs (non-blocking)
+      if: ${{ always() && inputs.shard == '4' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      working-directory: src/browser
+      run: node scripts/run-quarantined-browser-tests.mjs || echo "::warning title=quarantined browser specs::a quarantined spec still fails"
+      shell: bash
     - name: Report slowest browser smoke suites
       if: ${{ always() }}
       working-directory: src/browser

@@ -118,7 +118,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
           MergeGroupRequeue.requeue_group_prs(prs, observations, run, "known non-PR failure", opts)
 
         :pr_caused ->
-          route_failed_prs(prs, observations, failure, run, opts)
+          route_pr_caused(prs, observations, failure, run, opts)
       end
     else
       # A log GitHub no longer serves degrades only this run; the claim stays so the poll moves on.
@@ -156,6 +156,13 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
 
   defp classifier_options(run, prs, jobs, opts) do
     MergeFailureOptions.build(run, prs, jobs, opts, &MergeGroupFailureEvidence.job_log/2)
+  end
+
+  # A run whose failure is a quarantined test did not fail because of its PRs.
+  defp route_pr_caused(prs, observations, failure, run, opts) do
+    if run["id"] in Keyword.get(opts, :quarantined_run_ids, []),
+      do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "a quarantined flaky test", opts),
+      else: route_failed_prs(prs, observations, failure, run, opts)
   end
 
   defp route_failed_prs(_prs, _observations, nil, _run, _opts), do: :ok

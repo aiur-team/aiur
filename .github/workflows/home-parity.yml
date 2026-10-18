@@ -1,0 +1,45 @@
+name: home parity matrix
+on:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: home-parity-${{ github.event_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
+jobs:
+  matrix:
+    name: full home parity (${{ matrix.part }}/4)
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Set up browser harness
+        uses: ./.github/actions/setup-browser
+      - name: Run full home matrix partition
+        working-directory: src/browser
+        env:
+          AIUR_HOME_PARITY_FULL: '1'
+          AIUR_HOME_PARITY_PART: ${{ matrix.part }}
+          AIUR_BROWSER_KEEP_ARTIFACTS: '1'
+        run: npm run test:build-home-band-full
+      - name: Upload failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: home-parity-${{ matrix.part }}-${{ github.run_attempt }}
+          path: src/browser/.artifacts-run-*/
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
