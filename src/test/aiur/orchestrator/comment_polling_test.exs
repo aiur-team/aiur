@@ -1,7 +1,8 @@
 defmodule Aiur.Orchestrator.CommentPollingTest do
   use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.{CommentPolling, State}
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
+  alias Aiur.Orchestrator.State
   alias Aiur.PollCadence
 
   setup do
@@ -42,8 +43,10 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: false,
-      github_comments_since: %{},
-      github_comment_issue_updated_at: %{},
+      github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+        since: %{},
+        issue_updated_at: %{}
+      },
       github_connectivity: %{},
       github_poll_delays: %{},
       github_command_scan_since: nil
@@ -79,23 +82,23 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
     # `Aiur.PerClassCadenceTest`.
     test "does not start a poll while within the published review cadence" do
       PollCadence.publish_effective_interval_ms(300_000, class: :review)
-      state = %{base_state() | last_comment_poll_started_at_ms: System.monotonic_time(:millisecond)}
+      state = %{base_state() | github_comment_cursor: %{base_state().github_comment_cursor | last_started_at_ms: System.monotonic_time(:millisecond)}}
 
       result = CommentPolling.start_async(state)
 
-      assert result.github_comment_poll == nil
-      assert result.last_comment_poll_started_at_ms == state.last_comment_poll_started_at_ms
+      assert result.github_comment_cursor.poll == nil
+      assert result.github_comment_cursor.last_started_at_ms == state.github_comment_cursor.last_started_at_ms
     end
 
     test "a recent start does not throttle before the review cadence is published" do
       PollCadence.forget_effective_interval_ms()
-      state = %{base_state() | last_comment_poll_started_at_ms: System.monotonic_time(:millisecond)}
+      state = %{base_state() | github_comment_cursor: %{base_state().github_comment_cursor | last_started_at_ms: System.monotonic_time(:millisecond)}}
 
       result = CommentPolling.start_async(state)
 
-      assert result.github_comment_poll != nil
+      assert result.github_comment_cursor.poll != nil
       # Clean up the spawned owner/poll so nothing leaks past the test.
-      terminate_spawned_poll(result.github_comment_poll)
+      terminate_spawned_poll(result.github_comment_cursor.poll)
     end
 
     defp terminate_spawned_poll(%{owner: owner}) when is_pid(owner), do: Process.exit(owner, :kill)
@@ -155,7 +158,7 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
           end
         ]
 
-        state = %{base_state() | github_comments_since: %{"164" => "2026-09-10T00:00:00Z"}}
+        state = %{base_state() | github_comment_cursor: %{base_state().github_comment_cursor | since: %{"164" => "2026-09-10T00:00:00Z"}}}
 
         assert is_struct(CommentPolling.poll_github_comments(state, opts), State)
 
