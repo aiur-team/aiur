@@ -12,9 +12,10 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.OpenPullRequestTarget do
   because a ticket can legitimately carry more than one open pull request — two
   `aiur/<ticket>-<slug>` branches worked in parallel. Returns `{:ok, "done"}`
   only when no blocking open PR remains, `{:ok, "rework"}` when a remaining open
-  PR has unresolved review findings, `{:ok, "human-review"}` when remaining open
-  PRs merely await review, and `{:error, reason}` when the open-PR lookup itself
-  failed — callers must never close the ticket on that path.
+  PR has unresolved review findings, `{:ok, "ci-wait"}` when all remaining PRs
+  await CI, `{:ok, "human-review"}` when they otherwise await review, and
+  `{:error, reason}` when the open-PR lookup itself failed — callers must never
+  close the ticket on that path.
 
   A remaining open PR that is a stale draft does not block `done`: a superseded
   or abandoned attempt left open forever must not pin its ticket out of its
@@ -72,7 +73,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.OpenPullRequestTarget do
         if Enum.any?(blocking, &open_pull_request_has_unresolved_findings?(&1, opts)) do
           {:ok, "rework"}
         else
-          {:ok, "human-review"}
+          {:ok, if(Enum.all?(blocking, &(ReworkGate.post_agent_handoff_target(&1, "human-review", opts) == "ci-wait")), do: "ci-wait", else: "human-review")}
         end
     end
   end

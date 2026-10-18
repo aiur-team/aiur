@@ -61,7 +61,7 @@ defmodule Aiur.Orchestrator.MergeTransition do
   end
 
   def write_terminal_target(target, identifier, update_issue_state_fun, opts)
-      when target in ["rework", "human-review"] do
+      when target in ["rework", "ci-wait", "human-review"] do
     retry_terminal_write(fn -> update_issue_state_fun.(to_string(identifier), target) end, opts)
   end
 

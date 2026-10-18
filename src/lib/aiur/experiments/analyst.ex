@@ -6,6 +6,7 @@ defmodule Aiur.Experiments.Analyst do
   alias Aiur.Experiments.{AnalysisDispatch, AnalysisRequests, AnalysisTicketLifecycle, AnalystBrief}
   alias Aiur.TicketMarkers
   alias Aiur.Tracker
+  alias Aiur.Tracker.DispatchProvenance
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -22,6 +23,7 @@ defmodule Aiur.Experiments.Analyst do
   def init(opts) do
     deps = %{
       create: Keyword.get(opts, :create, &Tracker.create_issue/1),
+      daemon_account: Keyword.get(opts, :daemon_account, &DispatchProvenance.daemon_account/0),
       find: Keyword.get(opts, :find, &Tracker.find_issue/2),
       labels: Keyword.get(opts, :labels, &Tracker.ensure_labels/1),
       promote: Keyword.get(opts, :promote, &promote/1),

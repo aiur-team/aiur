@@ -173,7 +173,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
       {:ok, "done"} ->
         reconcile_merged_ticket_to_done(state, issue, merge, opts, retained)
 
-      {:ok, target} when target in ["rework", "human-review"] ->
+      {:ok, target} when target in ["rework", "ci-wait", "human-review"] ->
         reconcile_merged_ticket_remaining_open(state, issue, merge, target, opts, retained)
 
       {:error, reason} ->

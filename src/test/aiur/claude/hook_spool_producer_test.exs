@@ -99,8 +99,20 @@ defmodule Aiur.Claude.HookSpoolProducerTest do
     post_hook(root, input, "ending")
     {:ok, spool} = HookSettings.spool_path("ending")
     assert File.exists?(spool)
-    tmux = start_supervised!({Tmux, name: __MODULE__, transport: {:mock, self()}})
-    task = Task.async(fn -> Reaper.stop_session(%{tmux: tmux, pane_id: "%90", os_pid: 2_147_480_000, identifier: "ending"}) end)
+    tmux = start_supervised!({Tmux, name: __MODULE__, transport: {:mock, self(), :infinity}})
+
+    task =
+      Task.async(fn ->
+        Reaper.stop_session(
+          %{tmux: tmux, pane_id: "%90", os_pid: 2_147_480_000, identifier: "ending"},
+          group_alive_fun: fn _group -> false end,
+          group_cleanup_fun: fn _group, _identity, _pane_proven? -> {:ok, :gone} end,
+          tree_kill_fun: fn _pid -> :ok end,
+          pid_alive_fun: fn _pid -> false end,
+          unregister_fun: fn _ref -> :ok end
+        )
+      end)
+
     assert {:ok, :cleanup_proven} = finish_cleanup(tmux, task)
     refute File.exists?(spool)
   end

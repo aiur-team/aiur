@@ -50,6 +50,9 @@ expect_rejection \
 expect_rejection \
   "$fixture_root/outside-local-action.yml" \
   "local actions must live under .github/actions"
+expect_rejection \
+  "$fixture_root/outside-reusable-workflow.yml" \
+  "local actions must live under .github/actions"
 
 if output="$(
   PATH="$fixture_root/failing-grep:$PATH" \
