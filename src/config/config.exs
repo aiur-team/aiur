@@ -42,6 +42,14 @@ config :aiur, :tracker_adapters, %{
   "memory" => Aiur.Memory.Tracker
 }
 
+config :aiur, :workspace_preflights, %{"github" => Aiur.GitHub.WorkspacePreflight}
+# Prewarm historically resolves the GitHub origin even with another issue tracker.
+config :aiur, :repo_base_clone_url, {Aiur.GitHub.Tracker, :clone_url, []}
+config :aiur, :repo_base_git_token, {Aiur.GitHub.Config, :token, []}
+config :aiur, :workspace_git_credential_file, {Aiur.AgentGitHubGuard, :agent_token_path, []}
+config :aiur, :repo_ledger_validators, %{asks: {Aiur.Commands, :validate_asks}, findings: {Aiur.Findings, :validate}}
+config :aiur, :agent_support_modules, [Aiur.AgentGitHubGuard]
+
 config :aiur, :tracker_fallback_kind, "linear"
 
 config :aiur, :env_startup_checks, [Aiur.Commands]

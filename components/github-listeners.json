@@ -13,6 +13,8 @@
     "src/lib/aiur/events/ls_remote_ticker.ex",
     "src/lib/aiur/events/pr_command_scanner.ex",
     "src/lib/aiur/events/sanitizer.ex",
+    "src/lib/aiur/github/listeners.ex",
+    "src/lib/aiur/github/listeners/**",
     "src/lib/aiur/main_watch.ex",
     "src/lib/aiur/main_watch/**",
     "src/lib/aiur/orchestrator/comment_polling*.ex",
@@ -26,9 +28,60 @@
     "src/lib/aiur_web/routes/github_webhook.ex"
   ],
   "facades": [
-    "*"
+    "Aiur.Events.BranchRefStore",
+    "Aiur.Events.BranchRewriteClassifier",
+    "Aiur.Events.CommentFilter",
+    "Aiur.Events.GithubCIPoller",
+    "Aiur.Events.GithubCIPoller.ApprovalCarry",
+    "Aiur.Events.GithubCIPoller.BaseRepair",
+    "Aiur.Events.GithubCIPoller.Evaluation",
+    "Aiur.Events.GithubCIPoller.Recovery",
+    "Aiur.Events.GithubCIPoller.RequiredVerdict",
+    "Aiur.Events.GithubCommentsPoller",
+    "Aiur.Events.GithubCommentsPoller.Publish",
+    "Aiur.Events.GithubCommentsPoller.Reviews",
+    "Aiur.Events.GithubCommentsPoller.Validators",
+    "Aiur.Events.GithubFirehose",
+    "Aiur.Events.GithubKeys",
+    "Aiur.Events.GithubReviewThreadIdentity",
+    "Aiur.Events.GithubWebhook",
+    "Aiur.Events.LsRemoteTicker",
+    "Aiur.Events.PrCommandScanner",
+    "Aiur.Events.Sanitizer",
+    "Aiur.GitHub.Listeners",
+    "Aiur.MainWatch",
+    "Aiur.MainWatch.Canary",
+    "Aiur.MainWatch.Fixer",
+    "Aiur.MainWatch.FixerGitHub",
+    "Aiur.MainWatch.FixerWatchdog",
+    "Aiur.MainWatch.GitHub",
+    "Aiur.MainWatch.Persistence",
+    "Aiur.MainWatch.State",
+    "Aiur.MainWatch.Suspects",
+    "Aiur.Orchestrator.CommentPolling",
+    "Aiur.PollCadence",
+    "Aiur.PollCadence.Widen",
+    "Aiur.Stacking.MergeOrder",
+    "Aiur.Stacking.StackBase",
+    "Aiur.Stacking.StackBaseEvidence",
+    "Aiur.Webhooks",
+    "Aiur.Webhooks.CapabilityProvider",
+    "Aiur.Webhooks.DeliveryLog",
+    "Aiur.Webhooks.DeliveryModeEvents",
+    "Aiur.Webhooks.EventKey",
+    "Aiur.Webhooks.EventSource",
+    "Aiur.Webhooks.EventSource.Polling",
+    "Aiur.Webhooks.EventSource.Webhook",
+    "Aiur.Webhooks.Ingest",
+    "Aiur.Webhooks.IntervalPolicy",
+    "Aiur.Webhooks.LabelState",
+    "Aiur.Webhooks.ModePresenter",
+    "Aiur.Webhooks.ModeRegistry",
+    "Aiur.Webhooks.ModeRegistry.Policy",
+    "AiurWeb.GithubWebhook",
+    "AiurWeb.GithubWebhookController",
+    "AiurWeb.Routes.GithubWebhook"
   ],
-  "facade_pending": "MP-R1-C1-T02",
   "requires": [
     "config",
     "event-bus",
@@ -38,7 +91,9 @@
     "signal",
     "web-kit"
   ],
-  "optional": [],
+  "optional": [
+    "github-access"
+  ],
   "owns": {
     "config": [
       "webhooks"
@@ -71,5 +126,9 @@
   ],
   "capabilities": [
     "webhook_ingress"
+  ],
+  "facade_pending": null,
+  "private_namespaces": [
+    "Aiur.GitHub.Listeners.*"
   ]
 }

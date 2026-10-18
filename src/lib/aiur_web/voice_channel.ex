@@ -29,6 +29,7 @@ defmodule AiurWeb.VoiceChannel do
   @max_audio_bytes 262_144
   @max_audio_base64_bytes 4 * div(@max_audio_bytes + 2, 3)
   @default_max_session_audio_bytes 9_600_000
+  @voice_not_installed_reason "Voice input isn't installed in this Aiur. Typed messages work as usual."
 
   @impl true
   def join(
@@ -237,6 +238,9 @@ defmodule AiurWeb.VoiceChannel do
       {:ok, session} ->
         {:ok, session}
 
+      {:error, :not_installed} ->
+        {:error, @voice_not_installed_reason}
+
       {:error, :unconfigured} ->
         {:error, "ElevenLabs speech-to-text is not configured. Dictation is unavailable; ask the Executor to run `aiur init` and add an ElevenLabs API key."}
 
@@ -276,6 +280,8 @@ defmodule AiurWeb.VoiceChannel do
 
   defp tts_error(:unconfigured),
     do: "ElevenLabs text-to-speech is not configured. Add elevenlabs.voice_id and grant the key Text to Speech permission."
+
+  defp tts_error(:not_installed), do: @voice_not_installed_reason
 
   defp tts_error(:empty_text), do: "There is no agent reply to speak."
   defp tts_error(:text_too_large), do: "This agent reply is too long to speak."

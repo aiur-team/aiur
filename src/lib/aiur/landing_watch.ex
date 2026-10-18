@@ -190,6 +190,9 @@ defmodule Aiur.LandingWatch do
     end
   end
 
+  defp handle_verdict(%{merge_queue_entry: entry}, %{decision: :pending, pending_reason: :ci_cancelled}, _runs, _opts) when is_map(entry),
+    do: :ok
+
   defp handle_verdict(observation, %{decision: :pending, pending_reason: :ci_cancelled}, runs, opts),
     do: handle_person_cancel(observation, runs, opts)
 

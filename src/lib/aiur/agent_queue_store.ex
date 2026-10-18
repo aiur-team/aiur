@@ -6,12 +6,15 @@ defmodule Aiur.AgentQueueStore do
   alias Aiur.AgentQueueItem
   alias Aiur.AgentQueueStore.Correlation
   alias Aiur.AgentQueueStore.Items
+  alias Aiur.AgentQueueStore.TargetIndex
 
   @type t :: %__MODULE__{
           next_id: integer(),
           next_sequence: integer(),
           items: %{optional(integer()) => AgentQueueItem.t()},
           pending_ids_by_target: %{optional(String.t()) => [integer()]},
+          item_ids_by_target: %{optional(String.t()) => [integer()]},
+          queued_event_ids: %{optional(integer()) => true},
           item_id_by_action: %{optional(String.t()) => integer()},
           item_id_by_message_id: %{optional(String.t()) => integer()}
         }
@@ -20,6 +23,11 @@ defmodule Aiur.AgentQueueStore do
             next_sequence: 1,
             items: %{},
             pending_ids_by_target: %{},
+            # Every item id per target, newest first. Items are never pruned, so
+            # per-target reads must not scan `items` (#4962).
+            item_ids_by_target: %{},
+            # Event digests remain in the unpruned store, so preserve dedupe IDs here.
+            queued_event_ids: %{},
             item_id_by_action: %{},
             item_id_by_message_id: %{}
 
@@ -73,6 +81,7 @@ defmodule Aiur.AgentQueueStore do
       store
       |> maybe_supersede_deduped(item, now)
       |> Items.put_item(item)
+      |> TargetIndex.add_item(item)
       |> Items.append_pending_id(target_issue_identifier, item.id)
       |> Items.bump_counters()
 
@@ -290,6 +299,10 @@ defmodule Aiur.AgentQueueStore do
     end
   end
 
+  @doc false
+  @spec queued_event_id?(t(), integer()) :: boolean()
+  def queued_event_id?(%__MODULE__{queued_event_ids: ids}, id) when is_integer(id), do: Map.has_key?(ids, id)
+
   @spec list_pending(t(), String.t()) :: [AgentQueueItem.t()]
   def list_pending(%__MODULE__{} = store, target_issue_identifier) when is_binary(target_issue_identifier) do
     target_issue_identifier
@@ -302,11 +315,10 @@ defmodule Aiur.AgentQueueStore do
   @spec list_visible_operator_messages(t(), String.t()) :: [AgentQueueItem.t()]
   def list_visible_operator_messages(%__MODULE__{} = store, target_issue_identifier)
       when is_binary(target_issue_identifier) do
-    store.items
-    |> Map.values()
+    store
+    |> TargetIndex.items_for(target_issue_identifier)
     |> Enum.filter(fn
       %AgentQueueItem{
-        target_issue_identifier: ^target_issue_identifier,
         category: :operator_message,
         status: status
       }
@@ -321,14 +333,14 @@ defmodule Aiur.AgentQueueStore do
 
   @spec consume_delivered(t(), String.t()) :: {t(), [AgentQueueItem.t()]}
   def consume_delivered(%__MODULE__{} = store, target_issue_identifier) when is_binary(target_issue_identifier) do
-    Items.update_delivered_items(store, target_issue_identifier, fn item ->
+    TargetIndex.update_delivered_items(store, target_issue_identifier, fn item ->
       %{item | status: :consumed, consumed_at: DateTime.utc_now(), failure_reason: nil}
     end)
   end
 
   @spec restore_delivered(t(), String.t()) :: {t(), [AgentQueueItem.t()]}
   def restore_delivered(%__MODULE__{} = store, target_issue_identifier) when is_binary(target_issue_identifier) do
-    Items.update_delivered_items(store, target_issue_identifier, fn item ->
+    TargetIndex.update_delivered_items(store, target_issue_identifier, fn item ->
       %{
         item
         | status: :pending,
@@ -343,7 +355,7 @@ defmodule Aiur.AgentQueueStore do
 
   @spec fail_delivered(t(), String.t(), term()) :: {t(), [AgentQueueItem.t()]}
   def fail_delivered(%__MODULE__{} = store, target_issue_identifier, reason) when is_binary(target_issue_identifier) do
-    Items.update_delivered_items(store, target_issue_identifier, fn item ->
+    TargetIndex.update_delivered_items(store, target_issue_identifier, fn item ->
       %{item | status: :failed, failed_at: DateTime.utc_now(), failure_reason: reason}
     end)
   end

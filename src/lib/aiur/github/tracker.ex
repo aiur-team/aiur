@@ -88,6 +88,17 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
+  def workspace_repo_segment, do: Config.repo()
+
+  @impl Aiur.Tracker.IssueTracker
+  def clone_url do
+    case Config.repo() do
+      repo when is_binary(repo) and repo != "" -> "https://github.com/#{repo}.git"
+      _ -> nil
+    end
+  end
+
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.repo()
 

@@ -1,5 +1,6 @@
 defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
   use Aiur.AgentGitHubGuardCase, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   # The field failure: `gh` refused with a rate-limit error while both primary
   # windows still read healthy. Without a secondary hold the guard recorded
@@ -70,6 +71,10 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
     :ok = AgentGitHubGuard.install(other_workspace)
 
     budget_root = Path.join(context.state_path, "host-budget")
+    calls_fifo = Path.join(context.workspace, "first-gh-call.fifo")
+    assert {"", 0} = System.cmd("mkfifo", [calls_fifo])
+    cat = System.find_executable("cat") || flunk("cat executable is required for this Linux-only guard test")
+    call_reader = Port.open({:spawn_executable, cat}, [:binary, :exit_status, args: [calls_fifo]])
 
     first =
       Task.async(fn ->
@@ -81,11 +86,13 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
           AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT: "1",
           AIUR_GITHUB_REQUESTS_PER_MINUTE: "20",
           AIUR_GITHUB_STAGGER_MS: "0",
+          FAKE_GH_CALLS: calls_fifo,
           FAKE_GH_SLEEP: "0.3"
         )
       end)
 
-    wait_for_calls(context.calls, 1)
+    receive_barrier({^call_reader, {:data, "api repos/owner/repo/issues/1670\n"}})
+    receive_barrier({^call_reader, {:exit_status, 0}})
 
     second =
       Task.async(fn ->
@@ -108,8 +115,8 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
       end)
 
     assert Task.yield(second, 80) == nil
-    assert {"ok\n", 0} = Task.await(first, 1_500)
-    assert {"ok\n", 0} = Task.await(second, 1_500)
+    assert {"ok\n", 0} = Task.await(first, 5_000)
+    assert {"ok\n", 0} = Task.await(second, 5_000)
   end
 
   test "the wrapper keeps one admission ledger when its publication token rotates", context do

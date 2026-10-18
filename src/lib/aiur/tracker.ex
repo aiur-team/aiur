@@ -241,6 +241,17 @@ defmodule Aiur.Tracker do
     end
   end
 
+  @spec clone_url() :: String.t() | nil
+  def clone_url, do: optional_workspace_callback(:clone_url)
+
+  @spec workspace_repo_segment() :: String.t() | nil
+  def workspace_repo_segment, do: optional_workspace_callback(:workspace_repo_segment)
+
+  defp optional_workspace_callback(callback) do
+    tracker_adapter = adapter()
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, callback, 0), do: apply(tracker_adapter, callback, [])
+  end
+
   @spec adapter() :: module()
   def adapter do
     Aiur.Tracker.Registry.adapter_for(Config.settings!().tracker.kind)

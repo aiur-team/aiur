@@ -5,9 +5,8 @@ defmodule Aiur.RepoBase.LedgerTransfer do
   per-record validation of both sides.
   """
 
-  alias Aiur.Commands
-  alias Aiur.Findings
   alias Aiur.Fs
+  alias Aiur.RepoBase.Ledger
   alias Aiur.RepoBase.StateTree
 
   @findings_transfer_suffix ".migration-transfer"
@@ -34,12 +33,10 @@ defmodule Aiur.RepoBase.LedgerTransfer do
   # one without treating repeated, legitimate observations as duplicates.
   defp write_ledger_transfer(source, destination, ledger) do
     with :ok <- ensure_regular_file(source),
-         {:ok, destination_contents} <- File.read(destination),
-         :ok <- validate_ledger(destination_contents, destination, ledger),
-         {:ok, source_contents} <- File.read(source),
-         :ok <- validate_ledger(source_contents, source, ledger),
+         {:ok, destination_contents} <- Ledger.read_ledger(destination, ledger, Ledger.validator(ledger)),
+         {:ok, source_contents} <- Ledger.read_ledger(source, ledger, Ledger.validator(ledger)),
          merged_contents <- destination_contents <> merged_findings_suffix(destination_contents, source_contents),
-         :ok <- validate_ledger(merged_contents, destination, ledger),
+         :ok <- Ledger.validate(merged_contents, destination, ledger, Ledger.validator(ledger)),
          :ok <- write_ledger_transfer_marker(source, destination, destination_contents, source_contents, merged_contents, ledger),
          :ok <- replace_file(destination, merged_contents),
          :ok <- File.rm(source),
@@ -212,51 +209,4 @@ defmodule Aiur.RepoBase.LedgerTransfer do
 
   defp normalize_ndjson(""), do: ""
   defp normalize_ndjson(contents), do: if(String.ends_with?(contents, "\n"), do: contents, else: contents <> "\n")
-
-  defp validate_findings_ledger(contents, path) do
-    contents
-    |> String.split("\n", trim: true)
-    |> Enum.with_index(1)
-    |> Enum.reduce_while(:ok, fn {line, line_number}, :ok ->
-      case Jason.decode(line) do
-        {:ok, finding} when is_map(finding) -> validate_ledger_finding(finding, path, line_number)
-        _ -> {:halt, {:error, {:invalid_findings_ledger, path, line_number}}}
-      end
-    end)
-  end
-
-  defp validate_ledger(contents, path, :findings), do: validate_findings_ledger(contents, path)
-  defp validate_ledger(contents, path, :asks), do: validate_asks_ledger(contents, path)
-
-  defp validate_asks_ledger(contents, path) do
-    with {:ok, asks} <- decode_ask_ledger(contents, path) do
-      case Commands.validate_asks(asks) do
-        :ok -> :ok
-        {:error, {line_number, _reason}} -> {:error, {:invalid_asks_ledger, path, line_number}}
-      end
-    end
-  end
-
-  defp decode_ask_ledger(contents, path) do
-    contents
-    |> String.split("\n", trim: true)
-    |> Enum.with_index(1)
-    |> Enum.reduce_while({:ok, []}, fn {line, line_number}, {:ok, asks} ->
-      case Jason.decode(line) do
-        {:ok, ask} when is_map(ask) -> {:cont, {:ok, [ask | asks]}}
-        _ -> {:halt, {:error, {:invalid_asks_ledger, path, line_number}}}
-      end
-    end)
-    |> case do
-      {:ok, asks} -> {:ok, Enum.reverse(asks)}
-      error -> error
-    end
-  end
-
-  defp validate_ledger_finding(finding, path, line_number) do
-    case Findings.validate(finding) do
-      :ok -> {:cont, :ok}
-      {:error, _reason} -> {:halt, {:error, {:invalid_findings_ledger, path, line_number}}}
-    end
-  end
 end
