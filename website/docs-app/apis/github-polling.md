@@ -128,7 +128,7 @@ Poll spend still scales inversely with a class's interval, so `polling.interval_
 
 The GitHub auth check runs once per credential, not once per sweep. It is re-run when the token or repository changes, and when a GitHub call answers `401` with the credential it proved — so a revoked token still produces the usual auth diagnostic rather than a raw failure downstream.
 
-A CI poll that fails specifically with the local GitHub broker timeout gets one immediate retry on the next dispatch tick. If that retry also times out, later polls follow the configured CI cadence. Shared-budget holds and other failures keep the normal cadence. Each retry checks the full in-flight target set; at a 120-second CI cadence, the cap adds at most 30 full-target retries per hour.
+A CI poll failing with a GitHub broker timeout gets one immediate retry. If that also times out, it returns to the configured cadence. Shared-budget holds and other errors keep the normal cadence. Retries check all in-flight targets, adding at most 30 full-target polls per hour at a 120-second cadence.
 
 Comments, reviews, watch-target discovery, strict commit CI reads, and merge-group run lists use conditional REST with `If-None-Match`. Unchanged answers return `304` and reuse only the matching held body; strict reads still contact GitHub on every poll. These requests do not count against the primary REST limit, and validators survive restarts.
 
