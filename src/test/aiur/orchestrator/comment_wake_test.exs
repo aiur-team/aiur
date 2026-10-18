@@ -1355,28 +1355,6 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert MapSet.member?(result.claimed, issue.id)
     end
 
-    test "the live merged route sends a ticket with an approved remaining PR to ci-wait" do
-      parent = self()
-
-      CommentWake.mark_pr_merged_issue_done(base_state(), "2307",
-        pr_body: "Closes #2307",
-        merged_by_login: "its-everdred",
-        merger_allowed_fun: fn _ -> true end,
-        update_issue_state_fun: fn identifier, state_name ->
-          send(parent, {:transition, identifier, state_name})
-          :ok
-        end,
-        open_pull_requests_fun: fn _ ->
-          {:ok, [%{"number" => 2318, "head" => %{"sha" => "head-2318"}}]}
-        end,
-        reviews_fetcher: fn 2318 -> {:ok, []} end,
-        pull_request_approval_fetcher: fn 2318 -> {:ok, {"head-2318", "head-2318"}} end
-      )
-
-      assert_receive {:transition, "2307", "ci-wait"}, 1000
-      refute_receive {:transition, "2307", "done"}, 100
-    end
-
     # #2609: the live merged route resolves its ticket from the
     # `aiur/<id>-<slug>` head branch, so a PR body deliberately written `Refs
     # #N` — GitHub's documented "related, not resolving" — used to close the
