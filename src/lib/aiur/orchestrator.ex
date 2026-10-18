@@ -4,15 +4,12 @@ defmodule Aiur.Orchestrator do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AutoSubscriptions, BlockerPropagation, BuildQueueClaimProbe, CiLifecycle, CommentPolling, CommentWake, DispatchCycleLiveness, Parking, TicketTransition}
+  alias Aiur.Orchestrator.{AutoSubscriptions, BlockerPropagation, CiLifecycle, CommentPolling, CommentWake, DispatchCycleLiveness, TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
-  alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
+  alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
-  alias Aiur.Orchestrator.{SnapshotStore, TelemetryEvents}
   alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
 
-  alias Aiur.Orchestrator.OperatorMessages, as: OM
-  alias Aiur.Orchestrator.RemoteControlMode, as: RC
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name)
@@ -258,15 +255,6 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Republish a collapsed timer wake so status shows its new countdown (#2640).
-  # Coalesced requests do not change the countdown.
-  defp publish_collapsed_poll({:reply, %{coalesced: false} = result, state}) do
-    StatusReport.notify_dashboard(state)
-    {:reply, result, state}
-  end
-
-  defp publish_collapsed_poll(reply), do: reply
-
   @doc false
   @spec github_next_poll_delay_ms(State.t()) :: non_neg_integer() | nil
   def github_next_poll_delay_ms(state), do: TrackerHealth.github_next_poll_delay_ms(state)
@@ -371,234 +359,6 @@ defmodule Aiur.Orchestrator do
   def overrunning_entry?(entry, now, max_seconds),
     do: RuntimeWatchdog.overrunning_entry?(entry, now, max_seconds)
 
-  # Public RPC facade; implementations live with their owning submodules.
-  @spec request_refresh() :: map() | :unavailable
-  def request_refresh, do: Lifecycle.request_refresh_api()
-  @spec request_refresh(GenServer.server()) :: map() | :unavailable
-  def request_refresh(server), do: Lifecycle.request_refresh_api(server)
-  @spec note_queued_demand([String.t()]) :: map() | :unavailable
-  def note_queued_demand(identifiers), do: note_queued_demand(__MODULE__, identifiers)
-  @spec note_queued_demand(GenServer.server(), [String.t()]) :: map() | :unavailable
-  def note_queued_demand(server, identifiers) when is_list(identifiers),
-    do: Lifecycle.note_queued_demand_api(server, identifiers)
-
-  @spec send_operator_message(String.t() | Aiur.TrackerIdentity.t(), map()) :: {:ok, integer()} | {:error, term()}
-  def send_operator_message(identifier, payload),
-    do: OM.send_operator_message(identifier, payload)
-
-  @spec send_operator_message(GenServer.server(), String.t() | Aiur.TrackerIdentity.t(), map()) ::
-          {:ok, integer()} | {:error, term()}
-  def send_operator_message(server, identifier, payload),
-    do: OM.send_operator_message(server, identifier, payload)
-
-  @spec send_correlated_operator_message(String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def send_correlated_operator_message(identifier, payload),
-    do: OM.send_correlated_operator_message(identifier, payload)
-
-  @spec send_correlated_operator_message(GenServer.server(), String.t(), map()) ::
-          {:ok, map()} | {:error, term()}
-  def send_correlated_operator_message(server, identifier, payload),
-    do: OM.send_correlated_operator_message(server, identifier, payload)
-
-  @spec pause_agent(String.t() | Aiur.TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
-  def pause_agent(identifier), do: PauseResume.pause_agent(identifier)
-  @spec pause_agent(GenServer.server(), String.t() | Aiur.TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
-  def pause_agent(server, identifier), do: PauseResume.pause_agent(server, identifier)
-  @spec request_control(String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
-  def request_control(identifier, action, request_id), do: PauseResume.request_control(identifier, action, request_id)
-  @spec request_control(GenServer.server(), String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
-  def request_control(server, identifier, action, request_id), do: PauseResume.request_control(server, identifier, action, request_id)
-  @spec mark_sleeping(String.t()) :: :ok
-  def mark_sleeping(identifier), do: PushRouting.mark_sleeping(identifier)
-  @spec mark_sleeping(GenServer.server(), String.t()) :: :ok
-  def mark_sleeping(server, identifier), do: PushRouting.mark_sleeping(server, identifier)
-  @spec interrupt_agent(String.t()) :: :ok | {:error, term()}
-  def interrupt_agent(identifier), do: Interrupts.interrupt_agent(identifier)
-  @spec interrupt_agent(GenServer.server(), String.t()) :: :ok | {:error, term()}
-  def interrupt_agent(server, identifier), do: Interrupts.interrupt_agent(server, identifier)
-
-  @spec pane_interrupt(String.t()) ::
-          {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
-  def pane_interrupt(identifier), do: Interrupts.pane_interrupt(identifier)
-
-  @spec pane_interrupt(GenServer.server(), String.t()) ::
-          {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
-  def pane_interrupt(server, identifier), do: Interrupts.pane_interrupt(server, identifier)
-
-  @spec pane_interrupt_by_pane_id(String.t()) ::
-          {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
-  def pane_interrupt_by_pane_id(pane_id), do: Interrupts.pane_interrupt_by_pane_id(pane_id)
-
-  @spec pane_interrupt_by_pane_id(GenServer.server(), String.t()) ::
-          {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
-  def pane_interrupt_by_pane_id(server, pane_id),
-    do: Interrupts.pane_interrupt_by_pane_id(server, pane_id)
-
-  @spec resume_agent(String.t()) :: {:ok, :resumed | :started} | {:error, term()}
-  def resume_agent(identifier), do: PauseResume.resume_agent(identifier)
-
-  @spec resume_agent(GenServer.server(), String.t()) ::
-          {:ok, :resumed | :started} | {:error, term()}
-  def resume_agent(server, identifier), do: PauseResume.resume_agent(server, identifier)
-
-  @spec resume_agent_with_receipt(String.t()) ::
-          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
-  def resume_agent_with_receipt(identifier), do: PauseResume.resume_agent_with_receipt(identifier)
-
-  @spec resume_agent_with_receipt(GenServer.server(), String.t()) ::
-          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
-  def resume_agent_with_receipt(server, identifier), do: PauseResume.resume_agent_with_receipt(server, identifier)
-
-  @spec prioritize_agent(String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
-  def prioritize_agent(identifier), do: PriorityControl.prioritize_agent(identifier)
-  @spec prioritize_agent(GenServer.server(), String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
-  def prioritize_agent(server, identifier), do: PriorityControl.prioritize_agent(server, identifier)
-
-  @spec deprioritize_agent(String.t()) :: {:ok, :deprioritized | :already_deprioritized} | {:error, term()}
-  def deprioritize_agent(identifier), do: PriorityControl.deprioritize_agent(identifier)
-  @spec deprioritize_agent(GenServer.server(), String.t()) :: {:ok, :deprioritized | :already_deprioritized} | {:error, term()}
-  def deprioritize_agent(server, identifier), do: PriorityControl.deprioritize_agent(server, identifier)
-
-  @spec control_lifecycle(String.t()) :: {:ok, map()} | {:error, term()}
-  def control_lifecycle(identifier), do: PauseResume.control_lifecycle(identifier)
-  @spec control_lifecycle(GenServer.server(), String.t()) :: {:ok, map()} | {:error, term()}
-  def control_lifecycle(server, identifier), do: PauseResume.control_lifecycle(server, identifier)
-
-  @doc """
-  Clears a ticket's lifetime dispatch latch (in-memory + durable store) so a
-  latched ticket returns to dispatchable. The supported operator exit from
-  the #1453 latch — `aiurdev reset-budget <id>` routes here.
-  """
-  @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
-  def reset_dispatch_budget(identifier), do: PauseResume.reset_dispatch_budget(identifier)
-
-  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
-  def reset_dispatch_budget(server, identifier),
-    do: PauseResume.reset_dispatch_budget(server, identifier)
-
-  @spec max_concurrent_agents() :: map() | :unavailable
-  def max_concurrent_agents, do: Slots.max_concurrent_agents()
-  @spec max_concurrent_agents(GenServer.server()) :: map() | :unavailable
-  def max_concurrent_agents(server), do: Slots.max_concurrent_agents(server)
-  @spec adjust_max_concurrent_agents(integer()) :: {:ok, map()} | {:error, term()}
-  def adjust_max_concurrent_agents(delta), do: Slots.adjust_max_concurrent_agents(delta)
-
-  @spec adjust_max_concurrent_agents(GenServer.server(), integer()) ::
-          {:ok, map()} | {:error, term()}
-  def adjust_max_concurrent_agents(server, delta),
-    do: Slots.adjust_max_concurrent_agents(server, delta)
-
-  @spec set_max_concurrent_agents(pos_integer()) :: {:ok, map()} | {:error, term()}
-  def set_max_concurrent_agents(next), do: Slots.set_max_concurrent_agents(next)
-
-  @spec set_max_concurrent_agents(GenServer.server(), pos_integer()) ::
-          {:ok, map()} | {:error, term()}
-  def set_max_concurrent_agents(server, next),
-    do: Slots.set_max_concurrent_agents(server, next)
-
-  @spec globally_paused?() :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
-  def globally_paused?, do: GlobalPause.globally_paused?()
-
-  @spec global_pause_status() :: {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
-  def global_pause_status, do: GlobalPause.global_pause_status()
-
-  @spec global_pause_status(GenServer.server(), pos_integer()) ::
-          {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
-  def global_pause_status(server, timeout_ms), do: GlobalPause.global_pause_status(server, timeout_ms)
-
-  @spec set_global_pause(boolean()) :: {:ok, map()} | {:error, term()}
-  def set_global_pause(on?) when is_boolean(on?), do: GlobalPause.set_global_pause(on?)
-
-  @spec set_global_pause(boolean(), String.t()) :: {:ok, map()} | {:error, term()}
-  def set_global_pause(on?, source) when is_boolean(on?) and is_binary(source), do: GlobalPause.set_global_pause(Aiur.Orchestrator, on?, source)
-
-  @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
-  def control_capabilities(identifier), do: OM.control_capabilities(identifier)
-  @spec control_capabilities(GenServer.server(), String.t()) :: {:ok, map()} | {:error, term()}
-  def control_capabilities(server, identifier),
-    do: OM.control_capabilities(server, identifier)
-
-  @spec set_remote_control(String.t(), boolean()) :: {:ok, :on | :off} | {:error, term()}
-  def set_remote_control(identifier, on?), do: RC.set_remote_control(identifier, on?)
-
-  @spec set_remote_control(GenServer.server(), String.t(), boolean()) ::
-          {:ok, :on | :off} | {:error, term()}
-  def set_remote_control(server, identifier, on?),
-    do: RC.set_remote_control(server, identifier, on?)
-
-  @spec ensure_remote_control_trust(Path.t()) :: :ok | {:error, term()}
-  def ensure_remote_control_trust(workspace), do: RC.ensure_remote_control_trust(workspace)
-  @spec ensure_remote_control_trust(GenServer.server(), Path.t()) :: :ok | {:error, term()}
-  def ensure_remote_control_trust(server, workspace),
-    do: RC.ensure_remote_control_trust(server, workspace)
-
-  @spec operator_message_status(GenServer.server(), integer(), timeout()) ::
-          {:ok, Aiur.AgentQueueItem.status()} | {:error, term()}
-  def operator_message_status(server \\ Aiur.Orchestrator, item_id, timeout \\ 5_000),
-    do: OM.operator_message_status(server, item_id, timeout)
-
-  @spec claim_next_queue_item(GenServer.server(), String.t()) ::
-          {:ok, map()} | :empty | {:error, term()}
-  def claim_next_queue_item(server, identifier),
-    do: OM.claim_next_queue_item(server, identifier)
-
-  @spec claim_next_checkpoint_queue_item(GenServer.server(), String.t()) ::
-          {:ok, map()} | :empty | {:error, term()}
-  def claim_next_checkpoint_queue_item(server, identifier),
-    do: OM.claim_next_checkpoint_queue_item(server, identifier)
-
-  @spec claim_blocker_critical_events_digest(GenServer.server(), String.t()) ::
-          {:ok, map()} | :empty | {:error, term()}
-  def claim_blocker_critical_events_digest(server, identifier),
-    do: OM.claim_blocker_critical_events_digest(server, identifier)
-
-  @spec claim_next_operator_queue_item(GenServer.server(), String.t()) ::
-          {:ok, map()} | :empty | {:error, term()}
-  def claim_next_operator_queue_item(server, identifier),
-    do: OM.claim_next_operator_queue_item(server, identifier)
-
-  @spec claim_operator_response(GenServer.server(), String.t(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
-  def claim_operator_response(server, identifier, command), do: OM.claim_operator_response(server, identifier, command)
-
-  @spec mark_queue_item_consumed(GenServer.server(), integer()) :: :ok | {:error, term()}
-  def mark_queue_item_consumed(server, item_id),
-    do: OM.mark_queue_item_consumed(server, item_id)
-
-  @spec restore_queue_item_pending(GenServer.server(), integer()) :: :ok | {:error, term()}
-  def restore_queue_item_pending(server, item_id),
-    do: OM.restore_queue_item_pending(server, item_id)
-
-  @spec mark_queue_item_failed(GenServer.server(), integer(), term()) :: :ok | {:error, term()}
-  def mark_queue_item_failed(server, item_id, reason),
-    do: OM.mark_queue_item_failed(server, item_id, reason)
-
-  @spec acknowledge_queue_item_delivery(GenServer.server(), integer(), map()) ::
-          :ok | {:error, term()}
-  def acknowledge_queue_item_delivery(server, item_id, provider_metadata),
-    do: OM.acknowledge_queue_item_delivery(server, item_id, provider_metadata)
-
-  @spec consume_delivered_queue_items(GenServer.server(), String.t()) :: :ok | {:error, term()}
-  def consume_delivered_queue_items(server, identifier),
-    do: OM.consume_delivered_queue_items(server, identifier)
-
-  @spec restore_delivered_queue_items(GenServer.server(), String.t()) :: :ok | {:error, term()}
-  def restore_delivered_queue_items(server, identifier),
-    do: OM.restore_delivered_queue_items(server, identifier)
-
-  @spec fail_delivered_queue_items(GenServer.server(), String.t(), term()) :: :ok | {:error, term()}
-  def fail_delivered_queue_items(server, identifier, reason),
-    do: OM.fail_delivered_queue_items(server, identifier, reason)
-
-  @spec snapshot() :: map() | :timeout | :unavailable
-  def snapshot, do: StatusReport.snapshot_api()
-  @spec list_active_identifiers(GenServer.server(), timeout()) :: [String.t()]
-  def list_active_identifiers(server \\ __MODULE__, timeout \\ 1_000),
-    do: StatusReport.list_active_identifiers_api(server, timeout)
-
-  @spec list_running_active_identifiers(GenServer.server(), timeout()) :: [String.t()]
-  def list_running_active_identifiers(server \\ __MODULE__, timeout \\ 1_000),
-    do: StatusReport.list_running_active_identifiers_api(server, timeout)
-
   @type poll_status :: %{
           checking?: boolean(),
           next_poll_in_ms: integer() | nil,
@@ -606,276 +366,82 @@ defmodule Aiur.Orchestrator do
           idle_backoff: %{active?: boolean(), factor: float()} | nil
         }
 
-  @spec poll_status() :: poll_status() | :unavailable
-  def poll_status, do: StatusReport.poll_status_api()
-
-  @spec poll_status(GenServer.server(), timeout()) :: poll_status() | :unavailable
-  def poll_status(server, timeout), do: StatusReport.poll_status_api(server, timeout)
-  @spec status() :: [map()] | :timeout | :unavailable
-  def status, do: StatusReport.status_api()
-  @spec status(GenServer.server(), timeout()) :: [map()] | :timeout | :unavailable
-  def status(server, timeout), do: StatusReport.status_api(server, timeout)
-  @spec status_with_capacity(GenServer.server(), timeout()) :: {[map()], map()} | :timeout | :unavailable
-  def status_with_capacity(server, timeout), do: StatusReport.status_with_capacity_api(server, timeout)
-  @spec snapshot(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
-  def snapshot(server, timeout), do: StatusReport.snapshot_api(server, timeout)
-
-  @doc """
-  Reads the published dashboard snapshot without querying the Orchestrator;
-  before first publication it returns unavailable. See `SnapshotStore.read/2`.
-  """
-  @spec dashboard_snapshot(GenServer.server(), timeout()) :: SnapshotStore.result()
-  def dashboard_snapshot(server \\ __MODULE__, timeout \\ 15_000), do: SnapshotStore.read(server, timeout) |> TelemetryEvents.binding_snapshot()
-
-  @doc """
-  Reads the fleet view for a control query (`status`, `agents`, `watch`) from
-  the read model, never from this process's mailbox. See
-  `Aiur.Orchestrator.StatusReport.fleet_view/2`.
-  """
-  @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
-  def fleet_view(server \\ __MODULE__, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
+  defdelegate request_refresh(), to: Aiur.Orchestrator.Client
+  defdelegate request_refresh(server), to: Aiur.Orchestrator.Client
+  defdelegate note_queued_demand(identifiers), to: Aiur.Orchestrator.Client
+  defdelegate note_queued_demand(server, identifiers), to: Aiur.Orchestrator.Client
+  defdelegate send_operator_message(identifier, payload), to: Aiur.Orchestrator.Client
+  defdelegate send_operator_message(server, identifier, payload), to: Aiur.Orchestrator.Client
+  defdelegate send_correlated_operator_message(identifier, payload), to: Aiur.Orchestrator.Client
+  defdelegate send_correlated_operator_message(server, identifier, payload), to: Aiur.Orchestrator.Client
+  defdelegate pause_agent(identifier), to: Aiur.Orchestrator.Client
+  defdelegate pause_agent(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate request_control(identifier, action, request_id), to: Aiur.Orchestrator.Client
+  defdelegate request_control(server, identifier, action, request_id), to: Aiur.Orchestrator.Client
+  defdelegate mark_sleeping(identifier), to: Aiur.Orchestrator.Client
+  defdelegate mark_sleeping(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate interrupt_agent(identifier), to: Aiur.Orchestrator.Client
+  defdelegate interrupt_agent(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate pane_interrupt(identifier), to: Aiur.Orchestrator.Client
+  defdelegate pane_interrupt(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate pane_interrupt_by_pane_id(pane_id), to: Aiur.Orchestrator.Client
+  defdelegate pane_interrupt_by_pane_id(server, pane_id), to: Aiur.Orchestrator.Client
+  defdelegate resume_agent(identifier), to: Aiur.Orchestrator.Client
+  defdelegate resume_agent(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate resume_agent_with_receipt(identifier), to: Aiur.Orchestrator.Client
+  defdelegate resume_agent_with_receipt(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate prioritize_agent(identifier), to: Aiur.Orchestrator.Client
+  defdelegate prioritize_agent(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate deprioritize_agent(identifier), to: Aiur.Orchestrator.Client
+  defdelegate deprioritize_agent(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate control_lifecycle(identifier), to: Aiur.Orchestrator.Client
+  defdelegate control_lifecycle(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate reset_dispatch_budget(identifier), to: Aiur.Orchestrator.Client
+  defdelegate reset_dispatch_budget(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate max_concurrent_agents(), to: Aiur.Orchestrator.Client
+  defdelegate max_concurrent_agents(server), to: Aiur.Orchestrator.Client
+  defdelegate adjust_max_concurrent_agents(delta), to: Aiur.Orchestrator.Client
+  defdelegate adjust_max_concurrent_agents(server, delta), to: Aiur.Orchestrator.Client
+  defdelegate set_max_concurrent_agents(next), to: Aiur.Orchestrator.Client
+  defdelegate set_max_concurrent_agents(server, next), to: Aiur.Orchestrator.Client
+  defdelegate globally_paused?(), to: Aiur.Orchestrator.Client
+  defdelegate global_pause_status(), to: Aiur.Orchestrator.Client
+  defdelegate global_pause_status(server, timeout_ms), to: Aiur.Orchestrator.Client
+  defdelegate set_global_pause(on?), to: Aiur.Orchestrator.Client
+  defdelegate set_global_pause(on?, source), to: Aiur.Orchestrator.Client
+  defdelegate control_capabilities(identifier), to: Aiur.Orchestrator.Client
+  defdelegate control_capabilities(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate set_remote_control(identifier, on?), to: Aiur.Orchestrator.Client
+  defdelegate set_remote_control(server, identifier, on?), to: Aiur.Orchestrator.Client
+  defdelegate ensure_remote_control_trust(workspace), to: Aiur.Orchestrator.Client
+  defdelegate ensure_remote_control_trust(server, workspace), to: Aiur.Orchestrator.Client
+  defdelegate operator_message_status(server \\ Aiur.Orchestrator, item_id, timeout \\ 5_000), to: Aiur.Orchestrator.Client
+  defdelegate claim_next_queue_item(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate claim_next_checkpoint_queue_item(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate claim_blocker_critical_events_digest(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate claim_next_operator_queue_item(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate claim_operator_response(server, identifier, command), to: Aiur.Orchestrator.Client
+  defdelegate mark_queue_item_consumed(server, item_id), to: Aiur.Orchestrator.Client
+  defdelegate restore_queue_item_pending(server, item_id), to: Aiur.Orchestrator.Client
+  defdelegate mark_queue_item_failed(server, item_id, reason), to: Aiur.Orchestrator.Client
+  defdelegate acknowledge_queue_item_delivery(server, item_id, provider_metadata), to: Aiur.Orchestrator.Client
+  defdelegate consume_delivered_queue_items(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate restore_delivered_queue_items(server, identifier), to: Aiur.Orchestrator.Client
+  defdelegate fail_delivered_queue_items(server, identifier, reason), to: Aiur.Orchestrator.Client
+  defdelegate snapshot(), to: Aiur.Orchestrator.Client
+  defdelegate list_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000), to: Aiur.Orchestrator.Client
+  defdelegate list_running_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000), to: Aiur.Orchestrator.Client
+  defdelegate poll_status(), to: Aiur.Orchestrator.Client
+  defdelegate poll_status(server, timeout), to: Aiur.Orchestrator.Client
+  defdelegate status(), to: Aiur.Orchestrator.Client
+  defdelegate status(server, timeout), to: Aiur.Orchestrator.Client
+  defdelegate status_with_capacity(server, timeout), to: Aiur.Orchestrator.Client
+  defdelegate snapshot(server, timeout), to: Aiur.Orchestrator.Client
+  defdelegate dashboard_snapshot(server \\ Aiur.Orchestrator, timeout \\ 15_000), to: Aiur.Orchestrator.Client
+  defdelegate fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []), to: Aiur.Orchestrator.Client
 
   @impl true
-  def handle_call(:prepare_handoff_snapshot, _from, state), do: Aiur.Handoff.hold_dispatch(state)
-  def handle_call(:cancel_handoff, _from, state), do: Aiur.Handoff.release_dispatch(state)
-  def handle_call({:enqueue_event_digest, identifier, event}, _from, state), do: OM.enqueue_event_digest_call(state, identifier, event)
-  def handle_call({:enqueue_event_digest, id, event, %{subscribed_to: subs}}, _from, state) when is_list(subs), do: OM.enqueue_event_digest_call(state, id, event, subscribed_to: subs)
-
-  def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
-      when is_binary(identifier) and is_list(events),
-      do: OM.enqueue_event_digest_batch_call(state, identifier, events)
-
-  def handle_call(:poll_status, _from, state), do: StatusReport.poll_status(state)
-
-  def handle_call(:list_active_identifiers, _from, state),
-    do: StatusReport.list_active_identifiers(state)
-
-  def handle_call(:list_running_active_identifiers, _from, state),
-    do: StatusReport.list_running_active_identifiers(state)
-
-  def handle_call({:has_live_owner, identifier}, _from, state), do: StatusReport.has_live_owner(state, identifier)
-
-  def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids) do
-    {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
-  end
-
-  def handle_call(:build_queue_next_set, _from, state), do: {:reply, BuildQueueClaimProbe.next_set(state), state}
-
-  def handle_call(:status, _from, state), do: StatusReport.status(state)
-
-  def handle_call(:status_with_capacity, _from, state), do: StatusReport.status_with_capacity(state)
-
-  def handle_call(:snapshot, _from, state), do: StatusReport.snapshot(state)
-
-  def handle_call(:fleet_view, _from, state), do: StatusReport.fleet_view_call(state)
-
-  def handle_call(:request_refresh, _from, state) do
-    state |> Lifecycle.request_refresh() |> publish_collapsed_poll()
-  end
-
-  def handle_call({:note_queued_demand, identifiers}, _from, state) when is_list(identifiers) do
-    state |> Lifecycle.note_queued_demand(identifiers) |> publish_collapsed_poll()
-  end
-
-  def handle_call({:send_operator_message, issue_identifier, payload}, _from, state),
-    do: OM.send_operator_message_call(state, issue_identifier, payload)
-
-  def handle_call({:send_correlated_operator_message, issue_identifier, payload}, _from, state),
-    do: OM.send_correlated_operator_message_call(state, issue_identifier, payload)
-
-  def handle_call({:control_capabilities, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: OM.control_capabilities_call(state, issue_identifier)
-
-  def handle_call({action, issue_identifier}, _from, state)
-      when action in [:pause_agent, :park_agent] and is_binary(issue_identifier),
-      do: if(action == :park_agent, do: Parking.park_agent_call(state, issue_identifier), else: PauseResume.pause_agent_call(state, issue_identifier))
-
-  def handle_call({:pause_agent, %Aiur.TrackerIdentity{} = identity}, _from, state),
-    do: PauseResume.pause_agent_call(state, identity)
-
-  def handle_call({:pause_agent, _issue_identifier}, _from, state) do
-    {:reply, {:error, :invalid_identifier}, state}
-  end
-
-  def handle_call({:request_control, issue_identifier, action, request_id}, _from, state)
-      when is_binary(issue_identifier) and action in [:pause, :resume] and is_integer(request_id) and request_id > 0,
-      do: PauseResume.request_control_call(state, issue_identifier, action, request_id)
-
-  def handle_call({:request_control, _issue_identifier, _action, _request_id}, _from, state) do
-    {:reply, {:error, :invalid_control_request}, state}
-  end
-
-  def handle_call({:interrupt_agent, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: Interrupts.interrupt_agent_call(state, issue_identifier)
-
-  def handle_call({:interrupt_agent, _issue_identifier}, _from, state) do
-    {:reply, {:error, :invalid_identifier}, state}
-  end
-
-  def handle_call({:pane_interrupt, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: Interrupts.pane_interrupt_call(state, issue_identifier)
-
-  def handle_call({:pane_interrupt, _issue_identifier}, _from, state) do
-    {:reply, {:error, :invalid_identifier}, state}
-  end
-
-  def handle_call({:pane_interrupt_by_pane_id, pane_id}, _from, state)
-      when is_binary(pane_id),
-      do: Interrupts.pane_interrupt_by_pane_id_call(state, pane_id)
-
-  def handle_call({:tracker_control_result, action, identifier, stage, result}, _from, state),
-    do: PauseResume.tracker_control_call(state, action, identifier, stage, result)
-
-  def handle_call({:resume_agent, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: PauseResume.tracker_control_call(state, :resume, issue_identifier)
-
-  def handle_call({:resume_agent, _issue_identifier}, _from, state) do
-    {:reply, {:error, :invalid_identifier}, state}
-  end
-
-  def handle_call({:resume_agent_with_receipt, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: PauseResume.tracker_control_call(state, :resume_with_receipt, issue_identifier)
-
-  def handle_call({:resume_agent_with_receipt, _issue_identifier}, _from, state) do
-    {:reply, {:error, :invalid_identifier}, state}
-  end
-
-  def handle_call({:prioritize_agent, issue_identifier}, from, state) when is_binary(issue_identifier),
-    do: PriorityControl.prioritize_agent_call(state, issue_identifier, from: from)
-
-  def handle_call({:prioritize_agent, _issue_identifier}, _from, state),
-    do: {:reply, {:error, :invalid_identifier}, state}
-
-  def handle_call({:deprioritize_agent, issue_identifier}, from, state) when is_binary(issue_identifier),
-    do: PriorityControl.deprioritize_agent_call(state, issue_identifier, from: from)
-
-  def handle_call({:deprioritize_agent, _issue_identifier}, _from, state),
-    do: {:reply, {:error, :invalid_identifier}, state}
-
-  def handle_call({:reset_dispatch_budget, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: PauseResume.tracker_control_call(state, :reset_budget, issue_identifier)
-
-  def handle_call({:reset_dispatch_budget, _issue_identifier}, _from, state) do
-    {:reply, {:error, :invalid_identifier}, state}
-  end
-
-  def handle_call({:control_lifecycle, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: PauseResume.control_lifecycle_call(state, issue_identifier)
-
-  def handle_call({:control_lifecycle, _issue_identifier}, _from, state) do
-    {:reply, {:error, :invalid_identifier}, state}
-  end
-
-  def handle_call({:set_remote_control, issue_identifier, on?}, from, state)
-      when is_binary(issue_identifier) and is_boolean(on?),
-      do: RC.set_remote_control_call(state, issue_identifier, on?, from: from)
-
-  def handle_call({:set_remote_control, _issue_identifier, _on?}, _from, state) do
-    {:reply, {:error, :invalid_identifier}, state}
-  end
-
-  def handle_call({:ensure_remote_control_trust, workspace}, from, state)
-      when is_binary(workspace),
-      do: RC.ensure_remote_control_trust_call(state, workspace, from)
-
-  def handle_call(:max_concurrent_agents, _from, state),
-    do: Slots.max_concurrent_agents_call(state)
-
-  def handle_call({:adjust_max_concurrent_agents, delta}, _from, state)
-      when is_integer(delta),
-      do: Slots.adjust_max_concurrent_agents_call(state, delta)
-
-  def handle_call({:set_max_concurrent_agents, n}, _from, state)
-      when is_integer(n) and n > 0,
-      do: Slots.set_max_concurrent_agents_call(state, n)
-
-  def handle_call(:globally_paused?, _from, state),
-    do: GlobalPause.globally_paused_call(state)
-
-  def handle_call(:global_pause_status, _from, state),
-    do: {:reply, GlobalPause.global_pause_status(state), state}
-
-  def handle_call({:set_global_pause, on?}, _from, state)
-      when is_boolean(on?),
-      do: GlobalPause.set_global_pause_call(state, on?)
-
-  def handle_call({:set_global_pause, on?, source}, _from, state)
-      when is_boolean(on?) and is_binary(source),
-      do: GlobalPause.set_global_pause_call(state, on?, source)
-
-  def handle_call({:operator_message_status, item_id}, _from, state)
-      when is_integer(item_id),
-      do: OM.operator_message_status_call(state, item_id)
-
-  def handle_call({:lookup_operator_message, {kind, key} = lookup}, _from, state)
-      when kind in [:message_id, :action_id] and is_binary(key),
-      do: OM.lookup_operator_message_call(state, lookup)
-
-  def handle_call({:lookup_operator_message, {:message_id, key} = lookup, %{target: _, text: text} = expected}, _from, state)
-      when is_binary(key) and is_binary(text),
-      do: OM.lookup_operator_message_call(state, lookup, expected)
-
-  def handle_call({:claim_next_queue_item, id}, _from, state) when is_binary(id), do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_queue_item_call(state, id) end)
-
-  def handle_call({:claim_next_checkpoint_queue_item, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_checkpoint_queue_item_call(state, issue_identifier) end)
-
-  def handle_call({:claim_blocker_critical_events_digest, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_blocker_critical_events_digest_call(state, issue_identifier) end)
-
-  def handle_call({:claim_next_operator_queue_item, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_operator_queue_item_call(state, issue_identifier) end)
-
-  def handle_call({:claim_operator_response, identifier, command}, _from, state)
-      when is_binary(identifier) and is_binary(command) and command != "",
-      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_operator_response_call(state, identifier, command) end)
-
-  def handle_call({:mark_queue_item_consumed, item_id}, _from, state)
-      when is_integer(item_id),
-      do: OM.mark_queue_item_consumed_call(state, item_id)
-
-  def handle_call({:restore_queue_item_pending, item_id}, _from, state)
-      when is_integer(item_id),
-      do: OM.restore_queue_item_pending_call(state, item_id)
-
-  def handle_call({:mark_queue_item_failed, item_id, reason}, _from, state)
-      when is_integer(item_id),
-      do: OM.mark_queue_item_failed_call(state, item_id, reason)
-
-  def handle_call(
-        {:acknowledge_queue_item_delivery, item_id, provider_metadata},
-        _from,
-        state
-      )
-      when is_integer(item_id) and is_map(provider_metadata),
-      do:
-        OM.acknowledge_queue_item_delivery_call(
-          state,
-          item_id,
-          provider_metadata
-        )
-
-  def handle_call({:consume_delivered_queue_items, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: OM.consume_delivered_queue_items_call(state, issue_identifier)
-
-  def handle_call({:restore_delivered_queue_items, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: OM.restore_delivered_queue_items_call(state, issue_identifier)
-
-  def handle_call({:fail_delivered_queue_items, issue_identifier, reason}, _from, state)
-      when is_binary(issue_identifier),
-      do: OM.fail_delivered_queue_items_call(state, issue_identifier, reason)
+  defdelegate handle_call(message, from, state), to: Aiur.Orchestrator.Calls
 
   @doc false
   @spec resume_label_overridden_issue(State.t(), map()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
