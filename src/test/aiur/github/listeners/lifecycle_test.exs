@@ -130,7 +130,31 @@ defmodule Aiur.GitHub.Listeners.LifecycleTest do
   # Regression guard: an exit remains visible to callers rather than being rescued.
   test "a listener exit propagates to the caller" do
     pid = start_supervised!(Supervisor.child_spec({Firehose, []}, restart: :temporary))
-    assert catch_exit(Listeners.poll_firehose(server: pid, request_fun: fn _ -> exit(:poll_failed) end))
+    parent = self()
+
+    poll =
+      Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
+        catch_exit(
+          Listeners.poll_firehose(
+            server: pid,
+            request_fun: fn _ ->
+              send(parent, {:held_listener_read, self()})
+
+              receive do
+                :release_poll -> {:ok, %{status: 304, headers: [], body: ""}}
+              end
+            end
+          )
+        )
+      end)
+
+    receive_barrier({:held_listener_read, worker})
+    on_exit(fn -> Process.exit(worker, :kill) end)
+    monitor = Process.monitor(worker)
+    Process.exit(pid, :kill)
+    assert {:killed, {GenServer, :call, [^pid, {:poll, _opts}, :infinity]}} = Task.await(poll, :infinity)
+    Process.exit(worker, :kill)
+    receive_barrier({:DOWN, ^monitor, :process, ^worker, :killed})
   end
 
   defp seed_cursor do

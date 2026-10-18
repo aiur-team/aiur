@@ -53,7 +53,8 @@ defmodule Aiur.GitHub.Listeners.Firehose do
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{pending_poll: %{task: %{ref: ref}} = poll} = state) do
     Process.demonitor(poll.caller_ref, [:flush])
-    {:stop, reason, %{state | pending_poll: nil}}
+    GenServer.reply(poll.from, {:error, {:tracker_task_exit, reason}})
+    {:noreply, next_poll(%{state | pending_poll: nil})}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{pending_poll: %{caller_ref: ref} = poll} = state) do
