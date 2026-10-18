@@ -79,6 +79,11 @@ describe("Commands answerability", () => {
     expect(isAnswered("open")).toBe(false);
     expect(isAnswered(openCommand({ status: "expired", blocking: true }))).toBe(false);
   });
+
+  it("fails closed for non-Command values", () => {
+    expect(isAnswerable(null)).toBe(false);
+    expect(isAnswerable(42)).toBe(false);
+  });
 });
 
 describe("Commands paging", () => {
