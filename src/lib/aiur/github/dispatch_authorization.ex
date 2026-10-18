@@ -122,8 +122,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         MainFixer.authorized?(issue, opts) and aiur_actor?(actor, opts) -> {true, "main_watch_fixer"}
         member?(allowed_users, actor) -> {true, "label_applier"}
         aiur_actor?(actor, opts) and not is_nil(triaged_by) -> {true, "prior_triage:#{triaged_by}"}
-        LocalProvenance.authorized?(issue, actor, label_actors, opts) -> {true, "local_provenance"}
-        true -> {false, "label_applier"}
+        true -> LocalProvenance.decision(issue, actor, label_actors, opts)
       end
 
     log_decision(

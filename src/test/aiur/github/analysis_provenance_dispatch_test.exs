@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.AnalysisProvenanceDispatchTest do
   use ExUnit.Case, async: false
   import Aiur.GitHub.DispatchAuthorization.TestFixtures
   alias Aiur.Experiments
-  alias Aiur.Experiments.{AnalysisTicket, Analyst, Store}
+  alias Aiur.Experiments.{AnalysisTicket, Analyst, Paths, Store}
   alias Aiur.GitHub.DispatchAuthorization
   alias Aiur.Tracker.DispatchProvenance
 
@@ -85,7 +85,7 @@ defmodule Aiur.GitHub.AnalysisProvenanceDispatchTest do
     refute authorize(%{issue | creator_login: "outsider"}).dispatch_authorized?
     refute authorize(%{issue | id: "43"}).dispatch_authorized?
     refute authorize(%{issue | description: String.replace(issue.description, "nonce=", "nonce=0")}).dispatch_authorized?
-    File.write!(Aiur.Experiments.Paths.file(id, "requests.ndjson"), "corrupt journal\n")
+    File.write!(Paths.file(id, "requests.ndjson"), "corrupt journal\n")
     refute authorize(issue).dispatch_authorized?
     Application.put_env(:aiur, :experiments_dir, Path.join(Application.fetch_env!(:aiur, :experiments_dir), "absent"))
     refute authorize(issue).dispatch_authorized?

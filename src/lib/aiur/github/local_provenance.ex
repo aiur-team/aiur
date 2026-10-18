@@ -17,6 +17,11 @@ defmodule Aiur.GitHub.LocalProvenance do
     |> Enum.uniq()
   end
 
+  @spec decision(Aiur.Issue.t(), String.t(), list(), keyword()) :: {boolean(), String.t()}
+  def decision(issue, actor, appliers, opts) do
+    if authorized?(issue, actor, appliers, opts), do: {true, "local_provenance"}, else: {false, "label_applier"}
+  end
+
   @spec authorized?(Aiur.Issue.t(), String.t(), list(), keyword()) :: boolean()
   def authorized?(issue, actor, appliers, opts) do
     daemon = Keyword.get_lazy(opts, :daemon_account, &Config.daemon_account/0)

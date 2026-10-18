@@ -1,8 +1,8 @@
 defmodule Aiur.Experiments.AnalystTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
-  alias Aiur.{Experiments, ExperimentsCLI}
-  alias Aiur.Experiments.{Analyst, Paths, ReportRecords, Snapshot, Store}
+  alias Aiur.{Experiments, ExperimentsCLI, Issue}
+  alias Aiur.Experiments.{AnalysisProvenance, AnalysisTicket, Analyst, Paths, ReportRecords, Snapshot, Store}
 
   setup do
     root = Aiur.TestSupport.tmp_root!("analyst")
@@ -167,15 +167,15 @@ defmodule Aiur.Experiments.AnalystTest do
     assert recovered["request_id"] == pending["request_id"]
     assert recovered["daemon_login"] == "original-daemon[bot]"
 
-    issue = %Aiur.Issue{
+    issue = %Issue{
       id: "42",
       url: recovered["ticket"]["url"],
       creator_login: "original-daemon[bot]",
       labels: ["experiment-analysis"],
-      description: Aiur.Experiments.AnalysisTicket.marker(recovered)
+      description: AnalysisTicket.marker(recovered)
     }
 
-    assert Aiur.Experiments.AnalysisProvenance.authorized?(issue, recovered)
+    assert AnalysisProvenance.authorized?(issue, recovered)
     assert File.exists?(Paths.file(id, "requests.ndjson"))
   end
 
