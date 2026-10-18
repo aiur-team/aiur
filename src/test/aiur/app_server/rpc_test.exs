@@ -74,19 +74,22 @@ defmodule Aiur.AppServer.RpcTest do
     end
 
     test "returns timeout and port exit errors" do
-      idle_port = script_port("sleep 0.2")
-      assert {:error, :response_timeout} = Rpc.with_timeout_response(idle_port, 42, 20, "", "Test")
+      idle_port = script_port("cat >/dev/null")
+      assert {:error, :response_timeout} = Rpc.with_timeout_response(idle_port, 42, 100, "", "Test")
+      Port.close(idle_port)
 
       exit_port = script_port("exit 7")
       assert {:error, {:port_exit, 7}} = Rpc.with_timeout_response(exit_port, 42, 1_000, "", "Test")
     end
 
     test "keeps an ordinary response after a missing sensitive response" do
-      port = script_port(~S|sleep 0.05; printf '%s\n' '{"id":6,"result":{"ok":true}}'|)
+      port = gated_script_port(~S|printf '%s\n' '{"id":6,"result":{"ok":true}}'|)
       on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
 
       assert {:error, :response_timeout} =
-               Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
+               Rpc.with_timeout_response(port, 5, 100, "", "Test", fn _payload -> :ignore end, true)
+
+      release_script_port(port)
 
       assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test")
     end
@@ -95,8 +98,7 @@ defmodule Aiur.AppServer.RpcTest do
       secret = "person@example.test credential=super-secret"
 
       port =
-        script_port("""
-        sleep 0.05
+        gated_script_port("""
         printf '%s\\n' '{"id":5,"result":{"account":"#{secret}"}'
         printf '%s\\n' '{"id":6,"result":{"ok":true}}'
         """)
@@ -104,7 +106,9 @@ defmodule Aiur.AppServer.RpcTest do
       on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
 
       assert {:error, :response_timeout} =
-               Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
+               Rpc.with_timeout_response(port, 5, 100, "", "Test", fn _payload -> :ignore end, true)
+
+      release_script_port(port)
 
       assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test")
     end
@@ -113,8 +117,7 @@ defmodule Aiur.AppServer.RpcTest do
       secret = "person@example.test credential=super-secret"
 
       port =
-        script_port("""
-        sleep 0.05
+        gated_script_port("""
         printf '%s\\n' '{"\\u0069d":5,"result":{"account":"#{secret}"}} trailing'
         printf '%s\\n' '{"id":6,"result":{"ok":true}}'
         """)
@@ -122,7 +125,9 @@ defmodule Aiur.AppServer.RpcTest do
       on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
 
       assert {:error, :response_timeout} =
-               Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
+               Rpc.with_timeout_response(port, 5, 100, "", "Test", fn _payload -> :ignore end, true)
+
+      release_script_port(port)
 
       log = capture_log(fn -> assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test") end)
       assert log =~ "Test sensitive response stream output redacted"
@@ -133,8 +138,7 @@ defmodule Aiur.AppServer.RpcTest do
       secret = "person@example.test credential=super-secret"
 
       port =
-        script_port("""
-        sleep 0.05
+        gated_script_port("""
         printf '%s\\n' '#{secret}"}}'
         printf '%s\\n' '{"id":6,"result":{"ok":true}}'
         """)
@@ -142,7 +146,9 @@ defmodule Aiur.AppServer.RpcTest do
       on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
 
       assert {:error, :response_timeout} =
-               Rpc.with_timeout_response(port, 5, 10, ~s({"id":5,"result":{"account":"), "Test", fn _payload -> :ignore end, true)
+               Rpc.with_timeout_response(port, 5, 100, ~s({"id":5,"result":{"account":"), "Test", fn _payload -> :ignore end, true)
+
+      release_script_port(port)
 
       log = capture_log(fn -> assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test") end)
       assert log =~ "Test sensitive response stream output redacted"
@@ -153,8 +159,7 @@ defmodule Aiur.AppServer.RpcTest do
       secret = "person@example.test credential=super-secret"
 
       port =
-        script_port("""
-        sleep 0.05
+        gated_script_port("""
         printf '%s\\n' '#{secret}'
         printf '%s\\n' '{"id":6,"result":{"ok":true}}'
         """)
@@ -162,7 +167,9 @@ defmodule Aiur.AppServer.RpcTest do
       on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
 
       assert {:error, :response_timeout} =
-               Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
+               Rpc.with_timeout_response(port, 5, 100, "", "Test", fn _payload -> :ignore end, true)
+
+      release_script_port(port)
 
       log = capture_log(fn -> assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test") end)
       assert log =~ "Test sensitive response stream output redacted"
@@ -173,8 +180,7 @@ defmodule Aiur.AppServer.RpcTest do
       secret = "person@example.test credential=super-secret"
 
       port =
-        script_port("""
-        sleep 0.05
+        gated_script_port("""
         printf '%s\\n' '{"method":"account/updated","result":{"email":"#{secret}"}}'
         printf '%s\\n' '{"id":6,"result":{"ok":true}}'
         """)
@@ -183,7 +189,9 @@ defmodule Aiur.AppServer.RpcTest do
       test_pid = self()
 
       assert {:error, :response_timeout} =
-               Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
+               Rpc.with_timeout_response(port, 5, 100, "", "Test", fn _payload -> :ignore end, true)
+
+      release_script_port(port)
 
       log =
         capture_log(fn ->
@@ -202,8 +210,7 @@ defmodule Aiur.AppServer.RpcTest do
       secret = "person@example.test credential=super-secret"
 
       port =
-        script_port("""
-        sleep 0.05
+        gated_script_port("""
         printf '%s\\n' '{"id":5,"method":"server/response","result":{"account":"#{secret}"}}'
         printf '%s\\n' '{"id":6,"result":{"ok":true}}'
         """)
@@ -211,7 +218,9 @@ defmodule Aiur.AppServer.RpcTest do
       on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
 
       assert {:error, :response_timeout} =
-               Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
+               Rpc.with_timeout_response(port, 5, 100, "", "Test", fn _payload -> :ignore end, true)
+
+      release_script_port(port)
 
       log = capture_log(fn -> assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test") end)
       refute log =~ secret
@@ -219,8 +228,7 @@ defmodule Aiur.AppServer.RpcTest do
 
     test "keeps an id-colliding request and unrelated malformed output after a sensitive timeout" do
       port =
-        script_port("""
-        sleep 0.05
+        gated_script_port("""
         printf '%s\\n' '{"id":5,"method":"server/request","params":{}}'
         printf '%s\\n' 'ordinary non-json output'
         printf '%s\\n' '{"id":6,"result":{"ok":true}}'
@@ -230,7 +238,9 @@ defmodule Aiur.AppServer.RpcTest do
       test_pid = self()
 
       assert {:error, :response_timeout} =
-               Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
+               Rpc.with_timeout_response(port, 5, 100, "", "Test", fn _payload -> :ignore end, true)
+
+      release_script_port(port)
 
       assert {:ok, %{"ok" => true}} =
                Rpc.with_timeout_response(port, 6, 1_000, "", "Test", fn payload ->
@@ -241,6 +251,10 @@ defmodule Aiur.AppServer.RpcTest do
       assert_receive {:id_colliding_request, %{"id" => 5, "method" => "server/request"}}, 2_000
     end
   end
+
+  defp gated_script_port(command), do: script_port("IFS= read -r _\n" <> command)
+
+  defp release_script_port(port), do: Port.command(port, "continue\n")
 
   defp script_port(command) do
     Port.open({:spawn_executable, String.to_charlist(System.find_executable("bash"))}, [
