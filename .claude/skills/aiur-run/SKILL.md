@@ -573,9 +573,7 @@ that command records an Executor actor, which must remain distinguishable from
 an operator actor in the durable decision record and dashboard. The operator
 can find these decisions in dashboard history and revise or supersede them
 later. Never answer through an operator-attributed API or imply Executor
-attribution only in free-form rationale.
-Never run `aiur answer`; it records a `human_required` decision as an operator
-and is reserved for a human at an interactive terminal.
+attribution only in free-form rationale. Never run `aiur answer`; it is human-only and requires an interactive terminal.
 
 ```bash
 "$AIUR_CMD" executor-answer <decision-id> --expected-version <n> \
