@@ -1,7 +1,30 @@
 defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
   alias Aiur.ExecutorSweep.SnapshotCache
+  alias Aiur.GitHub.ResourceStore
+
+  setup_all do
+    if Process.whereis(ResourceStore) == nil, do: Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
+    :ok
+  end
+
+  setup do
+    ResourceStore.reset()
+    on_exit(fn -> ResourceStore.reset() end)
+    :ok
+  end
+
+  test "skips a metadata-only ResourceStore entry while reading cached resources" do
+    key = ResourceStore.key(:issue, "owner", "repo", 3787)
+    assert :ok = ResourceStore.put_resource(key, %{"number" => 3787}, source: :mutation, version: "2026-10-15T13:25:40Z")
+    ResourceStore.drop_data(key)
+
+    assert [{{:issue, "owner", "repo", "3787"}, %{data_source: :mutation} = entry}] = ResourceStore.list(:issue, "owner", "repo")
+    refute Map.has_key?(entry, :data)
+
+    assert %{tickets: nil} = SnapshotCache.read(fn -> %Aiur.OpenTicketSource.Snapshot{status: :unavailable} end)
+  end
 
   test "joins cached PR bodies, current-head reviews, and ticket labels without a fetch" do
     snapshot =
