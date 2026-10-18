@@ -4,7 +4,7 @@ defmodule Aiur.LandingWatch do
   require Logger
 
   alias Aiur.Alerts
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
   alias Aiur.LandingWatch.{Attribution, Classifier, Journal, MergeGroups, Observer, PrRerun}
   alias Aiur.Orchestrator.TicketTransition
@@ -28,7 +28,7 @@ defmodule Aiur.LandingWatch do
   def init(opts) do
     interval = Keyword.get(opts, :interval_ms, @default_interval_ms)
     # CI-file merges let older failed PR runs rerun instead of routing to rework.
-    if Keyword.get(opts, :subscribe, true), do: Enum.each(["system.pr.merged", "ticket.*.pr.merged"], &Exchange.subscribe/1)
+    if Keyword.get(opts, :subscribe, true), do: Enum.each(["system.pr.merged", "ticket.*.pr.merged"], &Events.subscribe/1)
     send(self(), :poll)
     {:ok, %{watcher: :running, last_poll_at_ms: nil, last_error: nil, interval_ms: interval, opts: opts, task: nil}}
   end

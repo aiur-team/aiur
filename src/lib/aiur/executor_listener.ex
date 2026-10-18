@@ -11,7 +11,7 @@ defmodule Aiur.ExecutorListener do
 
   require Logger
 
-  alias Aiur.Events.{Exchange, Topic}
+  alias Aiur.Events
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorAttention.DecisionEscalation
   alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
@@ -137,7 +137,7 @@ defmodule Aiur.ExecutorListener do
 
   @impl true
   def terminate(_reason, state) do
-    Enum.each(state.patterns, &Exchange.unsubscribe/1)
+    Enum.each(state.patterns, &Events.unsubscribe/1)
     :ok
   rescue
     _ -> :ok
@@ -150,7 +150,7 @@ defmodule Aiur.ExecutorListener do
   end
 
   defp subscribe_or_arm(pattern) do
-    :ok = Exchange.subscribe(pattern)
+    :ok = Events.subscribe(pattern)
     true
   rescue
     error ->
@@ -206,7 +206,7 @@ defmodule Aiur.ExecutorListener do
   defp matching_fresh_event?(event, state) do
     case {event_topic(event), event_id(event)} do
       {topic, id} when is_binary(topic) and is_integer(id) ->
-        Enum.any?(state.patterns, &Topic.matches?(&1, topic)) and
+        Enum.any?(state.patterns, &Events.matches?(&1, topic)) and
           (not String.starts_with?(topic, "executor.") or id > (state.watermark || 0))
 
       _ ->
@@ -318,7 +318,7 @@ defmodule Aiur.ExecutorListener do
   end
 
   defp safe_bindings(pid) do
-    Exchange.bindings_for(pid)
+    Events.bindings_for(pid)
   rescue
     _ -> []
   catch
