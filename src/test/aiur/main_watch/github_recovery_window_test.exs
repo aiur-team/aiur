@@ -22,20 +22,26 @@ defmodule Aiur.MainWatch.GitHubRecoveryWindowTest do
 
   defp evidence_request(runs, checks) do
     fn %{url: url} ->
-      routes = [
-        {"/commits?", ok([%{"sha" => "red-head"}])},
-        {"event=push", ok(%{"workflow_runs" => runs})},
-        {"/actions/runs?", ok(%{"workflow_runs" => []})},
-        {"/check-runs?", ok(%{"check_runs" => checks})},
-        {"/status", ok(%{"statuses" => []})},
-        {"/annotations?", ok([])},
-        {"/contents/", ok(%{"encoding" => "base64", "content" => ""})},
-        {"/issues?", ok([])}
-      ]
-
-      Enum.find_value(routes, fn {path, response} -> if String.contains?(url, path), do: response end) || flunk("unexpected request #{url}")
+      request(url, runs, checks)
     end
   end
+
+  defp request(url, runs, checks) do
+    routes = [
+      {"/commits?", ok([%{"sha" => "red-head"}])},
+      {"event=push", ok(%{"workflow_runs" => runs})},
+      {"/actions/runs?", ok(%{"workflow_runs" => []})},
+      {"/check-runs?", ok(%{"check_runs" => checks})},
+      {"/status", ok(%{"statuses" => []})},
+      {"/annotations?", ok([])},
+      {"/contents/", ok(%{"encoding" => "base64", "content" => ""})},
+      {"/issues?", ok([])}
+    ]
+
+    Enum.find_value(routes, &route_response(&1, url)) || flunk("unexpected request #{url}")
+  end
+
+  defp route_response({path, response}, url), do: if(String.contains?(url, path), do: response)
 
   defp run(id, sha, workflow, conclusion, created_at) do
     %{
