@@ -6,15 +6,43 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 // setting nullable/closure/skew/XSS cases and unavailable queue/open_tickets sources.
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
 let errors
+let lifecycleEvents
+let b4LifecycleStart
 async function open(page, dataset = 'live') {
   await page.goto('/build-fixture/' + dataset + '?view=list')
   await expect(page.locator('.bd-list')).toHaveCount(1)
 }
 test.beforeEach(async ({ page }) => {
-  errors = []; page.on('pageerror', error => errors.push(error.message))
+  errors = []; lifecycleEvents = []; b4LifecycleStart = 0
+  page.on('pageerror', error => errors.push(error.message))
+  page.on('framenavigated', frame => {
+    if (frame === page.mainFrame()) lifecycleEvents.push({ type: 'framenavigated', url: frame.url() })
+  })
+  page.on('load', () => lifecycleEvents.push({ type: 'load', url: page.url() }))
+  page.on('crash', () => lifecycleEvents.push({ type: 'crash', url: page.url() }))
+  page.on('console', message => {
+    const text = message.text()
+    if (/^AIUR_B4_DIAG |^AIUR_BUILD_HOME_DIAG |LiveView|LiveSocket|consecutive reloads|reloadWithJitter/i.test(text)) {
+      lifecycleEvents.push({ type: 'console', text })
+    }
+  })
   await open(page)
 })
-test.afterEach(async ({ page }) => { await page.request.get('/build-control/earlier'); expect(errors).toEqual([]) })
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.title.startsWith('B4 ') && testInfo.status !== testInfo.expectedStatus) {
+    const browserEvents = await page.evaluate(() => window.__aiurB4Lifecycle || null)
+      .catch(error => ({ unavailable: error.message }))
+    await testInfo.attach('b4-lifecycle-diagnostics', {
+      body: JSON.stringify({
+        browserEvents,
+        playwrightEvents: lifecycleEvents.slice(b4LifecycleStart)
+      }, null, 2),
+      contentType: 'application/json'
+    })
+  }
+  await page.request.get('/build-control/earlier')
+  expect(errors).toEqual([])
+})
 const rows = page => page.locator('.lr[data-id]')
 
 test('B1 list registration renders sections and counts in design order', async ({ page }) => {
@@ -67,6 +95,36 @@ test('B3 real live diff preserves focus and position; removal and empty filters 
   await expect(page.locator('.bd-list')).toBeFocused()
 })
 test('B4 server paging disables duplicate clicks and permits an explicit retry', async ({ page }) => {
+  await page.evaluate(() => {
+    const snapshot = () => ({
+      url: location.href,
+      trackedStatic: [...document.querySelectorAll('[phx-track-static]')].map(node => node.src || node.href),
+      joinCount: window.liveSocket?.main?.joinCount,
+      joinAttempts: window.liveSocket?.main?.joinAttempts
+    })
+    const record = (type, detail = {}) => {
+      const event = { type, ...snapshot(), ...detail }
+      window.__aiurB4Lifecycle.push(event)
+      console.info(`AIUR_B4_DIAG ${JSON.stringify(event)}`)
+    }
+    const liveSocket = window.liveSocket
+    const previousLogger = liveSocket?.viewLogger
+    window.__aiurB4Lifecycle = []
+    record('initial')
+    if (liveSocket) liveSocket.viewLogger = (view, kind, message, obj) => {
+      if (kind === 'join' || kind === 'error') record('liveview-log', { kind, message, detail: obj, viewId: view?.id })
+      previousLogger?.(view, kind, message, obj)
+    }
+    addEventListener('phx:page-loading-start', event => record('phx:page-loading-start', { to: event.detail?.to }))
+    addEventListener('beforeunload', () => record('beforeunload'))
+    addEventListener('pagehide', event => record('pagehide', { persisted: event.persisted }))
+    window.liveSocket?.getSocket()?.onClose(event => record('socket-close', {
+      code: event?.code,
+      reason: event?.reason,
+      wasClean: event?.wasClean
+    }))
+  })
+  b4LifecycleStart = lifecycleEvents.length
   await page.request.get('/build-control/earlier?fail=1')
   const more = page.locator('#lr-more')
   await more.click()
