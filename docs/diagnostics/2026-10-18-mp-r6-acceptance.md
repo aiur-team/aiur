@@ -1,12 +1,16 @@
-# MP-R6 acceptance evidence — 2026-10-18
+# MP-R6 partial acceptance evidence — 2026-10-18
 
-Issue: [#3462](https://github.com/aiur-team/aiur/issues/3462).
+Refs [#3462](https://github.com/aiur-team/aiur/issues/3462); keep the issue open.
+The acceptance capstone is incomplete. This report records partial evidence,
+not completion of the feature acceptance contract.
 Automated acceptance baseline: `main` at
 `dc85ed0de4ddcf5b0de6f7873c91f4b5d54a1492`.
 
-Automated checks passed as recorded below. Live daemon restart, rendered
-CLI/TUI/dashboard proof and physical dictation remain post-deploy checks.
-This report does not claim that those hands-on checks ran in an issue workspace.
+Automated checks passed as recorded below. The Executor later supplied
+read-only live dashboard observations, attributed below. Loaded-build proof,
+TUI interaction, disconnected-sidecar behavior and physical dictation remain
+unproven. No hands-on checks are claimed to have run in an issue workspace.
+
 No production code or tests are changed by this acceptance report.
 
 ## Contract and merged members
@@ -93,13 +97,16 @@ The isolated compile initially failed because a dashboard icon module reads
 `deps/heroicons` relative to the worktree. Setting `MIX_DEPS_PATH` alone did
 not supply that path. A worktree-local `src/deps` symlink to the existing
 dependencies corrects the harness; `packages/streamdeck` remains absent.
+
 A second attempt failed on `phoenix_html` assets because dependency `priv`
 links inside the relocated cache are relative. The private cache was moved
 into the worktree's normal `src/_build` layout, preserving those links.
+
 The final retry uses `mise exec -- mix compile --force --warnings-as-errors`
 from that worktree's `src/`, recompiling all core sources rather than
-accepting a warm no-op compile. Neither harness failure involved a sidecar
-file read.
+accepting a warm no-op compile.
+
+Neither harness failure involved a sidecar file read.
 
 Final result: **pass**, `Generated aiur app`, with **2,034 source files**
 compiled while the sidecar directory was absent. The worktree was then
@@ -124,13 +131,82 @@ changes since those merges.
 The classification table in `docs/streamdeck-channel.md` identifies shared
 anchors, deck DTOs, presentation and transport. Its canonical paths resolve.
 `website/docs-app/guide/stream-deck.md` explicitly says the dashboard and
-emulator require no sidecar. Anchors currently serve `StreamdeckLogs`;
+emulator require no sidecar.
+
+Anchors currently serve `StreamdeckLogs`;
 `History` re-exports them and non-deck conversation use remains planned.
 
-## Post-deploy checks
+## Attributed Executor live observations
 
-These checks require the Executor's repository root or physical equipment.
-They were not run here. The PR repeats every step under `## Local tests`.
+The [Executor's live acceptance comment](https://github.com/aiur-team/aiur/pull/5173#issuecomment-6256387359)
+records a read-only run on 2026-10-18, 23:00–23:16 UTC. These are the
+Executor's observations, not checks performed in this workspace. Capture
+names in that comment are labels; no screenshot artifact paths are supplied.
+
+### Release directory and startup correlation
+
+The runtime release stamp records source SHA
+`d5b129fc6eb446fc5daa434a1cd2d80f70c2bb37`, built at
+`2026-10-18T22:58:37Z`, with `dirty=yes`. Runtime checkout HEAD matched;
+only `.aiur/config` and `.aiur/model-usage.json` were modified tracked files
+(operator state, not source changes).
+
+BEAM pid 1920122 started at 22:59:18Z, 41 seconds after the stamp, using that
+release directory. Runtime `aiurdev status` answered with a 22:59:56Z handoff,
+seven agents adopted, a listener present and main green. The Executor did
+not RPC-read the stamp inside the node; startup correlation is not that proof.
+
+### Browser emulator: read-only targeting and selection
+
+Headless Chromium opened the live dashboard's `/streamdeck`. The browser
+path is a LiveView requiring no sidecar, but a physical sidecar was connected
+to the same daemon. This run does not prove operation with the sidecar
+disconnected.
+
+Capture label `01-grid` showed eight agent keys, page 0 of 62,
+`data-grid-total=495`, and “8 live · 487 left”. Focus on #3153 and #5103
+showed five command-mode keys with matching identifiers and matching
+“CONTROLLING” strips. Focus followed the pressed key.
+
+Commands for #3323 and #3153 showed different Command sets matching focus.
+Opening a closed #3323 Command showed its detail without option keys and a
+disabled Mic key marked “SIDECAR”. No Command was answered; this proves
+read-only targeting and selection only.
+
+Logs for #5103 and #3153 showed only “INFO Ticket opened” plus LIVE.
+Selecting event 0 moved `aria-current` from LIVE to that event and showed
+“[INFO] Ticket opened” at offset 0/0. There was no meaningful transcript
+jump. Their workspace logs had 18,144 and 11,823 lines respectively.
+
+The Executor did not determine whether that shallow projection was expected
+for adopted agents after restart or was a projection gap. Re-selecting LIVE
+on stuck #5103 and observing for 45 seconds produced no new event; the agent
+was not producing events. LIVE updating was not exercised.
+
+The Executor avoided pressing running or paused agent keys because those
+keys can pause or resume work. No focused-identifier comparison with the TUI
+ran. The comment also reports a roughly 40 px key-block shift in logs and
+commands modes and only a Mic key in command-detail row 2, without assigning
+severity.
+
+### Sidecar connection and remaining voice evidence
+
+The Executor observed the physical sidecar reconnect after daemon restart
+and send `channel.grid` by 23:00:22Z. At 23:15:05Z its journal reported 496
+agents and provider usage. This is attributed connection/grid evidence,
+not proof of physical focus, dictation or rendered hardware behavior.
+
+The operator dotenv contained an ElevenLabs key (its value was not read),
+but no required speech fixture existed on the host. No physical voice run,
+external voice-latency test, partial/final transcript or latency measurement
+was produced. The workspace's mocked tests do not fill that gap.
+
+## Remaining post-deploy checks
+
+These steps remain necessary to complete acceptance. They require the
+Executor's repository root or physical equipment and were not run here.
+The PR repeats every exact step under `## Local tests` as a
+`Post-deploy check:`; partial observations below do not complete them.
 
 1. From the Executor repo root, update to main, run `scripts/aiurdev restart`,
    and confirm the loaded build's repo/commit stamp matches that main SHA.
@@ -159,17 +235,24 @@ They were not run here. The PR repeats every step under `## Local tests`.
 
 The pre-PR gate integrated `main` at
 `ec46c7c73b788fe5bae034eea5f7c3e53a041292` after the acceptance run.
-Its change is the build-home live agent band and CI wiring. A scoped
+Its change is the build-home live agent band and CI wiring.
+
+A scoped
 `git diff --exit-code` against the acceptance baseline confirmed no changes
 to the MP-R6 anchor/event-feed modules, deck modules and emulator, canonical
 JSON, sidecar, classification docs or deck/anchor acceptance tests.
+
 The acceptance counts above refer to the stated baseline; local pre-PR gates
 validate the integrated head separately and are recorded in the PR body.
 
 ## Findings and disposition
 
-No P0/P1 acceptance blocker or P2/P3 feature finding was observed in the
-completed automated checks. No deferred-ledger entry is warranted.
-Hands-on acceptance remains unproven until the listed post-deploy checks
-produce dated captures; automated success is not evidence of rendered UX
-or physical audio behavior.
+The automated checks found no P0/P1 acceptance blocker or P2/P3 feature
+finding. The live observations leave acceptance gaps, including no observed
+LIVE update or meaningful transcript jump. These observations do not establish
+a feature defect; they also do not satisfy those acceptance criteria.
+
+Keep #3462 open until the remaining checks produce dated evidence. This
+report and its PR must reference the issue with `Refs #3462`, without a
+closing keyword. Automated success and partial dashboard observations do
+not prove complete rendered UX, physical audio behavior or latency.
