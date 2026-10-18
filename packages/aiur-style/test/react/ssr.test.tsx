@@ -1,14 +1,17 @@
 // @vitest-environment node
-import React from 'react';
-import { renderToString } from 'react-dom/server';
+import { execFileSync } from 'node:child_process';
 import { expect, it } from 'vitest';
-import { AiurShell, PageFrame, Button, ThemeToggle } from 'aiur-style/react';
 
 it('the published React subpath imports and renders without browser globals', () => {
-  expect(typeof window).toBe('undefined');
-  const html = renderToString(<AiurShell navItems={[{ href: '/channels', label: 'Channels', current: true }]}>
-    <PageFrame title="Channels"><Button>Join</Button><ThemeToggle /></PageFrame>
-  </AiurShell>);
+  const html = execFileSync(process.execPath, ['--input-type=module', '-e', `
+    import { createElement as h } from 'react';
+    import { renderToString } from 'react-dom/server';
+    import { AiurShell, PageFrame, Button, ThemeToggle } from 'aiur-style/react';
+    if (typeof window !== 'undefined') throw new Error('Expected a server process');
+    console.log(renderToString(h(AiurShell, {
+      navItems: [{ href: '/channels', label: 'Channels', current: true }],
+    }, h(PageFrame, { title: 'Channels' }, h(Button, null, 'Join'), h(ThemeToggle)))));
+  `], { encoding: 'utf8' });
   expect(html).toContain('class="aiur-shell"');
   expect(html).toContain('aria-current="page"');
   expect(html).toContain('class="aiur-page__title"');
