@@ -7,8 +7,8 @@ defmodule Aiur.Executor.HandoffTest do
 
   setup do
     tmp = Aiur.TestSupport.tmp_root!("aiur-executor-handoff")
-    state_root = Path.join(tmp, "state")
     previous_root = Application.get_env(:aiur, :repo_base_root)
+    state_root = Path.join(tmp, "state")
     Application.put_env(:aiur, :repo_base_root, state_root)
 
     on_exit(fn ->

@@ -76,6 +76,49 @@ defmodule Aiur.TestCleanupTest do
     assert error.message =~ "or they cannot be deleted): [#{inspect(file)}]"
   end
 
+  test "cleanup detects a live repo state tree writer", %{root: root} do
+    Application.put_env(:aiur, :repo_base_root, root)
+    parent = self()
+    node = Aiur.Config.Paths.repo_state_path("test-org/test-repo")
+
+    writer = spawn(fn -> writer_loop(parent, node) end)
+    assert_receive :writer_started
+    file = Path.join(node, ".aiur-hex")
+
+    error =
+      assert_raise RuntimeError, fn ->
+        TestCleanup.rm_rf!(root,
+          unset: [:repo_base_root],
+          rm: fn path ->
+            send(writer, {:write, self()})
+            receive do: ({:write_finished, ^writer} -> :ok)
+            File.mkdir_p!(file)
+            {:error, :eexist, path}
+          end
+        )
+      end
+
+    assert File.dir?(file)
+    Process.exit(writer, :kill)
+    refute Process.alive?(writer)
+    File.rm_rf!(root)
+    assert error.message =~ "a live writer keeps putting them back"
+  end
+
+  defp writer_loop(parent, node) do
+    send(parent, :writer_started)
+
+    receive do
+      {:write, caller} ->
+        _result = Aiur.RepoBase.StateTree.ensure_state_tree_at(node)
+        send(caller, {:write_finished, self()})
+        writer_loop(parent, node)
+
+      :stop ->
+        :ok
+    end
+  end
+
   test "unset deletes the named env keys before the guard", %{root: root} do
     Application.put_env(:aiur, :test_cleanup_probe_dir, root)
     on_exit(fn -> Application.delete_env(:aiur, :test_cleanup_probe_dir) end)
