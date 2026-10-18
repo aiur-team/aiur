@@ -27,7 +27,7 @@ defmodule Aiur.Experiments.AnalystCreateRecoveryTest do
   end
 
   test "restart after creating journal but before POST waits then resends the same durable request", %{id: id, clock: clock} do
-    started = System.system_time(:millisecond)
+    started = System.system_time(:millisecond) - 4 * 86_400_000
     :atomics.put(clock, 1, started)
     pending = crash_before_post(id, clock)
     since = DateTime.from_unix!(started - 300_000, :millisecond) |> DateTime.to_iso8601()
@@ -38,7 +38,7 @@ defmodule Aiur.Experiments.AnalystCreateRecoveryTest do
     refute_received {:lookup, _}
     refute_received {:post, _}
 
-    :atomics.put(clock, 1, started + 60_000)
+    :atomics.put(clock, 1, started + 4 * 86_400_000)
     retry(pid)
     marker = AnalysisTicket.marker(pending)
     assert_received {:lookup, ^marker}
@@ -173,14 +173,20 @@ defmodule Aiur.Experiments.AnalystCreateRecoveryTest do
   end
 
   defp large_repository(since) do
+    {:ok, cutoff, _offset} = DateTime.from_iso8601(since)
+    updated = DateTime.utc_now() |> DateTime.to_iso8601()
+    rows = for number <- 1..1100, do: %{"number" => number, "body" => "old history", "created_at" => cutoff |> DateTime.add(-number, :second) |> DateTime.to_iso8601(), "updated_at" => updated}
+
     fn request ->
-      if URI.decode_query(URI.parse(request.url).query)["since"] == since do
-        {:ok, %{status: 200, body: []}}
-      else
-        page = URI.decode_query(URI.parse(request.url).query)["page"] || "1"
-        next = [{"link", "<https://api.github.com/repos/owner/repo/issues?page=#{String.to_integer(page) + 1}>; rel=\"next\""}]
-        {:ok, %{status: 200, headers: next, body: List.duplicate(%{"number" => 1, "body" => "old history"}, 100)}}
-      end
+      query = URI.decode_query(URI.parse(request.url).query)
+      page = String.to_integer(query["page"] || "1")
+      filter = if query["since"], do: DateTime.from_iso8601(query["since"]) |> elem(1)
+      eligible = Enum.filter(rows, fn row -> is_nil(filter) or DateTime.compare(DateTime.from_iso8601(row["updated_at"]) |> elem(1), filter) == :gt end)
+      ordered = Enum.sort_by(eligible, & &1["created_at"], :desc)
+      body = Enum.slice(ordered, (page - 1) * 100, 100)
+      next = URI.parse(request.url) |> Map.put(:query, URI.encode_query(Map.put(query, "page", page + 1))) |> URI.to_string()
+      headers = if length(ordered) > page * 100, do: [{"link", "<#{next}>; rel=\"next\""}], else: []
+      {:ok, %{status: 200, body: body, headers: headers}}
     end
   end
 

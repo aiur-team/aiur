@@ -4,6 +4,7 @@ defmodule Aiur.Experiments.Analyst do
   require Logger
   alias Aiur.Experiments
   alias Aiur.Experiments.{AnalysisDispatch, AnalysisRequests, AnalysisTicketLifecycle, AnalystBrief}
+  alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Tracker
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -116,6 +117,8 @@ defmodule Aiur.Experiments.Analyst do
 
   defp promote(number) do
     id = to_string(number)
-    with :ok <- Tracker.add_label(id, "complexity:3"), do: Tracker.remove_label(id, "complexity:2")
+
+    with :ok <- TicketTransition.write_marker(id, :add, "complexity:3", writer: :experiments_analyst),
+         do: TicketTransition.write_marker(id, :remove, "complexity:2", writer: :experiments_analyst)
   end
 end

@@ -8,7 +8,7 @@ defmodule Aiur.Experiments.AnalysisRequestsTest do
     root = Path.join(System.tmp_dir!(), "analysis-requests-#{System.unique_integer([:positive])}")
     previous = Application.get_env(:aiur, :experiments_dir)
     Application.put_env(:aiur, :experiments_dir, root)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :experiments_dir, previous), else: Application.delete_env(:aiur, :experiments_dir)

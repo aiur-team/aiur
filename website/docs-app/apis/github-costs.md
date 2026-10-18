@@ -97,7 +97,9 @@ time and SHA. Incomplete or refused reads preserve state for retry. No saving is
 
 Analysis requests create issues as `experiment_analysis_create`, with dispatch labels and a nonce marker in the same POST. Label definitions are ensured first.
 
-Uncertain writes reconcile as `experiment_analysis_reconcile`: up to ten REST pages of 100 open and closed issues. GitHub's [`since` filter](https://docs.github.com/en/rest/issues/issues#list-repository-issues) uses the first creation attempt minus five minutes for clock skew. Older journals use the original request time.
+Uncertain writes reconcile as `experiment_analysis_reconcile`, using pages of 100 open and closed issues. The window begins at the first creation attempt minus five minutes for clock skew. Older journals use the original request time.
+
+GitHub's [`since` filter](https://docs.github.com/en/rest/issues/issues#list-repository-issues) filters update time. Results sort by creation time descending; a bounded scan ends at the first row created before the window, a match, or the last page. It can pass page ten. Legacy lookups without a usable time window retain the ten-page safety limit.
 
 Failed or incomplete reads never authorize a POST. After backoff, a complete scan proving absence permits creation with the same request and nonce.
 
