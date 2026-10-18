@@ -44,12 +44,12 @@ defmodule Aiur.LandingWatch do
 
   @impl true
   def handle_info(:poll, %{task: task} = state) when not is_nil(task) do
-    Process.send_after(self(), :poll, state.interval_ms)
+    schedule_poll(state)
     {:noreply, state}
   end
 
   def handle_info(:poll, state) do
-    Process.send_after(self(), :poll, state.interval_ms)
+    schedule_poll(state)
     task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> poll(state.opts) end)
     {:noreply, %{state | task: task, watcher: :running}}
   rescue
@@ -110,6 +110,10 @@ defmodule Aiur.LandingWatch do
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp schedule_poll(state) do
+    Keyword.get(state.opts, :send_after_fun, &Process.send_after/3).(self(), :poll, state.interval_ms)
+  end
 
   @doc false
   @spec poll(keyword()) :: :ok | {:error, term()}
