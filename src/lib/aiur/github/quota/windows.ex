@@ -1,6 +1,7 @@
 defmodule Aiur.GitHub.Quota.Windows do
   @moduledoc false
 
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.{EndpointPolicy, GraphQLCost, GraphQLErrors, Transport}
   alias Aiur.RepoBase
 
@@ -282,7 +283,7 @@ defmodule Aiur.GitHub.Quota.Windows do
 
   @spec default_hold_dir() :: String.t() | nil
   def default_hold_dir do
-    case Aiur.GitHub.Config.repo() do
+    case GitHubConfig.repo() do
       repo when is_binary(repo) and repo != "" ->
         repo
         |> RepoBase.repo_path()

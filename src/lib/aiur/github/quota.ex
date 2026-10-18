@@ -33,11 +33,11 @@ defmodule Aiur.GitHub.Quota do
 
   use GenServer
 
-  alias Aiur.Signal
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.{HoldSweep, RequestLog, RequestOrigin, Transport}
 
   alias Aiur.GitHub.Quota.{Attribution, Coverage, ShellObservations, Windows}
+  alias Aiur.Signal
 
   @empty_coverage %{resources: %{}, estimated?: false}
   @unknown_snapshot %{
