@@ -168,6 +168,7 @@ defmodule Aiur.DecisionStore.AnswerTransportTest do
 
       pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
       assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-lifecycle"))
+      decision_id = decision.decision_id
       answer_payload = %{"idempotency_key" => "lifecycle-1", "expected_version" => 1, "option_id" => "ship"}
       assert {:ok, %{action: action}} = answer(pid, decision.decision_id, answer_payload)
       assert_receive {:lifecycle_attempt, attempt_id}, 1_000
@@ -204,13 +205,20 @@ defmodule Aiur.DecisionStore.AnswerTransportTest do
       assert {:ok, %{status: :accepted, decision_status: :acknowledged}} =
                DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, pid)
 
-      assert_receive {:event, %{topic: "ticket.979.agent.decision.acknowledged", digest_source: :orchestrator} = acknowledged}, 500
+      assert_receive {:event,
+                      %{
+                        "decision_id" => ^decision_id,
+                        topic: "ticket.979.agent.decision.acknowledged",
+                        digest_source: :orchestrator
+                      } = acknowledged},
+                     500
+
       assert EventsDigest.render([acknowledged], "979") =~ "ticket.979.agent.decision.acknowledged"
 
       assert {:ok, %{status: :duplicate}} =
                DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, pid)
 
-      refute_receive {:event, %{topic: "ticket.979.agent.decision.acknowledged"}}, 100
+      refute_receive {:event, %{"decision_id" => ^decision_id, topic: "ticket.979.agent.decision.acknowledged"}}, 100
 
       reconnected_opts =
         Keyword.put(lifecycle_opts, :source, %{
@@ -234,7 +242,7 @@ defmodule Aiur.DecisionStore.AnswerTransportTest do
       assert {:ok, %{status: :accepted, decision_status: :resolved}} =
                DecisionStore.agent_lifecycle(:resolved, resolved_payload, lifecycle_opts, pid)
 
-      assert_receive {:event, %{topic: "ticket.979.agent.decision.resolved"}}, 500
+      assert_receive {:event, %{"decision_id" => ^decision_id, topic: "ticket.979.agent.decision.resolved"}}, 500
       assert {:ok, current} = DecisionStore.get(decision.decision_id, pid)
       assert current.acknowledgement.detail == "Observed and applying the answer"
       assert current.acknowledgement.source.session_id == "session-1"

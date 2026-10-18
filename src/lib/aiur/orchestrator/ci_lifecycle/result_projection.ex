@@ -62,8 +62,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
       head_sha: Map.get(result, :head_sha),
       draft?: projection_value(result, previous, :draft?, false) == true,
       review_decision: projection_value(result, previous, :review_decision, nil),
-      auto_merge_request: projection_value(result, previous, :auto_merge_request, nil),
-      merge_queue_entry: projection_value(result, previous, :merge_queue_entry, nil),
+      auto_merge_request: projection_value(result, previous, :auto_merge_request, get_in(previous, [:merge_queue, :auto_merge_request])),
+      merge_queue_entry: projection_value(result, previous, :merge_queue_entry, get_in(previous, [:merge_queue, :merge_queue_entry])),
       recovery: if(result[:decision] == :pending and result[:head_sha] == get_in(previous, [:head_sha]), do: projection_value(result, previous, :recovery, nil), else: result[:recovery]),
       failures: Map.get(result, :failures, [])
     }
