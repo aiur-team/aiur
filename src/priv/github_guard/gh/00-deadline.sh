@@ -4,7 +4,7 @@
 # inside one process group so a deadline can terminate every child.
 if command -v python3 >/dev/null 2>&1; then
   exec python3 -I -c '
-import os, signal, subprocess, sys, tempfile
+import os, signal, subprocess, sys, threading
 
 script = sys.argv[1]
 args = sys.argv[2:]
@@ -20,14 +20,35 @@ try:
 except ValueError:
     seconds = 120
 seconds = max(1, min(seconds, 120))
-fd, body_path = tempfile.mkstemp(prefix="aiur-gh-guard.", suffix=".sh")
-with os.fdopen(fd, "w", encoding="utf-8") as body_file:
-    body_file.write(body)
+
+# Feed the large body through an anonymous pipe. The shell inherits the read
+# end and sources it by descriptor; no agent-writable pathname exists.
+body_read, body_write = os.pipe()
+def write_body(fd, contents):
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as body_file:
+            body_file.write(contents)
+    except BrokenPipeError:
+        # A guard rejection can exit before reading the entire body. The
+        # supervisor still joins this writer, so it must treat the closed
+        # source pipe as normal child completion.
+        pass
+
+shell_program = (
+    "source_path=$1; shift; "
+    "if [ -f \"$source_path\" ]; then "
+    "echo \"aiur: refusing regular-file deadline body\" >&2; exit 127; "
+    "fi; . \"$source_path\""
+)
 child = subprocess.Popen(
-    ["/bin/sh", "-c", "script=$1; shift; . \"$script\"", script, body_path, *args],
+    ["/bin/sh", "-c", shell_program, script, "/dev/fd/" + str(body_read), *args],
     stdin=None,
+    pass_fds=(body_read,),
     start_new_session=True,
 )
+os.close(body_read)
+writer = threading.Thread(target=lambda: write_body(body_write, body), daemon=True)
+writer.start()
 
 def terminate_process_group():
     descendants = descendant_pids(child.pid)
@@ -84,6 +105,7 @@ def descendant_pids(root):
 
 def stop_child(signum, _frame):
     terminate_process_group()
+    writer.join(timeout=0.5)
     raise SystemExit(128 + signum)
 
 signal.signal(signal.SIGTERM, stop_child)
@@ -93,13 +115,13 @@ try:
     child.wait(timeout=seconds)
 except subprocess.TimeoutExpired:
     terminate_process_group()
+    writer.join(timeout=0.5)
     print(f"aiur: governed gh call exceeded {seconds}s deadline; terminated process group", file=sys.stderr)
     raise SystemExit(124)
-finally:
-    os.unlink(body_path)
+writer.join(timeout=0.5)
 status = child.returncode
 raise SystemExit(status if status >= 0 else 128 - status)
-' "$0" "$@"
+' "$0" "$@" 3</dev/null
 elif [ "${1:-}" != --validate-issue-command ]; then
   printf '%s\n' 'aiur: python3 is required to enforce the governed gh call deadline' >&2
   exit 127
