@@ -3,7 +3,7 @@ defmodule Aiur.DecisionAttentionStartupTest do
 
   alias Aiur.{DecisionAttention, DecisionStore, Issue}
 
-  alias Aiur.Events.{SubscriptionStore}
+  alias Aiur.Events.SubscriptionStore
 
   defp accepted_projection do
     fn _payload, _opts ->

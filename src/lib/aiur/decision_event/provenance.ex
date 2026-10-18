@@ -1,8 +1,8 @@
 defmodule Aiur.DecisionEvent.Provenance do
   @moduledoc false
 
-  alias Aiur.DecisionEvent.{Codec, Validation}
   alias Aiur.{Decision, DecisionProvenance, DecisionValidation}
+  alias Aiur.DecisionEvent.{Codec, Validation}
   @schema_version 1
   @versioned_snapshot_schema_version 2
   @provenance_event_id_prefix "decision-provenance-v1:"

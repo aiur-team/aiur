@@ -10,9 +10,9 @@ defmodule Aiur.DecisionProjection do
   returns the usable prefix plus its exact corrupt line.
   """
 
-  alias Aiur.DecisionProjection.Reducers
   alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionValidation}
   alias Aiur.DecisionEvent.Unrecognized
+  alias Aiur.DecisionProjection.Reducers
 
   @type projection :: %{
           current: %{String.t() => Decision.t()},

@@ -1,8 +1,8 @@
 defmodule Aiur.DecisionProjection.DeliveryReducers do
   @moduledoc false
 
-  alias Aiur.DecisionProjection.TransitionValidation
   alias Aiur.{Decision, DecisionEvent}
+  alias Aiur.DecisionProjection.TransitionValidation
 
   @spec transition(term(), term()) :: {:ok, term()} | {:error, term()}
   def transition(%Decision{} = decision, %DecisionEvent{type: type} = event)

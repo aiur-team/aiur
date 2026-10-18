@@ -1,9 +1,8 @@
 defmodule Aiur.DecisionEvent.Codec do
   @moduledoc false
 
-  alias Aiur.DecisionEvent.Validation
   alias Aiur.{Decision, DecisionAnswer, DecisionProjection, DecisionRevision}
-  alias Aiur.DecisionEvent.AuthorityReclassification
+  alias Aiur.DecisionEvent.{AuthorityReclassification, Validation}
   @identity_max 256
   @reason_max 200
   @detail_max 2_000
