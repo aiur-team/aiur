@@ -421,17 +421,16 @@ defmodule Aiur.RepoBase do
   @spec git_auth_env(String.t() | nil) :: [{String.t(), String.t()}]
   defdelegate git_auth_env(token), to: Clone
 
-  ## ---- config / topology ----
+  @doc false
+  @spec read_ledger(Path.t(), atom(), {module(), atom()} | nil) :: {:ok, String.t()} | {:error, term()}
+  defdelegate read_ledger(path, kind, validator), to: Aiur.RepoBase.Ledger
 
-  # Resolves the configured pre-warm target, or `:disabled` when pre-warm is off,
-  # has no detected build command, or the tracker is not a github repo (local
-  # base path is meaningless without a clone source).
+  # Pre-warm needs an enabled build command and an adapter-provided clone source.
   defp resolve do
     with {:ok, settings} <- Config.settings(),
          %{enabled: true, base_build: command} when is_binary(command) and command != "" <-
            settings.prewarm,
-         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-      url = "https://github.com/#{repo}.git"
+         url when is_binary(url) and url != "" <- Clone.clone_url() do
       {:ok, url, base_path(url), command}
     else
       _ -> :disabled

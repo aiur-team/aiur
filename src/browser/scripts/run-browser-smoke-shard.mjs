@@ -6,13 +6,19 @@ import { shardCommands } from './browser-suites.mjs';
 
 // Discovered tests/build-home-*.browser.spec.mjs suites are added by hash; list only explicit scripts here.
 // The key count is the shard count: it must match the browser matrix in .github/workflows/ci.yml.
+// Balanced by recorded durations (browser-smoke-durations.mjs); check-browser-smoke-shards.mjs keeps each shard under 75% of budgetMs.
 export const shards = {
-  1: ['test:home-css-ci', 'test:admission', 'check:elk', 'check:build-home-fixtures', 'test:build-home-protocol', 'test:build-home-now-state', 'test:harness', 'test:smoke', 'test:shell', 'test:shell-chrome', 'test:tokens', 'test:units', 'test:provider-meters', 'test:meter-row', 'test:models-panel', 'test:parity', 'test:build-home-cards:1'],
-  2: ['test:shell-width', 'test:command-history', 'test:build-order', 'test:build-queue', 'test:interaction', 'test:time-brush', 'test:performance', 'test:responsive', 'test:layout', 'test:ticket-context', 'test:shell-parity', 'test:streamdeck', 'test:quota-panel', 'test:streamdeck-flow', 'test:palette', 'test:build-home-cards:2'],
-  3: ['test:build-home-motion', 'test:build-home-offline', 'test:experiments', 'test:build-home-states-parity', 'test:build-home-cards:3'],
-  4: ['test:design-parity', 'test:build-home-tools', 'test:build-home', 'test:build-home-span-parity', 'test:build-home-cards:4'],
-  5: ['test:build-home-list-unit', 'test:build-home-assets', 'test:build-home-layout', 'test:build-home-render', 'test:build-home-span', 'test:build-home-columns'],
+  1: ['test:home-css-ci', 'test:admission', 'check:elk', 'check:build-home-fixtures', 'test:build-home-protocol', 'test:build-home-now-state', 'test:harness', 'test:smoke', 'test:shell', 'test:interaction', 'test:ticket-context', 'test:meter-row', 'test:models-panel', 'test:design-parity', 'test:build-home', 'test:build-home-cards:2'],
+  2: ['test:build-home-layout', 'test:shell-width', 'test:experiments', 'test:units', 'test:build-home-offline', 'test:build-home-tools', 'test:build-home-span', 'test:build-home-states-parity', 'test:build-home-list-unit'],
+  3: ['test:command-history', 'test:quota-panel', 'test:parity', 'test:shell-parity', 'test:build-home-span-parity', 'test:build-home-cards:3'],
+  4: ['test:build-queue', 'test:performance', 'test:provider-meters', 'test:build-home-columns'],
+  5: ['test:build-order', 'test:time-brush', 'test:responsive', 'test:streamdeck-flow', 'test:build-home-render', 'test:build-home-cards:1', 'test:build-home-cards:4'],
+  6: ['test:build-home-assets', 'test:shell-chrome', 'test:layout', 'test:streamdeck', 'test:palette', 'test:tokens', 'test:build-home-motion'],
 };
+
+// Below the job's timeout-minutes, so a slow shard reports its slowest suites instead of being cancelled.
+export const budgetMs = 19 * 60_000;
+export { preflightSeconds, recordedSeconds } from './browser-smoke-durations.mjs';
 
 function reportSlowest(heading, timings, limit = 10) {
   console.error(heading);
@@ -25,8 +31,7 @@ function main() {
   const shard = Number(process.argv[2]);
   const plan = shardCommands(shards);
   if (!plan[shard]) throw new Error(`Unknown browser smoke shard: ${process.argv[2]}`);
-  // Below the job's timeout-minutes, so a slow shard reports its slowest suites instead of being cancelled.
-  const timeoutMs = 19 * 60_000;
+  const timeoutMs = budgetMs;
   const deadline = performance.now() + timeoutMs;
   const preflight = spawnSync('npm', ['run', 'fixture:preflight'], { stdio: 'inherit' });
   if (preflight.error) throw preflight.error;

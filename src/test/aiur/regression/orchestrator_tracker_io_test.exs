@@ -31,9 +31,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       {owner, token} = Application.fetch_env!(:aiur, :tracker_io_test_barrier)
       send(owner, {:poll_started, token, self()})
 
-      receive do
-        {:release_poll, ^token} -> Application.get_env(:aiur, :tracker_io_test_result, {:error, :controlled_poll_failure})
-      end
+      receive do: ({:release_poll, ^token} -> Application.get_env(:aiur, :tracker_io_test_result, {:error, :controlled_poll_failure}))
     end
 
     def add_label(_id, _label) do
@@ -352,7 +350,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       Req.Test.json(conn, [])
     end)
 
-    Req.Test.allow(__MODULE__, self(), server)
+    for client <- [server, Process.whereis(Aiur.GitHub.Listeners.Firehose)], do: Req.Test.allow(__MODULE__, self(), client)
     patterns = [{Aiur.Events.GithubFirehose, :poll, :_}, {Aiur.Events.GithubCIPoller, :poll, :_}, {Aiur.Tracker, :fetch_candidate_issues, :_}]
     Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
     :erlang.trace(server, true, [:call, {:tracer, self()}])
@@ -483,9 +481,10 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   end
 
   defp trace_handler_io(server) do
+    # Workspace callbacks read config locally; they are not tracker I/O.
     tracker_patterns =
       Enum.flat_map([{Aiur.Tracker.IssueTracker, Aiur.Tracker}, {Aiur.Tracker.CodeHost, Aiur.CodeHost}], fn {behaviour, facade} ->
-        for {function, arity} <- behaviour.behaviour_info(:callbacks), function != :open_issue_labels, do: {facade, function, arity}
+        for {function, arity} <- behaviour.behaviour_info(:callbacks), function not in [:open_issue_labels, :clone_url, :workspace_repo_segment], do: {facade, function, arity}
       end)
 
     patterns =
