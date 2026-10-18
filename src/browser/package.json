@@ -8,7 +8,7 @@
     "test:build-home-now-state": "node --test scripts/build-home-now-state.test.mjs",
     "test:build-home-edges-unit": "TZ=America/Los_Angeles node --test scripts/build-home-edges.test.mjs",
     "test:build-home-edges": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-edges.browser.spec.mjs tests/build-home-edges-lifecycle.browser.spec.mjs --config playwright.build-home-edges.config.mjs",
-    "test:home-css-ci": "node --test scripts/home-css-ci.test.mjs scripts/build-home-card-shards.test.mjs",
+    "test:home-css-ci": "node --test scripts/home-css-ci.test.mjs scripts/build-home-card-shards.test.mjs scripts/github-failure-reporter.test.mjs",
     "check:elk": "node --test scripts/vendor-elk.test.mjs && node scripts/check-vendored-elk.mjs",
     "fixture:preflight": "cd .. && mise exec -- mix compile --warnings-as-errors",
     "fixture:server": "node scripts/start-fixture.mjs",

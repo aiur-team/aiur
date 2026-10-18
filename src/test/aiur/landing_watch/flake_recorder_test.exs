@@ -40,7 +40,7 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
     assert :ok = FlakeRecorder.record(failure, run, [17, 24], token: "test-gh-token", request_fun: request, journal_path: journal, alert_emitter: alert)
     assert_received {:created, body}
     assert body["title"] == "Flaky test: ExampleTest :: sometimes fails"
-    assert body["labels"] == ["bug", "agent:todo", "priority:1"]
+    assert body["labels"] == ["bug", "agent:todo", "priority:1", "flake"]
     assert body["body"] =~ "Run ID: 804"
     assert body["body"] =~ "Job: test"
     assert body["body"] =~ "Failing test: ExampleTest :: sometimes fails"
@@ -81,17 +81,21 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
           flunk("expected bounded identity search, got #{url}")
         end
 
-      %{method: :post, url: url, body: body} ->
-        if String.contains?(url, "/issues/301/comments") do
-          send(parent, {:comment, body["body"]})
-          {:ok, %{status: 201, body: %{}}}
-        else
-          flunk("unexpected POST #{url}")
-        end
+      %{method: :post, url: "https://api.github.com/repos/test-org/test-repo/issues/301/labels", body: %{"labels" => ["flake"]}} ->
+        send(parent, {:flake_label_added, ["flake"]})
+        {:ok, %{status: 200, body: [%{"name" => "flake"}]}}
+
+      %{method: :post, url: "https://api.github.com/repos/test-org/test-repo/issues/301/comments", body: body} ->
+        send(parent, {:comment, body["body"]})
+        {:ok, %{status: 201, body: %{}}}
+
+      %{method: :post, url: url} ->
+        flunk("unexpected POST #{url}")
     end
 
     assert :ok = FlakeRecorder.record(failure, %{"id" => 805}, [17], token: "test-gh-token", request_fun: request, journal_path: journal, alert_emitter: fn _, _ -> :ok end)
     assert_received {:comment, body}
+    assert_received {:flake_label_added, ["flake"]}
     assert body =~ "Run ID: 805"
     assert body =~ "Job: unit tests"
     assert body =~ "Failing test: ExampleTest :: retries"
