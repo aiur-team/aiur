@@ -249,7 +249,7 @@ defmodule Aiur.TestSupport do
           ensure_workflow_store_running: 0
         ]
 
-      setup do
+      setup context do
         workflow_base = Application.fetch_env!(:aiur, :test_run_root)
         previous_test_scope_state = Aiur.TestScopeGuard.capture()
 
@@ -333,7 +333,7 @@ defmodule Aiur.TestSupport do
         # exiting `:shutdown`. Then reload it onto this test's config path.
         Aiur.TestSupport.ensure_runtime_children_running()
         if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
-        Aiur.TestSupport.ensure_orchestrator_running()
+        Aiur.TestSupport.ensure_orchestrator_running(context)
 
         Aiur.TestSupport.quiesce_live_orchestrator()
         Aiur.TestSupport.reset_global_state!()
@@ -364,9 +364,8 @@ defmodule Aiur.TestSupport do
             end
           end
 
-          unless Process.whereis(Aiur.Supervisor) do
-            Application.ensure_all_started(:aiur)
-          end
+          unless Process.whereis(Aiur.Supervisor), do: Application.ensure_all_started(:aiur)
+          Aiur.TestSupport.verify_orchestrator_restored!(context)
 
           if scope_state_violation, do: raise(scope_state_violation)
         end)
@@ -386,6 +385,8 @@ defmodule Aiur.TestSupport do
   defdelegate await_supervised_restart(name, prior, timeout \\ 5_000), to: Aiur.TestSupport.Processes
   defdelegate ensure_runtime_children_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_orchestrator_running(), to: Aiur.TestSupport.RuntimeChildren
+  defdelegate ensure_orchestrator_running(context), to: Aiur.TestSupport.OrchestratorGuard, as: :ensure_running
+  defdelegate verify_orchestrator_restored!(context), to: Aiur.TestSupport.OrchestratorGuard, as: :verify_restored!
   defdelegate ensure_branch_ref_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_resource_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_workflow_store_running(), to: Aiur.TestSupport.RuntimeChildren

@@ -25,6 +25,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
   """
 
   alias Aiur.Alerts
+  alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
   alias Aiur.Orchestrator.{OperatorMessages, ReviewFindings, ReworkHandoffChecks, State}
@@ -293,6 +294,23 @@ defmodule Aiur.Orchestrator.ReworkGate do
   end
 
   def head_sha(_pr), do: nil
+
+  @doc "True when the PR's approval carries to its head: approved at the head, or only merge drift since (#4965)."
+  @spec approval_carries_to_head?(integer(), keyword()) :: boolean()
+  def approval_carries_to_head?(number, opts \\ []) do
+    approval = Keyword.get(opts, :pull_request_approval_fetcher, &default_approval_fetcher/1)
+    classifier = Keyword.get(opts, :approval_carry_classifier, &GithubCIPoller.classify_approval_carry/4)
+
+    case approval.(number) do
+      {:ok, {head, head}} when is_binary(head) -> true
+      {:ok, {head, approved}} when is_binary(approved) -> classifier.(approved, head, number, []) == :carried
+      _unapproved_or_unreadable -> false
+    end
+  end
+
+  defp default_approval_fetcher(number) do
+    if available?(), do: GitHubClient.pull_request_approval(number, caller: "approved_handoff"), else: {:error, :unavailable}
+  end
 
   @doc "Returns the safest handoff state when a stopped agent has an open PR."
   @spec stopped_agent_handoff(String.t(), String.t() | atom() | nil, keyword()) ::

@@ -4,8 +4,9 @@ defmodule Aiur.BuildQueue.OptimisticAttentionTest do
   alias Aiur.Orchestrator.OptimisticLedger
 
   defmodule CaptureSink do
+    # The sink is app-global; drop alerts other processes raise while a test runs (#4975).
     def emit_system(topic, opts) do
-      send(Application.fetch_env!(:aiur, :optimistic_attention_test_pid), {:attention, topic, opts})
+      if self() == Application.get_env(:aiur, :optimistic_attention_test_pid), do: send(self(), {:attention, topic, opts})
       :ok
     end
   end
