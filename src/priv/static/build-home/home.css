@@ -25,3 +25,10 @@
 
 .bd-ag > .ax-mono { width: 100%; height: 100%; border-radius: 50%; font-size: .57em; }
 .bd-card.line .bd-lg.ax-mono { width: 1.75em; height: 1.75em; flex: none; border-radius: 50%; font-size: .6em; }
+
+/* list (C9-T12; S-17, S-13, S-12, S-9) */
+.lst.st-np { border-color: color-mix(in srgb, var(--block-line) 45%, var(--line)); color: var(--muted); }
+.lst.st-np u { background: color-mix(in srgb, var(--block) 45%, var(--faint)); }
+.c-ag .ax-mono { width: 15px; height: 15px; font-size: .5rem; }
+.lr[data-id]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.lh[data-st] em { white-space: normal; }

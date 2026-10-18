@@ -467,7 +467,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # A resumed thread already carries the original task + full prior turn
     # history, so its first turn must continue rather than replay the
     # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
-    opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
+    opts = SessionResume.put_first_turn_opts(opts, session, issue.identifier)
 
     try do
       result =
