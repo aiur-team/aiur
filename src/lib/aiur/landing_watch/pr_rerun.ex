@@ -3,9 +3,10 @@ defmodule Aiur.LandingWatch.PrRerun do
   Reruns an approved, not-landing PR's failed CI when the failure has a non-PR
   cause, and routes PR-caused failures to rework.
 
-  Each rerun spends the per-head budget and the shared automatic-requeue cap in
-  one journal write. A head deferred by the shared cap stays in the journal's
-  rerun backlog until a later poll reruns it. A head whose failure needs a fresh
+  Each head action spends the per-head budget, and each workflow rerun spends
+  one shared automatic-requeue slot in the journal. A head deferred by the
+  shared cap stays in the journal's rerun backlog until a later poll reruns it.
+  A head whose failure needs a fresh
   merge ref is never rerun; it gets GitHub's update-branch under the same budget
   and cap (#4930), unless the base changed the PR's own files; then it routes
   to rework so the worker retests the new head.
@@ -44,11 +45,22 @@ defmodule Aiur.LandingWatch.PrRerun do
 
       # Cached verdicts, a deferred remedy and a spent budget all skip the classifier's GitHub reads.
       cond do
-        Map.has_key?(Map.get(entry, "alerts", %{}), marker) -> LandingWatch.rework(observation, result.failures, opts)
-        refusal == :rerun_backoff -> :ok
-        refusal == :rerun_limit_reached -> alert_limit(observation, opts)
-        is_binary(pending["reason"]) -> remedy(observation, runs, action(pending["action"]), pending["reason"], marker, github_opts)
-        true -> classify_and_route(observation, result, runs, marker, github_opts, opts)
+        Map.has_key?(Map.get(entry, "alerts", %{}), marker) ->
+          LandingWatch.rework(observation, result.failures, opts)
+
+        refusal == :rerun_backoff ->
+          :ok
+
+        refusal == :rerun_limit_reached ->
+          alert_limit(observation, opts)
+
+        is_binary(pending["reason"]) ->
+          pending_runs = pending_runs(runs, pending)
+          pending_opts = Keyword.put(github_opts, :rerun_per_head_reserved, pending["per_head_reserved"] == true)
+          remedy(observation, pending_runs, action(pending["action"]), pending["reason"], marker, pending_opts)
+
+        true ->
+          classify_and_route(observation, result, runs, marker, github_opts, opts)
       end
     end
   end
@@ -89,6 +101,13 @@ defmodule Aiur.LandingWatch.PrRerun do
 
   defp action("refresh"), do: :refresh
   defp action(_), do: :rerun
+
+  defp pending_runs(runs, %{"run_ids" => ids}) when is_list(ids) do
+    eligible = MapSet.new(ids)
+    Enum.filter(runs, &MapSet.member?(eligible, Map.get(&1, "run_id")))
+  end
+
+  defp pending_runs(runs, _pending), do: runs
 
   defp remedy(observation, runs, :rerun, reason, _marker, opts), do: request_remedy(observation, runs, :rerun, reason, opts)
 
@@ -190,15 +209,31 @@ defmodule Aiur.LandingWatch.PrRerun do
     failed = Enum.filter(runs, &(Map.get(&1, "conclusion") in @rerun_conclusions))
     now = now(opts)
 
-    case Journal.reserve_automatic_rerun(observation.number, observation.head, now, opts) do
-      :ok ->
-        with :ok <- apply_remedy(action, observation, failed, opts),
-             :ok <- comment(observation, action, failed, reason, opts),
-             do: Journal.clear_rerun_pending(observation.number, observation.head, opts)
+    if failed == [] do
+      Journal.clear_rerun_pending(observation.number, observation.head, opts)
+    else
+      reserve_remedy(observation, failed, action, reason, now, opts)
+    end
+  end
+
+  defp reserve_remedy(observation, failed, :rerun, reason, now, opts) do
+    reservation =
+      if Keyword.get(opts, :rerun_per_head_reserved, false) do
+        Journal.reserve_automatic_rerun_slots(now, length(failed), opts)
+      else
+        Journal.reserve_automatic_reruns(observation.number, observation.head, now, length(failed), opts)
+      end
+
+    case reservation do
+      {:ok, count} ->
+        {selected, remaining} = Enum.split(failed, count)
+
+        with :ok <- rerun_all(selected, opts),
+             :ok <- comment(observation, :rerun, selected, reason, opts),
+             do: persist_remaining(observation, remaining, reason, now, opts, true)
 
       {:error, :merge_group_requeue_limit_reached} ->
-        row = %{"action" => to_string(action), "reason" => reason, "checks" => failed_checks(runs), "since_ms" => now}
-        Journal.mark_rerun_pending(observation.number, observation.head, row, opts)
+        mark_rerun_pending(observation, failed, reason, now, opts, :rerun, Keyword.get(opts, :rerun_per_head_reserved, false))
 
       {:error, :rerun_backoff} ->
         :ok
@@ -210,6 +245,46 @@ defmodule Aiur.LandingWatch.PrRerun do
         error
     end
   end
+
+  defp reserve_remedy(observation, failed, action, reason, now, opts) do
+    case Journal.reserve_automatic_rerun(observation.number, observation.head, now, opts) do
+      :ok ->
+        with :ok <- apply_remedy(action, observation, failed, opts),
+             :ok <- comment(observation, action, failed, reason, opts),
+             do: Journal.clear_rerun_pending(observation.number, observation.head, opts)
+
+      {:error, :merge_group_requeue_limit_reached} ->
+        mark_rerun_pending(observation, failed, reason, now, opts, action, false)
+
+      {:error, :rerun_backoff} ->
+        :ok
+
+      {:error, :rerun_limit_reached} ->
+        with :ok <- Journal.clear_rerun_pending(observation.number, observation.head, opts), do: alert_limit(observation, opts)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp mark_rerun_pending(observation, failed, reason, now, opts, action, per_head_reserved) do
+    row = %{
+      "action" => to_string(action),
+      "reason" => reason,
+      "checks" => failed_checks(failed),
+      "run_ids" => Enum.map(failed, &Map.get(&1, "run_id")),
+      "per_head_reserved" => per_head_reserved,
+      "since_ms" => now
+    }
+
+    Journal.mark_rerun_pending(observation.number, observation.head, row, opts)
+  end
+
+  defp persist_remaining(observation, [], _reason, _now, opts, _per_head_reserved),
+    do: Journal.clear_rerun_pending(observation.number, observation.head, opts)
+
+  defp persist_remaining(observation, remaining, reason, now, opts, per_head_reserved),
+    do: mark_rerun_pending(observation, remaining, reason, now, opts, :rerun, per_head_reserved)
 
   defp failed_checks(runs), do: for(run <- runs, run["conclusion"] in @rerun_conclusions, uniq: true, do: run["name"])
 

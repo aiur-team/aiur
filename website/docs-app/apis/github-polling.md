@@ -51,7 +51,7 @@ An approved PR that is not landing acts only when every failed required run has 
 
 A merge ref older than a base fix, a later merge that changed its workflow or a `.github/` or `scripts/` file its job uses, or a job the base workflow dropped is not rerun. Because a rerun reuses the old merge commit, the watcher updates the branch from the base instead.
 
-When main CI turns green, the watcher immediately checks approved auto-merge PRs and reruns failed workflows that started during that red interval. These reruns use the existing per-head budget and shared three-per-15-minute cap. Failures from outside that interval are not part of recovery.
+When main CI turns green, the watcher immediately checks approved auto-merge PRs and reruns failed workflows that started during that red interval. Each workflow rerun consumes one slot in the shared three-per-15-minute cap, and deferred run IDs stay scoped to that recovery window. Failures from outside that interval are not part of recovery.
 
 If the base changed the PR's own files, that refresh routes to rework instead. Other failures route to rework.
 
