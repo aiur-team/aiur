@@ -2,6 +2,7 @@
 R-declared	Aiur.Accounts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Accounts.UsageReadings	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.AgentControlCLI	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
+R-declared	Aiur.AgentControlCLIFreshness	#4236 stale fleet output includes pause provenance when the snapshot stopped during global pause
 R-declared	Aiur.AlertFeed	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.BuildGate	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
@@ -53,8 +54,8 @@ R-declared	Aiur.TestTicketScope	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade83
 R-declared	Aiur.TicketActivity	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Tmux	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
-R-declared	AiurWeb.OperatorControlCenter.UnitsPresentation	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-down	Aiur.AgentControlCLI	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
+R-down	Aiur.AgentControlCLIFreshness	#4236 stale fleet output includes pause provenance when the snapshot stopped during global pause
 R-down	Aiur.ControlCLI.CiWait	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-down	Aiur.ControlCLI.DispatchAccount	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-down	Aiur.ControlCLI.Protocol	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
@@ -69,7 +70,6 @@ R-down	Aiur.Opencode.SlotRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51
 R-down	Aiur.TestTicketScope	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Tmux	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
-R-down	AiurWeb.OperatorControlCenter.UnitsPresentation	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-optional	Aiur.Accounts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Accounts.UsageReadings	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.AlertFeed	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -119,5 +119,3 @@ R-optional	Aiur.Tmux	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
 R-optional	Aiur.Webhooks	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Webhooks.IntervalPolicy	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	AiurWeb.OperatorControlCenter.UnitsPresentation	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
-R-private	Aiur.GitHub.ResourceFetch	#4496: use conditional resource reads to avoid repeated billable landing-watch CI requests

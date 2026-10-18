@@ -35,12 +35,19 @@ assert.deepEqual(selected('pull_request', false, false, { action: 'ready_for_rev
 const website = readFileSync(new URL('../.github/workflows/website.yml', import.meta.url), 'utf8');
 assert.ok(website.includes('types: [opened, synchronize, reopened, ready_for_review, closed]'), 'website starts on ready and cancels on close');
 assert.ok(website.includes("  guards:\n    if: ${{ github.event.pull_request.draft != true && github.event.action != 'closed' }}"), 'website skips drafts and closed PRs');
+const websiteGuards = website.split(/^  guards:\n/m)[1];
+assert.ok(/^    timeout-minutes: 15$/m.test(websiteGuards), 'website guards job has a finite runner budget');
+assert.ok(/      - name: Test visual regressions\n        timeout-minutes: 8\n/.test(websiteGuards), 'Docker visual regression step has a shorter finite budget');
+const visualDocker = JSON.parse(readFileSync(new URL('../website/package.json', import.meta.url), 'utf8')).scripts['test:visual:docker'];
+assert.ok(visualDocker.includes('-v "$PWD/..":/repo -w /repo/website --tmpfs /repo/website/docs-app/node_modules:exec'),
+  'Docker visual build mounts the repository root so docs loaders resolve repository-relative paths');
 const aiurStyle = readFileSync(new URL('../.github/workflows/aiur-style.yml', import.meta.url), 'utf8');
 assert.ok(/^  merge_group:$/m.test(aiurStyle.split(/^jobs:/m)[0]), 'aiur-style checks dist on merge queue candidates (#4983)');
 const [queueDist, buildAndTest] = aiurStyle.split(/^  build-and-test:\n/m);
 assert.ok(queueDist.includes("if: ${{ github.event_name == 'merge_group' }}") && queueDist.includes('npm run check-dist'), 'queue job runs check-dist');
 assert.ok(!queueDist.includes('test:visual') && !queueDist.includes('container:'), 'queue job skips the Playwright visual suite');
 assert.ok(buildAndTest.startsWith("    if: ${{ github.event_name != 'merge_group' }}\n"), 'full aiur-style suite stays off merge groups');
+assert.ok(/^    timeout-minutes: 20$/m.test(buildAndTest), 'aiur-style visual job has a finite runner budget');
 assert.ok(selected('pull_request', false, true).includes('dialyzer'), 'PR changing src/lib Elixir runs dialyzer');
 assert.ok(!selected('pull_request', false, false).includes('dialyzer'), 'docs-only PR skips dialyzer');
 console.log(`Fast PR jobs (non-CI changes): ${selected('pull_request', false).sort().join(', ')}`);
@@ -140,7 +147,7 @@ const browserJob = jobs.get('browser');
 assert.ok(browserJob.includes('./.github/actions/browser-smoke'), 'browser uses the shared browser action');
 assert.ok(browserJob.includes('actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'), 'browser checks out before the local action');
 assert.ok(browserJob.includes('timeout-minutes: 22'), 'browser has headroom beyond the 9-minute shard target');
-for (const shard of [1, 2, 3, 4, 5]) assert.ok(browserJob.includes(`- { shard: ${shard}`), `browser matrix selects shard ${shard}`);
+assert.ok(browserJob.includes(`shard: [${Object.keys(shards).join(', ')}]`), 'browser matrix selects every shard in the shard map');
 const browserAction = readFileSync(new URL('../.github/actions/browser-smoke/action.yml', import.meta.url), 'utf8');
 assert.ok(browserAction.includes('using: composite'), 'shared browser setup is an allowed local composite action');
 assert.ok(!browserAction.includes('report-ci-run-attempt.sh'), 'the workflow job, not the action, discloses reruns once');

@@ -63,6 +63,7 @@
     "conversations",
     "dashboard-ui",
     "executor-attention",
+    "github-access",
     "telemetry",
     "ticket-context",
     "web-shell"

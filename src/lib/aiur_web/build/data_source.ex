@@ -4,6 +4,8 @@ defmodule AiurWeb.Build.DataSource do
   @callback subscribe(keyword()) :: :ok | {:error, term()}
   @callback snapshot(keyword()) :: {:ok, map()} | {:error, term()}
   @callback earlier(integer(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback daemon(keyword()) :: map() | nil
+  @optional_callbacks daemon: 1
 
   @spec source() :: module() | {module(), keyword()}
   def source, do: Application.get_env(:aiur, :build_data_source, AiurWeb.Build.IndexSource)
@@ -13,6 +15,13 @@ defmodule AiurWeb.Build.DataSource do
     do: apply(module, function, merge_opts(args, opts))
 
   def call(module, function, args) when is_atom(module), do: apply(module, function, merge_opts(args, []))
+
+  @doc "The source's last observed daemon block, or nil when it keeps none."
+  @spec last_daemon(module() | {module(), keyword()}, keyword()) :: map() | nil
+  def last_daemon(source, opts) do
+    module = with {module, _} <- source, do: module
+    if Code.ensure_loaded?(module) and function_exported?(module, :daemon, 1), do: call(source, :daemon, [opts])
+  end
 
   @spec subscribe(keyword()) :: :ok
   def subscribe(_opts), do: :ok

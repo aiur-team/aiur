@@ -33,6 +33,13 @@ defmodule AiurExperimentsEngineTest do
              "RPC:Aiur.AgentControlCLI.experiments([verb: :events, argv: [ Base.decode64!(\"#{Base.encode64("delivery-change")}\"), Base.decode64!(\"#{Base.encode64("--json")}\"), Base.decode64!(\"#{Base.encode64("--refresh")}\")]])\n"
   end
 
+  test "analyze transports local mode and experiment identity through the shared launcher" do
+    args = ["delivery-change", "--mode", "report", "--local", "--json"]
+    assert {output, 0} = run_engine(["experiments", "analyze" | args])
+    encoded = Enum.map_join(args, ", ", &~s|Base.decode64!("#{Base.encode64(&1)}")|)
+    assert output == "RPC:Aiur.AgentControlCLI.experiments([verb: :analyze, argv: [ #{encoded}]])\n"
+  end
+
   test "preregister reads a caller file and transports JSON without shell interpolation" do
     payload = ~s|{"hypothesis":"$(touch unwanted); significant at n=40"}|
     {output, 0} = run_engine(["experiments", "preregister", "latency", "--file", "-", "--json"], payload)

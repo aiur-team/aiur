@@ -1261,7 +1261,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   # and the ticket never leaves `agent:human-review` (#2473). The review
   # submission *is* the outstanding finding, so it is handed to the gate as an
   # equivalent signal. What stops that from re-entering #2422's rework loop is
-  # that a review submission is delivered once — `Aiur.Events.Publisher` drops
+  # that a review submission is delivered once — the `Aiur.Events` publish boundary drops
   # a redelivery on the durable `{:pr_review, …}` resource identity before it
   # ever reaches the gate — NOT `ReviewFreshness`, whose staleness half is
   # inert on webhook deliveries. `ReworkGate`'s `no_thread_verdict/1` carries
@@ -1580,7 +1580,7 @@ defmodule Aiur.Orchestrator.CommentWake do
             "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
         )
 
-        # A review submission is delivered ONCE. `Aiur.Events.Publisher`
+        # A review submission is delivered ONCE. The `Aiur.Events` publish boundary
         # marks `{:pr_review, owner, repo, review_id}` handled for 72h at
         # `resource_version = submitted_at`, and the poller's
         # `pr_review_seen_at` watermark advances past that `submitted_at` in

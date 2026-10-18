@@ -61,30 +61,4 @@ defmodule Aiur.AgentQueueStore.Items do
         {store, nil}
     end
   end
-
-  @doc false
-  @spec update_delivered_items(term(), term(), term()) :: term()
-  def update_delivered_items(%AgentQueueStore{} = store, target_issue_identifier, updater) do
-    store.items
-    |> Map.values()
-    |> Enum.filter(&match?(%AgentQueueItem{target_issue_identifier: ^target_issue_identifier, status: :delivered}, &1))
-    |> Enum.sort_by(& &1.sequence)
-    |> Enum.reduce({store, []}, fn item, {store_acc, updated_items} ->
-      updated = updater.(item)
-
-      next_store =
-        store_acc
-        |> put_item(updated)
-        |> maybe_append_pending_after_restore(updated)
-
-      {next_store, [updated | updated_items]}
-    end)
-    |> then(fn {updated_store, updated_items} -> {updated_store, Enum.reverse(updated_items)} end)
-  end
-
-  defp maybe_append_pending_after_restore(store, %AgentQueueItem{status: :pending, target_issue_identifier: target, id: id}) do
-    append_pending_id(store, target, id)
-  end
-
-  defp maybe_append_pending_after_restore(store, _item), do: store
 end

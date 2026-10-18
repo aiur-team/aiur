@@ -5,8 +5,9 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
+  alias Aiur.{AgentPubSub, CIApprovalStore, Config, Events, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
   alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.GitHub.Listeners
   alias Aiur.Handoff.Adopter
   alias Aiur.Handoff.Protection
 
@@ -90,11 +91,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
   def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
     :ok = TestTicketScope.validate!()
     :ok = Protection.reset()
+    if Process.whereis(Listeners), do: Listeners.reset()
     :ok = ProcessReaper.handoff([])
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
     Process.flag(:trap_exit, true)
-
     now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
 
@@ -301,7 +302,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
       |> Enum.reject(&(&1 == ""))
       |> Enum.reduce(state.queued_demand_hints, &Map.put(&2, &1, until_cycle))
 
-    request_refresh(%{state | queued_demand_hints: hints})
+    {:reply, receipt, refreshed} = request_refresh(%{state | queued_demand_hints: hints})
+    {:reply, Map.put(receipt, :latest_dispatch_hold, refreshed.dispatch_selection_hold), refreshed}
   end
 
   @doc false
@@ -408,7 +410,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   defp install_event_tracked_fn(tracked_issue?) do
     if Process.whereis(Publisher) do
-      Publisher.set_tracked_fn(tracked_issue?)
+      Events.set_tracked_fn(tracked_issue?)
     end
 
     :ok
@@ -419,7 +421,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # before the first tick is seeded.
   defp subscribe_to_orchestrator_topics(opts) do
     if Process.whereis(Exchange) do
-      Enum.each(@orchestrator_topics -- skipped_comment_topics(opts), &Exchange.subscribe/1)
+      Enum.each(@orchestrator_topics -- skipped_comment_topics(opts), &Events.subscribe/1)
     end
 
     :ok
