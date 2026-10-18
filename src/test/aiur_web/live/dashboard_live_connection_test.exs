@@ -23,7 +23,7 @@ defmodule AiurWeb.DashboardLiveConnectionTest do
                %{
                  "source_id" => "dead-render-disabled",
                  "question" => "Should the dashboard render the answer control disabled?",
-                 "blocking" => true,
+                 "blocking" => false,
                  "kind" => "architecture",
                  "authority" => "human_required",
                  "reversibility" => "reversible"
@@ -64,5 +64,14 @@ defmodule AiurWeb.DashboardLiveConnectionTest do
     button = Floki.find(document, "#decision-answer-form-#{decision.decision_id} button[type=submit]")
     assert [decision_button] = button
     assert Floki.attribute(decision_button, "disabled") != []
+
+    form = Floki.find(document, "#decision-answer-form-#{decision.decision_id}") |> hd()
+    assert [defer_button] = Floki.find(form, "button[phx-click=defer-decision]")
+    assert Floki.attribute(defer_button, "disabled") != []
+    assert [dismiss_button] = Floki.find(form, "button[aria-label='Dismiss blocker']")
+    assert Floki.attribute(dismiss_button, "disabled") != []
+    assert [acknowledge_button] = Floki.find(form, "button[phx-click=dismiss-decision]:not([aria-label])")
+    assert Floki.text(acknowledge_button) == "Acknowledge"
+    assert Floki.attribute(acknowledge_button, "disabled") != []
   end
 end
