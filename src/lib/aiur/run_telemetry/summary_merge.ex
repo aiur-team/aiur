@@ -41,8 +41,8 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
     case datasets do
       datasets when is_list(datasets) and datasets != [] ->
         case trim(datasets) do
-          [] -> {:error, :retained_unreadable}
-          included -> {:ok, merge(included) |> Map.put(:retained_runs, %{included: length(included), total: length(summaries)})}
+          :unfit -> {:error, :retained_unreadable}
+          {included, merged} -> {:ok, Map.put(merged, :retained_runs, %{included: length(included), total: length(summaries)})}
         end
 
       _other ->
@@ -98,11 +98,13 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
     end
   end
 
-  defp trim([]), do: []
+  defp trim([]), do: :unfit
 
   defp trim(datasets) do
-    if :erlang.external_size(merge(datasets)) <= @projection_budget_bytes,
-      do: datasets,
+    merged = merge(datasets)
+
+    if :erlang.external_size(merged) <= @projection_budget_bytes,
+      do: {datasets, merged},
       else: trim(Enum.drop(datasets, -1))
   end
 
