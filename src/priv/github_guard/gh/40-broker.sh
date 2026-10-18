@@ -233,13 +233,17 @@ budget_acquire() {
 }
 
 budget_release() {
+  budget_stop_renewal
+  [ -n "$budget_lease" ] || return 0
+  budget_command release --lease-id "$budget_lease" >/dev/null 2>&1 || true
+  budget_lease=
+}
+
+budget_stop_renewal() {
   if [ -n "$budget_renewal_pid" ]; then
     kill "$budget_renewal_pid" 2>/dev/null || true
     budget_renewal_pid=
   fi
-  [ -n "$budget_lease" ] || return 0
-  budget_command release --lease-id "$budget_lease" >/dev/null 2>&1 || true
-  budget_lease=
 }
 
 # A stale-broker acquire abort: the ledger's schema trigger refused this
