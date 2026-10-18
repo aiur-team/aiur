@@ -241,7 +241,11 @@ defmodule Aiur.MainWatch do
     digest.test_only and not digest.flake_only and not digest.truncated and single_test_path?(tests) and valid_failed_runs?(runs)
   end
 
-  defp single_test_path?([%{path: path}]), do: is_binary(path) and path != ""
+  defp single_test_path?([%{path: "src/test/" <> path}]), do: String.ends_with?(path, ".exs") and not String.contains?(path, "..")
+
+  defp single_test_path?([%{path: "src/browser/tests/" <> path}]),
+    do: String.ends_with?(path, ".spec.mjs") and not String.contains?(path, "..")
+
   defp single_test_path?(_tests), do: false
 
   defp valid_failed_runs?([_ | _] = runs), do: Enum.all?(runs, &(is_integer(&1.id) and &1.id > 0))
