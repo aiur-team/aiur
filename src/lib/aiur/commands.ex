@@ -16,6 +16,9 @@ defmodule Aiur.Commands do
   @spec all_asks(String.t()) :: {:ok, [Aiur.Asks.ask()]} | {:error, term()}
   defdelegate all_asks(repo), to: Aiur.Asks, as: :all
 
+  @spec get(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate get(decision_id, opts \\ []), to: Aiur.DecisionQuery
+
   @spec answer(String.t(), map()) :: {:ok, map()} | {:error, term()}
   defdelegate answer(decision_id, payload), to: Aiur.DecisionStore
 

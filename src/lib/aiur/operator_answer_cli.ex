@@ -1,7 +1,7 @@
 defmodule Aiur.OperatorAnswerCLI do
   @moduledoc false
 
-  alias Aiur.{Commands, DecisionQuery}
+  alias Aiur.Commands
 
   @spec answer(keyword()) :: 0 | 1 | 64
   def answer(opts) when is_list(opts) do
@@ -41,7 +41,7 @@ defmodule Aiur.OperatorAnswerCLI do
   end
 
   defp get_decision(id, store, opts) do
-    get_fun = Keyword.get(opts, :get_fun, fn decision_id, server -> DecisionQuery.get(decision_id, store: server) end)
+    get_fun = Keyword.get(opts, :get_fun, fn decision_id, server -> Commands.get(decision_id, store: server) end)
 
     case get_fun.(id, store) do
       {:ok, %{decision: decision}} -> {:ok, decision}
