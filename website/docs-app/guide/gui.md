@@ -33,6 +33,8 @@ The build timeline at `/build` labels daemon state separately from socket reacha
 
 While the socket is open but the fleet snapshot is unread, such as during startup, the footer reads “Daemon up · unread” with the age of the last good reading. A source that a GitHub budget hold delays is named in the footer with the age of its last read, for example “history held 2m”. Hover the footer for the full sentence.
 
+Before the first timeline load finishes, the footer shows the last daemon state the server read, with its age. A recent reading can show “Daemon live · <1m ago”; a reading 30 seconds old or older shows “Daemon stale” with its age and the dot turned off. It reads “Daemon status unknown” only when no daemon state has been observed yet.
+
 History, queue and open-ticket headers label stale or partial reads with their age. Failed reads show unavailable markers instead of empty sections; disabled sources keep their reason. Filters and unloaded history days have distinct empty messages. Before the first snapshot, the timeline shows a loading skeleton; a failed initial read stops its animation.
 
 **Reconnect** retries a dropped socket immediately, or requests a fresh snapshot when the socket is open. It reads “Reconnecting…” while pending and returns to **Reconnect** after ten seconds if the page is still degraded. This control also works with read-only access.
