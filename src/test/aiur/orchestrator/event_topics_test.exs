@@ -1,7 +1,6 @@
 defmodule Aiur.Orchestrator.EventTopicsTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.AlertFeed
   alias Aiur.DecisionStore
   alias Aiur.Orchestrator.{EventTopics, Lifecycle, PushRouting, State}
 
@@ -137,10 +136,8 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     topic = "ticket.#{identifier}.agent.decision.answered"
     test_pid = self()
     state_dir = Aiur.TestSupport.tmp_root!("aiur-event-topics-decisions")
-    fresh_log_root = Aiur.TestSupport.tmp_root!("aiur-event-topics-late-retry")
 
     File.mkdir_p!(state_dir)
-    File.mkdir_p!(fresh_log_root)
 
     # This test covers the dispatch gate wakeup, so accept delivery locally
     # and keep the fixture out of the retry ladder entirely.
@@ -173,7 +170,6 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       if Process.alive?(store), do: GenServer.stop(store)
 
       Aiur.TestCleanup.rm_rf!(state_dir)
-      Aiur.TestCleanup.rm_rf!(fresh_log_root)
     end)
 
     decisions =
@@ -244,9 +240,13 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
 
     refute_received :decision_dispatched
     refute_received {:delivery_retry_scheduled, _, _}
-    GenServer.stop(store)
 
-    assert [] = AlertFeed.list(roots: [], log_roots: [fresh_log_root], needs_attention: true)
+    assert Enum.count(DecisionStore.list(store), fn decision ->
+             decision.ticket.identifier == identifier and decision.decision_status == :decided
+           end) == 2
+
+    refute Enum.any?(DecisionStore.list(), &(&1.ticket.identifier == identifier))
+    GenServer.stop(store)
   end
 
   describe "classify_event_topic/1" do
