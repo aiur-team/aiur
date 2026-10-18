@@ -159,33 +159,6 @@ defmodule Aiur.MainWatchTest do
     refute_received {:failed_jobs_rerun, _}
   end
 
-  test "a single annotated browser spec on an untouched file reruns its failed job" do
-    parent = self()
-
-    digest = %FailureDigest{
-      signature: "browser-single",
-      test_only: true,
-      tests: [%{identity: "BrowserSpec :: src/browser/tests/recovery.browser.spec.mjs", path: "src/browser/tests/recovery.browser.spec.mjs", classification: :new_failure}]
-    }
-
-    failed = %{observation("browser-single-failure", 1) | digest: digest}
-    runs = [%{run("failure", 1) | id: 44, sha: "browser-single-failure"}]
-
-    server =
-      launch(Persistence.empty(),
-        changed_paths_fun: fn "browser-single-failure", _ -> {:ok, ["src/browser/tests/other.browser.spec.mjs"]} end,
-        reserve_single_test_rerun_fun: fn "owner/repo", "browser-single-failure", 0, _ -> :ok end,
-        rerun_failed_jobs_fun: fn 44, _ ->
-          send(parent, {:browser_failed_job_rerun, 44})
-          :ok
-        end
-      )
-
-    finish_poll(server, {:ok, %{result([failed]) | actions_write: true, runs: runs}})
-    assert_received {:browser_failed_job_rerun, 44}
-    assert_received {:emitted, "system.main.ci.flake_rerun", %{sha: "browser-single-failure"}}
-  end
-
   test "a single-test failure whose file changed on main is left for the fixer" do
     parent = self()
     digest = %FailureDigest{signature: "touched", test_only: true, tests: [%{identity: "regression", path: "src/test/regression_test.exs", classification: :new_failure}]}

@@ -128,11 +128,7 @@ defmodule Aiur.CI.FailureDigest do
     Enum.any?(annotations || [], &substantive_failure?(&1, coverage_exit?, derived?, browser_spec_exit?))
   end
 
-  defp browser_spec_failure?(%{"title" => "aiur-test-failure", "path" => "src/browser/tests/" <> path, "message" => "new-failure :: BrowserSpec :: " <> _}) do
-    String.ends_with?(path, ".spec.mjs") and not String.contains?(path, "..")
-  end
-
-  defp browser_spec_failure?(_), do: false
+  defp browser_spec_failure?(annotation), do: match?([_], parse_browser_spec(annotation))
 
   defp routine_coverage_exit?(%{"annotation_level" => "failure", "message" => message}) when is_binary(message),
     do: Regex.match?(~r/\Acoverage partition [1-4] failed with status 2; full log follows in the next step\z/, message)
@@ -184,15 +180,36 @@ defmodule Aiur.CI.FailureDigest do
 
   defp parse(%{"title" => "aiur-test-failure", "message" => "truncated :: " <> _}), do: [:truncated]
 
-  defp parse(%{"title" => "aiur-test-failure", "message" => message} = annotation) when is_binary(message) do
+  defp parse(annotation) do
+    case parse_browser_spec(annotation) do
+      [test] -> [test]
+      _ -> parse_exunit(annotation)
+    end
+  end
+
+  defp parse_exunit(%{"title" => "aiur-test-failure", "message" => message} = annotation) when is_binary(message) do
     case String.split(message, " :: ", parts: 3) do
       [class, module, name] when class in ~w(known-flake new-failure) and module != "" and name != "" -> [%{identity: module <> " :: " <> name, path: annotation["path"]}]
       _ -> [:unknown]
     end
   end
 
-  defp parse(%{"title" => "aiur-test-failure"}), do: [:unknown]
-  defp parse(_), do: []
+  defp parse_exunit(%{"title" => "aiur-test-failure"}), do: [:unknown]
+  defp parse_exunit(_), do: []
+
+  defp parse_browser_spec(%{"title" => "aiur-test-failure", "path" => "src/browser/tests/" <> path, "message" => "new-failure :: tests/" <> relative}) do
+    case String.split(relative, " :: ", parts: 2) do
+      [spec, name] when spec == path and name != "" ->
+        if String.ends_with?(path, ".spec.mjs") and not String.contains?(path, ".."),
+          do: [%{identity: "BrowserSpec :: #{path} :: #{name}", path: "src/browser/tests/" <> path}],
+          else: [:unknown]
+
+      _ ->
+        [:unknown]
+    end
+  end
+
+  defp parse_browser_spec(_), do: []
 
   defp classify(:unknown, _, _), do: :unknown
 
