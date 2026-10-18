@@ -67,7 +67,7 @@ export function daemonView() {
   // live state keep the footer green while the page has no fresh snapshot.
   const hintAge = hint && Number.isFinite(hint.observed_at) && nowMs() !== null
     ? Math.max(0, nowMs() - hint.observed_at) : null;
-  const hintStale = Boolean(hint && (hintAge === null || hintAge >= 6_000));
+  const hintStale = Boolean(hint && (hintAge === null || hintAge >= 30_000));
   const live = daemon?.state === 'live' && !hintStale;
   const headline = st.linkDown ? 'Daemon unreachable'
     : hintStale || daemon?.state === 'stale' ? 'Daemon stale'

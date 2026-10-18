@@ -23,10 +23,12 @@ defmodule AiurWeb.Build.IndexDaemonHintTest do
 
     receive_barrier(:daemon_ready)
     Application.put_env(:aiur, :build_data_source, {IndexSource, [server: name, index_subscribe: fn -> :ok end]})
+    before_mount = System.os_time(:millisecond)
     {:ok, view, _} = live(build_conn(), "/build")
+    after_mount = System.os_time(:millisecond)
     [hint] = view |> render() |> Floki.parse_document!() |> Floki.attribute("#build-root[data-build-state=loading]", "data-daemon")
     assert %{"daemon" => %{"state" => "live", "heartbeat_at" => 1_791_407_990_000, "observed_at" => 1_791_407_995_000}, "now" => now} = Jason.decode!(hint)
-    assert is_integer(now)
+    assert before_mount <= now and now <= after_mount
   end
 
   test "a source without a daemon reading leaves the mount hint empty" do
