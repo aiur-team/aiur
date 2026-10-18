@@ -90,8 +90,10 @@ export function renderUnavailable(reason) {
   const loading = ctx.root?.querySelector('.bd-loading');
   if (!loading) return;
   const words = { not_wired: 'no data source', timeout: 'timed out', crashed: 'source crashed',
-    version: 'page out of date, reload', invalid: 'invalid data', unavailable: 'source unavailable' };
-  loading.textContent = 'Build timeline unavailable · ' + (Object.hasOwn(words, reason) ? words[reason] : 'unknown cause');
+    version: 'page out of date, reload', invalid: 'invalid data', unavailable: 'source unavailable',
+    epic_config_unavailable: 'Build Order settings could not be read', index_not_running: 'build projection is not running',
+    read_failed: 'build projection read failed' };
+  loading.textContent = Object.hasOwn(words, reason) ? words[reason] : `Build timeline unavailable · unknown cause (${String(reason).slice(0, 80)})`;
   loading.setAttribute('role', 'status');
   ctx.vp.querySelectorAll('.bd-skel i').forEach(el => { el.style.animation = 'none'; });
 }
