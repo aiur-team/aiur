@@ -49,7 +49,7 @@ defmodule Aiur.Claude.ProtocolFixtureTest do
 
         state =
           Aiur.Codex.TurnLoopTestSupport.base_state()
-          |> Map.merge(%{backend: CodingAgent, current_turn_id: "<turn-2>", pending_line: "", timeout_ms: 5_000, on_message: on_message})
+          |> Map.merge(%{backend: CodingAgent, active_turn_ids: MapSet.new(), current_turn_id: "<turn-2>", pending_line: "", timeout_ms: 5_000, on_message: on_message})
           |> TurnState.initialize_turn_tracking()
 
         assert {:ok, :turn_completed} = TurnLoop.receive_loop(session, state)
