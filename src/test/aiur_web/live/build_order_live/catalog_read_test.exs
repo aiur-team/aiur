@@ -65,13 +65,23 @@ defmodule AiurWeb.BuildOrderLive.CatalogReadTest do
   end
 
   test "a read past its timeout becomes the named failure" do
-    previous = Application.get_env(:aiur, :build_order_catalog_read_timeout_ms)
-    Application.put_env(:aiur, :build_order_catalog_read_timeout_ms, 0)
-    on_exit(fn -> restore_application_env(:build_order_catalog_read_timeout_ms, previous) end)
+    test = self()
+    previous = Application.get_env(:aiur, :build_order_catalog_timeout_scheduler)
+
+    Application.put_env(:aiur, :build_order_catalog_timeout_scheduler, fn pid, ref, timeout ->
+      send(test, {:catalog_timeout_scheduled, pid, ref, timeout})
+      Process.send_after(pid, {:build_order_catalog_timeout, ref}, timeout)
+    end)
+
+    on_exit(fn -> restore_application_env(:build_order_catalog_timeout_scheduler, previous) end)
     install_source(catalog: held_catalog())
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders")
     assert_receive {:catalog_reading, task}, 1_000
+    assert_receive {:catalog_timeout_scheduled, pid, ref, 30_000}, 1_000
+    assert pid == view.pid
+
+    send(view.pid, {:build_order_catalog_timeout, ref})
     html = render(view)
 
     assert html =~ ~s(data-build-order-catalog-state="read_failed")
