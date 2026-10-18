@@ -41,27 +41,26 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
 
   test "the deadline also kills descendants that start their own session", context do
     broker = Path.join(context.workspace, "nested-never-answers.py")
-    broker_pid_file = Path.join(context.workspace, "nested-broker.pid")
-    fake_gh = Path.join(context.workspace, "nested-gh")
+    child_pid_file = Path.join(context.workspace, "nested-child.pid")
 
-    File.write!(broker, "import os,time\nopen(os.environ['AIUR_GH_NEVER_ANSWERS_PID_FILE'],'w').write(str(os.getpid()))\ntime.sleep(5)\n")
+    File.write!(
+      broker,
+      "import os,subprocess,time\nchild=subprocess.Popen(['sleep','10'],start_new_session=True)\nopen(os.environ['AIUR_GH_NESTED_CHILD_PID_FILE'],'w').write(str(child.pid))\ntime.sleep(10)\n"
+    )
+
     File.chmod!(broker, 0o700)
-    File.write!(fake_gh, "#!/bin/sh\nexec \"$NESTED_GH_WRAPPER\" api rate_limit\n")
-    File.chmod!(fake_gh, 0o700)
 
     assert {output, 124} =
-             run_guard(context, ["auth", "status"],
-               AIUR_GH_CALL_TIMEOUT_SECONDS: "1",
-               AIUR_GH_NESTED_WRAPPER: context.wrapper,
+             run_guard(context, ["api", "rate_limit"],
+               AIUR_GH_CALL_TIMEOUT_SECONDS: "2",
                AIUR_GITHUB_BUDGET_ROOT: Path.join(context.state_path, "nested-budget"),
                AIUR_GITHUB_BUDGET_KEY: String.duplicate("d", 64),
                AIUR_GITHUB_BUDGET_BROKER: broker,
-               AIUR_GH_NEVER_ANSWERS_PID_FILE: broker_pid_file,
-               AIUR_REAL_GH: fake_gh
+               AIUR_GH_NESTED_CHILD_PID_FILE: child_pid_file
              )
 
     assert output =~ "terminated process group"
-    assert process_gone?(broker_pid_file |> File.read!() |> String.to_integer())
+    assert process_gone?(child_pid_file |> File.read!() |> String.to_integer())
   end
 
   test "the supervisor preserves wrapper argv0 and caller stdin", context do
@@ -99,16 +98,18 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     body = Path.join(context.workspace, "comment.md")
     slow_gh = Path.join(context.workspace, "slow-gh")
+    tmpdir = Path.join(context.workspace, "marked-body-tmp")
+    File.mkdir_p!(tmpdir)
     File.write!(body, "comment")
-    File.write!(slow_gh, "#!/bin/sh\nsleep 5\n")
+    File.write!(slow_gh, "#!/bin/sh\nprintf 'started' > \"$GH_STARTED_FILE\"\nsleep 10\n")
     File.chmod!(slow_gh, 0o700)
     marker = "agent marker"
-    tmpdir = System.get_env("TMPDIR", "/tmp")
-    marked_before = Path.wildcard(Path.join(tmpdir, "aiur-marked-body.*"))
 
     assert {output, 124} =
              run_guard(context, ["issue", "comment", "1670", "--body-file", body],
-               AIUR_GH_CALL_TIMEOUT_SECONDS: "1",
+               TMPDIR: tmpdir,
+               GH_STARTED_FILE: Path.join(context.workspace, "gh-started"),
+               AIUR_GH_CALL_TIMEOUT_SECONDS: "5",
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
                AIUR_GITHUB_BUDGET_KEY: String.duplicate("c", 64),
                AIUR_GITHUB_BUDGET_BROKER: broker,
@@ -118,7 +119,8 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
              )
 
     assert output =~ "terminated process group"
-    assert Path.wildcard(Path.join(tmpdir, "aiur-marked-body.*")) == marked_before
+    assert File.read!(Path.join(context.workspace, "gh-started")) == "started"
+    assert Path.wildcard(Path.join(tmpdir, "aiur-marked-body.*")) == []
 
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", String.duplicate("c", 64)])
