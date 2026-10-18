@@ -317,7 +317,7 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
     assert mailbox_wait >= 30
   end
 
-  test "late broker replies expose Python and SQLite timings after a caller timeout", %{root: root} do
+  test "late broker replies expose Python and SQLite timings after a caller timeout", %{root: root, server: server} do
     test_pid = self()
 
     handler =
@@ -329,7 +329,6 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
       )
 
     on_exit(fn -> :telemetry.detach(handler) end)
-    server = start_supervised!({BudgetBroker, name: __MODULE__.LateReply}, id: :late_reply)
     broker = Path.join(root, "late_reply.py")
 
     File.write!(broker, """
