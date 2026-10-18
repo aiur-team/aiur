@@ -178,7 +178,6 @@ defmodule Aiur.GitHub.BudgetBroker do
   defp public_result(:timeout), do: {:timeout, :timeout, %{}}
   defp public_result({:timeout, metrics}), do: {:timeout, :timeout, metrics}
   defp public_result({:ok, output, status, metrics}), do: {{:ok, output, status}, :completed, metrics}
-  defp public_result({:ok, output, status}), do: {{:ok, output, status}, :completed, %{}}
   defp public_result({:error, _} = error), do: {error, :error, %{}}
 
   defp observe_command(outcome, measurements) do
