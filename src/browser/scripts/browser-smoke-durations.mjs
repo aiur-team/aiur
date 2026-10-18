@@ -6,6 +6,11 @@
 // run 39100789804 spent 80-120s per shard outside its suites.
 export const preflightSeconds = 120
 export const recordedSeconds = {
+  // PR #4805 suite-duration logs (2026-10-18): units/browser from run 39093008001 at ea5f25e39.
+  // Parity uses the latest green run 39093008001 at ea5f25e39 (102.5s).
+  'test:build-home-edges-unit': 0.2,
+  'test:build-home-edges': 111.4,
+  'test:build-home-edges-parity': 102.5,
   'test:home-css-ci': 5,
   'test:admission': 1,
   'check:elk': 1,
