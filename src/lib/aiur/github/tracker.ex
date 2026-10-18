@@ -12,6 +12,23 @@ defmodule Aiur.GitHub.Tracker do
   def code_host, do: __MODULE__
   @behaviour Aiur.Tracker.CodeHost
 
+  @impl Aiur.Tracker.CodeHost
+  def ci_readiness, do: Aiur.GitHub.CiReadiness
+
+  @impl Aiur.Tracker.IssueTracker
+  def with_poll_cycle(fun) do
+    Aiur.GitHub.CycleFetchCache.start_cycle()
+
+    try do
+      fun.()
+    after
+      Aiur.GitHub.CycleFetchCache.end_cycle()
+    end
+  end
+
+  @impl Aiur.Tracker.IssueTracker
+  defdelegate format_preflight_error(reason), to: Aiur.GitHub.AuthPreflight, as: :format_auth_preflight_error
+
   alias Aiur.GitHub.BoundedBlockedBy
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config

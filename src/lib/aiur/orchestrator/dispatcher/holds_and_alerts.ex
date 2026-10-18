@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   alias Aiur.Alerts
   alias Aiur.Commands
   alias Aiur.Config
-  alias Aiur.GitHub.AuthPreflight
+  alias Aiur.Tracker
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.Dispatcher.Candidates
@@ -313,7 +313,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
 
   defp tracker_preflight_alert_context({:github_auth_preflight_failed, diagnostic} = reason)
        when is_map(diagnostic) do
-    formatted_reason = AuthPreflight.format_auth_preflight_error(reason)
+    formatted_reason = Tracker.format_preflight_error(reason)
     classification = Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
     repo = Map.get(diagnostic, :repo) || Map.get(diagnostic, "repo") || "unknown"
 
