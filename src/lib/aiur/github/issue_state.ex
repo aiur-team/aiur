@@ -11,6 +11,7 @@ defmodule Aiur.GitHub.IssueState do
 
   alias Aiur.GitHub.Config
   alias Aiur.GitHub.{Errors, HumanReviewGate, Issues, Labels, LocalHold, StatePolicy, Transport, WriteThrough}
+  alias Aiur.GitHub.IssueState.ClosedIssue
   require Logger
 
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
@@ -120,18 +121,7 @@ defmodule Aiur.GitHub.IssueState do
   end
 
   defp handle_closed_active_target(context, current_issue_body) do
-    case remove_active_state_labels(
-           context.request_fun,
-           context.token,
-           context.owner,
-           context.repo,
-           context.issue_number,
-           current_issue_body,
-           context.prefix
-         ) do
-      :ok -> {:error, {:no_state_label_written, current_issue_body}}
-      {:error, _reason} = error -> error
-    end
+    ClosedIssue.apply(context, current_issue_body)
   end
 
   defp revalidate_expected_state(%{opts: opts} = context, issue_body) do

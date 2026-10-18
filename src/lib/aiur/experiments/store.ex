@@ -5,6 +5,7 @@ defmodule Aiur.Experiments.Store do
 
   alias Aiur.Experiments.{
     AnalysisInput,
+    AnalysisProvenance,
     AnalysisRecovery,
     AnalysisRequests,
     Catalog,
@@ -27,6 +28,7 @@ defmodule Aiur.Experiments.Store do
   }
 
   alias Aiur.Experiments.Auto.WindowTransition
+  alias Aiur.Tracker.DispatchProvenance
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -39,6 +41,8 @@ defmodule Aiur.Experiments.Store do
     :persistent_term.erase({__MODULE__, :startup_failure})
 
     with :ok <- Aiur.Journal.ensure_directory(Paths.root()), :ok <- Persistence.recover() do
+      DispatchProvenance.register(&AnalysisProvenance.check/1)
+
       {:ok,
        %{
          evaluation: nil,

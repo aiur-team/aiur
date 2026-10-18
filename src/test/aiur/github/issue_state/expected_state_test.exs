@@ -95,6 +95,9 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
 
       assert {:error, {:no_state_label_written, ^body}} =
                IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
+
+      refute_received {:request, %{method: :post}}
+      refute_received {:request, %{method: :delete}}
     end
 
     test "revalidates expected state after the human-review gate" do

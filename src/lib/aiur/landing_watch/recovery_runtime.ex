@@ -4,7 +4,7 @@ defmodule Aiur.LandingWatch.RecoveryRuntime do
   @doc false
   @spec retry_or_drain(map()) :: map()
   def retry_or_drain(%{active_recovery_window: window, active_recovery_attempt: 0} = state) when not is_nil(window) do
-    Process.send_after(self(), {:poll_recovery, window, 1}, state.interval_ms)
+    Keyword.get(state.opts, :send_after_fun, &Process.send_after/3).(self(), {:poll_recovery, window, 1}, state.interval_ms)
     %{state | active_recovery_window: nil, active_recovery_attempt: 0}
   end
 

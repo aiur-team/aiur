@@ -14,7 +14,7 @@ assert.ok(/  schedule:\n    - cron:/.test(trigger), 'scheduled CI is configured'
 const jobs = new Map([...source.split(/^jobs:\n/m)[1].matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:|$(?![\s\S]))/gm)]
   .map(([, id, body]) => [id, body]));
 const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css', 'layout-release', 'analytics', 'streamdeck', 'pre-handoff'];
-const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'ci-gate', 'pre-handoff'];
+const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'soak', 'ci-gate', 'pre-handoff'];
 function selected(event, full, dialyzer = false, payload = { pull_request: {} }) {
   const condition = (body) => body.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
   const run = (expression, changes) => !expression || runInNewContext(expression, {
@@ -82,7 +82,7 @@ function gate(event, full, dialyzer, failedJob, result = 'failure', dialyzerOutp
 for (const [event, full, required] of [
   ['pull_request', false, fastJobs.filter((job) => job !== 'ci-gate')],
   ['merge_group', true, ['changes', 'workflow-security', 'lint', ...fullJobs]],
-  ['pull_request', true, ['changes', 'workflow-security', 'lint', ...fullJobs]],
+  ['pull_request', true, ['changes', 'workflow-security', 'lint', 'soak', ...fullJobs]],
 ]) {
   assert.equal(gate(event, full, false).status, 0, `${event} passes with selected set successful`);
   for (const job of required) {
@@ -106,6 +106,15 @@ for (const result of ['failure', 'skipped', 'cancelled', '']) {
 assert.notEqual(gate('pull_request', false, false, null, 'failure', 'missing').status, 0, 'gate rejects missing dialyzer output');
 assert.notEqual(gate('pull_request', false, false, null, 'failure', 'sometimes').status, 0, 'gate rejects malformed dialyzer output');
 assert.notEqual(gate('merge_group', false, false).status, 0, 'queue cannot claim fast evidence');
+// Soak: every PR, fast or full, repeats its changed tests; the queue never soaks.
+assert.ok(selected('pull_request', true).includes('soak'), 'full PR runs still soak');
+for (const event of ['merge_group', 'workflow_dispatch']) assert.ok(!selected(event, true).includes('soak'), `${event} never soaks`);
+assert.ok(jobs.get('soak').includes('uses: ./.github/workflows/soak.yml'));
+const soak = readFileSync(new URL('../.github/workflows/soak.yml', import.meta.url), 'utf8');
+assert.ok(/^on:\n  workflow_call:$/m.test(soak), 'soak runs only when ci.yml calls it');
+assert.ok(soak.includes('python3 scripts/ci-soak.py select HEAD^1 >> "$GITHUB_OUTPUT"'), 'soak selects against the PR merge base');
+assert.ok(soak.includes('SOAK_TESTS: ${{ needs.select.outputs.soak_tests }}'), 'paths reach the runner through env, not shell');
+assert.ok(soak.includes('SOAK_SPECS: ${{ needs.select.outputs.soak_specs }}'));
 assert.notEqual(gate('schedule', true, false).status, 0, 'gate refuses unsupported event');
 assert.ok(jobs.has('quarantine'), 'quarantine job remains available for scheduled/main runs');
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'schedule'"));

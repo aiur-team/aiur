@@ -77,10 +77,19 @@ for (const mode of ['fail=1', 'stall=1']) test(`paging error and retry: ${mode}`
 })
 
 for (const mode of ['epoch', 'destroy', 'reject']) test(`paging late reply: ${mode}`, async ({ page }) => {
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
   const result = await page.evaluate(async mode => {
     const oldFrom = S.histFrom, epoch = ctx.proto.epoch
-    ctx.push = () => new Promise((resolve, reject) => { window.complete = resolve; window.reject = reject })
-    const flight = hist.loadEarlier(); await Promise.resolve()
+    if (!hist.H.more || hist.H.state !== 'idle') throw new Error('Late-reply fixture must start with pageable idle history')
+    let markPushIssued
+    const pushIssued = new Promise(resolve => { markPushIssued = resolve })
+    ctx.push = () => new Promise((resolve, reject) => {
+      window.complete = resolve; window.reject = reject
+      markPushIssued()
+    })
+    const flight = hist.loadEarlier()
+    if (hist.H.state !== 'loading') throw new Error('Late-reply fixture did not start a new page request')
+    await pushIssued
     if (mode === 'epoch') ctx.proto.epoch = 'new-epoch'
     if (mode === 'destroy') ctx.life.dispose()
     if (mode === 'reject') reject(new Error('socket gone'))

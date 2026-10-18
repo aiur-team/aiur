@@ -330,6 +330,13 @@ defmodule Aiur.Orchestrator.Slots do
 
   @spec dispatch_slots_available?(Issue.t(), State.t()) :: boolean()
   def dispatch_slots_available?(%Issue{} = issue, %State{} = state) do
-    available_slots(state) > 0 and DispatchPolicy.state_slots_available?(issue, state)
+    reservation_limit = Map.get(state.priority_dispatch_reservations, issue.id)
+
+    fleet_slot_available? =
+      if is_integer(reservation_limit),
+        do: used_slots(state) < min(reservation_limit, max_concurrent_agent_limit(state)),
+        else: available_slots(state) > 0
+
+    fleet_slot_available? and DispatchPolicy.state_slots_available?(issue, state)
   end
 end
