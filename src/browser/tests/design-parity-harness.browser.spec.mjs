@@ -285,6 +285,26 @@ test('design route containment', async ({ browser }) => {
   const response = await page.goto('http://design.parity.invalid/%2e%2e%2fmix.exs')
   expect(response.status()).toBe(404)
 })
+for (const [designPath, productPath] of [
+  ['/assets/deepseek-logo.png', '/build-home/logos/deepseek-logo.png'],
+  ['/assets/codex-color.svg', '/provider-assets/codex-color.svg']
+]) {
+  test(`design logo route uses served product bytes: ${designPath}`, async ({ browser, request }) => {
+    const page = await pageFor(browser)
+    await routeDesign(page)
+    await page.goto('http://design.parity.invalid/blank')
+    const designBytes = await page.evaluate(async asset => {
+      const response = await fetch(asset)
+      if (!response.ok) throw new Error(`design asset returned ${response.status}`)
+      return [...new Uint8Array(await response.arrayBuffer())]
+    }, designPath)
+    const product = await request.get(productPath)
+    expect(product.ok()).toBe(true)
+    expect(Buffer.from(designBytes).equals(await product.body()), 'design and product logo response bytes match').toBe(true)
+    await verifyDesignSource()
+    checkPage(page)
+  })
+}
 test('page error guard', async ({ browser }) => {
   const page = await pageFor(browser)
   await openDesign(page, cell)
