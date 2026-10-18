@@ -132,7 +132,7 @@ defmodule Aiur.GitHub.IssueState do
       # free `304` when nothing changed.
       case Issues.fetch_issue_raw_conditional(
              context.issue_number,
-             issue_read_opts(context) |> Keyword.put(:revalidate, true)
+             guarded_issue_read_opts(context) |> Keyword.put(:revalidate, true)
            ) do
         {:ok, current_issue_body, _outcome} ->
           validate_revalidated_state(context, current_issue_body)
@@ -299,6 +299,10 @@ defmodule Aiur.GitHub.IssueState do
 
   defp issue_read_opts(%{request_fun: request_fun, token: token}),
     do: [token: token, request_fun: request_fun]
+
+  # Expected-state guards need an authoritative body: an ETag can validate a
+  # stale stored snapshot when equal updated_at values allowed a racing deposit.
+  defp guarded_issue_read_opts(context), do: Keyword.put(issue_read_opts(context), :unconditional, true)
 
   defp retry_local_holds(request_fun, opts) do
     fn request ->

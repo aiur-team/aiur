@@ -4,7 +4,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   alias Aiur.GitHub.{AgentMarker, Errors, Transport}
   alias Aiur.LandingWatch.Journal
 
-  @labels ["bug", "agent:todo", "priority:1"]
+  @labels ["bug", "agent:todo", "priority:1", "flake"]
 
   @spec record(map(), map(), [pos_integer()], keyword()) :: :ok | {:error, term()}
   def record(failure, run, passed_prs, opts) do
@@ -84,8 +84,18 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   end
 
   defp comment_existing(number, evidence, request, token, owner, repo) do
-    case comment(number, evidence, request, token, owner, repo) do
-      :ok -> {:ok, number}
+    with :ok <- add_flake_label(number, request, token, owner, repo),
+         :ok <- comment(number, evidence, request, token, owner, repo) do
+      {:ok, number}
+    end
+  end
+
+  defp add_flake_label(number, request, token, owner, repo) do
+    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{number}/labels"
+
+    case request.(%{method: :post, url: url, token: token, caller: "landing_watch_flake_label", body: %{"labels" => ["flake"]}}) do
+      {:ok, %{status: status}} when status in [200, 201] -> :ok
+      {:ok, response} -> {:error, Errors.github_status_error(response)}
       {:error, _} = error -> error
     end
   end

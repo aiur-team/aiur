@@ -127,6 +127,24 @@ defmodule Aiur.CI.FailureDigestTest do
     refute cancelled.flake_only
   end
 
+  test "a single annotated browser spec remains test-only beside the runner exit" do
+    browser = %{
+      "title" => "aiur-test-failure",
+      "path" => "src/browser/tests/recovery.browser.spec.mjs",
+      "message" => "new-failure :: BrowserSpec :: src/browser/tests/recovery.browser.spec.mjs",
+      "annotation_level" => "failure"
+    }
+
+    runner_exit = %{"message" => "Process completed with exit code 1.", "annotation_level" => "failure"}
+    assert {:ok, digest} = build([run(1, "browser smoke (7/7)")], %{1 => [browser, runner_exit]})
+    assert digest.test_only
+    assert [%{identity: "BrowserSpec :: src/browser/tests/recovery.browser.spec.mjs", path: "src/browser/tests/recovery.browser.spec.mjs"}] = digest.tests
+
+    unscoped = Map.delete(browser, "path")
+    assert {:ok, unsafe} = build([run(2, "browser smoke (7/7)")], %{2 => [unscoped, runner_exit]})
+    refute unsafe.test_only
+  end
+
   test "mixed new failures have an order-independent signature, legacy statuses remain check-level" do
     annotations = %{1 => [annotation("Aiur.ExampleTest :: a")], 2 => [annotation("Aiur.ExampleTest :: b")]}
     assert {:ok, first} = build([run(1), run(2, "lint")], annotations)

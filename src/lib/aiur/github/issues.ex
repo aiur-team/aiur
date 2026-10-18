@@ -168,7 +168,7 @@ defmodule Aiur.GitHub.Issues do
   # asking to be *sure*, and the conditional request that answers that is free
   # when nothing changed.
   defp stored_issue(key, opts) do
-    if Keyword.get(opts, :revalidate, false) do
+    if Keyword.get(opts, :revalidate, false) or Keyword.get(opts, :unconditional, false) do
       nil
     else
       servable_within(ResourceStore.fetch(key), Keyword.get(opts, :freshness_ms))
@@ -190,7 +190,7 @@ defmodule Aiur.GitHub.Issues do
   defp revalidate_raw_issue(issue_number, owner, repo, token, key, opts, retried_without_validator?) do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
-    etag = if retried_without_validator?, do: nil, else: ResourceStore.etag(key)
+    etag = if retried_without_validator? or Keyword.get(opts, :unconditional, false), do: nil, else: ResourceStore.etag(key)
 
     request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes, caller: Keyword.get(opts, :caller, "issue_raw_conditional")}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request

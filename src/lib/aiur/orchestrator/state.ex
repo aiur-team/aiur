@@ -71,6 +71,7 @@ defmodule Aiur.Orchestrator.State do
           status_observed_at: DateTime.t() | nil,
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
+            optional(:broker_fast_retry_pending?) => boolean(),
             approved_heads: map(),
             passed_heads: map(),
             test_failure_heads: map(),
@@ -248,7 +249,8 @@ defmodule Aiur.Orchestrator.State do
       base_repair_invalidations: %{},
       poll_cache: %{},
       rewakes: %{},
-      parked_ready_alerts: nil
+      parked_ready_alerts: nil,
+      broker_fast_retry_pending?: false
     },
     todo_over_capacity_alert_active: false,
     prewarm_blocked_alert_active: false,
