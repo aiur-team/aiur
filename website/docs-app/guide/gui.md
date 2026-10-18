@@ -62,7 +62,9 @@ On narrow screens, scroll within the **Build queue** table to see prerequisites,
 
 The operator-facing UI and CLI call these records **Commands**.
 
-Open the settings cog in the sticky top bar to pause or resume all agents, change the theme, or switch between Gruvbox (the default) and the aiur palette. Pause requires writable access and a known fleet state; an unavailable state reads “Pause state unknown”. The “All agents paused” chip appears only when pause is confirmed.
+Open the settings cog in the sticky top bar to pause or resume new agent starts, change the theme, or switch between Gruvbox (the default) and the aiur palette. A global pause leaves existing agents running and observed; pause an individual agent from its row for containment.
+
+Pause requires writable access and a known fleet state; an unavailable state reads “Pause state unknown”. The “New starts paused” chip appears only when pause is confirmed.
 
 The theme starts dark until you toggle it. Both choices stay in this browser; another tab keeps its current palette until reload. Fonts are served by the dashboard, including offline.
 
