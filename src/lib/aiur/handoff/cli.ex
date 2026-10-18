@@ -3,7 +3,9 @@ defmodule Aiur.Handoff.CLI do
   import Aiur.ControlCLI.Protocol, only: [guarded: 2, exit_marker: 1, error_marker: 0]
   alias Aiur.Handoff.Report
 
-  @preflight_snapshot_timeout_ms 120_000
+  # Keep this below the 120s shell RPC envelope in engine/handoff.sh so the
+  # daemon can report the blocked control RPC before the launcher times out.
+  @preflight_snapshot_timeout_ms 100_000
 
   @spec print_latest(keyword()) :: :ok
   def print_latest(opts \\ []) do
@@ -27,15 +29,19 @@ defmodule Aiur.Handoff.CLI do
           failure("orchestrator is not running")
 
         snapshot ->
-          capable = Enum.any?(snapshot.running, &(&1[:backend] in ["codex", "claude", "claude-repl"]))
-
-          if snapshot.running == [] or capable do
-            prepare_running()
-          else
-            failure("no running agent supports handoff")
-          end
+          prepare_snapshot(snapshot)
       end
     end)
+  end
+
+  defp prepare_snapshot(snapshot) do
+    capable = Enum.any?(snapshot.running, &(&1[:backend] in ["codex", "claude", "claude-repl"]))
+
+    if snapshot.running == [] or capable do
+      prepare_running()
+    else
+      failure("no running agent supports handoff")
+    end
   end
 
   defp prepare_running do
