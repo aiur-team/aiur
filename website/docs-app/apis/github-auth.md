@@ -6,8 +6,14 @@
 | --- | --- |
 | Comment commands and review-driven rework | Accepted only from configured trusted/daemon/bot accounts, the repository owner, or CODEOWNERS logins verified in the current refresh. |
 | Unresolvable CODEOWNERS | Failed teams contribute no members, including previously trusted members. Status/dashboard show the cause and age; sanitized comments remain visible to the Executor but untrusted bodies never enter agent digests or commands. Incomplete path ownership is unknown. |
-| The bot identity | Cannot trigger its own work, except a distinct daemon App author filing a marked fixer authorized by `merge_policy.main_watch.on_red: dispatch_fixer`. Shared/PAT identities require human triage. |
+| The bot identity | Cannot trigger its own work, except a distinct daemon App author filing a marked fixer authorized by `merge_policy.main_watch.on_red: dispatch_fixer`. Analysis tickets have the local-request exception below; other shared/PAT tickets require human triage. |
 
+
+A daemon-filed `experiment-analysis` ticket can dispatch after normal label authorization fails only when its body marker matches an **open local analysis request**, including a constant-time nonce check. The request must name that exact issue number and URL and record its daemon author login.
+
+The creator must also match the current daemon identity. Every actor adding or removing an `agent:*` label must be the daemon or configured agent bot; third-party or missing actors deny this fallback. Missing, unreadable, closed, or unattached local requests confer no trust.
+
+The optional experiment store registers this check; without it, ordinary authorization applies.
 
 ## GitHub App authentication
 
@@ -99,7 +105,7 @@ See `docs/security/daemon-token-posture.md` in this repository for the full setu
 
 ## What the agent guard governs
 
-Governed `gh` calls have a 120-second maximum runtime. `AIUR_GH_CALL_TIMEOUT_SECONDS` may lower that bound for controlled runs; larger values are capped at 120 seconds. A timed-out call is terminated with its child processes and exits with status 124. Long-running commands such as `gh run watch` and `gh pr checks --watch` are subject to the same limit.
+Governed `gh` calls run for at most 120 seconds. `AIUR_GH_CALL_TIMEOUT_SECONDS` may lower the cap. On timeout, the supervisor terminates child processes and exits 124; `gh run watch` and `gh pr checks --watch` share the limit. It sources its body from an anonymous pipe, so caller-writable `TMPDIR` cannot replace it.
 
 Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon scrubs them from every agent environment and instead writes the bot PAT to a
 credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard

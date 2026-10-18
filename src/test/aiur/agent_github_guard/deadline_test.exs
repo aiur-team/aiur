@@ -83,6 +83,26 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     assert File.read!(stdin_file) == "caller graphql body"
   end
 
+  test "the supervisor keeps its body off TMPDIR", context do
+    tmpdir = Path.join(context.workspace, "guard-tmp")
+    File.mkdir_p!(tmpdir)
+    tmpdir_snapshot = Path.join(context.workspace, "tmpdir-snapshot")
+    fake_gh = Path.join(context.workspace, "fake-gh")
+    File.write!(fake_gh, "#!/bin/sh\nls -A \"$TMPDIR\" > \"$GH_TMPDIR_SNAPSHOT\"\nprintf 'ok\\n'\n")
+    File.chmod!(fake_gh, 0o700)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["auth", "token"],
+               TMPDIR: tmpdir,
+               GH_TMPDIR_SNAPSHOT: tmpdir_snapshot,
+               AIUR_REAL_GH: fake_gh,
+               AIUR_GITHUB_BUDGET_ENABLED: "0",
+               AIUR_GH_CALL_TIMEOUT_SECONDS: "2"
+             )
+
+    assert File.read!(tmpdir_snapshot) == ""
+  end
+
   # #5101: the supervisor holds the injected credential, so caller Python
   # environment (PYTHONPATH, user site) must not run code inside it.
   test "a sitecustomize on the caller's PYTHONPATH does not run in the supervisor", context do

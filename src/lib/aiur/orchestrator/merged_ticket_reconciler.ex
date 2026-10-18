@@ -128,7 +128,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
       {:ok, "done"} ->
         reconcile_merged_ticket_to_done(state, issue, merge, opts, retained)
 
-      {:ok, target} when target in ["rework", "human-review"] ->
+      {:ok, target} when target in ["rework", "ci-wait", "human-review"] ->
         reconcile_merged_ticket_remaining_open(state, issue, merge, target, opts, retained)
 
       {:error, reason} ->
@@ -259,7 +259,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
         if Enum.any?(blocking, &open_pull_request_has_unresolved_findings?(&1, opts)) do
           {:ok, "rework"}
         else
-          {:ok, "human-review"}
+          {:ok, if(Enum.all?(blocking, &(ReworkGate.post_agent_handoff_target(&1, "human-review", opts) == "ci-wait")), do: "ci-wait", else: "human-review")}
         end
     end
   end

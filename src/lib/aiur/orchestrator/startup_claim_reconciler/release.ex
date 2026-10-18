@@ -122,14 +122,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   defp body_review_target(pr, opts) do
-    fetch = Keyword.get(opts, :reviews_fetcher, &Aiur.CodeHost.fetch_classified_pr_reviews/1)
-
-    with {:ok, reviews} <- fetch.(Map.fetch!(pr, "number")) do
-      # Only a trusted verdict on this head is current; old CHANGES_REQUESTED is sticky.
-      head = get_in(pr, ["head", "sha"])
-      findings? = is_binary(head) and reviews |> ReworkGate.blocking_reviews() |> Enum.any?(&(&1["commit_id"] == head))
-      {:ok, if(findings?, do: "rework", else: "human-review")}
-    end
+    {:ok, ReworkGate.post_agent_handoff_target(pr, "human-review", opts)}
   end
 
   defp guarded_update(identifier, target, expected, writer), do: TicketTransition.write_state(identifier, target, writer: writer, expected_state: expected)
