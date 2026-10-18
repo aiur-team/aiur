@@ -1,18 +1,23 @@
 defmodule Aiur.RunTelemetry.SummaryMerge do
   @moduledoc "Merges projected chart samples while preserving full-run resource totals."
 
-  alias Aiur.RunTelemetry.{Dataset, RetainedCache, Summaries, SummaryReader}
+  alias Aiur.RunTelemetry.{Dataset, RetainedCache, Summaries, SummaryIndex, SummaryReader}
+
+  @projection_budget_bytes 24 * 1024 * 1024
+  @max_summary_bytes 128 * 1024 * 1024
+  @max_scan_bytes 128 * 1024 * 1024
 
   @doc "Loads and merges retained projections one boot at a time."
   @spec load(Path.t(), String.t() | nil) :: {:ok, map()} | {:error, term()}
-  def load(file, current) do
+  @spec load(Path.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
+  def load(file, current, opts \\ []) do
     summaries = Summaries.summary_boot_ids() |> Enum.reject(&(&1 == current))
 
     if summaries == [] do
       bounded_raw(file)
     else
       key = RetainedCache.identity(current)
-      retained = RetainedCache.fetch(__MODULE__, key, fn -> load_retained(summaries) end, max_value_bytes: 24 * 1024 * 1024)
+      retained = RetainedCache.fetch(__MODULE__, key, fn -> load_retained(summaries, opts) end, max_value_bytes: 24 * 1024 * 1024)
 
       with {:ok, dataset} <- retained, do: {:ok, merge_live(file, current, dataset)}
     end
@@ -27,16 +32,45 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
     end
   end
 
-  defp load_retained(summaries) do
-    result =
-      Enum.reduce_while(summaries, [], fn boot, acc ->
-        case Summaries.load_dataset(boot) do
-          {:ok, dataset} -> {:cont, fit([dataset | acc])}
-          {:error, _reason} -> {:halt, :unreadable}
+  defp load_retained(summaries, opts) do
+    index_loader = Keyword.get(opts, :summary_index_loader, &SummaryIndex.time_range_end/1)
+    dataset_loader = Keyword.get(opts, :summary_dataset_loader, &Summaries.load_dataset/1)
+
+    max_summary_bytes = Keyword.get(opts, :max_summary_bytes, @max_summary_bytes)
+
+    entries =
+      Enum.reduce(summaries, [], fn boot, entries ->
+        case index_loader.(boot) do
+          {:ok, observed_at, _tail_bytes, file_bytes} ->
+            if file_bytes > max_summary_bytes, do: entries, else: [{observed_at, boot, file_bytes} | entries]
+
+          {:error, _reason, _tail_bytes, _file_bytes} ->
+            entries
         end
       end)
 
-    case result do
+    {datasets, _used_bytes} =
+      entries
+      |> Enum.sort_by(&elem(&1, 0), :desc)
+      |> Enum.reduce_while({[], 0}, fn {_observed_at, boot, file_bytes}, {datasets, used_bytes} ->
+        if used_bytes + file_bytes > Keyword.get(opts, :max_scan_bytes, @max_scan_bytes) do
+          {:halt, {datasets, used_bytes}}
+        else
+          case dataset_loader.(boot) do
+            {:ok, dataset} ->
+              candidate = [dataset | datasets] |> Enum.sort_by(&get_in(&1, [:provenance, :time_range, :end]), :desc)
+
+              if :erlang.external_size(candidate) <= @projection_budget_bytes,
+                do: {:cont, {candidate, used_bytes + file_bytes}},
+                else: {:halt, {datasets, used_bytes}}
+
+            {:error, _reason} ->
+              {:cont, {datasets, used_bytes + file_bytes}}
+          end
+        end
+      end)
+
+    case datasets do
       datasets when is_list(datasets) and datasets != [] ->
         case trim(datasets) do
           [] -> {:error, :retained_unreadable}
@@ -48,22 +82,10 @@ defmodule Aiur.RunTelemetry.SummaryMerge do
     end
   end
 
-  # ponytail: keep newest complete runs within the projection budget; expand to pre-aggregated lifecycle storage if history must be exhaustive.
-  defp fit(datasets) do
-    sorted = Enum.sort_by(datasets, &get_in(&1, [:provenance, :time_range, :end]), :desc)
-    trim_inputs(sorted)
-  end
-
-  defp trim_inputs([]), do: []
-
-  defp trim_inputs(datasets) do
-    if :erlang.external_size(datasets) <= 24 * 1024 * 1024, do: datasets, else: trim_inputs(Enum.drop(datasets, -1))
-  end
-
   defp trim([]), do: []
 
   defp trim(datasets) do
-    if :erlang.external_size(merge(datasets)) <= 24 * 1024 * 1024,
+    if :erlang.external_size(merge(datasets)) <= @projection_budget_bytes,
       do: datasets,
       else: trim(Enum.drop(datasets, -1))
   end

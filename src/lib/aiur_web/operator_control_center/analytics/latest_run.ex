@@ -8,7 +8,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
 
   Only the newest analyzable prior summary is retained in a bounded cache.
   A persistent cache owner serializes cold loads and survives request exits.
-  File metadata invalidates regenerated summaries without retaining every boot.
+  Per-summary file metadata invalidates regenerated summaries without retaining
+  every decoded boot.
 
   When retained summaries exist but none of them can be decoded — a truncated
   or corrupt `run-summary.json` — `load/4` returns `{:error, :retained_unreadable}`
@@ -98,10 +99,17 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
 
   defp index_summary(boot_id, {indexed, unreadable?}, opts) do
     index_loader = Keyword.get(opts, :summary_index_loader, &SummaryIndex.time_range_end/1)
+    max_summary_bytes = Keyword.get(opts, :max_summary_bytes, 128 * 1024 * 1024)
 
     case index_loader.(boot_id) do
-      {:ok, observed_at, _bytes_read} -> {[{observed_at, boot_id} | indexed], unreadable?}
-      {:error, _reason, _bytes_read} -> {indexed, true}
+      {:ok, observed_at, _bytes_read, file_bytes} when file_bytes <= max_summary_bytes ->
+        {[{observed_at, boot_id} | indexed], unreadable?}
+
+      {:ok, _observed_at, _bytes_read, _file_bytes} ->
+        {indexed, true}
+
+      {:error, _reason, _bytes_read, _file_bytes} ->
+        {indexed, true}
     end
   end
 

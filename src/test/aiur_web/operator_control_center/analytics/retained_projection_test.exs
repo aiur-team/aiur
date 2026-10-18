@@ -112,5 +112,60 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedProjectionTest do
     assert model.available?
   end
 
+  test "full log stops decoding when the cumulative summary byte budget fills", %{root: root} do
+    for boot <- ["old", "new"] do
+      File.mkdir_p!(Path.dirname(Summaries.run_summary_path(boot)))
+    end
+
+    parent = self()
+    timestamps = %{"old" => "2026-07-11T00:00:16Z", "new" => "2026-07-12T00:00:16Z"}
+    {:ok, template} = @fixture |> File.read!() |> Summaries.decode_summary()
+    newest = put_in(template, [:provenance, :time_range, :end], timestamps["new"])
+    older = put_in(template, [:provenance, :time_range, :end], timestamps["old"])
+
+    index_loader = fn boot -> {:ok, timestamps[boot], 100, 80} end
+
+    dataset_loader = fn boot ->
+      send(parent, {:decoded_summary, boot})
+      {:ok, if(boot == "new", do: newest, else: older)}
+    end
+
+    assert {:ok, merged} =
+             SummaryMerge.load(
+               Path.join(root, "missing.ndjson"),
+               "live",
+               summary_index_loader: index_loader,
+               summary_dataset_loader: dataset_loader,
+               max_summary_bytes: 100,
+               max_scan_bytes: 100
+             )
+
+    assert merged.retained_runs.included == 1
+    assert_receive {:decoded_summary, "new"}
+    refute_receive {:decoded_summary, "old"}
+  end
+
+  test "full log does not decode a summary beyond the retained byte cap", %{root: root} do
+    File.mkdir_p!(Path.dirname(Summaries.run_summary_path("oversized")))
+    parent = self()
+    index_loader = fn "oversized" -> {:ok, "2026-07-12T00:00:16Z", 100, 101} end
+
+    dataset_loader = fn _boot ->
+      send(parent, :decoded_oversized)
+      flunk("oversized summary decoded")
+    end
+
+    assert {:error, :retained_unreadable} =
+             SummaryMerge.load(
+               Path.join(root, "missing.ndjson"),
+               "live",
+               summary_index_loader: index_loader,
+               summary_dataset_loader: dataset_loader,
+               max_summary_bytes: 100
+             )
+
+    refute_receive :decoded_oversized
+  end
+
   defp analyzable?(dataset), do: map_size(dataset.tickets) > 0
 end

@@ -15,37 +15,27 @@ defmodule Aiur.RunTelemetry.RetainedCache do
     end
   end
 
-  @identity_ttl_ms 1_000
-
-  @doc "Short-lived directory identity for retained summaries excluding the current boot."
-  @spec identity(String.t() | nil) :: tuple()
+  @doc "Identity of retained summary files, excluding the current boot."
+  @spec identity(String.t() | nil) :: term()
   def identity(current_boot) do
-    {Summaries.state_node(), current_boot, cached_directory_identity(Summaries.runs_dir())}
+    {Summaries.state_node(), current_boot, summaries_identity(current_boot)}
   end
 
   @doc false
-  @spec directory_identity(Path.t()) :: tuple()
-  def directory_identity(path) do
+  @spec summaries_identity(String.t() | nil) :: tuple()
+  def summaries_identity(current_boot) do
+    Summaries.summary_boot_ids()
+    |> Enum.reject(&(&1 == current_boot))
+    |> Enum.map(fn boot -> {boot, file_identity(Summaries.run_summary_path(boot))} end)
+  end
+
+  @doc false
+  @spec file_identity(Path.t()) :: tuple()
+  def file_identity(path) do
     case File.stat(path, time: :posix) do
       {:ok, stat} -> {stat.inode, stat.size, stat.mtime, stat.ctime}
       {:error, reason} -> {reason}
     end
-  end
-
-  defp cached_directory_identity(path) do
-    key = {__MODULE__, :directory_identity, path}
-    now = System.monotonic_time(:millisecond)
-
-    case :persistent_term.get(key, nil) do
-      {identity, checked_at} when now - checked_at < @identity_ttl_ms -> identity
-      _expired -> refresh_directory_identity(key, path, now)
-    end
-  end
-
-  defp refresh_directory_identity(key, path, now) do
-    identity = directory_identity(path)
-    :persistent_term.put(key, {identity, now})
-    identity
   end
 
   defp ensure_started do

@@ -68,7 +68,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
     assert :ets.lookup(table, :oversized) == []
   end
 
-  test "retained identity uses a bounded directory signature rather than enumerating boot summaries" do
+  test "retained identity changes when a summary is atomically replaced in its boot directory" do
     root = Aiur.TestSupport.tmp_root!("retained-identity")
     previous = for key <- [:repo_base_root, :analytics_repo], do: {key, Application.fetch_env(:aiur, key)}
     Application.put_env(:aiur, :repo_base_root, root)
@@ -76,26 +76,22 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
     runs = Path.join(Aiur.RepoBase.repo_path("test/retained-identity"), "analytics/runs")
     File.mkdir_p!(Path.join(runs, "boot-a"))
     summary = Path.join([runs, "boot-a", "run-summary.json"])
-    File.write!(summary, "old")
-    identity = RetainedCache.directory_identity(runs)
+    File.write!(summary, "old-summary")
+    identity = RetainedCache.summaries_identity("current")
 
     on_exit(fn ->
       Aiur.TestSupport.restore_app_env(previous)
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
-    File.write!(summary, "replacement with a different size")
-    assert RetainedCache.directory_identity(runs) == identity
+    replacement = Path.join(Path.dirname(summary), "run-summary.tmp")
+    File.write!(replacement, "new-summary")
+    File.rename!(replacement, summary)
+    refute RetainedCache.summaries_identity("current") == identity
 
     path = Path.join(runs, "boot-b")
     File.mkdir_p!(path)
-    refute RetainedCache.directory_identity(runs) == identity
-
-    # Directory metadata has second-resolution timestamps; the warm cache
-    # expires so a boot created within that second is still detected.
-    key = {RetainedCache, :directory_identity, runs}
-    :persistent_term.put(key, {identity, System.monotonic_time(:millisecond) - 1_001})
-    assert RetainedCache.identity("current") |> elem(2) == RetainedCache.directory_identity(runs)
+    assert ["boot-a", "boot-b"] = RetainedCache.summaries_identity("current") |> Enum.map(&elem(&1, 0))
   end
 
   test "latest-run decodes newest analyzable summary only" do
@@ -119,7 +115,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
       cache_identity: make_ref(),
       summary_index_loader: fn boot ->
         send(parent, {:indexed, boot})
-        {:ok, Map.fetch!(times, boot), 256 * 1024}
+        {:ok, Map.fetch!(times, boot), 256 * 1024, 10 * 1024 * 1024}
       end,
       summary_dataset_loader: fn boot ->
         send(parent, {:decoded, boot})
