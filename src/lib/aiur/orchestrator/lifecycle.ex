@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
+  alias Aiur.{AgentPubSub, CIApprovalStore, Config, Events, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Handoff.Adopter
   alias Aiur.Handoff.Protection
@@ -408,7 +408,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   defp install_event_tracked_fn(tracked_issue?) do
     if Process.whereis(Publisher) do
-      Publisher.set_tracked_fn(tracked_issue?)
+      Events.set_tracked_fn(tracked_issue?)
     end
 
     :ok
@@ -419,7 +419,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # before the first tick is seeded.
   defp subscribe_to_orchestrator_topics(opts) do
     if Process.whereis(Exchange) do
-      Enum.each(@orchestrator_topics -- skipped_comment_topics(opts), &Exchange.subscribe/1)
+      Enum.each(@orchestrator_topics -- skipped_comment_topics(opts), &Events.subscribe/1)
     end
 
     :ok
