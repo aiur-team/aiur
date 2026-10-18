@@ -30,7 +30,12 @@ defmodule Aiur.Workspace.TrackerBoundaryTest do
     for kind <- ["linear", "memory"] do
       write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: kind, tracker_repo: "owner/repo")
       assert Tracker.clone_url() == nil
-      assert Aiur.RepoBase.Clone.clone_url() == "https://github.com/owner/repo.git"
+      path = Workflow.workflow_file_path()
+      write_workflow_file_atomic!(path, File.read!(path) <> "prewarm:\n  enabled: true\n  base_build: echo build\n  poll_seconds: 0\n")
+      assert :ok = Aiur.WorkflowStore.force_reload()
+      state = %{phase: {:error, :existing}, build: nil, probe: nil, base_path: nil, dispatch_watchdog: nil}
+      assert {:reply, {:error, :existing}, resolved} = Aiur.RepoBase.handle_call(:refresh_for_dispatch, {self(), make_ref()}, state)
+      assert resolved.base_path == Aiur.RepoBase.base_path("https://github.com/owner/repo.git")
     end
   end
 
