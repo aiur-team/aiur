@@ -1,8 +1,8 @@
 defmodule Aiur.OrchestratorMaxAgentsTest do
   use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
   alias Aiur.{AgentQueue, AgentQueueStore}
+  alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
 
   defp running_entry(issue_id, identifier, status) do
     %{

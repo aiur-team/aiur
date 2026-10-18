@@ -2,6 +2,7 @@ defmodule Aiur.AgentQueueStoreTargetIndexTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{AgentQueue, AgentQueueStore}
+  alias Aiur.Orchestrator.{OperatorMessages, State}
 
   test "per-target reads cost the same however many items other targets hold" do
     cost = fn other_items ->
@@ -35,13 +36,13 @@ defmodule Aiur.AgentQueueStoreTargetIndexTest do
       digest = AgentQueue.coordination_event("MT-EVENT", :events_digest, %{events: [event]})
       {store, item} = AgentQueueStore.enqueue(store, digest)
       {store, _item} = AgentQueueStore.mark_failed(store, item.id, :recorded)
-      state = %Aiur.Orchestrator.State{queue_store: store}
+      state = %State{queue_store: store}
 
-      warmed = Aiur.Orchestrator.OperatorMessages.enqueue_event_digest_item(state, "MT-EVENT", [event], event)
+      warmed = OperatorMessages.enqueue_event_digest_item(state, "MT-EVENT", [event], event)
       assert warmed.queue_store.next_id == store.next_id
       :erlang.garbage_collect(self())
       {:reductions, before} = Process.info(self(), :reductions)
-      next = Aiur.Orchestrator.OperatorMessages.enqueue_event_digest_item(state, "MT-EVENT", [event], event)
+      next = OperatorMessages.enqueue_event_digest_item(state, "MT-EVENT", [event], event)
       assert next.queue_store.next_id == store.next_id
       assert map_size(next.queue_store.items) == map_size(store.items)
       {:reductions, after_enqueue} = Process.info(self(), :reductions)
