@@ -51,6 +51,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate pause(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate resume(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run
+  defdelegate take(targets, owner), to: Aiur.ControlCLI.ExecutorOwnership, as: :take
+  defdelegate release(targets, owner), to: Aiur.ControlCLI.ExecutorOwnership, as: :release
   defdelegate recover_workspace(ticket, generation), to: Aiur.ControlCLI.EntryPoints
   defdelegate usage(server \\ Aiur.ProviderMeterProjection, opts \\ []), to: Aiur.Accounting.CLI
   defdelegate accounts(json, harness \\ nil), to: Aiur.Accounting.CLI

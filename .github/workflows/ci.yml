@@ -93,7 +93,7 @@ jobs:
       - name: Test CI change classifier
         run: bash scripts/test-classify-ci-changes.sh
       - name: Test CI concurrency
-        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-check-test-time-bombs.py
+        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-ci-soak.py && python3 scripts/test-check-test-time-bombs.py
       - name: Verify live merge rulesets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -125,9 +125,7 @@ jobs:
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: src
+    defaults: { run: { working-directory: src } }
     steps:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -147,9 +145,7 @@ jobs:
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: src
+    defaults: { run: { working-directory: src } }
     steps:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -213,9 +209,7 @@ jobs:
       fail-fast: false
       matrix:
         partition: [1, 2, 3, 4]
-    defaults:
-      run:
-        working-directory: src
+    defaults: { run: { working-directory: src } }
     steps:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -619,9 +613,14 @@ jobs:
         env:
           AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}
         run: bash ../scripts/run-ci-affected-tests.sh
+  # Repeats the PR's added or modified tests with fresh seeds; see .github/workflows/soak.yml.
+  soak:
+    needs: changes
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result == 'success' }}
+    uses: ./.github/workflows/soak.yml
   ci-gate:
     name: ci gate
-    needs: [changes, workflow-security, pre-handoff, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
+    needs: [changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
