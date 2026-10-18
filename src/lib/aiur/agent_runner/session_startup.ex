@@ -1,9 +1,12 @@
 defmodule Aiur.AgentRunner.SessionStartup do
   @moduledoc false
   require Logger
-  alias Aiur.{CodingAgent, Issue, ModelDiscovery, Signal}
   alias Aiur.AgentRunner.CodexUpdateRelay
   alias Aiur.Claude.Telemetry
+  alias Aiur.CodingAgent
+  alias Aiur.Issue
+  alias Aiur.ModelDiscovery
+  alias Aiur.Signal
   @type worker_host :: String.t() | nil
 
   @doc false

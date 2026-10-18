@@ -1,10 +1,13 @@
 defmodule Aiur.AgentRunner.SessionDisplay do
   @moduledoc false
   require Logger
-  alias Aiur.{AgentPubSub, CodingAgent, Issue, Signal}
+  alias Aiur.AgentPubSub
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Claude.DisplayTailer
+  alias Aiur.CodingAgent
+  alias Aiur.Issue
   alias Aiur.LiveConversation.Source
+  alias Aiur.Signal
   import Aiur.AgentRunner.SessionIdentity
 
   @doc false

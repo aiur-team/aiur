@@ -1,6 +1,7 @@
 defmodule Aiur.AgentQueueStore.Correlation do
   @moduledoc false
-  alias Aiur.{AgentQueueItem, AgentQueueStore}
+  alias Aiur.AgentQueueItem
+  alias Aiur.AgentQueueStore
   import Aiur.AgentQueueStore.Items, only: [put_item: 2, append_pending_id: 3]
 
   @doc """

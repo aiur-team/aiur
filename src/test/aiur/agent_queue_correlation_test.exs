@@ -2,7 +2,8 @@ defmodule Aiur.AgentQueue.CorrelationTest do
   use ExUnit.Case, async: true
   @moduletag :r7_characterization
 
-  alias Aiur.{AgentQueue, AgentQueueStore}
+  alias Aiur.AgentQueue
+  alias Aiur.AgentQueueStore
 
   describe "correlated operator-message idempotency" do
     test "a fresh action produces one pending item with structured correlation" do

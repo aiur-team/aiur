@@ -1,11 +1,23 @@
 defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
+  alias Aiur.AgentRunner.DispatchSelectionEvent
+  alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.AgentRunner.ModelLabelRefresh
+  alias Aiur.AgentRunner.SessionContainment
+  alias Aiur.AgentRunner.SessionDisplay
+  alias Aiur.AgentRunner.SessionIdentity
+  alias Aiur.AgentRunner.SessionOptions
+  alias Aiur.AgentRunner.SessionResume
+  alias Aiur.AgentRunner.SessionStartup
+  alias Aiur.AgentRunner.TurnBudget
+  alias Aiur.AgentRunner.TurnLoop
   alias Aiur.Claude.DisplayTailer
+  alias Aiur.CodingAgent
+  alias Aiur.Issue
+  alias Aiur.Signal
+  alias Aiur.Tracker
   alias Aiur.Workspace.Ownership
-  alias Aiur.{CodingAgent, Issue, Signal, Tracker}
-  alias Aiur.AgentRunner.{DispatchSelectionEvent, MessageHandler, ModelLabelRefresh, SessionResume, TurnBudget, TurnLoop}
-  alias Aiur.AgentRunner.{SessionContainment, SessionDisplay, SessionIdentity, SessionOptions, SessionStartup}
 
   import SessionContainment,
     only: [

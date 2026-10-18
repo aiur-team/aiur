@@ -1,9 +1,10 @@
 defmodule Aiur.AppServer.AdapterTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AppServer.{Adapter}
+  alias Aiur.AppServer.Adapter
   alias Aiur.AppServer.Rpc.StreamDiagnostics
-  alias Aiur.Codex.{Interrupts, TurnLoop}
+  alias Aiur.Codex.Interrupts
+  alias Aiur.Codex.TurnLoop
 
   test "a limit refusal at turn start pauses instead of failing the turn" do
     port = cat_port()

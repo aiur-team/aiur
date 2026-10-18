@@ -1,9 +1,15 @@
 defmodule Aiur.AgentRunner.SessionLifecycle.DisplayTailTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{AgentEvents, AgentPubSub, Issue, LiveConversation, TrackerIdentity}
-  alias Aiur.AgentRunner.{MessageHandler, SessionLifecycle}
-  alias Aiur.Claude.{DisplayTailer, HookEvents}
+  alias Aiur.AgentEvents
+  alias Aiur.AgentPubSub
+  alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.Claude.DisplayTailer
+  alias Aiur.Claude.HookEvents
+  alias Aiur.Issue
+  alias Aiur.LiveConversation
+  alias Aiur.TrackerIdentity
 
   describe "should_display_tail?/3" do
     test "is true only for RC claude-repl sessions with an identifier" do

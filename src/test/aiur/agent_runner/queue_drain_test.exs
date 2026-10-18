@@ -2,8 +2,9 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   use ExUnit.Case, async: false
   @moduletag :r7_characterization
 
-  alias Aiur.AgentRunner.{QueueDrain}
-  alias Aiur.{AlertFeed, Issue}
+  alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.AlertFeed
+  alias Aiur.Issue
 
   describe "claim_after_queue_update/3" do
     test "returns :ignored when deliver_now? is false" do

@@ -15,9 +15,11 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   require Logger
 
-  alias Aiur.{Issue, PauseContainment}
-  alias Aiur.AgentRunner.{MessageHandler, QueueTurn}
+  alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.AgentRunner.QueueTurn
   alias Aiur.AgentRunner.TurnLoop
+  alias Aiur.Issue
+  alias Aiur.PauseContainment
 
   @doc false
   @spec drain_operator_messages(map(), Issue.t(), fun(), GenServer.server(), pid() | nil) ::

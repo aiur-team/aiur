@@ -1,7 +1,8 @@
 defmodule Aiur.AgentRunner.DeliveryCorrelation do
   @moduledoc false
   require Logger
-  alias Aiur.{Commands, Signal}
+  alias Aiur.Commands
+  alias Aiur.Signal
   @max_delivery_correlation_attempts 3
 
   @doc false

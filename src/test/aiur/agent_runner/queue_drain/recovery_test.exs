@@ -2,8 +2,10 @@ defmodule Aiur.AgentRunner.QueueDrain.RecoveryTest do
   use ExUnit.Case, async: false
   @moduletag :r7_characterization
 
-  alias Aiur.AgentRunner.{QueueDrain}
-  alias Aiur.{Issue, LiveConversation, TrackerIdentity}
+  alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.Issue
+  alias Aiur.LiveConversation
+  alias Aiur.TrackerIdentity
 
   describe "drain_operator_messages/6" do
     test "provider exits restore the queued message for a replacement to drain once" do

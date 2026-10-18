@@ -1,8 +1,8 @@
 defmodule Aiur.AgentRunner.SessionLifecycle.StartupTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{Issue}
-  alias Aiur.AgentRunner.{SessionLifecycle}
+  alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.Issue
 
   describe "start_agent_session/3" do
     test "keeps the provider's established model, falling back to the requested model when absent" do

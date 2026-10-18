@@ -3,9 +3,12 @@ defmodule Aiur.AgentRunner.SessionOptions do
   require Logger
   alias Aiur.Accounts
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.{CodingAgent, Config, Issue, Tracker}
   alias Aiur.AgentRunner.SessionResume
+  alias Aiur.CodingAgent
   alias Aiur.CodingAgent.HeadroomDispatch
+  alias Aiur.Config
+  alias Aiur.Issue
+  alias Aiur.Tracker
   @type worker_host :: String.t() | nil
 
   @doc false

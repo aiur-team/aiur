@@ -4,8 +4,8 @@ defmodule Aiur.AgentQueueStore do
   """
 
   alias Aiur.AgentQueueItem
-  alias Aiur.AgentQueueStore.Items
   alias Aiur.AgentQueueStore.Correlation
+  alias Aiur.AgentQueueStore.Items
 
   @type t :: %__MODULE__{
           next_id: integer(),

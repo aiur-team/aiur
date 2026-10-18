@@ -1,6 +1,7 @@
 defmodule Aiur.AgentQueueStore.Items do
   @moduledoc false
-  alias Aiur.{AgentQueueItem, AgentQueueStore}
+  alias Aiur.AgentQueueItem
+  alias Aiur.AgentQueueStore
 
   @doc false
   @spec put_item(term(), term()) :: term()

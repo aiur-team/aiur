@@ -1,7 +1,9 @@
 defmodule Aiur.AgentRunner.SessionContainment do
   @moduledoc false
-  alias Aiur.{CodingAgent, Issue, ProcessTree}
   alias Aiur.AgentRunner.SessionCleanup
+  alias Aiur.CodingAgent
+  alias Aiur.Issue
+  alias Aiur.ProcessTree
   alias Aiur.Workspace.Ownership
   import Aiur.AgentRunner.SessionStartup, only: [record_session_start_failure: 3]
   import Aiur.AgentRunner.SessionIdentity

@@ -1,7 +1,8 @@
 defmodule Aiur.AppServer.Adapter.PortTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AppServer.{Adapter, Transport}
+  alias Aiur.AppServer.Adapter
+  alias Aiur.AppServer.Transport
 
   test "start_port/2 starts bash in the requested workspace" do
     assert {:ok, port} = Adapter.start_port(File.cwd!(), "printf '%s\\n' ready")

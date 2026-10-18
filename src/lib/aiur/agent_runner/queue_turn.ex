@@ -2,9 +2,17 @@ defmodule Aiur.AgentRunner.QueueTurn do
   @moduledoc false
   require Logger
   alias Aiur.AgentPubSub
-  alias Aiur.AgentRunner.{EventsDigest, MessageHandler, QueueDrain, SessionLifecycle, ToolExecutor, TurnCallbacks, TurnLoop, TurnStreams}
+  alias Aiur.AgentRunner.EventsDigest
+  alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.AgentRunner.ToolExecutor
+  alias Aiur.AgentRunner.TurnCallbacks
+  alias Aiur.AgentRunner.TurnLoop
+  alias Aiur.AgentRunner.TurnStreams
   alias Aiur.AgentTools.Dispatch
-  alias Aiur.{CodingAgent, Workspace}
+  alias Aiur.CodingAgent
+  alias Aiur.Workspace
   import Aiur.AgentRunner.DeliveryCorrelation
 
   @doc false

@@ -2,8 +2,10 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.{AgentRunner, CodingAgent, Issue}
-  alias Aiur.AgentRunner.{SessionLifecycle}
+  alias Aiur.AgentRunner
+  alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.CodingAgent
+  alias Aiur.Issue
   alias Aiur.Workspace.Ownership
 
   describe "remote_session_backend/2" do

@@ -2,7 +2,8 @@ defmodule Aiur.AgentQueueTest do
   use ExUnit.Case, async: true
   @moduletag :r7_characterization
 
-  alias Aiur.{AgentQueue, AgentQueueStore}
+  alias Aiur.AgentQueue
+  alias Aiur.AgentQueueStore
 
   test "enqueue human message and claim it back with preserved delivery policy" do
     store = AgentQueueStore.new()

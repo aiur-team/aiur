@@ -1,8 +1,10 @@
 defmodule Aiur.AgentRunner.SessionLifecycle.ContainmentTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{CodingAgent, Issue, TrackerIdentity}
-  alias Aiur.AgentRunner.{SessionLifecycle}
+  alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.CodingAgent
+  alias Aiur.Issue
+  alias Aiur.TrackerIdentity
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Store
 

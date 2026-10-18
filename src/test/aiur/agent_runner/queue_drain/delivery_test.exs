@@ -2,9 +2,11 @@ defmodule Aiur.AgentRunner.QueueDrain.DeliveryTest do
   use ExUnit.Case, async: false
   @moduletag :r7_characterization
 
-  alias Aiur.AgentRunner.{QueueDrain, ToolExecutor}
-  alias Aiur.{Issue, TrackerIdentity}
+  alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.Events.Exchange
+  alias Aiur.Issue
+  alias Aiur.TrackerIdentity
 
   describe "drain_operator_messages/6" do
     test "correlated pause and resume preserve drain options" do

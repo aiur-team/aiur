@@ -2,8 +2,9 @@ defmodule Aiur.AgentRunner.QueueDrain.ChronologyTest do
   use ExUnit.Case, async: false
   @moduletag :r7_characterization
 
-  alias Aiur.AgentRunner.{QueueDrain}
-  alias Aiur.{Issue, PauseContainment}
+  alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.Issue
+  alias Aiur.PauseContainment
 
   @active_turn_mismatch %{
     "code" => -32_600,
