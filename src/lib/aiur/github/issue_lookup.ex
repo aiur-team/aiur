@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.IssueLookup do
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=all&sort=created&direction=desc&per_page=100"
       url = if opts[:since], do: url <> "&since=" <> URI.encode_www_form(opts[:since]), else: url
       cutoff = parse_timestamp(opts[:since])
-      pages(url, marker, token, Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), %{cutoff: cutoff, remaining: if(cutoff, do: :bounded_by_creation, else: 10), seen: MapSet.new()})
+      pages(url, marker, token, Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), %{cutoff: cutoff, remaining: if(cutoff, do: :bounded_by_creation, else: 10), seen: %{}})
     end
   end
 
@@ -16,10 +16,10 @@ defmodule Aiur.GitHub.IssueLookup do
   defp pages(_url, _marker, _token, _request, %{remaining: 0}), do: {:error, :incomplete_issue_lookup}
 
   defp pages(url, marker, token, request, pagination) do
-    if MapSet.member?(pagination.seen, url) do
+    if Map.has_key?(pagination.seen, url) do
       {:error, :incomplete_issue_lookup}
     else
-      fetch_page(url, marker, token, request, %{pagination | seen: MapSet.put(pagination.seen, url)})
+      fetch_page(url, marker, token, request, %{pagination | seen: Map.put(pagination.seen, url, true)})
     end
   end
 
