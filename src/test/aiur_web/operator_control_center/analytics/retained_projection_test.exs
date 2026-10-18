@@ -139,8 +139,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedProjectionTest do
              )
 
     assert merged.retained_runs.included == 1
-    assert_receive {:decoded_summary, "new"}
-    refute_receive {:decoded_summary, "old"}
+    assert_receive {:decoded_summary, "new"}, 100
+    refute_receive {:decoded_summary, "old"}, 100
   end
 
   test "full log does not decode a summary beyond the retained byte cap", %{root: root} do
@@ -167,8 +167,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedProjectionTest do
                max_scan_bytes: 256 * 1024 * 1024
              )
 
-    assert_receive {:indexed_oversized, "oversized"}
-    refute_receive :decoded_oversized
+    assert_receive {:indexed_oversized, "oversized"}, 100
+    refute_receive :decoded_oversized, 100
   end
 
   defp analyzable?(dataset), do: map_size(dataset.tickets) > 0
