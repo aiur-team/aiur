@@ -89,10 +89,10 @@ export function renderLoading() {
 export function renderUnavailable(reason) {
   const loading = ctx.root?.querySelector('.bd-loading');
   if (!loading) return;
-  const words = { not_wired: 'no data source', timeout: 'timed out', crashed: 'source crashed',
-    version: 'page out of date, reload', invalid: 'invalid data', unavailable: 'source unavailable',
-    epic_config_unavailable: 'Build Order settings could not be read', index_not_running: 'build projection is not running',
-    read_failed: 'build projection read failed' };
+  const words = { not_wired: 'no data source', timeout: 'build index read timed out', crashed: 'source crashed',
+    version: 'page out of date, reload', invalid: 'invalid data', invalid_data: 'build data failed validation', unavailable: 'build source unavailable',
+    index_not_running: 'build index is not running', read_failed: 'build index read failed',
+    epic_config_unavailable: 'Build Order settings could not be read' };
   loading.textContent = Object.hasOwn(words, reason) ? words[reason] : `Build timeline unavailable · unknown cause (${String(reason).slice(0, 80)})`;
   loading.setAttribute('role', 'status');
   ctx.vp.querySelectorAll('.bd-skel i').forEach(el => { el.style.animation = 'none'; });
