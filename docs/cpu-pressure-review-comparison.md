@@ -1,27 +1,17 @@
 # Executor review CPU pressure comparison
 
-## Result for 2026-10-18
+Use this procedure on the Executor host to compare host PSI with and without
+Executor review work. Keep fleet dispatch and unrelated host workload stable.
 
-This workspace could not run a controlled Executor-review comparison: no review
-agent was active, and the Executor process had no per-process CPU sample. The
-host showed `/proc/pressure/cpu some avg60=83.45%` at 19:27:45Z. The current
-user-session cgroup was also about 83.18%, but includes unrelated user
-processes, so it cannot attribute that pressure to review work. The dedicated
-Stream Deck service cgroup was nearly idle (`some avg60=0.35%`). These are
-observations, not evidence that Executor review caused the host pressure.
+1. Record a 10-minute baseline with Executor review stopped.
+2. Record a 10-minute treatment with one representative review active.
+3. Repeat the pair in reverse order to reduce time-of-day bias.
+4. At one-minute intervals, record UTC time, host `/proc/pressure/cpu` `some`
+   avg60, `/proc/stat`, review-process-tree CPU time from `/proc/<pid>/stat`
+   (utime + stime), and fleet-process-tree CPU time over the same interval.
+5. Record process identity, nice value, and cgroup `cpu.stat` / `cpu.pressure`
+   when available. Report medians and ranges for both phases.
 
-## Reproducible comparison
-
-Run on the Executor host with an idle dispatch fleet and no unrelated workload
-changes. Use a 10-minute baseline with Executor review stopped, then a
-10-minute treatment with one representative review active. Repeat the pair in
-reverse order to reduce time-of-day bias. Record UTC start/end, review process
-identity and CPU time, `/proc/pressure/cpu` `some avg60` at one-minute samples,
-`/proc/stat` CPU counters, and the review process's cgroup `cpu.pressure` and
-`cpu.stat` deltas when available. Keep the host-wide PSI as the admission safety
-signal; do not subtract cgroup PSI from host PSI because the signals overlap and
-are not additive. Report both medians and the observed ranges for each phase.
-
-The experiment is inconclusive until these controlled phases have actually been
-run. The scheduler change should be evaluated separately from this measurement;
-no review process was reniced or otherwise modified here.
+Do not subtract cgroup PSI from host PSI: the signals overlap and are not
+additive. Record the comparison result in the PR body or ticket discussion so
+the dated measurement does not become stale documentation.
