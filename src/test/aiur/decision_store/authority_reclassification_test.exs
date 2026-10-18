@@ -3,6 +3,8 @@ Code.require_file("../../support/decision_store_case.ex", __DIR__)
 defmodule Aiur.DecisionStore.AuthorityReclassificationTest do
   use Aiur.DecisionStoreCase, async: false
 
+  alias Aiur.DecisionStore.Persistence
+
   test "baseline contract: omitted authority defaults to Executor; explicit human-required needs a basis", %{dir: dir} do
     pid = start_store!(dir, dispatch_delay_ms: 60_000)
 
@@ -101,6 +103,38 @@ defmodule Aiur.DecisionStore.AuthorityReclassificationTest do
                %{expected_version: decision.version, executor_id: "executor-1", rationale: "No operator needed."},
                pid
              )
+  end
+
+  # The store's request path builds the reclassification actor itself, so the
+  # actor-kind guard in `DecisionEvent.AuthorityReclassification` is the only
+  # thing stopping a non-Executor reclassification that reaches persistence.
+  for {label, actor, reason} <- [
+        {"a worker kind", %{kind: "worker", id: "agent-1"}, {:actor_kind, :not_executor}},
+        {"an operator kind", %{kind: :operator, id: "operator-1"}, {:actor_kind, :not_executor}},
+        {"a missing kind", %{id: "agent-1"}, {:actor_kind, :not_executor}},
+        {"a non-map actor", "executor", {:actor, :invalid}}
+      ] do
+    test "reclassification by #{label} is refused and leaves the decision unchanged", %{dir: dir} do
+      pid = start_store!(dir, dispatch_delay_ms: 60_000)
+      legacy = seed_legacy_human_required_decision!(pid)
+      GenServer.stop(pid)
+      pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+      state = :sys.get_state(pid)
+      {:ok, decision} = DecisionStore.get(legacy.decision_id, pid)
+      journal_before = File.read!(state.ndjson_path)
+      data = %{actor: unquote(Macro.escape(actor)), authority: :supervisor_allowed, detail: "Not mine to decide.", expected_version: 1}
+
+      assert {:error, unquote(Macro.escape(reason))} =
+               Persistence.build_and_persist_event(:authority_reclassified, decision, data, DateTime.utc_now(), state)
+
+      assert File.read!(state.ndjson_path) == journal_before
+      assert {:ok, %{authority: :human_required, version: 1}} = DecisionStore.get(legacy.decision_id, pid)
+
+      GenServer.stop(pid)
+      recovered = start_store!(dir, dispatch_delay_ms: 60_000)
+      assert {:ok, %{authority: :human_required, version: 1}} = DecisionStore.get(legacy.decision_id, recovered)
+    end
   end
 
   defp seed_legacy_human_required_decision!(pid) do

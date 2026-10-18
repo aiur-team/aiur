@@ -2,9 +2,9 @@
 
 Fetched 2026-10-08 with Chrome 140 User-Agent from:
 
-https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap
+https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap
 
-Bungee, Space Grotesk and JetBrains Mono: SIL Open Font License 1.1; license texts accompany the files. The Google css2 discrete 400/500/600/700 declarations and unicode ranges are preserved; each subset shares variable bytes. Versioned filenames are cached for one year.
+Space Grotesk and JetBrains Mono: SIL Open Font License 1.1; license texts accompany the files. The Google css2 discrete 400/500/600/700 declarations and unicode ranges are preserved; each subset shares variable bytes. Versioned filenames are cached for one year.
 
 | File | SHA-256 |
 | --- | --- |
@@ -17,6 +17,3 @@ Bungee, Space Grotesk and JetBrains Mono: SIL Open Font License 1.1; license tex
 | space-grotesk-v22-latin-ext.woff2 | 952dddb45d2f96f71cbf3b7f510b24379afc3c89ea02fcf89d377b45d62c0166 |
 | space-grotesk-v22-latin.woff2 | 0640890476fc1198ab4de571fb658de443c4d85b66466ec09534a8737ab1ce9d |
 | space-grotesk-v22-vietnamese.woff2 | 8895e3d49825128bfa5238e4c96e9b432d7a3dadbe5c17c6081267398305dc71 |
-| bungee-v17-latin-ext.woff2 | dff060f6e0f1d527570e707f5517a6332033030ea4619f4a86b39e10b66ecb74 |
-| bungee-v17-latin.woff2 | 126eec706b7931682dbcf6c6efc274132c603f181fbf912678e6cfeb341e721b |
-| bungee-v17-vietnamese.woff2 | 73d615497987a45a1bc0c1a835326906c168be6f46eb690d118fa204477a1e09 |

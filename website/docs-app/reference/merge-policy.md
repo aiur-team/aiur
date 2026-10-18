@@ -88,6 +88,12 @@ Status reports `watcher=running|unavailable|not_running` for base CI and `landin
 
 PR reruns spend the per-head budget (two per head) and share the 3-per-15-minute cap with merge-group requeues; that cap survives restarts. Each rerun posts its reason on the PR. A PR waiting on the cap appears in `aiur executor-sweep` as `approved_pr_rerun_pending`.
 
-A PR whose failure needs a fresh merge ref (stale merge ref, newer CI change, superseded job) is not rerun and appears as `approved_pr_refresh_pending`; a head that spent its budget or is backing off is not reclassified.
+A PR whose failure needs a fresh merge ref (stale merge ref, newer CI change, superseded job) is not rerun. The watcher updates its branch from the base under the same budget and cap, and posts the reason. If the base changed the PR's own files, the ticket goes to rework instead so the worker retests the new head.
+
+A refresh waiting on the cap appears as `approved_pr_refresh_pending`. A head that spent its budget or is backing off is not reclassified.
+
+An armed auto-merge does not hold a failed approved PR, because auto-merge never enqueues a red head; the watcher reruns or refreshes it. A PR-caused failure there is still held, not sent to rework.
+
+A failed required check beside cancelled runs counts as failed; cancelled runs alone stay a person cancel.
 
 The landing watcher does not queue a PR whose ticket is in `agent:rework`, `agent:in-progress` or `agent:todo` (these win over a review label it still carries), so an Executor dequeue holds until the ticket returns to review.

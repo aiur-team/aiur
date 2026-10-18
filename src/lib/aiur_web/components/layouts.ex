@@ -25,10 +25,6 @@ defmodule AiurWeb.Layouts do
         <script>
           (function () {
             try { if (window.localStorage.getItem("aiur-nav-collapsed") === "true" && window.matchMedia("(min-width: 961px)").matches) document.documentElement.classList.add("nav-collapsed"); } catch (_error) {}
-            var theme;
-            try { theme = window.localStorage.getItem("aiur-theme"); } catch (_error) {}
-            document.documentElement.dataset.theme = theme === "light" || theme === "dark"
-              ? theme : (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
             try {
               if (window.localStorage.getItem("aiur-palette") === "aiur") {
                 document.documentElement.dataset.palette = "aiur";
@@ -36,6 +32,7 @@ defmodule AiurWeb.Layouts do
             } catch (_error) {}
           })();
         </script>
+        <script src="/aiur-style/init/theme-init.js" data-default="dark"></script>
         <script defer src="/vendor/phoenix_html/phoenix_html.js"></script>
         <script defer src="/vendor/phoenix/phoenix.js"></script>
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
@@ -260,16 +257,11 @@ defmodule AiurWeb.Layouts do
             Hooks.ThemeToggle = {
               mounted: function () {
                 this.onClick = () => {
-                  var current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
-                  var next = current === "light" ? "dark" : "light";
-                  document.documentElement.dataset.theme = next;
-
-                  try {
-                    window.localStorage.setItem("aiur-theme", next);
-                  } catch (_error) {}
+                  if (this.theme) this.theme.setTheme(this.theme.getTheme() === "dark" ? "light" : "dark");
                 };
 
                 this.el.addEventListener("click", this.onClick);
+                import("/aiur-style/js/theme.js").then((theme) => { this.theme = theme; });
               },
               destroyed: function () {
                 this.el.removeEventListener("click", this.onClick);
@@ -428,6 +420,7 @@ defmodule AiurWeb.Layouts do
             window.liveSocket = liveSocket;
           });
         </script>
+        <link rel="stylesheet" href="/aiur-style/tokens.css" />
         <link rel="stylesheet" href="/dashboard.css" />
         <link rel="stylesheet" href="/build-home/home.css" />
       </head>

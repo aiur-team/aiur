@@ -15,6 +15,7 @@ defmodule AiurWeb.StaticAssets do
   @layout_vendor_path "priv/static/vendor/elk/0.11.1"
 
   @revalidated_static_paths ~w(
+    aiur-style
     aiur-dom-svg-layout
     aiur-dom-svg-layout-adapter.js
     aiur-dom-svg-layout-loader.js
@@ -32,6 +33,8 @@ defmodule AiurWeb.StaticAssets do
     voice-capture-worklet.js
   )
   @long_lived_static_paths ~w(aiur-logo.png fonts)
+  # Served immutably at /aiur-style/fonts; the rest of /aiur-style revalidates.
+  @aiur_style_font_files ~w(Bungee-Regular.woff2 JetBrainsMono-Variable.woff2 SpaceGrotesk-Variable.woff2)
 
   @layout_asset_definitions %{
     engine: %{name: "engine", revision: "elk-0.11.1", file: "elk-worker.min.js"},
@@ -94,6 +97,9 @@ defmodule AiurWeb.StaticAssets do
 
   @spec long_lived_static_paths() :: [String.t()]
   def long_lived_static_paths, do: @long_lived_static_paths
+
+  @spec aiur_style_font_files() :: [String.t()]
+  def aiur_style_font_files, do: @aiur_style_font_files
 
   @spec provider_asset_paths() :: [String.t()]
   def provider_asset_paths do
