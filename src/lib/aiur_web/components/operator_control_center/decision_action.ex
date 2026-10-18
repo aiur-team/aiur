@@ -7,6 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   attr(:state, :map, default: %{})
   attr(:writable, :boolean, required: true)
   attr(:compact, :boolean, default: false)
+  attr(:live_connected, :boolean, default: true)
 
   @spec decision_action(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_action(assigns) do
@@ -50,6 +51,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
       <p :if={@error} class="decision-action-message error" role="alert">{@error}</p>
       <p :if={@notice} class="decision-action-message success" role="status">{@notice}</p>
+      <p :if={@writable and not @live_connected} class="decision-action-message" role="status">
+        Connecting to the live dashboard. Decision controls will be ready when connected.
+      </p>
 
       <form
         :if={@writable and @answerable?}
@@ -133,7 +137,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-value-decision-id={@decision.decision_id}
               phx-disable-with="Acknowledging…"
             >Acknowledge</button>
-            <button class="btn" type="submit" phx-disable-with="Recording…">{if @decision.decision_status in [:dismissed, :deferred], do: "Change choice", else: "Decision"}</button>
+            <button class="btn" type="submit" disabled={!@live_connected} phx-disable-with="Recording…">{if @decision.decision_status in [:dismissed, :deferred], do: "Change choice", else: "Decision"}</button>
           </div>
         </footer>
       </form>

@@ -10,7 +10,7 @@ Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
       route_shell_live graph_live ticket_context_live units_live_data units_live
-      support voice_provider build_order_source meters_live optimistic_control experiments index_live command_answer_live
+      support voice_provider build_order_source meters_live optimistic_control experiments index_live
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
 end
@@ -61,6 +61,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
     get("/command-answer-control/answerable", Aiur.BrowserHarness.CommandAnswerFixture, :configure)
     get("/command-answer-state", Aiur.BrowserHarness.CommandAnswerFixture, :status)
+    get("/command-answer-join-state", Aiur.BrowserHarness.CommandAnswerFixture, :join_status)
     get("/build-queue-control/:state", Aiur.BrowserHarness.BuildQueueFixture, :configure)
     get("/experiments-control/:scenario", Aiur.BrowserHarness.ExperimentsFixture, :configure)
   end

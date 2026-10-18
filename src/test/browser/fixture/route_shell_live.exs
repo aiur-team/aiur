@@ -1,29 +1,61 @@
 defmodule Aiur.BrowserHarness.RouteShellLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, History, NavState, RouteRegistry}
+  alias Aiur.BrowserHarness.CommandAnswerFixture
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, DecisionDetail, DecisionEvents, History, NavState, RouteRegistry}
 
   @impl true
   def mount(_params, _session, socket) do
+    :ets.insert(
+      AiurWeb.EndpointConfig.overrides_table(),
+      {{self(), :decision_store}, CommandAnswerFixture.store_name()}
+    )
+
+    if Phoenix.LiveView.connected?(socket) and CommandAnswerFixture.join_delay_ms() > 0 do
+      CommandAnswerFixture.join_started!()
+      Process.sleep(CommandAnswerFixture.join_delay_ms())
+      CommandAnswerFixture.join_completed!()
+    end
+
     {:ok,
      socket
      |> assign(:analytics, analytics(%{}))
+     |> assign(:live_connected, Phoenix.LiveView.connected?(socket))
      |> assign(:selected_decision_id, nil)
+     |> assign(:selected_decision, nil)
+     |> assign(:decision_actions, %{})
      |> NavState.assign_nav()
      |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
 
   @impl true
   def handle_params(params, _uri, socket) do
+    decision_id = params["decision_id"] || params["fixture_decision"]
+    decision = if is_binary(decision_id), do: elem_or_nil(CommandAnswerFixture.presented(decision_id)), else: nil
+
     {:noreply,
      socket
      |> assign(:analytics, analytics(params))
-     |> assign(:selected_decision_id, params["decision_id"])
+     |> assign(:selected_decision_id, decision_id)
+     |> assign(:selected_decision, decision)
      |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
 
   @impl true
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
+
+  def handle_event(event, params, socket) when event in ["answer-decision", "decision-action-change"] do
+    decision_id = params["decision_id"]
+
+    reload = fn current ->
+      case CommandAnswerFixture.presented(decision_id) do
+        {:ok, decision} -> assign(current, :selected_decision, decision)
+        _ -> current
+      end
+    end
+
+    {:noreply, DecisionEvents.handle(event, params, socket, reload)}
+  end
 
   @impl true
   def render(assigns) do
@@ -54,10 +86,19 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
           writable={false}
           time_zone="Etc/UTC"
         />
+        <DecisionDetail.decision_detail
+          :if={@live_action == :decision and @selected_decision}
+          decision={@selected_decision}
+          writable
+          live_connected={@live_connected}
+        />
       </DashboardShell.dashboard_shell>
     </main>
     """
   end
+
+  defp elem_or_nil({:ok, value}), do: value
+  defp elem_or_nil(_), do: nil
 
   defp history_decisions do
     [

@@ -54,12 +54,19 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
 
   alias Aiur.DecisionStore
   alias Aiur.Events.IdGenerator
+  alias AiurWeb.OperatorControlCenter.DecisionPresenter
 
   @store __MODULE__.Store
 
   def configure(conn, _params) do
     decision = seed_decision!()
-    redirect(conn, to: "/command-answer-fixture/#{decision.decision_id}")
+    :persistent_term.put({__MODULE__, :join_delay_ms}, 4_000)
+    :persistent_term.put({__MODULE__, :join_state}, :waiting)
+    redirect(conn, to: "/commands/#{decision.decision_id}")
+  end
+
+  def join_status(conn, _params) do
+    json(conn, %{state: to_string(:persistent_term.get({__MODULE__, :join_state}, :waiting))})
   end
 
   def status(conn, _params) do
@@ -82,6 +89,18 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
       _ -> :error
     end
   end
+
+  def presented(decision_id) do
+    with {:ok, decision} <- current(decision_id), [row] <- DecisionPresenter.present(decision) do
+      {:ok, row}
+    else
+      _ -> :error
+    end
+  end
+
+  def join_delay_ms, do: :persistent_term.get({__MODULE__, :join_delay_ms}, 0)
+  def join_started!, do: :persistent_term.put({__MODULE__, :join_state}, :joining)
+  def join_completed!, do: :persistent_term.put({__MODULE__, :join_state}, :joined)
 
   def store_name, do: @store
 
