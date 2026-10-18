@@ -74,29 +74,36 @@ defmodule Aiur.LandingWatch.RecoveryRuntimeTest do
   test "a recovery poll does not start a second ordinary poll timer chain" do
     parent = self()
     server = {:global, {__MODULE__, make_ref()}}
+    {:ok, scheduled} = Agent.start_link(fn -> [] end)
 
     {:ok, pid} =
       LandingWatch.start_link(
         name: server,
-        interval_ms: 1_000,
+        interval_ms: 60_000,
         subscribe: false,
+        send_after_fun: fn _pid, message, _delay ->
+          Agent.update(scheduled, &[message | &1])
+        end,
         observe_fun: fn opts ->
           type = if Keyword.has_key?(opts, :main_ci_recovery_window), do: :recovery, else: :ordinary
-          send(parent, {:poll_started, type})
-          {:ok, []}
+          send(parent, {:poll_started, type, self()})
+
+          receive do
+            :finish -> {:ok, []}
+          end
         end,
         queue_reconcile_fun: fn _, _ -> :ok end
       )
 
-    assert_receive {:poll_started, :ordinary}, 2_000
-    assert_receive {:poll_started, :ordinary}, 2_000
+    assert_receive {:poll_started, :ordinary, first_poll}, 1_000
+    assert Agent.get(scheduled, & &1) == [:poll]
     send(pid, {:event, %{topic: "system.main.ci.failed.resolved", red_since: 10, recovered_at: 20}})
-    assert_receive {:poll_started, :recovery}, 1_000
-
-    ordinary_after_recovery = count_ordinary_polls(System.monotonic_time(:millisecond) + 2_300, 0)
-
-    assert ordinary_after_recovery <= 3
+    send(first_poll, :finish)
+    assert_receive {:poll_started, :recovery, recovery_poll}, 1_000
+    assert Agent.get(scheduled, & &1) == [:poll]
+    send(recovery_poll, :finish)
     GenServer.stop(pid)
+    Agent.stop(scheduled)
   end
 
   test "a crashed main recovery poll retries its window once" do
@@ -137,7 +144,11 @@ defmodule Aiur.LandingWatch.RecoveryRuntimeTest do
     assert_receive {:recovery_poll_attempt, first_attempt, {50, 60}}, 1_000
     send(first_attempt, :crash)
     assert_receive {:scheduled, {:poll_recovery, {50, 60}, 1}}, 1_000
+    send(pid, :poll)
+    assert_receive {:scheduled, :poll}, 1_000
+    assert_receive {:ordinary_poll_started, interleaved_poll}, 1_000
     send(pid, {:poll_recovery, {50, 60}, 1})
+    send(interleaved_poll, :finish)
 
     assert_receive {:recovery_poll_attempt, retry_attempt, {50, 60}}, 1_000
     # Force a second recovery event to interleave while the retry task is active.
@@ -146,16 +157,5 @@ defmodule Aiur.LandingWatch.RecoveryRuntimeTest do
     assert_receive {:recovery_poll_attempt, queued_attempt, {70, 80}}, 1_000
     send(queued_attempt, :succeed)
     GenServer.stop(pid)
-  end
-
-  defp count_ordinary_polls(deadline, count) do
-    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
-
-    receive do
-      {:poll_started, :ordinary} -> count_ordinary_polls(deadline, count + 1)
-      {:poll_started, :recovery} -> count_ordinary_polls(deadline, count)
-    after
-      remaining -> count
-    end
   end
 end
