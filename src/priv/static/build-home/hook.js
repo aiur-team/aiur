@@ -15,6 +15,7 @@ import './usage.js';
 
 import './span.js';
 import './edges.js';
+import './band.js';
 import './states.js';
 import './list.js';
 

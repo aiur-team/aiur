@@ -3,7 +3,6 @@ import { syncStates } from './states.js';
 import { $ } from './dom.js';
 import { I } from './icons.js';
 import { dotSize } from './span.js';
-import { writeURL } from './url.js';
 import { computeLayout, measureFlow, crowded, laneMax, fwdLanes, histDays, makeMark, placeMark, makeLabel } from './layout.js';
 import { H, syncHistory, loadEarlier, ensureDays, ensureFrom } from './history.js';
 import { takeAnchor, restoreAnchor } from './render-anchor.js';
@@ -39,9 +38,8 @@ export function viewport() {
       if (eh) { e.stopPropagation(); fx.lockTree(eh.dataset.e); return; }
       const b = e.target.closest("[data-lt]");
       if (b) { e.stopPropagation(); if (b.dataset.lt === "lock") { if (ctx.lockId) fx.unlock(); else if (ctx.hoverId) { ctx.lockId = ctx.hoverId; ctx.lt.classList.add("locked"); } } else if (ctx.lockId) { if (b.dataset.lt === "fit") fx.fitTree(ctx.lockId); else fx.openTree(ctx.lockId); } return; }
-      if (e.target.closest("[data-min]")) { S.liveMin = !S.liveMin; writeURL(); relayout(); return; }
       const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid]); return; }
-      const st = e.target.closest("[data-ast]"); if (st) { const v = st.dataset.ast.split(","), same = S.f.astate.join(",") === v.join(","); S.f.astate = same ? [] : v; if (S.liveMin && !same) { S.liveMin = false; writeURL(); relayout(); } fx.filtersChanged(); return; }
+      if (fx.onBandClick?.(e)) return;
       const c = e.target.closest(".bd-card");
       if (ctx.lockId) { if (c && fx.chainOf(ctx.lockId).has(c.dataset.id)) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c }); return; }
       if (c) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c });
@@ -55,7 +53,7 @@ function noanim(el) {
 function focusId() { return document.activeElement?.closest('.bd-card')?.dataset.id ?? null; }
 function restoreFocus(id) {
   if (!id) return;
-  const card = [...ctx.R.values()].find(el => el.dataset.id === id);
+  const card = [...ctx.R.values()].find(el => el.dataset.id === id) || ctx.L?.band.items.find(it => it.t.id === id)?.el;
   (card || ctx.vp).focus({ preventScroll: true });
 }
 export function relayout({ live = false } = {}) {
@@ -156,8 +154,7 @@ export function update(force) {
   ctx.RL.forEach((el, uid) => {
     if (!keepL.has(uid.endsWith('d') ? uid.slice(0, -1) : uid)) { el.remove(); ctx.RL.delete(uid); }
   });
-  const nb = $('#bd-nowbtn', ctx.root);
-  if (nb) { const r = ctx.bandEl.getBoundingClientRect(), v = ctx.vp.getBoundingClientRect(); nb.classList.toggle('at', r.top > v.top + LH + 30 && r.bottom < v.bottom - 30); }
+  fx.syncNowBtn?.();
   fx.drawEdges(false);
   if (ctx.vp.scrollTop >= 260) H.retryArmed = true;
   if (S.ready && H.state !== 'loading' && ctx.vp.scrollTop < 260 && H.more && H.retryArmed) loadEarlier();

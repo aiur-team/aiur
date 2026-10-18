@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Merge groups and v2/main pushes run full CI; main schedule pushes are quarantine-only.
 set -euo pipefail
+if [[ "$EVENT_NAME" == merge_group ]]; then
+  python3 scripts/classify-home-ci.py "$GITHUB_EVENT_PATH" "${GITHUB_WORKSPACE:-.}" >> "$GITHUB_OUTPUT"
+else
+  echo 'home_changed=false' >> "$GITHUB_OUTPUT"
+fi
 if [[ "$EVENT_NAME" != pull_request ]]; then
   if [[ "$EVENT_NAME" == merge_group || "$EVENT_NAME" == workflow_dispatch || "${GITHUB_REF:-}" == refs/heads/v2 || ("$EVENT_NAME" == push && "${GITHUB_REF:-}" == refs/heads/main) ]]; then
     printf 'full_ci=true\ndocs_only=false\n' >> "$GITHUB_OUTPUT"

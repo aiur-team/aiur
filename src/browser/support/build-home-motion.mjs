@@ -1,4 +1,4 @@
-import { columnSequence } from './build-home-columns-motion.mjs'
+import { columnSequence, alignColumnPolls } from './build-home-columns-motion.mjs'
 import { spanState } from './build-home-span-state.mjs'
 import { historySequence } from './build-home-history-motion.mjs'
 import { scrollbar } from './build-home-scrollbar-motion.mjs'
@@ -203,7 +203,7 @@ async function scrollTo(page, value) {
 }
 
 async function snap(page, ctx, kind) {
-  if (kind === 'list-view') await click(page, '[data-v="list"]')
+  if (kind === 'list-view') await click(page, '[data-v="list"]', true)
   const geometry = await page.evaluate(() => {
     const vp = document.querySelector('#bd-vp'), band = document.querySelector('#bd-now')
     if (!vp || (!band && !document.querySelector('.bd-list'))) throw new Error('unreachable snap viewport')
@@ -235,20 +235,40 @@ async function scrollCurve(page, ctx) {
   await page.clock.runFor(16)
   await page.clock.runFor(704)
   // A tall band disables liveGuard so it cannot restart the curve midway through.
-  await page.locator('#bd-vp').evaluate(el => {
+  await page.locator('#bd-vp').evaluate(async el => {
     el.style.height = el.style.maxHeight = `${document.querySelector('#bd-now').offsetHeight + 40}px`
+    // Resolve the artificial viewport's layout before sampling its curve.
+    // A later mobile resize callback must see the same settled geometry.
+    if (window.AiurBuild) window.AiurBuild.render()
+    else (await import('/build-home/state.js')).fx.relayout()
   })
   await scrollTo(page, 270)
   await page.clock.runFor(704)
+  await alignColumnPolls(page)
   const input = await page.evaluate(() => ({ from: document.querySelector('#bd-vp').scrollTop,
     to: document.querySelector('#bd-sec-hist').offsetTop + document.querySelector('#bd-sec-hist').offsetHeight - 46, at: performance.now() }))
-  await click(page, '#bd-nowbtn')
+  await click(page, '#bd-nowbtn', ctx.reduce)
   await ctx.onFrame?.(0, '#bd-vp')
   const frame = []
   for (let index = 0; index < 27; index++) {
+    // Native scroll events must reach the app before the next virtual frame.
+    const before = await page.evaluate(() => {
+      const vp = document.querySelector('#bd-vp')
+      window.motionScrollPaint = new Promise(resolve => {
+        const done = () => { vp.removeEventListener('scroll', done); resolve() }
+        window.motionScrollCancel = done
+        vp.addEventListener('scroll', done, { once: true })
+      })
+      return vp.scrollTop
+    })
     await page.evaluate(() => requestAnimationFrame(now => { window.motionFrameStamp = now }))
     await page.clock.runFor(16)
-    frame.push(await page.evaluate(at => ({ scrollTop: document.querySelector('#bd-vp').scrollTop, elapsed: window.motionFrameStamp - at }), input.at))
+    frame.push(await page.evaluate(async ({ at, before }) => {
+      const vp = document.querySelector('#bd-vp')
+      if (vp.scrollTop === before) window.motionScrollCancel()
+      await window.motionScrollPaint
+      return { scrollTop: vp.scrollTop, elapsed: window.motionFrameStamp - at }
+    }, { at: input.at, before }))
     if (index === 12 || index === 26) await ctx.onFrame?.(index === 12 ? .5 : 1, '#bd-vp')
   }
   return { samples: [await state(page, ctx)], frame, input: { from: input.from, to: input.to } }
