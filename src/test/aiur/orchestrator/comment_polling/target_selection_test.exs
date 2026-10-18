@@ -29,8 +29,10 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
 
     state = %State{
       running: %{"running-42" => %{identifier: "42"}},
-      github_comments_since: %{},
-      github_comment_issue_updated_at: %{}
+      github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+        since: %{},
+        issue_updated_at: %{}
+      }
     }
 
     opts = [
@@ -42,7 +44,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     ]
 
     assert {:ok, ["42", "57", "99"], [review_target], [watch_target]} =
-             TargetSelection.github_comment_poll_targets(state, opts)
+             TargetSelection.github_comment_poll_targets(state.github_comment_cursor, Aiur.Orchestrator.CommentPolling.input(state), opts)
 
     assert review_target == %{
              target: "57",
@@ -74,8 +76,10 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     poll_targets = fn issue_state, pr_updated_at ->
       state = %State{
         running: %{},
-        github_comments_since: %{},
-        github_comment_issue_updated_at: %{}
+        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+          since: %{},
+          issue_updated_at: %{}
+        }
       }
 
       issue = %Issue{id: "164", identifier: "164", state: issue_state, updated_at: pr_updated_at}
@@ -90,7 +94,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
         watch_pull_request_fetcher: fn "agent:watch" -> {:ok, []} end
       ]
 
-      TargetSelection.github_comment_poll_targets(state, opts)
+      TargetSelection.github_comment_poll_targets(state.github_comment_cursor, Aiur.Orchestrator.CommentPolling.input(state), opts)
     end
 
     assert {:ok, ["164"], [%{target: "164"}], []} =
@@ -114,7 +118,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     ]
 
     assert {:error, :tracker_down} =
-             TargetSelection.github_comment_poll_targets(%State{}, opts)
+             TargetSelection.github_comment_poll_targets(%Aiur.Orchestrator.CommentPolling.Cursor{}, Aiur.Orchestrator.CommentPolling.input(%State{}), opts)
 
     refute_receive :unexpected_watch_fetch, 100
   end

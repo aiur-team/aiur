@@ -37,7 +37,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
       capture_log(fn ->
         next = TrackerTasks.timeout(pending, ref)
         assert next.github_command_scan_since == state.github_command_scan_since
-        assert next.github_comment_etags == state.github_comment_etags
+        assert next.github_command_scan_etags == state.github_command_scan_etags
         assert next.tracker_tasks == %{}
       end)
 
@@ -61,7 +61,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
       capture_log(fn ->
         {:handled, next} = TrackerTasks.down(pending, ref, reason)
         assert next.github_command_scan_since == state.github_command_scan_since
-        assert next.github_comment_etags == state.github_comment_etags
+        assert next.github_command_scan_etags == state.github_command_scan_etags
         assert next.tracker_tasks == %{}
       end)
 
@@ -91,8 +91,10 @@ defmodule Aiur.Orchestrator.CommandScanTest do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: false,
-      github_comments_since: %{},
-      github_comment_issue_updated_at: %{},
+      github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+        since: %{},
+        issue_updated_at: %{}
+      },
       github_connectivity: %{},
       github_poll_delays: %{},
       github_command_scan_since: nil
@@ -141,7 +143,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
       %{
         base_state()
         | github_command_scan_since: "2024-01-01T00:00:00Z",
-          github_comment_etags: %{command_scan_review: "review-etag", command_scan_issue: "issue-etag"}
+          github_command_scan_etags: %{command_scan_review: "review-etag", command_scan_issue: "issue-etag"}
       }
     end
 
@@ -236,7 +238,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       CommandScan.scan_pr_commands(base_state(), warm)
 
-      # A fresh orchestrator: `github_comment_etags` is empty, exactly as it is
+      # A fresh orchestrator: `github_command_scan_etags` is empty, exactly as it is
       # on the first tick after a restart.
       test_pid = self()
 
@@ -251,7 +253,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
         end
       ]
 
-      assert base_state().github_comment_etags == %{}
+      assert base_state().github_command_scan_etags == %{}
       CommandScan.scan_pr_commands(base_state(), cold)
 
       assert_receive {:review_etag, "review-etag-1"}, 1000
@@ -290,8 +292,8 @@ defmodule Aiur.Orchestrator.CommandScanTest do
       result = CommandScan.scan_pr_commands(state, opts)
 
       assert result.github_command_scan_since == state.github_command_scan_since
-      assert result.github_comment_etags[:command_scan_review] == "review-etag"
-      assert result.github_comment_etags[:command_scan_issue] == "issue-etag"
+      assert result.github_command_scan_etags[:command_scan_review] == "review-etag"
+      assert result.github_command_scan_etags[:command_scan_issue] == "issue-etag"
     end
 
     test "stores the refreshed etag and still processes comments on a 200" do
@@ -304,8 +306,8 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       result = CommandScan.scan_pr_commands(etag_state(), opts)
 
-      assert result.github_comment_etags[:command_scan_review] == "review-etag-2"
-      assert result.github_comment_etags[:command_scan_issue] == "issue-etag"
+      assert result.github_command_scan_etags[:command_scan_review] == "review-etag-2"
+      assert result.github_command_scan_etags[:command_scan_issue] == "issue-etag"
       # The cursor only advances if the 200 body actually reached the scan
       # pipeline: a 304-returns-empty bug here would silently drop commands.
       assert result.github_command_scan_since == "2024-06-15T11:59:59Z"
@@ -333,7 +335,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
       result = CommandScan.scan_pr_commands(etag_state(), opts)
 
       assert result.github_command_scan_since == "2024-06-15T11:59:59Z"
-      assert result.github_comment_etags[:command_scan_issue] == "issue-etag-2"
+      assert result.github_command_scan_etags[:command_scan_issue] == "issue-etag-2"
     end
 
     test "a failed stream retains its previous etag rather than clearing it" do
@@ -344,7 +346,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       result = CommandScan.scan_pr_commands(etag_state(), opts)
 
-      assert result.github_comment_etags[:command_scan_review] == "review-etag"
+      assert result.github_command_scan_etags[:command_scan_review] == "review-etag"
     end
 
     test "an unconditional 2-tuple fetcher still works and keeps its etag" do
@@ -355,7 +357,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       result = CommandScan.scan_pr_commands(etag_state(), opts)
 
-      assert result.github_comment_etags[:command_scan_review] == "review-etag"
+      assert result.github_command_scan_etags[:command_scan_review] == "review-etag"
       assert result.github_command_scan_since == "2024-06-15T11:59:59Z"
     end
 
@@ -439,7 +441,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
       assert ResourceStore.change_validator(review_stream) == nil
       # The cycle's own validator survives, so steady-state change detection is
       # still free — the degradation for an unanswerable stream.
-      assert result.github_comment_etags[:command_scan_review] == "review-etag"
+      assert result.github_command_scan_etags[:command_scan_review] == "review-etag"
     end
 
     # The reader's half of the validator/body contract: a `304` against a
@@ -465,7 +467,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
       # stale validator in place to repeat an empty answer every cycle.
       assert_receive {:review_etag, nil}, 1000
       assert ResourceStore.change_validator(review_stream) == nil
-      assert result.github_comment_etags[:command_scan_review] == nil
+      assert result.github_command_scan_etags[:command_scan_review] == nil
     end
   end
 

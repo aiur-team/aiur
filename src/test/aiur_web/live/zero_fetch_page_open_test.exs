@@ -45,7 +45,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
   alias Aiur.BuildOrder.TicketDetail
   alias Aiur.GitHub.{Issues, ReadCache, ResourceStore}
-  alias Aiur.Orchestrator.CommentPolling
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
   alias Aiur.RunTelemetry.FactsCapture
   alias Aiur.TestSupport.EndpointStubs
   alias Aiur.TrackerIdentity
@@ -89,7 +89,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     _frozen_state = Aiur.TestSupport.freeze_live_orchestrator()
 
     Aiur.TestSupport.await_orchestrator_state(orchestrator, fn state ->
-      map_size(state.tracker_tasks) == 0 and is_nil(state.github_comment_poll)
+      map_size(state.tracker_tasks) == 0 and is_nil(state.github_comment_cursor.poll)
     end)
 
     if context[:comment_poll_leak_probe] do
@@ -276,13 +276,13 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       # CommentPollBatch GraphQL lookup; when the source is fenced, this message
       # is discarded before any GitHub request can start.
       :sys.replace_state(Aiur.Orchestrator, fn state ->
-        %{state | github_comment_reconcile_targets: MapSet.new(["4584"])}
+        %{state | github_comment_cursor: %{state.github_comment_cursor | reconcile_targets: MapSet.new(["4584"])}}
       end)
 
       send(Aiur.Orchestrator, :run_poll_cycle)
 
       Aiur.TestSupport.await_orchestrator_state(Aiur.Orchestrator, fn state ->
-        map_size(state.tracker_tasks) == 0 and is_nil(state.github_comment_poll)
+        map_size(state.tracker_tasks) == 0 and is_nil(state.github_comment_cursor.poll)
       end)
 
       # The page's own periodic ticks — a 1s clock, a 15s GitHub-quota snapshot

@@ -17,7 +17,9 @@ defmodule Aiur.Orchestrator.Status.SnapshotProjectionTest do
       )
 
     state = %State{
-      github_comment_issue_updated_at: Map.new(1..1_000, &{"issue-#{&1}", %{payload: String.duplicate("x", 64)}}),
+      github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+        issue_updated_at: Map.new(1..1_000, &{"issue-#{&1}", %{payload: String.duplicate("x", 64)}})
+      },
       ci_lifecycle: %{
         %State{}.ci_lifecycle
         | poll_cache: Map.new(1..1_000, &{"MT-#{&1}", %{payload: String.duplicate("c", 64)}})
