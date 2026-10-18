@@ -250,7 +250,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
         Logger.warning("GithubCIPoller broker timeout repeated after immediate retry; retaining the normal poll cadence")
         clear_broker_retry_pending(state)
       else
-        Logger.warning("GithubCIPoller broker timeout; retrying #{length(errors)} failed target(s) once on the next orchestrator tick")
+        Logger.warning("GithubCIPoller broker timeout; retrying the full target set once on the next orchestrator tick after #{length(errors)} target failure(s)")
         state |> Map.put(:last_ci_poll_started_at_ms, nil) |> put_broker_retry_pending(true)
       end
     else

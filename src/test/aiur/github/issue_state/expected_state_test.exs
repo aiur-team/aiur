@@ -70,6 +70,32 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
       refute_received {:request, _}
     end
 
+    test "rejects a stale expected state before mutating labels" do
+      test_pid = self()
+
+      request_fun = fn request ->
+        send(test_pid, {:request, request})
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "state" => "open",
+             "labels" => [%{"name" => "sym:rework"}]
+           }
+         }}
+      end
+
+      assert {:error, {:stale_issue_state, "ci-wait", "rework"}} =
+               IssueState.update_issue_state("42", "in-progress",
+                 expected_state: "ci-wait",
+                 request_fun: request_fun
+               )
+
+      assert_receive {:request, %{method: :get}}, 1000
+      refute_receive {:request, %{method: _method}}, 100
+    end
+
     test "expected_state :none refuses existing single or multiple state labels" do
       for states <- [["in-progress"], ["todo", "in-progress"]] do
         request_fun = fn request ->
