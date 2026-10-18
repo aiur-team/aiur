@@ -2,15 +2,22 @@ defmodule Aiur.TestCleanupTest do
   # Mutates global :aiur application env, so it cannot run async.
   use ExUnit.Case, async: false
 
-  alias Aiur.Config.Paths
-  alias Aiur.RepoBase.StateTree
+  alias Aiur.{Config.Paths, RepoBase.StateTree}
   alias Aiur.TestCleanup
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-test-cleanup")
     File.mkdir_p!(Path.join(root, "state"))
+    previous_repo_root = Application.get_env(:aiur, :repo_base_root)
     # on-exit-rm-rf: allow the helper under test must not clean up after itself
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn ->
+      if previous_repo_root,
+        do: Application.put_env(:aiur, :repo_base_root, previous_repo_root),
+        else: Application.delete_env(:aiur, :repo_base_root)
+
+      TestCleanup.rm_rf!(root)
+    end)
+
     %{root: root}
   end
 
@@ -78,43 +85,57 @@ defmodule Aiur.TestCleanupTest do
     assert error.message =~ "or they cannot be deleted): [#{inspect(file)}]"
   end
 
-  test "cleanup detects a live repo state tree writer", %{root: root} do
+  test "cleanup retries while a live repo state tree writer recreates the root", %{root: root} do
     Application.put_env(:aiur, :repo_base_root, root)
     parent = self()
     node = Paths.repo_state_path("test-org/test-repo")
 
-    writer = spawn(fn -> writer_loop(parent, node) end)
+    writer =
+      spawn(fn ->
+        send(parent, :writer_started)
+        writer_loop(parent, node)
+      end)
+
     assert_receive :writer_started, 1000
-    file = Path.join(node, ".aiur-hex")
+    on_exit(fn -> if Process.alive?(writer), do: Process.exit(writer, :kill) end)
+    removals = :counters.new(1, [])
 
-    error =
-      assert_raise RuntimeError, fn ->
-        TestCleanup.rm_rf!(root,
-          unset: [:repo_base_root],
-          rm: fn path ->
-            send(writer, {:write, self()})
-            receive do: ({:write_finished, ^writer} -> :ok)
-            File.mkdir_p!(file)
-            {:error, :eexist, path}
-          end
-        )
-      end
+    assert :ok =
+             TestCleanup.rm_rf!(root,
+               unset: [:repo_base_root],
+               rm: fn path ->
+                 result = File.rm_rf(path)
+                 :counters.add(removals, 1, 1)
 
-    assert File.dir?(file)
-    Process.exit(writer, :kill)
+                 if Process.alive?(writer) do
+                   send(writer, {:write, self()})
+                   receive do: ({:write_finished, ^writer} -> :ok)
+
+                   if :counters.get(removals, 1) == 3 do
+                     send(writer, {:stop_after, 3, self()})
+                     receive do: ({:writer_stopped, ^writer} -> :ok)
+                   end
+                 end
+
+                 result
+               end
+             )
+
     refute Process.alive?(writer)
-    File.rm_rf!(root)
-    assert error.message =~ "a live writer keeps putting them back"
+    refute File.exists?(root)
+    assert :counters.get(removals, 1) == 4
   end
 
-  defp writer_loop(parent, node) do
-    send(parent, :writer_started)
-
+  defp writer_loop(parent, node, writes \\ 0) do
     receive do
       {:write, caller} ->
-        _result = StateTree.ensure_state_tree_at(node)
+        :ok = StateTree.ensure_state_tree_at(node)
         send(caller, {:write_finished, self()})
-        writer_loop(parent, node)
+        writer_loop(parent, node, writes + 1)
+
+      {:stop_after, count, caller} when writes >= count ->
+        send(caller, {:writer_stopped, self()})
+        :ok
 
       :stop ->
         :ok
