@@ -317,7 +317,12 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
 
   defp apply_finding({_issue, _classification, _pr, _head_sha}, state), do: state
 
-  defp write_addressed_rework(_key, _head_sha, state, "rework"), do: state
+  defp write_addressed_rework(key, head_sha, state, "rework") do
+    # A current blocking review has already seen this head. Retain the
+    # classification so every tick does not repeat the review and diff reads.
+    last_seen = Map.put(state.last_seen, key, %{head_sha: head_sha, classification: :not_addressed})
+    %{state | last_seen: last_seen}
+  end
 
   defp write_addressed_rework(key, head_sha, state, target) do
     # The write is a GitHub call, and a short local budget hold used to refuse

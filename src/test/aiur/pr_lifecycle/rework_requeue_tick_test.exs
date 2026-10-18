@@ -156,11 +156,28 @@ defmodule Aiur.PRLifecycle.ReworkRequeueTickTest do
       assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :addressed}}} = result
     end
 
-    test "a blocking review at the current head leaves the ticket in rework without writing" do
+    test "a current blocking body review leaves the addressed ticket in rework and caches the head" do
+      test_pid = self()
+
       state =
         base_state(
           tickets_fetcher: fn -> {:ok, [issue(%{})]} end,
-          reviews_fetcher: fn 2346 -> {:ok, [review(%{"commit_id" => @head_sha})]} end,
+          reviews_fetcher: fn 2346 ->
+            send(test_pid, {:reviews_read, 2346})
+
+            {:ok,
+             [
+               review(%{"submitted_at" => "2026-08-22T20:00:00Z", authoritative: true}),
+               review(%{
+                 "state" => "COMMENTED",
+                 "commit_id" => @head_sha,
+                 "body" => "Blocking: please address this before merge.",
+                 "user" => %{"login" => "second-reviewer"},
+                 "submitted_at" => "2026-08-22T21:00:00Z",
+                 authoritative: true
+               })
+             ]}
+          end,
           pull_request_approval_fetcher: fn 2346 -> {:ok, {@head_sha, @head_sha}} end,
           state_writer: fn id, state_name ->
             send(self(), {:state_write, id, state_name})
@@ -171,7 +188,13 @@ defmodule Aiur.PRLifecycle.ReworkRequeueTickTest do
       result = ReworkRequeue.tick(state)
 
       refute_receive {:state_write, "2337", _state_name}, 100
+      assert_receive {:reviews_read, 2346}, 100
+      assert_receive {:reviews_read, 2346}, 100
       assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :not_addressed}}} = result
+
+      ReworkRequeue.tick(result)
+
+      refute_receive {:reviews_read, 2346}, 100
     end
 
     test "a re-queue refused by the state writer alerts and is not throttled" do
