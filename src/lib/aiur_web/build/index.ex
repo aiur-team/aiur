@@ -115,7 +115,9 @@ defmodule AiurWeb.Build.Index do
   end
 
   def handle_info({:read_timeout, ref}, %{task: %{ref: ref, pid: pid}} = state) do
-    Logger.warning("build_index read_timeout after_ms=#{Keyword.get(state.opts, :read_timeout, 3_500)} stack=#{inspect(Process.info(pid, :current_stacktrace), limit: 8)}")
+    part = Process.info(pid, :dictionary) |> read_part_from_dictionary()
+    stack = inspect(Process.info(pid, :current_stacktrace), limit: :infinity, printable_limit: 4_000)
+    Logger.warning("build_index read_timeout after_ms=#{Keyword.get(state.opts, :read_timeout, 3_500)} part=#{part} stack=#{stack}")
     Process.exit(pid, :kill)
     {:noreply, put_in(state.task[:timed_out?], true)}
   end
@@ -218,4 +220,6 @@ defmodule AiurWeb.Build.Index do
 
   defp broadcast(state, changes), do: Keyword.get(state.opts, :broadcast, &Core.broadcast/1).(changes)
   defp clock(state), do: Keyword.get(state.opts, :clock, fn -> System.system_time(:millisecond) end).()
+  defp read_part_from_dictionary({:dictionary, dictionary}), do: Keyword.get(dictionary, :aiur_build_index_read_part, :unknown)
+  defp read_part_from_dictionary(_info), do: :unknown
 end

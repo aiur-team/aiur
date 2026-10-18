@@ -14,6 +14,7 @@ defmodule AiurWeb.Build.IndexServerTest do
       broadcast: fn changes -> Phoenix.PubSub.broadcast(Aiur.PubSub, topic, {:build_changes, changes}) end,
       subscribe: fn -> :ok end,
       read: fn dirty, _previous, _opts ->
+        if dirty == :all or MapSet.member?(dirty, :history), do: Process.put(:aiur_build_index_read_part, :history)
         send(parent, {:read_started, self(), dirty})
 
         receive do
@@ -148,6 +149,7 @@ defmodule AiurWeb.Build.IndexServerTest do
       end)
 
     assert log =~ "build_index read_timeout after_ms=3500"
+    assert log =~ "part=history"
     assert log =~ ~r/read_task_failed=:killed failure=timeout parts=.*history/
     assert {:ok, %{rows: %{7 => _}, health: %{state: :stale, failure: :timeout}}} = :sys.get_state(pid).parts.history
   end
