@@ -11,9 +11,10 @@ function viewButton([view, label]) {
   const on = S.view === view;
   return `<button type="button" data-v="${view}" class="${on ? 'on' : ''}" title="${label}" role="tab" aria-selected="${on}" aria-label="${label}" tabindex="${on ? 0 : -1}">${I[view]}<span>${label}</span></button>`;
 }
-function bindOnce(host) {
+function bindOnce(host, right) {
   if (bound) return;
   bound = true;
+  ctx.life.on(right, 'click', e => { if (e.target.closest('#bd-nowbtn')) fx.jumpNow(false); });
   ctx.life.on(host, 'click', e => {
     const button = e.target.closest('[data-v]');
     if (button) setView(button.dataset.v);
@@ -30,7 +31,7 @@ function bindOnce(host) {
 function renderControls() {
   const left = $('#bd-tools-l', ctx.root), right = $('#bd-tools', ctx.root);
   if (!left || !right) return;
-  bindOnce(left);
+  bindOnce(left, right);
   const span = S.view === 'list' ? '' : fx.spanToolsHTML();
   const key = S.view + '|' + S.span + '|' + span;
   if (lastKey === key) return;

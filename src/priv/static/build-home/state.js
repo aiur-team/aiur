@@ -55,5 +55,5 @@ export const fx = {
   makeCard: it => { const el = document.createElement('div'); el.className = 'bd-card'; el.dataset.id = it.t.id; el.tabIndex = -1; el._it = it; return el; },
   visibleCols: () => [], applyCols() {}, scheduleCols() {},
   drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
-  lockTree() {}, fitTree() {}, openTree() {}, filtersChanged() {},
+  lockTree() {}, fitTree() {}, openTree() {},
 };
