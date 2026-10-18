@@ -6,7 +6,7 @@ defmodule AiurWeb.StaticAssets do
   # Ordered partials (priv/static/css/README.md), relative so a copied warm build globs its own.
   @dashboard_css_glob Path.relative_to(Path.expand("../../priv/static/css/*.css", __DIR__), File.cwd!(), force: true)
   @dashboard_css_parts @dashboard_css_glob |> Path.wildcard() |> Enum.sort()
-  @dashboard_fonts_path Path.expand("../../priv/static/dashboard-fonts.css", __DIR__)
+  @dashboard_fonts_path Path.expand("../../priv/static/aiur-style/fonts.css", __DIR__)
   @dashboard_palette_path Path.expand("../../priv/static/dashboard-palette.css", __DIR__)
   @dom_svg_layout_adapter_path Path.expand("../../priv/static/aiur-dom-svg-layout-adapter.js", __DIR__)
   @phoenix_html_js_path Application.app_dir(:phoenix_html, "priv/static/phoenix_html.js")
@@ -32,7 +32,7 @@ defmodule AiurWeb.StaticAssets do
     time-brush-hook.js
     voice-capture-worklet.js
   )
-  @long_lived_static_paths ~w(aiur-logo.png fonts)
+  @long_lived_static_paths ~w(aiur-logo.png)
   # Served immutably at /aiur-style/fonts; the rest of /aiur-style revalidates.
   @aiur_style_font_files ~w(Bungee-Regular.woff2 JetBrainsMono-Variable.woff2 SpaceGrotesk-Variable.woff2)
 
@@ -71,9 +71,9 @@ defmodule AiurWeb.StaticAssets do
   @external_resource @phoenix_js_path
   @external_resource @phoenix_live_view_js_path
 
-  @dashboard_css Enum.map_join([[@dashboard_fonts_path], @dashboard_css_parts, [@dashboard_palette_path]], "\n", fn paths ->
-                   Enum.map_join(paths, &File.read!/1)
-                 end)
+  # aiur-style's faces, embedded once; their relative URLs must resolve from /dashboard.css.
+  @dashboard_fonts @dashboard_fonts_path |> File.read!() |> String.replace("url('./fonts/", "url('/aiur-style/fonts/")
+  @dashboard_css Enum.join([@dashboard_fonts, Enum.map_join(@dashboard_css_parts, &File.read!/1), File.read!(@dashboard_palette_path)], "\n")
   @dom_svg_layout_adapter File.read!(@dom_svg_layout_adapter_path)
   @phoenix_html_js File.read!(@phoenix_html_js_path)
   @phoenix_js File.read!(@phoenix_js_path)
