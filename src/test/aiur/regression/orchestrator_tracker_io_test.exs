@@ -7,11 +7,9 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
 
   alias Aiur.{AgentQueueStore, DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.GitHub.{Config, DispatchAuthorization, ReadCache, Transport}
-  alias Aiur.Orchestrator.{Dispatcher, GlobalPause, OperatorMessages, PauseResume, PriorityControl, RetryEngine, SnapshotStore, StatusReport}
+  alias Aiur.Orchestrator.{Dispatcher, GlobalPause, OperatorMessages, PauseResume, PriorityControl, RetryEngine, SnapshotStore, StatusReport, TrackerTasks}
 
-  # Handlers answer inside the production control budget. Local store fsyncs took seconds on a loaded host,
-  # so a tighter budget timed out without tracker work in the owner. The tracker barriers remain held until
-  # released, so a handler that blocks on the tracker still never answers.
+  # Production control budget tolerates local fsyncs under load; held tracker barriers still expose blocked handlers.
   @control_budget_ms 5_000
   @answer_ms @control_budget_ms + 1_000
 
@@ -310,6 +308,8 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   end
 
   test "GitHub firehose and CI reads leave real handlers responsive", %{server: server, issue: issue, token: token} do
+    # Settle startup reads before changing the tracker behind them.
+    await_orchestrator_state(server, &(not TrackerTasks.running?(&1, :startup_workspace_cleanup)))
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", tracker_label_prefix: "agent", max_concurrent_agents: 4)
     put_test_env(:github_client_module, SlowTracker)
     put_test_env(:github_transport_test_options, plug: {Req.Test, __MODULE__})
