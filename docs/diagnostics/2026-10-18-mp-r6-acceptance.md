@@ -141,7 +141,9 @@ Anchors currently serve `StreamdeckLogs`;
 The [Executor's live acceptance comment](https://github.com/aiur-team/aiur/pull/5173#issuecomment-6256387359)
 records a read-only run on 2026-10-18, 23:00–23:16 UTC. These are the
 Executor's observations, not checks performed in this workspace. Capture
-names in that comment are labels; no screenshot artifact paths are supplied.
+names in that comment are labels. The later [issue #5181](https://github.com/aiur-team/aiur/issues/5181)
+records screenshot paths on the Executor host; those files were not inspected
+or copied by this workspace.
 
 ### Release directory and startup correlation
 
@@ -188,6 +190,24 @@ keys can pause or resume work. No focused-identifier comparison with the TUI
 ran. The comment also reports a roughly 40 px key-block shift in logs and
 commands modes and only a Mic key in command-detail row 2, without assigning
 severity.
+
+### Follow-up tracking and capture locations
+
+[Issue #5181](https://github.com/aiur-team/aiur/issues/5181) now tracks the
+single-event Logs view and the roughly 40 px key-grid offset between modes.
+The Logs gap remains open; a meaningful transcript jump and LIVE updates
+still need proof after investigation. The layout observation is deferred as
+DF-014 in `docs/build-order/deferred-findings.md`.
+
+The issue identifies these captures on the Executor host:
+
+- `~/.aiur/tmp/acc5173.bVwF/03-3153-logs.png`
+- `~/.aiur/tmp/acc5173.bVwF/12-5103-logs.png`
+- `~/.aiur/tmp/acc5173.bVwF/22-3323-commands.png`
+- `~/.aiur/tmp/acc5173.bVwF/23-3323-command-detail.png`
+- `~/.aiur/tmp/acc5173.bVwF/01-grid.png`
+
+These are attributed source locations, not artifacts published by this PR.
 
 ### Sidecar connection and remaining voice evidence
 
@@ -247,10 +267,10 @@ validate the integrated head separately and are recorded in the PR body.
 
 ## Findings and disposition
 
-The automated checks found no P0/P1 acceptance blocker or P2/P3 feature
-finding. The live observations leave acceptance gaps, including no observed
-LIVE update or meaningful transcript jump. These observations do not establish
-a feature defect; they also do not satisfy those acceptance criteria.
+The automated checks found no P0/P1 acceptance blocker. The later live Logs
+finding is tracked in #5181 and remains open. Its layout observation is
+deferred in DF-014. LIVE updates, a meaningful transcript jump, TUI and
+voice are still unproven; this report does not count them as passing.
 
 Keep #3462 open until the remaining checks produce dated evidence. This
 report and its PR must reference the issue with `Refs #3462`, without a
