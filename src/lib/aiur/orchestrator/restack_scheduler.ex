@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.RestackScheduler do
   @moduledoc "Schedules idle dependent restacks from delivered blocker facts."
   require Logger
   alias Aiur.{Config, Issue, Tracker}
-  alias Aiur.Events.{BranchRefStore, Publisher}
+  alias Aiur.{Events, Events.BranchRefStore}
   alias Aiur.Orchestrator.{OptimisticLedger, State, TicketTransition, TrackerTasks}
   alias Aiur.Stacking.StackBaseEvidence
   alias Aiur.Workspace.{HostLock, Layout, Ownership, Restack}
@@ -154,7 +154,7 @@ defmodule Aiur.Orchestrator.RestackScheduler do
 
     write = Keyword.get(opts, :write_state, &TicketTransition.write_state/3)
     comment = Keyword.get(opts, :comment, &Tracker.create_comment/2)
-    publish = Keyword.get(opts, :publish, &Publisher.publish/2)
+    publish = Keyword.get(opts, :publish, &Events.publish/2)
 
     steps = [
       state: fn -> write.(issue.id, "rework", writer: :restack, expected_state: issue.state) end,
