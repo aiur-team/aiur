@@ -14,12 +14,12 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.GitHub.Issues, as: GitHubIssues
   alias Aiur.{Issue, Tracker}
-  alias Aiur.Orchestrator.CommentReworkRetry
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State, TicketTransition, TrackerTasks}
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.{MergeAttribution, MergeTransition, OperatorMessages, OptimisticLedger, ReviewFindings, WorkspaceCleanup}
   alias Aiur.RecentMerge
   alias Aiur.Signal
+
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
 
@@ -825,7 +825,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
         state
 
-      CommentReworkRetry.limit_reached?(attempt, reason, max_attempts) ->
+      attempt >= max_attempts ->
         Logger.warning("#{source} rework transition retry exhausted: issue_identifier=#{issue_number} attempts=#{attempt} reason=#{inspect(reason)}")
 
         state
@@ -841,7 +841,7 @@ defmodule Aiur.Orchestrator.CommentWake do
             delay_ms
           )
 
-        Logger.warning("#{source} rework retry issue=#{issue_number} attempt=#{CommentReworkRetry.attempt_label(next_attempt, reason, max_attempts)} delay=#{delay_ms}ms")
+        Logger.info("#{source} rework transition retry scheduled: issue_identifier=#{issue_number} attempt=#{next_attempt}/#{max_attempts} delay_ms=#{delay_ms}")
 
         put_comment_rework_retry(state, key, {timer_ref, issue_number, source})
     end

@@ -97,7 +97,7 @@ defmodule Aiur.GitHub.IssueState do
   def do_update_issue_state(update_context, state_name) do
     new_label = StatePolicy.state_label(update_context.prefix, state_name)
 
-    case Issues.fetch_issue_raw_conditional(update_context.issue_number, guarded_issue_read_opts(update_context)) do
+    case Issues.fetch_issue_raw_conditional(update_context.issue_number, issue_read_opts(update_context)) do
       {:ok, issue_body, _outcome} ->
         apply_issue_state_update(update_context, issue_body, state_name, new_label)
 

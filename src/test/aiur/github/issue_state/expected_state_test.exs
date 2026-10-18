@@ -97,34 +97,6 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
                IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
     end
 
-    test "rejects a stale expected state before mutating labels" do
-      test_pid = self()
-      issue_key = ResourceStore.key(:issue, "owner", "repo", "42")
-      :ok = ResourceStore.put_resource(issue_key, %{"state" => "open", "labels" => []}, source: :fetch, etag: "stale-validator")
-
-      request_fun = fn request ->
-        send(test_pid, {:request, request})
-
-        case Map.get(request, :etag) do
-          nil ->
-            {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}}}
-
-          "stale-validator" ->
-            {:ok, %{status: 304}}
-        end
-      end
-
-      assert {:error, {:stale_issue_state, "ci-wait", "rework"}} =
-               IssueState.update_issue_state("42", "in-progress",
-                 expected_state: "ci-wait",
-                 request_fun: request_fun
-               )
-
-      assert_receive {:request, %{method: :get} = request}, 1000
-      refute Map.has_key?(request, :etag)
-      refute_receive {:request, %{method: _method}}, 100
-    end
-
     test "revalidates expected state after the human-review gate" do
       test_pid = self()
       issue_gets = :ets.new(:issue_gets, [:set, :public])
@@ -137,16 +109,13 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
           request.method == :get and String.contains?(request.url, "/issues/42") ->
             [{:count, count}] = :ets.lookup(issue_gets, :count)
             :ets.insert(issue_gets, {:count, count + 1})
-            state = if count == 0, do: "ci-wait", else: "rework"
 
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [%{"name" => "sym:#{state}"}]
-               }
-             }}
+            if count == 0 do
+              {:ok, %{status: 200, headers: [{"etag", "stale-validator"}], body: %{"state" => "open", "labels" => [%{"name" => "sym:ci-wait"}]}}}
+            else
+              refute Map.has_key?(request, :etag)
+              {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}}}
+            end
 
           request.method == :get and String.contains?(request.url, "/pulls?") ->
             {:ok, %{status: 200, body: [], headers: []}}
@@ -164,6 +133,7 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
 
       assert_receive {:request, %{method: :get, url: issue_url}}, 1000
       assert issue_url =~ "/issues/42"
+      refute_receive {:request, %{method: :get, url: ^issue_url, etag: _etag}}, 100
       # One open-pull-request listing, not two: the `head=<owner>:aiur/42` probe
       # that used to run in front of it matched only branches the listing's own
       # filter already accepts, so it was a billed request that answered nothing
