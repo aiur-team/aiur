@@ -83,6 +83,27 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     assert File.read!(stdin_file) == "caller graphql body"
   end
 
+  # #5101: the supervisor holds the injected credential, so caller Python
+  # environment (PYTHONPATH, user site) must not run code inside it.
+  test "a sitecustomize on the caller's PYTHONPATH does not run in the supervisor", context do
+    planted = Path.join(context.workspace, "planted-python")
+    marker = Path.join(context.workspace, "sitecustomize-ran")
+    File.mkdir_p!(planted)
+    File.write!(Path.join(planted, "sitecustomize.py"), "open(#{inspect(marker)}, 'w').close()\n")
+    fake_gh = Path.join(context.workspace, "fake-gh")
+    File.write!(fake_gh, "#!/bin/sh\nprintf 'ok\\n'\n")
+    File.chmod!(fake_gh, 0o700)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["auth", "status"],
+               AIUR_REAL_GH: fake_gh,
+               PYTHONPATH: planted,
+               AIUR_GITHUB_BUDGET_ENABLED: "0"
+             )
+
+    refute File.exists?(marker)
+  end
+
   test "merge gate still identifies the agent from the installed wrapper path", context do
     env = Enum.reject(guard_env(context), fn {name, _value} -> name == "AIUR_AGENT_WORKSPACE" end) ++ [{"AIUR_AGENT_WORKSPACE", ""}]
 

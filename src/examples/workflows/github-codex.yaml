@@ -207,6 +207,8 @@ compaction:
 
 # Experiment specs and audit history are stored under the repo state node.
 # experiments:
+#   analyst:
+#     auto_request: true             # false for CLI-only analyst requests
 #   enabled: true
 #   default_min_samples: 15
 #   default_before_days: 14

@@ -49,7 +49,9 @@ A test failing in merge groups of unrelated PRs gets a flake ticket, unless ever
 
 An approved PR that is not landing acts only when every failed required run has a non-PR cause. Infrastructure failures and known flakes are rerun.
 
-A merge ref older than a base fix, a later merge that changed its workflow or a `.github/` or `scripts/` file its job uses, or a job the base workflow dropped is not rerun, because a rerun reuses the old merge commit; the watcher updates the branch from the base instead.
+A merge ref older than a base fix, a later merge that changed its workflow or a `.github/` or `scripts/` file its job uses, or a job the base workflow dropped is not rerun. Because a rerun reuses the old merge commit, the watcher updates the branch from the base instead.
+
+On main CI recovery, the watcher checks approved auto-merge PRs for failures started after the first red workflow began and before recovery. It refreshes a branch when a failed run's merge ref predates the fix; otherwise it reruns that workflow. Each rerun uses one of three shared slots per 15 minutes; deferred run IDs stay scoped to recovery.
 
 If the base changed the PR's own files, that refresh routes to rework instead. Other failures route to rework.
 

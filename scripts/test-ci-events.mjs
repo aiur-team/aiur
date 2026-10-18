@@ -38,6 +38,9 @@ assert.ok(website.includes("  guards:\n    if: ${{ github.event.pull_request.dra
 const websiteGuards = website.split(/^  guards:\n/m)[1];
 assert.ok(/^    timeout-minutes: 15$/m.test(websiteGuards), 'website guards job has a finite runner budget');
 assert.ok(/      - name: Test visual regressions\n        timeout-minutes: 8\n/.test(websiteGuards), 'Docker visual regression step has a shorter finite budget');
+const visualDocker = JSON.parse(readFileSync(new URL('../website/package.json', import.meta.url), 'utf8')).scripts['test:visual:docker'];
+assert.ok(visualDocker.includes('-v "$PWD/..":/repo -w /repo/website --tmpfs /repo/website/docs-app/node_modules:exec'),
+  'Docker visual build mounts the repository root so docs loaders resolve repository-relative paths');
 const aiurStyle = readFileSync(new URL('../.github/workflows/aiur-style.yml', import.meta.url), 'utf8');
 assert.ok(/^  merge_group:$/m.test(aiurStyle.split(/^jobs:/m)[0]), 'aiur-style checks dist on merge queue candidates (#4983)');
 const [queueDist, buildAndTest] = aiurStyle.split(/^  build-and-test:\n/m);

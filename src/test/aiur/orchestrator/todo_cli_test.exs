@@ -52,6 +52,33 @@ defmodule Aiur.Orchestrator.TodoCLITest do
     assert stderr == ""
   end
 
+  test "reports that --todo keeps an active state instead of rewriting it" do
+    issue = %Issue{id: "4742", identifier: "4742", state: "rework", labels: ["sym:rework"]}
+
+    {stdout, stderr, exit_code} = capture_todo(["4742"], deps: todo_deps(%{"4742" => issue}))
+
+    assert exit_code == 0
+    assert stdout =~ "#4742 kept sym:rework"
+    assert stdout =~ "kept 1 in flight"
+    assert stderr == ""
+    assert_receive {:todo_request_refresh, ["4742"]}, 1000
+    refute_received {:todo_add_label, "4742", _label}
+  end
+
+  test "reports the latest dispatcher hold after a todo request" do
+    issue = %Issue{id: "4742", identifier: "4742", state: "rework", labels: ["sym:rework"]}
+
+    {stdout, stderr, exit_code} =
+      capture_todo(["4742"],
+        deps: todo_deps(%{"4742" => issue}, request_refresh_result: %{queued: true, latest_dispatch_hold: %{reasons: [:build]}})
+      )
+
+    assert exit_code == 0
+    assert stdout =~ "#4742 kept sym:rework"
+    assert stderr =~ "latest dispatcher hold: build"
+    assert stderr =~ "next poll will reconsider queued tickets"
+  end
+
   test "mutates the tracker and emits the control exit marker" do
     issue = %Issue{id: "issue-11", identifier: "11", state: "todo", title: "Queued"}
 
