@@ -7,6 +7,7 @@ defmodule Aiur.DeliveryEntryPointsTest do
   alias Aiur.{AgentChat, AgentControlCLI, AgentQueueStore, DecisionAnswer, DecisionDispatch, DecisionRevision, DecisionRevisionDispatch, DecisionValidation, Issue}
   alias Aiur.Opencode.ChatCompletions.OperatorDispatch
   alias Aiur.Orchestrator.{OperatorMessages, State}
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.{DashboardLive, Endpoint, StreamdeckChannel}
 
   @endpoint Endpoint
@@ -165,15 +166,12 @@ defmodule Aiur.DeliveryEntryPointsTest do
   defp record_chat_opts do
     owner = self()
 
-    config =
-      Application.get_env(:aiur, Endpoint, [])
-      |> Keyword.put(:agent_chat_send_fun, fn target, text, opts ->
+    EndpointStubs.put(
+      agent_chat_send_fun: fn target, text, opts ->
         send(owner, {:chat, target, text, opts})
         {:ok, 1}
-      end)
-
-    Application.put_env(:aiur, Endpoint, config)
-    Endpoint.config_change([{Endpoint, config}], [])
+      end
+    )
   end
 
   defp put_app_env(key, value) do
@@ -196,9 +194,12 @@ defmodule Aiur.DeliveryEntryPointsTest do
     Process.unlink(fake)
     Process.register(fake, name)
 
+    # Give the name back before stopping the fake: a stray call that crashed it
+    # (#4909) must fail this test, not leave the name empty for every later one.
     on_exit(fn ->
-      if Process.alive?(fake), do: GenServer.stop(fake)
+      if Process.whereis(name) == fake, do: Process.unregister(name)
       if is_pid(original) and Process.alive?(original), do: Process.register(original, name)
+      if Process.alive?(fake), do: GenServer.stop(fake)
     end)
   end
 end

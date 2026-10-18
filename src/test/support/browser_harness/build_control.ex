@@ -4,6 +4,10 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
   import Plug.Conn
   alias Aiur.TestSupport.BuildHome.{EarlierControl, FixtureSource}
 
+  def configure(conn, %{"action" => "stream", "key" => key}) do
+    conn |> put_session("build_stream", key) |> send_resp(200, "build fixture stream: #{key}")
+  end
+
   def configure(conn, %{"action" => action} = params) when action in ["diff", "skip"] do
     conn = fetch_query_params(conn)
     params = Map.merge(params, conn.query_params)
@@ -16,7 +20,7 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
         diff_changes(data, params)
       end
 
-    Phoenix.PubSub.broadcast(Aiur.PubSub, "build-home:fixture", {:build_changes, changes})
+    Phoenix.PubSub.broadcast(Aiur.PubSub, FixtureSource.topic(get_session(conn, "build_stream")), {:build_changes, changes})
     send_resp(conn, 200, "build fixture control: #{action}")
   end
 
@@ -64,5 +68,19 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
       _ ->
         Map.update!(row, "pct", &(&1 + 1))
     end
+  end
+end
+
+defmodule Aiur.BrowserHarness.FixtureLiveSocket do
+  @moduledoc """
+  LiveView socket that registers a page's transport under its `build_stream`
+  session key, so `/build-control` diffs from one Playwright worker reach only
+  that worker's build page.
+  """
+  use Phoenix.LiveView.Socket
+
+  def connect(_params, socket, info) do
+    if stream = info[:session]["build_stream"], do: Registry.register(Aiur.TestSupport.BuildHome.FixtureSource.Streams, stream, nil)
+    {:ok, socket}
   end
 end

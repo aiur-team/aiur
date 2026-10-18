@@ -106,7 +106,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 
   @session_options [store: :cookie, key: "_aiur_browser_harness", signing_salt: "browser-harness", http_only: true, same_site: "Lax"]
 
-  socket("/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]], longpoll: false)
+  socket("/live", Aiur.BrowserHarness.FixtureLiveSocket, websocket: [connect_info: [session: @session_options]], longpoll: false)
 
   socket("/voice", AiurWeb.VoiceSocket,
     websocket: [connect_info: [session: @session_options], max_frame_size: 400_000],
@@ -173,6 +173,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
           ),
           Supervisor.child_spec({Phoenix.PubSub, name: Aiur.PubSub}, id: Aiur.PubSub),
           {Task.Supervisor, name: Aiur.TaskSupervisor},
+          {Registry, keys: :duplicate, name: FixtureSource.Streams},
           {AiurWeb.Endpoint, []},
           AiurWeb.FinancialDataAccess.Generation,
           AiurWeb.VoiceSessionLimiter,

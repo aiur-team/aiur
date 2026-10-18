@@ -363,6 +363,17 @@ test('harness self-check: pixel frames retain paused CSS animation time', async 
   } finally { await context.close() }
 })
 
+test('harness self-check: ambient loops over a region do not defeat the settle guard', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: cell.viewport })
+  try {
+    const pages = await Promise.all([context.newPage(), context.newPage()])
+    // A loop outside the region's subtree paints across it, like the .bd-glow halo over .bd-lanes (#4851).
+    for (const page of pages) await page.setContent('<style>@keyframes spin { to { transform: rotate(360deg) } } #glow { position: absolute; top: 0; left: 0; width: 120px; height: 120px; background: conic-gradient(red, blue, red); animation: spin .3s linear infinite } #probe { position: relative; margin: 40px; width: 40px; height: 40px }</style><div id="glow"></div><div id="probe"></div>')
+    await compareParityPixels({ design: pages[0], product: pages[1], cell, allowlist: [] }, { name: 'ambient-loop', region: '#probe', preserveAnimations: true })
+    for (const page of pages) expect(await page.evaluate(() => document.getAnimations()[0].playState)).toBe('running')
+  } finally { await context.close() }
+})
+
 test('harness self-check: screenshot allowlists ignore motion paths', async ({ browser }) => {
   const context = await browser.newContext()
   try {

@@ -7,13 +7,14 @@
     "src/lib/aiur/agent_events.ex",
     "src/lib/aiur/agent_pubsub.ex",
     "src/lib/aiur/agent_pubsub/**",
+    "src/lib/aiur/events.ex",
     "src/lib/aiur/events/**",
     "src/lib/aiur/ticket_observation.ex"
   ],
   "facades": [
     "*"
   ],
-  "facade_pending": "MP-R1-C1-T02",
+  "facade_pending": "MP-R2-C4-T03: Aiur.Events is the public API; retain legacy access until caller migrations finish",
   "requires": [
     "config",
     "kernel"

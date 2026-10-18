@@ -83,6 +83,7 @@
     "Aiur.GitHub.Transport",
     "Aiur.GitHub.TrustSnapshot",
     "Aiur.GitHub.ViewStateSweep",
+    "Aiur.GitHub.WorkspacePreflight",
     "Aiur.GitHubCostCLI",
     "Aiur.GitHubUsageCLI",
     "Aiur.GlobalConfigStartup",
@@ -93,10 +94,12 @@
     "Aiur.Webhooks.ModeTable"
   ],
   "requires": [
+    "agent-sandbox",
     "config",
     "kernel",
     "signal",
-    "tracker"
+    "tracker",
+    "workspace"
   ],
   "optional": [
     "event-bus",

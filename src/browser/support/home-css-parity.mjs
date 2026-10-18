@@ -27,13 +27,15 @@ export async function transplant(browser, cell) {
       const scroll = rootNodes.flatMap(root => [root, ...root.querySelectorAll('*')]).map(e => [e.scrollLeft, e.scrollTop])
       return { roots: rootNodes.map(e => e.outerHTML), scroll, html: [...document.documentElement.attributes].map(a => [a.name, a.value]), body: document.body.getAttribute('style'),
         inherited, layout: { display: style.display, flexDirection: style.flexDirection, alignItems: style.alignItems }, width: rect.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth), left: rect.left + parseFloat(style.paddingLeft), top: rect.top + parseFloat(style.paddingTop),
-        htmlStyle: { scrollbarGutter: getComputedStyle(document.documentElement).scrollbarGutter, overflowX: getComputedStyle(document.documentElement).overflowX } }
+        htmlStyle: { scrollbarGutter: getComputedStyle(document.documentElement).scrollbarGutter, scrollbarWidth: getComputedStyle(document.documentElement).scrollbarWidth, overflowX: getComputedStyle(document.documentElement).overflowX } }
     }, ROOTS)
     const origin = new URL(test.info().project.use.baseURL).origin
     await guardNetwork(pair.product, [origin])
-    await pair.product.route(`${origin}/home-css-transplant`, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/build-home/home.css"></head><body></body></html>' }))
+    await pair.product.route(`${origin}/home-css-transplant`, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="stylesheet" href="/aiur-style/tokens.css"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/build-home/home.css"></head><body></body></html>' }))
     await pair.product.clock.setFixedTime(FIXTURE_META.now)
     await pair.product.goto(`${origin}/home-css-transplant`)
+    // Load faces before inserting nodes: Chromium resolves `ch` as 0.5em without a primary font and keeps it after the swap.
+    await pair.product.evaluate(() => Promise.all([...document.fonts].map(face => face.load())))
     await pair.product.evaluate(data => {
       data.html.forEach(([k, v]) => document.documentElement.setAttribute(k, v))
       Object.assign(document.documentElement.style, data.htmlStyle)

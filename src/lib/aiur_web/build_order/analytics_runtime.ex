@@ -18,7 +18,7 @@ defmodule AiurWeb.BuildOrder.AnalyticsRuntime do
 
   alias Aiur.{PollCadence, TrackerIdentity}
   alias AiurWeb.BuildOrder.{AnalyticsScope, RouteState}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.Analytics.Presenter
   alias Phoenix.LiveView.Socket
 
@@ -154,8 +154,8 @@ defmodule AiurWeb.BuildOrder.AnalyticsRuntime do
       tickets: MapSet.to_list(scope.tickets),
       timeline: :active,
       scope_total: scope.total,
-      orchestrator: Endpoint.config(:orchestrator) || Aiur.Orchestrator,
-      snapshot_timeout_ms: PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000)
+      orchestrator: EndpointConfig.get(:orchestrator) || Aiur.Orchestrator,
+      snapshot_timeout_ms: PollCadence.snapshot_tolerance_ms(EndpointConfig.get(:snapshot_timeout_ms) || 15_000)
     ]
   end
 

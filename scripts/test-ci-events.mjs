@@ -15,19 +15,32 @@ const jobs = new Map([...source.split(/^jobs:\n/m)[1].matchAll(/^  ([\w-]+):\n([
   .map(([, id, body]) => [id, body]));
 const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css', 'layout-release', 'analytics', 'streamdeck', 'pre-handoff'];
 const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'ci-gate', 'pre-handoff'];
-function selected(event, full, dialyzer = false) {
-  return [...jobs].filter(([, body]) => {
-    const expression = body.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
-    return !expression || runInNewContext(expression, {
-      github: { event_name: event, ref: event === 'push' ? 'refs/heads/main' : '' }, cancelled: () => false, always: () => true,
-      needs: {
-        changes: { result: 'success', outputs: { full_ci: String(full), dialyzer: String(dialyzer) } },
-        'pre-handoff': { result: 'success' },
-      },
-    });
-  }).map(([id]) => id);
+function selected(event, full, dialyzer = false, payload = { pull_request: {} }) {
+  const condition = (body) => body.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
+  const run = (expression, changes) => !expression || runInNewContext(expression, {
+    github: { event_name: event, event: payload, ref: event === 'push' ? 'refs/heads/main' : '' }, cancelled: () => false, always: () => true,
+    needs: { changes, 'pre-handoff': { result: changes.result } },
+  });
+  const changesRuns = run(condition(jobs.get('changes')), {});
+  const changes = changesRuns ? { result: 'success', outputs: { full_ci: String(full), dialyzer: String(dialyzer) } } : { result: 'skipped', outputs: {} };
+  // Every other job needs changes, so a skipped changes skips it unless a status function overrides that.
+  return [...jobs].filter(([id, body]) => id === 'changes' ? changesRuns
+    : (changesRuns || /always\(\)|cancelled\(\)/.test(condition(body) ?? '')) && run(condition(body), changes)).map(([id]) => id);
 }
 assert.deepEqual(selected('pull_request', false).sort(), fastJobs.sort(), 'PR without Elixir source changes selects only fast jobs');
+for (const payload of [{ pull_request: { draft: true } }, { action: 'labeled', pull_request: { draft: true } }]) {
+  assert.deepEqual(selected('pull_request', true, true, payload), [], `no CI job holds a runner for ${JSON.stringify(payload)} (#4942)`);
+}
+assert.deepEqual(selected('pull_request', false, false, { action: 'ready_for_review', pull_request: { draft: false } }).sort(), fastJobs.sort(), 'marking a draft ready runs CI');
+const website = readFileSync(new URL('../.github/workflows/website.yml', import.meta.url), 'utf8');
+assert.ok(website.includes('types: [opened, synchronize, reopened, ready_for_review, closed]'), 'website starts on ready and cancels on close');
+assert.ok(website.includes("  guards:\n    if: ${{ github.event.pull_request.draft != true && github.event.action != 'closed' }}"), 'website skips drafts and closed PRs');
+const aiurStyle = readFileSync(new URL('../.github/workflows/aiur-style.yml', import.meta.url), 'utf8');
+assert.ok(/^  merge_group:$/m.test(aiurStyle.split(/^jobs:/m)[0]), 'aiur-style checks dist on merge queue candidates (#4983)');
+const [queueDist, buildAndTest] = aiurStyle.split(/^  build-and-test:\n/m);
+assert.ok(queueDist.includes("if: ${{ github.event_name == 'merge_group' }}") && queueDist.includes('npm run check-dist'), 'queue job runs check-dist');
+assert.ok(!queueDist.includes('test:visual') && !queueDist.includes('container:'), 'queue job skips the Playwright visual suite');
+assert.ok(buildAndTest.startsWith("    if: ${{ github.event_name != 'merge_group' }}\n"), 'full aiur-style suite stays off merge groups');
 assert.ok(selected('pull_request', false, true).includes('dialyzer'), 'PR changing src/lib Elixir runs dialyzer');
 assert.ok(!selected('pull_request', false, false).includes('dialyzer'), 'docs-only PR skips dialyzer');
 console.log(`Fast PR jobs (non-CI changes): ${selected('pull_request', false).sort().join(', ')}`);

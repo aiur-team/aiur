@@ -269,19 +269,20 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp snapshot_queue_store(%State{} = state) do
     identifiers = snapshot_identifiers(state)
 
-    {items, pending_ids_by_target} =
-      Enum.reduce(identifiers, {%{}, %{}}, fn identifier, {items, pending_ids_by_target} ->
+    {items, pending_ids_by_target, item_ids_by_target} =
+      Enum.reduce(identifiers, {%{}, %{}, %{}}, fn identifier, {items, pending_ids_by_target, item_ids_by_target} ->
         pending = AgentQueueStore.list_pending(state.queue_store, identifier)
         visible = AgentQueueStore.list_visible_operator_messages(state.queue_store, identifier)
-        queue_items = pending ++ visible
+        queue_items = Map.new(pending ++ visible, &{&1.id, &1})
 
         {
-          Map.merge(items, Map.new(queue_items, &{&1.id, &1})),
-          Map.put(pending_ids_by_target, identifier, Enum.map(pending, & &1.id))
+          Map.merge(items, queue_items),
+          Map.put(pending_ids_by_target, identifier, Enum.map(pending, & &1.id)),
+          Map.put(item_ids_by_target, identifier, Map.keys(queue_items))
         }
       end)
 
-    %AgentQueueStore{items: items, pending_ids_by_target: pending_ids_by_target}
+    %AgentQueueStore{items: items, pending_ids_by_target: pending_ids_by_target, item_ids_by_target: item_ids_by_target}
   end
 
   defp snapshot_identifiers(%State{} = state) do

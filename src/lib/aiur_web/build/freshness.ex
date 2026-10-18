@@ -22,7 +22,7 @@ defmodule AiurWeb.Build.Freshness do
   """
   alias Aiur.BuildOrder.SourceFreshness
   alias Aiur.{Orchestrator, PollCadence}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
 
   @spec daemon(term(), integer()) :: map()
   def daemon({status, _, md}, now_ms) when status in [:current, :stale] and is_map(md) do
@@ -36,8 +36,8 @@ defmodule AiurWeb.Build.Freshness do
 
   @spec read_daemon(keyword()) :: map()
   def read_daemon(opts \\ []) do
-    orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> Endpoint.config(:orchestrator) || Orchestrator end)
-    timeout = Keyword.get_lazy(opts, :timeout, fn -> PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000, class: :dispatch) end)
+    orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> EndpointConfig.get(:orchestrator) || Orchestrator end)
+    timeout = Keyword.get_lazy(opts, :timeout, fn -> PollCadence.snapshot_tolerance_ms(EndpointConfig.get(:snapshot_timeout_ms) || 15_000, class: :dispatch) end)
     daemon(Orchestrator.dashboard_snapshot(orchestrator, timeout), System.os_time(:millisecond))
   end
 

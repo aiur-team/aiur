@@ -5,7 +5,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   alias Aiur.TestSupport.BuildHome.EarlierControl
   alias AiurWeb.Build.Read
 
-  @files ~w(live dense newrepo noqueue offline odd-edges unknowns hostile)
+  @files ~w(live dense newrepo noqueue offline odd-edges unknowns hostile list-edges)
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   def datasets, do: @files ++ ~w(degraded unavailable hold)
@@ -28,7 +28,21 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   end
 
   @impl true
-  def subscribe(_opts), do: Phoenix.PubSub.subscribe(Aiur.PubSub, "build-home:fixture")
+  def subscribe(_opts), do: Phoenix.PubSub.subscribe(Aiur.PubSub, topic(stream()))
+
+  def topic(nil), do: "build-home:fixture"
+  def topic(stream), do: "build-home:fixture:" <> stream
+
+  # The browser harness registers each page's transport under its stream key; see FixtureLiveSocket.
+  defp stream do
+    with pid when is_pid(pid) <- Process.get(:"$phx_transport_pid"),
+         true <- is_pid(Process.whereis(__MODULE__.Streams)),
+         [stream] <- Registry.keys(__MODULE__.Streams, pid) do
+      stream
+    else
+      _ -> nil
+    end
+  end
 
   @impl true
   def snapshot(opts) do

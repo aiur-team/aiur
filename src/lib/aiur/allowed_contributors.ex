@@ -66,7 +66,7 @@ defmodule Aiur.AllowedContributors do
   def init(opts) do
     case repo(opts) do
       {:ok, {owner, repo}} ->
-        :ok = Aiur.WorkflowStore.subscribe()
+        :ok = Keyword.get(opts, :subscribe_fun, &Aiur.WorkflowStore.subscribe/0).()
         {:ok, State.new(opts, owner, repo), {:continue, :refresh}}
 
       :error ->

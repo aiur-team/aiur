@@ -96,7 +96,7 @@ def check(base, head):
         display_name = name.encode('unicode_escape').decode('ascii')
         for mount in SKILL_MOUNTS:
             if name == mount or name.startswith(mount + '/'):
-                if path in added:
+                if path in added and not (mount == '.codex/skills' and is_canonical_codex_link(head, path)):
                     print(f'{display_name}: new tracked entry under mounted skill path {mount} is rejected')
                     mount_failures += 1
                 break
@@ -134,6 +134,14 @@ def check(base, head):
             print(f'{name}: base {previous} -> head {current} (limit {LIMIT})')
             failures += 1
     return int(bool(failures))
+
+
+def is_canonical_codex_link(revision, path):
+    """A new `.codex/skills/<name>` entry is allowed only as the symlink `../../.claude/skills/<name>`."""
+    name = os.fsdecode(path).removeprefix('.codex/skills/')
+    if '/' in name or tree_entry(revision, path) != '120000':
+        return False
+    return git('cat-file', 'blob', f'{revision}:{os.fsdecode(path)}') == f'../../.claude/skills/{name}'.encode()
 
 
 def tree_entry(revision, path):

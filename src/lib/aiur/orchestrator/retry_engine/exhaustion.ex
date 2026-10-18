@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   alias Aiur.GitHub.LocalHold
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Orchestrator.State
@@ -128,6 +129,9 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
 
           :alert_emitted
 
+        {:error, {:stale_issue_state, expected, actual} = reason} when expected != actual ->
+          handle_stale_exhaustion_write(issue_id, identifier, actual, reason)
+
         {:error, reason} ->
           Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
 
@@ -135,19 +139,46 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
           # instead of a false `:ok`, and alert rather than only logging (#2420):
           # a swallowed write here would leave the ticket with its active-state
           # label and no signal to the Executor that exhaustion never parked it.
-          Alerts.emit_custom(
-            "ticket.#{identifier}.agent.attention.error-state-write-failed",
-            "Agent entered retry exhaustion but the ticket could not be moved to error (#{inspect(reason)}); it keeps its active-state label and may be re-dispatched.",
-            issue: identifier,
-            reason: "Exhausted retry budget, but the terminal error-state write failed (#{inspect(reason)}); the ticket was not parked in error.",
-            needs_attention: true,
-            severity: "warning",
-            central: true
-          )
-
+          emit_error_state_write_failed(identifier, reason)
           {:error, {:no_state_label_written, identifier}}
       end
     end
+  end
+
+  defp handle_stale_exhaustion_write(issue_id, identifier, actual, reason) do
+    if valid_lifecycle_state?(actual) do
+      Logger.info(
+        "Retry-exhaustion error write settled after ticket moved issue_id=#{issue_id} " <>
+          "issue_identifier=#{identifier} state=#{inspect(actual)}"
+      )
+
+      :ok
+    else
+      Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
+      emit_error_state_write_failed(identifier, reason)
+      {:error, {:no_state_label_written, identifier}}
+    end
+  end
+
+  defp valid_lifecycle_state?(state) when is_binary(state) do
+    DispatchPolicy.active_issue_state?(state, DispatchPolicy.active_state_set()) or
+      DispatchPolicy.terminal_issue_state?(state, DispatchPolicy.terminal_state_set()) or
+      DispatchPolicy.no_agent_work_state?(state) or
+      DispatchPolicy.normalize_issue_state(state) in ["error", "human-review"]
+  end
+
+  defp valid_lifecycle_state?(_state), do: false
+
+  defp emit_error_state_write_failed(identifier, reason) do
+    Alerts.emit_custom(
+      "ticket.#{identifier}.agent.attention.error-state-write-failed",
+      "Agent entered retry exhaustion but the ticket could not be moved to error (#{inspect(reason)}); it keeps its active-state label and may be re-dispatched.",
+      issue: identifier,
+      reason: "Exhausted retry budget, but the terminal error-state write failed (#{inspect(reason)}); the ticket was not parked in error.",
+      needs_attention: true,
+      severity: "warning",
+      central: true
+    )
   end
 
   # Retry-exhaustion state writes are terminal and cannot be recovered by a

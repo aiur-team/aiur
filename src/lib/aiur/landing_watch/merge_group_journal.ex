@@ -23,16 +23,23 @@ defmodule Aiur.LandingWatch.MergeGroupJournal do
   @doc "Takes one slot of the shared automatic-requeue cap from a journal state, without writing it."
   @spec take_requeue_slot(map(), integer()) :: {:ok, map(), :ok} | {:error, :merge_group_requeue_limit_reached}
   def take_requeue_slot(state, now) do
+    case requeue_refusal(state, now) do
+      nil -> {:ok, Map.put(state, "merge_group_requeues", [now | recent_requeues(state, now)]), :ok}
+      :merge_group_requeue_limit_reached -> {:error, :merge_group_requeue_limit_reached}
+    end
+  end
+
+  @doc "Returns whether the shared automatic-requeue cap is currently full."
+  @spec requeue_refusal(map(), integer()) :: :merge_group_requeue_limit_reached | nil
+  def requeue_refusal(state, now), do: if(length(recent_requeues(state, now)) >= 3, do: :merge_group_requeue_limit_reached)
+
+  defp recent_requeues(state, now) do
     recent =
       state
       |> Map.get("merge_group_requeues", [])
       |> Enum.filter(&(is_integer(&1) and now >= &1 and now - &1 < 15 * 60_000))
 
-    if length(recent) >= 3 do
-      {:error, :merge_group_requeue_limit_reached}
-    else
-      {:ok, Map.put(state, "merge_group_requeues", [now | recent]), :ok}
-    end
+    recent
   end
 
   @spec merge_group_requeues_by_hour(keyword()) ::
@@ -56,6 +63,36 @@ defmodule Aiur.LandingWatch.MergeGroupJournal do
   def release_merge_group_run(run_id, opts) when is_integer(run_id) and run_id > 0 do
     release_run(run_id, "merge_group_runs", opts)
   end
+
+  @doc "Counts a failed attempt; releases the claim for a retry until `limit` attempts, then keeps it."
+  @spec release_failed_merge_group_run(pos_integer(), pos_integer(), keyword()) ::
+          {:ok, :released | :kept} | {:error, term()}
+  def release_failed_merge_group_run(run_id, limit, opts) when is_integer(run_id) and run_id > 0 do
+    run_key = Integer.to_string(run_id)
+
+    Journal.update(opts, fn state ->
+      failures = Map.get(state, "merge_group_run_failures", %{})
+      count = failure_count(Map.get(failures, run_key)) + 1
+
+      if count >= limit do
+        {:ok, Map.put(state, "merge_group_run_failures", Map.delete(failures, run_key)), :kept}
+      else
+        state =
+          state
+          |> Map.put("merge_group_runs", Map.delete(Map.get(state, "merge_group_runs", %{}), run_key))
+          |> Map.put("merge_group_run_failures", Map.put(failures, run_key, count))
+
+        {:ok, state, :released}
+      end
+    end)
+  end
+
+  @spec clear_merge_group_run_failures(pos_integer(), keyword()) :: :ok | {:error, term()}
+  def clear_merge_group_run_failures(run_id, opts) when is_integer(run_id) and run_id > 0,
+    do: release_run(run_id, "merge_group_run_failures", opts)
+
+  defp failure_count(count) when is_integer(count) and count > 0, do: count
+  defp failure_count(_), do: 0
 
   @spec release_quarantine_merge_group_run(pos_integer(), keyword()) :: :ok | {:error, term()}
   def release_quarantine_merge_group_run(run_id, opts) when is_integer(run_id) and run_id > 0,

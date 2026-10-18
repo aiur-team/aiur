@@ -127,7 +127,7 @@ defmodule AiurWeb.Router do
   end
 
   defp dashboard_writable? do
-    AiurWeb.Endpoint.config(:dashboard_writable) == true
+    AiurWeb.EndpointConfig.get(:dashboard_writable) == true
   rescue
     _ -> false
   end

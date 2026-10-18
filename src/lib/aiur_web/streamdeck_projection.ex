@@ -3,7 +3,7 @@ defmodule AiurWeb.StreamdeckProjection do
   alias Aiur.{CodingAgent, Commands, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
   import AiurWeb.StreamdeckProjection.Meters, only: [age_seconds: 1, field: 2, normalize_provider_meter: 3]
 
-  alias AiurWeb.{Endpoint, StreamdeckFleet}
+  alias AiurWeb.{Endpoint, EndpointConfig, StreamdeckFleet}
 
   @version 1
   @voice_unconfigured_reason "Aiur has no ElevenLabs API key - transcription is off"
@@ -223,7 +223,7 @@ defmodule AiurWeb.StreamdeckProjection do
   end
 
   defp endpoint_config(key) do
-    Endpoint.config(key) || Application.get_env(:aiur, Endpoint, []) |> Keyword.get(key)
+    EndpointConfig.get(key) || Application.get_env(:aiur, Endpoint, []) |> Keyword.get(key)
   rescue
     _error -> Application.get_env(:aiur, Endpoint, []) |> Keyword.get(key)
   end

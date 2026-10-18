@@ -22,7 +22,7 @@ defmodule AiurWeb.AnalyticsLive do
     UsageSummaryPresenter
   }
 
-  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Loading, Presenter, Runtime, ScopeResolver, Styles}
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, ConcurrencyCoverage, LiveConcurrency, Loading, Presenter, Runtime, ScopeResolver, Styles}
 
   @usage_summary_max_age_ms 30_000
   # Matches the CLI: telemetry within this window is "just now", older telemetry shows elapsed age.
@@ -205,7 +205,7 @@ defmodule AiurWeb.AnalyticsLive do
         </div>
 
         <div :if={!@unavailable} class="an-kpis">
-          <div :for={k <- kpi_items(@model, @provider_spend, @source.kind)} class={["an-kpi", k.tone]}>
+          <div :for={k <- kpi_items(@model, @provider_spend, @source.kind, @analytics_scope)} class={["an-kpi", k.tone]}>
             <span class="an-kpi-label">{k.label}</span>
             <span class="an-kpi-val">{k.val}</span>
             <span class="an-kpi-sub">{k.sub}</span>
@@ -461,17 +461,15 @@ defmodule AiurWeb.AnalyticsLive do
   # cross-boot history, `conc_now` is the tail of a run that already ended and
   # the merged count is history, so the subtitles say "at run end" / "that run"
   # instead of claiming the fleet is acting right now.
-  defp kpi_items(model, provider_spend, source_kind) do
+  defp kpi_items(model, provider_spend, source_kind, scope) do
     k = model.kpis
     present? = source_kind == :live
 
     [
-      %{
-        label: "Peak concurrency",
-        val: k.peak_conc,
-        sub: "#{k.conc_now} #{if(present?, do: "now", else: "at run end")} / #{Presenter.cap_label(model)}",
-        tone: nil
-      },
+      Map.merge(
+        %{label: "Peak concurrency", tone: nil},
+        ConcurrencyCoverage.tile(model, scope, "#{LiveConcurrency.label(model, present?, scope)} / #{Presenter.cap_label(model)}")
+      ),
       %{
         label: "Mean utilization",
         val: "#{k.mean_util_pct}%",

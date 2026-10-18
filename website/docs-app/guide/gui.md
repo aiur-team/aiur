@@ -64,7 +64,7 @@ The operator-facing UI and CLI call these records **Commands**.
 
 Open the settings cog in the sticky top bar to pause or resume all agents, change the theme, or switch between Gruvbox (the default) and the aiur palette. Pause requires writable access and a known fleet state; an unavailable state reads “Pause state unknown”. The “All agents paused” chip appears only when pause is confirmed.
 
-The theme follows your operating system until you toggle it. Both choices stay in this browser; another tab keeps its current palette until reload. Fonts are served by the dashboard, including offline.
+The theme starts dark until you toggle it. Both choices stay in this browser; another tab keeps its current palette until reload. Fonts are served by the dashboard, including offline.
 
 Drag the navigation edge to switch between icons and labels, or focus the edge and use the arrow keys. The choice stays in this browser. On phones, navigation stays visible in a fixed bottom bar. A red dot on Commands means an answer is waiting; unavailable counts keep their notice instead of showing zero.
 
@@ -95,6 +95,10 @@ The `sort` query parameter preserves the selected table, column, and direction i
 The temporary, unlinked `/build` route reads the repository timeline from local stores.
 It requires dashboard authentication and loads history by active day in the browser’s time zone.
 Live changes are coalesced; snapshots distinguish unavailable sources from empty sections.
+
+List (`?view=list`) shows Live, Planned, Not queued and newest-first History as table rows.
+Ticket rows support keyboard focus. Use **Load earlier day** to fetch more history.
+Unknown values stay explicit, and degraded section headings show their source state and read age.
 
 The toolbar selects Timeline, Gantt or List and retains the view in the URL.
 Use Left/Right arrows or Home/End to move between view tabs, then Enter or Space

@@ -68,7 +68,7 @@ waits for GitHub to report the pushed head, then rewrites the body's
 the PR. Before the PR exists it skips that step, so the order at handoff is:
 push, `gh pr create`, run `aiur pre-pr` again to refresh the body, then hand
 off. `aiur_set_ticket_state` refuses `ci-wait` and `human-review` while the
-body's `Tested head` is not the PR head.
+body fails `mix pr_body.check` at the PR head, a stale `Tested head` included.
 
 Every PR body must follow `.github/pull_request_template.md`, including its
 `## Local tests` evidence. Before each handoff, run
@@ -364,3 +364,12 @@ constructing an alternate harness. Executor-root manual test runs are allowed
 only outside agent turns.
 
 A resumed dependent with `refs/aiur/restack/pending/<branch>` or `refs/aiur/restack/conflict/<branch>` must inspect that receipt and follow the restack recipe before ordinary base integration. The startup hook preserves local divergence and conflict receipts for you to reconcile.
+
+### Never generate real CPU load
+
+Never run `yes`, `stress`, or a shell busy loop such as
+`while :; do :; done` to reproduce a load-sensitive flake, and never start one
+per core. Inject the load through the code's test seam instead. Aiur reports
+such loops to the Executor as your ticket's attention, naming your workspace,
+and kills them where configured. The `aiur-agent` skill's `conventions.md` has
+the full rule.
