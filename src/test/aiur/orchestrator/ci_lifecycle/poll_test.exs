@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
@@ -189,6 +190,55 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
       next = CiLifecycle.poll_github_ci(%{next | last_ci_poll_started_at_ms: nil}, Keyword.put(opts, :ci_batch_fetcher, fn _, _ -> {:ok, batch} end))
       assert_received {:tracker_update, ^identifier, "in-progress", _}
       assert next.ci_lifecycle.approved_heads[identifier] == "head-71"
+    end
+
+    test "a same-head approved PR dropped from the merge queue transitions to dispatchable rework" do
+      identifier = unique_identifier("merge-queue-drop")
+      RecordingGitHubClient.record_to(self())
+      ticket = issue(identifier, "ci-wait")
+
+      base = %State{}
+
+      state = %{
+        base
+        | ci_lifecycle: %{
+            base.ci_lifecycle
+            | poll_cache: %{
+                identifier => %{
+                  decision: :pending,
+                  head_sha: "same-head",
+                  review_decision: "APPROVED",
+                  merge_queue_entry: %{"id" => "queue-entry", "state" => "AWAITING_CHECKS"}
+                }
+              }
+          }
+      }
+
+      next =
+        CiLifecycle.poll_github_ci(state,
+          ci_recovery_enabled: false,
+          ci_issue_fetcher: fn _ -> {:ok, [ticket]} end,
+          ci_poller: fn _targets, _opts ->
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :passed,
+                   head_sha: "same-head",
+                   pr_number: 71,
+                   review_decision: "APPROVED",
+                   merge_queue_entry: nil
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      assert_received {:tracker_update, ^identifier, "rework", _opts}
+      assert next.running == %{}
+      assert DispatchPolicy.should_dispatch_issue?(%{ticket | state: "rework"}, next)
     end
 
     test "a delivered (displaced) result is inert: no transition, no cache projection" do
