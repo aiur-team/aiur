@@ -1,12 +1,13 @@
 defmodule Aiur.BackgroundCpu do
   @moduledoc """
-  Samples CPU used by processes niced *below* the daemon (#3624).
+  Samples CPU used by external processes niced below the daemon (#3624).
 
   `/proc/stat` reports one aggregate nice column. The fleet inherits the
   daemon's nice level, so subtracting that column would discount the fleet's
   own load whenever the daemon runs niced. This worker scans `/proc/<pid>/stat`
   on its own timer, outside the Orchestrator, and accumulates only CPU ticks
-  of processes whose nice is greater than the daemon's own nice.
+  of processes whose nice is greater than the daemon's own nice and that are
+  outside its process tree. This excludes Aiur's own nice-adjusted builds.
 
   Each scan publishes a cumulative reading to ETS: background ticks, the
   `/proc/stat` CPU total at the same moment, the daemon nice, and an epoch.
@@ -61,28 +62,61 @@ defmodule Aiur.BackgroundCpu do
   defp fresh(_reading, _now_ms), do: :unavailable
 
   @doc """
-  Reads every process's nice and own CPU ticks under `proc_root`, keeping
-  those niced above `daemon_nice`. Returns `:unavailable` when the directory
-  cannot be listed or holds more than #{@max_processes} processes.
+  Reads process stats under `proc_root`, keeping niced CPU outside `daemon_pid`'s
+  process tree. Returns `:unavailable` when the directory cannot be listed or
+  holds more than #{@max_processes} processes.
   """
-  @spec scan(Path.t(), integer()) :: %{optional({String.t(), non_neg_integer()}) => non_neg_integer()} | :unavailable
-  def scan(proc_root, daemon_nice) when is_integer(daemon_nice) do
+  @spec scan(Path.t(), integer(), pos_integer()) :: %{optional({String.t(), non_neg_integer()}) => non_neg_integer()} | :unavailable
+  def scan(proc_root, daemon_nice, daemon_pid) when is_integer(daemon_nice) and is_integer(daemon_pid) and daemon_pid > 0 do
     with {:ok, entries} <- File.ls(proc_root),
          pids = Enum.filter(entries, &numeric?/1),
-         true <- length(pids) <= @max_processes do
-      Enum.reduce(pids, %{}, &collect(proc_root, daemon_nice, &1, &2))
+         true <- length(pids) <= @max_processes,
+         processes = read_processes(proc_root, pids) do
+      processes
+      |> Enum.reject(fn {pid, process} -> process.nice <= daemon_nice or daemon_descendant?(pid, processes, daemon_pid) end)
+      |> Map.new(fn {pid, process} -> {{pid, process.start}, process.ticks} end)
     else
       _ -> :unavailable
     end
   end
 
   # A process may exit between listing and reading; that is not a failure.
-  defp collect(proc_root, daemon_nice, pid, acc) do
-    with {:ok, contents} <- File.read(Path.join([proc_root, pid, "stat"])),
-         {:ok, %{nice: nice, ticks: ticks, start: start}} when nice > daemon_nice <- SystemPriority.parse_stat(contents) do
-      Map.put(acc, {pid, start}, ticks)
-    else
-      _ -> acc
+  defp read_processes(proc_root, pids) do
+    pids
+    |> Enum.map(fn pid ->
+      process =
+        with {:ok, contents} <- File.read(Path.join([proc_root, pid, "stat"])),
+             {:ok, parsed} <- SystemPriority.parse_stat(contents) do
+          parsed
+        else
+          _ -> nil
+        end
+
+      {pid, process}
+    end)
+    |> Enum.reject(fn {_pid, process} -> is_nil(process) end)
+    |> Map.new()
+  end
+
+  defp daemon_descendant?(pid, processes, daemon_pid),
+    do: daemon_descendant?(pid, processes, daemon_pid, MapSet.new([String.to_integer(pid)]))
+
+  defp daemon_descendant?(pid, processes, daemon_pid, seen) do
+    case Map.get(processes, pid) do
+      %{parent_pid: ^daemon_pid} ->
+        true
+
+      %{parent_pid: parent} when parent > 0 ->
+        parent_pid = Integer.to_string(parent)
+
+        if MapSet.member?(seen, parent) do
+          false
+        else
+          daemon_descendant?(parent_pid, processes, daemon_pid, MapSet.put(seen, parent))
+        end
+
+      _ ->
+        false
     end
   end
 
@@ -127,7 +161,8 @@ defmodule Aiur.BackgroundCpu do
 
     if enabled?() do
       daemon_nice = SystemPriority.nice()
-      processes = if is_integer(daemon_nice), do: scan(state.proc_root, daemon_nice), else: :unavailable
+      daemon_pid = System.pid() |> String.to_integer()
+      processes = if is_integer(daemon_nice), do: scan(state.proc_root, daemon_nice, daemon_pid), else: :unavailable
       next = advance(state.previous, daemon_nice, processes, cpu_total(), System.monotonic_time(:millisecond))
       :ets.insert(@table, {:latest, next.reading})
       {:noreply, %{state | previous: next}}
