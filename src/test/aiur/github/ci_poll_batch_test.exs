@@ -20,6 +20,8 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       assert url == "https://api.github.com/graphql"
       assert body["query"] =~ "query AiurCIPollBatch"
       assert body["query"] =~ "checkSuite { id app { databaseId } }"
+      assert body["query"] =~ "mergeQueueEntry { id state }"
+      assert body["query"] =~ "timelineItems(itemTypes: [REOPENED_EVENT], last: 1)"
       assert body["query"] =~ "reviews(states: APPROVED, last: 1)"
       assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42-ci-batch", states: OPEN, orderBy:)
       # The cost claim: aliases only, never a scan of the repository's open PR

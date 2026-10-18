@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, Reconciler, State, TrackerTasks}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, Lifecycle, Reconciler, State, TrackerTasks}
   alias Aiur.Orchestrator.StartupClaimReconciler.{BootMarker, Observation, Release}
 
   @max_release_attempts 3
@@ -102,10 +102,10 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp reconcile_issue(%State{} = state, %Issue{identifier: identifier} = issue, live_identifiers, opts)
        when is_binary(identifier) do
     cond do
-      DispatchPolicy.state_slug(issue.state) != "in-progress" ->
-        {:ok, resolve_release_failure(state, issue, opts), issue}
+      approved_armed_orphan?(state, issue, identifier, live_identifiers, opts) ->
+        release_orphaned_claim(state, issue, Keyword.put(opts, :forced_target, "ci-wait"))
 
-      not Map.has_key?(state.orphaned_claim_since, identifier) ->
+      not recoverable_claim?(state, issue, identifier) ->
         {:ok, resolve_release_failure(state, issue, opts), issue}
 
       not Observation.expired?(state, issue, opts) ->
@@ -131,6 +131,17 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   end
 
   defp reconcile_issue(state, issue, _live_identifiers, _opts), do: {:ok, state, issue}
+
+  defp recoverable_claim?(state, issue, identifier) do
+    DispatchPolicy.state_slug(issue.state) == "in-progress" and
+      not CiLifecycle.approved_and_armed?(state, issue) and Map.has_key?(state.orphaned_claim_since, identifier)
+  end
+
+  defp approved_armed_orphan?(state, issue, identifier, live_identifiers, opts) do
+    DispatchPolicy.state_slug(issue.state) == "in-progress" and CiLifecycle.approved_and_armed?(state, issue) and
+      Map.has_key?(state.orphaned_claim_since, identifier) and Observation.expired?(state, issue, opts) and
+      not MapSet.member?(live_identifiers, identifier) and not TrackerTasks.issue_pending?(state, issue.id)
+  end
 
   # Positive current-generation liveness. A live Task pid protects its claim; a
   # parked/staged entry (`pid: nil` — a rate-limit-fallback redispatch or a

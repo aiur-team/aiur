@@ -6,15 +6,48 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 // setting nullable/closure/skew/XSS cases and unavailable queue/open_tickets sources.
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
 let errors
+let liveViewConsoleEvents
+let b4ConsoleStart
+let b4CdpErrors
 async function open(page, dataset = 'live') {
   await page.goto('/build-fixture/' + dataset + '?view=list')
   await expect(page.locator('.bd-list')).toHaveCount(1)
 }
 test.beforeEach(async ({ page }) => {
-  errors = []; page.on('pageerror', error => errors.push(error.message))
+  errors = []; liveViewConsoleEvents = []; b4ConsoleStart = 0; b4CdpErrors = []
+  page.on('pageerror', error => errors.push(error.message))
+  page.on('console', message => {
+    const text = message.text()
+    if (/LiveView|LiveSocket|consecutive reloads|reloadWithJitter/i.test(text)) {
+      liveViewConsoleEvents.push({ type: 'console', text })
+    }
+  })
   await open(page)
 })
-test.afterEach(async ({ page }) => { await page.request.get('/build-control/earlier'); expect(errors).toEqual([]) })
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.title.startsWith('B4 ') && testInfo.status !== testInfo.expectedStatus) {
+    const browserEvents = await page.evaluate(() => ({
+      liveViewEvents: window.__aiurB4Lifecycle || null,
+      release: window.__aiurB4Release || null,
+      mainViewAtFailure: {
+        destroyed: window.liveSocket?.main?.isDestroyed?.(),
+        joinCount: window.liveSocket?.main?.joinCount,
+        joinAttempts: window.liveSocket?.main?.joinAttempts
+      }
+    }))
+      .catch(error => ({ unavailable: error.message }))
+    await testInfo.attach('b4-lifecycle-diagnostics', {
+      body: JSON.stringify({
+        browserEvents,
+        cdpErrors: b4CdpErrors,
+        liveViewConsoleEvents: liveViewConsoleEvents.slice(b4ConsoleStart)
+      }, null, 2),
+      contentType: 'application/json'
+    })
+  }
+  await page.request.get('/build-control/earlier')
+  expect(errors).toEqual([])
+})
 const rows = page => page.locator('.lr[data-id]')
 
 test('B1 list registration renders sections and counts in design order', async ({ page }) => {
@@ -67,6 +100,36 @@ test('B3 real live diff preserves focus and position; removal and empty filters 
   await expect(page.locator('.bd-list')).toBeFocused()
 })
 test('B4 server paging disables duplicate clicks and permits an explicit retry', async ({ page }) => {
+  await page.evaluate(() => {
+    const mainView = () => {
+      const main = window.liveSocket?.main
+      return {
+        joinCount: main?.joinCount,
+        joinAttempts: main?.joinAttempts,
+        destroyed: main?.isDestroyed?.()
+      }
+    }
+    const record = (type, detail = {}) => {
+      const event = { type, ...mainView(), release: window.__aiurB4Release || null, ...detail }
+      window.__aiurB4Lifecycle.push(event)
+      console.info(`AIUR_B4_DIAG ${JSON.stringify(event)}`)
+    }
+    window.__aiurB4Record = record
+    const liveSocket = window.liveSocket
+    const previousLogger = liveSocket?.viewLogger
+    window.__aiurB4Lifecycle = []
+    record('initial')
+    if (liveSocket) liveSocket.viewLogger = (view, kind, message, obj) => {
+      if (kind === 'join' || kind === 'error') record('liveview-log', { kind, message, detail: obj, viewId: view?.id })
+      previousLogger?.(view, kind, message, obj)
+    }
+    window.liveSocket?.getSocket()?.onClose(event => record('socket-close', {
+      code: event?.code,
+      reason: event?.reason,
+      wasClean: event?.wasClean
+    }))
+  })
+  b4ConsoleStart = liveViewConsoleEvents.length
   await page.request.get('/build-control/earlier?fail=1')
   const more = page.locator('#lr-more')
   await more.click()
@@ -80,14 +143,74 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
     const { ctx } = await import('/build-home/state.js'); const push = ctx.push; window.calls = 0
     ctx.push = (event, params) => {
       if (event !== 'load-earlier') return push(event, params)
-      calls++; return new Promise(resolve => { window.releasePage = () => push(event, params).then(resolve) })
+      calls++
+      window.__aiurB4Release = {
+        state: 'held',
+        viewAtHold: {
+          destroyed: window.liveSocket?.main?.isDestroyed?.(),
+          joinCount: window.liveSocket?.main?.joinCount
+        }
+      }
+      return new Promise(resolve => {
+        window.releasePage = () => {
+          const release = window.__aiurB4Release
+          release.state = 'sent'
+          release.viewAtSend = {
+            destroyed: window.liveSocket?.main?.isDestroyed?.(),
+            joinCount: window.liveSocket?.main?.joinCount
+          }
+          window.__aiurB4Record('push-sent')
+          const pending = push(event, params)
+          return pending.then(reply => {
+            release.state = 'resolved'
+            window.__aiurB4Record('push-resolved')
+            resolve(reply)
+          }, error => {
+            release.state = 'rejected'
+            release.error = String(error)
+            window.__aiurB4Record('push-rejected')
+            throw error
+          })
+        }
+      })
     }
     const b = document.querySelector('#lr-more'); b.click(); b.click()
   })
   await expect(more).toBeDisabled(); await expect(more).toHaveAttribute('aria-busy', 'true')
   await page.evaluate(async () => { const { fx } = await import('/build-home/state.js'); fx.renderList() })
   await expect(more).toBeDisabled(); await expect(more).toHaveAttribute('aria-busy', 'true')
-  await page.evaluate(() => window.releasePage())
+  const cdp = await page.context().newCDPSession(page)
+  try {
+    const evaluation = await cdp.send('Runtime.evaluate', {
+      expression: 'window.releasePage()',
+      awaitPromise: true,
+      returnByValue: true
+    })
+    if (evaluation.exceptionDetails) {
+      b4CdpErrors.push({
+        kind: 'javascript-exception',
+        method: 'Runtime.evaluate',
+        expression: 'window.releasePage()',
+        exceptionDetails: evaluation.exceptionDetails
+      })
+      throw new Error(evaluation.exceptionDetails.exception?.description || evaluation.exceptionDetails.text)
+    }
+  } catch (error) {
+    if (!b4CdpErrors.length) {
+      b4CdpErrors.push({
+        kind: 'protocol-error',
+        method: 'Runtime.evaluate',
+        expression: 'window.releasePage()',
+        error: { name: error.name, message: error.message, code: error.code, data: error.data }
+      })
+    }
+    throw error
+  } finally {
+    await cdp.detach().catch(error => {
+      b4CdpErrors.push({ kind: 'session-detach-error', error: error.message })
+    })
+  }
+  expect(await page.evaluate(() => window.__aiurB4Release.state)).toBe('resolved')
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
   await expect(more).toBeEnabled()
   await expect(more).toBeFocused()

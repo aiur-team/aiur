@@ -365,6 +365,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
                  pr_number: nil,
                  head_sha: "same-head",
                  draft?: false,
+                 auto_merge_request: nil,
+                 merge_queue_entry: nil,
                  review_decision: nil,
                  recovery: nil,
                  failures: [],

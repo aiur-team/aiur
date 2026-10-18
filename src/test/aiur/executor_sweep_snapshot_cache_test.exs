@@ -1,7 +1,34 @@
 defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
   alias Aiur.ExecutorSweep.SnapshotCache
+  alias Aiur.GitHub.{Config, ResourceStore}
+
+  setup_all do
+    if Process.whereis(ResourceStore) == nil, do: Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
+    :ok
+  end
+
+  setup do
+    ResourceStore.reset()
+    on_exit(fn -> ResourceStore.reset() end)
+    :ok
+  end
+
+  test "skips a metadata-only ResourceStore entry while reading cached resources" do
+    [owner, repo] = String.split(Config.repo(), "/", parts: 2)
+    key = ResourceStore.key(:issue, owner, repo, 3787)
+    neighboring_key = ResourceStore.key(:issue, owner, repo, 3788)
+    assert :ok = ResourceStore.put_resource(key, %{"number" => 3787, "created_at" => "2026-10-15T13:25:40Z"}, source: :mutation, version: "2026-10-15T13:25:40Z")
+    ResourceStore.drop_data(key)
+    assert :ok = ResourceStore.put_resource(neighboring_key, %{"number" => 3788, "created_at" => "2026-10-15T13:25:41Z"}, source: :poll, version: "2026-10-15T13:25:41Z")
+
+    assert [{{:issue, ^owner, ^repo, "3787"}, %{data_source: :mutation} = entry}] = ResourceStore.list(:issue, owner, repo) |> Enum.filter(fn {{:issue, _, _, id}, _} -> id == "3787" end)
+    refute Map.has_key?(entry, :data)
+
+    assert %{tickets: [%{number: 3788, created_at: "2026-10-15T13:25:41Z"}]} =
+             SnapshotCache.read(fn -> %Aiur.OpenTicketSource.Snapshot{status: :available, tickets: [%{identifier: "3788", labels: []}]} end)
+  end
 
   test "joins cached PR bodies, current-head reviews, and ticket labels without a fetch" do
     snapshot =

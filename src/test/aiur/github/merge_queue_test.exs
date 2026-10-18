@@ -104,4 +104,13 @@ defmodule Aiur.GitHub.MergeQueueTest do
       assert base |> Map.put(:draft?, nil) |> MergeQueue.recovery_state() == :unknown
     end
   end
+
+  test "a previously queued approved PR dropped from the queue with green head checks is a queue failure" do
+    previous = %{head_sha: "same-head", merge_queue_entry: %{"id" => "entry", "state" => "AWAITING_CHECKS"}}
+    current = %{head_sha: "same-head", review_decision: "APPROVED", merge_queue_entry: nil, decision: :passed}
+
+    assert MergeQueue.failed_entry_dropped?(current, previous)
+    refute MergeQueue.failed_entry_dropped?(%{current | head_sha: "new-head"}, previous)
+    refute MergeQueue.failed_entry_dropped?(%{current | decision: :pending}, previous)
+  end
 end

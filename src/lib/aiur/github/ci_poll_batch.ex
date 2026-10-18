@@ -245,7 +245,7 @@ defmodule Aiur.GitHub.CIPollBatch do
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     timelineItems(itemTypes: [REOPENED_EVENT], last: 1) { nodes { ... on ReopenedEvent { createdAt } } }
-    mergeQueueEntry { id }
+    mergeQueueEntry { id state }
     reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }
     #{contexts_selection()}
     """

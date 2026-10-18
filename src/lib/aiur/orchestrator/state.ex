@@ -179,6 +179,7 @@ defmodule Aiur.Orchestrator.State do
           ci_readiness_result: Aiur.GitHub.CiReadiness.result() | nil,
           global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
           merged_ticket_reconciliations: MapSet.t(),
+          merged_ticket_issue_cache: map(),
           merged_ticket_reconciliation_failures: MapSet.t(),
           # `{issue_id, head_sha}` -> count of times that head SHA has been
           # routed into `agent:rework`, and the `{issue_id, head_sha}`
@@ -321,6 +322,7 @@ defmodule Aiur.Orchestrator.State do
     global_pause: %{paused_at: nil, source: nil},
     # Reconciled merge receipts prevent retained records from closing a reopened ticket.
     merged_ticket_reconciliations: MapSet.new(),
+    merged_ticket_issue_cache: %{},
     # `{{issue_identifier, recent_merge_id}, reason}` signatures already alerted on, so a
     # permanently failing transition raises its attention once instead of once per poll.
     merged_ticket_reconciliation_failures: MapSet.new(),

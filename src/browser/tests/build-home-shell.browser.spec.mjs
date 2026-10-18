@@ -2,6 +2,7 @@
 import { expect, test } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
+// Shell lifecycle cases share one live fixture to verify transitions across mounts.
 const pageErrors = new WeakMap()
 test.beforeEach(({ page }) => { const errors = []; pageErrors.set(page, errors); page.on('pageerror', error => errors.push(error.message)) })
 test.afterEach(({ page }) => { expect(pageErrors.get(page), 'uncaught browser errors').toEqual([]) })

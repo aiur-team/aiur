@@ -70,6 +70,13 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   defp target(issue, opts) do
+    case Keyword.get(opts, :forced_target) do
+      target when is_binary(target) -> {:ok, target}
+      nil -> discover_target(issue, opts)
+    end
+  end
+
+  defp discover_target(issue, opts) do
     fetch = Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
 
     case fetch.(issue.identifier) do

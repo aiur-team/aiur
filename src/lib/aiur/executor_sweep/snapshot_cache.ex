@@ -301,11 +301,15 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   defp entries(type, owner, repo) do
     type
     |> ResourceStore.list(owner, repo)
-    |> Enum.flat_map(fn {{^type, _owner, _repo, id}, %{data: data}} ->
-      case Integer.parse(to_string(id)) do
-        {number, ""} when is_map(data) or is_list(data) -> [{number, data}]
-        _ -> []
-      end
+    |> Enum.flat_map(fn
+      {{^type, _owner, _repo, id}, %{} = entry} ->
+        case {Integer.parse(to_string(id)), Map.get(entry, :data)} do
+          {{number, ""}, data} when is_map(data) or is_list(data) -> [{number, data}]
+          _ -> []
+        end
+
+      _entry ->
+        []
     end)
   end
 
