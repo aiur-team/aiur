@@ -69,6 +69,22 @@ defmodule AiurEngineCommandsTest do
     assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
   end
 
+  test "operator answer requires explicit operator authority and safely routes an option" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_operator_answer 'decision:42' --option build_content --operator|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.operator_answer(["
+    assert out =~ "decision_id: Base.decode64!(\"ZGVjaXNpb246NDI=\")"
+    assert out =~ "option_id: Base.decode64!(\"YnVpbGRfY29udGVudA==\")"
+    assert out =~ "operator: true"
+
+    {missing, 64} = run_sourced_engine("cmd_operator_answer decision:42 --option yes", [])
+    assert missing =~ "answer requires --operator"
+  end
+
   test "executor-answer --supersede asks the store to replace an undelivered answer" do
     {out, 0} =
       run_sourced_engine(

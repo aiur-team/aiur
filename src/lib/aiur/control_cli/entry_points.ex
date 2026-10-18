@@ -21,6 +21,11 @@ defmodule Aiur.ControlCLI.EntryPoints do
     guarded("executor-answer", fn -> opts |> ExecutorCommandCLI.answer(error_fun: &control_error/1) |> exit_marker() end)
   end
 
+  @spec operator_answer(keyword()) :: :ok
+  def operator_answer(opts) when is_list(opts) do
+    guarded("answer", fn -> opts |> Aiur.OperatorAnswerCLI.answer() |> exit_marker() end)
+  end
+
   @spec executor_escalate(keyword()) :: :ok
   def executor_escalate(opts) when is_list(opts) do
     guarded("executor-escalate", fn -> opts |> ExecutorCommandCLI.escalate(error_fun: &control_error/1) |> exit_marker() end)

@@ -61,6 +61,42 @@ cmd_executor_answer() {
   run_control_rpc "Aiur.AgentControlCLI.executor_answer([$opts])"
 }
 
+# Explicit operator answer path for human-required Commands. The daemon reads
+# the current version and records an operator-attributed answer.
+cmd_operator_answer() {
+  local decision_id="${1:-}" option_id="" custom_response="" operator=0 arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: answer expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --option) [ "$#" -gt 1 ] || { echo "aiur: answer --option requires a value" >&2; exit 64; }; shift; option_id="$1" ;;
+      --option=*) option_id="${arg#--option=}" ;;
+      --custom-response) [ "$#" -gt 1 ] || { echo "aiur: answer --custom-response requires a value" >&2; exit 64; }; shift; custom_response="$1" ;;
+      --custom-response=*) custom_response="${arg#--custom-response=}" ;;
+      --operator) operator=1 ;;
+      -*) echo "aiur: answer received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: answer expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [ "$operator" -eq 1 ] || { echo "aiur: answer requires --operator" >&2; exit 64; }
+  if { [ -n "$option_id" ] && [ -n "$custom_response" ]; } || { [ -z "$option_id" ] && [ -z "$custom_response" ]; }; then
+    echo "aiur: answer requires exactly one of --option or --custom-response" >&2
+    exit 64
+  fi
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), operator: true"
+  if [ -n "$option_id" ]; then
+    opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
+  else
+    opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
+  fi
+  run_control_rpc "Aiur.AgentControlCLI.operator_answer([$opts])"
+}
+
 cmd_executor_escalate() {
   local decision_id="${1:-}" expected_version="" reason="" executor_id="aiur-cli" arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
