@@ -11,6 +11,8 @@ import './columns.js';
 import './cards.js';
 import { seedDaemon } from './offline.js';
 import './tools.js';
+import './usage.js';
+
 import './span.js';
 import './states.js';
 import './list.js';

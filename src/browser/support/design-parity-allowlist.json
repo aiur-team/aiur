@@ -221,5 +221,33 @@
       "date": null,
       "ref": "https://github.com/aiur-team/aiur/issues/4770"
     }
+  },
+  {
+    "id": "usage-counter-inert",
+    "kind": "design-style",
+    "selector": "#ax-cnt",
+    "cells": {},
+    "reason": "OQ-E8-8: the real provider count does not cycle",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/3155#4.6-new-css"
+    },
+    "css": "#ax-cnt { cursor: default; }"
+  },
+  {
+    "id": "usage-counter-demo-title",
+    "kind": "property",
+    "selector": "#ax-cnt",
+    "cells": {},
+    "reason": "OQ-E8-8: remove the demo cycling tooltip",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/3155#4.6-new-css"
+    },
+    "property": "title"
   }
 ]
