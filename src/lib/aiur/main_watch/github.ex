@@ -231,9 +231,9 @@ defmodule Aiur.MainWatch.GitHub do
   end
 
   defp cached_observation(sha, runs, opts) do
-    fingerprint = Enum.map(runs, &{&1.name, &1.id, &1.attempt, &1.suite_id, &1.status, &1.conclusion, &1.completed_at}) |> Enum.sort()
+    fingerprint = Enum.map(runs, &{&1.name, &1.id, &1.attempt, &1.suite_id, &1.status, &1.conclusion, &1.started_at, &1.completed_at}) |> Enum.sort()
     cached = Enum.find(Keyword.get(opts, :history, []), &(&1.sha == sha and Map.get(&1, :run_fingerprint) == fingerprint))
-    fields = [:sha, :completed_at, :checks, :digest, :failed_workflow, :run_urls, :suspect_merges, :run_fingerprint]
+    fields = [:sha, :started_at, :completed_at, :checks, :digest, :failed_workflow, :run_urls, :suspect_merges, :run_fingerprint]
 
     # Entries cached before non-blocking checks were excluded must be rebuilt.
     if is_map(cached) and Enum.all?(fields, &Map.has_key?(cached, &1)) and not Enum.any?(cached.checks, &Evaluation.non_blocking_name?(&1.name)) do
@@ -255,6 +255,12 @@ defmodule Aiur.MainWatch.GitHub do
       {:ok,
        %{
          sha: sha,
+         started_at:
+           runs
+           |> Enum.filter(&(&1.conclusion in ["failure", "timed_out", "startup_failure"]))
+           |> Enum.map(& &1.started_at)
+           |> Enum.reject(&is_nil/1)
+           |> Enum.min(fn -> nil end),
          completed_at: runs |> Enum.map(& &1.completed_at) |> Enum.max(),
          checks: Enum.map(checks, &%{name: &1["name"], conclusion: &1["conclusion"]}),
          digest: digest,
