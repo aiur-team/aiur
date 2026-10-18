@@ -94,18 +94,18 @@ defmodule AiurWeb.Build.Protocol do
         {:reply, message, socket |> store(data, opts) |> assign(build_resynced: true)}
 
       :error ->
-        {:reply, Payload.error(:unavailable), socket}
+        {:reply, Payload.error(:invalid_data), socket}
     end
   end
 
-  defp snapshot_reply(_error, socket, _opts), do: {:reply, Payload.error(:unavailable), socket}
+  defp snapshot_reply({:error, reason}, socket, _opts), do: {:reply, Payload.error(error_reason(reason)), socket}
 
   defp page_reply({:ok, page}, socket) do
     message = Payload.earlier(page, socket.assigns.build_epoch, socket.assigns.build_generation)
-    if validate(message) == :ok, do: {:reply, message, assign(socket, build_history: message["history"])}, else: {:reply, Payload.error(:unavailable), socket}
+    if validate(message) == :ok, do: {:reply, message, assign(socket, build_history: message["history"])}, else: {:reply, Payload.error(:invalid_data), socket}
   end
 
-  defp page_reply(_error, socket), do: {:reply, Payload.error(:unavailable), socket}
+  defp page_reply({:error, reason}, socket), do: {:reply, Payload.error(error_reason(reason)), socket}
 
   defp push_change(socket, changes, opts) do
     changes = if opts[:financial] == :locked, do: update_in(changes["set"], &Map.delete(&1, "usage")), else: changes
@@ -161,4 +161,10 @@ defmodule AiurWeb.Build.Protocol do
   defp stale?(_changes, _current), do: false
   defp clock, do: AiurWeb.EndpointConfig.get(:build_resync_clock, &System.monotonic_time/1).(:millisecond)
   defp writable?, do: AiurWeb.EndpointConfig.get(:dashboard_writable) == true
+
+  defp error_reason(reason) when reason in [:invalid_params, :read_only, :not_found, :throttled], do: reason
+  defp error_reason(:timeout), do: :timeout
+  defp error_reason(:index_not_running), do: :index_not_running
+  defp error_reason(:epic_config_unavailable), do: :epic_config_unavailable
+  defp error_reason(_reason), do: :read_failed
 end

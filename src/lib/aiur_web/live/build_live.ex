@@ -139,6 +139,9 @@ defmodule AiurWeb.BuildLive do
 
   defp reason_tag(:not_wired), do: "not_wired"
   defp reason_tag(:timeout), do: "timeout"
+  defp reason_tag(:epic_config_unavailable), do: "epic_config_unavailable"
+  defp reason_tag(:index_not_running), do: "index_not_running"
+  defp reason_tag(:read_failed), do: "read_failed"
   defp reason_tag(_reason), do: "unknown"
   defp state_name({:unavailable, _tag}), do: "unavailable"
   defp state_name(state), do: Atom.to_string(state)

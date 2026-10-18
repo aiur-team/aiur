@@ -185,7 +185,8 @@ test('span ensures days via server days parameter; no board anchor is safe', asy
 
 for (const kind of ['card', 'band']) test(`live move keeps ${kind} anchor and suppresses sliding`, async ({ page }) => {
   const before = await page.evaluate(async kind => {
-    if (kind === 'band') ctx.vp.scrollTop = ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 100
+    // A floating band now settles; preserve the anchor at its pinned edge.
+    if (kind === 'band') ctx.vp.scrollTop = ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 46
     else ctx.vp.scrollTop = ctx.secs.nq.el.offsetTop - 40
     ren.update();
     const a = ren.takeAnchor()
@@ -295,6 +296,7 @@ test('span URL pages before settling and paging state survives server patches', 
 })
 
 test('replaced cards release noanim after two frames', async ({ page }) => {
+  await expect.poll(() => page.evaluate(() => ctx.snapping || ctx.content.classList.contains('scrolling'))).toBe(false)
   // Stub the browser primitive, not ctx.life.frame, so the real keyed scheduler stays under test.
   await page.evaluate(() => {
     const q = new Map(); let id = 0
