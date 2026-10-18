@@ -1,5 +1,6 @@
 defmodule Aiur.TestSupport.RuntimeChildren do
   alias Aiur.GitHub.ResourceStore, as: GitHubResourceStore
+  alias Aiur.TestSupport.OrchestratorChild
 
   @doc """
   Restores the shared application children that ordinary tests rely on after a
@@ -35,8 +36,19 @@ defmodule Aiur.TestSupport.RuntimeChildren do
 
   # Any restart outcome (started, raced, failed init) is judged by the name.
   defp restart_orchestrator do
-    _ = restart_orchestrator_child()
+    case OrchestratorChild.supervised_pid() do
+      # A test swapped the name out and never gave it back; restart_child would answer {:error, :running}.
+      pid when is_pid(pid) -> reregister_orchestrator(pid)
+      nil -> restart_orchestrator_child()
+    end
+
     if Process.whereis(Aiur.Orchestrator), do: :ok, else: :error
+  end
+
+  defp reregister_orchestrator(pid) do
+    Process.register(pid, Aiur.Orchestrator)
+  rescue
+    ArgumentError -> :raced
   end
 
   defp restart_orchestrator_child do
