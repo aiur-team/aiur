@@ -8,6 +8,7 @@ defmodule Aiur.ExecutorAttentionCliAlertsTest do
   alias Aiur.AlertLedger
 
   alias Aiur.Orchestrator.ControlCLI.TestFixture
+  alias Aiur.Orchestrator.StatusCLI
 
   import TestFixture, except: [setup: 1]
 
@@ -38,7 +39,7 @@ defmodule Aiur.ExecutorAttentionCliAlertsTest do
 
       assert capture_io(fn -> AgentControlCLI.alerts(needs_attention: true) end) =~ "ticket.51.agent.paused"
 
-      assert capture_io(fn -> Aiur.Orchestrator.StatusCLI.watch(mode: :full, blocking_asks: []) end) =~
+      assert capture_io(fn -> StatusCLI.watch(mode: :full, blocking_asks: []) end) =~
                "#51"
     end
 
