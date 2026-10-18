@@ -8,17 +8,17 @@ import { shardCommands } from './browser-suites.mjs';
 // The key count is the shard count: it must match the browser matrix in .github/workflows/ci.yml.
 // Balanced by recorded durations (browser-smoke-durations.mjs); check-browser-smoke-shards.mjs keeps each shard under 75% of budgetMs.
 export const shards = {
-  1: ['test:home-css-ci', 'test:admission', 'check:elk', 'check:build-home-fixtures', 'test:build-home-protocol', 'test:build-home-now-state', 'test:harness', 'test:smoke', 'test:shell', 'test:interaction', 'test:ticket-context', 'test:meter-row', 'test:models-panel', 'test:design-parity', 'test:build-home', 'test:build-home-cards:2'],
-  2: ['test:build-home-layout', 'test:shell-width', 'test:experiments', 'test:units', 'test:build-home-offline', 'test:build-home-tools', 'test:build-home-span', 'test:build-home-states-parity', 'test:build-home-list-unit'],
-  3: ['test:command-history', 'test:quota-panel', 'test:parity', 'test:shell-parity', 'test:build-home-span-parity', 'test:build-home-cards:3'],
-  4: ['test:build-queue', 'test:performance', 'test:provider-meters', 'test:build-home-columns'],
-  5: ['test:build-order', 'test:responsive', 'test:streamdeck-flow', 'test:build-home-render', 'test:build-home-cards:1', 'test:build-home-cards:4'],
-  6: ['test:build-home-assets', 'test:shell-chrome', 'test:layout', 'test:streamdeck', 'test:palette', 'test:tokens', 'test:build-home-motion'],
-  7: ['test:time-brush', 'test:build-home-usage', 'test:build-home-edges-unit', 'test:build-home-edges', 'test:build-home-edges-parity'],
+  1: ["test:build-home-columns", "test:shell-width", "test:tokens", "test:ticket-context", "test:provider-meters", "test:quota-panel"],
+  2: ["test:build-home-band-parity", "test:build-home-usage", "test:build-home", "test:shell-chrome", "test:build-home-span", "test:palette", "test:build-home-offline", "test:home-css-ci", "test:build-home-edges-unit"],
+  3: ["test:build-home-tools", "test:build-home-render", "test:shell-parity", "test:build-order", "test:build-queue", "test:command-history", "check:build-home-fixtures"],
+  4: ["test:build-home-motion", "test:design-parity", "test:shell", "test:smoke", "test:meter-row", "test:models-panel"],
+  5: ["test:build-home-band-motion", "test:build-home-states-parity", "test:build-home-edges-parity", "test:streamdeck", "test:interaction", "test:performance", "test:build-home-assets", "test:harness"],
+  6: ["test:build-home-cards:4", "test:build-home-cards:3", "test:build-home-cards:1", "test:units", "test:layout", "test:responsive", "test:streamdeck-flow", "test:admission", "check:elk", "test:build-home-protocol", "test:build-home-now-state", "test:build-home-list-unit"],
+  7: ["test:build-home-cards:2", "test:build-home-span-parity", "test:build-home-edges", "test:build-home-now-band", "test:build-home-layout", "test:parity", "test:experiments", "test:time-brush"],
 };
 
 // Below the job's timeout-minutes, so a slow shard reports its slowest suites instead of being cancelled.
-export const budgetMs = 19 * 60_000;
+export const budgetMs = 20 * 60_000;
 export { preflightSeconds, recordedSeconds } from './browser-smoke-durations.mjs';
 
 function reportSlowest(heading, timings, limit = 10) {
