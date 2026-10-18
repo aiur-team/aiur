@@ -74,6 +74,8 @@ defmodule AiurWeb.Build.Index do
   @impl true
   def handle_call(:table, from, %{index: {:error, :loading}} = state), do: {:noreply, %{state | waiting: [from | state.waiting]}}
   def handle_call(:table, _from, state), do: {:reply, {:ok, state.table, clock(state)}, state}
+  # Answers while the index still loads, so a mount can show the last daemon reading at once (#4915).
+  def handle_call(:daemon, _from, state), do: {:reply, state.daemon, state}
 
   def handle_call({:earlier, before, zone, days}, _from, state) do
     reply = with {:ok, index} <- state.index, do: Core.earlier(index, before, zone, days)
