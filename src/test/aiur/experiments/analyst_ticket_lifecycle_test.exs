@@ -3,7 +3,7 @@ defmodule Aiur.Experiments.AnalystTicketLifecycleTest do
 
   alias Aiur.Experiments
   alias Aiur.Experiments.{Analyst, Paths, Store}
-  alias Aiur.GitHub.OpenIssueSnapshot
+  alias Aiur.GitHub.{OpenIssueListing, OpenIssueSnapshot}
 
   setup do
     root = Aiur.TestSupport.tmp_root!("analyst-ticket-lifecycle")
@@ -53,8 +53,18 @@ defmodule Aiur.Experiments.AnalystTicketLifecycleTest do
     :sys.get_state(pid)
   end
 
-  defp snapshot(id, labels) do
-    OpenIssueSnapshot.put("analyst-lifecycle-test", id, Map.keys(labels), labels)
+  # Terminal-state fixtures predate their observation by a full second without sleeping.
+  # The race regression below uses actual attachment timestamps and never edits the journal.
+  defp age_request(id) do
+    path = Paths.file(id, "requests.ndjson")
+    at = DateTime.utc_now() |> DateTime.add(-1, :second) |> DateTime.to_iso8601()
+    rows = path |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&(Jason.decode!(&1) |> Map.put("at", at)))
+    File.write!(path, Enum.map_join(rows, "\n", &Jason.encode!/1) <> "\n")
+  end
+
+  defp snapshot(id, labels, age? \\ true) do
+    if age?, do: age_request(id)
+    OpenIssueSnapshot.put("analyst-lifecycle-test", id, Map.keys(labels), labels, DateTime.utc_now())
   end
 
   test "closed ticket fails durably once, preserves trigger receipt, and frees the manual request slot", %{id: id} do
@@ -108,12 +118,48 @@ defmodule Aiur.Experiments.AnalystTicketLifecycleTest do
     {:ok, at, _} = DateTime.from_iso8601(open["at"])
 
     for observed_at <- [System.system_time(:millisecond) - 120_001, DateTime.to_unix(at, :millisecond) - 1] do
-      snapshot(id, %{})
+      snapshot(id, %{}, false)
       :ets.update_element(OpenIssueSnapshot, {:labels, "analyst-lifecycle-test/#{id}"}, {3, observed_at})
       tick(pid)
       assert {:ok, [^open]} = Experiments.analysis_requests(id)
       refute_received {:alert, _}
     end
+  end
+
+  for timing <- [:before_attachment, :same_millisecond] do
+    test "a #{timing} listing cannot fail a healthy request after it completes", %{id: id} do
+      pid = analyst(id)
+      before_attach = DateTime.add(DateTime.utc_now(), -1, :second)
+      assert {:ok, result} = Experiments.analyze(id, mode: "spec")
+      {:ok, attached_at, _} = DateTime.from_iso8601(result["request"]["at"])
+      listed_from = if unquote(timing) == :before_attachment, do: before_attach, else: DateTime.truncate(attached_at, :millisecond)
+      assert :ok = OpenIssueListing.record("analyst-lifecycle-test", id, [], listed_from)
+      assert {:ok, cached_labels, cached_from} = OpenIssueSnapshot.fetch_labels("analyst-lifecycle-test", id, 120_000)
+      assert cached_labels == %{}
+      assert cached_from == DateTime.to_unix(listed_from, :millisecond)
+      tick(pid)
+      assert {:ok, [open]} = Experiments.analysis_requests(id)
+      assert open["state"] == "open"
+      refute_received {:alert, _}
+      persist_submission_without_receipt(id)
+      tick(pid)
+      assert {:ok, [fulfilled]} = Experiments.analysis_requests(id)
+      assert fulfilled["state"] == "fulfilled"
+      assert fulfilled["submission"] == %{"mode" => "spec", "version" => 1}
+    end
+  end
+
+  # Future regression guard: a trustworthy observation must retain normal closure detection.
+  test "a later complete listing still detects a ticket closed without submission", %{id: id} do
+    pid = analyst(id)
+    assert {:ok, _} = Experiments.analyze(id, mode: "spec")
+    age_request(id)
+    assert :ok = OpenIssueListing.record("analyst-lifecycle-test", id, [], DateTime.utc_now())
+    tick(pid)
+    assert {:ok, [failed]} = Experiments.analysis_requests(id)
+    assert failed["state"] == "failed"
+    assert failed["failure_reason"] == "analysis_ticket_closed_without_submission"
+    assert_received {:alert, ^failed}
   end
 
   test "active ticket remains open and local request never closes from a listing", %{id: id} do
@@ -122,7 +168,8 @@ defmodule Aiur.Experiments.AnalystTicketLifecycleTest do
     snapshot(id, %{})
     tick(pid)
     assert {:ok, [local_request]} = Experiments.analysis_requests(id)
-    assert local_request == local["request"]
+    assert local_request["request_id"] == local["request"]["request_id"]
+    assert local_request["state"] == "open"
     assert {:ok, _} = Experiments.analyze(id, mode: "spec")
     snapshot(id, %{"42" => %{labels: ["agent:in-progress"], updated_at: nil}})
     tick(pid)

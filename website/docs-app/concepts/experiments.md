@@ -237,7 +237,7 @@ Briefs expose the spec, metric definitions, baseline and counts; they exclude af
 
 A matching stored submission fulfills its request; interim results leave confirmatory requests open (CLI exits 1). Closed or done tickets without a matching submission become `failed` with attention; manual analyze opens a new request.
 
-Ticket and routing writes back off and alert after three failures. After backoff, uncertain creates reconcile by nonce; only a complete lookup proving absence permits another POST with the same nonce.
+Ticket and routing writes back off and alert after three failures. After backoff, uncertain creates reconcile by nonce in the creation-time window; only a complete lookup proving absence permits another POST with the same nonce. Closure requires a complete listing begun after ticket attachment.
 
 Set `experiments.analyst.auto_request: false` for CLI-only requests; disabled telemetry starts no experiment workers.
 

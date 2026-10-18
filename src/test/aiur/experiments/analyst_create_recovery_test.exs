@@ -27,15 +27,18 @@ defmodule Aiur.Experiments.AnalystCreateRecoveryTest do
   end
 
   test "restart after creating journal but before POST waits then resends the same durable request", %{id: id, clock: clock} do
+    started = System.system_time(:millisecond)
+    :atomics.put(clock, 1, started)
     pending = crash_before_post(id, clock)
-    pid = start_analyst(clock)
+    since = DateTime.from_unix!(started - 300_000, :millisecond) |> DateTime.to_iso8601()
+    pid = start_analyst(clock, find: lookup(large_repository(since)))
 
     assert {:error, :ticket_retry_pending} = Experiments.analyze(id, mode: "spec")
     retry(pid)
     refute_received {:lookup, _}
     refute_received {:post, _}
 
-    :atomics.put(clock, 1, 60_000)
+    :atomics.put(clock, 1, started + 60_000)
     retry(pid)
     marker = AnalysisTicket.marker(pending)
     assert_received {:lookup, ^marker}
@@ -45,6 +48,9 @@ defmodule Aiur.Experiments.AnalystCreateRecoveryTest do
     assert {:ok, [recovered]} = Experiments.analysis_requests(id)
     assert recovered["request_id"] == pending["request_id"]
     assert recovered["nonce"] == pending["nonce"]
+    assert recovered["first_creating_ms"] == started
+    assert {:ok, immutable} = Experiments.update_analysis_dispatch(id, recovered["request_id"], %{"first_creating_ms" => started + 60_000})
+    assert immutable["first_creating_ms"] == started
     assert recovered["ticket"]["number"] == 42
     retry(pid)
     refute_received {:post, _}
@@ -66,6 +72,19 @@ defmodule Aiur.Experiments.AnalystCreateRecoveryTest do
     assert recovered["dispatched_analysis_type"] == "confirmatory"
     assert recovered["ticket"]["analysis_type"] == "confirmatory"
     refute_received {:promoted, _}
+  end
+
+  test "legacy uncertain requests use original request time rather than a recent retry cutoff", %{id: id, clock: clock} do
+    assert {:ok, pending} = Experiments.request_analysis(id, "spec", [])
+    assert {:ok, _} = Experiments.update_analysis_dispatch(id, pending["request_id"], %{"dispatch_requested" => true, "ticket_status" => "uncertain"})
+    {:ok, requested, _} = DateTime.from_iso8601(pending["requested_at"])
+    since = requested |> DateTime.to_unix(:millisecond) |> Kernel.-(300_000) |> DateTime.from_unix!(:millisecond) |> DateTime.to_iso8601()
+    :atomics.put(clock, 1, DateTime.to_unix(requested, :millisecond) + 86_400_000)
+    start_analyst(clock, find: lookup(large_repository(since)))
+
+    assert {:ok, %{"ticket" => %{"number" => 42}, "request" => recovered}} = Experiments.analyze(id, mode: "spec")
+    refute Map.has_key?(recovered, "first_creating_ms")
+    assert recovered["nonce"] == pending["nonce"]
   end
 
   # Future regression guard: adopting an existing ticket must preserve the pre-existing promotion path.
@@ -125,7 +144,7 @@ defmodule Aiur.Experiments.AnalystCreateRecoveryTest do
     assert {:ok, [pending]} = Experiments.analysis_requests(id)
     assert pending["ticket_status"] == "creating"
     assert pending["dispatch_attempts"] == 1
-    assert pending["next_attempt_ms"] == 60_000
+    assert pending["next_attempt_ms"] == :atomics.get(clock, 1) + 60_000
     pending
   end
 
@@ -153,12 +172,24 @@ defmodule Aiur.Experiments.AnalystCreateRecoveryTest do
     start_supervised!(Supervisor.child_spec({Analyst, Keyword.merge(defaults, opts)}, restart: :temporary))
   end
 
+  defp large_repository(since) do
+    fn request ->
+      if URI.decode_query(URI.parse(request.url).query)["since"] == since do
+        {:ok, %{status: 200, body: []}}
+      else
+        page = URI.decode_query(URI.parse(request.url).query)["page"] || "1"
+        next = [{"link", "<https://api.github.com/repos/owner/repo/issues?page=#{String.to_integer(page) + 1}>; rel=\"next\""}]
+        {:ok, %{status: 200, headers: next, body: List.duplicate(%{"number" => 1, "body" => "old history"}, 100)}}
+      end
+    end
+  end
+
   defp lookup(request) do
     parent = self()
 
-    fn marker ->
+    fn marker, opts ->
       send(parent, {:lookup, marker})
-      IssueLookup.find(marker, token: "fixture-token", request_fun: request)
+      IssueLookup.find(marker, Keyword.merge(opts, token: "fixture-token", request_fun: request))
     end
   end
 

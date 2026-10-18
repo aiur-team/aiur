@@ -4,7 +4,7 @@ defmodule Aiur.Experiments.AnalysisTicketLifecycle do
   @spec failure(map(), Aiur.Tracker.open_issue_labels_result(), integer()) :: String.t() | nil
   def failure(%{"state" => "open", "ticket" => %{"number" => number}} = request, {:ok, tickets, observed_at}, now) do
     with {:ok, revised_at, _offset} <- DateTime.from_iso8601(request["at"] || ""),
-         true <- observed_at >= DateTime.to_unix(revised_at, :millisecond),
+         true <- observed_at > DateTime.to_unix(revised_at, :millisecond),
          true <- (now - observed_at) in 0..120_000 do
       case Map.fetch(tickets, to_string(number)) do
         :error -> "analysis_ticket_closed_without_submission"

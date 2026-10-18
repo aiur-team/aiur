@@ -21,7 +21,7 @@ defmodule Aiur.Experiments.Analyst do
   def init(opts) do
     deps = %{
       create: Keyword.get(opts, :create, &Tracker.create_issue/1),
-      find: Keyword.get(opts, :find, &Tracker.find_issue/1),
+      find: Keyword.get(opts, :find, &Tracker.find_issue/2),
       labels: Keyword.get(opts, :labels, &Tracker.ensure_labels/1),
       promote: Keyword.get(opts, :promote, &promote/1),
       clock: Keyword.get(opts, :clock, fn -> System.system_time(:millisecond) end),

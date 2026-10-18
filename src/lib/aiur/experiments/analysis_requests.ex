@@ -37,7 +37,7 @@ defmodule Aiur.Experiments.AnalysisRequests do
 
   @spec dispatch(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def dispatch(id, request_id, fields) do
-    allowed = ~w(dispatch_requested ticket_status dispatch_attempts next_attempt_ms routing_promoted dispatched_analysis_type promotion_attempts promotion_next_attempt_ms)
+    allowed = ~w(first_creating_ms dispatch_requested ticket_status dispatch_attempts next_attempt_ms routing_promoted dispatched_analysis_type promotion_attempts promotion_next_attempt_ms)
 
     if Enum.all?(Map.keys(fields), &(&1 in allowed)) do
       update(id, request_id, &dispatch_fields(&1, fields))
@@ -46,7 +46,11 @@ defmodule Aiur.Experiments.AnalysisRequests do
     end
   end
 
-  defp dispatch_fields(%{"state" => "open"} = request, fields), do: {:ok, Map.merge(request, fields)}
+  defp dispatch_fields(%{"state" => "open"} = request, fields) do
+    fields = Map.merge(fields, Map.take(request, ["first_creating_ms"]))
+    {:ok, Map.merge(request, fields)}
+  end
+
   defp dispatch_fields(_request, _fields), do: {:error, :request_closed}
 
   # Mutations are called only by Store, keeping deduplication and appends serialized.

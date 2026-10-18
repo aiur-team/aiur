@@ -6,6 +6,7 @@ defmodule Aiur.GitHub.IssueLookup do
   def find(marker, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(), {:ok, token} <- Transport.require_token(opts) do
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=all&sort=created&direction=desc&per_page=100"
+      url = if opts[:since], do: url <> "&since=" <> URI.encode_www_form(opts[:since]), else: url
       pages(url, marker, token, Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), 10)
     end
   end

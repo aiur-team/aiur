@@ -97,6 +97,8 @@ time and SHA. Incomplete or refused reads preserve state for retry. No saving is
 
 Analysis requests create issues as `experiment_analysis_create`, with dispatch labels and a nonce marker in the same POST. Label definitions are ensured first.
 
-Uncertain writes reconcile as `experiment_analysis_reconcile`: up to ten REST pages of 100 open and closed issues. Failed or incomplete reads never authorize a POST. After backoff, a complete scan proving absence permits creation with the same request and nonce.
+Uncertain writes reconcile as `experiment_analysis_reconcile`: up to ten REST pages of 100 open and closed issues. GitHub's [`since` filter](https://docs.github.com/en/rest/issues/issues#list-repository-issues) uses the first creation attempt minus five minutes for clock skew. Older journals use the original request time.
 
-Attached-ticket failure detection uses the daemon's complete, fresh open-issue label snapshot through the tracker facade. It adds no per-ticket poll. A snapshot older than the request's latest revision cannot prove closure. No quota saving is claimed.
+Failed or incomplete reads never authorize a POST. After backoff, a complete scan proving absence permits creation with the same request and nonce.
+
+Attached-ticket failure detection uses the daemon's complete, fresh open-issue label snapshot through the tracker facade. It adds no per-ticket poll. The listing must have begun after the request's latest revision; its completion time cannot prove closure. Missing observation provenance also cannot prove closure. No quota saving is claimed.

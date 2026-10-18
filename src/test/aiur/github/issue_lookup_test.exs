@@ -30,6 +30,23 @@ defmodule Aiur.GitHub.IssueLookupTest do
     assert {:ok, %{"number" => 42, "url" => "https://github.com/owner/repo/issues/42"}} = Aiur.Tracker.find_issue(marker, token: "fixture-token", request_fun: request)
   end
 
+  test "a persisted creation window completes nonce reconciliation beyond ten pages of history" do
+    since = DateTime.utc_now() |> DateTime.add(-300, :second) |> DateTime.to_iso8601()
+
+    request = fn req ->
+      if URI.decode_query(URI.parse(req.url).query)["since"] == since do
+        {:ok, %{status: 200, body: []}}
+      else
+        page = URI.decode_query(URI.parse(req.url).query)["page"] || "1"
+        next = [{"link", "<https://api.github.com/repos/owner/repo/issues?page=#{String.to_integer(page) + 1}>; rel=\"next\""}]
+        {:ok, %{status: 200, headers: next, body: List.duplicate(%{"number" => 1, "body" => "old history"}, 100)}}
+      end
+    end
+
+    assert {:error, :incomplete_issue_lookup} = Aiur.Tracker.find_issue("nonce", token: "fixture-token", request_fun: request)
+    assert {:ok, nil} = Aiur.Tracker.find_issue("nonce", since: since, token: "fixture-token", request_fun: request)
+  end
+
   test "incomplete, duplicate or failed lookups never prove absence" do
     marker = "nonce-marker"
     issue = %{"number" => 42, "html_url" => "https://github.com/owner/repo/issues/42", "body" => marker}

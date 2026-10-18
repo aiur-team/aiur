@@ -26,7 +26,7 @@ defmodule Aiur.Experiments.AnalystTest do
 
     defaults = [
       start_paused?: true,
-      find: fn _marker -> {:ok, nil} end,
+      find: fn _marker, _opts -> {:ok, nil} end,
       promote: fn number ->
         send(parent, {:promoted, number})
         :ok
@@ -145,7 +145,7 @@ defmodule Aiur.Experiments.AnalystTest do
     pid =
       start_analyst(
         clock: fn -> :atomics.get(clock, 1) end,
-        find: fn marker ->
+        find: fn marker, _opts ->
           send(parent, {:lookup, marker})
           {:ok, %{"number" => 42, "url" => "https://github.com/owner/repo/issues/42"}}
         end

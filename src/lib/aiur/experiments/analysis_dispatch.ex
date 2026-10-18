@@ -42,13 +42,16 @@ defmodule Aiur.Experiments.AnalysisDispatch do
     type = if request["ticket_status"] in ["creating", "uncertain"], do: request["dispatched_analysis_type"], else: request["analysis_type"]
     fields = %{"dispatch_requested" => true, "ticket_status" => "creating", "dispatch_attempts" => attempts, "dispatched_analysis_type" => type, "next_attempt_ms" => deps.clock.() + backoff(attempts)}
 
+    fields =
+      if request["ticket_status"] in ["creating", "uncertain"], do: fields, else: Map.put(fields, "first_creating_ms", request["first_creating_ms"] || deps.clock.())
+
     with {:ok, pending} <- Experiments.update_analysis_dispatch(request["experiment_id"], request["request_id"], fields) do
       send_or_reconcile(request["ticket_status"], pending, attrs, deps)
     end
   end
 
   defp send_or_reconcile(status, request, attrs, deps) when status in ["creating", "uncertain"] do
-    case deps.find.(AnalysisTicket.marker(request)) do
+    case deps.find.(AnalysisTicket.marker(request), lookup_options(request)) do
       {:ok, nil} -> resend(request, attrs, deps)
       {:ok, ticket} -> finish(request, {:ok, ticket}, deps)
       {:error, reason} -> finish(request, {:uncertain, reason}, deps)
@@ -64,6 +67,21 @@ defmodule Aiur.Experiments.AnalysisDispatch do
 
     finish(request, result, deps)
   end
+
+  # The lower bound predates every possible POST. Never advance it on retries.
+  defp lookup_options(request) do
+    started = request["first_creating_ms"] || requested_ms(request["requested_at"])
+    if is_integer(started), do: [since: started |> Kernel.-(300_000) |> DateTime.from_unix!(:millisecond) |> DateTime.to_iso8601()], else: []
+  end
+
+  defp requested_ms(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, at, _offset} -> DateTime.to_unix(at, :millisecond)
+      _invalid -> nil
+    end
+  end
+
+  defp requested_ms(_value), do: nil
 
   defp resend(request, attrs, deps) do
     fields = %{"dispatched_analysis_type" => request["analysis_type"]}
