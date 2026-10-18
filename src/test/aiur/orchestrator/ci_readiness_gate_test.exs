@@ -30,6 +30,7 @@ defmodule Aiur.Orchestrator.CiReadinessGateTest do
   end
 
   defmodule Tracker do
+    def fetch_candidate_issues, do: {:error, :test_unavailable}
     def code_host, do: __MODULE__
     def ci_readiness, do: Provider
     def with_poll_cycle(_fun), do: throw(:poll_cycle_boundary)
