@@ -89,6 +89,15 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   def ci_target_for_issue(_issue), do: nil
 
   @doc false
+  @spec approved_and_armed?(State.t(), Issue.t()) :: boolean()
+  def approved_and_armed?(%State{} = state, %Issue{} = issue) do
+    projection = get_in(state.ci_lifecycle, [:poll_cache, ci_target_for_issue(issue)])
+
+    is_map(projection) and Map.get(projection, :review_decision) == "APPROVED" and
+      (is_map(Map.get(projection, :auto_merge_request)) or is_map(Map.get(projection, :merge_queue_entry)))
+  end
+
+  @doc false
   @spec transition_ci_ticket(State.t(), Issue.t(), String.t()) :: State.t()
   defdelegate transition_ci_ticket(state, issue, next_state), to: Transition
 

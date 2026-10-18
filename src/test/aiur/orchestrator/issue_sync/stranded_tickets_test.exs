@@ -214,6 +214,44 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTicketsTest do
       assert next_state.released_claims == %{}
     end
 
+    test "restores an approved queued stranded PR to ci-wait without requeueing work" do
+      for {identifier, projection} <- [
+            {"approved-queued", %{merge_queue_entry: %{id: "queue"}, auto_merge_request: nil}},
+            {"approved-auto-merge", %{merge_queue_entry: nil, auto_merge_request: %{enabled_at: "now"}}}
+          ] do
+        waiting = issue(identifier, "rework")
+
+        state = %State{
+          released_claims: %{waiting.id => %{cause: :tracker_retry_exhausted}},
+          ci_lifecycle: %{poll_cache: %{waiting.identifier => Map.put(projection, :review_decision, "APPROVED")}}
+        }
+
+        parent = self()
+
+        next_state =
+          IssueSync.sync_stranded_ticket_reconciliation(state, [waiting], fn id, target ->
+            send(parent, {:restored, id, target})
+            :ok
+          end)
+
+        expected_identifier = "its-everdred/aiur##{identifier}"
+        assert_receive {:restored, ^expected_identifier, "ci-wait"}, 1000
+        assert next_state.released_claims == %{}
+      end
+    end
+
+    test "closed and done tickets are excluded from stranded repair" do
+      for terminal_state <- ["closed", "done"] do
+        closed = issue("closed-#{terminal_state}", terminal_state)
+        state = %State{released_claims: %{closed.id => %{cause: :tracker_retry_exhausted}}}
+
+        assert ^state =
+                 IssueSync.sync_stranded_ticket_reconciliation(state, [closed], fn _identifier, _target ->
+                   flunk("a terminal ticket must not be requeued")
+                 end)
+      end
+    end
+
     test "re-queues a zero-label non-dispatchable ticket to its last known state and alerts" do
       topic = "ticket.its-everdred/aiur#nolabel.agent.attention.stranded-requeued"
       Publisher.set_tracked_fn(fn _ -> true end)
