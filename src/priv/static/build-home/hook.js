@@ -130,8 +130,8 @@ export function createBuildHomeHook() {
     destroyed() {
       this.buildViewDestroyed = true;
       const error = new Error('LiveView destroyed before push reply');
-      for (const cancel of this.buildPendingPushes) cancel(error);
-      this.buildPendingPushes.clear();
+      for (const cancel of this.buildPendingPushes || []) cancel(error);
+      this.buildPendingPushes?.clear();
       this.buildLife?.dispose();
       if (ctx.life === this.buildLife) { ctx.proto.inFlight = false; ctx.resyncSeq++; }
     },
