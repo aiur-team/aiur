@@ -8,6 +8,48 @@ defmodule Aiur.AgentRunner.QueueDrain.DeliveryTest do
   alias Aiur.Issue
   alias Aiur.TrackerIdentity
 
+  defmodule FakeQueueOrchestrator do
+    use GenServer
+
+    def start_link(item, report), do: GenServer.start_link(__MODULE__, %{item: item, delivered: nil, report: report})
+
+    @impl true
+    def init(state), do: {:ok, state}
+
+    @impl true
+    def handle_call({:claim_next_queue_item, _identifier}, _from, %{item: item} = state) when is_map(item) do
+      {:reply, {:ok, item}, %{state | item: nil, delivered: item}}
+    end
+
+    def handle_call({:claim_next_queue_item, _identifier}, _from, state) do
+      {:reply, :empty, state}
+    end
+
+    def handle_call({:consume_delivered_queue_items, identifier}, _from, state) do
+      send(state.report, {:queue_item_consumed, identifier})
+      {:reply, :ok, %{state | delivered: nil}}
+    end
+
+    def handle_call({:restore_delivered_queue_items, identifier}, _from, %{delivered: delivered} = state) do
+      send(state.report, {:queue_item_restored, identifier})
+      {:reply, :ok, %{state | item: delivered, delivered: nil}}
+    end
+
+    def handle_call({:fail_delivered_queue_items, identifier, reason}, _from, state) do
+      send(state.report, {:queue_item_failed, identifier, reason})
+      {:reply, :ok, %{state | delivered: nil}}
+    end
+
+    def handle_call(
+          {:acknowledge_queue_item_delivery, item_id, provider_metadata},
+          _from,
+          state
+        ) do
+      send(state.report, {:provider_delivered, item_id, provider_metadata})
+      {:reply, :ok, state}
+    end
+  end
+
   describe "drain_operator_messages/6" do
     test "correlated pause and resume preserve drain options" do
       parent = self()
@@ -245,48 +287,6 @@ defmodule Aiur.AgentRunner.QueueDrain.DeliveryTest do
     end)
 
     %{log_root: log_root}
-  end
-
-  defmodule FakeQueueOrchestrator do
-    use GenServer
-
-    def start_link(item, report), do: GenServer.start_link(__MODULE__, %{item: item, delivered: nil, report: report})
-
-    @impl true
-    def init(state), do: {:ok, state}
-
-    @impl true
-    def handle_call({:claim_next_queue_item, _identifier}, _from, %{item: item} = state) when is_map(item) do
-      {:reply, {:ok, item}, %{state | item: nil, delivered: item}}
-    end
-
-    def handle_call({:claim_next_queue_item, _identifier}, _from, state) do
-      {:reply, :empty, state}
-    end
-
-    def handle_call({:consume_delivered_queue_items, identifier}, _from, state) do
-      send(state.report, {:queue_item_consumed, identifier})
-      {:reply, :ok, %{state | delivered: nil}}
-    end
-
-    def handle_call({:restore_delivered_queue_items, identifier}, _from, %{delivered: delivered} = state) do
-      send(state.report, {:queue_item_restored, identifier})
-      {:reply, :ok, %{state | item: delivered, delivered: nil}}
-    end
-
-    def handle_call({:fail_delivered_queue_items, identifier, reason}, _from, state) do
-      send(state.report, {:queue_item_failed, identifier, reason})
-      {:reply, :ok, %{state | delivered: nil}}
-    end
-
-    def handle_call(
-          {:acknowledge_queue_item_delivery, item_id, provider_metadata},
-          _from,
-          state
-        ) do
-      send(state.report, {:provider_delivered, item_id, provider_metadata})
-      {:reply, :ok, state}
-    end
   end
 
   # Like FakeQueueOrchestrator, but the first `unavailable_left` restore RPCs

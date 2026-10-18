@@ -6,6 +6,148 @@ defmodule Aiur.AppServer.AdapterTest do
   alias Aiur.Codex.Interrupts
   alias Aiur.Codex.TurnLoop
 
+  defmodule StubBackend do
+    @behaviour Aiur.AppServer.Adapter
+
+    def backend_label, do: "Stub"
+    def send_frame(_port, _frame), do: :ok
+    def metadata_from_message(_port, _payload), do: %{}
+    def loop_state_extras(_session), do: %{}
+    def handle_interrupt_error(_state, error), do: {:error, error}
+    def handle_malformed(state, _payload_string, _port), do: {:continue, state}
+
+    def start_turn(session, _prompt, _issue) do
+      session.start_turn_result
+    end
+
+    def handle_method(_session, _state, %{"method" => "turn/completed"}, _payload_string, _method) do
+      {:ok, :turn_completed}
+    end
+
+    def handle_method(_session, _state, %{"method" => "pause"}, _payload_string, _method) do
+      {:paused, %{request_id: 1}}
+    end
+
+    def handle_method(_session, _state, %{"method" => "fail"}, _payload_string, _method) do
+      {:error, :failed}
+    end
+  end
+
+  defmodule CodexLifecycleBackend do
+    @behaviour Aiur.AppServer.Adapter
+
+    def backend_label, do: "Codex"
+    def send_frame(_port, _frame), do: :ok
+    def metadata_from_message(_port, _payload), do: %{}
+    def start_turn(session, _prompt, _issue), do: session.start_turn_result
+
+    def loop_state_extras(_session) do
+      %{
+        active_turn_ids: MapSet.new(),
+        accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(),
+        anonymous_completion_consumed?: false,
+        auto_approve_requests: true,
+        turn_started?: false,
+        interrupt_acknowledged?: false,
+        interrupt_idle_seen?: false,
+        pending_operator_requests: Process.get({__MODULE__, :pending_operator_requests}, %{}),
+        timeout_ms: 100
+      }
+    end
+
+    def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)
+
+    def handle_method(session, state, payload, payload_string, method) do
+      TurnLoop.handle_method(session, state, payload, payload_string, method)
+    end
+
+    def handle_malformed(state, payload_string, port) do
+      TurnLoop.handle_malformed(state, payload_string, port)
+    end
+  end
+
+  defmodule LimitAwareBackend do
+    @behaviour Aiur.AppServer.Adapter
+
+    def backend_label, do: "LimitAware"
+    def send_frame(_port, _frame), do: :ok
+    def metadata_from_message(_port, _payload), do: %{}
+    def loop_state_extras(_session), do: %{}
+    def handle_interrupt_error(_state, error), do: {:error, error}
+    def handle_malformed(state, _payload_string, _port), do: {:continue, state}
+
+    # Mirrors a provider that prints its refusal while answering `turn/start`.
+    def start_turn(session, _prompt, _issue) do
+      case Map.get(session, :stream_output) do
+        nil -> :ok
+        output -> StreamDiagnostics.record(session.port, output)
+      end
+
+      session.start_turn_result
+    end
+
+    def handle_method(_session, _state, %{"method" => "turn/completed"}, _payload_string, _method) do
+      {:ok, :turn_completed}
+    end
+
+    defdelegate classify_stream_failure(diagnostics), to: Aiur.Claude.NotificationPolicy
+  end
+
+  defmodule DeferredIdlePauseBackend do
+    @behaviour Aiur.AppServer.Adapter
+
+    def backend_label, do: "Codex"
+
+    def send_frame(port, %{"id" => request_id, "method" => "turn/interrupt"} = frame) do
+      send(self(), {:frame, frame})
+
+      idle = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
+      no_active_turn = %{"id" => request_id, "error" => %{"code" => -32_600, "message" => "no active turn"}}
+
+      frames =
+        case Process.get({__MODULE__, :interrupt_event_order}, :idle_first) do
+          :idle_first -> [idle, no_active_turn]
+          :response_first -> [no_active_turn, idle]
+          :response_only -> [no_active_turn]
+          :idle_then_ack -> [idle, %{"id" => request_id, "result" => %{}}]
+          :ack_then_idle -> [%{"id" => request_id, "result" => %{}}, idle]
+        end
+
+      Enum.each(frames, fn payload ->
+        send(self(), {port, {:data, {:eol, Jason.encode!(payload)}}})
+      end)
+
+      :ok
+    end
+
+    def metadata_from_message(_port, _payload), do: %{}
+    def start_turn(session, _prompt, _issue), do: session.start_turn_result
+
+    def loop_state_extras(_session) do
+      %{
+        active_turn_ids: MapSet.new(),
+        accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(),
+        anonymous_completion_consumed?: false,
+        auto_approve_requests: true,
+        turn_started?: true,
+        interrupt_acknowledged?: false,
+        interrupt_idle_seen?: false
+      }
+    end
+
+    def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)
+
+    def handle_method(session, state, payload, payload_string, method) do
+      TurnLoop.handle_method(session, state, payload, payload_string, method)
+    end
+
+    def handle_malformed(state, payload_string, port) do
+      TurnLoop.handle_malformed(state, payload_string, port)
+    end
+  end
+
   test "a limit refusal at turn start pauses instead of failing the turn" do
     port = cat_port()
 
@@ -283,94 +425,6 @@ defmodule Aiur.AppServer.AdapterTest do
     assert_receive %{event: :startup_failed, reason: :boom}, 1000
   end
 
-  defmodule StubBackend do
-    @behaviour Aiur.AppServer.Adapter
-
-    def backend_label, do: "Stub"
-    def send_frame(_port, _frame), do: :ok
-    def metadata_from_message(_port, _payload), do: %{}
-    def loop_state_extras(_session), do: %{}
-    def handle_interrupt_error(_state, error), do: {:error, error}
-    def handle_malformed(state, _payload_string, _port), do: {:continue, state}
-
-    def start_turn(session, _prompt, _issue) do
-      session.start_turn_result
-    end
-
-    def handle_method(_session, _state, %{"method" => "turn/completed"}, _payload_string, _method) do
-      {:ok, :turn_completed}
-    end
-
-    def handle_method(_session, _state, %{"method" => "pause"}, _payload_string, _method) do
-      {:paused, %{request_id: 1}}
-    end
-
-    def handle_method(_session, _state, %{"method" => "fail"}, _payload_string, _method) do
-      {:error, :failed}
-    end
-  end
-
-  defmodule CodexLifecycleBackend do
-    @behaviour Aiur.AppServer.Adapter
-
-    def backend_label, do: "Codex"
-    def send_frame(_port, _frame), do: :ok
-    def metadata_from_message(_port, _payload), do: %{}
-    def start_turn(session, _prompt, _issue), do: session.start_turn_result
-
-    def loop_state_extras(_session) do
-      %{
-        active_turn_ids: MapSet.new(),
-        accepted_turn_ids: MapSet.new(),
-        retired_turn_ids: MapSet.new(),
-        anonymous_completion_consumed?: false,
-        auto_approve_requests: true,
-        turn_started?: false,
-        interrupt_acknowledged?: false,
-        interrupt_idle_seen?: false,
-        pending_operator_requests: Process.get({__MODULE__, :pending_operator_requests}, %{}),
-        timeout_ms: 100
-      }
-    end
-
-    def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)
-
-    def handle_method(session, state, payload, payload_string, method) do
-      TurnLoop.handle_method(session, state, payload, payload_string, method)
-    end
-
-    def handle_malformed(state, payload_string, port) do
-      TurnLoop.handle_malformed(state, payload_string, port)
-    end
-  end
-
-  defmodule LimitAwareBackend do
-    @behaviour Aiur.AppServer.Adapter
-
-    def backend_label, do: "LimitAware"
-    def send_frame(_port, _frame), do: :ok
-    def metadata_from_message(_port, _payload), do: %{}
-    def loop_state_extras(_session), do: %{}
-    def handle_interrupt_error(_state, error), do: {:error, error}
-    def handle_malformed(state, _payload_string, _port), do: {:continue, state}
-
-    # Mirrors a provider that prints its refusal while answering `turn/start`.
-    def start_turn(session, _prompt, _issue) do
-      case Map.get(session, :stream_output) do
-        nil -> :ok
-        output -> StreamDiagnostics.record(session.port, output)
-      end
-
-      session.start_turn_result
-    end
-
-    def handle_method(_session, _state, %{"method" => "turn/completed"}, _payload_string, _method) do
-      {:ok, :turn_completed}
-    end
-
-    defdelegate classify_stream_failure(diagnostics), to: Aiur.Claude.NotificationPolicy
-  end
-
   defp assert_deferred_idle_pause(order, request_id) do
     port = cat_port()
     Process.put({DeferredIdlePauseBackend, :interrupt_event_order}, order)
@@ -439,59 +493,5 @@ defmodule Aiur.AppServer.AdapterTest do
     end)
 
     port
-  end
-
-  defmodule DeferredIdlePauseBackend do
-    @behaviour Aiur.AppServer.Adapter
-
-    def backend_label, do: "Codex"
-
-    def send_frame(port, %{"id" => request_id, "method" => "turn/interrupt"} = frame) do
-      send(self(), {:frame, frame})
-
-      idle = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
-      no_active_turn = %{"id" => request_id, "error" => %{"code" => -32_600, "message" => "no active turn"}}
-
-      frames =
-        case Process.get({__MODULE__, :interrupt_event_order}, :idle_first) do
-          :idle_first -> [idle, no_active_turn]
-          :response_first -> [no_active_turn, idle]
-          :response_only -> [no_active_turn]
-          :idle_then_ack -> [idle, %{"id" => request_id, "result" => %{}}]
-          :ack_then_idle -> [%{"id" => request_id, "result" => %{}}, idle]
-        end
-
-      Enum.each(frames, fn payload ->
-        send(self(), {port, {:data, {:eol, Jason.encode!(payload)}}})
-      end)
-
-      :ok
-    end
-
-    def metadata_from_message(_port, _payload), do: %{}
-    def start_turn(session, _prompt, _issue), do: session.start_turn_result
-
-    def loop_state_extras(_session) do
-      %{
-        active_turn_ids: MapSet.new(),
-        accepted_turn_ids: MapSet.new(),
-        retired_turn_ids: MapSet.new(),
-        anonymous_completion_consumed?: false,
-        auto_approve_requests: true,
-        turn_started?: true,
-        interrupt_acknowledged?: false,
-        interrupt_idle_seen?: false
-      }
-    end
-
-    def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)
-
-    def handle_method(session, state, payload, payload_string, method) do
-      TurnLoop.handle_method(session, state, payload, payload_string, method)
-    end
-
-    def handle_malformed(state, payload_string, port) do
-      TurnLoop.handle_malformed(state, payload_string, port)
-    end
   end
 end

@@ -6,6 +6,26 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   alias Aiur.AlertFeed
   alias Aiur.Issue
 
+  defmodule FakeDecisionStore do
+    use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+    @impl true
+    def init(opts), do: {:ok, %{report: Keyword.fetch!(opts, :report), reply: Keyword.fetch!(opts, :reply)}}
+
+    @impl true
+    def handle_call({:validate_delivery, item}, _from, state) do
+      send(state.report, {:decision_delivery_prepared, item})
+      {:reply, state.reply, state}
+    end
+
+    def handle_call({:transport_transition, :delivered, item, nil}, _from, state) do
+      send(state.report, {:decision_delivery, item})
+      {:reply, state.reply, state}
+    end
+  end
+
   describe "claim_after_queue_update/3" do
     test "returns :ignored when deliver_now? is false" do
       assert QueueDrain.claim_after_queue_update(self(), "QD-01", false) == :ignored
@@ -89,26 +109,6 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
     end)
 
     %{log_root: log_root}
-  end
-
-  defmodule FakeDecisionStore do
-    use GenServer
-
-    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
-
-    @impl true
-    def init(opts), do: {:ok, %{report: Keyword.fetch!(opts, :report), reply: Keyword.fetch!(opts, :reply)}}
-
-    @impl true
-    def handle_call({:validate_delivery, item}, _from, state) do
-      send(state.report, {:decision_delivery_prepared, item})
-      {:reply, state.reply, state}
-    end
-
-    def handle_call({:transport_transition, :delivered, item, nil}, _from, state) do
-      send(state.report, {:decision_delivery, item})
-      {:reply, state.reply, state}
-    end
   end
 
   defp correlated_item do

@@ -11,6 +11,92 @@ defmodule Aiur.AgentRunner.QueueDrain.ChronologyTest do
     "message" => "expected active turn id queued-turn but found prior-turn"
   }
 
+  defmodule FakeQueueOrchestrator do
+    use GenServer
+
+    def start_link(item, report), do: GenServer.start_link(__MODULE__, %{item: item, delivered: nil, report: report})
+
+    @impl true
+    def init(state), do: {:ok, state}
+
+    @impl true
+    def handle_call({:claim_next_queue_item, _identifier}, _from, %{item: item} = state) when is_map(item) do
+      {:reply, {:ok, item}, %{state | item: nil, delivered: item}}
+    end
+
+    def handle_call({:claim_next_queue_item, _identifier}, _from, state) do
+      {:reply, :empty, state}
+    end
+
+    def handle_call({:consume_delivered_queue_items, identifier}, _from, state) do
+      send(state.report, {:queue_item_consumed, identifier})
+      {:reply, :ok, %{state | delivered: nil}}
+    end
+
+    def handle_call({:restore_delivered_queue_items, identifier}, _from, %{delivered: delivered} = state) do
+      send(state.report, {:queue_item_restored, identifier})
+      {:reply, :ok, %{state | item: delivered, delivered: nil}}
+    end
+
+    def handle_call({:fail_delivered_queue_items, identifier, reason}, _from, state) do
+      send(state.report, {:queue_item_failed, identifier, reason})
+      {:reply, :ok, %{state | delivered: nil}}
+    end
+
+    def handle_call(
+          {:acknowledge_queue_item_delivery, item_id, provider_metadata},
+          _from,
+          state
+        ) do
+      send(state.report, {:provider_delivered, item_id, provider_metadata})
+      {:reply, :ok, state}
+    end
+  end
+
+  defmodule FlakyRestoreQueueOrchestrator do
+    use GenServer
+
+    def start_link(item, report, unavailable_restores),
+      do:
+        GenServer.start_link(
+          __MODULE__,
+          %{item: item, delivered: nil, report: report, unavailable_left: unavailable_restores}
+        )
+
+    @impl true
+    def init(state), do: {:ok, state}
+
+    @impl true
+    def handle_call({:claim_next_queue_item, _identifier}, _from, %{item: item} = state) when is_map(item) do
+      {:reply, {:ok, item}, %{state | item: nil, delivered: item}}
+    end
+
+    def handle_call({:claim_next_queue_item, _identifier}, _from, state) do
+      {:reply, :empty, state}
+    end
+
+    def handle_call({:consume_delivered_queue_items, identifier}, _from, state) do
+      send(state.report, {:queue_item_consumed, identifier})
+      {:reply, :ok, %{state | delivered: nil}}
+    end
+
+    def handle_call({:restore_delivered_queue_items, identifier}, _from, %{unavailable_left: n} = state)
+        when n > 0 do
+      send(state.report, {:restore_unavailable, identifier})
+      {:reply, {:error, :unavailable}, %{state | unavailable_left: n - 1}}
+    end
+
+    def handle_call({:restore_delivered_queue_items, identifier}, _from, %{delivered: delivered} = state) do
+      send(state.report, {:queue_item_restored, identifier})
+      {:reply, :ok, %{state | item: delivered, delivered: nil}}
+    end
+
+    def handle_call({:fail_delivered_queue_items, identifier, reason}, _from, state) do
+      send(state.report, {:queue_item_failed, identifier, reason})
+      {:reply, :ok, %{state | delivered: nil}}
+    end
+  end
+
   describe "drain_operator_messages/6" do
     # Future-regression guard: this behavior already held before Muse recovery.
     test "Muse transport exit after admission fails a queued message rather than replaying it" do
@@ -251,94 +337,8 @@ defmodule Aiur.AgentRunner.QueueDrain.ChronologyTest do
     %{log_root: log_root}
   end
 
-  defmodule FakeQueueOrchestrator do
-    use GenServer
-
-    def start_link(item, report), do: GenServer.start_link(__MODULE__, %{item: item, delivered: nil, report: report})
-
-    @impl true
-    def init(state), do: {:ok, state}
-
-    @impl true
-    def handle_call({:claim_next_queue_item, _identifier}, _from, %{item: item} = state) when is_map(item) do
-      {:reply, {:ok, item}, %{state | item: nil, delivered: item}}
-    end
-
-    def handle_call({:claim_next_queue_item, _identifier}, _from, state) do
-      {:reply, :empty, state}
-    end
-
-    def handle_call({:consume_delivered_queue_items, identifier}, _from, state) do
-      send(state.report, {:queue_item_consumed, identifier})
-      {:reply, :ok, %{state | delivered: nil}}
-    end
-
-    def handle_call({:restore_delivered_queue_items, identifier}, _from, %{delivered: delivered} = state) do
-      send(state.report, {:queue_item_restored, identifier})
-      {:reply, :ok, %{state | item: delivered, delivered: nil}}
-    end
-
-    def handle_call({:fail_delivered_queue_items, identifier, reason}, _from, state) do
-      send(state.report, {:queue_item_failed, identifier, reason})
-      {:reply, :ok, %{state | delivered: nil}}
-    end
-
-    def handle_call(
-          {:acknowledge_queue_item_delivery, item_id, provider_metadata},
-          _from,
-          state
-        ) do
-      send(state.report, {:provider_delivered, item_id, provider_metadata})
-      {:reply, :ok, state}
-    end
-  end
-
   # Like FakeQueueOrchestrator, but the first `unavailable_left` restore RPCs
   # answer `{:error, :unavailable}` (a briefly overloaded queue GenServer)
   # before the restore confirms. Used to prove the recovery boundary retries
   # the restore instead of stranding the item or crashing on a MatchError.
-
-  defmodule FlakyRestoreQueueOrchestrator do
-    use GenServer
-
-    def start_link(item, report, unavailable_restores),
-      do:
-        GenServer.start_link(
-          __MODULE__,
-          %{item: item, delivered: nil, report: report, unavailable_left: unavailable_restores}
-        )
-
-    @impl true
-    def init(state), do: {:ok, state}
-
-    @impl true
-    def handle_call({:claim_next_queue_item, _identifier}, _from, %{item: item} = state) when is_map(item) do
-      {:reply, {:ok, item}, %{state | item: nil, delivered: item}}
-    end
-
-    def handle_call({:claim_next_queue_item, _identifier}, _from, state) do
-      {:reply, :empty, state}
-    end
-
-    def handle_call({:consume_delivered_queue_items, identifier}, _from, state) do
-      send(state.report, {:queue_item_consumed, identifier})
-      {:reply, :ok, %{state | delivered: nil}}
-    end
-
-    def handle_call({:restore_delivered_queue_items, identifier}, _from, %{unavailable_left: n} = state)
-        when n > 0 do
-      send(state.report, {:restore_unavailable, identifier})
-      {:reply, {:error, :unavailable}, %{state | unavailable_left: n - 1}}
-    end
-
-    def handle_call({:restore_delivered_queue_items, identifier}, _from, %{delivered: delivered} = state) do
-      send(state.report, {:queue_item_restored, identifier})
-      {:reply, :ok, %{state | item: delivered, delivered: nil}}
-    end
-
-    def handle_call({:fail_delivered_queue_items, identifier, reason}, _from, state) do
-      send(state.report, {:queue_item_failed, identifier, reason})
-      {:reply, :ok, %{state | delivered: nil}}
-    end
-  end
 end
