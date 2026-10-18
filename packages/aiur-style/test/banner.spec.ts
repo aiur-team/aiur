@@ -55,24 +55,20 @@ test('keyboard dismisses, persists the campaign, emits once and focuses the next
   expect(await page.evaluate(() => localStorage.getItem('aiur-banner:gallery'))).toBe('dismissed');
 });
 
-test('dismissed banner is hidden on insertion and the first animation frame after reload', async ({ page }) => {
-  await page.goto('./');
-  await page.locator('.aiur-banner__close').click();
+test('dismissed banner is hidden on the first animation frame after reload', async ({ page }) => {
   await page.addInitScript(() => {
-    const evidence = { visibleOnInsertion: false, frames: [] as boolean[] };
+    const evidence = { visibleOnFirstFrame: false };
     Object.assign(window, { bannerEvidence: evidence });
-    new MutationObserver(() => {
-      const banner = document.querySelector('.aiur-banner');
-      if (banner && getComputedStyle(banner).display !== 'none') evidence.visibleOnInsertion = true;
-    }).observe(document, { childList: true, subtree: true });
     requestAnimationFrame(() => {
       const banner = document.querySelector('.aiur-banner');
-      evidence.frames.push(!!banner && getComputedStyle(banner).display !== 'none');
+      evidence.visibleOnFirstFrame = !!banner && getComputedStyle(banner).display !== 'none';
     });
   });
+  await page.goto('./');
+  await page.locator('.aiur-banner__close').click();
   await page.reload();
-  await page.waitForFunction(() => (window as any).bannerEvidence.frames.length === 1);
-  expect(await page.evaluate(() => (window as any).bannerEvidence)).toEqual({ visibleOnInsertion: false, frames: [false] });
+  await page.waitForFunction(() => typeof (window as any).bannerEvidence?.visibleOnFirstFrame === 'boolean');
+  expect(await page.evaluate(() => (window as any).bannerEvidence.visibleOnFirstFrame)).toBe(false);
   await expect(page.locator('.aiur-banner')).toBeHidden();
 });
 

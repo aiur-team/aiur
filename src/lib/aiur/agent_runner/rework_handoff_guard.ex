@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   @moduledoc false
 
-  alias Aiur.AgentRunner.ReworkFindings
+  alias Aiur.AgentRunner.{ApprovedHandoff, ReworkFindings}
   alias Aiur.{Alerts, Issue, LocalTestEvidence, PrBodyLint, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.ReworkGate
@@ -21,6 +21,8 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
         {:error, {reason, message}}
 
       {:allow, findings} ->
+        state = ApprovedHandoff.target_state(issue, state, opts)
+
         case writer.(issue_id, state) do
           :ok -> {:ok, report_checklist(issue, findings, opts, %{state: state, issue: issue_id})}
           {:ok, result} -> {:ok, report_checklist(issue, findings, opts, result)}

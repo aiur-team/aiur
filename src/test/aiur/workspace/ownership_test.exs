@@ -1,5 +1,6 @@
 defmodule Aiur.Workspace.OwnershipTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Workspace.{HostLock, Ownership}
   alias Aiur.Workspace.Ownership.{Guardian, Store}
@@ -237,10 +238,11 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert generation == lease.generation
 
     Process.exit(owner, :kill)
-    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    # Registry removal happens before guardian notification. Synchronize on
+    # the exact generation event before claiming its replacement.
+    receive_barrier({:workspace_ownership_available, ^ticket, ^guardian, ^generation})
     assert {:ok, replacement} = Ownership.claim(ticket)
     assert replacement.generation > lease.generation
-    assert_receive {:workspace_ownership_available, ^ticket, ^guardian, ^generation}, 2_000
 
     # The prior guardian's notification cannot be reused for a replacement
     # generation. A fresh subscriber acknowledges B before waiting for B.
@@ -248,7 +250,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert replacement_guardian == replacement.guardian
     assert replacement_generation == replacement.generation
     assert :ok = Ownership.release(replacement)
-    assert_receive {:workspace_ownership_available, ^ticket, ^replacement_guardian, ^replacement_generation}, 2_000
+    receive_barrier({:workspace_ownership_available, ^ticket, ^replacement_guardian, ^replacement_generation})
   end
 
   test "brutal death before provider metadata stays fail-closed" do
