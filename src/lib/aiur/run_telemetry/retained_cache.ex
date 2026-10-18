@@ -22,7 +22,7 @@ defmodule Aiur.RunTelemetry.RetainedCache do
   end
 
   @doc false
-  @spec summaries_identity(String.t() | nil) :: tuple()
+  @spec summaries_identity(String.t() | nil) :: [{String.t(), tuple()}]
   def summaries_identity(current_boot) do
     Summaries.summary_boot_ids()
     |> Enum.reject(&(&1 == current_boot))
