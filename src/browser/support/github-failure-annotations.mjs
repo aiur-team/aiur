@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { PROBE_SPECS } from '../scripts/browser-quarantine.mjs'
 
 const browserRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const testsRoot = path.resolve(browserRoot, 'tests')
@@ -25,7 +26,8 @@ export function failedSpecAnnotationLines(failures) {
     specs.add(path.posix.join('src/browser/tests', relativeToTests.split(path.sep).join('/')))
   }
 
-  const paths = [...specs].sort()
+  // The intentional-failure probes fail by design: never a quarantine candidate.
+  const paths = [...specs].filter((spec) => !PROBE_SPECS.includes(spec)).sort()
   const lines = paths.slice(0, maxAnnotations).map((spec) => {
     const message = `new-failure :: BrowserSpec :: ${spec}`
     return `::error title=aiur-test-failure,file=${escapeProperty(spec)}::${escapeData(message)}`

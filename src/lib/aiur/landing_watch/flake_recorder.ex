@@ -4,7 +4,8 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   alias Aiur.GitHub.{AgentMarker, Errors, Transport}
   alias Aiur.LandingWatch.Journal
 
-  @labels ["bug", "agent:todo", "priority:1", "flake"]
+  # Priority 2: the quarantine PR unblocks the merge queue, so the fix need not preempt other work.
+  @labels ["bug", "agent:todo", "priority:2", "flake"]
 
   @spec record(map(), map(), [pos_integer()], keyword()) :: :ok | {:error, term()}
   def record(failure, run, passed_prs, opts) do
@@ -130,6 +131,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   defp evidence(failure, run, passed_prs) do
     [
       "Run ID: #{run["id"]}",
+      "Run: #{run["html_url"] || "unknown"}",
       "Job: #{failure.job}",
       "Failing test: #{failure.module} :: #{failure.name}",
       "Error excerpt: #{failure.excerpt}",
@@ -149,6 +151,9 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
       central: true,
       durable: true,
       needs_attention: false,
+      # The issue was just filed, so the contamination filter does not track it yet; without
+      # this the durable publish is :filtered and the quarantine PR is never opened.
+      bypass_contamination: true,
       issue: Integer.to_string(issue),
       message: message,
       reason: message,

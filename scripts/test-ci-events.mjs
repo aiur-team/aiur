@@ -55,6 +55,8 @@ assert.ok(selected('push', false).includes('quarantine'), 'main push selects qua
 assert.ok(selected('schedule', false).includes('quarantine'), 'schedule selects quarantine');
 assert.ok(!selected('pull_request', false).includes('quarantine'), 'pull request skips quarantine');
 assert.ok(!selected('merge_group', true).includes('quarantine'), 'merge group skips quarantine');
+const browserSmoke = readFileSync(new URL('../.github/actions/browser-smoke/action.yml', import.meta.url), 'utf8');
+assert.ok(/github.ref == 'refs\/heads\/main' }}\n.*\n      run: node scripts\/run-quarantined-browser-tests.mjs \|\| echo/.test(browserSmoke), 'quarantined browser specs run on main and never block');
 assert.ok(selected('merge_group', false).includes('ci-gate'), 'merge-group ci gate always runs');
 for (const event of ['merge_group', 'workflow_dispatch']) {
   const selectedFull = selected(event, true);
