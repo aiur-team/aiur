@@ -52,7 +52,8 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
   end
 
   @doc false
-  @spec sync_stranded_ticket_reconciliation(State.t(), list(), (String.t(), String.t() -> :ok | {:error, term()})) ::
+  @spec sync_stranded_ticket_reconciliation(State.t(), list(), (String.t(), String.t() ->
+                                                                  :ok | {:error, term()})) ::
           State.t()
   def sync_stranded_ticket_reconciliation(%State{} = state, issues, update_state_fun)
       when is_list(issues) and is_function(update_state_fun, 2) do
@@ -111,7 +112,8 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
   # ticket carrying `needs-triage`/`human:todo`/`Epic:` is deliberate parking,
   # never a strand, so it is covered here too (#2420).
   defp legitimately_unowned?(%Issue{} = issue) do
-    Issue.paused?(issue) or
+    Issue.held?(issue) or
+      Issue.paused?(issue) or
       Issue.parked?(issue) or
       Issue.queued?(issue) or
       MissingLabels.parked_marker?(issue) or
@@ -144,13 +146,18 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
     restored = MissingLabels.restore_state_for(issue, state)
     input = Reconciler.issue_input(state, issue.id)
 
-    TrackerTasks.run(state, {:stranded_repair, issue.id}, fn -> update_state_fun.(issue.identifier, restored) end, fn current, result ->
-      if Reconciler.issue_input(current, issue.id) == input and stranded_ticket?(current, issue) do
-        apply_stranded_repair(current, issue, restored, result)
-      else
-        Lifecycle.wake_tick(current)
+    TrackerTasks.run(
+      state,
+      {:stranded_repair, issue.id},
+      fn -> update_state_fun.(issue.identifier, restored) end,
+      fn current, result ->
+        if Reconciler.issue_input(current, issue.id) == input and stranded_ticket?(current, issue) do
+          apply_stranded_repair(current, issue, restored, result)
+        else
+          Lifecycle.wake_tick(current)
+        end
       end
-    end)
+    )
   end
 
   defp apply_stranded_repair(state, issue, restored, result) do

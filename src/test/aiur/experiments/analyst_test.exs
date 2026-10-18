@@ -1,18 +1,20 @@
 defmodule Aiur.Experiments.AnalystTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
-  alias Aiur.{Experiments, ExperimentsCLI}
-  alias Aiur.Experiments.{Analyst, Paths, ReportRecords, Snapshot, Store}
+  alias Aiur.{Experiments, ExperimentsCLI, Issue}
+  alias Aiur.Experiments.{AnalysisProvenance, AnalysisTicket, Analyst, Paths, ReportRecords, Snapshot, Store}
 
   setup do
     root = Aiur.TestSupport.tmp_root!("analyst")
     previous = Application.get_env(:aiur, :experiments_dir)
+    previous_provenance = Application.get_env(:aiur, :dispatch_provenance)
     Application.put_env(:aiur, :experiments_dir, root)
     :ok = Aiur.TestSupport.ensure_pubsub_running()
     start_supervised!(Store)
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :experiments_dir, previous), else: Application.delete_env(:aiur, :experiments_dir)
+      if previous_provenance, do: Application.put_env(:aiur, :dispatch_provenance, previous_provenance), else: Application.delete_env(:aiur, :dispatch_provenance)
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
@@ -128,6 +130,7 @@ defmodule Aiur.Experiments.AnalystTest do
     clock = :atomics.new(1, [])
 
     start_analyst(
+      daemon_account: fn -> "original-daemon[bot]" end,
       clock: fn -> :atomics.get(clock, 1) end,
       create: fn _ ->
         send(parent, :post)
@@ -139,11 +142,13 @@ defmodule Aiur.Experiments.AnalystTest do
     assert_received :post
     assert {:ok, [pending]} = Experiments.analysis_requests(id)
     assert pending["ticket_status"] == "uncertain"
+    assert pending["daemon_login"] == "original-daemon[bot]"
     stop_supervised!(Analyst)
     :atomics.put(clock, 1, 100_000)
 
     pid =
       start_analyst(
+        daemon_account: fn -> "replacement-daemon[bot]" end,
         clock: fn -> :atomics.get(clock, 1) end,
         find: fn marker, _opts ->
           send(parent, {:lookup, marker})
@@ -160,6 +165,17 @@ defmodule Aiur.Experiments.AnalystTest do
     assert {:ok, [recovered]} = Experiments.analysis_requests(id)
     assert recovered["ticket"]["number"] == 42
     assert recovered["request_id"] == pending["request_id"]
+    assert recovered["daemon_login"] == "original-daemon[bot]"
+
+    issue = %Issue{
+      id: "42",
+      url: recovered["ticket"]["url"],
+      creator_login: "original-daemon[bot]",
+      labels: ["experiment-analysis"],
+      description: AnalysisTicket.marker(recovered)
+    }
+
+    assert AnalysisProvenance.authorized?(issue, recovered)
     assert File.exists?(Paths.file(id, "requests.ndjson"))
   end
 

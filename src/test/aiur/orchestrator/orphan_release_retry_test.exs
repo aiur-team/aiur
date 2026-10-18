@@ -91,6 +91,29 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
     end
   end
 
+  test "an orphaned claim with a current-head approval is released to ci-wait" do
+    approval = %{"state" => "APPROVED", "commit_id" => "head", "user" => %{"login" => "reviewer"}, :authoritative => true}
+
+    opts =
+      Keyword.merge(opts(),
+        open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
+        pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
+        unresolved_threads_fetcher: fn _ -> {:ok, []} end,
+        reviews_fetcher: fn _ -> {:ok, [approval]} end,
+        pull_request_approval_fetcher: fn 42 -> {:ok, {"head", "head"}} end,
+        update_issue_state_fun: fn "3710", target, "in-progress" ->
+          send(self(), {:write, target})
+          :ok
+        end
+      )
+
+    {_released, [%Issue{state: "ci-wait"}]} = StartupClaimReconciler.reconcile(%State{}, [issue()], opts)
+    assert_received {:write, "ci-wait"}
+    assert_received {:comment, body}
+    assert body =~ "to ci-wait"
+    refute_received {:write, "human-review"}
+  end
+
   for reason <- [
         {:github, :local_hold, %{reason: {:aiur, :locally_held, %{reason: :shared_budget, reset_at: 100}}}},
         {:aiur, :locally_held, %{reason: :shared_budget, reset_at: 100}},

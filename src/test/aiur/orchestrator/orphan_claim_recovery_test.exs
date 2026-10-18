@@ -202,8 +202,9 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
 
     opts = pr_opts(pr, [], reviews)
     {waiting, [_]} = StartupClaimReconciler.reconcile(%State{}, [issue()], Keyword.put(opts, :now_ms, 0))
-    {_, [%Issue{state: "human-review"}]} = StartupClaimReconciler.reconcile(waiting, [issue()], Keyword.put(opts, :now_ms, 60_000))
-    assert_received {:write, "3622", "human-review", "in-progress"}
+    opts = Keyword.put(opts, :pull_request_approval_fetcher, fn 42 -> {:ok, {"head", "head"}} end)
+    {_, [%Issue{state: "ci-wait"}]} = StartupClaimReconciler.reconcile(waiting, [issue()], Keyword.put(opts, :now_ms, 60_000))
+    assert_received {:write, "3622", "ci-wait", "in-progress"}
   end
 
   test "unavailable PR evidence does not permanently exhaust release retries" do

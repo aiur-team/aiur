@@ -25,10 +25,10 @@ defmodule Aiur.Orchestrator.ReworkGate do
   """
 
   alias Aiur.Alerts
-  alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
-  alias Aiur.Orchestrator.{OperatorMessages, ReviewFindings, ReworkHandoffChecks, State}
+  alias Aiur.Orchestrator.{OperatorMessages, ReworkHandoffChecks, State}
+  alias Aiur.PRLifecycle.PostAgentRouting
 
   @doc false
   @spec operator_queue_empty?(GenServer.server(), String.t()) :: boolean()
@@ -236,7 +236,10 @@ defmodule Aiur.Orchestrator.ReworkGate do
   defp rework_unless_queued(pr, opts) do
     # A blocking review submitted after the approval leaves `reviewDecision` APPROVED; it is still a finding.
     blocking? = Keyword.get(opts, :blocking_review_submission?, false)
-    if not blocking? and approved_and_queued?(pr, opts) == {:ok, true}, do: {:skip, :approved_and_queued}, else: {:ok, pr}
+
+    if not blocking? and approved_and_queued?(pr, opts) == {:ok, true},
+      do: {:skip, :approved_and_queued},
+      else: {:ok, pr}
   end
 
   @doc false
@@ -297,20 +300,12 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
   @doc "True when the PR's approval carries to its head: approved at the head, or only merge drift since (#4965)."
   @spec approval_carries_to_head?(integer(), keyword()) :: boolean()
-  def approval_carries_to_head?(number, opts \\ []) do
-    approval = Keyword.get(opts, :pull_request_approval_fetcher, &default_approval_fetcher/1)
-    classifier = Keyword.get(opts, :approval_carry_classifier, &GithubCIPoller.classify_approval_carry/4)
+  def approval_carries_to_head?(number, opts \\ []), do: PostAgentRouting.approved?(number, opts)
 
-    case approval.(number) do
-      {:ok, {head, head}} when is_binary(head) -> true
-      {:ok, {head, approved}} when is_binary(approved) -> classifier.(approved, head, number, []) == :carried
-      _unapproved_or_unreadable -> false
-    end
-  end
-
-  defp default_approval_fetcher(number) do
-    if available?(), do: GitHubClient.pull_request_approval(number, caller: "approved_handoff"), else: {:error, :unavailable}
-  end
+  @doc "Routes a post-agent handoff from the current review verdict, falling back to the caller's CI-derived state."
+  @spec post_agent_handoff_target(map(), String.t(), keyword()) :: String.t()
+  def post_agent_handoff_target(pr, fallback, opts \\ []),
+    do: PostAgentRouting.route(pr, fallback, opts)
 
   @doc "Returns the safest handoff state when a stopped agent has an open PR."
   @spec stopped_agent_handoff(String.t(), String.t() | atom() | nil, keyword()) ::
@@ -327,7 +322,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
     current_head = head_sha(pr)
 
     if head_moved?(current_head, original_head) do
-      {:handoff, ci_handoff_state(current_head, opts)}
+      {:handoff, post_agent_handoff_target(pr, ci_handoff_state(current_head, opts), opts)}
     else
       pr
       |> superseded_review_handoff(current_head, opts)
@@ -335,7 +330,8 @@ defmodule Aiur.Orchestrator.ReworkGate do
     end
   end
 
-  defp head_moved?(current_head, original_head) when is_binary(current_head) and current_head != "" do
+  defp head_moved?(current_head, original_head)
+       when is_binary(current_head) and current_head != "" do
     not is_binary(original_head) or original_head == "" or current_head != original_head
   end
 
@@ -369,7 +365,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
          {:ok, pr} <- open_pr(issue_key, opts),
          head when is_binary(head) and head != "" <- head_sha(pr),
          true <- head != original do
-      {:handoff, ci_handoff_state(head, opts)}
+      {:handoff, post_agent_handoff_target(pr, ci_handoff_state(head, opts), opts)}
     else
       _ -> :none
     end
@@ -380,10 +376,16 @@ defmodule Aiur.Orchestrator.ReworkGate do
   # has not seen this head, so it goes back to the reviewer, red CI included.
   defp superseded_review_handoff(pr, head, opts) do
     with true <- Keyword.get(opts, :superseded_review_handoff?, false) and is_binary(head),
-         {:ok, reviews} <- (Keyword.get(opts, :reviews_fetcher) || (&default_reviews_fetcher/1)).(Map.get(pr, "number")),
+         {:ok, reviews} <-
+           (Keyword.get(opts, :reviews_fetcher) || (&default_reviews_fetcher/1)).(Map.get(pr, "number")),
          [_ | _] = blocking <- blocking_reviews(reviews),
          false <- Enum.any?(blocking, &(&1["commit_id"] == head)) do
-      {:handoff, ci_handoff_state(head, opts)}
+      {:handoff,
+       post_agent_handoff_target(
+         pr,
+         ci_handoff_state(head, opts),
+         Keyword.put(opts, :reviews_fetcher, fn _ -> {:ok, reviews} end)
+       )}
     else
       _not_superseded -> :none
     end
@@ -391,19 +393,12 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
   @doc "Each trusted reviewer's latest verdict that still blocks; an old `CHANGES_REQUESTED` is sticky, so callers compare `commit_id` to the head."
   @spec blocking_reviews([map()]) :: [map()]
-  def blocking_reviews(reviews) do
-    reviews
-    |> Enum.filter(&(&1["state"] in ~w(APPROVED CHANGES_REQUESTED DISMISSED) or ReviewFindings.blocking_body?(&1["body"])))
-    |> Enum.group_by(&get_in(&1, ["user", "login"]))
-    |> Enum.map(fn {_author, submissions} -> Enum.max_by(submissions, &{&1["submitted_at"], &1["id"]}) end)
-    |> Enum.filter(fn review ->
-      review[:authoritative] == true and
-        (review["state"] == "CHANGES_REQUESTED" or (review["state"] == "COMMENTED" and ReviewFindings.blocking_body?(review["body"])))
-    end)
-  end
+  def blocking_reviews(reviews), do: PostAgentRouting.blocking_reviews(reviews)
 
   defp default_reviews_fetcher(number) do
-    if available?() and is_integer(number), do: Aiur.CodeHost.fetch_classified_pr_reviews(number), else: {:error, :unavailable}
+    if available?() and is_integer(number),
+      do: Aiur.CodeHost.fetch_classified_pr_reviews(number),
+      else: {:error, :unavailable}
   end
 
   defp ci_handoff_state(head_sha, opts) do
@@ -411,8 +406,21 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
     case fetcher.(head_sha) do
       {:ok, %{check_runs: runs, commit_status: status}} ->
-        pending_runs? = Enum.any?(runs, &(Map.get(&1, "status") in ["waiting", "requested", "pending", "in_progress", "queued"]))
-        if pending_runs? or get_in(status, ["state"]) == "pending", do: "ci-wait", else: "human-review"
+        pending_runs? =
+          Enum.any?(
+            runs,
+            &(Map.get(&1, "status") in [
+                "waiting",
+                "requested",
+                "pending",
+                "in_progress",
+                "queued"
+              ])
+          )
+
+        if pending_runs? or get_in(status, ["state"]) == "pending",
+          do: "ci-wait",
+          else: "human-review"
 
       _ ->
         "ci-wait"
