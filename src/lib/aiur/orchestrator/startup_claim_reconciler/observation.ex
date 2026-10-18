@@ -39,8 +39,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
 
   defp orphan?(state, issue, opts) do
     DispatchPolicy.state_slug(issue.state) == "in-progress" and is_binary(issue.identifier) and
-      not Issue.paused?(issue) and not Issue.parked?(issue) and
-      is_nil(Issue.executor_owner(issue)) and not tracked?(state, issue) and
+      not Issue.paused?(issue) and not Issue.held?(issue) and
+      not tracked?(state, issue) and
       lease_free?(issue, opts)
   end
 

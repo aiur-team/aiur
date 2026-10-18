@@ -1,6 +1,8 @@
 defmodule Aiur.Orchestrator.CommentWakeExecutorOwnedTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Issue
   alias Aiur.Orchestrator.{CommentWake, State}
 
@@ -20,17 +22,25 @@ defmodule Aiur.Orchestrator.CommentWakeExecutorOwnedTest do
       comment: %{"body" => "please fix"},
       issue_state_fetcher: fn _ids -> {:ok, [issue]} end,
       open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
-      unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end
+      unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end,
+      comment_update_issue_state_fun: fn issue_id, state ->
+        send(self(), {:comment_state_write, issue_id, state})
+        :ok
+      end
     }
 
-    assert CommentWake.maybe_transition_idle_issue_to_rework(
-             state,
-             "5077",
-             "issue comment",
-             event,
-             1
-           ) == state
+    log =
+      capture_log(fn ->
+        assert CommentWake.maybe_transition_idle_issue_to_rework(
+                 state,
+                 "5077",
+                 "issue comment",
+                 event,
+                 1
+               ) == state
+      end)
 
-    refute_received {:state_write, _, _, _}
+    assert log =~ ":executor_owned"
+    refute_received {:comment_state_write, _, _}
   end
 end

@@ -112,7 +112,7 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
   # ticket carrying `needs-triage`/`human:todo`/`Epic:` is deliberate parking,
   # never a strand, so it is covered here too (#2420).
   defp legitimately_unowned?(%Issue{} = issue) do
-    not is_nil(Issue.executor_owner(issue)) or
+    Issue.held?(issue) or
       Issue.paused?(issue) or
       Issue.parked?(issue) or
       Issue.queued?(issue) or

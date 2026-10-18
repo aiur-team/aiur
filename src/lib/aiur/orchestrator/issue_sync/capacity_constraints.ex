@@ -23,8 +23,7 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
       %Issue{} = issue ->
         DispatchPolicy.normalize_issue_state(issue.state) == "todo" and
           not Issue.paused?(issue) and
-          not Issue.parked?(issue) and
-          is_nil(Issue.executor_owner(issue)) and
+          not Issue.held?(issue) and
           DispatchPolicy.issue_routable_to_worker?(issue) and
           !DispatchPolicy.issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set())
 

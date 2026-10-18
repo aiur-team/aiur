@@ -37,7 +37,7 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
           {Issue.t() | nil, State.t()}
   def heal_or_leave_missing_state_label(%Issue{} = issue, state, update_state_fun) do
     cond do
-      not is_nil(Issue.executor_owner(issue)) or Issue.paused?(issue) or Issue.parked?(issue) or
+      Issue.held?(issue) or Issue.paused?(issue) or
         Issue.queued?(issue) or parked_marker?(issue) ->
         {issue, state}
 
