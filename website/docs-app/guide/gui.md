@@ -94,6 +94,10 @@ The temporary, unlinked `/build` route reads the repository timeline from local 
 It requires dashboard authentication and loads history by active day in the browser’s time zone.
 Live changes are coalesced; snapshots distinguish unavailable sources from empty sections.
 
+List (`?view=list`) shows Live, Planned, Not queued and newest-first History as table rows.
+Ticket rows support keyboard focus. Use **Load earlier day** to fetch more history.
+Unknown values stay explicit, and degraded section headings show their source state and read age.
+
 The toolbar selects Timeline, Gantt or List and retains the view in the URL.
 Use Left/Right arrows or Home/End to move between view tabs, then Enter or Space
 to select. The status line shows the daemon state, including unknown before
