@@ -107,10 +107,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   end
 
   defp selected_open_decision(
-         %{assigns: %{selected_decision: %{decision_id: decision_id, decision_status: status} = decision}},
+         %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},
          decision_id
        )
-       when status in [:open, :deferred],
+       when decision.decision_status in [:open, :deferred] or
+              (decision.decision_status == :expired and decision.blocking and is_nil(decision.answer)),
        do: {:ok, decision}
 
   # Non-selected decisions fall through to the inbox page list, so opening one
@@ -123,13 +124,17 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
          decision_id
        )
        when is_list(decisions) and decision_id != selected_id do
-    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :deferred, :dismissed])) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id and answerable?(&1))) do
       nil -> :error
       decision -> {:ok, decision}
     end
   end
 
   defp selected_open_decision(_socket, _decision_id), do: :error
+
+  defp answerable?(%{decision_status: status}) when status in [:open, :deferred, :dismissed], do: true
+  defp answerable?(%{decision_status: :expired, blocking: true, answer: nil}), do: true
+  defp answerable?(_decision), do: false
 
   defp selected_decision(
          %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},

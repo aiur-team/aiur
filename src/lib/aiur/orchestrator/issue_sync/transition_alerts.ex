@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   alias Aiur.Alerts
   alias Aiur.Config
   alias Aiur.DispatchBudgetStore
+  alias Aiur.Events.GithubKeys
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
@@ -112,36 +113,42 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   def emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
 
   defp publish_human_review_handoff(%Issue{} = issue) do
-    {pr_number, head_sha} = human_review_pr_details(issue)
+    {repo, pull_request} = human_review_pull_request(issue)
+    {pr_number, head_sha} = human_review_pr_identity(pull_request)
+    review = repo && pr_number && GithubKeys.last_review(repo, pr_number, get_in(pull_request, ["user", "login"]))
+    last_review_sha = review && review["commit_id"]
+    approved_at_head? = is_binary(head_sha) and review["state"] == "APPROVED" and last_review_sha == head_sha
 
+    # The tracker refresh and the CI poll both observe the same flip; one wake per (PR, head).
     Alerts.emit_system("ticket.#{issue.identifier}.agent.handoff.human_review",
       issue: issue,
       reason: "Agent handed the ticket to human review",
-      needs_attention: true,
-      severity: "warning",
+      needs_attention: not approved_at_head?,
+      severity: if(approved_at_head?, do: "info", else: "warning"),
+      dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "handoff_human_review", head_sha),
       exchange_payload: %{
         "action" => "human_review",
         "pr_number" => pr_number,
-        "head_sha" => head_sha
+        "head_sha" => head_sha,
+        "last_review_sha" => last_review_sha
       }
     )
   end
 
-  defp human_review_pr_details(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository}, id: id})
+  defp human_review_pull_request(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository}, id: id})
        when is_binary(id) do
-    key = ResourceStore.key_for_repo(:branch_pull_request_listing, "#{owner}/#{repository}", id)
-    key |> ResourceStore.data() |> human_review_pr_listing_identity()
+    repo = "#{owner}/#{repository}"
+    key = ResourceStore.key_for_repo(:branch_pull_request_listing, repo, id)
+    {repo, key |> ResourceStore.data() |> human_review_pr_listing()}
   rescue
     _ -> {nil, nil}
   end
 
-  defp human_review_pr_details(_issue), do: {nil, nil}
+  defp human_review_pull_request(_issue), do: {nil, nil}
 
-  defp human_review_pr_listing_identity(%{} = pull_request), do: human_review_pr_identity(pull_request)
-
-  defp human_review_pr_listing_identity([pull_request | _rest]), do: human_review_pr_identity(pull_request)
-
-  defp human_review_pr_listing_identity(_listing), do: {nil, nil}
+  defp human_review_pr_listing(%{} = pull_request), do: pull_request
+  defp human_review_pr_listing([pull_request | _rest]), do: pull_request
+  defp human_review_pr_listing(_listing), do: nil
 
   defp human_review_pr_identity(%{"number" => number, "head" => %{"sha" => sha}}) when is_integer(number) and is_binary(sha),
     do: {number, sha}
@@ -225,6 +232,18 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   @doc false
   @spec active_attention?(State.t(), String.t()) :: boolean()
   def active_attention?(state, topic), do: MapSet.member?(state.active_attention_topics, topic)
+
+  @doc false
+  @spec stranded_attention_cleared?(State.t(), Issue.t(), MapSet.t()) :: boolean()
+  def stranded_attention_cleared?(%State{} = state, %Issue{} = issue, terminal_states) when is_struct(terminal_states, MapSet) do
+    topic = "ticket.#{issue.identifier}.agent.attention.stranded-requeued"
+    state_slug = DispatchPolicy.state_slug(issue.state)
+
+    no_longer_dispatchable? =
+      state_slug in ["ci-wait", "merging"] or DispatchPolicy.terminal_issue_state?(issue.state, terminal_states)
+
+    no_longer_dispatchable? and active_attention?(state, topic)
+  end
 
   defp lifetime_latch_active?(%State{} = state, issue_id) when is_binary(issue_id) do
     lifetime_latch_status(state, issue_id) == :active

@@ -84,7 +84,7 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     "aiur_web/static_assets.ex" => [
       "@dashboard_css_glob Path.relative_to(Path.expand(\"../../priv/static/css/*.css\", __DIR__), File.cwd!(), force: true)",
       "for part <- @dashboard_css_parts, do: @external_resource(part)",
-      "@dashboard_fonts_path Path.expand(\"../../priv/static/dashboard-fonts.css\", __DIR__)",
+      "@dashboard_fonts_path Path.expand(\"../../priv/static/aiur-style/fonts.css\", __DIR__)",
       "@dashboard_palette_path Path.expand(\"../../priv/static/dashboard-palette.css\", __DIR__)",
       "@external_resource Path.relative_to(@dashboard_fonts_path, File.cwd!(), force: true)",
       "@external_resource Path.relative_to(@dashboard_palette_path, File.cwd!(), force: true)",

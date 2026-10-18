@@ -221,5 +221,87 @@
       "date": null,
       "ref": "https://github.com/aiur-team/aiur/issues/4770"
     }
+  },
+  {
+    "id": "usage-counter-inert",
+    "kind": "design-style",
+    "selector": "#ax-cnt",
+    "cells": {},
+    "reason": "OQ-E8-8: the real provider count does not cycle",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/3155#4.6-new-css"
+    },
+    "css": "#ax-cnt { cursor: default; }"
+  },
+  {
+    "id": "usage-counter-demo-title",
+    "kind": "property",
+    "selector": "#ax-cnt",
+    "cells": {},
+    "reason": "OQ-E8-8: remove the demo cycling tooltip",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/3155#4.6-new-css"
+    },
+    "property": "title"
+  },
+  {
+    "id": "edges-flow-wide-hide",
+    "kind": "copy",
+    "selector": "#build-root",
+    "cells": {},
+    "reason": "Edges return after a flow to wide resize; the design leaves .hide on",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "S-36 / #3145 decision 2"
+    }
+  },
+  {
+    "id": "edges-now-band-pending",
+    "kind": "copy",
+    "selector": "#build-root",
+    "cells": {},
+    "reason": "B1/B1b edges that end on a card in the now band differ until the product band holds live items (C9-T08)",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "C9-T08 / #3145"
+    }
+  },
+  {
+    "id": "edges-dense-columns-pending",
+    "kind": "copy",
+    "selector": "#build-root",
+    "cells": {
+      "dataset": "dense"
+    },
+    "reason": "B1/B1b dense: the product draws 7 columns (adds Design, Unsorted), the design 5, so card x differs; owner is the column/data work upstream of C9-T07",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "C9-T04 columns / #3145"
+    }
+  },
+  {
+    "id": "edges-odd-states",
+    "kind": "copy",
+    "selector": "#build-root",
+    "cells": {},
+    "reason": "S-24: odd-edge order violation, unknown and cyclic dependency captures are regression baselines pending owner sign-off.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "C4-T05 / DESIGN-E8 S-24 / #3145"
+    }
   }
 ]

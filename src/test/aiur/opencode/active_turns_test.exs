@@ -35,10 +35,7 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
     test "table survives after a caller that writes an entry exits" do
       id = "owner-#{System.unique_integer()}"
       turn = "t-owner"
-      caller = spawn(fn -> ActiveTurns.put(id, turn) end)
-
-      ref = Process.monitor(caller)
-      assert_receive {:DOWN, ^ref, :process, ^caller, :normal}, 1_000
+      assert :ok = Task.async(fn -> ActiveTurns.put(id, turn) end) |> Task.await()
 
       assert Process.whereis(ActiveTurns) == :ets.info(ActiveTurns, :owner)
       assert ActiveTurns.lookup(id, turn) == :active
