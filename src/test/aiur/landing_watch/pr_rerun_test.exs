@@ -46,7 +46,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     assert :ok = LandingWatch.process(observation(), opts(path, workflow_definitions_fun: fn _, "main", _ -> {:ok, renamed} end))
     assert_refresh(path, "superseded job name")
 
-    assert :ok = LandingWatch.process(observation(), opts(path, rerun_classifier_fun: fn _, _, _, _ -> flunk("a waiting refresh skips classification") end))
+    assert :ok = LandingWatch.process(observation(), opts(path, rerun_classifier_fun: fn _, _, _, _ -> flunk("a refreshed head backs off without classification") end))
     refute_received {:rerun, _}
   end
 
@@ -208,14 +208,97 @@ defmodule Aiur.LandingWatch.PrRerunTest do
 
     assert :ok = LandingWatch.process(observation(), opts(path, mixed))
     refute_received {:rerun, _}
-    refute_received {:comment, _, _}
-    assert {:ok, [%{"pr" => 17, "action" => "refresh", "reason" => "superseded job name", "checks" => ["lint", "ci gate"]}]} = Journal.rerun_backlog(journal_path: path)
+    assert_received {:update_branch, 17, "head-sha"}
+    assert_received {:comment, 17, "Landing watcher updated the branch from the base after failed CI (lint, ci gate) on approved head `head-sha`: superseded job name."}
+  end
+
+  test "a failed gate with cancelled siblings on an auto-merging PR is rerun, not left waiting" do
+    armed = %{observation() | auto_merge_request: %{"enabledAt" => "2026-10-17T00:29:00Z"}}
+    cancelled = %{"id" => 52, "run_id" => 98, "name" => "test (1/4)", "status" => "completed", "conclusion" => "cancelled", "started_at" => @started, "check_suite" => %{"id" => 100}}
+
+    runs = [ci_status_fun: fn _, _ -> {:ok, %{check_runs: [failed_gate(), cancelled], commit_status: %{"state" => "success", "statuses" => []}}} end]
+    assert :ok = LandingWatch.process(armed, opts(journal_path(), runs ++ [rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:rerun, "known flake"}} end]))
+    assert_received {:rerun, 99}
+
+    refresh = runs ++ [rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:refresh, "merge ref predates a fix on the base branch"}} end]
+    assert :ok = LandingWatch.process(armed, opts(journal_path(), refresh))
+    assert_received {:update_branch, 17, "head-sha"}
+
+    assert :ok = LandingWatch.process(armed, opts(journal_path(), runs ++ [rerun_classifier_fun: fn _, _, _, _ -> {:ok, :rework} end]))
+    refute_received {:rework, _}
+  end
+
+  test "a refresh whose base changes touch the PR's own files goes to the worker, not update-branch" do
+    path = journal_path()
+    armed = %{observation() | auto_merge_request: %{"enabledAt" => "2026-10-17T00:29:00Z"}}
+    overlap = [base_changes_fun: fn _, _, _ -> {:ok, ["src/lib/aiur/feature.ex"]} end, rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:refresh, "superseded job name"}} end]
+
+    assert :ok = LandingWatch.process(armed, opts(path, overlap))
+    refute_received {:update_branch, _, _}
+    assert_received {:rework, [%{name: "Base changed this PR's files", excerpt: excerpt}]}
+    assert excerpt =~ "src/lib/aiur/feature.ex"
+
+    assert :ok = LandingWatch.process(armed, opts(path, rerun_classifier_fun: fn _, _, _, _ -> flunk("the overlap verdict is cached") end))
+    assert {:ok, []} = Journal.rerun_backlog(journal_path: path)
+  end
+
+  test "a cancelled-only run set still alerts the person cancel and reruns nothing" do
+    cancelled = %{failed_gate() | "conclusion" => "cancelled"}
+    parent = self()
+
+    cancel = [
+      ci_status_fun: fn _, _ -> {:ok, %{check_runs: [cancelled], commit_status: %{"state" => "success", "statuses" => []}}} end,
+      alert_emitter: fn topic, _ -> send(parent, {:alert, topic}) && :ok end,
+      rerun_classifier_fun: fn _, _, _, _ -> flunk("a person cancel is not classified") end
+    ]
+
+    assert :ok = LandingWatch.process(observation(), opts(journal_path(), cancel))
+    assert_received {:alert, "ticket.17.pr.ci_recovery.rerun_skipped"}
+    refute_received {:rerun, _}
+  end
+
+  test "a refresh deferred by the shared cap waits in the backlog, then updates the branch" do
+    path = journal_path()
+    for _ <- 1..3, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
+    refresh = [rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:refresh, "superseded job name"}} end]
+
+    assert :ok = LandingWatch.process(observation(), opts(path, refresh))
+    refute_received {:update_branch, _, _}
+    assert {:ok, [%{"pr" => 17, "action" => "refresh", "reason" => "superseded job name"}]} = Journal.rerun_backlog(journal_path: path)
+
+    later = [now_ms: @started_ms + 3_600_000 + 15 * 60_000, rerun_classifier_fun: fn _, _, _, _ -> flunk("a deferred refresh keeps its reason") end]
+    assert :ok = LandingWatch.process(observation(), opts(path, later))
+    assert_received {:update_branch, 17, "head-sha"}
+    assert {:ok, []} = Journal.rerun_backlog(journal_path: path)
+  end
+
+  test "a refresh waiting for the shared cap does not repeat overlap reads" do
+    path = journal_path()
+    for _ <- 1..3, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
+    refresh = [rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:refresh, "superseded job name"}} end]
+    assert :ok = LandingWatch.process(observation(), opts(path, refresh))
+
+    waiting = [base_changes_fun: fn _, _, _ -> flunk("cap-refused refresh must skip base compare") end, changed_paths_fun: fn _, _ -> flunk("cap-refused refresh must skip changed paths") end]
+    assert :ok = LandingWatch.process(observation(), opts(path, waiting))
+    refute_received {:update_branch, _, _}
+  end
+
+  test "a corrupt per-head journal entry returns an error instead of crashing the poll" do
+    path = journal_path()
+    File.write!(path, ~s({"17:head-sha":{"rerun_count":"x"}}))
+    armed = %{observation() | auto_merge_request: %{"enabledAt" => "2026-10-17T00:29:00Z"}}
+
+    refresh = [rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:refresh, "stale merge ref"}} end]
+
+    assert {:error, :invalid_landing_watch_journal_entry} = LandingWatch.process(armed, opts(path, refresh))
   end
 
   defp assert_refresh(path, reason) do
     refute_received {:rerun, _}
-    refute_received {:comment, _, _}
-    assert {:ok, [%{"pr" => 17, "action" => "refresh", "reason" => ^reason, "checks" => ["ci gate"]}]} = Journal.rerun_backlog(journal_path: path)
+    assert_received {:update_branch, 17, "head-sha"}
+    assert_received {:comment, 17, body}
+    assert body =~ "Landing watcher updated the branch from the base after failed CI (ci gate) on approved head `head-sha`: #{reason}."
+    assert {:ok, []} = Journal.rerun_backlog(journal_path: path)
   end
 
   defp run_watcher(observation, path, now) do
@@ -248,6 +331,11 @@ defmodule Aiur.LandingWatch.PrRerunTest do
         job_log_fun: fn _, _ -> {:ok, @flaky_log} end,
         rerun_fun: fn id, _ ->
           send(parent, {:rerun, id})
+          {:ok, %{}}
+        end,
+        base_changes_fun: fn "head-sha", "main", _ -> {:ok, ["README.md"]} end,
+        update_branch_fun: fn number, head, _ ->
+          send(parent, {:update_branch, number, head})
           {:ok, %{}}
         end,
         comment_fun: fn number, body, _ ->

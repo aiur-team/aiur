@@ -29,7 +29,7 @@ todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelle
 | `agent:rework` | CI or review requires another run. |
 | `agent:merging` | An accepted PR entering merge. Active for polling but **never dispatchable**. |
 | `agent:done` | Work complete. Terminal. |
-| `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. With `pr_health.enabled`, an error ticket whose open PR has a blocking `CHANGES_REQUESTED` review moves to `agent:rework` once per review (`system.pr_health.error_rework`). |
+| `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. With `pr_health.enabled`, an error ticket whose open, non-draft PR has a blocking `CHANGES_REQUESTED` review at its head moves to `agent:rework` once per review. |
 | `agent:cancelled` / `agent:canceled` | Terminal cancellation. **Both spellings exist**; both are real labels. |
 
 The terminal states are exactly `done | cancelled | canceled`
@@ -115,7 +115,10 @@ commit is not a branch commit since the review, or if no such commit changed
 the item's file. Merge commits do not count.
 
 The write is also refused with no commit since the review, unless every item
-is disputed, and while GitHub reports the PR conflicting. The verified answers
+is disputed or the PR body was edited after the review. A body edit covers a
+body-only fix; a `fixed` item still needs its commit.
+
+The write is also refused while GitHub reports the PR conflicting. The verified answers
 are posted as a `## Rework checklist` ticket comment for the re-review.
 
 Harmless base movement needs no merge or CI rerun. Workers check before handoff
