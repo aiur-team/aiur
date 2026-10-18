@@ -259,7 +259,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
         if Enum.any?(blocking, &open_pull_request_has_unresolved_findings?(&1, opts)) do
           {:ok, "rework"}
         else
-          {:ok, if(Enum.any?(blocking, &(ReworkGate.post_agent_handoff_target(&1, "human-review", opts) == "ci-wait")), do: "ci-wait", else: "human-review")}
+          {:ok, if(Enum.all?(blocking, &(ReworkGate.post_agent_handoff_target(&1, "human-review", opts) == "ci-wait")), do: "ci-wait", else: "human-review")}
         end
     end
   end

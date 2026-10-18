@@ -220,8 +220,9 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
     end
   end
 
-  # #3971: a stopped rework agent whose head did not move in this run.
-  describe "stopped_agent_handoff/3 with an unmoved head" do
+  # #3971: stopped rework handoffs when the agent head moved or a superseded
+  # review can safely hand off.
+  describe "stopped_agent_handoff/3" do
     @pr %{"number" => 42, "head" => %{"sha" => "head"}}
 
     defp handoff(reviews, extra \\ []) do
@@ -258,6 +259,13 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
                pull_request_approval_fetcher: fn 42 -> {:ok, {"head", "approved-head"}} end,
                approval_carry_classifier: fn "approved-head", "head", 42, _ -> :carried end,
                commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{}}} end
+             ) == {:handoff, "ci-wait"}
+    end
+
+    test "a superseded review handoff routes to ci-wait when approval carries to the current head" do
+      assert handoff([review("older")],
+               pull_request_approval_fetcher: fn 42 -> {:ok, {"head", "approved-head"}} end,
+               approval_carry_classifier: fn "approved-head", "head", 42, _ -> :carried end
              ) == {:handoff, "ci-wait"}
     end
 
@@ -306,5 +314,17 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
              pull_request_approval_fetcher: fn 42 -> {:ok, {"new-head", "new-head"}} end,
              commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{}}} end
            ) == {:handoff, "ci-wait"}
+  end
+
+  test "a completed agent handoff with a blocking review at the current head routes to rework" do
+    pr = %{"number" => 42, "head" => %{"sha" => "new-head"}}
+    review = %{"state" => "CHANGES_REQUESTED", "commit_id" => "new-head", "user" => %{"login" => "reviewer"}, "submitted_at" => "2026-10-17T00:00:00Z", authoritative: true}
+
+    assert ReworkGate.completed_agent_handoff("3971", "old-head",
+             open_pr_fetcher: fn _ -> {:ok, pr} end,
+             reviews_fetcher: fn _ -> {:ok, [review]} end,
+             pull_request_approval_fetcher: fn 42 -> {:ok, {"new-head", "new-head"}} end,
+             commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{}}} end
+           ) == {:handoff, "rework"}
   end
 end

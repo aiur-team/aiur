@@ -4,6 +4,7 @@ defmodule Aiur.PRLifecycle.PostAgentRouting do
   alias Aiur.CodeHost
   alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.PRLifecycle.ReviewFindings
 
   @doc "Routes an open PR to rework, CI wait, or the caller's fallback state."
   @spec route(map(), String.t(), keyword()) :: String.t()
@@ -34,25 +35,15 @@ defmodule Aiur.PRLifecycle.PostAgentRouting do
   @spec blocking_reviews([map()]) :: [map()]
   def blocking_reviews(reviews) do
     reviews
-    |> Enum.filter(&(&1["state"] in ~w(APPROVED CHANGES_REQUESTED DISMISSED) or blocking_body?(&1["body"])))
+    |> Enum.filter(&(&1["state"] in ~w(APPROVED CHANGES_REQUESTED DISMISSED) or ReviewFindings.blocking_body?(&1["body"])))
     |> Enum.group_by(&get_in(&1, ["user", "login"]))
     |> Enum.map(fn {_author, submissions} -> Enum.max_by(submissions, &{&1["submitted_at"], &1["id"]}) end)
     |> Enum.filter(fn review ->
       review[:authoritative] == true and
         (review["state"] == "CHANGES_REQUESTED" or
-           (review["state"] == "COMMENTED" and blocking_body?(review["body"])))
+           (review["state"] == "COMMENTED" and ReviewFindings.blocking_body?(review["body"])))
     end)
   end
-
-  defp blocking_body?(body) when is_binary(body) do
-    body = String.trim(body)
-
-    not String.match?(body, ~r/\b(?:no (?:blockers|blocking (?:findings|issues))|all blockers (?:addressed|resolved))\b/i) and
-      (String.match?(body, ~r/^(?:\s*\#{1,6})?\s*(?:blocking(?: findings| issues)?|blockers?|must fix|changes required)\s*:/im) or
-         String.match?(body, ~r/\b(?:update|rebase|merge|fix)\b[^\n.!?]*\bbefore merge\b/i))
-  end
-
-  defp blocking_body?(_body), do: false
 
   @doc false
   @spec approved?(integer(), keyword()) :: boolean()

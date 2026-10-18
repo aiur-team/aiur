@@ -62,11 +62,11 @@ defmodule Aiur.AgentRunner.ApprovedHandoffTest do
     assert_receive {:state_write, "ci-wait"}, 100
   end
 
-  test "a current blocking review keeps the handback in rework even when approval data exists" do
+  test "an accepted body-only rework handback stays in human-review despite the blocking review" do
     review = %{"state" => "CHANGES_REQUESTED", "commit_id" => "merged-head", "submitted_at" => "2026-10-18T00:00:00Z", "user" => %{"login" => "reviewer"}, authoritative: true}
     response = hand_back(%Issue{id: "gid", identifier: "4965", state: "in-progress"}, {:ok, {"merged-head", "merged-head"}}, merge_only_classifier(self()), [review])
 
     assert response["success"]
-    assert_receive {:state_write, "rework"}, 100
+    assert_receive {:state_write, "human-review"}, 100
   end
 end

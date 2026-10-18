@@ -14,8 +14,13 @@ defmodule Aiur.AgentRunner.ApprovedHandoff do
   @spec target_state(Issue.t(), String.t(), keyword()) :: String.t()
   def target_state(%Issue{} = issue, "human-review", opts) do
     case ReworkGate.open_pr(issue.identifier, opts) do
-      {:ok, pr} -> ReworkGate.post_agent_handoff_target(pr, "human-review", opts)
-      _ -> "human-review"
+      {:ok, pr} ->
+        if ReworkGate.post_agent_handoff_target(pr, "human-review", opts) == "ci-wait",
+          do: "ci-wait",
+          else: "human-review"
+
+      _ ->
+        "human-review"
     end
   end
 
