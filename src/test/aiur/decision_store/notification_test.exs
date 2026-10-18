@@ -11,7 +11,8 @@ defmodule Aiur.DecisionStore.NotificationTest do
       :ok = Exchange.subscribe("executor.decision.requested")
       :ok = DecisionPubSub.subscribe()
 
-      payload = %{"question" => "Deploy now?", "blocking" => true, "source_id" => "retry-1"}
+      source_id = "notification-#{System.unique_integer([:positive])}"
+      payload = %{"question" => "Deploy now?", "blocking" => true, "source_id" => source_id}
       assert {:ok, %{status: :accepted, decision: decision}} = request(pid, payload)
       decision_id = decision.decision_id
 
@@ -51,7 +52,8 @@ defmodule Aiur.DecisionStore.NotificationTest do
 
     test "a duplicate does not fan out again", %{dir: dir} do
       pid = start_store!(dir)
-      payload = %{"question" => "Deploy now?", "blocking" => true, "source_id" => "retry-1"}
+      source_id = "notification-duplicate-#{System.unique_integer([:positive])}"
+      payload = %{"question" => "Deploy now?", "blocking" => true, "source_id" => source_id}
       assert {:ok, %{decision: decision}} = request(pid, payload)
       decision_id = decision.decision_id
 

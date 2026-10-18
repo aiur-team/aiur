@@ -6,12 +6,13 @@ defmodule Aiur.DecisionStore.EnrichmentTest do
   describe "supervisor enrichment" do
     test "persists attributed enrichment before notification and survives restart", %{dir: dir} do
       pid1 = start_store!(dir)
+      source_id = "supervisor-enrichment-#{System.unique_integer([:positive])}"
 
       assert {:ok, %{decision: v1}} =
                request(pid1, %{
                  "question" => "Which architecture?",
                  "blocking" => true,
-                 "source_id" => "supervisor-enrichment",
+                 "source_id" => source_id,
                  "kind" => "architecture",
                  "authority" => "supervisor_allowed",
                  "reversibility" => "reversible"

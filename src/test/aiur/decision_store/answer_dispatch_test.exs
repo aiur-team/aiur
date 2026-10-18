@@ -14,12 +14,13 @@ defmodule Aiur.DecisionStore.AnswerDispatchTest do
       end
 
       pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      source_id = "answer-dispatch-#{System.unique_integer([:positive])}"
 
       assert {:ok, %{decision: decision}} =
                request(pid, %{
                  "question" => "Deploy now?",
                  "blocking" => true,
-                 "source_id" => "answer-1",
+                 "source_id" => source_id,
                  "options" => [%{"id" => "ship", "label" => "Ship it"}]
                })
 
