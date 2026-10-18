@@ -70,8 +70,9 @@ defmodule Aiur.BackgroundCpu do
   def scan(proc_root, daemon_nice, daemon_pid) when is_integer(daemon_nice) and is_integer(daemon_pid) and daemon_pid > 0 do
     with {:ok, entries} <- File.ls(proc_root),
          pids = Enum.filter(entries, &numeric?/1),
-         true <- length(pids) <= @max_processes,
-         processes = read_processes(proc_root, pids) do
+         true <- length(pids) <= @max_processes do
+      processes = read_processes(proc_root, pids)
+
       processes
       |> Enum.reject(fn {pid, process} -> process.nice <= daemon_nice or daemon_descendant?(pid, processes, daemon_pid) end)
       |> Map.new(fn {pid, process} -> {{pid, process.start}, process.ticks} end)
