@@ -107,6 +107,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     rework_attempts: :pr_lifecycle,
     rework_attempt_alerted: :pr_lifecycle,
     merged_ticket_reconciliations: :pr_lifecycle,
+    merged_ticket_issue_cache: :pr_lifecycle,
     merged_ticket_reconciliation_failures: :pr_lifecycle,
     restack_completed: :pr_lifecycle,
     queue_store: :messaging,
