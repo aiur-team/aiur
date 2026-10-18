@@ -5,7 +5,7 @@ import os
 import sys
 
 
-def required_jobs(event, full, dialyzer):
+def required_jobs(event, full, dialyzer, home_changed=False):
     if event not in ('pull_request', 'merge_group', 'workflow_dispatch', 'push'):
         raise ValueError(f'unsupported CI event: {event}')
     if event != 'pull_request' and not full:
@@ -13,6 +13,8 @@ def required_jobs(event, full, dialyzer):
     jobs = ['changes', 'workflow-security', 'pre-handoff', 'lint']
     if event == 'pull_request':
         jobs.append('soak')  # soak.yml repeats the PR's changed tests; it succeeds when there are none.
+    if event == 'merge_group' and home_changed:
+        jobs.append('home-parity')
     if full:
         return jobs + ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css',
                        'layout-release', 'analytics', 'streamdeck']
@@ -33,7 +35,12 @@ def main():
     if dialyzer not in ('true', 'false'):
         print('CI gate failed: missing or invalid dialyzer classification', file=sys.stderr)
         return 1
-    required = required_jobs(os.environ['EVENT_NAME'], full == 'true', dialyzer == 'true')
+    event = os.environ['EVENT_NAME']
+    home_changed = outputs.get('home_changed')
+    if event == 'merge_group' and home_changed not in ('true', 'false'):
+        print('CI gate failed: missing or invalid home_changed classification', file=sys.stderr)
+        return 1
+    required = required_jobs(event, full == 'true', dialyzer == 'true', home_changed == 'true')
     failed = [job for job in required if needs.get(job, {}).get('result') != 'success']
     if failed:
         if 'affected-tests' in failed and needs['affected-tests'].get('result') == 'cancelled':

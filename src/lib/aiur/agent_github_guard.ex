@@ -13,7 +13,9 @@ defmodule Aiur.AgentGitHubGuard do
   alias Aiur.AgentGitHubGuard.{AgentToken, RemoteInstall, Script}
 
   @broker_path Path.expand("../../priv/github_budget.py", __DIR__)
+  @broker_metrics_path Path.expand("../../priv/github_budget_metrics.py", __DIR__)
   @external_resource @broker_path
+  @external_resource @broker_metrics_path
   @gh_script Aiur.AgentGitHubGuard.RecursionGuard.splice(Script.gh(), "gh")
   @git_script Aiur.AgentGitHubGuard.RecursionGuard.splice(Aiur.AgentGitHubGuard.GitScript.compose(Script.git()), "git")
   # The budget broker is embedded at compile time and re-installed into every
@@ -40,7 +42,13 @@ defmodule Aiur.AgentGitHubGuard do
   # daemon-run broker in its own workspace — the same tension the issue called
   # out for either choice.
   @broker File.read!(@broker_path)
-  @scripts [{"gh", @gh_script}, {"git", @git_script}, {"aiur-github-budget", @broker}]
+  @broker_metrics File.read!(@broker_metrics_path)
+  @scripts [
+    {"gh", @gh_script},
+    {"git", @git_script},
+    {"aiur-github-budget", @broker},
+    {"github_budget_metrics.py", @broker_metrics}
+  ]
   @relative_bin_dir ".aiur-runtime/bin"
   @relative_gh_config_dir ".aiur-runtime/gh"
   @relative_quota_dir ".aiur-runtime/github-quota"
@@ -165,6 +173,7 @@ defmodule Aiur.AgentGitHubGuard do
          :ok <- atomic_install(Path.join(bin, "gh"), @gh_script),
          :ok <- atomic_install(Path.join(bin, "git"), @git_script),
          :ok <- atomic_install(Path.join(bin, "aiur-github-budget"), @broker),
+         :ok <- atomic_install(Path.join(bin, "github_budget_metrics.py"), @broker_metrics),
          :ok <- retire_legacy_host_guard() do
       :ok
     else

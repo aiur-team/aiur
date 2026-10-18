@@ -13,7 +13,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
-    CommentPolling,
+    CommentPollingState,
     CommentWake,
     ControlLifecycleStore,
     DispatchPolicy,
@@ -215,7 +215,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     # The comment poll owns linked target tasks whose guarded request workers
     # may still hold GitHub sockets. Reap that tree before this owner exits so
     # an orderly stop never overlaps it with a successor's first poll.
-    _ = CommentPolling.terminate_poll(state.github_comment_poll)
+    _ = CommentPollingState.terminate_poll(state.github_comment_cursor.poll)
 
     # Comment-rework retries reschedule themselves for up to a minute with
     # escalating delays. Cancel them here so a stopping orchestrator never leaves

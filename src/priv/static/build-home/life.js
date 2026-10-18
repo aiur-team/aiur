@@ -16,7 +16,7 @@ export function createLife() {
     },
     frame(key, fn) {
       if (frames.has(key)) return;
-      frames.set(key, requestAnimationFrame(() => { frames.delete(key); fn(); }));
+      frames.set(key, requestAnimationFrame(now => { frames.delete(key); fn(now); }));
     },
     observe(el, fn) {
       const ro = new ResizeObserver(fn); ro.observe(el);

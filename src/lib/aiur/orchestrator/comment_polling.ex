@@ -1,852 +1,190 @@
 defmodule Aiur.Orchestrator.CommentPolling do
-  @moduledoc """
-  GitHub comments poll driver.
-
-  Comment polls run in supervised tasks. Their results update
-  only the corresponding cursors and caches in the current owner state.
-  `start_async/2` issues the comment poll and `apply_async/3` folds the answer in.
-  `poll_github_comments/2` still does both in one step for callers that want the
-  synchronous shape.
-  """
-
+  @moduledoc "GitHub comment-poll driver on explicit cursors and plain inputs; process ownership is unchanged."
   require Logger
-
   alias Aiur.{Config, PollCadence}
   alias Aiur.Events.GithubCommentsPoller
-  alias Aiur.GitHub.CommentPollBatch
-  alias Aiur.Orchestrator.CommentPolling.TargetSelection
-  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State, TrackerHealth}
+  alias Aiur.Orchestrator.CommentPolling.{Cursor, Input, OwnedPoll, Poll, Reconcile, TargetSelection}
+  alias Aiur.Orchestrator.{State, TrackerHealth}
+  @retry_delay_ms 5_000
+  @abandon_margin_ms 30_000
 
-  @comment_poll_setup_timeout_ms 300_000
-  @comment_poll_abandon_margin_ms 30_000
-  @reconcile_retry_delay_ms 5_000
+  @spec input(State.t()) :: Input.t()
+  def input(%State{} = state) do
+    entries = Map.values(state.running)
 
-  @spec poll_github_comments(State.t(), keyword()) :: State.t()
-  def poll_github_comments(%State{} = state, opts \\ []) do
-    case Config.tracker_kind() do
-      # Comment polling always runs at the configured cadence. #1384 scoped a
-      # widen-on-quiet backoff, but it is deliberately not implemented: a global
-      # quiet gate is inert whenever any agent is running (the case the rate
-      # incident is about) and a per-target one would delay a new ticket's first
-      # comment wake, which the ticket lists as a non-goal. The steady-state
-      # saving comes from 304s and the GraphQL batch, not from skipping cycles.
-      "github" ->
-        do_poll_github_comments(state, opts)
+    titles =
+      Enum.reduce(entries, %{}, fn entry, acc ->
+        with identifier when is_binary(identifier) and identifier != "" <- Map.get(entry, :identifier),
+             %{title: title} when is_binary(title) and title != "" <- Map.get(entry, :issue) do
+          Map.put(acc, identifier, title)
+        else
+          _other -> acc
+        end
+      end)
 
-      _ ->
-        state
-    end
+    %Input{
+      running_targets: TargetSelection.normalize_comment_targets(Enum.map(entries, &Map.get(&1, :identifier))),
+      running_titles: titles,
+      ownership_key: state.snapshot_key,
+      next_github_delay_ms: TrackerHealth.github_next_poll_delay_ms(state)
+    }
   end
 
-  defp do_poll_github_comments(%State{} = state, opts) do
-    apply_comment_poll(state, run_comment_poll(state, opts))
+  @spec poll_github_comments(Cursor.t(), Input.t(), keyword()) :: {Cursor.t(), map()}
+  def poll_github_comments(%Cursor{} = cursor, %Input{} = input, opts \\ []) do
+    if Config.tracker_kind() == "github", do: Poll.apply(cursor, Poll.run(cursor, input, opts)), else: {cursor, %{}}
   end
 
-  @doc """
-  Starts the comment poll on another process and returns immediately.
-
-  The poll fans out over every watched target with `Task.async_stream` and the
-  Orchestrator used to consume that stream inline from its dispatch callback:
-  captured on an *idle* host (load 1.68, quota healthy) parked in
-  `Task.Supervised.stream_reduce/7` under `do_maybe_dispatch/1` with 5,729
-  messages queued behind it, while `aiur status` and `aiur agents` both timed
-  out. A per-request deadline cannot bound that — awaiting N targets costs N
-  deadlines — so the fetch leaves the callback entirely and comes back as
-  `{:github_comments_polled, ref, payload}`, which `apply_async/3` folds in.
-
-  One poll at a time: a second is not started while one is outstanding, or two
-  fan-outs would race the same cursors. That skip is time-boxed rather than
-  latched — a worker that dies without answering would otherwise silence comment
-  polling for the life of the daemon, and silence is exactly what this poller
-  exists to prevent.
-  """
-  @spec start_async(State.t(), keyword()) :: State.t()
-  def start_async(%State{} = state, opts \\ []) do
+  @spec start_async(Cursor.t(), Input.t(), keyword()) :: {Cursor.t(), map()}
+  def start_async(%Cursor{} = cursor, %Input{} = input, opts \\ []) do
     now_ms = System.monotonic_time(:millisecond)
 
     cond do
-      tracker_kind(opts) != "github" -> state
-      within_review_cadence?(state, now_ms) -> state
-      true -> maybe_spawn_comment_poll(state, opts, now_ms)
+      Keyword.get_lazy(opts, :tracker_kind, &Config.tracker_kind/0) != "github" ->
+        {cursor, %{}}
+
+      PollCadence.within_class_cadence?(cursor.last_started_at_ms, now_ms, :review) ->
+        {cursor, %{}}
+
+      true ->
+        case prepare_start(cursor, input, opts, now_ms) do
+          {:busy, cursor} -> {cursor, %{}}
+          {:ready, cursor} -> {spawn_poll(cursor, input, opts, now_ms), %{}}
+        end
     end
   end
 
-  defp maybe_spawn_comment_poll(state, opts, now_ms) do
-    case prepare_comment_poll_start(state, now_ms) do
-      {:busy, state} -> state
-      {:ready, state} -> spawn_comment_poll(state, opts, now_ms)
-    end
-  end
+  @spec request_reconcile(Cursor.t(), Input.t(), map(), keyword()) :: {Cursor.t(), map()}
+  def request_reconcile(cursor, input, hint, opts \\ [])
 
-  defp tracker_kind(opts), do: Keyword.get_lazy(opts, :tracker_kind, &Config.tracker_kind/0)
-
-  @doc false
-  @spec request_reconcile(State.t(), map(), keyword()) :: State.t()
-  def request_reconcile(state, hint, opts \\ [])
-
-  def request_reconcile(%State{} = state, %{kind: :review_thread, ticket: ticket}, opts)
-      when is_binary(ticket) do
+  def request_reconcile(%Cursor{} = cursor, %Input{} = input, %{kind: :review_thread, ticket: ticket}, opts) when is_binary(ticket) do
     case String.trim(ticket) do
-      "" ->
-        state
-
-      target ->
-        state
-        |> admit_reconcile_targets(MapSet.new([target]), opts)
-        |> schedule_reconcile()
+      "" -> {cursor, %{}}
+      target -> {cursor |> Reconcile.admit(MapSet.new([target]), opts) |> Reconcile.schedule(input, 0, false, opts), %{}}
     end
   end
 
-  def request_reconcile(%State{} = state, _hint, _opts), do: state
+  def request_reconcile(%Cursor{} = cursor, %Input{}, _hint, _opts), do: {cursor, %{}}
 
-  # Throttles the comment poll to the `:review` class cadence (#2309). See
-  # `PollCadence.within_class_cadence?/3` for the two limits that keep this a
-  # no-op where it must be (never fired, or nothing published yet). The class
-  # cadence is the safety-net price for a review poll that no longer runs at the
-  # dispatch rate once an operator sets `intervals.review` wider — the tradeoff
-  # #2309 exists to make, and webhooks cover the arrival of a comment in the
-  # meantime.
-  #
-  # The divergence is *enforced*, not asserted: `TrackerHealth` publishes a
-  # `:review` cadence wider than the dispatch tick only when the repo is proven
-  # webhook-backed, so on a polling repo the published `:review` value equals
-  # the dispatch cadence and this gate never binds — the safety net stays at the
-  # dispatch rate. This is the "no webhook installed: nothing is ever
-  # suppressed" contract (see `apis/github.md`).
-  defp within_review_cadence?(state, now_ms) do
-    PollCadence.within_class_cadence?(state.last_comment_poll_started_at_ms, now_ms, :review)
+  @spec apply_async(Cursor.t(), Input.t(), reference(), term(), keyword()) :: {Cursor.t(), map()}
+  def apply_async(cursor, input, ref, payload, opts \\ [])
+
+  def apply_async(%Cursor{poll: %{ref: ref} = poll} = cursor, %Input{}, ref, payload, _opts) do
+    OwnedPoll.release_poll_owner(poll)
+    OwnedPoll.demonitor_comment_poll(poll)
+    retry_targets = Reconcile.failed_targets(poll, payload)
+    {cursor, outcome} = cursor |> Map.put(:poll, nil) |> Reconcile.requeue(retry_targets) |> Poll.apply(payload)
+    retry? = MapSet.size(retry_targets) > 0
+    {cursor, Map.put(outcome, :reconcile, {if(retry?, do: @retry_delay_ms, else: 0), retry?})}
   end
 
-  @doc """
-  Folds a completed asynchronous comment poll into the current state.
+  def apply_async(%Cursor{} = cursor, %Input{}, _stale_ref, _payload, _opts), do: {cursor, %{}}
 
-  Results from an abandoned or superseded poll are dropped: the reference names
-  the poll this state is waiting for, and anything else is a straggler whose
-  cursors would move the fleet backwards.
-  """
-  @spec apply_async(State.t(), reference(), term()) :: State.t()
-  def apply_async(%State{github_comment_poll: %{ref: ref} = poll} = state, ref, payload) do
-    release_poll_owner(poll)
-    demonitor_comment_poll(poll)
-    retry_targets = failed_reconcile_targets(poll, payload)
+  @spec apply_async_started(Cursor.t(), Input.t(), reference(), pid(), pid(), keyword()) :: {Cursor.t(), map()}
+  def apply_async_started(cursor, input, ref, owner, pid, opts \\ [])
 
-    state =
-      state
-      |> Map.put(:github_comment_poll, nil)
-      |> requeue_reconcile_targets(retry_targets)
-      |> apply_comment_poll(payload)
-
-    minimum_delay_ms = if MapSet.size(retry_targets) > 0, do: @reconcile_retry_delay_ms, else: 0
-    schedule_reconcile(state, minimum_delay_ms, MapSet.size(retry_targets) > 0)
-  end
-
-  def apply_async(%State{} = state, _stale_ref, _payload), do: state
-
-  @doc false
-  @spec apply_async_started(State.t(), reference(), pid(), pid()) :: State.t()
-  def apply_async_started(%State{github_comment_poll: %{ref: ref, owner: owner} = pending} = state, ref, owner, pid) do
+  def apply_async_started(%Cursor{poll: %{ref: ref, owner: owner} = pending} = cursor, %Input{}, ref, owner, pid, _opts) do
     monitor_ref = Process.monitor(pid)
     send(owner, {:start_owned_poll, self(), ref})
-
-    poll =
-      pending
-      |> Map.put(:pid, pid)
-      |> Map.put(:monitor_ref, monitor_ref)
-      |> Map.put(:guarding?, false)
-
-    %{state | github_comment_poll: poll}
+    poll = pending |> Map.put(:pid, pid) |> Map.put(:monitor_ref, monitor_ref) |> Map.put(:guarding?, false)
+    {%{cursor | poll: poll}, %{}}
   end
 
-  def apply_async_started(%State{} = state, _stale_ref, owner, _pid) do
-    stop_ref = make_ref()
-    send(owner, {:stop_owned_poll, self(), stop_ref})
-    state
-  end
-
-  @doc false
-  @spec apply_async_guarding(State.t(), reference(), pid(), pid()) :: State.t()
-  def apply_async_guarding(
-        %State{github_comment_poll: %{ref: ref, owner: owner, pid: pid} = poll} = state,
-        ref,
-        owner,
-        pid
-      ) do
-    %{state | github_comment_poll: Map.put(poll, :guarding?, true)}
-  end
-
-  def apply_async_guarding(%State{} = state, _stale_ref, owner, _pid) do
+  def apply_async_started(%Cursor{} = cursor, %Input{}, _stale_ref, owner, _pid, _opts) do
     send(owner, {:stop_owned_poll, self(), make_ref()})
-    state
+    {cursor, %{}}
   end
+
+  @spec apply_async_guarding(Cursor.t(), Input.t(), reference(), pid(), pid(), keyword()) :: {Cursor.t(), map()}
+  def apply_async_guarding(cursor, input, ref, owner, pid, opts \\ [])
+
+  def apply_async_guarding(%Cursor{poll: %{ref: ref, owner: owner, pid: pid} = poll} = cursor, %Input{}, ref, owner, pid, _opts),
+    do: {%{cursor | poll: Map.put(poll, :guarding?, true)}, %{}}
+
+  def apply_async_guarding(%Cursor{} = cursor, %Input{}, _stale_ref, owner, _pid, _opts) do
+    send(owner, {:stop_owned_poll, self(), make_ref()})
+    {cursor, %{}}
+  end
+
+  @spec apply_async_down(Cursor.t(), Input.t(), reference(), keyword()) :: {Cursor.t(), map()}
+  def apply_async_down(cursor, input, ref, opts \\ [])
+
+  def apply_async_down(%Cursor{poll: %{owner_monitor_ref: ref} = poll} = cursor, %Input{}, ref, _opts) do
+    OwnedPoll.reap_poll_after_owner_down(poll)
+    down_outcome(cursor, poll)
+  end
+
+  def apply_async_down(%Cursor{poll: %{monitor_ref: ref} = poll} = cursor, %Input{}, ref, _opts) do
+    OwnedPoll.release_poll_owner(poll)
+    OwnedPoll.demonitor_owner(poll)
+    down_outcome(cursor, poll)
+  end
+
+  def apply_async_down(%Cursor{} = cursor, %Input{}, _stale_ref, _opts), do: {cursor, %{handled?: false}}
+
+  defp down_outcome(cursor, poll),
+    do: {cursor |> Reconcile.reclaim(poll) |> Map.put(:poll, nil), %{handled?: true, reconcile: {@retry_delay_ms, true}}}
+
+  @spec run_scheduled_reconcile(Cursor.t(), Input.t(), reference(), keyword()) :: {Cursor.t(), map()}
+  def run_scheduled_reconcile(cursor, input, token, opts \\ [])
+
+  def run_scheduled_reconcile(%Cursor{reconcile_timer: %{token: token}} = cursor, %Input{} = input, token, opts) do
+    cursor = %{cursor | reconcile_timer: nil}
+    if Keyword.get(opts, :poll_frozen, false), do: {cursor, %{}}, else: start_async(cursor, input, Keyword.put(opts, :reconcile_only, true))
+  end
+
+  def run_scheduled_reconcile(%Cursor{} = cursor, %Input{}, _stale_token, _opts), do: {cursor, %{}}
 
   @doc false
-  @spec apply_async_down(State.t(), reference()) :: {:handled, State.t()} | :unhandled
-  def apply_async_down(
-        %State{github_comment_poll: %{owner_monitor_ref: owner_monitor_ref} = poll} = state,
-        owner_monitor_ref
-      ) do
-    reap_poll_after_owner_down(poll)
-
-    state =
-      state
-      |> reclaim_reconcile_targets(poll)
-      |> Map.put(:github_comment_poll, nil)
-      |> schedule_reconcile(@reconcile_retry_delay_ms, true)
-
-    {:handled, state}
+  @spec finish(Cursor.t(), Input.t(), map(), keyword()) :: Cursor.t()
+  def finish(%Cursor{} = cursor, %Input{} = input, outcome, opts) do
+    case Map.get(outcome, :reconcile) do
+      {minimum, replace?} -> Reconcile.schedule(cursor, input, minimum, replace?, opts)
+      nil -> cursor
+    end
   end
 
-  def apply_async_down(%State{github_comment_poll: %{monitor_ref: monitor_ref} = poll} = state, monitor_ref) do
-    release_poll_owner(poll)
-    demonitor_owner(poll)
+  @spec reconcile_retry_delay_ms(Input.t()) :: non_neg_integer()
+  def reconcile_retry_delay_ms(%Input{} = input), do: max(@retry_delay_ms, input.next_github_delay_ms || 0)
+  @spec terminate_poll(map() | nil) :: :ok
+  defdelegate terminate_poll(poll), to: OwnedPoll
 
-    state =
-      state
-      |> reclaim_reconcile_targets(poll)
-      |> Map.put(:github_comment_poll, nil)
-      |> schedule_reconcile(@reconcile_retry_delay_ms, true)
-
-    {:handled, state}
-  end
-
-  def apply_async_down(%State{}, _stale_monitor_ref), do: :unhandled
-
-  defp prepare_comment_poll_start(
-         %State{github_comment_poll: %{started_at_ms: started_at_ms, abandon_after_ms: abandon_after_ms}} = state,
-         now_ms
-       )
-       when is_integer(started_at_ms) and is_integer(abandon_after_ms) do
-    if now_ms - started_at_ms < abandon_after_ms do
-      {:busy, state}
+  defp prepare_start(%Cursor{poll: %{started_at_ms: started, abandon_after_ms: deadline}} = cursor, input, opts, now_ms)
+       when is_integer(started) and is_integer(deadline) do
+    if now_ms - started < deadline do
+      {:busy, cursor}
     else
-      Logger.warning(
-        "GithubCommentsPoller poll has not answered in #{abandon_after_ms}ms; " <>
-          "abandoning it and starting a fresh one"
-      )
-
-      poll = state.github_comment_poll
+      Logger.warning("GithubCommentsPoller poll has not answered in #{deadline}ms; abandoning it and starting a fresh one")
+      poll = cursor.poll
       abandon_poll(poll)
+      cursor = cursor |> Reconcile.reclaim(poll) |> Map.put(:poll, nil)
 
-      state =
-        state
-        |> reclaim_reconcile_targets(poll)
-        |> Map.put(:github_comment_poll, nil)
-
-      case TrackerHealth.github_next_poll_delay_ms(state) do
-        delay_ms when is_integer(delay_ms) and delay_ms > 0 ->
-          {:busy, schedule_reconcile(state, delay_ms, true)}
-
-        _no_backoff ->
-          {:ready, state}
+      case input.next_github_delay_ms do
+        delay when is_integer(delay) and delay > 0 -> {:busy, Reconcile.schedule(cursor, input, delay, true, opts)}
+        _no_backoff -> {:ready, cursor}
       end
     end
   end
 
-  defp prepare_comment_poll_start(state, _now_ms), do: {:ready, state}
-
-  defp spawn_comment_poll(%State{} = state, opts, now_ms) do
-    orchestrator = self()
-    ref = make_ref()
-    reconcile_targets = TargetSelection.reconcile_targets_for_poll(state, opts)
-    poll_state = %{state | github_comment_reconcile_targets: reconcile_targets}
-
-    task_fun = fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(poll_state, opts)}) end
-    phase_hook = Keyword.get(opts, :owner_phase_hook)
-    {owner, owner_monitor_ref} = spawn_owned_poll(orchestrator, state.snapshot_key, ref, task_fun, phase_hook)
-    abandon_after_ms = comment_poll_abandon_after_ms(poll_state, opts)
-
-    poll = %{
-      ref: ref,
-      owner: owner,
-      owner_monitor_ref: owner_monitor_ref,
-      started_at_ms: now_ms,
-      abandon_after_ms: abandon_after_ms,
-      reconcile_targets: reconcile_targets
-    }
-
-    %{
-      state
-      | github_comment_poll: poll,
-        github_comment_reconcile_targets: MapSet.difference(state.github_comment_reconcile_targets, reconcile_targets),
-        last_comment_poll_started_at_ms: now_ms
-    }
-  end
-
-  defp reclaim_reconcile_targets(state, %{reconcile_targets: targets}) do
-    admit_reconcile_targets(state, targets, [])
-  end
-
-  defp reclaim_reconcile_targets(state, _poll), do: state
-
-  defp requeue_reconcile_targets(state, targets) do
-    admit_reconcile_targets(state, targets, [])
-  end
-
-  defp admit_reconcile_targets(state, targets, _opts) do
-    # Admission is lossless and deduplicated by ticket identity. The bounded
-    # claim in TargetSelection limits every GraphQL batch; keeping the remainder
-    # here is what lets successive claims drain a burst without pretending an
-    # unrelated capped discovery sweep can reconstruct the dropped identities.
-    %{state | github_comment_reconcile_targets: MapSet.union(state.github_comment_reconcile_targets, targets)}
-  end
-
-  defp failed_reconcile_targets(%{reconcile_targets: targets}, {:error, _reason}), do: targets
-
-  defp failed_reconcile_targets(
-         %{reconcile_targets: targets},
-         {:ok, _cache, _human_review_targets, {_polled_targets, {:ok, %{errors: errors}}}}
-       )
-       when is_list(errors) do
-    failed = errors |> Enum.map(fn {target, _reason} -> to_string(target) end) |> MapSet.new()
-    MapSet.intersection(targets, failed)
-  end
-
-  defp failed_reconcile_targets(%{reconcile_targets: _targets}, {:ok, _cache, _human_review_targets, _outcome}),
-    do: MapSet.new()
-
-  defp failed_reconcile_targets(%{reconcile_targets: targets}, _unrecognised), do: targets
-  defp failed_reconcile_targets(_poll, _payload), do: MapSet.new()
-
-  defp schedule_reconcile(state, minimum_delay_ms \\ 0, replace_timer? \\ false)
-
-  defp schedule_reconcile(%State{poll_frozen: true} = state, _minimum_delay_ms, _replace_timer?), do: state
-
-  defp schedule_reconcile(%State{github_comment_poll: poll} = state, _minimum_delay_ms, _replace_timer?)
-       when not is_nil(poll),
-       do: state
-
-  defp schedule_reconcile(%State{github_comment_reconcile_targets: targets} = state, minimum_delay_ms, replace_timer?) do
-    if MapSet.size(targets) == 0 do
-      cancel_reconcile_timer(state.github_comment_reconcile_timer)
-      %{state | github_comment_reconcile_timer: nil}
-    else
-      delay_ms = max(minimum_delay_ms, TrackerHealth.github_next_poll_delay_ms(state) || 0)
-      due_at_ms = System.monotonic_time(:millisecond) + delay_ms
-      schedule_reconcile_timer(state, delay_ms, due_at_ms, replace_timer?)
-    end
-  end
-
-  defp schedule_reconcile_timer(state, delay_ms, due_at_ms, true),
-    do: replace_reconcile_timer(state, delay_ms, due_at_ms)
-
-  defp schedule_reconcile_timer(
-         %State{github_comment_reconcile_timer: %{delay_ms: delay_ms}} = state,
-         new_delay_ms,
-         _due_at_ms,
-         false
-       )
-       when delay_ms >= new_delay_ms,
-       do: state
-
-  defp schedule_reconcile_timer(%State{} = state, delay_ms, due_at_ms, false),
-    do: replace_reconcile_timer(state, delay_ms, due_at_ms)
-
-  defp replace_reconcile_timer(%State{} = state, delay_ms, due_at_ms) do
-    cancel_reconcile_timer(state.github_comment_reconcile_timer)
-    token = make_ref()
-    message = {:run_github_comment_reconcile, token}
-
-    timer_ref =
-      if delay_ms == 0 do
-        send(self(), message)
-        nil
-      else
-        Process.send_after(self(), message, delay_ms)
-      end
-
-    %{
-      state
-      | github_comment_reconcile_timer: %{
-          token: token,
-          timer_ref: timer_ref,
-          delay_ms: delay_ms,
-          due_at_ms: due_at_ms
-        }
-    }
-  end
-
-  defp cancel_reconcile_timer(%{timer_ref: timer_ref}) when is_reference(timer_ref), do: Process.cancel_timer(timer_ref)
-  defp cancel_reconcile_timer(_timer), do: false
-
-  @doc false
-  @spec run_scheduled_reconcile(State.t(), reference(), keyword()) :: State.t()
-  def run_scheduled_reconcile(state, token, opts \\ [])
-
-  def run_scheduled_reconcile(
-        %State{poll_frozen: true, github_comment_reconcile_timer: %{token: token}} = state,
-        token,
-        _opts
-      ),
-      do: %{state | github_comment_reconcile_timer: nil}
-
-  def run_scheduled_reconcile(%State{github_comment_reconcile_timer: %{token: token}} = state, token, opts) do
-    state
-    |> Map.put(:github_comment_reconcile_timer, nil)
-    |> start_async(Keyword.put(opts, :reconcile_only, true))
-  end
-
-  def run_scheduled_reconcile(%State{} = state, _stale_token, _opts), do: state
-
-  @doc false
-  @spec reconcile_retry_delay_ms(State.t()) :: non_neg_integer()
-  def reconcile_retry_delay_ms(%State{} = state) do
-    max(@reconcile_retry_delay_ms, TrackerHealth.github_next_poll_delay_ms(state) || 0)
-  end
-
-  defp comment_poll_abandon_after_ms(state, opts) do
-    target_count = TargetSelection.max_comment_poll_target_count(state, opts)
-
-    comment_poll_setup_timeout_ms(opts) +
-      GithubCommentsPoller.max_duration_ms(target_count, opts) +
-      @comment_poll_abandon_margin_ms
-  end
-
-  defp comment_poll_setup_timeout_ms(opts) do
-    case Keyword.get(opts, :setup_timeout, @comment_poll_setup_timeout_ms) do
-      timeout when is_integer(timeout) and timeout > 0 -> timeout
-      _other -> @comment_poll_setup_timeout_ms
-    end
-  end
+  defp prepare_start(cursor, _input, _opts, _now), do: {:ready, cursor}
 
   defp abandon_poll(%{owner: owner} = poll) when is_pid(owner) do
-    # Stop is synchronous: if the owner's DOWN is queued behind the dispatch
-    # callback that noticed expiry, merely sending to it and flushing monitors
-    # would discard the only evidence needed to reap its poll before replacement.
-    terminate_poll(poll)
-    demonitor_comment_poll(poll)
+    OwnedPoll.terminate_poll(poll)
+    OwnedPoll.demonitor_comment_poll(poll)
   end
 
   defp abandon_poll(_poll), do: :ok
 
-  @doc false
-  @spec terminate_poll(map() | nil) :: :ok
-  def terminate_poll(%{pid: pid, owner: owner, monitor_ref: monitor_ref})
-      when is_pid(pid) and is_pid(owner) and is_reference(monitor_ref) do
-    stop_ref = make_ref()
-    owner_ref = Process.monitor(owner)
-    send(owner, {:stop_owned_poll, self(), stop_ref})
-
-    receive do
-      {:owned_poll_stopped, ^stop_ref} ->
-        Process.demonitor(owner_ref, [:flush])
-
-        receive do
-          {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
-        after
-          0 -> Process.demonitor(monitor_ref, [:flush])
-        end
-
-      {:DOWN, ^owner_ref, :process, ^owner, _reason} ->
-        # A completed poll owner can exit before the Orchestrator consumes its
-        # result. If it died unexpectedly while the poll remains alive, reap
-        # the tree here rather than hanging shutdown on a message to a dead pid.
-        if Process.alive?(pid) do
-          reap_process_tree(pid, monitor_ref)
-        else
-          Process.demonitor(monitor_ref, [:flush])
-        end
-    end
-
-    :ok
-  end
-
-  def terminate_poll(%{owner: owner}) when is_pid(owner) do
-    stop_ref = make_ref()
-    owner_ref = Process.monitor(owner)
-    send(owner, {:stop_owned_poll, self(), stop_ref})
-
-    receive do
-      {:owned_poll_stopped, ^stop_ref} -> Process.demonitor(owner_ref, [:flush])
-      {:DOWN, ^owner_ref, :process, ^owner, _reason} -> :ok
-    end
-
-    :ok
-  end
-
-  def terminate_poll(_poll), do: :ok
-
-  # The poll temporarily traps exits while Task.async_stream owns its target
-  # tasks, so a link is not an inverse lifetime edge. The owner monitors the
-  # Orchestrator, and the Orchestrator retains its owner monitor through the
-  # acknowledged guarding handoff; either side's death therefore reaps the poll.
-  defp spawn_owned_poll(orchestrator, ownership_key, ref, task_fun, phase_hook) do
-    spawn_monitor(fn ->
-      orchestrator_ref = Process.monitor(orchestrator)
-
-      case claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref) do
-        :ok ->
-          {poll, poll_ref} = spawn_monitor(fn -> receive do: (:start -> task_fun.()) end)
-          send(orchestrator, {:github_comment_poll_started, ref, self(), poll})
-          await_poll_start(orchestrator, orchestrator_ref, ref, poll, poll_ref, phase_hook)
-
-        :orchestrator_down ->
-          :ok
-
-        {:stop, caller, stop_ref} ->
-          send(caller, {:owned_poll_stopped, stop_ref})
-      end
-    end)
-  end
-
-  defp await_poll_start(orchestrator, orchestrator_ref, ref, poll, poll_ref, phase_hook) do
-    receive do
-      {:start_owned_poll, ^orchestrator, ^ref} ->
-        run_owner_phase_hook(phase_hook, :before_start, poll)
-        send(poll, :start)
-        run_owner_phase_hook(phase_hook, :after_start_before_guard, poll)
-        send(orchestrator, {:github_comment_poll_guarding, ref, self(), poll})
-        guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref)
-
-      {:stop_owned_poll, caller, stop_ref} ->
-        reap_process_tree(poll, poll_ref)
-        send(caller, {:owned_poll_stopped, stop_ref})
-
-      {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
-        reap_process_tree(poll, poll_ref)
-    end
-  end
-
-  defp claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref) do
-    key = {:github_comment_poll, ownership_key}
-
-    case Registry.register(Aiur.Events.SubscriptionStoreRegistry, key, nil) do
-      {:ok, _value} ->
-        :ok
-
-      {:error, {:already_registered, owner}} ->
-        owner_ref = Process.monitor(owner)
-
-        receive do
-          {:DOWN, ^owner_ref, :process, ^owner, _reason} ->
-            claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref)
-
-          {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
-            Process.demonitor(owner_ref, [:flush])
-            :orchestrator_down
-
-          {:stop_owned_poll, caller, stop_ref} ->
-            Process.demonitor(owner_ref, [:flush])
-            {:stop, caller, stop_ref}
-        end
-    end
-  end
-
-  defp guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref) do
-    receive do
-      {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
-        reap_process_tree(poll, poll_ref)
-
-      {:stop_owned_poll, caller, stop_ref} ->
-        reap_process_tree(poll, poll_ref)
-        send(caller, {:owned_poll_stopped, stop_ref})
-
-      {:DOWN, ^poll_ref, :process, ^poll, _reason} ->
-        await_poll_release(orchestrator, orchestrator_ref)
-    end
-  end
-
-  defp await_poll_release(orchestrator, orchestrator_ref) do
-    receive do
-      {:release_owned_poll, ^orchestrator, _ref} ->
-        Process.demonitor(orchestrator_ref, [:flush])
-
-      {:stop_owned_poll, caller, stop_ref} ->
-        send(caller, {:owned_poll_stopped, stop_ref})
-
-      {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
-        :ok
-    end
-  end
-
-  defp run_owner_phase_hook(hook, phase, poll) when is_function(hook, 3), do: hook.(phase, self(), poll)
-  defp run_owner_phase_hook(_hook, _phase, _poll), do: :ok
-
-  defp release_poll_owner(%{owner: owner, ref: ref}) when is_pid(owner) and is_reference(ref) do
-    send(owner, {:release_owned_poll, self(), ref})
-  end
-
-  defp release_poll_owner(_poll), do: :ok
-
-  defp reap_poll_after_owner_down(%{pid: pid, monitor_ref: monitor_ref} = poll)
-       when is_pid(pid) and is_reference(monitor_ref) do
-    if Process.alive?(pid) do
-      reap_process_tree(pid, monitor_ref)
-    else
-      Process.demonitor(monitor_ref, [:flush])
-    end
-
-    demonitor_owner(poll)
-  end
-
-  defp reap_poll_after_owner_down(poll), do: demonitor_owner(poll)
-
-  defp demonitor_owner(%{owner_monitor_ref: owner_monitor_ref}) when is_reference(owner_monitor_ref) do
-    Process.demonitor(owner_monitor_ref, [:flush])
-  end
-
-  defp demonitor_owner(_poll), do: :ok
-
-  defp reap_process_tree(root, root_ref) do
-    descendants = linked_descendants(root, MapSet.new([self()]))
-    descendant_refs = Enum.map(descendants, &{&1, Process.monitor(&1)})
-    Process.exit(root, :kill)
-    await_process_down(root, root_ref)
-    Enum.each(descendant_refs, fn {pid, ref} -> await_process_down(pid, ref) end)
-  end
-
-  defp linked_descendants(pid, seen) do
-    links =
-      case Process.info(pid, :links) do
-        {:links, linked} -> Enum.filter(linked, &(is_pid(&1) and not MapSet.member?(seen, &1)))
-        nil -> []
-      end
-
-    Enum.reduce(links, links, fn linked, descendants ->
-      nested = linked_descendants(linked, Enum.reduce(descendants, MapSet.put(seen, pid), &MapSet.put(&2, &1)))
-      Enum.uniq(descendants ++ nested)
-    end)
-  end
-
-  defp await_process_down(pid, ref) do
-    receive do
-      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-    end
-  end
-
-  defp demonitor_comment_poll(poll) when is_map(poll) do
-    case Map.get(poll, :monitor_ref) do
-      monitor_ref when is_reference(monitor_ref) -> Process.demonitor(monitor_ref, [:flush])
-      _missing -> :ok
-    end
-
-    demonitor_owner(poll)
-  end
-
-  # The I/O half. Runs on whichever process the caller chose — never touches the
-  # state it was handed, so its result can be folded into a newer one.
-  defp run_comment_poll(%State{} = state, opts) do
-    case run_comment_poll_setup(state, opts) do
-      {:ok, cache, human_review_targets, targets, poll_opts} ->
-        {:ok, cache, human_review_targets, poll_prepared_targets(targets, poll_opts)}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  # Discovery, PR freshness, authorization timelines, pagination, and the
-  # GraphQL batch can each issue a variable number of sequential requests. A
-  # guessed request count cannot prove an outer lifetime bound, so setup owns
-  # one explicit wall-clock budget instead. The worker is linked into the poll
-  # tree, and timeout reaps its request descendants before returning.
-  defp run_comment_poll_setup(%State{} = state, opts) do
-    parent = self()
-    result_ref = make_ref()
-    timeout_ms = comment_poll_setup_timeout_ms(opts)
-    previous_trap_exit = Process.flag(:trap_exit, true)
-
-    {worker, worker_ref} =
-      :erlang.spawn_opt(
-        fn -> send(parent, {__MODULE__, result_ref, prepare_comment_poll(state, opts)}) end,
-        [:link, :monitor]
-      )
-
-    try do
-      await_comment_poll_setup(worker, worker_ref, result_ref, timeout_ms)
-    after
-      Process.unlink(worker)
-      flush_link_exit(worker)
-      Process.flag(:trap_exit, previous_trap_exit)
-    end
-  end
-
-  defp await_comment_poll_setup(worker, worker_ref, result_ref, timeout_ms) do
-    receive do
-      {__MODULE__, ^result_ref, result} ->
-        await_process_down(worker, worker_ref)
-        result
-
-      {:DOWN, ^worker_ref, :process, ^worker, reason} ->
-        exit({:comment_poll_setup_exit, reason})
-    after
-      timeout_ms ->
-        Logger.warning("GithubCommentsPoller setup exceeded its #{timeout_ms}ms phase deadline and was abandoned")
-        reap_process_tree(worker, worker_ref)
-        flush_setup_result(result_ref)
-        {:error, :setup_deadline_exceeded}
-    end
-  end
-
-  defp flush_setup_result(result_ref) do
-    receive do
-      {__MODULE__, ^result_ref, _result} -> :ok
-    after
-      0 -> :ok
-    end
-  end
-
-  defp flush_link_exit(worker) do
-    receive do
-      {:EXIT, ^worker, _reason} -> :ok
-    after
-      0 -> :ok
-    end
-  end
-
-  defp prepare_comment_poll(%State{} = state, opts) do
-    case TargetSelection.github_comment_poll_targets_with_cache(state, opts) do
-      {:ok, targets, human_review_targets, watch_targets, cache} ->
-        poll_opts = prepare_comment_poll_opts(state, targets, human_review_targets, watch_targets, opts)
-        {:ok, cache, human_review_targets, targets, poll_opts}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  # The fold half. Runs on the Orchestrator, against whatever state it holds now.
-  defp apply_comment_poll(%State{} = state, {:ok, cache, human_review_targets, poll_outcome}) do
-    state = %{state | github_comment_issue_list_cache: cache}
-    apply_poll_outcome(state, human_review_targets, poll_outcome)
-  end
-
-  defp apply_comment_poll(%State{} = state, {:error, reason}) do
-    Logger.warning("GithubCommentsPoller target refresh skipped; reason=#{inspect(reason)}")
-    state
-  end
-
-  defp apply_comment_poll(%State{} = state, _unrecognised), do: state
-
-  defp poll_prepared_targets([], _poll_opts), do: :no_targets
-
-  defp poll_prepared_targets(targets, poll_opts) when is_list(targets) do
-    {targets, GithubCommentsPoller.poll(targets, poll_opts)}
-  end
-
-  defp prepare_comment_poll_opts(%State{}, [], _human_review_targets, _watch_targets, opts), do: opts
-
-  defp prepare_comment_poll_opts(%State{} = state, targets, human_review_targets, watch_targets, opts) when is_list(targets) do
-    review_submission_targets = MapSet.new(human_review_targets, & &1.target)
-
-    poll_opts =
-      opts
-      |> Keyword.put_new(:since, state.github_comments_since)
-      |> Keyword.put_new(:etags, state.github_comment_etags)
-      |> TargetSelection.put_open_pull_requests_by_target(human_review_targets)
-      |> TargetSelection.put_open_pull_requests_by_target(watch_targets)
-      |> Keyword.put_new(:titles_by_target, running_titles_by_target(state))
-      |> Keyword.put(:review_submission_targets, review_submission_targets)
-      |> Keyword.put(:pr_review_seen_at, state.pr_review_seen_at)
-      |> Keyword.put(:pr_ready_ledger, ReadyForReviewTransitions.ledger(state))
-
-    put_comment_batch(poll_opts, targets)
-  end
-
-  defp apply_poll_outcome(%State{} = state, _human_review_targets, :no_targets), do: state
-
-  defp apply_poll_outcome(%State{} = state, human_review_targets, {targets, poll_result}) do
-    case poll_result do
-      {:ok, %{since: since, etags: etags, count: count, errors: errors, pr_review_seen_at: new_review_seen_at} = polled} ->
-        if count > 0,
-          do: Logger.debug("aiur_perf github_comments_poller published count=#{count}")
-
-        if errors != [] do
-          Logger.warning("GithubCommentsPoller partial failures; reason=#{inspect(errors)}")
-        end
-
-        state =
-          if all_comment_targets_failed?(targets, errors) do
-            TrackerHealth.note_github_connectivity_failure(state, :comments, comments_poll_classification(errors))
-          else
-            TrackerHealth.note_github_connectivity_success(state, :comments)
-          end
-
-        %{
-          state
-          | github_comments_since: TargetSelection.merge_comment_cursors(state.github_comments_since, since),
-            github_comment_etags: Map.merge(state.github_comment_etags, etags),
-            github_comment_issue_updated_at:
-              TargetSelection.remember_polled_human_review_targets(
-                state.github_comment_issue_updated_at,
-                human_review_targets,
-                errors
-              ),
-            pr_review_seen_at: Map.merge(state.pr_review_seen_at, new_review_seen_at)
-        }
-        |> fold_pr_draft_observations(Map.get(polled, :pr_draft_observations, []))
-    end
-  end
-
-  # The comment poll reads the branch PR of every running ticket, which the CI
-  # poll does not (it covers only `ci-wait` and `human-review`). An agent that
-  # runs `gh pr ready` mid-turn is seen here first (#2707).
-  defp fold_pr_draft_observations(%State{} = state, observations) when is_list(observations) do
-    ReadyForReviewTransitions.observe(state, observations)
-  end
-
-  defp fold_pr_draft_observations(%State{} = state, _observations), do: state
-
-  # GitHub issues carry no branch name, so the comment batch derives each
-  # running ticket's generated `aiur/<id>-<slug>` branch from its title. Without
-  # this every target without an already-known PR guesses the legacy
-  # `aiur/<id>` branch, misses, and falls back to the full REST fan-out.
-  defp running_titles_by_target(%State{} = state) do
-    state.running
-    |> Map.values()
-    |> Enum.reduce(%{}, fn entry, acc ->
-      with identifier when is_binary(identifier) and identifier != "" <- Map.get(entry, :identifier),
-           %{title: title} when is_binary(title) and title != "" <- Map.get(entry, :issue) do
-        Map.put(acc, to_string(identifier), title)
-      else
-        _other -> acc
-      end
-    end)
-  end
-
-  defp put_comment_batch(opts, targets) do
-    fetcher = Keyword.get(opts, :comment_batch_fetcher, &CommentPollBatch.fetch/2)
-
-    case fetcher.(targets, opts) do
-      {:ok, batch} when is_map(batch) ->
-        Keyword.put(opts, :comment_batch, batch)
-
-      {:error, reason} ->
-        Logger.warning("Github comment GraphQL batch failed; falling back to conditional REST reads reason=#{inspect(reason)}")
-        opts
-
-      other ->
-        Logger.warning("Github comment GraphQL batch returned unexpected value; falling back to conditional REST reads value=#{inspect(other)}")
-        opts
-    end
-  rescue
-    exception ->
-      # The fallback keeps polling correct, but an exception here is a bug in
-      # the batch itself, not an expected condition: log it at :error with the
-      # stacktrace so it cannot hide as an indefinitely silent REST fallback.
-      Logger.error(
-        "Github comment GraphQL batch raised; falling back to conditional REST reads error=" <>
-          Exception.format(:error, exception, __STACKTRACE__)
-      )
-
-      opts
-  end
-
-  # The comments poller aggregates per-target failures as
-  # [{target, {scope, taxonomy}}]; pull the first classified GitHub error
-  # out so the escalation policy sees the underlying connectivity class.
-  defp comments_poll_classification([{_target, {_scope, taxonomy}} | _]), do: taxonomy
-  defp comments_poll_classification(reason), do: reason
-
-  defp all_comment_targets_failed?(_targets, []), do: false
-
-  defp all_comment_targets_failed?(targets, errors) do
-    failed_targets =
-      errors
-      |> Enum.map(fn {target, _reason} -> target end)
-      |> MapSet.new()
-
-    targets
-    |> MapSet.new()
-    |> MapSet.subset?(failed_targets)
+  defp spawn_poll(cursor, input, opts, now_ms) do
+    orchestrator = self()
+    ref = make_ref()
+    targets = TargetSelection.reconcile_targets_for_poll(cursor, input, opts)
+    poll_cursor = %{cursor | reconcile_targets: targets}
+    task_fun = fn -> send(orchestrator, {:github_comments_polled, ref, Poll.run(poll_cursor, input, opts)}) end
+    {owner, monitor} = OwnedPoll.spawn_owned_poll(orchestrator, input.ownership_key, ref, task_fun, Keyword.get(opts, :owner_phase_hook))
+    target_count = TargetSelection.max_comment_poll_target_count(poll_cursor, input, opts)
+    abandon_after = Poll.setup_timeout_ms(opts) + GithubCommentsPoller.max_duration_ms(target_count, opts) + @abandon_margin_ms
+    poll = %{ref: ref, owner: owner, owner_monitor_ref: monitor, started_at_ms: now_ms, abandon_after_ms: abandon_after, reconcile_targets: targets}
+    %{cursor | poll: poll, reconcile_targets: MapSet.difference(cursor.reconcile_targets, targets), last_started_at_ms: now_ms}
   end
 end

@@ -45,8 +45,10 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: false,
-      github_comments_since: %{},
-      github_comment_issue_updated_at: %{},
+      github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
+        since: %{},
+        issue_updated_at: %{}
+      },
       github_connectivity: %{},
       github_poll_delays: %{},
       github_command_scan_since: nil
