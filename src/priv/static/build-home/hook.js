@@ -35,11 +35,7 @@ function firstPaint() {
   ctx.life.frame('ticket', () => fx.openFromURL());
 }
 function repaint() { renderChrome(); fx.relayout(); fx.update(); }
-function reloadOnce(msg) {
-  console.warn('AIUR_BUILD_HOME_DIAG protocol version mismatch', {
-    expectedVersion: 1,
-    receivedVersion: msg.v
-  });
+function reloadOnce() {
   try {
     if (!sessionStorage.getItem('aiur-build-reloaded')) {
       sessionStorage.setItem('aiur-build-reloaded', '1'); ctx.reload(); return;
@@ -50,7 +46,7 @@ function reloadOnce(msg) {
 export function receive(msg) {
   if (msg.kind === 'error') { if (!ctx.snap) fx.renderUnavailable(msg.reason); return; }
   switch (decide({ ...ctx.proto, resyncing: ctx.proto.inFlight }, msg)) {
-    case 'reload': reloadOnce(msg); break;
+    case 'reload': reloadOnce(); break;
     case 'resync': resync(); break;
     case 'apply': {
       if (msg.kind !== 'snapshot' && msg.kind !== 'diff') return;

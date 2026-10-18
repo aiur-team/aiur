@@ -249,17 +249,8 @@ test('B13 version mismatch reloads only once', async ({ page }) => {
   expect(await page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js'), { receive } = await import('/build-home/hook.js')
     sessionStorage.removeItem('aiur-build-reloaded'); let reloads = 0; ctx.reload = () => reloads++
-    const diagnostics = [], warn = console.warn
-    console.warn = (...args) => diagnostics.push(args)
-    try { receive({ v: 2 }); receive({ v: 2 }) } finally { console.warn = warn }
-    return { reloads, diagnostics }
-  })).toEqual({
-    reloads: 1,
-    diagnostics: [
-      ['AIUR_BUILD_HOME_DIAG protocol version mismatch', { expectedVersion: 1, receivedVersion: 2 }],
-      ['AIUR_BUILD_HOME_DIAG protocol version mismatch', { expectedVersion: 1, receivedVersion: 2 }]
-    ]
-  })
+    receive({ v: 2 }); receive({ v: 2 }); return reloads
+  })).toBe(1)
   await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · page out of date, reload')
 })
 
