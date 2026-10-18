@@ -3,7 +3,61 @@ defmodule Aiur.Workspace.Ownership.RetentionOrderTest do
 
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Guardian
-  alias Aiur.Workspace.Ownership.Store
+  alias Aiur.Workspace.Ownership.{Retention, Store}
+
+  test "retries receipt persistence on a repeated retention mark" do
+    ticket = "ownership-retention-retry-#{System.unique_integer([:positive])}"
+    root = Aiur.TestSupport.tmp_root!("ownership-retention-retry")
+    {:ok, sync_control} = Agent.start_link(fn -> false end)
+
+    sync_fun = fn ->
+      Agent.get_and_update(sync_control, fn
+        true -> {{:error, :disk_full}, false}
+        false -> {:ok, false}
+      end)
+    end
+
+    {:ok, store} = Store.start_link(name: nil, state_dir: root, sync_fun: sync_fun)
+    registry = Module.concat(__MODULE__, "Registry#{System.unique_integer([:positive])}")
+    {:ok, registry_pid} = Registry.start_link(keys: :unique, name: registry)
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(store)
+      Aiur.TestSupport.safe_stop(registry_pid)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    lease = %{
+      ticket: ticket,
+      generation: 1,
+      owner_id: self(),
+      phase: :reaping,
+      retained_cause: "provider_unrecorded",
+      retained_since: DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+
+    assert {:ok, _} = Registry.register(registry, ticket, lease)
+    assert :ok = Store.put(ticket, %{"retained_cause" => "provider_unrecorded", phase: :active}, store)
+    Agent.update(sync_control, fn _ -> true end)
+
+    state = %{
+      registry: registry,
+      lease: lease,
+      store: store,
+      provider_expected?: false,
+      provider: nil,
+      provider_cleanup: nil,
+      provider_scope: :unknown,
+      provider_boot_id: nil,
+      host_lock: nil
+    }
+
+    assert %{lease: %{phase: :reaping}} = Retention.mark(state)
+    assert {:ok, %{phase: :active}} = Store.get(ticket, store)
+
+    assert %{lease: %{phase: :reaping}} = Retention.mark(state)
+    assert {:ok, %{"retained_cause" => "provider_unrecorded", phase: :reaping}} = Store.get(ticket, store)
+  end
 
   test "publishes the reaping phase before retention alert I/O completes" do
     ticket = "ownership-retention-order-#{System.unique_integer([:positive])}"
