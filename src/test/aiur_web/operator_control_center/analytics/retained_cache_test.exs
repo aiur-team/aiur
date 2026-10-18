@@ -1,5 +1,6 @@
 defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
   use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [receive_barrier: 1]
   alias Aiur.RunTelemetry.RetainedCache
   alias AiurWeb.OperatorControlCenter.Analytics.LatestRun
 
@@ -95,6 +96,47 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
     key = {RetainedCache, :directory_identity, runs}
     :persistent_term.put(key, {identity, System.monotonic_time(:millisecond) - 1_001})
     assert RetainedCache.identity("current") |> elem(2) == RetainedCache.directory_identity(runs)
+  end
+
+  test "latest-run decodes newest analyzable summary only" do
+    root = Aiur.TestSupport.tmp_root!("latest-run-index")
+    previous = for key <- [:repo_base_root, :analytics_repo], do: {key, Application.fetch_env(:aiur, key)}
+    Application.put_env(:aiur, :repo_base_root, root)
+    Application.put_env(:aiur, :analytics_repo, "test/latest-run-index")
+    runs = Path.join(Aiur.RepoBase.repo_path("test/latest-run-index"), "analytics/runs")
+    for boot <- ["boot-old", "boot-middle", "boot-new"], do: File.mkdir_p!(Path.join(runs, boot))
+
+    on_exit(fn ->
+      Aiur.TestSupport.restore_app_env(previous)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    parent = self()
+    dataset = %{tickets: %{"7" => %{}}, actors: %{}, provenance: %{time_range: %{end: "2026-10-18T03:00:00Z"}}}
+    times = %{"boot-old" => "2026-10-18T01:00:00Z", "boot-middle" => "2026-10-18T02:00:00Z", "boot-new" => "2026-10-18T03:00:00Z"}
+
+    opts = [
+      cache_identity: make_ref(),
+      summary_index_loader: fn boot ->
+        send(parent, {:indexed, boot})
+        {:ok, Map.fetch!(times, boot), 256 * 1024}
+      end,
+      summary_dataset_loader: fn boot ->
+        send(parent, {:decoded, boot})
+        {:ok, dataset}
+      end
+    ]
+
+    assert {:ok, ^dataset} = LatestRun.load(Path.join(root, "missing.ndjson"), "live", &analyzable?/1, opts)
+
+    receive_barrier({:indexed, "boot-middle"})
+    receive_barrier({:indexed, "boot-new"})
+    receive_barrier({:indexed, "boot-old"})
+    indexed = MapSet.new(["boot-middle", "boot-new", "boot-old"])
+
+    assert indexed == MapSet.new(Map.keys(times))
+    assert_received {:decoded, "boot-new"}
+    refute_received {:decoded, _older_boot}
   end
 
   defp analyzable?(dataset), do: map_size(dataset.tickets) > 0

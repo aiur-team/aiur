@@ -16,7 +16,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
   failure for an idle fleet.
   """
 
-  alias Aiur.RunTelemetry.{Dataset, Summaries}
+  alias Aiur.RunTelemetry.{Dataset, Summaries, SummaryIndex}
 
   alias Aiur.RunTelemetry.RetainedCache
 
@@ -73,7 +73,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
       identity,
       fn ->
         case Keyword.get(opts, :prior_loader) do
-          nil -> load_newest(current_boot, analyzable?)
+          nil -> load_newest(current_boot, analyzable?, opts)
           loader when is_function(loader, 0) -> loader.()
         end
       end,
@@ -81,22 +81,49 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
     )
   end
 
-  defp load_newest(current_boot, analyzable?) do
-    Summaries.summary_boot_ids()
-    |> Enum.reject(&(&1 == current_boot))
-    |> Enum.reduce({[], false}, &choose_newest(&1, &2, analyzable?))
-  end
+  defp load_newest(current_boot, analyzable?, opts) do
+    {indexed, unreadable?} = summary_index(current_boot, opts)
 
-  defp choose_newest(boot_id, {newest, unreadable?}, analyzable?) do
-    case Summaries.load_dataset(boot_id) do
-      {:ok, dataset} ->
-        candidates = if analyzable?.(dataset), do: [dataset | newest], else: newest
-        {Enum.take(Enum.sort_by(candidates, &observed_at/1, :desc), 1), unreadable?}
-
-      {:error, _reason} ->
-        {newest, true}
+    case load_indexed(indexed, unreadable?, analyzable?, opts) do
+      {{:ok, dataset}, unreadable?} -> {[dataset], unreadable?}
+      {:none, unreadable?} -> {[], unreadable?}
     end
   end
+
+  defp summary_index(current_boot, opts) do
+    Summaries.summary_boot_ids()
+    |> Enum.reject(&(&1 == current_boot))
+    |> Enum.reduce({[], false}, &index_summary(&1, &2, opts))
+  end
+
+  defp index_summary(boot_id, {indexed, unreadable?}, opts) do
+    index_loader = Keyword.get(opts, :summary_index_loader, &SummaryIndex.time_range_end/1)
+
+    case index_loader.(boot_id) do
+      {:ok, observed_at, _bytes_read} -> {[{observed_at, boot_id} | indexed], unreadable?}
+      {:error, _reason, _bytes_read} -> {indexed, true}
+    end
+  end
+
+  defp load_indexed(indexed, unreadable?, analyzable?, opts) do
+    dataset_loader = Keyword.get(opts, :summary_dataset_loader, &Summaries.load_dataset/1)
+
+    indexed
+    |> Enum.sort_by(&elem(&1, 0), :desc)
+    |> Enum.reduce_while({:none, unreadable?}, &choose_newest(&1, &2, analyzable?, dataset_loader))
+  end
+
+  defp choose_newest({_observed_at, boot_id}, {:none, unreadable?}, analyzable?, dataset_loader) do
+    case dataset_loader.(boot_id) do
+      {:ok, dataset} ->
+        if analyzable?.(dataset), do: {:halt, {{:ok, dataset}, unreadable?}}, else: {:cont, {:none, unreadable?}}
+
+      {:error, _reason} ->
+        {:cont, {:none, true}}
+    end
+  end
+
+  defp choose_newest(_entry, {{:ok, dataset}, unreadable?}, _analyzable?, _dataset_loader), do: {:halt, {{:ok, dataset}, unreadable?}}
 
   defp observed_at(dataset), do: get_in(dataset, [:provenance, :time_range, :end]) || ""
 end
