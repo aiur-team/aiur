@@ -4,8 +4,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitRewake do
   """
 
   alias Aiur.Config
-  alias Aiur.Events.GithubCIPoller
   alias Aiur.Events
+  alias Aiur.Events.GithubCIPoller
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Poll
