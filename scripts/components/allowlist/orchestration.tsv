@@ -120,4 +120,3 @@ R-optional	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the
 R-optional	Aiur.Webhooks	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Webhooks.IntervalPolicy	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.UnitsPresentation	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
-R-private	Aiur.GitHub.ResourceFetch	#4496: use conditional resource reads to avoid repeated billable landing-watch CI requests

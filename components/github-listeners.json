@@ -91,7 +91,9 @@
     "signal",
     "web-kit"
   ],
-  "optional": [],
+  "optional": [
+    "github-access"
+  ],
   "owns": {
     "config": [
       "webhooks"

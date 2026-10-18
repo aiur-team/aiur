@@ -23,9 +23,11 @@ const expected = [...core.matchAll(/npm run ([\w:-]+)/g)]
   .filter((name) => name !== 'fixture:preflight' && name !== SUITE_SCRIPT)
   .concat(discoverSuites(browserRoot).map(suiteCommand))
 
-const { shards } = await import(pathToFileURL(runnerPath).href)
+const { shards, budgetMs, recordedSeconds, preflightSeconds } = await import(pathToFileURL(runnerPath).href)
 if (!shards) throw new Error(`${runnerPath} does not export the smoke shard map`)
-const selected = Object.values(shardCommands(shards, browserRoot)).flat()
+if (!budgetMs || !recordedSeconds) throw new Error(`${runnerPath} must export budgetMs and recordedSeconds`)
+const plan = shardCommands(shards, browserRoot)
+const selected = Object.values(plan).flat()
 
 const counts = (names) => names.reduce((result, name) => {
   result.set(name, (result.get(name) ?? 0) + 1)
@@ -46,3 +48,22 @@ if (missing.length || unexpected.length) {
 }
 
 console.log(`Browser smoke shards cover all ${expected.length} test:core suites exactly once.`)
+
+// A shard's recorded total (preflight plus suites) must leave a quarter of its budget for ci variance.
+const unrecorded = selected.filter((command) => recordedSeconds[command] === undefined)
+if (unrecorded.length) {
+  console.error(`Browser smoke suites with no recorded duration: ${unrecorded.join(', ')}. ` +
+    'Add each to recordedSeconds in src/browser/scripts/browser-smoke-durations.mjs, from its shard log.')
+  process.exit(1)
+}
+const limitSeconds = 0.75 * budgetMs / 1000
+let over = false
+for (const [shard, commands] of Object.entries(plan)) {
+  const total = commands.reduce((sum, command) => sum + recordedSeconds[command], preflightSeconds)
+  const line = `shard ${shard}: ${total}s recorded of ${limitSeconds}s (75% of ${budgetMs / 1000}s)`
+  if (total > limitSeconds) {
+    over = true
+    console.error(`Browser smoke ${line}. Move suites to a lighter shard in run-browser-smoke-shard.mjs.`)
+  } else console.log(line)
+}
+if (over) process.exit(1)
