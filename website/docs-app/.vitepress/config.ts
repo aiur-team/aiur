@@ -185,6 +185,7 @@ export default withMermaid(defineConfig({
             { text: 'Configuration: build_order', link: '/reference/configuration-build-order' },
             { text: 'Configuration notes', link: '/reference/configuration-notes' },
             { text: 'Merge Policy', link: '/reference/merge-policy' },
+            { text: 'PR checks', link: '/reference/pr-checks' },
             { text: 'Experiment Statistics', link: '/reference/experiment-statistics' },
             { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
           ]
