@@ -88,5 +88,8 @@
     "worker"
   ],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "forbid": [
+    "Aiur.GitHub.Listeners.*"
+  ]
 }
