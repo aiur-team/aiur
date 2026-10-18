@@ -27,6 +27,9 @@ defmodule AiurWeb.Experiments.ViewModel do
     summary = Map.new(~w(id title status created_at)a, &{&1, Map.get(spec, Atom.to_string(&1))})
 
     Map.merge(index_item(summary, detail, catalog), %{
+      chart_metrics: chart_metrics(detail, catalog),
+      strata: Map.get(detail, :strata, []),
+      stratum: Map.get(detail, :stratum),
       hypothesis: Map.get(spec, "hypothesis", ""),
       design: Map.get(spec, "design"),
       windows: Map.get(spec, "windows", %{}),
@@ -39,6 +42,13 @@ defmodule AiurWeb.Experiments.ViewModel do
       annotations: Map.get(detail, :annotations, []),
       read_only?: Map.get(detail, :read_only?, false)
     })
+  end
+
+  defp chart_metrics(detail, catalog) do
+    Enum.map(Map.get(detail, :chart_metrics, []), fn metric ->
+      definition = catalog[metric.ref] || %{}
+      Map.merge(metric, %{label: Map.get(definition, :label, metric.ref), unit: Map.get(definition, :unit, "Unknown unit")})
+    end)
   end
 
   defp frozen_baseline(%{"design" => %{"kind" => "before_after"}}, snapshots) do

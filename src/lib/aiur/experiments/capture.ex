@@ -3,7 +3,7 @@ defmodule Aiur.Experiments.Capture do
   use GenServer
   require Logger
 
-  alias Aiur.Events.Exchange
+  alias Aiur.{Events, Events.Exchange}
   alias Aiur.Experiments.Capture.{Fields, Retention}
   alias Aiur.Experiments.{Catalog, Paths}
 
@@ -124,8 +124,8 @@ defmodule Aiur.Experiments.Capture do
   defp bind_live_exchange(state, patterns, pid) do
     if Process.alive?(pid) do
       state = if state.exchange_pid == pid, do: state, else: exchange_restored(state, pid)
-      Enum.each(MapSet.difference(state.patterns, patterns), &Exchange.unsubscribe(&1, state.exchange))
-      Enum.each(MapSet.difference(patterns, state.patterns), &Exchange.subscribe(&1, state.exchange))
+      Enum.each(MapSet.difference(state.patterns, patterns), &Events.unsubscribe(&1, state.exchange))
+      Enum.each(MapSet.difference(patterns, state.patterns), &Events.subscribe(&1, state.exchange))
       %{state | patterns: patterns}
     else
       exchange_lost(state)
@@ -149,7 +149,7 @@ defmodule Aiur.Experiments.Capture do
 
     errors =
       Enum.reduce(state.metrics, state.errors, fn {ref, metric}, errors ->
-        if is_binary(topic) and Enum.any?(patterns(metric.source), &Exchange.matches?(&1, topic)),
+        if is_binary(topic) and Enum.any?(patterns(metric.source), &Events.matches?(&1, topic)),
           do: Map.put_new(errors, ref, ":capture_overloaded"),
           else: errors
       end)
@@ -199,7 +199,7 @@ defmodule Aiur.Experiments.Capture do
 
   defp capture_metric({ref, metric}, state, topic, event) do
     cond do
-      not Enum.any?(patterns(metric.source), &Exchange.matches?(&1, topic)) -> state
+      not Enum.any?(patterns(metric.source), &Events.matches?(&1, topic)) -> state
       Map.has_key?(state.errors, ref) -> %{state | dropped: state.dropped + 1}
       true -> append(ref, metric.source, event, state)
     end
