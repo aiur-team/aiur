@@ -101,6 +101,10 @@ from that worktree's `src/`, recompiling all core sources rather than
 accepting a warm no-op compile. Neither harness failure involved a sidecar
 file read.
 
+Final result: **pass**, `Generated aiur app`, with **2,034 source files**
+compiled while the sidecar directory was absent. The worktree was then
+restored, verified clean and removed. No live daemon was rebuilt or restarted.
+
 
 Direct producer and dashboard CSS checks also passed:
 
@@ -150,6 +154,17 @@ They were not run here. The PR repeats every step under `## Local tests`.
    `AIUR_VOICE_FIXTURE=/path/to/speech.raw mise exec -- mix test --max-cases 4 --only external test/aiur_web/streamdeck_voice_latency_test.exs`.
    Record nonempty partial/final transcription and measured partial lag and
    release-to-final milliseconds; do not substitute mocked timings.
+
+## Base integration
+
+The pre-PR gate integrated `main` at
+`ec46c7c73b788fe5bae034eea5f7c3e53a041292` after the acceptance run.
+Its change is the build-home live agent band and CI wiring. A scoped
+`git diff --exit-code` against the acceptance baseline confirmed no changes
+to the MP-R6 anchor/event-feed modules, deck modules and emulator, canonical
+JSON, sidecar, classification docs or deck/anchor acceptance tests.
+The acceptance counts above refer to the stated baseline; local pre-PR gates
+validate the integrated head separately and are recorded in the PR body.
 
 ## Findings and disposition
 
