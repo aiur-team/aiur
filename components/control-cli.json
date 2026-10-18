@@ -76,6 +76,7 @@
     "executor-attention",
     "experiments",
     "github",
+    "github-access",
     "github-listeners",
     "linear",
     "listener-spec",
