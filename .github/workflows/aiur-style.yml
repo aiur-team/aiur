@@ -51,6 +51,7 @@ jobs:
   build-and-test:
     if: ${{ github.event_name != 'merge_group' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     container: mcr.microsoft.com/playwright:v1.61.1-noble
 
     strategy:
