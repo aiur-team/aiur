@@ -288,8 +288,6 @@ defmodule Aiur.LandingWatch.PrRerun do
 
   defp failed_checks(runs), do: for(run <- runs, run["conclusion"] in @rerun_conclusions, uniq: true, do: run["name"])
 
-  defp apply_remedy(:rerun, _observation, failed, opts), do: rerun_all(failed, opts)
-
   defp apply_remedy(:refresh, observation, _failed, opts) do
     case Keyword.get(opts, :update_branch_fun, &CIRecovery.update_branch/3).(observation.number, observation.head, opts) do
       {:ok, _} -> :ok
