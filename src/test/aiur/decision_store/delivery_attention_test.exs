@@ -5,7 +5,11 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
 
   describe "answer outbox" do
     test "boot moots expired unanswered blockers for confirmed closed tickets", %{dir: dir} do
-      resolver = fn ["closed-42"] -> {:ok, MapSet.new(["closed-42"])} end
+      resolver = fn identifiers ->
+        assert Enum.sort(identifiers) == ["closed-42", "open-42"]
+        {:ok, MapSet.new(["closed-42"])}
+      end
+
       pid = start_store!(dir, terminal_ticket_resolver: resolver, dispatch_delay_ms: 60_000)
 
       assert {:ok, %{decision: decision}} =
@@ -15,8 +19,20 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
                  pid
                )
 
+      assert {:ok, %{decision: open_decision}} =
+               DecisionStore.request(
+                 answerable_request("open-boot-test"),
+                 [ticket: %{identifier: "open-42", title: "Open ticket", url: nil}, source: %{agent_id: "open-boot-test", session_id: "session", event_id: nil}],
+                 pid
+               )
+
       assert {:ok, %{decision: expired}} = DecisionStore.expire(decision.decision_id, "agent_not_running", [], pid)
       assert expired.decision_status == :expired
+
+      assert {:ok, %{decision: open_expired}} =
+               DecisionStore.expire(open_decision.decision_id, "agent_not_running", [], pid)
+
+      assert open_expired.decision_status == :expired
       GenServer.stop(pid)
 
       pid = start_store!(dir, terminal_ticket_resolver: resolver, dispatch_delay_ms: 60_000)
@@ -26,6 +42,20 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
       assert mooted.decision_status == :moot
       assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
       assert Enum.any?(audit, &match?(%{type: :decision_mooted, data: %{reason_class: "ticket_closed"}}, &1))
+
+      still_answerable = wait_for_decision(pid, open_decision.decision_id, &(&1.decision_status == :expired))
+      assert still_answerable.decision_status == :expired
+      assert still_answerable.answer == nil
+
+      assert {:ok, %{action: action, decision: answered}} =
+               answer(
+                 pid,
+                 open_decision.decision_id,
+                 %{"idempotency_key" => "answer-open-after-boot", "expected_version" => 1, "option_id" => "ship"}
+               )
+
+      assert action.selected_option_id == "ship"
+      assert answered.decision_status == :decided
 
       assert {:ok, %{counts: %{blocking: 0}}} = DecisionStore.retained_counts(pid)
     end
