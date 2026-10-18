@@ -265,6 +265,8 @@ Fleet-capacity and build-gate evidence have independent source states: stale fle
 
 | Command | What it does | Example |
 | --- | --- | --- |
+| `aiur experiments analyze <id> [--mode spec\|report] [--local] [--json]` | Creates or reuses an analyst ticket; defaults to spec without registration, otherwise report. | `aiur experiments analyze delivery-change` |
+| `aiur experiments analyze <id> --local` | Prints the analyst brief without filing a ticket; omitting `--local` creates or reuses an analyst ticket. | `aiur experiments analyze delivery-change --local` |
 | `aiur experiments list [--status <status>] [--kind before_after\|ab] [--json]` | Lists experiment summaries, including `--status report_due` or `reported`; corrupt specs appear as unreadable rows. | `aiur experiments list --status active --json` |
 | `aiur experiments metrics [--json]` | Lists metric definitions and rejected pack files from the base checkout. | `aiur experiments metrics --json` |
 | `aiur experiments events <id> [--json] [--refresh]` | Freezes window events with stable IDs, a hash and missing sources; refresh appends a snapshot. | `aiur experiments events delivery-change --json` |
@@ -273,7 +275,7 @@ Fleet-capacity and build-gate evidence have independent source states: stale fle
 | `aiur experiments create --title <title> --line <type>:<ref>[@time] --metric <pack>/<metric>[:direction] [--draft] [--no-freeze]` | Creates a before/after experiment; repeat `--metric` to add metrics. Direction defaults to decrease. | `aiur experiments create --title smoke --line manual:smoke@2026-10-09T00:00:00Z --metric app/deploy_latency:decrease --draft` |
 | `aiur experiments create --hypothesis <text>` | Sets the quick-form hypothesis; default is empty. | `aiur experiments create --title smoke --line manual:smoke@2026-10-09T00:00:00Z --metric app/deploy_latency --hypothesis faster` |
 | `aiur experiments stats <id> [--json]` | Recomputes frozen-window statistics; JSON includes the snapshot hash and report-ready result rows. Needs registration and events. | `aiur experiments stats delivery-change --json` |
-| `aiur experiments report submit <id> --file <file\|-> [--json]` | Recomputes and validates a report, then stores its next version. Invalid or stale reports exit 1. | `aiur experiments report submit delivery-change --file report.json` |
+| `aiur experiments report submit <id> --file <file\|-> [--json]` | Recomputes and validates a report, then stores its next version. Invalid or stale reports exit 1; a stored interim result also exits 1 while a stronger analysis request remains open. | `aiur experiments report submit delivery-change --file report.json` |
 | `aiur experiments preregister <id> --file <file\|-> [--json]` | Validates and stores a pre-registration. Repeating it requires a `reason` in the JSON and appends an amendment. | `aiur experiments preregister delivery-change --file prereg.json` |
 | `aiur experiments freeze <id> [--window before\|after\|observation] [--reason <r>] [--json]` | Freezes observations; another revision requires a reason. Default window: before (before/after), observation (A/B). | `aiur experiments freeze delivery-change --reason "baseline complete"` |
 

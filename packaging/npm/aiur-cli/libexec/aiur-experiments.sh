@@ -6,7 +6,7 @@ cmd_experiments() {
     [ "${1:-}" = submit ] || { echo "aiur: experiments report expects submit <id> --file <file|->" >&2; exit 64; }
     verb=report_submit
   fi
-  case "$verb" in list|show|create|metrics|freeze|events|preregister|report_submit|stats) shift ;; *) echo "aiur: experiments expects list, show, events, metrics, create or freeze" >&2; exit 64 ;; esac
+  case "$verb" in list|show|create|metrics|freeze|events|preregister|report_submit|stats|analyze) shift ;; *) echo "aiur: experiments expects list, show, events, metrics, create or freeze" >&2; exit 64 ;; esac
   while [ "$#" -gt 0 ]; do
     arg="$1"; shift
     case "$arg" in
