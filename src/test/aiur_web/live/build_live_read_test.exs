@@ -5,13 +5,13 @@ defmodule AiurWeb.BuildLiveReadTest do
 
   alias Aiur.TestSupport.EndpointStubs
 
-  for mode <- [:raise, :exit, :invalid, :error] do
+  for {mode, reason} <- [raise: "read_failed", exit: "read_failed", invalid: "invalid_data", error: "read_failed"] do
     test "resync safely rejects #{mode} source and remains alive" do
       source(mode: unquote(mode))
       {:ok, view, _} = live(build_conn(), "/build")
       LiveViewAsync.render_when_complete(view)
       render_hook(view, "build-resync", %{})
-      assert_reply(view, %{"kind" => "error", "reason" => "unavailable"})
+      assert_reply(view, %{"kind" => "error", "reason" => unquote(reason)})
       assert Process.alive?(view.pid)
     end
   end
@@ -22,8 +22,17 @@ defmodule AiurWeb.BuildLiveReadTest do
     {:ok, view, _} = live(build_conn(), "/build")
     start = System.monotonic_time(:millisecond)
     render_hook(view, "build-resync", %{})
-    assert_reply(view, %{"kind" => "error", "reason" => "unavailable"})
+    assert_reply(view, %{"kind" => "error", "reason" => "timeout"})
     assert System.monotonic_time(:millisecond) - start < 6_000
+    assert Process.alive?(view.pid)
+  end
+
+  test "resync preserves the index timeout cause" do
+    source(mode: :error, error_reason: :timeout)
+    {:ok, view, _} = live(build_conn(), "/build")
+    LiveViewAsync.render_when_complete(view)
+    render_hook(view, "build-resync", %{})
+    assert_reply(view, %{"kind" => "error", "reason" => "timeout"})
     assert Process.alive?(view.pid)
   end
 
@@ -68,7 +77,7 @@ defmodule AiurWeb.BuildLiveReadTest do
     {:ok, view, _} = live(build_conn(), "/build")
     LiveViewAsync.render_when_complete(view)
     log = capture_log(fn -> render_hook(view, "build-resync", %{}) end)
-    assert_reply(view, %{"reason" => "unavailable"})
+    assert_reply(view, %{"reason" => "invalid_data"})
     assert log =~ "sections.now.0.pct"
     refute log =~ "sensitive-source-value"
   end

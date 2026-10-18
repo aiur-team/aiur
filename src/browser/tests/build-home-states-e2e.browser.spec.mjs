@@ -63,7 +63,7 @@ test('disconnect and reconnect preserve the cached board without skeletons', asy
 })
 test('initial unavailable response stops the loading spinner', async ({ page }) => {
   await open(page, 'unavailable')
-  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · source unavailable')
+  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · build index read failed')
   await expect(page.locator('.bd-spin')).toHaveCount(0)
   expect(await page.locator('.bd-skel i').evaluateAll(els => els.length === 16 && els.every(el => getComputedStyle(el).animationName === 'none'))).toBe(true)
 })

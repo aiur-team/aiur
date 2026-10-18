@@ -90,7 +90,14 @@ defmodule AiurWeb.BuildLiveTest do
   end
 
   test "source errors render unavailable with a cause-neutral tag" do
-    for {error, tag} <- [{:boom, "unknown"}, {:not_wired, "not_wired"}, {:timeout, "timeout"}] do
+    for {error, tag} <- [
+          {:boom, "unknown"},
+          {:not_wired, "not_wired"},
+          {:timeout, "timeout"},
+          {:epic_config_unavailable, "epic_config_unavailable"},
+          {:index_not_running, "index_not_running"},
+          {:read_failed, "read_failed"}
+        ] do
       source(result: {:error, error})
       {:ok, view, _} = live(build_conn(), "/build")
       LiveViewAsync.render_when_complete(view)
