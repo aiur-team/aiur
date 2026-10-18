@@ -8,7 +8,7 @@ defmodule Aiur.AgentQueueStore.TargetIndex do
   @spec add_item(AgentQueueStore.t(), AgentQueueItem.t()) :: AgentQueueStore.t()
   def add_item(%AgentQueueStore{} = store, %AgentQueueItem{id: id, target_issue_identifier: target} = item) do
     ids = Map.update(store.item_ids_by_target, target, [id], &[id | &1])
-    event_ids = MapSet.union(store.queued_event_ids, event_ids(item))
+    event_ids = Enum.reduce(event_ids(item), store.queued_event_ids, &Map.put(&2, &1, true))
     %{store | item_ids_by_target: ids, queued_event_ids: event_ids}
   end
 
@@ -46,10 +46,10 @@ defmodule Aiur.AgentQueueStore.TargetIndex do
     |> List.wrap()
     |> Enum.map(&event_id/1)
     |> Enum.filter(&is_integer/1)
-    |> MapSet.new()
+    |> Enum.uniq()
   end
 
-  defp event_ids(_item), do: MapSet.new()
+  defp event_ids(_item), do: []
 
   defp event_id(event) when is_map(event), do: Map.get(event, :id) || Map.get(event, "id")
   defp event_id(_event), do: nil

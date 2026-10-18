@@ -14,7 +14,7 @@ defmodule Aiur.AgentQueueStore do
           items: %{optional(integer()) => AgentQueueItem.t()},
           pending_ids_by_target: %{optional(String.t()) => [integer()]},
           item_ids_by_target: %{optional(String.t()) => [integer()]},
-          queued_event_ids: MapSet.t(integer()),
+          queued_event_ids: %{optional(integer()) => true},
           item_id_by_action: %{optional(String.t()) => integer()},
           item_id_by_message_id: %{optional(String.t()) => integer()}
         }
@@ -27,7 +27,7 @@ defmodule Aiur.AgentQueueStore do
             # per-target reads must not scan `items` (#4962).
             item_ids_by_target: %{},
             # Event digests remain in the unpruned store, so preserve dedupe IDs here.
-            queued_event_ids: MapSet.new(),
+            queued_event_ids: %{},
             item_id_by_action: %{},
             item_id_by_message_id: %{}
 
@@ -301,7 +301,7 @@ defmodule Aiur.AgentQueueStore do
 
   @doc false
   @spec queued_event_id?(t(), integer()) :: boolean()
-  def queued_event_id?(%__MODULE__{queued_event_ids: ids}, id) when is_integer(id), do: MapSet.member?(ids, id)
+  def queued_event_id?(%__MODULE__{queued_event_ids: ids}, id) when is_integer(id), do: Map.has_key?(ids, id)
 
   @spec list_pending(t(), String.t()) :: [AgentQueueItem.t()]
   def list_pending(%__MODULE__{} = store, target_issue_identifier) when is_binary(target_issue_identifier) do
