@@ -5,9 +5,10 @@ defmodule Aiur.AgentQueueStore.TargetIndex do
   alias Aiur.AgentQueueStore
 
   @spec add_item(AgentQueueStore.t(), AgentQueueItem.t()) :: AgentQueueStore.t()
-  def add_item(%AgentQueueStore{} = store, %AgentQueueItem{id: id, target_issue_identifier: target}) do
+  def add_item(%AgentQueueStore{} = store, %AgentQueueItem{id: id, target_issue_identifier: target} = item) do
     ids = Map.update(store.item_ids_by_target, target, [id], &[id | &1])
-    %{store | item_ids_by_target: ids}
+    event_ids = MapSet.union(store.queued_event_ids, event_ids(item))
+    %{store | item_ids_by_target: ids, queued_event_ids: event_ids}
   end
 
   @spec items_for(AgentQueueStore.t(), String.t()) :: [AgentQueueItem.t()]
@@ -27,19 +28,28 @@ defmodule Aiur.AgentQueueStore.TargetIndex do
     |> Enum.sort_by(& &1.sequence)
     |> Enum.reduce({store, []}, fn item, {acc, updated_items} ->
       updated = updater.(item)
-      next = acc |> put_item(updated) |> maybe_append_pending(updated)
+      next = acc |> AgentQueueStore.put_item(updated) |> maybe_append_pending(updated)
       {next, [updated | updated_items]}
     end)
     |> then(fn {updated_store, updated_items} -> {updated_store, Enum.reverse(updated_items)} end)
   end
 
-  defp put_item(store, %AgentQueueItem{id: id} = item), do: %{store | items: Map.put(store.items, id, item)}
-
   defp maybe_append_pending(store, %AgentQueueItem{status: :pending, target_issue_identifier: target, id: id}) do
-    pending = Map.get(store.pending_ids_by_target, target, [])
-    updated = if id in pending, do: pending, else: pending ++ [id]
-    %{store | pending_ids_by_target: Map.put(store.pending_ids_by_target, target, updated)}
+    AgentQueueStore.append_pending_id(store, target, id)
   end
 
   defp maybe_append_pending(store, _item), do: store
+
+  defp event_ids(%AgentQueueItem{category: :coordination_event, event_type: :events_digest, body: %{events: events}}) do
+    events
+    |> List.wrap()
+    |> Enum.map(&event_id/1)
+    |> Enum.filter(&is_integer/1)
+    |> MapSet.new()
+  end
+
+  defp event_ids(_item), do: MapSet.new()
+
+  defp event_id(event) when is_map(event), do: Map.get(event, :id) || Map.get(event, "id")
+  defp event_id(_event), do: nil
 end

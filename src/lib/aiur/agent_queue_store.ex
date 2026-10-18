@@ -12,6 +12,7 @@ defmodule Aiur.AgentQueueStore do
           items: %{optional(integer()) => AgentQueueItem.t()},
           pending_ids_by_target: %{optional(String.t()) => [integer()]},
           item_ids_by_target: %{optional(String.t()) => [integer()]},
+          queued_event_ids: MapSet.t(integer()),
           item_id_by_action: %{optional(String.t()) => integer()},
           item_id_by_message_id: %{optional(String.t()) => integer()}
         }
@@ -23,6 +24,8 @@ defmodule Aiur.AgentQueueStore do
             # Every item id per target, newest first. Items are never pruned, so
             # per-target reads must not scan `items` (#4962).
             item_ids_by_target: %{},
+            # Event digests remain in the unpruned store, so preserve dedupe IDs here.
+            queued_event_ids: MapSet.new(),
             item_id_by_action: %{},
             item_id_by_message_id: %{}
 
@@ -316,6 +319,10 @@ defmodule Aiur.AgentQueueStore do
     end
   end
 
+  @doc false
+  @spec queued_event_id?(t(), integer()) :: boolean()
+  def queued_event_id?(%__MODULE__{queued_event_ids: ids}, id) when is_integer(id), do: MapSet.member?(ids, id)
+
   @spec list_pending(t(), String.t()) :: [AgentQueueItem.t()]
   def list_pending(%__MODULE__{} = store, target_issue_identifier) when is_binary(target_issue_identifier) do
     target_issue_identifier
@@ -527,11 +534,15 @@ defmodule Aiur.AgentQueueStore do
     end
   end
 
-  defp put_item(%__MODULE__{} = store, %AgentQueueItem{id: id} = item) do
+  @doc false
+  @spec put_item(t(), AgentQueueItem.t()) :: t()
+  def put_item(%__MODULE__{} = store, %AgentQueueItem{id: id} = item) do
     %{store | items: Map.put(store.items, id, item)}
   end
 
-  defp append_pending_id(%__MODULE__{} = store, target_issue_identifier, item_id) do
+  @doc false
+  @spec append_pending_id(t(), String.t(), integer()) :: t()
+  def append_pending_id(%__MODULE__{} = store, target_issue_identifier, item_id) do
     pending_ids = Map.get(store.pending_ids_by_target, target_issue_identifier, [])
 
     updated_pending_ids =
