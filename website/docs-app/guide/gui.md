@@ -218,6 +218,10 @@ Full log combines the newest materialized prior runs that fit a bounded projecti
 
 Retained summaries that exceed the read budget also report unavailable.
 
+The Build page usage strip shows API budgets and provider windows or credits. Hover or focus a usage line for account details, observation age, and budget holds.
+
+Unknown readings stay marked as unobserved; expired windows and stale readings are identified explicitly. Reset labels refresh every 30 seconds while the tab is visible. Locked sessions show an authentication message without financial values.
+
 ### Read an experiment
 
 Open **Experiments** below Analytics and select an experiment. The shareable

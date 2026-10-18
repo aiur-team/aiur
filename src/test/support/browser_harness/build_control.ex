@@ -2,7 +2,8 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
   @moduledoc false
   use Phoenix.Controller, formats: []
   import Plug.Conn
-  alias Aiur.TestSupport.BuildHome.{EarlierControl, FixtureSource}
+  plug(:fetch_query_params)
+  alias Aiur.TestSupport.BuildHome.{EarlierControl, FixtureSource, UsageFixtures}
 
   def configure(conn, %{"action" => "stream", "key" => key}) do
     conn |> put_session("build_stream", key) |> send_resp(200, "build fixture stream: #{key}")
@@ -22,6 +23,21 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
 
     Phoenix.PubSub.broadcast(Aiur.PubSub, FixtureSource.topic(get_session(conn, "build_stream")), {:build_changes, changes})
     send_resp(conn, 200, "build fixture control: #{action}")
+  end
+
+  def configure(conn, %{"action" => "usage", "name" => name}) do
+    case UsageFixtures.load(name) do
+      {:ok, block} ->
+        {:ok, data} = FixtureSource.full([])
+        Phoenix.PubSub.broadcast(Aiur.PubSub, FixtureSource.topic(get_session(conn, "build_stream")), {:build_changes, %{now: data["now"], upsert: [], remove: [], set: %{usage: block}}})
+        send_resp(conn, 200, "build fixture control: usage")
+
+      {:error, {:invalid, errors}} ->
+        send_resp(conn, 422, inspect(errors))
+
+      {:error, :not_found} ->
+        send_resp(conn, 404, "unknown usage fixture")
+    end
   end
 
   def configure(conn, %{"action" => "earlier"} = params) do

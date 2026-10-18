@@ -111,6 +111,40 @@ defmodule Aiur.DecisionStore.Dedup do
     |> Enum.max_by(& &1.created_at, DateTime, fn -> nil end)
   end
 
+  @spec find_expired_reraise_duplicate(term(), term()) :: Decision.t() | nil
+  def find_expired_reraise_duplicate(decision, state) do
+    state.current
+    |> Map.values()
+    |> Enum.filter(&expired_reraise_duplicate_of?(&1, decision))
+    |> Enum.max_by(& &1.created_at, DateTime, fn -> nil end)
+  end
+
+  @spec moot_expired_reraise(term(), Decision.t(), Decision.t()) :: {:ok, term()} | {:error, term()}
+  def moot_expired_reraise(state, %Decision{} = expired, %Decision{} = replacement) do
+    data = %{
+      reason_class: "superseded_by_reraise",
+      detail: "Re-raised as #{replacement.decision_id}.",
+      actor: %{kind: :system, id: "superseded-by-reraise:#{replacement.decision_id}"}
+    }
+
+    case Persistence.build_and_persist_event(:decision_mooted, expired, data, DateTime.utc_now(), state) do
+      {:ok, next_state, _updated} -> {:ok, next_state}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp expired_reraise_duplicate_of?(
+         %Decision{decision_status: :expired, blocking: true, answer: nil} = candidate,
+         %Decision{} = decision
+       ) do
+    candidate.ticket.identifier == decision.ticket.identifier and
+      candidate.blocking == decision.blocking and
+      candidate.authority == decision.authority and
+      creation_duplicate_match?(candidate, decision)
+  end
+
+  defp expired_reraise_duplicate_of?(_candidate, _decision), do: false
+
   defp creation_duplicate_of?(candidate, decision) do
     # A blocking Command gates dispatch and a non-blocking one does not, so the
     # two are not interchangeable duplicates even when the question matches
