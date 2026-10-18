@@ -4,9 +4,10 @@ defmodule Aiur.LandingWatch do
   require Logger
 
   alias Aiur.Alerts
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
   alias Aiur.LandingWatch.{Attribution, Classifier, Journal, MergeGroups, Observer, PrRerun}
+  alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.PrMerge.Queue
   alias Aiur.TicketBranch
@@ -28,9 +29,11 @@ defmodule Aiur.LandingWatch do
   def init(opts) do
     interval = Keyword.get(opts, :interval_ms, @default_interval_ms)
     # CI-file merges let older failed PR runs rerun instead of routing to rework.
-    if Keyword.get(opts, :subscribe, true), do: Enum.each(["system.pr.merged", "ticket.*.pr.merged"], &Exchange.subscribe/1)
+    if Keyword.get(opts, :subscribe, true), do: Enum.each(["system.pr.merged", "ticket.*.pr.merged", "system.main.ci.failed.resolved"], &Events.subscribe/1)
     send(self(), :poll)
-    {:ok, %{watcher: :running, last_poll_at_ms: nil, last_error: nil, interval_ms: interval, opts: opts, task: nil}}
+
+    {:ok,
+     %{watcher: :running, last_poll_at_ms: nil, last_error: nil, interval_ms: interval, opts: opts, task: nil, pending_recovery_window: nil, active_recovery_window: nil, active_recovery_attempt: 0}}
   end
 
   @impl true
@@ -55,23 +58,50 @@ defmodule Aiur.LandingWatch do
       {:noreply, %{state | watcher: :unavailable, last_error: :poll_start_failed}}
   end
 
+  def handle_info({:event, %{topic: "system.main.ci.failed.resolved", red_since: red_since, recovered_at: recovered_at}}, state)
+      when is_integer(red_since) and is_integer(recovered_at) and red_since <= recovered_at do
+    window = {red_since, recovered_at}
+
+    case state.task do
+      nil ->
+        send(self(), {:poll_recovery, window, 0})
+        {:noreply, state}
+
+      _task ->
+        {:noreply, %{state | pending_recovery_window: {window, 0}}}
+    end
+  end
+
+  def handle_info({:poll_recovery, window, attempt}, state) do
+    if state.task do
+      {:noreply, %{state | pending_recovery_window: {window, attempt}}}
+    else
+      task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> poll(Keyword.put(state.opts, :main_ci_recovery_window, window)) end)
+      {:noreply, %{state | task: task, active_recovery_window: window, active_recovery_attempt: attempt}}
+    end
+  end
+
   def handle_info({ref, result}, %{task: %{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
     now = System.system_time(:millisecond)
 
     case result do
       :ok ->
-        {:noreply, %{state | task: nil, watcher: :running, last_poll_at_ms: now, last_error: nil}}
+        next = %{state | task: nil, watcher: :running, last_poll_at_ms: now, last_error: nil, active_recovery_window: nil, active_recovery_attempt: 0}
+        if next.pending_recovery_window, do: send(self(), RecoveryRuntime.message(next.pending_recovery_window))
+        {:noreply, %{next | pending_recovery_window: nil}}
 
       {:error, reason} ->
         Logger.warning("landing watcher poll unavailable: #{inspect(reason)}")
-        {:noreply, %{state | task: nil, watcher: :unavailable, last_poll_at_ms: now, last_error: inspect(reason)}}
+        next = %{state | task: nil, watcher: :unavailable, last_poll_at_ms: now, last_error: inspect(reason)}
+        {:noreply, RecoveryRuntime.retry_or_drain(next)}
     end
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref}} = state) do
     Logger.warning("landing watcher poll crashed: #{inspect(reason)}")
-    {:noreply, %{state | task: nil, watcher: :unavailable, last_error: inspect(reason)}}
+    next = %{state | task: nil, watcher: :unavailable, last_error: inspect(reason)}
+    {:noreply, RecoveryRuntime.retry_or_drain(next)}
   end
 
   def handle_info({:event, %{topic: topic} = event}, state) when is_binary(topic) do
@@ -217,7 +247,13 @@ defmodule Aiur.LandingWatch do
 
       # Auto-merge never enqueues a red head, so only a rerun or refresh lands it (#4930); rework stays held (#4684).
       :auto_merge ->
-        PrRerun.handle_failure(observation, result, runs, Keyword.put(opts, :hold_rework, true))
+        case Keyword.get(opts, :main_ci_recovery_window) do
+          {red_since, recovered_at} = window when is_integer(red_since) and is_integer(recovered_at) ->
+            PrRerun.recover_main_ci(observation, runs, window, opts)
+
+          _ ->
+            PrRerun.handle_failure(observation, result, runs, Keyword.put(opts, :hold_rework, true))
+        end
     end
   end
 

@@ -1,7 +1,7 @@
 defmodule Aiur.Experiments.Sources.EventCount do
   @moduledoc false
 
-  alias Aiur.Events.Topic
+  alias Aiur.Events
   alias Aiur.Experiments.Observation
   alias Aiur.Experiments.Sources.Common
 
@@ -10,7 +10,7 @@ defmodule Aiur.Experiments.Sources.EventCount do
     case Common.events(ref, window, ctx) do
       {:ok, events} ->
         coverage = Common.event_coverage(metric, ref, events, window, ctx)
-        matching = Enum.filter(events, &Topic.matches?(metric.source["match"], &1["topic"]))
+        matching = Enum.filter(events, &Events.matches?(metric.source["match"], &1["topic"]))
         Common.result(coverage, counts(matching, metric.source, window, coverage))
 
       {:error, reason} ->

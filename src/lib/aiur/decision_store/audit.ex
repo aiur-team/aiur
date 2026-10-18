@@ -10,7 +10,7 @@ defmodule Aiur.DecisionStore.Audit do
   alias Aiur.DecisionPubSub
   alias Aiur.DecisionRevision
   alias Aiur.DecisionStore.Answers
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
 
   @recent_audit_limit 50
   @system_follow_up_actor %{kind: :system, id: "decision-store"}
@@ -27,7 +27,7 @@ defmodule Aiur.DecisionStore.Audit do
     payload = DecisionProjection.to_json_safe(decision)
 
     try do
-      Publisher.publish_persisted(topic, payload, event_id, digest_source: :orchestrator)
+      Events.publish_persisted(topic, payload, event_id, digest_source: :orchestrator)
     rescue
       error -> Logger.warning("aiur_decision_store phase=notify_publisher_failed error=#{Exception.message(error)}")
     end
