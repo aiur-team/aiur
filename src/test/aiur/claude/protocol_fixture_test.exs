@@ -5,6 +5,7 @@ defmodule Aiur.Claude.ProtocolFixtureTest do
   alias Aiur.AgentTools.Catalog
   alias Aiur.AppServer.{Rpc, Transport, TurnLoop, TurnState}
   alias Aiur.Claude.CodingAgent
+  alias Aiur.Codex.TurnLoopTestSupport
   alias Aiur.Workflow
 
   @moduletag :r7_characterization
@@ -48,7 +49,7 @@ defmodule Aiur.Claude.ProtocolFixtureTest do
         assert {:ok, %{"turn" => %{"id" => "<turn-2>"}}} = Rpc.with_timeout_response(session.port, request_id, 5_000, "", "Claude")
 
         state =
-          Aiur.Codex.TurnLoopTestSupport.base_state()
+          TurnLoopTestSupport.base_state()
           |> Map.merge(%{backend: CodingAgent, active_turn_ids: MapSet.new(), current_turn_id: "<turn-2>", pending_line: "", timeout_ms: 5_000, on_message: on_message})
           |> TurnState.initialize_turn_tracking()
 
