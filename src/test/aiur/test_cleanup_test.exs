@@ -2,6 +2,8 @@ defmodule Aiur.TestCleanupTest do
   # Mutates global :aiur application env, so it cannot run async.
   use ExUnit.Case, async: false
 
+  alias Aiur.Config.Paths
+  alias Aiur.RepoBase.StateTree
   alias Aiur.TestCleanup
 
   setup do
@@ -79,10 +81,10 @@ defmodule Aiur.TestCleanupTest do
   test "cleanup detects a live repo state tree writer", %{root: root} do
     Application.put_env(:aiur, :repo_base_root, root)
     parent = self()
-    node = Aiur.Config.Paths.repo_state_path("test-org/test-repo")
+    node = Paths.repo_state_path("test-org/test-repo")
 
     writer = spawn(fn -> writer_loop(parent, node) end)
-    assert_receive :writer_started
+    assert_receive :writer_started, 1000
     file = Path.join(node, ".aiur-hex")
 
     error =
@@ -110,7 +112,7 @@ defmodule Aiur.TestCleanupTest do
 
     receive do
       {:write, caller} ->
-        _result = Aiur.RepoBase.StateTree.ensure_state_tree_at(node)
+        _result = StateTree.ensure_state_tree_at(node)
         send(caller, {:write_finished, self()})
         writer_loop(parent, node)
 
