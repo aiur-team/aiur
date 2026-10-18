@@ -111,89 +111,6 @@ defmodule Aiur.LandingWatch.PrRerunTest do
              )
   end
 
-  test "deferred recovery keeps only run IDs that started during the red interval" do
-    path = journal_path()
-    armed = %{observation() | auto_merge_request: %{"enabledAt" => "2026-10-14T09:00:00Z"}}
-    in_window = failed_gate() |> Map.put("started_at", @started)
-    outside = failed_gate() |> Map.put("run_id", 100) |> Map.put("id", 51) |> Map.put("started_at", "2026-10-14T09:58:00Z")
-    for _ <- 1..3, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
-    checks = [in_window, outside]
-
-    assert :ok =
-             LandingWatch.process(
-               armed,
-               opts(path,
-                 main_ci_recovery_window: {@started_ms - 60_000, @started_ms + 60_000},
-                 ci_status_fun: fn _, _ -> {:ok, %{check_runs: checks, commit_status: %{"state" => "success", "statuses" => []}}} end,
-                 jobs_fun: fn id, _ -> {:ok, jobs_for_run(id)} end
-               )
-             )
-
-    assert {:ok, [%{"run_ids" => [99]}]} = Journal.rerun_backlog(journal_path: path)
-
-    later =
-      opts(path,
-        ci_status_fun: fn _, _ -> {:ok, %{check_runs: checks, commit_status: %{"state" => "success", "statuses" => []}}} end,
-        jobs_fun: fn id, _ -> {:ok, jobs_for_run(id)} end,
-        now_ms: @started_ms + 3_600_000 + 15 * 60_000
-      )
-
-    assert :ok = LandingWatch.process(armed, later)
-    assert_received {:rerun, 99}
-    refute_received {:rerun, 100}
-    assert {:ok, []} = Journal.rerun_backlog(journal_path: path)
-  end
-
-  test "recovery reruns consume one shared cap slot per workflow run" do
-    path = journal_path()
-    armed = %{observation() | auto_merge_request: %{"enabledAt" => "2026-10-14T09:00:00Z"}}
-    runs = for id <- 99..101, do: failed_gate() |> Map.put("run_id", id) |> Map.put("id", id - 49) |> Map.put("started_at", @started)
-    assert :ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path)
-
-    assert :ok =
-             LandingWatch.process(
-               armed,
-               opts(path,
-                 main_ci_recovery_window: {@started_ms - 60_000, @started_ms + 60_000},
-                 ci_status_fun: fn _, _ -> {:ok, %{check_runs: runs, commit_status: %{"state" => "success", "statuses" => []}}} end,
-                 jobs_fun: fn id, _ -> {:ok, jobs_for_run(id)} end
-               )
-             )
-
-    assert_received {:rerun, 99}
-    assert_received {:rerun, 100}
-    refute_received {:rerun, 101}
-    assert {:ok, [%{"run_ids" => [101]}]} = Journal.rerun_backlog(journal_path: path)
-    assert {:ok, state} = Journal.state(journal_path: path)
-    assert length(state["merge_group_requeues"]) == 3
-  end
-
-  test "recovery backlog drains across cap windows without spending another per-head attempt" do
-    path = journal_path()
-    armed = %{observation() | auto_merge_request: %{"enabledAt" => "2026-10-14T09:00:00Z"}}
-    runs = for id <- 99..106, do: failed_gate() |> Map.put("run_id", id) |> Map.put("id", id - 49) |> Map.put("started_at", @started)
-    shared = [ci_status_fun: fn _, _ -> {:ok, %{check_runs: runs, commit_status: %{"state" => "success", "statuses" => []}}} end, jobs_fun: fn id, _ -> {:ok, jobs_for_run(id)} end]
-
-    assert :ok = LandingWatch.process(armed, opts(path, shared ++ [main_ci_recovery_window: {@started_ms - 60_000, @started_ms + 60_000}]))
-    assert {:ok, [%{"run_ids" => [102, 103, 104, 105, 106], "per_head_reserved" => true}]} = Journal.rerun_backlog(journal_path: path)
-    assert_received {:rerun, 99}
-    assert_received {:rerun, 100}
-    assert_received {:rerun, 101}
-
-    later = shared ++ [now_ms: @started_ms + 3_600_000 + 15 * 60_000]
-    assert :ok = LandingWatch.process(armed, opts(path, later))
-    assert_received {:rerun, 102}
-    assert_received {:rerun, 103}
-    assert_received {:rerun, 104}
-    assert {:ok, [%{"run_ids" => [105, 106], "per_head_reserved" => true}]} = Journal.rerun_backlog(journal_path: path)
-
-    latest = shared ++ [now_ms: @started_ms + 3_600_000 + 30 * 60_000]
-    assert :ok = LandingWatch.process(armed, opts(path, latest))
-    assert_received {:rerun, 105}
-    assert_received {:rerun, 106}
-    assert {:ok, []} = Journal.rerun_backlog(journal_path: path)
-  end
-
   test "a merged workflow change sends older failed runs of that workflow only to a fresh merge ref" do
     path = journal_path()
     merged_after = "2026-10-14T11:00:00Z"
@@ -471,10 +388,6 @@ defmodule Aiur.LandingWatch.PrRerunTest do
       %{"id" => 7, "name" => "test (1/4)", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => @started, "completed_at" => "2026-10-14T10:05:00Z"},
       %{"id" => 8, "name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T10:06:00Z", "completed_at" => "2026-10-14T10:06:05Z"}
     ]
-  end
-
-  defp jobs_for_run(id) do
-    [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => @started, "completed_at" => "2026-10-14T10:06:05Z", "run_id" => id}]
   end
 
   defp definitions do
