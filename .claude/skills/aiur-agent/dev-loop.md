@@ -370,28 +370,13 @@ The Elixir examples below apply only to Aiur's Elixir core.
     code, tests, prompt, skill, or config files changed.
 13. **Integration checklist (before `gh pr ready` or `human-review`):**
     verify the PR's `baseRefName` equals `AIUR_BASE_BRANCH` and its
-    `headRefOid` equals your local `HEAD`. Fetch the configured base once for
-    this assessment: `git -C "$workspace" fetch origin "$AIUR_BASE_BRANCH"`.
-    Record that base SHA as `base_sha` and exact PR head as `head_sha`. If
-    `git -C "$workspace" merge-base --is-ancestor "$base_sha" "$head_sha"`
-    succeeds, no integration is needed. Otherwise find their `merge_base` and
-    inspect `git -C "$workspace" diff --name-status -M "$merge_base" "$head_sha"`
-    and `git -C "$workspace" diff --name-status -M "$merge_base" "$base_sha"`.
-    Compare changed paths on **both** sides, including both old and new paths
-    for renames. Check for textual conflicts with
-    `git -C "$workspace" merge-tree --write-tree "$head_sha" "$base_sha"`.
-    No shared changed paths and no conflicts permits handoff despite staleness.
-    A fetch/probe error or incomplete path list does not permit handoff.
-
-    **An approved PR is exempt from integration** (`reviewDecision` is
-    `APPROVED` at the exact current head): never merge or rebase the base into
-    it solely for overlap or staleness. A genuine `mergeable: CONFLICTING`
-    verdict still requires integration; say why in a PR comment. The merge
-    queue tests the merge; a refresh push only cancels in-flight CI and risks
-    the approval, and it cannot fix a red or cancelled check. The state writer
-    still requires the exact head's full required-check gate before handoff.
-    The agent `git` guard refuses a push to a PR in the merge queue unless it
-    is conflicting or has changes requested.
+    `headRefOid` equals your local `HEAD`. For a `human-review` or `ci-wait`
+    handoff, integrate the configured base only when GitHub reports the exact
+    PR head as `CONFLICTING` or a reviewer asks. File overlap, base movement,
+    ancestry, and local path comparisons do not require a push: the merge queue
+    tests the PR on current base. A non-`CONFLICTING` head permits handoff
+    without a base merge; unavailable or mismatched GitHub evidence remains
+    fail-closed in the state writer.
 
     If GitHub reports `CONFLICTING` or a reviewer asks for integration, record
     the pre-merge head and rescue ref first. Preserve feature scope and push the
@@ -399,8 +384,8 @@ The Elixir examples below apply only to Aiur's Elixir core.
     relevant local tests and the format, size, components gates; resolve drift,
     validate and push. Keep the PR ready before returning to `ci-wait` for
     new-head CI. Record observed SHAs and the conflict or reviewer request in
-    the workpad across restarts. The GitHub state writer blocks unsafe or
-    unavailable verdicts. Never open a blocking decision for base integration.
+    the workpad across restarts. Never open a blocking decision for base
+    integration.
 14. If you still believe the work is complete and correct and only CI remains,
     mark the PR ready (`gh pr ready`) and verify it is no longer a draft, then
     move the ticket with `aiur_set_ticket_state({ "state": "ci-wait" })`, and end the turn. Do
@@ -408,8 +393,7 @@ The Elixir examples below apply only to Aiur's Elixir core.
     returns the dispatch slot while this runner is paused.
 15. On a delivered terminal CI event:
     - **Passed:** require the full required-check set to have passed on the
-      current head SHA and verify the PR is ready. Assess integration safety
-      with step 13 again, retaining its three-integration allowance. When the tested
+      current head SHA and verify the PR is ready. Apply step 13 again. When the tested
       head is not `CONFLICTING` with the observed base, trust the delivered
       result without re-polling, emit the required
       100% progress sample, and

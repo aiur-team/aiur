@@ -15,6 +15,9 @@ defmodule Aiur.AgentRunner.MergePolicySkillTest do
       assert content =~ "or a reviewer asks"
       refute content =~ "changed-file overlap require integration"
       refute content =~ "overlap allow up to 3 integrations per handoff"
+      refute content =~ "up to 3 integrations"
+      refute content =~ "three-integration"
+      refute content =~ "No shared changed paths"
     end
   end
 end

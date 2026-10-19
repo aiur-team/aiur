@@ -5,8 +5,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
   This module blocks a transition to human review while the canonical open
   pull request has unaddressed review-thread comments or conflicts with its
   base. Mergeable PRs may wait through base movement; the merge queue tests
-  them against the current base. Approved heads also retain their contribution
-  integrity check. It composes pull request discovery, bot identity resolution,
+  them against the current base. It composes pull request discovery, bot identity resolution,
   review-thread classification and mergeability without mutating GitHub state.
   """
 
@@ -262,8 +261,8 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   defp approval_mergeability(_pr, true, _approved_head), do: {:ok, :merge_queue}
 
-  # Preserve overlap-only handoff for a human-approved exact head. The caller
-  # still rejects conflicts before consulting this result.
+  # A human-approved exact head in the queue can be handed off without a base
+  # refresh; the caller rejects actual conflicts before consulting this result.
   defp approval_mergeability(pr, false, approved_head),
     do: approval_mergeability(pr, approved_head)
 

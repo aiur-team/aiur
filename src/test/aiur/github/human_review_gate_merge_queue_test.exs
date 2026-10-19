@@ -230,6 +230,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
            }
 
     assert error["message"] =~ "conflicts with"
+    refute error["message"] =~ "overlaps"
     assert error["message"] =~ "Never dequeue"
     refute_received {:label_written, _labels}
   end

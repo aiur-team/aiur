@@ -56,7 +56,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
         if DispatchPolicy.state_slug(target) == "human-review" do
           # A real conflict cannot be handed to review. Route the orphan to
           # rework so it gets an owner instead of deferring forever.
-          write_release(issue, "rework", opts)
+          write_release(issue, lifecycle_state_name("rework", opts), opts)
         else
           {:error, reason}
         end
