@@ -3,8 +3,8 @@ defmodule Aiur.Experiments.AnalystLoopTest do
   use ExUnit.Case, async: false
   import Phoenix.LiveViewTest, only: [render_component: 2]
   alias Aiur.{Experiments, ExperimentsCLI}
-  alias Aiur.Experiments.Sources.Common
   alias Aiur.Experiments.{Evidence, ReportRecords, Snapshot, StatsRunner, Store}
+  alias Aiur.Experiments.Sources.Common
   alias Aiur.TestSupport.RuntimeChildren
   alias AiurWeb.Experiments.Report
   import ExUnit.CaptureIO
