@@ -129,7 +129,7 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert MapSet.member?(dirty, :now)
     send(worker, {:return, %{initial | now: {:error, :running_snapshot_timeout}}})
     assert await_read_finish(pid, 100)
-    assert_receive {:retry_timer, ^pid, :flush, delay}
+    assert_receive {:retry_timer, ^pid, :flush, delay}, 1_000
     assert delay >= 250
 
     send(pid, :flush)
