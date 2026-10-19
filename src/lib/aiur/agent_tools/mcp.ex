@@ -23,22 +23,27 @@ defmodule Aiur.AgentTools.MCP do
   def stop(server), do: GenServer.call(server, :stop)
 
   @doc "Execute a tagged MCP request in the runner owner process."
-  @spec execute_request(pid(), tuple(), (String.t(), map() -> map())) :: :ok | {:error, atom()}
-  def execute_request(server, {:aiur_mcp_call, server, reply_to, ref, binding, invocation, name, args}, executor)
+  @spec execute_request(pid(), tuple(), (String.t(), map() -> map())) :: :ok | {:error, term()}
+  @spec execute_request(pid(), tuple(), (String.t(), map() -> map()), GenServer.server()) :: :ok | {:error, term()}
+  def execute_request(server, request, executor, ledger \\ ToolCallLedger)
+
+  def execute_request(server, {:aiur_mcp_call, server, reply_to, ref, binding, invocation, name, args}, executor, ledger)
       when is_function(executor, 2) do
     result =
-      case GenServer.call(server, {:valid_binding, binding}) do
-        :ok -> execute(invocation, name, args, executor)
-        error -> error
+      try do
+        case valid_binding(server, binding) do
+          :ok -> execute(invocation, name, args, executor, ledger)
+          error -> error
+        end
+      catch
+        :exit, reason -> {:error, {:tool_execution_exit, reason}}
       end
 
     send(reply_to, {:aiur_mcp_reply, ref, result})
     :ok
-  catch
-    :exit, _ -> {:error, :gateway_unavailable}
   end
 
-  def execute_request(_server, _message, _executor), do: {:error, :invalid_request}
+  def execute_request(_server, _message, _executor, _ledger), do: {:error, :invalid_request}
 
   @doc false
   @spec authorize(pid(), String.t() | nil) :: boolean()
@@ -179,11 +184,20 @@ defmodule Aiur.AgentTools.MCP do
     end)
   end
 
-  defp execute(invocation, name, args, executor) do
+  defp valid_binding(server, binding) do
+    GenServer.call(server, {:valid_binding, binding})
+  catch
+    :exit, reason -> {:error, {:gateway_unavailable, reason}}
+  end
+
+  defp execute(invocation, name, args, executor, ledger) do
     fingerprint = :crypto.hash(:sha256, :erlang.term_to_binary({name, args}, [:deterministic]))
 
-    ToolCallLedger.execute({:muse_mcp, invocation}, fingerprint, fn ->
-      ToolExecutor.execute(executor, name, args, invocation)
-    end)
+    ToolCallLedger.execute(
+      {:muse_mcp, invocation},
+      fingerprint,
+      fn -> ToolExecutor.execute(executor, name, args, invocation) end,
+      ledger
+    )
   end
 end

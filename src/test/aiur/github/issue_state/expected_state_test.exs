@@ -1,6 +1,7 @@
 defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
   use Aiur.TestSupport
 
+  alias Aiur.GitHub.Issues
   alias Aiur.GitHub.IssueState
   alias Aiur.GitHub.ResourceStore
 
@@ -172,6 +173,27 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
       refute ticket_pull_url =~ "head="
       assert_receive {:request, %{method: :get, url: ^issue_url}}, 1000
       refute_receive {:request, %{method: _method}}, 100
+    end
+
+    # #5180: Build Order reconciliation files the body with `"labels" => []`, and
+    # the poll's `304` against its own ETag used to stamp that ETag beside it. The
+    # guarded read then got a `304` for the labelless body and saw no state.
+    test "a poll 304 cannot vouch for a reconciliation body it never saw" do
+      labels = Enum.map(~w(sym:in-progress sym:queued), &%{"name" => &1})
+      body = %{"number" => 42, "state" => "open", "updated_at" => "2026-10-18T21:42:13Z", "labels" => labels}
+      key = ResourceStore.key(:issue, "owner", "repo", "42")
+
+      request_fun = fn
+        %{method: :get, etag: ~s("v1")} -> {:ok, %{status: 304, headers: [{"etag", ~s("v1")}]}}
+        %{method: :get} -> {:ok, %{status: 200, headers: [{"etag", ~s("v1")}], body: body}}
+        %{method: _write} -> {:ok, %{status: 200, body: [%{"name" => "sym:todo"}]}}
+      end
+
+      assert {:ok, [%{state: "in-progress"}], cache} = Issues.fetch_issue_states_by_ids_conditional(["42"], %{}, request_fun: request_fun)
+      ResourceStore.deposit_unless_older(key, %{body | "labels" => []}, source: :reconciliation, version: body["updated_at"], etag: :derive)
+      assert {:ok, [%{state: "in-progress"}], _cache} = Issues.fetch_issue_states_by_ids_conditional(["42"], cache, request_fun: request_fun)
+
+      assert :ok = IssueState.update_issue_state("42", "todo", expected_state: "in-progress", request_fun: request_fun)
     end
   end
 end

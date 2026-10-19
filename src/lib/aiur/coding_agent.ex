@@ -35,6 +35,7 @@ defmodule Aiur.CodingAgent do
 
   # Registry views and provider descriptors.
   defdelegate backends(), to: ProvidersView
+  defdelegate child_specs(), to: ProvidersView
   defdelegate known_backends(), to: ProvidersView
   defdelegate model_required?(backend), to: ProvidersView
   defdelegate dispatchable_backends(backend_configs \\ %{}), to: ProvidersView

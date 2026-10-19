@@ -65,6 +65,8 @@ defmodule Aiur.CodingAgent.Backend do
       Omitted declarations get conservative defaults.
     * `:launch_telemetry` — module exporting `prepare_launch/2` and `revoke/1`
       for backend-correlated launch capabilities (distinct from `:run_telemetry` decoding).
+    * `:children` — child specs the harness needs before the Orchestrator
+      starts, collected once by `Aiur.CodingAgent.child_specs/0` in `:init_order`.
     * `:display_tailer` — module exporting `start/1`, `current_session/1`,
       `buffer_operator_delivery/3`, `handoff_state/1` and `restore_handoff/2`.
       Required when `:rc_display_tail` is true.
@@ -122,6 +124,7 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:configurable) => boolean(),
           optional(:init) => module(),
           optional(:init_order) => non_neg_integer(),
+          optional(:children) => [Supervisor.child_spec() | module() | {module(), term()}],
           optional(:default_command) => String.t(),
           optional(:install_hint) => String.t(),
           optional(atom()) => term()
