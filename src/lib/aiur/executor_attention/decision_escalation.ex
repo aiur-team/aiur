@@ -16,7 +16,6 @@ defmodule Aiur.ExecutorAttention.DecisionEscalation do
 
   alias Aiur.{AlertFeed, Commands, Decision, ExecutorWakeInbox, ExecutorWakeProjection, Signal}
   alias Aiur.BuildQueue.Hints
-  alias Aiur.DecisionStore.RetainedIndex
   alias Aiur.Events.Sanitizer
 
   @rewake_minutes [15, 30]
@@ -118,7 +117,7 @@ defmodule Aiur.ExecutorAttention.DecisionEscalation do
   """
   @spec status_line([Decision.t()], DateTime.t(), (String.t() -> non_neg_integer())) :: String.t()
   def status_line(decisions, now, gates_fun \\ &gates/1) do
-    open = decisions |> Enum.filter(&RetainedIndex.open?/1) |> Enum.sort_by(&DateTime.to_unix(&1.created_at, :microsecond))
+    open = decisions |> Enum.filter(&Commands.open?/1) |> Enum.sort_by(&DateTime.to_unix(&1.created_at, :microsecond))
 
     case open do
       [] ->
