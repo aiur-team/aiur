@@ -6,12 +6,17 @@ defmodule Aiur.Config.PathsHeartbeatTest do
   describe "daemon_heartbeat_path/0" do
     setup do
       original_override = Application.get_env(:aiur, :decision_state_dir)
+      original_instance_key = System.get_env("AIUR_INSTANCE_KEY")
 
       on_exit(fn ->
         case original_override do
           nil -> Application.delete_env(:aiur, :decision_state_dir)
           value -> Application.put_env(:aiur, :decision_state_dir, value)
         end
+
+        if original_instance_key,
+          do: System.put_env("AIUR_INSTANCE_KEY", original_instance_key),
+          else: System.delete_env("AIUR_INSTANCE_KEY")
       end)
 
       :ok

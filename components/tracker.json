@@ -5,6 +5,7 @@
   "kind": "in-app",
   "paths": [
     "src/lib/aiur/code_host.ex",
+    "src/lib/aiur/code_host/**",
     "src/lib/aiur/issue.ex",
     "src/lib/aiur/memory/**",
     "src/lib/aiur/optimistic_start.ex",

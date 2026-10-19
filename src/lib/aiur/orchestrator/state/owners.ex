@@ -67,6 +67,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     ci_readiness_unavailable_alerted: :dispatch,
     ci_readiness_check_pid: :dispatch,
     ci_readiness_check_token: :dispatch,
+    ci_readiness_check_provider: :dispatch,
     ci_readiness_retry_at_ms: :dispatch,
     ci_readiness_scope: :dispatch,
     ci_readiness_result: :dispatch,
@@ -133,6 +134,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     ],
     dispatch: [
       Aiur.Orchestrator.AdoptedBoot,
+      Aiur.Orchestrator.CiReadinessGate,
       Aiur.Orchestrator.Dispatcher,
       Aiur.Orchestrator.DispatchOutcome,
       Aiur.Orchestrator.DispatchPolicy,
