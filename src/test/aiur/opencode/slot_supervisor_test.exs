@@ -137,14 +137,16 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
       start_supervised!({SlotPolicy, target_count: 1, max_slots: 2, pubsub: pubsub, slot_starter: FakeSlotStarter})
 
     ref = Process.monitor(policy)
-    started = SlotPolicy.highest_started(policy)
-    # highest_started/1 reads a dead policy as 0; surface its exit reason instead.
+    # highest_started/1 reads a dead or slow policy as 0. Call directly so a
+    # failure shows the exit reason or the timeout; a policy already dead
+    # before the monitor shows only :noproc.
+    started = GenServer.call(policy, :highest_started, 5_000)
     refute_received {:DOWN, ^ref, :process, ^policy, _reason}
     assert started == 1
     assert [{1, _slot_pid}] = SlotRegistry.all()
 
     assert SlotSupervisor.acquire_slot_or_grow() == {:error, :no_ready_slot}
-    assert SlotPolicy.highest_started(policy) == 2
+    assert GenServer.call(policy, :highest_started, 5_000) == 2
     assert registered_slot_indexes() == [1, 2]
 
     assert :ok = stop_supervised(SlotPolicy)
