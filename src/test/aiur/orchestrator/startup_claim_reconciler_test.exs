@@ -186,6 +186,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
         unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread"}]} end,
         open_pr_fetcher: fn _identifier -> {:ok, %{"number" => 9}} end,
         pr_fetcher: fn _number -> {:ok, %{"number" => 9, "mergeable" => true, "review_decision" => "CHANGES_REQUESTED", "head" => %{"sha" => "head"}}} end,
+        reviews_fetcher: fn 9 -> {:ok, [%{"state" => "CHANGES_REQUESTED", "commit_id" => "head", authoritative: true}]} end,
         update_issue_state_fun: fn "requested-changes", "rework", "in-progress" -> :ok end
       )
 
