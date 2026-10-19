@@ -12,7 +12,9 @@ defmodule AiurWeb.Experiments.Charts.TimeSeries do
     body = [windows(detail, times), value_grid(values, metric), line_rule(detail, times), annotations(detail, times), rolling(metric, times, values), dots, axis(times)]
     rows = Enum.map(points, fn {group, _, point} -> [group.label, point["unit_id"], point["at"], Svg.number(point["value"]), if(outside?(point, detail), do: "Outside window", else: "In window")] end)
     svg = Svg.wrap("#{metric.label} over time in #{metric.unit}; #{length(points)} samples. Group marker shapes match the distribution.", 280, body)
-    ~s(<div class="exp-series-scroll"><div class="exp-series-canvas">#{svg}</div></div>) <> Svg.table("Time series samples", ~w(Group Sample Time Value Window), rows)
+
+    ~s(<div class="exp-series-scroll" role="region" aria-label="#{Svg.escape(metric.label)} over time" tabindex="0"><div class="exp-series-canvas">#{svg}</div></div>) <>
+      Svg.table("Time series samples", ~w(Group Sample Time Value Window), rows)
   end
 
   defp value_grid(values, metric) do

@@ -36,6 +36,7 @@ export const recordedSeconds = {
   'test:build-order': 25,
   'test:build-queue': 16,
   'test:experiments': 15,
+  'test:experiments-responsive': 45, // Local rework run: 37.8s; refresh from the first CI timing.
   'test:interaction': 26,
   'test:time-brush': 8,
   'test:performance': 18,

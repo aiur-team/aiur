@@ -106,7 +106,7 @@ async function runVisualDocker(args) {
   try {
     const configPath = await dockerConfig(scratch, browserRoot, await browserEndpoint(server.child))
     console.log('Visual Chromium runtime: mcr.microsoft.com/playwright:v1.61.1-noble')
-    const result = await runBrowserTests(['tests/visual-shell.browser.spec.mjs', '--config', configPath, ...args])
+    const result = await runBrowserTests(['tests/visual-shell.browser.spec.mjs', 'tests/experiments-visual.browser.spec.mjs', 'tests/experiments-responsive.browser.spec.mjs', '--config', configPath, ...args], { ...process.env, AIUR_BROWSER_KEEP_ARTIFACTS: '1' })
     process.exitCode = result.code ?? 1
     if (process.exitCode !== 0) console.error(`Visual evidence: ${result.artifactRoot}`)
   } finally {

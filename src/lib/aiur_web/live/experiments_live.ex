@@ -101,6 +101,7 @@ defmodule AiurWeb.ExperimentsLive do
               <p :if={@detail.pack_changed_since_freeze?} class="exp-notice">Metric pack definitions changed since this evidence was frozen.</p>
               <h3>Metric summary</h3>
               <p :if={@detail.metrics == []} class="exp-notice" data-empty-reason="evidence_pending">Analysis evidence is not available yet.</p>
+              <div class="exp-data-scroll" role="region" aria-label="Metric summary" tabindex="0">
               <table :if={@detail.metrics == [] and @detail.metric_specs != []} class="exp-table">
                 <caption>Registered metrics</caption>
                 <thead><tr><th scope="col">Metric</th><th scope="col">Unit</th><th scope="col">Expected direction</th><th scope="col">Evidence</th></tr></thead>
@@ -116,6 +117,7 @@ defmodule AiurWeb.ExperimentsLive do
                   <td data-label="Contrast and interval">{metric.contrast} · {metric.interval}</td><td data-label="p-value and test">{metric.p} {metric.tests}</td><td data-label="Effect">{metric.effect}</td>
                 </tr></tbody>
               </table>
+              </div>
               <ChartPanel.panel detail={@detail} metric={@chart_metric} />
               <Report.card report={@detail.report} />
             </div>

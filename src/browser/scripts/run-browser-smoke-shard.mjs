@@ -10,11 +10,11 @@ import { shardCommands } from './browser-suites.mjs';
 export const shards = {
   1: ["test:build-home-columns", "test:shell-width", "test:tokens", "test:ticket-context", "test:provider-meters", "test:quota-panel"],
   2: ["test:build-home-band-parity", "test:build-home-usage", "test:build-home", "test:shell-chrome", "test:build-home-span", "test:palette", "test:build-home-offline", "test:home-css-ci", "test:build-home-edges-unit"],
-  3: ["test:build-home-tools", "test:build-home-render", "test:shell-parity", "test:build-order", "test:build-queue", "test:command-history", "check:build-home-fixtures"],
-  4: ["test:build-home-motion", "test:design-parity", "test:shell", "test:smoke", "test:meter-row", "test:models-panel"],
+  3: ["test:build-home-tools", "test:build-home-render", "test:shell-parity", "test:build-order", "test:build-queue", "test:command-history", "test:parity", "check:build-home-fixtures"],
+  4: ["test:build-home-motion", "test:design-parity", "test:shell", "test:smoke", "test:meter-row", "test:models-panel", "test:experiments"],
   5: ["test:build-home-band-motion", "test:build-home-states-parity", "test:build-home-edges-parity", "test:streamdeck", "test:interaction", "test:performance", "test:build-home-assets", "test:harness"],
   6: ["test:build-home-cards:4", "test:build-home-cards:3", "test:build-home-cards:1", "test:units", "test:layout", "test:responsive", "test:streamdeck-flow", "test:admission", "check:elk", "test:build-home-protocol", "test:build-home-now-state", "test:build-home-list-unit"],
-  7: ["test:build-home-cards:2", "test:build-home-span-parity", "test:build-home-edges", "test:build-home-now-band", "test:build-home-layout", "test:parity", "test:experiments", "test:time-brush"],
+  7: ["test:build-home-cards:2", "test:build-home-span-parity", "test:build-home-edges", "test:build-home-now-band", "test:build-home-layout", "test:experiments-responsive", "test:time-brush"],
 };
 
 // Below the job's timeout-minutes, so a slow shard reports its slowest suites instead of being cancelled.

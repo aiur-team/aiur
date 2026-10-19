@@ -15,6 +15,10 @@ export default defineConfig({
   testDir: './tests',
   outputDir: artifactRoot,
   fullyParallel: false,
+  projects: [
+    { name: 'default', testIgnore: /experiments-(visual|responsive)\.browser\.spec\.mjs/ },
+    { name: 'experiments', testMatch: /experiments-(visual|responsive)\.browser\.spec\.mjs/, workers: 1 }
+  ],
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   updateSnapshots: 'none',
