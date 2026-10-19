@@ -9,9 +9,9 @@ defmodule Aiur.GitHub.Listeners do
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
 
-  # Let the root rest_for_one supervisor restart the orchestrator when a cursor owner crashes.
+  # Each listener restarts alone; the orchestrator only casts to it by name, so nothing above needs to restart.
   @impl true
-  def init(_opts), do: Supervisor.init([{Firehose, name: Firehose}, {Comments, name: Comments}], strategy: :one_for_one, max_restarts: 0)
+  def init(_opts), do: Supervisor.init([{Firehose, name: Firehose}, {Comments, name: Comments}], strategy: :one_for_one)
 
   @spec poll_firehose(keyword()) :: outcome() | {:error, :firehose_reset | {:tracker_task_exit, term()}}
   def poll_firehose(opts \\ []), do: GenServer.call(Keyword.get(opts, :server, Firehose), {:poll, opts}, :infinity)
