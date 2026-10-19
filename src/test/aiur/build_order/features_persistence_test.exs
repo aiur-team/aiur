@@ -199,7 +199,7 @@ defmodule Aiur.BuildOrder.FeaturesPersistenceTest do
         )
       )
 
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    on_exit(fn -> Aiur.FeaturesStoreCleanup.stop(pid) end)
     pid
   end
 end
