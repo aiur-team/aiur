@@ -75,11 +75,10 @@ defmodule Aiur.TestTmp do
   defp files(root), do: root |> Path.join("**") |> Path.wildcard(match_dot: true) |> Enum.reject(&File.dir?/1)
 
   # `rm` replaces the remover so a test can stage a leftover the sweep cannot delete.
-  def sweep!(base, owner), do: sweep_internal(base, owner, &writable_rm_rf/1, &Aiur.ProcessIdentity.alive?/1, false)
-  def sweep!(base, owner, rm), do: sweep_internal(base, owner, rm, &Aiur.ProcessIdentity.alive?/1, false)
-  def sweep!(base, owner, rm, alive?), do: sweep_internal(base, owner, rm, alive?, true)
+  def sweep!(base, owner), do: sweep_internal(base, owner, &writable_rm_rf/1, alive_probe())
+  def sweep!(base, owner, rm), do: sweep_internal(base, owner, rm, alive_probe())
 
-  defp sweep_internal(base, owner, rm, alive?, bound_probe?) do
+  defp sweep_internal(base, owner, rm, alive_probe) do
     base = Path.expand(base)
 
     with true <- safe_sweep_base?(base),
@@ -88,7 +87,7 @@ defmodule Aiur.TestTmp do
       |> Enum.take(@sweep_max_entries)
       |> Enum.each(fn name ->
         case Regex.run(~r/^(?:run-\d+|workflow)-(\d+)-\d+$/, name) do
-          [_, pid] -> remove_dead_run!(Path.join(base, name), owner, String.to_integer(pid), rm, alive?, bound_probe?)
+          [_, pid] -> remove_dead_run!(Path.join(base, name), owner, String.to_integer(pid), rm, alive_probe)
           nil -> :ok
         end
       end)
@@ -101,10 +100,10 @@ defmodule Aiur.TestTmp do
     end
   end
 
-  defp remove_dead_run!(path, owner, pid, rm, alive?, bound_probe?) do
+  defp remove_dead_run!(path, owner, pid, rm, alive_probe) do
     case File.lstat(path) do
       {:ok, %File.Stat{type: :directory, uid: ^owner}} ->
-        alive = if bound_probe?, do: bounded_alive?(path, pid, alive?), else: alive?.(pid)
+        alive = bounded_alive?(path, pid, alive_probe)
         unless alive, do: remove_or_warn(path, rm)
 
       {:ok, _stat} ->
@@ -135,7 +134,16 @@ defmodule Aiur.TestTmp do
     File.rm_rf(path)
   end
 
-  defp bounded_alive?(path, pid, alive?) do
+  defp alive_probe do
+    case Process.get({__MODULE__, :alive_probe}) do
+      nil -> :process_identity
+      fun when is_function(fun, 1) -> {:custom, fun}
+    end
+  end
+
+  defp bounded_alive?(_path, pid, :process_identity), do: Aiur.ProcessIdentity.alive?(pid)
+
+  defp bounded_alive?(path, pid, {:custom, alive?}) do
     task = Task.async(fn -> alive?.(pid) end)
 
     case Task.yield(task, @probe_timeout_ms) || Task.shutdown(task, :brutal_kill) do

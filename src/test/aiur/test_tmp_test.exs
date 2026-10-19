@@ -65,10 +65,17 @@ defmodule Aiur.TestTmpTest do
       end
     end
 
+    probe_key = {Aiur.TestTmp, :alive_probe}
+    previous_probe = Process.put(probe_key, blocking_probe)
+
     warning =
-      ExUnit.CaptureIO.capture_io(:stderr, fn ->
-        Aiur.TestTmp.sweep!(base, File.stat!(stale).uid, &File.rm_rf/1, blocking_probe)
-      end)
+      try do
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          Aiur.TestTmp.sweep!(base, File.stat!(stale).uid)
+        end)
+      after
+        if previous_probe, do: Process.put(probe_key, previous_probe), else: Process.delete(probe_key)
+      end
 
     assert_receive {:liveness_probe_started, ^pid}, 1_000
     assert warning =~ "liveness probe timed out"
