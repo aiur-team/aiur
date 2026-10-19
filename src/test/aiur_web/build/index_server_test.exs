@@ -156,6 +156,25 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert Enum.map(snapshot.sections.hist, & &1.id) == []
   end
 
+  test "repeated unlocated read failures back off until a read succeeds", %{pid: pid} do
+    send(pid, {:running_changed, %{}})
+    assert_receive {:timer, ^pid, :flush, 250}, 1_000
+
+    for delay <- [500, 1_000] do
+      send(pid, :flush)
+      receive_barrier({:read_started, worker, _})
+      send(worker, :crash)
+      assert_receive {:timer, ^pid, :flush, ^delay}, 1_000
+    end
+
+    send(pid, :flush)
+    receive_barrier({:read_started, worker, _})
+    send(worker, {:return, parts()})
+    result_barrier(pid)
+    send(pid, {:running_changed, %{}})
+    assert_receive {:timer, ^pid, :flush, 250}, 1_000
+  end
+
   test "a timed-out history refresh logs its cause and keeps the last good history as stale", %{pid: pid} do
     flush_with(pid, parts([row(7)]))
     send(pid, {:build_order_history_changed, %{}})

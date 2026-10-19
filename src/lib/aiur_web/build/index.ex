@@ -5,6 +5,7 @@ defmodule AiurWeb.Build.Index do
   alias AiurWeb.Build.{Freshness, HistoryCarry, IndexReader}
   require Logger
   @window 250
+  @max_backoff 60_000
   @signals %{
     build_order_history_changed: ~w(history health catch_up planned not_queued)a,
     build_order_features_changed: [:features],
@@ -58,8 +59,21 @@ defmodule AiurWeb.Build.Index do
         :ets.insert(table, {:generation, 0})
 
         {:ok,
-         %{parts: %{}, index: {:error, :loading}, generation: 0, dirty: MapSet.new(), timer: nil, task: nil, daemon: nil, daemon_task: nil, waiting: [], table: table, opts: opts, history_at: nil},
-         {:continue, :load}}
+         %{
+           parts: %{},
+           index: {:error, :loading},
+           generation: 0,
+           dirty: MapSet.new(),
+           timer: nil,
+           task: nil,
+           daemon: nil,
+           daemon_task: nil,
+           waiting: [],
+           failures: 0,
+           table: table,
+           opts: opts,
+           history_at: nil
+         }, {:continue, :load}}
 
       {:error, reason} ->
         {:stop, {:subscription_failed, reason}}
@@ -105,7 +119,7 @@ defmodule AiurWeb.Build.Index do
     Process.cancel_timer(state.task.deadline)
     dirty = dirty_set(state.task.dirty)
     parts = clear_read_staleness(parts, dirty)
-    {:noreply, finish(%{state | task: nil}, parts, dirty)}
+    {:noreply, finish(%{state | task: nil, failures: 0}, parts, dirty)}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref}} = state) do
@@ -113,8 +127,11 @@ defmodule AiurWeb.Build.Index do
     failure = if state.task[:timed_out?], do: :timeout, else: :read_failed
     part = state.task[:timed_out_part]
     dirty = dirty_set(state.task.dirty)
+    # The hung part is not reread; it stays stale until its own signal, even with no mark_failed_part clause.
     retry = if part in [nil, :unknown], do: dirty, else: MapSet.delete(dirty, part)
     cause = if part in [nil, :unknown], do: :unknown, else: failure
+    # An unlocated failure rereads every part, so back off rather than loop on a reader that always crashes.
+    failures = if cause == :unknown, do: state.failures + 1, else: state.failures
 
     Logger.warning(
       "build_index read_task_failed=#{inspect(reason, limit: 20, printable_limit: 200)} failure=#{failure} parts=#{part || :unknown} part=#{part || :unknown} retry=#{Enum.join(MapSet.to_list(retry), ",")}"
@@ -123,7 +140,7 @@ defmodule AiurWeb.Build.Index do
     parts = record_read_staleness(state.parts, dirty, cause)
     parts = mark_failed_part(parts, part, failure)
     dirty = MapSet.union(state.dirty, retry)
-    {:noreply, finish(%{state | task: nil, dirty: dirty}, parts, dirty_set(state.task.dirty))}
+    {:noreply, finish(%{state | task: nil, dirty: dirty, failures: failures}, parts, dirty_set(state.task.dirty))}
   end
 
   def handle_info({:read_timeout, ref}, %{task: %{ref: ref, pid: pid}} = state) do
@@ -182,7 +199,7 @@ defmodule AiurWeb.Build.Index do
 
   defp schedule(%{timer: nil} = state) do
     timer = Keyword.get(state.opts, :timer, &Process.send_after/3)
-    %{state | timer: timer.(self(), :flush, @window)}
+    %{state | timer: timer.(self(), :flush, min(@window * Integer.pow(2, min(state.failures, 8)), @max_backoff))}
   end
 
   defp schedule(state), do: state
