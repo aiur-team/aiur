@@ -514,10 +514,9 @@ def acquire(args):
         hold_until = max(token_hold, resource_hold[1] if resource_hold and resource_hold[1] else 0)
 
         max_inflight, max_inflight_per_endpoint, requests_per_minute, stagger_ms = conn.execute(
-            "SELECT MIN(max_inflight), MIN(max_inflight_per_endpoint), "
-            "MIN(requests_per_minute), MAX(stagger_ms) FROM policies WHERE token_key = ? "
-            "AND observed_at_ms > ?",
-            (args.token_key, now - POLICY_RECONCILE_WINDOW_MS),
+            "SELECT MIN(max_inflight) + ?, MIN(max_inflight_per_endpoint) + ?, MIN(requests_per_minute), MAX(stagger_ms) "
+            "FROM policies WHERE token_key = ? AND observed_at_ms > ?",
+            (int(args.priority), int(args.priority), args.token_key, now - POLICY_RECONCILE_WINDOW_MS),
         ).fetchone()
 
         if hold_until > now:
@@ -585,11 +584,8 @@ def acquire(args):
             (args.token_key, now - 60000),
         ).fetchone()[0]
 
-        # Main-watch may run one lease above each cap, so bulk polling that fills
-        # every slot cannot hold the default-branch watcher. Pacing still applies.
-        bonus = 1 if args.priority else 0
-        if total >= max_inflight + bonus or family >= max_inflight_per_endpoint + bonus:
-            if total >= max_inflight + bonus:
+        if total >= max_inflight or family >= max_inflight_per_endpoint:
+            if total >= max_inflight:
                 earliest_expiry = conn.execute(
                     "SELECT MIN(expires_at_ms) FROM leases WHERE token_key = ?", (args.token_key,)
                 ).fetchone()[0]
@@ -884,7 +880,7 @@ def parser():
     acquire_parser.add_argument("--resource", required=True)
     acquire_parser.add_argument("--consumer-key", required=True)
     acquire_parser.add_argument("--ignore-token-cooldown", action="store_true")
-    acquire_parser.add_argument("--priority", action="store_true")
+    acquire_parser.add_argument("--priority", action="store_true", help="main-watch: one lease above each in-flight cap; pacing still applies")
     acquire_parser.add_argument("--endpoint-family", required=True)
     acquire_parser.add_argument("--max-inflight", type=lambda value: clamp(value, 1, 100), required=True)
     acquire_parser.add_argument("--max-inflight-per-endpoint", type=lambda value: clamp(value, 1, 100), required=True)

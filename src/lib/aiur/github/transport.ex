@@ -14,9 +14,9 @@ defmodule Aiur.GitHub.Transport do
   abandon. On deadline the worker is killed, which closes the socket with it,
   and the caller gets `{:error, {:aiur, :unknown, :fetch_deadline_exceeded}}` instead of wedging.
   Quota preflight/observe stay on the caller so accounting order is unchanged.
-  Local budget admission has its own bound and completes before the HTTP
-  deadline starts, so broker process startup and SQLite work cannot consume the
-  time reserved for the network request.
+  Local budget admission has its own bound (5 s; 1.5 s on the Orchestrator, whose
+  waits sleep on it) and completes before the HTTP deadline starts, so broker
+  startup and SQLite work cannot consume the time reserved for the network request.
 
   What this does *not* do: it does not stop a GenServer blocking on a GitHub
   read. The caller still waits in a selective receive for the reply, so the
@@ -46,8 +46,6 @@ defmodule Aiur.GitHub.Transport do
   @deadline_margin_ms 5_000
   @orchestrator_request_deadline_ms 10_000
   @budget_admission_timeout_ms 5_000
-  # Admission waits sleep on the caller, so the Orchestrator keeps the old bound (#1837).
-  @orchestrator_budget_admission_timeout_ms 1_500
 
   @spec base_url() :: String.t()
   def base_url, do: @base_url
@@ -172,10 +170,9 @@ defmodule Aiur.GitHub.Transport do
   end
 
   defp budget_request(quota, request, request_fun, deadline_ms) do
-    case Budget.acquire(request,
-           timeout_ms: min(deadline_ms, budget_admission_timeout_ms()),
-           lease_timeout_ms: deadline_ms
-         ) do
+    admission_ms = min(deadline_ms, if(orchestrator_process?(), do: 1_500, else: @budget_admission_timeout_ms))
+
+    case Budget.acquire(request, timeout_ms: admission_ms, command_timeout_ms: 1_500, lease_timeout_ms: deadline_ms) do
       {:ok, lease} ->
         deadline_at_ms = System.monotonic_time(:millisecond) + deadline_ms
 
@@ -460,9 +457,6 @@ defmodule Aiur.GitHub.Transport do
       max(@default_request_deadline_ms, timeout_ms + @deadline_margin_ms)
     end
   end
-
-  defp budget_admission_timeout_ms,
-    do: if(orchestrator_process?(), do: @orchestrator_budget_admission_timeout_ms, else: @budget_admission_timeout_ms)
 
   defp orchestrator_process?, do: self() == GenServer.whereis(Application.get_env(:aiur, :github_poll_owner))
 

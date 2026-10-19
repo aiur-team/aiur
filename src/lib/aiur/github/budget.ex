@@ -30,10 +30,6 @@ defmodule Aiur.GitHub.Budget do
   @broker_source_path Path.expand("../../../priv/github_budget.py", __DIR__)
   @external_resource @broker_source_path
   @retry_floor_ms 5
-  # One broker round trip keeps the pre-#4791 bound even when admission may wait
-  # longer for a lease, so a slow broker still surfaces as a timeout instead of
-  # hiding inside the longer lease wait.
-  @broker_command_ms 1_500
   @priority_key :aiur_github_budget_priority
 
   @spec enabled?(keyword()) :: boolean()
@@ -211,10 +207,7 @@ defmodule Aiur.GitHub.Budget do
 
   defp reconcile_response(_lease, _result, _opts), do: :ok
 
-  @doc """
-  Marks the calling process as the main watcher, so its admissions may use one
-  lease above the shared in-flight caps.
-  """
+  @doc "Marks the calling process as the main watcher: its admissions may use one lease above the in-flight caps."
   @spec prioritize() :: :ok
   def prioritize do
     Process.put(@priority_key, true)
@@ -273,7 +266,9 @@ defmodule Aiur.GitHub.Budget do
   def request_resource(_request), do: "core"
 
   defp do_acquire(request, key, python, opts, deadline_at) do
-    command_deadline_at = min(deadline_at, System.monotonic_time(:millisecond) + @broker_command_ms)
+    # `command_timeout_ms` bounds each broker round trip apart from the admission wait, so a slow broker still times out.
+    command_ms = Keyword.get(opts, :command_timeout_ms)
+    command_deadline_at = if command_ms, do: min(deadline_at, System.monotonic_time(:millisecond) + command_ms), else: deadline_at
     command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, command_deadline_at)
 
     case BrokerPort.command(acquire_args(request, opts), key, command_opts) do
@@ -346,9 +341,8 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  # A retry squeezed into the last of the admission window can time out on the
-  # broker. The broker already answered "wait", so report that hold instead of
-  # counting lease saturation as a slow broker.
+  # A retry late in the admission window can time out after the broker already said
+  # "wait"; report that hold rather than counting lease saturation as a slow broker.
   defp keep_hold({:error, :github_budget_broker_timeout}, hold), do: {:hold, hold}
   defp keep_hold(result, _hold), do: result
 
@@ -433,9 +427,8 @@ defmodule Aiur.GitHub.Budget do
     ] ++ billable_args ++ priority_args(request)
   end
 
-  # The main watcher (and the base-CI fixer it drives) may hold one lease above
-  # the in-flight caps so bulk polling cannot starve default-branch health
-  # checks. The broker still enforces cooldowns, hourly ceilings, and pacing.
+  # Main-watch (and the base-CI fixer it drives) may hold one lease above the in-flight caps so bulk
+  # polling cannot starve default-branch health checks; cooldowns, ceilings and pacing still apply.
   defp priority_args(_request), do: if(Process.get(@priority_key), do: ["--priority"], else: [])
 
   # The daemon and each agent workspace are separate actors with separate hourly
