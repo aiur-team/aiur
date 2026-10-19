@@ -417,12 +417,12 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
   end
 
   test "an unresponsive projection is tried once per cycle while an independent list promotes" do
-    queues = [%{queue() | root: 99}, %{queue() | id: "q-0001", root: 100}]
-    {:ok, document, _} = ListMutations.add(%{@empty | queues: queues}, ["4"], [queue: "list"], DateTime.from_unix!(0))
+    {:ok, document, _} = ListMutations.add(%{@empty | queues: [%{queue() | root: 99}, %{queue() | id: "q-0001", root: 100}]}, ["4"], [queue: "list"], DateTime.from_unix!(0))
     update(:document, document)
     update(:labels, Map.put(get(:labels), "4", ["agent:queued"]))
     projection = start_supervised!({Projection, snapshot([member(1)])})
     :sys.replace_state(projection, &%{&1 | timeout?: true})
+    start_supervised!({Aiur.BuildProgress, state_file: Path.join(Aiur.TestSupport.tmp_root!("build-order-source"), "progress.json")})
     server(projection)
     assert {:add, "4", "agent:todo"} in get(:calls)
     # A snapshot recorded elsewhere on the shared topic must not reach this server and re-try the projection.
