@@ -479,7 +479,7 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
   }
 }
 
-test('inspectPage evaluates as serialized browser code without Node module bindings', async () => {
+test('inspectPage evaluates as serialized browser code and flags a blank Build timeline', async () => {
   const root = {
     querySelector: (selector) => selector === '.bd-loading' ? { innerText: 'Build timeline unavailable · source unavailable' } : null,
     querySelectorAll: () => []
@@ -488,4 +488,13 @@ test('inspectPage evaluates as serialized browser code without Node module bindi
 
   assert.equal(snapshot.buildUnavailable, 'Build timeline unavailable · source unavailable')
   assert.equal(snapshot.buildHydrated, true)
+  const blankSnapshot = await inspectPage(fakePage({
+    buildRoot: { querySelector: () => null, querySelectorAll: () => [] },
+    primarySelectors: ['#build-root'],
+    serialize: true
+  }), 'build')
+  assert.equal(blankSnapshot.buildHydrated, false)
+  blankSnapshot.capacityReadings = []
+  const blankAssessment = analyzeDashboardSnapshot('build', blankSnapshot)
+  assert.ok(blankAssessment.issues.some(({ kind }) => kind === 'build-not-hydrated'))
 })
