@@ -1,2 +1,3 @@
 # BrowserSpec, spec path (as the failure annotation names it), and tracking ticket. Tabs delimit fields.
 BrowserSpec	src/browser/tests/build-home-shell.browser.spec.mjs	#5214
+BrowserSpec	src/browser/tests/build-home-now-band.browser.spec.mjs	#5232
