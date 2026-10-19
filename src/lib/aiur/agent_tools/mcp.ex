@@ -30,9 +30,13 @@ defmodule Aiur.AgentTools.MCP do
   def execute_request(server, {:aiur_mcp_call, server, reply_to, ref, binding, invocation, name, args}, executor, ledger)
       when is_function(executor, 2) do
     result =
-      case valid_binding(server, binding) do
-        :ok -> execute(invocation, name, args, executor, ledger)
-        error -> error
+      try do
+        case valid_binding(server, binding) do
+          :ok -> execute(invocation, name, args, executor, ledger)
+          error -> error
+        end
+      catch
+        :exit, reason -> {:error, {:tool_execution_exit, reason}}
       end
 
     send(reply_to, {:aiur_mcp_reply, ref, result})

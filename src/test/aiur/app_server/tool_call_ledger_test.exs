@@ -41,6 +41,25 @@ defmodule Aiur.AppServer.ToolCallLedgerTest do
     end
   end
 
+  test "ledger loss after claim fails the one execution without replay" do
+    for mode <- [:execute, :execute_cancellable] do
+      {:ok, ledger} = ToolCallLedger.start_link(name: nil)
+
+      result =
+        apply(ToolCallLedger, mode, [
+          {:ledger_loss, mode},
+          "fingerprint-#{mode}",
+          fn ->
+            :ok = GenServer.stop(ledger)
+            :completed
+          end,
+          ledger
+        ])
+
+      assert {:error, {:tool_call_ledger_unavailable, _cause}} = result
+    end
+  end
+
   test "owner death after mutation preserves an uncertain claim without replay" do
     ledger = start_supervised!({ToolCallLedger, name: nil})
     scope = {:owner_death, System.unique_integer([:positive])}

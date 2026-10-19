@@ -95,6 +95,9 @@ defmodule Aiur.AgentTools.MCP.Router do
   defp tool_result({:error, {:tool_call_ledger_unavailable, _cause}}),
     do: %{"content" => [%{"type" => "text", "text" => "tool_call_ledger_unavailable"}], "isError" => true}
 
+  defp tool_result({:error, {:tool_execution_exit, _cause}}),
+    do: %{"content" => [%{"type" => "text", "text" => "tool_execution_exit"}], "isError" => true}
+
   defp tool_result(_other),
     do: %{"content" => [%{"type" => "text", "text" => "tool execution failed"}], "isError" => true}
 
