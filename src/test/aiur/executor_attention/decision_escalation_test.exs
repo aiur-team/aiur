@@ -155,10 +155,35 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
                "DECISIONS open 2 oldest 6h12m (#3141, gates 38) ATTENTION (answer with `aiur commands`)"
     end
 
-    test "is not attention under 15 minutes and ignores answered or non-blocking Decisions" do
+    test "counts expired blocking unanswered Decisions that remain actionable" do
+      expired = %{decision("expired", "3141", minutes_ago(372)) | decision_status: :expired}
+
+      answered_expired = %{
+        decision("answered-expired", "4000", minutes_ago(100))
+        | decision_status: :expired,
+          answer: %{}
+      }
+
+      open = decision("open", "4001", minutes_ago(5))
+      expired_nonblocking = %{decision("quiet-expired", "4002", minutes_ago(100), blocking: false) | decision_status: :expired}
+
+      assert DecisionEscalation.status_line([answered_expired, open, expired, expired_nonblocking], @now, fn _ -> 0 end) ==
+               "DECISIONS open 2 (1 expired) oldest 6h12m (#3141, gates 0) ATTENTION (answer with `aiur commands`)"
+    end
+
+    test "counts deferred and non-blocking open Decisions like `aiur commands --filter open` (#5109)" do
+      deferred = %{decision("deferred", "3323", minutes_ago(30)) | decision_status: :deferred}
+      question = decision("question", "4002", minutes_ago(20), blocking: false)
+      moot = %{decision("moot", "4005", minutes_ago(2000)) | decision_status: :moot}
+
+      assert DecisionEscalation.status_line([question, moot, deferred], @now, fn _ -> 0 end) ==
+               "DECISIONS open 2 oldest 30m (#3323, gates 0) ATTENTION (answer with `aiur commands`)"
+    end
+
+    test "is not attention under 15 minutes and ignores answered or expired non-blocking Decisions" do
       young = decision("young", "4000", minutes_ago(14))
       answered = %{decision("answered", "3141", minutes_ago(300)) | decision_status: :decided}
-      nonblocking = decision("nb", "3142", minutes_ago(300), blocking: false)
+      nonblocking = %{decision("nb", "3142", minutes_ago(300), blocking: false) | decision_status: :expired}
 
       assert DecisionEscalation.status_line([young, answered, nonblocking], @now, fn _ -> 0 end) ==
                "DECISIONS open 1 oldest 14m (#4000, gates 0)"

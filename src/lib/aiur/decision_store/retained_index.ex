@@ -69,6 +69,12 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   @spec recoverable_expired(t(), :audit | :current) :: :gb_sets.set()
   def recoverable_expired(index, order \\ :audit), do: entries(index, order).recoverable_expired
 
+  @doc "Whether a Decision belongs to the `open` lifecycle that `aiur commands --filter open` lists."
+  @spec open?(Decision.t()) :: boolean()
+  def open?(%Decision{decision_status: status, blocking: blocking, answer: answer} = decision) do
+    operator_command?(decision) and (status in [:open, :deferred] or recoverable_expiry?(status, blocking, answer))
+  end
+
   @spec ticket(t(), String.t(), :audit | :current) :: :gb_sets.set()
   def ticket(index, value, order \\ :audit), do: bucket_entries(entries(index, order).tickets, value)
 
