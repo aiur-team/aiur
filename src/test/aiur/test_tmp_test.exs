@@ -107,6 +107,30 @@ defmodule Aiur.TestTmpTest do
     end
   end
 
+  test "repeat-until-failure keeps the run root until the last round", %{base: base} do
+    support = Path.expand("../support/test_tmp.exs", __DIR__)
+    process_identity = Path.expand("../../lib/aiur/process_identity.ex", __DIR__)
+
+    script = """
+    Code.require_file(#{inspect(process_identity)})
+    Code.require_file(#{inspect(support)})
+    ExUnit.start(repeat_until_failure: 2)
+    root = Aiur.TestTmp.start!(#{inspect(base)})
+    IO.puts("RUN_ROOT=" <> root)
+    Application.put_env(:repeat_probe, :root, root)
+    defmodule RepeatProbe do
+      use ExUnit.Case
+      test "root survives earlier rounds", do: assert(File.dir?(Application.fetch_env!(:repeat_probe, :root)))
+    end
+    """
+
+    {output, status} = System.cmd("elixir", ["--erl", "+S 2:2", "-e", script], stderr_to_stdout: true)
+    assert status == 0, output
+    assert length(Regex.scan(~r/1 test, 0 failures/, output)) == 3, output
+    [_, root] = Regex.run(~r/RUN_ROOT=(.+)/, output)
+    refute File.exists?(root)
+  end
+
   test "a late writer at suite end leaves the run root but the green suite still exits 0", %{base: base} do
     support = Path.expand("../support/test_tmp.exs", __DIR__)
     process_identity = Path.expand("../../lib/aiur/process_identity.ex", __DIR__)

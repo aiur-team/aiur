@@ -10,8 +10,26 @@ defmodule Aiur.TestTmp do
     root = Path.join(base, "run-#{System.os_time(:millisecond)}-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir!(root)
     File.chmod!(root, 0o700)
-    ExUnit.after_suite(fn _result -> remove_run_root(root) end)
+    after_final_round(fn _result -> remove_run_root(root) end)
     root
+  end
+
+  @doc """
+  Registers a suite-teardown callback that runs only after the last round.
+
+  `--repeat-until-failure` runs every `after_suite` callback after each round,
+  so a teardown registered there would stop the app or remove the run root
+  under the next round. The last round is the one that failed or used up the
+  repeat count.
+  """
+  def after_final_round(fun) do
+    key = {__MODULE__, :rounds, make_ref()}
+
+    ExUnit.after_suite(fn result ->
+      round = :persistent_term.get(key, 0) + 1
+      :persistent_term.put(key, round)
+      if result.failures > 0 or round > ExUnit.configuration()[:repeat_until_failure], do: fun.(result)
+    end)
   end
 
   @doc """
