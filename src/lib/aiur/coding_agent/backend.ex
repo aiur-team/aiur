@@ -63,6 +63,11 @@ defmodule Aiur.CodingAgent.Backend do
     * `:delivery` — non-derivable transport, mid-turn injection, pull-tool,
       hook-boundary and native-question facts for `Aiur.Harness.Capabilities`.
       Omitted declarations get conservative defaults.
+    * `:launch_telemetry` — module exporting `prepare_launch/2` and `revoke/1`
+      for backend-correlated launch capabilities (distinct from `:run_telemetry` decoding).
+    * `:display_tailer` — module exporting `start/1`, `current_session/1`,
+      `buffer_operator_delivery/3`, `handoff_state/1` and `restore_handoff/2`.
+      Required when `:rc_display_tail` is true.
     * `:immediate_delivery` — Executor messages pass straight through
       to the live process instead of holding at a checkpoint.
     * `:remote_transport` — the backend an RC-promoted session
@@ -103,6 +108,8 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:model_catalog_backend) => CodingAgent.backend(),
           optional(:meter_probe) => (atom(), CodingAgent.backend(), keyword() -> map()),
           optional(:recoverable_session_error) => (term() -> boolean()),
+          optional(:launch_telemetry) => module(),
+          optional(:display_tailer) => module(),
           optional(:run_telemetry) => (map() -> term()),
           optional(:presentation) => map(),
           optional(:pricing) => map(),
