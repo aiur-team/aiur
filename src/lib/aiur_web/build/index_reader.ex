@@ -2,6 +2,7 @@ defmodule AiurWeb.Build.IndexReader do
   @moduledoc false
   alias Aiur.BuildOrder.Index
   alias AiurWeb.Build.{Freshness, NowRows, PlannedRows}
+  alias AiurWeb.OperatorControlCenter.PayloadLoader
 
   @spec read(MapSet.t() | :all, map(), keyword()) :: map()
   def read(dirty, previous, opts) do
@@ -16,18 +17,25 @@ defmodule AiurWeb.Build.IndexReader do
 
     now =
       read_part(:now, dirty, parts, fn ->
-        snapshot_fun = Keyword.get(opts, :running_rows_fun, &Freshness.read_running_rows/1)
+        units_fun = Keyword.get(opts, :units_fun, fn -> PayloadLoader.load(:cached).units end)
+        units_now = NowRows.build(units_fun.(), repository: repo)
 
-        case snapshot_fun.(opts) do
-          {:ok, agents} when is_list(agents) ->
-            rows = Enum.map(agents, &now_row/1) |> Enum.reject(&is_nil/1)
-            NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
+        if map_size(units_now.rows) > 0 do
+          units_now
+        else
+          snapshot_fun = Keyword.get(opts, :running_rows_fun, &Freshness.read_running_rows/1)
 
-          {:error, :timeout} ->
-            {:error, :running_snapshot_timeout}
+          case snapshot_fun.(opts) do
+            {:ok, agents} when is_list(agents) ->
+              rows = Enum.map(agents, &now_row/1) |> Enum.reject(&is_nil/1)
+              NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
 
-          {:error, _unavailable} ->
-            {:error, :running_snapshot_unavailable}
+            {:error, :timeout} ->
+              {:error, :running_snapshot_timeout}
+
+            {:error, _unavailable} ->
+              {:error, :running_snapshot_unavailable}
+          end
         end
       end)
 
@@ -61,15 +69,26 @@ defmodule AiurWeb.Build.IndexReader do
 
   defp now_row(summary, bucket) do
     identity = Map.get(summary, :tracker_identity)
+    runtime_seconds = Map.get(summary, :runtime_seconds)
+
+    started_at =
+      if is_number(runtime_seconds) and runtime_seconds >= 0 do
+        DateTime.add(DateTime.utc_now(), -trunc(runtime_seconds), :second)
+      end
+
+    waiting = Map.get(summary, :waiting_reason)
 
     %{
       identity: identity,
       runtime: %{bucket: bucket, work_state: Map.get(summary, :work_state, :working)},
-      reasons: %{waiting: nil, pause: Map.get(summary, :pause_reason)},
-      timestamps: %{started_at: Map.get(summary, :started_at)},
-      effort: nil,
-      open_command_count: 0,
-      progress: nil
+      reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason)},
+      timestamps: %{started_at: started_at},
+      effort: Map.get(summary, :effort),
+      open_command_count: Map.get(summary, :open_decision_count, 0),
+      progress: Map.get(summary, :progress),
+      agent_family: Map.get(summary, :agent_family),
+      backend: Map.get(summary, :backend),
+      resolved_model: Map.get(summary, :resolved_model)
     }
   end
 end

@@ -33,7 +33,17 @@ defmodule AiurWeb.Build.IndexReaderTest do
 
     snapshot = %{
       statuses: [
-        %{identifier: "12", tracker_identity: identity, work_state: :working, state: :running},
+        %{
+          identifier: "12",
+          tracker_identity: identity,
+          work_state: :working,
+          state: :running,
+          open_decision_count: 2,
+          waiting_reason: :waiting_for_human,
+          runtime_seconds: 600,
+          agent_family: :claude,
+          resolved_model: "opus"
+        },
         %{identifier: "13", tracker_identity: %{identity | identifier: "13", provider_id: "I_kwDOExample13"}, work_state: :working, state: :idle}
       ]
     }
@@ -43,6 +53,7 @@ defmodule AiurWeb.Build.IndexReaderTest do
     read =
       IndexReader.read(:all, parts(),
         repository_fun: fn -> {:ok, {"aiur-team", "aiur"}} end,
+        units_fun: fn -> %{status: :empty, snapshot: %{rows: []}} end,
         orchestrator: server,
         running_rows_fun: &Freshness.read_running_rows/1
       )
@@ -52,7 +63,9 @@ defmodule AiurWeb.Build.IndexReaderTest do
     assert {:ok, index} = assemble(read)
     assert index.sources.agents.state == "ok"
     assert index.all["12"].sec == "now"
-    assert index.all["12"].agent.state == "active"
+    assert index.all["12"].agent.state == "command"
+    assert index.all["12"].start != nil
+    assert index.all["12"].agent.model == "opus"
   end
 
   test "unavailable running snapshot is a typed unavailable source" do

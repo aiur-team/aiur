@@ -85,7 +85,7 @@ defmodule AiurWeb.Build.NowRows do
 
   defp facts(row) do
     num = String.to_integer(row.identity.identifier)
-    family = UnitsPresentation.agent_family(row)
+    family = row[:agent_family] || UnitsPresentation.agent_family(row)
 
     start = timestamp(get_in(row, [:timestamps, :started_at]))
 
@@ -99,7 +99,12 @@ defmodule AiurWeb.Build.NowRows do
       # The session start is the agent's dispatch; an unknown start has an unknown source (MP-E8-C4-T04).
       start_src: if(start, do: "dispatch", else: "unknown"),
       pct: pct(row),
-      agent: %{model: model(family), name: UnitsPresentation.agent_label(family), state: agent_state(row), effort: effort(row[:effort])}
+      agent: %{
+        model: model(row[:resolved_model] || family),
+        name: row[:agent_name] || UnitsPresentation.agent_label(family),
+        state: agent_state(row),
+        effort: effort(row[:effort])
+      }
     }
   end
 
@@ -147,6 +152,10 @@ defmodule AiurWeb.Build.NowRows do
   defp model(family) when is_atom(family) and not is_nil(family) do
     key = Atom.to_string(family)
     if Regex.match?(~r/^[a-z0-9][a-z0-9._-]{0,31}$/, key), do: key, else: nil
+  end
+
+  defp model(value) when is_binary(value) do
+    if Regex.match?(~r/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/, value), do: value, else: nil
   end
 
   defp model(_family), do: nil
