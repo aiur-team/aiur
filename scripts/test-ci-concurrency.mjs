@@ -37,11 +37,16 @@ function resolve(expressions, github) {
     cancel,
   };
 }
-assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'other').cancel, false);
-assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'ci:full').cancel, false);
+assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'synchronize').cancel, true);
+for (const action of ['opened', 'reopened', 'ready_for_review', 'labeled']) {
+  assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', action, 'other').cancel, false,
+    `${action} with the same head must not cancel active CI`);
+}
+assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'ci:full').cancel, true,
+  'the ci:full label replaces the earlier fast run');
 
-// The CI group remains stable for first-attempt PR runs so merge-queue entry can
-// cancel that PR run, but a later PR event cannot cancel checks already running.
+// A new head replaces its first-attempt run, but same-head PR events do not.
+// Merge-queue entry also cancels the matching PR group.
 // Main pushes keep only the newest commit's run; its reruns stay independent (#4980).
 for (const runId of [100, 101]) {
   assert.deepEqual(policy('push', 'refs/heads/main', runId), { group: 'ci-push-main-1', cancel: false });
@@ -63,7 +68,7 @@ for (const [event, ref] of [
 for (const pr of [42, 43]) {
   for (const runId of [100, 101]) {
     assert.deepEqual(policy('pull_request', `refs/pull/${pr}/merge`, runId, 1, pr), {
-      group: `ci-pull_request-${pr}-1`, cancel: false,
+      group: `ci-pull_request-${pr}-1`, cancel: true,
     });
     assert.deepEqual(policy('pull_request', `refs/pull/${pr}/merge`, runId, 2, pr), {
       group: `ci-pull_request-${runId}-2`, cancel: false,
