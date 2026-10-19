@@ -61,6 +61,15 @@ die() {
 engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 
+# Identity is used by tests and lightweight diagnostics. Keep it independent of
+# the launch/control modules below: those modules source helpers and setup that
+# the identity calculation does not need.
+if [ "${1:-}" = "__identity" ]; then
+  source "$engine_dir/engine/identity.sh"
+  aiur_print_identity
+  exit 0
+fi
+
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
 AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr"
