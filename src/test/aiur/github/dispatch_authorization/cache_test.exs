@@ -1,5 +1,6 @@
 defmodule Aiur.GitHub.DispatchAuthorization.CacheTest do
   import Aiur.GitHub.DispatchAuthorization.TestFixtures
+  import ExUnit.CaptureLog
 
   use Aiur.TestSupport
 
@@ -261,15 +262,20 @@ defmodule Aiur.GitHub.DispatchAuthorization.CacheTest do
     :ok = AgentPubSub.subscribe_agent("42")
     issue = issue()
 
-    deferred =
-      DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
-        allowed_users: ["trusted"],
-        token: "test-token",
-        request_fun: request_fun
-      )
+    log =
+      capture_log(fn ->
+        deferred =
+          DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
+            allowed_users: ["trusted"],
+            token: "test-token",
+            request_fun: request_fun
+          )
 
-    refute deferred.dispatch_authorized?
-    assert deferred.dispatch_authorization == :deferred
+        refute deferred.dispatch_authorized?
+        assert deferred.dispatch_authorization == :deferred
+      end)
+
+    assert log =~ "timeline_fetch_failed"
 
     # A deferred authorization is not a provenance ambiguity, so it raises no
     # `ambiguous` needs-attention alert.
@@ -304,15 +310,22 @@ defmodule Aiur.GitHub.DispatchAuthorization.CacheTest do
     :ok = AgentPubSub.subscribe_agent("42")
     issue = issue()
 
-    deferred =
-      DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
-        allowed_users: ["trusted"],
-        token: "test-token",
-        request_fun: request_fun
-      )
+    log =
+      capture_log(fn ->
+        deferred =
+          DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
+            allowed_users: ["trusted"],
+            token: "test-token",
+            request_fun: request_fun,
+            local_hold_max_wait_ms: 100,
+            local_hold_sleep_fun: fn _ms -> flunk("a hold beyond the local wait ceiling must fail closed") end
+          )
 
-    refute deferred.dispatch_authorized?
-    assert deferred.dispatch_authorization == :deferred
+        refute deferred.dispatch_authorized?
+        assert deferred.dispatch_authorization == :deferred
+      end)
+
+    assert log =~ "timeline_fetch_failed"
     refute_receive {:alert, %{name: "github.dispatch_authorization.ambiguous", needs_attention: true}}, 100
 
     authorized =

@@ -353,6 +353,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
           |> ParkedReadyAlert.reconcile_parked_ready_alert(issue, result, opts)
           |> ResultProjection.reconcile_base_repair_invalidation(issue, result)
           |> ResultProjection.publish_ready_for_review_transition(issue, result)
+          |> ResultProjection.reraise_unreviewed_ready_pr(issue, result, opts)
           |> ResultProjection.stash_last_ci_result(issue, result)
           |> Outcome.recover_ci_poll_result(issue, result, opts)
         end

@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Interrupts do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.Claude.ReplAgent
+  alias Aiur.CodingAgent
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{OperatorMessages, PauseResume, State}
   alias Aiur.Tmux.Socket
@@ -69,8 +69,8 @@ defmodule Aiur.Orchestrator.Interrupts do
   @spec interrupt_agent_reply(State.t(), String.t()) :: term()
   def interrupt_agent_reply(state, issue_identifier) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
-      %{repl_pane_id: pane_id} when is_binary(pane_id) ->
-        ReplAgent.interrupt(%{tmux: Socket.agents(), pane_id: pane_id})
+      %{repl_pane_id: pane_id} = entry when is_binary(pane_id) ->
+        CodingAgent.interrupt(running_backend(entry), %{tmux: Socket.agents(), pane_id: pane_id})
 
       running_entry when is_map(running_entry) ->
         {:error, :interrupt_not_supported}
@@ -135,14 +135,14 @@ defmodule Aiur.Orchestrator.Interrupts do
   defp perform_pane_interrupt(:send_interrupt, state, _entry, _issue_identifier, _pane_id),
     do: {{:ok, :send_interrupt}, state}
 
-  defp perform_pane_interrupt(:interrupt, state, _entry, _issue_identifier, pane_id) do
+  defp perform_pane_interrupt(:interrupt, state, entry, _issue_identifier, pane_id) do
     # `:interrupt` is only ever chosen when a message is queued. The hardware
     # interrupt is best-effort: a failure (repl pane already gone, tmux hiccup)
     # must not close the pane out from under the pending message — propagating
     # the error makes the bridge controller map it to :close_pane and the
     # helper kill the pane, dropping the queued input. Keep the pane open so
     # the message folds at the next turn boundary.
-    _ = ReplAgent.interrupt(%{tmux: Socket.agents(), pane_id: pane_id})
+    _ = CodingAgent.interrupt(running_backend(entry), %{tmux: Socket.agents(), pane_id: pane_id})
     {{:ok, :interrupted}, state}
   end
 
@@ -155,6 +155,8 @@ defmodule Aiur.Orchestrator.Interrupts do
       {error, state} -> {error, state}
     end
   end
+
+  defp running_backend(entry), do: get_in(entry, [:session_execution, :backend])
 
   defp control_api_call(server, request) do
     if GenServer.whereis(server) do

@@ -30,7 +30,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   require Logger
 
   alias Aiur.{Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
-  alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
+  alias Aiur.Orchestrator.{DispatchPolicy, DockerCleanup, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
   alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
 
   @type terminal_cleanup :: {ticket :: String.t(), workspace_identifier :: String.t(), worker_host :: String.t() | nil}
@@ -47,6 +47,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   def cleanup_terminal_issue_artifacts(identifier, worker_host \\ nil)
 
   def cleanup_terminal_issue_artifacts(identifier, worker_host) when is_binary(identifier) do
+    DockerCleanup.start_ticket_cleanup(identifier)
     start_terminal_workspace_cleanups([{identifier, identifier, worker_host}])
     clear_session_handle(identifier)
   end

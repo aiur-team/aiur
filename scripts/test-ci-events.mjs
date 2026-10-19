@@ -15,14 +15,14 @@ const jobs = new Map([...source.split(/^jobs:\n/m)[1].matchAll(/^  ([\w-]+):\n([
   .map(([, id, body]) => [id, body]));
 const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css', 'layout-release', 'analytics', 'streamdeck', 'pre-handoff'];
 const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'soak', 'ci-gate', 'pre-handoff'];
-function selected(event, full, dialyzer = false, payload = { pull_request: {} }, homeChanged = false) {
+function selected(event, full, dialyzer = false, payload = { pull_request: {} }) {
   const condition = (body) => body.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
   const run = (expression, changes) => !expression || runInNewContext(expression, {
     github: { event_name: event, event: payload, ref: event === 'push' ? 'refs/heads/main' : '' }, cancelled: () => false, always: () => true,
     needs: { changes, 'pre-handoff': { result: changes.result } },
   });
   const changesRuns = run(condition(jobs.get('changes')), {});
-  const changes = changesRuns ? { result: 'success', outputs: { full_ci: String(full), dialyzer: String(dialyzer), home_changed: String(homeChanged) } } : { result: 'skipped', outputs: {} };
+  const changes = changesRuns ? { result: 'success', outputs: { full_ci: String(full), dialyzer: String(dialyzer) } } : { result: 'skipped', outputs: {} };
   // Every other job needs changes, so a skipped changes skips it unless a status function overrides that.
   return [...jobs].filter(([id, body]) => id === 'changes' ? changesRuns
     : (changesRuns || /always\(\)|cancelled\(\)/.test(condition(body) ?? '')) && run(condition(body), changes)).map(([id]) => id);
@@ -63,14 +63,7 @@ for (const event of ['merge_group', 'workflow_dispatch']) {
   for (const job of fullJobs) assert.ok(selectedFull.includes(job), `${event} requires ${job}`);
   assert.ok(!selectedFull.includes('affected-tests'));
 }
-assert.ok(selected('merge_group', true, false, {}, true).includes('home-parity'), 'home groups run the full matrix');
-for (const event of ['pull_request', 'push', 'workflow_dispatch', 'schedule']) {
-  assert.ok(!selected(event, true, false, { pull_request: {} }, true).includes('home-parity'), `${event} never runs the merge-group matrix`);
-}
-assert.ok(!selected('merge_group', true).includes('home-parity'), 'unrelated groups skip the full matrix');
-assert.ok(jobs.get('ci-gate').includes('home-parity'), 'matrix is a dependency of the required aggregate');
-assert.ok(jobs.get('home-parity').includes('uses: ./.github/workflows/home-parity.yml'));
-assert.ok(jobs.get('home-parity').includes('permissions: { contents: read }'));
+assert.ok(!jobs.has('home-parity') && !jobs.get('ci-gate').includes('home-parity'), 'the full home matrix is manual-only (#5124)');
 assert.ok(jobs.get('ci-gate').includes('always()'), 'aggregate must run after failed dependencies');
 assert.ok(jobs.get('ci-gate').includes("github.event_name != 'schedule'"), 'schedule does not need the blocking gate');
 assert.ok(jobs.get('affected-tests').includes("github.event_name == 'pull_request'"), 'scoped selector only runs for PRs');
@@ -80,10 +73,10 @@ assert.ok(jobs.get('affected-tests').includes('AIUR_CI_CHANGED_PATHS_B64: ${{ ne
 for (const job of [...fullJobs.filter((job) => job !== 'quarantine'), ...fastJobs.filter((job) => job !== 'ci-gate')]) {
   assert.ok(jobs.get('ci-gate').includes(job), `gate needs ${job}`);
 }
-function gate(event, full, dialyzer, failedJob, result = 'failure', dialyzerOutput = String(dialyzer), homeChanged = 'false') {
+function gate(event, full, dialyzer, failedJob, result = 'failure', dialyzerOutput = String(dialyzer)) {
   const needs = Object.fromEntries([...jobs.keys()].map((job) => [job, { result: 'skipped' }]));
-  for (const job of selected(event, full, dialyzer, { pull_request: {} }, homeChanged === 'true')) needs[job].result = 'success';
-  needs.changes.outputs = { full_ci: String(full), dialyzer: dialyzerOutput, home_changed: homeChanged };
+  for (const job of selected(event, full, dialyzer)) needs[job].result = 'success';
+  needs.changes.outputs = { full_ci: String(full), dialyzer: dialyzerOutput };
   if (failedJob) needs[failedJob].result = result;
   return spawnSync('python3', ['scripts/check-ci-gate.py'], {
     encoding: 'utf8', env: { ...process.env, EVENT_NAME: event, NEEDS_JSON: JSON.stringify(needs) },
@@ -105,14 +98,6 @@ for (const [event, full, required] of [
         : `CI gate failed: ${job}`), run.stderr);
     }
   }
-}
-assert.equal(gate('merge_group', true, false, null, 'failure', 'false', 'true').status, 0, 'home groups pass only with successful full matrix');
-for (const result of ['failure', 'skipped', 'cancelled', '']) {
-  assert.notEqual(gate('merge_group', true, false, 'home-parity', result, 'false', 'true').status, 0, `home group rejects matrix=${result}`);
-}
-for (const output of [undefined, '', 'sometimes']) {
-  // Explicit null simulates an omitted/invalid classification through JSON.
-  assert.notEqual(gate('merge_group', true, false, null, 'failure', 'false', output ?? null).status, 0, 'merge group fails closed without valid home classification');
 }
 assert.equal(gate('pull_request', false, false).status, 0, 'fast docs PR passes with skipped dialyzer');
 assert.equal(gate('pull_request', false, true).status, 0, 'fast source PR passes when dialyzer succeeds');

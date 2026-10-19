@@ -72,6 +72,15 @@ defmodule Aiur.OpenTicketSource do
     :exit, _reason -> %Snapshot{}
   end
 
+  @doc false
+  @spec snapshot_for_index(GenServer.server(), timeout()) :: Snapshot.t() | {:error, :timeout | :unavailable}
+  def snapshot_for_index(server, timeout) do
+    GenServer.call(server, :snapshot, timeout)
+  catch
+    :exit, {:timeout, _call} -> {:error, :timeout}
+    :exit, _reason -> {:error, :unavailable}
+  end
+
   @doc "Subscribes the caller to open-ticket change broadcasts."
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)
@@ -86,7 +95,7 @@ defmodule Aiur.OpenTicketSource do
 
   @doc "Synchronously re-lists and returns the resulting snapshot (test/support)."
   @spec refresh_sync(GenServer.server()) :: Snapshot.t()
-  def refresh_sync(server \\ __MODULE__), do: GenServer.call(server, :refresh_sync)
+  def refresh_sync(server \\ __MODULE__), do: GenServer.call(server, :refresh_sync, :infinity)
 
   @impl true
   def init(opts) do
@@ -102,6 +111,7 @@ defmodule Aiur.OpenTicketSource do
       # one fails — the projection may be missing events the stream never carried,
       # and a store event must not upgrade it back to `:available`.
       baseline_ok?: false,
+      fetch_attempted?: false,
       truncated?: false,
       repo: nil,
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
@@ -109,7 +119,12 @@ defmodule Aiur.OpenTicketSource do
       token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
       label_prefix: Keyword.get(opts, :label_prefix, safe_label_prefix()),
-      github_fun: Keyword.get(opts, :github_fun, &github_tracker?/0)
+      github_fun: Keyword.get(opts, :github_fun, &github_tracker?/0),
+      fetch_task: nil,
+      fetch_started_at: nil,
+      fetch_events: :queue.new(),
+      fetch_again?: false,
+      fetch_waiters: []
     }
 
     state = %{state | repo: resolve_repo(state.repo_fun)}
@@ -121,29 +136,36 @@ defmodule Aiur.OpenTicketSource do
   @impl true
   def handle_call(:snapshot, _from, state), do: {:reply, state.snapshot, state}
 
-  def handle_call(:refresh_sync, _from, state) do
-    state = apply_result(state, Fetch.fetch(state))
-    {:reply, state.snapshot, state}
+  def handle_call(:refresh_sync, from, state) do
+    state = %{state | fetch_waiters: [from | state.fetch_waiters]}
+
+    if state.fetch_task do
+      {:noreply, %{state | fetch_again?: true}}
+    else
+      {:noreply, start_fetch(state, false)}
+    end
   end
 
   @impl true
-  # A demand re-list. Applied synchronously in this process, so a store event
-  # that arrives while the listing is in flight is queued behind it and applied
-  # after — a listing is a GitHub snapshot taken before the event, so the event
-  # must win. An async task would let the listing's stale full-set overwrite a
-  # newer event (a ticket opened between the listing snapshot and its
-  # application would be dropped), which is the exact divergence this design
-  # exists to prevent.
+  # Listing is brokered and can take minutes after boot. Keep the projection
+  # responsive while it runs; store changes are buffered and replayed after the
+  # baseline so newer events win over the listing snapshot.
   def handle_cast({:refresh, view_originated?}, state) do
-    {:noreply, apply_result(state, RequestOrigin.carry(view_originated?, fn -> Fetch.fetch(state) end))}
+    {:noreply, start_fetch(state, view_originated?)}
   end
 
   @impl true
-  # The boot fill, applied synchronously for the same reason as `refresh/1`:
-  # the one listing per boot is the baseline, and the event stream maintains
-  # it. `ViewStateSweep` no longer sweeps this source.
-  def handle_info(:poll, state) do
-    {:noreply, apply_result(state, Fetch.fetch(state))}
+  # The one boot listing establishes the baseline; it must not hold snapshot
+  # callers behind the broker's multi-page REST read.
+  def handle_info(:poll, state), do: {:noreply, start_fetch(state, false)}
+
+  def handle_info({ref, result}, %{fetch_task: %{ref: ref}} = state) do
+    Process.demonitor(ref, [:flush])
+    {:noreply, finish_fetch(state, result)}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{fetch_task: %{ref: ref}} = state) do
+    {:noreply, finish_fetch(state, {:error, {:task_exit, reason}})}
   end
 
   # The gap-based re-convergence: deliveries are known to be dropped while the
@@ -167,7 +189,11 @@ defmodule Aiur.OpenTicketSource do
   # this runs — reconcile exactly that ticket, no listing.
   def handle_info({:github_resource_changed, %{key: {type, owner, repo, id}} = change}, state)
       when type in [:issue, :issue_labels] do
-    {:noreply, reconcile_issue(state, owner, repo, id, change)}
+    if state.fetch_task do
+      {:noreply, %{state | fetch_events: :queue.in({owner, repo, id, change}, state.fetch_events)}}
+    else
+      {:noreply, reconcile_issue(state, owner, repo, id, change)}
+    end
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -318,6 +344,7 @@ defmodule Aiur.OpenTicketSource do
   # `:unavailable` while it holds none.
   defp snapshot_status(%{baseline_ok?: true}), do: :available
   defp snapshot_status(%{baseline_ok?: false, tickets: tickets}) when map_size(tickets) > 0, do: :stale
+  defp snapshot_status(%{baseline_ok?: false, fetch_attempted?: false, fetch_task: task}) when not is_nil(task), do: :loading
   defp snapshot_status(_state), do: :unavailable
 
   # Newest ticket first, with the identifier as a total-order tiebreak so the
@@ -369,15 +396,53 @@ defmodule Aiur.OpenTicketSource do
     :ok
   end
 
-  defp maybe_relist(%{repo: {owner, repo}} = state, degraded_repo) do
+  defp maybe_relist(%{repo: {owner, repo}, fetch_task: fetch_task} = state, degraded_repo) do
     if String.downcase(degraded_repo) == "#{owner}/#{repo}" do
-      apply_result(state, Fetch.fetch(state))
+      if fetch_task, do: %{state | fetch_again?: true}, else: start_fetch(state, false)
     else
       state
     end
   end
 
   defp maybe_relist(state, _degraded_repo), do: state
+
+  defp start_fetch(%{fetch_task: nil} = state, view_originated?) do
+    task = Task.async(fn -> RequestOrigin.carry(view_originated?, fn -> Fetch.fetch(state) end) end)
+    state = %{state | fetch_task: task, fetch_started_at: System.monotonic_time(:millisecond), fetch_events: :queue.new()}
+    maybe_mark_loading(state)
+  end
+
+  defp start_fetch(state, _view_originated?), do: %{state | fetch_again?: true}
+
+  defp finish_fetch(state, result) do
+    duration_ms = max(0, System.monotonic_time(:millisecond) - (state.fetch_started_at || System.monotonic_time(:millisecond)))
+    Logger.info("open_ticket_listing duration_ms=#{duration_ms} result=#{fetch_result_name(result)}")
+    state = %{state | fetch_task: nil, fetch_started_at: nil, fetch_attempted?: true} |> apply_result(result)
+    events = :queue.to_list(state.fetch_events)
+    state = %{state | fetch_events: :queue.new()}
+    state = Enum.reduce(events, state, fn {owner, repo, id, change}, acc -> reconcile_issue(acc, owner, repo, id, change) end)
+
+    if state.fetch_again? do
+      start_fetch(%{state | fetch_again?: false}, false)
+    else
+      Enum.each(state.fetch_waiters, &GenServer.reply(&1, state.snapshot))
+      %{state | fetch_waiters: []}
+    end
+  end
+
+  defp maybe_mark_loading(%{baseline_ok?: false, fetch_attempted?: false, tickets: tickets} = state) when map_size(tickets) == 0 do
+    previous = state.snapshot
+    snapshot = %{previous | status: :loading, generation: (previous.generation || 0) + 1, observed_at: now(state)}
+    state = %{state | snapshot: snapshot}
+    if meaningful(previous) != meaningful(snapshot), do: broadcast(state)
+    state
+  end
+
+  defp maybe_mark_loading(state), do: state
+
+  defp fetch_result_name({:ok, _tickets, _truncated?}), do: "ok"
+  defp fetch_result_name(:unsupported), do: "unsupported"
+  defp fetch_result_name({:error, _reason}), do: "error"
 
   defp resolve_repo(repo_fun) do
     case repo_fun.() do

@@ -48,6 +48,59 @@ defmodule Aiur.OpenTicketSourceProjectionTest do
       refute_received :listed
     end
 
+    test "snapshot stays responsive during boot listing and buffered events win over its baseline" do
+      parent = self()
+
+      server =
+        start_source(
+          poll_on_start: true,
+          request_fun: fn _request ->
+            send(parent, {:listing_started, self()})
+            receive(do: (:continue -> {:ok, %{status: 200, body: [], headers: []}}))
+          end
+        )
+
+      assert_receive {:listing_started, listing}, 1_000
+      snapshot_task = Task.async(fn -> OpenTicketSource.snapshot(server) end)
+      assert %Aiur.OpenTicketSource.Snapshot{status: :loading, tickets: []} = Task.await(snapshot_task, 1_000)
+
+      deposit_issue(32, title: "Arrived during bootstrap")
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          send(listing, :continue)
+          assert eventually(fn -> Enum.any?(OpenTicketSource.snapshot(server).tickets, &(&1.identifier == "32")) end)
+        end)
+
+      assert log =~ ~r/open_ticket_listing duration_ms=\d+ result=ok/
+    end
+
+    test "refresh_sync waits for the in-flight baseline and applies its newer listing last" do
+      parent = self()
+
+      server =
+        start_source(
+          poll_on_start: false,
+          request_fun: fn _request ->
+            send(parent, {:listing_started, self()})
+
+            receive do
+              {:response, number} -> {:ok, %{status: 200, body: [%{"number" => number, "title" => "Ticket #{number}", "state" => "open"}], headers: []}}
+            end
+          end
+        )
+
+      send(server, {:view_state_diverged, "owner/repo"})
+      assert_receive {:listing_started, first}, 1_000
+      refresh = Task.async(fn -> OpenTicketSource.refresh_sync(server) end)
+      send(first, {:response, 40})
+      assert_receive {:listing_started, second}, 1_000
+      send(second, {:response, 41})
+
+      assert %Aiur.OpenTicketSource.Snapshot{status: :available, tickets: [%{identifier: "41"}]} = Task.await(refresh, 1_000)
+      assert Enum.map(OpenTicketSource.snapshot(server).tickets, & &1.identifier) == ["41"]
+    end
+
     test "an unlabelled open ticket deposited by a webhook appears in the projection" do
       server = start_source(poll_on_start: false)
       deposit_issue(31, title: "Unlabelled backlog ticket", labels: [])

@@ -6,6 +6,9 @@
 // run 39100789804 spent 80-120s per shard outside its suites.
 export const preflightSeconds = 120
 export const recordedSeconds = {
+  // Governed core commands (2026-10-18): 31 cases in 518s; 32 cases on 2ed995a67 in 445s.
+  // Keep the slower observed bound; wall timings include fixture startup and build-gate wait.
+  'test:build-home-gantt': 518,
   // CI run39148293958 (d9ee8e071), job117736821220: actual suite wall seconds.
   'test:build-home-now-band': 44.7,
   'test:browser-suite -- build-home-live-button-parity': 52.7,
@@ -27,6 +30,8 @@ export const recordedSeconds = {
   'test:build-home-now-state': 1,
   'test:harness': 7,
   'test:smoke': 18,
+  'test:command-answer': 20,
+  'test:build-index-live': 20,
   'test:build-home-assets': 14,
   'test:build-home-layout': 33,
   'test:shell': 34,

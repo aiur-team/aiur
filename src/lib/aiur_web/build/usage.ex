@@ -35,7 +35,8 @@ defmodule AiurWeb.Build.Usage do
     meters = isolated(fn -> meter_read(source, context, opts) end, %{})
     accounts = isolated(Keyword.get(opts, :accounts_fun, &account_readings/0), %{})
     durable = isolated(fn -> Map.new(families, &{&1, durable(&1, Keyword.get(opts, :durable_path, ModelAvailability.path()))}) end, %{})
-    github = isolated(fn -> {:ok, GitHubQuota.snapshot!(Keyword.get(opts, :github_server, GitHubQuota))} end, {:error, :unavailable})
+    # The quota server also handles every GitHub observation; when it is busy only this chip degrades, not the build snapshot.
+    github = isolated(fn -> {:ok, GitHubQuota.snapshot!(Keyword.get(opts, :github_server, GitHubQuota), Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
     elevenlabs = isolated(fn -> ElevenLabsQuota.snapshot(Keyword.get(opts, :elevenlabs_server, ElevenLabsQuota)) end, %{state: :unconfigured})
     %{families: families, meters: meters, accounts: accounts, durable: durable, github: github, elevenlabs: elevenlabs}
   end

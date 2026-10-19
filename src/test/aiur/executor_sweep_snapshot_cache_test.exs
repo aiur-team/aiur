@@ -69,6 +69,13 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
     assert [%{number: 3, mergeable: nil}] = SnapshotCache.build([{3, pr}], [], [], %{}, %{}, [{9, branch_pr}]).merge_queue
   end
 
+  test "a stale open branch row does not reopen a merged PR" do
+    merged = %{"number" => 4574, "head" => %{"ref" => "aiur/4574-fix", "sha" => "head"}, "state" => "closed", "merged_at" => "2026-10-16T01:07:00Z"}
+    stale = %{"number" => 4574, "head" => %{"ref" => "aiur/4574-fix", "sha" => "head"}, "state" => "open", "merged_at" => nil}
+
+    assert [%{state: "closed", merged_at: "2026-10-16T01:07:00Z"}] = SnapshotCache.build([{4574, merged}], [], [], %{}, %{}, [{4574, stale}]).pull_requests
+  end
+
   test "filters closed cached blockers while retaining unresolved edges" do
     snapshot =
       SnapshotCache.build(

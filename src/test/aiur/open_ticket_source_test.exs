@@ -24,7 +24,7 @@ defmodule Aiur.OpenTicketSourceTest do
 
       snapshot = OpenTicketSource.refresh_sync(start_source(request_fun: request_fun))
 
-      assert %Snapshot{status: :available, generation: 1} = snapshot
+      assert %Snapshot{status: :available, generation: 2} = snapshot
       assert Enum.map(snapshot.tickets, & &1.identifier) == ["31", "10"]
       assert Enum.find(snapshot.tickets, &(&1.identifier == "10")).labels == ["agent:todo", "complexity:3"]
     end

@@ -4,18 +4,19 @@ defmodule Aiur.AsksCLITest do
   alias Aiur.{Asks, AsksCLI}
 
   setup do
-    # Host-unique, not just VM-unique: see `Aiur.TestSupport.tmp_root!/1`.
-    root = Aiur.TestSupport.tmp_root!("aiur_asks_cli")
+    # Keep repo state in the suite root, which lives until after_suite; a
+    # late writer must not race deletion of a per-test state root.
     previous_root = Application.get_env(:aiur, :repo_base_root)
-    Application.put_env(:aiur, :repo_base_root, root)
+    slug = "#{System.pid()}-#{System.unique_integer([:positive])}"
+    state_root = Path.join(Application.fetch_env!(:aiur, :test_run_root), "asks-cli-#{slug}")
+    Application.put_env(:aiur, :repo_base_root, state_root)
+    on_exit(fn -> restore_repo_root(previous_root) end)
 
-    on_exit(fn ->
-      if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
-      Aiur.TestCleanup.rm_rf!(root)
-    end)
-
-    {:ok, repo: "owner/repo"}
+    {:ok, repo: "owner/asks-cli-#{slug}"}
   end
+
+  defp restore_repo_root(nil), do: Application.delete_env(:aiur, :repo_base_root)
+  defp restore_repo_root(root), do: Application.put_env(:aiur, :repo_base_root, root)
 
   test "writes and JSON-round-trips an open ask", %{repo: repo} do
     lines = Agent.start_link(fn -> [] end) |> elem(1)

@@ -1,5 +1,6 @@
 defmodule AiurWeb.Build.Read do
   @moduledoc false
+  require Logger
   alias AiurWeb.Build.Payload
   alias AiurWeb.FinancialDataAccess
 
@@ -23,7 +24,18 @@ defmodule AiurWeb.Build.Read do
         end
       end)
 
-    result(Task.yield(task, 5_000) || Task.shutdown(task, :brutal_kill))
+    result(Task.yield(task, 5_000) || timed_out(task))
+  end
+
+  defp timed_out(task) do
+    {in_step, done} =
+      case Process.info(task.pid, :dictionary) do
+        {:dictionary, dict} -> {dict[:build_read_step], Enum.reverse(dict[:build_read_steps] || [])}
+        nil -> {nil, []}
+      end
+
+    Logger.warning("build read timed out step=#{inspect(in_step)} done_ms=#{inspect(done)}")
+    Task.shutdown(task, :brutal_kill)
   end
 
   @spec locked_usage() :: map()

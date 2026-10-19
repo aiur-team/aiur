@@ -32,14 +32,14 @@ defmodule Aiur.Events.GithubCIPollerStackedBaseTest do
       request = request_fun(base, patches)
 
       for _ <- 1..3 do
-        assert {:ok, %{errors: [], results: [%{decision: :passed}]}} = poll(mode, base, request)
+        assert {:ok, %{errors: [], results: [%{decision: :passed, base_sha: "base-sha"}]}} = poll(mode, base, request)
       end
 
       assert Agent.get(patches, & &1) == []
       merged_delivery()
       assert {:ok, %{errors: [], results: [%{decision: :failed, base_repair_invalidation: %{repair_state: :repaired}}]}} = poll(mode, base, request)
       assert Agent.get(patches, & &1) == [%{"base" => "main"}]
-      assert {:ok, %{errors: [], results: [%{decision: :passed}]}} = poll(mode, base, request)
+      assert {:ok, %{errors: [], results: [%{decision: :passed, base_sha: "base-sha"}]}} = poll(mode, base, request)
       assert Agent.get(patches, & &1) == [%{"base" => "main"}]
     end
   end
@@ -66,7 +66,7 @@ defmodule Aiur.Events.GithubCIPollerStackedBaseTest do
       request = request_fun(base, patches)
 
       for _ <- 1..3 do
-        assert {:ok, %{errors: [], results: [%{decision: :passed}]}} = poll(mode, base, request)
+        assert {:ok, %{errors: [], results: [%{decision: :passed, base_sha: "base-sha"}]}} = poll(mode, base, request)
       end
 
       assert Agent.get(patches, & &1) == []
@@ -119,7 +119,7 @@ defmodule Aiur.Events.GithubCIPollerStackedBaseTest do
     %{"number" => 71, "state" => "open", "merged" => false, "merged_at" => nil, "updated_at" => "2026-10-09T00:00:00Z", "head" => %{"ref" => "aiur/41-blocker", "sha" => "blocker-sha"}}
   end
 
-  defp pr(base), do: %{"number" => 72, "head" => %{"ref" => "aiur/42", "sha" => "dependent-sha", "repo" => %{"full_name" => "owner/repo"}}, "base" => %{"ref" => base}}
+  defp pr(base), do: %{"number" => 72, "head" => %{"ref" => "aiur/42", "sha" => "dependent-sha", "repo" => %{"full_name" => "owner/repo"}}, "base" => %{"ref" => base, "sha" => "base-sha"}}
   defp checks, do: [%{"name" => "lint", "status" => "completed", "conclusion" => "success"}]
   defp status, do: %{"state" => "success", "statuses" => []}
 

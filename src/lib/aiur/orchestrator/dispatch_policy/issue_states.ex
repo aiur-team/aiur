@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   #
   # This is a code-level refusal rather than an `active_states` edit because
   # `merging` must stay an active state for comment polling
-  # (`CommentPolling.TargetSelection`), the paused-agent sweep, and terminal-fence
+  # (`Listeners.Comments.TargetSelection`), the paused-agent sweep, and terminal-fence
   # bookkeeping. `ci-wait` is already excluded from the Executor's paused-agent
   # sweep as legitimate waiting; refusing it here makes the two beliefs
   # consistent regardless of how an operator configures `active_states`.

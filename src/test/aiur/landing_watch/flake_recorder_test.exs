@@ -49,7 +49,10 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
 
     assert_received {:alert, "system.pr.landing.flake_recorded", alert_opts}
     assert Keyword.fetch!(alert_opts, :durable)
-    assert Keyword.fetch!(alert_opts, :exchange_payload)["flake_evidence"] == String.replace(body["body"], ~r/\A<!--.*?-->\n\n/s, "")
+    assert body["body"] =~ "<!--"
+    assert String.contains?(body["body"], "\n\n" <> Keyword.fetch!(alert_opts, :exchange_payload)["flake_evidence"] <> "\n\n")
+    # A quarantined run without the variable reports 0 tests; the fixer must know how to run it.
+    assert body["body"] =~ "`AIUR_RUN_QUARANTINED=1`"
     File.rm(journal)
   end
 

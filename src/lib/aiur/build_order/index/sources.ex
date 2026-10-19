@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.Index.Sources do
 
   @spec build(map(), integer()) :: map()
   def build(parts, now) do
-    %{
+    sources = %{
       history: history(parts),
       features: SourceFreshness.source(health(parts[:features])),
       queue: producer(parts[:planned]),
@@ -12,6 +12,8 @@ defmodule Aiur.BuildOrder.Index.Sources do
       open_tickets: open_tickets(parts[:not_queued]),
       index: %{state: "ok", observed_at: now, reason: nil}
     }
+
+    apply_read_staleness(sources, parts[:read_stale] || %{})
   end
 
   @spec health(term()) :: term()
@@ -53,4 +55,32 @@ defmodule Aiur.BuildOrder.Index.Sources do
   end
 
   defp open_tickets(_), do: %{state: "unavailable", observed_at: nil, reason: "read_failed", truncated: false}
+
+  defp apply_read_staleness(sources, stale_parts) do
+    Enum.reduce(stale_parts, sources, fn {part, reason}, acc ->
+      case source_key(part) do
+        nil -> acc
+        key -> Map.update!(acc, key, &stale_source(&1, reason))
+      end
+    end)
+  end
+
+  defp stale_source(source, reason) do
+    state = if source.state in ["ok", "stale"], do: "stale", else: source.state
+    preserve_reason? = source.state == "unavailable" and source.reason not in [nil, "read_failed", "unknown"]
+    %{source | state: state, reason: if(preserve_reason?, do: source.reason, else: reason_name(reason))}
+  end
+
+  defp source_key(part) when part in [:history, :health, :catch_up], do: :history
+  defp source_key(:features), do: :features
+  defp source_key(part) when part in [:queue, :planned], do: :queue
+  defp source_key(:now), do: :agents
+  defp source_key(part) when part in [:open, :not_queued], do: :open_tickets
+  defp source_key(part) when part in [:overrides, :settings, :repository], do: :index
+  defp source_key(_part), do: nil
+
+  defp reason_name(:timeout), do: "timeout"
+  defp reason_name(:read_failed), do: "read_failed"
+  defp reason_name(:unknown), do: "unknown"
+  defp reason_name(_reason), do: "unknown"
 end

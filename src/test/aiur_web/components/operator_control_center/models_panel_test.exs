@@ -77,6 +77,28 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanelTest do
     refute html =~ "Not observed"
   end
 
+  test "Codex headroom uses the dispatch value and visibly includes its age" do
+    html = render([card(:codex, [], %{headroom: %{status: :observed, remaining_percent: 74, age_seconds: 75}})])
+
+    assert html =~ ~s(<span class="rs-pc">26%</span>)
+    assert html =~ "74% left · 75s old"
+    assert html =~ "74% remaining · observed 75s ago"
+    refute html =~ ~s(class="rs-no">unknown</span>)
+  end
+
+  test "stale Codex headroom stays unknown and displays the reason and age" do
+    html =
+      render([
+        card(:codex, [], %{
+          headroom: %{status: :stale, reason: "Last headroom reading is stale", age_seconds: 1900}
+        })
+      ])
+
+    assert html =~ "Last headroom reading is stale · 1900s old"
+    assert html =~ "rs-ln has-tag is-stale"
+    refute html =~ ~s(<span class="rs-pc">0%</span>)
+  end
+
   test "a durable last-known standing renders its percentage with a red bar at 100%" do
     html = render([card(:codex, [], %{durable_observation: %{percent: 100}})])
 

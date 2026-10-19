@@ -31,6 +31,7 @@
   border-color: var(--attention-line);
 }
 
+html.live-socket-connected [data-phx-main]:not(.phx-error) .status-badge-offline,
 [data-phx-main].phx-connected .status-badge-offline {
   display: none;
 }
@@ -250,4 +251,3 @@
   color: var(--muted);
   font-size: 0.67rem;
 }
-

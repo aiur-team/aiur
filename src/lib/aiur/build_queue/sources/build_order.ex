@@ -4,8 +4,13 @@ defmodule Aiur.BuildQueue.Sources.ProjectionRead do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildQueue.ReadModel
 
-  @spec read(pos_integer(), integer(), GenServer.server()) :: map()
-  def read(root, now, server \\ GraphProjection) do
+  @spec read(pos_integer(), integer(), GenServer.server(), term()) :: map()
+  def read(root, now, server \\ GraphProjection, verdict \\ nil)
+
+  # This cycle already found the projection unresponsive; calling it again would block the caller for another full timeout.
+  def read(_root, now, _server, {:unavailable, reason}) when reason in [:projection_down, :projection_unavailable], do: unavailable(now, reason)
+
+  def read(root, now, server, _verdict) do
     with %Snapshot{data: %Catalog{entries: entries}} <- GraphProjection.catalog(server),
          [entry] <- Enum.filter(entries, &(&1.identity && &1.identity.identifier == to_string(root))),
          {:ok, %Snapshot{data: %SelectedRoot{} = data, health: health}} <- GraphProjection.selected(server, entry.identity) do

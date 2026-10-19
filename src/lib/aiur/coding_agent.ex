@@ -13,10 +13,12 @@ defmodule Aiur.CodingAgent do
   session starts.
   """
 
+  alias Aiur.CodingAgent.Backend
   alias Aiur.CodingAgent.ModelGrammar
   alias Aiur.CodingAgent.ProvidersView
   alias Aiur.CodingAgent.Routing
   alias Aiur.Config
+  alias Aiur.Harness.Capabilities
 
   @type backend :: String.t()
   @type provider_descriptor :: ProvidersView.provider_descriptor()
@@ -109,6 +111,30 @@ defmodule Aiur.CodingAgent do
   @doc "Delivery-policy default: whether the backend supports Executor interrupts."
   @spec can_interrupt?(backend()) :: boolean()
   def can_interrupt?(backend), do: fetch_backend!(backend).can_interrupt
+
+  @doc """
+  Invoke a backend's optional out-of-band interrupt callback.
+  A nil backend uses the sole pane harness while runtime messages are still arriving.
+  Unknown backends and adapters without the callback report `:interrupt_not_supported`.
+  """
+  @spec interrupt(backend() | nil, Backend.session()) :: :ok | {:error, term()}
+  def interrupt(backend, session) do
+    with {:ok, %{adapter: adapter}} <- Map.fetch(backends(), resolve_pane_backend(backend)),
+         true <- Code.ensure_loaded?(adapter) and function_exported?(adapter, :interrupt, 1) do
+      adapter.interrupt(session)
+    else
+      _ -> {:error, :interrupt_not_supported}
+    end
+  end
+
+  defp resolve_pane_backend(nil) do
+    Enum.find_value(backends(), fn {key, entry} ->
+      if Capabilities.delivery_primitives_for_entry(key, entry).transport == :tmux_pane,
+        do: key
+    end)
+  end
+
+  defp resolve_pane_backend(backend), do: backend
 
   @doc "Whether the provider can safely replace its session after this error."
   @spec recoverable_session_error?(backend(), term()) :: boolean()

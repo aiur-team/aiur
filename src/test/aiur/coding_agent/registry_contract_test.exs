@@ -6,6 +6,7 @@ defmodule Aiur.CodingAgent.RegistryContractTest do
   @moduletag :r7_characterization
 
   alias Aiur.CodingAgent.Registry
+  alias Aiur.Harness.Capabilities
 
   @required_keys [
     :adapter,
@@ -56,6 +57,16 @@ defmodule Aiur.CodingAgent.RegistryContractTest do
 
   defp valid_delivery_value?(field, value),
     do: Map.has_key?(@delivery_values, field) and value in Map.fetch!(@delivery_values, field)
+
+  # Future regression guard: nil-backend pane interrupts rely on this uniqueness.
+  test "at most one backend uses the tmux pane transport" do
+    pane_backends =
+      Enum.filter(Registry.entries(), fn {key, entry} ->
+        Capabilities.delivery_primitives_for_entry(key, entry).transport == :tmux_pane
+      end)
+
+    assert length(pane_backends) <= 1
+  end
 
   @tag r7_characterization: false
   test "declared children are valid child specs with no conflicting ids" do

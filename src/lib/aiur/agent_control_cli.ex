@@ -10,6 +10,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate alerts(opts \\ []), to: Aiur.ExecutorAttention.CLI
   defdelegate commands(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate executor_answer(opts), to: Aiur.ControlCLI.EntryPoints
+  defdelegate operator_answer(opts), to: Aiur.ControlCLI.EntryPoints
+  defdelegate operator_answer_preview(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate executor_escalate(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate executor_reclassify(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate executor_moot(opts), to: Aiur.ControlCLI.EntryPoints

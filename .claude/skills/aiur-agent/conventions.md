@@ -81,6 +81,14 @@ workspace-setup notes) and the manual-test-guard rule (in the shared
 instructions' "Manual CLI verification" section); follow those for anything mix-
 or `scripts/`-specific.
 
+## Temporary-path cleanup
+
+Never delete anything under `/tmp/.X11-unix`, `/tmp/.ICE-unix`, or a
+`/tmp/.X*-lock` path; these can belong to the live desktop session. Never
+sweep `/tmp` by age, owner, or glob, including `/tmp/*` and `/tmp/.*`. Delete
+only exact paths you created, by exact name. Use the workspace scratch helper
+(`$TMPDIR`, under `~/.aiur`) for temporary files.
+
 ## Synthetic load repros
 
 Never generate real CPU load to test or reproduce load-sensitive code: no `yes`,

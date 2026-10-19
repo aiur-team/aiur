@@ -30,6 +30,7 @@ defmodule Aiur.GitHub.Budget do
   @broker_source_path Path.expand("../../../priv/github_budget.py", __DIR__)
   @external_resource @broker_source_path
   @retry_floor_ms 5
+  @priority_key :aiur_github_budget_priority
 
   @spec enabled?(keyword()) :: boolean()
   def enabled?(opts \\ []) do
@@ -108,7 +109,7 @@ defmodule Aiur.GitHub.Budget do
          key when is_binary(key) <- token_key(token) do
       case BrokerPort.python_executable(opts) do
         python when is_binary(python) ->
-          do_acquire(request, key, python, identity_opts(request, opts), Settings.deadline(opts))
+          request |> do_acquire(key, python, identity_opts(request, opts), Settings.deadline(opts)) |> keep_hold(nil)
 
         nil ->
           # No python3 on the box, so the broker cannot run at all. Fail open to
@@ -206,6 +207,13 @@ defmodule Aiur.GitHub.Budget do
 
   defp reconcile_response(_lease, _result, _opts), do: :ok
 
+  @doc "Marks the calling process as the base-branch watcher: its admissions may use one lease above the in-flight caps."
+  @spec prioritize() :: :ok
+  def prioritize do
+    Process.put(@priority_key, true)
+    :ok
+  end
+
   @spec snapshot(String.t(), keyword()) :: map()
   def snapshot(token, opts \\ []) when is_binary(token) do
     key = token_key(token)
@@ -258,7 +266,10 @@ defmodule Aiur.GitHub.Budget do
   def request_resource(_request), do: "core"
 
   defp do_acquire(request, key, python, opts, deadline_at) do
-    command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, deadline_at)
+    # `command_timeout_ms` bounds each broker round trip apart from the admission wait, so a slow broker still times out.
+    command_ms = Keyword.get(opts, :command_timeout_ms)
+    command_deadline_at = if command_ms, do: min(deadline_at, System.monotonic_time(:millisecond) + command_ms), else: deadline_at
+    command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, command_deadline_at)
 
     case BrokerPort.command(acquire_args(request, opts), key, command_opts) do
       {:ok, "granted " <> id} ->
@@ -273,10 +284,10 @@ defmodule Aiur.GitHub.Budget do
       {:ok, "wait " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :shared_budget)
 
-      # Deadline expiry differs from malformed output: Python startup can race
-      # the deadline under load, so callers may retry it (#2286).
+      # Deadline expiry differs from malformed output: Python startup can race the deadline under load, so
+      # callers may retry it (#2286). `:admission_closed` marks expiry at the admission deadline, not the per-command bound.
       {:error, :github_budget_broker_timeout} ->
-        {:error, :github_budget_broker_timeout}
+        if command_deadline_at == deadline_at, do: {:error, :admission_closed}, else: {:error, :github_budget_broker_timeout}
 
       _unavailable ->
         {:error, :github_budget_broker_unavailable}
@@ -295,7 +306,7 @@ defmodule Aiur.GitHub.Budget do
         {:hold, %{reason: :shared_budget, resource: resource, reset_at: reset_at}}
       else
         Process.sleep(max(delay_ms, @retry_floor_ms))
-        do_acquire(request, key, python, opts, deadline_at)
+        request |> do_acquire(key, python, opts, deadline_at) |> keep_hold(%{reason: :shared_budget, resource: resource, reset_at: reset_at})
       end
     else
       _invalid -> {:error, :github_budget_broker_unavailable}
@@ -326,9 +337,15 @@ defmodule Aiur.GitHub.Budget do
       {:hold, hold(request, delay, reason)}
     else
       Process.sleep(max(delay, @retry_floor_ms))
-      do_acquire(request, key, python, opts, deadline_at)
+      request |> do_acquire(key, python, opts, deadline_at) |> keep_hold(hold(request, delay, reason))
     end
   end
+
+  # A retry cut off by the admission deadline after the broker already said "wait" reports that hold,
+  # so lease saturation is not counted as a slow broker. A first attempt has no hold to report.
+  defp keep_hold({:error, :admission_closed}, nil), do: {:error, :github_budget_broker_timeout}
+  defp keep_hold({:error, :admission_closed}, hold), do: {:hold, hold}
+  defp keep_hold(result, _hold), do: result
 
   defp maybe_alert_meter_disagreement(request, key, :actor_budget, opts) do
     resource = request_resource(request)
@@ -408,8 +425,12 @@ defmodule Aiur.GitHub.Budget do
       Integer.to_string(graphql_limit),
       "--search-limit",
       Integer.to_string(search_limit)
-    ] ++ billable_args
+    ] ++ billable_args ++ priority_args(request)
   end
+
+  # Main-watch (and the base-CI fixer it drives) may hold one lease above the in-flight caps so bulk
+  # polling cannot starve default-branch health checks; cooldowns, ceilings and pacing still apply.
+  defp priority_args(_request), do: if(Process.get(@priority_key), do: ["--priority"], else: [])
 
   # The daemon and each agent workspace are separate actors with separate hourly
   # ceilings. The daemon's own calls default to the daemon consumer and the

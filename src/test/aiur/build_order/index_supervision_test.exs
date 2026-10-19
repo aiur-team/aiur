@@ -4,22 +4,21 @@ defmodule Aiur.BuildOrder.IndexSupervisionTest do
   import Aiur.TestSupport.BuildHome.IndexParts, only: [parts: 0]
 
   test "index is last after every interactive child and absent without dashboard" do
-    children = Aiur.Application.child_specs(interactive_cli?: true, headless?: false, dashboard?: true)
-
-    modules =
-      Enum.map(children, fn
-        {module, _} -> module
-        module -> module
-      end)
-
+    modules = modules(build_index?: true)
     assert List.last(modules) == AiurWeb.Build.IndexSupervisor
     assert Aiur.Tmux in modules
-    without = Aiur.Application.child_specs(interactive_cli?: true, headless?: false, dashboard?: false)
+    without = Aiur.Application.child_specs(interactive_cli?: true, headless?: false, dashboard?: false, build_index?: true)
     refute Enum.any?(without, &(&1 in [AiurWeb.Build.Index, AiurWeb.Build.IndexSupervisor]))
   end
 
+  # A shared index reread `now` on another test's bus signal and logged read_failed into SignalTest's capture_log (#5164).
+  test "the test VM runs no shared index for other tests' signals to wake" do
+    refute AiurWeb.Build.IndexSupervisor in modules([])
+    refute Process.whereis(AiurWeb.Build.Index)
+  end
+
   test "repeated index crashes do not stop the application supervisor" do
-    entry = List.last(Aiur.Application.child_specs(interactive_cli?: true, headless?: false, dashboard?: true))
+    entry = List.last(Aiur.Application.child_specs(interactive_cli?: true, headless?: false, dashboard?: true, build_index?: true))
     parent = self()
 
     opts = [
@@ -49,5 +48,13 @@ defmodule Aiur.BuildOrder.IndexSupervisionTest do
 
     assert is_list(Supervisor.which_children(top))
     refute_received {:DOWN, ^top_ref, :process, ^top, _}
+  end
+
+  defp modules(opts) do
+    Aiur.Application.child_specs([interactive_cli?: true, headless?: false, dashboard?: true] ++ opts)
+    |> Enum.map(fn
+      {module, _} -> module
+      module -> module
+    end)
   end
 end

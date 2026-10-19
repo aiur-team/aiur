@@ -133,6 +133,36 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
              )
   end
 
+  # #4791: a retry that times out is a hold only when the admission deadline cut it off.
+  describe "a broker that answers wait and then stalls" do
+    setup %{root: root} do
+      fake_python = Path.join(root, "wait-then-stall-broker")
+      marker = Path.join(root, "answered")
+      File.write!(fake_python, "#!/bin/sh\nif [ -e #{marker} ]; then sleep 10; fi\ntouch #{marker}\nprintf '%s\\n' 'wait 50'\n")
+      File.chmod!(fake_python, 0o755)
+      %{opts: [state_dir: root, enabled?: true, python: fake_python]}
+    end
+
+    test "is a broker timeout when the per-command bound fires with admission time left", %{opts: opts} do
+      assert {:error, :github_budget_broker_timeout} =
+               Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), opts ++ [timeout_ms: 5_000, command_timeout_ms: 1_000])
+    end
+
+    test "is a hold when the admission deadline cuts the retry off", %{opts: opts} do
+      assert {:hold, %{reason: :shared_budget}} =
+               Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), opts ++ [timeout_ms: 1_500, command_timeout_ms: 5_000])
+    end
+  end
+
+  test "a first attempt cut off by the admission deadline stays a broker timeout", %{root: root} do
+    fake_python = Path.join(root, "stalled-broker")
+    File.write!(fake_python, "#!/bin/sh\nsleep 10\n")
+    File.chmod!(fake_python, 0o755)
+
+    assert {:error, :github_budget_broker_timeout} =
+             Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), state_dir: root, enabled?: true, python: fake_python, timeout_ms: 500)
+  end
+
   test "a typed shared hold preserves resource and absolute reset", %{root: root} do
     fake_python = Path.join(root, "typed-hold-broker")
     reset_at_ms = System.system_time(:millisecond) + 60_000

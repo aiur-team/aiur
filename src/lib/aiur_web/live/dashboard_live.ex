@@ -4,8 +4,6 @@ defmodule AiurWeb.DashboardLive do
   """
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.Accounts
-  alias Aiur.Accounts.UsageReadings
   alias Aiur.Agent.UsageSnapshotService
   alias Aiur.AgentChat
 
@@ -31,6 +29,7 @@ defmodule AiurWeb.DashboardLive do
     AddAgentSubmission,
     AgentLogModal,
     CapacityPresenter,
+    CodexHeadroomPresenter,
     ConversationDrawer,
     CurrentRunOutcomesPresenter,
     DashboardShell,
@@ -86,7 +85,7 @@ defmodule AiurWeb.DashboardLive do
     socket = AiurWeb.RefreshSubscriptions.dashboard(socket)
     if connected, do: subscribe_ticket_context_resets()
 
-    payload = PayloadLoader.load(if connected, do: :fresh, else: :cached)
+    payload = PayloadLoader.load(if connected, do: :join, else: :cached)
 
     socket =
       socket
@@ -103,7 +102,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:global_pause_error, nil)
       |> assign(:payload_reload_scheduled?, false)
       |> assign(:payload_reload_mode, :cached)
-      |> assign(:writable, dashboard_writable?())
+      |> assign(%{writable: dashboard_writable?(), live_connected: connected})
       |> assign(:decision_filter, :all)
       |> assign(:decision_page, empty_decision_page())
       |> assign(:decision_query, %{})
@@ -147,7 +146,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:selected_decision_status, :none)
       |> assign(:selected_decision_health, nil)
       |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
-      |> PayloadLoader.mark_loaded()
+      |> PayloadLoader.mark_joined(connected)
 
     if connected do
       schedule_runtime_tick()
@@ -757,17 +756,7 @@ defmodule AiurWeb.DashboardLive do
         &Map.put_new(
           &1,
           :provider_meters_view,
-          ProviderMetersPresenter.present(
-            financial_data_capability(&1),
-            %{},
-            UsageReadings.snapshot(
-              "claude",
-              case Accounts.configured_names() do
-                [] -> ["default"]
-                names -> names
-              end
-            )
-          )
+          CodexHeadroomPresenter.provider_meters_view(financial_data_capability(&1), %{})
         )
       )
       |> Map.put_new(:provider_meters_announcement, nil)
@@ -816,7 +805,7 @@ defmodule AiurWeb.DashboardLive do
           now={@now}
           history={@payload.history}
           action_states={@decision_actions}
-          writable={@writable}
+          writable={@writable} live_connected={Map.get(assigns, :live_connected, true)}
           provider_health={page_provider_health(@decision_page)}
           retained_counts={@retained_counts}
           page={@decision_page}
@@ -833,7 +822,7 @@ defmodule AiurWeb.DashboardLive do
           expanded_decision={@selected_decision}
           history={@payload.history}
           action_state={history_action_state(@decision_actions, @selected_decision_id)}
-          writable={@writable}
+          writable={Map.get(assigns, :writable, false)} live_connected={Map.get(assigns, :live_connected, true)}
           filter={@decision_filter}
           query={@decision_query}
           time_zone={@time_zone}
@@ -1393,18 +1382,7 @@ defmodule AiurWeb.DashboardLive do
   defp apply_provider_meters(socket) do
     capability = financial_data_capability(socket.assigns)
 
-    view =
-      ProviderMetersPresenter.present(
-        capability,
-        socket.assigns.provider_meter_snapshots,
-        UsageReadings.snapshot(
-          "claude",
-          case Accounts.configured_names() do
-            [] -> ["default"]
-            names -> names
-          end
-        )
-      )
+    view = CodexHeadroomPresenter.provider_meters_view(capability, socket.assigns.provider_meter_snapshots)
 
     socket
     |> assign(:provider_meters_view, view)

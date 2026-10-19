@@ -142,7 +142,6 @@ defmodule Aiur.Orchestrator.State do
           agent_rate_limits: map() | nil,
           codex_totals: map() | nil,
           codex_rate_limits: map() | nil,
-          github_comment_cursor: Aiur.Orchestrator.CommentPolling.Cursor.t(),
           github_command_scan_etags: map(),
           # Monotonic time the CI poll last ran, used to throttle it to the
           # `:ci` class cadence (#2309). `nil` until the first run.
@@ -295,7 +294,6 @@ defmodule Aiur.Orchestrator.State do
     agent_rate_limits: nil,
     codex_totals: nil,
     codex_rate_limits: nil,
-    github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{},
     github_command_scan_etags: %{},
     last_ci_poll_started_at_ms: nil,
     pr_review_seen_at: %{},

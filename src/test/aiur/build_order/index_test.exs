@@ -53,7 +53,7 @@ defmodule Aiur.BuildOrder.IndexTest do
 
     assert context.not_queued == %{
              state: :unavailable,
-             reasons: [:open_tickets_read_failed],
+             reasons: [:open_tickets_timeout],
              observed_at: nil,
              truncated?: false,
              skipped: 0,

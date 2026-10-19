@@ -285,6 +285,14 @@ defmodule Aiur.GitHubCostCLITest do
     assert message =~ "not running"
   end
 
+  test "reports a slow snapshot as slow rather than not running" do
+    timeout = fn -> exit({:timeout, {GenServer, :call, [Quota, :snapshot, 5_000]}}) end
+
+    assert {:error, message} = GitHubCostCLI.build(snapshot_fun: timeout)
+    assert message =~ "took over 5 s"
+    refute message =~ "not running"
+  end
+
   test "reads reported GraphQL attribution from the production meter" do
     request = %{
       method: :post,

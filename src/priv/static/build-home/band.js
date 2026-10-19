@@ -7,9 +7,9 @@ import { writeURL } from './url.js';
 import './band-scroll.js';
 export { SNAP_T, guardTarget, settleTarget } from './band-scroll.js';
 
-const groups = [['ok', 'nr', 'active', 'running'], ['bad', 'ns', 'error,retries,command', 'stuck'], ['idle', 'ni', 'paused,parked', 'paused']];
+const groups = [['ok', 'nr', 'active', 'running'], ['queued', 'nt', 'retrying', 'retrying'], ['bad', 'ns', 'error,retries,command', 'stuck'], ['idle', 'ni', 'paused,parked', 'paused']];
 export function bandCounts(rows) {
-  const result = { nr: 0, ns: 0, ni: 0, nu: 0 };
+  const result = { nr: 0, nt: 0, ns: 0, ni: 0, nu: 0 };
   for (const t of rows) {
     const state = t.agent?.state, group = groups.find(g => g[2].split(',').includes(state));
     result[group ? group[1] : 'nu']++;
@@ -52,11 +52,11 @@ export function syncAst() {
   });
 }
 function header(counts, available) {
-  const { nr, ns, ni, nu } = counts, eta = bandEta(ctx.D);
+  const { nr, nt, ns, ni, nu } = counts, eta = bandEta(ctx.D);
   const buttons = available ? groups.filter(g => counts[g[1]]) : [];
   return '<b><i></i>Live</b><time></time><span class="bd-now-st">' +
     buttons.map(([cls, key, ast, word]) => `<button type="button" class="${cls}" data-ast="${ast}"><i></i>${counts[key]} ${word}</button>`).join('') + '</span>' +
-    (available && S.liveMin && ctx.D.now.length ? '<span class="bd-now-sum" role="group" aria-label="' + nr + ' running, ' + ns + ' stuck, ' + ni + ' paused' + (nu ? ', ' + nu + ' state unknown' : '') + '">' +
+    (available && S.liveMin && ctx.D.now.length ? '<span class="bd-now-sum" role="group" aria-label="' + nr + ' running' + (nt ? ', ' + nt + ' retrying' : '') + ', ' + ns + ' stuck, ' + ni + ' paused' + (nu ? ', ' + nu + ' state unknown' : '') + '">' +
       buttons.map(([cls, key, ast, word]) => `<button type="button" class="${cls}" data-ast="${ast}" style="flex:${counts[key]}" title="${counts[key]} ${word}" aria-label="${counts[key]} ${word}"></button>`).join('') + '</span>' : '') +
     '<button type="button" class="bd-now-min" data-min title="' + (S.liveMin ? 'Expand live' : 'Minimize live') + '" aria-expanded="' + !S.liveMin + '" aria-controls="bd-now">' + (S.liveMin ? I.chev : I.chevU) + '</button>' +
     '<span class="bd-now-eta" title="' + eta.title + '">' + eta.text + '</span>';

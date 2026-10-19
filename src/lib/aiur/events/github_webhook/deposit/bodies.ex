@@ -200,6 +200,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.Bodies do
       "started_at" => Map.get(check_run, "started_at"),
       "completed_at" => Map.get(check_run, "completed_at"),
       "updated_at" => Map.get(check_run, "updated_at"),
+      "details_url" => Map.get(check_run, "details_url"),
       "check_suite_id" => get_in(check_run, ["check_suite", "id"]),
       "app" => Map.get(check_run, "app", %{}),
       "output" => Map.get(check_run, "output", %{})

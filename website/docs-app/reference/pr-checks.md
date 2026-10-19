@@ -33,9 +33,9 @@ Run counts depend on how many test files the pull request changes.
 - A failure prints the exact command to reproduce it, including the seed.
 
 
-## Home band and mobile parity
+## Home band, mobile and Gantt parity
 
-PR browser smoke stays at **seven shards**, including PRs selecting full CI.
+PR browser smoke stays at **eight shards**, including PRs selecting full CI.
 The routine pixel selection uses **390px**, datasets **live/offline**, both
 **dark/light** themes and **gruvbox/aiur** palettes: eight band pixel cases and
 eight unmasked composed mobile card/header cases.
@@ -46,30 +46,31 @@ snap sequences at live/390px/dark/gruvbox. It preserves the scroll-curve regress
 The full check preserves all **104 band/mobile pixel cases** (seven band datasets,
 three widths, both themes/palettes, plus twenty mobile composition cases) and
 **32 band-motion cases**, including desktop normal/reduced motion, mobile snap,
-grain and pulse. Four additional matrix partitions run in these events:
+grain and pulse. Routine CI, pull requests and merge groups never run the
+full check, and no schedule runs it.
 
-| Event | Full home check |
-|-------|-----------------|
-| Pull request | Routine subset only; soak repeats the same smoke selections. |
-| Merge group changing home paths | Full matrix; failure, cancellation or a skipped selected job blocks `ci gate`. |
-| Other merge groups | No additional home matrix. |
-| Nightly on main, 05:41 UTC | Full matrix; failure evidence is uploaded and a deduplicated drift ticket links the run/head. |
+The full check runs only on demand: Actions → **home parity sign-off** (`workflow_dispatch`).
 
-Merge-group selection compares the event’s entire base/head candidate diff,
-including removed/renamed paths. It covers home product code, build specs,
-frozen fixtures and fixture support, shared browser capture/configuration,
-package files and the matrix workflow/selector. `scripts/classify-home-ci.py`
-is the exact path list.
+| Sign-off job | Covers |
+|--------------|--------|
+| band 1–4/4 | `npm run test:build-home-band-full` with `AIUR_HOME_PARITY_PART=1..4`. |
+| gantt 1–4/4 | `npm run test:build-home-gantt:full -- --shard=1..4/4`: the 108-cell dataset/span/width/theme/palette composition matrix. |
+| motion 1–32/32 | Every spec that reads `AIUR_PARITY_FULL`, with the flag set: about 5,000 tests. |
+| One job per other parity spec | Each `*parity*` browser spec, through its existing npm script. |
 
-Missing or invalid candidate metadata fails closed.
+The sign-off is meant to run once, when the home-page tickets are done, and
+again after their gaps are fixed. One run costs about 15–20 runner-hours.
 
-The full matrix runs through `npm run test:build-home-band-full` with
-`AIUR_HOME_PARITY_PART=1..4`. This is separate from the broader C12 sign-off
-flag `AIUR_PARITY_FULL`.
+Routine browser smoke runs the fast Gantt checks (`npm run test:build-home-gantt`): geometry, live updates, complete history edges, unknown-value captures and four representative composition cells.
 
-Each partition uses one browser worker because dataset selection is global to
-its fixture server. The four partitions have separate servers; no pixel or
-motion cells are removed.
+`scripts/test-home-parity-signoff.mjs` fails when a parity spec has no sign-off
+job. Every partition uses one browser worker, because dataset selection is
+global to its fixture server.
+
+A failed job's summary lists each failed cell: spec, dataset, width, theme,
+palette and motion setting, with its artifact folder. The uploaded artifact
+holds the cell's `-diff`, `-actual` and `-expected` screenshots, so each gap
+can become a ticket.
 
 Shard balancing uses recorded CI timings; until the
 first routine run is measured, the previous full selections’ 303s parity and

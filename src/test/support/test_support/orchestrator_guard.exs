@@ -120,11 +120,15 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     end
 
     store_leaks = decision_store_leaks()
-    recover_decision_store(store_leaks)
+    store_recovery = recover_decision_store(store_leaks)
 
-    if leaks != [] or store_leaks != [] do
+    recovery_errors = recovery_errors(store_recovery)
+
+    if leaks != [] or store_leaks != [] or recovery_errors != [] do
       last = last_finished() || "unknown"
-      raise "#{test_name(context)} started after last finished test #{last} (upper bound; plain-test culprit unknown); restored shared state: #{Enum.join(leaks ++ store_leaks, "; ")}"
+      details = Enum.join(leaks ++ store_leaks ++ recovery_errors, "; ")
+      recovery_status = if recovery_errors == [], do: "restored shared state", else: "failed to restore shared state"
+      raise "#{test_name(context)} started after last finished test #{last} (upper bound; plain-test culprit unknown); #{recovery_status}: #{details}"
     end
 
     :ok
@@ -162,7 +166,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     orchestrator_restore = if orchestrator_leak, do: restore(orchestrator_leak)
     shared_leaks = verify_shared_state_restored!(context)
     store_leaks = decision_store_leaks()
-    recover_decision_store(store_leaks)
+    store_recovery = recover_decision_store(store_leaks)
 
     orchestrator_errors =
       if orchestrator_leak do
@@ -173,10 +177,14 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
         []
       end
 
+    recovery_errors = recovery_errors(store_recovery)
+
     shared_state_errors =
-      if shared_leaks == [] and store_leaks == [],
+      if shared_leaks == [] and store_leaks == [] and recovery_errors == [],
         do: [],
-        else: ["#{test_name(context)} left shared test state changed (restored): #{Enum.join(shared_leaks ++ store_leaks, "; ")}"]
+        else: [
+          "#{test_name(context)} left shared test state changed (#{if(recovery_errors == [], do: "restored", else: "restore failed")}): #{Enum.join(shared_leaks ++ store_leaks ++ recovery_errors, "; ")}"
+        ]
 
     errors = orchestrator_errors ++ shared_state_errors
 
@@ -246,6 +254,9 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   catch
     :exit, _reason -> :error
   end
+
+  defp recovery_errors(:ok), do: []
+  defp recovery_errors(:error), do: ["Aiur.DecisionStore recovery failed"]
 
   defp terminate_decision_store do
     case Process.whereis(Aiur.DecisionStore) do

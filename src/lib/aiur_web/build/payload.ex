@@ -30,7 +30,7 @@ defmodule AiurWeb.Build.Payload do
   | status | done, failed, not_planned, closed, running, queued, open |
   | pct / est | 0..100 or nil / number of hours or nil |
   | agent | nil or nullable model, name, state and effort |
-  | agent.state | active, error, retries, command, paused, parked, or nil |
+  | agent.state | active, error, retrying, retries, command, paused, parked, or nil |
   | agent.effort | none, minimal, low, medium, high, xhigh, max, or nil |
   | override | nil or hours (number), reason (string), by (string or nil), at (ms or nil) |
   | added / deps / children | boolean / blocker identifiers / dependent identifiers |

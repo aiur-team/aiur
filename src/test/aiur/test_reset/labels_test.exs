@@ -22,7 +22,7 @@ defmodule Aiur.TestReset.LabelsTest do
       assert Agent.get(agent, &Enum.reverse/1) == [metadata_argv]
     end
 
-    test "closed tickets remove automation labels and do not add agent todo" do
+    test "closed tickets remove automation labels, then reopen without adding agent todo" do
       metadata_argv = TestReset.issue_metadata_command_args(99)
 
       metadata =
@@ -43,6 +43,7 @@ defmodule Aiur.TestReset.LabelsTest do
         "agent:todo,model:codex"
       ]
 
+      reopen_argv = ["issue", "reopen", "99"]
       agent = start_supervised!({Agent, fn -> [] end})
 
       runner = fn argv ->
@@ -51,16 +52,28 @@ defmodule Aiur.TestReset.LabelsTest do
         case argv do
           ^metadata_argv -> {metadata, 0}
           ^cleanup_argv -> {"", 0}
+          ^reopen_argv -> {"", 0}
           _ -> {"unexpected argv: #{inspect(argv)}", 1}
         end
       end
 
-      assert {:closed, ["agent:todo", "model:codex"]} =
-               TestReset.prepare_reset_ticket(99, runner)
+      ExUnit.CaptureIO.capture_io(:stderr, fn -> assert :open = TestReset.prepare_reset_ticket(99, runner) end)
 
       commands = Agent.get(agent, &Enum.reverse/1)
-      assert commands == [metadata_argv, cleanup_argv]
+      assert commands == [metadata_argv, cleanup_argv, reopen_argv]
       refute Enum.any?(commands, &("--add-label" in &1))
+    end
+
+    test "a closed ticket that cannot be reopened stays closed" do
+      metadata_argv = TestReset.issue_metadata_command_args(99)
+      metadata = Jason.encode!(%{"state" => "CLOSED", "labels" => []})
+
+      runner = fn
+        ^metadata_argv -> {metadata, 0}
+        ["issue", "reopen", "99"] -> {"permission denied", 1}
+      end
+
+      ExUnit.CaptureIO.capture_io(:stderr, fn -> assert {:closed, []} = TestReset.prepare_reset_ticket(99, runner) end)
     end
 
     test "closed ticket cleanup failure blocks reset" do
@@ -136,6 +149,7 @@ defmodule Aiur.TestReset.LabelsTest do
         )
 
       assert output =~ "sandbox ticket(s) must be open before reset: [99]"
+      assert output =~ "gh issue reopen 99"
       refute output =~ "~c"
       trace = File.read!(gh_trace)
       assert trace =~ "issue edit 99 --remove-label agent:todo"

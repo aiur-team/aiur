@@ -1,0 +1,7 @@
+[
+  {
+    "spec": "tests/design-parity-matrix.browser.spec.mjs",
+    "reason": "Manual home parity sign-off only; home-parity-signoff.yml is workflow_dispatch-only and does not gate merges.",
+    "ticket": 5124
+  }
+]

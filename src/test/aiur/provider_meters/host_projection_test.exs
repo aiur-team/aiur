@@ -4,14 +4,25 @@ defmodule Aiur.ProviderMeters.HostProjectionTest do
   alias Aiur.ProviderMeterProjection
   alias Aiur.ProviderMeters.HostObservations
 
+  # Supervised, not linked: a linked server dies with the test process's
+  # :shutdown exit while on_exit is still checking Process.alive?/stopping it.
+  defp start_meters(now) do
+    hosts = start_supervised!({HostObservations, name: nil, clock: fn -> now end})
+    projection = start_supervised!({ProviderMeterProjection, name: nil, subscribe?: false, host_observations: hosts})
+    {hosts, projection}
+  end
+
+  test "meter servers outlive the test process exit until the test supervisor stops them" do
+    {hosts, projection} = start_meters(DateTime.utc_now())
+    {:links, links} = Process.info(self(), :links)
+
+    refute hosts in links
+    refute projection in links
+  end
+
   test "descriptor selects a live host view for all shared surfaces and retires it" do
     now = DateTime.utc_now()
-    {:ok, hosts} = HostObservations.start_link(name: nil, clock: fn -> now end)
-    {:ok, projection} = ProviderMeterProjection.start_link(name: nil, subscribe?: false, host_observations: hosts)
-
-    on_exit(fn ->
-      for pid <- [projection, hosts], Process.alive?(pid), do: GenServer.stop(pid)
-    end)
+    {hosts, projection} = start_meters(now)
 
     assert {:ok, scope} = HostObservations.attach(hosts, :muse, :app_server, self())
     observed_at = DateTime.add(now, -17, :second)

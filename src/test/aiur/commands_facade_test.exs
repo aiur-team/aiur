@@ -26,6 +26,7 @@ defmodule Aiur.CommandsFacadeTest do
     resolve_attention: {Aiur.DecisionAttention, :resolve},
     classify_supervisor_token: {Aiur.SupervisorToken, :classify},
     errors: {Aiur.SupervisorToken.EnvCheck, :errors},
+    open?: {Aiur.DecisionStore.RetainedIndex, :open?},
     print_projection_status: {Aiur.DecisionStore.ProjectionRecovery, :print_status},
     default_metrics: {Aiur.Commands.Defaults, :default_metrics},
     default_attention: {Aiur.Commands.Defaults, :default_attention},

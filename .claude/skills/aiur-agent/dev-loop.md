@@ -192,7 +192,7 @@ The Elixir examples below apply only to Aiur's Elixir core.
      `mise exec -- python3 scripts/check-pr-structure.py --base "$base"` (size, docs prose/table, components, bare receives, format, state-writer allowlist).
 
    When a change must touch an oversized text file (over 500 lines), keep that
-   file the same length or shorter. Put new code in a new small module and new
+   file the same length or shorter; the file-size gate exempts skills and third-party vendored directories. Put new code in a new small module and new
    tests in a new test file. Never grow the oversized file.
 
    Append new `Aiur.Application.child_specs/1` children after the existing
@@ -231,6 +231,9 @@ The Elixir examples below apply only to Aiur's Elixir core.
    Do not loop on unrelated suite flakes. Use the target repository's required
    CI gate; do not assume it has `make ci`. For Aiur's Elixir core, do not gate
    PR-opening on a clean full-suite `mix test` run: the merge queue runs full CI.
+
+   On a flake ticket, run the quarantined test or spec with `AIUR_RUN_QUARANTINED=1`.
+   Without it the run skips the quarantined entry, reports 0 tests and exits 0: that is not a pass.
 
    **For an Elixir failure that looks impossible, rule out a stale test
    build.** `mix compile --force` rebuilds `dev`, **not** `test`, so a stale

@@ -21,8 +21,8 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       assert body["query"] =~ "query AiurCIPollBatch"
       assert body["query"] =~ "checkSuite { id app { databaseId } }"
       assert body["query"] =~ "mergeQueueEntry { id state }"
-      assert body["query"] =~ "timelineItems(itemTypes: [REOPENED_EVENT], last: 1)"
-      assert body["query"] =~ "reviews(states: APPROVED, last: 1)"
+      assert body["query"] =~ "timelineItems(itemTypes: [REOPENED_EVENT, READY_FOR_REVIEW_EVENT], last: 100)"
+      assert body["query"] =~ "reviews(last: 100) { nodes { state commit { oid } } }"
       assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42-ci-batch", states: OPEN, orderBy:)
       # The cost claim: aliases only, never a scan of the repository's open PR
       # list (paginated or not).
@@ -38,7 +38,15 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              "repository" => %{
                "branch_0_0" => %{
                  "pageInfo" => %{"hasNextPage" => false},
-                 "nodes" => [Map.put(pull_request(), "reviews", %{"nodes" => [%{"commit" => %{"oid" => "reviewed-head"}}]})]
+                 "nodes" => [
+                   Map.merge(pull_request(), %{
+                     "reviews" => %{
+                       # Oldest first, as `last:` returns them: the newest approval is the head.
+                       "nodes" => [%{"state" => "APPROVED", "commit" => %{"oid" => "older-head"}}, %{"state" => "APPROVED", "commit" => %{"oid" => "reviewed-head"}}]
+                     },
+                     "timelineItems" => %{"nodes" => [%{"__typename" => "ReadyForReviewEvent", "createdAt" => "2026-10-14T19:08:00Z"}]}
+                   })
+                 ]
                }
              }
            }
@@ -53,6 +61,8 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              )
 
     assert %{"number" => 77, "head" => %{"sha" => "head-77"}} = batch.pull_request
+    assert batch.pull_request["ready_at_ms"] == DateTime.to_unix(~U[2026-10-14 19:08:00Z], :millisecond)
+    assert batch.pull_request["reviewed_head?"] == false
     # The batch carries the merge-queue recovery observation derived from the
     # same node, without any extra read.
     assert %{

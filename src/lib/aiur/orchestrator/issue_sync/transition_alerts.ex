@@ -126,6 +126,8 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
       needs_attention: not approved_at_head?,
       severity: if(approved_at_head?, do: "info", else: "warning"),
       dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "handoff_human_review", head_sha),
+      # A label-only handoff is often observed after the worker exits, when the ticket is no longer tracked (#5167).
+      bypass_contamination: true,
       exchange_payload: %{
         "action" => "human_review",
         "pr_number" => pr_number,

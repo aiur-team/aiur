@@ -75,6 +75,11 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
         Enum.map(value(main_watch, :merge_groups, []), fn run ->
           %{name: "run #{value(run, :id, "?")}", state: value(run, :status, "unknown"), started_at: value(run, :started_at, nil)}
         end),
+      # Main's per-commit check results; a PR red is caused_by_pr only if its base passed (#5119).
+      base_checks:
+        for entry <- value(main_watch, :history, []), check <- value(entry, :checks, []) do
+          %{name: value(check, :name, nil), base_sha: value(entry, :sha, nil), conclusion: value(check, :conclusion, nil)}
+        end,
       ci_wait: Map.get(fleet, :ci_wait, []),
       rework_attempts: Map.get(fleet, :rework_attempts, []),
       landing_rerun_backlog: landing_rerun_backlog(safe_state(&Aiur.LandingWatch.state/0)),
@@ -228,13 +233,23 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     }
   end
 
+  # A merge is terminal: a stale row from either source must not reopen it (#5119).
+  defp merge_pr_rows(direct, branch) do
+    merged = Map.merge(direct, branch)
+
+    case Enum.find_value([direct, branch], &value(&1, "merged_at", nil)) do
+      nil -> merged
+      merged_at -> Map.merge(merged, %{"state" => "closed", "merged_at" => merged_at})
+    end
+  end
+
   defp merge_pr_sources(pull_requests, branch_pull_requests) do
     direct = Map.new(pull_requests)
 
     Enum.reduce(branch_pull_requests, direct, fn {_ticket, pr}, acc ->
       case positive_number(value(pr, "number", nil)) do
         nil -> acc
-        number -> Map.update(acc, number, pr, &Map.merge(&1, pr))
+        number -> Map.update(acc, number, pr, &merge_pr_rows(&1, pr))
       end
     end)
     |> Enum.to_list()
@@ -326,8 +341,10 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       number: number,
       issue_number: issue_number,
       state: value(pr, "state", "closed"),
+      merged_at: value(pr, "merged_at", value(pr, "mergedAt", nil)),
       draft: value(pr, "draft", false),
       head_sha: sha,
+      base_sha: value(value(pr, "base", %{}), "sha", nil),
       reviewed_head_sha: if(reviewed, do: sha),
       approved_head_sha: value(pr, "approved_head_sha", nil) || if(approved, do: sha),
       ready_at: timestamp(value(pr, "ready_for_review_at", nil)) || timestamp(value(pr, "created_at", nil)),

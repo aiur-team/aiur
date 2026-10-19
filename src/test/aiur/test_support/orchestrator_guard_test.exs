@@ -66,12 +66,22 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
     Application.delete_env(:aiur, :decision_state_dir)
     System.delete_env("AIUR_INSTANCE_KEY")
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.DecisionStore)
-    assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, Aiur.DecisionStore)
 
+    # Restore the path inputs before restart: init/1 resolves them when the
+    # child starts, so restarting while they are absent leaves shared state
+    # unavailable for every later case.
     restore_app_env(:decision_state_dir, original_dir)
     restore_instance_key(original_key)
+    assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, Aiur.DecisionStore)
 
-    assert_raise RuntimeError, ~r/retained unavailable path state: :missing_instance_key/, fn ->
+    assert Aiur.DecisionStore.health() == :writable
+    # Confirm that restoring the key before restart prevents the unavailable
+    # path state this test used to leak into its neighbours.
+    refute Aiur.DecisionStore.health() == {:unavailable, {:path_unresolved, :missing_instance_key}}
+
+    Application.delete_env(:aiur, :decision_state_dir)
+
+    assert_raise RuntimeError, ~r/left shared test state changed \(restored\): .*:decision_state_dir changed/, fn ->
       OrchestratorGuard.verify_restored!(Map.put(context, :aiur_expected_shared_state, expected))
     end
 

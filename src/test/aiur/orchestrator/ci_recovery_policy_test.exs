@@ -47,7 +47,7 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
 
   test "cancelled runs are skipped with one neutral attention", ctx do
     Agent.update(ctx.state, &%{&1 | conclusion: "cancelled"})
-    assert %{recovery: "rerun_skipped"} = recover(ctx)
+    assert %{decision: :failed, recovery: nil} = recover(ctx)
     assert Agent.get(ctx.state, & &1.posts) == []
     assert_received {:attention, "ticket.1.pr.ci_recovery.rerun_skipped", details}
     assert details[:message] =~ "cancelled_run"
@@ -57,14 +57,14 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
 
   test "draft PRs are skipped", ctx do
     Agent.update(ctx.state, &%{&1 | draft: true})
-    assert %{recovery: "rerun_skipped"} = recover(ctx)
+    assert %{decision: :failed, recovery: nil} = recover(ctx)
     assert Agent.get(ctx.state, & &1.posts) == []
     assert_received {:attention, "ticket.1.pr.ci_recovery.rerun_skipped", _}
   end
 
   test "changes-requested PRs are skipped", ctx do
     Agent.update(ctx.state, &%{&1 | review: "CHANGES_REQUESTED"})
-    assert %{recovery: "rerun_skipped"} = recover(ctx)
+    assert %{decision: :failed, recovery: nil} = recover(ctx)
     assert Agent.get(ctx.state, & &1.posts) == []
     assert_received {:attention, "ticket.1.pr.ci_recovery.rerun_skipped", _}
   end

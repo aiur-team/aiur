@@ -191,15 +191,19 @@ defmodule Aiur.BuildOrder.FeaturesPersistenceTest do
   end
 
   defp start_store(dir, extra \\ []) do
-    {:ok, pid} =
-      Features.start_link(
-        Keyword.merge(
-          [name: nil, state_dir: dir, clock: fn -> @now end, filesystem_sync_fun: fn -> :ok end, general_epics: [%{key: "bugs", hue: 38}], alert_fun: fn _, _, _ -> :ok end],
-          extra
-        )
+    options =
+      Keyword.merge(
+        [name: nil, state_dir: dir, clock: fn -> @now end, filesystem_sync_fun: fn -> :ok end, general_epics: [%{key: "bugs", hue: 38}], alert_fun: fn _, _, _ -> :ok end],
+        extra
       )
 
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-    pid
+    start_supervised!({Features, options}, id: make_ref(), restart: :temporary)
+  end
+
+  test "store is supervised separately from the test process", %{dir: dir} do
+    pid = start_store(dir)
+    {:links, links} = Process.info(self(), :links)
+
+    refute pid in links
   end
 end

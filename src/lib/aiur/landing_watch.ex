@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, MergeGroups, Observer, PrRerun}
+  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, LocalRead, MergeGroups, Observer, PrRerun}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.PrMerge.Queue
@@ -117,8 +117,10 @@ defmodule Aiur.LandingWatch do
 
   @doc false
   @spec poll(keyword()) :: :ok | {:error, term()}
-  def poll(opts \\ []) do
-    case Keyword.get(opts, :observe_fun, &Observer.observe/1).(opts) do
+  def poll(opts \\ []), do: poll_once(opts)
+
+  defp poll_once(opts) do
+    case LocalRead.run(Keyword.get(opts, :observe_fun, &Observer.observe/1), [opts], opts) do
       {:ok, observations} when is_list(observations) -> poll_observations(observations, opts)
       {:error, _} = error -> error
       _ -> {:error, :invalid_observations}
@@ -170,12 +172,12 @@ defmodule Aiur.LandingWatch do
     required_checks = Keyword.get(opts, :required_checks_fun, &CiReadiness.fetch_required_checks/1)
     ci_status = Keyword.get(opts, :ci_status_fun, &Client.fetch_commit_ci_status/2)
     required_result = Keyword.get(opts, :required_checks_snapshot, :not_fetched)
-    required_result = if required_result == :not_fetched, do: required_checks.(opts), else: required_result
+    required_result = if required_result == :not_fetched, do: LocalRead.run(required_checks, [opts], opts), else: required_result
 
     with true <- Classifier.approved_at_head?(raw),
-         {:ok, true} <- current_approval.(number, opts),
+         {:ok, true} <- LocalRead.run(current_approval, [number, opts], opts),
          {:ok, required} <- required_result,
-         {:ok, %{check_runs: runs, commit_status: commit_status}} <- ci_status.(head, opts) do
+         {:ok, %{check_runs: runs, commit_status: commit_status}} <- LocalRead.run(ci_status, [head, opts], opts) do
       result = Classifier.ci_verdict(runs, commit_status, %{"head" => %{"sha" => head}, "draft" => Map.get(raw, "isDraft")}, required_checks: {:ok, required})
 
       with {:ok, runs} <- hydrate_failed_jobs(runs, opts) do
@@ -209,7 +211,7 @@ defmodule Aiur.LandingWatch do
 
   defp hydrate_run(run, opts) do
     if run["status"] == "completed" and run["conclusion"] in ["failure", "timed_out", "startup_failure"] and is_integer(run["run_id"]) do
-      case Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2).(run["run_id"], opts) do
+      case LocalRead.run(Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2), [run["run_id"], opts], opts) do
         {:ok, jobs} ->
           {:ok,
            run
@@ -364,15 +366,18 @@ defmodule Aiur.LandingWatch do
   defp poll_required_checks(observations, opts) do
     if Enum.any?(observations, fn observation -> Classifier.approved_at_head?(Map.get(observation, :raw, %{})) end) do
       required_checks = Keyword.get(opts, :required_checks_fun, &CiReadiness.fetch_required_checks/1)
-      Keyword.put(opts, :required_checks_snapshot, required_checks.(opts))
+      Keyword.put(opts, :required_checks_snapshot, LocalRead.run(required_checks, [opts], opts))
     else
       opts
     end
   end
 
   defp revalidate_attribution_and_enqueue(observation, opts) do
-    with :ok <- Keyword.get(opts, :revalidate_fun, &Observer.revalidate_approved_head/3).(observation.number, observation.head, opts) do
-      case Keyword.get(opts, :attribution_fun, fn pr -> Attribution.pull_request_clean?(pr.number, opts) end).(observation) do
+    revalidate = Keyword.get(opts, :revalidate_fun, &Observer.revalidate_approved_head/3)
+    attribution = Keyword.get(opts, :attribution_fun, &default_attribution(&1, opts))
+
+    with :ok <- LocalRead.run(revalidate, [observation.number, observation.head, opts], opts) do
+      case LocalRead.run(attribution, [observation], opts) do
         {:ok, :clean} -> maybe_enqueue(observation, opts)
         {:ok, {:ai_attribution, detail}} -> route_rework(observation, [%{name: "AI commit attribution", excerpt: detail}], opts)
         {:error, reason} -> {:error, reason}
@@ -467,7 +472,7 @@ defmodule Aiur.LandingWatch do
         {:error, :pull_request_not_linked_to_ticket_branch}
 
       issue ->
-        case Keyword.get(opts, :ticket_state_fun, &fetch_ticket_state/2).(issue, opts) do
+        case LocalRead.run(Keyword.get(opts, :ticket_state_fun, &fetch_ticket_state/2), [issue, opts], opts) do
           {:ok, state} -> {:ok, issue, state}
           {:error, _} = error -> error
           _ -> {:error, :ticket_state_unavailable}
@@ -484,6 +489,8 @@ defmodule Aiur.LandingWatch do
       {:ok, Enum.find(@ticket_states, "other", &("agent:#{&1}" in names))}
     end
   end
+
+  defp default_attribution(observation, opts), do: Attribution.pull_request_clean?(observation.number, opts)
 
   defp failure_text(%{name: name, excerpt: excerpt}) when is_binary(excerpt) and excerpt != "", do: "#{name}: #{excerpt}"
   defp failure_text(%{name: name}), do: to_string(name)

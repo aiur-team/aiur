@@ -19,6 +19,7 @@ After `mise run setup`, `aiurdev` is on your `PATH`:
 | `aiurdev restart [--no-build]` | Stop the session, rebuild the release when sources are newer, then start again detached; `--no-build` bounces on the release already on disk |
 | `aiurdev status` | Show active agents and their running/paused/idle state, GitHub CI readiness, and `SUPERVISION N/N` liveness; a degraded or unavailable supervision tree returns nonzero |
 | `aiurdev executor-answer <decision-id> --expected-version <n> (--option <id>\|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]` | Record a direct Command answer with an explicit Executor actor; version and idempotency fields make listener replay safe; `--supersede` replaces a decided answer that no agent has received |
+| `aiur answer <decision-id> (--option <id>\|--custom-response <text>) --operator` | Human operators only: from an interactive terminal, review the Command question, version and selected answer, then type its ID to confirm. Agents and Executors must never run this. It records a `human_required` answer as `cli:<user>` when the dashboard is unavailable |
 | `aiurdev executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]` | Leave a Command open and raise one keyed operator notification when Executor judgment is insufficient |
 | `aiurdev executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]` | Retire a void Command, or withdraw a decided answer that no agent has received; a mooted answer is never delivered |
 | `aiurdev units [--scope live\|unfinished\|all\|none] [--condition active\|alert\|paused\|queued\|finished]... [--format auto\|table\|records] [--json]` | Render the dashboard's Units ticket view, including its filters and source freshness; `--format` picks the human layout (`auto` uses a table only on a wide terminal); `--json` emits the stable envelope |
@@ -109,7 +110,9 @@ aiurdev --port 4099 --bg --no-dashboard
 aiurdev --port 4102 ./.aiur/config
 ```
 
-The `--test` and `--test3` reset paths require their pinned sandbox issues to be open before launch. If a pinned issue is closed, reset removes any detected `agent:*` or `model:*` labels from that closed issue, skips normal dispatch labeling, and aborts with instructions to reopen the ticket or update `.aiur-test-tickets.json`.
+The `--test` and `--test3` reset paths reopen a closed pinned sandbox issue after removing its `agent:*` and `model:*` labels. If the reopen fails, reset aborts and prints the `gh issue reopen` command to run.
+
+A test run can share the host with a live daemon. It caps admission at its pinned ticket count and ignores the host CPU PSI, load-average and run-queue gates, since that pressure comes from the live fleet. When the configured dashboard port is taken, it binds a free port instead.
 
 These manual test modes are blocked inside agent issue workspaces because they mutate pinned GitHub sandbox tickets; run them from the Executor repo root or a dedicated isolated harness. Foreground startup prints the resolved tmux socket/session, which non-TTY drivers should use instead of hard-coded socket names.
 

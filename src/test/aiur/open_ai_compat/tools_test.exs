@@ -110,7 +110,10 @@ defmodule Aiur.OpenAICompat.ToolsTest do
     assert %{"success" => true, "output" => output} =
              Tools.execute("list_files", %{"glob" => "**/*"}, context, [])
 
-    assert output |> String.split("\n") |> length() == 2_000
+    files = String.split(output, "\n")
+    assert length(files) == 2_000
+    assert Enum.all?(files, &String.ends_with?(&1, ".txt"))
+    assert File.regular?(Path.join(workspace, "2050.txt"))
   end
 
   test "workspace replacement requires exactly one match" do

@@ -10,7 +10,7 @@ defmodule AiurWeb.Build.IndexSourceTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.Index, as: Core
-  alias AiurWeb.Build.{Index, IndexSource, Payload, Usage}
+  alias AiurWeb.Build.{Index, IndexSource, Payload, Read, Usage}
 
   defmodule FreshnessSpy do
     def read_daemon(opts) do
@@ -104,6 +104,24 @@ defmodule AiurWeb.Build.IndexSourceTest do
     assert {:ok, index} = state.index
     refute Map.has_key?(index, :usage)
     refute Map.has_key?(state.parts, :usage)
+    drain_private()
+  end
+
+  defmodule UsageHang do
+    def read(_financial, _opts), do: receive(do: (:never -> :ok))
+  end
+
+  @tag timeout: 15_000
+  test "a snapshot that misses the read cap logs the step that held it" do
+    pid =
+      start_supervised!(
+        {Index,
+         name: nil, subscribe: fn -> :ok end, read: fn _, _, _ -> parts() end, daemon_read: fn _ -> %{state: "live", heartbeat_at: 1, observed_at: 2} end, daemon_timer: fn _, _, _ -> make_ref() end}
+      )
+
+    opts = [server: pid, financial: {:ok, :context}, usage: UsageHang, freshness: FreshnessSpy, test_pid: self()]
+    log = ExUnit.CaptureLog.capture_log(fn -> assert Read.safe_read(fn -> IndexSource.snapshot(opts) end) == {:error, :timeout} end)
+    assert log =~ "build read timed out step=:usage done_ms=[index_window: "
     drain_private()
   end
 

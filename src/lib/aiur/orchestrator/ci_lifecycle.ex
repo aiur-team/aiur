@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     state = RestackScheduler.reconcile(state, [])
 
     case Config.tracker_kind() do
-      # See `CommentPolling.poll_github_comments/2`: CI polling also keeps the
+      # See `Listeners.Comments.Driver.poll_github_comments/3`: CI polling also keeps the
       "github" ->
         if within_ci_cadence?(state, System.monotonic_time(:millisecond)) do
           state

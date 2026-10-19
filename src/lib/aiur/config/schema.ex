@@ -91,6 +91,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:opencode, Opencode, on_replace: :update, defaults_to_struct: true)
     embeds_one(:experiments, Experiments, on_replace: :update, defaults_to_struct: true)
     embeds_one(:events, Events, on_replace: :update, defaults_to_struct: true)
+    # Keep new prewarm defaults present even when a config omits the whole block.
     embeds_one(:prewarm, Prewarm, on_replace: :update, defaults_to_struct: true)
     embeds_one(:alerts, Alerts, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pr_health, PrHealth, on_replace: :update, defaults_to_struct: true)

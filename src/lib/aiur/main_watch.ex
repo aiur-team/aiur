@@ -4,8 +4,8 @@ defmodule Aiur.MainWatch do
   require Logger
   alias Aiur.Config
   alias Aiur.Events
+  alias Aiur.GitHub.{Budget, ResourceStore, Transport}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.{ResourceStore, Transport}
   alias Aiur.MainWatch.{Canary, Fixer, GitHub, Persistence, State, Suspects}
   alias Aiur.MergePolicy
 
@@ -127,6 +127,8 @@ defmodule Aiur.MainWatch do
 
     task =
       Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
+        # Poll, suspects, fixer and reruns all run here, so they share main-watch priority.
+        Budget.prioritize()
         capability = Keyword.get_lazy(opts, :actions_write, fn -> GitHub.actions_write?(opts) end)
 
         result =

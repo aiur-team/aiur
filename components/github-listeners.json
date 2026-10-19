@@ -17,10 +17,6 @@
     "src/lib/aiur/github/listeners/**",
     "src/lib/aiur/main_watch.ex",
     "src/lib/aiur/main_watch/**",
-    "src/lib/aiur/orchestrator/comment_polling*.ex",
-    "src/lib/aiur/orchestrator/comment_polling/owned_poll.ex",
-    "src/lib/aiur/orchestrator/comment_polling/poll.ex",
-    "src/lib/aiur/orchestrator/comment_polling/reconcile.ex",
     "src/lib/aiur/poll_cadence.ex",
     "src/lib/aiur/poll_cadence/**",
     "src/lib/aiur/stacking/**",
@@ -61,7 +57,6 @@
     "Aiur.MainWatch.Persistence",
     "Aiur.MainWatch.State",
     "Aiur.MainWatch.Suspects",
-    "Aiur.Orchestrator.CommentPolling",
     "Aiur.PollCadence",
     "Aiur.PollCadence.Widen",
     "Aiur.Stacking.MergeOrder",
@@ -92,6 +87,7 @@
     "identity",
     "kernel",
     "signal",
+    "tracker",
     "web-kit"
   ],
   "optional": [

@@ -3,8 +3,11 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   require Logger
   alias Aiur.{AlertFeed, Alerts, Config}
   alias Aiur.CI.FailureDigest
+  alias Aiur.Events.GithubCIPoller.BaseCause
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
+
+  @base_unknown_s 3600
 
   @spec attention_hold?(map() | nil) :: boolean()
   def attention_hold?(%{recovery: reason}) when is_binary(reason), do: true
@@ -13,7 +16,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   @spec complete(map(), map(), term(), keyword()) :: map()
   def complete(_issue, _result, recovered, opts) when is_map(recovered), do: Map.merge(recovered, %{ci_recovery_checked: true, ci_recovery_opts: opts})
-  def complete(issue, result, error, opts), do: attention(issue, result, "worker_failed", error, opts)
+  def complete(issue, result, error, opts), do: issue |> attention(result, "worker_failed", error, opts) |> base_gate(issue, %{}, opts)
 
   @spec recover(map(), map(), keyword()) :: map()
   def recover(_issue, %{pending_reason: :ci_cancelled, merge_queue_entry: entry} = result, _opts) when is_map(entry),
@@ -34,8 +37,8 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     target = to_string(issue.identifier || issue.id)
 
     case Store.read(target, number, opts) do
-      {:ok, entry} -> recover_current(issue, result, entry, opts)
-      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+      {:ok, entry} -> issue |> recover_current(result, entry, opts) |> base_gate(issue, entry, opts)
+      {:error, reason} -> issue |> attention(result, "evidence_unavailable", reason, opts) |> base_gate(issue, %{}, opts)
     end
   end
 
@@ -46,11 +49,13 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   # An approval recorded on an older head no longer approves this one.
   defp recover_current(issue, %{head_sha: sha} = result, entry, opts) do
     cond do
-      get_in(entry, ["hold", "sha"]) == sha or not unconfirmed_approved_failure?(result) -> recover_entry(issue, result, entry, opts)
+      failed_hold?(entry, sha) or not unconfirmed_approved_failure?(result) -> recover_entry(issue, result, entry, opts)
       entry["landing_hold"] == sha -> held(result, "approved_landing_pr")
       true -> refresh_approved_landing(issue, result, entry, opts)
     end
   end
+
+  defp failed_hold?(entry, sha), do: match?(%{"hold" => %{"sha" => ^sha, "failed" => true}}, entry)
 
   defp unconfirmed_approved_failure?(%{head_sha: sha} = result) do
     result[:decision] == :failed and result[:review_decision] == "APPROVED" and result[:approved_review_head_sha] in [nil, sha] and
@@ -60,7 +65,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   defp refresh_approved_landing(issue, %{pr_number: number} = result, entry, opts) do
     case Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(number, opts) do
       {:ok, pr} -> classify_landing_pr(issue, result, entry, pr, opts)
-      {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts)
+      {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts, "landing")
     end
   end
 
@@ -69,7 +74,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       :landing -> hold_landing(issue, result, opts)
       :not_landing -> recover_entry(issue, result, entry, Keyword.put(opts, :ci_recovery_observation, {:ok, pr}))
       :changed_head -> held(result, "head_changed")
-      :unknown -> attention(issue, result, "observation_unavailable", "landing_state_unknown", opts)
+      :unknown -> attention(issue, result, "observation_unavailable", "landing_state_unknown", opts, "landing")
     end
   end
 
@@ -94,8 +99,15 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     end
   end
 
-  defp recover_entry(_issue, %{head_sha: sha} = result, %{"hold" => %{"sha" => sha} = hold}, _opts),
-    do: hold_result(result, hold)
+  # A hold recorded before this head went red (say, for a cancelled run) must not
+  # mask the failure; re-evaluate so a known flake still gets its one rerun (#5133).
+  defp recover_entry(issue, %{head_sha: sha} = result, %{"hold" => %{"sha" => sha} = hold} = entry, opts) do
+    cond do
+      result[:decision] == :failed and not failed_hold?(entry, sha) -> recover_entry(issue, result, Map.delete(entry, "hold"), opts)
+      hold["mode"] == "transient" and now(opts) >= hold["retry_at"] -> retry_transient(issue, result, opts)
+      true -> hold_result(result, hold)
+    end
+  end
 
   defp recover_entry(issue, %{head_sha: sha} = result, %{"limit_hold" => %{"sha" => held_sha, "retry_at" => retry_at}}, opts) do
     if sha == held_sha and now(opts) < retry_at do
@@ -119,7 +131,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       true ->
         case digest(result.head_sha, opts) do
           {:ok, digest} -> recover_failure(issue, Map.put(result, :ci_failure_digest, digest), entry, opts)
-          {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+          {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts, "transient")
         end
     end
   end
@@ -130,7 +142,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     if get_in(entry, ["heads", result.head_sha]) != nil or retryable?(result.ci_failure_digest, result.pr_number, opts) do
       case Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(result.pr_number, opts) do
         {:ok, pr} -> choose_recovery(issue, result, entry, pr, opts)
-        {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts)
+        {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts, "transient")
       end
     else
       result
@@ -293,8 +305,22 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp rerun_error(issue, result, kind, reason, opts) do
-    mode = if actions_denied?(reason), do: "fallback", else: "hold"
+    mode = if actions_denied?(reason), do: "fallback", else: "transient"
     attention(issue, result, kind, reason, opts, mode)
+  end
+
+  # A transient GitHub error holds for ten minutes, then recovery is retried
+  # once; a failed rerun request is dropped so its POST is retried too.
+  defp retry_transient(issue, %{head_sha: sha} = result, opts) do
+    clear = fn entry ->
+      entry = Map.delete(entry, "hold")
+      if Map.has_key?(get_in(entry, ["heads", sha]) || %{}, "error"), do: Map.update!(entry, "heads", &Map.delete(&1, sha)), else: entry
+    end
+
+    case update(issue, result, clear, opts) do
+      {:ok, entry} -> recover_entry(issue, result, entry, Keyword.put(opts, :ci_recovery_retried, true))
+      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+    end
   end
 
   defp actions_denied?({:error, reason}), do: actions_denied?(reason)
@@ -362,7 +388,10 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp attention(issue, result, kind, reason, opts, mode \\ "hold") do
     tests = failure_names(result)
-    hold = %{"sha" => result.head_sha, "reason" => kind, "tests" => tests, "mode" => mode}
+    mode = if mode == "transient" and opts[:ci_recovery_retried], do: "hold", else: mode
+    hold = %{"sha" => result.head_sha, "reason" => kind, "tests" => tests, "mode" => mode, "failed" => result[:decision] == :failed}
+    hold = if mode == "transient", do: Map.put(hold, "retry_at", now(opts) + 600), else: hold
+    hold = if mode == "base", do: Map.put(hold, "since", now(opts)), else: hold
     message = "PR ##{Map.get(result, :pr_number)} CI recovery #{kind}: #{inspect(reason)}. Failing tests/checks: #{tests}"
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
 
@@ -374,14 +403,45 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       {:error, error} ->
         Logger.warning("CI recovery journal unavailable: #{inspect(error)}")
         emit_attention(issue, result, "journal_failed", message, emitter, opts)
-        held(result, kind)
+        hold_result(result, hold)
     end
   end
 
-  defp hold_result(result, %{"tests" => tests} = hold) do
+  # Besides a rerun in flight, a transient error or an approved head whose
+  # landing state is unreadable holds red; other stops raise their attention
+  # and still route the failure, subject to the base gate (#5133).
+  defp hold_result(result, %{"tests" => tests, "mode" => mode} = hold) do
     result = Map.put(result, :ci_recovery_tests, tests)
-    if hold["mode"] == "fallback", do: Map.put(result, :recovery, nil), else: held(result, hold["reason"])
+
+    if mode == "fallback" or (mode in ["hold", "base"] and result[:decision] == :failed),
+      do: Map.put(result, :recovery, nil),
+      else: held(result, hold["reason"])
   end
+
+  # A red head reaches rework only when the PR caused it; a check also red on
+  # the base, or with no base evidence, holds with one attention (#5133).
+  defp base_gate(%{decision: :failed, head_sha: sha} = result, issue, entry, opts) do
+    case BaseCause.classify(result, opts) do
+      :caused_by_pr ->
+        result
+
+      cause ->
+        kind = "base_#{cause}"
+
+        case entry do
+          %{"hold" => %{"sha" => ^sha, "reason" => "base_unknown"} = hold} when kind == "base_unknown" -> unknown_base(result, hold, opts)
+          %{"hold" => %{"sha" => ^sha, "reason" => ^kind}} -> held(result, kind)
+          _ -> issue |> attention(result, kind, "base #{result[:base_sha] || "unknown"}", opts, "base") |> held(kind)
+        end
+    end
+  end
+
+  defp base_gate(result, _issue, _entry, _opts), do: result
+
+  # MainWatch may never record the base (its push run was cancelled, or it aged
+  # out of history), so an unknown base holds for about one main CI run.
+  defp unknown_base(result, hold, opts),
+    do: if(now(opts) >= Map.get(hold, "since", 0) + @base_unknown_s, do: result, else: held(result, "base_unknown"))
 
   defp emit_attention(issue, result, kind, message, emitter, opts) do
     topic = "ticket.#{issue.identifier || issue.id}.pr.ci_recovery.#{kind}"

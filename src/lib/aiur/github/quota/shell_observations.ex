@@ -43,8 +43,14 @@ defmodule Aiur.GitHub.Quota.ShellObservations do
     # descend through a dot directory and silently matches nothing. Together
     # with the unexpanded `~` above, that left every agent `gh` call outside
     # attribution while the meter still billed them (#1805).
+    # The logs are append-only, so a file untouched since the cutoff holds no row
+    # in the window. Skipping them keeps the Quota snapshot call from reading
+    # every workspace's history (~800 files, 2-5 s) on each refresh (#4791).
+    cutoff_unix = DateTime.to_unix(cutoff)
+
     [path <> ".1", path]
     |> Enum.flat_map(&Path.wildcard(&1, match_dot: true))
+    |> Enum.filter(&modified_since?(&1, cutoff_unix))
     |> Stream.flat_map(&shell_file_lines/1)
     |> Stream.map(&parse_shell_observation/1)
     |> Stream.reject(&is_nil/1)
@@ -53,6 +59,13 @@ defmodule Aiur.GitHub.Quota.ShellObservations do
     end)
   rescue
     _unavailable -> []
+  end
+
+  defp modified_since?(path, cutoff_unix) do
+    case File.stat(path, time: :posix) do
+      {:ok, %{mtime: mtime}} -> mtime >= cutoff_unix
+      {:error, _reason} -> false
+    end
   end
 
   defp shell_file_lines(path) do

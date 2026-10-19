@@ -31,7 +31,7 @@ test('required full CI gate rejects failures, cancellations and skipped browser 
   for (const browser of ['success', 'failure', 'cancelled', 'skipped']) {
     for (const css of ['success', 'failure', 'cancelled', 'skipped']) {
       const needs = Object.fromEntries(gate.needs.map(job => [job, { result: 'success' }]))
-      needs.changes.outputs = { full_ci: 'true', dialyzer: 'false', home_changed: 'false' }
+      needs.changes.outputs = { full_ci: 'true', dialyzer: 'false' }
       needs.browser.result = browser
       needs['home-css'].result = css
       const result = spawnSync('bash', ['-c', step.run], {
@@ -59,7 +59,7 @@ test('browser shards have bounded timeouts and home matrix keeps an independent 
     { shard: 2, visual_regression: 'first' },
     { shard: 5, visual_regression: 'second' },
     ...Object.entries(shards).filter(([id, commands]) => Number(id) !== 1 &&
-      commands.some(command => ['test:build-home-usage', 'test:build-home-edges-parity'].includes(command)))
+      commands.some(command => ['test:build-home-usage', 'test:build-home-edges-parity', 'test:build-home-gantt'].includes(command)))
       .map(([id]) => ({ shard: Number(id), upload_evidence: true })),
   ])
   assert.equal(browser.steps[2].with.visual_regression, "${{ matrix.visual_regression || 'none' }}")

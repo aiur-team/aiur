@@ -140,7 +140,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
 
   Splitting it would not pay even if it were splittable, so do not reach for
   that: there is no second reader to serve, because
-  `Aiur.Orchestrator.CommentPolling` is the only call site and its
+  `Aiur.GitHub.Listeners.Comments.Driver` is the only call site and its
   `start_async/2` refuses to start a poll while one is in flight; the 33 ticket
   numbers are interpolated into the document, so the key changes whenever the
   watched set does; and a 33-number entry is retired when *any* one of those
