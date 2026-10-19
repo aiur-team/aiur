@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: { contents: read, pull-requests: read }
-    outputs: {home_changed: "${{ steps.classify.outputs.home_changed }}", docs_only: "${{ steps.classify.outputs.docs_only }}", full_ci: "${{ steps.classify.outputs.full_ci }}", dialyzer: "${{ steps.classify.outputs.dialyzer }}", affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"}
+    outputs: {docs_only: "${{ steps.classify.outputs.docs_only }}", full_ci: "${{ steps.classify.outputs.full_ci }}", dialyzer: "${{ steps.classify.outputs.dialyzer }}", affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -86,7 +86,7 @@ jobs:
       - name: Test CI run-attempt disclosure
         run: bash scripts/test-report-ci-run-attempt.sh
       - name: Test CI change classifier
-        run: bash scripts/test-classify-ci-changes.sh && node --test scripts/test-report-home-parity-nightly.mjs && node --test scripts/test-build-home-band-runner.mjs
+        run: bash scripts/test-classify-ci-changes.sh && node --test scripts/test-build-home-band-runner.mjs scripts/test-home-parity-signoff.mjs
       - name: Test CI concurrency
         run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-ci-soak.py && python3 scripts/test-check-test-time-bombs.py
       - name: Verify live merge rulesets
@@ -613,14 +613,9 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result == 'success' }}
     uses: ./.github/workflows/soak.yml
-  home-parity:
-    needs: changes
-    if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.changes.outputs.home_changed == 'true' }}
-    permissions: { contents: read }
-    uses: ./.github/workflows/home-parity.yml
   ci-gate:
     name: ci gate
-    needs: [changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, home-css, home-parity, layout-release, analytics, streamdeck]
+    needs: [changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
