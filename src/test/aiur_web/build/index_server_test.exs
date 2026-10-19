@@ -3,6 +3,7 @@ defmodule AiurWeb.Build.IndexServerTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
   import Aiur.TestSupport.BuildHome.IndexParts
   alias AiurWeb.Build.Index
+  alias AiurWeb.Build.IndexReader
 
   defmodule BlockingOpenSource do
     def snapshot_for_index(server, timeout), do: GenServer.call(server, :snapshot, timeout)
@@ -188,7 +189,7 @@ defmodule AiurWeb.Build.IndexServerTest do
              seed
 
            dirty, previous, _opts ->
-             AiurWeb.Build.IndexReader.read(dirty, previous,
+             IndexReader.read(dirty, previous,
                open_source: BlockingOpenSource,
                open_server: open_server,
                open_timeout: 5_000,
