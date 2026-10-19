@@ -1,12 +1,12 @@
-defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
+defmodule Aiur.Orchestrator.CiReadinessGate do
   @moduledoc """
-  Initial CI readiness check that gates dispatch admission.
+  Advisory CI readiness checks for dispatch.
   """
 
   alias Aiur.Alerts
+  alias Aiur.CodeHost
+  alias Aiur.CodeHost.CiReadiness
   alias Aiur.Config
-  alias Aiur.GitHub.CiReadiness
-  alias Aiur.GitHub.Errors
   alias Aiur.Orchestrator.State
 
   @ci_readiness_timeout_ms 5_000
@@ -23,7 +23,7 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
   end
 
   defp do_maybe_warn_ci_readiness(%State{ci_readiness_checked: true} = state) do
-    if Config.tracker_kind() == "github" do
+    if CodeHost.ci_readiness() do
       reconcile_completed_ci_readiness(state)
     else
       state
@@ -34,18 +34,23 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
     if retry_at_ms > System.monotonic_time(:millisecond) do
       state
     else
-      start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
+      start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), check_fun())
     end
   end
 
   defp do_maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true} = state) do
-    start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
+    start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), check_fun())
   end
 
   defp do_maybe_warn_ci_readiness(state), do: state
 
+  defp check_fun do
+    if provider = CodeHost.ci_readiness(), do: provider.check_fun()
+  end
+
   defp reset_ci_readiness_for_config_change(state) do
-    scope = CiReadiness.readiness_scope(base_branch: Config.base_branch())
+    provider = CodeHost.ci_readiness()
+    scope = if provider, do: provider.readiness_scope(base_branch: Config.base_branch()), else: {:no_ci_readiness, Config.tracker_kind()}
 
     if state.ci_readiness_scope == scope do
       state
@@ -60,6 +65,7 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
           ci_readiness_unavailable_alerted: false,
           ci_readiness_check_pid: nil,
           ci_readiness_check_token: nil,
+          ci_readiness_check_provider: nil,
           ci_readiness_retry_at_ms: System.monotonic_time(:millisecond),
           ci_readiness_scope: scope,
           ci_readiness_result: nil
@@ -68,10 +74,12 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
   end
 
   defp reconcile_completed_ci_readiness(state) do
-    case CiReadiness.cached_result(base_branch: Config.base_branch()) do
+    provider = CodeHost.ci_readiness()
+
+    case provider.cached_result(base_branch: Config.base_branch()) do
       :unavailable ->
         state = %{state | ci_readiness_checked: false, ci_readiness_result: nil}
-        start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
+        start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), check_fun())
 
       result when result == state.ci_readiness_result ->
         state
@@ -88,7 +96,15 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
   def start_initial_ci_readiness_check(%State{ci_readiness_check_pid: pid} = state, _kind, _base_branch, _check_fun) when is_pid(pid),
     do: state
 
-  def start_initial_ci_readiness_check(state, "github", base_branch, check_fun) do
+  def start_initial_ci_readiness_check(state, kind, base_branch, check_fun) do
+    if provider = CodeHost.ci_readiness(kind) do
+      start_check(state, base_branch, check_fun, provider)
+    else
+      %{state | ci_readiness_checked: true}
+    end
+  end
+
+  defp start_check(state, base_branch, check_fun, provider) do
     parent = self()
     token = make_ref()
 
@@ -97,21 +113,21 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
          end) do
       {:ok, pid} ->
         Process.send_after(parent, {:ci_readiness_timeout, token}, @ci_readiness_timeout_ms)
-        %{state | ci_readiness_check_pid: pid, ci_readiness_check_token: token, ci_readiness_retry_at_ms: nil}
+        %{state | ci_readiness_check_pid: pid, ci_readiness_check_token: token, ci_readiness_check_provider: provider, ci_readiness_retry_at_ms: nil}
 
       {:error, reason} ->
-        record_ci_readiness_result(state, {:error, reason}, &Alerts.emit_system/2)
+        record_ci_readiness_result(state, {:error, reason}, &Alerts.emit_system/2, provider)
     end
   end
-
-  def start_initial_ci_readiness_check(state, _kind, _base_branch, _check_fun), do: %{state | ci_readiness_checked: true}
 
   @doc false
   @spec handle_ci_readiness_result(State.t(), reference(), {:ok, CiReadiness.result()} | {:error, term()}) :: State.t()
   def handle_ci_readiness_result(%State{ci_readiness_check_token: token} = state, token, result) do
+    provider = state.ci_readiness_check_provider
+
     state
     |> clear_ci_readiness_check()
-    |> record_ci_readiness_result(result, &Alerts.emit_system/2)
+    |> record_ci_readiness_result(result, &Alerts.emit_system/2, provider)
   end
 
   def handle_ci_readiness_result(state, _token, _result), do: state
@@ -121,36 +137,42 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
   def handle_ci_readiness_timeout(%State{ci_readiness_check_token: token, ci_readiness_check_pid: pid} = state, token) do
     if is_pid(pid) and Process.alive?(pid), do: Process.exit(pid, :kill)
 
+    provider = state.ci_readiness_check_provider
+
     state
     |> clear_ci_readiness_check()
-    |> record_ci_readiness_result({:error, :timeout}, &Alerts.emit_system/2)
+    |> record_ci_readiness_result({:error, :timeout}, &Alerts.emit_system/2, provider)
   end
 
   def handle_ci_readiness_timeout(state, _token), do: state
 
-  defp clear_ci_readiness_check(state), do: %{state | ci_readiness_check_pid: nil, ci_readiness_check_token: nil}
+  defp clear_ci_readiness_check(state), do: %{state | ci_readiness_check_pid: nil, ci_readiness_check_token: nil, ci_readiness_check_provider: nil}
 
   @doc false
   @spec check_initial_ci_readiness(State.t(), String.t() | nil, String.t(), function(), function()) :: State.t()
   def check_initial_ci_readiness(%State{ci_readiness_checked: true} = state, _kind, _base_branch, _check_fun, _emit_fun), do: state
 
-  def check_initial_ci_readiness(state, "github", base_branch, check_fun, emit_fun) do
-    record_ci_readiness_result(state, check_fun.(base_branch: base_branch), emit_fun)
+  def check_initial_ci_readiness(state, kind, base_branch, check_fun, emit_fun) do
+    if provider = CodeHost.ci_readiness(kind) do
+      record_ci_readiness_result(state, check_fun.(base_branch: base_branch), emit_fun, provider)
+    else
+      %{state | ci_readiness_checked: true}
+    end
   end
 
-  def check_initial_ci_readiness(state, _kind, _base_branch, _check_fun, _emit_fun), do: %{state | ci_readiness_checked: true}
+  defp record_ci_readiness_result(state, _result, _emit_fun, nil), do: %{state | ci_readiness_checked: true}
 
-  defp record_ci_readiness_result(state, {:ok, %{ready?: true} = readiness}, _emit_fun) do
-    CiReadiness.cache_result(readiness)
+  defp record_ci_readiness_result(state, {:ok, %{ready?: true} = readiness}, _emit_fun, provider) do
+    provider.cache_result(readiness)
     %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
   end
 
-  defp record_ci_readiness_result(state, {:ok, readiness}, emit_fun) do
-    CiReadiness.cache_result(readiness)
+  defp record_ci_readiness_result(state, {:ok, readiness}, emit_fun, provider) do
+    provider.cache_result(readiness)
 
     emit_fun.("system.ci_readiness.not_ready",
       message: "Repository CI readiness is incomplete",
-      reason: CiReadiness.format(readiness),
+      reason: provider.format(readiness),
       needs_attention: true,
       severity: "warning"
     )
@@ -158,9 +180,9 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
     %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
   end
 
-  defp record_ci_readiness_result(state, {:error, reason}, emit_fun) do
-    if retryable_ci_readiness_error?(reason) do
-      maybe_emit_ci_readiness_unavailable(state, reason, emit_fun)
+  defp record_ci_readiness_result(state, {:error, reason}, emit_fun, provider) do
+    if retryable_ci_readiness_error?(reason, provider) do
+      maybe_emit_ci_readiness_unavailable(state, reason, emit_fun, provider)
 
       %{
         state
@@ -169,9 +191,9 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
           ci_readiness_result: nil
       }
     else
-      readiness = CiReadiness.unavailable(Config.base_branch(), reason)
-      CiReadiness.cache_result(readiness)
-      maybe_emit_ci_readiness_unavailable(state, reason, emit_fun)
+      readiness = provider.unavailable(Config.base_branch(), reason)
+      provider.cache_result(readiness)
+      maybe_emit_ci_readiness_unavailable(state, reason, emit_fun, provider)
       %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
     end
   end
@@ -183,7 +205,7 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
   defp accept_cached_ci_readiness_result(state, readiness, emit_fun) do
     emit_fun.("system.ci_readiness.not_ready",
       message: "Repository CI readiness is incomplete",
-      reason: CiReadiness.format(readiness),
+      reason: CodeHost.ci_readiness().format(readiness),
       needs_attention: true,
       severity: "warning"
     )
@@ -191,9 +213,9 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
     %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
   end
 
-  defp retryable_ci_readiness_error?(:timeout), do: true
+  defp retryable_ci_readiness_error?(:timeout, _provider), do: true
 
-  defp retryable_ci_readiness_error?(reason), do: Errors.retryable_github_error?(reason)
+  defp retryable_ci_readiness_error?(reason, provider), do: provider.retryable_error?(reason)
 
   defp ci_readiness_retry_delay_ms({:github, :rate_limited, detail}) when is_map(detail) do
     case Map.get(detail, :retry_after) do
@@ -213,12 +235,12 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAdmission do
 
   defp retry_delay_from_reset(_reset_at), do: nil
 
-  defp maybe_emit_ci_readiness_unavailable(%State{ci_readiness_unavailable_alerted: true}, _reason, _emit_fun), do: :ok
+  defp maybe_emit_ci_readiness_unavailable(%State{ci_readiness_unavailable_alerted: true}, _reason, _emit_fun, _provider), do: :ok
 
-  defp maybe_emit_ci_readiness_unavailable(_state, reason, emit_fun) do
+  defp maybe_emit_ci_readiness_unavailable(_state, reason, emit_fun, provider) do
     emit_fun.("system.ci_readiness.unavailable",
       message: "Repository CI readiness could not be inspected",
-      reason: CiReadiness.error_message(reason),
+      reason: provider.error_message(reason),
       needs_attention: true,
       severity: "warning"
     )
