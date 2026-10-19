@@ -2,6 +2,7 @@ defmodule Aiur.PRLifecycle.HealthScannerTest do
   use Aiur.TestSupport
   import ExUnit.CaptureLog
 
+  alias Aiur.GitHub.LocalHold
   alias Aiur.PRLifecycle.HealthScanner
 
   @now ~U[2026-08-22 22:00:00Z]
@@ -29,7 +30,7 @@ defmodule Aiur.PRLifecycle.HealthScannerTest do
       stale_hours: Keyword.get(opts, :stale_hours, @stale_hours),
       open_prs_fetcher: Keyword.get(opts, :open_prs_fetcher, fn -> {:ok, []} end),
       reviews_fetcher: Keyword.get(opts, :reviews_fetcher, fn _ -> {:ok, []} end),
-      local_hold_opts: Aiur.GitHub.LocalHold.caller_opts(opts),
+      local_hold_opts: LocalHold.caller_opts(opts),
       human_mergers_fun: Keyword.get(opts, :human_mergers_fun, fn -> ["its-everdred"] end),
       comment_fun: Keyword.get(opts, :comment_fun, fn _, _ -> :ok end),
       alert_fun: Keyword.get(opts, :alert_fun, fn _, _ -> :ok end),
