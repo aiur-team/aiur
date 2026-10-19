@@ -1,8 +1,9 @@
 defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
   use Aiur.TestSupport
 
-  alias Aiur.ExecutorSweep.SnapshotCache
+  alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
   alias Aiur.GitHub.{Config, ResourceStore}
+  alias Aiur.OpenTicketSource.Snapshot
 
   setup_all do
     if Process.whereis(ResourceStore) == nil, do: Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
@@ -27,7 +28,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
     refute Map.has_key?(entry, :data)
 
     assert %{tickets: [%{number: 3788, created_at: "2026-10-15T13:25:41Z"}]} =
-             SnapshotCache.read(fn -> %Aiur.OpenTicketSource.Snapshot{status: :available, tickets: [%{identifier: "3788", labels: []}]} end)
+             SnapshotCache.read(fn -> %Snapshot{status: :available, tickets: [%{identifier: "3788", labels: []}]} end)
   end
 
   test "joins cached PR bodies, current-head reviews, and ticket labels without a fetch" do
@@ -88,7 +89,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
     snapshot = SnapshotCache.build([{3, direct}], [], [], %{}, %{}, [{9, branch}])
 
     assert [%{in_merge_queue: true, auto_merge: false}] = snapshot.pull_requests
-    refute Enum.any?(Aiur.ExecutorSweep.Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "approved_pr_not_landing"))
+    refute Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "approved_pr_not_landing"))
   end
 
   test "a stale open branch row does not reopen a merged PR" do
@@ -122,7 +123,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
       )
 
     assert [%{open_blocked_by: [], closed_blockers: []}] = snapshot.tickets
-    refute Enum.any?(Aiur.ExecutorSweep.Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "rework_ticket_blocked"))
+    refute Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "rework_ticket_blocked"))
   end
 
   test "the blocker issue cache overrides an open state embedded in the held edge" do
@@ -136,7 +137,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
       )
 
     assert [%{open_blocked_by: [], closed_blockers: ["90"]}] = snapshot.tickets
-    refute Enum.any?(Aiur.ExecutorSweep.Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "rework_ticket_blocked"))
+    refute Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "rework_ticket_blocked"))
   end
 
   test "joins rework attempts only for the current open PR head" do

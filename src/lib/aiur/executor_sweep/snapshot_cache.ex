@@ -308,10 +308,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   end
 
   defp maybe_put(acc, source, source_key, target_key, transform \\ &Function.identity/1) do
-    cond do
-      Map.has_key?(source, source_key) -> Map.put(acc, target_key, transform.(Map.get(source, source_key)))
-      true -> acc
-    end
+    if Map.has_key?(source, source_key), do: Map.put(acc, target_key, transform.(Map.get(source, source_key))), else: acc
   end
 
   defp maybe_put_ready_at(acc, pr) do
