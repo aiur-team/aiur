@@ -98,6 +98,17 @@ defmodule Aiur.ProcessTree do
   def process_identity(os_pid), do: Aiur.ProcessIdentity.resolve(os_pid)
 
   @doc false
+  @spec refresh_identity(integer(), term()) :: term()
+  def refresh_identity(os_pid, {:known, {:procfs_birth_and_session, start_time, _session}} = fallback) do
+    case process_identity(os_pid) do
+      {:ok, {:procfs_birth_and_session, ^start_time, _session} = identity} -> {:known, identity}
+      _ -> fallback
+    end
+  end
+
+  def refresh_identity(_os_pid, identity), do: identity
+
+  @doc false
   @spec graceful_kill_process_group(nil | integer()) :: {:ok, :gone | :reaped} | {:error, :group_alive}
   def graceful_kill_process_group(process_group_id) when is_integer(process_group_id) and process_group_id > 0 do
     if process_group_alive?(process_group_id) do

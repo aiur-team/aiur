@@ -164,6 +164,65 @@ defmodule Aiur.RepoBase.BuildTimeoutTest do
     refute Process.alive?(state.build.pid)
   end
 
+  test "a nil process-group record still reaps a detached descendant", %{tmp: tmp} do
+    pidfile = Path.join(tmp, "detached-build-child.pid")
+    command = "(sleep 600 >/dev/null 2>&1 & echo $! > #{pidfile}); exec sleep 600 >/dev/null 2>&1"
+    port = open_shell_port(command)
+    {:os_pid, os_pid} = Port.info(port, :os_pid)
+    {:known, identity} = await_process_identity(os_pid)
+    escaped_pid = await_file(pidfile) |> String.trim() |> String.to_integer()
+    {:known, escaped_identity} = await_process_identity(escaped_pid)
+
+    try do
+      wait_until(fn -> escaped_pid not in Aiur.ProcessTree.process_tree(os_pid) end, 5_000)
+      assert Aiur.ProcessTree.process_alive?(escaped_pid)
+
+      :ok = BuildProcess.terminate_processes(%{os_pid => %{group_id: nil, identity: {:known, identity}}})
+
+      wait_until(fn -> not Aiur.ProcessTree.process_alive?(os_pid) and not Aiur.ProcessTree.process_alive?(escaped_pid) end, 10_000)
+      refute Aiur.ProcessTree.process_alive?(escaped_pid)
+    after
+      reap_process(os_pid, identity)
+      reap_process(escaped_pid, escaped_identity)
+      close_port(port)
+    end
+  end
+
+  test "timeout cleanup finds a Port process before RepoBase registers its pid", %{tmp: tmp} do
+    parent = self()
+    pidfile = Path.join(tmp, "unregistered-build-child.pid")
+    command = "(sleep 600 >/dev/null 2>&1 & echo $! > #{pidfile}); exec sleep 600 >/dev/null 2>&1"
+
+    worker =
+      spawn(fn ->
+        port = open_shell_port(command)
+        send(parent, {:build_port_open, self(), port})
+        Process.sleep(:infinity)
+      end)
+
+    monitor = Process.monitor(worker)
+    assert_receive {:build_port_open, ^worker, port}, 5_000
+    {:os_pid, os_pid} = Port.info(port, :os_pid)
+    {:known, identity} = await_process_identity(os_pid)
+    escaped_pid = await_file(pidfile) |> String.trim() |> String.to_integer()
+    {:known, escaped_identity} = await_process_identity(escaped_pid)
+
+    try do
+      wait_until(fn -> escaped_pid not in Aiur.ProcessTree.process_tree(os_pid) end, 5_000)
+      assert Aiur.ProcessTree.process_alive?(escaped_pid)
+
+      :ok = BuildProcess.kill_async(%{pid: worker, os_processes: %{}})
+      assert_receive {:DOWN, ^monitor, :process, ^worker, :killed}, 10_000
+      wait_until(fn -> not Aiur.ProcessTree.process_alive?(os_pid) and not Aiur.ProcessTree.process_alive?(escaped_pid) end, 10_000)
+      refute Aiur.ProcessTree.process_alive?(escaped_pid)
+    after
+      if Process.alive?(worker), do: Process.exit(worker, :kill)
+      reap_process(os_pid, identity)
+      reap_process(escaped_pid, escaped_identity)
+      close_port(port)
+    end
+  end
+
   test "the configured timeout controls production builds", %{server: pid, cfg: cfg, tmp: tmp, origin: origin} do
     pid = start_real_build(pid, cfg, tmp, origin, "sleep 600", build_timeout_minutes: 2)
     assert :building = GenServer.call(pid, :refresh_for_dispatch)
@@ -356,13 +415,58 @@ defmodule Aiur.RepoBase.BuildTimeoutTest do
   defp await_file_until(path, deadline) do
     case File.read(path) do
       {:ok, contents} ->
-        contents
+        if valid_pid_file?(contents) do
+          contents
+        else
+          retry_file_read(path, deadline)
+        end
 
       _ ->
-        if System.monotonic_time(:millisecond) >= deadline, do: flunk("build command did not create its pid file")
-        Process.sleep(10)
-        await_file_until(path, deadline)
+        retry_file_read(path, deadline)
     end
+  end
+
+  defp valid_pid_file?(contents) do
+    case Integer.parse(String.trim(contents)) do
+      {_pid, ""} -> true
+      _ -> false
+    end
+  end
+
+  defp retry_file_read(path, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline, do: flunk("build command did not write a valid pid file")
+    Process.sleep(10)
+    await_file_until(path, deadline)
+  end
+
+  defp open_shell_port(command) do
+    Port.open({:spawn_executable, ~c"/bin/sh"}, [:binary, :exit_status, args: [~c"-c", String.to_charlist(command)]])
+  end
+
+  defp await_process_identity(os_pid, timeout_ms \\ 5_000) do
+    await_process_identity_until(os_pid, System.monotonic_time(:millisecond) + timeout_ms)
+  end
+
+  defp await_process_identity_until(os_pid, deadline) do
+    case Aiur.ProcessTree.process_identity(os_pid) do
+      {:ok, identity} ->
+        {:known, identity}
+
+      _ ->
+        if System.monotonic_time(:millisecond) >= deadline, do: flunk("build command did not expose a process identity")
+        Process.sleep(10)
+        await_process_identity_until(os_pid, deadline)
+    end
+  end
+
+  defp reap_process(os_pid, identity) do
+    if Aiur.ProcessTree.process_alive?(os_pid), do: Aiur.ProcessTree.reap_process(os_pid, {:known, identity})
+  end
+
+  defp close_port(port) do
+    if Port.info(port), do: Port.close(port)
+  rescue
+    ArgumentError -> :ok
   end
 
   defp wait_until(predicate, timeout_ms) do

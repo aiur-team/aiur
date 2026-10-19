@@ -139,7 +139,7 @@ defmodule Aiur.RepoBase.Clone do
 
         on_process.(:started, os_pid, nil, identity)
         process_group = Aiur.ProcessTree.process_group_for_pid(os_pid)
-        identity = refresh_process_identity(os_pid, identity)
+        identity = Aiur.ProcessTree.refresh_identity(os_pid, identity)
         on_process.(:group, os_pid, process_group, identity)
         {out, status} = collect_port_output(port, [])
         on_process.(:finished, os_pid, process_group, identity)
@@ -149,15 +149,6 @@ defmodule Aiur.RepoBase.Clone do
         collect_port_output(port, [])
     end
   end
-
-  defp refresh_process_identity(os_pid, {:known, {:procfs_birth_and_session, start_time, _session}} = fallback) do
-    case Aiur.ProcessTree.process_identity(os_pid) do
-      {:ok, {:procfs_birth_and_session, ^start_time, _session} = identity} -> {:known, identity}
-      _ -> fallback
-    end
-  end
-
-  defp refresh_process_identity(_os_pid, identity), do: identity
 
   defp port_options(args, cwd, env) do
     [:binary, :exit_status, :stderr_to_stdout, args: Enum.map(args, &String.to_charlist/1), env: port_env(env)]
