@@ -108,7 +108,8 @@ visible (`live=min`), and a state preset expands it. The clock shows cached
 observation time when stale and `—` when unknown.
 
 Agents in retry backoff are labeled **Retrying** and counted separately from
-running agents.
+running agents in the timeline and list. Tickets whose lifetime retry latch is
+spent have no live agent and are left out of Now.
 
 The toolbar selects Timeline, Gantt or List and retains the view in the URL.
 Use Left/Right arrows or Home/End to move between view tabs, then Enter or Space

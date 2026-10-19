@@ -95,7 +95,7 @@ defmodule Aiur.OpenTicketSource do
 
   @doc "Synchronously re-lists and returns the resulting snapshot (test/support)."
   @spec refresh_sync(GenServer.server()) :: Snapshot.t()
-  def refresh_sync(server \\ __MODULE__), do: GenServer.call(server, :refresh_sync)
+  def refresh_sync(server \\ __MODULE__), do: GenServer.call(server, :refresh_sync, :infinity)
 
   @impl true
   def init(opts) do
@@ -111,6 +111,7 @@ defmodule Aiur.OpenTicketSource do
       # one fails — the projection may be missing events the stream never carried,
       # and a store event must not upgrade it back to `:available`.
       baseline_ok?: false,
+      fetch_attempted?: false,
       truncated?: false,
       repo: nil,
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
@@ -120,8 +121,10 @@ defmodule Aiur.OpenTicketSource do
       label_prefix: Keyword.get(opts, :label_prefix, safe_label_prefix()),
       github_fun: Keyword.get(opts, :github_fun, &github_tracker?/0),
       fetch_task: nil,
+      fetch_started_at: nil,
       fetch_events: :queue.new(),
-      fetch_again?: false
+      fetch_again?: false,
+      fetch_waiters: []
     }
 
     state = %{state | repo: resolve_repo(state.repo_fun)}
@@ -133,9 +136,14 @@ defmodule Aiur.OpenTicketSource do
   @impl true
   def handle_call(:snapshot, _from, state), do: {:reply, state.snapshot, state}
 
-  def handle_call(:refresh_sync, _from, state) do
-    state = apply_result(state, Fetch.fetch(state))
-    {:reply, state.snapshot, state}
+  def handle_call(:refresh_sync, from, state) do
+    state = %{state | fetch_waiters: [from | state.fetch_waiters]}
+
+    if state.fetch_task do
+      {:noreply, %{state | fetch_again?: true}}
+    else
+      {:noreply, start_fetch(state, false)}
+    end
   end
 
   @impl true
@@ -336,6 +344,7 @@ defmodule Aiur.OpenTicketSource do
   # `:unavailable` while it holds none.
   defp snapshot_status(%{baseline_ok?: true}), do: :available
   defp snapshot_status(%{baseline_ok?: false, tickets: tickets}) when map_size(tickets) > 0, do: :stale
+  defp snapshot_status(%{baseline_ok?: false, fetch_attempted?: false, fetch_task: task}) when not is_nil(task), do: :loading
   defp snapshot_status(_state), do: :unavailable
 
   # Newest ticket first, with the identifier as a total-order tiebreak so the
@@ -399,18 +408,41 @@ defmodule Aiur.OpenTicketSource do
 
   defp start_fetch(%{fetch_task: nil} = state, view_originated?) do
     task = Task.async(fn -> RequestOrigin.carry(view_originated?, fn -> Fetch.fetch(state) end) end)
-    %{state | fetch_task: task, fetch_events: :queue.new()}
+    state = %{state | fetch_task: task, fetch_started_at: System.monotonic_time(:millisecond), fetch_events: :queue.new()}
+    maybe_mark_loading(state)
   end
 
   defp start_fetch(state, _view_originated?), do: %{state | fetch_again?: true}
 
   defp finish_fetch(state, result) do
-    state = %{state | fetch_task: nil} |> apply_result(result)
+    duration_ms = max(0, System.monotonic_time(:millisecond) - (state.fetch_started_at || System.monotonic_time(:millisecond)))
+    Logger.info("open_ticket_listing duration_ms=#{duration_ms} result=#{fetch_result_name(result)}")
+    state = %{state | fetch_task: nil, fetch_started_at: nil, fetch_attempted?: true} |> apply_result(result)
     events = :queue.to_list(state.fetch_events)
     state = %{state | fetch_events: :queue.new()}
     state = Enum.reduce(events, state, fn {owner, repo, id, change}, acc -> reconcile_issue(acc, owner, repo, id, change) end)
-    if state.fetch_again?, do: start_fetch(%{state | fetch_again?: false}, false), else: state
+
+    if state.fetch_again? do
+      start_fetch(%{state | fetch_again?: false}, false)
+    else
+      Enum.each(state.fetch_waiters, &GenServer.reply(&1, state.snapshot))
+      %{state | fetch_waiters: []}
+    end
   end
+
+  defp maybe_mark_loading(%{baseline_ok?: false, fetch_attempted?: false, tickets: tickets} = state) when map_size(tickets) == 0 do
+    previous = state.snapshot
+    snapshot = %{previous | status: :loading, generation: (previous.generation || 0) + 1, observed_at: now(state)}
+    state = %{state | snapshot: snapshot}
+    if meaningful(previous) != meaningful(snapshot), do: broadcast(state)
+    state
+  end
+
+  defp maybe_mark_loading(state), do: state
+
+  defp fetch_result_name({:ok, _tickets, _truncated?}), do: "ok"
+  defp fetch_result_name(:unsupported), do: "unsupported"
+  defp fetch_result_name({:error, _reason}), do: "error"
 
   defp resolve_repo(repo_fun) do
     case repo_fun.() do

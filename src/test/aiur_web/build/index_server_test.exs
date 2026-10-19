@@ -141,7 +141,7 @@ defmodule AiurWeb.Build.IndexServerTest do
     refute_received {:build_changes, _}
   end
 
-  test "an unlocated read task failure keeps the owner alive and its cached window available", %{pid: pid} do
+  test "an unlocated read task failure marks dirty sources unknown and keeps cached windows available", %{pid: pid} do
     send(pid, {:running_changed, %{}})
     :sys.get_state(pid)
     send(pid, :flush)
@@ -150,8 +150,10 @@ defmodule AiurWeb.Build.IndexServerTest do
     receive_barrier({:trace, ^pid, :receive, {:DOWN, _ref, :process, ^worker, :killed_read}})
     :sys.get_state(pid)
     assert Process.alive?(pid)
-    refute_received {:build_changes, _}
-    assert {:ok, _snapshot} = Index.window(pid, "Etc/UTC")
+    assert_received {:build_changes, %{set: %{sources: sources}}}
+    assert sources.agents == %{state: "stale", observed_at: now(), reason: "unknown"}
+    assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
+    assert Enum.map(snapshot.sections.hist, & &1.id) == []
   end
 
   test "a timed-out history refresh logs its cause and keeps the last good history as stale", %{pid: pid} do
@@ -223,6 +225,64 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert Enum.map(snapshot.sections.now, & &1.id) == ["8"]
     assert snapshot.sources.open_tickets.reason == "open_tickets_timeout"
     send(open_server, :release)
+  end
+
+  test "a failed part marks cached dirty peers stale and retries the undelivered reads" do
+    parent = self()
+    seed = parts([row(7)]) |> put_in([:now, :rows], %{"8" => now_row(8)})
+
+    pid =
+      start_supervised!(
+        {Index,
+         name: nil,
+         subscribe: fn -> :ok end,
+         read: fn
+           :all, _previous, _opts ->
+             seed
+
+           dirty, _previous, _opts ->
+             send(parent, {:stale_part_read_started, self(), dirty})
+             if MapSet.member?(dirty, :planned), do: Process.put(:aiur_build_index_read_part, :planned)
+             receive(do: ({:return, result} -> result))
+         end,
+         timer: fn _, _, _ -> make_ref() end,
+         daemon_timer: fn _, _, _ -> make_ref() end,
+         daemon_read: fn _ -> %{state: "live", heartbeat_at: 1, observed_at: 2} end,
+         read_timeout: 5_000,
+         clock: &now/0},
+        id: :stale_undelivered_parts_index
+      )
+
+    assert {:ok, _initial} = Index.window(pid, "Etc/UTC")
+    old_agents = :sys.get_state(pid).index |> elem(1) |> then(& &1.sources.agents)
+    send(pid, {:ticket_activity_changed, %{}})
+    :sys.get_state(pid)
+    send(pid, :flush)
+    receive_barrier({:stale_part_read_started, _worker, dirty})
+    assert MapSet.member?(dirty, :now)
+    ref = :sys.get_state(pid).task.ref
+    send(pid, {:read_timeout, ref})
+    assert await_read_finish(pid, 100)
+
+    assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
+    assert Enum.map(snapshot.sections.hist, & &1.id) == ["7"]
+    assert Enum.map(snapshot.sections.now, & &1.id) == ["8"]
+    assert snapshot.sources.agents.state == "stale"
+    assert snapshot.sources.agents.reason == "timeout"
+    assert snapshot.sources.agents.observed_at == old_agents.observed_at
+    assert snapshot.sources.queue == %{state: "unavailable", reason: "timeout", observed_at: nil}
+    assert snapshot.sources.queue.reason == "timeout"
+    refute MapSet.member?(:sys.get_state(pid).dirty, :planned)
+    assert MapSet.member?(:sys.get_state(pid).dirty, :now)
+
+    send(pid, :flush)
+    receive_barrier({:stale_part_read_started, retry_worker, retry_dirty})
+    assert MapSet.member?(retry_dirty, :now)
+    refute MapSet.member?(retry_dirty, :planned)
+    send(retry_worker, {:return, :sys.get_state(pid).parts})
+    assert await_read_finish(pid, 100)
+    assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
+    assert snapshot.sources.agents.state == "ok"
   end
 
   test "a failed history part read keeps the last good rows on the page, stale at the last read", %{pid: pid} do
@@ -310,6 +370,17 @@ defmodule AiurWeb.Build.IndexServerTest do
   defp result_barrier(pid) do
     receive_barrier({:trace, ^pid, :receive, {_ref, %{settings: _settings}}})
     :sys.get_state(pid)
+  end
+
+  defp await_read_finish(_pid, 0), do: false
+
+  defp await_read_finish(pid, attempts) do
+    if is_nil(:sys.get_state(pid).task) do
+      true
+    else
+      Process.sleep(10)
+      await_read_finish(pid, attempts - 1)
+    end
   end
 
   defp drain_changes do

@@ -1,8 +1,9 @@
 defmodule AiurWeb.Build.NowRows do
   @moduledoc """
   Pure projection of a Units catalog into agent-owned Now-band facts.
-  Finished, replacement, unjoinable and other-repository rows are excluded;
-  live, retrying and lifetime-latched rows remain, without a cap.
+  Finished, replacement, unjoinable, lifetime-latched and other-repository rows
+  are excluded; live and retrying rows remain, without a cap. Lifetime-latched
+  retries have exhausted their agent attempts and no longer belong in Now.
 
   State precedence (first match wins):
 
@@ -10,7 +11,6 @@ defmodule AiurWeb.Build.NowRows do
   | --- | --- |
   | Error work state or UnitsPolicy stuck | error |
   | Retry backoff | retrying |
-  | Lifetime dispatch latch spent | retries |
   | Positive integer command count or waiting for human | command |
   | Paused with a non-reserving reason or GitHub budget hold | parked |
   | UnitsPolicy paused | paused |
@@ -77,7 +77,8 @@ defmodule AiurWeb.Build.NowRows do
   defp band?(%{identity: identity} = row, repo) do
     TrackerIdentity.joinable?(identity) and repository({identity.owner, identity.repository}) == repo and
       not UnitsPolicy.condition?(:finished, row) and row[:replacement_boundary?] != true and
-      (UnitsPolicy.in_scope?(row, :live) or get_in(row, [:runtime, :bucket]) == :retrying or get_in(row, [:reasons, :waiting]) == :latched_lifetime)
+      (UnitsPolicy.in_scope?(row, :live) or get_in(row, [:runtime, :bucket]) == :retrying) and
+      get_in(row, [:reasons, :waiting]) != :latched_lifetime
   end
 
   defp band?(_row, _repo), do: false
@@ -111,7 +112,6 @@ defmodule AiurWeb.Build.NowRows do
 
     cond do
       error?(row) -> if(retrying?(row), do: "retrying", else: "error")
-      waiting == :latched_lifetime -> "retries"
       command?(row[:open_command_count], waiting) -> "command"
       true -> nil
     end
@@ -135,7 +135,7 @@ defmodule AiurWeb.Build.NowRows do
 
   defp status(row) do
     case agent_state(row) do
-      state when state in ["error", "retries"] -> "failed"
+      "error" -> "failed"
       "retrying" -> "queued"
       _state -> "running"
     end

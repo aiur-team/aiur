@@ -15,6 +15,7 @@ defmodule AiurWeb.Build.Index do
     ticket_activity_changed: ~w(now planned not_queued)a,
     running_changed: ~w(now planned not_queued)a
   }
+  @read_parts ~w(history health catch_up features overrides settings repository open queue now planned not_queued)a
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -102,19 +103,27 @@ defmodule AiurWeb.Build.Index do
   def handle_info({ref, parts}, %{task: %{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
     Process.cancel_timer(state.task.deadline)
-    {:noreply, finish(%{state | task: nil}, parts, state.task.dirty)}
+    dirty = dirty_set(state.task.dirty)
+    parts = clear_read_staleness(parts, dirty)
+    {:noreply, finish(%{state | task: nil}, parts, dirty)}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref}} = state) do
     Process.cancel_timer(state.task.deadline)
     failure = if state.task[:timed_out?], do: :timeout, else: :read_failed
     part = state.task[:timed_out_part]
-    keys = if part && part != :unknown, do: [part], else: []
-    Logger.warning("build_index read_task_failed=#{inspect(reason, limit: 20, printable_limit: 200)} failure=#{failure} parts=#{Enum.join(keys, ",")}")
-    parts = Enum.reduce(keys, state.parts, &Map.put(&2, &1, {:error, failure}))
-    parts = if part == :open, do: mark_open_degraded(parts, failure), else: parts
-    keys = if part == :open, do: MapSet.new([:open, :not_queued]), else: MapSet.new(keys)
-    {:noreply, finish(%{state | task: nil}, parts, keys)}
+    dirty = dirty_set(state.task.dirty)
+    retry = if part in [nil, :unknown], do: dirty, else: MapSet.delete(dirty, part)
+    cause = if part in [nil, :unknown], do: :unknown, else: failure
+
+    Logger.warning(
+      "build_index read_task_failed=#{inspect(reason, limit: 20, printable_limit: 200)} failure=#{failure} parts=#{part || :unknown} part=#{part || :unknown} retry=#{Enum.join(MapSet.to_list(retry), ",")}"
+    )
+
+    parts = record_read_staleness(state.parts, dirty, cause)
+    parts = mark_failed_part(parts, part, failure)
+    dirty = MapSet.union(state.dirty, retry)
+    {:noreply, finish(%{state | task: nil, dirty: dirty}, parts, dirty_set(state.task.dirty))}
   end
 
   def handle_info({:read_timeout, ref}, %{task: %{ref: ref, pid: pid}} = state) do
@@ -232,7 +241,42 @@ defmodule AiurWeb.Build.Index do
         Map.put(parts, :not_queued, %{not_queued | state: :unavailable, reasons: [if(failure == :timeout, do: :open_tickets_timeout, else: :open_tickets_read_failed)]})
 
       _other ->
-        parts
+        Map.put(parts, :not_queued, %{
+          state: :unavailable,
+          reasons: [if(failure == :timeout, do: :open_tickets_timeout, else: :open_tickets_read_failed)],
+          observed_at: nil,
+          truncated?: false,
+          skipped: 0,
+          rows: []
+        })
     end
   end
+
+  defp dirty_set(:all), do: MapSet.new(@read_parts)
+  defp dirty_set(%MapSet{} = dirty), do: dirty
+
+  defp record_read_staleness(parts, dirty, reason) do
+    stale = Map.get(parts, :read_stale, %{})
+    stale = Enum.reduce(dirty, stale, &Map.put(&2, &1, reason))
+    Map.put(parts, :read_stale, stale)
+  end
+
+  defp clear_read_staleness(parts, dirty) do
+    stale = Map.get(parts, :read_stale, %{}) |> Map.drop(MapSet.to_list(dirty))
+    Map.put(parts, :read_stale, stale)
+  end
+
+  defp mark_history_failed(parts, reason) do
+    parts |> Map.put(:history, {:error, reason}) |> Map.put(:health, {:error, reason})
+  end
+
+  defp mark_failed_part(parts, :history, reason), do: mark_history_failed(parts, reason)
+  defp mark_failed_part(parts, :health, reason), do: Map.put(parts, :health, {:error, reason})
+  defp mark_failed_part(parts, :features, reason), do: Map.put(parts, :features, {:error, reason})
+  defp mark_failed_part(parts, :now, reason), do: Map.put(parts, :now, {:error, reason})
+  defp mark_failed_part(parts, :queue, reason), do: Map.put(parts, :planned, {:error, reason})
+  defp mark_failed_part(parts, :planned, reason), do: Map.put(parts, :planned, {:error, reason})
+  defp mark_failed_part(parts, :open, reason), do: parts |> Map.put(:open, {:error, reason}) |> mark_open_degraded(reason)
+  defp mark_failed_part(parts, :not_queued, reason), do: Map.put(parts, :not_queued, {:error, reason})
+  defp mark_failed_part(parts, _part, _reason), do: parts
 end
