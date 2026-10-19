@@ -378,29 +378,21 @@ The Elixir examples below apply only to Aiur's Elixir core.
     without a base merge; unavailable or mismatched GitHub evidence remains
     fail-closed in the state writer.
 
-    **An approved PR is exempt from integration** (`reviewDecision` is
-    `APPROVED` at the exact current head): never merge or rebase the base into
-    it solely for overlap or staleness. A genuine `mergeable: CONFLICTING`
-    verdict still requires integration; say why in a PR comment. The merge
-    queue tests the merge; a refresh push only cancels in-flight CI and risks
-    the approval, and it cannot fix a red or cancelled check. The state writer
-    still requires the exact head's full required-check gate before handoff.
+    If GitHub reports `CONFLICTING` or a reviewer asks for integration, record
+    the pre-merge head and rescue ref first. Preserve feature scope and push the
+    rescue ref before resolving nontrivial conflicts. After integration, run
+    relevant local tests and the format, size, components gates; resolve drift,
+    validate and push. Keep the PR ready before returning to `ci-wait` for
+    new-head CI. Record observed SHAs and the conflict or reviewer request in
+    the workpad across restarts. Never open a blocking decision for base
+    integration.
+
     The agent `git` guard refuses pushes to ticket branches in `agent:ci-wait`
     or `agent:human-review`, including detached-HEAD pushes named by their
     destination ref; `gh pr update-branch` is refused in those states too.
-    Review rework is allowed. If a conflict blocks the handoff, move the ticket
-    back to `agent:in-progress` with `aiur_set_ticket_state` before integrating
-    the base and pushing. It also refuses a push to a PR in the merge queue
-    unless GitHub reports it `CONFLICTING` or changes are requested.
-
-    If GitHub reports `CONFLICTING` or a reviewer asks for integration while
-    the PR is not approved, record the pre-merge head and rescue ref first.
-    Preserve feature scope and push the rescue ref before resolving nontrivial
-    conflicts. After integration, run relevant local tests and the format,
-    size, components gates; resolve drift, validate and push. Keep the PR ready
-    before returning to `ci-wait` for new-head CI. Record observed SHAs and the
-    conflict or reviewer request in the workpad across restarts. Never open a
-    blocking decision for base integration.
+    Review rework is allowed. When GitHub reports the PR `CONFLICTING` or a
+    reviewer asked for integration, first move the ticket to `agent:in-progress`
+    with `aiur_set_ticket_state`, then integrate and push.
 14. If you still believe the work is complete and correct and only CI remains,
     mark the PR ready (`gh pr ready`) and verify it is no longer a draft, then
     move the ticket with `aiur_set_ticket_state({ "state": "ci-wait" })`, and end the turn. Do

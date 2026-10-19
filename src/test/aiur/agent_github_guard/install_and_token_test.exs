@@ -313,6 +313,7 @@ defmodule Aiur.AgentGitHubGuard.InstallAndTokenTest do
              )
 
     assert output =~ "ticket #1670 is handed off"
+    assert output =~ "if GitHub reports the PR CONFLICTING or a reviewer asked for integration"
     assert File.read!(context.calls) =~ "repos/aiur-team/aiur/issues/1670"
 
     File.rm!(context.calls)

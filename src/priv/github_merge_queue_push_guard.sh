@@ -73,7 +73,7 @@ if [ "$push_command" = true ] && [ "$queue_install" = true ] && [ -x "$(dirname 
     case " $ticket_state " in
       *" agent:human-review "*|*" agent:ci-wait "*)
         printf '%s\n' "aiur: refusing git push: ticket #$ticket_number is handed off for review or CI" >&2
-        printf '%s\n' 'aiur: wait for the review verdict; for a refused base-conflict handoff, first move the ticket to agent:in-progress with aiur_set_ticket_state, then integrate and push' >&2
+        printf '%s\n' 'aiur: wait for the review verdict; if GitHub reports the PR CONFLICTING or a reviewer asked for integration, first move the ticket to agent:in-progress with aiur_set_ticket_state, then integrate and push' >&2
         exit 64
         ;;
     esac

@@ -83,6 +83,7 @@ defmodule Aiur.AgentGitMergeQueuePushGuardTest do
       for label_order <- [:priority_first, :state_first] do
         ticket_labels = if label_order == :priority_first, do: "priority:2 " <> state, else: state <> " priority:2"
         assert {output, 64} = push(context, "false MERGEABLE APPROVED", ["origin", "HEAD"], state, false, ticket_labels)
+        assert output =~ "if GitHub reports the PR CONFLICTING or a reviewer asked for integration"
         assert output =~ "first move the ticket to agent:in-progress"
         refute output =~ "PUSHED"
       end

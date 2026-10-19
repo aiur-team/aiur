@@ -203,7 +203,7 @@ update_branch_handoff() {
   case " $state " in
     *" agent:human-review "*|*" agent:ci-wait "*)
       printf '%s\n' "aiur: refusing gh pr update-branch: ticket #$ticket_number is handed off for review or CI" >&2
-      printf '%s\n' 'aiur: wait for the review verdict; for a refused base-conflict handoff, first move the ticket to agent:in-progress with aiur_set_ticket_state, then integrate and push' >&2
+      printf '%s\n' 'aiur: wait for the review verdict; if GitHub reports the PR CONFLICTING or a reviewer asked for integration, first move the ticket to agent:in-progress with aiur_set_ticket_state, then integrate and push' >&2
       return 0
       ;;
   esac
