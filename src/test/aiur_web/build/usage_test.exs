@@ -64,6 +64,24 @@ defmodule AiurWeb.Build.UsageTest do
     refute loading.stale
   end
 
+  test "Codex uses the fresh headroom reading even when provider limits are unknown" do
+    observed_at = DateTime.add(I.now(), -15, :second)
+    reading = %{windows: [%{window: "hourly", used_percent: 27}, %{window: "weekly", used_percent: 28}]}
+    inputs = I.inputs(%{accounts: %{"default" => %{reading: reading, observed_at: observed_at, freshness: :fresh}}})
+
+    codex = block(inputs).providers |> hd()
+    assert codex.session.acc == [28]
+    assert codex.observed_at == SourceFreshness.ms(observed_at)
+    refute codex.none
+    assert codex.note == nil
+  end
+
+  test "Codex keeps unknown with an explanatory note when no headroom reading exists" do
+    codex = block(I.inputs()).providers |> hd()
+    assert codex.none
+    assert codex.note == "Awaiting first observation"
+  end
+
   test "U7 credits require an observed baseline and format float balance" do
     credit = I.window(nil, nil, %{kind: :credit, credits: %{status: :available, amount: 10.4}, remaining: 10.4})
     row = provider(%{"balance" => credit}, %{}, :deepseek)
