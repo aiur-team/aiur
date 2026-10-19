@@ -257,6 +257,20 @@ defmodule Aiur.RepoBase.BuildTimeoutTest do
     refute File.exists?(marker)
   end
 
+  test "pid-file polling waits for a complete integer", %{tmp: tmp} do
+    pidfile = Path.join(tmp, "partial-pid-file")
+    File.write!(pidfile, "")
+
+    writer =
+      Task.async(fn ->
+        Process.sleep(25)
+        File.write!(pidfile, "123\n")
+      end)
+
+    assert 123 = await_file(pidfile, 1_000) |> String.trim() |> String.to_integer()
+    Task.await(writer)
+  end
+
   def clone_url_for_test(origin), do: origin
 
   defp start_real_build(_pid, cfg, tmp, origin, command, opts) do
