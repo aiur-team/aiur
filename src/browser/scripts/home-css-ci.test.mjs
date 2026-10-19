@@ -132,4 +132,3 @@ test('a new build-home spec file joins exactly one shard with no list edit', () 
   assert.deepEqual(suiteArgs('build-home-x'), ['tests/build-home-x.browser.spec.mjs'])
   assert.deepEqual(suiteArgs('build-home-x-parity'), ['tests/build-home-x-parity.browser.spec.mjs', '--config', 'playwright.design-parity.config.mjs'])
 })
-
