@@ -70,8 +70,5 @@ defmodule AiurWeb.DashboardLiveConnectionTest do
     assert Floki.attribute(defer_button, "disabled") != []
     assert [dismiss_button] = Floki.find(form, "button[aria-label='Dismiss blocker']")
     assert Floki.attribute(dismiss_button, "disabled") != []
-    assert [acknowledge_button] = Floki.find(form, "button[phx-click=dismiss-decision]:not([aria-label])")
-    assert Floki.text(acknowledge_button) == "Acknowledge"
-    assert Floki.attribute(acknowledge_button, "disabled") != []
   end
 end

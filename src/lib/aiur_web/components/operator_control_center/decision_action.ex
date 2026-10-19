@@ -27,7 +27,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     # nothing would release the block.
     dismissible? = status in [:open, :deferred]
 
-    acknowledgeable? = decision.options == [] and status == :open and not blocking?
+    acknowledgeable? = decision.options == [] and status == :open and not blocking? and not dismissible?
 
     # Defer pushes the Command back to the Executor; dismiss closes it. Both are
     # secondary actions alongside the submit button, so an open Command can be
