@@ -359,7 +359,6 @@ defmodule Aiur.TestSupport do
           Application.delete_env(:aiur, :memory_tracker_recipient)
           EventsPublisher.set_tracked_fn(fn _ -> true end)
           EventsSubscriptionStore.set_enqueue_fn(nil)
-          # A runner the test left running would recreate the next root it sees (#5104).
           Aiur.TestSupport.rm_workflow_root!(workflow_root, runner_tasks_before)
           Aiur.TestScopeGuard.restore(previous_test_scope_state)
 
