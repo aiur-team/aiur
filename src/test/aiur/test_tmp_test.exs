@@ -46,7 +46,9 @@ defmodule Aiur.TestTmpTest do
     File.write!(Path.join(snapshot, "hook"), "read-only")
     File.chmod!(snapshot, 0o555)
     File.chmod!(Path.join(stale, "hooks"), 0o555)
+    started_at = System.monotonic_time(:millisecond)
     Aiur.TestTmp.sweep!(base, File.stat!(stale).uid)
+    assert System.monotonic_time(:millisecond) - started_at < 2_000
     refute File.exists?(stale)
   end
 

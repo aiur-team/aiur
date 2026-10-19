@@ -1,5 +1,7 @@
 defmodule Aiur.TestTmp do
   @moduledoc false
+  @sweep_max_entries 1_000
+  @chmod_timeout_ms 250
 
   def start!(base) do
     File.mkdir_p!(base)
@@ -74,11 +76,24 @@ defmodule Aiur.TestTmp do
 
   # `rm` replaces the remover so a test can stage a leftover the sweep cannot delete.
   def sweep!(base, owner, rm \\ &writable_rm_rf/1) do
-    for name <- File.ls!(base) do
-      case Regex.run(~r/^(?:run-\d+|workflow)-(\d+)-\d+$/, name) do
-        [_, pid] -> remove_dead_run!(Path.join(base, name), owner, String.to_integer(pid), rm)
-        nil -> :ok
+    base = Path.expand(base)
+
+    with true <- safe_sweep_base?(base),
+         {:ok, names} <- File.ls(base) do
+      names
+      |> Enum.take(@sweep_max_entries)
+      |> Enum.each(fn name ->
+        case Regex.run(~r/^(?:run-\d+|workflow)-(\d+)-\d+$/, name) do
+          [_, pid] -> remove_dead_run!(Path.join(base, name), owner, String.to_integer(pid), rm)
+          nil -> :ok
+        end
+      end)
+
+      if length(names) > @sweep_max_entries do
+        IO.puts(:stderr, "warning: TestTmp sweep stopped after #{@sweep_max_entries} entries under #{base}")
       end
+    else
+      _ -> :ok
     end
   end
 
@@ -101,8 +116,26 @@ defmodule Aiur.TestTmp do
   # A leaked build-gate runner leaves read-only hook snapshots, and rm_rf cannot clear a 0555 directory.
   # chmod -R does not follow symlinks, so this stays inside the run directory.
   defp writable_rm_rf(path) do
-    _ = System.cmd("chmod", ["-R", "u+w", path], stderr_to_stdout: true)
-    File.rm_rf(path)
+    if run_bounded_chmod(path), do: File.rm_rf(path), else: {:error, :timeout, path}
+  end
+
+  defp safe_sweep_base?(base) do
+    expanded = Path.expand(base)
+    tmp = Path.expand(System.tmp_dir!())
+    components = Path.split(expanded)
+
+    String.starts_with?(expanded <> "/", tmp <> "/") and
+      not Enum.any?(components, &(&1 in [".X11-unix", ".ICE-unix"])) and
+      not Enum.any?(components, &Regex.match?(~r/^\.X.*-lock$/, &1))
+  end
+
+  defp run_bounded_chmod(path) do
+    task = Task.async(fn -> System.cmd("chmod", ["-R", "u+w", path], stderr_to_stdout: true) end)
+
+    case Task.yield(task, @chmod_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {_output, 0}} -> true
+      _ -> false
+    end
   end
 
   # A stale run we cannot delete (say, files another uid wrote) must never block test boot.
@@ -112,7 +145,8 @@ defmodule Aiur.TestTmp do
         :ok
 
       {:error, reason, file} ->
-        IO.puts(:stderr, "warning: TestTmp sweep skipped #{path}: cannot remove #{file} (#{:file.format_error(reason)})")
+        detail = if reason == :timeout, do: "chmod exceeded #{@chmod_timeout_ms}ms", else: :file.format_error(reason)
+        IO.puts(:stderr, "warning: TestTmp sweep skipped #{path}: cannot remove #{file} (#{detail})")
     end
   end
 end
