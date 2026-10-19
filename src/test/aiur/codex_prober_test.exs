@@ -171,7 +171,7 @@ defmodule Aiur.CodexProberTest do
     assert ModelAvailability.load(path)["backends"]["codex"]["hourly"]["used"] == 4
   end
 
-  test "probe_async is disabled by default in the test environment" do
+  test "regression: probe_async is disabled by default in the test environment" do
     path = Aiur.TestSupport.tmp_root!("aiur-codex-disabled-probe") <> ".json"
     on_exit(fn -> File.rm(path) end)
     parent = self()
