@@ -96,7 +96,7 @@ Application.put_env(:aiur, :docker_cleanup_command, fn "docker", _args, _opts ->
 # inside a workflow case keeps appending to that case's `<workflow_root>/log`
 # after teardown, until the VM exits. Stop the app before the root is removed;
 # `after_suite` callbacks run last-registered first.
-ExUnit.after_suite(fn _result -> Application.stop(:aiur) end)
+Aiur.TestTmp.after_final_round(fn _result -> Application.stop(:aiur) end)
 
 suite_runtime_state_dir = Application.fetch_env!(:aiur, :runtime_state_dir)
 
@@ -104,7 +104,7 @@ unless Path.dirname(Aiur.AlertLedger.path()) == suite_runtime_state_dir do
   raise "alert ledger must use the suite runtime state root #{suite_runtime_state_dir}"
 end
 
-ExUnit.after_suite(fn _result ->
+Aiur.TestTmp.after_final_round(fn _result ->
   # Best-effort: IdGenerator's terminate/2 flush at VM shutdown may
   # recreate the counter file after this — a small leftover under the
   # system tmp dir is harmless and tolerated.
