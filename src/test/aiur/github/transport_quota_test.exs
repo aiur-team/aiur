@@ -169,7 +169,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
              Transport.github_graphql(&Transport.default_request_fun/1, "token", "query { viewer { login } }", %{})
   end
 
-  test "holds a second daemon-shaped request behind the shared host lease", %{budget_dir: budget_dir} do
+  test "waits for a shared lease to clear within the admission deadline", %{budget_dir: budget_dir} do
     Application.put_env(:aiur, :github_budget_enabled?, true)
     Application.put_env(:aiur, :github_budget_dir, budget_dir)
 
@@ -190,26 +190,61 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       end
     end)
 
-    request = fn ->
+    request = fn path ->
       Transport.default_request_fun(%{
         method: :get,
-        url: "https://api.github.com/repos/owner/repo/issues/1477",
+        url: "https://api.github.com#{path}",
         token: "shared-token"
       })
     end
 
-    first = Task.async(request)
+    first = Task.async(fn -> request.("/repos/owner/repo/issues/1477") end)
     assert_receive {:request_started, first_conn}, 2_000
 
-    second = Task.async(request)
-    refute_receive {:request_started, _second_conn}, 80
+    second = Task.async(fn -> request.("/repos/owner/repo/issues/1478") end)
+    assert is_nil(Task.yield(second, 1_800))
 
     send(first_conn, :release_request)
     assert_receive {:request_started, second_conn}, 2_000
     send(second_conn, :release_request)
 
-    assert {:ok, %{status: 200}} = Task.await(first, 1_500)
-    assert {:ok, %{status: 200}} = Task.await(second, 1_500)
+    assert {:ok, %{status: 200}} = Task.await(first, 2_000)
+    assert {:ok, %{status: 200}} = Task.await(second, 2_000)
+  end
+
+  # #1837: admission waits sleep on the caller, so the Orchestrator keeps its tighter bound.
+  test "the Orchestrator process gives up on a held lease after 1.5 s", %{budget_dir: budget_dir} do
+    Application.put_env(:aiur, :github_budget_enabled?, true)
+    Application.put_env(:aiur, :github_budget_dir, budget_dir)
+    Application.put_env(:aiur, :github_budget_settings_override, %{max_inflight: 1, max_inflight_per_endpoint: 1, requests_per_minute: 20, stagger_ms: 0})
+    previous_poll_owner = Application.get_env(:aiur, :github_poll_owner)
+    Application.put_env(:aiur, :github_poll_owner, :transport_quota_test_poll_owner)
+    on_exit(fn -> restore_env(:github_poll_owner, previous_poll_owner) end)
+    test_pid = self()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      send(test_pid, {:request_started, self()})
+
+      receive do
+        :release_request -> Req.Test.json(conn, [])
+      end
+    end)
+
+    request = fn path -> Transport.default_request_fun(%{method: :get, url: "https://api.github.com#{path}", token: "shared-token"}) end
+    first = Task.async(fn -> request.("/repos/owner/repo/issues/1477") end)
+    assert_receive {:request_started, first_conn}, 2_000
+
+    orchestrator =
+      Task.async(fn ->
+        Process.register(self(), :transport_quota_test_poll_owner)
+        {elapsed_us, result} = :timer.tc(fn -> request.("/repos/owner/repo/issues/1478") end)
+        {div(elapsed_us, 1000), result}
+      end)
+
+    assert {elapsed_ms, {:error, {:aiur, :locally_held, %{reason: :shared_budget}}}} = Task.await(orchestrator, 5_000)
+    assert elapsed_ms < 3_000
+    send(first_conn, :release_request)
+    assert {:ok, %{status: 200}} = Task.await(first, 2_000)
   end
 
   test "a 304 response leaves its admission unbilled end to end", %{budget_dir: budget_dir} do

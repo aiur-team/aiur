@@ -88,8 +88,8 @@ defmodule Aiur.GitHub.Quota do
   Diagnostic callers use this form when an unreachable meter must be reported
   as an error rather than presented as an empty measurement.
   """
-  @spec snapshot!(GenServer.server()) :: map()
-  def snapshot!(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
+  @spec snapshot!(GenServer.server(), timeout()) :: map()
+  def snapshot!(server \\ __MODULE__, timeout \\ 5_000), do: GenServer.call(server, :snapshot, timeout)
 
   @spec preflight(GenServer.server(), request()) :: :ok | {:hold, hold()}
   def preflight(server \\ __MODULE__, request) do

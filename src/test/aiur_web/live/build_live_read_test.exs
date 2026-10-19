@@ -27,6 +27,15 @@ defmodule AiurWeb.BuildLiveReadTest do
     assert Process.alive?(view.pid)
   end
 
+  test "resync serves a snapshot that holds an agent in retry backoff" do
+    source(mode: :retrying)
+    {:ok, view, _} = live(build_conn(), "/build")
+    LiveViewAsync.render_when_complete(view)
+    render_hook(view, "build-resync", %{})
+    assert_reply(view, %{"kind" => "snapshot"} = reply)
+    assert hd(reply["sections"]["now"])["agent"]["state"] == "retrying"
+  end
+
   test "resync preserves the index timeout cause" do
     source(mode: :error, error_reason: :timeout)
     {:ok, view, _} = live(build_conn(), "/build")

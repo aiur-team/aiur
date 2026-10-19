@@ -10,6 +10,8 @@ defmodule Aiur.CodingAgent.Providers.Claude do
     %{
       adapter: Aiur.Claude.CodingAgent,
       transcript: Aiur.Claude.Transcript,
+      launch_telemetry: Aiur.Claude.Telemetry,
+      children: [Aiur.Claude.Telemetry],
       family: "claude",
       config_default: true,
       rate_limit_fallback_target: true,
@@ -87,6 +89,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
     %{
       adapter: Aiur.Claude.ReplAgent,
       transcript: Aiur.Claude.Transcript,
+      launch_telemetry: Aiur.Claude.Telemetry,
       family: "claude",
       accounts: %{kind: :profile, multi: :available, usage: :claude_api, supported: true},
       # A persistent REPL carries the primary session handle. It must never
@@ -120,6 +123,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       # Only the hook-driven RC REPL needs the pane display tailer; every
       # other backend streams its own rich transcript.
       rc_display_tail: true,
+      display_tailer: Aiur.Claude.DisplayTailer,
       # The persistent pane + REPL os pid are what an abort path must reap.
       runtime_report: :repl_pane,
       # The REPL spawns the `claude` CLI directly, so a respawn after an aiur

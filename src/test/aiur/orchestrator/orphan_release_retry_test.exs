@@ -141,6 +141,49 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
     end
   end
 
+  # #4791: a cold-start budget hold clears within seconds, so it must not page the Executor.
+  test "a short budget hold retries quietly and releases without any alert" do
+    held_opts = Keyword.put(hold_opts(self()), :now_ms, 0)
+    {held, [_issue]} = StartupClaimReconciler.reconcile(%State{}, [issue()], held_opts)
+    refute held.startup_claim_reconciliation_complete?
+
+    released_opts = Keyword.merge(held_opts, update_issue_state_fun: fn _, _, _ -> :ok end, now_ms: 60_000)
+    {released, [%Issue{state: "todo"}]} = StartupClaimReconciler.reconcile(held, [issue()], released_opts)
+    assert released.startup_claim_reconciliation_failures == %{}
+    refute_received {:alert, "ticket.3710.agent.attention.startup_claim_reconciliation_failed" <> _, _}
+  end
+
+  test "a budget hold lasting ten minutes raises one attention and keeps retrying" do
+    opts = hold_opts(self())
+
+    held =
+      Enum.reduce(0..1_200_000//30_000, %State{}, fn now, current ->
+        {next, [_issue]} = StartupClaimReconciler.reconcile(current, [issue()], Keyword.put(opts, :now_ms, now))
+        next
+      end)
+
+    assert_received {:alert, "ticket.3710.agent.attention.startup_claim_reconciliation_failed", alert}
+    assert alert[:message] =~ "over 10 min"
+    assert alert[:needs_attention]
+    refute_received {:alert, _, _}
+    assert held.startup_claim_reconciliation_failures["3710"].attempts == 0
+
+    {_released, [%Issue{state: "todo"}]} =
+      StartupClaimReconciler.reconcile(held, [issue()], Keyword.merge(opts, update_issue_state_fun: fn _, _, _ -> :ok end, now_ms: 1_230_000))
+
+    assert_received {:alert, "ticket.3710.agent.attention.startup_claim_reconciliation_failed.resolved", _}
+  end
+
+  defp hold_opts(test_pid) do
+    Keyword.merge(opts(),
+      update_issue_state_fun: fn _, _, _ -> {:error, {:aiur, :locally_held, %{reason: :shared_budget, resource: "core", reset_at: 100}}} end,
+      emit_alert_fun: fn topic, alert ->
+        send(test_pid, {:alert, topic, alert})
+        :ok
+      end
+    )
+  end
+
   # #4826: a draft is still being worked, so it is never offered to a reviewer.
   test "an open draft pull request is released to rework" do
     opts =

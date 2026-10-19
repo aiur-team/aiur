@@ -160,6 +160,11 @@ defmodule Aiur.OrchestratorDeactivateSupport do
       {:ok, Enum.filter(issues, &(&1.id in issue_ids))}
     end
 
+    def create_comment(issue_id, body) do
+      if is_pid(recipient()), do: send(recipient(), {:ci_watcher_comment, issue_id, body})
+      :ok
+    end
+
     defp recipient, do: Application.get_env(:aiur, :ci_watcher_recipient)
   end
 

@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.UsageLoadTest do
   use Aiur.TestSupport
   alias Aiur.TestSupport.BuildHome.UsageInputs, as: I
-  alias AiurWeb.Build.Usage
+  alias AiurWeb.Build.{Read, Usage}
 
   defmodule MeterSource do
     def load(pid, _opts) do
@@ -71,6 +71,18 @@ defmodule AiurWeb.Build.UsageLoadTest do
     assert inputs.meters == %{}
     assert inputs.github == {:ok, quota}
     assert inputs.accounts["work"].reading.windows |> hd() |> Map.fetch!(:used_percent) == 1
+  end
+
+  test "a quota server that never replies degrades only the GitHub chip, well inside the snapshot cap", %{path: path} do
+    server = spawn_link(fn -> receive(do: (:stop -> :ok)) end)
+    on_exit(fn -> if Process.alive?(server), do: send(server, :stop) end)
+    read_opts = opts(path) |> Keyword.put(:github_server, server)
+    started = System.monotonic_time(:millisecond)
+    assert {:ok, inputs} = Read.safe_read(fn -> {:ok, Usage.load(self(), read_opts)} end)
+    # The default 1 s bound, not the 5 s GenServer default that used to eat the whole Read.safe_read cap.
+    assert System.monotonic_time(:millisecond) - started < 2_500
+    assert inputs.github == {:error, :unavailable}
+    assert inputs.meters.codex.windows["primary"].used_percent == 42
   end
 
   defp quota_server(quota) do
