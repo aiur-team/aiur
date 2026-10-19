@@ -5,6 +5,7 @@ defmodule Aiur.TestSupport do
   alias Aiur.GitHub.DispatchAuthorization, as: GitHubDispatchAuthorization
   alias Aiur.GitHub.ResourceStore, as: GitHubResourceStore
   alias Aiur.PollCadence
+  alias Aiur.TestSupport.OrchestratorGuard
 
   @github_repository {"its-everdred", "aiur"}
 
@@ -78,6 +79,7 @@ defmodule Aiur.TestSupport do
     :workflow_file_path,
     :log_file,
     :decision_state_dir,
+    :github_budget_dir,
     :build_gate_dir_override,
     :global_pause_store_path,
     :github_resource_store_path,
@@ -165,6 +167,13 @@ defmodule Aiur.TestSupport do
   @spec capture_app_env() :: [{atom(), {:ok, term()} | :error}]
   def capture_app_env do
     Enum.map(@isolated_app_env_keys, &{&1, Application.fetch_env(:aiur, &1)})
+  end
+
+  @doc false
+  @spec capture_app_env(map()) :: [{atom(), {:ok, term()} | :error}]
+  def capture_app_env(context) do
+    OrchestratorGuard.verify_shared_state_before_test!(context)
+    capture_app_env()
   end
 
   @doc """
@@ -268,7 +277,7 @@ defmodule Aiur.TestSupport do
         # Every application key this setup overrides, captured as-is so
         # teardown puts back exactly what was there. See
         # `Aiur.TestSupport.isolated_app_env_keys/0`.
-        previous_app_env = Aiur.TestSupport.capture_app_env()
+        previous_app_env = Aiur.TestSupport.capture_app_env(context)
 
         File.mkdir_p!(workflow_root)
         System.put_env("AIUR_DEV_TEST_STATE_DIR", test_state_dir)
@@ -365,7 +374,7 @@ defmodule Aiur.TestSupport do
           end
 
           unless Process.whereis(Aiur.Supervisor), do: Application.ensure_all_started(:aiur)
-          Aiur.TestSupport.verify_orchestrator_restored!(context)
+          Aiur.TestSupport.verify_restored_shared_state!(previous_app_env, Map.fetch!(previous_test_scope_state.env, "AIUR_INSTANCE_KEY"), context)
 
           if scope_state_violation, do: raise(scope_state_violation)
         end)
@@ -387,6 +396,8 @@ defmodule Aiur.TestSupport do
   defdelegate ensure_orchestrator_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_orchestrator_running(context), to: Aiur.TestSupport.OrchestratorGuard, as: :ensure_running
   defdelegate verify_orchestrator_restored!(context), to: Aiur.TestSupport.OrchestratorGuard, as: :verify_restored!
+  @spec verify_restored_shared_state!([{atom(), {:ok, term()} | :error}], String.t() | nil, map()) :: :ok
+  defdelegate verify_restored_shared_state!(previous_app_env, previous_instance_key, context), to: Aiur.TestSupport.OrchestratorGuard
   defdelegate ensure_branch_ref_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_resource_store_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_workflow_store_running(), to: Aiur.TestSupport.RuntimeChildren

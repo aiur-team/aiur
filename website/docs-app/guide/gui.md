@@ -241,6 +241,11 @@ The page reads the cached report analysis matching the current frozen inputs
 analyst labels. Below the
 analysis minimum, interval, p-value and effect cells say **not enough data**.
 
+The **Analyst report** card shows the analyst's Markdown, including tables. A
+pending message appears until a report exists. Reports may lag the evidence;
+the card identifies newer results with both report and result times. Tables
+over 4,096 cells are shown as text to keep reports bounded.
+
 The median-change chart shows stored percentage estimates and confidence
 intervals, with the expected direction labelled. Hollow points mark **not enough
 data** or unavailable estimates; no interval is drawn below the sample minimum.
