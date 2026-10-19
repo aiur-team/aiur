@@ -210,6 +210,20 @@
     }
   },
   {
+    "id": "live-list-state-counts",
+    "kind": "copy",
+    "selector": "#bd-vp",
+    "mask": ".bd-list > .lh:nth-child(2) > em",
+    "cells": {},
+    "reason": "#5175: the Live list head counts running, retrying, stuck, paused and unknown rows; the design calls every Live row running.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/pull/5179 review finding 3"
+    }
+  },
+  {
     "id": "build-daemon-dot-no-shrink",
     "kind": "design-style",
     "selector": "html",
