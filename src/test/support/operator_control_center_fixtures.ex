@@ -111,6 +111,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsFixtures do
   end
 
   # Hand-built rows skip DecisionPresenter, so derive its `open?` field from the row's own fields.
+  # Keep this in step with `RetainedIndex.open?/1` (rows carry no `legacy_attention`).
   defp put_open(row) do
     Map.put_new_lazy(row, :open?, fn ->
       row.decision_status in [:open, :deferred] or

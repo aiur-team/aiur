@@ -952,7 +952,6 @@ defmodule AiurWeb.DashboardLiveTest do
       created_at: ~U[2026-07-12 12:00:00Z],
       source_created_at: nil,
       decision_status: :open,
-      open?: true,
       delivery_status: :not_dispatched,
       answer: nil,
       dispatch_attempts: [],
@@ -970,7 +969,7 @@ defmodule AiurWeb.DashboardLiveTest do
         health: :ready,
         reconciliation: %{status: :complete, partial?: false}
       })
-      |> Map.put(:decisions, [decision])
+      |> Map.put(:decisions, [Map.put(decision, :open?, true)])
       |> Map.put(:overview, %{
         blocking_decisions: 1,
         running: 0,

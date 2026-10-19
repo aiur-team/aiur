@@ -4,7 +4,7 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
   alias Aiur.{DecisionAttentionSignals, DecisionValidation}
   alias Aiur.DecisionStore.{RetainedIndex, RetainedSnapshot}
   alias Aiur.ExecutorAttention.DecisionEscalation
-  alias AiurWeb.OperatorControlCenter.DecisionPresenter
+  alias AiurWeb.OperatorControlCenter.{DecisionCommands, DecisionPresenter}
 
   import AiurWeb.OperatorControlCenterComponentsFixtures, only: [render_inbox: 2]
 
@@ -197,7 +197,8 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
         %{decision("resolved", "5007", minutes_ago(30)) | decision_status: :resolved},
         %{decision("dismissed", "5008", minutes_ago(30)) | decision_status: :dismissed},
         %{decision("decided", "5009", minutes_ago(30)) | decision_status: :decided},
-        %{decision("superseded", "5010", minutes_ago(20)) | revision_sequence: 1}
+        %{decision("superseded", "5010", minutes_ago(20)) | revision_sequence: 1},
+        delivery_alert("5011")
       ]
 
       current = Map.new(decisions, &{&1.decision_id, &1})
@@ -207,12 +208,21 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
       "DECISIONS open " <> rest = DecisionEscalation.status_line(decisions, @now, fn _ -> 0 end)
       {status_count, _} = Integer.parse(rest)
 
-      inbox = render_inbox(DecisionPresenter.rows(decisions), :open)
+      rows = DecisionPresenter.rows(decisions)
+      cards = fn filter -> length(Regex.scan(~r/<article\s+id="decision-/, render_inbox(rows, filter))) end
 
       assert status_count == 4
       assert length(listed) == status_count
       assert RetainedIndex.canonical_counts(index).open == status_count
-      assert length(Regex.scan(~r/<article\s+id="decision-/, inbox)) == status_count
+      assert cards.(:open) == status_count
+      assert cards.(:blocking) == status_count
+    end
+
+    test "the dashboard does not take a delivery-alert Decision as the selected open Command (#5109)" do
+      [row] = DecisionPresenter.rows([delivery_alert("5012")])
+      socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, selected_decision: row}}
+
+      assert DecisionCommands.change(socket, row.decision_id, %{}) == socket
     end
 
     test "is not attention under 15 minutes and ignores answered or expired non-blocking Decisions" do
@@ -289,5 +299,10 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
       )
 
     decision
+  end
+
+  # An open, blocking delivery-failure alert: `RetainedIndex.open?/1` never counts it as a Command.
+  defp delivery_alert(ticket) do
+    %{decision("delivery-alert", ticket, minutes_ago(20)) | legacy_attention: %{slug: "decision-delivery-act-1", topic: "t"}}
   end
 end
