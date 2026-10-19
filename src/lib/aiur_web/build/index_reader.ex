@@ -46,14 +46,7 @@ defmodule AiurWeb.Build.IndexReader do
 
       case snapshot_fun.(opts) do
         {:ok, %{statuses: statuses, running: running}} when is_list(statuses) and is_list(running) ->
-          running_by_identifier = Map.new(running, &{Map.get(&1, :identifier), &1})
-
-          rows =
-            Enum.map(statuses, fn status ->
-              now_row(status, Map.get(running_by_identifier, Map.get(status, :identifier), %{}))
-            end)
-            |> Enum.reject(&is_nil/1)
-
+          rows = fleet_rows(statuses, running)
           NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
 
         {:error, :timeout} ->
@@ -63,6 +56,15 @@ defmodule AiurWeb.Build.IndexReader do
           {:error, :running_snapshot_unavailable}
       end
     end
+  end
+
+  defp fleet_rows(statuses, running) do
+    running_by_identifier = Map.new(running, &{Map.get(&1, :identifier), &1})
+
+    Enum.map(statuses, fn status ->
+      now_row(status, Map.get(running_by_identifier, Map.get(status, :identifier), %{}))
+    end)
+    |> Enum.reject(&is_nil/1)
   end
 
   defp producer_rows(%{rows: rows}) when is_map(rows), do: Map.values(rows)
