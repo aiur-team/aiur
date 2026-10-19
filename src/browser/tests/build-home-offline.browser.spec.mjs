@@ -62,21 +62,6 @@ test('offline design copy and accessible status markup', async ({ page }) => {
   const audit = await new AxeBuilder({ page }).include('#bd-offline').analyze()
   expect(audit.violations).toEqual([])
 })
-test('a connected LiveView suppresses an Offline banner while reporting unread fleet data', async ({ page }) => {
-  await daemon(page, 'offline', null)
-  await expect(page.locator('.bd-offline')).toHaveCount(0)
-  await expect(page.locator('#build-root')).not.toHaveClass(/stale/)
-  expect(await page.evaluate(() => m.daemonView())).toMatchObject({
-    dotOff: false,
-    socketDown: false,
-    dotText: 'Daemon up · fleet snapshot reports offline',
-    banner: null,
-  })
-
-  await down(page)
-  await page.clock.runFor(600)
-  await expect(page.locator('.bd-offline b')).toHaveText('Daemon unreachable')
-})
 test('stale cause and previous local day retain their own copy', async ({ page }) => {
   await daemon(page, 'stale', NOW - 10800000)
   await expect(page.locator('.bd-offline')).toContainText('Daemon stale · last heartbeat 3 h ago (11:20)')

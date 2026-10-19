@@ -1,8 +1,7 @@
 defmodule AiurWeb.Build.Usage do
   @moduledoc "Protected, per-connection quota facts for the build home usage strip."
   alias Aiur.{Accounts, CodingAgent, ModelAvailability}
-  alias Aiur.Accounts.{Headroom, UsageReadings}
-  alias Aiur.CodingAgent.HeadroomDispatch
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
   alias Aiur.GitHub.Quota, as: GitHubQuota
   alias AiurWeb.Build.{Read, UsageAPIs, UsageFacts}
@@ -56,7 +55,6 @@ defmodule AiurWeb.Build.Usage do
       end
 
     UsageReadings.snapshot("claude", names)
-    |> Map.merge(UsageReadings.snapshot("codex", ["default"]))
   end
 
   defp isolated(fun, fallback) do
@@ -95,9 +93,8 @@ defmodule AiurWeb.Build.Usage do
   def block({:ok, _}, :error, _now), do: %{state: "unavailable", observed_at: nil, reason: "usage_source_failed"}
 
   def block({:ok, _}, inputs, now) do
-    account_views = Map.filter(inputs.accounts, fn {_name, entry} -> Map.has_key?(entry, :freshness) end)
-    cards = ProviderMetersPresenter.present(%{state: :authorized}, inputs.meters, account_views).cards
-    providers = for family <- order_families(inputs.families), card = Enum.find(cards, &(&1.provider == family)), card != nil, do: provider(card, inputs, ms(now), inputs, now)
+    cards = ProviderMetersPresenter.present(%{state: :authorized}, inputs.meters, %{}).cards
+    providers = for family <- order_families(inputs.families), card = Enum.find(cards, &(&1.provider == family)), card != nil, do: provider(card, inputs, ms(now))
     apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now))
     %{state: "authorized", observed_at: latest(Enum.map(providers ++ apis, & &1.observed_at)), apis: apis, providers: providers}
   end
@@ -107,7 +104,7 @@ defmodule AiurWeb.Build.Usage do
   def row(name),
     do: %{name: name, logo: nil, mono: nil, hue: nil, tag: nil, accounts: nil, session: nil, weekly: nil, credits: nil, none: false, lines: nil, icon: nil, stale: false, observed_at: nil, note: nil}
 
-  defp provider(card, inputs, now, all_inputs, date_now) do
+  defp provider(card, inputs, now) do
     logo = if card.provider in @logos, do: Atom.to_string(card.provider)
 
     base =
@@ -119,72 +116,12 @@ defmodule AiurWeb.Build.Usage do
       })
 
     case card.state do
-      state when state in [:healthy, :partial, :stale] ->
-        provider_windows(base, card, inputs.accounts, now)
-
-      :unknown ->
-        unknown(base, Map.get(inputs.durable, card.provider))
-
-      :loading ->
-        %{base | none: true, note: "Awaiting first observation"}
-
-      :signed_out ->
-        %{base | none: true, note: "Not signed in"}
-
-      _ ->
-        %{base | none: true, note: card.health.failure_label || "Unavailable"}
+      state when state in [:healthy, :partial, :stale] -> provider_windows(base, card, inputs.accounts, now)
+      :unknown -> unknown(base, Map.get(inputs.durable, card.provider))
+      :loading -> %{base | none: true, note: "Awaiting first observation"}
+      :signed_out -> %{base | none: true, note: "Not signed in"}
+      _ -> %{base | none: true, note: card.health.failure_label || "Unavailable"}
     end
-    |> codex_headroom(card, all_inputs, date_now)
-  end
-
-  # The CLI's `headroom: codex=...` comes from Account.Headroom's
-  # age-qualified usage reading. Keep the dashboard on that same source rather
-  # than the separate provider quota projection, which may not have a window.
-  defp codex_headroom(base, card, inputs, now)
-
-  defp codex_headroom(base, %{provider: :codex}, inputs, now) do
-    entry = Map.get(inputs.accounts, "default")
-    reading = headroom_reading(entry, now) || HeadroomDispatch.backend_reading("codex", now: now)
-    if reading == nil and entry == nil, do: base, else: codex_headroom_reading(base, reading)
-  end
-
-  defp codex_headroom(base, _card, _inputs, _now), do: base
-
-  defp codex_headroom_reading(base, reading) do
-    case Headroom.remaining_percent(reading) do
-      percent when is_integer(percent) and is_map(reading) ->
-        if Map.get(reading, :stale, false) or not Map.has_key?(reading, :observed_at) do
-          %{base | note: "Headroom unavailable (stale, #{Headroom.age_text(reading.age_seconds)} old)", observed_at: ms(Map.get(reading, :observed_at)), stale: true}
-        else
-          %{base | none: false, note: nil, observed_at: ms(Map.get(reading, :observed_at)), stale: false, session: %{acc: [100 - percent], reset_at: nil, win: nil}}
-        end
-
-      _unknown when is_map(reading) ->
-        %{base | note: "Headroom unavailable (stale, #{Headroom.age_text(reading.age_seconds)} old)", observed_at: ms(Map.get(reading, :observed_at)), stale: true}
-
-      _unknown ->
-        base
-    end
-  end
-
-  defp headroom_reading(%{reading: %{windows: windows}, observed_at: %DateTime{} = observed_at} = entry, now) when is_list(windows) do
-    used =
-      windows
-      |> Enum.filter(&(&1.window in ["hourly", "five_hour", "weekly", "seven_day"]))
-      |> Map.new(&{&1.window, &1.used_percent})
-
-    age = max(DateTime.diff(now, observed_at, :second), 0)
-    reading = if map_size(used) == 0, do: nil, else: %{windows: used, age_seconds: age, observed_at: observed_at}
-    max_age = configured_headroom_max_age()
-    if age > max_age or entry.freshness == :cached, do: Map.put(reading || %{}, :stale, true), else: reading
-  end
-
-  defp headroom_reading(_entry, _now), do: nil
-
-  defp configured_headroom_max_age do
-    Aiur.Config.settings!().agent.headroom_reading_max_age_seconds || 1800
-  rescue
-    _error -> 1800
   end
 
   defp unknown(base, %{percent: percent, observed_at: at}), do: %{base | none: true, note: "Last known #{percent}% (previous boot)", observed_at: ms(at), stale: true}

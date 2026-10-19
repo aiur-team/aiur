@@ -4,8 +4,6 @@ defmodule AiurWeb.DashboardLive do
   """
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.Accounts
-  alias Aiur.Accounts.UsageReadings
   alias Aiur.Agent.UsageSnapshotService
   alias Aiur.AgentChat
 
@@ -31,6 +29,7 @@ defmodule AiurWeb.DashboardLive do
     AddAgentSubmission,
     AgentLogModal,
     CapacityPresenter,
+    CodexHeadroomPresenter,
     ConversationDrawer,
     CurrentRunOutcomesPresenter,
     DashboardShell,
@@ -757,17 +756,7 @@ defmodule AiurWeb.DashboardLive do
         &Map.put_new(
           &1,
           :provider_meters_view,
-          ProviderMetersPresenter.present(
-            financial_data_capability(&1),
-            %{},
-            UsageReadings.snapshot(
-              "claude",
-              case Accounts.configured_names() do
-                [] -> ["default"]
-                names -> names
-              end
-            )
-          )
+          CodexHeadroomPresenter.provider_meters_view(financial_data_capability(&1), %{})
         )
       )
       |> Map.put_new(:provider_meters_announcement, nil)
@@ -1393,18 +1382,7 @@ defmodule AiurWeb.DashboardLive do
   defp apply_provider_meters(socket) do
     capability = financial_data_capability(socket.assigns)
 
-    view =
-      ProviderMetersPresenter.present(
-        capability,
-        socket.assigns.provider_meter_snapshots,
-        UsageReadings.snapshot(
-          "claude",
-          case Accounts.configured_names() do
-            [] -> ["default"]
-            names -> names
-          end
-        )
-      )
+    view = CodexHeadroomPresenter.provider_meters_view(capability, socket.assigns.provider_meter_snapshots)
 
     socket
     |> assign(:provider_meters_view, view)

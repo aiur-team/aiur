@@ -19,7 +19,7 @@ const fmtWD = t => new Date(t).toLocaleDateString('en-US', { weekday: 'short', m
 export function fmtWhen(t, now) {
   return (new Date(t).toDateString() === new Date(now).toDateString() ? '' : fmtWD(t) + ' ') + fmtT(t);
 }
-export const isLive = () => ctx.socket === 'up' && !st.linkDown && ctx.snap?.daemon?.state !== 'offline' && ctx.snap?.daemon?.state !== 'stale';
+export const isLive = () => ctx.socket === 'up' && !st.linkDown && ctx.snap?.daemon?.state === 'live';
 
 function banner(headline, heartbeat) {
   const now = nowMs();
@@ -63,23 +63,17 @@ function readAge(at, short) {
 export function daemonView() {
   const hint = ctx.snap ? null : ctx.mountDaemon ?? null;
   const daemon = hint ?? ctx.snap?.daemon;
-  const socketUp = ctx.socket === 'up' && !st.linkDown;
   // A mount hint is only a cached reading. Once it is old, don't let its former
   // live state keep the footer green while the page has no fresh snapshot.
   const hintAge = hint && Number.isFinite(hint.observed_at) && nowMs() !== null
     ? Math.max(0, nowMs() - hint.observed_at) : null;
   const hintStale = Boolean(hint && (hintAge === null || hintAge >= 30_000));
   const live = daemon?.state === 'live' && !hintStale;
-  // A connected LiveView socket is direct evidence that the daemon is
-  // reachable. Snapshot health can still describe stale fleet data, but must
-  // not claim the daemon is Offline while this page is receiving updates.
   const headline = st.linkDown ? 'Daemon unreachable'
-    : socketUp && daemon?.state === 'offline' ? null
-      : hintStale || daemon?.state === 'stale' ? 'Daemon stale'
-        : daemon?.state === 'offline' ? 'Daemon offline' : null;
-  const reachable = socketUp || (!headline && !live && Boolean(ctx.snap || hint));
+    : hintStale || daemon?.state === 'stale' ? 'Daemon stale'
+      : daemon?.state === 'offline' ? 'Daemon offline' : null;
+  const reachable = !headline && !live && Boolean(ctx.snap || hint) && ctx.socket === 'up';
   const text = short => (headline || (live ? 'Daemon live' + heldNote(short)
-    : socketUp && daemon?.state === 'offline' ? 'Daemon up · fleet snapshot reports offline' + heldNote(short)
     : reachable ? unreadText(daemon, short) + heldNote(short) : 'Daemon status unknown'))
     + (hint ? readAge(hint.observed_at, short) : '');
   return {
