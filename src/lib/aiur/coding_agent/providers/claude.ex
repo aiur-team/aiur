@@ -11,6 +11,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       adapter: Aiur.Claude.CodingAgent,
       transcript: Aiur.Claude.Transcript,
       launch_telemetry: Aiur.Claude.Telemetry,
+      children: [Aiur.Claude.Telemetry],
       family: "claude",
       config_default: true,
       rate_limit_fallback_target: true,

@@ -538,19 +538,19 @@ defmodule Aiur.GitHub.ResourceStore do
   end
 
   @doc """
-  Stores a validator for `key`. A `nil` or empty validator is discarded.
+  Stores a validator for `key`; a `nil` or empty one is discarded. Given `previous`, only while
+  `key` still holds it: a `304` answered against `previous` vouches for no other body (#5180).
 
-  This leaves the entry in the "validator, no body" state described in the
-  moduledoc unless a body is already held. A caller that wants a later `304` to
-  be able to *answer* rather than only say "unchanged" deposits the body with
-  `put_resource/3` instead.
+  Without a held body this leaves the moduledoc's "validator, no body" state; a caller whose
+  later `304` must *answer* rather than only say "unchanged" deposits the body with `put_resource/3`.
   """
-  @spec put_etag(key() | nil, String.t() | nil) :: :ok
-  def put_etag(nil, _etag), do: :ok
-  def put_etag(_key, etag) when not is_binary(etag) or etag == "", do: :ok
+  @spec put_etag(key() | nil, String.t() | nil, String.t() | nil | :any) :: :ok
+  def put_etag(key, etag, previous \\ :any)
+  def put_etag(nil, _etag, _previous), do: :ok
+  def put_etag(_key, etag, _previous) when not is_binary(etag) or etag == "", do: :ok
 
-  def put_etag(key, etag) do
-    update(key, fn entry -> Map.put(entry, :etag, etag) end)
+  def put_etag(key, etag, previous) do
+    update_reply(key, :ok, fn entry -> if previous in [:any, Map.get(entry, :etag)], do: {Map.put(entry, :etag, etag), :ok}, else: {:skip, :ok} end)
   end
 
   @doc """
