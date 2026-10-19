@@ -1,6 +1,9 @@
 defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
   use ExUnit.Case, async: false
 
+  # These tests keep startup-release routing beside its retry behavior: both
+  # assert the state and durable comment produced by orphan recovery.
+
   alias Aiur.Issue
   alias Aiur.Orchestrator.{StartupClaimReconciler, State}
 
