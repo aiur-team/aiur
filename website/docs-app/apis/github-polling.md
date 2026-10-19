@@ -85,6 +85,7 @@ A durable per-PR ledger records what they saw:
 - A ticket PR first seen already ready costs one issue-events read, once, to tell a former draft from a PR opened ready. A failed read is retried after a backoff, not on every poll.
 - First-sight backfill wakes carry `observation: "initial_sync"`: review if not already reviewed. Observed draft-to-ready transitions carry no marker.
 - Like the webhook, a PR opened ready gets no `ready_for_review`.
+- The CI poll re-raises a ready PR in `human-review` after `agent.unreviewed_pr_age_limit_minutes` (default 120) when the current head is green and has no review on that head. Any review counts, whatever its state or author, so a bot comment on the head silences it; a `CHANGES_REQUESTED` decision from an older head does not. It repeats with the same interval until the head changes or receives a review; the attention names the PR, ticket, head SHA and age. Its ready timestamp and retry deadline survive daemon restarts.
 - Wake records carry `head_sha` and, when cached review submissions provide it, `last_review_sha`; the Executor drops a ready wake when both match.
 
 Where a webhook is proven, the comment sweep becomes a reconciliation pass rather than a second source. It still reads everything, but a comment a delivery already handled is not published twice, so an agent wakes once per comment rather than once per path. See [Comments arriving twice](/apis/github-webhooks#comments-arriving-twice).
