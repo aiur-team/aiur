@@ -6,26 +6,6 @@ export const PAGES = [
   ['analytics', '/analytics']
 ]
 
-export function inspectBuildPage(root) {
-  if (!root) return { buildHydrated: false }
-
-  const unavailable = root.querySelector('.bd-loading')?.innerText.replace(/\s+/g, ' ').trim() || ''
-  const skeleton = Boolean(root.querySelector('.bd-skel, .bd-skel-lanes'))
-  const ticketCount = root.querySelectorAll('.bd-card[data-id], .lr[data-id]').length
-  const queueText = root.querySelector('#bd-sec-plan .bd-sech em, #bd-sec-plan .lh em')?.innerText || ''
-  const queueCount = queueText.match(/(\d[\d,]*)\s+in build-queue order\b/i)
-  const band = root.querySelector('.bd-now-empty')?.innerText.replace(/\s+/g, ' ').trim() || ''
-
-  return {
-    buildUnavailable: unavailable,
-    buildSkeleton: skeleton,
-    buildTicketCount: ticketCount,
-    buildOpenTicketCount: queueCount ? Number.parseInt(queueCount[1].replaceAll(',', ''), 10) : null,
-    buildBand: band,
-    buildHydrated: ticketCount > 0 || Boolean(root.querySelector('.bd-mk.empty')) || /Build timeline unavailable/i.test(unavailable)
-  }
-}
-
 export function buildDashboardIssues(name, snapshot, expectedActiveAgents = null) {
   if (name !== 'build') return []
 
