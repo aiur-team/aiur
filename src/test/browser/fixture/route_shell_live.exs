@@ -6,7 +6,7 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
 
   @impl true
   def mount(params, session, socket) do
-    if CommandAnswerFixture.configured?() do
+    if CommandAnswerFixture.configured?(params) do
       :ets.insert(
         AiurWeb.EndpointConfig.overrides_table(),
         {{self(), :decision_store}, CommandAnswerFixture.store_name()}
@@ -17,6 +17,10 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
         Process.sleep(CommandAnswerFixture.join_delay_ms())
         CommandAnswerFixture.join_completed!()
       end
+
+      # Production's live_session hooks, run here so the fixture keeps one root layout and LiveSocket.
+      {:cont, socket} = AiurWeb.DashboardPagesGate.on_mount(:default, params, session, socket)
+      {:cont, socket} = AiurWeb.FinancialDataAccess.on_mount(:default, params, session, socket)
 
       with {:ok, socket} <- DashboardLive.mount(params, session, socket) do
         {:ok, assign(socket, :fixture_command_answer_dashboard?, true)}

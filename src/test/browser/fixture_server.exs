@@ -81,11 +81,8 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/models-panel", Aiur.BrowserHarness.ModelsPanelLive, :index)
     live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
-
-    live_session :commands, root_layout: {AiurWeb.Layouts, :root}, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
-      live("/commands", Aiur.BrowserHarness.RouteShellLive, :decisions)
-      live("/commands/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
-    end
+    live("/commands", Aiur.BrowserHarness.RouteShellLive, :decisions)
+    live("/commands/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
   end
 
   scope "/" do

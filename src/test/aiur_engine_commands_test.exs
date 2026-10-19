@@ -73,7 +73,7 @@ defmodule AiurEngineCommandsTest do
     {out, 64} =
       run_sourced_engine(
         ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_operator_answer 'decision:42' --option build_content --operator|,
-        []
+        [{"AIUR_AGENT_WORKSPACE", "/tmp/agent-workspace"}]
       )
 
     assert out =~ "agents and Executors must not run it"

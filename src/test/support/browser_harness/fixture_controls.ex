@@ -90,7 +90,9 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
     end
   end
 
-  def configured?, do: is_binary(:persistent_term.get({__MODULE__, :decision_id}, nil))
+  # Only the seeded decision's URL mounts the real dashboard; other specs share this server.
+  def configured?(%{"decision_id" => decision_id}), do: decision_id == :persistent_term.get({__MODULE__, :decision_id}, nil)
+  def configured?(_params), do: false
 
   def join_delay_ms, do: :persistent_term.get({__MODULE__, :join_delay_ms}, 0)
   def join_started!, do: :persistent_term.put({__MODULE__, :join_state}, :joining)
