@@ -11,6 +11,9 @@ import sys
 PROTECTED_PATH = re.compile(r"(?:/tmp/\.(?:X11-unix|ICE-unix)(?:/|\b)|/tmp/\.X[^/\s'\"]*-lock(?:$|[/\s'\"])|/tmp\b.*['\"]\.X(?:11-unix|ICE-unix|[^'\"]*-lock)['\"])")
 TMP_GLOB = re.compile(r"/tmp/(?:\*|\.[^/\s'\"]*\*)|/tmp\b.*['\"]\.\*['\"]")
 DELETE_COMMAND = re.compile(r"\b(?:rm|find)\b")
+TMP_FIND_ROOT = re.compile(r"\bfind\s+(?:--\s+)?/tmp(?:/)?(?:\s|$)")
+DESTRUCTIVE_FIND = re.compile(r"(?:^|\s)(?:-delete|-exec(?:dir)?)(?:\s|$)")
+TMPFILES_CLEAN = re.compile(r"\bsystemd-tmpfiles\b[^;&|\n]*\s--clean(?:\s|$)")
 
 
 def main() -> int:
@@ -26,7 +29,10 @@ def main() -> int:
     if not isinstance(command, str):
         return 0
 
-    if DELETE_COMMAND.search(command) and (PROTECTED_PATH.search(command) or TMP_GLOB.search(command)):
+    destructive_tmp_find = TMP_FIND_ROOT.search(command) and DESTRUCTIVE_FIND.search(command)
+    if TMPFILES_CLEAN.search(command) or destructive_tmp_find or (
+        DELETE_COMMAND.search(command) and (PROTECTED_PATH.search(command) or TMP_GLOB.search(command))
+    ):
         print(
             "aiur: refusing deletion under /tmp X11 paths or a /tmp glob. "
             "Delete only exact paths you created; never sweep /tmp.",
