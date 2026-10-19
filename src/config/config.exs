@@ -272,6 +272,10 @@ if config_env() == :test do
   # per-VM isolation. Aiur.TestSupport gives each case its own root.
   config :aiur, :machine_state_dir, Path.join(test_log_root, "machine")
   config :aiur, :runtime_state_dir, Path.join(test_log_root, "runtime-state")
+  # Background Codex probes launch relay processes outside a test's lifecycle;
+  # tests that cover this behavior opt in explicitly to avoid writing into
+  # another case's runtime root.
+  config :aiur, :codex_usage_probe_async?, false
   config :aiur, :workspace_ownership_sync_fun, fn -> :ok end
 
   config :aiur, :server_host_override, "127.0.0.1"

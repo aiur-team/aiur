@@ -12,7 +12,8 @@ export default class GitHubFailureReporter {
   }
 
   onEnd() {
-    if (process.env.GITHUB_ACTIONS !== 'true') return
+    // An expected-failure run (verify-failure-artifacts.mjs) writes no failure annotation.
+    if (process.env.GITHUB_ACTIONS !== 'true' || process.env.AIUR_BROWSER_EXPECT_FAILURE === '1') return
     for (const line of failedSpecAnnotationLines(this.#failures)) this.write(line)
   }
 }

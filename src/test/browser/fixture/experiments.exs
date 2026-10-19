@@ -26,6 +26,7 @@ defmodule Aiur.BrowserHarness.ExperimentsFixture do
     if scenario == "mixed" do
       write_spec(root, "valid_line", "release-speed", "Release delivery speed", "2026-10-09T00:00:00Z", "delivery-speed/start_to_merge")
       write_charts(root)
+      write_report(root)
       write_spec(root, "valid_ab", "cohort-speed", "Cohort delivery speed", "2026-10-08T00:00:00Z", "delivery-speed/start_to_merge")
     end
 
@@ -37,6 +38,14 @@ defmodule Aiur.BrowserHarness.ExperimentsFixture do
     end
 
     Application.put_env(:aiur, :experiments_dir, root)
+  end
+
+  defp write_report(root) do
+    report = Path.expand("../../fixtures/experiments/report.valid.json", __DIR__) |> File.read!() |> Jason.decode!()
+    report = report |> put_in(["header", "experiment_id"], "release-speed") |> put_in(["header", "generated_at"], DateTime.utc_now() |> DateTime.add(-86_400, :second) |> DateTime.to_iso8601())
+    directory = Path.join([root, "release-speed", "report"])
+    File.mkdir_p!(directory)
+    File.write!(Path.join(directory, "contract.json"), Jason.encode!(%{"first_results_read_at" => nil, "preregistration" => nil, "reports" => [report]}))
   end
 
   defp write_charts(root) do
@@ -51,7 +60,7 @@ defmodule Aiur.BrowserHarness.ExperimentsFixture do
 
     entries =
       Enum.map(detail["snapshots"], fn snapshot ->
-        snapshot = snapshot |> Map.put("experiment_id", "release-speed") |> Map.put("sha256", nil) |> Map.delete("sha256")
+        snapshot = snapshot |> Map.put("computed_at", DateTime.utc_now() |> DateTime.to_iso8601()) |> Map.put("experiment_id", "release-speed") |> Map.put("sha256", nil) |> Map.delete("sha256")
         snapshot = Map.put(snapshot, "sha256", Evidence.hash(snapshot))
         File.write!(Path.join(snapshots, "#{snapshot["window_name"]}.r1.json"), Jason.encode!(snapshot))
         Jason.encode!(%{"schema_version" => 1, "kind" => "frozen", "window" => snapshot["window_name"], "revision" => 1, "sha256" => snapshot["sha256"]})

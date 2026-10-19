@@ -1,6 +1,9 @@
 defmodule Aiur.Tracker.CodeHost do
   @moduledoc "Pull-request and review reads provided by a code host."
 
+  @callback ci_readiness() :: module() | nil
+  @optional_callbacks ci_readiness: 0
+
   @callback fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   @callback fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   @callback fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) ::

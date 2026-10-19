@@ -117,6 +117,7 @@ export function renderOffline() {
     st.ticking = true; ctx.life.every(30_000, () => { if (daemonView().banner) renderOffline(); });
   }
   if (wasDown !== st.linkDown) fx.renderStatus?.();
+  fx.refreshBandClock?.();
 }
 function paintBanner(host, info) {
   host.innerHTML = info ? `<div class="bd-offline" role="status">${I.warn}<div><b>${esc(info.headline)}</b>${esc(info.detail)}</div><button class="btn secondary sm" type="button" id="bd-retry"${st.retry ? ' disabled' : ''}>${st.retry ? 'Reconnecting…' : 'Reconnect'}</button></div>` : '';

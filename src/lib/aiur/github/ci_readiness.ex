@@ -7,6 +7,11 @@ defmodule Aiur.GitHub.CiReadiness do
   init errors, dispatch warnings, and operator status output.
   """
 
+  @behaviour Aiur.CodeHost.CiReadiness
+
+  @impl true
+  defdelegate retryable_error?(reason), to: Aiur.GitHub.Errors, as: :retryable_github_error?
+
   alias Aiur.{Config, Workflow}
   alias Aiur.GitHub.CiReadiness.{Assessment, RepositoryReads, WorkflowRules}
   alias Aiur.GitHub.Transport
@@ -69,6 +74,7 @@ defmodule Aiur.GitHub.CiReadiness do
   def operator_token_env, do: @operator_token_env
 
   @doc false
+  @impl true
   @spec check_fun() :: (keyword() -> {:ok, result()} | {:error, term()})
   def check_fun do
     Application.get_env(:aiur, :ci_readiness_check_fun, &dispatch_check/1)
@@ -94,10 +100,12 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   @doc false
+  @impl true
   @spec unavailable(String.t(), term()) :: result()
   def unavailable(base_branch, reason) when is_binary(base_branch), do: result(base_branch, [], [], [], [{:unavailable, reason}])
 
   @doc "Formats a repository-readiness failure for an operator without exposing credentials."
+  @impl true
   @spec error_message(term()) :: String.t()
   def error_message({:github_org_repository_not_accessible, %{organization: organization, repo: repo, token_type: token_type}}) do
     "Cannot read #{repo} with the configured token. GitHub returns 404 (not 403) for inaccessible private organization resources, " <>
@@ -113,10 +121,12 @@ defmodule Aiur.GitHub.CiReadiness do
   def error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"
 
   @doc false
+  @impl true
   @spec cache_result(result(), keyword()) :: :ok
   defdelegate cache_result(result, opts \\ []), to: Assessment
 
   @doc false
+  @impl true
   @spec cached_result(keyword()) :: result() | :unavailable
   defdelegate cached_result(opts \\ []), to: Assessment
 
@@ -134,6 +144,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defdelegate assessment_path(config_path \\ Workflow.workflow_file_path()), to: Assessment
 
   @doc false
+  @impl true
   @spec readiness_scope(keyword()) :: {String.t(), String.t(), String.t()}
   defdelegate readiness_scope(opts \\ []), to: Assessment
 
@@ -270,6 +281,7 @@ defmodule Aiur.GitHub.CiReadiness do
     result(base_branch, Enum.map(pr_workflows, &elem(&1, 0)), workflow_check_names, required_checks, required_check_identities, issues)
   end
 
+  @impl true
   @spec format(result() | term()) :: String.t()
   def format(%{ready?: true, base_branch: base_branch, required_checks: checks}) do
     "CI readiness: ready for #{base_branch} (required: #{Enum.join(checks, ", ")})"

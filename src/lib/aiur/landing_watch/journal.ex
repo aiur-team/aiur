@@ -170,6 +170,15 @@ defmodule Aiur.LandingWatch.Journal do
     update(opts, fn state -> {:ok, Map.put(state, "flakes", Map.delete(Map.get(state, "flakes", %{}), identity))} end)
   end
 
+  @doc "Remembers the fix ticket filed for a flaky test identity, so a quarantine retry needs no new issue search."
+  @spec put_flake_ticket(String.t(), pos_integer(), keyword()) :: :ok | {:error, term()}
+  def put_flake_ticket(identity, ticket, opts \\ []) when is_binary(identity) and is_integer(ticket) do
+    update(opts, fn state ->
+      tickets = state |> Map.get("flake_tickets", %{}) |> Map.put(identity, ticket)
+      {:ok, Map.put(state, "flake_tickets", tickets)}
+    end)
+  end
+
   @spec record_failure_observation(map(), keyword()) :: :ok | {:error, term()}
   def record_failure_observation(row, opts \\ []) when is_map(row) do
     update(opts, fn state ->
@@ -221,7 +230,18 @@ defmodule Aiur.LandingWatch.Journal do
       update(opts, fn state ->
         {:ok,
          Map.filter(state, fn {entry_key, _} ->
-           entry_key in ["flakes", "merge_group_runs", "merge_group_run_failures", "quarantine_merge_group_runs", "merge_group_requeues", "ci_merges"] or MapSet.member?(retained, entry_key)
+           entry_key in [
+             "flakes",
+             "flake_tickets",
+             "failure_observations",
+             "quarantine_retries",
+             "merge_group_runs",
+             "merge_group_run_failures",
+             "quarantine_merge_group_runs",
+             "merge_group_requeues",
+             "ci_merges"
+           ] or
+             MapSet.member?(retained, entry_key)
          end)}
       end)
     else
