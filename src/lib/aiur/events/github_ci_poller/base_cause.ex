@@ -6,7 +6,8 @@ defmodule Aiur.Events.GithubCIPoller.BaseCause do
   is caused by the PR. A check red on the base too is inherited. When MainWatch
   never recorded the base (merge-queue or cancelled push runs), a failing check
   that appears nowhere in its history is still the PR's; otherwise the cause
-  is unknown. Without MainWatch there is no base evidence, so every red counts
+  is unknown, and `Recovery` holds it for about one main CI run before routing,
+  since that base may never be recorded. Without MainWatch there is no base evidence, so every red counts
   as the PR's.
   """
 
