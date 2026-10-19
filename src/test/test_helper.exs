@@ -88,6 +88,8 @@ test_run_root =
   Aiur.TestTmp.start!(Path.join(System.tmp_dir!(), "aiur-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"))
 
 Application.put_env(:aiur, :test_run_root, test_run_root)
+# Teardown reaps ticket containers; tests must never reach the host's Docker daemon.
+Application.put_env(:aiur, :docker_cleanup_command, fn "docker", _args, _opts -> {"", 0} end)
 
 # The run root's late writers (#4866): `Aiur.RunTelemetry.Writer` and
 # `Aiur.SaturationSentinel` read `:log_file` once at init, so one restarted
@@ -119,6 +121,7 @@ ExUnit.configure(formatters: ExUnit.configuration()[:formatters] ++ [Aiur.TestSu
 ExUnit.after_suite(fn _result -> Aiur.TestSupport.OrchestratorGuard.verify_suite!() end)
 Code.require_file("support/test_support/endpoint_stubs.exs", __DIR__)
 Code.require_file("support/test_support/processes.exs", __DIR__)
+Code.require_file("support/test_support/runner_tasks.exs", __DIR__)
 Code.require_file("support/test_support/workflow_files.exs", __DIR__)
 Code.require_file("support/test_scope_guard.exs", __DIR__)
 Code.require_file("support/test_support.exs", __DIR__)
