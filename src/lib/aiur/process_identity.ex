@@ -1,9 +1,22 @@
 defmodule Aiur.ProcessIdentity do
   @moduledoc false
+  @alive_probe_timeout_ms 250
 
   @spec alive?(nil | integer()) :: boolean()
   def alive?(os_pid) when is_integer(os_pid) and os_pid > 0 do
-    match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true))
+    proc_root = Process.get({__MODULE__, :proc_root}, "/proc")
+
+    case File.stat(proc_root) do
+      {:ok, %File.Stat{type: :directory}} ->
+        case File.stat(Path.join(proc_root, Integer.to_string(os_pid))) do
+          {:ok, %File.Stat{type: :directory}} -> true
+          {:error, :enoent} -> false
+          _ -> bounded_kill_probe(os_pid)
+        end
+
+      _ ->
+        bounded_kill_probe(os_pid)
+    end
   rescue
     # A probe failure is not evidence that a process is gone. Callers use this
     # result to decide whether destructive cleanup or stale-lock recovery is safe.
@@ -11,6 +24,45 @@ defmodule Aiur.ProcessIdentity do
   end
 
   def alive?(_os_pid), do: false
+
+  defp bounded_kill_probe(os_pid) do
+    case System.find_executable("kill") do
+      nil -> true
+      executable -> run_kill_probe(executable, os_pid)
+    end
+  rescue
+    _ -> true
+  end
+
+  defp run_kill_probe(executable, os_pid) do
+    port =
+      Port.open({:spawn_executable, String.to_charlist(executable)}, [
+        :exit_status,
+        :hide,
+        args: ["-0", Integer.to_string(os_pid)]
+      ])
+
+    try do
+      receive do
+        {^port, {:exit_status, 0}} -> true
+        {^port, {:exit_status, _status}} -> false
+      after
+        @alive_probe_timeout_ms ->
+          Port.close(port)
+          true
+      end
+    after
+      flush_port_messages(port)
+    end
+  end
+
+  defp flush_port_messages(port) do
+    receive do
+      {^port, _message} -> flush_port_messages(port)
+    after
+      0 -> :ok
+    end
+  end
 
   @spec resolve(nil | integer()) :: {:ok, term()} | :gone | :unknown
   def resolve(os_pid) when is_integer(os_pid) and os_pid > 0 do
