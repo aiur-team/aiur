@@ -26,6 +26,16 @@ defmodule Aiur.CodingAgent.ProvidersView do
   @spec backends() :: %{backend() => Aiur.CodingAgent.Backend.capabilities()}
   def backends, do: Registry.entries()
 
+  @doc "Child specs registry entries declare under `:children`, de-duplicated, in `init_order`."
+  @spec child_specs(%{backend() => Aiur.CodingAgent.Backend.capabilities()}) ::
+          [Supervisor.child_spec() | module() | {module(), term()}]
+  def child_specs(entries \\ backends()) do
+    entries
+    |> Enum.sort_by(fn {backend, entry} -> {Map.get(entry, :init_order, 9_999), backend} end)
+    |> Enum.flat_map(fn {_backend, entry} -> Map.get(entry, :children, []) end)
+    |> Enum.uniq_by(&Supervisor.child_spec(&1, []).id)
+  end
+
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
