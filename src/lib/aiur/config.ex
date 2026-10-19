@@ -3,7 +3,7 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
-  alias Aiur.Config.{Schema, SemanticChecks}
+  alias Aiur.Config.{Schema, SemanticChecks, TestRunOverrides}
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
@@ -13,7 +13,7 @@ defmodule Aiur.Config do
   # `System.tmp_dir!/0`, which reads TMPDIR/TEMP/TMP before its non-environment
   # fallbacks. Anything added to those paths must be added here, or the settings
   # memo will not expire when the variable changes.
-  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE ELEVENLABS_API_KEY AIUR_DEFAULT_DASHBOARD_HOST TMPDIR TEMP TMP)
+  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE ELEVENLABS_API_KEY AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEV_TEST_TICKET_IDS TMPDIR TEMP TMP)
 
   @type codex_runtime_settings :: %{
           approval_policy: String.t(),
@@ -151,7 +151,9 @@ defmodule Aiur.Config do
 
   @doc false
   @spec settings_from({:ok, map()} | {:error, term()}) :: {:ok, Schema.t()} | {:error, term()}
-  def settings_from({:ok, %{config: config}}) when is_map(config), do: config |> prepare_config() |> Schema.parse()
+  def settings_from({:ok, %{config: config}}) when is_map(config),
+    do: config |> prepare_config() |> Schema.parse() |> TestRunOverrides.apply()
+
   def settings_from({:error, reason}), do: {:error, reason}
 
   @spec settings!() :: Schema.t()

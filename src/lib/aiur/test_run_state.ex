@@ -1,6 +1,10 @@
 defmodule Aiur.TestRunState do
   @moduledoc false
 
+  # Whether this daemon is an `aiurdev --test` / `--test3` sandbox run.
+  @spec active?() :: boolean()
+  def active?, do: System.get_env("AIUR_DEV_TEST_TICKET_IDS") not in [nil, ""]
+
   @spec scope_root() :: {:ok, Path.t()} | {:error, :missing_test_state_dir} | :ordinary
   def scope_root do
     case {System.get_env("AIUR_DEV_TEST_TICKET_IDS"), System.get_env("AIUR_DEV_TEST_STATE_DIR")} do
