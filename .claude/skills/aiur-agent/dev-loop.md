@@ -232,6 +232,9 @@ The Elixir examples below apply only to Aiur's Elixir core.
    CI gate; do not assume it has `make ci`. For Aiur's Elixir core, do not gate
    PR-opening on a clean full-suite `mix test` run: the merge queue runs full CI.
 
+   On a flake ticket, run the quarantined test or spec with `AIUR_RUN_QUARANTINED=1`.
+   Without it the run skips the quarantined entry, reports 0 tests and exits 0: that is not a pass.
+
    **For an Elixir failure that looks impossible, rule out a stale test
    build.** `mix compile --force` rebuilds `dev`, **not** `test`, so a stale
    artifact in `_build/test` survives it. Use:

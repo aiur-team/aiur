@@ -173,6 +173,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   def body(ctx, identity, ticket, observations, base_sha, commit_sha) do
     runs = observations |> Enum.map(& &1.run_url) |> Enum.uniq() |> Enum.map_join("\n", &"- #{&1}")
     list = ctx.path
+    {skip, scope} = skip_scope(identity)
 
     """
     Refs ##{ticket}
@@ -183,11 +184,11 @@ defmodule Aiur.LandingWatch.QuarantinePR do
 
     #### TL;DR
 
-    *Skip one flaky test in blocking CI until ##{ticket} fixes it.*
+    *Skip #{skip} in blocking CI until ##{ticket} fixes it.*
 
     #### Summary
 
-    - Adds one line to `#{list}`; blocking CI skips the test and the non-blocking quarantine job still runs it.
+    - Adds one line to `#{list}`; blocking CI skips #{scope} and the non-blocking quarantine job still runs it.
     - The landing watcher opened this PR. Failed runs:
     #{runs}
 
@@ -215,6 +216,10 @@ defmodule Aiur.LandingWatch.QuarantinePR do
     - `none` -> not run; the daemon generated this list change
     """
   end
+
+  # A browser entry skips every test in its spec file, so the body names the file.
+  defp skip_scope("BrowserSpec :: " <> spec), do: {"the flaky spec file `#{spec}`", "every test in `#{spec}`"}
+  defp skip_scope(_identity), do: {"one flaky test", "the test"}
 
   defp enable_auto_merge(ctx, %{"node_id" => id}) when is_binary(id) do
     case Transport.github_graphql(request(ctx.opts), ctx.token, @auto_merge, %{"id" => id}, caller: "landing_watch_quarantine_auto_merge") do

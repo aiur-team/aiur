@@ -19,6 +19,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { buildDashboardIssues, PAGES } from './capture-dashboard-build.mjs'
+import { inspectPage } from './capture-dashboard-page.mjs'
+export { inspectPage }
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '../../../../')
@@ -39,13 +42,6 @@ const EXPECTED_ACTIVE_AGENTS = nonNegativeInteger(process.env.AIUR_META_EXPECTED
 const PLAYWRIGHT_ROOT = process.env.AIUR_META_PLAYWRIGHT_ROOT || path.join(REPOSITORY_ROOT, 'src/browser')
 const BOOTSTRAP_PATH = process.env.AIUR_META_BOOTSTRAP_PATH
 
-const PAGES = [
-  ['units', '/'],
-  ['commands', '/commands'],
-  ['build-orders', '/build-orders'],
-  ['analytics', '/analytics']
-]
-
 // No dashboard noise is baselined by default. The historic entry here was the
 // `/conversation-drawer-hook.js` 404 from the missing Plug.Static (#1681);
 // that issue is closed and the endpoint serves the asset, so keeping the rule
@@ -64,6 +60,7 @@ export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null
 
   for (const issue of metricColumns) issues.push(issue)
   for (const issue of filterCounts) issues.push(issue)
+  issues.push(...buildDashboardIssues(name, snapshot, expectedActiveAgents))
   for (const banner of snapshot.staleBanners) issues.push({ kind: 'stale-banner', detail: banner })
   for (const errorState of snapshot.errorStates || []) issues.push({ kind: 'error-state', detail: errorState })
   for (const emptyState of snapshot.emptyStates) {
@@ -378,84 +375,7 @@ function loadChromium() {
   return require('@playwright/test').chromium
 }
 
-export async function inspectPage(page, name) {
-  return page.evaluate((pageName) => {
-    const text = document.body ? document.body.innerText : ''
-    const visible = (element) => {
-      const style = window.getComputedStyle(element)
-      return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0
-    }
-    const tables = Array.from(document.querySelectorAll('table')).map((table) => ({
-      label: table.getAttribute('aria-label') || table.querySelector('caption')?.innerText?.trim() || table.className,
-      headers: Array.from(table.querySelectorAll('thead th')).map((cell) => cell.innerText.trim()),
-      rows: Array.from(table.querySelectorAll('tbody tr')).map((row) => Array.from(row.querySelectorAll('td')).map((cell) => cell.innerText.trim())),
-      hasBody: Boolean(table.querySelector('tbody'))
-    }))
-    const filterGroups = Array.from(document.querySelectorAll('.filter-row[aria-label]'))
-      .filter(visible)
-      .map((group) => ({
-        label: group.getAttribute('aria-label') || 'Filters',
-        scope: group.getAttribute('data-count-scope'),
-        options: Array.from(group.querySelectorAll('button.filter-chip')).map((button) => ({
-          label: button.getAttribute('data-count-label') || button.innerText.trim(),
-          count: Number.parseInt(button.querySelector('.count')?.innerText.trim(), 10)
-        }))
-      }))
-    const countSummaries = Array.from(document.querySelectorAll('.history-count'))
-      .filter(visible)
-      .flatMap((element) => {
-        const match = element.innerText.match(/(\d+)\s+of\s+(\d+)/i)
-        if (!match) return []
-
-        const section = element.closest('section')
-        const label = section?.querySelector('.recent-subtitle')?.innerText.trim() || 'Table'
-        return [{ label, scope: element.getAttribute('data-count-scope'), loaded: Number(match[1]), total: Number(match[2]) }]
-      })
-    const staleBanners = Array.from(document.querySelectorAll('[role="status"], [role="alert"], .readonly-banner, .bo-state-card'))
-      .filter(visible)
-      .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
-      .filter((value) => /\bstale\b|not fresh|frozen|out of date/i.test(value))
-    const kpis = Array.from(document.querySelectorAll('.an-kpi')).map((card) => ({
-      label: card.querySelector('.an-kpi-label')?.innerText.trim() || '',
-      value: card.querySelector('.an-kpi-val')?.innerText.trim() || '',
-      sub: card.querySelector('.an-kpi-sub')?.innerText.trim() || ''
-    }))
-    const emptyStates = Array.from(document.querySelectorAll('.bo-state-card, .an-empty, .units-state.empty-state:not(.filtered-empty)'))
-      .filter(visible)
-      .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
-      .filter((value) => /no build orders|no run telemetry|no units have been observed|no active agents|no live units|loading units/i.test(value))
-    const errorStates = Array.from(document.querySelectorAll('[role="alert"], .bo-state-card, .an-empty, .error-card, .empty-state, .readonly-banner'))
-      .filter(visible)
-      .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
-      .filter((value) => /\bunavailable\b|\bstructurally invalid\b|\berror\b|\bfailed\b|could not|unable to/i.test(value))
-    const primaryContentSelector = {
-      units: '#units-rows .units-row',
-      commands: '.decision-inbox',
-      'build-orders': '.bo-catalog-table, .bo-selected-summary',
-      analytics: '#analytics-page .an-kpis'
-    }[pageName]
-    const metricCells = tables.flatMap((table) => table.rows.flatMap((row, rowIndex) => row.map((value, index) => ({ value, header: table.headers[index], rowIndex }))))
-    const hasNAInMetric = metricCells.some((cell) => cell.value.trim() === 'N/A' && /progress|ticket|epic|wave|member|active|complete|capacity|concurrency|cpu|cost|count|total/i.test(cell.header || ''))
-
-    return {
-      title: document.title,
-      text,
-      chars: text.length,
-      liveViewConnected: Boolean(document.querySelector('[data-phx-main], [data-phx-session]')),
-      primaryContent: Boolean(primaryContentSelector && document.querySelector(primaryContentSelector)),
-      tables,
-      filterGroups,
-      countSummaries,
-      staleBanners,
-      emptyStates,
-      errorStates,
-      kpis,
-      hasNAInMetric
-    }
-  }, name)
-}
-
-async function runPageCapture(page, name, route, knownNoise) {
+export async function runPageCapture(page, name, route, knownNoise, baseUrl = BASE) {
   const consoleErrors = []
   const failedRequests = []
   page.on('console', (message) => {
@@ -471,8 +391,16 @@ async function runPageCapture(page, name, route, knownNoise) {
   let navigationError = null
   const started = Date.now()
   try {
-    const response = await page.goto(new URL(route, BASE).toString(), { waitUntil: 'domcontentloaded', timeout: 45_000 })
+    const response = await page.goto(new URL(route, baseUrl).toString(), { waitUntil: 'domcontentloaded', timeout: 45_000 })
     status = response?.status() ?? null
+    if (name === 'build') {
+      await page.waitForFunction(() => {
+        const root = document.querySelector('#build-root')
+        if (!root) return false
+        return Boolean(root.querySelector('.bd-card[data-id], .lr[data-id], .bd-mk.empty') ||
+          /Build timeline unavailable/i.test(root.querySelector('.bd-loading')?.innerText || ''))
+      }, null, { timeout: SETTLE_MS })
+    }
     await page.waitForTimeout(SETTLE_MS)
   } catch (error) {
     navigationError = String(error).slice(0, 300)

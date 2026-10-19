@@ -45,6 +45,12 @@ export function quarantineArgs(entries, environment = process.env) {
   return ['--grep-invert', specPattern(entries), '--pass-with-no-tests']
 }
 
+// A run of only quarantined specs reports 0 tests and exits 0; say why, so nobody reads it as a pass.
+export function quarantineNotices(entries, environment = process.env) {
+  if (quarantineArgs(entries, environment).length === 0) return []
+  return entries.map(entry => `Skipped by quarantine (${entry.ticket}): ${runnableSpec(entry)}; set AIUR_RUN_QUARANTINED=1 to run it.`)
+}
+
 // Playwright keeps only the last --grep-invert, so fold a caller's filter into the quarantine one.
 export function withQuarantine(args, entries, environment = process.env) {
   const [flag, pattern, ...rest] = quarantineArgs(entries, environment)
