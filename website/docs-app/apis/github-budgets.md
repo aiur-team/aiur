@@ -14,6 +14,8 @@ Main-watch polling, and the base-branch fixer it drives, may hold one lease abov
 
 Startup claim reconciliation retries a release refused by a budget hold on every candidate poll without spending an attempt. It raises `startup_claim_reconciliation_failed` only if the hold lasts ten minutes.
 
+Landing-watch observation and per-PR reads, plus issue-provenance timeline reads, wait out bounded local holds before reporting an unavailable poll or deferred dispatch authorization. Landing-watch does not retry a whole poll after processing starts, so a late hold cannot repeat earlier journal or PR actions.
+
 `Errors.outcome/1` sorts results into `:complete`, `:held` (never sent), `:unknown` (may still apply) or `:failed`; an unknown review-thread reply is reconciled by reading the thread, never reposted.
 
 Resident broker exits also back off as local holds; the next call restarts the

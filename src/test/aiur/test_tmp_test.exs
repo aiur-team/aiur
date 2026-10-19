@@ -50,6 +50,38 @@ defmodule Aiur.TestTmpTest do
     refute File.exists?(stale)
   end
 
+  test "sweep keeps a run when its process liveness probe times out", %{base: base} do
+    {output, 0} = System.cmd("sh", ["-c", "echo $$"])
+    pid = output |> String.trim() |> String.to_integer()
+    stale = Path.join(base, "run-1-#{pid}-3")
+    File.mkdir!(stale)
+    test_pid = self()
+
+    blocking_probe = fn probed_pid ->
+      send(test_pid, {:liveness_probe_started, probed_pid})
+
+      receive do
+        :release -> false
+      end
+    end
+
+    probe_key = {Aiur.TestTmp, :alive_probe}
+    previous_probe = Process.put(probe_key, blocking_probe)
+
+    warning =
+      try do
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          Aiur.TestTmp.sweep!(base, File.stat!(stale).uid)
+        end)
+      after
+        if previous_probe, do: Process.put(probe_key, previous_probe), else: Process.delete(probe_key)
+      end
+
+    assert_receive {:liveness_probe_started, ^pid}, 1_000
+    assert warning =~ "liveness probe timed out"
+    assert File.dir?(stale)
+  end
+
   test "sweep warns and continues past a dead run it cannot remove", %{base: base} do
     {output, 0} = System.cmd("sh", ["-c", "echo $$"])
     dead_pid = output |> String.trim() |> String.to_integer()
