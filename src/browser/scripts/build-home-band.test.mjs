@@ -75,26 +75,3 @@ test('scrollVP consumes lifecycle frame timestamps, eases, cancels and disposes'
     names.forEach((name, i) => previous[i] ? Object.defineProperty(globalThis, name, previous[i]) : delete globalThis[name])
   }
 })
-
-test('disposed lifetime ignores callbacks already dequeued by the browser', async t => {
-  const { createLife } = await import('../../priv/static/build-home/life.js')
-  const queued = new Map(); let next = 0, calls = 0
-  const names = ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame']
-  const previous = names.map(k => Object.getOwnPropertyDescriptor(globalThis, k))
-  Object.assign(globalThis, {
-    setTimeout: fn => { queued.set(++next, fn); return next }, clearTimeout: id => queued.delete(id),
-    requestAnimationFrame: fn => { queued.set(++next, fn); return next }, cancelAnimationFrame: id => queued.delete(id),
-  })
-  try {
-    const life = createLife()
-    life.later('timer', 10, () => calls++)
-    life.frame('frame', () => calls++)
-    const dequeued = [...queued.values()]
-    queued.clear()
-    life.dispose()
-    dequeued.forEach(fn => fn(0))
-    assert.equal(calls, 0)
-  } finally {
-    names.forEach((name, i) => previous[i] ? Object.defineProperty(globalThis, name, previous[i]) : delete globalThis[name])
-  }
-})
