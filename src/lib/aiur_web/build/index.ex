@@ -119,7 +119,8 @@ defmodule AiurWeb.Build.Index do
     Process.cancel_timer(state.task.deadline)
     dirty = dirty_set(state.task.dirty)
     parts = clear_read_staleness(parts, dirty)
-    {:noreply, finish(%{state | task: nil, failures: 0}, parts, dirty)}
+    failures = if match?({:error, _}, parts[:now]), do: state.failures, else: 0
+    {:noreply, finish(%{state | task: nil, failures: failures}, parts, dirty)}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref}} = state) do

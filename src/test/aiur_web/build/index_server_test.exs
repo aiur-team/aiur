@@ -93,7 +93,7 @@ defmodule AiurWeb.Build.IndexServerTest do
     refute_received {:trace, _, :call, {:persistent_term, :put, _}}
   end
 
-  test "failed now source retries with backoff without waiting for another signal" do
+  test "consecutive now failures back off exponentially and recover without another signal" do
     parent = self()
     initial = parts()
     recovered = put_in(initial, [:now, :rows], %{"12" => now_row(12)})
@@ -128,10 +128,19 @@ defmodule AiurWeb.Build.IndexServerTest do
     send(pid, :flush)
     receive_barrier({:retry_read, worker, dirty})
     assert MapSet.member?(dirty, :now)
-    send(worker, {:return, %{initial | now: {:error, :running_snapshot_timeout}}})
-    assert await_read_finish(pid, 100)
-    assert_receive {:retry_timer, ^pid, :flush, delay}, 1_000
-    assert delay >= 250
+
+    Enum.reduce([500, 1_000, 2_000, 4_000, 8_000, 16_000], worker, fn expected_delay, read_worker ->
+      send(read_worker, {:return, %{initial | now: {:error, :running_snapshot_timeout}}})
+      assert await_read_finish(pid, 100)
+      assert_receive {:retry_timer, ^pid, :flush, ^expected_delay}, 1_000
+
+      if expected_delay != 16_000 do
+        send(pid, :flush)
+        receive_barrier({:retry_read, retry_worker, retry_dirty})
+        assert retry_dirty == MapSet.new([:now])
+        retry_worker
+      end
+    end)
 
     send(pid, :flush)
     receive_barrier({:retry_read, retry_worker, retry_dirty})
@@ -140,6 +149,7 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert await_read_finish(pid, 100)
     assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
     assert Enum.map(snapshot.sections.now, & &1.id) == ["12"]
+    refute_received {:retry_timer, ^pid, :flush, _delay}
   end
 
   test "a mount cuts its window in the caller, not in the shared server", %{pid: pid} do

@@ -45,8 +45,15 @@ defmodule AiurWeb.Build.IndexReader do
       snapshot_fun = Keyword.get(opts, :running_rows_fun, &Freshness.read_running_rows/1)
 
       case snapshot_fun.(opts) do
-        {:ok, agents} when is_list(agents) ->
-          rows = Enum.map(agents, &now_row/1) |> Enum.reject(&is_nil/1)
+        {:ok, %{statuses: statuses, running: running}} when is_list(statuses) and is_list(running) ->
+          running_by_identifier = Map.new(running, &{Map.get(&1, :identifier), &1})
+
+          rows =
+            Enum.map(statuses, fn status ->
+              now_row(status, Map.get(running_by_identifier, Map.get(status, :identifier), %{}))
+            end)
+            |> Enum.reject(&is_nil/1)
+
           NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
 
         {:error, :timeout} ->
@@ -61,35 +68,30 @@ defmodule AiurWeb.Build.IndexReader do
   defp producer_rows(%{rows: rows}) when is_map(rows), do: Map.values(rows)
   defp producer_rows(_), do: []
 
-  defp now_row(%{identifier: _identifier, state: :running} = summary), do: now_row(summary, :running)
-  defp now_row(%{identifier: _identifier, work_state: :retrying} = summary), do: now_row(summary, :retrying)
+  defp now_row(%{identifier: _identifier, state: :running} = summary, running), do: now_row(summary, running, :running)
+  defp now_row(%{identifier: _identifier, work_state: :retrying} = summary, running), do: now_row(summary, running, :retrying)
 
-  defp now_row(%{identifier: _identifier, state: :paused, session_id: session} = summary) when is_binary(session),
-    do: now_row(summary, :running)
+  defp now_row(%{identifier: _identifier, state: :paused, session_id: session} = summary, running) when is_binary(session),
+    do: now_row(summary, running, :running)
 
-  defp now_row(_summary), do: nil
+  defp now_row(_summary, _running), do: nil
 
-  defp now_row(summary, bucket) do
+  defp now_row(summary, running, bucket) do
     identity = Map.get(summary, :tracker_identity)
-    runtime_seconds = Map.get(summary, :runtime_seconds)
-
-    started_at =
-      if is_number(runtime_seconds) and runtime_seconds >= 0 do
-        DateTime.add(DateTime.utc_now(), -trunc(runtime_seconds), :second)
-      end
-
     waiting = Map.get(summary, :waiting_reason)
+    summary = Map.merge(summary, Map.take(running, [:started_at, :agent_family, :backend, :resolved_model, :effort, :progress_percent, :progress_freshness]))
 
     %{
       identity: identity,
       runtime: %{bucket: bucket, work_state: Map.get(summary, :work_state, :working)},
       reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason)},
-      timestamps: %{started_at: started_at},
+      timestamps: %{started_at: Map.get(summary, :started_at)},
       effort: Map.get(summary, :effort),
       open_command_count: Map.get(summary, :open_decision_count, 0),
       agent_family: Map.get(summary, :agent_family),
       backend: Map.get(summary, :backend),
-      resolved_model: Map.get(summary, :resolved_model)
+      progress_percent: Map.get(summary, :progress_percent),
+      progress_freshness: Map.get(summary, :progress_freshness)
     }
   end
 end

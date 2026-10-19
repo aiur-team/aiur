@@ -22,9 +22,9 @@ defmodule AiurWeb.Build.IndexReaderTest do
   defmodule UnpublishedFleetServer do
     use GenServer
 
-    def start_link(statuses), do: GenServer.start_link(__MODULE__, statuses)
-    def init(statuses), do: {:ok, statuses}
-    def handle_call(:fleet_view, _from, statuses), do: {:reply, %{statuses: statuses}, statuses}
+    def start_link(snapshot), do: GenServer.start_link(__MODULE__, snapshot)
+    def init(snapshot), do: {:ok, snapshot}
+    def handle_call(:fleet_view, _from, snapshot), do: {:reply, snapshot, snapshot}
   end
 
   test "first cold index read projects an adopted running agent from the orchestrator snapshot" do
@@ -33,22 +33,23 @@ defmodule AiurWeb.Build.IndexReaderTest do
 
     snapshot = %{
       statuses: [
+        %{identifier: "12", tracker_identity: identity, work_state: :working, state: :running, open_decision_count: 2, waiting_reason: :waiting_for_human, runtime_seconds: 600},
+        %{identifier: "13", tracker_identity: %{identity | identifier: "13", provider_id: "I_kwDOExample13"}, work_state: :working, state: :idle}
+      ],
+      running: [
         %{
           identifier: "12",
-          tracker_identity: identity,
-          work_state: :working,
-          state: :running,
-          open_decision_count: 2,
-          waiting_reason: :waiting_for_human,
-          runtime_seconds: 600,
+          started_at: DateTime.utc_now(),
           agent_family: :claude,
-          resolved_model: "opus"
-        },
-        %{identifier: "13", tracker_identity: %{identity | identifier: "13", provider_id: "I_kwDOExample13"}, work_state: :working, state: :idle}
+          resolved_model: "claude-opus-5-1",
+          effort: :high,
+          progress_percent: 64,
+          progress_freshness: :fresh
+        }
       ]
     }
 
-    server = start_supervised!({UnpublishedFleetServer, snapshot.statuses})
+    server = start_supervised!({UnpublishedFleetServer, snapshot})
 
     read =
       IndexReader.read(:all, parts(),
@@ -65,7 +66,10 @@ defmodule AiurWeb.Build.IndexReaderTest do
     assert index.all["12"].sec == "now"
     assert index.all["12"].agent.state == "command"
     assert index.all["12"].start != nil
-    assert index.all["12"].agent.model == "opus"
+    assert index.all["12"].agent.model == "claude"
+    assert index.all["12"].agent.name == "Claude"
+    assert index.all["12"].agent.effort == "high"
+    assert index.all["12"].pct == 64
   end
 
   test "unavailable running snapshot is a typed unavailable source" do

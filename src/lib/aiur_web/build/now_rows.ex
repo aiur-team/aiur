@@ -100,7 +100,7 @@ defmodule AiurWeb.Build.NowRows do
       start_src: if(start, do: "dispatch", else: "unknown"),
       pct: pct(row),
       agent: %{
-        model: model(if(family, do: row[:resolved_model] || family, else: nil)),
+        model: model(family),
         name: row[:agent_name] || UnitsPresentation.agent_label(family),
         state: agent_state(row),
         effort: effort(row[:effort])
@@ -168,6 +168,10 @@ defmodule AiurWeb.Build.NowRows do
 
   defp progress_contract(%{progress: %{status: :known, percent: value}}) when is_number(value) and value >= 0 and value <= 100,
     do: %{progress: round(value), progress_resolution: :resolved}
+
+  defp progress_contract(%{progress_percent: value, progress_freshness: freshness})
+       when is_number(value) and value >= 0 and value <= 100 and freshness in [:fresh, :stale],
+       do: %{progress: round(value), progress_resolution: :resolved}
 
   defp progress_contract(_row), do: %{progress: nil, progress_resolution: :unknown}
   defp timestamp(%DateTime{} = time), do: DateTime.to_unix(time, :millisecond)
