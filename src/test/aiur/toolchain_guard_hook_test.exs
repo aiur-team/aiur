@@ -35,10 +35,41 @@ defmodule Aiur.ToolchainGuardHookTest do
     end
   end
 
+  test "temporary path cleanup guard blocks protected X11 paths and tmp sweeps" do
+    for command <- [
+          "rm -f /tmp/.X11-unix/X0",
+          "rm -rf /tmp/.ICE-unix",
+          "find /tmp -name '.X*-lock' -delete",
+          "rm -rf /tmp/*",
+          "find /tmp -name '.*' -delete"
+        ] do
+      assert {output, 2} = run_tmp_cleanup_hook(command), command
+      assert output =~ "refusing deletion under /tmp", command
+    end
+  end
+
+  test "temporary path cleanup guard permits exact unrelated paths" do
+    for command <- [
+          "rm -f /tmp/aiur-test-123",
+          "find /tmp/aiur-test-123 -type f -delete",
+          "rm -f /tmp/.Xauthority"
+        ] do
+      assert {"", 0} = run_tmp_cleanup_hook(command), command
+    end
+  end
+
   defp run_hook(command) do
     python = System.find_executable("python3") || flunk("python3 is required")
     payload = Jason.encode!(%{"tool_name" => "Bash", "tool_input" => %{"command" => command}})
 
     System.cmd("sh", ["-c", ~s(printf '%s' "$2" | "$1" "$3"), "sh", python, payload, @hook_path], stderr_to_stdout: true)
+  end
+
+  defp run_tmp_cleanup_hook(command) do
+    python = System.find_executable("python3") || flunk("python3 is required")
+    hook_path = Path.expand("../../../.claude/hooks/tmp-cleanup-guard.py", __DIR__)
+    payload = Jason.encode!(%{"tool_name" => "Bash", "tool_input" => %{"command" => command}})
+
+    System.cmd("sh", ["-c", ~s(printf '%s' "$2" | "$1" "$3"), "sh", python, payload, hook_path], stderr_to_stdout: true)
   end
 end
