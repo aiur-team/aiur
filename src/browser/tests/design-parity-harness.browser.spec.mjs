@@ -49,7 +49,7 @@ test('calibration: design equals design loading', async ({ browser }) => {
 })
 test('stable parity captures omit the native scrollbar thumb', async ({ browser }) => {
   const page = await pageFor(browser)
-  await page.setContent('<style>html, body { margin: 0; } .scroller { position: fixed; inset: 0; overflow-y: scroll; } .content { height: 2000px; background: #fff; }</style><div class="scroller"><div class="content"></div></div>')
+  await page.setContent('<style>html, body { margin: 0; } .scroller { position: fixed; inset: 0; overflow-y: scroll; } .scroller::-webkit-scrollbar { width: 16px; } .scroller::-webkit-scrollbar-thumb { background: #888; } .content { height: 2000px; background: #fff; }</style><div class="scroller"><div class="content"></div></div>')
   const first = await captureStable(page, { scale: 'css' })
   await page.locator('.scroller').evaluate(el => { el.scrollTop = 500 })
   await expect.poll(() => page.locator('.scroller').evaluate(el => el.scrollTop)).toBe(500)
