@@ -16,28 +16,7 @@ defmodule AiurWeb.Build.IndexReader do
       end
 
     now =
-      read_part(:now, dirty, parts, fn ->
-        units_fun = Keyword.get(opts, :units_fun, fn -> PayloadLoader.load(:cached).units end)
-        units_now = NowRows.build(units_fun.(), repository: repo)
-
-        if map_size(units_now.rows) > 0 do
-          units_now
-        else
-          snapshot_fun = Keyword.get(opts, :running_rows_fun, &Freshness.read_running_rows/1)
-
-          case snapshot_fun.(opts) do
-            {:ok, agents} when is_list(agents) ->
-              rows = Enum.map(agents, &now_row/1) |> Enum.reject(&is_nil/1)
-              NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
-
-            {:error, :timeout} ->
-              {:error, :running_snapshot_timeout}
-
-            {:error, _unavailable} ->
-              {:error, :running_snapshot_unavailable}
-          end
-        end
-      end)
+      read_part(:now, dirty, parts, fn -> read_now(repo, opts) end)
 
     parts = Map.put(parts, :now, now)
     active = MapSet.new(producer_rows(now), & &1.num)
@@ -54,6 +33,29 @@ defmodule AiurWeb.Build.IndexReader do
 
   defp read_part(key, dirty, previous, fun) do
     if dirty == :all or MapSet.member?(dirty, key), do: Index.safe_read(key, fun), else: previous[key]
+  end
+
+  defp read_now(repo, opts) do
+    units_fun = Keyword.get(opts, :units_fun, fn -> PayloadLoader.load(:cached).units end)
+    units_now = NowRows.build(units_fun.(), repository: repo)
+
+    if map_size(units_now.rows) > 0 do
+      units_now
+    else
+      snapshot_fun = Keyword.get(opts, :running_rows_fun, &Freshness.read_running_rows/1)
+
+      case snapshot_fun.(opts) do
+        {:ok, agents} when is_list(agents) ->
+          rows = Enum.map(agents, &now_row/1) |> Enum.reject(&is_nil/1)
+          NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
+
+        {:error, :timeout} ->
+          {:error, :running_snapshot_timeout}
+
+        {:error, _unavailable} ->
+          {:error, :running_snapshot_unavailable}
+      end
+    end
   end
 
   defp producer_rows(%{rows: rows}) when is_map(rows), do: Map.values(rows)
