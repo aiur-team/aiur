@@ -122,6 +122,7 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:configurable) => boolean(),
           optional(:init) => module(),
           optional(:init_order) => non_neg_integer(),
+          optional(:children) => [Supervisor.child_spec() | module() | {module(), term()}],
           optional(:default_command) => String.t(),
           optional(:install_hint) => String.t(),
           optional(atom()) => term()
