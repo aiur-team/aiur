@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.CiLifecycle.FailureComment do
   @moduledoc """
-  Tells the ticket which checks sent it from ci-wait back to rework (#5133).
+  Tells the ticket which checks sent it back to rework (#5133).
   """
 
   alias Aiur.Tracker
@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureComment do
   @spec body(map()) :: String.t()
   def body(result) do
     checks = result |> Map.get(:failures, []) |> Enum.map_join("\n", &check_line/1)
-    "CI failed on PR ##{result[:pr_number]} head `#{result[:head_sha]}`, so this ticket moved from ci-wait to rework.\n\nFailing checks:\n" <> checks
+    "CI failed on PR ##{result[:pr_number]} head `#{result[:head_sha]}`, so this ticket moved to rework.\n\nFailing checks:\n" <> checks
   end
 
   defp check_line(%{name: name, url: url}) when is_binary(url) and url != "", do: "- [#{name}](#{url})"
