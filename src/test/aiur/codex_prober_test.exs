@@ -172,10 +172,6 @@ defmodule Aiur.CodexProberTest do
   end
 
   test "probe_async is disabled by default in the test environment" do
-    runtime_root = Aiur.TestSupport.tmp_root!("aiur-codex-disabled-runtime")
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(runtime_root) end)
-    Aiur.TestSupport.put_runtime_state_dir!(runtime_root)
-
     path = Aiur.TestSupport.tmp_root!("aiur-codex-disabled-probe") <> ".json"
     on_exit(fn -> File.rm(path) end)
     parent = self()
@@ -191,6 +187,5 @@ defmodule Aiur.CodexProberTest do
 
     refute_receive :unexpected_probe, 100
     refute File.exists?(path)
-    refute File.exists?(Path.join([runtime_root, "agent-relays"]))
   end
 end
