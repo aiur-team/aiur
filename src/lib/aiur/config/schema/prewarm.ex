@@ -21,12 +21,16 @@ defmodule Aiur.Config.Schema.Prewarm do
     # @config-reference config-configuration-08 prewarm.poll_seconds
     # @config-detail prewarm.poll_seconds | integer | 0 | Base-refresh interval; 0 disables polling. |
     field(:poll_seconds, :integer, default: 0)
+    # @config-reference config-configuration-08 prewarm.build_timeout_minutes
+    # @config-detail prewarm.build_timeout_minutes | integer | 60 | Total time allowed for a base clone, fetch, and build. |
+    field(:build_timeout_minutes, :integer, default: 60)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:enabled, :base_build, :base_build_file, :poll_seconds], empty_values: [])
+    |> cast(attrs, [:enabled, :base_build, :base_build_file, :poll_seconds, :build_timeout_minutes], empty_values: [])
     |> validate_number(:poll_seconds, greater_than_or_equal_to: 0)
+    |> validate_number(:build_timeout_minutes, greater_than: 0)
   end
 end
