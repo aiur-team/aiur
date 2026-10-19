@@ -115,6 +115,7 @@ defmodule Aiur.CodingAgent.LaunchCapabilitiesTest do
   test "production registry declares telemetry on both transports and display only on the REPL" do
     entries = CodingAgent.backends()
     assert entries["claude"][:launch_telemetry] == Aiur.Claude.Telemetry
+    assert CodingAgent.child_specs() == [Aiur.Claude.Telemetry]
     assert entries["claude-repl"][:launch_telemetry] == Aiur.Claude.Telemetry
     assert CodingAgent.display_tailer("claude-repl") == Aiur.Claude.DisplayTailer
     assert CodingAgent.display_tailer("claude") == nil

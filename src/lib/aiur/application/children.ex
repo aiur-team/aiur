@@ -218,8 +218,8 @@ defmodule Aiur.Application.Children do
       # the projection can seed from it at boot and cast retains into it.
       Aiur.ProgressRetention,
       Aiur.TicketActivity,
-      # Claude telemetry must be available before the Orchestrator starts owned workers.
-      Aiur.Claude.Telemetry,
+      # Harness children (today: Claude launch telemetry) must start before the Orchestrator.
+      Aiur.CodingAgent.child_specs(),
       BuildOrders.child_specs(:history, opts),
       Aiur.TicketContext.child_specs(:late, opts),
       BuildOrders.child_specs(:late, opts),

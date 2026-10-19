@@ -57,6 +57,25 @@ defmodule Aiur.CodingAgent.RegistryContractTest do
   defp valid_delivery_value?(field, value),
     do: Map.has_key?(@delivery_values, field) and value in Map.fetch!(@delivery_values, field)
 
+  @tag r7_characterization: false
+  test "declared children are valid child specs with no conflicting ids" do
+    assert failures(fn _key, entry ->
+             for child <- Map.get(entry, :children, []),
+                 not match?(%{id: _}, safe_child_spec(child)),
+                 do: {:bad_child, child}
+           end) == []
+
+    specs = for {_key, entry} <- Registry.entries(), child <- Map.get(entry, :children, []), do: Supervisor.child_spec(child, [])
+
+    assert specs |> Enum.uniq() |> Enum.frequencies_by(& &1.id) |> Enum.filter(fn {_, n} -> n > 1 end) == []
+  end
+
+  defp safe_child_spec(child) do
+    Supervisor.child_spec(child, [])
+  rescue
+    _ -> :invalid
+  end
+
   # Future regression guards for optional launch/display capabilities.
   @tag r7_characterization: false
   test "launch and display modules implement their capability contracts" do
