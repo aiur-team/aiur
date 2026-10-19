@@ -130,6 +130,7 @@ defmodule Aiur.ExperimentsCLITest do
     assert detail.spec["status"] == "abandoned"
     assert Enum.any?(detail.journal, &(&1["kind"] == "abandoned" and &1["reason"] == "smoke complete" and &1["actor"] == "operator"))
     assert {:ok, []} = Experiments.list()
+    assert {:ok, []} = Experiments.list(status: nil)
     assert {:ok, [%{id: id, status: "abandoned"}]} = Experiments.list(status: "abandoned")
     assert id == spec["id"]
 
