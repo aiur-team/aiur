@@ -85,7 +85,7 @@ defmodule AiurWeb.DashboardLive do
     socket = AiurWeb.RefreshSubscriptions.dashboard(socket)
     if connected, do: subscribe_ticket_context_resets()
 
-    payload = PayloadLoader.load(if connected, do: :fresh, else: :cached)
+    payload = PayloadLoader.load(if connected, do: :join, else: :cached)
 
     socket =
       socket
@@ -146,7 +146,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:selected_decision_status, :none)
       |> assign(:selected_decision_health, nil)
       |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
-      |> PayloadLoader.mark_loaded()
+      |> PayloadLoader.mark_joined(connected)
 
     if connected do
       schedule_runtime_tick()

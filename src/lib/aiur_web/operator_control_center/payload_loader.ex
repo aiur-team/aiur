@@ -14,11 +14,14 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   @provider_budget_margin_ms 1_000
   @reload_min_interval_ms 400
   @max_reload_events 32
+  # The connected join reuses the payload the static render just cached; a
+  # blocking reload there kept the page unjoined for seconds (#5163).
+  @join_max_age_ms 15_000
 
-  @spec load(:cached | :fresh | {:event, MapSet.t()}) :: map()
+  @spec load(:cached | :fresh | :join | {:event, MapSet.t()}) :: map()
   def load(mode \\ :cached)
 
-  def load(mode) when mode in [:cached, :fresh] do
+  def load(mode) when mode in [:cached, :fresh, :join] do
     do_load(mode)
   end
 
@@ -67,6 +70,11 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     |> assign(:payload_reload_mode, :cached)
   end
 
+  @doc "Marks the mount payload loaded; a connected join refreshes it right after joining."
+  @spec mark_joined(Phoenix.LiveView.Socket.t(), boolean()) :: Phoenix.LiveView.Socket.t()
+  def mark_joined(socket, false), do: mark_loaded(socket)
+  def mark_joined(socket, true), do: socket |> mark_loaded() |> schedule()
+
   @spec schedule(Phoenix.LiveView.Socket.t(), :cached | {:event, term()}) :: Phoenix.LiveView.Socket.t()
   def schedule(socket, mode \\ :cached)
 
@@ -104,7 +112,12 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   end
 
   defp fetch_cached(server, mode, providers) do
-    max_age_ms = if mode == :fresh, do: 0, else: @reload_min_interval_ms
+    max_age_ms =
+      case mode do
+        :fresh -> 0
+        :join -> @join_max_age_ms
+        :cached -> @reload_min_interval_ms
+      end
 
     ControlCenterCache.fetch(
       server,
