@@ -106,9 +106,10 @@ defmodule Aiur.ExecutorSweep.Checks do
     failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
     approved = approved_current_head?(pr)
     landing = value(pr, :in_merge_queue, false) or value(pr, :auto_merge, false)
+    landing_known = value(pr, :landing_state_known?, Map.has_key?(pr, :in_merge_queue) and Map.has_key?(pr, :auto_merge))
 
     # A cached row can keep "open" after the merge; merged_at is the landing proof (#5119).
-    if value(pr, :state, "open") == "open" and is_nil(value(pr, :merged_at, nil)) and approved and (failures != [] or not landing) do
+    if value(pr, :state, "open") == "open" and is_nil(value(pr, :merged_at, nil)) and approved and (failures != [] or (landing_known and not landing)) do
       [approved_pr_finding(pr, failures, base_checks)]
     else
       []
@@ -263,21 +264,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       |> StateLabels.findings()
 
     stale_triage =
-      snapshot
-      |> Map.get(:open_tickets)
-      |> TriageBacklog.stale_tickets(now)
-      |> Enum.map(fn ticket ->
-        age = age_ms(ticket.created_at, now)
-
-        # The ticket keys the sweep fingerprint, so each newly stale ticket wakes the Executor; Wake routes only integer tickets.
-        number =
-          case Integer.parse(ticket.identifier) do
-            {n, ""} -> n
-            _ -> ticket.identifier
-          end
-
-        finding("stale_needs_triage", 10, age, "Triage the ticket and set its queue state.", "Ticket #{ticket.identifier} has needed triage for #{duration(age)}.", ticket: number)
-      end)
+      stale_triage_finding(Map.get(snapshot, :open_tickets), now)
 
     open_prs = MapSet.new(snapshot |> Map.get(:pull_requests, []) |> Enum.filter(&(value(&1, :state, "") == "open")) |> Enum.map(&value(&1, :issue_number, nil)))
 
@@ -301,6 +288,39 @@ defmodule Aiur.ExecutorSweep.Checks do
 
     labels_findings ++ stale_triage ++ parked_closed_blocker ++ error_prs
   end
+
+  defp stale_triage_finding(%Aiur.OpenTicketSource.Snapshot{} = snapshot, now) do
+    case TriageBacklog.stale_tickets(snapshot, now) do
+      [] ->
+        []
+
+      [oldest | _] = tickets ->
+        age = age_ms(oldest.created_at, now)
+        count = if snapshot.truncated?, do: ">=#{length(tickets)}", else: "#{length(tickets)}"
+
+        number =
+          case Integer.parse(oldest.identifier) do
+            {n, ""} -> n
+            _ -> oldest.identifier
+          end
+
+        [
+          finding(
+            "stale_needs_triage",
+            10,
+            age,
+            "Triage the listed tickets and set their queue states.",
+            "#{count} open ticket(s) have needed triage for over an hour (oldest ##{oldest.identifier}, #{duration(age)}).",
+            ticket: number,
+            ticket_count: length(tickets),
+            oldest_ticket: number,
+            truncated?: snapshot.truncated?
+          )
+        ]
+    end
+  end
+
+  defp stale_triage_finding(_snapshot, _now), do: []
 
   defp rework_hygiene(snapshot) do
     open_blockers =
