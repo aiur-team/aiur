@@ -22,6 +22,11 @@ defmodule Aiur.CodingAgent do
   @type provider_descriptor :: ProvidersView.provider_descriptor()
 
   @type operator_payload :: %{required(:kind) => :text, required(:body) => String.t()}
+  @type display_source_event ::
+          {:available, String.t() | nil, String.t()}
+          | {:available, String.t() | nil, String.t(), %{backfill?: boolean()}}
+          | {:unavailable, String.t() | nil, String.t(), atom()}
+
   @type safe_checkpoint :: %{required(:kind) => atom(), optional(:method) => String.t()}
 
   @type checkpoint_callback_result ::
@@ -204,6 +209,35 @@ defmodule Aiur.CodingAgent do
       :error -> false
     end
   end
+
+  @doc "Prepare optional launch correlation using the backend's declared telemetry module."
+  @spec prepare_launch_telemetry(backend(), Aiur.Issue.t(), keyword()) :: {:ok, term() | nil} | {:error, term()}
+  def prepare_launch_telemetry(backend, issue, opts) do
+    {registry, opts} = Keyword.pop_lazy(opts, :launch_telemetry_registry, &backends/0)
+
+    case get_in(registry, [backend, :launch_telemetry]) do
+      nil -> {:ok, nil}
+      module -> module.prepare_launch(issue, opts)
+    end
+  end
+
+  @doc "Revoke a launch with the backend that prepared it; absent capabilities are a no-op."
+  @spec revoke_launch_telemetry(backend(), term(), keyword()) :: :ok
+  def revoke_launch_telemetry(backend, launch, opts \\ [])
+  def revoke_launch_telemetry(_backend, nil, _opts), do: :ok
+
+  def revoke_launch_telemetry(backend, launch, opts) do
+    registry = Keyword.get_lazy(opts, :launch_telemetry_registry, &backends/0)
+
+    case get_in(registry, [backend, :launch_telemetry]) do
+      nil -> :ok
+      module -> module.revoke(launch)
+    end
+  end
+
+  @doc "Optional display source module, including its daemon handoff callbacks."
+  @spec display_tailer(backend()) :: module() | nil
+  def display_tailer(backend), do: get_in(backends(), [backend, :display_tailer])
 
   @doc """
   How a live session's OS-level runtime is reported to the orchestrator
