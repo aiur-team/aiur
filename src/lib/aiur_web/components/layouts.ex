@@ -195,13 +195,12 @@ defmodule AiurWeb.Layouts do
                 this.menu = this.el.querySelector("#ax-menu");
                 this.fitMenu = () => {
                   if (window.innerWidth <= 480) {
-                    var left = this.menu.getBoundingClientRect().left;
-                    var available = Math.max(0, window.innerWidth - left - 16);
+                    var available = Math.max(0, window.innerWidth - 32);
                     this.menu.style.minWidth = Math.min(210, available) + "px";
                     this.menu.style.maxWidth = available + "px";
+                    this.menu.style.left = Math.min(0, 16 - this.menu.getBoundingClientRect().right + window.innerWidth - 32) + "px";
                   } else {
-                    this.menu.style.removeProperty("min-width");
-                    this.menu.style.removeProperty("max-width");
+                    ["min-width", "max-width", "left"].forEach(key => this.menu.style.removeProperty(key));
                   }
                 };
                 this.fitMenu();

@@ -31,6 +31,16 @@ for (const width of [390, 720]) {
       })
       expect(settingsBounds.left).toBeGreaterThanOrEqual(0)
       expect(settingsBounds.right).toBeLessThanOrEqual(width)
+      for (const item of await settings.locator('.ax-mi').all()) {
+        const itemBounds = await item.evaluate(node => {
+          const menu = node.closest('.ax-menu').getBoundingClientRect()
+          const rect = node.getBoundingClientRect()
+          return { left: rect.left, right: rect.right, menuLeft: menu.left, menuRight: menu.right }
+        })
+        expect(itemBounds.left).toBeGreaterThanOrEqual(itemBounds.menuLeft)
+        expect(itemBounds.right).toBeLessThanOrEqual(itemBounds.menuRight)
+        await expect(item).toBeVisible()
+      }
 
       for (const link of await navigation.locator('a.snav').all()) {
         await link.evaluate(node => node.scrollIntoView({ block: 'nearest', inline: 'center' }))
