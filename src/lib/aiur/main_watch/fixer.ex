@@ -2,6 +2,7 @@ defmodule Aiur.MainWatch.Fixer do
   @moduledoc "Files and reconciles fixer tickets from the base-CI background task."
   alias Aiur.GitHub.{Config, MainFixer, ResourceStore, StatePolicy}
   alias Aiur.MainWatch.{FixerGitHub, FixerWatchdog, State}
+  require Logger
 
   @spec reconcile([map()], map(), keyword()) :: :ok | {:error, term()}
   def reconcile(observations, watch, opts \\ [])
@@ -43,7 +44,7 @@ defmodule Aiur.MainWatch.Fixer do
   end
 
   defp confirmed?(observation, observations, opts) do
-    rerun? = Enum.any?(Map.get(observation, :run_fingerprint, []), fn {_name, _id, attempt, _suite, _status, conclusion, _at} -> attempt > 1 and conclusion not in ~w(success neutral skipped) end)
+    rerun? = Enum.any?(Map.get(observation, :run_fingerprint, []), &failed_rerun?/1)
     history = Keyword.get(opts, :history, []) ++ Enum.drop(observations, -1)
     previous = List.last(Enum.reject(history, &(&1.sha == observation.sha)))
 
@@ -52,7 +53,15 @@ defmodule Aiur.MainWatch.Fixer do
          Enum.any?(observation.checks, fn check ->
            check.conclusion not in ~w(success neutral skipped) and Enum.any?(previous.checks, &(&1.name == check.name and &1.conclusion not in ~w(success neutral skipped)))
          end))
+  rescue
+    error ->
+      Logger.error("default-branch fixer confirmation failed; treating red as unconfirmed: " <> Exception.format(:error, error, __STACKTRACE__))
+      false
   end
+
+  # github.ex emits {name, id, attempt, suite, status, conclusion, started, completed}; persisted history may hold the older 7-element shape.
+  defp failed_rerun?(run) when is_tuple(run) and tuple_size(run) >= 6, do: elem(run, 2) > 1 and elem(run, 5) not in ~w(success neutral skipped)
+  defp failed_rerun?(_run), do: false
 
   defp file(observation, issues, watch, opts) do
     signature = signature(observation)
