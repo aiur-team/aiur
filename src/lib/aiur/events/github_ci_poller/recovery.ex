@@ -14,7 +14,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   @spec complete(map(), map(), term(), keyword()) :: map()
   def complete(_issue, _result, recovered, opts) when is_map(recovered), do: Map.merge(recovered, %{ci_recovery_checked: true, ci_recovery_opts: opts})
-  def complete(issue, result, error, opts), do: attention(issue, result, "worker_failed", error, opts)
+  def complete(issue, result, error, opts), do: issue |> attention(result, "worker_failed", error, opts) |> base_gate(issue, %{}, opts)
 
   @spec recover(map(), map(), keyword()) :: map()
   def recover(_issue, %{pending_reason: :ci_cancelled, merge_queue_entry: entry} = result, _opts) when is_map(entry),
@@ -36,7 +36,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
     case Store.read(target, number, opts) do
       {:ok, entry} -> issue |> recover_current(result, entry, opts) |> base_gate(issue, entry, opts)
-      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+      {:error, reason} -> issue |> attention(result, "evidence_unavailable", reason, opts) |> base_gate(issue, %{}, opts)
     end
   end
 

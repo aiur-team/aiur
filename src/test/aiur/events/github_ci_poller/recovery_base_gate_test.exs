@@ -59,6 +59,25 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
     assert_received {:attention, "ticket.3864.pr.ci_recovery.base_unknown"}
   end
 
+  test "a PR-only check routes even when the base commit was never recorded", ctx do
+    opts = Keyword.put(ctx.opts, :main_watch_history, [%{base("success") | sha: "older"}])
+    result = %{ctx.result | failures: [%{name: "pr body", url: @run_url}]}
+    assert %{decision: :failed} = routed = Recovery.recover(ctx.issue, result, opts)
+    refute routed[:recovery]
+  end
+
+  test "a worker error on a check red on both head and base holds", ctx do
+    opts = Keyword.put(ctx.opts, :main_watch_history, [base("failure")])
+    assert %{decision: :pending, recovery: "base_inherited"} = Recovery.complete(ctx.issue, ctx.result, {:error, :timeout}, opts)
+  end
+
+  test "an unreadable journal on a check red on both head and base holds every poll", ctx do
+    File.write!(ctx.opts[:ci_recovery_path], "[1]")
+    opts = Keyword.put(ctx.opts, :main_watch_history, [base("failure")])
+    assert %{decision: :pending, recovery: "base_inherited"} = Recovery.recover(ctx.issue, ctx.result, opts)
+    assert %{decision: :pending, recovery: "base_inherited"} = Recovery.recover(ctx.issue, ctx.result, opts)
+  end
+
   test "a transient rerun POST failure holds, then retries the POST once", ctx do
     digest = %FailureDigest{flake_only: true, checks: [%{id: 1, name: "test", url: @run_url}]}
     opts = ctx.opts |> Keyword.merge(main_watch_history: :disabled, request_fun: github(502)) |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end)
