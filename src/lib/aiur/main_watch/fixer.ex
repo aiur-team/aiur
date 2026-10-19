@@ -55,7 +55,7 @@ defmodule Aiur.MainWatch.Fixer do
          end))
   rescue
     error ->
-      Logger.error("main-watch fixer confirmation failed; treating red as unconfirmed: " <> Exception.format(:error, error, __STACKTRACE__))
+      Logger.error("default-branch fixer confirmation failed; treating red as unconfirmed: " <> Exception.format(:error, error, __STACKTRACE__))
       false
   end
 
