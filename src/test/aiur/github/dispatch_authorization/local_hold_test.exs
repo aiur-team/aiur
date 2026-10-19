@@ -1,5 +1,6 @@
 defmodule Aiur.GitHub.DispatchAuthorization.LocalHoldTest do
   import Aiur.GitHub.DispatchAuthorization.TestFixtures
+  import ExUnit.CaptureLog
 
   use Aiur.TestSupport
 
@@ -17,18 +18,23 @@ defmodule Aiur.GitHub.DispatchAuthorization.LocalHoldTest do
     local_hold = {:aiur, :locally_held, hold}
     events = [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]
 
-    authorized =
-      authorize_with_events(issue(), events, ["trusted"],
-        request_fun: fn request ->
-          attempt = Process.get(:dispatch_timeline_attempt, 0)
-          Process.put(:dispatch_timeline_attempt, attempt + 1)
-          send(parent, {:timeline_attempt, request.url})
-          if attempt == 0, do: {:error, local_hold}, else: {:ok, %{status: 200, body: events}}
-        end,
-        local_hold_sleep_fun: fn _ms -> flunk("an expired hold must retry without sleeping") end
-      )
+    log =
+      capture_log(fn ->
+        authorized =
+          authorize_with_events(issue(), events, ["trusted"],
+            request_fun: fn request ->
+              attempt = Process.get(:dispatch_timeline_attempt, 0)
+              Process.put(:dispatch_timeline_attempt, attempt + 1)
+              send(parent, {:timeline_attempt, request.url})
+              if attempt == 0, do: {:error, local_hold}, else: {:ok, %{status: 200, body: events}}
+            end,
+            local_hold_sleep_fun: fn _ms -> flunk("an expired hold must retry without sleeping") end
+          )
 
-    assert authorized.dispatch_authorized?
+        assert authorized.dispatch_authorized?
+      end)
+
+    refute log =~ "dispatch authorization deferred"
     assert_received {:timeline_attempt, url}
     assert url =~ "/timeline?per_page=50"
     assert_received {:timeline_attempt, ^url}
