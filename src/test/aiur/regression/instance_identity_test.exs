@@ -27,7 +27,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
   # Run the engine's `__identity` command and parse its KEY=VALUE printout.
   defp identity(root) do
     {out, status} =
-      System.cmd("timeout", [@identity_timeout_seconds, "bash", @engine, "__identity"],
+      System.cmd("timeout", [@identity_timeout_seconds, "bash", "-x", @engine, "__identity"],
         # Reset the identity vars the engine exports — a key/node inherited from a
         # parent aiur (this suite dogfoods aiur) would otherwise subvert derivation.
         env: [
@@ -83,6 +83,8 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       # realpath-derived key. HOME is pinned to a sibling temp dir that holds no
       # config and is not an ancestor of the projects, so this genuinely exercises
       # the not-under-$HOME variant regardless of the runner's real $HOME/TMPDIR.
+      # Keep this outside the checkout because the workspace TMPDIR may walk up
+      # into the checkout's `.aiur/config`, hiding the no-config fallback.
       base = Path.join("/tmp", "aiur-noconfig-#{System.pid()}-#{System.unique_integer([:positive])}")
       home = Path.join(base, "home")
       proj_a = Path.join(base, "alpha")
@@ -94,7 +96,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
 
       id = fn cd ->
         {out, status} =
-          System.cmd("timeout", [@identity_timeout_seconds, "bash", @engine, "__identity"],
+          System.cmd("timeout", [@identity_timeout_seconds, "bash", "-x", @engine, "__identity"],
             env: [
               {"HOME", home},
               {"AIUR_REPO_ROOT", nil},
@@ -150,7 +152,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
 
       key = fn cd ->
         {out, status} =
-          System.cmd("timeout", [@identity_timeout_seconds, "bash", @engine, "__identity"],
+          System.cmd("timeout", [@identity_timeout_seconds, "bash", "-x", @engine, "__identity"],
             env: [
               {"HOME", home},
               {"AIUR_REPO_ROOT", nil},
@@ -203,7 +205,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
 
       key = fn cd ->
         {out, status} =
-          System.cmd("timeout", [@identity_timeout_seconds, "bash", @engine, "__identity"],
+          System.cmd("timeout", [@identity_timeout_seconds, "bash", "-x", @engine, "__identity"],
             env: [
               {"AIUR_REPO_ROOT", nil},
               {"AIUR_INSTANCE_KEY", nil},
