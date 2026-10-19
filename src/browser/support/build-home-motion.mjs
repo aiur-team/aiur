@@ -138,7 +138,7 @@ export const OWNER = {
   'columns': { owners: ['MP-E8-C9-T04'], anchor: '.bd-content .bd-lane' },
   'view.span': { owners: ['MP-E8-C9-T10'], anchor: '.bd-zoom [data-z]' },
   'view.switch.graph': { owners: ['MP-E8-C10-T01'], pending: true },
-  'view.switch.gantt': { owners: ['MP-E8-C9-T09'], pending: true },
+  'view.switch.gantt': { owners: ['MP-E8-C9-T09'] },
   'view.switch.list': { owners: ['MP-E8-C9-T12'] },
   'filter': { owners: ['MP-E8-C10-T02'], anchor: '.bd-fg' },
   'feature': { owners: ['MP-E8-C10-T03'], pending: true, anchor: '.bd-fg[data-g="feature"]' },
