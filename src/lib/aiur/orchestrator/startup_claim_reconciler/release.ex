@@ -15,12 +15,21 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
       end
 
     case result do
-      {:error, {:github, kind, _} = reason} when kind in [:local_hold, :rate_limited] -> {:defer, reason}
-      {:error, {:aiur, :locally_held, _} = reason} -> {:defer, reason}
+      {:error, {:github, kind, _} = reason} when kind in [:local_hold, :rate_limited] ->
+        {:defer, reason}
+
+      {:error, {:aiur, :locally_held, _} = reason} ->
+        {:defer, reason}
+
       # Boot-time budget timeouts starve the ancestry read; it is missing evidence, not a verdict.
-      {:error, :review_base_ancestry_unavailable = reason} -> {:defer, reason}
-      {:error, {:github, :transport, %{reason: {:aiur, :locally_held, _}}} = reason} -> {:defer, reason}
-      other -> other
+      {:error, :review_base_ancestry_unavailable = reason} ->
+        {:defer, reason}
+
+      {:error, {:github, :transport, %{reason: {:aiur, :locally_held, _}}} = reason} ->
+        {:defer, reason}
+
+      other ->
+        other
     end
   end
 
@@ -43,29 +52,17 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
       false ->
         {:defer, :workspace_owned}
 
-      {:error, {:stale_review_base, %{pr_number: number}} = reason} ->
-        if DispatchPolicy.state_slug(target) == "human-review",
-          do: stale_review_base_release(issue, number, reason, opts),
-          else: {:error, reason}
+      {:error, {:stale_review_base, _detail} = reason} ->
+        if DispatchPolicy.state_slug(target) == "human-review" do
+          # A real conflict cannot be handed to review. Route the orphan to
+          # rework so it gets an owner instead of deferring forever.
+          write_release(issue, lifecycle_state_name("rework", opts), opts)
+        else
+          {:error, reason}
+        end
 
       {:error, _reason} = error ->
         error
-    end
-  end
-
-  defp stale_review_base_release(issue, number, reason, opts) do
-    approved_at_head = Keyword.get(opts, :approved_at_head_fetcher, &Client.pull_request_approved_at_head?/1)
-
-    case approved_at_head.(number) do
-      {:ok, true} ->
-        {:defer, reason}
-
-      {:ok, false} ->
-        note = "No review asked for a change: this PR is behind its base and conflicts with or touches files changed there. Integrate the base, push, and hand it back."
-        write_release(issue, lifecycle_state_name("rework", opts), Keyword.put(opts, :release_note, note))
-
-      {:error, _approval_read_failed} ->
-        {:defer, reason}
     end
   end
 
@@ -77,7 +74,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   defp discover_target(issue, opts) do
-    fetch = Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
+    fetch =
+      Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
 
     case fetch.(issue.identifier) do
       {:ok, nil} -> {:ok, Keyword.get(opts, :no_pr_target, "todo")}
@@ -125,10 +123,13 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   defp current_head_review_target(pr, opts),
     do: {:ok, ReworkGate.post_agent_handoff_target(pr, "human-review", opts)}
 
-  defp guarded_update(identifier, target, expected, writer), do: TicketTransition.write_state(identifier, target, writer: writer, expected_state: expected)
+  defp guarded_update(identifier, target, expected, writer),
+    do: TicketTransition.write_state(identifier, target, writer: writer, expected_state: expected)
 
   defp lifecycle_state_name(slug, opts) do
-    opts |> Keyword.get_lazy(:active_states, &Config.active_states/0) |> Enum.find(slug, &(DispatchPolicy.state_slug(&1) == slug))
+    opts
+    |> Keyword.get_lazy(:active_states, &Config.active_states/0)
+    |> Enum.find(slug, &(DispatchPolicy.state_slug(&1) == slug))
   end
 
   defp comment(issue, target, note, opts) do
