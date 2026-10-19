@@ -2,12 +2,12 @@ defmodule Aiur.BackgroundCpu do
   @moduledoc """
   Samples CPU used by external processes niced below the daemon (#3624).
 
-  `/proc/stat` reports one aggregate nice column. The fleet inherits the
-  daemon's nice level, so subtracting that column would discount the fleet's
-  own load whenever the daemon runs niced. This worker scans `/proc/<pid>/stat`
+  `/proc/stat` reports one aggregate nice column. This worker scans `/proc/<pid>/stat`
   on its own timer, outside the Orchestrator, and accumulates only CPU ticks
   of processes whose nice is greater than the daemon's own nice and that are
-  outside its process tree. This excludes Aiur's own nice-adjusted builds.
+  outside both its process tree and registered fleet-agent process trees.
+  Detached agent relays are reparented to systemd, so the relay registry is
+  needed to keep their build descendants in the fleet pressure signal.
 
   Each scan publishes a cumulative reading to ETS: background ticks, the
   `/proc/stat` CPU total at the same moment, the daemon nice, and an epoch.
@@ -23,7 +23,7 @@ defmodule Aiur.BackgroundCpu do
 
   use GenServer
 
-  alias Aiur.{Config, SystemCpu, SystemPriority}
+  alias Aiur.{Config, ProcessReaper, SystemCpu, SystemPriority}
 
   @table :aiur_background_cpu
   @default_interval_ms 10_000
@@ -62,19 +62,23 @@ defmodule Aiur.BackgroundCpu do
   defp fresh(_reading, _now_ms), do: :unavailable
 
   @doc """
-  Reads process stats under `proc_root`, keeping niced CPU outside `daemon_pid`'s
-  process tree. Returns `:unavailable` when the directory cannot be listed or
-  holds more than #{@max_processes} processes.
+  Reads process stats under `proc_root`, keeping niced CPU outside the daemon
+  and registered fleet-agent process trees. Returns `:unavailable` when the
+  directory cannot be listed or holds more than #{@max_processes} processes.
   """
-  @spec scan(Path.t(), integer(), pos_integer()) :: %{optional({String.t(), non_neg_integer()}) => non_neg_integer()} | :unavailable
-  def scan(proc_root, daemon_nice, daemon_pid) when is_integer(daemon_nice) and is_integer(daemon_pid) and daemon_pid > 0 do
+  @spec scan(Path.t(), integer(), pos_integer(), [pos_integer()]) :: %{optional({String.t(), non_neg_integer()}) => non_neg_integer()} | :unavailable
+  def scan(proc_root, daemon_nice, daemon_pid, fleet_roots \\ [])
+
+  def scan(proc_root, daemon_nice, daemon_pid, fleet_roots)
+      when is_integer(daemon_nice) and is_integer(daemon_pid) and daemon_pid > 0 and is_list(fleet_roots) do
     with {:ok, entries} <- File.ls(proc_root),
          pids = Enum.filter(entries, &numeric?/1),
          true <- length(pids) <= @max_processes do
       processes = read_processes(proc_root, pids)
+      roots = MapSet.new([daemon_pid | fleet_roots])
 
       processes
-      |> Enum.reject(fn {pid, process} -> process.nice <= daemon_nice or daemon_descendant?(pid, processes, daemon_pid) end)
+      |> Enum.reject(fn {pid, process} -> process.nice <= daemon_nice or fleet_process?(pid, processes, roots) end)
       |> Map.new(fn {pid, process} -> {{pid, process.start}, process.ticks} end)
     else
       _ -> :unavailable
@@ -99,25 +103,22 @@ defmodule Aiur.BackgroundCpu do
     |> Map.new()
   end
 
-  defp daemon_descendant?(pid, processes, daemon_pid),
-    do: daemon_descendant?(pid, processes, daemon_pid, MapSet.new([String.to_integer(pid)]))
+  defp fleet_process?(pid, processes, roots),
+    do: fleet_process?(String.to_integer(pid), processes, roots, MapSet.new())
 
-  defp daemon_descendant?(pid, processes, daemon_pid, seen) do
-    case Map.get(processes, pid) do
-      %{parent_pid: ^daemon_pid} ->
+  defp fleet_process?(pid, processes, roots, seen) do
+    cond do
+      MapSet.member?(roots, pid) ->
         true
 
-      %{parent_pid: parent} when parent > 0 ->
-        parent_pid = Integer.to_string(parent)
-
-        if MapSet.member?(seen, parent) do
-          false
-        else
-          daemon_descendant?(parent_pid, processes, daemon_pid, MapSet.put(seen, parent))
-        end
-
-      _ ->
+      MapSet.member?(seen, pid) ->
         false
+
+      true ->
+        case Map.get(processes, Integer.to_string(pid)) do
+          %{parent_pid: parent} when parent > 0 -> fleet_process?(parent, processes, roots, MapSet.put(seen, pid))
+          _ -> false
+        end
     end
   end
 
@@ -163,7 +164,7 @@ defmodule Aiur.BackgroundCpu do
     if enabled?() do
       daemon_nice = SystemPriority.nice()
       daemon_pid = System.pid() |> String.to_integer()
-      processes = if is_integer(daemon_nice), do: scan(state.proc_root, daemon_nice, daemon_pid), else: :unavailable
+      processes = if is_integer(daemon_nice), do: scan(state.proc_root, daemon_nice, daemon_pid, fleet_roots()), else: :unavailable
       next = advance(state.previous, daemon_nice, processes, cpu_total(), System.monotonic_time(:millisecond))
       :ets.insert(@table, {:latest, next.reading})
       {:noreply, %{state | previous: next}}
@@ -180,6 +181,16 @@ defmodule Aiur.BackgroundCpu do
       %{total: total} -> total
       _ -> :unavailable
     end
+  end
+
+  defp fleet_roots do
+    ProcessReaper.entries()
+    |> Enum.flat_map(fn
+      {{:os_pid, pid}, :agent, _meta} when is_integer(pid) and pid > 0 -> [pid]
+      _ -> []
+    end)
+  catch
+    _, _ -> []
   end
 
   # Mirrors DispatchPolicy.read_cpu/3: explicit-disable configs never scan.

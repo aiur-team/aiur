@@ -119,9 +119,8 @@ defmodule Aiur.Orchestrator.PressureAdmission do
     put_in(next.load_envelope_state[:signal], :load)
   end
 
-  # External processes niced above the daemon (including Executor review work)
-  # are reclaimable by the fleet. The sampler excludes the daemon process tree,
-  # so Aiur's own niced builds remain in the soft pressure signal. cpu_gate/1
+  # Niced CPU outside the daemon and registered fleet-agent trees (including
+  # Executor review work) is treated as reclaimable by the fleet. cpu_gate/1
   # still enforces raw host PSI as the hard admission ceiling.
   defp discount_niced_background(pressure, %{background_percent: background}) when is_number(background),
     do: max(0.0, pressure - background)
