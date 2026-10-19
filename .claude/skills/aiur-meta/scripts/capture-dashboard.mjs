@@ -19,6 +19,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { buildDashboardIssues, inspectBuildPage, PAGES } from './capture-dashboard-build.mjs'
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '../../../../')
@@ -39,14 +40,6 @@ const EXPECTED_ACTIVE_AGENTS = nonNegativeInteger(process.env.AIUR_META_EXPECTED
 const PLAYWRIGHT_ROOT = process.env.AIUR_META_PLAYWRIGHT_ROOT || path.join(REPOSITORY_ROOT, 'src/browser')
 const BOOTSTRAP_PATH = process.env.AIUR_META_BOOTSTRAP_PATH
 
-export const PAGES = [
-  ['units', '/'],
-  ['commands', '/commands'],
-  ['build-orders', '/build-orders'],
-  ['build', '/build'],
-  ['analytics', '/analytics']
-]
-
 // No dashboard noise is baselined by default. The historic entry here was the
 // `/conversation-drawer-hook.js` 404 from the missing Plug.Static (#1681);
 // that issue is closed and the endpoint serves the asset, so keeping the rule
@@ -65,17 +58,7 @@ export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null
 
   for (const issue of metricColumns) issues.push(issue)
   for (const issue of filterCounts) issues.push(issue)
-  if (name === 'build') {
-    if (/Build timeline unavailable/i.test(snapshot.buildUnavailable || '')) {
-      issues.push({ kind: 'build-timeline-unavailable', detail: snapshot.buildUnavailable })
-    }
-    if (snapshot.buildSkeleton) {
-      issues.push({ kind: 'build-skeletons-remain', detail: 'Build timeline cards are still skeletons after LiveView settle' })
-    }
-    if (snapshot.buildOpenTicketCount > 0 && snapshot.buildTicketCount === 0) {
-      issues.push({ kind: 'build-tickets-missing', detail: `${snapshot.buildOpenTicketCount} open tickets reported but no ticket cards rendered` })
-    }
-  }
+  issues.push(...buildDashboardIssues(name, snapshot))
   for (const banner of snapshot.staleBanners) issues.push({ kind: 'stale-banner', detail: banner })
   for (const errorState of snapshot.errorStates || []) issues.push({ kind: 'error-state', detail: errorState })
   for (const emptyState of snapshot.emptyStates) {
@@ -343,7 +326,6 @@ function pageLabel(name) {
     units: 'Units',
     commands: 'Commands',
     'build-orders': 'Build Order',
-    build: 'Build',
     analytics: 'Analytics'
   }[name] || name
 }
@@ -450,13 +432,7 @@ export async function inspectPage(page, name) {
     }[pageName]
     const metricCells = tables.flatMap((table) => table.rows.flatMap((row, rowIndex) => row.map((value, index) => ({ value, header: table.headers[index], rowIndex }))))
     const hasNAInMetric = metricCells.some((cell) => cell.value.trim() === 'N/A' && /progress|ticket|epic|wave|member|active|complete|capacity|concurrency|cpu|cost|count|total/i.test(cell.header || ''))
-    const buildRoot = pageName === 'build' ? document.querySelector('#build-root') : null
-    const buildUnavailable = buildRoot?.querySelector('.bd-loading')?.innerText.replace(/\s+/g, ' ').trim() || ''
-    const buildSkeleton = Boolean(buildRoot?.querySelector('.bd-skel, .bd-skel-lanes'))
-    const buildTicketCount = buildRoot?.querySelectorAll('.lr[data-id]').length ?? null
-    const queueMembersText = buildRoot?.querySelector('#bd-sec-plan .lh em')?.innerText || ''
-    const queueMembersMatch = queueMembersText.match(/(\d[\d,]*)\s+in build-queue order\b/i)
-    const buildOpenTicketCount = queueMembersMatch ? Number.parseInt(queueMembersMatch[1].replaceAll(',', ''), 10) : null
+    const buildSignals = inspectBuildPage(pageName === 'build' ? document.querySelector('#build-root') : null)
 
     return {
       title: document.title,
@@ -472,10 +448,7 @@ export async function inspectPage(page, name) {
       errorStates,
       kpis,
       hasNAInMetric,
-      buildUnavailable,
-      buildSkeleton,
-      buildTicketCount,
-      buildOpenTicketCount
+      ...buildSignals
     }
   }, name)
 }

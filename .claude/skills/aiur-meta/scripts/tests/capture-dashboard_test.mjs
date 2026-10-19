@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_KNOWN_NOISE, PAGES, PageTimeoutError, analyzeDashboardSnapshot, capturePageBounded, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
+import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, capturePageBounded, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
 
 const captureScript = fileURLToPath(new URL('../capture-dashboard.mjs', import.meta.url))
 
@@ -182,32 +182,6 @@ test('requires recognizable primary content before reporting a page healthy', ()
   ])
 })
 
-test('captures /build and flags unavailable, skeleton-only, and empty open-ticket views', async () => {
-  assert.deepEqual(PAGES.map(([, route]) => route), ['/', '/commands', '/build-orders', '/build', '/analytics'])
-
-  const unavailable = await inspectPage(fakePage({ build: { unavailable: 'Build timeline unavailable · source unavailable', skeleton: true, ticketCards: 0, openTickets: 0 } }), 'build')
-  unavailable.status = 200
-  unavailable.navigationError = null
-  unavailable.capacityReadings = []
-  const unavailableResult = analyzeDashboardSnapshot('build', unavailable)
-  assert.equal(unavailableResult.verdict, 'attention')
-  assert.deepEqual(unavailableResult.issues.map((issue) => issue.kind), ['build-timeline-unavailable', 'build-skeletons-remain'])
-
-  const emptyQueue = await inspectPage(fakePage({ build: { unavailable: '', skeleton: false, ticketCards: 0, openTickets: 2 } }), 'build')
-  emptyQueue.status = 200
-  emptyQueue.navigationError = null
-  emptyQueue.capacityReadings = []
-  const emptyResult = analyzeDashboardSnapshot('build', emptyQueue)
-  assert.equal(emptyResult.verdict, 'attention')
-  assert.deepEqual(emptyResult.issues.map((issue) => issue.kind), ['build-tickets-missing'])
-
-  const genuinelyEmpty = await inspectPage(fakePage({ build: { unavailable: '', skeleton: false, ticketCards: 0, openTickets: 0 } }), 'build')
-  genuinelyEmpty.status = 200
-  genuinelyEmpty.navigationError = null
-  genuinelyEmpty.capacityReadings = []
-  assert.equal(analyzeDashboardSnapshot('build', genuinelyEmpty).verdict, 'healthy')
-})
-
 test('extracts visible error cards and reports them instead of treating them as an absence of findings', async () => {
   const visibleErrors = [
     'Catalog unavailable',
@@ -237,7 +211,6 @@ test('recognizes primary content for every dashboard page', async () => {
     units: '#units-rows .units-row',
     commands: '.decision-inbox',
     'build-orders': '.bo-catalog-table, .bo-selected-summary',
-    build: '#build-root',
     analytics: '#analytics-page .an-kpis'
   }
 
@@ -445,7 +418,7 @@ test('a direct invocation with a URL but no password exits 69 and writes did-not
   }
 })
 
-function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [], build = null } = {}) {
+function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [] } = {}) {
   const nodes = elements.map(({ innerText, selectors }) => ({
     innerText,
     selectors,
@@ -472,18 +445,6 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
       ? { querySelector: (childSelector) => childSelector === '.recent-subtitle' ? { innerText: summary.label } : null }
       : null
   }))
-  const buildLoading = build ? { innerText: build.unavailable, getClientRects: () => build.unavailable ? [{}] : [] } : null
-  const buildSkeleton = build ? { getClientRects: () => build.skeleton ? [{}] : [] } : null
-  const buildRows = build ? Array.from({ length: build.ticketCards }, () => ({})) : []
-  const buildRoot = build ? {
-    querySelector: (selector) => selector === '.bd-loading' ? buildLoading
-      : selector === '.bd-skel, .bd-skel-lanes' && build.skeleton ? buildSkeleton
-      : selector === '#bd-sec-plan .lh em' ? { innerText: `${build.openTickets} in build-queue order · dependency waves` }
-        : null,
-    querySelectorAll: (selector) => selector === '.lr[data-id]' ? buildRows
-      : selector === '.bd-skel, .bd-skel-lanes' && build.skeleton ? [buildSkeleton] : []
-  } : null
-
   return {
     evaluate: async (callback, pageName) => {
       const priorDocument = globalThis.document
@@ -499,7 +460,6 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
         },
         querySelector: (selector) => {
           if (selector === '[data-phx-main], [data-phx-session]') return {}
-          if (selector === '#build-root') return buildRoot || (primarySelectors.includes(selector) ? { querySelector: () => null, querySelectorAll: () => [] } : null)
           return primarySelectors.includes(selector) ? {} : null
         }
       }
