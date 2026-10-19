@@ -100,7 +100,7 @@ defmodule AiurWeb.Build.NowRows do
       start_src: if(start, do: "dispatch", else: "unknown"),
       pct: pct(row),
       agent: %{
-        model: model(row[:resolved_model] || family),
+        model: model(if(family, do: row[:resolved_model] || family, else: nil)),
         name: row[:agent_name] || UnitsPresentation.agent_label(family),
         state: agent_state(row),
         effort: effort(row[:effort])

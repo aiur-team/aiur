@@ -87,7 +87,6 @@ defmodule AiurWeb.Build.IndexReader do
       timestamps: %{started_at: started_at},
       effort: Map.get(summary, :effort),
       open_command_count: Map.get(summary, :open_decision_count, 0),
-      progress: Map.get(summary, :progress),
       agent_family: Map.get(summary, :agent_family),
       backend: Map.get(summary, :backend),
       resolved_model: Map.get(summary, :resolved_model)
