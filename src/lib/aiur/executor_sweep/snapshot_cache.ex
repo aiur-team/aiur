@@ -233,13 +233,23 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     }
   end
 
+  # A merge is terminal: a stale row from either source must not reopen it (#5119).
+  defp merge_pr_rows(direct, branch) do
+    merged = Map.merge(direct, branch)
+
+    case Enum.find_value([direct, branch], &value(&1, "merged_at", nil)) do
+      nil -> merged
+      merged_at -> Map.merge(merged, %{"state" => "closed", "merged_at" => merged_at})
+    end
+  end
+
   defp merge_pr_sources(pull_requests, branch_pull_requests) do
     direct = Map.new(pull_requests)
 
     Enum.reduce(branch_pull_requests, direct, fn {_ticket, pr}, acc ->
       case positive_number(value(pr, "number", nil)) do
         nil -> acc
-        number -> Map.update(acc, number, pr, &Map.merge(&1, pr))
+        number -> Map.update(acc, number, pr, &merge_pr_rows(&1, pr))
       end
     end)
     |> Enum.to_list()
