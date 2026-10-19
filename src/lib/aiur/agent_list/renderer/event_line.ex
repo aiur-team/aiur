@@ -84,7 +84,7 @@ defmodule Aiur.AgentList.Renderer.EventLine do
   def topic_suffix(topic) when is_binary(topic), do: topic
   def topic_suffix(_), do: ""
 
-  @spec describe_event(atom(), String.t(), String.t() | nil, String.t(), term()) :: {String.t(), String.t()}
+  @spec describe_event(atom(), String.t() | nil, String.t() | nil, String.t(), term()) :: {String.t(), String.t()}
   def describe_event(:receive, subject_id, source_id, "issue.commented", body)
       when subject_id == source_id do
     {"new Issue comment:", EventPhrases.comment_body_summary(body)}
