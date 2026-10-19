@@ -74,8 +74,8 @@ defmodule Aiur.BuildOrder.Index do
         %Aiur.OpenTicketSource.Snapshot{} = open ->
           safe_read(:not_queued, fn -> NotQueued.build(open, parts[:queue], active: active, label_prefix: prefix) end)
 
-        {:error, _reason} ->
-          %{state: :unavailable, reasons: [:open_tickets_read_failed], observed_at: nil, truncated?: false, skipped: 0, rows: []}
+        {:error, reason} ->
+          %{state: :unavailable, reasons: [open_failure_reason(reason)], observed_at: nil, truncated?: false, skipped: 0, rows: []}
 
         _ ->
           %{state: :unavailable, reasons: [:open_tickets_unavailable], observed_at: nil, truncated?: false, skipped: 0, rows: []}
@@ -83,6 +83,9 @@ defmodule Aiur.BuildOrder.Index do
 
     %{history_snapshot: {:ok, history}, todo_label: prefix <> ":todo", not_queued: nq}
   end
+
+  defp open_failure_reason(:timeout), do: :open_tickets_timeout
+  defp open_failure_reason(_reason), do: :open_tickets_read_failed
 
   @spec subscribe_sources() :: :ok | {:error, term()}
   def subscribe_sources do

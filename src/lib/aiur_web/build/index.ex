@@ -5,6 +5,7 @@ defmodule AiurWeb.Build.Index do
   alias AiurWeb.Build.{Freshness, HistoryCarry, IndexReader}
   require Logger
   @window 250
+  @max_backoff 60_000
   @signals %{
     build_order_history_changed: ~w(history health catch_up planned not_queued)a,
     build_order_features_changed: [:features],
@@ -15,6 +16,7 @@ defmodule AiurWeb.Build.Index do
     ticket_activity_changed: ~w(now planned not_queued)a,
     running_changed: ~w(now planned not_queued)a
   }
+  @read_parts ~w(history health catch_up features overrides settings repository open queue now planned not_queued)a
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -57,8 +59,21 @@ defmodule AiurWeb.Build.Index do
         :ets.insert(table, {:generation, 0})
 
         {:ok,
-         %{parts: %{}, index: {:error, :loading}, generation: 0, dirty: MapSet.new(), timer: nil, task: nil, daemon: nil, daemon_task: nil, waiting: [], table: table, opts: opts, history_at: nil},
-         {:continue, :load}}
+         %{
+           parts: %{},
+           index: {:error, :loading},
+           generation: 0,
+           dirty: MapSet.new(),
+           timer: nil,
+           task: nil,
+           daemon: nil,
+           daemon_task: nil,
+           waiting: [],
+           failures: 0,
+           table: table,
+           opts: opts,
+           history_at: nil
+         }, {:continue, :load}}
 
       {:error, reason} ->
         {:stop, {:subscription_failed, reason}}
@@ -102,16 +117,30 @@ defmodule AiurWeb.Build.Index do
   def handle_info({ref, parts}, %{task: %{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
     Process.cancel_timer(state.task.deadline)
-    {:noreply, finish(%{state | task: nil}, parts, state.task.dirty)}
+    dirty = dirty_set(state.task.dirty)
+    parts = clear_read_staleness(parts, dirty)
+    {:noreply, finish(%{state | task: nil, failures: 0}, parts, dirty)}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref, dirty: dirty}} = state) do
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref}} = state) do
     Process.cancel_timer(state.task.deadline)
-    keys = if dirty == :all, do: Map.keys(state.parts) ++ ~w(settings history now planned not_queued)a, else: MapSet.to_list(dirty)
     failure = if state.task[:timed_out?], do: :timeout, else: :read_failed
-    Logger.warning("build_index read_task_failed=#{inspect(reason, limit: 20, printable_limit: 200)} failure=#{failure} parts=#{Enum.join(Enum.uniq(keys), ",")}")
-    parts = Enum.reduce(keys, state.parts, &Map.put(&2, &1, {:error, failure}))
-    {:noreply, finish(%{state | task: nil}, parts, dirty)}
+    part = state.task[:timed_out_part]
+    dirty = dirty_set(state.task.dirty)
+    # The hung part is not reread; it stays stale until its own signal, even with no mark_failed_part clause.
+    retry = if part in [nil, :unknown], do: dirty, else: MapSet.delete(dirty, part)
+    cause = if part in [nil, :unknown], do: :unknown, else: failure
+    # An unlocated failure rereads every part, so back off rather than loop on a reader that always crashes.
+    failures = if cause == :unknown, do: state.failures + 1, else: state.failures
+
+    Logger.warning(
+      "build_index read_task_failed=#{inspect(reason, limit: 20, printable_limit: 200)} failure=#{failure} parts=#{part || :unknown} part=#{part || :unknown} retry=#{Enum.join(MapSet.to_list(retry), ",")}"
+    )
+
+    parts = record_read_staleness(state.parts, dirty, cause)
+    parts = mark_failed_part(parts, part, failure)
+    dirty = MapSet.union(state.dirty, retry)
+    {:noreply, finish(%{state | task: nil, dirty: dirty, failures: failures}, parts, dirty_set(state.task.dirty))}
   end
 
   def handle_info({:read_timeout, ref}, %{task: %{ref: ref, pid: pid}} = state) do
@@ -119,7 +148,7 @@ defmodule AiurWeb.Build.Index do
     stack = inspect(Process.info(pid, :current_stacktrace), limit: :infinity, printable_limit: 4_000)
     Logger.warning("build_index read_timeout after_ms=#{Keyword.get(state.opts, :read_timeout, 3_500)} part=#{part} stack=#{stack}")
     Process.exit(pid, :kill)
-    {:noreply, put_in(state.task[:timed_out?], true)}
+    {:noreply, %{state | task: Map.merge(state.task, %{timed_out?: true, timed_out_part: part})}}
   end
 
   def handle_info(:daemon_tick, %{daemon_task: nil} = state) do
@@ -170,7 +199,7 @@ defmodule AiurWeb.Build.Index do
 
   defp schedule(%{timer: nil} = state) do
     timer = Keyword.get(state.opts, :timer, &Process.send_after/3)
-    %{state | timer: timer.(self(), :flush, @window)}
+    %{state | timer: timer.(self(), :flush, min(@window * Integer.pow(2, min(state.failures, 8)), @max_backoff))}
   end
 
   defp schedule(state), do: state
@@ -222,4 +251,49 @@ defmodule AiurWeb.Build.Index do
   defp clock(state), do: Keyword.get(state.opts, :clock, fn -> System.system_time(:millisecond) end).()
   defp read_part_from_dictionary({:dictionary, dictionary}), do: Keyword.get(dictionary, :aiur_build_index_read_part, :unknown)
   defp read_part_from_dictionary(_info), do: :unknown
+
+  defp mark_open_degraded(parts, failure) do
+    case parts[:not_queued] do
+      %{state: _state, reasons: _reasons} = not_queued ->
+        Map.put(parts, :not_queued, %{not_queued | state: :unavailable, reasons: [if(failure == :timeout, do: :open_tickets_timeout, else: :open_tickets_read_failed)]})
+
+      _other ->
+        Map.put(parts, :not_queued, %{
+          state: :unavailable,
+          reasons: [if(failure == :timeout, do: :open_tickets_timeout, else: :open_tickets_read_failed)],
+          observed_at: nil,
+          truncated?: false,
+          skipped: 0,
+          rows: []
+        })
+    end
+  end
+
+  defp dirty_set(:all), do: MapSet.new(@read_parts)
+  defp dirty_set(%MapSet{} = dirty), do: dirty
+
+  defp record_read_staleness(parts, dirty, reason) do
+    stale = Map.get(parts, :read_stale, %{})
+    stale = Enum.reduce(dirty, stale, &Map.put(&2, &1, reason))
+    Map.put(parts, :read_stale, stale)
+  end
+
+  defp clear_read_staleness(parts, dirty) do
+    stale = Map.get(parts, :read_stale, %{}) |> Map.drop(MapSet.to_list(dirty))
+    Map.put(parts, :read_stale, stale)
+  end
+
+  defp mark_history_failed(parts, reason) do
+    parts |> Map.put(:history, {:error, reason}) |> Map.put(:health, {:error, reason})
+  end
+
+  defp mark_failed_part(parts, :history, reason), do: mark_history_failed(parts, reason)
+  defp mark_failed_part(parts, :health, reason), do: Map.put(parts, :health, {:error, reason})
+  defp mark_failed_part(parts, :features, reason), do: Map.put(parts, :features, {:error, reason})
+  defp mark_failed_part(parts, :now, reason), do: Map.put(parts, :now, {:error, reason})
+  defp mark_failed_part(parts, :queue, reason), do: Map.put(parts, :planned, {:error, reason})
+  defp mark_failed_part(parts, :planned, reason), do: Map.put(parts, :planned, {:error, reason})
+  defp mark_failed_part(parts, :open, reason), do: parts |> Map.put(:open, {:error, reason}) |> mark_open_degraded(reason)
+  defp mark_failed_part(parts, :not_queued, reason), do: Map.put(parts, :not_queued, {:error, reason})
+  defp mark_failed_part(parts, _part, _reason), do: parts
 end

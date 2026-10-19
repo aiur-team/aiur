@@ -54,6 +54,16 @@ export async function applyAllowlist(pair, cell, entries) {
       masks.designMask.push(pair.design.locator(entry.selector))
       masks.productMask.push(pair.product.locator(entry.selector))
     }
+    // A copy difference changes text length, so both masks get one box wherever the copy renders.
+    if (entry.kind === 'copy' && entry.mask) {
+      const nodes = [pair.design, pair.product].map(page => page.locator(entry.mask))
+      if ((await Promise.all(nodes.map(node => node.count()))).every(n => n === 1)) {
+        const width = Math.max(...await Promise.all(nodes.map(node => node.evaluate(el => el.getBoundingClientRect().width))))
+        for (const node of nodes) await node.evaluate((el, w) => { el.style.display = 'inline-block'; el.style.minWidth = w + 'px' }, width)
+        masks.designMask.push(nodes[0])
+        masks.productMask.push(nodes[1])
+      }
+    }
   }
   return masks
 }

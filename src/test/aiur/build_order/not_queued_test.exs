@@ -68,6 +68,11 @@ defmodule Aiur.BuildOrder.NotQueuedTest do
     assert %{state: :unavailable, reasons: [:open_tickets_unavailable], rows: []} = NotQueued.build(%Snapshot{tickets: [ticket(31)]}, queue())
   end
 
+  test "first open-ticket listing has an explicit loading cause" do
+    assert %{state: :unavailable, reasons: [:open_tickets_loading], rows: []} =
+             NotQueued.build(%Snapshot{status: :loading}, queue())
+  end
+
   test "queue store unavailable gives no rows" do
     assert %{state: :unavailable, reasons: [:queue_unavailable], observed_at: nil, rows: []} = build([ticket(31)], %{status: :store_unavailable})
   end
