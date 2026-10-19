@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { discoverSuites, shardCommands, suiteCommand, SUITE_SCRIPT } from '../src/browser/scripts/browser-suites.mjs'
@@ -29,6 +29,63 @@ if (!budgetMs || !recordedSeconds) throw new Error(`${runnerPath} must export bu
 const plan = shardCommands(shards, browserRoot)
 const selected = Object.values(plan).flat()
 
+function reachableSpecs(command, seen = new Set()) {
+  const scriptName = command.split(' ')[0]
+  if (seen.has(scriptName)) return new Set()
+  seen.add(scriptName)
+  const body = scripts[scriptName]
+  if (typeof body !== 'string') return new Set()
+  const reachable = new Set([...body.matchAll(/(?:^|\s)(tests\/[\w./-]+\.browser\.spec\.mjs)(?=\s|$)/g)].map(match => match[1]))
+  for (const nested of body.matchAll(/npm run ([\w:-]+)/g)) {
+    for (const spec of reachableSpecs(nested[1], seen)) reachable.add(spec)
+  }
+  return reachable
+}
+
+const reachable = new Set()
+for (const command of selected.concat(expected)) {
+  for (const spec of reachableSpecs(command)) reachable.add(spec)
+}
+if (selected.some(command => command.split(' ')[0] === SUITE_SCRIPT)) {
+  for (const suite of discoverSuites(browserRoot)) reachable.add(`tests/${suite}.browser.spec.mjs`)
+}
+const browserSpecs = []
+function collectSpecs(directory, prefix = '') {
+  for (const entry of readdirSync(resolve(browserRoot, directory), { withFileTypes: true })) {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isDirectory()) collectSpecs(`${directory}/${entry.name}`, relative)
+    else if (entry.isFile() && entry.name.endsWith('.browser.spec.mjs')) browserSpecs.push(`tests/${relative}`)
+  }
+}
+collectSpecs('tests')
+const scriptsReachable = new Set()
+for (const scriptName of Object.keys(scripts)) {
+  for (const spec of reachableSpecs(scriptName)) scriptsReachable.add(spec)
+}
+if (Object.values(scripts).some(body => body.includes(`npm run ${SUITE_SCRIPT} -- --all`))) {
+  for (const suite of discoverSuites(browserRoot)) scriptsReachable.add(`tests/${suite}.browser.spec.mjs`)
+}
+const unreferenced = browserSpecs.filter(spec => !scriptsReachable.has(spec))
+if (unreferenced.length) {
+  console.error(`Browser specs are not referenced by any npm script: ${unreferenced.join(', ')}`)
+  process.exit(1)
+}
+const dedicatedCiScripts = new Set(['test:home-css', 'test:visual', 'parity:matrix'])
+const smokeOrDedicated = new Set(reachable)
+for (const scriptName of dedicatedCiScripts) {
+  for (const spec of reachableSpecs(scriptName)) smokeOrDedicated.add(spec)
+}
+const unreachable = [...scriptsReachable].filter(spec => !smokeOrDedicated.has(spec))
+if (unreachable.length) {
+  console.error(`Browser specs are referenced by npm scripts but not reachable from a smoke shard or dedicated CI script: ${unreachable.join(', ')}`)
+  process.exit(1)
+}
+const missingFiles = [...scriptsReachable].filter(spec => !browserSpecs.includes(spec))
+if (missingFiles.length) {
+  console.error(`Smoke shard scripts reference missing browser specs: ${missingFiles.join(', ')}`)
+  process.exit(1)
+}
+
 const counts = (names) => names.reduce((result, name) => {
   result.set(name, (result.get(name) ?? 0) + 1)
   return result
@@ -47,7 +104,7 @@ if (missing.length || unexpected.length) {
   process.exit(1)
 }
 
-console.log(`Browser smoke shards cover all ${expected.length} test:core suites exactly once.`)
+console.log(`Browser smoke shards cover all ${expected.length} test:core suites exactly once; all ${browserSpecs.length} browser specs are referenced and CI-reachable.`)
 
 // A shard's recorded total (preflight plus suites) must leave a quarter of its budget for ci variance.
 const unrecorded = selected.filter((command) => recordedSeconds[command] === undefined)

@@ -58,6 +58,12 @@ try {
   writeFileSync(runnerPath, runner + timing(60, newSuite))
   const atLimit = run()
   assert.equal(atLimit.status, 0, atLimit.stderr)
+
+  // Every browser spec must be reachable through a script selected by a smoke shard.
+  writeFileSync(join(scratch, 'tests', 'orphan.browser.spec.mjs'), '')
+  const orphan = run()
+  assert.equal(orphan.status, 1, orphan.stdout)
+  assert.match(orphan.stderr, /not referenced by any npm script: tests\/orphan\.browser\.spec\.mjs/)
 } finally {
   rmSync(scratch, { recursive: true, force: true })
 }

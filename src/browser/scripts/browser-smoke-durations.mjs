@@ -30,6 +30,8 @@ export const recordedSeconds = {
   'test:build-home-now-state': 1,
   'test:harness': 7,
   'test:smoke': 18,
+  'test:command-answer': 20,
+  'test:build-index-live': 20,
   'test:build-home-assets': 14,
   'test:build-home-layout': 33,
   'test:shell': 34,
