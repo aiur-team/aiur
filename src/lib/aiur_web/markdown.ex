@@ -123,8 +123,6 @@ defmodule AiurWeb.Markdown do
     if Regex.match?(@heading, line), do: {Enum.reverse(acc), [line]}, else: {Enum.reverse(acc) ++ [line], []}
   end
 
-  defp take_until_table([], acc), do: {Enum.reverse(acc), []}
-
   defp render_block([first | _] = lines, offset) do
     cond do
       Enum.count(lines) == 1 and Regex.match?(@heading, first) -> render_heading(first, offset)
