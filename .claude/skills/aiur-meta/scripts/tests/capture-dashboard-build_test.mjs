@@ -7,11 +7,11 @@ function buildRoot({ unavailable = '', skeleton = false, cards = 0, queued = nul
     querySelector(selector) {
       if (selector === '.bd-loading') return { innerText: unavailable }
       if (selector === '.bd-skel, .bd-skel-lanes' && skeleton) return {}
-      if (selector === '#bd-sec-plan .lh em' && queued !== null) return { innerText: `${queued} in build-queue order · dependency waves` }
+      if (selector === '#bd-sec-plan .bd-sech em, #bd-sec-plan .lh em' && queued !== null) return { innerText: `${queued} in build-queue order · dependency waves` }
       return null
     },
     querySelectorAll(selector) {
-      return selector === '.lr[data-id]' ? Array.from({ length: cards }, () => ({})) : []
+      return selector === '.bd-card[data-id], .lr[data-id]' ? Array.from({ length: cards }, () => ({})) : []
     }
   }
 }

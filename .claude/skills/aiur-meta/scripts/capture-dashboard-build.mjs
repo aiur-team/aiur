@@ -11,8 +11,8 @@ export function inspectBuildPage(root) {
 
   const unavailable = root.querySelector('.bd-loading')?.innerText.replace(/\s+/g, ' ').trim() || ''
   const skeleton = Boolean(root.querySelector('.bd-skel, .bd-skel-lanes'))
-  const ticketCount = root.querySelectorAll('.lr[data-id]').length
-  const queueText = root.querySelector('#bd-sec-plan .lh em')?.innerText || ''
+  const ticketCount = root.querySelectorAll('.bd-card[data-id], .lr[data-id]').length
+  const queueText = root.querySelector('#bd-sec-plan .bd-sech em, #bd-sec-plan .lh em')?.innerText || ''
   const queueCount = queueText.match(/(\d[\d,]*)\s+in build-queue order\b/i)
 
   return {
