@@ -203,6 +203,15 @@ defmodule Aiur.GitHub.ReadCache do
     end
   end
 
+  @doc "Retires repository configuration after a configuration-specific webhook."
+  @spec invalidate_repo_config(String.t()) :: :ok
+  def invalidate_repo_config(full_name) do
+    case split_repo(full_name) do
+      {owner, repo} -> invalidate([{:repo_config, owner, repo}])
+      _unusable -> :ok
+    end
+  end
+
   @doc "Retires everything held."
   @spec invalidate_all() :: :ok
   def invalidate_all, do: invalidate([:root])
@@ -436,7 +445,7 @@ defmodule Aiur.GitHub.ReadCache do
   # response only at the entry ceiling.
   defp deposit(key, result, started_at, class, caller) do
     cond do
-      not Outcome.cacheable?(result) ->
+      not Outcome.cacheable?(result, class) ->
         Metrics.not_deposited(:unsuccessful, class, caller)
         :ok
 
