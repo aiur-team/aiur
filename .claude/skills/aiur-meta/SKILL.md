@@ -173,6 +173,14 @@ and have no place in a routine health check.
 
 ### The host
 
+Inspect Aiur-owned Docker containers for work whose ticket has no live agent.
+Use the configured stale threshold (`AIUR_META_STALE_CONTAINER_HOURS`, default
+2 hours), compare each container's `aiur.ticket` label with the live agent
+identifiers from `aiur agents`, and report old containers with no matching
+agent as findings. Capture ID, ticket label, creation time, running state and
+image from Docker's system of record; the issue workspace can be deleted by
+the time the host is audited, so do not infer ownership from mount paths.
+
 ```
 nproc; cat /proc/loadavg; free -g
 ```

@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
   alias Aiur.AgentPubSub
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{CiLifecycle, LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, TrackedSet, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{CiLifecycle, DockerCleanup, LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, TrackedSet, WorkspaceCleanup}
   alias Aiur.ProcessTree
   alias Aiur.Tmux.Socket
 
@@ -65,6 +65,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         if is_pid(pid) do
           terminate_task(pid)
         end
+
+        DockerCleanup.start_ticket_cleanup(identifier)
 
         if is_reference(ref) do
           Process.demonitor(ref, [:flush])
@@ -137,6 +139,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         if is_pid(pid) do
           terminate_task(pid)
         end
+
+        DockerCleanup.start_ticket_cleanup(identifier)
 
         if is_reference(ref) do
           Process.demonitor(ref, [:flush])
