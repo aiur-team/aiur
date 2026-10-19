@@ -40,6 +40,12 @@ defmodule Aiur.OpenAICompat.ToolsTest do
 
     assert %{"success" => false, "output" => "outside_workspace"} =
              Tools.execute("list_files", %{"glob" => "outside/*"}, context, [])
+
+    File.write!(Path.join(workspace, "inside.txt"), "")
+    File.ln_s!("inside.txt", Path.join(workspace, "alias.txt"))
+
+    assert %{"success" => true, "output" => "alias.txt\ninside.txt"} =
+             Tools.execute("list_files", %{"glob" => "**/*"}, context, [])
   end
 
   test "tool validation returns matchable errors" do
