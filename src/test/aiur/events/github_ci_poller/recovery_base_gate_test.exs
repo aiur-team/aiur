@@ -53,10 +53,15 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
     assert %{decision: :failed, recovery: nil} = Recovery.recover(ctx.issue, ctx.result, opts)
   end
 
-  test "a base commit with no recorded result holds as unknown", ctx do
+  test "a base commit with no recorded result holds as unknown for one main CI run, then routes", ctx do
     opts = Keyword.put(ctx.opts, :main_watch_history, [%{base("success") | sha: "older"}])
     assert %{decision: :pending, recovery: "base_unknown"} = Recovery.recover(ctx.issue, ctx.result, opts)
     assert_received {:attention, "ticket.3864.pr.ci_recovery.base_unknown"}
+    assert %{decision: :pending, recovery: "base_unknown"} = Recovery.recover(ctx.issue, ctx.result, Keyword.put(opts, :ci_recovery_now, 4599))
+
+    assert %{decision: :failed} = routed = Recovery.recover(ctx.issue, ctx.result, Keyword.put(opts, :ci_recovery_now, 4600))
+    refute routed[:recovery]
+    refute_received {:attention, _}
   end
 
   test "a PR-only check routes even when the base commit was never recorded", ctx do

@@ -7,6 +7,8 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
 
+  @base_unknown_s 3600
+
   @spec attention_hold?(map() | nil) :: boolean()
   def attention_hold?(%{recovery: reason}) when is_binary(reason), do: true
 
@@ -389,6 +391,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     mode = if mode == "transient" and opts[:ci_recovery_retried], do: "hold", else: mode
     hold = %{"sha" => result.head_sha, "reason" => kind, "tests" => tests, "mode" => mode, "failed" => result[:decision] == :failed}
     hold = if mode == "transient", do: Map.put(hold, "retry_at", now(opts) + 600), else: hold
+    hold = if mode == "base", do: Map.put(hold, "since", now(opts)), else: hold
     message = "PR ##{Map.get(result, :pr_number)} CI recovery #{kind}: #{inspect(reason)}. Failing tests/checks: #{tests}"
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
 
@@ -426,6 +429,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
         kind = "base_#{cause}"
 
         case entry do
+          %{"hold" => %{"sha" => ^sha, "reason" => "base_unknown"} = hold} when kind == "base_unknown" -> unknown_base(result, hold, opts)
           %{"hold" => %{"sha" => ^sha, "reason" => ^kind}} -> held(result, kind)
           _ -> issue |> attention(result, kind, "base #{result[:base_sha] || "unknown"}", opts, "base") |> held(kind)
         end
@@ -433,6 +437,11 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp base_gate(result, _issue, _entry, _opts), do: result
+
+  # MainWatch may never record the base (its push run was cancelled, or it aged
+  # out of history), so an unknown base holds for about one main CI run.
+  defp unknown_base(result, hold, opts),
+    do: if(now(opts) >= Map.get(hold, "since", 0) + @base_unknown_s, do: result, else: held(result, "base_unknown"))
 
   defp emit_attention(issue, result, kind, message, emitter, opts) do
     topic = "ticket.#{issue.identifier || issue.id}.pr.ci_recovery.#{kind}"
