@@ -70,7 +70,7 @@ defmodule Aiur.TestTmpTest do
         Aiur.TestTmp.sweep!(base, File.stat!(stale).uid, &File.rm_rf/1, blocking_probe)
       end)
 
-    assert_receive {:liveness_probe_started, ^pid}
+    assert_receive {:liveness_probe_started, ^pid}, 1_000
     assert warning =~ "liveness probe timed out"
     assert File.dir?(stale)
   end
