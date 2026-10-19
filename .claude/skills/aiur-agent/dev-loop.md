@@ -192,7 +192,7 @@ The Elixir examples below apply only to Aiur's Elixir core.
      `mise exec -- python3 scripts/check-pr-structure.py --base "$base"` (size, docs prose/table, components, bare receives, format, state-writer allowlist).
 
    When a change must touch an oversized text file (over 500 lines), keep that
-   file the same length or shorter. Put new code in a new small module and new
+   file the same length or shorter; the file-size gate exempts skills and third-party vendored directories. Put new code in a new small module and new
    tests in a new test file. Never grow the oversized file.
 
    Append new `Aiur.Application.child_specs/1` children after the existing

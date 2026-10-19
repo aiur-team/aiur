@@ -168,6 +168,7 @@ pre_warmed_sessions: {{PRE_WARMED}}      # opencode sessions pre-booted for fast
 prewarm:
   enabled: {{PREWARM_ENABLED}}           # turn on to pre-warm a shared base before agents dispatch
 {{PREWARM_BASE_BUILD_FILE}}  poll_seconds: 0                        # background base refresh interval (s); 0 = refresh eagerly/lazily only
+  build_timeout_minutes: 60              # total clone/fetch/build limit; expiry releases dispatch for cold clones
 
 # === Alert sound effects (opt-in; play a sound when an agent is stuck or needs input) ===
 alerts:

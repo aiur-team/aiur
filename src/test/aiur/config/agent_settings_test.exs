@@ -281,7 +281,7 @@ defmodule Aiur.Config.AgentSettingsTest do
              Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_process_cap: -1}})
   end
 
-  test "prewarm defaults to disabled and validates poll_seconds" do
+  test "prewarm defaults to disabled and validates timeout and poll settings" do
     # Pre-warm is opt-in: an absent block must yield disabled + no base_build +
     # no polling (byte-for-byte back-compat), an explicit block must round-trip,
     # and a negative poll interval must be rejected.
@@ -289,19 +289,24 @@ defmodule Aiur.Config.AgentSettingsTest do
     assert settings.prewarm.enabled == false
     assert settings.prewarm.base_build == nil
     assert settings.prewarm.poll_seconds == 0
+    assert settings.prewarm.build_timeout_minutes == 60
 
     assert {:ok, settings} =
              Schema.parse(%{
                tracker: %{kind: "memory"},
-               prewarm: %{enabled: true, base_build: "mise exec -- mix compile", poll_seconds: 30}
+               prewarm: %{enabled: true, base_build: "mise exec -- mix compile", poll_seconds: 30, build_timeout_minutes: 90}
              })
 
     assert settings.prewarm.enabled == true
     assert settings.prewarm.base_build == "mise exec -- mix compile"
     assert settings.prewarm.poll_seconds == 30
+    assert settings.prewarm.build_timeout_minutes == 90
 
     assert {:error, {:invalid_workflow_config, _}} =
              Schema.parse(%{tracker: %{kind: "memory"}, prewarm: %{poll_seconds: -1}})
+
+    assert {:error, {:invalid_workflow_config, _}} =
+             Schema.parse(%{tracker: %{kind: "memory"}, prewarm: %{build_timeout_minutes: 0}})
   end
 
   test "alerts default to enabled with OS sounds off (back-compat) and round-trip overrides" do

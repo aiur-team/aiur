@@ -72,6 +72,10 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     cases = [
         ('new 500', {}, {'file': lines(500)}, 0, 'notice: file: 500 lines'),
         ('new 501', {}, {'file': lines(501)}, 1, 'file: base 0 -> head 501 (limit 500)'),
+        ('600-line Claude skill exempt', {}, {'.claude/skills/x/SKILL.md': lines(600)}, 0, ''),
+        ('600-line vendored source exempt', {}, {'src/priv/static/vendor/x.js': lines(600)}, 0, ''),
+        ('600-line Stream Deck vendored asset exempt', {}, {'packages/streamdeck/assets/vendor/x.svg': lines(600)}, 0, ''),
+        ('600-line ordinary source still fails', {}, {'src/lib/x.ex': lines(600)}, 1, 'src/lib/x.ex: base 0 -> head 600 (limit 500)'),
         ('no final newline', {}, {'file': lines(499) + b'x'}, 0, 'file: 500 lines'),
         ('unchanged debt', {'file': lines(700)}, {'file': lines(700)}, 0, ''),
         ('crossing limit', {'file': lines(480)}, {'file': lines(520)}, 1, 'base 480 -> head 520'),
@@ -84,6 +88,8 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
         ('new binary', {}, {'file': lines(900) + b'\0'}, 0, ''),
         ('binary to oversized text', {'file': b'\0'}, {'file': lines(501)}, 1, 'base binary -> head 501'),
         ('cohesion notice', {}, {'file': lines(250)}, 0, 'notice: file: 250 lines; give a cohesion reason'),
+        ('skill skips cohesion notice', {}, {'.claude/skills/x/SKILL.md': lines(250)}, 0, ''),
+        ('vendor skips cohesion notice', {}, {'src/priv/static/vendor/x.js': lines(250)}, 0, ''),
         ('growing cohesion notice', {'file': lines(201)}, {'file': lines(250)}, 0, 'notice: file: 250 lines'),
         ('empty file', {}, {'file': b''}, 0, ''),
         ('empty count', {'file': b''}, {'file': lines(501)}, 1, 'base 0 -> head 501'),
@@ -98,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
         ('Codex skill directory', {}, {'.codex/skills/new-skill/SKILL.md': lines(1)}, 1, 'new tracked entry under mounted skill path .codex/skills is rejected'),
         ('Muse skill mount', {}, {'.agents/skills/new-skill/SKILL.md': lines(1)}, 1, 'new tracked entry under mounted skill path .agents/skills is rejected'),
         ('exact mount root', {}, {'.claude/skills': ('symlink', '../skills')}, 1, 'tracked symlink under mounted skill path .claude/skills is rejected'),
-        ('existing mounted skill edit', {'.codex/skills/aiur-agent': b'old target\n'}, {'.codex/skills/aiur-agent': b'new target\n'}, 0, ''),
+        ('existing mounted skill edit', {'.codex/skills/aiur-agent': b'old target\n'}, {'.codex/skills/aiur-agent': lines(600)}, 0, ''),
         ('existing mounted skill deletion', {'.agents/skills/old/SKILL.md': lines(1)}, {'.agents/skills/old/SKILL.md': None}, 0, ''),
         ('rename out of Codex mount', {'.codex/skills/old.md': lines(1)}, {'.codex/skills/old.md': None, 'moved/old.md': lines(1)}, 0, ''),
     ]
