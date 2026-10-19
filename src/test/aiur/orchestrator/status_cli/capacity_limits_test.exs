@@ -149,7 +149,7 @@ defmodule Aiur.OrchestratorStatusCliCapacityLimitsTest do
   @tag stale_dispatch_poll: true
   test "status fixture refreshes an inherited stale dispatch poll", %{orchestrator: pid} do
     :sys.replace_state(pid, fn state ->
-      %{state | last_polled_issues: %{"issue-queued" => queued_issue()}, max_concurrent_agents: 10}
+      %{state | last_polled_issues: %{"issue-queued" => queued_issue()}, max_concurrent_agents: 10, effective_concurrent_agents: 2}
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)

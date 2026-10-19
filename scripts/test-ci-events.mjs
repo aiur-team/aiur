@@ -7,7 +7,8 @@ const source = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.u
 const trigger = source.split(/^concurrency:/m)[0];
 assert.ok(/^  pull_request:$/m.test(trigger));
 assert.ok(/types: \[opened, synchronize, reopened, ready_for_review, labeled\]/.test(trigger), 'label events let ci:full start a full run');
-assert.ok(source.includes("github.event.action != 'labeled' || github.event.label.name == 'ci:full'"), 'unrelated labels must not cancel active CI');
+assert.ok(source.includes("github.event.action == 'synchronize'"), 'a new PR head cancels its superseded CI run');
+assert.ok(source.includes("github.event.label.name == 'ci:full'"), 'the full-CI label replaces the fast run');
 assert.ok(/^  merge_group:$/m.test(trigger));
 assert.ok(/  push:\n    branches: \[main, v2\]/.test(trigger), 'main pushes trigger CI');
 assert.ok(/  schedule:\n    - cron:/.test(trigger), 'scheduled CI is configured');
