@@ -139,6 +139,15 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlertsTest do
 
       assert {:ok, [%{"head_sha" => ^sha, "last_review_sha" => ^older, "needs_attention" => true}]} = ExecutorWakeInbox.wait(500)
     end
+
+    # #5167: a label-only handoff (no new push) is observed after the worker exits, so the ticket is untracked.
+    test "publishes the wake when no worker tracks the ticket" do
+      Publisher.set_tracked_fn(fn _ -> false end)
+      {listener, sha} = observe_handoff_twice("handoff-untracked", 4801, fn _sha -> [] end)
+      :sys.get_state(listener)
+
+      assert {:ok, [%{"pr_number" => 4801, "head_sha" => ^sha, "count" => 1}]} = ExecutorWakeInbox.wait(500)
+    end
   end
 
   defp observe_handoff_twice(name, pr_number, reviews) do
