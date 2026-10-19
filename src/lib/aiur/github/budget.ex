@@ -207,7 +207,7 @@ defmodule Aiur.GitHub.Budget do
 
   defp reconcile_response(_lease, _result, _opts), do: :ok
 
-  @doc "Marks the calling process as the main watcher: its admissions may use one lease above the in-flight caps."
+  @doc "Marks the calling process as the base-branch watcher: its admissions may use one lease above the in-flight caps."
   @spec prioritize() :: :ok
   def prioritize do
     Process.put(@priority_key, true)
