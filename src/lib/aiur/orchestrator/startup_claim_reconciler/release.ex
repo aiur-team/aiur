@@ -114,23 +114,16 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
 
   defp review_target(pr, opts) do
     case ReworkGate.open_pull_request_rework_verdict(pr, opts) do
-      {:ok, :rework} ->
-        case ReworkGate.approved_and_queued?(pr, opts) do
-          {:ok, true} -> body_review_target(pr, opts)
-          _not_approved_and_queued -> {:ok, "rework"}
-        end
-
-      {:skip, :no_unresolved_review_threads} ->
-        body_review_target(pr, opts)
-
-      {:error, _reason} = error ->
-        error
+      {:ok, :rework} -> current_head_review_target(pr, opts)
+      {:skip, :no_unresolved_review_threads} -> current_head_review_target(pr, opts)
+      {:error, _reason} = error -> error
     end
   end
 
-  defp body_review_target(pr, opts) do
-    {:ok, ReworkGate.post_agent_handoff_target(pr, "human-review", opts)}
-  end
+  # An unresolved thread can belong to a review on an older head. Startup
+  # recovery uses the same current-head review rule as agent handoff.
+  defp current_head_review_target(pr, opts),
+    do: {:ok, ReworkGate.post_agent_handoff_target(pr, "human-review", opts)}
 
   defp guarded_update(identifier, target, expected, writer), do: TicketTransition.write_state(identifier, target, writer: writer, expected_state: expected)
 

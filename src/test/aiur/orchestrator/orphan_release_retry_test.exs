@@ -1,6 +1,9 @@
 defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
   use ExUnit.Case, async: false
 
+  # These tests keep startup-release routing beside its retry behavior: both
+  # assert the state and durable comment produced by orphan recovery.
+
   alias Aiur.Issue
   alias Aiur.Orchestrator.{StartupClaimReconciler, State}
 
@@ -89,6 +92,39 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
       assert body =~ "to human-review"
       refute body =~ "Integrate the base"
     end
+  end
+
+  test "restart keeps an unresolved review on an older head in human-review" do
+    stale = %{"state" => "CHANGES_REQUESTED", "commit_id" => "older", "user" => %{"login" => "reviewer"}, authoritative: true}
+
+    opts =
+      Keyword.merge(opts(),
+        open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
+        pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
+        unresolved_threads_fetcher: fn _ -> {:ok, [%{"id" => "old-thread", "isResolved" => false}]} end,
+        reviews_fetcher: fn 42 -> {:ok, [stale]} end
+      )
+
+    {_released, [%Issue{state: "human-review"}]} = StartupClaimReconciler.reconcile(%State{}, [issue()], opts)
+    assert_received {:comment, body}
+    assert body =~ "to human-review"
+    refute body =~ "to rework"
+  end
+
+  test "restart routes an unresolved review on the current head to rework" do
+    current = %{"state" => "CHANGES_REQUESTED", "commit_id" => "head", "user" => %{"login" => "reviewer"}, authoritative: true}
+
+    opts =
+      Keyword.merge(opts(),
+        open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
+        pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
+        unresolved_threads_fetcher: fn _ -> {:ok, [%{"id" => "current-thread", "isResolved" => false}]} end,
+        reviews_fetcher: fn 42 -> {:ok, [current]} end
+      )
+
+    {_released, [%Issue{state: "rework"}]} = StartupClaimReconciler.reconcile(%State{}, [issue()], opts)
+    assert_received {:comment, body}
+    assert body =~ "to rework"
   end
 
   test "an orphaned claim with a current-head approval is released to ci-wait" do
