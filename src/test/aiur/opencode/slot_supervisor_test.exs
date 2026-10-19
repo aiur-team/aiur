@@ -11,11 +11,14 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
       assert Process.whereis(SlotRegistry.registry_name()) == nil
     end
 
+    if context[:leftover_slot], do: start_leftover_slot!(1)
+
     :ok
   end
 
   setup do
     ensure_slot_registry!()
+    stop_leftover_slots!()
   end
 
   defmodule FakeActiveSlot do
@@ -111,23 +114,62 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
   end
 
   describe "acquire_slot_or_grow/0 with a consumed slot" do
-    test "delegates growth to the globally registered slot policy" do
-      pubsub = Module.concat(__MODULE__, "PubSub#{System.unique_integer([:positive, :monotonic])}")
-      start_supervised!({Phoenix.PubSub, name: pubsub}, id: {Phoenix.PubSub, pubsub})
-
-      policy =
-        start_supervised!({SlotPolicy, target_count: 1, max_slots: 2, pubsub: pubsub, slot_starter: FakeSlotStarter})
-
-      assert SlotPolicy.highest_started(policy) == 1
-      assert [{1, _slot_pid}] = SlotRegistry.all()
-
-      assert SlotSupervisor.acquire_slot_or_grow() == {:error, :no_ready_slot}
-      assert SlotPolicy.highest_started(policy) == 2
-      assert registered_slot_indexes() == [1, 2]
-
-      assert :ok = stop_supervised(SlotPolicy)
-      assert_empty_slot_registry()
+    # #5162: a prior module's linked fake slot outlived its owner and still held
+    # index 1, so the policy's slot-1 start crashed and took the policy with it.
+    @tag :leftover_slot
+    test "grows even when a prior test left a live slot registered at index 1" do
+      assert_grows_through_global_policy()
     end
+
+    test "delegates growth to the globally registered slot policy" do
+      assert_grows_through_global_policy()
+    end
+  end
+
+  defp assert_grows_through_global_policy do
+    pubsub = Module.concat(__MODULE__, "PubSub#{System.unique_integer([:positive, :monotonic])}")
+    start_supervised!({Phoenix.PubSub, name: pubsub}, id: {Phoenix.PubSub, pubsub})
+
+    policy =
+      start_supervised!({SlotPolicy, target_count: 1, max_slots: 2, pubsub: pubsub, slot_starter: FakeSlotStarter})
+
+    assert SlotPolicy.highest_started(policy) == 1
+    assert [{1, _slot_pid}] = SlotRegistry.all()
+
+    assert SlotSupervisor.acquire_slot_or_grow() == {:error, :no_ready_slot}
+    assert SlotPolicy.highest_started(policy) == 2
+    assert registered_slot_indexes() == [1, 2]
+
+    assert :ok = stop_supervised(SlotPolicy)
+    assert_empty_slot_registry()
+  end
+
+  defp start_leftover_slot!(index) do
+    ensure_slot_registry!()
+    parent = self()
+    ref = make_ref()
+
+    pid =
+      spawn(fn ->
+        :ok = SlotRegistry.register_self(index)
+        send(parent, {ref, :registered})
+        receive do: (:stop -> :ok)
+      end)
+
+    assert_receive {^ref, :registered}, 1_000
+    on_exit(fn -> Process.exit(pid, :kill) end)
+  end
+
+  # The SlotRegistry is application-global: kill any slot an earlier test left
+  # alive so this test owns every index it registers.
+  defp stop_leftover_slots! do
+    for {_index, pid} <- SlotRegistry.all() do
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 1_000
+    end
+
+    :ok
   end
 
   defp ensure_slot_registry! do
