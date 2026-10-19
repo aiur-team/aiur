@@ -1,5 +1,6 @@
 defmodule Aiur.GitHub.Listeners.Comments.TargetSelectionTest do
   use Aiur.TestSupport
+  import ExUnit.CaptureLog
 
   alias Aiur.GitHub.Listeners.Comments.{Cursor, Input, TargetSelection}
   alias Aiur.Issue
@@ -110,6 +111,50 @@ defmodule Aiur.GitHub.Listeners.Comments.TargetSelectionTest do
              TargetSelection.github_comment_poll_targets(%Cursor{}, input(), opts)
 
     refute_receive :unexpected_watch_fetch, 100
+  end
+
+  test "retries an expired local hold on the PR freshness lookup without logging a failure" do
+    parent = self()
+
+    issue = %Issue{
+      id: "57",
+      identifier: "57",
+      state: "human-review",
+      updated_at: "2026-07-11T01:00:00Z"
+    }
+
+    hold = %{
+      reason: :shared_budget,
+      resource: "core",
+      reset_at: DateTime.add(DateTime.utc_now(), -1, :second)
+    }
+
+    error = {:error, {:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}}
+
+    opts = [
+      review_issue_fetcher: fn _states -> {:ok, [issue]} end,
+      review_pull_request_fetcher: fn "57" ->
+        attempt = Process.get(:freshness_attempt, 0) + 1
+        Process.put(:freshness_attempt, attempt)
+        send(parent, {:freshness_attempt, attempt})
+
+        if attempt == 1,
+          do: error,
+          else: {:ok, %{"number" => 61, "updated_at" => "2026-07-11T02:00:00Z"}}
+      end,
+      watch_pull_request_fetcher: fn _label -> {:ok, []} end,
+      local_hold_sleep_fun: fn _ms -> flunk("expired hold must retry without sleeping") end
+    ]
+
+    log =
+      capture_log(fn ->
+        assert {:ok, ["57"], [%{updated_at: "issue=2026-07-11T01:00:00Z;pr=2026-07-11T02:00:00Z"}], []} =
+                 TargetSelection.github_comment_poll_targets(%Cursor{}, input(), opts)
+      end)
+
+    assert_receive {:freshness_attempt, 1}, 1_000
+    assert_receive {:freshness_attempt, 2}, 1_000
+    refute log =~ "GithubCommentsPoller PR freshness lookup failed"
   end
 
   test "merges cursors and remembers only successful review targets" do
