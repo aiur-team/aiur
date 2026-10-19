@@ -87,10 +87,11 @@ resolves the alert and stops the ladder.
 
 The ladder is computed from the
 Command's age, so a restart continues it. `aiur status` prints
-`DECISIONS open N (E expired) oldest <age> (#ticket, gates M)`. It counts the
-same Commands as `aiur commands --filter open`, including expired blocking
-Commands that are still unanswered, and marks the line `ATTENTION` when the
-oldest of them is older than 15 minutes.
+`DECISIONS open N (E expired) oldest <age> (#ticket, gates M)`.
+
+That line counts the same Commands as `aiur commands --filter open`, including
+unanswered expired blocking Commands. It is marked `ATTENTION` when the oldest
+is older than 15 minutes.
 
 Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
 
