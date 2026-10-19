@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { analyzeDashboardSnapshot, runPageCapture } from '../capture-dashboard.mjs'
+import { analyzeDashboardSnapshot, inspectPage, runPageCapture } from '../capture-dashboard.mjs'
 import { buildDashboardIssues, PAGES } from '../capture-dashboard-build.mjs'
 
 function buildSnapshot(overrides = {}) {
@@ -79,6 +79,67 @@ test('flags unavailable agent state always and no-agent state when active agents
   const noAgents = buildSnapshot({ buildBand: 'No agents are working right now.' })
   assert.deepEqual(buildDashboardIssues('build', noAgents), [])
   assert.ok(buildDashboardIssues('build', noAgents, 1).some(({ kind }) => kind === 'build-agent-state-unavailable'))
+})
+
+function inspectedBuildRoot({ skeleton = false, band = '', queue = '', tickets = 0 } = {}) {
+  const root = {
+    querySelector(selector) {
+      if (selector === '.bd-loading') return null
+      if (selector === '.bd-now-empty') return band ? { innerText: band } : null
+      if (selector === '.bd-skel, .bd-skel-lanes') return skeleton ? {} : null
+      if (selector === '#bd-sec-plan .bd-sech em, #bd-sec-plan .lh em') return queue ? { innerText: queue } : null
+      return null
+    },
+    querySelectorAll(selector) {
+      if (selector === '.bd-card[data-id], .lr[data-id]') return Array.from({ length: tickets }, () => ({}))
+      return []
+    }
+  }
+  return root
+}
+
+async function inspectBuild(root) {
+  const priorDocument = globalThis.document
+  const priorWindow = globalThis.window
+  globalThis.document = {
+    title: 'Build', body: { innerText: '' },
+    querySelector: (selector) => selector === '#build-root' ? root : null,
+    querySelectorAll: () => []
+  }
+  globalThis.window = { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) }
+  try {
+    return await inspectPage({ evaluate: (callback, name) => callback(name) }, 'build')
+  } finally {
+    globalThis.document = priorDocument
+    globalThis.window = priorWindow
+  }
+}
+
+function analyzeInspectedBuild(snapshot, expectedActiveAgents = null) {
+  return analyzeDashboardSnapshot('build', {
+    status: 200, title: 'Build', chars: 10, liveViewConnected: true, primaryContent: true,
+    tables: [], staleBanners: [], emptyStates: [], errorStates: [], capacityReadings: [],
+    hasNAInMetric: false,
+    ...snapshot
+  }, null, expectedActiveAgents)
+}
+
+test('production /build DOM inspection detects skeleton markup and raises attention', async () => {
+  const snapshot = await inspectBuild(inspectedBuildRoot({ skeleton: true }))
+  const result = analyzeInspectedBuild(snapshot)
+
+  assert.equal(snapshot.buildSkeleton, true)
+  assert.equal(result.verdict, 'attention')
+  assert.ok(result.issues.some(({ kind }) => kind === 'build-skeletons-remain'))
+})
+
+test('production /build DOM inspection detects the Live empty band with active agents', async () => {
+  const snapshot = await inspectBuild(inspectedBuildRoot({ band: 'No agents are working right now.' }))
+  const result = analyzeInspectedBuild(snapshot, 1)
+
+  assert.equal(snapshot.buildBand, 'No agents are working right now.')
+  assert.equal(result.verdict, 'attention')
+  assert.ok(result.issues.some(({ kind }) => kind === 'build-agent-state-unavailable'))
 })
 
 test('the /build capture waits for hydration and treats a hydration timeout as attention', async () => {
