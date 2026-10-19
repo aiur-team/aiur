@@ -1,0 +1,133 @@
+{
+  "issue": 3804,
+  "date": "2026-10-19",
+  "synthetic": true,
+  "workers": {
+    "codex": {
+      "ticket": 5311,
+      "report_attempts": 2,
+      "turns": 1,
+      "input_tokens": 2812808,
+      "cached_input_tokens": 2702848,
+      "output_tokens": 7374,
+      "total_tokens": 2820182,
+      "turn_duration_ms": 235947,
+      "started_at": "2026-10-19T19:17:08+00:00",
+      "completed_at": "2026-10-19T19:21:04+00:00",
+      "experiment_id": "smoke-3804-20261019-analyst",
+      "stored_header": {
+        "analysis_type": "confirmatory",
+        "analyst": {
+          "agent": "codex",
+          "model": "gpt-6",
+          "role": "analyst",
+          "ticket": 5311
+        },
+        "events_snapshot_hash": "07f1ba61877b4ff157008f6d8826915f4302f0ce8754bff7e2e7f7aa84defbe9",
+        "experiment_id": "smoke-3804-20261019-analyst",
+        "generated_at": "2026-10-19T19:20:20.972870Z",
+        "preregistration_hash": "7f2cfec477c6dac460784416b5ce09cedff54b7275db294398ffbaac840eed0e",
+        "report_version": 1,
+        "stats_snapshot_hash": "e41be7cd2b285c2fa12092457a3c71a2c4a2fe5f03566846ba46de9cb7440540",
+        "title": "Synthetic smoke acceptance: confounded before/after"
+      },
+      "labels": [
+        "inconclusive",
+        "confounded"
+      ],
+      "confounder_count": 4,
+      "post_hoc": false
+    },
+    "claude": {
+      "ticket": 5312,
+      "report_attempts": 1,
+      "turns": 2,
+      "started_at": "2026-10-19T19:24:23.539100+00:00",
+      "completed_at": "2026-10-19T19:29:37.247000+00:00",
+      "wall_ms": 313708,
+      "per_turn_totals": [
+        2430276,
+        215997
+      ],
+      "input_tokens": 60,
+      "output_tokens": 16606,
+      "cache_read_input_tokens": 2532316,
+      "cache_creation_input_tokens": 97291,
+      "total_tokens": 2646273,
+      "experiment_id": "smoke-3804-20261019-claude",
+      "stored_header": {
+        "analysis_type": "confirmatory",
+        "analyst": {
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "role": "analyst",
+          "ticket": 5312
+        },
+        "events_snapshot_hash": "07f1ba61877b4ff157008f6d8826915f4302f0ce8754bff7e2e7f7aa84defbe9",
+        "experiment_id": "smoke-3804-20261019-claude",
+        "generated_at": "2026-10-19T19:28:46.020975Z",
+        "preregistration_hash": "17459a2c223842c3e65d9905767b495569228c61c34577ce4f68fbbccaf8a801",
+        "report_version": 1,
+        "stats_snapshot_hash": "5e87f859d3c1bd0f85b6bf14a9f318783be0604c919d4489f475991fd6d96dc2",
+        "title": "smoke-3804-20261019-claude"
+      },
+      "labels": [
+        "confounded",
+        "inconclusive"
+      ],
+      "confounder_count": 4,
+      "post_hoc": false
+    }
+  },
+  "default_list_after_cleanup": [],
+  "abandoned_ids": [
+    "smoke-3804-20261019-analyst",
+    "smoke-3804-20261019-claude"
+  ],
+  "screenshots": [
+    {
+      "width": 1440,
+      "sha256": "eb480b9f937f4c0f03e05716f141e318e3c4bdba3f7d270837db79107f7e3787",
+      "checks": {
+        "headings": [
+          "Summary",
+          "Pre-registration",
+          "Design and sample",
+          "Results",
+          "Confounders reviewed",
+          "Sensitivity analyses",
+          "Threats to validity",
+          "Recommendation",
+          "Reproduce"
+        ],
+        "confounderRows": 4,
+        "overflow": {
+          "viewport": 1440,
+          "document": 1425
+        }
+      }
+    },
+    {
+      "width": 390,
+      "sha256": "9733ae483b68ca5440026697b66215ebea60299ef2288bf3b87f33c70a7e1a5c",
+      "checks": {
+        "headings": [
+          "Summary",
+          "Pre-registration",
+          "Design and sample",
+          "Results",
+          "Confounders reviewed",
+          "Sensitivity analyses",
+          "Threats to validity",
+          "Recommendation",
+          "Reproduce"
+        ],
+        "confounderRows": 4,
+        "overflow": {
+          "viewport": 390,
+          "document": 390
+        }
+      }
+    }
+  ]
+}
