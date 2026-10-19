@@ -3,6 +3,8 @@ defmodule Aiur.Events.GithubCIPoller.RedHeadRoutingTest do
 
   alias Aiur.CI.FailureDigest
   alias Aiur.Events.GithubCIPoller.{Evaluation, Recovery}
+  alias Aiur.Events.GithubWebhook.Deposit.Bodies
+  alias Aiur.GitHub.{CIPollBatch, CIPollBatchTestSupport, ResourceStore}
   alias Aiur.{Issue, JsonStore}
   alias Aiur.Orchestrator.CiLifecycle.FailureComment
 
@@ -57,19 +59,54 @@ defmodule Aiur.Events.GithubCIPoller.RedHeadRoutingTest do
     refute_received {:rerun, _}
   end
 
-  test "a red head whose rerun cannot start raises its attention once and still routes", ctx do
+  test "a red head whose rerun cannot start raises its attention once, retries after ten minutes, then routes", ctx do
     opts = Keyword.put(ctx.opts, :ci_failure_digest, fn _, _ -> {:error, :digest_unavailable} end)
     issue = %Issue{id: "5051", identifier: "5051"}
 
-    assert %{decision: :failed, recovery: nil} = Recovery.recover(issue, ctx.result, opts)
+    assert %{decision: :pending, recovery: "evidence_unavailable"} = Recovery.recover(issue, ctx.result, Keyword.put(opts, :ci_recovery_now, 1000))
     assert_received {:attention, "ticket.5051.pr.ci_recovery.evidence_unavailable"}
-    assert %{decision: :failed, recovery: nil} = Recovery.recover(issue, ctx.result, opts)
+    assert %{decision: :failed, recovery: nil} = Recovery.recover(issue, ctx.result, Keyword.put(opts, :ci_recovery_now, 1600))
+    assert %{decision: :failed, recovery: nil} = Recovery.recover(issue, ctx.result, Keyword.put(opts, :ci_recovery_now, 1700))
     refute_received {:attention, _}
   end
 
   test "a failed check run keeps its link for the rework comment" do
     checks = [%{"name" => "pr body", "status" => "completed", "conclusion" => "failure", "details_url" => @run_url}]
     assert %{decision: :failed, failures: [%{name: "pr body", url: @run_url}]} = Evaluation.evaluate(checks, %{"statuses" => []})
+  end
+
+  test "a polled red check run and status keep their links into the rework comment" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    ResourceStore.reset()
+    on_exit(&ResourceStore.reset/0)
+    status_url = "https://ci.example/legacy/1"
+
+    node =
+      update_in(CIPollBatchTestSupport.pull_request(), ["commits", "nodes", Access.at(0), "commit", "statusCheckRollup", "contexts", "nodes"], fn [run, status] ->
+        [Map.merge(run, %{"conclusion" => "FAILURE", "detailsUrl" => @run_url}), Map.merge(status, %{"state" => "FAILURE", "targetUrl" => status_url})]
+      end)
+
+    request_fun = fn %{method: :post} -> CIPollBatchTestSupport.ci_response(Map.put(node, "baseRefOid", "base-77")) end
+    assert {:ok, %{"42" => batch}} = CIPollBatch.fetch(["42"], token: "test-gh-token", request_fun: request_fun, branch_names_by_target: %{"42" => "aiur/42-ci-batch"})
+    assert batch.pull_request["base"]["sha"] == "base-77"
+
+    %{failures: failures} = Evaluation.evaluate(batch.check_runs, batch.commit_status)
+    assert FailureComment.body(%{pr_number: 77, head_sha: "head-77", failures: failures}) =~ "- [test](#{@run_url})\n- [legacy](#{status_url})"
+  end
+
+  test "a webhook check_run delivery keeps its link into the evaluation" do
+    check_run = %{
+      "id" => 7,
+      "name" => "pr body",
+      "status" => "completed",
+      "conclusion" => "failure",
+      "head_sha" => "head",
+      "details_url" => @run_url,
+      "pull_requests" => [%{"head" => %{"ref" => "aiur/4966-x"}}]
+    }
+
+    assert [{:merge_check_run, "4966", "head", normalized}] = Bodies.bodies("check_run", %{"check_run" => check_run}, [])
+    assert %{failures: [%{name: "pr body", url: @run_url}]} = Evaluation.evaluate([normalized], %{"statuses" => []})
   end
 
   test "the rework comment names each failing check with its link" do

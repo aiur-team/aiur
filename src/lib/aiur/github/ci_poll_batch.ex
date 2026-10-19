@@ -241,7 +241,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp pull_request_fields(_entry) do
     """
-    number state createdAt headRefName headRefOid baseRefName
+    number state createdAt headRefName headRefOid baseRefName baseRefOid
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     #{CIPollBatchReadyReview.fields()}
@@ -382,7 +382,7 @@ defmodule Aiur.GitHub.CIPollBatch do
           "number" => Map.get(node, "number"),
           "state" => String.downcase(to_string(Map.get(node, "state", "open"))),
           "head" => %{"ref" => Map.get(node, "headRefName"), "sha" => Map.get(node, "headRefOid")},
-          "base" => %{"ref" => Map.get(node, "baseRefName")}
+          "base" => %{"ref" => Map.get(node, "baseRefName"), "sha" => Map.get(node, "baseRefOid")}
         }
         |> put_merge_queue_observation(node)
         |> Map.put("reopened_at", get_in(node, ["timelineItems", "nodes"]) |> List.wrap() |> List.last() |> then(&get_in(&1 || %{}, ["createdAt"]))),

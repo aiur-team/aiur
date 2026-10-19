@@ -339,7 +339,7 @@ Aiur refuses `ci-wait` and `human-review` hand-offs for drafts; pending drafts a
 
 Aiur requires successful checks on the current head before returning the agent for `agent:human-review`. Draft, missing or skipped checks remain pending.
 
-[CI recovery](/apis/github#changes-aiur-makes-itself) reruns eligible failures once per head. With no rerun in flight, a red required check moves `agent:ci-wait` to `agent:rework` and comments the failing checks with links. Three failed handoffs per PR also raise an attention. The agent **never self-merges**.
+[CI recovery](/apis/github#changes-aiur-makes-itself) reruns eligible failures once per head. With no rerun in flight, a red required check that the PR caused moves `agent:ci-wait` to `agent:rework` and comments the failing checks with links. A check also red on the base holds instead ([details](/apis/ci-failure-evidence)). Three failed handoffs per PR also raise an attention. The agent **never self-merges**.
 
 GitHub mechanics — polling, webhooks, rate budgets, and CI observation — live
 in [GitHub](/apis/github); this page does not duplicate them.

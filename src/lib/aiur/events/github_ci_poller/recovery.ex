@@ -3,6 +3,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   require Logger
   alias Aiur.{AlertFeed, Alerts, Config}
   alias Aiur.CI.FailureDigest
+  alias Aiur.Events.GithubCIPoller.BaseCause
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
 
@@ -34,7 +35,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     target = to_string(issue.identifier || issue.id)
 
     case Store.read(target, number, opts) do
-      {:ok, entry} -> recover_current(issue, result, entry, opts)
+      {:ok, entry} -> issue |> recover_current(result, entry, opts) |> base_gate(issue, entry, opts)
       {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
     end
   end
@@ -99,9 +100,11 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   # A hold recorded before this head went red (say, for a cancelled run) must not
   # mask the failure; re-evaluate so a known flake still gets its one rerun (#5133).
   defp recover_entry(issue, %{head_sha: sha} = result, %{"hold" => %{"sha" => sha} = hold} = entry, opts) do
-    if result[:decision] != :failed or failed_hold?(entry, sha),
-      do: hold_result(result, hold),
-      else: recover_entry(issue, result, Map.delete(entry, "hold"), opts)
+    cond do
+      result[:decision] == :failed and not failed_hold?(entry, sha) -> recover_entry(issue, result, Map.delete(entry, "hold"), opts)
+      hold["mode"] == "transient" and now(opts) >= hold["retry_at"] -> retry_transient(issue, result, opts)
+      true -> hold_result(result, hold)
+    end
   end
 
   defp recover_entry(issue, %{head_sha: sha} = result, %{"limit_hold" => %{"sha" => held_sha, "retry_at" => retry_at}}, opts) do
@@ -126,7 +129,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       true ->
         case digest(result.head_sha, opts) do
           {:ok, digest} -> recover_failure(issue, Map.put(result, :ci_failure_digest, digest), entry, opts)
-          {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+          {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts, "transient")
         end
     end
   end
@@ -137,7 +140,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     if get_in(entry, ["heads", result.head_sha]) != nil or retryable?(result.ci_failure_digest, result.pr_number, opts) do
       case Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(result.pr_number, opts) do
         {:ok, pr} -> choose_recovery(issue, result, entry, pr, opts)
-        {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts)
+        {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts, "transient")
       end
     else
       result
@@ -300,8 +303,22 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp rerun_error(issue, result, kind, reason, opts) do
-    mode = if actions_denied?(reason), do: "fallback", else: "hold"
+    mode = if actions_denied?(reason), do: "fallback", else: "transient"
     attention(issue, result, kind, reason, opts, mode)
+  end
+
+  # A transient GitHub error holds for ten minutes, then recovery is retried
+  # once; a failed rerun request is dropped so its POST is retried too.
+  defp retry_transient(issue, %{head_sha: sha} = result, opts) do
+    clear = fn entry ->
+      entry = Map.delete(entry, "hold")
+      if Map.has_key?(get_in(entry, ["heads", sha]) || %{}, "error"), do: Map.update!(entry, "heads", &Map.delete(&1, sha)), else: entry
+    end
+
+    case update(issue, result, clear, opts) do
+      {:ok, entry} -> recover_entry(issue, result, entry, Keyword.put(opts, :ci_recovery_retried, true))
+      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+    end
   end
 
   defp actions_denied?({:error, reason}), do: actions_denied?(reason)
@@ -369,7 +386,9 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp attention(issue, result, kind, reason, opts, mode \\ "hold") do
     tests = failure_names(result)
+    mode = if mode == "transient" and opts[:ci_recovery_retried], do: "hold", else: mode
     hold = %{"sha" => result.head_sha, "reason" => kind, "tests" => tests, "mode" => mode, "failed" => result[:decision] == :failed}
+    hold = if mode == "transient", do: Map.put(hold, "retry_at", now(opts) + 600), else: hold
     message = "PR ##{Map.get(result, :pr_number)} CI recovery #{kind}: #{inspect(reason)}. Failing tests/checks: #{tests}"
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
 
@@ -385,13 +404,35 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     end
   end
 
-  # Besides a rerun in flight, only an approved head whose landing state is
-  # unreadable holds red; other stops raise their attention and still route
-  # the failure to rework (#5133).
+  # Besides a rerun in flight, a transient error or an approved head whose
+  # landing state is unreadable holds red; other stops raise their attention
+  # and still route the failure, subject to the base gate (#5133).
   defp hold_result(result, %{"tests" => tests, "mode" => mode} = hold) do
     result = Map.put(result, :ci_recovery_tests, tests)
-    if mode == "fallback" or (mode == "hold" and result[:decision] == :failed), do: Map.put(result, :recovery, nil), else: held(result, hold["reason"])
+
+    if mode == "fallback" or (mode in ["hold", "base"] and result[:decision] == :failed),
+      do: Map.put(result, :recovery, nil),
+      else: held(result, hold["reason"])
   end
+
+  # A red head reaches rework only when the PR caused it; a check also red on
+  # the base, or with no base evidence, holds with one attention (#5133).
+  defp base_gate(%{decision: :failed, head_sha: sha} = result, issue, entry, opts) do
+    case BaseCause.classify(result, opts) do
+      :caused_by_pr ->
+        result
+
+      cause ->
+        kind = "base_#{cause}"
+
+        case entry do
+          %{"hold" => %{"sha" => ^sha, "reason" => ^kind}} -> held(result, kind)
+          _ -> issue |> attention(result, kind, "base #{result[:base_sha] || "unknown"}", opts, "base") |> held(kind)
+        end
+    end
+  end
+
+  defp base_gate(result, _issue, _entry, _opts), do: result
 
   defp emit_attention(issue, result, kind, message, emitter, opts) do
     topic = "ticket.#{issue.identifier || issue.id}.pr.ci_recovery.#{kind}"
