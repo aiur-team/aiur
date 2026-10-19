@@ -163,6 +163,25 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
     refute Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "rework_ticket_blocked"))
   end
 
+  test "a cross-repository blocker uses its edge state instead of this repository's ticket listing" do
+    ticket_snapshot = %Snapshot{status: :available, tickets: []}
+
+    snapshot =
+      SnapshotCache.build(
+        [],
+        [],
+        [{42, [%{"name" => "agent:rework"}]}],
+        %{},
+        %{42 => [%{"number" => 77, "state" => "open", "repository_url" => "https://api.github.com/repos/other/repo"}]},
+        [],
+        %{},
+        ticket_snapshot
+      )
+
+    assert [%{open_blocked_by: [%{"number" => 77}], closed_blockers: []}] = snapshot.tickets
+    assert Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "rework_ticket_blocked"))
+  end
+
   test "the blocker issue cache overrides an open state embedded in the held edge" do
     snapshot =
       SnapshotCache.build(

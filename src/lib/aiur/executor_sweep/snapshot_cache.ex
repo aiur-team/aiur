@@ -210,6 +210,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   def build(pull_requests, reviews, tickets, issues \\ %{}, blocked_by \\ %{}, branch_pull_requests \\ [], timelines \\ %{}, ticket_snapshot \\ nil) do
     reviews = Map.new(reviews)
     branch_prs = Map.new(branch_pull_requests)
+    {tracker_owner, tracker_repo} = tracker_repository()
     open_ticket_numbers = open_ticket_numbers(ticket_snapshot)
     pull_requests = merge_pr_sources(pull_requests, branch_pull_requests)
 
@@ -222,32 +223,16 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       merge_queue: merge_queue_entries(pull_requests),
       tickets:
         tickets &&
-          Enum.map(tickets, &normalize_ticket(&1, issues, blocked_by, open_ticket_numbers, complete_open_ticket_snapshot?(ticket_snapshot)))
+          Enum.map(tickets, &normalize_ticket(&1, issues, blocked_by, open_ticket_numbers, complete_open_ticket_snapshot?(ticket_snapshot), {tracker_owner, tracker_repo}))
     }
   end
 
-  defp normalize_ticket({number, labels}, issues, blocked_by, open_ticket_numbers, complete_open_ticket_snapshot?) do
+  defp normalize_ticket({number, labels}, issues, blocked_by, open_ticket_numbers, complete_open_ticket_snapshot?, tracker_repository) do
     issue = Map.get(issues, number, %{})
     blockers = Map.get(blocked_by, number, [])
     blockers = if is_list(blockers), do: blockers, else: []
 
-    blocker_state = fn blocker ->
-      blocker_number = positive_number(value(blocker, "number", nil))
-
-      cond do
-        not is_nil(blocker_number) and MapSet.member?(open_ticket_numbers, blocker_number) ->
-          "open"
-
-        not is_nil(blocker_number) and complete_open_ticket_snapshot? ->
-          "closed"
-
-        state = normalized_state(value(Map.get(issues, blocker_number, %{}), "state", nil)) ->
-          state
-
-        true ->
-          normalized_state(value(blocker, "state", nil))
-      end
-    end
+    blocker_state = &blocker_state(&1, issues, open_ticket_numbers, complete_open_ticket_snapshot?, tracker_repository)
 
     %{
       number: number,
@@ -260,6 +245,25 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     }
   end
 
+  defp blocker_state(blocker, issues, open_ticket_numbers, complete_snapshot?, tracker_repository) do
+    blocker_number = positive_number(value(blocker, "number", nil))
+
+    if blocker_repository(blocker, tracker_repository) == tracker_repository do
+      same_repository_blocker_state(blocker_number, blocker, issues, open_ticket_numbers, complete_snapshot?)
+    else
+      normalized_state(value(blocker, "state", nil))
+    end
+  end
+
+  defp same_repository_blocker_state(number, blocker, issues, open_ticket_numbers, complete_snapshot?) do
+    cond do
+      not is_nil(number) and Map.has_key?(open_ticket_numbers, number) -> "open"
+      not is_nil(number) and complete_snapshot? -> "closed"
+      state = normalized_state(value(Map.get(issues, number, %{}), "state", nil)) -> state
+      true -> normalized_state(value(blocker, "state", nil))
+    end
+  end
+
   defp open_ticket_numbers(%Aiur.OpenTicketSource.Snapshot{status: :available, tickets: tickets}) do
     tickets
     |> Enum.flat_map(fn %{identifier: identifier} ->
@@ -268,10 +272,36 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
         _ -> []
       end
     end)
-    |> MapSet.new()
+    |> Map.new(&{&1, true})
   end
 
-  defp open_ticket_numbers(_), do: MapSet.new()
+  defp open_ticket_numbers(_), do: %{}
+
+  defp tracker_repository do
+    case Config.repo() do
+      repo when is_binary(repo) ->
+        case String.split(repo, "/", parts: 2) do
+          [owner, name] -> {String.downcase(owner), String.downcase(name)}
+          _ -> {"", ""}
+        end
+
+      _ ->
+        {"", ""}
+    end
+  end
+
+  defp blocker_repository(blocker, {owner, repo}) do
+    case value(blocker, "repository_url", nil) do
+      url when is_binary(url) ->
+        case url |> URI.parse() |> Map.get(:path) |> to_string() |> String.split("/", trim: true) |> Enum.take(-3) do
+          ["repos", blocker_owner, blocker_repo] -> {String.downcase(blocker_owner), String.downcase(blocker_repo)}
+          _ -> {owner, repo}
+        end
+
+      _ ->
+        {owner, repo}
+    end
+  end
 
   defp complete_open_ticket_snapshot?(%Aiur.OpenTicketSource.Snapshot{status: :available, truncated?: false}), do: true
   defp complete_open_ticket_snapshot?(_), do: false
