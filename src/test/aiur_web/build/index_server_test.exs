@@ -124,6 +124,7 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert {:ok, _} = Index.window(pid, "Etc/UTC")
     send(pid, {:ticket_activity_changed, %{}})
     :sys.get_state(pid)
+    assert_receive {:retry_timer, ^pid, :flush, 250}, 1_000
     send(pid, :flush)
     receive_barrier({:retry_read, worker, dirty})
     assert MapSet.member?(dirty, :now)
