@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert
+  alias Aiur.Orchestrator.CiLifecycle.FailureComment
   alias Aiur.Orchestrator.CiLifecycle.Poll
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
   alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
@@ -392,6 +393,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
       )
 
     if response == :ok and result[:ci_recovery_checked], do: GithubCIPoller.record_failure(issue, result, result[:ci_recovery_opts])
+    if response == :ok, do: FailureComment.post(issue, result, result[:ci_recovery_opts] || [])
     response
   end
 

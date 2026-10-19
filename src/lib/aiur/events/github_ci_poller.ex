@@ -149,7 +149,14 @@ defmodule Aiur.Events.GithubCIPoller do
           |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
           |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
           |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
-          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, ready_at_ms: Map.get(pr, "ready_at_ms"), reviewed_head?: Map.get(pr, "reviewed_head?")})
+          |> Map.merge(%{
+            target: target,
+            pr_number: pr_number,
+            head_sha: head_sha,
+            base_sha: get_in(pr, ["base", "sha"]),
+            ready_at_ms: Map.get(pr, "ready_at_ms"),
+            reviewed_head?: Map.get(pr, "reviewed_head?")
+          })
           |> Map.merge(Evaluation.merge_queue_observation(pr))
           |> log_classification()
 
@@ -162,6 +169,7 @@ defmodule Aiur.Events.GithubCIPoller do
             target: target,
             pr_number: pr_number,
             head_sha: head_sha,
+            base_sha: get_in(pr, ["base", "sha"]),
             ready_at_ms: Map.get(pr, "ready_at_ms"),
             reviewed_head?: Map.get(pr, "reviewed_head?"),
             base_repair_invalidation: recovered_invalidation
@@ -309,6 +317,7 @@ defmodule Aiur.Events.GithubCIPoller do
           target: target,
           pr_number: pr_number,
           head_sha: observed_head_sha,
+          base_sha: get_in(current_pr, ["base", "sha"]),
           draft?: Evaluation.pr_draft?(current_pr),
           review_decision: Map.get(current_pr, "review_decision"),
           mergeable: normalize_mergeable(Map.get(current_pr, "mergeable"))
