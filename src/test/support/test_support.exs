@@ -278,6 +278,7 @@ defmodule Aiur.TestSupport do
         # teardown puts back exactly what was there. See
         # `Aiur.TestSupport.isolated_app_env_keys/0`.
         previous_app_env = Aiur.TestSupport.capture_app_env(context)
+        runner_tasks_before = Aiur.TestSupport.capture_runner_tasks()
 
         File.mkdir_p!(workflow_root)
         System.put_env("AIUR_DEV_TEST_STATE_DIR", test_state_dir)
@@ -302,7 +303,6 @@ defmodule Aiur.TestSupport do
         # one case's journal is another's replay input.
         Application.put_env(:aiur, :executor_state_dir, Path.join([workflow_root, "executor-state"]))
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
-        Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
         workflow_file = Aiur.TestSupport.prepare_workflow_file_path!(workflow_root)
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
@@ -358,7 +358,8 @@ defmodule Aiur.TestSupport do
           Application.delete_env(:aiur, :memory_tracker_recipient)
           EventsPublisher.set_tracked_fn(fn _ -> true end)
           EventsSubscriptionStore.set_enqueue_fn(nil)
-          Aiur.TestCleanup.rm_rf!(workflow_root)
+          # A runner the test left running would recreate the next root it sees (#5104).
+          Aiur.TestSupport.rm_workflow_root!(workflow_root, runner_tasks_before)
           Aiur.TestScopeGuard.restore(previous_test_scope_state)
 
           # Reload the store onto the restored baseline so the next test never
@@ -389,6 +390,8 @@ defmodule Aiur.TestSupport do
   defdelegate pgrep_skip_reason(), to: Aiur.TestSupport.Processes
   defdelegate stop_default_http_server(), to: Aiur.TestSupport.Processes
   defdelegate safe_stop(server), to: Aiur.TestSupport.Processes
+  defdelegate capture_runner_tasks(), to: Aiur.TestSupport.RunnerTasks, as: :capture
+  defdelegate rm_workflow_root!(root, runner_tasks_before), to: Aiur.TestSupport.RunnerTasks, as: :stop_started_since_and_rm_rf!
   defdelegate start_owned_endpoint!(), to: Aiur.TestSupport.Processes
   defdelegate await_process_down(process, timeout \\ 2_000), to: Aiur.TestSupport.Processes
   defdelegate await_supervised_restart(name, prior, timeout \\ 5_000), to: Aiur.TestSupport.Processes

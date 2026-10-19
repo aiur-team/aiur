@@ -85,7 +85,10 @@ defmodule Aiur.TestCleanupTest do
     assert error.message =~ "or they cannot be deleted): [#{inspect(file)}]"
   end
 
-  test "cleanup retries while a live repo state tree writer recreates the root", %{root: root} do
+  # Regression guard for the reappearance retry already in `TestCleanup`, driven
+  # by a real `StateTree` writer. The #5104 fix itself (stopping leaked runner
+  # tasks) is covered by `Aiur.TestSupport.RunnerTasksTest`.
+  test "existing reappearance retry outlasts a live repo state tree writer", %{root: root} do
     Application.put_env(:aiur, :repo_base_root, root)
     parent = self()
     node = Paths.repo_state_path("test-org/test-repo")
