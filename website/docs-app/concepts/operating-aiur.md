@@ -103,14 +103,12 @@ Use `aiur usage` for session-observed model headroom; see [GitHub](/apis/github)
 
 A restart that cannot read persisted global-pause state starts paused rather than releasing work.
 
-An `in-progress` ticket with no worker is checked on startup and each candidate
-poll. After 60 seconds without ownership, Aiur releases it to `todo` if it has
-no open PR, `rework` for conflicts or findings on the current head, or
-`human-review` otherwise. A stale but mergeable PR remains eligible for review;
-changed-file overlap alone does not create a rework turn. The merge queue tests
-PRs against the current base. A worker in `human-review` or `ci-wait` integrates
-the base only for a GitHub `CONFLICTING` verdict or an explicit reviewer request.
-It comments with the reason and wakes the Executor.
+After 60 seconds without a worker, an `in-progress` ticket goes to `todo` if it
+has no PR, `rework` for conflicts or findings, and `human-review` otherwise.
+Mergeable stale PRs remain reviewable; overlap alone does not create rework.
+Workers in `human-review` or `ci-wait` update the base only for a GitHub
+`CONFLICTING` verdict or an explicit reviewer request. The merge queue tests
+each PR against the current base.
 
 A never-reviewed PR goes to `human-review`. A conflicting PR goes to `rework`
 so its conflict can be resolved before review.
