@@ -31,6 +31,35 @@ defmodule Aiur.AppServer.ToolCallLedgerTest do
     refute_received {:executing, _duplicate}
   end
 
+  test "an unavailable ledger returns its call failure without running the tool" do
+    ledger = :aiur_missing_tool_call_ledger
+    fingerprint = "unavailable-ledger"
+
+    for mode <- [:execute, :execute_cancellable] do
+      assert {:error, {:tool_call_ledger_unavailable, {:noproc, _call}}} =
+               apply(ToolCallLedger, mode, [mode, fingerprint, fn -> flunk("tool ran without its ledger") end, ledger])
+    end
+  end
+
+  test "ledger loss after claim fails the one execution without replay" do
+    for mode <- [:execute, :execute_cancellable] do
+      {:ok, ledger} = ToolCallLedger.start_link(name: nil)
+
+      result =
+        apply(ToolCallLedger, mode, [
+          {:ledger_loss, mode},
+          "fingerprint-#{mode}",
+          fn ->
+            :ok = GenServer.stop(ledger)
+            :completed
+          end,
+          ledger
+        ])
+
+      assert {:error, {:tool_call_ledger_unavailable, _cause}} = result
+    end
+  end
+
   test "owner death after mutation preserves an uncertain claim without replay" do
     ledger = start_supervised!({ToolCallLedger, name: nil})
     scope = {:owner_death, System.unique_integer([:positive])}
