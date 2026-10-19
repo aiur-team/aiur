@@ -144,6 +144,16 @@ defmodule Aiur.ExperimentsCLITest do
     end
   end
 
+  test "abandon list filtering keeps incomplete summary rows" do
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: quick_args("corrupt summary") ++ ["--no-freeze", "--json"]) == 0 end)
+    spec = Jason.decode!(output)
+    File.write!(Paths.file(spec["id"], "spec.json"), "{")
+    File.rm!(Path.join(Paths.root(), "index.json"))
+
+    assert {:ok, [%{id: id, error: :unreadable}]} = Experiments.list()
+    assert id == spec["id"]
+  end
+
   test "a tag line leaves timestamp resolution to the spec" do
     stop_supervised(Aiur.Experiments.Store)
     start_supervised!({Aiur.Experiments.Store, defaults: [resolve_time: fn "v1" -> {:ok, "2026-10-09T00:00:00Z"} end]})
