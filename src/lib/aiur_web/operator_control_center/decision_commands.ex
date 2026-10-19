@@ -110,8 +110,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
          %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},
          decision_id
        )
-       when decision.decision_status in [:open, :deferred] or
-              (decision.decision_status == :expired and decision.blocking and is_nil(decision.answer)),
+       when decision.open?,
        do: {:ok, decision}
 
   # Non-selected decisions fall through to the inbox page list, so opening one
