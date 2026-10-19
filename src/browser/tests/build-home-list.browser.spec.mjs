@@ -151,7 +151,7 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
           joinCount: window.liveSocket?.main?.joinCount
         }
       }
-      return new Promise(resolve => {
+      return new Promise((resolve, reject) => {
         window.releasePage = () => {
           const release = window.__aiurB4Release
           release.state = 'sent'
@@ -169,6 +169,7 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
             release.state = 'rejected'
             release.error = String(error)
             window.__aiurB4Record('push-rejected')
+            reject(error)
             throw error
           })
         }
