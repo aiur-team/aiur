@@ -109,7 +109,7 @@ defmodule Aiur.GitHub.Budget do
          key when is_binary(key) <- token_key(token) do
       case BrokerPort.python_executable(opts) do
         python when is_binary(python) ->
-          do_acquire(request, key, python, identity_opts(request, opts), Settings.deadline(opts))
+          request |> do_acquire(key, python, identity_opts(request, opts), Settings.deadline(opts)) |> keep_hold(nil)
 
         nil ->
           # No python3 on the box, so the broker cannot run at all. Fail open to
@@ -284,10 +284,10 @@ defmodule Aiur.GitHub.Budget do
       {:ok, "wait " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :shared_budget)
 
-      # Deadline expiry differs from malformed output: Python startup can race
-      # the deadline under load, so callers may retry it (#2286).
+      # Deadline expiry differs from malformed output: Python startup can race the deadline under load, so
+      # callers may retry it (#2286). `:admission_closed` marks expiry at the admission deadline, not the per-command bound.
       {:error, :github_budget_broker_timeout} ->
-        {:error, :github_budget_broker_timeout}
+        if command_deadline_at == deadline_at, do: {:error, :admission_closed}, else: {:error, :github_budget_broker_timeout}
 
       _unavailable ->
         {:error, :github_budget_broker_unavailable}
@@ -341,9 +341,10 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  # A retry late in the admission window can time out after the broker already said
-  # "wait"; report that hold rather than counting lease saturation as a slow broker.
-  defp keep_hold({:error, :github_budget_broker_timeout}, hold), do: {:hold, hold}
+  # A retry cut off by the admission deadline after the broker already said "wait" reports that hold,
+  # so lease saturation is not counted as a slow broker. A first attempt has no hold to report.
+  defp keep_hold({:error, :admission_closed}, nil), do: {:error, :github_budget_broker_timeout}
+  defp keep_hold({:error, :admission_closed}, hold), do: {:hold, hold}
   defp keep_hold(result, _hold), do: result
 
   defp maybe_alert_meter_disagreement(request, key, :actor_budget, opts) do
