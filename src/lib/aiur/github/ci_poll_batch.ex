@@ -3,8 +3,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
-  alias Aiur.GitHub.CIPollBatchReadyReview
+  alias Aiur.GitHub.{CIPollBatchReadyReview, DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
