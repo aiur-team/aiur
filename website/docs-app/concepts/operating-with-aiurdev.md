@@ -110,7 +110,9 @@ aiurdev --port 4099 --bg --no-dashboard
 aiurdev --port 4102 ./.aiur/config
 ```
 
-The `--test` and `--test3` reset paths require their pinned sandbox issues to be open before launch. If a pinned issue is closed, reset removes any detected `agent:*` or `model:*` labels from that closed issue, skips normal dispatch labeling, and aborts with instructions to reopen the ticket or update `.aiur-test-tickets.json`.
+The `--test` and `--test3` reset paths reopen a closed pinned sandbox issue after removing its `agent:*` and `model:*` labels. If the reopen fails, reset aborts and prints the `gh issue reopen` command to run.
+
+A test run can share the host with a live daemon. It caps admission at its pinned ticket count and ignores the host CPU PSI, load-average and run-queue gates, since that pressure comes from the live fleet. When the configured dashboard port is taken, it binds a free port instead.
 
 These manual test modes are blocked inside agent issue workspaces because they mutate pinned GitHub sandbox tickets; run them from the Executor repo root or a dedicated isolated harness. Foreground startup prints the resolved tmux socket/session, which non-TTY drivers should use instead of hard-coded socket names.
 

@@ -1,34 +1,11 @@
-defmodule Aiur.Orchestrator.CommentPolling do
-  @moduledoc "GitHub comment-poll driver on explicit cursors and plain inputs; process ownership is unchanged."
+defmodule Aiur.GitHub.Listeners.Comments.Driver do
+  @moduledoc "GitHub comment-poll driver on explicit cursors and plain inputs; owned by the comments listener."
   require Logger
   alias Aiur.{Config, PollCadence}
   alias Aiur.Events.GithubCommentsPoller
-  alias Aiur.Orchestrator.CommentPolling.{Cursor, Input, OwnedPoll, Poll, Reconcile, TargetSelection}
-  alias Aiur.Orchestrator.{State, TrackerHealth}
+  alias Aiur.GitHub.Listeners.Comments.{Cursor, Input, OwnedPoll, Poll, Reconcile, TargetSelection}
   @retry_delay_ms 5_000
   @abandon_margin_ms 30_000
-
-  @spec input(State.t()) :: Input.t()
-  def input(%State{} = state) do
-    entries = Map.values(state.running)
-
-    titles =
-      Enum.reduce(entries, %{}, fn entry, acc ->
-        with identifier when is_binary(identifier) and identifier != "" <- Map.get(entry, :identifier),
-             %{title: title} when is_binary(title) and title != "" <- Map.get(entry, :issue) do
-          Map.put(acc, identifier, title)
-        else
-          _other -> acc
-        end
-      end)
-
-    %Input{
-      running_targets: TargetSelection.normalize_comment_targets(Enum.map(entries, &Map.get(&1, :identifier))),
-      running_titles: titles,
-      ownership_key: state.snapshot_key,
-      next_github_delay_ms: TrackerHealth.github_next_poll_delay_ms(state)
-    }
-  end
 
   @spec poll_github_comments(Cursor.t(), Input.t(), keyword()) :: {Cursor.t(), map()}
   def poll_github_comments(%Cursor{} = cursor, %Input{} = input, opts \\ []) do
@@ -176,12 +153,12 @@ defmodule Aiur.Orchestrator.CommentPolling do
   defp abandon_poll(_poll), do: :ok
 
   defp spawn_poll(cursor, input, opts, now_ms) do
-    orchestrator = self()
+    listener = self()
     ref = make_ref()
     targets = TargetSelection.reconcile_targets_for_poll(cursor, input, opts)
     poll_cursor = %{cursor | reconcile_targets: targets}
-    task_fun = fn -> send(orchestrator, {:github_comments_polled, ref, Poll.run(poll_cursor, input, opts)}) end
-    {owner, monitor} = OwnedPoll.spawn_owned_poll(orchestrator, input.ownership_key, ref, task_fun, Keyword.get(opts, :owner_phase_hook))
+    task_fun = fn -> send(listener, {:github_comments_polled, ref, Poll.run(poll_cursor, input, opts)}) end
+    {owner, monitor} = OwnedPoll.spawn_owned_poll(listener, input.ownership_key, ref, task_fun, Keyword.get(opts, :owner_phase_hook))
     target_count = TargetSelection.max_comment_poll_target_count(poll_cursor, input, opts)
     abandon_after = Poll.setup_timeout_ms(opts) + GithubCommentsPoller.max_duration_ms(target_count, opts) + @abandon_margin_ms
     poll = %{ref: ref, owner: owner, owner_monitor_ref: monitor, started_at_ms: now_ms, abandon_after_ms: abandon_after, reconcile_targets: targets}

@@ -1,8 +1,7 @@
-defmodule Aiur.Orchestrator.CommentPollingTest do
+defmodule Aiur.GitHub.Listeners.Comments.DriverTest do
   use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
-  alias Aiur.Orchestrator.State
+  alias Aiur.GitHub.Listeners.Comments.{Cursor, Driver, Input}
   alias Aiur.PollCadence
 
   setup do
@@ -20,56 +19,26 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
     :ok
   end
 
-  defp base_state do
-    %State{
-      running: %{},
-      completed: MapSet.new(),
-      claimed: MapSet.new(),
-      retry_attempts: %{},
-      queue_store: nil,
-      last_polled_issues: %{},
-      todo_over_capacity_alert_active: false,
-      agent_totals: nil,
-      agent_rate_limits: nil,
-      codex_totals: nil,
-      codex_rate_limits: nil,
-      poll_interval_ms: 60_000,
-      max_concurrent_agents: nil,
-      session_max_concurrent_agents: nil,
-      effective_concurrent_agents: nil,
-      load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
-      next_poll_due_at_ms: nil,
-      poll_check_in_progress: nil,
-      tick_timer_ref: nil,
-      tick_token: nil,
-      initial_dispatch_cycle: false,
-      github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
-        since: %{},
-        issue_updated_at: %{}
-      },
-      github_connectivity: %{},
-      github_poll_delays: %{},
-      github_command_scan_since: nil
-    }
+  defp base_cursor, do: %Cursor{since: %{}, issue_updated_at: %{}}
+
+  defp input do
+    %Input{running_targets: [], running_titles: %{}, ownership_key: nil, next_github_delay_ms: 0}
   end
 
-  describe "poll_github_comments/2" do
+  describe "poll_github_comments/3" do
     test "makes no GitHub call and returns state unchanged with empty target set" do
-      state = base_state()
+      state = base_cursor()
       # review_issue_fetcher returns empty list so no targets are built
       opts = [review_issue_fetcher: fn _states -> {:ok, []} end, watch_pull_request_fetcher: fn _label -> {:ok, []} end]
-      result = CommentPolling.poll_github_comments(state, opts)
+      {result, outcome} = Driver.poll_github_comments(state, input(), opts)
 
-      # Nothing changes except the per-cycle conditional issue-list cache, which
-      # target discovery writes back before it finds an empty target set.
-      # Compared narrowly rather than blanking `ci_lifecycle` wholesale, so a
-      # regression touching e.g. `approved_heads` still fails here.
-      assert put_in(result.ci_lifecycle.poll_cache[:issue_list_cache], nil) ==
-               put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], nil)
+      # Discovery may update its conditional issue-list cache with no targets.
+      assert %{result | issue_list_cache: %{}} == state
+      assert outcome == %{}
     end
   end
 
-  describe "start_async/2 review-cadence throttle" do
+  describe "start_async/3 review-cadence throttle" do
     setup do
       PollCadence.forget_effective_interval_ms()
       :ok
@@ -82,23 +51,23 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
     # `Aiur.PerClassCadenceTest`.
     test "does not start a poll while within the published review cadence" do
       PollCadence.publish_effective_interval_ms(300_000, class: :review)
-      state = %{base_state() | github_comment_cursor: %{base_state().github_comment_cursor | last_started_at_ms: System.monotonic_time(:millisecond)}}
+      state = %{base_cursor() | last_started_at_ms: System.monotonic_time(:millisecond)}
 
-      result = CommentPolling.start_async(state)
+      {result, _outcome} = Driver.start_async(state, input())
 
-      assert result.github_comment_cursor.poll == nil
-      assert result.github_comment_cursor.last_started_at_ms == state.github_comment_cursor.last_started_at_ms
+      assert result.poll == nil
+      assert result.last_started_at_ms == state.last_started_at_ms
     end
 
     test "a recent start does not throttle before the review cadence is published" do
       PollCadence.forget_effective_interval_ms()
-      state = %{base_state() | github_comment_cursor: %{base_state().github_comment_cursor | last_started_at_ms: System.monotonic_time(:millisecond)}}
+      state = %{base_cursor() | last_started_at_ms: System.monotonic_time(:millisecond)}
 
-      result = CommentPolling.start_async(state)
+      {result, _outcome} = Driver.start_async(state, input())
 
-      assert result.github_comment_cursor.poll != nil
+      assert result.poll != nil
       # Clean up the spawned owner/poll so nothing leaks past the test.
-      terminate_spawned_poll(result.github_comment_cursor.poll)
+      terminate_spawned_poll(result.poll)
     end
 
     defp terminate_spawned_poll(%{owner: owner}) when is_pid(owner), do: Process.exit(owner, :kill)
@@ -158,9 +127,9 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
           end
         ]
 
-        state = %{base_state() | github_comment_cursor: %{base_state().github_comment_cursor | since: %{"164" => "2026-09-10T00:00:00Z"}}}
+        state = %{base_cursor() | since: %{"164" => "2026-09-10T00:00:00Z"}}
 
-        assert is_struct(CommentPolling.poll_github_comments(state, opts), State)
+        assert {%Cursor{}, _outcome} = Driver.poll_github_comments(state, input(), opts)
 
         drain_requested_urls([])
       end
@@ -211,10 +180,10 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
         end
       ]
 
-      state = base_state()
+      state = base_cursor()
 
-      result = CommentPolling.poll_github_comments(state, opts)
-      assert is_struct(result, State)
+      {result, _outcome} = Driver.poll_github_comments(state, input(), opts)
+      assert is_struct(result, Cursor)
       assert Agent.get(probe, & &1) == 25
     end
   end

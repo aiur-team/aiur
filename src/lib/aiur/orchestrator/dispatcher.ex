@@ -266,7 +266,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state = FirehosePolling.poll(state)
     # Issued, not awaited: the Orchestrator was captured parked in this poll's
     # `Task.async_stream` fan-out with 5,729 messages behind it on an idle host
-    # (#1837). The answer arrives as `{:github_comments_polled, ...}`.
+    # (#1837). The answer arrives as `{:github_listener_outcome, :comments, ...}`.
     state = CommentPollingState.start_async(state)
     state = CiLifecycle.poll_github_ci(state)
     # Reconciliation needs current holds before stopping blocked workers;

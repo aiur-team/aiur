@@ -1,15 +1,15 @@
-defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
+defmodule Aiur.GitHub.Listeners.Comments.TargetSelection do
   @moduledoc """
   Comment-poll target discovery, ordering, capping, and cursor bookkeeping.
-  All functions execute inside the orchestrator GenServer process.
+  Discovery runs in the listener's owned poll tree.
   """
 
   require Logger
 
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.Orchestrator.CommentPolling.{Cursor, Input}
-  alias Aiur.Orchestrator.CommentPolling.TargetSelection.HumanReview
+  alias Aiur.GitHub.Listeners.Comments.{Cursor, Input}
+  alias Aiur.GitHub.Listeners.Comments.TargetSelection.HumanReview
 
   @watch_comment_targets_per_poll 25
   @reconcile_targets_per_poll 25

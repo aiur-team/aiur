@@ -51,7 +51,7 @@ defmodule Aiur.HttpServer do
       opts
       |> Keyword.get(:endpoint_start_fun, &Endpoint.start_link/0)
       |> start_endpoint()
-      |> handle_endpoint_start(host, ip, port)
+      |> handle_endpoint_start(opts, host, ip, port)
     else
       :dashboard_credentials_missing -> :ignore
       other -> other
@@ -84,19 +84,26 @@ defmodule Aiur.HttpServer do
     Application.put_env(:aiur, Endpoint, endpoint_config)
   end
 
-  defp handle_endpoint_start({:endpoint_exit, reason}, host, ip, port) do
-    if address_in_use?(reason), do: ignore_port_conflict(host, ip, port), else: exit(reason)
+  defp handle_endpoint_start({:endpoint_exit, reason}, opts, host, ip, port) do
+    if address_in_use?(reason), do: port_conflict(opts, host, ip, port), else: exit(reason)
   end
 
-  defp handle_endpoint_start({:error, reason} = error, host, ip, port) do
-    if address_in_use?(reason), do: ignore_port_conflict(host, ip, port), else: error
+  defp handle_endpoint_start({:error, reason} = error, opts, host, ip, port) do
+    if address_in_use?(reason), do: port_conflict(opts, host, ip, port), else: error
   end
 
-  defp handle_endpoint_start(other, _host, _ip, _port), do: other
+  defp handle_endpoint_start(other, _opts, _host, _ip, _port), do: other
 
-  defp ignore_port_conflict(host, ip, port) do
-    port_in_use(host, ip, port)
-    :ignore
+  # An `aiurdev --test` run shares the host with the live daemon, so it takes a
+  # free port rather than running without a dashboard (#5121).
+  defp port_conflict(opts, host, ip, port) do
+    if port != 0 and Config.test_run?() do
+      Logger.warning("Aiur dashboard port #{port} is already in use; this aiurdev --test run binds a free port instead.")
+      start_on_port(opts, 0)
+    else
+      port_in_use(host, ip, port)
+      :ignore
+    end
   end
 
   defp start_endpoint(endpoint_start_fun) do
