@@ -75,7 +75,7 @@ defmodule Aiur.BackgroundCpu do
          pids = Enum.filter(entries, &numeric?/1),
          true <- length(pids) <= @max_processes do
       processes = read_processes(proc_root, pids)
-      roots = MapSet.new([daemon_pid | fleet_roots])
+      roots = Map.new([daemon_pid | fleet_roots], &{&1, true})
 
       processes
       |> Enum.reject(fn {pid, process} -> process.nice <= daemon_nice or fleet_process?(pid, processes, roots) end)
@@ -104,19 +104,19 @@ defmodule Aiur.BackgroundCpu do
   end
 
   defp fleet_process?(pid, processes, roots),
-    do: fleet_process?(String.to_integer(pid), processes, roots, MapSet.new())
+    do: fleet_process?(String.to_integer(pid), processes, roots, %{})
 
   defp fleet_process?(pid, processes, roots, seen) do
     cond do
-      MapSet.member?(roots, pid) ->
+      Map.has_key?(roots, pid) ->
         true
 
-      MapSet.member?(seen, pid) ->
+      Map.has_key?(seen, pid) ->
         false
 
       true ->
         case Map.get(processes, Integer.to_string(pid)) do
-          %{parent_pid: parent} when parent > 0 -> fleet_process?(parent, processes, roots, MapSet.put(seen, pid))
+          %{parent_pid: parent} when parent > 0 -> fleet_process?(parent, processes, roots, Map.put(seen, pid, true))
           _ -> false
         end
     end
