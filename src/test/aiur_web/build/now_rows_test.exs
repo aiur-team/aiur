@@ -156,6 +156,16 @@ defmodule AiurWeb.Build.NowRowsTest do
     assert Payload.validate(put_in(fixture, ["sections", "now"], joined)) == :ok
   end
 
+  test "a retry-backoff agent row validates inside a full snapshot" do
+    fixture = File.read!(Path.expand("../../fixtures/build_home/live.json", __DIR__)) |> Jason.decode!()
+    [first | rest] = fixture["sections"]["now"]
+    built = row(%{identity: identity(first["num"]), runtime: %{bucket: :retrying, work_state: :retrying}})
+    actual = Payload.scrub(NowRows.build(catalog([built]), repository: @repo).rows[first["id"]])
+    assert actual["agent"]["state"] == "retrying"
+    message = Payload.snapshot(put_in(fixture, ["sections", "now"], [Map.merge(first, actual) | rest]), "epoch", 0)
+    assert Payload.validate(message) == :ok
+  end
+
   defp design_row(expected) do
     base =
       row(%{

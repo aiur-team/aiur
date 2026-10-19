@@ -30,6 +30,11 @@ defmodule Aiur.TestSupport.BuildHome.ProtocolCase do
       {:ok, put_in(data, ["sections", "now", Access.at(0), "pct"], "sensitive-source-value")}
     end
 
+    defp result(:retrying, opts) do
+      {:ok, data} = FixtureSource.snapshot(opts)
+      {:ok, put_in(data, ["sections", "now", Access.at(0), "agent", "state"], "retrying")}
+    end
+
     defp result(_mode, opts) do
       read_opts = if opts[:ignore_financial], do: Keyword.delete(opts, :financial), else: opts
       {:ok, data} = FixtureSource.snapshot(read_opts)
