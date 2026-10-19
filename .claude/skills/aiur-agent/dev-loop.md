@@ -358,10 +358,10 @@ The Elixir examples below apply only to Aiur's Elixir core.
    unchanged; if it differs, PATCH only the PR's `base` through GitHub's pull
    request REST endpoint, then re-fetch and verify `baseRefName`. Stop with the
    observed branch, expected branch, and repair error if verification fails.
-9. **Own integration safety before review:** a stale branch can proceed when
-   it has no conflicts and no changed-file overlap with the configured base.
-   Use the checklist in step 13; integrate only for overlap or conflicts,
-   rather than repeatedly chasing unrelated base commits.
+9. **Own integration safety before review:** during `human-review` or
+   `ci-wait`, integrate only when GitHub reports the exact PR head as
+   `CONFLICTING` or a reviewer asks. File overlap and base movement alone do
+   not require a push; the merge queue tests the PR on current base.
 10. **Self-review the draft PR with `ce-code-review`** against the diff you just
     pushed. A missing doc that the threshold above required is a review finding —
     fix it here, not in a follow-up ticket.
@@ -393,16 +393,14 @@ The Elixir examples below apply only to Aiur's Elixir core.
     The agent `git` guard refuses a push to a PR in the merge queue unless it
     is conflicting or has changes requested.
 
-    If paths overlap or the merge conflicts, allow up to 3 integrations per
-    handoff without asking, recording the pre-merge head and rescue ref first.
-    Preserve feature scope and push the rescue ref before resolving nontrivial
-    conflicts. After each integration, run relevant local tests and the format,
-    size, components gates; resolve drift, validate and push. Keep the PR ready
-    before returning to `ci-wait` for new-head CI. Record observed SHAs, the
-    overlap/conflict verdict and attempt count in the workpad across restarts.
-    The GitHub state writer blocks unsafe or unavailable verdicts. After the
-    third integration, emit a non-blocking Executor alert and keep going if the
-    base is safe. Never open a blocking decision for base integration.
+    If GitHub reports `CONFLICTING` or a reviewer asks for integration, record
+    the pre-merge head and rescue ref first. Preserve feature scope and push the
+    rescue ref before resolving nontrivial conflicts. After integration, run
+    relevant local tests and the format, size, components gates; resolve drift,
+    validate and push. Keep the PR ready before returning to `ci-wait` for
+    new-head CI. Record observed SHAs and the conflict or reviewer request in
+    the workpad across restarts. The GitHub state writer blocks unsafe or
+    unavailable verdicts. Never open a blocking decision for base integration.
 14. If you still believe the work is complete and correct and only CI remains,
     mark the PR ready (`gh pr ready`) and verify it is no longer a draft, then
     move the ticket with `aiur_set_ticket_state({ "state": "ci-wait" })`, and end the turn. Do
@@ -412,8 +410,8 @@ The Elixir examples below apply only to Aiur's Elixir core.
     - **Passed:** require the full required-check set to have passed on the
       current head SHA and verify the PR is ready. Assess integration safety
       with step 13 again, retaining its three-integration allowance. When the tested
-      head has no overlap or conflicts with the observed base, trust the
-      delivered result without re-polling, emit the required
+      head is not `CONFLICTING` with the observed base, trust the delivered
+      result without re-polling, emit the required
       100% progress sample, and
       move the ticket with `aiur_set_ticket_state({ "state": "human-review" })`.
       Use that tool, never `gh issue edit --remove-label agent:ci-wait
@@ -421,9 +419,9 @@ The Elixir examples below apply only to Aiur's Elixir core.
       swapped `agent:ci-wait` for `agent:in-progress` before it woke you, so the
       removal is a no-op and the ticket ends up carrying both state labels —
       undispatchable, and healed by a guess (#2805). Harmless base movement
-      needs no merge or CI rerun. For overlap/conflicts, follow step 13 and
-      await fresh exact-head CI; after the third integration, use a non-blocking
-      alert, never a blocking decision for base integration.
+      needs no merge or CI rerun. For a `CONFLICTING` head or reviewer request,
+      follow step 13 and await fresh exact-head CI. Never open a blocking
+      decision for base integration.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
       the ticket in `agent:rework` (`aiur_set_ticket_state`), and begin the
       repair loop.

@@ -15,12 +15,21 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
       end
 
     case result do
-      {:error, {:github, kind, _} = reason} when kind in [:local_hold, :rate_limited] -> {:defer, reason}
-      {:error, {:aiur, :locally_held, _} = reason} -> {:defer, reason}
+      {:error, {:github, kind, _} = reason} when kind in [:local_hold, :rate_limited] ->
+        {:defer, reason}
+
+      {:error, {:aiur, :locally_held, _} = reason} ->
+        {:defer, reason}
+
       # Boot-time budget timeouts starve the ancestry read; it is missing evidence, not a verdict.
-      {:error, :review_base_ancestry_unavailable = reason} -> {:defer, reason}
-      {:error, {:github, :transport, %{reason: {:aiur, :locally_held, _}}} = reason} -> {:defer, reason}
-      other -> other
+      {:error, :review_base_ancestry_unavailable = reason} ->
+        {:defer, reason}
+
+      {:error, {:github, :transport, %{reason: {:aiur, :locally_held, _}}} = reason} ->
+        {:defer, reason}
+
+      other ->
+        other
     end
   end
 
@@ -44,7 +53,13 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
         {:defer, :workspace_owned}
 
       {:error, {:stale_review_base, _detail} = reason} ->
-        if DispatchPolicy.state_slug(target) == "human-review", do: {:defer, reason}, else: {:error, reason}
+        if DispatchPolicy.state_slug(target) == "human-review" do
+          # A real conflict cannot be handed to review. Route the orphan to
+          # rework so it gets an owner instead of deferring forever.
+          write_release(issue, "rework", opts)
+        else
+          {:error, reason}
+        end
 
       {:error, _reason} = error ->
         error
@@ -59,7 +74,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   defp discover_target(issue, opts) do
-    fetch = Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
+    fetch =
+      Keyword.get(opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
 
     case fetch.(issue.identifier) do
       {:ok, nil} -> {:ok, Keyword.get(opts, :no_pr_target, "todo")}
@@ -114,10 +130,13 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
     {:ok, ReworkGate.post_agent_handoff_target(pr, "human-review", opts)}
   end
 
-  defp guarded_update(identifier, target, expected, writer), do: TicketTransition.write_state(identifier, target, writer: writer, expected_state: expected)
+  defp guarded_update(identifier, target, expected, writer),
+    do: TicketTransition.write_state(identifier, target, writer: writer, expected_state: expected)
 
   defp lifecycle_state_name(slug, opts) do
-    opts |> Keyword.get_lazy(:active_states, &Config.active_states/0) |> Enum.find(slug, &(DispatchPolicy.state_slug(&1) == slug))
+    opts
+    |> Keyword.get_lazy(:active_states, &Config.active_states/0)
+    |> Enum.find(slug, &(DispatchPolicy.state_slug(&1) == slug))
   end
 
   defp comment(issue, target, note, opts) do

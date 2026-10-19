@@ -140,7 +140,9 @@ Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs f
 
 A stale head approved at its current commit is refused only for a `CONFLICTING` verdict. Overlap alone does not require a push that dismisses approval. Queued or auto-merge-armed heads skip file comparisons because the queue tests the merge. Comments do not move queued PRs to rework (one GraphQL read, `rework_gate_merge_queue`); blocking reviews still do.
 
-An unapproved stale head passes only with no conflicts or changed-file overlap since the merge base. Otherwise it returns `stale_review_base`. GitHub can lag its base SHA or report `UNKNOWN` while recalculating mergeability; those observations permit disjoint paths. A matching head's `CONFLICTING` verdict blocks the write.
+An unapproved stale head passes when the pinned GitHub mergeability read does not report `CONFLICTING`. File overlap alone does not block handoff because the merge queue tests the PR on current base.
+
+A matching head's `CONFLICTING` verdict returns `stale_review_base`. GitHub `UNKNOWN` is accepted as no conflict evidence after the PR head and base branch are pinned; malformed or mismatched observations fail closed.
 
 Mismatched heads or base branches, malformed observations,
 unreadable comparisons or a PR's own file list reaching GitHub's 300-file cap also block. A capped upstream or base comparison is not read as complete; the PR's paths are checked directly instead.

@@ -11,7 +11,16 @@ defmodule Aiur.GitHub.HumanReviewGate do
   """
 
   alias Aiur.Config
-  alias Aiur.GitHub.{BotIdentity, HumanReviewContribution, HumanReviewPathProbe, PullRequests, ResourceFetch, ResourceStore, ReviewThreads, StatePolicy, Transport}
+
+  alias Aiur.GitHub.{
+    BotIdentity,
+    PullRequests,
+    ResourceFetch,
+    ResourceStore,
+    ReviewThreads,
+    StatePolicy,
+    Transport
+  }
 
   @approval_fields "headRefOid reviewDecision mergeQueueEntry { id } reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }"
 
@@ -34,12 +43,17 @@ defmodule Aiur.GitHub.HumanReviewGate do
   @doc false
   @spec pull_request_mergeability(integer(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def pull_request_mergeability(pr_number, opts \\ []) do
-    query = "query AiurPullRequestMergeability($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { mergeable } } }"
+    query =
+      "query AiurPullRequestMergeability($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { mergeable } } }"
 
     with {:ok, token} <- Transport.require_token(opts),
          {:ok, {owner, name}} <- Transport.parse_repo(),
          {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"mergeable" => mergeability}}}}} <-
-           Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
+           Transport.github_graphql(
+             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+             token,
+             query,
+             %{"owner" => owner, "name" => name, "number" => pr_number},
              caller: "orphan_claim_mergeability"
            ),
          true <- mergeability in ["MERGEABLE", "CONFLICTING", "UNKNOWN"] do
@@ -51,13 +65,16 @@ defmodule Aiur.GitHub.HumanReviewGate do
   end
 
   @doc false
-  @spec pull_request_approved_at_head?(integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  @spec pull_request_approved_at_head?(integer(), keyword()) ::
+          {:ok, boolean()} | {:error, term()}
   def pull_request_approved_at_head?(pr_number, opts \\ []) do
-    with {:ok, {head, approved}} <- pull_request_approval(pr_number, opts), do: {:ok, approved == head}
+    with {:ok, {head, approved}} <- pull_request_approval(pr_number, opts),
+         do: {:ok, approved == head}
   end
 
   @doc "The PR head and the commit its standing approval names (`nil` unless `reviewDecision` is APPROVED)."
-  @spec pull_request_approval(integer(), keyword()) :: {:ok, {String.t(), String.t() | nil}} | {:error, term()}
+  @spec pull_request_approval(integer(), keyword()) ::
+          {:ok, {String.t(), String.t() | nil}} | {:error, term()}
   def pull_request_approval(pr_number, opts \\ []) do
     query =
       "query AiurPullRequestApprovalAtHead($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefOid reviewDecision reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } } } }"
@@ -65,12 +82,18 @@ defmodule Aiur.GitHub.HumanReviewGate do
     with {:ok, token} <- Transport.require_token(opts),
          {:ok, {owner, name}} <- Transport.parse_repo(),
          {:ok, %{"data" => %{"repository" => %{"pullRequest" => pr}}}} <-
-           Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
+           Transport.github_graphql(
+             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+             token,
+             query,
+             %{"owner" => owner, "name" => name, "number" => pr_number},
              caller: Keyword.get(opts, :caller, "orphan_claim_approval_state")
            ) do
       case pr do
         %{"headRefOid" => head, "reviewDecision" => decision, "reviews" => %{"nodes" => nodes}}
-        when is_binary(head) and decision in [nil, "APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] and is_list(nodes) ->
+        when is_binary(head) and
+               decision in [nil, "APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] and
+               is_list(nodes) ->
           {:ok, {head, approved_commit(pr)}}
 
         _invalid ->
@@ -118,7 +141,11 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   defp verify_base_ancestry(_context, _pr, false), do: :ok
 
-  defp verify_base_ancestry(context, %{"head" => %{"sha" => head_sha}, "number" => pr_number}, true)
+  defp verify_base_ancestry(
+         context,
+         %{"head" => %{"sha" => head_sha}, "number" => pr_number},
+         true
+       )
        when is_binary(head_sha) and head_sha != "" do
     base = Config.base_branch(context.opts)
 
@@ -140,14 +167,19 @@ defmodule Aiur.GitHub.HumanReviewGate do
   defp verify_base_ancestry(_context, _pr, true), do: {:error, :review_base_ancestry_unavailable}
 
   defp compare(context, base, head, per_page \\ 1) do
-    comparison = "#{URI.encode(base, &URI.char_unreserved?/1)}...#{URI.encode(head, &URI.char_unreserved?/1)}"
-    url = "#{Transport.base_url()}/repos/#{repo_full_name()}/compare/#{comparison}?per_page=#{per_page}"
+    comparison =
+      "#{URI.encode(base, &URI.char_unreserved?/1)}...#{URI.encode(head, &URI.char_unreserved?/1)}"
+
+    url =
+      "#{Transport.base_url()}/repos/#{repo_full_name()}/compare/#{comparison}?per_page=#{per_page}"
+
     # Branch movement cannot reuse a previous compatibility verdict.
     Transport.fetch_json_map(context.request_fun, context.token, url, caller: "human_review_base_ancestry")
   end
 
   defp verify_stale_base(context, pr_number, base, head) do
-    stale = {:error, {:stale_review_base, %{pr_number: pr_number, base_branch: base, head_sha: head}}}
+    stale =
+      {:error, {:stale_review_base, %{pr_number: pr_number, base_branch: base, head_sha: head}}}
 
     case current_mergeability(context, pr_number, base, head) do
       result -> stale_base_result(result, context, base, head, stale)
@@ -157,36 +189,19 @@ defmodule Aiur.GitHub.HumanReviewGate do
   defp stale_base_result({:ok, :conflicting}, _context, _base, _head, stale), do: stale
 
   # An approved head in the merge queue, or armed to enter it, is tested merged with the base before it lands (#4204).
-  defp stale_base_result({:ok, verdict}, _context, _base, _head, _stale) when verdict in [:merge_queue, :approved_head], do: :ok
+  defp stale_base_result({:ok, verdict}, _context, _base, _head, _stale)
+       when verdict in [:merge_queue, :approved_head], do: :ok
 
-  defp stale_base_result({:ok, {:mergeable, approved_head}}, context, base, head, stale),
-    do: merge_only_result(merge_only_since_approval(context, base, approved_head, head), stale)
+  # A later push invalidates the old approval, but the changed head can still
+  # be handed to a human for review without forcing a base merge.
+  defp stale_base_result({:ok, {:mergeable, _approved_head}}, _context, _base, _head, _stale),
+    do: :ok
 
   # A mergeable PR can wait for review/CI while the merge queue tests it on the
   # current base. Path overlap alone must not manufacture a rework turn.
   defp stale_base_result({:ok, :mergeable}, _context, _base, _head, _stale), do: :ok
 
   defp stale_base_result({:error, _reason} = error, _context, _base, _head, _stale), do: error
-
-  defp merge_only_result({:ok, true}, _stale), do: :ok
-  defp merge_only_result({:ok, false}, stale), do: stale
-  defp merge_only_result({:error, _reason} = error, _stale), do: error
-
-  defp merge_only_since_approval(_context, _base, head, head), do: {:ok, false}
-
-  defp merge_only_since_approval(context, base, approved_head, head) do
-    with {:ok, current_comparison} <- compare(context, base, head, 100),
-         {:ok, base_sha} <- comparison_base(current_comparison) do
-      compare_fun = fn compare_base, compare_head, per_page -> compare(context, compare_base, compare_head, per_page) end
-
-      probe_fun = fn paths, from_sha, to_sha -> HumanReviewPathProbe.changed_paths(paths, from_sha, to_sha, context) end
-
-      HumanReviewContribution.unchanged?(approved_head, head, base_sha, current_comparison, compare_fun, probe_fun)
-    end
-  end
-
-  defp comparison_base(%{"base_commit" => %{"sha" => sha}}) when is_binary(sha) and sha != "", do: {:ok, sha}
-  defp comparison_base(_comparison), do: {:error, :review_base_ancestry_unavailable}
 
   defp current_mergeability(context, pr_number, base, head) do
     query = """
@@ -201,12 +216,31 @@ defmodule Aiur.GitHub.HumanReviewGate do
     variables = %{"owner" => owner, "name" => name, "number" => pr_number}
 
     case Transport.github_graphql(context.request_fun, context.token, query, variables, caller: "human_review_base_ancestry") do
-      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => "CONFLICTING"}}}}} ->
+      {:ok,
+       %{
+         "data" => %{
+           "repository" => %{
+             "pullRequest" => %{
+               "headRefOid" => ^head,
+               "baseRefName" => ^base,
+               "mergeable" => "CONFLICTING"
+             }
+           }
+         }
+       }} ->
         {:ok, :conflicting}
 
-      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => status} = pr}}}}
+      {:ok,
+       %{
+         "data" => %{
+           "repository" => %{
+             "pullRequest" => %{"headRefOid" => ^head, "baseRefName" => ^base, "mergeable" => status} = pr
+           }
+         }
+       }}
       when status in ["MERGEABLE", "UNKNOWN"] ->
-        # UNKNOWN supplies no conflict signal; unless the approved head is already landing, the pinned REST comparisons must still establish disjoint paths.
+        # UNKNOWN supplies no conflict signal. The merge queue tests the pinned
+        # head on current base, so path overlap does not require an agent push.
         mergeability_for_approval(pr)
 
       {:ok, _body} ->
@@ -218,7 +252,9 @@ defmodule Aiur.GitHub.HumanReviewGate do
   end
 
   defp mergeability_for_approval(pr) do
-    landing? = approved_at_head?(pr) and (is_map(pr["mergeQueueEntry"]) or is_map(pr["autoMergeRequest"]))
+    landing? =
+      approved_at_head?(pr) and (is_map(pr["mergeQueueEntry"]) or is_map(pr["autoMergeRequest"]))
+
     approved_head = approved_commit(pr)
 
     approval_mergeability(pr, landing?, approved_head)
@@ -228,14 +264,18 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   # Preserve overlap-only handoff for a human-approved exact head. The caller
   # still rejects conflicts before consulting this result.
-  defp approval_mergeability(pr, false, approved_head), do: approval_mergeability(pr, approved_head)
+  defp approval_mergeability(pr, false, approved_head),
+    do: approval_mergeability(pr, approved_head)
 
   defp approval_mergeability(pr, approved_head) do
-    if approved_at_head?(pr), do: {:ok, :approved_head}, else: previous_approval_mergeability(pr, approved_head)
+    if approved_at_head?(pr),
+      do: {:ok, :approved_head},
+      else: previous_approval_mergeability(pr, approved_head)
   end
 
-  defp previous_approval_mergeability(%{"headRefOid" => head}, approved_head) when is_binary(approved_head) and approved_head != head,
-    do: {:ok, {:mergeable, approved_head}}
+  defp previous_approval_mergeability(%{"headRefOid" => head}, approved_head)
+       when is_binary(approved_head) and approved_head != head,
+       do: {:ok, {:mergeable, approved_head}}
 
   defp previous_approval_mergeability(_pr, _approved_head), do: {:ok, :mergeable}
 
@@ -315,30 +355,46 @@ defmodule Aiur.GitHub.HumanReviewGate do
       end
     end
 
-    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "merge decision: review threads") do
+    case ResourceFetch.need(key, fetcher,
+           freshness: ResourceFetch.decision(),
+           reason: "merge decision: review threads"
+         ) do
       {:ok, pr, _meta} -> {:ok, pr}
       {:error, _reason} = error -> error
     end
   end
 
   defp approved?(context, pr_number) do
-    approved_pull_request?(pr_number, request_fun: context.request_fun, token: context.token) == {:ok, true}
+    approved_pull_request?(pr_number, request_fun: context.request_fun, token: context.token) ==
+      {:ok, true}
   end
 
   @doc "Returns whether at least one standing review approves and none requests changes."
-  @spec approved_pull_request?(String.t() | integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  @spec approved_pull_request?(String.t() | integer(), keyword()) ::
+          {:ok, boolean()} | {:error, term()}
   def approved_pull_request?(pr_number, opts \\ []) do
     key = ResourceStore.key_for_repo(:pull_request_reviews, repo_full_name(), pr_number)
 
     # A strict conditional read revalidates the standing verdict with GitHub.
     fetcher = fn fetch_opts ->
-      PullRequests.fetch_pull_request_reviews_conditional(pr_number, Keyword.merge(opts, fetch_opts))
+      PullRequests.fetch_pull_request_reviews_conditional(
+        pr_number,
+        Keyword.merge(opts, fetch_opts)
+      )
     end
 
-    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "merge decision: approval state") do
-      {:ok, reviews, _meta} when is_list(reviews) -> {:ok, approved_decision?(standing_verdicts(reviews))}
-      {:error, _reason} = error -> error
-      _other -> {:error, :invalid_pull_request_reviews}
+    case ResourceFetch.need(key, fetcher,
+           freshness: ResourceFetch.decision(),
+           reason: "merge decision: approval state"
+         ) do
+      {:ok, reviews, _meta} when is_list(reviews) ->
+        {:ok, approved_decision?(standing_verdicts(reviews))}
+
+      {:error, _reason} = error ->
+        error
+
+      _other ->
+        {:error, :invalid_pull_request_reviews}
     end
   end
 
@@ -372,10 +428,21 @@ defmodule Aiur.GitHub.HumanReviewGate do
   end
 
   # `reviewDecision` stays APPROVED after a later push unless the ruleset dismisses stale approvals, so the approval must name the current head.
-  defp approved_at_head?(%{"reviewDecision" => "APPROVED", "headRefOid" => head, "reviews" => %{"nodes" => [%{"commit" => %{"oid" => head}}]}}) when is_binary(head), do: true
+  defp approved_at_head?(%{
+         "reviewDecision" => "APPROVED",
+         "headRefOid" => head,
+         "reviews" => %{"nodes" => [%{"commit" => %{"oid" => head}}]}
+       })
+       when is_binary(head), do: true
+
   defp approved_at_head?(_pull_request), do: false
 
-  defp approved_commit(%{"reviewDecision" => "APPROVED", "reviews" => %{"nodes" => [%{"commit" => %{"oid" => oid}}]}}) when is_binary(oid) and oid != "", do: oid
+  defp approved_commit(%{
+         "reviewDecision" => "APPROVED",
+         "reviews" => %{"nodes" => [%{"commit" => %{"oid" => oid}}]}
+       })
+       when is_binary(oid) and oid != "", do: oid
+
   defp approved_commit(_pull_request), do: nil
 
   # An unresolvable repository identity means no store key, which `ResourceFetch`
@@ -390,7 +457,10 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
   defp standing_verdicts(reviews) do
     reviews
-    |> Enum.filter(&(get_in(&1, ["user", "login"]) != nil and Map.get(&1, "state") in ~w(APPROVED CHANGES_REQUESTED DISMISSED)))
+    |> Enum.filter(
+      &(get_in(&1, ["user", "login"]) != nil and
+          Map.get(&1, "state") in ~w(APPROVED CHANGES_REQUESTED DISMISSED))
+    )
     |> Enum.group_by(&get_in(&1, ["user", "login"]))
     |> Enum.map(fn {_login, reviewer_reviews} ->
       reviewer_reviews
