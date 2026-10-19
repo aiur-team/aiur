@@ -236,10 +236,11 @@ defmodule Aiur.DecisionStore.AnswerDispatchTest do
     test "coordinator restart fails active and queued work and allows explicit retry", %{dir: dir} do
       parent = self()
       coordinator = unique_coordinator_name("Restart")
+      task_supervisor = start_supervised!({Task.Supervisor, name: unique_coordinator_name("RestartTasks")})
 
       coordinator_pid =
         start_supervised!(
-          {DecisionDispatchTasks, name: coordinator, max_concurrency: 1},
+          {DecisionDispatchTasks, name: coordinator, max_concurrency: 1, task_starter: fn operation -> {:ok, Task.Supervisor.async(task_supervisor, operation)} end},
           id: coordinator
         )
 
