@@ -235,10 +235,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
         "#{State.issue_context(issue)}"
     )
 
-    entry = Map.get(state.startup_claim_reconciliation_failures, issue.identifier)
-    quiet_hold? = deferred? and budget_hold?(reason)
-
-    if attempts >= @max_release_attempts or (not quiet_hold? and (is_nil(entry) or Map.get(entry, :quiet, false))) do
+    if alert_release_failed?(state, issue, reason, attempts, deferred?) do
       emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
 
       emit_alert_fun.(
@@ -260,6 +257,13 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     end
 
     :ok
+  end
+
+  defp alert_release_failed?(_state, _issue, _reason, attempts, _deferred?) when attempts >= @max_release_attempts, do: true
+
+  defp alert_release_failed?(state, issue, reason, _attempts, deferred?) do
+    entry = Map.get(state.startup_claim_reconciliation_failures, issue.identifier)
+    not (deferred? and budget_hold?(reason)) and (is_nil(entry) or Map.get(entry, :quiet, false))
   end
 
   defp retry_outlook(:review_base_ancestry_unavailable, _attempts, true),

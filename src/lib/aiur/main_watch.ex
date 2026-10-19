@@ -4,8 +4,8 @@ defmodule Aiur.MainWatch do
   require Logger
   alias Aiur.Config
   alias Aiur.Events
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.{Budget, ResourceStore, Transport}
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.MainWatch.{Canary, Fixer, GitHub, Persistence, State, Suspects}
   alias Aiur.MergePolicy
 
