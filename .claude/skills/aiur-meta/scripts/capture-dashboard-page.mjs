@@ -60,12 +60,14 @@ export async function inspectPage(page, name) {
     const metricCells = tables.flatMap((table) => table.rows.flatMap((row, rowIndex) => row.map((value, index) => ({ value, header: table.headers[index], rowIndex }))))
     const hasNAInMetric = metricCells.some((cell) => cell.value.trim() === 'N/A' && /progress|ticket|epic|wave|member|active|complete|capacity|concurrency|cpu|cost|count|total/i.test(cell.header || ''))
     const buildRoot = pageName === 'build' ? document.querySelector('#build-root') : null
+    const buildSkeletonSelector = '.bd-skel, .bd-skel-lanes'
+    const buildBandSelector = '.bd-now-empty'
     const buildUnavailable = buildRoot?.querySelector('.bd-loading')?.innerText.replace(/\s+/g, ' ').trim() || ''
-    const buildSkeleton = Boolean(buildRoot?.querySelector('.bd-skel, .bd-skel-lanes'))
+    const buildSkeleton = Boolean(buildRoot?.querySelector(buildSkeletonSelector))
     const buildTicketCount = buildRoot?.querySelectorAll('.bd-card[data-id], .lr[data-id]').length || 0
     const buildQueueText = buildRoot?.querySelector('#bd-sec-plan .bd-sech em, #bd-sec-plan .lh em')?.innerText || ''
     const buildQueueMatch = buildQueueText.match(/(\d[\d,]*)\s+in build-queue order\b/i)
-    const buildBand = buildRoot?.querySelector('.bd-now-empty')?.innerText.replace(/\s+/g, ' ').trim() || ''
+    const buildBand = buildRoot?.querySelector(buildBandSelector)?.innerText.replace(/\s+/g, ' ').trim() || ''
     const buildHydrated = Boolean(buildRoot && (
       buildTicketCount > 0 ||
       buildRoot.querySelector('.bd-mk.empty') ||
@@ -95,4 +97,3 @@ export async function inspectPage(page, name) {
     }
   }, name)
 }
-
