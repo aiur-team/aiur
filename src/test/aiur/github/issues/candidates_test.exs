@@ -1,8 +1,5 @@
 defmodule Aiur.GitHub.Issues.CandidatesTest do
-  # These cases mutate the process-wide test-scope env, workflow config, and
-  # GitHub token cache. Concurrent cases can observe another test's state and
-  # normalize an otherwise valid issue with an unjoinable identity.
-  use Aiur.TestSupport, async: false
+  use Aiur.TestSupport
 
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.DispatchAuthorization
@@ -101,16 +98,27 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
       on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
       System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
 
-      write_workflow_file!(Workflow.workflow_file_path(),
-        tracker_kind: "github",
-        tracker_repo: "owner/repo",
-        tracker_label_prefix: "sym",
-        tracker_active_states: ["todo"]
+      # Keep dispatch authorization independent of the shared CODEOWNERS
+      # snapshot; this test is about pinned-scope filtering, not trust loading.
+      write_workflow_file_atomic!(
+        Workflow.workflow_file_path(),
+        """
+        tracker:
+          kind: github
+          active_states: [todo]
+          github:
+            repo: owner/repo
+            label_prefix: sym
+            allowed_users: [its-everdred]
+        """
       )
+
+      :ok = WorkflowStore.force_reload()
 
       issue = fn number ->
         %{
           "number" => number,
+          "node_id" => "I_kwDOIssue#{number}",
           "title" => "Issue #{number}",
           "body" => nil,
           "html_url" => "https://github.com/owner/repo/issues/#{number}",
