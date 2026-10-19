@@ -52,6 +52,8 @@ A webhook delivery is the cheapest writer of all — GitHub has already paid for
 | A comment or issue is deleted | Nothing is deposited and the held body is discarded, because serving an object that no longer exists is worse than not holding one. |
 | A delayed delivery carrying older state | Refused. A body cannot walk a resource backwards and then be reported as freshly fetched. |
 
+For ticket-branch PRs, a webhook's REST-shaped body replaces the cached branch row. The store retains the sweep poll's GraphQL-only review and landing fields only when the PR head SHA and `updated_at` still match; a changed PR invalidates those facts until the next poll.
+
 A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
 
 A cold, corrupt or stopped cache falls back to fetching. It costs throughput, never correctness. Timelines persist (at most 1,000 bodies per repository). After boot, single-page evidence is ETag-revalidated against the current allowlist. Multi-page timelines and a `304` reporting a new page require a full refetch.

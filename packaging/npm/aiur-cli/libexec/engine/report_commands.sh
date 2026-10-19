@@ -193,7 +193,7 @@ cmd_executor_sweep() {
       *) echo "aiur: executor-sweep accepts --json and --apply" >&2; exit 64 ;;
     esac
   done
-  run_control_rpc "Aiur.ExecutorSweep.run([${args%, }])"
+  run_control_rpc "Aiur.AgentControlCLI.executor_sweep([${args%, }])"
 }
 
 # `aiur watch` — the server-side status board. Compiles one row per active

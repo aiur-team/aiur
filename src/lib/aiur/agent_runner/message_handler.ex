@@ -17,6 +17,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   alias Aiur.AgentRunner.CodexUpdateRelay
   alias Aiur.AgentRunner.LiveObserver
+  alias Aiur.AgentRunner.TurnProgress
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Signal
@@ -234,7 +235,8 @@ defmodule Aiur.AgentRunner.MessageHandler do
       {:worker_runtime_info, issue_id,
        %{
          worker_host: worker_host,
-         workspace_path: workspace
+         workspace_path: workspace,
+         duration_cap_progress_baseline: workspace_fingerprint(workspace, worker_host)
        }}
     )
 
@@ -242,6 +244,13 @@ defmodule Aiur.AgentRunner.MessageHandler do
   end
 
   def send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
+
+  defp workspace_fingerprint(workspace, worker_host) do
+    case TurnProgress.workspace_digest(workspace, worker_host) do
+      {:ok, digest} -> digest
+      {:error, _reason} -> nil
+    end
+  end
 
   @doc false
   # Signals the orchestrator that this dispatch attempt has survived

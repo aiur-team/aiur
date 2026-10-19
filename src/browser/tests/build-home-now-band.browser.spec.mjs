@@ -152,13 +152,20 @@ test('tall fleet, paging and scrollbar drag suppress snapping', async ({ page })
 test('destroy cancels band frames, settle locks and clock ticks; remount resets scrolling', async ({ page }) => {
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000)
   await page.addInitScript(() => {
-    window.bandTimerCalls = { registered: 0, afterDestroy: 0 }
-    for (const method of ['setTimeout', 'requestAnimationFrame']) {
-      const native = window[method].bind(window)
-      window[method] = (fn, ...args) => {
-        const band = new Error().stack.includes('/build-home/band')
-        if (band) bandTimerCalls.registered++
-        return native((...values) => { if (band && window.bandDestroyed) bandTimerCalls.afterDestroy++; return fn(...values) }, ...args)
+    window.bandTimerCalls = { registered: 0, cancelled: 0, active: new Set() }
+    const isBandCallback = () => /\/build-home\/(?:band|band-scroll)\.js/.test(new Error().stack)
+    for (const [schedule, cancel] of [['setTimeout', 'clearTimeout'], ['requestAnimationFrame', 'cancelAnimationFrame']]) {
+      const nativeSchedule = window[schedule].bind(window), nativeCancel = window[cancel].bind(window)
+      window[schedule] = (fn, ...args) => {
+        const band = isBandCallback()
+        let id
+        id = nativeSchedule((...values) => { if (band) bandTimerCalls.active.delete(id); return fn(...values) }, ...args)
+        if (band) { bandTimerCalls.registered++; bandTimerCalls.active.add(id) }
+        return id
+      }
+      window[cancel] = id => {
+        if (bandTimerCalls.active.delete(id)) bandTimerCalls.cancelled++
+        return nativeCancel(id)
       }
     }
   })
@@ -176,9 +183,9 @@ test('destroy cancels band frames, settle locks and clock ticks; remount resets 
   const stopped = await page.evaluate(() => ({ writes: old.writes, text: old.time.textContent, disposed: m.ctx.life.disposed }))
   expect(stopped.disposed).toBe(true)
   await page.evaluate(() => { window.bandDestroyed = true })
+  expect(await page.evaluate(() => bandTimerCalls.active.size)).toBe(0)
   expect(await page.evaluate(() => bandTimerCalls.registered)).toBeGreaterThan(0)
-  await page.clock.runFor(65000)
-  expect(await page.evaluate(() => bandTimerCalls.afterDestroy)).toBe(0)
+  expect(await page.evaluate(() => bandTimerCalls.cancelled)).toBeGreaterThan(0)
   expect(await page.evaluate(() => ({ writes: old.writes, text: old.time.textContent, disposed: m.ctx.life.disposed }))).toEqual(stopped)
   await open(page); await expect(page.locator('.bd-now-h > b')).toHaveText('Live')
   await settle(page)
