@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
         ('Codex skill directory', {}, {'.codex/skills/new-skill/SKILL.md': lines(1)}, 1, 'new tracked entry under mounted skill path .codex/skills is rejected'),
         ('Muse skill mount', {}, {'.agents/skills/new-skill/SKILL.md': lines(1)}, 1, 'new tracked entry under mounted skill path .agents/skills is rejected'),
         ('exact mount root', {}, {'.claude/skills': ('symlink', '../skills')}, 1, 'tracked symlink under mounted skill path .claude/skills is rejected'),
-        ('existing mounted skill edit', {'.codex/skills/aiur-agent': b'old target\n'}, {'.codex/skills/aiur-agent': b'new target\n'}, 0, ''),
+        ('existing mounted skill edit', {'.codex/skills/aiur-agent': b'old target\n'}, {'.codex/skills/aiur-agent': lines(600)}, 0, ''),
         ('existing mounted skill deletion', {'.agents/skills/old/SKILL.md': lines(1)}, {'.agents/skills/old/SKILL.md': None}, 0, ''),
         ('rename out of Codex mount', {'.codex/skills/old.md': lines(1)}, {'.codex/skills/old.md': None, 'moved/old.md': lines(1)}, 0, ''),
     ]
