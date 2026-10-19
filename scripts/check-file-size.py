@@ -18,6 +18,16 @@ LOCKFILE_REGEN = {
 }
 SKILL_MOUNTS = ('.codex/skills', '.agents/skills')
 CLAUDE_SKILLS = '.claude/skills'
+SKILL_PATHS = (CLAUDE_SKILLS, *SKILL_MOUNTS)
+VENDORED_DIRS = {'vendor', 'vendored', 'third_party'}
+
+
+def line_count_exempt(path):
+    """Whether a tracked path is a skill or third-party vendored content."""
+    parts = PurePosixPath(os.fsdecode(path)).parts
+    if any(parts[:len(PurePosixPath(root).parts)] == PurePosixPath(root).parts for root in SKILL_PATHS):
+        return True
+    return bool(VENDORED_DIRS.intersection(parts))
 
 
 def git(*args):
@@ -113,6 +123,7 @@ def check(base, head):
     failures = mount_failures
     for path, current in sorted(after.items()):
         previous = before.get(path, 0)
+        exempt = line_count_exempt(path)
         name = path.decode('utf-8', errors='backslashreplace')
         # Escape control characters so each result occupies exactly one line.
         name = name.encode('unicode_escape').decode('ascii')
@@ -124,8 +135,8 @@ def check(base, head):
             failed = text_before and path in before
         else:
             baseline = previous if text_before else 0
-            failed = current > LIMIT and (baseline <= LIMIT or current > baseline)
-            if not failed and 200 < current <= LIMIT and current > baseline:
+            failed = not exempt and current > LIMIT and (baseline <= LIMIT or current > baseline)
+            if not exempt and not failed and 200 < current <= LIMIT and current > baseline:
                 print(f'notice: {name}: {current} lines; give a cohesion reason above 200')
         if failed and isinstance(current, int) and PurePosixPath(name).name in LOCKFILE_REGEN and lockfile_verified(head, path):
             print(f'{name}: {current} lines; exempt, regenerates identically')
