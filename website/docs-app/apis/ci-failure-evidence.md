@@ -24,6 +24,8 @@ Only the scheduled reporter job receives the Actions token’s `issues: write`
 permission. The reusable matrix and merge-group callers have read access only.
 Evidence artifacts are retained for 14 days when the harness produces them.
 
-Failed-job recovery requires Actions read/write. It is bounded to one rerun per head and three failed handoffs per PR, without a fleet or hourly cap. A run GET returning 403/404 or a denied rerun POST raises one attention and permits normal rework. Any other recovery stop also raises its attention and routes a red head to rework. Two cases hold the head instead: a rerun in flight, and an approved head whose landing state is unreadable. A hold recorded before the head went red, for example for a cancelled run, does not mask a later failure.
+Failed-job recovery requires Actions read/write. It is bounded to one rerun per head and three failed handoffs per PR, without a fleet or hourly cap. A run GET returning 403/404 or a denied rerun POST raises one attention and permits normal rework.
+
+Any other recovery stop also raises its attention and routes a red head to rework. Two cases hold the head instead: a rerun in flight, and an approved head whose landing state is unreadable. A hold recorded before the head went red, for example for a cancelled run, does not mask a later failure.
 
 The [cancelled-run policy](https://github.com/aiur-team/aiur/pull/4212) handles a separate trigger. A head can receive two reruns from distinct triggers: a failed-job rerun here and a cancelled-run rerun there.
