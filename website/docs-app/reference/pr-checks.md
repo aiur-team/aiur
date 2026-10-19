@@ -67,6 +67,15 @@ The full matrix runs through `npm run test:build-home-band-full` with
 `AIUR_HOME_PARITY_PART=1..4`. This is separate from the broader C12 sign-off
 flag `AIUR_PARITY_FULL`.
 
+The C12 sign-off is the full `AIUR_PARITY_FULL` matrix: about 5,000 tests
+across every spec that reads the flag, costing roughly 15–20 runner-hours. It
+never runs on a schedule or in a merge group. Start it by hand from Actions →
+**home parity sign-off** (`workflow_dispatch`). The run is split into 32
+partitions. Each failed partition's job summary lists every failed cell, by
+spec, dataset, width, theme, palette and motion setting, with its artifact
+folder. The uploaded artifact holds that cell's `-diff`, `-actual` and
+`-expected` screenshots.
+
 Each partition uses one browser worker because dataset selection is global to
 its fixture server. The four partitions have separate servers; no pixel or
 motion cells are removed.

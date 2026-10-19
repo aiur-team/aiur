@@ -1,0 +1,61 @@
+# Manual home-page sign-off: every parity spec's full AIUR_PARITY_FULL matrix (~5k tests,
+# ~15-20 runner-hours). Run on demand only; never scheduled or merge-gating (#5124).
+name: home parity sign-off
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: home-parity-signoff-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  matrix:
+    name: full parity sign-off (${{ matrix.part }}/32)
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - name: Set up browser harness
+        uses: ./.github/actions/setup-browser
+      - name: Run full parity partition
+        working-directory: src/browser
+        env:
+          AIUR_PARITY_FULL: '1'
+          AIUR_BROWSER_KEEP_ARTIFACTS: '1'
+        # Every spec that reads the flag; one worker because each fixture server has a global dataset selector.
+        run: |
+          npm run fixture:preflight
+          node scripts/run-browser-tests.mjs $(grep -l AIUR_PARITY_FULL tests/*.browser.spec.mjs) \
+            --config playwright.design-parity.config.mjs --fully-parallel --workers=1 --shard=${{ matrix.part }}/32
+      - name: List failed cells
+        if: ${{ failure() }}
+        working-directory: src/browser
+        run: |
+          {
+            echo "### Failed parity cells (partition ${{ matrix.part }}/32)"
+            echo "Each entry names its artifact folder; *-diff.png, *-actual.png and *-expected.png sit beside it."
+            find .artifacts-run-* -name error-context.md 2>/dev/null | sort | while read -r context; do
+              echo "- $(grep -m1 -- '^- Name: ' "$context" | sed 's/^- Name: //') (\`$(dirname "$context")\`)"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: home-parity-signoff-${{ matrix.part }}-${{ github.run_attempt }}
+          path: src/browser/.artifacts-run-*/
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
