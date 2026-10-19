@@ -8,6 +8,8 @@ import { discoverSuites, shardCommands, suiteCommand, SUITE_SCRIPT } from '../sr
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packagePath = process.argv[2] ?? resolve(root, 'src/browser/package.json')
 const runnerPath = process.argv[3] ?? resolve(root, 'src/browser/scripts/run-browser-smoke-shard.mjs')
+const exclusionsPath = process.argv[4] ?? resolve(root, 'src/browser/scripts/browser-spec-exclusions.json')
+const ciRoot = process.argv[5] ?? resolve(root, '.github')
 const browserRoot = dirname(packagePath)
 
 const scripts = JSON.parse(readFileSync(packagePath, 'utf8')).scripts
@@ -42,6 +44,41 @@ function reachableSpecs(command, seen = new Set()) {
   return reachable
 }
 
+function filesUnder(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const path = resolve(directory, entry.name)
+    return entry.isDirectory() ? filesUnder(path) : entry.isFile() ? [path] : []
+  })
+}
+
+function stepBlocks(source) {
+  const lines = source.split(/\r?\n/)
+  const blocks = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const start = lines[index].match(/^(\s*)-\s+/)
+    if (!start) continue
+    let end = index + 1
+    while (end < lines.length && !new RegExp(`^${start[1]}-\\s+`).test(lines[end])) end += 1
+    blocks.push(lines.slice(index, end).join('\n'))
+    index = end - 1
+  }
+  return blocks
+}
+
+function ciBrowserScripts() {
+  const scripts = new Set()
+  for (const file of filesUnder(ciRoot).filter(path => /\.(?:yml|yaml)$/.test(path))) {
+    const source = readFileSync(file, 'utf8')
+    const isWorkflow = file.includes('/workflows/')
+    if (isWorkflow && !/^\s*(?:pull_request|pull_request_target|merge_group|push|schedule|workflow_call|workflow_run):/m.test(source)) continue
+    for (const block of stepBlocks(source)) {
+      if (!/^\s*working-directory:\s*src\/browser\s*$/m.test(block)) continue
+      for (const match of block.matchAll(/\bnpm run ([\w:-]+)/g)) scripts.add(match[1])
+    }
+  }
+  return scripts
+}
+
 const reachable = new Set()
 for (const command of selected.concat(expected)) {
   for (const spec of reachableSpecs(command)) reachable.add(spec)
@@ -65,24 +102,50 @@ for (const scriptName of Object.keys(scripts)) {
 if (Object.values(scripts).some(body => body.includes(`npm run ${SUITE_SCRIPT} -- --all`))) {
   for (const suite of discoverSuites(browserRoot)) scriptsReachable.add(`tests/${suite}.browser.spec.mjs`)
 }
+const ciScripts = ciBrowserScripts()
+const ciReachable = new Set()
+for (const scriptName of ciScripts) {
+  for (const spec of reachableSpecs(scriptName)) ciReachable.add(spec)
+}
+if (ciScripts.has(SUITE_SCRIPT)) {
+  for (const suite of discoverSuites(browserRoot)) ciReachable.add(`tests/${suite}.browser.spec.mjs`)
+}
+
+const exclusions = JSON.parse(readFileSync(exclusionsPath, 'utf8'))
+if (!Array.isArray(exclusions)) throw new Error(`${exclusionsPath} must contain a JSON array`)
+const exclusionBySpec = new Map()
+for (const entry of exclusions) {
+  if (!entry || typeof entry.spec !== 'string' || typeof entry.reason !== 'string' || !entry.reason.trim() || !Number.isInteger(entry.ticket) || entry.ticket <= 0) {
+    console.error(`Every browser spec exclusion must have a spec, non-empty reason, and positive numeric ticket: ${JSON.stringify(entry)}`)
+    process.exit(1)
+  }
+  if (exclusionBySpec.has(entry.spec)) {
+    console.error(`Duplicate browser spec exclusion: ${entry.spec}`)
+    process.exit(1)
+  }
+  exclusionBySpec.set(entry.spec, entry)
+}
+const unknownExclusions = [...exclusionBySpec.keys()].filter(spec => !browserSpecs.includes(spec))
+if (unknownExclusions.length) {
+  console.error(`Browser spec exclusions do not match existing specs: ${unknownExclusions.join(', ')}`)
+  process.exit(1)
+}
+
+const missingFiles = [...new Set([...scriptsReachable, ...reachable, ...ciReachable])].filter(spec => !browserSpecs.includes(spec))
+if (missingFiles.length) {
+  console.error(`CI scripts reference missing browser specs: ${missingFiles.join(', ')}`)
+  process.exit(1)
+}
+
 const unreferenced = browserSpecs.filter(spec => !scriptsReachable.has(spec))
 if (unreferenced.length) {
   console.error(`Browser specs are not referenced by any npm script: ${unreferenced.join(', ')}`)
   process.exit(1)
 }
-const dedicatedCiScripts = new Set(['test:home-css', 'test:visual', 'parity:matrix'])
-const smokeOrDedicated = new Set(reachable)
-for (const scriptName of dedicatedCiScripts) {
-  for (const spec of reachableSpecs(scriptName)) smokeOrDedicated.add(spec)
-}
-const unreachable = [...scriptsReachable].filter(spec => !smokeOrDedicated.has(spec))
+const smokeOrCi = new Set([...reachable, ...ciReachable])
+const unreachable = browserSpecs.filter(spec => !smokeOrCi.has(spec) && !exclusionBySpec.has(spec))
 if (unreachable.length) {
-  console.error(`Browser specs are referenced by npm scripts but not reachable from a smoke shard or dedicated CI script: ${unreachable.join(', ')}`)
-  process.exit(1)
-}
-const missingFiles = [...scriptsReachable].filter(spec => !browserSpecs.includes(spec))
-if (missingFiles.length) {
-  console.error(`Smoke shard scripts reference missing browser specs: ${missingFiles.join(', ')}`)
+  console.error(`Browser specs are not reachable from a smoke shard or CI workflow/action script and have no exclusion: ${unreachable.join(', ')}`)
   process.exit(1)
 }
 
@@ -104,7 +167,7 @@ if (missing.length || unexpected.length) {
   process.exit(1)
 }
 
-console.log(`Browser smoke shards cover all ${expected.length} test:core suites exactly once; all ${browserSpecs.length} browser specs are referenced and CI-reachable.`)
+console.log(`Browser smoke shards cover all ${expected.length} test:core suites exactly once; all ${browserSpecs.length} browser specs are CI-reachable or explicitly excluded.`)
 
 // A shard's recorded total (preflight plus suites) must leave a quarter of its budget for ci variance.
 const unrecorded = selected.filter((command) => recordedSeconds[command] === undefined)
