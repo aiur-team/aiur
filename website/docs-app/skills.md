@@ -67,7 +67,7 @@ sandbox resets from issue workspaces, not ordinary repository tests.
 
 These stay with the Executor and are not copied into ticket workspaces.
 
-`aiur-run` runs `aiur executor-sweep` on every pass and follows its findings alongside the status-reported merge policy and local-test evidence; `aiur-handoff` records that policy and watcher state.
+`aiur-run` runs `aiur executor-sweep` on every pass and follows its findings alongside the status-reported merge policy and local-test evidence; it must never run the human-only `aiur answer` command, which only a human operator may use from an interactive terminal; `aiur-handoff` records that policy and watcher state.
 
 | Skill | Trigger | Covers |
 | --- | --- | --- |
