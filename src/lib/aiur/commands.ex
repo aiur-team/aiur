@@ -191,6 +191,9 @@ defmodule Aiur.Commands do
   @spec open_blocking_decision_ids([String.t()], GenServer.server(), timeout()) :: {:ok, [String.t()]} | {:error, :store_unavailable}
   defdelegate open_blocking_decision_ids(ticket_identifiers, server, timeout), to: Aiur.DecisionStore
 
+  @spec open?(Aiur.Decision.t()) :: boolean()
+  defdelegate open?(decision), to: Aiur.DecisionStore.RetainedIndex
+
   @spec print_projection_status() :: :ok
   defdelegate print_projection_status(), to: Aiur.DecisionStore.ProjectionRecovery, as: :print_status
 
