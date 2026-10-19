@@ -2,7 +2,7 @@ import { columnSequence, alignColumnPolls } from './build-home-columns-motion.mj
 import { spanState } from './build-home-span-state.mjs'
 import { historySequence } from './build-home-history-motion.mjs'
 import { scrollbar } from './build-home-scrollbar-motion.mjs'
-import { resizeTallBand } from './build-home-motion-layout.mjs'
+import { settleScrollPosition } from './build-home-motion-settle.mjs'
 // Shared records and ownership stay together; feature sequences live beside them.
 // Motion records use the same allowlist as screenshot parity. Design bytes stay untouched.
 import { captureStable } from './design-parity.mjs'
@@ -213,7 +213,7 @@ async function snap(page, ctx, kind) {
       tallHeight: band ? band.offsetHeight + 40 : 0 }
   })
   if (kind === 'tall-band') {
-    await resizeTallBand(page, geometry.tallHeight)
+    await page.locator('#bd-vp').evaluate((el, height) => { el.style.height = `${height}px`; el.style.maxHeight = `${height}px` }, geometry.tallHeight)
     await page.clock.runFor(160)
   }
   await scrollTo(page, kind.includes('bottom') || kind === 'guard-down' ? geometry.bottom : geometry.top)
@@ -221,6 +221,7 @@ async function snap(page, ctx, kind) {
   const start = await page.locator('#bd-vp').evaluate(el => el.scrollTop)
   const delta = kind === 'pinned' ? -1 : kind === 'guard-up' ? -100 : kind === 'guard-down' ? 100 : kind.includes('bottom') ? 20 : -20
   await scrollTo(page, start + delta)
+  await settleScrollPosition(page)
   const frame = [{ scrollTop: await page.locator('#bd-vp').evaluate(el => el.scrollTop) }]
   await ctx.onFrame?.(0, '#bd-vp')
   for (let i = 0; i < 40; i++) {
