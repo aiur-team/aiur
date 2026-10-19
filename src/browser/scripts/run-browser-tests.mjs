@@ -7,7 +7,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { browserChildEnvironment, sanitizeArtifactRoot } from './artifact-sanitizer.mjs'
 import { startFixture } from './start-fixture.mjs'
-import { quarantineArgs, quarantineNotices, readQuarantine } from './browser-quarantine.mjs'
+import { quarantineNotices, readQuarantine, withQuarantine } from './browser-quarantine.mjs'
 
 const browserRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const allocatedPorts = new Set()
@@ -71,7 +71,7 @@ export async function runBrowserTests(args, environment = process.env) {
 
   try {
     result = await new Promise((resolve, reject) => {
-      const child = spawn(npx, ['playwright', 'test', ...args, ...quarantineArgs(quarantine, environment)], {
+      const child = spawn(npx, ['playwright', 'test', ...withQuarantine(args, quarantine, environment)], {
         cwd: browserRoot,
         env: childEnvironment,
         stdio: 'inherit'

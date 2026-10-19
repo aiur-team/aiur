@@ -100,7 +100,7 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
     warned.add(D.hist);
     console.warn("History rows without finite end:", hs.unplaced);
   }
-  const gctx = y => ({ span, pph: pphG, flow, K, compact, gapLabel, colKey, CH, gap, det, nowRows: NOWL, hs, y });
+  const gctx = y => ({ span, pph: pphG, flow, K, compact, gapLabel, colKey, CH, gap, det, now: nowMs(), nowRows: NOWL, hs, y });
   const hst = sectionState(P, D, H, 'hist', histList);
   if (hst.show !== 'rows') { hs.marks.push(emptyMark('hist', hst, mctx)); hs.h = SEC + 104; }
   else if (S.view === "gantt") ext.gantt.hist(entries(histList), gctx(SEC + 4));

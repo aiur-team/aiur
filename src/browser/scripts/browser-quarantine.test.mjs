@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { failedSpecAnnotationLines } from '../support/github-failure-annotations.mjs'
 import GitHubFailureReporter from '../support/github-failure-reporter.mjs'
 import { PROBE_SPECS, parseQuarantine, quarantineArgs, quarantineNotices, readQuarantine, runnableSpec } from './browser-quarantine.mjs'
+import { withQuarantine } from './browser-quarantine.mjs'
 import { playwrightChildEnvironment } from './run-browser-tests.mjs'
 
 const browserRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -52,6 +53,18 @@ test('a blocking run prints one skip line per quarantined spec, naming the overr
   ])
   assert.deepEqual(quarantineNotices(parseQuarantine(list), { AIUR_RUN_QUARANTINED: '1' }), [])
   assert.match(readFileSync(path.join(browserRoot, 'scripts/run-browser-tests.mjs'), 'utf8'), /quarantineNotices\(quarantine, environment\)/)
+})
+
+test("a caller's --grep-invert survives the quarantine filter", () => {
+  const entries = parseQuarantine(list)
+  const args = withQuarantine(['tests/x.spec.mjs', '--grep-invert', 'full acceptance', '--workers=1'], entries, {})
+  assert.equal(args.filter(arg => arg === '--grep-invert').length, 1)
+  const pattern = new RegExp(args[args.indexOf('--grep-invert') + 1])
+  assert.match(subject('x.spec.mjs', 'B1 Gantt full acceptance composition'), pattern)
+  assert.match(subject('build-home-list.browser.spec.mjs', 'B4 server paging'), pattern)
+  assert.doesNotMatch(subject('x.spec.mjs', 'B1 Gantt composition parity'), pattern)
+  assert.deepEqual(withQuarantine(['a', '--grep-invert', 'b'], [], {}), ['a', '--grep-invert', 'b'])
+  assert.deepEqual(withQuarantine(['a'], entries, {}), ['a', ...quarantineArgs(entries, {})])
 })
 
 test('the checked-in list parses', () => {

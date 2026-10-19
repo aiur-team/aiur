@@ -11,7 +11,7 @@ defmodule Aiur.Events.GithubCIPoller do
   require Logger
 
   alias Aiur.Events.GithubCIPoller.{ApprovalCarry, BaseRepair, Evaluation, Recovery}
-  alias Aiur.GitHub.{CiReadiness, Client}
+  alias Aiur.GitHub.{CiReadiness, Client, LocalHold}
   alias Aiur.Stacking.StackBaseEvidence
 
   @type target :: String.t() | integer()
@@ -102,7 +102,10 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp poll_target_from_rest(target, opts) do
-    case Client.fetch_open_pull_request_for_branch(target, opts) do
+    case LocalHold.run(
+           fn -> Client.fetch_open_pull_request_for_branch(target, opts) end,
+           LocalHold.caller_opts(opts)
+         ) do
       {:ok, nil} ->
         # A newly finalized PR can take a short time to appear in GitHub's
         # branch-filtered listing. Fail closed so the tracker does not stay
