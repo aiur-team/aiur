@@ -91,6 +91,8 @@ defmodule Aiur.Muse.TurnTest do
     task =
       run_fixture(dir, "mcp_ledger_unavailable", 5_000, tool_call_ledger: :aiur_missing_muse_tool_call_ledger)
 
+    receive_barrier({:turn_ready, owner})
+    assert owner == task.pid
     assert {:ok, %{result: :turn_completed}} = Task.await(task, 5_000)
   end
 
