@@ -121,6 +121,7 @@ ExUnit.configure(formatters: ExUnit.configuration()[:formatters] ++ [Aiur.TestSu
 ExUnit.after_suite(fn _result -> Aiur.TestSupport.OrchestratorGuard.verify_suite!() end)
 Code.require_file("support/test_support/endpoint_stubs.exs", __DIR__)
 Code.require_file("support/test_support/processes.exs", __DIR__)
+Code.require_file("support/test_support/runner_tasks.exs", __DIR__)
 Code.require_file("support/test_support/workflow_files.exs", __DIR__)
 Code.require_file("support/test_scope_guard.exs", __DIR__)
 Code.require_file("support/test_support.exs", __DIR__)
