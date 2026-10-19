@@ -63,13 +63,21 @@ defmodule Aiur.Orchestrator.DockerCleanup do
   defp workspace_path(ticket), do: ticket |> Layout.safe_identifier() |> Layout.workspace_path_for_issue(nil)
 
   defp stop_and_remove(container, ticket, run) do
-    with {_output, 0} <- run.(["stop", "-t", "#{@stop_grace_seconds}", container]),
-         {_output, 0} <- run.(["rm", container]) do
+    with {_output, 0} <- gone_ok(run.(["stop", "-t", "#{@stop_grace_seconds}", container])),
+         {_output, 0} <- gone_ok(run.(["rm", container])) do
       :ok
     else
       {output, status} -> Logger.warning("Could not stop ticket Docker container ticket=#{ticket} container=#{container} status=#{status} output=#{String.trim(output)}")
     end
   end
+
+  # `docker run --rm` containers remove themselves once stopped, so a missing
+  # container or a removal already in progress is the success path.
+  defp gone_ok({output, status}) when is_binary(output) and status != 0 do
+    if output =~ "No such container" or output =~ "already in progress", do: {output, 0}, else: {output, status}
+  end
+
+  defp gone_ok(result), do: result
 
   defp run_bounded(command, args, timeout_ms) do
     task =

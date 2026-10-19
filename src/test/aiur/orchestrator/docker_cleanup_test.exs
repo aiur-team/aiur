@@ -43,6 +43,24 @@ defmodule Aiur.Orchestrator.DockerCleanupTest do
     assert_received {:docker, ["rm", "def456"]}
   end
 
+  test "a self-removed --rm container is not a cleanup failure, a real rm error is" do
+    rm_result = fn output ->
+      fn "docker", args, _opts ->
+        case args do
+          ["ps" | _] -> {"abc123\n", 0}
+          ["stop" | _] -> {"abc123\n", 0}
+          ["rm" | _] -> {output, 1}
+        end
+      end
+    end
+
+    for output <- ["Error response from daemon: No such container: abc123", "Error response from daemon: removal of container abc123 is already in progress"] do
+      refute capture_log(fn -> DockerCleanup.cleanup_ticket("AIUR-42", command: rm_result.(output)) end) =~ "Could not"
+    end
+
+    assert capture_log(fn -> DockerCleanup.cleanup_ticket("AIUR-42", command: rm_result.("permission denied")) end) =~ "Could not stop ticket Docker container"
+  end
+
   test "a hung Docker command is abandoned after the timeout" do
     command = fn "docker", _args, _opts -> Process.sleep(:infinity) end
 
