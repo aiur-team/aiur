@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
   alias Aiur.{Alerts, Issue}
   alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, Lifecycle, Reconciler, State, TrackerTasks}
+  alias Aiur.Orchestrator.IssueSync.TransitionAlerts
   alias Aiur.Orchestrator.StartupClaimReconciler.{BootMarker, Observation, Release}
 
   @max_release_attempts 3
@@ -188,6 +189,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
       {:ok, target} ->
         Logger.warning("Released orphaned startup claim to #{target}; no live runtime owns it #{State.issue_context(issue)}")
         emit_released_alert(issue, target, opts)
+        if DispatchPolicy.state_slug(target) == "human-review", do: TransitionAlerts.publish_human_review_handoff(issue, opts)
         state = resolve_release_failure(state, issue, opts)
         state = %{state | claimed: MapSet.delete(state.claimed, issue.id), orphaned_claim_since: Map.delete(state.orphaned_claim_since, issue.identifier)}
         {:ok, state, %{issue | state: target, state_labels: [target]}}
