@@ -322,7 +322,6 @@ for (const selectedCell of interactionCells) test.describe(`product interactions
       }
       if (name.startsWith('snap.')) { await alignBoard(pair); await alignEtaMask(pair); pair.allowlist = pair.allowlist.map(e => e.id === 'now-band-eta-pending' ? { ...e, kind: 'pixel-mask', selector: '.bd-now-eta' } : e) }
       if (name === 'snap.list-view') pair.allowlist = pair.allowlist.filter(e => e.id !== 'now-band-eta-pending')
-        .map(e => e.id === 'live-list-state-counts' ? { ...e, kind: 'pixel-mask', selector: '.bd-list > .lh:nth-child(2) > em' } : e)
       const entries = scopedEntries(pair.allowlist, selectedCell), barrier = frameBarrier(pair, name, reduce)
       const [design, product] = await Promise.all([runOn(pair.design, name, { reduce, onFrame: barrier.frame }).finally(barrier.abort), runOn(pair.product, name, { reduce, onFrame: barrier.frame, ids: FIXTURE_META.ids }).finally(barrier.abort)])
       if (name.startsWith('columns.') && (!design.samples.length || !product.samples.length))

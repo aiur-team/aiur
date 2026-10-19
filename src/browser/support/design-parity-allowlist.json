@@ -213,6 +213,7 @@
     "id": "live-list-state-counts",
     "kind": "copy",
     "selector": "#bd-vp",
+    "mask": ".bd-list > .lh:nth-child(2) > em",
     "cells": {},
     "reason": "#5175: the Live list head counts running, retrying, stuck, paused and unknown rows; the design calls every Live row running.",
     "approval": {
