@@ -4,6 +4,26 @@ defmodule AiurWeb.Build.IndexServerTest do
   import Aiur.TestSupport.BuildHome.IndexParts
   alias AiurWeb.Build.Index
 
+  defmodule BlockingOpenSource do
+    def snapshot_for_index(server, timeout), do: GenServer.call(server, :snapshot, timeout)
+  end
+
+  defmodule BlockingOpenServer do
+    use GenServer
+
+    def start_link(parent), do: GenServer.start_link(__MODULE__, parent)
+    def init(parent), do: {:ok, parent}
+
+    def handle_call(:snapshot, _from, parent) do
+      send(parent, :open_read_blocked)
+      receive(do: (:release -> {:reply, %Aiur.OpenTicketSource.Snapshot{}, parent}))
+    end
+  end
+
+  defmodule DisabledQueue do
+    def show, do: %{status: :disabled}
+  end
+
   setup do
     topic = "build-home:test:#{System.unique_integer([:positive])}"
     Phoenix.PubSub.subscribe(Aiur.PubSub, topic)
@@ -154,8 +174,9 @@ defmodule AiurWeb.Build.IndexServerTest do
   end
 
   test "an open part timeout preserves rows from the other parts and names the degraded source" do
-    parent = self()
+    open_server = start_supervised!({BlockingOpenServer, self()})
     seed = parts([row(7)]) |> put_in([:now, :rows], %{"8" => now_row(8)})
+    {:ok, settings} = seed.settings
 
     pid =
       start_supervised!(
@@ -166,10 +187,15 @@ defmodule AiurWeb.Build.IndexServerTest do
            :all, _previous, _opts ->
              seed
 
-           _dirty, previous, _opts ->
-             Process.put(:aiur_build_index_read_part, :open)
-             send(parent, :open_read_blocked)
-             receive(do: (:continue -> previous))
+           dirty, previous, _opts ->
+             AiurWeb.Build.IndexReader.read(dirty, previous,
+               open_source: BlockingOpenSource,
+               open_server: open_server,
+               open_timeout: 5_000,
+               queue: DisabledQueue,
+               settings_fun: fn -> settings end,
+               repository_fun: fn -> {:ok, {"acme", "widgets"}} end
+             )
          end,
          timer: fn _, _, _ -> make_ref() end,
          daemon_timer: fn _, _, _ -> make_ref() end,
@@ -195,6 +221,7 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert Enum.map(snapshot.sections.hist, & &1.id) == ["7"]
     assert Enum.map(snapshot.sections.now, & &1.id) == ["8"]
     assert snapshot.sources.open_tickets.reason == "open_tickets_timeout"
+    send(open_server, :release)
   end
 
   test "a failed history part read keeps the last good rows on the page, stale at the last read", %{pid: pid} do
