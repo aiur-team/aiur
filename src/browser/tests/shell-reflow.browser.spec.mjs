@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { openFixture } from './support/browser-helpers.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
-for (const width of [390, 720]) {
+for (const width of [320, 390, 720]) {
   test(`bottom navigation keeps every link reachable without page overflow at 200% text zoom (${width}px)`, async ({ browser }) => {
     const context = await browser.newContext({
       viewport: { width, height: 900 },
@@ -40,6 +40,25 @@ for (const width of [390, 720]) {
         expect(itemBounds.left).toBeGreaterThanOrEqual(itemBounds.menuLeft)
         expect(itemBounds.right).toBeLessThanOrEqual(itemBounds.menuRight)
         await expect(item).toBeVisible()
+        if (width <= 480) {
+          const labelBounds = await item.evaluate(node => {
+            const label = node.querySelector('span:not(.toggle-icon)')
+            const toggle = node.querySelector('.ax-sw')
+            const labelRect = label.getBoundingClientRect()
+            const rowRect = node.getBoundingClientRect()
+            const toggleRect = toggle?.getBoundingClientRect()
+            return {
+              labelRight: labelRect.right,
+              rowRight: rowRect.right,
+              labelScrollWidth: label.scrollWidth,
+              labelClientWidth: label.clientWidth,
+              overlapsToggle: toggleRect && labelRect.right > toggleRect.left
+            }
+          })
+          expect(labelBounds.labelRight).toBeLessThanOrEqual(labelBounds.rowRight)
+          expect(labelBounds.labelScrollWidth).toBeLessThanOrEqual(labelBounds.labelClientWidth)
+          expect(labelBounds.overlapsToggle).toBeFalsy()
+        }
       }
 
       for (const link of await navigation.locator('a.snav').all()) {

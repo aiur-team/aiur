@@ -195,16 +195,17 @@ defmodule AiurWeb.Layouts do
                 this.menu = this.el.querySelector("#ax-menu");
                 this.fitMenu = () => {
                   if (window.innerWidth <= 480) {
-                    var available = Math.max(0, window.innerWidth - 32);
-                    this.menu.style.minWidth = Math.min(210, available) + "px";
+                    var available = Math.max(0, window.innerWidth - 32), minimum = Math.min(210, available);
+                    this.menu.style.minWidth = minimum + "px";
                     this.menu.style.maxWidth = available + "px";
-                    this.menu.style.left = Math.min(0, 16 - this.menu.getBoundingClientRect().right + window.innerWidth - 32) + "px";
-                  } else {
-                    ["min-width", "max-width", "left"].forEach(key => this.menu.style.removeProperty(key));
-                  }
+                    var rect = this.menu.getBoundingClientRect();
+                    if (getComputedStyle(this.menu).position === "absolute") {
+                      var left = Math.max(16, Math.min(rect.left, window.innerWidth - 16 - rect.width));
+                      this.menu.style.left = left - this.el.getBoundingClientRect().left + "px";
+                    }
+                  } else ["min-width", "max-width", "left"].forEach(key => this.menu.style.removeProperty(key));
                 };
-                this.fitMenu();
-                this.onResize = () => this.fitMenu();
+                this.fitMenu(); this.onResize = () => this.fitMenu();
                 window.addEventListener("resize", this.onResize);
                 this.brandObserver = new ResizeObserver(this.fitMenu);
                 this.brandObserver.observe(this.el.closest(".ax-brand"));
@@ -244,7 +245,6 @@ defmodule AiurWeb.Layouts do
                 this.brandObserver.disconnect();
               }
             };
-
             // Provider usage is polled from a rate-limited endpoint, so it is
             // polled only while someone is actually looking. Report focus to
             // the server; it keeps polling for a grace period after the last

@@ -139,17 +139,17 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
                 this.menu = this.el.querySelector("#ax-menu");
                 this.fitMenu = () => {
                   if (window.innerWidth <= 480) {
-                    var left = this.menu.getBoundingClientRect().left;
-                    var available = Math.max(0, window.innerWidth - left - 16);
-                    this.menu.style.minWidth = Math.min(210, available) + "px";
+                    var available = Math.max(0, window.innerWidth - 32), minimum = Math.min(210, available);
+                    this.menu.style.minWidth = minimum + "px";
                     this.menu.style.maxWidth = available + "px";
-                  } else {
-                    this.menu.style.removeProperty("min-width");
-                    this.menu.style.removeProperty("max-width");
-                  }
+                    var rect = this.menu.getBoundingClientRect();
+                    if (getComputedStyle(this.menu).position === "absolute") {
+                      var left = Math.max(16, Math.min(rect.left, window.innerWidth - 16 - rect.width));
+                      this.menu.style.left = left - this.el.getBoundingClientRect().left + "px";
+                    }
+                  } else ["min-width", "max-width", "left"].forEach(key => this.menu.style.removeProperty(key));
                 };
-                this.fitMenu();
-                this.onResize = () => this.fitMenu();
+                this.fitMenu(); this.onResize = () => this.fitMenu();
                 window.addEventListener("resize", this.onResize);
                 this.brandObserver = new ResizeObserver(this.fitMenu);
                 this.brandObserver.observe(this.el.closest(".ax-brand"));
@@ -284,11 +284,17 @@ defmodule Aiur.BrowserHarness.PaletteProbeLive do
       end
 
     counts = if is_integer(awaiting), do: %{awaiting: awaiting, awaiting_blocking: 0}, else: %{}
-    {:ok, socket |> NavState.assign_nav() |> assign(paused: paused, writable: params["writable"] == "true", counts: counts, patch: 0)}
+
+    {:ok,
+     socket
+     |> NavState.assign_nav()
+     |> assign(paused: paused, writable: params["writable"] == "true", counts: counts, patch: 0)}
   end
 
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
-  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
+
+  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
+    do: {:noreply, NavState.restore(socket, collapsed)}
 
   def handle_event("toggle-global-pause", _params, socket) do
     if socket.assigns.writable and is_boolean(socket.assigns.paused) do
@@ -298,7 +304,8 @@ defmodule Aiur.BrowserHarness.PaletteProbeLive do
     end
   end
 
-  def handle_event("patch-shell", _params, socket), do: {:noreply, update(socket, :patch, &(&1 + 1))}
+  def handle_event("patch-shell", _params, socket),
+    do: {:noreply, update(socket, :patch, &(&1 + 1))}
 
   def render(assigns) do
     ~H"""

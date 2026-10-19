@@ -173,5 +173,5 @@ a.snav { text-decoration: none; }
   .sidenav { position: relative; top: auto; align-self: stretch; height: auto; min-height: calc(100vh - 56px); }
   .sidenav-nav { position: sticky; top: calc(56px + .6rem); }
 }
-@media (max-width: 360px) { .ax-menu { position: fixed; left: 1rem; top: 56px; } .bo-breakdown-row-top { flex-wrap: wrap; } }
-@media (max-width: 480px) { .ax-mi span:not(.toggle-icon) { overflow-wrap: anywhere; } }
+@media (max-width: 360px) { .ax-menu { position: fixed; left: 1rem; top: 56px; max-width: calc(100vw - 2rem); } .bo-breakdown-row-top { flex-wrap: wrap; } }
+@media (max-width: 480px) { .ax-mi span:not(.toggle-icon) { overflow-wrap: break-word; } }
