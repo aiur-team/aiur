@@ -585,8 +585,11 @@ def acquire(args):
             (args.token_key, now - 60000),
         ).fetchone()[0]
 
-        if total >= max_inflight or family >= max_inflight_per_endpoint:
-            if total >= max_inflight:
+        # Main-watch may run one lease above each cap, so bulk polling that fills
+        # every slot cannot hold the default-branch watcher. Pacing still applies.
+        bonus = 1 if args.priority else 0
+        if total >= max_inflight + bonus or family >= max_inflight_per_endpoint + bonus:
+            if total >= max_inflight + bonus:
                 earliest_expiry = conn.execute(
                     "SELECT MIN(expires_at_ms) FROM leases WHERE token_key = ?", (args.token_key,)
                 ).fetchone()[0]
@@ -881,6 +884,7 @@ def parser():
     acquire_parser.add_argument("--resource", required=True)
     acquire_parser.add_argument("--consumer-key", required=True)
     acquire_parser.add_argument("--ignore-token-cooldown", action="store_true")
+    acquire_parser.add_argument("--priority", action="store_true")
     acquire_parser.add_argument("--endpoint-family", required=True)
     acquire_parser.add_argument("--max-inflight", type=lambda value: clamp(value, 1, 100), required=True)
     acquire_parser.add_argument("--max-inflight-per-endpoint", type=lambda value: clamp(value, 1, 100), required=True)

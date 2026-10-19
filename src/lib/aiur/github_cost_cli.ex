@@ -96,9 +96,12 @@ defmodule Aiur.GitHubCostCLI do
   rescue
     error -> {:error, Exception.message(error)}
   catch
-    # A busy meter times out; only a missing process is "not running".
-    :exit, {:timeout, _call} -> {:error, "the GitHub quota meter did not answer in time; it is busy, so retry in a minute"}
-    :exit, _reason -> {:error, "the GitHub quota meter is not running in the active daemon; check `aiur alerts` for the quota process failure"}
+    # A slow snapshot times out; only a missing process is "not running".
+    :exit, {:timeout, _call} ->
+      {:error, "the GitHub quota meter is running but took over 5 s to build its snapshot; retry once, and if it fails again report the slow snapshot as an Aiur defect"}
+
+    :exit, _reason ->
+      {:error, "the GitHub quota meter is not running in the active daemon; check `aiur alerts` for the quota process failure"}
   end
 
   defp validate_budget(budget) when budget in ["graphql", "core", "all"], do: {:ok, budget}

@@ -46,6 +46,8 @@ defmodule Aiur.GitHub.Transport do
   @deadline_margin_ms 5_000
   @orchestrator_request_deadline_ms 10_000
   @budget_admission_timeout_ms 5_000
+  # Admission waits sleep on the caller, so the Orchestrator keeps the old bound (#1837).
+  @orchestrator_budget_admission_timeout_ms 1_500
 
   @spec base_url() :: String.t()
   def base_url, do: @base_url
@@ -171,7 +173,7 @@ defmodule Aiur.GitHub.Transport do
 
   defp budget_request(quota, request, request_fun, deadline_ms) do
     case Budget.acquire(request,
-           timeout_ms: min(deadline_ms, @budget_admission_timeout_ms),
+           timeout_ms: min(deadline_ms, budget_admission_timeout_ms()),
            lease_timeout_ms: deadline_ms
          ) do
       {:ok, lease} ->
@@ -458,6 +460,9 @@ defmodule Aiur.GitHub.Transport do
       max(@default_request_deadline_ms, timeout_ms + @deadline_margin_ms)
     end
   end
+
+  defp budget_admission_timeout_ms,
+    do: if(orchestrator_process?(), do: @orchestrator_budget_admission_timeout_ms, else: @budget_admission_timeout_ms)
 
   defp orchestrator_process?, do: self() == GenServer.whereis(Application.get_env(:aiur, :github_poll_owner))
 

@@ -22,6 +22,29 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
     assert :sys.get_state(server).port == port
   end
 
+  # #4791: bulk polling that fills every slot must not hold the main watcher.
+  test "a priority admission may hold one lease above the in-flight caps", %{root: root, server: server} do
+    args = acquire_args(root)
+    for _ <- 1..2, do: assert({:ok, "granted " <> _lease, 0} = command(server, Budget.broker_path(), args))
+    assert {:ok, "wait " <> _ms, 0} = command(server, Budget.broker_path(), args)
+    assert {:ok, "granted " <> _lease, 0} = command(server, Budget.broker_path(), args ++ ["--priority"])
+    assert {:ok, "wait " <> _ms, 0} = command(server, Budget.broker_path(), args ++ ["--priority"])
+  end
+
+  test "a prioritized process passes --priority to the broker", %{root: root, server: server} do
+    opts = [state_dir: root, stagger_ms: 0, broker_server: server, enabled?: true, max_inflight: 1, max_inflight_per_endpoint: 1]
+    request = %{token: "daemon-token", url: "https://api.github.com/repos/owner/repo/issues"}
+    assert {:ok, _lease} = Budget.acquire(request, opts)
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(request, Keyword.put(opts, :timeout_ms, 1_000))
+
+    assert {:ok, _lease} =
+             Task.async(fn ->
+               Budget.prioritize()
+               Budget.acquire(request, opts)
+             end)
+             |> Task.await()
+  end
+
   test "admission and release reuse the daemon port and remain visible to a separate broker", %{root: root, server: server} do
     args = acquire_args(root)
     assert {:ok, "granted " <> lease, 0} = command(server, Budget.broker_path(), args)
