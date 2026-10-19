@@ -46,11 +46,13 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   # An approval recorded on an older head no longer approves this one.
   defp recover_current(issue, %{head_sha: sha} = result, entry, opts) do
     cond do
-      get_in(entry, ["hold", "sha"]) == sha or not unconfirmed_approved_failure?(result) -> recover_entry(issue, result, entry, opts)
+      failed_hold?(entry, sha) or not unconfirmed_approved_failure?(result) -> recover_entry(issue, result, entry, opts)
       entry["landing_hold"] == sha -> held(result, "approved_landing_pr")
       true -> refresh_approved_landing(issue, result, entry, opts)
     end
   end
+
+  defp failed_hold?(entry, sha), do: match?(%{"hold" => %{"sha" => ^sha, "failed" => true}}, entry)
 
   defp unconfirmed_approved_failure?(%{head_sha: sha} = result) do
     result[:decision] == :failed and result[:review_decision] == "APPROVED" and result[:approved_review_head_sha] in [nil, sha] and
@@ -60,7 +62,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   defp refresh_approved_landing(issue, %{pr_number: number} = result, entry, opts) do
     case Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(number, opts) do
       {:ok, pr} -> classify_landing_pr(issue, result, entry, pr, opts)
-      {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts)
+      {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts, "landing")
     end
   end
 
@@ -69,7 +71,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       :landing -> hold_landing(issue, result, opts)
       :not_landing -> recover_entry(issue, result, entry, Keyword.put(opts, :ci_recovery_observation, {:ok, pr}))
       :changed_head -> held(result, "head_changed")
-      :unknown -> attention(issue, result, "observation_unavailable", "landing_state_unknown", opts)
+      :unknown -> attention(issue, result, "observation_unavailable", "landing_state_unknown", opts, "landing")
     end
   end
 
@@ -94,8 +96,13 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     end
   end
 
-  defp recover_entry(_issue, %{head_sha: sha} = result, %{"hold" => %{"sha" => sha} = hold}, _opts),
-    do: hold_result(result, hold)
+  # A hold recorded before this head went red (say, for a cancelled run) must not
+  # mask the failure; re-evaluate so a known flake still gets its one rerun (#5133).
+  defp recover_entry(issue, %{head_sha: sha} = result, %{"hold" => %{"sha" => sha} = hold} = entry, opts) do
+    if result[:decision] != :failed or failed_hold?(entry, sha),
+      do: hold_result(result, hold),
+      else: recover_entry(issue, result, Map.delete(entry, "hold"), opts)
+  end
 
   defp recover_entry(issue, %{head_sha: sha} = result, %{"limit_hold" => %{"sha" => held_sha, "retry_at" => retry_at}}, opts) do
     if sha == held_sha and now(opts) < retry_at do
@@ -362,7 +369,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp attention(issue, result, kind, reason, opts, mode \\ "hold") do
     tests = failure_names(result)
-    hold = %{"sha" => result.head_sha, "reason" => kind, "tests" => tests, "mode" => mode}
+    hold = %{"sha" => result.head_sha, "reason" => kind, "tests" => tests, "mode" => mode, "failed" => result[:decision] == :failed}
     message = "PR ##{Map.get(result, :pr_number)} CI recovery #{kind}: #{inspect(reason)}. Failing tests/checks: #{tests}"
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
 
@@ -374,13 +381,16 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       {:error, error} ->
         Logger.warning("CI recovery journal unavailable: #{inspect(error)}")
         emit_attention(issue, result, "journal_failed", message, emitter, opts)
-        held(result, kind)
+        hold_result(result, hold)
     end
   end
 
-  defp hold_result(result, %{"tests" => tests} = hold) do
+  # Besides a rerun in flight, only an approved head whose landing state is
+  # unreadable holds red; other stops raise their attention and still route
+  # the failure to rework (#5133).
+  defp hold_result(result, %{"tests" => tests, "mode" => mode} = hold) do
     result = Map.put(result, :ci_recovery_tests, tests)
-    if hold["mode"] == "fallback", do: Map.put(result, :recovery, nil), else: held(result, hold["reason"])
+    if mode == "fallback" or (mode == "hold" and result[:decision] == :failed), do: Map.put(result, :recovery, nil), else: held(result, hold["reason"])
   end
 
   defp emit_attention(issue, result, kind, message, emitter, opts) do

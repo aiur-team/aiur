@@ -457,6 +457,7 @@ defmodule Aiur.GitHub.CIPollBatch do
       "conclusion" => check_run |> Map.get("conclusion") |> normalize_optional_string(),
       "started_at" => Map.get(check_run, "startedAt"),
       "completed_at" => Map.get(check_run, "completedAt"),
+      "details_url" => Map.get(check_run, "detailsUrl"),
       "check_suite_id" => get_in(check_run, ["checkSuite", "id"]),
       "app" => %{"id" => get_in(check_run, ["checkSuite", "app", "databaseId"])},
       "output" => Map.get(check_run, "output", %{})
@@ -470,7 +471,8 @@ defmodule Aiur.GitHub.CIPollBatch do
           "context" => Map.get(status, "context"),
           "state" => Map.get(status, "state") |> to_string() |> String.downcase(),
           "created_at" => Map.get(status, "createdAt"),
-          "description" => Map.get(status, "description")
+          "description" => Map.get(status, "description"),
+          "target_url" => Map.get(status, "targetUrl")
         }
       end)
 
