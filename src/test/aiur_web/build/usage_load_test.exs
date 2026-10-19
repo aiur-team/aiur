@@ -1,5 +1,7 @@
 defmodule AiurWeb.Build.UsageLoadTest do
   use Aiur.TestSupport
+  import Aiur.GitHub.QuotaTestSupport
+  alias Aiur.GitHub.Quota
   alias Aiur.TestSupport.BuildHome.UsageInputs, as: I
   alias AiurWeb.Build.{Read, Usage}
 
@@ -83,6 +85,38 @@ defmodule AiurWeb.Build.UsageLoadTest do
     assert System.monotonic_time(:millisecond) - started < 2_500
     assert inputs.github == {:error, :unavailable}
     assert inputs.meters.codex.windows["primary"].used_percent == 42
+  end
+
+  test "a slow quota server uses its recent snapshot without delaying the build read", %{path: path} do
+    server = start_quota()
+    Quota.observe(server, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 3766))
+    Quota.observe(server, graphql_request("query { viewer { login } }", %{}), response("graphql", 5000, 4861))
+    quota = Quota.snapshot!(server)
+    :sys.suspend(server)
+    on_exit(fn -> if Process.alive?(server), do: :sys.resume(server) end)
+
+    started = System.monotonic_time(:millisecond)
+    inputs = Usage.load(self(), Keyword.put(opts(path), :github_server, server))
+
+    assert System.monotonic_time(:millisecond) - started < 500
+    assert {:ok, ^quota} = inputs.github
+    assert quota.windows["core"].remaining == 3766
+    assert quota.windows["graphql"].remaining == 4861
+  end
+
+  test "an expired quota snapshot uses the bounded fallback", %{path: path} do
+    server = start_quota()
+    Quota.observe(server, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 3766))
+    _quota = Quota.snapshot!(server)
+    :sys.suspend(server)
+    on_exit(fn -> if Process.alive?(server), do: :sys.resume(server) end)
+    expired_now = System.monotonic_time(:millisecond) + 60_001
+
+    started = System.monotonic_time(:millisecond)
+    inputs = Usage.load(self(), opts(path) |> Keyword.put(:github_server, server) |> Keyword.put(:github_cache_now_ms, expired_now))
+
+    assert System.monotonic_time(:millisecond) - started < 2_500
+    assert inputs.github == {:error, :unavailable}
   end
 
   defp quota_server(quota) do

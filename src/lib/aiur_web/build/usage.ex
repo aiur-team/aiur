@@ -35,10 +35,20 @@ defmodule AiurWeb.Build.Usage do
     meters = isolated(fn -> meter_read(source, context, opts) end, %{})
     accounts = isolated(Keyword.get(opts, :accounts_fun, &account_readings/0), %{})
     durable = isolated(fn -> Map.new(families, &{&1, durable(&1, Keyword.get(opts, :durable_path, ModelAvailability.path()))}) end, %{})
-    # The quota server also handles every GitHub observation; when it is busy only this chip degrades, not the build snapshot.
-    github = isolated(fn -> {:ok, GitHubQuota.snapshot!(Keyword.get(opts, :github_server, GitHubQuota), Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
+    # Prefer the Units page's recent snapshot so this strip never queues behind GitHub observations.
+    github = github_snapshot(opts)
     elevenlabs = isolated(fn -> ElevenLabsQuota.snapshot(Keyword.get(opts, :elevenlabs_server, ElevenLabsQuota)) end, %{state: :unconfigured})
     %{families: families, meters: meters, accounts: accounts, durable: durable, github: github, elevenlabs: elevenlabs}
+  end
+
+  defp github_snapshot(opts) do
+    server = Keyword.get(opts, :github_server, GitHubQuota)
+    now_ms = Keyword.get(opts, :github_cache_now_ms, System.monotonic_time(:millisecond))
+
+    case GitHubQuota.cached_snapshot_at(server, Keyword.get(opts, :github_cache_max_age, 60_000), now_ms) do
+      {:ok, snapshot} -> {:ok, snapshot}
+      :miss -> isolated(fn -> {:ok, GitHubQuota.snapshot!(server, Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
+    end
   end
 
   defp meter_read(source, context, opts) do
