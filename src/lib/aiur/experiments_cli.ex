@@ -18,7 +18,8 @@ defmodule Aiur.ExperimentsCLI do
     metric: :keep,
     hypothesis: :string,
     window: :string,
-    reason: :string
+    reason: :string,
+    confirm: :boolean
   ]
   @allowed %{
     analyze: [:mode, :local, :json],
@@ -27,6 +28,7 @@ defmodule Aiur.ExperimentsCLI do
     stats: [:json],
     events: [:json, :refresh],
     freeze: [:window, :reason, :json],
+    abandon: [:reason, :confirm, :json],
     metrics: [:json],
     list: [:status, :kind, :json],
     show: [:json],
@@ -90,6 +92,14 @@ defmodule Aiur.ExperimentsCLI do
     case Experiments.freeze(id, flags[:window], Keyword.take(flags, [:reason])) do
       {:error, :invalid_window} -> usage(flags)
       response -> result(response, flags, :freeze)
+    end
+  end
+
+  defp dispatch(:abandon, flags, [id]) do
+    if flags[:confirm] == true and is_binary(flags[:reason]) and String.trim(flags[:reason]) != "" do
+      result(Experiments.abandon(id, flags[:reason], "operator"), flags, :abandon)
+    else
+      usage(flags)
     end
   end
 
@@ -258,7 +268,7 @@ defmodule Aiur.ExperimentsCLI do
     error_fun = Keyword.get(opts, :error_fun, &IO.puts(:stderr, &1))
 
     error_fun.(
-      "aiur: experiments expects list [--status s] [--kind before_after|ab], show <id>, events <id> [--json] [--refresh], freeze <id> [--window before|after|observation] [--reason r] [--json], metrics [--json], or create --from <file|-> | --title <title> --line type:ref[@time] --metric pack/metric[:direction]; analyze <id> [--mode spec|report] [--local] [--json]; preregister <id> --file <file|->; report submit <id> --file <file|->; stats <id> [--json]"
+      "aiur: experiments expects list [--status s] [--kind before_after|ab], show <id>, events <id> [--json] [--refresh], freeze <id> [--window before|after|observation] [--reason r] [--json], abandon <id> --reason <text> --confirm [--json], metrics [--json], or create --from <file|-> | --title <title> --line type:ref[@time] --metric pack/metric[:direction]; analyze <id> [--mode spec|report] [--local] [--json]; preregister <id> --file <file|->; report submit <id> --file <file|->; stats <id> [--json]"
     )
 
     64

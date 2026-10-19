@@ -50,6 +50,8 @@ defmodule Aiur.Experiments do
   def list(filters \\ []) do
     with {:ok, rows} <- Reader.summaries() do
       if invalid_index?() and Process.whereis(Store), do: GenServer.cast(Store, :rebuild_index)
+      filters = Map.new(filters)
+      rows = if Map.has_key?(filters, :status), do: rows, else: Enum.reject(rows, &(&1.status == "abandoned"))
       {:ok, Enum.filter(rows, fn row -> Enum.all?(filters, fn {key, value} -> is_nil(value) or Map.get(row, key) == value end) end)}
     end
   end
@@ -169,6 +171,9 @@ defmodule Aiur.Experiments do
 
   @spec set_status(String.t(), atom() | String.t(), String.t(), term()) :: {:ok, Aiur.Experiments.Spec.t()} | {:error, term()}
   def set_status(id, status, reason, actor), do: mutate({:amend, id, %{status: to_string(status)}, actor, {"status", reason}})
+
+  @spec abandon(String.t(), String.t(), term()) :: {:ok, Aiur.Experiments.Spec.t()} | {:error, term()}
+  def abandon(id, reason, actor), do: mutate({:abandon, id, reason, actor})
 
   @spec annotate(String.t(), map(), term()) :: :ok | {:error, term()}
   def annotate(id, annotation, actor), do: mutate({:annotate, id, annotation, actor})

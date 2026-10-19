@@ -84,6 +84,17 @@ defmodule Aiur.Experiments.Store do
     {:reply, result, state}
   end
 
+  def handle_call({:abandon, id, reason, actor}, _from, state) do
+    result =
+      if is_binary(reason) and String.trim(reason) != "" do
+        amend(id, %{status: "abandoned"}, actor, {"abandoned", String.trim(reason)}, state)
+      else
+        {:error, [%{path: "reason", message: "must not be empty"}]}
+      end
+
+    {:reply, result, state}
+  end
+
   def handle_call({:annotate, id, annotation, actor}, _from, state) do
     {:reply, annotate(id, annotation, actor), state}
   end

@@ -3,6 +3,7 @@ defmodule Aiur.ExperimentsCLITest do
   import ExUnit.CaptureIO
   alias Aiur.{Experiments, ExperimentsCLI}
   alias Aiur.Experiments.Paths
+  alias AiurWeb.Experiments.Source
 
   defmodule FixturePack do
     @behaviour Aiur.Experiments.MetricPack
@@ -115,6 +116,30 @@ defmodule Aiur.ExperimentsCLITest do
 
     for argv <- [["--kind", "unexpected"], ["--status", "unexpected"]] do
       assert capture_io(:stderr, fn -> assert ExperimentsCLI.run(verb: :list, argv: argv) == 64 end) =~ "expects list"
+    end
+  end
+
+  test "confirmed abandonment is audited and hidden from default and page lists" do
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: quick_args("abandon smoke") ++ ["--no-freeze", "--json"]) == 0 end)
+    spec = Jason.decode!(output)
+
+    assert capture_io(:stderr, fn -> assert ExperimentsCLI.run(verb: :abandon, argv: [spec["id"], "--reason", "smoke complete"]) == 64 end) =~ "abandon <id>"
+    assert capture_io(fn -> assert ExperimentsCLI.run(verb: :abandon, argv: [spec["id"], "--reason", "smoke complete", "--confirm"]) == 0 end) =~ "abandoned"
+
+    assert {:ok, detail} = Experiments.fetch(spec["id"])
+    assert detail.spec["status"] == "abandoned"
+    assert Enum.any?(detail.journal, &(&1["kind"] == "abandoned" and &1["reason"] == "smoke complete" and &1["actor"] == "operator"))
+    assert {:ok, []} = Experiments.list()
+    assert {:ok, [%{id: id, status: "abandoned"}]} = Experiments.list(status: "abandoned")
+    assert id == spec["id"]
+
+    previous_facade = Application.get_env(:aiur, :experiments_facade)
+    Application.put_env(:aiur, :experiments_facade, Experiments)
+
+    try do
+      assert {:ok, []} = Source.index()
+    after
+      if previous_facade, do: Application.put_env(:aiur, :experiments_facade, previous_facade), else: Application.delete_env(:aiur, :experiments_facade)
     end
   end
 
