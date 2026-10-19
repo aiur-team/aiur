@@ -102,6 +102,17 @@ defmodule AiurWeb.Build.UsageLoadTest do
     assert {:ok, ^quota} = inputs.github
     assert quota.windows["core"].remaining == 3766
     assert quota.windows["graphql"].remaining == 4861
+    assert is_integer(inputs.github_snapshot_observed_at)
+
+    github = Usage.block({:ok, :context}, inputs, DateTime.utc_now()).apis |> hd()
+    [core, graphql] = github.lines
+    assert core.acc == [round(quota.windows["core"].used_percent)]
+    assert graphql.acc == [round(quota.windows["graphql"].used_percent)]
+    assert core.reset_at == DateTime.to_unix(quota.windows["core"].reset_at, :millisecond)
+    assert graphql.reset_at == DateTime.to_unix(quota.windows["graphql"].reset_at, :millisecond)
+    assert core.tip == [["Requests left", "3,766 of 5,000"]]
+    assert graphql.tip == [["Points left", "4,861 of 5,000"]]
+    assert github.snapshot_observed_at == inputs.github_snapshot_observed_at
   end
 
   test "an expired quota snapshot uses the bounded fallback", %{path: path} do

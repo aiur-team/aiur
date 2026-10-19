@@ -36,7 +36,7 @@ defmodule Aiur.GitHub.Quota do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.{HoldSweep, RequestLog, RequestOrigin, Transport}
 
-  alias Aiur.GitHub.Quota.{Attribution, Coverage, ShellObservations, Windows}
+  alias Aiur.GitHub.Quota.{Attribution, Coverage, ShellObservations, SnapshotCache, Windows}
   alias Aiur.Signal
 
   @empty_coverage %{resources: %{}, estimated?: false}
@@ -97,24 +97,16 @@ defmodule Aiur.GitHub.Quota do
   The live snapshot path also refreshes this cache. Consumers on latency-sensitive
   paths can use it first, then choose their own bounded live-read fallback on a miss.
   """
-  @spec cached_snapshot(GenServer.server(), non_neg_integer()) :: {:ok, map()} | :miss
+  @spec cached_snapshot(GenServer.server(), non_neg_integer()) :: {:ok, map(), non_neg_integer(), integer()} | :miss
   def cached_snapshot(server \\ __MODULE__, max_age_ms \\ 60_000),
     do: cached_snapshot_at(server, max_age_ms, System.monotonic_time(:millisecond))
 
   @doc false
-  @spec cached_snapshot_at(GenServer.server(), non_neg_integer(), integer()) :: {:ok, map()} | :miss
+  @spec cached_snapshot_at(GenServer.server(), non_neg_integer(), integer()) :: {:ok, map(), non_neg_integer(), integer()} | :miss
   def cached_snapshot_at(server, max_age_ms, now_ms) do
     server_pid = if is_pid(server), do: server, else: GenServer.whereis(server)
 
-    cached = if server_pid, do: :persistent_term.get({__MODULE__, :snapshot, server_pid}, nil)
-
-    case cached do
-      {snapshot, cached_at} ->
-        if now_ms - cached_at <= max_age_ms, do: {:ok, snapshot}, else: :miss
-
-      _ ->
-        :miss
-    end
+    if server_pid, do: SnapshotCache.get(server_pid, max_age_ms, now_ms), else: :miss
   catch
     :exit, _reason -> :miss
   end
@@ -146,6 +138,8 @@ defmodule Aiur.GitHub.Quota do
 
   @impl true
   def init(opts) do
+    SnapshotCache.ensure_table()
+
     refresh? = Keyword.get(opts, :refresh?, Application.get_env(:aiur, :github_quota_refresh?, true))
 
     # Resolved once at boot: every observe appends to the same durable file,
@@ -257,7 +251,7 @@ defmodule Aiur.GitHub.Quota do
       backoffs: Windows.present_backoffs(state, now)
     }
 
-    :persistent_term.put({__MODULE__, :snapshot, self()}, {snapshot, System.monotonic_time(:millisecond)})
+    SnapshotCache.put(self(), snapshot, System.monotonic_time(:millisecond), System.system_time(:millisecond))
     {:reply, snapshot, state}
   end
 
@@ -324,7 +318,7 @@ defmodule Aiur.GitHub.Quota do
 
   @impl true
   def terminate(_reason, state) do
-    :persistent_term.erase({__MODULE__, :snapshot, self()})
+    SnapshotCache.delete(self())
     # Flush and close the request log's delayed-write io_device so the last
     # buffered rows are not lost on shutdown.
     if state.request_log_io, do: :file.close(state.request_log_io)
