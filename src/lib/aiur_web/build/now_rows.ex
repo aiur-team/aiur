@@ -85,7 +85,7 @@ defmodule AiurWeb.Build.NowRows do
 
   defp facts(row) do
     num = String.to_integer(row.identity.identifier)
-    family = UnitsPresentation.agent_family(row)
+    family = row[:agent_family] || UnitsPresentation.agent_family(row)
 
     start = timestamp(get_in(row, [:timestamps, :started_at]))
 
@@ -99,7 +99,12 @@ defmodule AiurWeb.Build.NowRows do
       # The session start is the agent's dispatch; an unknown start has an unknown source (MP-E8-C4-T04).
       start_src: if(start, do: "dispatch", else: "unknown"),
       pct: pct(row),
-      agent: %{model: model(family), name: UnitsPresentation.agent_label(family), state: agent_state(row), effort: effort(row[:effort])}
+      agent: %{
+        model: model(family),
+        name: row[:agent_name] || UnitsPresentation.agent_label(family),
+        state: agent_state(row),
+        effort: effort(row[:effort])
+      }
     }
   end
 
@@ -149,6 +154,10 @@ defmodule AiurWeb.Build.NowRows do
     if Regex.match?(~r/^[a-z0-9][a-z0-9._-]{0,31}$/, key), do: key, else: nil
   end
 
+  defp model(value) when is_binary(value) do
+    if Regex.match?(~r/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/, value), do: value, else: nil
+  end
+
   defp model(_family), do: nil
   defp effort(value) when is_atom(value), do: effort(Atom.to_string(value))
   defp effort(value) when value in ~w(none minimal low medium high xhigh max), do: value
@@ -159,6 +168,10 @@ defmodule AiurWeb.Build.NowRows do
 
   defp progress_contract(%{progress: %{status: :known, percent: value}}) when is_number(value) and value >= 0 and value <= 100,
     do: %{progress: round(value), progress_resolution: :resolved}
+
+  defp progress_contract(%{progress_percent: value, progress_freshness: freshness})
+       when is_number(value) and value >= 0 and value <= 100 and freshness in [:fresh, :stale],
+       do: %{progress: round(value), progress_resolution: :resolved}
 
   defp progress_contract(_row), do: %{progress: nil, progress_resolution: :unknown}
   defp timestamp(%DateTime{} = time), do: DateTime.to_unix(time, :millisecond)

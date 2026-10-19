@@ -41,6 +41,24 @@ defmodule AiurWeb.Build.Freshness do
     daemon(Orchestrator.dashboard_snapshot(orchestrator, timeout), System.os_time(:millisecond))
   end
 
+  @doc "Reads the current fleet rows through the nonblocking orchestrator read model."
+  @spec read_running_rows(keyword()) :: {:ok, %{statuses: [map()], running: [map()]}} | {:error, :timeout | :unavailable}
+  def read_running_rows(opts \\ []) do
+    orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> EndpointConfig.get(:orchestrator) || Orchestrator end)
+    timeout = Keyword.get(opts, :fleet_timeout, 1_000)
+
+    case Orchestrator.fleet_view(orchestrator, timeout, fleet_rows?: true) do
+      {:ok, %{statuses: statuses, running: running}, _freshness} when is_list(statuses) and is_list(running) ->
+        {:ok, %{statuses: statuses, running: running}}
+
+      {:error, reason} when reason in [:timeout, :unavailable] ->
+        {:error, reason}
+
+      _invalid ->
+        {:error, :unavailable}
+    end
+  end
+
   @spec push_daemon?(term(), map()) :: boolean()
   def push_daemon?(%{state: state} = old, %{state: state} = new),
     do: state != "live" and Map.get(old, :heartbeat_at) != Map.get(new, :heartbeat_at)
