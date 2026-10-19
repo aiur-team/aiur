@@ -284,3 +284,11 @@
   margin-top: 0.75rem;
 }
 
+
+.md-table-wrap { max-width: 100%; overflow-x: auto; }
+.md-table-wrap table { width: 100%; border-collapse: collapse; }
+.md-table-wrap th, .md-table-wrap td { padding: 8px 12px; border: 1px solid var(--line); min-width: 8ch; }
+.md-table-wrap .md-al-l { text-align: left; }
+.md-table-wrap .md-al-c { text-align: center; }
+.md-table-wrap .md-al-r { text-align: right; }
+.md-table-wrap:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }

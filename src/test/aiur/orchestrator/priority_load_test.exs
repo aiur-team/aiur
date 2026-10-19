@@ -5,30 +5,35 @@ defmodule Aiur.Orchestrator.PriorityLoadTest do
   alias Aiur.{BackgroundCpu, SystemCpu, SystemLoad}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, Slots, State}
 
-  # Two /proc scans 1_000 host ticks apart; `procs` maps pid => {nice, ticks_before, ticks_after}.
-  defp sampled_headroom(daemon_nice, procs, aggregate_nice_delta) do
+  # Two /proc scans 1_000 host ticks apart; `procs` maps pid => {ppid, nice, ticks_before, ticks_after}.
+  defp sampled_headroom(daemon_nice, procs, aggregate_nice_delta, fleet_roots \\ []) do
     root = Path.join(System.tmp_dir!(), "aiur-proc-#{System.unique_integer([:positive])}")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
-    write = fn index -> Enum.each(procs, fn {pid, {nice, before, after_}} -> write_stat(root, pid, nice, elem({before, after_}, index)) end) end
+
+    write = fn index ->
+      Enum.each(procs, fn {pid, {ppid, nice, before, after_}} ->
+        write_stat(root, pid, ppid, nice, elem({before, after_}, index))
+      end)
+    end
 
     write.(0)
-    first = BackgroundCpu.advance(nil, daemon_nice, BackgroundCpu.scan(root, daemon_nice), 1_000, 0)
+    first = BackgroundCpu.advance(nil, daemon_nice, BackgroundCpu.scan(root, daemon_nice, 100, fleet_roots), 1_000, 0)
     write.(1)
-    second = BackgroundCpu.advance(first, daemon_nice, BackgroundCpu.scan(root, daemon_nice), 2_000, 10_000)
+    second = BackgroundCpu.advance(first, daemon_nice, BackgroundCpu.scan(root, daemon_nice, 100, fleet_roots), 2_000, 10_000)
 
     previous = %{total: 1_000, idle: 0, nice: 0, runnable: 26, background: first.reading}
     current = %{total: 2_000, idle: 0, nice: aggregate_nice_delta, runnable: 26, background: second.reading}
     SystemCpu.headroom(previous, current)
   end
 
-  defp write_stat(root, pid, nice, ticks) do
-    fields = List.duplicate("0", 20) |> List.replace_at(0, "R") |> List.replace_at(11, "#{ticks}") |> List.replace_at(16, "#{nice}") |> List.replace_at(19, "7")
+  defp write_stat(root, pid, ppid, nice, ticks) do
+    fields = List.duplicate("0", 20) |> List.replace_at(0, "R") |> List.replace_at(1, "#{ppid}") |> List.replace_at(11, "#{ticks}") |> List.replace_at(16, "#{nice}") |> List.replace_at(19, "7")
     File.mkdir_p!(Path.join(root, "#{pid}"))
     File.write!(Path.join([root, "#{pid}", "stat"]), "#{pid} (proc) name) #{Enum.join(fields, " ")}\n")
   end
 
   test "(a) daemon at nice 0 discounts nice-15 background CPU but counts its nice-0 fleet" do
-    headroom = sampled_headroom(0, %{101 => {0, 0, 300}, 202 => {15, 50, 644}}, 594)
+    headroom = sampled_headroom(0, %{101 => {100, 0, 0, 300}, 202 => {1, 15, 50, 644}}, 594)
 
     assert headroom.daemon_nice == 0
     assert_in_delta headroom.background_percent, 59.4, 0.0001
@@ -39,7 +44,7 @@ defmodule Aiur.Orchestrator.PriorityLoadTest do
   end
 
   test "(b) daemon at nice 5 counts its nice-5 fleet even though /proc/stat files it as niced" do
-    headroom = sampled_headroom(5, %{101 => {5, 0, 1_000}}, 1_000)
+    headroom = sampled_headroom(5, %{101 => {100, 5, 0, 1_000}}, 1_000)
 
     assert headroom.nice_percent == 100.0
     assert headroom.background_percent == 0.0
@@ -52,8 +57,25 @@ defmodule Aiur.Orchestrator.PriorityLoadTest do
     assert {2, 1_000} = DispatchPolicy.load_envelope(3, nil, 25.0, options)
 
     # Work niced further than the daemon still discounts.
-    lower = sampled_headroom(5, %{101 => {5, 0, 600}, 202 => {15, 0, 400}}, 1_000)
+    lower = sampled_headroom(5, %{101 => {100, 5, 0, 600}, 202 => {1, 15, 0, 400}}, 1_000)
     assert_in_delta SystemLoad.gate_signal(25.0, lower, 16), 18.6, 0.0001
+  end
+
+  test "niced fleet build under a detached agent relay stays in fleet pressure" do
+    # Production relays are reparented to systemd; build descendants therefore
+    # do not reach the daemon PID. The registered relay root identifies them.
+    processes = %{
+      300 => {1, 0, 0, 0},
+      301 => {300, 0, 0, 0},
+      302 => {301, 10, 50, 400},
+      303 => {302, 10, 100, 900},
+      401 => {1, 10, 0, 200}
+    }
+
+    headroom = sampled_headroom(0, processes, 1_000, [300])
+
+    assert_in_delta headroom.background_percent, 20.0, 0.0001
+    assert_in_delta headroom.reclaimable_percent, headroom.idle_percent + 20.0, 0.0001
   end
 
   # #4896: an :ignore'd child reads DOWN to SupervisionHealth, which then alerts on every unrelated restart.
@@ -65,7 +87,7 @@ defmodule Aiur.Orchestrator.PriorityLoadTest do
 
   test "(c) unreadable /proc gives no discount and never reads as zero load" do
     missing = Path.join(System.tmp_dir!(), "aiur-proc-missing-#{System.unique_integer([:positive])}")
-    assert BackgroundCpu.scan(missing, 0) == :unavailable
+    assert BackgroundCpu.scan(missing, 0, 100, []) == :unavailable
     unavailable = BackgroundCpu.advance(nil, 0, :unavailable, 1_000, 0)
     assert unavailable.reading == :unavailable
     assert BackgroundCpu.advance(nil, :unavailable, %{}, 1_000, 0).reading == :unavailable

@@ -1,6 +1,6 @@
 defmodule Aiur.Experiments.ReportSubmission do
   @moduledoc false
-  alias Aiur.Experiments.{AnalysisRequests, ContractSchema, ReportAnalysis, ReportContract, ReportRecords}
+  alias Aiur.Experiments.{AnalysisRequests, ContractSchema, Persistence, ReportAnalysis, ReportContract, ReportRecords}
 
   @spec prepare(String.t(), term(), map()) :: {:ok, map()} | {:error, term()}
   def prepare(id, report, context) do
@@ -20,6 +20,7 @@ defmodule Aiur.Experiments.ReportSubmission do
       records = prepared.records |> Map.put("reports", reports ++ [report]) |> Map.update!("first_results_read_at", &(&1 || DateTime.to_iso8601(DateTime.utc_now())))
 
       with :ok <- ReportRecords.write(prepared.input.id, records),
+           :ok <- Persistence.broadcast(prepared.input.id),
            :ok <- AnalysisRequests.submitted(prepared.input.id, "report", report),
            do: {:ok, %{"report" => report, "warnings" => prepared.warnings}}
     end
