@@ -1,10 +1,9 @@
-defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
+defmodule Aiur.GitHub.Listeners.Comments.TargetSelectionTest do
   use Aiur.TestSupport
 
-  alias Aiur.{Issue, Workflow}
-  alias Aiur.Orchestrator.CommentPolling
-  alias Aiur.Orchestrator.CommentPolling.TargetSelection
-  alias Aiur.Orchestrator.State
+  alias Aiur.GitHub.Listeners.Comments.{Cursor, Input, TargetSelection}
+  alias Aiur.Issue
+  alias Aiur.Workflow
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
@@ -28,13 +27,8 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     review_pr = %{"number" => 61, "updated_at" => pr_updated_at}
     watch_pr = %{"number" => 99, "state" => "open"}
 
-    state = %State{
-      running: %{"running-42" => %{identifier: "42"}},
-      github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
-        since: %{},
-        issue_updated_at: %{}
-      }
-    }
+    cursor = %Cursor{since: %{}, issue_updated_at: %{}}
+    input = input(["42"])
 
     opts = [
       review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] ->
@@ -45,7 +39,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     ]
 
     assert {:ok, ["42", "57", "99"], [review_target], [watch_target]} =
-             TargetSelection.github_comment_poll_targets(state.github_comment_cursor, CommentPolling.input(state), opts)
+             TargetSelection.github_comment_poll_targets(cursor, input, opts)
 
     assert review_target == %{
              target: "57",
@@ -75,13 +69,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     second_head_review_at = "2026-09-10T00:46:36Z"
 
     poll_targets = fn issue_state, pr_updated_at ->
-      state = %State{
-        running: %{},
-        github_comment_cursor: %Aiur.Orchestrator.CommentPolling.Cursor{
-          since: %{},
-          issue_updated_at: %{}
-        }
-      }
+      cursor = %Cursor{since: %{}, issue_updated_at: %{}}
 
       issue = %Issue{id: "164", identifier: "164", state: issue_state, updated_at: pr_updated_at}
 
@@ -95,7 +83,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
         watch_pull_request_fetcher: fn "agent:watch" -> {:ok, []} end
       ]
 
-      TargetSelection.github_comment_poll_targets(state.github_comment_cursor, CommentPolling.input(state), opts)
+      TargetSelection.github_comment_poll_targets(cursor, input(), opts)
     end
 
     assert {:ok, ["164"], [%{target: "164"}], []} =
@@ -119,7 +107,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     ]
 
     assert {:error, :tracker_down} =
-             TargetSelection.github_comment_poll_targets(%Aiur.Orchestrator.CommentPolling.Cursor{}, CommentPolling.input(%State{}), opts)
+             TargetSelection.github_comment_poll_targets(%Cursor{}, input(), opts)
 
     refute_receive :unexpected_watch_fetch, 100
   end
@@ -166,5 +154,9 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
              "42" => existing_pr,
              "57" => review_pr
            }
+  end
+
+  defp input(targets \\ []) do
+    %Input{running_targets: targets, running_titles: %{}, ownership_key: nil, next_github_delay_ms: 0}
   end
 end
