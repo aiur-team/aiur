@@ -21,7 +21,7 @@ defmodule Aiur.GitHub.PullRequests.OpenPullRequests do
   listing is paginated to exhaustion while the probe capped at ten. Anything the
   probe could find, the listing finds.
 
-  It was not free. `Aiur.Orchestrator.CommentPolling.TargetSelection` calls this
+  It was not free. `Aiur.GitHub.Listeners.Comments.Driver.TargetSelection` calls this
   once per human-review target — up to 25 a cycle — so the probe was billing one
   primary-rate point per target per cycle to answer a question the very next
   request answered anyway. It was measured at roughly half of

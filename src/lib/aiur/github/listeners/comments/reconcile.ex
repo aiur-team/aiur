@@ -1,6 +1,6 @@
-defmodule Aiur.Orchestrator.CommentPolling.Reconcile do
+defmodule Aiur.GitHub.Listeners.Comments.Reconcile do
   @moduledoc false
-  alias Aiur.Orchestrator.CommentPolling.{Cursor, Input}
+  alias Aiur.GitHub.Listeners.Comments.{Cursor, Input}
 
   @spec reclaim(Cursor.t(), map() | nil) :: Cursor.t()
   def reclaim(state, %{reconcile_targets: targets}) do

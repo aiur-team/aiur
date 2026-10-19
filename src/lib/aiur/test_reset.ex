@@ -315,8 +315,8 @@ defmodule Aiur.TestReset do
 
         abort(
           "sandbox ticket(s) must be open before reset: #{inspect(blocked, charlists: :as_lists)}. " <>
-            "Reopen them or update #{@tickets_file}; closed tickets were skipped and " <>
-            "any detected automation labels were removed."
+            "They could not be made open (see the warnings above); run `gh issue reopen #{Enum.join(blocked, " ")}` or update " <>
+            "#{@tickets_file}. Detected automation labels were removed."
         )
 
         {:error, {:tickets_not_open, blocked}}
@@ -362,7 +362,7 @@ defmodule Aiur.TestReset do
     say("  - Close any open PR from aiur/<id>")
     say("  - Delete agent-workpad comments (`## Agent Workpad` bodies) on the issue")
     say("  - If open: strip every agent:* label, re-add agent:todo")
-    say("  - If closed: remove detected agent:*/model:* labels and abort before launch")
+    say("  - If closed: remove detected agent:*/model:* labels and reopen (abort if that fails)")
     say("\nAlways:")
     say("  - Restore sandbox baseline (git checkout HEAD -- " <> Enum.join(@baseline_files, " "))
     say("  - Preserve event-id.json (IdGenerator counter)")

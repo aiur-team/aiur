@@ -1,4 +1,4 @@
-defmodule Aiur.Orchestrator.CommentPolling.Cursor do
+defmodule Aiur.GitHub.Listeners.Comments.Cursor do
   @moduledoc "Comment-poll cursors, discovery cache, and owned-poll bookkeeping."
   @type t :: %__MODULE__{
           since: String.t() | map() | nil,

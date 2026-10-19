@@ -116,7 +116,6 @@ defmodule Aiur.Orchestrator.State.Owners do
     agent_rate_limits: :accounting,
     codex_totals: :accounting,
     codex_rate_limits: :accounting,
-    github_comment_cursor: :github_listeners,
     github_command_scan_etags: :github_listeners,
     github_command_scan_since: :github_listeners
   }
@@ -177,7 +176,6 @@ defmodule Aiur.Orchestrator.State.Owners do
     # Listener names are data; this table neither loads nor calls the optional component.
     github_listeners: [
       Aiur.Orchestrator.CommentPollingState,
-      Aiur.Orchestrator.CommentPolling,
       Aiur.Orchestrator.CommandScan,
       :"Elixir.Aiur.Events.GithubFirehose",
       :"Elixir.Aiur.Events.GithubCommentsPoller"

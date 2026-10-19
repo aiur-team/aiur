@@ -106,7 +106,6 @@ R-optional	Aiur.HttpServer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.ActiveTurns	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.SlotRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.OperatorWaitLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.Orchestrator.CommentPolling	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.PRLifecycle.PostAgentRouting	#5063 Shared verdict routing is consumed by each orchestrator handoff path.
 R-optional	Aiur.PRLifecycle.ReviewFindings	#5063 Shared body-only review blocking predicate is owned by PR lifecycle.
 R-optional	Aiur.PollCadence	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

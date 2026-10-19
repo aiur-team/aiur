@@ -1,4 +1,4 @@
-defmodule Aiur.Orchestrator.CommentPolling.OutcomeOrderTest do
+defmodule Aiur.GitHub.Listeners.Comments.OutcomeOrderTest do
   use Aiur.TestSupport
 
   alias Aiur.Orchestrator.{CommentPollingState, ReadyForReviewTransitions, State, TrackerHealth}
