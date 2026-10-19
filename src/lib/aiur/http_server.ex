@@ -5,7 +5,7 @@ defmodule Aiur.HttpServer do
 
   require Logger
 
-  alias Aiur.{Commands, Config, Orchestrator, TestRunState}
+  alias Aiur.{Commands, Config, Orchestrator}
   alias AiurWeb.Endpoint
 
   @secret_key_bytes 48
@@ -97,7 +97,7 @@ defmodule Aiur.HttpServer do
   # An `aiurdev --test` run shares the host with the live daemon, so it takes a
   # free port rather than running without a dashboard (#5121).
   defp port_conflict(opts, host, ip, port) do
-    if port != 0 and TestRunState.active?() do
+    if port != 0 and Config.test_run?() do
       Logger.warning("Aiur dashboard port #{port} is already in use; this aiurdev --test run binds a free port instead.")
       start_on_port(opts, 0)
     else
