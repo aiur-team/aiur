@@ -27,7 +27,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.GatesTest do
       assert DispatchPolicy.load_admission_reason(24.0, 1.5, 16, @contention) == :dispatch
     end
 
-    test "measured free CPU releases load holds but does not bypass the PSI hard ceiling" do
+    # Regression guard for the existing admission contract; accounting coverage
+    # for this change lives in pressure_admission_test.exs and priority_load_test.exs.
+    test "regression guard: measured free CPU releases load holds but not the PSI hard ceiling" do
       assert DispatchPolicy.load_admission_reason(143.0, 1.5, 16, @clear_headroom) == :dispatch
 
       assert {:hold, %{signal: :load, measured: 143.0, reclaimable_cpu_percent: 5.0}} =
