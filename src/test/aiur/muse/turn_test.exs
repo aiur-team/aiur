@@ -1,10 +1,11 @@
 defmodule Aiur.Muse.TurnTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
+  alias Aiur.AppServer.ToolCallLedger
   alias Aiur.Muse.Approvals
-  import Aiur.TestSupport.MuseFixture, only: [run_fixture: 2, run_fixture: 3, frames: 1]
+  import Aiur.TestSupport.MuseFixture, only: [run_fixture: 2, run_fixture: 3, run_fixture: 4, frames: 1]
 
   @tag :tmp_dir
   test "receipt alone does not finish; native terminal and view items reach the runner", %{tmp_dir: dir} do
@@ -78,10 +79,19 @@ defmodule Aiur.Muse.TurnTest do
 
   @tag :tmp_dir
   test "MCP calls execute in the runner owner while the native turn waits", %{tmp_dir: dir} do
-    task = run_fixture(dir, "mcp")
-    receive_barrier({:tool, owner, "aiur_test", %{"value" => 42}})
+    ledger = start_supervised!({ToolCallLedger, name: nil})
+    task = run_fixture(dir, "mcp", 30_000, tool_call_ledger: ledger)
+    {:tool, owner, "aiur_test", %{"value" => 42}} = await_mcp_tool(task)
     assert owner == task.pid
-    assert {:ok, %{result: :turn_completed}} = Task.await(task, :infinity)
+    assert {:ok, %{result: :turn_completed}} = Task.await(task, 5_000)
+  end
+
+  @tag :tmp_dir
+  test "ledger unavailability fails the MCP call without ending the native turn", %{tmp_dir: dir} do
+    task =
+      run_fixture(dir, "mcp_ledger_unavailable", 5_000, tool_call_ledger: :aiur_missing_muse_tool_call_ledger)
+
+    assert {:ok, %{result: :turn_completed}} = Task.await(task, 5_000)
   end
 
   @tag :tmp_dir
@@ -92,5 +102,20 @@ defmodule Aiur.Muse.TurnTest do
   @tag :tmp_dir
   test "a malformed matching terminal fails with a typed error", %{tmp_dir: dir} do
     assert {:error, :invalid_turn_completion} = Task.await(run_fixture(dir, "bad_terminal"), :infinity)
+  end
+
+  defp await_mcp_tool(task) do
+    receive do
+      {:tool, _owner, _name, _args} = message ->
+        message
+
+      {ref, result} when ref == task.ref ->
+        flunk("native turn finished before the MCP callback: #{inspect(result)}")
+
+      {:DOWN, ref, :process, pid, reason} when ref == task.ref and pid == task.pid ->
+        flunk("native turn exited before the MCP callback: #{inspect(reason)}")
+    after
+      5_000 -> flunk("native turn did not dispatch its MCP callback within 5 seconds")
+    end
   end
 end
