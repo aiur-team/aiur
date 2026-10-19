@@ -315,14 +315,16 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
         )
 
       _poll_result =
-        CommentPolling.poll_github_comments(probe_state,
+        Aiur.GitHub.Listeners.Comments.Driver.poll_github_comments(
+          %Aiur.GitHub.Listeners.Comments.Cursor{},
+          CommentPolling.input(probe_state),
           review_issue_fetcher: fn _states -> {:ok, []} end
         )
 
       observed = Agent.get(counter, & &1)
 
       assert {"POST", "/graphql"} in observed,
-             "CommentPolling did not expose its expected GraphQL request to the test counter: #{inspect(observed)}"
+             "The comment poll did not expose its expected GraphQL request to the test counter: #{inspect(observed)}"
 
       assert_egress_open!(counter)
     end
