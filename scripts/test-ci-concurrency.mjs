@@ -7,7 +7,7 @@ function concurrencyOf(source) {
   const concurrency = source.match(/^concurrency:\n((?:  .+\n)+)/m)?.[1];
   assert.ok(concurrency, 'workflow must declare concurrency');
   const group = concurrency.match(/^  group: (.+)$/m)?.[1];
-  const cancel = concurrency.match(/^  cancel-in-progress: \$\{\{ (.+) \}\}$/m)?.[1];
+  const cancel = concurrency.match(/^  cancel-in-progress: (.+)$/m)?.[1];
   assert.ok(group && cancel, 'group and cancellation expressions must exist');
   assert.ok(!/^  queue:/m.test(concurrency), 'keep the default single pending slot');
   return { group, cancel };
@@ -31,15 +31,17 @@ function policy(event, ref, runId, attempt = 1, pr = 42, name = 'ci', action = '
   return resolve({ group, cancel }, github);
 }
 function resolve(expressions, github) {
+  const cancel = expressions.cancel === 'true' ? true : expressions.cancel === 'false' ? false : evaluate(expressions.cancel.replace(/^\$\{\{\s*|\s*\}\}$/g, ''), github);
   return {
     group: expressions.group.replace(/\$\{\{ (.*?) \}\}/g, (_, expression) => evaluate(expression, github)),
-    cancel: evaluate(expressions.cancel, github),
+    cancel,
   };
 }
 assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'other').cancel, false);
-assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'ci:full').cancel, true);
+assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'ci:full').cancel, false);
 
-// Existing event policies deliberately remain unchanged, including exact groups.
+// The CI group remains stable for first-attempt PR runs so merge-queue entry can
+// cancel that PR run, but a later PR event cannot cancel checks already running.
 // Main pushes keep only the newest commit's run; its reruns stay independent (#4980).
 for (const runId of [100, 101]) {
   assert.deepEqual(policy('push', 'refs/heads/main', runId), { group: 'ci-push-main-1', cancel: false });
@@ -61,7 +63,7 @@ for (const [event, ref] of [
 for (const pr of [42, 43]) {
   for (const runId of [100, 101]) {
     assert.deepEqual(policy('pull_request', `refs/pull/${pr}/merge`, runId, 1, pr), {
-      group: `ci-pull_request-${pr}-1`, cancel: true,
+      group: `ci-pull_request-${pr}-1`, cancel: false,
     });
     assert.deepEqual(policy('pull_request', `refs/pull/${pr}/merge`, runId, 2, pr), {
       group: `ci-pull_request-${runId}-2`, cancel: false,
