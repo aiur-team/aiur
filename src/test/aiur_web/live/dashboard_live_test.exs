@@ -952,6 +952,7 @@ defmodule AiurWeb.DashboardLiveTest do
       created_at: ~U[2026-07-12 12:00:00Z],
       source_created_at: nil,
       decision_status: :open,
+      open?: true,
       delivery_status: :not_dispatched,
       answer: nil,
       dispatch_attempts: [],

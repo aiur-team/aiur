@@ -4,6 +4,9 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
   alias Aiur.{DecisionAttentionSignals, DecisionValidation}
   alias Aiur.DecisionStore.{RetainedIndex, RetainedSnapshot}
   alias Aiur.ExecutorAttention.DecisionEscalation
+  alias AiurWeb.OperatorControlCenter.DecisionPresenter
+
+  import AiurWeb.OperatorControlCenterComponentsFixtures, only: [render_inbox: 2]
 
   @now ~U[2026-10-15 12:00:00Z]
   @source %{agent_id: "codex", session_id: "session-1", event_id: nil}
@@ -193,7 +196,8 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
         %{decision("moot", "5006", minutes_ago(30)) | decision_status: :moot},
         %{decision("resolved", "5007", minutes_ago(30)) | decision_status: :resolved},
         %{decision("dismissed", "5008", minutes_ago(30)) | decision_status: :dismissed},
-        %{decision("decided", "5009", minutes_ago(30)) | decision_status: :decided}
+        %{decision("decided", "5009", minutes_ago(30)) | decision_status: :decided},
+        %{decision("superseded", "5010", minutes_ago(20)) | revision_sequence: 1}
       ]
 
       current = Map.new(decisions, &{&1.decision_id, &1})
@@ -203,9 +207,12 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
       "DECISIONS open " <> rest = DecisionEscalation.status_line(decisions, @now, fn _ -> 0 end)
       {status_count, _} = Integer.parse(rest)
 
-      assert status_count == 3
+      inbox = render_inbox(DecisionPresenter.rows(decisions), :open)
+
+      assert status_count == 4
       assert length(listed) == status_count
       assert RetainedIndex.canonical_counts(index).open == status_count
+      assert length(Regex.scan(~r/<article\s+id="decision-/, inbox)) == status_count
     end
 
     test "is not attention under 15 minutes and ignores answered or expired non-blocking Decisions" do
