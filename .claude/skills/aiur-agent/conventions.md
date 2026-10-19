@@ -85,9 +85,9 @@ or `scripts/`-specific.
 
 Never delete anything under `/tmp/.X11-unix`, `/tmp/.ICE-unix`, or a
 `/tmp/.X*-lock` path; these can belong to the live desktop session. Never
-sweep `/tmp` by age or glob, including `/tmp/*` and `/tmp/.*`. Delete only
-exact paths you created, by exact name. Prefer `TMPDIR` under `~/.aiur` for
-temporary files.
+sweep `/tmp` by age, owner, or glob, including `/tmp/*` and `/tmp/.*`. Delete
+only exact paths you created, by exact name. Use the workspace scratch helper
+(`$TMPDIR`, under `~/.aiur`) for temporary files.
 
 ## Synthetic load repros
 

@@ -45,10 +45,14 @@ defmodule Aiur.ToolchainGuardHookTest do
           "find /tmp -mindepth 1 -mtime +1 -delete",
           "find /tmp -maxdepth 1 -user everdred -mmin +1440 -exec rm -rf {} +",
           "find /tmp/ -type d -mtime +1 -exec rm -rf {} +",
-          "systemd-tmpfiles --clean"
+          "find /tmp/. -type f -delete",
+          "systemd-tmpfiles --clean",
+          "systemd-tmpfiles --remove",
+          "tmpwatch 24h /tmp",
+          "tmpreaper 24h /tmp"
         ] do
       assert {output, 2} = run_tmp_cleanup_hook(command), command
-      assert output =~ "refusing deletion under /tmp", command
+      assert output =~ "aiur: refusing", command
     end
   end
 
@@ -57,7 +61,8 @@ defmodule Aiur.ToolchainGuardHookTest do
           "rm -f /tmp/aiur-test-123",
           "find /tmp/aiur-test-123 -type f -delete",
           "rm -f /tmp/.Xauthority",
-          "find /tmp -maxdepth 1 -type f -print"
+          "find /tmp -maxdepth 1 -type f -print",
+          "find /tmp/aiur-test-123 -type f -exec rm -f {} +"
         ] do
       assert {"", 0} = run_tmp_cleanup_hook(command), command
     end
