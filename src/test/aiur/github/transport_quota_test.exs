@@ -169,7 +169,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
              Transport.github_graphql(&Transport.default_request_fun/1, "token", "query { viewer { login } }", %{})
   end
 
-  test "holds a second daemon-shaped request behind the shared host lease", %{budget_dir: budget_dir} do
+  test "waits for a shared lease to clear within the admission deadline", %{budget_dir: budget_dir} do
     Application.put_env(:aiur, :github_budget_enabled?, true)
     Application.put_env(:aiur, :github_budget_dir, budget_dir)
 
@@ -190,26 +190,26 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       end
     end)
 
-    request = fn ->
+    request = fn path ->
       Transport.default_request_fun(%{
         method: :get,
-        url: "https://api.github.com/repos/owner/repo/issues/1477",
+        url: "https://api.github.com#{path}",
         token: "shared-token"
       })
     end
 
-    first = Task.async(request)
+    first = Task.async(fn -> request.("/repos/owner/repo/issues/1477") end)
     assert_receive {:request_started, first_conn}, 2_000
 
-    second = Task.async(request)
-    refute_receive {:request_started, _second_conn}, 80
+    second = Task.async(fn -> request.("/repos/owner/repo/issues/1478") end)
+    assert is_nil(Task.yield(second, 1_800))
 
     send(first_conn, :release_request)
     assert_receive {:request_started, second_conn}, 2_000
     send(second_conn, :release_request)
 
-    assert {:ok, %{status: 200}} = Task.await(first, 1_500)
-    assert {:ok, %{status: 200}} = Task.await(second, 1_500)
+    assert {:ok, %{status: 200}} = Task.await(first, 2_000)
+    assert {:ok, %{status: 200}} = Task.await(second, 2_000)
   end
 
   test "a 304 response leaves its admission unbilled end to end", %{budget_dir: budget_dir} do

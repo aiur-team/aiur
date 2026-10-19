@@ -45,7 +45,7 @@ defmodule Aiur.GitHub.Transport do
   @default_request_deadline_ms 60_000
   @deadline_margin_ms 5_000
   @orchestrator_request_deadline_ms 10_000
-  @budget_admission_timeout_ms 1_500
+  @budget_admission_timeout_ms 5_000
 
   @spec base_url() :: String.t()
   def base_url, do: @base_url
