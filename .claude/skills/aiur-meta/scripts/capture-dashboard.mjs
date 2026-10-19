@@ -19,7 +19,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { buildDashboardIssues, inspectBuildPage, PAGES } from './capture-dashboard-build.mjs'
+import { buildDashboardIssues, PAGES } from './capture-dashboard-build.mjs'
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '../../../../')
@@ -58,7 +58,7 @@ export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null
 
   for (const issue of metricColumns) issues.push(issue)
   for (const issue of filterCounts) issues.push(issue)
-  issues.push(...buildDashboardIssues(name, snapshot))
+  issues.push(...buildDashboardIssues(name, snapshot, expectedActiveAgents))
   for (const banner of snapshot.staleBanners) issues.push({ kind: 'stale-banner', detail: banner })
   for (const errorState of snapshot.errorStates || []) issues.push({ kind: 'error-state', detail: errorState })
   for (const emptyState of snapshot.emptyStates) {
@@ -432,7 +432,18 @@ export async function inspectPage(page, name) {
     }[pageName]
     const metricCells = tables.flatMap((table) => table.rows.flatMap((row, rowIndex) => row.map((value, index) => ({ value, header: table.headers[index], rowIndex }))))
     const hasNAInMetric = metricCells.some((cell) => cell.value.trim() === 'N/A' && /progress|ticket|epic|wave|member|active|complete|capacity|concurrency|cpu|cost|count|total/i.test(cell.header || ''))
-    const buildSignals = inspectBuildPage(pageName === 'build' ? document.querySelector('#build-root') : null)
+    const buildRoot = pageName === 'build' ? document.querySelector('#build-root') : null
+    const buildUnavailable = buildRoot?.querySelector('.bd-loading')?.innerText.replace(/\s+/g, ' ').trim() || ''
+    const buildSkeleton = Boolean(buildRoot?.querySelector('.bd-skel, .bd-skel-lanes'))
+    const buildTicketCount = buildRoot?.querySelectorAll('.bd-card[data-id], .lr[data-id]').length || 0
+    const buildQueueText = buildRoot?.querySelector('#bd-sec-plan .bd-sech em, #bd-sec-plan .lh em')?.innerText || ''
+    const buildQueueMatch = buildQueueText.match(/(\d[\d,]*)\s+in build-queue order\b/i)
+    const buildBand = buildRoot?.querySelector('.bd-now-empty')?.innerText.replace(/\s+/g, ' ').trim() || ''
+    const buildHydrated = Boolean(buildRoot && (
+      buildTicketCount > 0 ||
+      buildRoot.querySelector('.bd-mk.empty') ||
+      /Build timeline unavailable/i.test(buildUnavailable)
+    ))
 
     return {
       title: document.title,
@@ -448,7 +459,12 @@ export async function inspectPage(page, name) {
       errorStates,
       kpis,
       hasNAInMetric,
-      ...buildSignals
+      buildUnavailable,
+      buildSkeleton,
+      buildTicketCount,
+      buildOpenTicketCount: buildQueueMatch ? Number.parseInt(buildQueueMatch[1].replaceAll(',', ''), 10) : null,
+      buildBand,
+      buildHydrated
     }
   }, name)
 }
@@ -471,6 +487,14 @@ async function runPageCapture(page, name, route, knownNoise) {
   try {
     const response = await page.goto(new URL(route, BASE).toString(), { waitUntil: 'domcontentloaded', timeout: 45_000 })
     status = response?.status() ?? null
+    if (name === 'build') {
+      await page.waitForFunction(() => {
+        const root = document.querySelector('#build-root')
+        if (!root) return false
+        return Boolean(root.querySelector('.bd-card[data-id], .lr[data-id], .bd-mk.empty') ||
+          /Build timeline unavailable/i.test(root.querySelector('.bd-loading')?.innerText || ''))
+      }, null, { timeout: SETTLE_MS })
+    }
     await page.waitForTimeout(SETTLE_MS)
   } catch (error) {
     navigationError = String(error).slice(0, 300)

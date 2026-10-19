@@ -418,7 +418,7 @@ test('a direct invocation with a URL but no password exits 69 and writes did-not
   }
 })
 
-function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [] } = {}) {
+function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [], buildRoot = null, serialize = false } = {}) {
   const nodes = elements.map(({ innerText, selectors }) => ({
     innerText,
     selectors,
@@ -460,13 +460,16 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
         },
         querySelector: (selector) => {
           if (selector === '[data-phx-main], [data-phx-session]') return {}
+          if (selector === '#build-root') return buildRoot
           return primarySelectors.includes(selector) ? {} : null
         }
       }
       globalThis.window = { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) }
 
       try {
-        return callback(pageName)
+        return serialize
+          ? new Function('pageName', `return (${callback.toString()})(pageName)`)(pageName)
+          : callback(pageName)
       } finally {
         globalThis.document = priorDocument
         globalThis.window = priorWindow
@@ -474,3 +477,14 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
     }
   }
 }
+
+test('inspectPage evaluates as serialized browser code without Node module bindings', async () => {
+  const root = {
+    querySelector: (selector) => selector === '.bd-loading' ? { innerText: 'Build timeline unavailable · source unavailable' } : null,
+    querySelectorAll: () => []
+  }
+  const snapshot = await inspectPage(fakePage({ buildRoot: root, primarySelectors: ['#build-root'], serialize: true }), 'build')
+
+  assert.equal(snapshot.buildUnavailable, 'Build timeline unavailable · source unavailable')
+  assert.equal(snapshot.buildHydrated, true)
+})
