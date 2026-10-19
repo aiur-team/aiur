@@ -303,6 +303,7 @@ defmodule Aiur.TestSupport do
         # one case's journal is another's replay input.
         Application.put_env(:aiur, :executor_state_dir, Path.join([workflow_root, "executor-state"]))
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
+        Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
         workflow_file = Aiur.TestSupport.prepare_workflow_file_path!(workflow_root)
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
