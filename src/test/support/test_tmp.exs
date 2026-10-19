@@ -85,18 +85,20 @@ defmodule Aiur.TestTmp do
          {:ok, names} <- File.ls(base) do
       names
       |> Enum.take(@sweep_max_entries)
-      |> Enum.each(fn name ->
-        case Regex.run(~r/^(?:run-\d+|workflow)-(\d+)-\d+$/, name) do
-          [_, pid] -> remove_dead_run!(Path.join(base, name), owner, String.to_integer(pid), rm, alive_probe)
-          nil -> :ok
-        end
-      end)
+      |> Enum.each(&sweep_name(&1, base, owner, rm, alive_probe))
 
       if length(names) > @sweep_max_entries do
         IO.puts(:stderr, "warning: TestTmp sweep stopped after #{@sweep_max_entries} entries under #{base}")
       end
     else
       _ -> :ok
+    end
+  end
+
+  defp sweep_name(name, base, owner, rm, alive_probe) do
+    case Regex.run(~r/^(?:run-\d+|workflow)-(\d+)-\d+$/, name) do
+      [_, pid] -> remove_dead_run!(Path.join(base, name), owner, String.to_integer(pid), rm, alive_probe)
+      nil -> :ok
     end
   end
 
@@ -136,12 +138,14 @@ defmodule Aiur.TestTmp do
 
   defp alive_probe do
     case Process.get({__MODULE__, :alive_probe}) do
-      nil -> :process_identity
+      nil -> &Aiur.ProcessIdentity.alive?/1
       fun when is_function(fun, 1) -> {:custom, fun}
     end
   end
 
-  defp bounded_alive?(_path, pid, :process_identity), do: Aiur.ProcessIdentity.alive?(pid)
+  defp bounded_alive?(path, pid, alive?) when is_function(alive?, 1) do
+    bounded_alive?(path, pid, {:custom, alive?})
+  end
 
   defp bounded_alive?(path, pid, {:custom, alive?}) do
     task = Task.async(fn -> alive?.(pid) end)

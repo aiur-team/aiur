@@ -4,9 +4,11 @@ defmodule Aiur.ProcessIdentity do
 
   @spec alive?(nil | integer()) :: boolean()
   def alive?(os_pid) when is_integer(os_pid) and os_pid > 0 do
-    case File.stat("/proc") do
+    proc_root = Process.get({__MODULE__, :proc_root}, "/proc")
+
+    case File.stat(proc_root) do
       {:ok, %File.Stat{type: :directory}} ->
-        case File.stat("/proc/#{os_pid}") do
+        case File.stat(Path.join(proc_root, Integer.to_string(os_pid))) do
           {:ok, %File.Stat{type: :directory}} -> true
           {:error, :enoent} -> false
           _ -> bounded_kill_probe(os_pid)
@@ -36,18 +38,29 @@ defmodule Aiur.ProcessIdentity do
     port =
       Port.open({:spawn_executable, String.to_charlist(executable)}, [
         :exit_status,
-        :stderr_to_stdout,
         :hide,
         args: ["-0", Integer.to_string(os_pid)]
       ])
 
-    receive do
-      {^port, {:exit_status, 0}} -> true
-      {^port, {:exit_status, _status}} -> false
+    try do
+      receive do
+        {^port, {:exit_status, 0}} -> true
+        {^port, {:exit_status, _status}} -> false
+      after
+        @alive_probe_timeout_ms ->
+          Port.close(port)
+          true
+      end
     after
-      @alive_probe_timeout_ms ->
-        Port.close(port)
-        true
+      flush_port_messages(port)
+    end
+  end
+
+  defp flush_port_messages(port) do
+    receive do
+      {^port, _message} -> flush_port_messages(port)
+    after
+      0 -> :ok
     end
   end
 
