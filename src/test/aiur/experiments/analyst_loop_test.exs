@@ -1,12 +1,14 @@
 defmodule Aiur.Experiments.AnalystLoopTest do
-  @moduledoc "Offline proof of request -> events -> stats -> pre-registration -> report -> page on the fixture-feature experiment."
+  @moduledoc "Offline proof of request -> events -> stats -> pre-registration -> report -> page on the fixture-feature experiment. One file: the stages share one fixture and order."
   use ExUnit.Case, async: false
-  import Phoenix.LiveViewTest, only: [render_component: 2]
+  import Phoenix.ConnTest, except: [build_conn: 0]
+  import Phoenix.LiveViewTest, only: [live: 2]
   alias Aiur.{Experiments, ExperimentsCLI}
   alias Aiur.Experiments.{Evidence, ReportRecords, Snapshot, StatsRunner, Store}
   alias Aiur.Experiments.Sources.Common
   alias Aiur.TestSupport.RuntimeChildren
-  alias AiurWeb.Experiments.Report
+  alias AiurWeb.Endpoint
+  @endpoint Endpoint
   import ExUnit.CaptureIO
 
   @fixtures Path.expand("../../fixtures/experiments", __DIR__)
@@ -21,7 +23,11 @@ defmodule Aiur.Experiments.AnalystLoopTest do
     Application.put_env(:aiur, :repo_base_root, Path.join(root, "repo"))
     Application.put_env(:aiur, :experiments_dir, root)
 
+    previous_endpoint = Application.get_env(:aiur, Endpoint)
+    Application.put_env(:aiur, Endpoint, Keyword.merge(previous_endpoint || [], server: false, dashboard_auth_required: false, secret_key_base: String.duplicate("s", 64)))
+
     on_exit(fn ->
+      if previous_endpoint, do: Application.put_env(:aiur, Endpoint, previous_endpoint), else: Application.delete_env(:aiur, Endpoint)
       if previous, do: Application.put_env(:aiur, :experiments_dir, previous), else: Application.delete_env(:aiur, :experiments_dir)
       if previous_base, do: Application.put_env(:aiur, :repo_base_root, previous_base), else: Application.delete_env(:aiur, :repo_base_root)
       Aiur.TestCleanup.rm_rf!(root)
@@ -31,8 +37,11 @@ defmodule Aiur.Experiments.AnalystLoopTest do
     :ok = RuntimeChildren.ensure_aiur_supervisor_running()
     start_supervised!(StatsRunner)
     start_supervised!({Store, catalog_context: %{reduce_dir: Path.expand("../../../../analytics", __DIR__)}})
+    Aiur.TestSupport.start_owned_endpoint!()
     :ok
   end
+
+  defp build_conn, do: Phoenix.ConnTest.build_conn() |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
 
   defp fixture(name), do: @fixtures |> Path.join(name) |> File.read!() |> Jason.decode!()
 
@@ -187,18 +196,18 @@ defmodule Aiur.Experiments.AnalystLoopTest do
     assert late["post_hoc"] == true
   end
 
-  # U2: the stored report renders sections in order, label chips with n and CI, and one confounder row per event.
+  # U2: the real page renders the stored report: sections in order, label chips with n and CI, one confounder row per event.
   defp page_check(id) do
-    assert {:ok, detail} = Experiments.fetch(id)
-    html = render_component(&Report.card/1, report: Report.from_detail(detail))
-    text = html |> Floki.parse_fragment!() |> Floki.text(sep: "\n")
+    {:ok, _view, html} = live(build_conn(), "/experiments/#{id}")
+    [report] = html |> Floki.parse_document!() |> Floki.find("#exp-report")
+    text = Floki.text(report, sep: "\n")
 
     headings = ~w(Summary Pre-registration) ++ ["Design and sample", "Results", "Confounders reviewed", "Sensitivity analyses", "Threats to validity", "Recommendation", "Reproduce"]
     positions = Enum.map(headings, fn heading -> text |> :binary.match(heading) |> elem(0) end)
     assert positions == Enum.sort(positions)
     assert text =~ ~r/Labels: .*\(n=after=40 \/ before=40, effect .*95% CI \[/
 
-    [confounders] = html |> Floki.parse_fragment!() |> Floki.find("table") |> Enum.filter(&(Floki.text(&1) =~ "main_red"))
+    [confounders] = report |> Floki.find("table") |> Enum.filter(&(Floki.text(&1) =~ "main_red"))
     assert length(Floki.find(confounders, "tbody tr")) == 4
   end
 end
