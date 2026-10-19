@@ -49,16 +49,16 @@ three widths, both themes/palettes, plus twenty mobile composition cases) and
 grain and pulse. Routine CI, pull requests and merge groups never run the
 full check, and no schedule runs it.
 
-The full check runs only on demand, as the home-page sign-off: Actions →
-**home parity sign-off** (`workflow_dispatch`). It is meant to run once, when
-the home-page tickets are done, and again after their gaps are fixed. One run
-costs about 15–20 runner-hours.
+The full check runs only on demand: Actions → **home parity sign-off** (`workflow_dispatch`).
 
 | Sign-off job | Covers |
 |--------------|--------|
 | band 1–4/4 | `npm run test:build-home-band-full` with `AIUR_HOME_PARITY_PART=1..4`. |
 | motion 1–32/32 | Every spec that reads `AIUR_PARITY_FULL`, with the flag set: about 5,000 tests. |
 | One job per other parity spec | Each `*parity*` browser spec, through its existing npm script. |
+
+The sign-off is meant to run once, when the home-page tickets are done, and
+again after their gaps are fixed. One run costs about 15–20 runner-hours.
 
 `scripts/test-home-parity-signoff.mjs` fails when a parity spec has no sign-off
 job. Every partition uses one browser worker, because dataset selection is
