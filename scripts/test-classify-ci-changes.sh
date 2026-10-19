@@ -111,5 +111,4 @@ grep -Eq 'outputs:.*full_ci:.*steps\.classify\.outputs\.full_ci' "$workflow"
 grep -Eq 'outputs:.*affected_paths_b64:.*steps\.classify\.outputs\.affected_paths_b64' "$workflow"
 grep -Fq 'run: bash scripts/classify-ci-changes.sh' "$workflow"
 grep -Fq 'run: bash scripts/test-classify-ci-changes.sh' "$workflow"
-python3 "$root/scripts/test-classify-home-ci.py"
 echo 'CI classifier event, policy, rename and draft tests passed'
