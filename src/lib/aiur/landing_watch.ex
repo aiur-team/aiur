@@ -5,7 +5,7 @@ defmodule Aiur.LandingWatch do
 
   alias Aiur.Alerts
   alias Aiur.Events
-  alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
+  alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, LocalHold, Transport}
   alias Aiur.LandingWatch.{Attribution, Classifier, Journal, MergeGroups, Observer, PrRerun}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.Orchestrator.TicketTransition
@@ -118,6 +118,10 @@ defmodule Aiur.LandingWatch do
   @doc false
   @spec poll(keyword()) :: :ok | {:error, term()}
   def poll(opts \\ []) do
+    LocalHold.run(fn -> poll_once(opts) end, LocalHold.caller_opts(opts))
+  end
+
+  defp poll_once(opts) do
     case Keyword.get(opts, :observe_fun, &Observer.observe/1).(opts) do
       {:ok, observations} when is_list(observations) -> poll_observations(observations, opts)
       {:error, _} = error -> error
