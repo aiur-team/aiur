@@ -1,5 +1,8 @@
 defmodule Aiur.GitHub.Issues.CandidatesTest do
-  use Aiur.TestSupport
+  # These cases mutate the process-wide test-scope env, workflow config, and
+  # GitHub token cache. Concurrent cases can observe another test's state and
+  # normalize an otherwise valid issue with an unjoinable identity.
+  use Aiur.TestSupport, async: false
 
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.DispatchAuthorization
