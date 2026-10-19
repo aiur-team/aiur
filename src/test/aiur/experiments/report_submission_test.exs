@@ -102,6 +102,8 @@ defmodule Aiur.Experiments.ReportSubmissionTest do
     assert stats["body"]["metrics"]["delivery-speed/start_to_merge"]["groups"]["before"]["n"] == 1
     submitted = report(stats, ctx.registration, ctx.events) |> put_in(["header", "report_version"], 999)
     parent = self()
+    id = ctx.id
+    assert :ok = Experiments.subscribe()
 
     output =
       capture_io(fn ->
@@ -110,6 +112,7 @@ defmodule Aiur.Experiments.ReportSubmissionTest do
       end)
 
     assert output == "report v1 stored\n"
+    assert_received {:experiments_changed, ^id}
     assert {:ok, [fulfilled]} = Experiments.analysis_requests(ctx.id)
     assert fulfilled["request_id"] == request["request_id"]
     assert fulfilled["state"] == "fulfilled"

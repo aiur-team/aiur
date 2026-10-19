@@ -1,7 +1,7 @@
 defmodule AiurWeb.Experiments.ViewModel do
   @moduledoc "Experiment metadata formatted for display, without computing statistical evidence."
 
-  alias AiurWeb.Experiments.Metrics
+  alias AiurWeb.Experiments.{Metrics, Report}
 
   @spec index_item(map(), map(), map()) :: map()
   def index_item(summary, detail, catalog \\ %{}) do
@@ -40,6 +40,7 @@ defmodule AiurWeb.Experiments.ViewModel do
       frozen_baseline: frozen_baseline(spec, Map.get(detail, :snapshots, [])),
       pack_changed_since_freeze?: Map.get(detail, :pack_changed_since_freeze, false),
       annotations: Map.get(detail, :annotations, []),
+      report: Report.from_detail(detail),
       read_only?: Map.get(detail, :read_only?, false)
     })
   end
