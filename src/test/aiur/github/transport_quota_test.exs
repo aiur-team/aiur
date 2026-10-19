@@ -217,8 +217,9 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     Application.put_env(:aiur, :github_budget_enabled?, true)
     Application.put_env(:aiur, :github_budget_dir, budget_dir)
     Application.put_env(:aiur, :github_budget_settings_override, %{max_inflight: 1, max_inflight_per_endpoint: 1, requests_per_minute: 20, stagger_ms: 0})
+    previous_poll_owner = Application.get_env(:aiur, :github_poll_owner)
     Application.put_env(:aiur, :github_poll_owner, :transport_quota_test_poll_owner)
-    on_exit(fn -> Application.delete_env(:aiur, :github_poll_owner) end)
+    on_exit(fn -> restore_env(:github_poll_owner, previous_poll_owner) end)
     test_pid = self()
 
     Req.Test.stub(__MODULE__, fn conn ->
