@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, capturePageBounded, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
+import './capture-dashboard-build_test.mjs'
 
 const captureScript = fileURLToPath(new URL('../capture-dashboard.mjs', import.meta.url))
 

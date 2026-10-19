@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { analyzeDashboardSnapshot } from '../capture-dashboard.mjs'
+import { analyzeDashboardSnapshot, runPageCapture } from '../capture-dashboard.mjs'
 import { buildDashboardIssues, inspectBuildPage, PAGES } from '../capture-dashboard-build.mjs'
 
 function buildRoot({ unavailable = '', skeleton = false, cards = 0, queued = null, band = '', empty = false } = {}) {
@@ -10,7 +10,7 @@ function buildRoot({ unavailable = '', skeleton = false, cards = 0, queued = nul
       if (selector === '.bd-skel, .bd-skel-lanes' && skeleton) return {}
       if (selector === '#bd-sec-plan .bd-sech em, #bd-sec-plan .lh em' && queued !== null) return { innerText: `${queued} in build-queue order · dependency waves` }
       if (selector === '.bd-now-empty' && band) return { innerText: band }
-      if (selector === '.bd-mk.empty' && empty) return {}
+      if (selector.includes('.bd-mk.empty') && empty) return {}
       return null
     },
     querySelectorAll(selector) {
@@ -94,4 +94,54 @@ test('a blank build root is not considered hydrated', () => {
   const snapshot = inspectBuildPage(buildRoot())
   assert.equal(snapshot.buildHydrated, false)
   assert.ok(buildDashboardIssues('build', snapshot).some(({ kind }) => kind === 'build-not-hydrated'))
+})
+
+test('the /build capture waits for hydration and treats a hydration timeout as attention', async () => {
+  async function capture({ root, timeout = false }) {
+    const fakeDocument = {
+      title: 'Build',
+      body: { innerText: '' },
+      querySelectorAll: () => [],
+      querySelector: (selector) => selector === '#build-root' ? root : null
+    }
+    const page = {
+      on() {},
+      goto: async () => ({ status: () => 200 }),
+      waitForFunction: async (callback, _argument, options) => {
+        assert.equal(options.timeout, 6000)
+        if (timeout) throw new Error('Timeout 6000ms exceeded waiting for build hydration')
+        const priorDocument = globalThis.document
+        globalThis.document = fakeDocument
+        try {
+          assert.equal(callback(), true)
+        } finally {
+          globalThis.document = priorDocument
+        }
+      },
+      waitForTimeout: async () => {},
+      evaluate: async (callback, pageName) => {
+        const priorDocument = globalThis.document
+        const priorWindow = globalThis.window
+        globalThis.document = fakeDocument
+        globalThis.window = { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) }
+        try {
+          return callback(pageName)
+        } finally {
+          globalThis.document = priorDocument
+          globalThis.window = priorWindow
+        }
+      },
+      screenshot: async () => {}
+    }
+
+    return runPageCapture(page, 'build', '/build', [], 'http://dashboard.test')
+  }
+
+  const settled = await capture({ root: buildRoot({ queued: 0, empty: true }) })
+  assert.equal(settled.verdict, 'healthy', JSON.stringify(settled.issues))
+
+  const timedOut = await capture({ root: buildRoot(), timeout: true })
+  assert.equal(timedOut.verdict, 'attention')
+  assert.ok(timedOut.issues.some(({ kind }) => kind === 'navigation'))
+  assert.ok(timedOut.issues.some(({ kind }) => kind === 'build-not-hydrated'))
 })

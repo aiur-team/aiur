@@ -375,7 +375,7 @@ function loadChromium() {
   return require('@playwright/test').chromium
 }
 
-async function runPageCapture(page, name, route, knownNoise) {
+export async function runPageCapture(page, name, route, knownNoise, baseUrl = BASE) {
   const consoleErrors = []
   const failedRequests = []
   page.on('console', (message) => {
@@ -391,7 +391,7 @@ async function runPageCapture(page, name, route, knownNoise) {
   let navigationError = null
   const started = Date.now()
   try {
-    const response = await page.goto(new URL(route, BASE).toString(), { waitUntil: 'domcontentloaded', timeout: 45_000 })
+    const response = await page.goto(new URL(route, baseUrl).toString(), { waitUntil: 'domcontentloaded', timeout: 45_000 })
     status = response?.status() ?? null
     if (name === 'build') {
       await page.waitForFunction(() => {
