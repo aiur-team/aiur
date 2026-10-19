@@ -12,7 +12,7 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
       port =
         Port.open(
           {:spawn_executable, executable},
-          [:binary, :exit_status, :hide, args: [workspace, "-mindepth", "1", "-printf", "%y%p\\000"]]
+          [:binary, :exit_status, :hide, args: [workspace, "-mindepth", "1", "-print0"]]
         )
 
       collect(port, workspace, matcher, limit, "", {[], 0})
@@ -25,9 +25,9 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
   defp collect(port, workspace, matcher, limit, pending, matches) do
     receive do
       {^port, {:data, data}} ->
-        {entries, pending} = complete_entries(pending <> data)
+        {paths, pending} = complete_paths(pending <> data)
 
-        case collect_paths(entries, workspace, matcher, limit, matches) do
+        case collect_paths(paths, workspace, matcher, limit, matches) do
           {:halt, {matches, _count}} ->
             close_port(port)
             {:ok, Enum.sort(matches)}
@@ -37,9 +37,9 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
         end
 
       {^port, {:exit_status, 0}} ->
-        entries = if pending == "", do: [], else: [decode_entry(pending)]
+        paths = if pending == "", do: [], else: [pending]
 
-        case collect_paths(entries, workspace, matcher, limit, matches) do
+        case collect_paths(paths, workspace, matcher, limit, matches) do
           {_status, {matches, _count}} -> {:ok, Enum.sort(matches)}
         end
 
@@ -52,18 +52,16 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
     end
   end
 
-  defp complete_entries(data) do
+  defp complete_paths(data) do
     parts = :binary.split(data, <<0>>, [:global])
-    {Enum.drop(parts, -1) |> Enum.map(&decode_entry/1), List.last(parts) || ""}
+    {Enum.drop(parts, -1), List.last(parts) || ""}
   end
 
-  defp decode_entry(<<type, absolute::binary>>), do: {<<type>>, absolute}
-
-  defp collect_paths(entries, workspace, matcher, limit, matches) do
-    Enum.reduce_while(entries, {:cont, matches}, fn {type, absolute}, {:cont, {current, count}} ->
+  defp collect_paths(paths, workspace, matcher, limit, matches) do
+    Enum.reduce_while(paths, {:cont, matches}, fn absolute, {:cont, {current, count}} ->
       relative = Path.relative_to(absolute, workspace)
 
-      if Regex.match?(matcher, relative) and inside_workspace?(type, workspace, relative) do
+      if Regex.match?(matcher, relative) and inside_workspace?(workspace, absolute, relative) do
         keep({[relative | current], count + 1}, limit)
       else
         {:cont, {:cont, {current, count}}}
@@ -76,10 +74,15 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
   defp keep({_matches, count} = acc, limit) when count >= limit, do: {:halt, {:halt, acc}}
   defp keep(acc, _limit), do: {:cont, {:cont, acc}}
 
-  # `find` does not descend through symlinks. Its type marker avoids an lstat
-  # per entry; only symlinks need canonical containment checks (#5192, #5195).
-  defp inside_workspace?("l", workspace, relative), do: match?({:ok, _absolute}, WorkspacePath.resolve(workspace, relative))
-  defp inside_workspace?(_type, _workspace, _relative), do: true
+  # `find` never descends through a symlink, so only a symlink entry itself can
+  # point outside; canonicalizing every match made large listings crawl (#5192).
+  defp inside_workspace?(workspace, absolute, relative) do
+    case File.lstat(absolute) do
+      {:ok, %File.Stat{type: :symlink}} -> match?({:ok, _absolute}, WorkspacePath.resolve(workspace, relative))
+      {:ok, _stat} -> true
+      {:error, _reason} -> false
+    end
+  end
 
   defp close_port(port) do
     if Port.info(port), do: Port.close(port)
