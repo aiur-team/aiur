@@ -222,20 +222,31 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     issue = Map.get(issues, number, %{})
     blockers = Map.get(blocked_by, number, [])
     blockers = if is_list(blockers), do: blockers, else: []
-    closed? = fn blocker -> value(Map.get(issues, value(blocker, "number", nil), %{}), "state", "") == "closed" end
+
+    blocker_state = fn blocker ->
+      blocker_number = positive_number(value(blocker, "number", nil))
+      state = value(Map.get(issues, blocker_number, %{}), "state", "")
+      if is_binary(state), do: String.downcase(state), else: ""
+    end
 
     %{
       number: number,
       labels: labels,
       created_at: value(issue, "created_at", nil),
-      open_blocked_by: Enum.reject(blockers, closed?),
-      closed_blockers: blockers |> Enum.filter(closed?) |> Enum.map(&value(&1, "number", nil))
+      # The edge body can lag the blocker's own issue row. Only cached state
+      # that confirms "open" may support an actionable blocked_by finding.
+      open_blocked_by: Enum.filter(blockers, &(blocker_state.(&1) == "open")),
+      closed_blockers: blockers |> Enum.filter(&(blocker_state.(&1) == "closed")) |> Enum.map(&value(&1, "number", nil))
     }
   end
 
   # A merge is terminal: a stale row from either source must not reopen it (#5119).
   defp merge_pr_rows(direct, branch) do
     merged = Map.merge(direct, branch)
+    # A queue entry is positive landing evidence. A companion cache row may
+    # have omitted it while the row carrying it is still current.
+    merge_queue_entry = value(branch, "mergeQueueEntry", nil) || value(direct, "mergeQueueEntry", nil)
+    merged = if is_nil(merge_queue_entry), do: merged, else: Map.put(merged, "mergeQueueEntry", merge_queue_entry)
 
     case Enum.find_value([direct, branch], &value(&1, "merged_at", nil)) do
       nil -> merged
@@ -286,18 +297,38 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   defp positive_number(_), do: nil
 
   defp normalize_branch_metadata(pr) do
-    merge_queue = value(pr, "mergeQueueEntry", nil)
-    auto_merge = value(pr, "autoMergeRequest", false)
+    %{}
+    |> maybe_put(pr, "review_decision", :review_decision)
+    |> maybe_put(pr, "approved_head_sha", :approved_head_sha)
+    |> maybe_put(pr, "reviewed_head_sha", :reviewed_head_sha)
+    |> maybe_put_non_nil(pr, "mergeQueueEntry", :in_merge_queue, &(!is_nil(&1)))
+    |> maybe_put(pr, "autoMergeRequest", :auto_merge, &(&1 not in [nil, false]))
+    |> maybe_put(pr, "mergeable", :mergeable)
+    |> maybe_put_ready_at(pr)
+  end
 
-    %{
-      review_decision: value(pr, "review_decision", nil),
-      approved_head_sha: value(pr, "approved_head_sha", nil),
-      reviewed_head_sha: value(pr, "reviewed_head_sha", nil),
-      in_merge_queue: not is_nil(merge_queue),
-      auto_merge: auto_merge not in [nil, false],
-      mergeable: value(pr, "mergeable", nil),
-      ready_at: timestamp(value(pr, "ready_for_review_at", nil)) || timestamp(value(pr, "created_at", nil))
-    }
+  defp maybe_put(acc, source, source_key, target_key, transform \\ &Function.identity/1) do
+    cond do
+      Map.has_key?(source, source_key) -> Map.put(acc, target_key, transform.(Map.get(source, source_key)))
+      true -> acc
+    end
+  end
+
+  defp maybe_put_ready_at(acc, pr) do
+    if Map.has_key?(pr, "ready_for_review_at") or Map.has_key?(pr, "created_at") do
+      ready_at = timestamp(value(pr, "ready_for_review_at", nil)) || timestamp(value(pr, "created_at", nil))
+      Map.put(acc, :ready_at, ready_at)
+    else
+      acc
+    end
+  end
+
+  defp maybe_put_non_nil(acc, source, source_key, target_key, transform) do
+    case Map.fetch(source, source_key) do
+      {:ok, nil} -> acc
+      {:ok, value} -> Map.put(acc, target_key, transform.(value))
+      :error -> acc
+    end
   end
 
   defp timeline_ready_at(%{"events" => events}, pr) when is_list(events) do
