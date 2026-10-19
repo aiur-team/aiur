@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.DurationCapReleaseTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DurationCapRelease, DurationCapRetryStore, PauseResume, State}
 
@@ -64,6 +65,47 @@ defmodule Aiur.Orchestrator.DurationCapReleaseTest do
     assert Map.has_key?(released.running, entry.issue.id)
     assert_received {:redispatch, "4849", 1}
     assert_received {:retry_recorded, "issue-4849"}
+    assert_received {:alert, "ticket.4849.agent.attention.paused-max_agent_duration.resolved"}
+  end
+
+  test "a sent startup digest detects a later workspace commit and redispatches" do
+    root = Aiur.TestSupport.tmp_root!("duration-cap-startup-digest")
+    workspace = Path.join(root, "workspace")
+    File.mkdir_p!(workspace)
+    git!(workspace, ["init", "--quiet"])
+    File.write!(Path.join(workspace, "work.txt"), "before\n")
+    git!(workspace, ["add", "."])
+    git!(workspace, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "before"])
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+
+    entry = parked_entry()
+    state = %State{running: %{entry.issue.id => entry}}
+    assert :ok = MessageHandler.send_worker_runtime_info(self(), entry.issue, nil, workspace)
+    assert_receive {:worker_runtime_info, "issue-4849", runtime_info}, 2_000
+    {:noreply, state} = State.handle_worker_runtime_info(state, entry.issue.id, runtime_info)
+    entry = state.running[entry.issue.id]
+    assert is_binary(entry.duration_cap_progress_baseline)
+
+    File.write!(Path.join(workspace, "work.txt"), "after\n")
+    git!(workspace, ["add", "."])
+    git!(workspace, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "after"])
+
+    dispatch = fn current, issue, _attempt, _host, dispatch_opts ->
+      send(self(), {:redispatched, issue.identifier})
+      started = %{current | running: Map.put(current.running, issue.id, %{control: %{status: :working}})}
+      dispatch_opts[:dispatch_result_fun].(started)
+    end
+
+    opts = [
+      progress_release_target_fun: fn _ -> {:ok, "rework"} end,
+      dispatch_fun: dispatch,
+      emit_alert_fun: fn topic, _ -> send(self(), {:alert, topic}) end
+    ]
+
+    released = DurationCapRelease.maybe_release(state, entry, :paused, opts)
+
+    assert released.running[entry.issue.id].control.status == :working
+    assert_received {:redispatched, "4849"}
     assert_received {:alert, "ticket.4849.agent.attention.paused-max_agent_duration.resolved"}
   end
 
@@ -250,6 +292,10 @@ defmodule Aiur.Orchestrator.DurationCapReleaseTest do
   end
 
   defp parked_entry, do: %{entry() | control: %{status: :paused}}
+
+  defp git!(workspace, args) do
+    {_output, 0} = System.cmd("git", ["-C", workspace | args], stderr_to_stdout: true)
+  end
 
   defp entry do
     %{

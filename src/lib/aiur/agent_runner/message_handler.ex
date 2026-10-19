@@ -246,7 +246,10 @@ defmodule Aiur.AgentRunner.MessageHandler do
   def send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
 
   defp workspace_fingerprint(workspace, worker_host) do
-    TurnProgress.workspace_digest(workspace, worker_host)
+    case TurnProgress.workspace_digest(workspace, worker_host) do
+      {:ok, digest} -> digest
+      {:error, _reason} -> nil
+    end
   end
 
   @doc false
