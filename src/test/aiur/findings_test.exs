@@ -4,22 +4,19 @@ defmodule Aiur.FindingsTest do
   alias Aiur.{Findings, RepoBase}
 
   setup do
-    # Host-unique, not just VM-unique: see `Aiur.TestSupport.tmp_root!/1`.
-    root = Aiur.TestSupport.tmp_root!("aiur_findings")
+    # Keep repo state in the suite root, which lives until after_suite; a
+    # late writer must not race deletion of a per-test state root.
     previous_root = Application.get_env(:aiur, :repo_base_root)
-    Application.put_env(:aiur, :repo_base_root, root)
+    slug = "#{System.pid()}-#{System.unique_integer([:positive])}"
+    state_root = Path.join(Application.fetch_env!(:aiur, :test_run_root), "findings-#{slug}")
+    Application.put_env(:aiur, :repo_base_root, state_root)
+    on_exit(fn -> restore_repo_root(previous_root) end)
 
-    on_exit(fn ->
-      case previous_root do
-        nil -> Application.delete_env(:aiur, :repo_base_root)
-        value -> Application.put_env(:aiur, :repo_base_root, value)
-      end
-
-      Aiur.TestCleanup.rm_rf!(root)
-    end)
-
-    {:ok, repo: "https://github.com/owner/repo.git", second_repo: "https://github.com/other/project.git"}
+    {:ok, repo: "https://github.com/owner/findings-#{slug}.git", second_repo: "https://github.com/other/project-#{slug}.git"}
   end
+
+  defp restore_repo_root(nil), do: Application.delete_env(:aiur, :repo_base_root)
+  defp restore_repo_root(root), do: Application.put_env(:aiur, :repo_base_root, root)
 
   test "appends validated findings and aggregates slugs across repository nodes", %{repo: repo, second_repo: second_repo} do
     assert :ok = Findings.append(repo, finding("shared-failure", nil))

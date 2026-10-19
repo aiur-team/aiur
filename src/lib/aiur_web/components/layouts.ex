@@ -416,6 +416,13 @@ defmodule AiurWeb.Layouts do
               }
             });
 
+            var socketStatus = document.documentElement;
+            var socket = liveSocket.getSocket();
+            socket.onOpen(() => socketStatus.classList.add("live-socket-connected"));
+            var markSocketDown = () => socketStatus.classList.remove("live-socket-connected");
+            socket.onClose(markSocketDown);
+            socket.onError(markSocketDown);
+
             liveSocket.connect();
             window.liveSocket = liveSocket;
           });
