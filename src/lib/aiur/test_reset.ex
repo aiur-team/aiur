@@ -315,7 +315,7 @@ defmodule Aiur.TestReset do
 
         abort(
           "sandbox ticket(s) must be open before reset: #{inspect(blocked, charlists: :as_lists)}. " <>
-            "Automatic reopen failed; run `gh issue reopen #{Enum.join(blocked, " ")}` or update " <>
+            "They could not be made open (see the warnings above); run `gh issue reopen #{Enum.join(blocked, " ")}` or update " <>
             "#{@tickets_file}. Detected automation labels were removed."
         )
 
