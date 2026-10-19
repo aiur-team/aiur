@@ -1,9 +1,9 @@
-defmodule Aiur.Orchestrator.CommentPolling.Poll do
+defmodule Aiur.GitHub.Listeners.Comments.Poll do
   @moduledoc false
   require Logger
   alias Aiur.Events.GithubCommentsPoller
   alias Aiur.GitHub.CommentPollBatch
-  alias Aiur.Orchestrator.CommentPolling.{Cursor, Input, OwnedPoll, TargetSelection}
+  alias Aiur.GitHub.Listeners.Comments.{Cursor, Input, OwnedPoll, TargetSelection}
   @comment_poll_setup_timeout_ms 300_000
 
   @spec setup_timeout_ms(keyword()) :: pos_integer()

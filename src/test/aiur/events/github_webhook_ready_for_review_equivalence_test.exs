@@ -250,7 +250,8 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
       assert url =~ "/repos/owner/repo/issues/905/events"
       assert %{observation: "initial_sync", pr: %{"number" => 905, "head" => %{"sha" => "ready-head"}}} = await_event(topic)
 
-      assert state.pr_ready_ledger[{"60", 905}] == {:announced, "ready-head"}
+      assert {:announced, "ready-head", ready_at_ms, nil} = state.pr_ready_ledger[{"60", 905}]
+      assert is_integer(ready_at_ms)
       clear_replay_window()
       _after_restart = poll_draft_flag(%State{}, "60", 905, "ready-head", false, history)
       refute_receive {:event, %{topic: ^topic}}, 100
@@ -272,7 +273,8 @@ defmodule Aiur.Events.GithubWebhookReadyForReviewEquivalenceTest do
       assert %{pr: %{"number" => 907}} = await_event(topic)
 
       stale = poll_draft_flag(announced, "62", 907, "ready-head", true)
-      assert stale.pr_ready_ledger[{"62", 907}] == {:announced, "ready-head"}
+      assert {:announced, "ready-head", ready_at_ms, nil} = stale.pr_ready_ledger[{"62", 907}]
+      assert is_integer(ready_at_ms)
 
       clear_replay_window()
       _state = poll_draft_flag(stale, "62", 907, "ready-head", false)
