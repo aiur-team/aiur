@@ -71,8 +71,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   end
 
   defp lifecycle_match?(_decision, nil), do: true
-  defp lifecycle_match?(%Decision{decision_status: :expired, blocking: true, answer: nil}, :open), do: true
-  defp lifecycle_match?(decision, :open), do: decision.decision_status in [:open, :deferred]
+  defp lifecycle_match?(decision, :open), do: RetainedIndex.open?(decision)
 
   defp lifecycle_match?(%Decision{decision_status: :expired, blocking: true, answer: nil}, :awaiting),
     do: true

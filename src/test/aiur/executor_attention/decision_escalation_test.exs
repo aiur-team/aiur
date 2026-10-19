@@ -2,6 +2,7 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{DecisionAttentionSignals, DecisionValidation}
+  alias Aiur.DecisionStore.{RetainedIndex, RetainedSnapshot}
   alias Aiur.ExecutorAttention.DecisionEscalation
 
   @now ~U[2026-10-15 12:00:00Z]
@@ -178,6 +179,33 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
 
       assert DecisionEscalation.status_line([question, moot, deferred], @now, fn _ -> 0 end) ==
                "DECISIONS open 2 oldest 30m (#3323, gates 0) ATTENTION (answer with `aiur commands`)"
+    end
+
+    test "counts the same open set as `aiur commands --filter open` and the dashboard (#5109)" do
+      expired = fn d -> %{d | decision_status: :expired} end
+
+      decisions = [
+        decision("open", "5001", minutes_ago(60)),
+        %{decision("deferred", "5002", minutes_ago(50)) | decision_status: :deferred},
+        expired.(decision("expired-blocking", "5003", minutes_ago(40))),
+        %{expired.(decision("expired-answered", "5004", minutes_ago(30))) | answer: %{}},
+        expired.(decision("expired-quiet", "5005", minutes_ago(30), blocking: false)),
+        %{decision("moot", "5006", minutes_ago(30)) | decision_status: :moot},
+        %{decision("resolved", "5007", minutes_ago(30)) | decision_status: :resolved},
+        %{decision("dismissed", "5008", minutes_ago(30)) | decision_status: :dismissed},
+        %{decision("decided", "5009", minutes_ago(30)) | decision_status: :decided}
+      ]
+
+      current = Map.new(decisions, &{&1.decision_id, &1})
+      index = RetainedSnapshot.build_index(current)
+      query = %{limit: 100, cursor: nil, lifecycle: :open, search: nil, ticket: nil}
+      {:ok, %{decisions: listed}} = RetainedSnapshot.query(current, index, :writable, query)
+      "DECISIONS open " <> rest = DecisionEscalation.status_line(decisions, @now, fn _ -> 0 end)
+      {status_count, _} = Integer.parse(rest)
+
+      assert status_count == 3
+      assert length(listed) == status_count
+      assert RetainedIndex.canonical_counts(index).open == status_count
     end
 
     test "is not attention under 15 minutes and ignores answered or expired non-blocking Decisions" do
