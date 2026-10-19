@@ -18,7 +18,8 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   use Aiur.TestSupport.DepositCase
 
   alias Aiur.Events.GithubWebhook
-  alias Aiur.GitHub.{ResourceFetch, ResourceStore}
+  alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
+  alias Aiur.GitHub.{PollSnapshots, ResourceFetch, ResourceStore}
 
   @repo "owner/repo"
 
@@ -328,5 +329,32 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     |> Enum.filter(&Regex.match?(pattern, File.read!(&1)))
     |> Enum.map(&Path.relative_to(&1, @lib_root))
     |> Enum.sort()
+  end
+
+  test "a webhook replacement retains same-head queued PR facts from the sweep poll" do
+    pr = pull_request()
+
+    assert :ok =
+             PollSnapshots.put_executor_sweep_pr(@repo, ticket_number(), %{
+               "number" => pr["number"],
+               "state" => "open",
+               "head" => pr["head"],
+               "review_decision" => "APPROVED",
+               "approved_head_sha" => pr["head"]["sha"],
+               "mergeQueueEntry" => %{"id" => "queued-entry"},
+               "autoMergeRequest" => nil,
+               "updated_at" => pr["updated_at"]
+             })
+
+    assert %{status: :published} = GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
+
+    key = ResourceStore.key_for_repo(:branch_pull_request, @repo, ticket_number())
+    assert {:ok, %{data: cached}} = ResourceStore.fetch(key)
+    assert cached["mergeQueueEntry"] == %{"id" => "queued-entry"}
+    assert cached["autoMergeRequest"] == nil
+
+    snapshot = SnapshotCache.build([], [], [], %{}, %{}, [{ticket_number(), cached}])
+    assert [%{landing_state_known?: true, in_merge_queue: true, auto_merge: false}] = snapshot.pull_requests
+    refute Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "approved_pr_not_landing"))
   end
 end
