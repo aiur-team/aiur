@@ -130,6 +130,25 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert message =~ "oldest ticket #1800"
   end
 
+  test "summarizes a stale triage backlog in one finding with its count and oldest ticket" do
+    snapshot = %{
+      open_tickets: %Aiur.OpenTicketSource.Snapshot{
+        status: :available,
+        tickets: [
+          %{identifier: "4466", labels: ["needs-triage"], created_at: ~U[2026-10-15 09:00:00Z]},
+          %{identifier: "4500", labels: ["needs-triage"], created_at: ~U[2026-10-16 10:30:00Z]},
+          %{identifier: "4511", labels: ["agent:todo"], created_at: ~U[2026-10-15 09:00:00Z]}
+        ]
+      }
+    }
+
+    assert [%{kind: "stale_needs_triage", ticket: 4466, oldest_ticket: 4466, ticket_count: 2, message: message}] =
+             Enum.filter(Checks.all(snapshot, ~U[2026-10-16 12:00:00Z]), &(&1.kind == "stale_needs_triage"))
+
+    assert message =~ "2 open ticket(s)"
+    assert message =~ "oldest #4466"
+  end
+
   test "2026-10-15 fixture produces every operational finding family" do
     now = ~U[2026-10-15 18:20:00Z]
     old = ~U[2026-10-15 16:00:00Z]
