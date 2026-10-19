@@ -47,6 +47,14 @@ for (const selected of calibration) {
 test('calibration: design equals design loading', async ({ browser }) => {
   await expectDesignParity(await designPair(browser, cell, { phase: 'loading' }), { name: 'loading' })
 })
+test('stable parity captures omit the native scrollbar thumb', async ({ browser }) => {
+  const page = await pageFor(browser)
+  await page.setContent('<style>html, body { margin: 0; min-height: 2000px; } .viewport { position: fixed; inset: 0; background: #fff; }</style><div class="viewport"></div>')
+  const first = await captureStable(page, { scale: 'css' })
+  await page.evaluate(() => scrollTo(0, 500))
+  const second = await captureStable(page, { scale: 'css' })
+  expect(second.equals(first)).toBe(true)
+})
 for (const region of [undefined, '.bd-now']) {
   test(`mutation: ${region ?? '.bd-card'} catches +1px padding`, async ({ browser }) => {
     const pair = await designPair(browser)

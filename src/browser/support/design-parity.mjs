@@ -154,14 +154,20 @@ export async function openParityPair(browser, cell, opts = {}) {
 
 export async function captureStable(target, opts, page) {
   let previous
+  const screenshotOptions = {
+    ...opts,
+    // Viewport captures include the native scrollbar thumb, whose position
+    // changes as each reference page is brought to the front for capture.
+    style: `${opts.style ?? ''}\nhtml { scrollbar-width: none !important; }\nhtml::-webkit-scrollbar, body::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }`
+  }
   for (let attempt = 0; attempt < 10; attempt++) {
     // Locator screenshots scroll into view, disturbing motion under measurement.
     const shoot = async () => {
-      if (!page) return target.screenshot(opts)
+      if (!page) return target.screenshot(screenshotOptions)
       const box = await target.boundingBox()
       if (!box) throw new Error('unreachable screenshot region')
       const offset = await page.evaluate(() => ({ x: scrollX, y: scrollY }))
-      return page.screenshot({ ...opts, fullPage: true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
+      return page.screenshot({ ...screenshotOptions, fullPage: true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
     }
     let png
     try { png = await shoot() }
