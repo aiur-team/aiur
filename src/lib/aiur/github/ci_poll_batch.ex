@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
+  alias Aiur.GitHub.{CIPollBatchReadyReview, DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
@@ -241,12 +241,11 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp pull_request_fields(_entry) do
     """
-    number state headRefName headRefOid baseRefName
+    number state createdAt headRefName headRefOid baseRefName
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
-    timelineItems(itemTypes: [REOPENED_EVENT], last: 1) { nodes { ... on ReopenedEvent { createdAt } } }
+    #{CIPollBatchReadyReview.fields()}
     mergeQueueEntry { id state }
-    reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }
     #{contexts_selection()}
     """
   end
@@ -401,22 +400,16 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp put_merge_queue_observation(pull_request, node) do
     case MergeQueue.normalize_graphql_pull_request(node) do
       %{} = observation ->
-        observation = Map.put(observation, :approved_review_head_sha, approved_review_head_sha(node))
-        Map.put(pull_request, "merge_queue", observation)
+        review = CIPollBatchReadyReview.project(node)
+        observation = Map.put(observation, :approved_review_head_sha, review.approved_review_head_sha)
+
+        pull_request
+        |> Map.put("merge_queue", observation)
+        |> Map.put("ready_at_ms", review.ready_at_ms)
+        |> Map.put("reviewed_head?", review.reviewed_head?)
 
       {:error, _reason} ->
         pull_request
-    end
-  end
-
-  defp approved_review_head_sha(node) do
-    with %{} = reviews <- Map.get(node, "reviews"),
-         [review | _] when is_map(review) <- Map.get(reviews, "nodes"),
-         %{} = commit <- Map.get(review, "commit"),
-         sha when is_binary(sha) <- Map.get(commit, "oid") do
-      sha
-    else
-      _ -> nil
     end
   end
 
