@@ -4,14 +4,13 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.{StartupClaimReconciler, State}
 
-  test "stale review base sends unapproved PR to rework" do
+  test "mergeable PR with stale base stays in human-review after orphan recovery" do
     opts =
       Keyword.merge(opts(),
         open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
         pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
         unresolved_threads_fetcher: fn _ -> {:ok, []} end,
         reviews_fetcher: fn _ -> {:ok, []} end,
-        approved_at_head_fetcher: fn 42 -> {:ok, false} end,
         update_issue_state_fun: fn "3710", target, "in-progress" ->
           send(self(), {:write, target})
           if target == "human-review", do: {:error, {:stale_review_base, %{pr_number: 42}}}, else: :ok
@@ -19,11 +18,10 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
       )
 
     {_released, [result]} = StartupClaimReconciler.reconcile(%State{}, [issue()], opts)
-    assert result.state == "rework"
+    assert result.state == "in-progress"
     assert_received {:write, "human-review"}
-    assert_received {:write, "rework"}
-    assert_received {:comment, body}
-    assert body =~ "Integrate the base, push, and hand it back."
+    refute_received {:write, "rework"}
+    refute_received {:comment, _}
   end
 
   test "stale review base defers an approved head without consuming retries" do
@@ -33,7 +31,6 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
         pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
         unresolved_threads_fetcher: fn _ -> {:ok, []} end,
         reviews_fetcher: fn _ -> {:ok, []} end,
-        approved_at_head_fetcher: fn 42 -> {:ok, true} end,
         update_issue_state_fun: fn "3710", target, "in-progress" ->
           send(self(), {:write, target})
           if target == "human-review", do: {:error, {:stale_review_base, %{pr_number: 42}}}, else: :ok
@@ -55,7 +52,6 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
         pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
         unresolved_threads_fetcher: fn _ -> {:ok, []} end,
         reviews_fetcher: fn _ -> {:ok, []} end,
-        approved_at_head_fetcher: fn 42 -> {:error, :timeout} end,
         update_issue_state_fun: fn "3710", target, "in-progress" ->
           send(self(), {:write, target})
           if target == "human-review", do: {:error, {:stale_review_base, %{pr_number: 42}}}, else: :ok

@@ -72,7 +72,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
     end
   end
 
-  test "an overlapping head that is not approved at its current commit and landing keeps the overlap refusal" do
+  test "an unreviewed overlapping head waits for review without a base merge" do
     cases = [
       {"review required, queued", %{"reviewDecision" => "REVIEW_REQUIRED"}},
       {"never reviewed, queued", %{"reviewDecision" => nil, "reviews" => %{"nodes" => []}}},
@@ -82,15 +82,15 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
 
     for {label, pull_request} <- cases do
       result = Client.update_issue_state("42", "human-review", request_fun: request_fun(pull_request, @shared), bot_account: "aiur-bot")
-      assert {:error, {:stale_review_base, %{pr_number: 77}}} = result, label
-      refute_received {:label_written, _labels}
+      assert :ok = result, label
+      assert_received {:label_written, ["agent:human-review"]}
     end
   end
 
-  test "an approval summary without a current-head approving review keeps the overlap refusal" do
+  test "an approval summary without a current-head approving review can still wait for review" do
     detail = %{"mergeQueueEntry" => nil, "autoMergeRequest" => nil, "reviews" => %{"nodes" => []}}
-    assert {:error, {:stale_review_base, %{pr_number: 77}}} = Client.update_issue_state("42", "human-review", request_fun: request_fun(detail, @shared), bot_account: "aiur-bot")
-    refute_received {:label_written, _labels}
+    assert :ok = Client.update_issue_state("42", "human-review", request_fun: request_fun(detail, @shared), bot_account: "aiur-bot")
+    assert_received {:label_written, ["agent:human-review"]}
   end
 
   test "an approved overlapping head still refuses a genuine conflict" do

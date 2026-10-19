@@ -3,12 +3,11 @@ defmodule Aiur.GitHub.HumanReviewGate do
   Human-review readiness checks for GitHub issues.
 
   This module blocks a transition to human review while the canonical open
-  pull request has unaddressed review-thread comments, conflicts with its base,
-  or — unless its approved head is queued or armed to merge — overlaps files
-  changed upstream at the state-write boundary. Subsequent observer
-  checks verify review threads only, so base movement during review does not
-  withdraw an accepted handoff. It composes pull request discovery, bot identity
-  resolution, review-thread classification and base compatibility without mutating GitHub state.
+  pull request has unaddressed review-thread comments or conflicts with its
+  base. Mergeable PRs may wait through base movement; the merge queue tests
+  them against the current base. Approved heads also retain their contribution
+  integrity check. It composes pull request discovery, bot identity resolution,
+  review-thread classification and mergeability without mutating GitHub state.
   """
 
   alias Aiur.Config
@@ -127,8 +126,8 @@ defmodule Aiur.GitHub.HumanReviewGate do
       {:ok, %{"status" => status}} when status in ["ahead", "identical"] ->
         :ok
 
-      {:ok, %{"status" => status} = comparison} when status in ["behind", "diverged"] ->
-        verify_stale_base(context, pr_number, base, head_sha, comparison)
+      {:ok, %{"status" => status}} when status in ["behind", "diverged"] ->
+        verify_stale_base(context, pr_number, base, head_sha)
 
       {:ok, _body} ->
         {:error, :review_base_ancestry_unavailable}
@@ -147,26 +146,27 @@ defmodule Aiur.GitHub.HumanReviewGate do
     Transport.fetch_json_map(context.request_fun, context.token, url, caller: "human_review_base_ancestry")
   end
 
-  defp verify_stale_base(context, pr_number, base, head, comparison) do
+  defp verify_stale_base(context, pr_number, base, head) do
     stale = {:error, {:stale_review_base, %{pr_number: pr_number, base_branch: base, head_sha: head}}}
 
     case current_mergeability(context, pr_number, base, head) do
-      result -> stale_base_result(result, context, base, head, comparison, stale)
+      result -> stale_base_result(result, context, base, head, stale)
     end
   end
 
-  defp stale_base_result({:ok, :conflicting}, _context, _base, _head, _comparison, stale), do: stale
+  defp stale_base_result({:ok, :conflicting}, _context, _base, _head, stale), do: stale
 
   # An approved head in the merge queue, or armed to enter it, is tested merged with the base before it lands (#4204).
-  defp stale_base_result({:ok, verdict}, _context, _base, _head, _comparison, _stale) when verdict in [:merge_queue, :approved_head], do: :ok
+  defp stale_base_result({:ok, verdict}, _context, _base, _head, _stale) when verdict in [:merge_queue, :approved_head], do: :ok
 
-  defp stale_base_result({:ok, :mergeable}, context, _base, head, comparison, stale),
-    do: verify_disjoint_paths(context, head, comparison, stale)
-
-  defp stale_base_result({:ok, {:mergeable, approved_head}}, context, base, head, _comparison, stale),
+  defp stale_base_result({:ok, {:mergeable, approved_head}}, context, base, head, stale),
     do: merge_only_result(merge_only_since_approval(context, base, approved_head, head), stale)
 
-  defp stale_base_result({:error, _reason} = error, _context, _base, _head, _comparison, _stale), do: error
+  # A mergeable PR can wait for review/CI while the merge queue tests it on the
+  # current base. Path overlap alone must not manufacture a rework turn.
+  defp stale_base_result({:ok, :mergeable}, _context, _base, _head, _stale), do: :ok
+
+  defp stale_base_result({:error, _reason} = error, _context, _base, _head, _stale), do: error
 
   defp merge_only_result({:ok, true}, _stale), do: :ok
   defp merge_only_result({:ok, false}, stale), do: stale
@@ -185,41 +185,8 @@ defmodule Aiur.GitHub.HumanReviewGate do
     end
   end
 
-  defp verify_disjoint_paths(context, head, comparison, stale) do
-    with {:ok, base_sha} <- comparison_base(comparison),
-         {:ok, pr_files} <- changed_paths(comparison),
-         {:ok, upstream} <- compare(context, head, base_sha),
-         {:ok, upstream_files} <- upstream_paths(upstream, pr_files, base_sha, context) do
-      if MapSet.disjoint?(pr_files, upstream_files), do: :ok, else: stale
-    end
-  end
-
   defp comparison_base(%{"base_commit" => %{"sha" => sha}}) when is_binary(sha) and sha != "", do: {:ok, sha}
   defp comparison_base(_comparison), do: {:error, :review_base_ancestry_unavailable}
-
-  # A capped upstream list is incomplete, so probe the PR's own paths instead (#4533).
-  defp upstream_paths(%{"status" => status, "files" => files, "merge_base_commit" => %{"sha" => merge_base}}, pr_files, base_sha, context)
-       when status in ["ahead", "diverged"] and is_list(files) and length(files) >= 300 and is_binary(merge_base) and merge_base != "",
-       do: HumanReviewPathProbe.changed_paths(pr_files, merge_base, base_sha, context)
-
-  defp upstream_paths(%{"status" => status} = comparison, _pr_files, _base_sha, _context) when status in ["ahead", "diverged"], do: changed_paths(comparison)
-  defp upstream_paths(_comparison, _pr_files, _base_sha, _context), do: {:error, :review_base_ancestry_unavailable}
-
-  defp changed_paths(%{"files" => files}) when is_list(files) and length(files) < 300 do
-    Enum.reduce_while(files, {:ok, MapSet.new()}, &add_changed_path/2)
-  end
-
-  defp changed_paths(_comparison), do: {:error, :review_base_ancestry_unavailable}
-
-  defp add_changed_path(%{"filename" => filename} = file, {:ok, paths}) when is_binary(filename) and filename != "" do
-    case {Map.get(file, "previous_filename"), Map.get(file, "status")} do
-      {nil, status} when status != "renamed" -> {:cont, {:ok, MapSet.put(paths, filename)}}
-      {previous, _status} when is_binary(previous) and previous != "" -> {:cont, {:ok, paths |> MapSet.put(filename) |> MapSet.put(previous)}}
-      _invalid -> {:halt, {:error, :review_base_ancestry_unavailable}}
-    end
-  end
-
-  defp add_changed_path(_file, _paths), do: {:halt, {:error, :review_base_ancestry_unavailable}}
 
   defp current_mergeability(context, pr_number, base, head) do
     query = """
