@@ -74,13 +74,14 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
   defp keep({_matches, count} = acc, limit) when count >= limit, do: {:halt, {:halt, acc}}
   defp keep(acc, _limit), do: {:cont, {:cont, acc}}
 
-  # `find` never descends through a symlink, so only a symlink entry itself can
-  # point outside; canonicalizing every match made large listings crawl (#5192).
+  # `find` does not descend through symlinks. Regular entries cannot escape the
+  # workspace, so only canonicalize symlinks; checking every file made large
+  # listings crawl (#5192, #5195).
   defp inside_workspace?(workspace, absolute, relative) do
     case File.lstat(absolute) do
       {:ok, %File.Stat{type: :symlink}} -> match?({:ok, _absolute}, WorkspacePath.resolve(workspace, relative))
-      {:ok, _stat} -> true
       {:error, _reason} -> false
+      {:ok, _stat} -> true
     end
   end
 
