@@ -88,28 +88,9 @@ export function createBuildHomeHook() {
     mounted() {
       let urlState;
       try { urlState = JSON.parse(this.el.dataset.urlState || '{}'); } catch { urlState = {}; }
-      this.buildPendingPushes = new Set();
-      this.buildViewDestroyed = false;
       resetState(urlState); seedDaemon(this.el.dataset.daemon);
       ctx.root = this.el; ctx.life = createLife(); ctx.resync = resync;
-      ctx.push = (e, p) => {
-        if (this.buildViewDestroyed) return Promise.reject(new Error('LiveView destroyed before push reply'));
-        let pending;
-        try { pending = this.pushEvent(e, p); } catch (error) { return Promise.reject(error); }
-        return new Promise((resolve, reject) => {
-          let settled = false;
-          const finish = (callback) => value => {
-            if (settled) return;
-            settled = true;
-            this.buildPendingPushes.delete(cancel);
-            callback(value);
-          };
-          const cancel = finish(reject);
-          this.buildPendingPushes.add(cancel);
-          Promise.resolve(pending).then(finish(resolve), cancel);
-        });
-      };
-      ctx.reload = () => location.reload();
+      ctx.push = (e, p) => this.pushEvent(e, p); ctx.reload = () => location.reload();
       this.buildLife = ctx.life;
       this.buildActive = shell();
       if (!this.buildActive) return;
@@ -128,10 +109,6 @@ export function createBuildHomeHook() {
       ctx.socket = 'up'; writeOwnData(); resync(); flushURL(); fx.renderOffline();
     },
     destroyed() {
-      this.buildViewDestroyed = true;
-      const error = new Error('LiveView destroyed before push reply');
-      for (const cancel of this.buildPendingPushes || []) cancel(error);
-      this.buildPendingPushes?.clear();
       this.buildLife?.dispose();
       if (ctx.life === this.buildLife) { ctx.proto.inFlight = false; ctx.resyncSeq++; }
     },

@@ -219,45 +219,6 @@ test('B4 server paging disables duplicate clicks and permits an explicit retry',
   expect(await page.evaluate(() => calls)).toBe(1)
   expect(await page.locator('.lr.hist').count()).toBeGreaterThan(count)
 })
-test('B4 a destroyed view rejects pending paging pushes and a remounted view can retry', async ({ page }) => {
-  const count = await page.locator('.lr.hist').count()
-  const started = await page.evaluate(async () => {
-    const { ctx } = await import('/build-home/state.js')
-    const main = window.liveSocket.main
-    const hook = Object.values(main.viewHooks).find(candidate => candidate.buildActive)
-    const push = ctx.push
-    hook.pushEvent = () => new Promise(() => {})
-    ctx.push = (event, params) => {
-      window.__aiurB4Pending = push(event, params)
-      return window.__aiurB4Pending
-    }
-    window.__aiurB4OldMain = main
-    window.__aiurB4Hook = hook
-    document.querySelector('#lr-more').click()
-    await Promise.resolve()
-    return window.__aiurB4Pending instanceof Promise
-  })
-  expect(started).toBe(true)
-  await expect(page.locator('#lr-more')).toBeDisabled()
-  await page.evaluate(() => {
-    window.__aiurB4OldMain.destroyed = true
-    window.__aiurB4Hook.destroyed()
-  })
-  expect(await page.evaluate(() => window.__aiurB4OldMain.isDestroyed())).toBe(true)
-  const pushResult = await page.evaluate(async () => {
-    try { await window.__aiurB4Pending; return { status: 'resolved' } }
-    catch (error) { return { status: 'rejected', message: error.message } }
-  })
-  expect(pushResult).toEqual({ status: 'rejected', message: 'LiveView destroyed before push reply' })
-
-  await page.goto('/build-fixture/live?view=list')
-  await expect(page.locator('.bd-list')).toHaveCount(1)
-  const more = page.locator('#lr-more')
-  await more.click()
-  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
-  await expect(more).toBeEnabled()
-  expect(await page.locator('.lr.hist').count()).toBeGreaterThan(count)
-})
 test('B5 unavailable sections name cause and age; healthy empty queue stays hidden', async ({ page }) => {
   await open(page, 'list-edges')
   await expect(page.locator('.lh[data-sec=plan] em')).toHaveText('unavailable · timed out · read 6 min ago (14:14)')
