@@ -1,9 +1,9 @@
-defmodule Aiur.Orchestrator.CommentPolling.PlainInputsTest do
+defmodule Aiur.GitHub.Listeners.Comments.PlainInputsTest do
   use Aiur.TestSupport
 
+  alias Aiur.GitHub.Listeners.Comments.{Cursor, Input, TargetSelection}
   alias Aiur.Issue
   alias Aiur.Orchestrator.{CommandScan, State, TrackerTasks}
-  alias Aiur.Orchestrator.CommentPolling.{Cursor, Input, TargetSelection}
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
@@ -48,10 +48,9 @@ defmodule Aiur.Orchestrator.CommentPolling.PlainInputsTest do
     assert watch_target == %{target: "99", open_pull_request: watch_pr}
   end
 
-  test "command scan refreshes both validators without changing comment target validators" do
+  test "command scan refreshes both validators independently of the listener cursor" do
     state = %State{
       snapshot_key: self(),
-      github_comment_cursor: %Cursor{etags: %{"42" => "target-etag"}},
       github_command_scan_etags: %{command_scan_review: "old-review-etag", command_scan_issue: "old-issue-etag"}
     }
 
@@ -73,6 +72,6 @@ defmodule Aiur.Orchestrator.CommentPolling.PlainInputsTest do
 
     assert next.tracker_tasks == %{}
     assert next.github_command_scan_etags == %{command_scan_review: "new-review-etag", command_scan_issue: "new-issue-etag"}
-    assert next.github_comment_cursor.etags == %{"42" => "target-etag"}
+    refute Map.has_key?(next, :github_comment_cursor)
   end
 end

@@ -21,11 +21,14 @@ defmodule Aiur.AgentList.Renderer.EventLine do
       # OSC 8 wraps. Subject id linkable to its issue; "PR" / "comment"
       # tokens in the verb phrase get wrapped with the body's URL when
       # available, falling back to the subject's issue URL.
-      linked_subject = Links.link_ticket_id(subject_id, repo)
       fallback_url = Links.issue_url_for(subject_id, repo) || Links.issue_url_for(source_id, repo)
       linked_verb = Links.link_verb_phrase(verb_phrase, kind, suffix, body, repo, fallback_url)
 
-      "#{glyph} #{linked_subject} #{linked_verb}#{summary}"
+      # A ticketless (system) event names no ticket rather than borrowing the selected row's.
+      case subject_id do
+        nil -> "#{glyph} #{linked_verb}#{summary}"
+        id -> "#{glyph} #{Links.link_ticket_id(id, repo)} #{linked_verb}#{summary}"
+      end
     end
   end
 
@@ -63,28 +66,12 @@ defmodule Aiur.AgentList.Renderer.EventLine do
   def comment_topic?("pr.review_comment"), do: true
   def comment_topic?(_), do: false
 
-  @spec event_subject_id(atom(), map(), String.t() | nil, String.t() | nil) :: String.t()
-  def event_subject_id(:publish, _entry, source_id, _rendering_identifier)
-      when is_binary(source_id),
-      do: source_id
-
-  def event_subject_id(:receive, %{identifier: id}, _source_id, _rendering_identifier)
-      when is_binary(id),
+  @spec event_subject_id(atom(), map(), String.t() | nil, String.t() | nil) :: String.t() | nil
+  def event_subject_id(kind, %{identifier: id}, _source_id, _rendering_identifier)
+      when kind in [:receive, :read] and is_binary(id),
       do: id
 
-  def event_subject_id(:read, %{identifier: id}, _source_id, _rendering_identifier)
-      when is_binary(id),
-      do: id
-
-  def event_subject_id(:read, _entry, source_id, _rendering_identifier)
-      when is_binary(source_id),
-      do: source_id
-
-  def event_subject_id(_kind, _entry, _source_id, rendering_identifier)
-      when is_binary(rendering_identifier),
-      do: rendering_identifier
-
-  def event_subject_id(_kind, _entry, _source_id, _rendering_identifier), do: "?"
+  def event_subject_id(_kind, _entry, source_id, _rendering_identifier), do: source_id
 
   @spec topic_suffix(term()) :: String.t()
   def topic_suffix("ticket." <> rest) do
@@ -97,7 +84,7 @@ defmodule Aiur.AgentList.Renderer.EventLine do
   def topic_suffix(topic) when is_binary(topic), do: topic
   def topic_suffix(_), do: ""
 
-  @spec describe_event(atom(), String.t(), String.t() | nil, String.t(), term()) :: {String.t(), String.t()}
+  @spec describe_event(atom(), String.t() | nil, String.t() | nil, String.t(), term()) :: {String.t(), String.t()}
   def describe_event(:receive, subject_id, source_id, "issue.commented", body)
       when subject_id == source_id do
     {"new Issue comment:", EventPhrases.comment_body_summary(body)}

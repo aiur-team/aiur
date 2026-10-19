@@ -17,7 +17,7 @@ defmodule Aiur.TestReset.Tickets do
             :open
 
           closed_issue_state?(state) ->
-            clear_closed_ticket_automation_labels(id, labels, runner)
+            id |> clear_closed_ticket_automation_labels(labels, runner) |> reopen_closed_ticket(id, runner)
 
           true ->
             {:error, "unexpected GitHub issue state #{inspect(state)}"}
@@ -102,7 +102,7 @@ defmodule Aiur.TestReset.Tickets do
   defp clear_closed_ticket_automation_labels(id, labels, runner) do
     case automation_label_cleanup_command_args(id, labels) do
       nil ->
-        TestReset.warn("##{id} closed ticket skipped; no automation labels found")
+        TestReset.warn("##{id} closed ticket; no automation labels found")
         {:closed, []}
 
       argv ->
@@ -110,7 +110,7 @@ defmodule Aiur.TestReset.Tickets do
 
         case runner.(argv) do
           {_, 0} ->
-            TestReset.warn("##{id} closed ticket skipped; removed automation labels: #{Enum.join(automation, ",")}")
+            TestReset.warn("##{id} closed ticket; removed automation labels: #{Enum.join(automation, ",")}")
             {:closed, automation}
 
           {output, _code} ->
@@ -118,6 +118,25 @@ defmodule Aiur.TestReset.Tickets do
         end
     end
   end
+
+  # A smoke run can leave its sandbox ticket closed; reopen it so the next
+  # `--test` resets it instead of aborting (#5121).
+  defp reopen_closed_ticket({:closed, _labels} = closed, id, runner) do
+    case runner.(reopen_command_args(id)) do
+      {_, 0} ->
+        TestReset.ok("##{id} reopened closed sandbox ticket")
+        :open
+
+      {output, _code} ->
+        TestReset.warn("##{id} reopen failed: #{String.trim(to_string(output))}")
+        closed
+    end
+  end
+
+  defp reopen_closed_ticket(error, _id, _runner), do: error
+
+  @spec reopen_command_args(integer() | String.t()) :: [String.t()]
+  def reopen_command_args(id), do: ["issue", "reopen", to_string(id)]
 
   # Strip every agent:* label and re-add agent:todo so the orchestrator
   # treats the issue as queued on the next dispatch poll. Without this,

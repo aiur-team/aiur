@@ -1,10 +1,10 @@
-defmodule Aiur.Orchestrator.CommentPolling.TargetSelection.HumanReview do
+defmodule Aiur.GitHub.Listeners.Comments.TargetSelection.HumanReview do
   @moduledoc false
   require Logger
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.GitHub.Listeners.Comments.Cursor
+  alias Aiur.GitHub.Listeners.Comments.TargetSelection
   alias Aiur.Issue
-  alias Aiur.Orchestrator.CommentPolling.Cursor
-  alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Tracker
   @human_review_comment_targets_per_poll 25
   @human_review_state "human-review"
