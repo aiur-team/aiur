@@ -12,11 +12,11 @@ export function createLife() {
     every(ms, fn) { const id = setInterval(fn, ms); return own(() => clearInterval(id)); },
     later(key, ms, fn) {
       clearTimeout(timers.get(key));
-      timers.set(key, setTimeout(() => { timers.delete(key); fn(); }, ms));
+      timers.set(key, setTimeout(() => { timers.delete(key); if (!disposed) fn(); }, ms));
     },
     frame(key, fn) {
       if (frames.has(key)) return;
-      frames.set(key, requestAnimationFrame(now => { frames.delete(key); fn(now); }));
+      frames.set(key, requestAnimationFrame(now => { frames.delete(key); if (!disposed) fn(now); }));
     },
     observe(el, fn) {
       const ro = new ResizeObserver(fn); ro.observe(el);
