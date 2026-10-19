@@ -63,6 +63,12 @@ test('U10 section heads expose unavailable causes and read ages', () => {
   assert.match(html({}, { ...P.sources, open_tickets: { ...source, state: 'incomplete', reason: 'incomplete' } }), /incomplete · the read was partial · read 6 min ago/);
   assert.match(html({ hist: [row('hist')] }, { ...P.sources, history: { state: 'stale', observed_at: null } }), /stale, no successful read recorded/);
 });
+test('retrying agents are counted separately from running and timeout cause is readable', () => {
+  const retrying = row('now', { status: 'queued', agent: { state: 'retrying', model: null, name: null } });
+  const out = html({ now: [row('now'), retrying] }, { ...P.sources, open_tickets: { state: 'unavailable', reason: 'open_tickets_timeout', observed_at: null } });
+  assert.match(out, /1 running · 1 retrying/);
+  assert.match(out, /the open-ticket listing timed out/);
+});
 test('U11 long sections render every row and healthy empty sections stay hidden', () => {
   const out = html({ nq: Array.from({ length: 600 }, (_, i) => row('nq', { id: String(i) })) });
   assert.equal((out.match(/class="lr nq"/g) || []).length, 600); assert.match(out, /600 open/);

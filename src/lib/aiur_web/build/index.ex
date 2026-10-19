@@ -105,13 +105,16 @@ defmodule AiurWeb.Build.Index do
     {:noreply, finish(%{state | task: nil}, parts, state.task.dirty)}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref, dirty: dirty}} = state) do
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref}} = state) do
     Process.cancel_timer(state.task.deadline)
-    keys = if dirty == :all, do: Map.keys(state.parts) ++ ~w(settings history now planned not_queued)a, else: MapSet.to_list(dirty)
     failure = if state.task[:timed_out?], do: :timeout, else: :read_failed
-    Logger.warning("build_index read_task_failed=#{inspect(reason, limit: 20, printable_limit: 200)} failure=#{failure} parts=#{Enum.join(Enum.uniq(keys), ",")}")
+    part = state.task[:timed_out_part]
+    keys = if part && part != :unknown, do: [part], else: []
+    Logger.warning("build_index read_task_failed=#{inspect(reason, limit: 20, printable_limit: 200)} failure=#{failure} parts=#{Enum.join(keys, ",")}")
     parts = Enum.reduce(keys, state.parts, &Map.put(&2, &1, {:error, failure}))
-    {:noreply, finish(%{state | task: nil}, parts, dirty)}
+    parts = if part == :open, do: mark_open_degraded(parts, failure), else: parts
+    keys = if part == :open, do: MapSet.new([:open, :not_queued]), else: MapSet.new(keys)
+    {:noreply, finish(%{state | task: nil}, parts, keys)}
   end
 
   def handle_info({:read_timeout, ref}, %{task: %{ref: ref, pid: pid}} = state) do
@@ -119,7 +122,7 @@ defmodule AiurWeb.Build.Index do
     stack = inspect(Process.info(pid, :current_stacktrace), limit: :infinity, printable_limit: 4_000)
     Logger.warning("build_index read_timeout after_ms=#{Keyword.get(state.opts, :read_timeout, 3_500)} part=#{part} stack=#{stack}")
     Process.exit(pid, :kill)
-    {:noreply, put_in(state.task[:timed_out?], true)}
+    {:noreply, %{state | task: Map.merge(state.task, %{timed_out?: true, timed_out_part: part})}}
   end
 
   def handle_info(:daemon_tick, %{daemon_task: nil} = state) do
@@ -222,4 +225,14 @@ defmodule AiurWeb.Build.Index do
   defp clock(state), do: Keyword.get(state.opts, :clock, fn -> System.system_time(:millisecond) end).()
   defp read_part_from_dictionary({:dictionary, dictionary}), do: Keyword.get(dictionary, :aiur_build_index_read_part, :unknown)
   defp read_part_from_dictionary(_info), do: :unknown
+
+  defp mark_open_degraded(parts, failure) do
+    case parts[:not_queued] do
+      %{state: _state, reasons: _reasons} = not_queued ->
+        Map.put(parts, :not_queued, %{not_queued | state: :unavailable, reasons: [if(failure == :timeout, do: :open_tickets_timeout, else: :open_tickets_read_failed)]})
+
+      _other ->
+        parts
+    end
+  end
 end

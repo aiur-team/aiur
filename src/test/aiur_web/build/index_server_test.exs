@@ -120,7 +120,7 @@ defmodule AiurWeb.Build.IndexServerTest do
     refute_received {:build_changes, _}
   end
 
-  test "read task failure keeps the owner alive and marks affected sources unavailable", %{pid: pid} do
+  test "an unlocated read task failure keeps the owner alive and its cached window available", %{pid: pid} do
     send(pid, {:running_changed, %{}})
     :sys.get_state(pid)
     send(pid, :flush)
@@ -129,9 +129,8 @@ defmodule AiurWeb.Build.IndexServerTest do
     receive_barrier({:trace, ^pid, :receive, {:DOWN, _ref, :process, ^worker, :killed_read}})
     :sys.get_state(pid)
     assert Process.alive?(pid)
-    assert_received {:build_changes, %{resync: true} = changes}
-    refute Map.has_key?(changes, :sections)
-    assert {:error, :epic_config_unavailable} = Index.window(pid, "Etc/UTC")
+    refute_received {:build_changes, _}
+    assert {:ok, _snapshot} = Index.window(pid, "Etc/UTC")
   end
 
   test "a timed-out history refresh logs its cause and keeps the last good history as stale", %{pid: pid} do
@@ -152,6 +151,50 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert log =~ "part=history"
     assert log =~ ~r/read_task_failed=:killed failure=timeout parts=.*history/
     assert {:ok, %{rows: %{7 => _}, health: %{state: :stale, failure: :timeout}}} = :sys.get_state(pid).parts.history
+  end
+
+  test "an open part timeout preserves rows from the other parts and names the degraded source" do
+    parent = self()
+    seed = parts([row(7)]) |> put_in([:now, :rows], %{"8" => now_row(8)})
+
+    pid =
+      start_supervised!(
+        {Index,
+         name: nil,
+         subscribe: fn -> :ok end,
+         read: fn
+           :all, _previous, _opts ->
+             seed
+
+           _dirty, previous, _opts ->
+             Process.put(:aiur_build_index_read_part, :open)
+             send(parent, :open_read_blocked)
+             receive(do: (:continue -> previous))
+         end,
+         timer: fn _, _, _ -> make_ref() end,
+         daemon_timer: fn _, _, _ -> make_ref() end,
+         daemon_read: fn _ -> %{state: "live", heartbeat_at: 1, observed_at: 2} end,
+         clock: &now/0},
+        id: :open_timeout_index
+      )
+
+    assert {:ok, _} = Index.window(pid, "Etc/UTC")
+    send(pid, {:open_tickets_updated, %{}})
+    :sys.get_state(pid)
+    send(pid, :flush)
+    assert_receive :open_read_blocked, 1_000
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        Process.sleep(3_700)
+        :sys.get_state(pid)
+      end)
+
+    assert log =~ "part=open"
+    assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
+    assert Enum.map(snapshot.sections.hist, & &1.id) == ["7"]
+    assert Enum.map(snapshot.sections.now, & &1.id) == ["8"]
+    assert snapshot.sources.open_tickets.reason == "open_tickets_timeout"
   end
 
   test "a failed history part read keeps the last good rows on the page, stale at the last read", %{pid: pid} do

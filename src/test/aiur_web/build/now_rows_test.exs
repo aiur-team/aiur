@@ -20,16 +20,18 @@ defmodule AiurWeb.Build.NowRowsTest do
     for {input, expected} <- cases do
       result = facts(input)
       assert result.agent.state == expected
-      assert result.status == if(expected in ["error", "retries"], do: "failed", else: "running")
+      assert result.status == if(expected in ["error", "retries"], do: "failed", else: if(expected == "retrying", do: "queued", else: "running"))
     end
   end
 
-  test "policy stuck reasons beat command and paused; retry backoff is error" do
+  test "policy stuck reasons beat command and paused; retry backoff stays distinct from failure" do
     for waiting <- [:tracker_unavailable, :backing_off, :unresponsive] do
       assert facts(row(%{reasons: %{waiting: waiting, pause: :operator_pause}, open_command_count: 1})).agent.state == "error"
     end
 
-    assert facts(row(%{runtime: %{bucket: :retrying, work_state: :retrying}})).agent.state == "error"
+    retrying = facts(row(%{runtime: %{bucket: :retrying, work_state: :retrying}}))
+    assert retrying.agent.state == "retrying"
+    assert retrying.status == "queued"
     assert facts(row(%{reasons: %{waiting: :waiting_for_human}})).agent.state == "command"
     assert facts(row(%{runtime: %{bucket: :running, work_state: :starting}})).agent.state == "active"
   end

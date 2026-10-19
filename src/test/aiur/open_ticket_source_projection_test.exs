@@ -48,6 +48,28 @@ defmodule Aiur.OpenTicketSourceProjectionTest do
       refute_received :listed
     end
 
+    test "snapshot stays responsive during boot listing and buffered events win over its baseline" do
+      parent = self()
+
+      server =
+        start_source(
+          poll_on_start: true,
+          request_fun: fn _request ->
+            send(parent, {:listing_started, self()})
+            receive(do: (:continue -> {:ok, %{status: 200, body: [], headers: []}}))
+          end
+        )
+
+      assert_receive {:listing_started, listing}, 1_000
+      snapshot_task = Task.async(fn -> OpenTicketSource.snapshot(server) end)
+      assert %Aiur.OpenTicketSource.Snapshot{status: :unavailable, tickets: []} = Task.await(snapshot_task, 1_000)
+
+      deposit_issue(32, title: "Arrived during bootstrap")
+      send(listing, :continue)
+
+      assert eventually(fn -> Enum.any?(OpenTicketSource.snapshot(server).tickets, &(&1.identifier == "32")) end)
+    end
+
     test "an unlabelled open ticket deposited by a webhook appears in the projection" do
       server = start_source(poll_on_start: false)
       deposit_issue(31, title: "Unlabelled backlog ticket", labels: [])

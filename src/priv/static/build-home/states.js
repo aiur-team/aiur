@@ -23,7 +23,7 @@ export function sectionState(P, D, H, sec, filtered) {
 export function reasonText(tag) {
   const words = { not_wired: 'not connected', timeout: 'timed out', crashed: 'the reader crashed',
     snapshot_unpublished: 'the daemon is starting', orchestrator_unavailable: 'the orchestrator is down',
-    incomplete: 'the read was partial', backfill_running: 'the history backfill is still running',
+    incomplete: 'the read was partial', open_tickets_timeout: 'the open-ticket listing timed out', backfill_running: 'the history backfill is still running',
     structurally_invalid: 'the stored data is malformed', tracker_unsupported: 'this tracker has no open-ticket index' };
   if (typeof tag !== 'string' || ['unknown', 'unavailable'].includes(tag)) return 'unknown cause';
   return Object.hasOwn(words, tag) ? words[tag] : tag.slice(0, 80);
