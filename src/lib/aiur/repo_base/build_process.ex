@@ -49,11 +49,13 @@ defmodule Aiur.RepoBase.BuildProcess do
 
   defp kill_processes(processes) do
     Enum.each(processes, fn {os_pid, %{group_id: group_id, identity: identity}} ->
+      group_id = group_id || ProcessTree.process_group_for_pid(os_pid)
+
       result =
         if is_integer(group_id) and group_id > 0 do
-          ProcessTree.reap_process_group(group_id, identity)
+          ProcessTree.reap_process_group(group_id, current_identity(os_pid, identity))
         else
-          ProcessTree.reap_process_tree(os_pid, identity)
+          ProcessTree.reap_process_tree(os_pid, current_identity(os_pid, identity))
         end
 
       if match?({:error, _reason}, result), do: Logger.warning("RepoBase build process cleanup failed: #{inspect(result)}")
@@ -61,4 +63,13 @@ defmodule Aiur.RepoBase.BuildProcess do
 
     :ok
   end
+
+  defp current_identity(os_pid, {:known, {:procfs_birth_and_session, start_time, _session}} = fallback) do
+    case ProcessTree.process_identity(os_pid) do
+      {:ok, {:procfs_birth_and_session, ^start_time, _session} = identity} -> {:known, identity}
+      _ -> fallback
+    end
+  end
+
+  defp current_identity(_os_pid, identity), do: identity
 end

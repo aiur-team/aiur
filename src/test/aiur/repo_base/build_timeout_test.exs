@@ -133,14 +133,20 @@ defmodule Aiur.RepoBase.BuildTimeoutTest do
   end
 
   test "stopping RepoBase terminates an active build process group", %{server: pid, cfg: cfg, tmp: tmp, origin: origin} do
+    shell_pidfile = Path.join(tmp, "stopped-server-shell.pid")
     pidfile = Path.join(tmp, "stopped-server-child.pid")
-    command = "trap 'wait \"$child\"' TERM; sleep 600 & child=$!; echo $child > #{pidfile}; wait \"$child\""
+
+    command =
+      "echo $$ > #{shell_pidfile}; trap 'wait \"$child\"' TERM; sleep 600 & child=$!; echo $child > #{pidfile}; wait \"$child\""
+
     pid = start_real_build(pid, cfg, tmp, origin, command, dispatch_hold_timeout_ms: 30, build_hold_timeout_ms: 10_000)
 
     assert :building = GenServer.call(pid, :refresh_for_dispatch)
-    state = wait_for_build_process(pid)
+    shell_pid = await_file(shell_pidfile, 5_000) |> String.trim() |> String.to_integer()
+    state = wait_for_build_os_pid(pid, shell_pid)
     child_pid = await_file(pidfile, 5_000) |> String.trim() |> String.to_integer()
     assert Aiur.ProcessTree.process_alive?(child_pid)
+    assert Map.has_key?(state.build.os_processes, shell_pid)
 
     previous_cmd_fun = Application.get_env(:aiur, :process_exhaustion_cmd_fun)
     gate = spawn(fn -> reaper_gate_loop() end)
