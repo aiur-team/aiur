@@ -18,7 +18,7 @@ test('sign-off is manual-only and read-only (#5124)', () => {
 })
 
 test('every parity spec is reached by a sign-off job', () => {
-  const runs = [...workflow.matchAll(/run: npm run ([\w:-]+)(?: -- ([\w -]+))?/g)]
+  const runs = [...workflow.matchAll(/run: npm run ([\w:-]+)(?: -- (\w[\w -]*))?/g)]
   // An npm script reaches the specs it names and the npm scripts it calls.
   const reach = name => [scripts[name] ?? assert.fail(`unknown npm script ${name}`)]
     .concat([...scripts[name].matchAll(/npm run ([\w:-]+)/g)].flatMap(([, inner]) => reach(inner))).join('\n')
@@ -29,6 +29,9 @@ test('every parity spec is reached by a sign-off job', () => {
   for (const file of parity) assert.ok(reached.includes(`tests/${file}`), `${file} has no sign-off job`)
   assert.ok(reached.includes('scripts/run-build-home-band-full.mjs'), 'band full matrix is included')
   assert.equal(workflow.match(/run: npm run test:build-home-band-full, part: '[1-4]'/g)?.length, 4)
+  assert.ok(reached.includes('tests/build-home-gantt.browser.spec.mjs'), 'gantt full matrix is included')
+  assert.doesNotMatch(scripts['test:build-home-gantt:full'], /--grep/)
+  assert.equal(workflow.match(/run: npm run test:build-home-gantt:full -- --shard=[1-4]\/4 }/g)?.length, 4)
   assert.ok(workflow.includes("test -n \"$specs\" ||"), 'flag job fails closed when no spec matches')
 })
 
