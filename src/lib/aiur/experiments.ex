@@ -51,7 +51,7 @@ defmodule Aiur.Experiments do
     with {:ok, rows} <- Reader.summaries() do
       if invalid_index?() and Process.whereis(Store), do: GenServer.cast(Store, :rebuild_index)
       filters = Map.new(filters)
-      rows = if is_nil(filters[:status]), do: Enum.reject(rows, &(&1.status == "abandoned")), else: rows
+      rows = if is_nil(filters[:status]), do: Enum.reject(rows, &(Map.get(&1, :status) == "abandoned")), else: rows
       {:ok, Enum.filter(rows, fn row -> Enum.all?(filters, fn {key, value} -> is_nil(value) or Map.get(row, key) == value end) end)}
     end
   end
