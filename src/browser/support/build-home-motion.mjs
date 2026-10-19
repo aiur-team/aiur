@@ -223,8 +223,7 @@ async function snap(page, ctx, kind) {
   await scrollTo(page, start + delta)
   const pixelAlignment = kind === 'tall-band' ? await alignCardIconToDevicePixel(page) : null
   const frame = [{ scrollTop: await page.locator('#bd-vp').evaluate(el => el.scrollTop) }]
-  try { await ctx.onFrame?.(0, '#bd-vp') }
-  finally { if (pixelAlignment) await restoreCardIconAlignment(page, pixelAlignment) }
+  try { await ctx.onFrame?.(0, '#bd-vp') } finally { if (pixelAlignment) await restoreCardIconAlignment(page, pixelAlignment) }
   for (let i = 0; i < 40; i++) {
     await page.clock.runFor(16)
     frame.push({ scrollTop: await page.locator('#bd-vp').evaluate(el => el.scrollTop) })
