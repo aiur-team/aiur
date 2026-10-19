@@ -2,7 +2,6 @@ defmodule Aiur.AgentRunner.SessionStartup do
   @moduledoc false
   require Logger
   alias Aiur.AgentRunner.CodexUpdateRelay
-  alias Aiur.Claude.Telemetry
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.ModelDiscovery
@@ -19,11 +18,11 @@ defmodule Aiur.AgentRunner.SessionStartup do
 
         case start_agent_session(workspace, launch_opts, start_fun) do
           {:ok, session} ->
-            revoke_unclaimed_telemetry_launch(session, telemetry_launch)
+            revoke_unclaimed_telemetry_launch(session, telemetry_launch, session_opts)
             {:ok, session}
 
           {:error, _reason} = error ->
-            _ = Telemetry.revoke(telemetry_launch)
+            _ = CodingAgent.revoke_launch_telemetry(Keyword.fetch!(session_opts, :backend), telemetry_launch, session_opts)
             error
         end
 
@@ -35,24 +34,22 @@ defmodule Aiur.AgentRunner.SessionStartup do
   defp prepare_telemetry_launch(_issue, _worker_host, nil, _session_opts, _execution_recipient), do: {:ok, nil}
 
   defp prepare_telemetry_launch(issue, worker_host, ownership, session_opts, execution_recipient) do
-    if Keyword.get(session_opts, :backend) in ["claude", "claude-repl"] do
-      Telemetry.prepare_launch(issue,
-        attempt_id: Keyword.get(session_opts, :attempt_id),
-        workspace_ownership: ownership,
-        backend: Keyword.get(session_opts, :backend),
-        worker_host: worker_host,
-        execution_recipient: execution_recipient
-      )
-    else
-      {:ok, nil}
-    end
+    CodingAgent.prepare_launch_telemetry(Keyword.fetch!(session_opts, :backend), issue,
+      launch_telemetry_registry: Keyword.get_lazy(session_opts, :launch_telemetry_registry, &CodingAgent.backends/0),
+      attempt_id: Keyword.get(session_opts, :attempt_id),
+      workspace_ownership: ownership,
+      backend: Keyword.get(session_opts, :backend),
+      worker_host: worker_host,
+      execution_recipient: execution_recipient
+    )
   end
 
   defp with_telemetry_launch_opts(session_opts, nil, _issue, _worker_host, _ownership, _recipient), do: session_opts
 
   defp with_telemetry_launch_opts(session_opts, telemetry_launch, issue, worker_host, ownership, execution_recipient) do
     fallback_launch_fun = fn fallback_backend ->
-      Telemetry.prepare_launch(issue,
+      CodingAgent.prepare_launch_telemetry(fallback_backend, issue,
+        launch_telemetry_registry: Keyword.get_lazy(session_opts, :launch_telemetry_registry, &CodingAgent.backends/0),
         attempt_id: Keyword.get(session_opts, :attempt_id),
         workspace_ownership: ownership,
         backend: fallback_backend,
@@ -66,16 +63,16 @@ defmodule Aiur.AgentRunner.SessionStartup do
     |> Keyword.put(:telemetry_fallback_launch_fun, fallback_launch_fun)
   end
 
-  defp revoke_unclaimed_telemetry_launch(_session, nil), do: :ok
+  defp revoke_unclaimed_telemetry_launch(_session, nil, _opts), do: :ok
 
-  defp revoke_unclaimed_telemetry_launch(%{telemetry_launch: %{id: id}}, %{id: id}) when is_reference(id), do: :ok
+  defp revoke_unclaimed_telemetry_launch(%{telemetry_launch: %{id: id}}, %{id: id}, _opts) when is_reference(id), do: :ok
 
-  defp revoke_unclaimed_telemetry_launch(_session, telemetry_launch) do
+  defp revoke_unclaimed_telemetry_launch(_session, telemetry_launch, opts) do
     # A REPL can fall back to the headless adapter after a failed pane spawn.
     # Never reuse a capability whose trusted backend correlation says REPL for
     # that replacement process; the fallback remains visibly uncovered until a
     # fresh, correctly correlated launch is prepared.
-    Telemetry.revoke(telemetry_launch)
+    CodingAgent.revoke_launch_telemetry(Keyword.fetch!(opts, :backend), telemetry_launch, opts)
   end
 
   @doc false
@@ -123,7 +120,7 @@ defmodule Aiur.AgentRunner.SessionStartup do
     Logger.warning("#{backend} start_session failed (#{inspect(reason)}); falling back to #{fallback}")
 
     {telemetry_launch, fallback_opts} = Keyword.pop(opts, :telemetry_launch)
-    _ = Telemetry.revoke(telemetry_launch)
+    _ = CodingAgent.revoke_launch_telemetry(backend, telemetry_launch, opts)
     {fallback_launch_fun, fallback_opts} = Keyword.pop(fallback_opts, :telemetry_fallback_launch_fun)
 
     with {:ok, fallback_launch} <- prepare_fallback_telemetry(fallback_launch_fun, fallback) do
@@ -138,7 +135,7 @@ defmodule Aiur.AgentRunner.SessionStartup do
           {:ok, tag_session(session, fallback, fallback_opts)}
 
         {:error, _} = error ->
-          _ = Telemetry.revoke(fallback_launch)
+          _ = CodingAgent.revoke_launch_telemetry(fallback, fallback_launch, opts)
           error
       end
     end

@@ -33,6 +33,11 @@ defmodule AiurWeb.Experiments.Styles do
     .exp-window{display:contents}.exp-detail dd{margin:0}.exp-detail dt{color:var(--muted)}
     .exp-table{width:100%;border-collapse:collapse;table-layout:fixed}
     .exp-table th,.exp-table td{text-align:left;padding:12px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+    #exp-report{margin-top:24px;min-width:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-sm);padding:1rem 1.1rem .9rem}
+    #exp-report .ticket-context-markdown{max-height:none}
+    #exp-report .an-card-head{display:flex;gap:1rem;margin-bottom:.7rem}
+    #exp-report .an-card-title{margin:0;font-size:.98rem;font-weight:700;color:var(--fg);letter-spacing:-.01em}
+    #exp-report .an-card-sub{margin:.2rem 0 0;font-size:.78rem;line-height:1.4;color:var(--muted);max-width:64ch}
     .exp-back{display:none;min-height:44px;align-items:center;color:var(--fg)}
     @media(max-width:959px){.exp-layout{display:block}.exp-root[data-selection=detail] .exp-index{display:none}.exp-root[data-selection=index] .exp-detail{display:none}.exp-back{display:flex}.exp-detail dl{grid-template-columns:1fr}.exp-window{display:contents}.exp-detail dd{margin-bottom:8px}.exp-table thead{display:none}.exp-table tr,.exp-table td{display:block}.exp-table tr{margin-bottom:16px;border:1px solid var(--line);border-radius:8px}.exp-table td::before{content:attr(data-label) ": ";color:var(--muted)}}
     """
