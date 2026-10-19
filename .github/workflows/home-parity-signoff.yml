@@ -25,6 +25,11 @@ jobs:
           - { name: band 2/4, run: npm run test:build-home-band-full, part: '2' }
           - { name: band 3/4, run: npm run test:build-home-band-full, part: '3' }
           - { name: band 4/4, run: npm run test:build-home-band-full, part: '4' }
+          # The Gantt composition matrix (108 cells) formerly run in home merge groups.
+          - { name: gantt 1/4, run: npm run test:build-home-gantt:full -- --shard=1/4 }
+          - { name: gantt 2/4, run: npm run test:build-home-gantt:full -- --shard=2/4 }
+          - { name: gantt 3/4, run: npm run test:build-home-gantt:full -- --shard=3/4 }
+          - { name: gantt 4/4, run: npm run test:build-home-gantt:full -- --shard=4/4 }
           - { name: design harness, run: npm run test:design-parity }
           - { name: design matrix, run: npm run parity:matrix }
           - { name: composition, run: npm run test:parity }
