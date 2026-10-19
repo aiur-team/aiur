@@ -40,7 +40,10 @@ defmodule Aiur.GitHub.CIPollBatchTest do
                  "pageInfo" => %{"hasNextPage" => false},
                  "nodes" => [
                    Map.merge(pull_request(), %{
-                     "reviews" => %{"nodes" => [%{"state" => "APPROVED", "commit" => %{"oid" => "reviewed-head"}}]},
+                     "reviews" => %{
+                       # Oldest first, as `last:` returns them: the newest approval is the head.
+                       "nodes" => [%{"state" => "APPROVED", "commit" => %{"oid" => "older-head"}}, %{"state" => "APPROVED", "commit" => %{"oid" => "reviewed-head"}}]
+                     },
                      "timelineItems" => %{"nodes" => [%{"__typename" => "ReadyForReviewEvent", "createdAt" => "2026-10-14T19:08:00Z"}]}
                    })
                  ]

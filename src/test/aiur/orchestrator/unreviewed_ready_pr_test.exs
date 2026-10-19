@@ -2,7 +2,11 @@ defmodule Aiur.Orchestrator.UnreviewedReadyPrTest do
   use Aiur.TestSupport
 
   alias Aiur.Orchestrator.{ReadyForReviewTransitions, State}
+  import Aiur.CiLifecycleTestSupport
+
   alias Aiur.PrReadyLedgerStore
+
+  setup :ci_lifecycle_setup
 
   setup do
     previous = Application.get_env(:aiur, :pr_ready_ledger_path)
@@ -87,6 +91,28 @@ defmodule Aiur.Orchestrator.UnreviewedReadyPrTest do
     refute_received :unexpected
   end
 
-  defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
-  defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
+  test "a CI poll re-raises a reworked head handed back to human review, and skips a ticket not in review" do
+    head = String.duplicate("d", 40)
+    test_pid = self()
+
+    emitter = fn topic, opts ->
+      if String.ends_with?(topic, ".unreviewed_ready_pr"), do: send(test_pid, {:attention, topic, opts})
+      :ok
+    end
+
+    # A --request-changes review keeps reviewDecision at CHANGES_REQUESTED after the fix is pushed.
+    result = %{decision: :passed, pr_number: 79, head_sha: head, draft?: false, ready_at_ms: 1_000, review_decision: "CHANGES_REQUESTED", reviewed_head?: false}
+    opts = [age_limit_ms: 1, repo_fun: fn -> "owner/repo" end, alert_emitter: emitter]
+
+    ticket = issue(unique_identifier("unreviewed-handback"), "human-review")
+    # The ready-history read already classified this PR; the CI poll turns that into a tracked head.
+    _ = poll_ci(%State{pr_ready_ledger: %{{ticket.identifier, 79} => :never_draft}}, ticket, result, opts)
+    topic = "ticket.#{ticket.identifier}.agent.attention.unreviewed_ready_pr"
+    assert_received {:attention, ^topic, attention}
+    assert attention[:message] =~ head
+
+    waiting = issue(unique_identifier("unreviewed-ci-wait"), "ci-wait")
+    _ = poll_ci(%State{pr_ready_ledger: %{{waiting.identifier, 79} => :never_draft}}, waiting, result, opts)
+    refute_received {:attention, _, _}
+  end
 end

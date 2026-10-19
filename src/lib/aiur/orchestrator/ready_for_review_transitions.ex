@@ -166,7 +166,8 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
          true <- now_ms - ready_at_ms >= age_limit_ms,
          true <- is_nil(retry_at_ms) or now_ms >= retry_at_ms,
          true <- result[:decision] == :passed,
-         true <- result[:review_decision] == "REVIEW_REQUIRED",
+         # CHANGES_REQUESTED sticks until the next review, so a reworked head handed back still needs one.
+         true <- result[:review_decision] in ["REVIEW_REQUIRED", "CHANGES_REQUESTED"],
          true <- result[:reviewed_head?] == false,
          {:ok, repo} <- repo_name(opts),
          :ok <- emit_stale_attention(ticket, pr_number, head_sha, now_ms - ready_at_ms, repo, opts) do

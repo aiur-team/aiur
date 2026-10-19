@@ -61,7 +61,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
 
   @doc false
   @spec reraise_unreviewed_ready_pr(State.t(), Issue.t(), term(), term()) :: State.t()
+  # Only a ticket handed back to review is waiting on a reviewer; rework is still the agent's.
   def reraise_unreviewed_ready_pr(%State{} = state, %Issue{} = issue, result, opts) do
+    if Transition.effective_ci_state(issue) == "human-review", do: do_reraise_unreviewed_ready_pr(state, issue, result, opts), else: state
+  end
+
+  defp do_reraise_unreviewed_ready_pr(state, issue, result, opts) do
     ReadyForReviewTransitions.re_raise_unreviewed(
       state,
       ReadyForReviewTransitions.observation(

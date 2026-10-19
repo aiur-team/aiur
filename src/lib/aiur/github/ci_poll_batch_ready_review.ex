@@ -45,7 +45,8 @@ defmodule Aiur.GitHub.CIPollBatchReadyReview do
 
   defp approved_review_head_sha(node) do
     with %{} = reviews <- Map.get(node, "reviews"),
-         review when is_map(review) <- (Map.get(reviews, "nodes") || []) |> Enum.find(&(Map.get(&1, "state") == "APPROVED")),
+         # `last:` nodes come oldest first, so the newest approval is the last match.
+         review when is_map(review) <- (Map.get(reviews, "nodes") || []) |> Enum.filter(&(Map.get(&1, "state") == "APPROVED")) |> List.last(),
          %{} = commit <- Map.get(review, "commit"),
          sha when is_binary(sha) <- Map.get(commit, "oid") do
       sha
