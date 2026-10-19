@@ -5,7 +5,8 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { failedSpecAnnotationLines } from '../support/github-failure-annotations.mjs'
 import GitHubFailureReporter from '../support/github-failure-reporter.mjs'
-import { PROBE_SPECS, parseQuarantine, quarantineArgs, readQuarantine, runnableSpec, withQuarantine } from './browser-quarantine.mjs'
+import { PROBE_SPECS, parseQuarantine, quarantineArgs, quarantineNotices, readQuarantine, runnableSpec } from './browser-quarantine.mjs'
+import { withQuarantine } from './browser-quarantine.mjs'
 import { playwrightChildEnvironment } from './run-browser-tests.mjs'
 
 const browserRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -43,6 +44,15 @@ test('a list entry uses the identity the failure annotation reports', () => {
 test('the quarantine step and an empty list add no filter', () => {
   assert.deepEqual(quarantineArgs(parseQuarantine(list), { AIUR_RUN_QUARANTINED: '1' }), [])
   assert.deepEqual(quarantineArgs([], {}), [])
+})
+
+test('a blocking run prints one skip line per quarantined spec, naming the override', () => {
+  assert.deepEqual(quarantineNotices(parseQuarantine(list), {}), [
+    'Skipped by quarantine (#5118): tests/build-home-list.browser.spec.mjs; set AIUR_RUN_QUARANTINED=1 to run it.',
+    'Skipped by quarantine (#5111): tests/build-home-usage-parity.browser.spec.mjs; set AIUR_RUN_QUARANTINED=1 to run it.'
+  ])
+  assert.deepEqual(quarantineNotices(parseQuarantine(list), { AIUR_RUN_QUARANTINED: '1' }), [])
+  assert.match(readFileSync(path.join(browserRoot, 'scripts/run-browser-tests.mjs'), 'utf8'), /quarantineNotices\(quarantine, environment\)/)
 })
 
 test("a caller's --grep-invert survives the quarantine filter", () => {

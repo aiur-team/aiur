@@ -7,6 +7,10 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   # Priority 2: the quarantine PR unblocks the merge queue, so the fix need not preempt other work.
   @labels ["bug", "agent:todo", "priority:2", "flake"]
 
+  # Without the variable, a local run of a quarantined test or spec reports 0 tests and passes.
+  @quarantine_note "Once this test is quarantined, blocking CI and local runs skip it. " <>
+                     "Run it with `AIUR_RUN_QUARANTINED=1` set; without it a local run reports 0 tests and exits 0, which is not a pass."
+
   @spec record(map(), map(), [pos_integer()], keyword()) :: :ok | {:error, term()}
   def record(failure, run, passed_prs, opts) do
     identity = "#{failure.module} :: #{failure.name}"
@@ -107,7 +111,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
 
   defp create_issue(identity, evidence, request, token, owner, repo) do
     title = "Flaky test: " <> identity
-    body = marker(identity) <> "\n\n" <> evidence
+    body = marker(identity) <> "\n\n" <> evidence <> "\n\n" <> @quarantine_note
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues"
 
     case request.(%{method: :post, url: url, token: token, caller: "landing_watch_flake_issue", body: %{"title" => title, "body" => body, "labels" => @labels}}) do
