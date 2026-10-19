@@ -5,16 +5,10 @@ defmodule Aiur.GitHub.Tracker do
 
   @behaviour Aiur.Tracker.IssueTracker
 
-  @impl Aiur.Tracker.IssueTracker
-  def config_module, do: Aiur.GitHub.Config
-
-  @impl Aiur.Tracker.IssueTracker
-  def code_host, do: __MODULE__
-  @behaviour Aiur.Tracker.CodeHost
-
   alias Aiur.GitHub.BoundedBlockedBy
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
+  alias Aiur.GitHub.CycleFetchCache
   alias Aiur.GitHub.IssueCreation
   alias Aiur.GitHub.IssueLookup
   alias Aiur.GitHub.Issues
@@ -26,6 +20,30 @@ defmodule Aiur.GitHub.Tracker do
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.TestTicketScope
+
+  @impl Aiur.Tracker.IssueTracker
+  def config_module, do: Aiur.GitHub.Config
+
+  @impl Aiur.Tracker.IssueTracker
+  def code_host, do: __MODULE__
+  @behaviour Aiur.Tracker.CodeHost
+
+  @impl Aiur.Tracker.CodeHost
+  def ci_readiness, do: Aiur.GitHub.CiReadiness
+
+  @impl Aiur.Tracker.IssueTracker
+  def with_poll_cycle(fun) do
+    CycleFetchCache.start_cycle()
+
+    try do
+      fun.()
+    after
+      CycleFetchCache.end_cycle()
+    end
+  end
+
+  @impl Aiur.Tracker.IssueTracker
+  defdelegate format_preflight_error(reason), to: Aiur.GitHub.AuthPreflight, as: :format_auth_preflight_error
 
   @impl Aiur.Tracker.IssueTracker
   @spec create_issue(map(), keyword()) :: {:ok, map()} | {:error, term()}
