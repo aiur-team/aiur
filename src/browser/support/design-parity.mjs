@@ -158,7 +158,7 @@ export async function captureStable(target, opts, page) {
     ...opts,
     // Viewport captures include the native scrollbar thumb, whose position
     // changes as each reference page is brought to the front for capture.
-    style: `${opts.style ?? ''}\nhtml { scrollbar-width: none !important; }\nhtml::-webkit-scrollbar, body::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }`
+    style: `${opts.style ?? ''}\n* { scrollbar-width: none !important; }\n*::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }`
   }
   for (let attempt = 0; attempt < 10; attempt++) {
     // Locator screenshots scroll into view, disturbing motion under measurement.
