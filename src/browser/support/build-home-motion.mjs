@@ -2,6 +2,7 @@ import { columnSequence, alignColumnPolls } from './build-home-columns-motion.mj
 import { spanState } from './build-home-span-state.mjs'
 import { historySequence } from './build-home-history-motion.mjs'
 import { scrollbar } from './build-home-scrollbar-motion.mjs'
+import { resizeTallBand } from './build-home-motion-layout.mjs'
 // Shared records and ownership stay together; feature sequences live beside them.
 // Motion records use the same allowlist as screenshot parity. Design bytes stay untouched.
 import { captureStable } from './design-parity.mjs'
@@ -212,7 +213,7 @@ async function snap(page, ctx, kind) {
       tallHeight: band ? band.offsetHeight + 40 : 0 }
   })
   if (kind === 'tall-band') {
-    await page.locator('#bd-vp').evaluate((el, height) => { el.style.height = `${height}px`; el.style.maxHeight = `${height}px` }, geometry.tallHeight)
+    await resizeTallBand(page, geometry.tallHeight)
     await page.clock.runFor(160)
   }
   await scrollTo(page, kind.includes('bottom') || kind === 'guard-down' ? geometry.bottom : geometry.top)
