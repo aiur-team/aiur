@@ -21,7 +21,6 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.ci_recovery_max_per_hour` | positive integer | 20 | Maximum recovery reruns admitted in a rolling hour. |
 | `agent.ci_recovery_max_per_poll` | positive integer | 5 | Maximum recovery reruns admitted by one CI poll. |
 | `agent.ci_wait_rewake_minutes` | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
-| `agent.unreviewed_pr_age_limit_minutes` | positive integer | 120 | Re-raises ready pull requests with green CI and no review after this age; subsequent reminders repeat with the same interval. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
 | `agent.dispatch_hold_attention_threshold` | integer | 3 | Consecutive dispatch declines caused by local GitHub budget holds on one ticket before Aiur raises an Executor attention. Earlier declines retry on the next dispatch poll; a successful dispatch validation or a different failure clears the count. |
 | `agent.git_identity.name`, `agent.git_identity.email` | string or nil | nil | Author and committer of agent commits on every backend. Aiur exports them as `GIT_AUTHOR_*` and `GIT_COMMITTER_*`, which override the operator's git config. An unset field uses the `tracker.github.bot_account` login, or `<login>@users.noreply.github.com`; with neither set, commits use `Aiur Agent <aiur-agent@users.noreply.github.com>` and the daemon logs one warning. Local workspaces also get a `commit-msg` hook that rejects AI co-author trailers and generated-with footers, and Claude settings that stop the CLI adding them. |
@@ -64,6 +63,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.target_cpu_pressure` | float or nil | 10.0 | AIMD target for Linux CPU PSI `some avg60`, in percent (greater than 0, at most 100); null disables it. After 3 fresh above-target samples and the decrease cooldown, floors the reduction at half occupied slots or the recorded safe level, capped at the current envelope. Ramps only below 80% of target. Unavailable samples reset the streak and never count as zero. |
 | `agent.target_load_average` | float or nil | 1.0 | Per-scheduler adaptive target used only when CPU PSI is unavailable; null disables it. Keeps the legacy 3-sample decrease streak, cooldown, and below-target recovery. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
+| `agent.unreviewed_pr_age_limit_minutes` | positive integer | 120 | Re-raises ready PRs with green CI and no review after this many minutes; reminders repeat with the same interval. |
 
 ### Routes in `agent.priority`
 
