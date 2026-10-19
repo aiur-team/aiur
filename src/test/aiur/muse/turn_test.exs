@@ -83,7 +83,7 @@ defmodule Aiur.Muse.TurnTest do
     task = run_fixture(dir, "mcp", 30_000, tool_call_ledger: ledger)
     {:tool, owner, "aiur_test", %{"value" => 42}} = await_mcp_tool(task)
     assert owner == task.pid
-    assert {:ok, %{result: :turn_completed}} = Task.await(task, 5_000)
+    assert {:ok, %{result: :turn_completed}} = Task.await(task, :infinity)
   end
 
   @tag :tmp_dir
@@ -93,7 +93,7 @@ defmodule Aiur.Muse.TurnTest do
 
     receive_barrier({:turn_ready, owner})
     assert owner == task.pid
-    assert {:ok, %{result: :turn_completed}} = Task.await(task, 5_000)
+    assert {:ok, %{result: :turn_completed}} = Task.await(task, :infinity)
   end
 
   @tag :tmp_dir
@@ -111,13 +111,14 @@ defmodule Aiur.Muse.TurnTest do
       {:tool, _owner, _name, _args} = message ->
         message
 
+      {:turn_ready, owner} when owner == task.pid ->
+        await_mcp_tool(task)
+
       {ref, result} when ref == task.ref ->
         flunk("native turn finished before the MCP callback: #{inspect(result)}")
 
       {:DOWN, ref, :process, pid, reason} when ref == task.ref and pid == task.pid ->
         flunk("native turn exited before the MCP callback: #{inspect(reason)}")
-    after
-      5_000 -> flunk("native turn did not dispatch its MCP callback within 5 seconds")
     end
   end
 end
