@@ -5,9 +5,9 @@ defmodule Aiur.CodingAgent.ChildSpecsTest do
 
   test "child_specs/0 collects registry-declared children once, in init_order" do
     entries = %{
-      "late" => %{init_order: 2, children: [Agent]},
-      "early" => %{init_order: 1, children: [Task, Agent]},
-      "none" => %{init_order: 0}
+      "a-late" => %{init_order: 2, children: [Agent]},
+      "b-early" => %{init_order: 1, children: [Task, Agent]},
+      "c-none" => %{init_order: 0}
     }
 
     assert ProvidersView.child_specs(entries) == [Task, Agent]
