@@ -7,7 +7,7 @@ function concurrencyOf(source) {
   const concurrency = source.match(/^concurrency:\n((?:  .+\n)+)/m)?.[1];
   assert.ok(concurrency, 'workflow must declare concurrency');
   const group = concurrency.match(/^  group: (.+)$/m)?.[1];
-  const cancel = concurrency.match(/^  cancel-in-progress: \$\{\{ (.+) \}\}$/m)?.[1];
+  const cancel = concurrency.match(/^  cancel-in-progress: (.+)$/m)?.[1];
   assert.ok(group && cancel, 'group and cancellation expressions must exist');
   assert.ok(!/^  queue:/m.test(concurrency), 'keep the default single pending slot');
   return { group, cancel };
@@ -31,15 +31,22 @@ function policy(event, ref, runId, attempt = 1, pr = 42, name = 'ci', action = '
   return resolve({ group, cancel }, github);
 }
 function resolve(expressions, github) {
+  const cancel = expressions.cancel === 'true' ? true : expressions.cancel === 'false' ? false : evaluate(expressions.cancel.replace(/^\$\{\{\s*|\s*\}\}$/g, ''), github);
   return {
     group: expressions.group.replace(/\$\{\{ (.*?) \}\}/g, (_, expression) => evaluate(expression, github)),
-    cancel: evaluate(expressions.cancel, github),
+    cancel,
   };
 }
-assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'other').cancel, false);
-assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'ci:full').cancel, true);
+assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'synchronize').cancel, true);
+for (const action of ['opened', 'reopened', 'ready_for_review', 'labeled']) {
+  assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', action, 'other').cancel, false,
+    `${action} with the same head must not cancel active CI`);
+}
+assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'ci:full').cancel, true,
+  'the ci:full label replaces the earlier fast run');
 
-// Existing event policies deliberately remain unchanged, including exact groups.
+// A new head replaces its first-attempt run, but same-head PR events do not.
+// Merge-queue entry also cancels the matching PR group.
 // Main pushes keep only the newest commit's run; its reruns stay independent (#4980).
 for (const runId of [100, 101]) {
   assert.deepEqual(policy('push', 'refs/heads/main', runId), { group: 'ci-push-main-1', cancel: false });
