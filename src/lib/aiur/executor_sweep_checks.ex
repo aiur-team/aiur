@@ -106,9 +106,10 @@ defmodule Aiur.ExecutorSweep.Checks do
     failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
     approved = approved_current_head?(pr)
     landing = value(pr, :in_merge_queue, false) or value(pr, :auto_merge, false)
+    landing_known = value(pr, :landing_state_known?, Map.has_key?(pr, :in_merge_queue) and Map.has_key?(pr, :auto_merge))
 
     # A cached row can keep "open" after the merge; merged_at is the landing proof (#5119).
-    if value(pr, :state, "open") == "open" and is_nil(value(pr, :merged_at, nil)) and approved and (failures != [] or not landing) do
+    if value(pr, :state, "open") == "open" and is_nil(value(pr, :merged_at, nil)) and approved and (failures != [] or (landing_known and not landing)) do
       [approved_pr_finding(pr, failures, base_checks)]
     else
       []

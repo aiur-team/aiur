@@ -79,7 +79,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
         []
 
       key ->
-        case deposit_unless_older(key, body, version) do
+        case deposit_unless_older(key, body, version, accepted_body(type, body)) do
           :unchanged ->
             []
 
@@ -92,6 +92,9 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
 
   defp record_progress(:branch_pull_request, id, body, repo), do: ProgressStore.delivery(id, body, repo)
   defp record_progress(_type, _id, _body, _repo), do: :ok
+
+  defp accepted_body(:branch_pull_request, body), do: &merge_sweep_metadata(&1, body)
+  defp accepted_body(_type, body), do: fn _held -> body end
 
   @spec store_thread_transition(String.t(), term(), String.t(), map(), String.t() | nil, String.t() | nil) :: [ResourceStore.key()]
   def store_thread_transition(repo, id, action, thread, generation, version) do
@@ -141,10 +144,10 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
   # every later conditional read is a 200 instead of a free `304`. The store
   # keeps a held validator when the body is unchanged, so a re-delivery of the
   # same body never knocks out a GitHub ETag a fetch already recorded (#2126).
-  defp deposit_unless_older(key, body, version) do
+  defp deposit_unless_older(key, body, version, accepted_body) do
     ResourceStore.update_resource(
       key,
-      &accept(&1, &2, body, version),
+      &accept(&1, &2, body, version, accepted_body),
       source: :webhook,
       version: version,
       etag: :derive
@@ -154,9 +157,24 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
   # Answers the body to deposit, or `:unchanged` to decline the write — evaluated
   # by the store inside its swap, so `held` is the marker the entry carries at
   # that instant rather than one read a round trip earlier.
-  defp accept(_held_body, %{version: held}, body, version) do
-    if ResourceStore.regression?(held, version), do: :unchanged, else: body
+  defp accept(held_body, %{version: held}, _body, version, accepted_body) do
+    if ResourceStore.regression?(held, version), do: :unchanged, else: accepted_body.(held_body)
   end
+
+  # The poll writes these GraphQL-only fields as a partial update. A subsequent
+  # webhook carries a whole REST-shaped body, so keep those facts only when the
+  # pull request identity and version still match the row the poll observed.
+  # A changed head or updated_at must invalidate the old landing verdict.
+  defp merge_sweep_metadata(%{"head" => %{"sha" => sha}, "updated_at" => updated_at} = held, body)
+       when is_binary(sha) and is_binary(updated_at) do
+    if get_in(body, ["head", "sha"]) == sha and Map.get(body, "updated_at") == updated_at do
+      Map.merge(body, Map.take(held, ~w(review_decision approved_head_sha reviewed_head_sha mergeable mergeQueueEntry autoMergeRequest created_at ready_for_review_at)))
+    else
+      body
+    end
+  end
+
+  defp merge_sweep_metadata(_held, body), do: body
 
   # The transition carries its own ordering clock. The marker stores the
   # transition's `updated_at` under `"updated_at"`, so it never shares the
