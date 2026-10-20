@@ -15,10 +15,12 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   alias Aiur.Orchestrator.PressureAdmission
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RunTelemetry
   alias Aiur.SystemCpu
 
   @capacity_backoff_alert_ms 30_000
+  @pressure_bypass_slots 4
   # Sample under a prewarm hold: flickering ready/:building across ticks drops
   # `load`/`memory`/`fd` from the constraint set, and IssueSync restarts the age
   # of a persistent gate. Probe only when ready work exists,
@@ -96,27 +98,77 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
 
     case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
       {:hold, reason} ->
-        # Every admission signal is sampled independently above, so the binding
-        # signal is normally already recorded and re-recording it would add a
-        # duplicate identity. Fall back to it only when nothing was sampled, so
-        # a held fleet always carries at least one constraint and
-        # `capacity_starved` can never read an empty list and silently clear.
-        state
-        |> CapacityConstraints.record_fallback_binding_constraint(reason)
-        |> reconcile_capacity_hold({:hold, reason}, now_ms, opts)
+        hold_dispatch(state, reason, issues, choose_fun, now_ms, opts)
 
       :dispatch ->
-        state =
-          reconcile_capacity_hold(
-            state,
-            envelope_hold(state, envelope_value, envelope_target, envelope_schedulers, queued_demand?),
-            now_ms,
-            opts
-          )
-
-        choose_fun.(state, issues)
+        dispatch_after_envelope(state, issues, choose_fun, {envelope_value, envelope_target, envelope_schedulers}, queued_demand?, now_ms, opts)
     end
   end
+
+  defp hold_dispatch(state, %{signal: :cpu_pressure} = reason, issues, choose_fun, now_ms, opts) do
+    state = hold_dispatch(state, reason, now_ms, opts)
+
+    if PressureAdmission.priority_bypass_allowed?(state.dispatch_capacity_sample),
+      do: dispatch_urgent_under_pressure(state, issues, choose_fun),
+      else: state
+  end
+
+  defp hold_dispatch(state, reason, _issues, _choose_fun, now_ms, opts) do
+    hold_dispatch(state, reason, now_ms, opts)
+  end
+
+  defp dispatch_urgent_under_pressure(state, issues, choose_fun) do
+    effective = Slots.effective_concurrent_agent_limit(state)
+    bypass_limit = min(Slots.max_concurrent_agent_limit(state), effective + @pressure_bypass_slots)
+    bypass_policy_state = %{state | effective_concurrent_agents: bypass_limit}
+    urgent = Enum.find(issues, &(urgent_priority?(&1) and DispatchPolicy.dispatch_candidate?(&1, bypass_policy_state)))
+
+    if urgent && has_priority_bypass_slot?(state, urgent, bypass_limit) do
+      dispatch_reserved_priority_issue(state, urgent, bypass_limit, choose_fun)
+    else
+      state
+    end
+  end
+
+  defp has_priority_bypass_slot?(state, issue, bypass_limit) do
+    reserved = map_size(state.priority_dispatch_reservations) - if(Map.has_key?(state.priority_dispatch_reservations, issue.id), do: 1, else: 0)
+    Slots.used_slots(state) + reserved < bypass_limit
+  end
+
+  defp dispatch_reserved_priority_issue(state, urgent, bypass_limit, choose_fun) do
+    # Keep the temporary ceiling tied to this P1 while validation is
+    # asynchronous. The envelope itself must remain unchanged after this poll,
+    # or later polls would compound the allowance.
+    reservations = Map.put(state.priority_dispatch_reservations, urgent.id, bypass_limit)
+    dispatch_state = %{state | effective_concurrent_agents: bypass_limit, priority_dispatch_reservations: reservations}
+    chosen = choose_fun.(dispatch_state, [urgent])
+    chosen = %{chosen | effective_concurrent_agents: state.effective_concurrent_agents}
+
+    if TrackerTasks.running?(chosen, {:dispatch, urgent.id}) do
+      chosen
+    else
+      %{chosen | priority_dispatch_reservations: Map.delete(chosen.priority_dispatch_reservations, urgent.id)}
+    end
+  end
+
+  defp hold_dispatch(state, reason, now_ms, opts) do
+    # Every admission signal is sampled independently above, so the binding
+    # signal is normally already recorded. Fall back only when none was sampled.
+    state
+    |> CapacityConstraints.record_fallback_binding_constraint(reason)
+    |> reconcile_capacity_hold({:hold, reason}, now_ms, opts)
+  end
+
+  defp dispatch_after_envelope(state, issues, choose_fun, envelope, queued_demand?, now_ms, opts) do
+    {value, target, schedulers} = envelope
+    hold = envelope_hold(state, value, target, schedulers, queued_demand?)
+    state = reconcile_capacity_hold(state, hold, now_ms, opts)
+    choose_fun.(state, issues)
+  end
+
+  # A P1 may run under PSI pressure; lower priority work stays behind the gate.
+  defp urgent_priority?(%Issue{priority: 1}), do: true
+  defp urgent_priority?(_issue), do: false
 
   # Shared host-pressure probe reads for the normal dispatch path
   # (`maybe_choose_under_load/4`) and the auto-resume admission mirror

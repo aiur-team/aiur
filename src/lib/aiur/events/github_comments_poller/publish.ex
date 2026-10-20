@@ -7,7 +7,8 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
   already been processed.
   """
 
-  alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity, Publisher, Sanitizer}
+  alias Aiur.Events
+  alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity, Sanitizer}
   alias Aiur.GitHub.ResourceStore
 
   @doc false
@@ -125,7 +126,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
       |> Keyword.put(:resource_source, :poll)
       |> Keyword.put(:bypass_contamination, true)
 
-    Publisher.publish(topic, sanitized, publish_opts)
+    Events.publish(topic, sanitized, publish_opts)
   end
 
   @doc false

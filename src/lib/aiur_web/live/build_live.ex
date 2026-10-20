@@ -23,7 +23,15 @@ defmodule AiurWeb.BuildLive do
       |> DashboardShell.mount()
       |> UsageUpdates.init(connected)
       |> AwaitingCommands.mount(connected)
-      |> assign(build_state: :loading, build_snapshot: nil, route: @route, tracker_kind: Runtime.tracker_kind(), agent_kind: Runtime.agent_kind(), analytics: Presenter.analytics_navigation())
+      |> assign(
+        build_state: :loading,
+        build_snapshot: nil,
+        daemon_hint: nil,
+        route: @route,
+        tracker_kind: Runtime.tracker_kind(),
+        agent_kind: Runtime.agent_kind(),
+        analytics: Presenter.analytics_navigation()
+      )
 
     {:ok, if(connected, do: load_snapshot(socket), else: socket)}
   end
@@ -63,6 +71,8 @@ defmodule AiurWeb.BuildLive do
     end
 
     Process.send_after(self(), :build_snapshot_timeout, @snapshot_timeout_ms)
+    # The footer paints before the snapshot lands; seed it with the last daemon reading (#4915).
+    socket = assign(socket, :daemon_hint, %{daemon: DataSource.last_daemon(source, opts), now: System.system_time(:millisecond)})
     start_async(socket, :build_snapshot, fn -> DataSource.call(source, :snapshot, [opts]) end)
   end
 
@@ -129,6 +139,10 @@ defmodule AiurWeb.BuildLive do
 
   defp reason_tag(:not_wired), do: "not_wired"
   defp reason_tag(:timeout), do: "timeout"
+  defp reason_tag(:epic_config_unavailable), do: "epic_config_unavailable"
+  defp reason_tag(:settings_loading), do: "settings_loading"
+  defp reason_tag(:index_not_running), do: "index_not_running"
+  defp reason_tag(:read_failed), do: "read_failed"
   defp reason_tag(_reason), do: "unknown"
   defp state_name({:unavailable, _tag}), do: "unavailable"
   defp state_name(state), do: Atom.to_string(state)
@@ -143,7 +157,8 @@ defmodule AiurWeb.BuildLive do
       nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}
       pause_state={DashboardShell.pause_state(assigns)}>
       <div id="build-root" class="bd-root" phx-hook="BuildHome" phx-update="ignore"
-        data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}>
+        data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}
+        data-daemon={@daemon_hint && Jason.encode!(@daemon_hint)}>
         <div id="bd-usage"></div><div id="bd-offline"></div><div id="bd-fh"></div>
         <div class="bd-toolbar"><div class="bd-bar-l" id="bd-tools-l"></div><div class="bd-filters" id="bd-filters"></div><div class="bd-bar-r" id="bd-tools"></div></div>
         <div class="bd-vpw"><div class="bd-vp" id="bd-vp">

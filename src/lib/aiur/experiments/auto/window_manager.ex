@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.Auto.WindowManager do
   @moduledoc false
   use GenServer
   require Logger
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
   alias Aiur.Experiments
   alias Aiur.Experiments.Auto.{Notifier, WindowRules}
 
@@ -14,7 +14,7 @@ defmodule Aiur.Experiments.Auto.WindowManager do
 
   @impl true
   def init(opts) do
-    :ok = Exchange.subscribe("ticket.*.pr.merged")
+    :ok = Events.subscribe("ticket.*.pr.merged")
     :ok = Experiments.subscribe()
 
     state = %{

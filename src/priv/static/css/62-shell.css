@@ -134,6 +134,13 @@ html.nav-drag, html.nav-drag * { cursor: col-resize !important; user-select: non
 html.nav-collapsed .sidenav .snav { padding: .55rem 0; justify-content: center; border-radius: 9px; margin: 0 .35rem 0 .35rem; }
 }
 .snav-label { white-space: nowrap; overflow: hidden; transition: opacity .18s; }
+@media (max-width: 960px) {
+  .sidenav-nav { min-width: 0; overflow-x: auto; }
+}
+@media (max-width: 480px) {
+  .ax-mi { height: auto; min-height: 34px; }
+  .ax-mi span:not(.toggle-icon) { min-width: 0; }
+}
 .ax-drag { position: absolute; top: 0; bottom: 0; right: -5px; width: 10px; z-index: 5; cursor: col-resize; }
 .ax-drag::after { content: ""; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; background: var(--accent); opacity: 0; transition: opacity .15s; }
 .ax-drag:hover::after, html.nav-drag .ax-drag::after { opacity: .6; }
@@ -166,4 +173,5 @@ a.snav { text-decoration: none; }
   .sidenav { position: relative; top: auto; align-self: stretch; height: auto; min-height: calc(100vh - 56px); }
   .sidenav-nav { position: sticky; top: calc(56px + .6rem); }
 }
-@media (max-width: 360px) { .ax-menu { position: fixed; left: 1rem; top: 56px; } .sidenav-nav, .snav { min-width: 0; } .snav-label { max-width: 100%; text-overflow: ellipsis; } .bo-breakdown-row-top { flex-wrap: wrap; } }
+@media (max-width: 360px) { .ax-menu { position: fixed; left: 1rem; top: 56px; max-width: calc(100vw - 2rem); } .bo-breakdown-row-top { flex-wrap: wrap; } }
+@media (max-width: 480px) { .ax-mi span:not(.toggle-icon) { overflow-wrap: break-word; } }

@@ -27,12 +27,15 @@ defmodule Aiur.AppServer.RelayPortTest do
   end
 
   test "future guard: missing relay script falls back once to direct Port" do
-    {:ok, port} = Adapter.start_port(File.cwd!(), "printf 'fallback\\n'", fn _ -> :ok end, relay_script: "/missing/agent_relay.py")
+    workspace = Aiur.TestSupport.tmp_root!("relay-missing-script")
+    File.mkdir_p!(workspace)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+    {:ok, port} = Adapter.start_port(workspace, "printf 'fallback\\n'", fn _ -> :ok end, relay_script: "/missing/agent_relay.py")
     assert is_port(port)
     assert_receive {^port, {:data, {:eol, "fallback"}}}, 5_000
     {:ok, root} = Paths.runtime_state_dir()
-    assert Path.wildcard(Path.join([root, "agent-relays", "*", "spawn.json"])) == []
-    assert Path.wildcard(Path.join([root, "agent-relays", "*", "relay.json"])) == []
+    assert Path.wildcard(Path.join([root, "agent-relays", "*.#{Paths.sanitize(Path.basename(workspace))}.*"])) == []
   end
 
   test "relay preserves oversized lines and non-UTF8 provider bytes" do

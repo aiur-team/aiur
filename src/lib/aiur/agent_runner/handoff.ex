@@ -5,7 +5,6 @@ defmodule Aiur.AgentRunner.Handoff do
   alias Aiur.AgentRunner.{SessionLifecycle, TurnLoop}
   alias Aiur.AppServer.ProviderTurnLedger
   alias Aiur.AppServer.RelayPort
-  alias Aiur.Claude.DisplayTailer
   alias Aiur.Claude.Repl.Adoption, as: ReplAdoption
   alias Aiur.Claude.Repl.HookTurn
   alias Aiur.Workspace.Ownership.Adoption
@@ -111,7 +110,7 @@ defmodule Aiur.AgentRunner.Handoff do
       "turn_state" => encode(state),
       "turn_context" => encode(context),
       "queued_frames" => encode(frames),
-      "display_state" => encode(display_state()),
+      "display_state" => encode(display_state(session)),
       "transport" => transport
     }
 
@@ -120,9 +119,9 @@ defmodule Aiur.AgentRunner.Handoff do
     park(record, session)
   end
 
-  defp display_state do
+  defp display_state(session) do
     case Process.get(:handoff_display_tailer) do
-      pid when is_pid(pid) -> DisplayTailer.handoff_state(pid)
+      pid when is_pid(pid) -> Aiur.CodingAgent.display_tailer(session.backend).handoff_state(pid)
       _ -> nil
     end
   catch

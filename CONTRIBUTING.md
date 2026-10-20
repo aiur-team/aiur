@@ -50,7 +50,8 @@ untrusted input.
 
 Aim for 200 lines and give a cohesion reason above that target. The required
 `workflow security` job rejects new text paths over 500 lines and growth of
-paths already over 500, comparing Git blobs against the event's base commit.
+paths already over 500, comparing Git blobs against the event's base commit;
+skills and third-party vendored directories are exempt from the line-count rule.
 Existing oversized files may stay unchanged or shrink; renames and copies to
 new paths must fit the limit. Text becoming binary is rejected. Binary files
 are otherwise skipped, and symlinks are reported without following them.
@@ -155,7 +156,11 @@ test count in each PR body. Tagged tests also run in normal partitioned CI.
   `shard-flake-evidence-<shard>-<attempt>` artifact, including `attempt.json`
   and `flakes.ndjson`. On a successful rerun of the same workflow run and SHA,
   the ledger records each previously failing ExUnit test with its shard, run
-  ID, failed/passed attempts, and seeds (null when the log has no seed).
+  ID, failed/passed attempts, and seeds (null when the log has no seed). The
+  landing watcher groups failures from one merge-group attempt by test module:
+  it files one ticket for the module with the most failed tests (first module
+  wins ties), lists other modules as likely cascades, and does not quarantine
+  tests based only on that mixed-module attempt.
   The job summary shows the count and test names. Download these artifacts to
   count recurrence; they use GitHub's repository artifact retention policy.
   Ledger and artifact errors are non-blocking so they cannot fail a passing shard.
@@ -173,6 +178,16 @@ Pull requests, draft or ready, run the fast set: `changes`, workflow security
 (structure and PR-body gates), `lint` (including warning-free compilation and
 repository guards), affected tests on the merge with the base, and the aggregate
 `ci gate`. Mark completed work ready **before** entering `agent:ci-wait`.
+
+A PR also soaks the tests it adds or modifies (`scripts/ci-soak.py`): each
+changed ExUnit file runs 10 times, one `mix test` per fresh `--seed`, at
+`--max-cases 8`; each changed Playwright spec runs with `--repeat-each=5`. Any
+failure fails `ci gate`. **To reproduce a soak failure, copy the command from the
+`::error::` line**, for example
+`cd src && mix test --seed 482913 --max-cases 8 test/aiur/foo_test.exs`; the
+seed fixes the test order, so the same seed fails the same way. Fix the test
+before merging it. See
+[PR checks](website/docs-app/reference/pr-checks.md) for the limits.
 
 Merge groups and manual dispatches run the full set, including coverage, tests,
 Dialyzer, browser harness, release smoke, analytics and Stream Deck checks.

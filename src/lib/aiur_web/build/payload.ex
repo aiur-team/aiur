@@ -30,7 +30,7 @@ defmodule AiurWeb.Build.Payload do
   | status | done, failed, not_planned, closed, running, queued, open |
   | pct / est | 0..100 or nil / number of hours or nil |
   | agent | nil or nullable model, name, state and effort |
-  | agent.state | active, error, retries, command, paused, parked, or nil |
+  | agent.state | active, error, retrying, retries, command, paused, parked, or nil |
   | agent.effort | none, minimal, low, medium, high, xhigh, max, or nil |
   | override | nil or hours (number), reason (string), by (string or nil), at (ms or nil) |
   | added / deps / children | boolean / blocker identifiers / dependent identifiers |
@@ -61,8 +61,8 @@ defmodule AiurWeb.Build.Payload do
   nullable string accounts, nullable session/weekly windows, nullable credits,
   and boolean none. Windows require nullable 0..100 acc values, nullable reset_at
   milliseconds and nullable string win. Optional row fields carry lines (tagged
-  windows with tip pairs and nullable hold_until), icon, stale, observed_at and
-  note. Credits require nullable pct, string left and
+  windows with tip pairs and nullable hold_until), icon, stale, observed_at,
+  snapshot_observed_at and note. Credits require nullable pct, string left and
   two-string tip pairs. Unavailable usage requires observed_at and reason.
   Locked usage requires only state/accessible_name/authentication_path/reason.
   Repo is nil or a url string; writable is boolean.

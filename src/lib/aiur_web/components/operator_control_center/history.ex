@@ -38,6 +38,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:history, :list, default: [])
   attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, default: false)
+  attr(:live_connected, :boolean, default: true)
   attr(:filter, :atom, default: :all)
   attr(:query, :map, default: %{})
   attr(:time_zone, :string, default: "Etc/UTC")
@@ -74,6 +75,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
               history={@history}
               action_state={@action_state}
               writable={@writable}
+              live_connected={@live_connected}
               filter={@filter}
               query={@query}
               time_zone={@time_zone}
@@ -100,6 +102,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:history, :list, required: true)
   attr(:action_state, :map, required: true)
   attr(:writable, :boolean, required: true)
+  attr(:live_connected, :boolean, default: true)
   attr(:filter, :atom, required: true)
   attr(:query, :map, required: true)
   attr(:time_zone, :string, default: "Etc/UTC")
@@ -168,6 +171,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
             history={@history}
             action_state={@action_state}
             writable={@writable}
+            live_connected={@live_connected}
             filter={@filter}
             query={@query}
           />

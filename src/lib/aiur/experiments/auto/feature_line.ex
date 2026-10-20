@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.Auto.FeatureLine do
   @moduledoc false
   use GenServer
   require Logger
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
   alias Aiur.Experiments.Auto.FeaturePoll
   alias Aiur.Experiments.Paths
   alias Aiur.RunTelemetry.FeatureEpics
@@ -18,7 +18,7 @@ defmodule Aiur.Experiments.Auto.FeatureLine do
     opts = Keyword.put_new_lazy(opts, :path, fn -> Path.join(Paths.root(), "auto-features.json") end)
     repo = Keyword.get(opts, :managed_repo, Paths.repo())
     :ok = FeatureEpics.subscribe(repo)
-    :ok = Exchange.subscribe("ticket.*.pr.merged")
+    :ok = Events.subscribe("ticket.*.pr.merged")
     if not Keyword.get(opts, :start_paused?, false), do: send(self(), :poll)
     {:ok, %{opts: opts, task: nil, task_refresh?: false, timer: nil, refresh?: true, status: :pending, epics: %{}}}
   end

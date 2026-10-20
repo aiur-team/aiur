@@ -86,6 +86,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur agents [--json]   show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
+       aiur answer <decision-id> (--option <id>|--custom-response <text>) --operator
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
        aiur executor-reclassify <decision-id> --expected-version <n> --rationale <text> [--executor-id <id>]
        aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
@@ -106,12 +107,13 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
+       aiur experiments abandon <id> --reason <text> --confirm [--json]
        aiur experiments show <id> [--json] | freeze <id> [--window before|after|observation] [--reason <text>] [--json]
        aiur experiments events <id> [--json] [--refresh]
        aiur experiments create --from <file|-> | --title <title> --line <type>:<ref>[@time] --metric <pack>/<metric>[:direction] [--draft] [--no-freeze] [--json]
        aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
-       aiur alerts [--needs-attention] [--limit <n> | --all]  show structured alert feed
+       aiur alerts [--needs-attention] [--limit <n> | --all] | ack ticket.<id>.agent.attention.duplicate-dispatch --executor-id <id>  show or acknowledge duplicate-dispatch alerts
        aiur executor-sweep [--json] [--apply]  inspect local Executor findings
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur listen [--topic <pattern> | --ticket <id>]  stream events as JSON lines
@@ -130,6 +132,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
+       aiur take <id> | release <id>  mark or release an Executor-owned ticket
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur pr merge <N> --reviewed-sha <sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]
@@ -247,6 +250,10 @@ aiur_engine_main() {
       shift
       cmd_executor_answer "$@"
       ;;
+    answer)
+      shift
+      cmd_operator_answer "$@"
+      ;;
     executor-escalate)
       shift
       cmd_executor_escalate "$@"
@@ -340,9 +347,12 @@ aiur_engine_main() {
       shift
       cmd_upgrade "$@"
       ;;
-    pause | resume | park)
+    pause | resume | park | take | release)
       shift
-      cmd_pause_resume "$cmd" "$@"
+      case "$cmd" in
+        take | release) cmd_executor_ownership "$cmd" "$@" ;;
+        *) cmd_pause_resume "$cmd" "$@" ;;
+      esac
       ;;
     reset-budget)
       shift

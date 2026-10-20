@@ -2,13 +2,18 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
-const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-const concurrency = workflow.match(/^concurrency:\n((?:  .+\n)+)/m)?.[1];
-assert.ok(concurrency, 'workflow must declare concurrency');
-const group = concurrency.match(/^  group: (.+)$/m)?.[1];
-const cancel = concurrency.match(/^  cancel-in-progress: \$\{\{ (.+) \}\}$/m)?.[1];
-assert.ok(group && cancel, 'group and cancellation expressions must exist');
-assert.ok(!/^  queue:/m.test(concurrency), 'keep the default single pending slot');
+const read = (file) => readFileSync(new URL(`../.github/workflows/${file}`, import.meta.url), 'utf8');
+function concurrencyOf(source) {
+  const concurrency = source.match(/^concurrency:\n((?:  .+\n)+)/m)?.[1];
+  assert.ok(concurrency, 'workflow must declare concurrency');
+  const group = concurrency.match(/^  group: (.+)$/m)?.[1];
+  const cancel = concurrency.match(/^  cancel-in-progress: (.+)$/m)?.[1];
+  assert.ok(group && cancel, 'group and cancellation expressions must exist');
+  assert.ok(!/^  queue:/m.test(concurrency), 'keep the default single pending slot');
+  return { group, cancel };
+}
+const workflow = read('ci.yml');
+const { group, cancel } = concurrencyOf(workflow);
 
 // These expressions use the shared JS/Actions operators and format syntax only.
 function evaluate(expression, github) {
@@ -23,15 +28,30 @@ function policy(event, ref, runId, attempt = 1, pr = 42, name = 'ci', action = '
     workflow: name, event_name: event, ref, run_id: runId, run_attempt: attempt,
     event: event === 'pull_request' ? { action, label: { name: label }, pull_request: { number: pr } } : {},
   };
+  return resolve({ group, cancel }, github);
+}
+function resolve(expressions, github) {
+  const cancel = expressions.cancel === 'true' ? true : expressions.cancel === 'false' ? false : evaluate(expressions.cancel.replace(/^\$\{\{\s*|\s*\}\}$/g, ''), github);
   return {
-    group: group.replace(/\$\{\{ (.*?) \}\}/g, (_, expression) => evaluate(expression, github)),
-    cancel: evaluate(cancel, github),
+    group: expressions.group.replace(/\$\{\{ (.*?) \}\}/g, (_, expression) => evaluate(expression, github)),
+    cancel,
   };
 }
-assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'other').cancel, false);
-assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'ci:full').cancel, true);
+assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'synchronize').cancel, true);
+for (const action of ['opened', 'reopened', 'ready_for_review', 'labeled']) {
+  assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', action, 'other').cancel, false,
+    `${action} with the same head must not cancel active CI`);
+}
+assert.equal(policy('pull_request', 'refs/pull/42/merge', 100, 1, 42, 'ci', 'labeled', 'ci:full').cancel, true,
+  'the ci:full label replaces the earlier fast run');
 
-// Existing event policies deliberately remain unchanged, including exact groups.
+// A new head replaces its first-attempt run, but same-head PR events do not.
+// Merge-queue entry also cancels the matching PR group.
+// Main pushes keep only the newest commit's run; its reruns stay independent (#4980).
+for (const runId of [100, 101]) {
+  assert.deepEqual(policy('push', 'refs/heads/main', runId), { group: 'ci-push-main-1', cancel: false });
+  assert.deepEqual(policy('push', 'refs/heads/main', runId, 2), { group: `ci-push-${runId}-2`, cancel: false });
+}
 for (const [event, ref] of [
   ['push', 'refs/heads/v2'],
   ['merge_group', 'refs/heads/gh-readonly-queue/main/pr-42-abc'],
@@ -55,6 +75,17 @@ for (const pr of [42, 43]) {
     });
   }
 }
+// Entering the merge queue joins the PR's initial ci group and cancels its head run.
+const queue = concurrencyOf(read('merge-queue-ci.yml'));
+for (const pr of [42, 43]) {
+  const github = (action, runId) => ({ run_id: runId, event: { action, pull_request: { number: pr } } });
+  assert.deepEqual(resolve(queue, github('enqueued', 200)),
+    { group: policy('pull_request', `refs/pull/${pr}/merge`, 100, 1, pr).group, cancel: true });
+  assert.deepEqual(resolve(queue, github('dequeued', 200)), { group: 'merge-queue-ci-200', cancel: false });
+}
+const rerequest = read('merge-queue-ci.yml');
+assert.ok(/types: \[enqueued, dequeued\]/.test(rerequest), 'merge queue ci must react to queue entry and ejection');
+assert.ok(/gh run rerun "\$run"/.test(rerequest), 'an ejected PR must rerun its cancelled head ci');
 const security = workflow.match(/^  workflow-security:\n([\s\S]*?)(?=^  build:)/m)?.[1];
 assert.ok(security?.includes('run: node scripts/test-ci-concurrency.mjs'),
   'workflow security must execute this test');

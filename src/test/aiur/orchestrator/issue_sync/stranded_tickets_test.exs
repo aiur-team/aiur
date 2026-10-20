@@ -10,6 +10,23 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTicketsTest do
   alias Aiur.Orchestrator.State
 
   describe "sync_stranded_ticket_reconciliation (#2361)" do
+    test "an Executor-owned released claim is not re-queued or announced as stranded" do
+      held = %{
+        issue("held", "in-progress")
+        | executor_owner: "codex",
+          state_labels: ["in-progress"]
+      }
+
+      state = %State{released_claims: %{held.id => %{cause: :tracker_retry_exhausted}}}
+
+      assert ^state =
+               IssueSync.sync_stranded_ticket_reconciliation(
+                 state,
+                 [held],
+                 fn _id, _target -> flunk("must leave an Executor-owned ticket unchanged") end
+               )
+    end
+
     test "strand sweep treats a queued marker-only ticket as legitimately unowned" do
       topic = "ticket.its-everdred/aiur#queued.agent.attention.stranded-requeued"
       Publisher.set_tracked_fn(fn _ -> true end)
@@ -67,6 +84,81 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTicketsTest do
       assert alert["reason"] =~ "restored todo"
     end
 
+    test "does not claim a stranded restore when the tracker write failed" do
+      stranded = issue("failed-restore", "rework")
+      topic = "ticket.#{stranded.identifier}.agent.attention.stranded-requeued"
+      failed_topic = "ticket.#{stranded.identifier}.agent.attention.stranded-requeue-failed"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+      :ok = Exchange.subscribe(failed_topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      state = %State{
+        released_claims: %{"failed-restore" => %{cause: :tracker_retry_exhausted}}
+      }
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          state,
+          [stranded],
+          fn _identifier, _target -> {:error, :tracker_unavailable} end
+        )
+
+      assert next_state.released_claims == state.released_claims
+      refute_receive {:event, %{topic: ^topic}}, 50
+      assert_receive {:event, %{topic: ^failed_topic} = alert}, 1000
+      assert alert["needs_attention"] == true
+      assert alert["reason"] =~ "tracker rejected"
+    end
+
+    test "does not restore a stale rework snapshot over a current ci-wait label" do
+      current = %{issue("queued-ci", "rework") | state_labels: ["ci-wait"]}
+
+      state = %State{
+        released_claims: %{"queued-ci" => %{cause: :tracker_retry_exhausted}},
+        last_polled_issues: %{current.id => issue("queued-ci", "rework")}
+      }
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          state,
+          [current],
+          fn _identifier, _target -> flunk("must not overwrite a current CI wait") end
+        )
+
+      assert next_state == state
+    end
+
+    test "a same-state tracker write does not claim the label was restored" do
+      stranded = %{issue("already-rework", "rework") | state_labels: ["rework"]}
+      topic = "ticket.#{stranded.identifier}.agent.attention.stranded-requeued"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      IssueSync.sync_stranded_ticket_reconciliation(
+        %State{
+          released_claims: %{stranded.id => %{cause: :tracker_retry_exhausted}},
+          last_polled_issues: %{stranded.id => stranded}
+        },
+        [stranded],
+        fn _identifier, "rework" -> :ok end
+      )
+
+      assert_receive {:event, %{topic: ^topic} = alert}, 1000
+      assert alert["message"] =~ "already in rework"
+      refute alert["message"] =~ "restored"
+      refute alert["reason"] =~ "restored"
+    end
+
     test "leaves a released-claim ticket with a scheduled transient resume alone" do
       recovered = issue("recovered", "rework")
 
@@ -120,6 +212,44 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTicketsTest do
         )
 
       assert next_state.released_claims == %{}
+    end
+
+    test "restores an approved queued stranded PR to ci-wait without requeueing work" do
+      for {identifier, projection} <- [
+            {"approved-queued", %{merge_queue_entry: %{id: "queue"}, auto_merge_request: nil}},
+            {"approved-auto-merge", %{merge_queue_entry: nil, auto_merge_request: %{enabled_at: "now"}}}
+          ] do
+        waiting = issue(identifier, "rework")
+
+        state = %State{
+          released_claims: %{waiting.id => %{cause: :tracker_retry_exhausted}},
+          ci_lifecycle: %{poll_cache: %{waiting.identifier => Map.put(projection, :review_decision, "APPROVED")}}
+        }
+
+        parent = self()
+
+        next_state =
+          IssueSync.sync_stranded_ticket_reconciliation(state, [waiting], fn id, target ->
+            send(parent, {:restored, id, target})
+            :ok
+          end)
+
+        expected_identifier = "its-everdred/aiur##{identifier}"
+        assert_receive {:restored, ^expected_identifier, "ci-wait"}, 1000
+        assert next_state.released_claims == %{}
+      end
+    end
+
+    test "closed and done tickets are excluded from stranded repair" do
+      for terminal_state <- ["closed", "done"] do
+        closed = issue("closed-#{terminal_state}", terminal_state)
+        state = %State{released_claims: %{closed.id => %{cause: :tracker_retry_exhausted}}}
+
+        assert ^state =
+                 IssueSync.sync_stranded_ticket_reconciliation(state, [closed], fn _identifier, _target ->
+                   flunk("a terminal ticket must not be requeued")
+                 end)
+      end
     end
 
     test "re-queues a zero-label non-dispatchable ticket to its last known state and alerts" do

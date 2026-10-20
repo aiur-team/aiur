@@ -98,9 +98,8 @@ defmodule Aiur.Orchestrator.ControlCLI.Output do
   end
 
   @spec print_global_pause_control_error(atom()) :: :ok
-  def print_global_pause_control_error(action) do
-    noun = if action == :pause, do: "pause", else: "resume"
-    control_error("error: aiur is globally paused; per-ticket #{noun} has no effect.")
+  def print_global_pause_control_error(_action) do
+    control_error("error: aiur is globally paused; per-ticket resume is refused while new starts are paused.")
     control_error("Run `aiurdev resume` (no arguments) to lift the global pause.")
   end
 end

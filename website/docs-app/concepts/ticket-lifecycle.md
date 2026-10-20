@@ -29,7 +29,7 @@ todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelle
 | `agent:rework` | CI or review requires another run. |
 | `agent:merging` | An accepted PR entering merge. Active for polling but **never dispatchable**. |
 | `agent:done` | Work complete. Terminal. |
-| `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. With `pr_health.enabled`, an error ticket whose open PR has a blocking `CHANGES_REQUESTED` review moves to `agent:rework` once per review (`system.pr_health.error_rework`). |
+| `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. With `pr_health.enabled`, an error ticket whose open, non-draft PR has a blocking `CHANGES_REQUESTED` review at its head moves to `agent:rework` once per review. |
 | `agent:cancelled` / `agent:canceled` | Terminal cancellation. **Both spellings exist**; both are real labels. |
 
 The terminal states are exactly `done | cancelled | canceled`
@@ -104,6 +104,11 @@ against `tracker.base_branch`. An approved exact head tolerates overlap-only
 staleness. Unapproved stale heads need no conflicts or changed-file overlap
 since the merge base, including both paths of renames. Incomplete evidence or
 genuine conflicts leave labels unchanged.
+
+A worker's `human-review` handback
+goes to `ci-wait` instead when the PR is approved and that approval carries to
+the head: approved at the head, or only merge drift since. A rework handback
+keeps `human-review`.
 
 A rework handback to `ci-wait` or `human-review` must answer the latest
 blocking review. Its numbered `file:line` items form the rework prompt's

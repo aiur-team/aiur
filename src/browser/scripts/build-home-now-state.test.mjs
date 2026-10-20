@@ -19,7 +19,9 @@ test('unknown and prototype states remain unknown', () => {
 });
 test('AST matches the vendored design and stays frozen', () => {
   const { AST: design } = loadBuildJs({ designDir: fileURLToPath(new URL('../../test/fixtures/build_home/design-source/', import.meta.url)), expose: ['AST'] });
-  assert.deepEqual(AST, JSON.parse(JSON.stringify(design)));
+  const { retrying, ...designStates } = AST;
+  assert.deepEqual(designStates, JSON.parse(JSON.stringify(design)));
+  assert.deepEqual(retrying, { label: 'Retrying', cls: 'queued' });
   assert.ok(Object.isFrozen(AST));
   for (const key of Object.keys(AST)) {
     assert.equal(agentState(key), AST[key]);
