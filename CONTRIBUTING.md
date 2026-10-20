@@ -156,7 +156,11 @@ test count in each PR body. Tagged tests also run in normal partitioned CI.
   `shard-flake-evidence-<shard>-<attempt>` artifact, including `attempt.json`
   and `flakes.ndjson`. On a successful rerun of the same workflow run and SHA,
   the ledger records each previously failing ExUnit test with its shard, run
-  ID, failed/passed attempts, and seeds (null when the log has no seed).
+  ID, failed/passed attempts, and seeds (null when the log has no seed). The
+  landing watcher groups failures from one merge-group attempt by test module:
+  it files one ticket for the module with the most failed tests (first module
+  wins ties), lists other modules as likely cascades, and does not quarantine
+  tests based only on that mixed-module attempt.
   The job summary shows the count and test names. Download these artifacts to
   count recurrence; they use GitHub's repository artifact retention policy.
   Ledger and artifact errors are non-blocking so they cannot fail a passing shard.

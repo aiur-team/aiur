@@ -102,8 +102,16 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
       pid2 =
         start_store!(dir,
           dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end,
-          terminal_ticket_resolver: fn _identifiers -> {:ok, MapSet.new()} end
+          terminal_ticket_resolver: fn _identifiers ->
+            send(parent, {:failure_reprojection_started, self()})
+
+            receive do
+              :continue_failure_reprojection -> {:ok, MapSet.new()}
+            end
+          end
         )
+
+      assert_receive {:failure_reprojection_started, reprojection_task}, 1_000
 
       assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
@@ -112,6 +120,12 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
       # for the restore projection and its synchronous alert-ledger append.
       assert {:ok, restored} = DecisionStore.get(decision.decision_id, pid2)
       assert restored.delivery_status == :queued
+
+      # Let the delayed startup task run only after restoration has been
+      # projected. It must re-read the current decision before re-raising its
+      # boot snapshot, and this barrier waits until that check is complete.
+      send(reprojection_task, :continue_failure_reprojection)
+      assert :ok = DecisionStore.await_failure_attention_reprojection(pid2)
       assert AlertFeed.condition_state(topic, roots: [], log_roots: [log_root]) == :resolved
       assert case_attention_alerts(log_root, topic) == []
     end
