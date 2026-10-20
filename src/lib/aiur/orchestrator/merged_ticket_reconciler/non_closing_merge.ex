@@ -24,11 +24,10 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.NonClosingMerge do
 
   @spec record_triage(term(), Issue.t(), RecentMerge.t(), keyword(), function(), function()) :: term()
   def record_triage(state, issue, merge, opts, record, alert) do
-    state = record.(state, issue, merge)
     persist = Keyword.get(opts, :mark_reference_merge_reconciled_fun, &RecentMergeStore.mark_ticket_reconciled/2)
 
     case persist.(merge.id, issue.identifier) do
-      :ok -> state
+      :ok -> record.(state, issue, merge)
       {:error, reason} -> alert.(state, issue, merge, reason, opts)
       other -> alert.(state, issue, merge, {:unexpected_store_result, other}, opts)
     end
@@ -57,8 +56,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.NonClosingMerge do
     lookup = Keyword.get(opts, :reference_merge_reconciled_fun, &RecentMergeStore.ticket_reconciled?/2)
     lookup.(merge.id, issue.identifier) == true
   rescue
-    _error -> true
+    _error -> false
   catch
-    :exit, _reason -> true
+    :exit, _reason -> false
   end
 end

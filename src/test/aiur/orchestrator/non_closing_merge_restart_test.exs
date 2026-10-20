@@ -69,6 +69,26 @@ defmodule Aiur.Orchestrator.NonClosingMergeRestartTest do
              )
   end
 
+  test "a failed reconciliation lookup allows triage to retry" do
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    merge = stored_merge("Refs #1570")
+    {:ok, writes} = Agent.start_link(fn -> [] end)
+
+    assert {%State{}, []} =
+             MergedTicketReconciler.reconcile(%State{}, [issue],
+               recent_merges_fun: fn -> [merge] end,
+               now_fun: fn -> @now end,
+               reference_merge_reconciled_fun: fn _, _ -> raise "store lookup failed" end,
+               mark_reference_merge_reconciled_fun: fn _, _ -> :ok end,
+               update_issue_state_fun: fn _, _, _ -> Agent.update(writes, &[:state | &1]) end,
+               add_label_fun: fn _, _ -> Agent.update(writes, &[:marker | &1]) end,
+               create_comment_fun: fn _, _ -> Agent.update(writes, &[:comment | &1]) end
+             )
+
+    assert Enum.sort(Agent.get(writes, & &1)) == [:comment, :marker, :state]
+    Agent.stop(writes)
+  end
+
   defp stored_merge(summary) do
     event = %{
       "id" => "evt-reference-1600",
