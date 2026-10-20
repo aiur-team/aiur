@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 import time
-from components.reference_rules import RULES, STRICT_RULES, edge_rules, report_cycles, seam_rules
+from components.reference_rules import RULES, STRICT_RULES, edge_rules, namespace_private, report_cycles, seam_rules
 from components.ratchet import growth_errors, stale_entries, write_summary
 from components.manifest import read_manifest, write_manifest
 from components.docs_rules import check_docs
@@ -293,6 +293,10 @@ def module_violations(root, manifest, file_owners):
                                   'reference' if kind in ('alias', 'literal') else kind, path)
         for rule in strict:
             violations.setdefault((rule, source, target), f'{path}:{line} ({source_module})')
+        # Namespace privacy also covers aliases/literals and composition-root wiring.
+        destination = modules.get(target)
+        if destination is not None and source != destination and namespace_private(components[destination], target):
+            violations.setdefault(('R-private', source, target), f'{path}:{line} ({source_module})')
         # Preserve the structural graph's exclusion of declarations and literals.
         if kind in ('alias', 'literal'):
             continue
