@@ -71,8 +71,13 @@ export async function measureBrowserWork(page, { operation, targetSelector = '#g
     return { warmups, samples, observedLongTasks }
   }, { operation, targetSelector, warmups, repetitions })
 
-  for (const sample of measurement.samples) {
-    sample.longTasks = longTasksInWindow(measurement.observedLongTasks, sample.window.start, sample.window.end)
+  const longTasksBySample = longTasksInWindows(
+    measurement.observedLongTasks,
+    measurement.samples.map(sample => sample.window)
+  )
+
+  for (const [index, sample] of measurement.samples.entries()) {
+    sample.longTasks = longTasksBySample[index]
     delete sample.window
   }
 
@@ -81,10 +86,26 @@ export async function measureBrowserWork(page, { operation, targetSelector = '#g
   return measurement
 }
 
-export function longTasksInWindow(entries, start, end) {
-  return entries
-    .filter(entry => entry.startTime < end && entry.startTime + entry.duration > start)
-    .map(entry => entry.duration)
+export function longTasksInWindows(entries, windows) {
+  const tasksByWindow = windows.map(() => [])
+
+  for (const entry of entries) {
+    const taskEnd = entry.startTime + entry.duration
+    let bestIndex = -1
+    let bestOverlap = 0
+
+    for (const [index, window] of windows.entries()) {
+      const overlap = Math.max(0, Math.min(taskEnd, window.end) - Math.max(entry.startTime, window.start))
+      if (overlap > bestOverlap) {
+        bestIndex = index
+        bestOverlap = overlap
+      }
+    }
+
+    if (bestIndex >= 0) tasksByWindow[bestIndex].push(entry.duration)
+  }
+
+  return tasksByWindow
 }
 
 export function assertMeasurementBudget(measurement, budget) {

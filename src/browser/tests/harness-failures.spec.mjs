@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 import { browserChildEnvironment, fixtureServerEnvironment, sanitizeDiagnostic, syntheticFixtureEnvironment } from '../scripts/artifact-sanitizer.mjs'
 import playwrightConfig from '../playwright.config.mjs'
 import { createArtifactRoot } from '../scripts/run-browser-tests.mjs'
-import { assertMeasurementBudget, longTasksInWindow } from './support/measurements.mjs'
+import { assertMeasurementBudget, longTasksInWindows } from './support/measurements.mjs'
 
 test('diagnostic sanitization preserves only synthetic fixture settings', () => {
   const environment = {
@@ -88,17 +88,25 @@ test('every post-warmup measurement dimension participates in the budget', () =>
 })
 
 test('long-task budgets cover measured windows and use CI p95 without weakening local checks', () => {
-  expect(longTasksInWindow([
+  const windows = Array.from({ length: 20 }, (_, index) => ({ start: index * 10, end: (index + 1) * 10 }))
+  const attributed = longTasksInWindows([
     { startTime: 9, duration: 1 },
-    { startTime: 10, duration: 51 },
-    { startTime: 15, duration: 52 },
-    { startTime: 20, duration: 90 }
-  ], 10, 20)).toEqual([51, 52])
-  expect(longTasksInWindow([{ startTime: 9, duration: 2 }], 10, 20)).toEqual([2])
+    { startTime: 19, duration: 2 },
+    { startTime: 19, duration: 51 },
+    { startTime: 45, duration: 2 },
+    { startTime: 200, duration: 90 }
+  ], windows)
 
-  const samples = Array.from({ length: 20 }, (_, index) => ({ longTasks: index === 19 ? [63] : [] }))
+  // Crossing tasks belong to one window only, including a boundary tie.
+  expect(attributed[2]).toEqual([51])
+  expect(attributed[1]).toEqual([2])
+  expect(attributed[4]).toEqual([2])
+  expect(attributed.flat()).toEqual([1, 2, 51, 2])
+
+  const samples = Array.from({ length: 20 }, (_, index) => ({ longTasks: attributed[index] }))
   expect(() => assertMeasurementBudget({ samples }, { maxLongTaskMs: 50, longTaskPercentile: 95 })).not.toThrow()
   samples[18].longTasks = [63]
+  samples[19].longTasks = [63]
   expect(() => assertMeasurementBudget({ samples }, { maxLongTaskMs: 50, longTaskPercentile: 95 })).toThrow(/p95 long task 63ms exceeded 50ms/)
   expect(() => assertMeasurementBudget({ samples: [{ longTasks: [] }, { longTasks: [51] }] }, { maxLongTaskMs: 50 })).toThrow(/long task 51ms exceeded 50ms/)
 })
