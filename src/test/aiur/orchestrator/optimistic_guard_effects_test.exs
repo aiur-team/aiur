@@ -315,6 +315,9 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffectsTest do
     [ref] = Map.keys(state.tracker_tasks)
     assert_receive {^ref, observations}, 1_000
     assert {:handled, state} = TrackerTasks.result(state, ref, observations)
+    [recovery_ref] = Map.keys(state.tracker_tasks)
+    assert_receive {^recovery_ref, :ok}, 1_000
+    assert {:handled, state} = TrackerTasks.result(state, recovery_ref, :ok)
     assert [%{key: {:optimistic_attention, "11"}}] = Map.values(state.tracker_tasks)
     assert_receive {:cleanup_owner, task}, 1_000
     refute task == owner
