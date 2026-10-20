@@ -72,6 +72,23 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
     state
   end
 
+  def execute(state, {:merged_notice, dep, blocker}, opts) do
+    ledger = Keyword.get(opts, :ledger, OptimisticLedger)
+
+    with {:ok, row} when is_map(row) <- ledger.get(dep),
+         facts when is_map(facts) <- Enum.find(row["blockers"], &(&1["id"] == blocker)),
+         false <- facts["merged_notice_emitted"] == true do
+      TrackerTasks.run(
+        state,
+        {:optimistic_attention, dep},
+        fn -> emit_merged_notice(ledger, dep, blocker, opts) end,
+        fn current, result -> report(current, dep, result) end
+      )
+    else
+      _ -> state
+    end
+  end
+
   def execute(state, {:park, dep, blocker, cause}, opts) do
     ledger = Keyword.get(opts, :ledger, OptimisticLedger)
 
@@ -100,6 +117,13 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
 
   def execute(state, {:resolve, _cause, dep}, opts),
     do: TrackerTasks.run(state, {:optimistic_attention, dep}, fn -> attention(:resolve, dep, %{}, opts) end, fn current, result -> report(current, dep, result) end)
+
+  defp emit_merged_notice(ledger, dep, blocker, opts) do
+    with :ok <- attention(:resolve, dep, %{}, opts),
+         :ok <- attention(:open, dep, %{blocker: blocker, cause: :merged, action: :none, severity: "info"}, opts) do
+      ledger.update_blocker(dep, blocker, %{merged_notice_emitted: true})
+    end
+  end
 
   defp pause_and_finish(state, dep, blocker, cause, facts, opts) do
     {state, paused?} = pause(state, dep, facts, opts)
@@ -205,6 +229,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
     end
   end
 
+  defp attention_key(%{cause: :merged, action: :none}), do: "merged_notice_emitted"
   defp attention_key(%{action: :none}), do: "info_attention_emitted"
   defp attention_key(_), do: "attention_emitted"
 

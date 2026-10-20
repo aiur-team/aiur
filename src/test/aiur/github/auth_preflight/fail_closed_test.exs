@@ -87,7 +87,7 @@ defmodule Aiur.GitHub.AuthPreflight.FailClosedTest do
       assert diagnostic.reason == :invalid_or_expired_token
       assert diagnostic.status == 401
       assert diagnostic.message =~ "GITHUB_TOKEN"
-      refute inspect(diagnostic) =~ "preflight-token"
+      Aiur.TestSupport.refute_leak(diagnostic, "preflight-token")
     end
 
     # No 403 invalidates. A rate-limit 403 is a quota problem and a permission
@@ -220,7 +220,7 @@ defmodule Aiur.GitHub.AuthPreflight.FailClosedTest do
 
       assert :ok = AuthPreflight.ensure_preflight(opts)
 
-      refute inspect(AuthPreflight.memoized_identity()) =~ "preflight-token"
+      Aiur.TestSupport.refute_leak(AuthPreflight.memoized_identity(), "preflight-token")
     end
   end
 end

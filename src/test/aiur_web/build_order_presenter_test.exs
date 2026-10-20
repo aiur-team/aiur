@@ -78,7 +78,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     assert model.relationships.capabilities.chat.available? == false
     assert model.relationships.diagnostics == []
 
-    refute inspect(model) =~ "issue body"
+    Aiur.TestSupport.refute_leak(model, "issue body")
     refute Map.has_key?(active_node.card, :body)
     refute Map.has_key?(active_node.card, :description)
   end
@@ -258,7 +258,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
 
     assert length(model.edges) == 1
     assert node(model, 1).activity.provenance == %{}
-    refute inspect(model) =~ token
+    Aiur.TestSupport.refute_leak(model, token)
   end
 
   test "reports an unavailable provider as a provider problem, not a malformed graph" do

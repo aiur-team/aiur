@@ -82,7 +82,7 @@ defmodule Aiur.Codex.RateLimitAdapterTest do
     assert normalized.auth_mode == :api_key
     assert normalized.plan == nil
     assert normalized.windows["api:credits"].credits == %{status: :available}
-    refute inspect(normalized) =~ "secret-money"
+    Aiur.TestSupport.refute_leak(normalized, "secret-money")
   end
 
   test "treats notifications as sparse patches and ignores nullable fields" do
@@ -139,7 +139,7 @@ defmodule Aiur.Codex.RateLimitAdapterTest do
 
     assert normalized.windows["default:primary"].used_percent == 50
     assert normalized.source_version == 144_004
-    refute inspect(normalized) =~ "future-only"
+    Aiur.TestSupport.refute_leak(normalized, "future-only")
   end
 
   test "a full snapshot removes omitted windows through the existing reconciliation contract" do
@@ -238,8 +238,8 @@ defmodule Aiur.Codex.RateLimitAdapterTest do
     }
 
     assert {:ok, update} = RateLimitAdapter.snapshot(response, make_ref(), :subscription, @observed_at)
-    refute inspect(update) =~ "person@example.test"
-    refute inspect(update) =~ "secret"
+    Aiur.TestSupport.refute_leak(update, "person@example.test")
+    Aiur.TestSupport.refute_leak(update, "secret")
   end
 
   test "canonicalizes unsafe arbitrary IDs without retaining their source value" do
@@ -256,7 +256,7 @@ defmodule Aiur.Codex.RateLimitAdapterTest do
 
     assert [limit_id] = Map.keys(normalized.windows)
     assert String.starts_with?(limit_id, "opaque-")
-    refute inspect(normalized) =~ raw_limit_id
+    Aiur.TestSupport.refute_leak(normalized, raw_limit_id)
   end
 
   test "bounds hostile multi-limit input before projection expansion" do

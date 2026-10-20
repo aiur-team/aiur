@@ -77,7 +77,7 @@ defmodule Aiur.Capabilities.OptionalProvidersTest do
       assert Voice.evaluate(context, inputs()) == %{"voice.stt" => @available, "voice.tts" => @not_configured}
     end
 
-    refute inspect(Voice.evaluate(@context, inputs())) =~ "secret-key"
+    Aiur.TestSupport.refute_leak(Voice.evaluate(@context, inputs()), "secret-key")
   end
 
   test "HTTP-dependent optional IDs require a bound listener in either run shape" do

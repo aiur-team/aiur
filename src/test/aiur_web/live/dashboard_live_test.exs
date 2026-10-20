@@ -1362,7 +1362,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert socket.assigns.financial_data_capability.state == :locked
     assert socket.assigns.payload.fleet.agent_totals == %{seconds_running: 41}
     refute Map.has_key?(socket.assigns.payload.fleet, :rate_limits)
-    refute inspect(socket, limit: :infinity, printable_limit: :infinity) =~ sentinel
+    Aiur.TestSupport.refute_leak(socket, sentinel)
     refute render(redirected) =~ sentinel
     refute log =~ sentinel
   end
@@ -1403,8 +1403,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert socket.assigns.financial_data_capability == %{state: :authorized, version: 1}
     assert %AiurWeb.FinancialDataAccess.Context{} = socket.private.aiur_financial_data_access
-    refute inspect(socket.private.aiur_financial_data_access) =~ "operator"
-    refute inspect(socket.private.aiur_financial_data_access) =~ "socket-bound-secret"
+    Aiur.TestSupport.refute_leak(socket.private.aiur_financial_data_access, "operator")
+    Aiur.TestSupport.refute_leak(socket.private.aiur_financial_data_access, "socket-bound-secret")
     assert socket.assigns.writable == false
   end
 
