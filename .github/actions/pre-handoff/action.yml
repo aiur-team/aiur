@@ -14,7 +14,7 @@ runs:
         restore-keys: ${{ runner.os }}-plt-
     - name: Test PR evidence and handoff guard
       shell: bash
-      run: python3 scripts/test-check-pr-body.py && python3 scripts/test-check-pr-body-compare.py && python3 scripts/test-check-pr-body-check-run.py && bash scripts/test-pre-handoff-guards.sh
+      run: python3 scripts/test-check-pr-body.py && python3 scripts/test-check-pr-body-closing.py && python3 scripts/test-check-pr-body-compare.py && python3 scripts/test-check-pr-body-check-run.py && bash scripts/test-pre-handoff-guards.sh
     - name: Run pre-handoff guards
       shell: bash
       env:
