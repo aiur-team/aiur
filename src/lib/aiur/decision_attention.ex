@@ -341,6 +341,7 @@ defmodule Aiur.DecisionAttention do
       issue: issue,
       workspace: nil,
       worker_host: nil,
+      restored?: true,
       slug: slug,
       question: question,
       opened_at: source_created_at || state.now_fun.(),

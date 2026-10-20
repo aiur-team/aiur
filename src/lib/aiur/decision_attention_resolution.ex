@@ -7,17 +7,26 @@ defmodule Aiur.DecisionAttentionResolution do
   def pid_alive?(pid) when is_integer(pid) and pid > 0 do
     case :os.type() do
       {:unix, :linux} -> proc_pid_alive?(pid)
-      _ -> ps_pid_alive?(pid)
+      {:unix, :darwin} -> ps_pid_alive?(pid)
+      _ -> true
     end
   rescue
     _error -> true
   end
 
   defp proc_pid_alive?(pid) do
-    case File.stat("/proc/#{pid}") do
-      {:ok, _stat} -> true
-      {:error, :enoent} -> false
-      {:error, _reason} -> ps_pid_alive?(pid)
+    case File.read("/proc/#{pid}/status") do
+      {:ok, status} ->
+        case Regex.run(~r/^State:\s+(\w)/m, status, capture: :all_but_first) do
+          [state] -> process_state_alive?(state)
+          _ -> true
+        end
+
+      {:error, :enoent} ->
+        false
+
+      {:error, _reason} ->
+        ps_pid_alive?(pid)
     end
   end
 
@@ -27,12 +36,17 @@ defmodule Aiur.DecisionAttentionResolution do
         true
 
       ps ->
-        case System.cmd(ps, ["-p", Integer.to_string(pid), "-o", "pid="], stderr_to_stdout: true) do
-          {output, 0} -> String.trim(output) == Integer.to_string(pid)
+        case System.cmd(ps, ["-p", Integer.to_string(pid), "-o", "stat="], stderr_to_stdout: true) do
+          {output, 0} -> process_state_alive?(String.trim(output))
           {_output, _status} -> true
         end
     end
   end
+
+  @doc false
+  @spec process_state_alive?(String.t()) :: boolean()
+  def process_state_alive?(<<state::binary-size(1), _rest::binary>>), do: state != "Z"
+  def process_state_alive?(_state), do: false
 
   @spec acknowledged?(String.t()) :: boolean()
   def acknowledged?(topic), do: AlertFeed.condition_state(topic) == :resolved
@@ -51,11 +65,19 @@ defmodule Aiur.DecisionAttentionResolution do
     topic = "ticket.#{identifier}.agent.attention.duplicate-dispatch"
     acknowledged? = state.attention_acknowledged?.(topic)
 
-    if acknowledged? or not is_nil(Map.get(attention, :worker_host)) do
+    if acknowledged? do
       acknowledged?
     else
-      pids = Regex.scan(~r/\bpid\s+(\d+)\b/, question, capture: :all_but_first) |> List.flatten()
-      pids != [] and Enum.count(pids, &state.pid_alive?.(String.to_integer(&1))) <= 1
+      pid_state_known? =
+        is_nil(Map.get(attention, :worker_host)) and
+          not Map.get(attention, :restored?, false)
+
+      if pid_state_known? do
+        pids = Regex.scan(~r/\bpid\s+(\d+)\b/, question, capture: :all_but_first) |> List.flatten()
+        pids != [] and Enum.count(pids, &state.pid_alive?.(String.to_integer(&1))) <= 1
+      else
+        false
+      end
     end
   end
 

@@ -271,6 +271,13 @@ defmodule Aiur.DecisionAttentionResolutionTest do
     end
   end
 
+  test "PID liveness treats a zombie process as exited on macOS" do
+    assert DecisionAttentionResolution.process_state_alive?("S")
+    assert DecisionAttentionResolution.process_state_alive?("R+")
+    refute DecisionAttentionResolution.process_state_alive?("Z")
+    refute DecisionAttentionResolution.process_state_alive?("")
+  end
+
   test "remote duplicate-dispatch PIDs are not checked on the daemon host" do
     attention = %{
       issue: %Issue{identifier: "REMOTE-5133"},
@@ -281,6 +288,24 @@ defmodule Aiur.DecisionAttentionResolutionTest do
 
     state = %{pid_alive?: fn _pid -> false end, attention_acknowledged?: fn _topic -> false end}
     refute DecisionAttentionResolution.resolve?(attention, state)
+  end
+
+  test "restored duplicate-dispatch attention ignores historical PIDs but can be acknowledged" do
+    attention = %{
+      issue: %Issue{identifier: "RESTORED-5133"},
+      slug: "duplicate-dispatch",
+      worker_host: nil,
+      restored?: true,
+      question: "Two sessions: pid 101 and pid 202"
+    }
+
+    state = %{
+      pid_alive?: fn _pid -> false end,
+      attention_acknowledged?: fn _topic -> false end
+    }
+
+    refute DecisionAttentionResolution.resolve?(attention, state)
+    assert DecisionAttentionResolution.resolve?(attention, %{state | attention_acknowledged?: fn _ -> true end})
   end
 
   defp append_attention(ledger, attention, needs_attention) do
