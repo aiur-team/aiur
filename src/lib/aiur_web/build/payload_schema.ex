@@ -95,8 +95,8 @@ defmodule AiurWeb.Build.PayloadSchema do
     do: %{
       "state" => {:literal, "authorized"},
       "observed_at" => nullable(:integer),
-      "apis" => list(object(provider(), ~w(lines icon stale observed_at note))),
-      "providers" => list(object(provider(), ~w(lines icon stale observed_at note)))
+      "apis" => list(object(provider(), ~w(lines icon stale observed_at snapshot_observed_at note))),
+      "providers" => list(object(provider(), ~w(lines icon stale observed_at snapshot_observed_at note)))
     }
 
   def usage(_state), do: nil
@@ -133,6 +133,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "icon" => nullable(enum(~w(github bars))),
       "stale" => :boolean,
       "observed_at" => nullable(:integer),
+      "snapshot_observed_at" => nullable(:integer),
       "note" => nullable(:string)
     }
   end
