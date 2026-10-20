@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.ClosedRepair do
     open_ids = MapSet.new(issues, & &1.identifier)
 
     merges
-    |> Enum.filter(&recent_closing_merge?(&1, now))
+    |> Enum.filter(&recent_attributed_merge?(&1, now))
     |> Enum.reject(&(MapSet.member?(open_ids, &1.ticket_id) or checked?(state, &1)))
     |> Enum.uniq_by(& &1.ticket_id)
     |> Enum.take(@max_repairs_per_poll)
@@ -53,11 +53,10 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.ClosedRepair do
   defp checked?(%State{} = state, %RecentMerge{ticket_id: id, id: merge_id}),
     do: MapSet.member?(state.merged_ticket_reconciliations, {id, merge_id})
 
-  defp recent_closing_merge?(%RecentMerge{ticket_id: id, merged_by: actor, merged_at: %DateTime{} = at} = merge, now)
+  defp recent_attributed_merge?(%RecentMerge{ticket_id: id, merged_by: actor, merged_at: %DateTime{} = at}, now)
        when is_binary(id) and is_binary(actor) and actor != "" do
-    DateTime.diff(now, at, :second) <= @stale_merge_after_seconds and
-      id in RecentMerge.closing_issue_identifiers(merge)
+    DateTime.diff(now, at, :second) <= @stale_merge_after_seconds
   end
 
-  defp recent_closing_merge?(_, _), do: false
+  defp recent_attributed_merge?(_, _), do: false
 end

@@ -50,10 +50,14 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
 
     {state, issues} =
       MergedTicketReconciler.reconcile(%State{}, [issue],
-        recent_merges_fun: fn -> [merged_pr("Refs #1570")] end,
+        recent_merges_fun: fn -> [%{merged_pr("Refs #1570") | ticket_id: "1570"}] end,
         now_fun: fn -> @now end,
         update_issue_state_fun: fn id, target, expected ->
           send(parent, {:transition, id, target, expected})
+          :ok
+        end,
+        add_label_fun: fn id, label ->
+          send(parent, {:label, id, label})
           :ok
         end,
         create_comment_fun: fn id, body ->
@@ -62,7 +66,8 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
         end
       )
 
-    assert_receive {:transition, "1570", "needs-triage", "in-progress"}, 1000
+    assert_receive {:label, "1570", "needs-triage"}, 1000
+    assert_receive {:transition, "1570", "human-review", "in-progress"}, 1000
     assert_receive {:comment, "1570", body}, 1000
     assert body =~ "PR #1600"
     assert body =~ "https://github.com/owner/repo/pull/1600"
@@ -115,12 +120,12 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
     refute opts[:reason] =~ "atomic"
   end
 
-  test "does not repair a closed zero-label ticket from branch identity without a closing keyword" do
+  test "repairs a closed zero-label ticket from its merged branch identity" do
     issue = %Issue{id: "1570", identifier: "1570", state: "Closed", state_labels: []}
     merge = %{merged_pr(nil) | ticket_id: "1570"}
     parent = self()
 
-    {state, [^issue]} =
+    {state, []} =
       MergedTicketReconciler.reconcile(%State{}, [issue],
         recent_merges_fun: fn -> [merge] end,
         now_fun: fn -> @now end,
@@ -135,12 +140,12 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
         end
       )
 
-    assert state == %State{}
-    refute_receive {:transition, "1570", "done", :none}, 100
-    refute_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", _opts}, 100
+    assert_receive {:transition, "1570", "done", :none}, 1000
+    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", _opts}, 1000
+    assert MapSet.member?(state.merged_ticket_reconciliations, {"1570", merge.id})
   end
 
-  test "does not repair a closed branch ticket absent from the open candidate list without a closing keyword" do
+  test "repairs a closed branch ticket absent from the open candidate list" do
     merge = %{merged_pr(nil) | ticket_id: "1571", merged_by: "its-everdred"}
     parent = self()
 
@@ -158,9 +163,9 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
         emit_alert_fun: fn topic, _opts -> send(parent, {:alert, topic}) end
       )
 
-    refute_receive {:transition, "1571", "done", :none}, 100
-    refute_receive {:alert, "ticket.1571.dependency.merged_blocker_reconciled"}, 100
-    assert state == %State{}
+    assert_receive {:transition, "1571", "done", :none}, 1000
+    assert_receive {:alert, "ticket.1571.dependency.merged_blocker_reconciled"}, 1000
+    assert MapSet.member?(state.merged_ticket_reconciliations, {"1571", merge.id})
   end
 
   test "a healthy closed merge ticket is conditionally checked once" do

@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.MergeTransition do
   alias Aiur.GitHub.{Config, IssueState}
   alias Aiur.GitHub.Errors, as: GitHubErrors
   alias Aiur.GitHub.LocalHold
+  alias Aiur.Orchestrator.TicketTransition
 
   @terminal_write_attempts 3
 
@@ -63,6 +64,20 @@ defmodule Aiur.Orchestrator.MergeTransition do
   def write_terminal_target(target, identifier, update_issue_state_fun, opts)
       when target in ["rework", "ci-wait", "human-review"] do
     retry_terminal_write(fn -> update_issue_state_fun.(to_string(identifier), target) end, opts)
+  end
+
+  def write_terminal_target("needs-triage", identifier, update_issue_state_fun, opts) do
+    identifier = to_string(identifier)
+    marker = Keyword.get(opts, :non_closing_merge_marker, Aiur.Config.settings!().agent.non_closing_merge_marker || "needs-triage")
+    add_marker = Keyword.get(opts, :add_label_fun, fn id, label -> TicketTransition.write_marker(id, :add, label, writer: :comment_wake) end)
+    comment = Keyword.get(opts, :create_comment_fun, fn id, body -> TicketTransition.write_comment(id, body, writer: :comment_wake) end)
+    number = Keyword.get(opts, :pr_number, "unknown")
+    url = Keyword.get(opts, :pr_url, "")
+
+    with :ok <- add_marker.(identifier, marker),
+         :ok <- update_issue_state_fun.(identifier, "human-review") do
+      comment.(identifier, "Merged PR ##{number} (#{url}) references this ticket without a closing keyword; moved to human-review with `#{marker}` for triage.")
+    end
   end
 
   def write_terminal_target({:error, _} = error, _identifier, _update_issue_state_fun, _opts),

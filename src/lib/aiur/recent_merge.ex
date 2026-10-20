@@ -157,7 +157,7 @@ defmodule Aiur.RecentMerge do
          {:ok, number} <- positive_integer(Map.get(pull, "number"), :number),
          {:ok, url} <- normalize_url(Map.get(pull, "html_url"), repository, number),
          {:ok, title} <- optional_text(Map.get(pull, "title"), @title_max, :title),
-         {:ok, summary} <- normalized_summary(Map.get(pull, "body")),
+         {:ok, summary} <- normalized_summary(Map.get(pull, "body"), repository),
          {:ok, head_ref} <- optional_text(get_in(pull, ["head", "ref"]), @ref_max, :head_ref),
          {:ok, head_sha} <- optional_text(get_in(pull, ["head", "sha"]), @identity_max, :head_sha),
          {:ok, merge_sha} <-
@@ -387,9 +387,10 @@ defmodule Aiur.RecentMerge do
 
   defp optional_text(_value, _max, field), do: {:error, {field, :invalid_type}}
 
-  defp normalized_summary(body) do
+  defp normalized_summary(body, repository) do
     with {:ok, summary} <- optional_text(body, @summary_max, :summary) do
-      {:ok, ClosingReferences.preserve(summary, ClosingReferences.references(body), @summary_max)}
+      summary = ClosingReferences.preserve(summary, ClosingReferences.references(body), @summary_max)
+      {:ok, ClosingReferences.preserve_references(summary, body, repository, @summary_max)}
     end
   end
 

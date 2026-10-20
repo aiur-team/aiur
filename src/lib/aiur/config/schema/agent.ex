@@ -250,6 +250,10 @@ defmodule Aiur.Config.Schema.Agent do
     # observed in this window, wake the agent for one recovery check.
     # @config-reference config-configuration-agent-00 agent.ci_wait_rewake_minutes | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
     field(:ci_wait_rewake_minutes, :integer, default: 5)
+    # Marker applied when a merged PR references its ticket without closing it.
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.non_closing_merge_marker | string | `needs-triage` | Label added to a ticket when its merged PR does not contain a GitHub closing keyword. The ticket remains open in human-review. |
+    field(:non_closing_merge_marker, :string, default: "needs-triage")
 
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.unreviewed_pr_age_limit_minutes | positive integer | 120 | Re-raises ready PRs with green CI and no review after this many minutes; reminders repeat with the same interval. |
@@ -388,6 +392,7 @@ defmodule Aiur.Config.Schema.Agent do
         :stall_timeout_ms,
         :max_agent_duration_minutes,
         :ci_wait_rewake_minutes,
+        :non_closing_merge_marker,
         :unreviewed_pr_age_limit_minutes,
         :ci_recovery_enabled,
         :ci_recovery_max_per_poll,
@@ -432,6 +437,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
     |> validate_number(:ci_wait_rewake_minutes, greater_than: 0)
+    |> validate_length(:non_closing_merge_marker, min: 1)
     |> validate_number(:unreviewed_pr_age_limit_minutes, greater_than: 0)
     |> validate_number(:ci_recovery_max_per_poll, greater_than: 0)
     |> validate_number(:ci_recovery_max_per_hour, greater_than: 0)

@@ -118,7 +118,7 @@ defmodule Aiur.RecentMergeStoreTest do
   end
 
   test "ignores a closing keyword buried in prose" do
-    assert closing_identifiers_for("See also closed #55 last week") == []
+    assert closing_identifiers_for("See also closed #55 last week") == ["55"]
   end
 
   test "accepts the documented keyword set, list items, and owner/repo references" do
@@ -142,6 +142,9 @@ defmodule Aiur.RecentMergeStoreTest do
     # rather than guessing that a qualified reference is local.
     assert RecentMerge.closing_issue_identifiers_in_body("Closes owner/repo#176") == []
     assert RecentMerge.closing_issue_identifiers_in_body("Closes #176", nil) == ["176"]
+    assert RecentMerge.closing_issue_identifiers_in_body("fixes: #176", "owner/repo") == ["176"]
+    assert RecentMerge.closing_issue_identifiers_in_body("It does not close #176 yet.", "owner/repo") == ["176"]
+    assert RecentMerge.closing_issue_identifiers_in_body("Closes https://github.com/owner/repo/issues/176", "owner/repo") == ["176"]
   end
 
   test "reads explicit Refs lines for non-closing merge triage" do
@@ -161,6 +164,13 @@ defmodule Aiur.RecentMergeStoreTest do
     assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
     assert String.length(merge.summary) <= 500
     assert RecentMerge.closing_issue_identifiers(merge) == ["1570"]
+  end
+
+  test "retains a same-repository Refs line beyond the bounded merged PR summary" do
+    event = merged_event(%{"payload" => %{"pull_request" => merged_pr(%{"body" => String.duplicate("x", 600) <> "\nRefs #1570"})}})
+    assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
+    assert String.length(merge.summary) <= 500
+    assert RecentMerge.referenced_issue_identifiers_in_body(merge.summary, "owner/repo") == ["1570"]
   end
 
   test "each reference retained past the summary bound keeps its own keyword" do

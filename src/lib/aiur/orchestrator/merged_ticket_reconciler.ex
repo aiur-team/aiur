@@ -42,6 +42,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
 
   alias Aiur.Orchestrator.MergedTicketReconciler.ClosedRepair
   alias Aiur.Orchestrator.MergedTicketReconciler.OpenPullRequestTarget
+  alias Aiur.Orchestrator.MergedTicketReconciler.NonClosingMerge
 
   require Logger
 
@@ -104,16 +105,17 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   end
 
   defp reconcile_merged_ticket(state, %Issue{} = issue, merge, opts, retained) do
-    OptimisticLedger.close(issue.identifier, :merged, System.system_time(:millisecond))
+    unless NonClosingMerge.reference_only?(issue, merge),
+      do: OptimisticLedger.close(issue.identifier, :merged, System.system_time(:millisecond))
 
-    if TrackerTasks.owner?(state) and not reference_only_merge?(issue, merge) do
+    if TrackerTasks.owner?(state) do
       input = Reconciler.issue_input(state, issue.id)
 
       state =
         TrackerTasks.run(
           state,
           {:merged_reconcile, issue.id},
-          fn -> fetch_merged_ticket_state({issue, opts}) end,
+          fn -> fetch_merged_ticket_state({issue, merge, opts}) end,
           fn arg1, arg2 ->
             apply_merged_ticket_state(arg1, arg2, {input, issue, merge, opts})
           end
@@ -142,7 +144,11 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
     TrackerTasks.run(
       state,
       {:merged_reconcile, issue.id},
-      fn -> update.(issue.identifier, target, expected_state(issue)) end,
+      fn ->
+        if target == "needs-triage",
+          do: NonClosingMerge.write_target(issue, merge, expected_state(issue), opts, update),
+          else: update.(issue.identifier, target, expected_state(issue))
+      end,
       fn current, result ->
         if Reconciler.issue_input(current, issue.id) == input do
           apply_merged_result(current, issue, merge, opts, {:transition, target, result})
@@ -161,15 +167,17 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
       Keyword.put(opts, :update_issue_state_fun, fn _identifier, _target, _expected -> result end)
 
     {state, _retained} =
-      if target == "done",
-        do: reconcile_merged_ticket_to_done(state, issue, merge, opts, []),
-        else: reconcile_merged_ticket_remaining_open(state, issue, merge, target, opts, [])
+      cond do
+        target == "done" -> reconcile_merged_ticket_to_done(state, issue, merge, opts, [])
+        target == "needs-triage" -> if(result == :ok, do: {record_reconciled(state, issue, merge), []}, else: {state, [issue]})
+        true -> reconcile_merged_ticket_remaining_open(state, issue, merge, target, opts, [])
+      end
 
     if result == :ok, do: Lifecycle.wake_tick(state), else: state
   end
 
   defp reconcile_merged_ticket_sync(state, %Issue{} = issue, merge, opts, retained) do
-    if reference_only_merge?(issue, merge) do
+    if NonClosingMerge.reference_only?(issue, merge) do
       reconcile_reference_only_ticket(state, issue, merge, opts, retained)
     else
       reconcile_closing_merge_ticket(state, issue, merge, opts, retained)
@@ -180,6 +188,12 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
     case merged_ticket_target_for_issue(issue, opts) do
       {:ok, "done"} ->
         reconcile_merged_ticket_to_done(state, issue, merge, opts, retained)
+
+      {:ok, "needs-triage"} ->
+        case NonClosingMerge.write_target(issue, merge, issue.state, opts, NonClosingMerge.update_issue_state_fun(opts)) do
+          :ok -> {record_reconciled(state, issue, merge), retained}
+          {:error, reason} -> {emit_failed_alert(state, issue, merge, reason, opts), [issue | retained]}
+        end
 
       {:ok, target} when target in ["rework", "ci-wait", "human-review"] ->
         reconcile_merged_ticket_remaining_open(state, issue, merge, target, opts, retained)
@@ -193,23 +207,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
     end
   end
 
-  defp reference_only_merge?(%Issue{identifier: identifier}, %RecentMerge{} = merge) do
-    identifier in RecentMerge.referenced_issue_identifiers_in_body(merge.summary, merge.repository) and
-      identifier not in RecentMerge.closing_issue_identifiers(merge)
-  end
-
   defp reconcile_reference_only_ticket(state, issue, merge, opts, retained) do
-    target = Keyword.get(opts, :non_closing_merge_state, "needs-triage")
-
-    update =
-      Keyword.get(opts, :update_issue_state_fun, fn id, to, expected ->
-        TicketTransition.write_state(id, to, writer: :merged_ticket_reconciler, expected_state: expected)
-      end)
-
-    case update.(issue.identifier, target, issue.state) do
+    case NonClosingMerge.write_target(issue, merge, issue.state, opts, NonClosingMerge.update_issue_state_fun(opts)) do
       :ok ->
-        comment = Keyword.get(opts, :create_comment_fun, &Aiur.Tracker.create_comment/2)
-        _ = comment.(issue.identifier, "Merged PR ##{merge.number} (#{merge.url}) references this ticket without a closing keyword; moved to #{target} for triage.")
         state = record_reconciled(state, issue, merge)
         {state, retained}
 
@@ -226,7 +226,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   # Do not consult other open PRs in this repair path: they cannot make an
   # already-closed issue dispatchable again.
   defp merged_ticket_target_for_issue(%Issue{} = issue, opts) do
-    merged_ticket_target(issue.identifier, opts)
+    if closed_without_state_label?(issue), do: {:ok, "done"}, else: merged_ticket_target(issue.identifier, opts)
   end
 
   # The merge closed the ticket's last open PR: no other PR remains, so the
@@ -352,7 +352,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
        when is_binary(identifier) and is_list(merges) do
     Enum.find(merges, fn
       %RecentMerge{} = merge ->
-        (identifier in RecentMerge.closing_issue_identifiers(merge) or reference_only_merge?(issue, merge)) and
+        (identifier in RecentMerge.closing_issue_identifiers(merge) or
+           (closed_without_state_label?(issue) and merge.ticket_id == identifier) or
+           NonClosingMerge.reference_only?(issue, merge)) and
           not stale_merge?(merge, now) and
           not already_reconciled?(state, issue, merge)
 
@@ -479,8 +481,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   defp blocked_reason(0), do: "; no dependent agents are waiting on it"
   defp blocked_reason(count), do: "; #{count} dependent agent(s) remain paused"
 
-  defp fetch_merged_ticket_state({issue, opts}) do
-    merged_ticket_target_for_issue(issue, opts)
+  defp fetch_merged_ticket_state({issue, merge, opts}) do
+    if NonClosingMerge.reference_only?(issue, merge), do: {:ok, "needs-triage"}, else: merged_ticket_target_for_issue(issue, opts)
   end
 
   defp apply_merged_ticket_state(current, result, {input, issue, merge, opts}) do

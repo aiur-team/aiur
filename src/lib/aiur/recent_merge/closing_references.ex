@@ -33,6 +33,18 @@ defmodule Aiur.RecentMerge.ClosingReferences do
 
   def preserve(summary, _references, _max), do: summary
 
+  @spec preserve_references(String.t() | nil, String.t() | nil, String.t(), pos_integer()) :: String.t() | nil
+  def preserve_references(summary, body, repository, max) when is_binary(summary) do
+    missing = Enum.reject(referenced_identifiers_in_body(body, repository), &(&1 in referenced_identifiers_in_body(summary, repository)))
+
+    Enum.reduce(missing, summary, fn number, current ->
+      suffix = "\nRefs ##{number}"
+      String.slice(current, 0, max - String.length(suffix)) <> suffix
+    end)
+  end
+
+  def preserve_references(summary, _body, _repository, _max), do: summary
+
   # Each retained reference gets its own keyword on its own line: a
   # comma-chained list would silently lose every reference after the first
   # when the summary is read back.
@@ -47,18 +59,14 @@ defmodule Aiur.RecentMerge.ClosingReferences do
   defp reference_text({nil, number}), do: "##{number}"
   defp reference_text({repository, number}), do: "#{repository}##{number}"
 
-  # A keyword counts only where it opens a line, a list item, or a clause
-  # introduced by `,`, `;` or `and`, and it must be followed by its own
-  # reference. See `closing_issue_identifiers/1` for why this is narrower than
-  # GitHub in prose position.
+  # GitHub recognizes closing keywords anywhere in the body, including prose
+  # and issue URLs. Keep the parser aligned with that behavior.
   @closing_reference_regex ~r/
-    (?:^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?|[,;][ \t]*|\band[ \t]+)
-    \**
+
     (?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)
-    \**
-    (?::[ \t]*|[ \t]+)
-    (?<repository>[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?
-    \#(?<number>\d+)\b
+    [ \t]*:?[ \t]*
+    (?:(?:https?:\/\/github\.com\/)?(?<repository>[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)(?:\/issues)?\/?(?:\#)?|\#)
+    (?<number>\d+)\b
   /imx
 
   @spec references(term()) :: [{String.t() | nil, String.t()}]
@@ -76,14 +84,16 @@ defmodule Aiur.RecentMerge.ClosingReferences do
 
   def references(_text), do: []
 
-  @reference_regex ~r/(?:^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?|[,;][ \t]*|\band[ \t]+)(?:refs?|mentions?|related[ \t]+to)[ \t]+(?:[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?\#(?<number>\d+)\b/im
+  @reference_regex ~r/(?:^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?|[,;][ \t]*|\band[ \t]+)(?:refs?|mentions?|related[ \t]+to)[ \t]+(?<repository>[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?\#(?<number>\d+)\b/im
 
   @spec referenced_identifiers_in_body(String.t() | nil, String.t() | nil) :: [String.t()]
-  def referenced_identifiers_in_body(body, _repository) when is_binary(body) do
+  def referenced_identifiers_in_body(body, repository) when is_binary(body) do
     body
     |> quotable_text()
-    |> then(&Regex.scan(@reference_regex, &1, capture: :all_but_first))
-    |> Enum.map(&List.last/1)
+    |> then(&Regex.scan(@reference_regex, &1, capture: [:repository, :number]))
+    |> Enum.map(fn [reference_repository, number] -> {empty_to_nil(reference_repository), number} end)
+    |> Enum.filter(fn {reference_repository, _number} -> reference_repository == nil or same_repository?(reference_repository, repository) end)
+    |> Enum.map(&elem(&1, 1))
     |> Enum.filter(&(String.to_integer(&1) > 0))
     |> Enum.uniq()
   end

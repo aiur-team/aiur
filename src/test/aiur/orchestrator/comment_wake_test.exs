@@ -1357,8 +1357,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     # `aiur/<id>-<slug>` head branch, so a PR body deliberately written `Refs
     # #N` — GitHub's documented "related, not resolving" — used to close the
     # ticket anyway, retiring an operator's still-open acceptance checklist.
-    # The body decides the outcome now: the ticket lands in human-review, open,
-    # with no terminal teardown, and the open-PR enumeration is never even
+    # The body decides the outcome now: the ticket lands in human-review with
+    # the needs-triage marker, with no terminal teardown, and the open-PR enumeration is never even
     # reached.
     test "a merged PR whose body only refs the ticket leaves it open and never closes it" do
       issue = %Issue{
@@ -1380,10 +1380,19 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       result =
         CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
-          pr_body: "Refs #176 (merge does not close the ticket; six operator gates remain)",
+          pr_body: "Refs #176 (six operator gates remain)",
           merged_by_login: "its-everdred",
           update_issue_state_fun: fn identifier, state_name ->
             send(parent, {:transition, identifier, state_name})
+            :ok
+          end,
+          non_closing_merge_marker: "needs-triage",
+          add_label_fun: fn identifier, label ->
+            send(parent, {:label, identifier, label})
+            :ok
+          end,
+          create_comment_fun: fn identifier, body ->
+            send(parent, {:triage_comment, identifier, body})
             :ok
           end,
           clear_session_handle_fun: fn _identifier ->
@@ -1404,7 +1413,10 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           end
         )
 
+      assert_receive {:label, "176", "needs-triage"}, 1000
       assert_receive {:transition, "176", "human-review"}, 1000
+      assert_receive {:triage_comment, "176", body}, 1000
+      assert body =~ "PR #unknown"
       refute_receive {:transition, "176", "done"}, 100
       refute_receive :membership_recorded, 100
       refute_receive :session_cleared, 100

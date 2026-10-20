@@ -38,9 +38,8 @@ defmodule Aiur.Orchestrator.CommentWake do
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
 
-  # Where a merged PR that never claimed to close its ticket leaves that ticket:
-  # open, back in front of a human. Never `done` — see `merged_pr_closes_ticket?/2`.
-  @non_closing_merge_state "human-review"
+  # A non-closing PR reference is parked with this marker and remains open.
+  @non_closing_merge_state "needs-triage"
   @max_closing_refreshes 10
 
   @spec maybe_reactivate_on_comment(
@@ -65,7 +64,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   @spec mark_pr_merged_issue_done(State.t(), String.t() | integer(), keyword()) :: State.t()
   def mark_pr_merged_issue_done(%State{} = state, identifier, opts \\ []) when is_list(opts) do
-    OptimisticLedger.close(to_string(identifier), :merged, System.system_time(:millisecond))
+    if merged_pr_closes_ticket?(identifier, opts), do: OptimisticLedger.close(to_string(identifier), :merged, System.system_time(:millisecond))
 
     update_issue_state_fun =
       Keyword.get(opts, :update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
@@ -200,7 +199,9 @@ defmodule Aiur.Orchestrator.CommentWake do
         {:error, _reason} = error -> error
       end
     else
-      @non_closing_merge_state
+      if identifier in RecentMerge.referenced_issue_identifiers_in_body(Keyword.get(opts, :pr_body), merge_repository(opts)),
+        do: @non_closing_merge_state,
+        else: "human-review"
     end
   end
 
@@ -1733,7 +1734,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           current
         end
 
-      {target, :ok} when target in ["rework", "ci-wait", "human-review"] ->
+      {target, :ok} when target in ["rework", "ci-wait", "human-review", "needs-triage"] ->
         current
 
       {_, {:error, reason}} ->
