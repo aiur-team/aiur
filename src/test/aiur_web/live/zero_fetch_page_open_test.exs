@@ -1,11 +1,47 @@
 defmodule AiurWeb.ZeroFetchPageOpenTest do
   @moduledoc """
-  Every dashboard route must open against the held local snapshot without
-  fetching from GitHub. The test counts requests at Aiur's transport boundary,
-  including REST and GraphQL, and a positive control proves the counter is live.
+  A1, asserted by call count and run on every CI build: opening a dashboard page
+  against a cold store reaches GitHub **zero** times.
 
-  Shared daemon pollers are suspended during each test's recording window so
-  their independent requests cannot be mistaken for page-triggered requests.
+  There are no exceptions: every dashboard route, including `/` and
+  `/build-orders`, reaches GitHub zero times on open. The ticket backlog, Ad
+  Hoc overlay and Build Order catalog are event-sourced (#2325) — they
+  subscribe to `ResourceStore` changes and keep one listing per daemon boot, so
+  a page opens onto the held snapshot and costs nothing. The two routes that
+  used to be the deliberate one-request exceptions (a first demander buying a
+  view-originated refresh) are now asserted as zeros below, with the
+  github-tracker path proven explicitly so that zero means something.
+
+  ## Why this file is hermetic and the `:external` one is not
+
+  There is a companion measurement that reads real `x-ratelimit-used` deltas from
+  GitHub. It is the operator-facing corroboration, but it is tagged `:external`,
+  so it does **not run in CI** — which makes it useless as a regression guard. A
+  guard that never executes protects nothing.
+
+  This file therefore installs a counting plug at Aiur's own transport boundary
+  and needs no token, no network, and no tags. Every HTTP request Aiur would send
+  to GitHub — REST or GraphQL, from any module, on any code path — is counted
+  instead of sent, because `Aiur.GitHub.Transport` funnels both through
+  `request_options/2` (`transport.ex:453`) and `Transport.github_graphql/*` shares
+  that path.
+
+  Zero requests is zero rate limit by construction: no window, no shard, no
+  propagation delay to argue about.
+
+  ## The positive control is not optional
+
+  A zero from an instrument that was never wired up looks exactly like a zero
+  from a page that does not fetch. `the counter observes a real fetch` drives a
+  genuine application call through the same seam and asserts the counter fires,
+  so the zeros above it mean something. If that control ever fails, treat every
+  other assertion in this file as unproven rather than passing.
+
+  To exclude unrelated egress, the test suspends MainWatch, LandingWatch,
+  HealthScanner, HeadVerdictRouter, and ReworkRequeue after draining in-flight
+  work. They wake from timers or `pr.merged`, `branch.push`, and
+  `main.ci.failed.resolved` events; `aiur_web` cannot call or message them, so
+  suspension cannot hide a page-opened request.
   """
 
   use Aiur.TestSupport
@@ -47,8 +83,9 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   setup context do
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
 
-    suspended_watchers = ZeroFetchPageOpenWatchers.suspend()
-    on_exit(fn -> Enum.each(suspended_watchers, &:sys.resume/1) end)
+    ZeroFetchPageOpenWatchers.suspend(fn pid ->
+      on_exit(fn -> ZeroFetchPageOpenWatchers.resume(pid) end)
+    end)
 
     # Clear prior comment work and finish startup cleanup before counting.
     on_exit(fn -> assert :ok = Aiur.TestSupport.ensure_orchestrator_running() end)
@@ -63,18 +100,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     _frozen_state = Aiur.TestSupport.freeze_live_orchestrator()
 
     Aiur.TestSupport.await_orchestrator_state(orchestrator, fn state ->
-      map_size(state.tracker_tasks) == 0 and
-        is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
+      map_size(state.tracker_tasks) == 0 and is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
     end)
 
     if context[:comment_poll_leak_probe] do
       # This test sends a poll-cycle message while the page is held open. Make
       # the real GitHub comment-poll path eligible only after the Orchestrator
       # has been frozen, so the message deterministically proves the fence.
-      :ok =
-        Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(),
-          tracker_kind: "github"
-        )
+      :ok = Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github")
     end
 
     # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
@@ -203,10 +236,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     # true for the wrong reason (the "zero, provably" trap the reviewer flagged).
 
     @tag :inherited_tracker_task
-    test "opening the dashboard under a github tracker reaches GitHub zero times", %{
-      counter: counter,
-      inherited_task: inherited_task
-    } do
+    test "opening the dashboard under a github tracker reaches GitHub zero times", %{counter: counter, inherited_task: inherited_task} do
       workflow_path = Aiur.Workflow.workflow_file_path()
       :ok = Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github")
 
@@ -248,9 +278,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     end
 
     @tag :comment_poll_leak_probe
-    test "holding a page open past its refresh ticks reaches GitHub zero times", %{
-      counter: counter
-    } do
+    test "holding a page open past its refresh ticks reaches GitHub zero times", %{counter: counter} do
       assert {:ok, view, html} = live(build_conn(), "/")
       assert html =~ "dashboard-shell"
 
@@ -265,8 +293,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       send(Aiur.Orchestrator, :run_poll_cycle)
 
       Aiur.TestSupport.await_orchestrator_state(Aiur.Orchestrator, fn state ->
-        map_size(state.tracker_tasks) == 0 and
-          is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
+        map_size(state.tracker_tasks) == 0 and is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
       end)
 
       # The page's own periodic ticks — a 1s clock, a 15s GitHub-quota snapshot
@@ -353,18 +380,13 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     test "an issue already held costs no request at all", %{counter: counter} do
       {owner, repo} = @repository
 
-      ResourceStore.put_resource(ResourceStore.key(:issue, owner, repo, "2073"), held_issue(2073),
-        source: :webhook,
-        version: "2026-08-17T10:00:00Z"
-      )
+      ResourceStore.put_resource(ResourceStore.key(:issue, owner, repo, "2073"), held_issue(2073), source: :webhook, version: "2026-08-17T10:00:00Z")
 
       assert {:ok, detail} =
                TicketDetail.fetch(identity(2073),
                  configured_repo: @repository,
                  freshness_ms: 30_000,
-                 relationship_reader: fn _identity, _repository ->
-                   {:ok, %{nodes: [], truncated?: false}}
-                 end
+                 relationship_reader: fn _identity, _repository -> {:ok, %{nodes: [], truncated?: false}} end
                )
 
       assert detail.identity.identifier == "2073"
@@ -394,8 +416,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
       observed = Agent.get(counter, & &1)
 
-      assert observed != [],
-             "the counting plug never fired, so every zero in this file is unproven"
+      assert observed != [], "the counting plug never fired, so every zero in this file is unproven"
     end
   end
 
@@ -427,18 +448,12 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       send(test_pid, {:inherited_tracker_task, self()})
       receive_barrier(:continue)
 
-      Issues.fetch_issue_raw_conditional(33_189,
-        repository: {"aiur-team", "aiur"},
-        token: "test-token"
-      )
+      Issues.fetch_issue_raw_conditional(33_189, repository: {"aiur-team", "aiur"}, token: "test-token")
 
       {:ok, []}
     end
 
-    send(
-      Aiur.Orchestrator,
-      {:event, %{topic: "ticket.33189.issue.commented", issue_state_fetcher: fetcher}}
-    )
+    send(Aiur.Orchestrator, {:event, %{topic: "ticket.33189.issue.commented", issue_state_fetcher: fetcher}})
 
     receive_barrier({:inherited_tracker_task, pid})
     pid

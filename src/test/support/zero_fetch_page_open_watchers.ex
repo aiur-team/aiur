@@ -9,37 +9,85 @@ defmodule Aiur.TestSupport.ZeroFetchPageOpenWatchers do
     Aiur.PRLifecycle.ReworkRequeue
   ]
 
-  def suspend do
-    Enum.flat_map(@watchers, fn name ->
-      case Process.whereis(name) do
-        pid when is_pid(pid) ->
-          await_idle(pid, name)
-          :ok = :sys.suspend(pid)
-          [pid]
+  @spec suspend((pid() -> any())) :: :ok
+  def suspend(on_suspended) when is_function(on_suspended, 1) do
+    Enum.each(@watchers, &suspend_watcher(&1, on_suspended))
+  end
 
-        nil ->
-          []
+  @spec resume(pid()) :: :ok
+  def resume(pid) do
+    if Process.alive?(pid) do
+      try do
+        :sys.resume(pid)
+      catch
+        :exit, _ -> :ok
       end
-    end)
-  end
+    end
 
-  defp await_idle(pid, name) when name in [Aiur.MainWatch, Aiur.LandingWatch] do
-    await_state(pid, &is_nil(&1.task))
-  end
-
-  defp await_idle(pid, _periodic_worker) do
-    # A synchronous tick completes before the GenServer answers this state call.
-    _state = :sys.get_state(pid)
     :ok
   end
 
-  defp await_state(pid, predicate) do
-    if predicate.(:sys.get_state(pid)),
-      do: :ok,
-      else:
-        (
-          Process.sleep(10)
-          await_state(pid, predicate)
-        )
+  defp suspend_watcher(name, on_suspended) do
+    case Process.whereis(name) do
+      pid when is_pid(pid) ->
+        case await_idle(pid, name) do
+          :ok -> suspend_pid(pid, on_suspended)
+          :gone -> :ok
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp suspend_pid(pid, on_suspended) do
+    if Process.alive?(pid) do
+      try do
+        :ok = :sys.suspend(pid)
+        on_suspended.(pid)
+      catch
+        :exit, _ -> :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp await_idle(pid, name) when name in [Aiur.MainWatch, Aiur.LandingWatch] do
+    await_state(pid, &is_nil(&1.task), System.monotonic_time(:millisecond) + 5_000)
+  end
+
+  defp await_idle(pid, _periodic_worker) do
+    # This state call is a barrier behind any synchronous periodic tick.
+    case get_state(pid) do
+      {:ok, _state} -> :ok
+      :gone -> :gone
+    end
+  end
+
+  defp await_state(pid, predicate, deadline) do
+    case get_state(pid) do
+      {:ok, state} ->
+        cond do
+          predicate.(state) ->
+            :ok
+
+          System.monotonic_time(:millisecond) >= deadline ->
+            raise "timed out waiting for #{inspect(pid)} to finish its GitHub poll"
+
+          true ->
+            Process.sleep(10)
+            await_state(pid, predicate, deadline)
+        end
+
+      :gone ->
+        :gone
+    end
+  end
+
+  defp get_state(pid) do
+    {:ok, :sys.get_state(pid)}
+  catch
+    :exit, _ -> :gone
   end
 end
