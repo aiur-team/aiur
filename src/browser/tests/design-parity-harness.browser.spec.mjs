@@ -191,11 +191,31 @@ test('stable capture recovers from a transient capture failure', async () => {
   const expected = Buffer.from('stable')
   let calls = 0
   const target = { screenshot: async options => {
-    expect(options).toBe(opts)
+    expect(options).toMatchObject(opts)
+    expect(options.style).toContain('*::-webkit-scrollbar-thumb { background: transparent !important; }')
     if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
     return Buffer.from('stable')
   } }
   expect((await captureStable(target, opts)).equals(expected)).toBe(true)
+  expect(calls).toBe(3)
+  expect(opts).toEqual({ scale: 'device' })
+})
+test('stable clipped capture includes thumb-hiding style without mutating caller options', async () => {
+  const opts = { scale: 'device' }
+  const expected = Buffer.from('stable')
+  let calls = 0
+  const target = { boundingBox: async () => ({ x: 10, y: 20, width: 30, height: 40 }) }
+  const page = {
+    evaluate: async () => ({ x: 2, y: 3 }),
+    screenshot: async options => {
+      expect(options).toMatchObject(opts)
+      expect(options.style).toContain('*::-webkit-scrollbar-thumb { background: transparent !important; }')
+      expect(options).toMatchObject({ fullPage: true, clip: { x: 12, y: 23, width: 30, height: 40 } })
+      if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
+      return Buffer.from('stable')
+    }
+  }
+  expect((await captureStable(target, opts, page)).equals(expected)).toBe(true)
   expect(calls).toBe(3)
   expect(opts).toEqual({ scale: 'device' })
 })
