@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.NonClosingMergeRestartTest do
     {:ok, store} = GenServer.start(RecentMergeStore, [name: store_name, state_dir: dir], name: store_name)
 
     on_exit(fn ->
-      if pid = Process.whereis(store_name), do: GenServer.stop(pid, :normal, :infinity)
+      Aiur.TestSupport.safe_stop(store_name)
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
@@ -37,7 +37,7 @@ defmodule Aiur.Orchestrator.NonClosingMergeRestartTest do
 
     assert {_, []} = MergedTicketReconciler.reconcile(%State{}, [issue], opts)
     assert RecentMergeStore.ticket_reconciled?(merge.id, issue.identifier, store)
-    GenServer.stop(store)
+    Aiur.TestSupport.safe_stop(store)
 
     {:ok, restarted_store} = RecentMergeStore.start_link(name: store_name, state_dir: dir)
     assert RecentMergeStore.ticket_reconciled?(merge.id, issue.identifier, restarted_store)

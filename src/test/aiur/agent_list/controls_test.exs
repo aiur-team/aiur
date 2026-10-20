@@ -63,14 +63,18 @@ defmodule Aiur.AgentList.ControlsTest do
   test "explains that resume is masked by a global pause" do
     {:ok, orchestrator} =
       Orchestrator.start_link(self(),
-        pause_result: {:ok, 1},
+        pause_result: {:error, :globally_paused},
         resume_result: {:error, :globally_paused}
       )
 
     state = state(orchestrator, %{identifier: "A", status: :running, work_state: :working})
-    assert Controls.toggle_pause(state).remote_control_hint == nil
+    pause_refused = Controls.toggle_pause(state)
+    assert_receive {:paused, "A"}, 1000
+    assert pause_refused.remote_control_hint =~ "per-agent resume is refused while new starts are paused"
 
     paused = %{state | summaries: [%{identifier: "A", status: :running, work_state: :paused}]}
-    assert Controls.toggle_pause(paused).remote_control_hint =~ "per-agent resume is refused while new starts are paused"
+    resume_refused = Controls.toggle_pause(paused)
+    assert_receive {:resumed, "A"}, 1000
+    assert resume_refused.remote_control_hint =~ "per-agent resume is refused while new starts are paused"
   end
 end
