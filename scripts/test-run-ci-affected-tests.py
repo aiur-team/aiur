@@ -133,33 +133,36 @@ else:
         with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
             root = Path(scratch)
             mix = root / 'mix'
-            mix.write_text('#!/usr/bin/env python3\nprint("# no affected test files detected")\n')
+            mix.write_text('#!/usr/bin/env python3\nprint("cd src && mise exec -- mix test --max-cases 4 test/changed_test.exs")\n')
             mix.chmod(0o755)
             marker = root / 'time-bomb-ran'
             guard = root / 'guard.py'
-            guard.write_text(f'import pathlib\npathlib.Path({str(marker)!r}).touch()\n')
+            guard.write_text(f'import pathlib, sys\npathlib.Path({str(marker)!r}).write_text(" ".join(sys.argv[1:]))\n')
             result = subprocess.run([sys.executable, str(SCRIPT), 'base-sha'], capture_output=True,
                                     env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
                                              GITHUB_EVENT_NAME='merge_group',
                                              AIUR_TIME_BOMB_CHECK=str(guard)))
             self.assertEqual(result.returncode, 0, result.stderr.decode())
-            self.assertTrue(marker.exists(), 'merge_group must run the guard with the full-suite path')
+            self.assertEqual(marker.read_text(), 'test/changed_test.exs')
 
-    def test_full_suite_fallback_on_non_pr_runs_time_bomb_guard(self):
+    def test_merge_group_full_selection_limits_guard_to_changed_test_files(self):
         with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
             root = Path(scratch)
             mix = root / 'mix'
             mix.write_text('#!/usr/bin/env python3\nprint("cd src && mise exec -- make ci")\n')
             mix.chmod(0o755)
+            git = root / 'git'
+            git.write_text('#!/usr/bin/env python3\nprint("src/test/changed_test.exs\\nsrc/test/support/helper.exs")\n')
+            git.chmod(0o755)
             marker = root / 'time-bomb-ran'
             guard = root / 'guard.py'
-            guard.write_text(f'import pathlib\npathlib.Path({str(marker)!r}).touch()\n')
+            guard.write_text(f'import pathlib, sys\npathlib.Path({str(marker)!r}).write_text(" ".join(sys.argv[1:]))\n')
             result = subprocess.run([sys.executable, str(SCRIPT), 'base-sha'], capture_output=True,
                                     env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
-                                             GITHUB_EVENT_NAME='workflow_dispatch',
+                                             GITHUB_EVENT_NAME='merge_group',
                                              AIUR_TIME_BOMB_CHECK=str(guard)))
             self.assertEqual(result.returncode, 0, result.stderr.decode())
-            self.assertTrue(marker.exists(), 'full-suite fallback must run the time-bomb guard')
+            self.assertEqual(marker.read_text(), 'test/changed_test.exs')
 
     def test_failure_is_not_reported_as_success(self):
         self.assertNotEqual(self.run_selection('cd src && mise exec -- mix test --max-cases 4 test/a_test.exs', 1)[0], 0)

@@ -44,23 +44,35 @@ def main():
     print(selection, flush=True)
 
     commands = [line for line in selection.splitlines() if line.startswith('cd src && mise exec -- ')]
-    if os.environ.get('GITHUB_EVENT_NAME') == 'merge_group':
-        run_timed('time-bomb rerun', [sys.executable, TIME_BOMB_CHECK], timeout=SELECTED_TEST_TIMEOUT_SECONDS)
-        return
     if not commands:
         if '# no affected test files detected' not in selection:
             raise ValueError('selector did not produce a supported command')
+        if os.environ.get('GITHUB_EVENT_NAME') == 'merge_group':
+            print('::notice::merge-group time-bomb guard has no selected tests', flush=True)
+        return
     else:
         if len(commands) != 1:
             raise ValueError('selector produced multiple commands')
         command = shlex.split(commands[0].removeprefix('cd src && mise exec -- '))
+        if os.environ.get('GITHUB_EVENT_NAME') == 'merge_group':
+            if command[:4] == ['mix', 'test', '--max-cases', '4']:
+                selected = command[4:]
+            else:
+                selected = subprocess.check_output(
+                    ['git', 'diff', '--name-only', sys.argv[1], 'HEAD', '--', 'src/test'], text=True
+                ).splitlines()
+                selected = [path.removeprefix('src/') for path in selected if path.endswith('_test.exs')]
+            if selected:
+                run_timed('merge-group time-bomb rerun', [sys.executable, TIME_BOMB_CHECK, *selected],
+                          timeout=SELECTED_TEST_TIMEOUT_SECONDS)
+            else:
+                print('::notice::merge-group time-bomb guard has no changed test files', flush=True)
+            return
         if command == ['make', 'ci']:
             reason = next((line.removeprefix('# full suite recommended: ')
                            for line in selection.splitlines()
                            if line.startswith('# full suite recommended: ')), 'unknown')
             defer_to_merge_group(f'Unsafe affected selection deferred to full CI in the merge queue: {reason}')
-            if os.environ.get('GITHUB_EVENT_NAME') != 'pull_request':
-                run_timed('time-bomb rerun', [sys.executable, TIME_BOMB_CHECK], timeout=SELECTED_TEST_TIMEOUT_SECONDS)
         elif command[:4] != ['mix', 'test', '--max-cases', '4']:
             raise ValueError('unsupported selector command')
         else:

@@ -3,6 +3,8 @@
 import importlib.util
 import os
 from pathlib import Path
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -32,18 +34,31 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(TIME_BOMBS.select([], dated), ['test/a_test.exs'])
         self.assertEqual(TIME_BOMBS.select(['test/b_test.exs', 'test/a_test.exs'], dated), ['test/a_test.exs'])
 
+    def test_temporary_tree_keeps_undated_sibling_required_by_dated_test(self):
+        source_test = TIME_BOMBS.ROOT / 'src/test/aiur/build_queue/events_test.exs'
+        sibling = TIME_BOMBS.ROOT / 'src/test/support/build_queue_fake_tracker.ex'
+        self.assertIn('Code.require_file("../../support/build_queue_fake_tracker.ex", __DIR__)',
+                      source_test.read_text())
+        self.assertIsNone(TIME_BOMBS.DATE.search(sibling.read_text()))
+        with tempfile.TemporaryDirectory() as scratch:
+            destination = Path(scratch) / 'test'
+            shutil.copytree(TIME_BOMBS.ROOT / 'src/test', destination)
+            shifted = TIME_BOMBS.copy_test_tree(35, destination)
+            self.assertIn(Path('test/aiur/build_queue/events_test.exs'), shifted)
+            self.assertTrue((destination / 'support/build_queue_fake_tracker.ex').is_file())
+
     def test_guard_process_termination_leaves_source_tree_unchanged(self):
         root = TIME_BOMBS.ROOT
         tracked = TIME_BOMBS.tracked_test_files()
         before = {path: path.read_bytes() for path in tracked}
         with tempfile.TemporaryDirectory() as scratch:
-            fake_mise = Path(scratch) / 'mise'
+            fake_mix = Path(scratch) / 'mix'
             marker = Path(scratch) / 'started'
-            fake_mise.write_text(f'#!/usr/bin/env python3\nfrom pathlib import Path\nimport sys, time\nif sys.argv[1:4] == ["exec", "--", "mix"]:\n Path({str(marker)!r}).touch()\n time.sleep(30)\n')
-            fake_mise.chmod(0o755)
+            fake_mix.write_text(f'#!/usr/bin/env python3\nfrom pathlib import Path\nimport os, time\nPath({str(marker)!r}).write_text(str(os.getpid()))\ntime.sleep(30)\n')
+            fake_mix.chmod(0o755)
             process = subprocess.Popen([sys.executable, str(Path(__file__).with_name('check-test-time-bombs.py')),
                                         'test/aiur_engine_pre_pr_test.exs'],
-                                       env=dict(os.environ, PATH=f'{scratch}:{os.environ["PATH"]}'),
+                                       env=dict(os.environ, PATH=f'{scratch}:{os.environ["PATH"]}', TMPDIR=scratch),
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             try:
                 deadline = time.monotonic() + 10
@@ -60,6 +75,7 @@ class SelectTest(unittest.TestCase):
                     self.fail('guard did not enter the timed test command')
                 process.kill()
                 process.wait(timeout=5)
+                os.kill(int(marker.read_text()), signal.SIGKILL)
             finally:
                 if process.poll() is None:
                     process.kill()
