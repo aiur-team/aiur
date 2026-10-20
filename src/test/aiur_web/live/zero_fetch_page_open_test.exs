@@ -478,9 +478,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     |> Plug.Conn.put_req_header(
       "authorization",
       "Basic " <>
-        Base.encode64(
-          "#{System.get_env("AIUR_DASHBOARD_USERNAME")}:#{System.get_env("AIUR_DASHBOARD_PASSWORD")}"
-        )
+        Base.encode64("#{System.get_env("AIUR_DASHBOARD_USERNAME")}:#{System.get_env("AIUR_DASHBOARD_PASSWORD")}")
     )
   end
 end
