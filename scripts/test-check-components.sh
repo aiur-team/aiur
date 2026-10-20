@@ -256,6 +256,7 @@ if with_node and (not selected or 'missing_typescript_exits_2' in selected):
         root = Path(directory)
         shutil.copyfile(checker, root / 'check-components.py')
         shutil.copyfile(repo / 'scripts/check-env-example.py', root / 'check-env-example.py')
+        shutil.copyfile(repo / 'scripts/check-config-docs.py', root / 'check-config-docs.py')
         shutil.copytree(repo / 'scripts/components', root / 'components', ignore=shutil.ignore_patterns('node_modules'))
         result = subprocess.run([sys.executable, str(root / 'check-components.py')],
                                 env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(repo)), capture_output=True, text=True)
