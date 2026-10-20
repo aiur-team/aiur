@@ -445,7 +445,7 @@ defmodule AiurWeb.Layouts do
             window.liveSocket = liveSocket;
           });
         </script>
-        <link rel="stylesheet" href="/aiur-style/tokens.css" />
+        <link rel="stylesheet" href="/aiur-style/tokens.css" /><link rel="stylesheet" href="/aiur-style/css/focus.css" />
         <link rel="stylesheet" href="/aiur-style/css/button.css" />
         <link rel="stylesheet" href="/aiur-style/css/dashboard-button.css" />
         <link rel="stylesheet" href="/aiur-style/css/dashboard-shell.css" />

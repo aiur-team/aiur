@@ -143,7 +143,6 @@ html[data-palette="gruvbox"][data-theme="light"] .aiur-shell--dashboard .aiur-sh
 .aiur-shell--dashboard .aiur-page__back { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 1.5em; height: 1.5em; border-radius: 0.42em; background: var(--aiur-shell-surface-2, var(--aiur-color-surface-2)); border: 1px solid var(--aiur-shell-line, var(--aiur-color-line)); color: var(--aiur-shell-accent-ink, var(--aiur-color-accent-ink)); text-decoration: none; }
 .aiur-shell--dashboard .aiur-page__back svg { display: block; width: 0.82em; height: 0.82em; }
 .aiur-shell--dashboard .aiur-page__back:hover { background: var(--aiur-shell-surface-3, var(--aiur-color-surface-3)); border-color: var(--aiur-shell-line-strong, var(--aiur-color-line-strong)); }
-.aiur-shell--dashboard .aiur-page__back:focus-visible { outline: 2px solid var(--aiur-shell-accent, var(--aiur-color-accent)); outline-offset: 2px; }
 /* Product detail titles can exceed the design's short tab names. */
 .aiur-shell--dashboard .aiur-page__header b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 

@@ -151,13 +151,6 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
-button:focus-visible,
-a:focus-visible,
-textarea:focus-visible,
-[tabindex]:focus-visible {
-  outline: 3px solid var(--accent-line);
-  outline-offset: 3px;
-}
 
 .mono,
 .ticket-id,
