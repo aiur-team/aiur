@@ -266,6 +266,7 @@ defmodule Aiur.LogFileTest do
     setup do
       original_debug = System.get_env("AIUR_DEBUG")
       original_path = Application.get_env(:aiur, :workflow_file_path)
+      Aiur.TestSupport.OrchestratorGuard.capture_codeowners_baseline!()
       System.delete_env("AIUR_DEBUG")
 
       dir = Aiur.TestSupport.tmp_root!("aiur-config-debug")
@@ -276,6 +277,8 @@ defmodule Aiur.LogFileTest do
           nil -> Aiur.Workflow.clear_workflow_file_path()
           path -> Aiur.Workflow.set_workflow_file_path(path)
         end
+
+        Aiur.TestSupport.OrchestratorGuard.restore_codeowners_baseline!()
 
         case original_debug do
           nil -> System.delete_env("AIUR_DEBUG")
