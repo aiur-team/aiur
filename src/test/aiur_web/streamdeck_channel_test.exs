@@ -55,6 +55,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
     focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
     assert_reply(focus, :ok, %{"focused" => "AIUR-1"}, 1_000)
+    channel_barrier(socket)
 
     assert {:ok, _generation} = FinancialDataAccess.current_configuration_generation()
 
@@ -215,12 +216,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
     focus = push(socket, "focus", %{"identifier" => identifier})
     assert_reply(focus, :ok, %{"focused" => ^identifier})
-
-    # The reply acknowledges the focus request before the channel processes its
-    # queued focus-change message. A second request is handled after that message
-    # in the channel mailbox, so its reply is a causal barrier for the logs push.
-    barrier = push(socket, "unfocus", %{})
-    assert_reply(barrier, :ok, %{"focused" => nil})
+    channel_barrier(socket)
 
     # `receive_barrier/1` receives the decoded Phoenix socket payload, proving the
     # nonempty DTO crossed the channel serializer rather than only Jason.encode/1
@@ -290,13 +286,13 @@ defmodule AiurWeb.StreamdeckChannelTest do
     assert_reply(invalid, :error, %{reason: "invalid_identifier"})
 
     initial_unfocus = push(socket, "unfocus", %{})
-    assert_reply(initial_unfocus, :ok, %{"focused" => nil})
+    receive_barrier(%Phoenix.Socket.Reply{ref: ^initial_unfocus, status: :ok, payload: %{"focused" => nil}})
 
     focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
-    assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+    receive_barrier(%Phoenix.Socket.Reply{ref: ^focus, status: :ok, payload: %{"focused" => "AIUR-1"}})
 
     unfocus = push(socket, "unfocus", %{})
-    assert_reply(unfocus, :ok, %{"focused" => nil})
+    receive_barrier(%Phoenix.Socket.Reply{ref: ^unfocus, status: :ok, payload: %{"focused" => nil}})
 
     AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "ignored"))
     refute_push("transcript", _payload, 50)
@@ -453,4 +449,9 @@ defmodule AiurWeb.StreamdeckChannelTest do
     send(socket.channel_pid, :decision_metrics_changed)
     assert_push("decisions", %{"count" => 2})
   end
+
+  # Focus acknowledges before its queued focus-change handler projects the logs
+  # frame. Reading the channel state synchronously waits for that prior message
+  # to finish without adding another timed wire reply to the test mailbox.
+  defp channel_barrier(socket), do: :sys.get_state(socket.channel_pid)
 end
