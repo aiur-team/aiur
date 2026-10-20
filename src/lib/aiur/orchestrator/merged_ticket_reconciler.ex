@@ -28,7 +28,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   block `done`: an abandoned draft must not pin its ticket out of its terminal
   state. A failed open-PR lookup never closes the ticket.
   """
-  alias Aiur.{Alerts, Issue, RecentMerge, RecentMergeStore, Tracker}
+  alias Aiur.{Alerts, Issue, RecentMerge, RecentMergeStore}
 
   alias Aiur.Orchestrator.{
     Lifecycle,
@@ -37,7 +37,6 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
     PushRouting,
     Reconciler,
     State,
-    TicketTransition,
     TrackerTasks
   }
 
@@ -89,12 +88,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   defp repair_closed_issue(state, issue, merge, opts) do
     update =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, target, expected ->
-        TicketTransition.write_state(identifier, target,
-          writer: :merged_ticket_reconciler,
-          expected_state: expected,
-          refuse_labels: operator_hold_labels(),
-          tracker: Keyword.get(opts, :tracker, Tracker)
-        )
+        MergeStateWriter.write_reconciler_transition(identifier, target, expected, opts)
       end)
 
     case update.(issue.identifier, "done", :none) do
@@ -140,12 +134,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
 
     update =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, target, expected ->
-        TicketTransition.write_state(identifier, target,
-          writer: :merged_ticket_reconciler,
-          expected_state: expected,
-          refuse_labels: operator_hold_labels(),
-          tracker: Keyword.get(opts, :tracker, Tracker)
-        )
+        MergeStateWriter.write_reconciler_transition(identifier, target, expected, opts)
       end)
 
     TrackerTasks.run(
@@ -248,12 +237,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   defp reconcile_merged_ticket_to_done(state, %Issue{} = issue, merge, opts, retained) do
     update_issue_state_fun =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, state_name, expected_state ->
-        TicketTransition.write_state(identifier, state_name,
-          writer: :merged_ticket_reconciler,
-          expected_state: expected_state,
-          refuse_labels: operator_hold_labels(),
-          tracker: Keyword.get(opts, :tracker, Tracker)
-        )
+        MergeStateWriter.write_reconciler_transition(identifier, state_name, expected_state, opts)
       end)
 
     case update_issue_state_fun.(issue.identifier, "done", expected_state(issue)) do
@@ -301,12 +285,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
        ) do
     update_issue_state_fun =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, state_name, expected_state ->
-        TicketTransition.write_state(identifier, state_name,
-          writer: :merged_ticket_reconciler,
-          expected_state: expected_state,
-          refuse_labels: operator_hold_labels(),
-          tracker: Keyword.get(opts, :tracker, Tracker)
-        )
+        MergeStateWriter.write_reconciler_transition(identifier, state_name, expected_state, opts)
       end)
 
     case update_issue_state_fun.(issue.identifier, target, issue.state) do
@@ -326,10 +305,6 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
           {:ok, String.t()} | {:error, term()}
   def merged_ticket_target(identifier, opts),
     do: OpenPullRequestTarget.merged_ticket_target(identifier, opts)
-
-  defp operator_hold_labels do
-    MergeStateWriter.operator_hold_labels()
-  end
 
   # Terminalization already checked open PRs; preserve merger attribution for
   # the audit and skip that audit when the stored merge has no attributed actor.

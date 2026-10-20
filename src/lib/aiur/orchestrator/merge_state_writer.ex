@@ -30,6 +30,18 @@ defmodule Aiur.Orchestrator.MergeStateWriter do
   end
 
   @doc false
+  @spec write_reconciler_transition(String.t(), String.t(), term(), keyword()) ::
+          :ok | {:error, term()}
+  def write_reconciler_transition(identifier, target, expected_state, opts) do
+    TicketTransition.write_state(identifier, target,
+      writer: :merged_ticket_reconciler,
+      expected_state: expected_state,
+      refuse_labels: operator_hold_labels(),
+      tracker: Keyword.get(opts, :tracker, Tracker)
+    )
+  end
+
+  @doc false
   @spec operator_hold_labels() :: [String.t()]
   def operator_hold_labels do
     prefix = Config.label_prefix()
