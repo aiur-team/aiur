@@ -64,9 +64,13 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
         )
       end)
 
-    wait_until(fn -> File.read(sleep_started) == {:ok, "60\n"} end, 100)
-    assert File.read(context.calls) == {:error, :enoent}
-    File.write!(release_sleep, "continue\n")
+    try do
+      wait_until(fn -> File.read(sleep_started) == {:ok, "60\n"} end, 100)
+      assert File.read(context.calls) == {:error, :enoent}
+    after
+      File.write!(release_sleep, "continue\n")
+    end
+
     assert {output, 0} = Task.await(command, 5_000)
     assert output =~ "GitHub quota backoff; waiting 60s"
     assert File.read!(context.calls) =~ "api repos/owner/repo/issues/1670"
