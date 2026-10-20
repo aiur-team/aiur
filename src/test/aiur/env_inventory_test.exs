@@ -18,6 +18,7 @@ defmodule Aiur.EnvInventoryTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Env.Schema
+  alias Aiur.TestSupport.SourceSnapshot
 
   @lib_glob "lib/**/*.{ex,exs}"
 
@@ -70,11 +71,11 @@ defmodule Aiur.EnvInventoryTest do
 
   defp declared_names, do: MapSet.new(Schema.names())
 
-  defp lib_files, do: Path.wildcard(@lib_glob)
+  defp lib_sources, do: SourceSnapshot.files([@lib_glob])
 
   defp literal_refs do
-    lib_files()
-    |> Enum.flat_map(fn path -> Regex.scan(@literal_re, File.read!(path)) end)
+    lib_sources()
+    |> Enum.flat_map(fn {_path, source} -> Regex.scan(@literal_re, source) end)
     |> Enum.map(fn [_full, name] -> name end)
     |> MapSet.new()
   end
@@ -82,9 +83,9 @@ defmodule Aiur.EnvInventoryTest do
   defp attribute_refs do
     non_env = MapSet.new(@non_env_attribute_values)
 
-    lib_files()
-    |> Enum.flat_map(fn path ->
-      Regex.scan(@attr_re, File.read!(path))
+    lib_sources()
+    |> Enum.flat_map(fn {_path, source} ->
+      Regex.scan(@attr_re, source)
       |> Enum.map(fn [_full, _attr, value] -> value end)
       |> Enum.reject(&MapSet.member?(non_env, &1))
     end)

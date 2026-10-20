@@ -49,13 +49,11 @@ defmodule Aiur.Events.BusBoundaryTest do
   end
 
   defp members(lib \\ @lib) do
-    marked_members =
-      lib
-      |> Path.join("**/*.ex")
-      |> Path.wildcard()
-      |> Enum.filter(&member_file?/1)
-
-    Enum.map(marked_members, &Path.relative_to(&1, lib))
+    lib
+    |> Path.join("**/*.ex")
+    |> Path.wildcard()
+    |> Enum.filter(&member_file?/1)
+    |> Enum.map(&Path.relative_to(&1, lib))
   end
 
   defp member_file?(path) do
