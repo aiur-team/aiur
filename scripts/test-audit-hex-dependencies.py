@@ -123,6 +123,15 @@ class AuditPolicyTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "unparsed or unmatched advisories"):
             audit.parse_audit_output(output, "fixture")
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "mix.lock"
+
+            def runner(command, **_kwargs):
+                return self.CLEAN if command[-1] == "deps.get" else output
+
+            with patch.object(audit, "LOCK", lock_path):
+                with self.assertRaisesRegex(RuntimeError, "unparsed or unmatched advisories"):
+                    audit.audit_lock(b"lock", "fixture", runner)
 
     def test_registry_cache_fallback_fails_closed(self):
         result = type("Result", (), {"stdout": "Failed to fetch record for bandit from registry (using cache instead)", "returncode": 0})()
