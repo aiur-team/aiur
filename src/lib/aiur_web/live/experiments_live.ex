@@ -2,7 +2,7 @@ defmodule AiurWeb.ExperimentsLive do
   @moduledoc "Read-only experiment index and evidence shell."
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias AiurWeb.Experiments.{Source, Styles}
+  alias AiurWeb.Experiments.{ChartPanel, Report, Source, Styles}
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, Overview, RouteRegistry}
 
   @impl true
@@ -11,6 +11,7 @@ defmodule AiurWeb.ExperimentsLive do
 
     {:ok,
      socket
+     |> DashboardShell.mount()
      |> NavState.assign_nav()
      |> AwaitingCommands.mount(connected?(socket))
      |> assign(:analytics, AiurWeb.Presenter.analytics_navigation())
@@ -18,13 +19,15 @@ defmodule AiurWeb.ExperimentsLive do
      |> assign(:agent_kind, "")
      |> assign(:selected_id, nil)
      |> assign(:detail, nil)
+     |> assign(:chart_params, %{})
+     |> assign(:chart_metric, nil)
      |> load_index()}
   end
 
   @impl true
   def handle_params(params, _uri, socket) do
     id = params["id"]
-    socket = socket |> assign(:selected_id, id) |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))
+    socket = socket |> assign(:chart_params, Map.take(params, ["metric", "stratum"])) |> assign(:selected_id, id) |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))
     {:noreply, load_detail(socket, id)}
   end
 
@@ -36,6 +39,7 @@ defmodule AiurWeb.ExperimentsLive do
   end
 
   def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, AwaitingCommands.refresh(socket)}
+  def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
 
@@ -43,10 +47,16 @@ defmodule AiurWeb.ExperimentsLive do
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
 
+  def handle_event("select-metric", _params, %{assigns: %{detail: nil}} = socket), do: {:noreply, socket}
+
+  def handle_event("select-metric", %{"metric" => metric}, socket) do
+    {:noreply, push_patch(socket, to: ChartPanel.path(socket.assigns.detail, metric, socket.assigns.detail.stratum))}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
-    <DashboardShell.dashboard_shell route={@current_route} routes={RouteRegistry.routes(@analytics)} tracker_kind={@tracker_kind} agent_kind={@agent_kind} nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}>
+    <DashboardShell.dashboard_shell route={@current_route} routes={RouteRegistry.routes(@analytics)} tracker_kind={@tracker_kind} agent_kind={@agent_kind} nav_collapsed={@nav_collapsed} nav_counts={@nav_counts} pause_state={DashboardShell.pause_state(assigns)}>
       <:banner><Overview.decisions_banner retained_counts={@retained_counts} navigate /></:banner>
       {Phoenix.HTML.raw("<style>" <> Styles.css() <> "</style>")}
       <section id="experiments-page" class="exp-root" data-selection={if @selected_id, do: "detail", else: "index"} aria-label="Experiment collection">
@@ -108,8 +118,8 @@ defmodule AiurWeb.ExperimentsLive do
                   <td data-label="Contrast and interval">{metric.contrast} · {metric.interval}</td><td data-label="p-value and test">{metric.p} {metric.tests}</td><td data-label="Effect">{metric.effect}</td>
                 </tr></tbody>
               </table>
-              <div id="exp-charts"></div>
-              <div id="exp-report"></div>
+              <ChartPanel.panel detail={@detail} metric={@chart_metric} />
+              <Report.card report={@detail.report} />
             </div>
           </section>
         </div>
@@ -143,9 +153,13 @@ defmodule AiurWeb.ExperimentsLive do
   defp load_detail(%{assigns: %{items: [first | _rest]}} = socket, nil), do: load_detail(socket, first.id)
 
   defp load_detail(socket, id) do
-    case Source.detail(id) do
-      {:ok, detail} -> assign(socket, detail: detail, detail_error: nil)
-      {:error, reason} -> assign(socket, detail: nil, detail_error: reason)
+    case Source.detail(id, stratum: socket.assigns.chart_params["stratum"]) do
+      {:ok, detail} ->
+        metric = Enum.find(detail.chart_metrics, &(&1.ref == socket.assigns.chart_params["metric"])) || List.first(detail.chart_metrics)
+        assign(socket, detail: detail, detail_error: nil, chart_metric: metric)
+
+      {:error, reason} ->
+        assign(socket, detail: nil, detail_error: reason)
     end
   end
 

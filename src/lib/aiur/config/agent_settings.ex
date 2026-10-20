@@ -305,6 +305,12 @@ defmodule Aiur.Config.AgentSettings do
     Aiur.Config.settings!().agent.ci_wait_rewake_minutes
   end
 
+  @doc "Minutes before a green, unreviewed ready PR is re-raised to the Executor."
+  @spec unreviewed_pr_age_limit_minutes() :: pos_integer()
+  def unreviewed_pr_age_limit_minutes do
+    Aiur.Config.settings!().agent.unreviewed_pr_age_limit_minutes
+  end
+
   @doc "Whether automatic CI recovery reruns are enabled."
   @spec ci_recovery_enabled?() :: boolean()
   def ci_recovery_enabled?, do: Aiur.Config.settings!().agent.ci_recovery_enabled

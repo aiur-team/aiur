@@ -8,7 +8,11 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
     * `APPROVED` at the head that supersedes the same reviewer's
       `CHANGES_REQUESTED` at that same head moves `agent:rework` to
       `agent:ci-wait`: the findings were answered without a push (for example
-      a PR-body fix), so no worker should push onto the approved PR.
+      a PR-body fix), so no worker should push onto the approved PR;
+    * `CHANGES_REQUESTED` at the head moves `agent:error` to `agent:rework`
+      and raises `system.pr_health.error_rework` (#4535): nothing else
+      dispatches an error ticket, so a blocking review would otherwise sit
+      until the Executor relabels it. A paused error ticket is skipped.
 
   An approval that does not follow a same-head changes request never routes.
   CI failure, a merge-group failure and a restack conflict all move an approved
@@ -26,7 +30,8 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
   level-triggered backstop: it re-reads the tickets and derives the verdict
   from the PR itself.
 
-  A verdict counts only when the PR is open, the reviewer is authoritative
+  A verdict counts only when the PR is open and ready for review (a draft, or a
+  listing without the draft flag, is still being worked), the reviewer is authoritative
   (`Aiur.CodeHost.fetch_classified_pr_reviews/1`), the review is that
   reviewer's latest `APPROVED`/`CHANGES_REQUESTED`/`DISMISSED` review, and its
   `commit_id` is the PR's `head.sha`. `COMMENTED` reviews never route.
@@ -44,8 +49,8 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
   like `Aiur.PRLifecycle.ReworkRequeue`. A tick makes one open-pull-request
   listing (one page for up to 100 open PRs) and re-reads a PR's reviews only
   when its `head.sha` or `updated_at` changed since the last tick (a submitted
-  or dismissed review bumps `updated_at`). With the three state-label issue
-  listings, the default 1800s cadence makes 8 listing calls an hour plus one
+  or dismissed review bumps `updated_at`). With the four state-label issue
+  listings, the default 1800s cadence makes 10 listing calls an hour plus one
   conditional reviews read per changed PR.
   """
 
@@ -54,11 +59,12 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
   require Logger
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.{Issue, TicketBranch, Tracker}
+  alias Aiur.{Issue, Signal, TicketBranch, Tracker}
   alias Aiur.Orchestrator.TicketTransition
 
   @default_interval_ms 30 * 60 * 1_000
   @waiting_states ["human-review", "ci-wait"]
+  @requestable_states ["error" | @waiting_states]
   @verdicts ~w(APPROVED CHANGES_REQUESTED DISMISSED)
 
   @doc false
@@ -72,12 +78,15 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
   def init(opts) do
     state = %{
       interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
-      tickets_fetcher: Keyword.get(opts, :tickets_fetcher, fn -> Tracker.fetch_issues_by_states(["rework" | @waiting_states]) end),
+      tickets_fetcher: Keyword.get(opts, :tickets_fetcher, fn -> Tracker.fetch_issues_by_states(["rework" | @requestable_states]) end),
       open_prs_fetcher: Keyword.get(opts, :open_prs_fetcher, &GitHubClient.fetch_open_pull_requests/0),
       reviews_fetcher: Keyword.get(opts, :reviews_fetcher, &Aiur.CodeHost.fetch_classified_pr_reviews/1),
       tracker: Keyword.get(opts, :tracker, Tracker),
+      alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2),
       enabled?: Keyword.get(opts, :enabled?, &default_enabled?/0),
-      # Review ids already routed (or observed on a rework ticket). In memory: a
+      # Review ids already routed (or observed on a rework ticket). Error routes
+      # use a ticket-scoped key so a prior waiting/rework observation cannot
+      # suppress the error-state recovery route. In memory: a
       # restart can route a disputed same-head review once more, or re-route a
       # body-fix approval after CI moved that ticket back to rework (one wasted
       # landing cycle until the next failure returns it).
@@ -132,10 +141,10 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
   defp scan_ticket(%Issue{} = issue, prs, state) do
     from_state = String.replace_prefix(issue.state || "", "agent:", "")
 
-    with false <- Issue.parked?(issue),
-         %{} = pr <- Enum.find(prs, &ticket_pr?(&1, issue.identifier)),
+    with false <- Issue.held?(issue) or (from_state == "error" and Issue.paused?(issue)),
+         %{"draft" => false} = pr <- Enum.find(prs, &ticket_pr?(&1, issue.identifier)),
          {%{"id" => id} = review, state} <- live_verdict(pr, state),
-         false <- MapSet.member?(state.routed, id) do
+         false <- MapSet.member?(state.routed, routed_key(from_state, id)) do
       route(issue, from_state, review, state)
     else
       {nil, state} -> state
@@ -149,26 +158,27 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
   defp ticket_pr?(%{"head" => %{"ref" => ref}}, identifier), do: TicketBranch.ticket_branch?(ref, identifier)
   defp ticket_pr?(_pr, _identifier), do: false
 
-  defp route(_issue, "rework", %{"state" => "CHANGES_REQUESTED", "id" => id}, state), do: mark(state, id)
+  defp route(_issue, "rework", %{"state" => "CHANGES_REQUESTED", "id" => id}, state), do: mark(state, id, "rework")
 
-  defp route(issue, from_state, %{"state" => "CHANGES_REQUESTED"} = review, state) when from_state in @waiting_states,
+  defp route(issue, from_state, %{"state" => "CHANGES_REQUESTED"} = review, state) when from_state in @requestable_states,
     do: write(issue, from_state, "rework", review, state)
 
   defp route(issue, "rework", %{"state" => "APPROVED", :supersedes_changes_request => true} = review, state),
     do: write(issue, "rework", "ci-wait", review, state)
 
   defp route(_issue, from_state, %{"state" => "APPROVED", "id" => id}, state) when from_state in @waiting_states,
-    do: mark(state, id)
+    do: mark(state, id, from_state)
 
   defp route(_issue, _from_state, _review, state), do: state
 
-  defp write(issue, from_state, to_state, %{"id" => id}, state) do
+  defp write(issue, from_state, to_state, %{"id" => id} = review, state) do
     opts = [writer: :head_verdict_router, expected_state: from_state, identifier: issue.identifier, tracker: state.tracker]
 
     case TicketTransition.write_state(issue.id, to_state, opts) do
       :ok ->
         Logger.info("HeadVerdictRouter moved issue=#{issue.identifier} #{from_state} -> #{to_state} review=#{id}")
-        mark(state, id)
+        if from_state == "error", do: alert_error_rework(issue, review, state)
+        mark(state, id, from_state)
 
       {:error, reason} ->
         # Not marked: the next tick retries.
@@ -177,7 +187,20 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouter do
     end
   end
 
-  defp mark(state, id), do: %{state | routed: MapSet.put(state.routed, id)}
+  defp alert_error_rework(issue, %{"id" => id} = review, state) do
+    state.alert_fun.("system.pr_health.error_rework",
+      message: "Ticket #{issue.identifier} was in agent:error with a CHANGES_REQUESTED review at its PR head; moved to agent:rework.",
+      issue: to_string(issue.identifier),
+      reason: "Review #{id} by #{get_in(review, ["user", "login"])} still requests changes and nothing dispatches error tickets (#4535).",
+      needs_attention: false,
+      severity: "info"
+    )
+  end
+
+  defp routed_key("error", id), do: {:error, id}
+  defp routed_key(_state, id), do: id
+
+  defp mark(state, id, from_state), do: %{state | routed: MapSet.put(state.routed, routed_key(from_state, id))}
 
   defp live_verdict(%{"number" => number, "head" => %{"sha" => head}} = pr, state) when is_integer(number) and is_binary(head) do
     updated_at = pr["updated_at"]

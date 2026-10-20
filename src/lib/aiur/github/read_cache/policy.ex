@@ -47,7 +47,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   | --- | --- | --- | --- |
   | `:comments` | 30 s | 1 h | Per-issue REST comment reads (`Aiur.GitHub.Comments`). A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
   | `:issue_graph` | 30 s | 1 h | Build Order structure: dependency edges, pack status, linked pull requests. A stale edge delays a dispatch rather than corrupting one. |
-  | `:repo_config` | 5 min | 1 h | Repository configuration, not a verdict: default-branch existence, branch protection, workflow list/state/file contents, rulesets (`Aiur.GitHub.CiReadiness`). Repo config changes rarely and never gates a merge on its own, so a five-minute polling body cache costs little; every webhook delivery retires it via the collections marker, which is what lets it ride the same long bucket as the other classes. |
+  | `:repo_config` | 5 min | 1 h | Repository configuration used by required-check classification (`Aiur.GitHub.CiReadiness`), not a CI verdict. A webhook-backed repo earns 1 h only after a verified `push`, `branch_protection_rule`, `repository_ruleset`, or `repository` delivery has been observed; without one, it keeps the 5 min polling TTL. Matching pushes to the configured base or repository default branch retire it immediately. GitHub's merge queue still enforces required checks on the server. |
   | `:issue_timeline` | 30 s | 1 h | An issue's timeline (`/issues/{n}/timeline`, `Aiur.GitHub.DispatchAuthorization`). The single largest REST family measured in #2352 (1,000–1,800 reads/hr); a timeline answered up to one poll cycle late costs a dispatch decision latency, never a wrong verdict. |
   | `:issue` | 30 s | 1 h | A single issue (`/issues/{n}`). Mixed call sites — some already conditional, some unconditional reads — so the body cache absorbs the unconditional spend. |
   | `:pull` | 30 s | 1 h | A single pull request (`/pulls/{n}`). Row 5 of #2352 was the strongest single candidate: it was read **unconditionally with no validator**, so every repeat was pure waste rather than a cheap revalidation. The body is a *routing* source, never a merge-verdict source — see below. |
@@ -93,21 +93,12 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   them a TTL; the fix for an expensive conditional row is a cheaper validator,
   not a body cache.
 
-  There are two buckets, and which one applies is decided by the repository's
-  delivery mode, not by the class. A repo that is not proven webhook-backed —
-  never configured, configured-but-unproven, or degraded from silence — gets
-  the short bucket, because for it the TTL is the only freshness mechanism:
-  nothing but the clock retires its entries. A repo proven webhook-backed gets
-  the long bucket, because `Aiur.Events.GithubWebhook.Deposit` retires the
-  `ReadCache` entries a delivery makes stale, so the TTL stops being a guess at
-  staleness and becomes a backstop against a missed delivery. It collapses back
-  to the short bucket the moment the repo degrades (silence past
-  `webhooks.silence_threshold_seconds`), which is the measured bound on how
-  long a missed delivery can go uncorrected. One hour is four times that bound.
-
-  Every TTL here is an upper bound on staleness only in the absence of news. An
-  invalidation retires the entry immediately, so the observed staleness for
-  anything Aiur itself changes is zero.
+  TTL depends on repository delivery mode. Unproven and degraded repos get the
+  short bucket because only the clock retires stale entries. Proven repos get
+  the long bucket for ordinary issue and PR reads because deliveries invalidate
+  them. Repo configuration earns the long bucket only after a verified
+  config-retiring event is observed. Degradation restores the short bucket;
+  one hour is four times `webhooks.silence_threshold_seconds`.
 
   ## Two rows, because the rest were unreachable
 
@@ -140,7 +131,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
 
   Splitting it would not pay even if it were splittable, so do not reach for
   that: there is no second reader to serve, because
-  `Aiur.Orchestrator.CommentPolling` is the only call site and its
+  `Aiur.GitHub.Listeners.Comments.Driver` is the only call site and its
   `start_async/2` refuses to start a poll while one is in flight; the 33 ticket
   numbers are interpolated into the document, so the key changes whenever the
   watched set does; and a 33-number entry is retired when *any* one of those
@@ -248,14 +239,11 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   # (`build_order_catalog` above all) from a 30-second re-fetch into an
   # hourly one while leaving the correction path intact.
   #
-  # `:repo_config` rides the same long bucket because every delivery also
-  # retires the repository's collections — `invalidate_number/2` writes the
-  # `{:collections, ...}` marker unconditionally, and a repo-config read is a
-  # number-less REST read that carries exactly that identity (see `Identity`).
-  # Repository configuration is also the class that changes *with* a delivery —
-  # a push updates `.github/workflows`, branch protection or a ruleset — rather
-  # than independently of one, so the delivery is precisely the correction path
-  # the long bucket requires.
+  # `:repo_config` rides the same long bucket but carries a separate identity
+  # retired only by configuration-specific deliveries or a configured-base or
+  # repository-default branch push.
+  # Numbered writes and ordinary webhook traffic cannot retire this scope; the
+  # TTL is the fallback for a missed configuration event.
   #
   # `:issue_timeline`, `:issue` and `:pull` are numbered reads, so every
   # delivery or mutation that touches the number retires them through
@@ -309,7 +297,6 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   @spec classify(map()) :: decision()
   def classify(request) when is_map(request) do
     cond do
-      caller(request) == "ci_required_checks" -> {:no_cache, :unsafe_kind}
       Map.get(request, :method) != :get and not graphql_read?(request) -> {:no_cache, :write}
       unsafe?(request) -> {:no_cache, :unsafe_kind}
       # `Identity.extract/1` answers `[]` exactly when the repository cannot be
@@ -355,15 +342,15 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     end
   end
 
-  # Branch existence, branch protection, the workflow contents/state/action
+  # Branch existence, branch rules and protection, the workflow contents/state/action
   # listings, and the ruleset list/detail — the CIReadiness config surface,
   # minus the bare repository read and the candidate issue list (see above).
   # The optional query string rides along so `?ref=`/`?per_page=` URLs match.
-  @repo_config_rest ~r{/repos/[^/?#]+/[^/?#]+(?:/branches/[^/?#]+(?:/protection)?|/contents/\.github/workflows(?:/[^/?#]+)?|/actions/workflows|/rulesets(?:/[^/?#]+)?)(?:\?[^#]*)?$}
+  @repo_config_rest ~r{/repos/[^/?#]+/[^/?#]+(?:/branches/[^/?#]+(?:/protection)?|/rules/branches/[^/?#]+|/contents/\.github/workflows(?:/[^/?#]+)?|/actions/workflows|/rulesets(?:/[^/?#]+)?)(?:\?[^#]*)?$}
 
   # The ranked REST shapes (#2352), in the order they are matched, mapping a URL
   # to the call family it belongs to. Repository configuration is classified
-  # only by the anchored `@repo_config_rest` row at the end — branch protection,
+  # only by the anchored `@repo_config_rest` row at the end — branch rules and protection,
   # `.github/workflows` contents, workflow lists and rulesets — never by a bare
   # `/contents/{path}` or `/branches` list. The anchored forms are the only
   # ones anyone reads, so widening to the bare prefixes would hand an hour-long
@@ -519,11 +506,18 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   end
 
   defp cache(class, request) do
-    case ttl_ms(class, transport(request)) do
+    case request_ttl(class, request) do
       ttl_ms when ttl_ms > 0 -> {:cache, class, ttl_ms}
       _disabled -> {:no_cache, :disabled}
     end
   end
+
+  defp request_ttl(:repo_config, request) do
+    {owner, repo} = Identity.repository(request)
+    ttl_ms(:repo_config, ModeTable.repo_config_transport("#{owner}/#{repo}", transport(request)))
+  end
+
+  defp request_ttl(class, request), do: ttl_ms(class, transport(request))
 
   # The transport for the repository a request observes, read from `ModeTable`
   # without a process hop. A request whose repository cannot be named has

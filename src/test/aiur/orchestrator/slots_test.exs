@@ -83,6 +83,20 @@ defmodule Aiur.Orchestrator.SlotsTest do
     end
   end
 
+  describe "resume_fleet_slot_available?/2" do
+    test "respects the load governor's effective limit" do
+      paused = running_entry(:paused)
+
+      state = %State{
+        max_concurrent_agents: 10,
+        effective_concurrent_agents: 6,
+        running: Map.new(1..7, fn n -> {"active-#{n}", running_entry(:working)} end)
+      }
+
+      refute Slots.resume_fleet_slot_available?(state, paused)
+    end
+  end
+
   describe "launch_globally_paused?/0" do
     test "defaults to false with no launch flag" do
       Application.delete_env(:aiur, :launch_globally_paused)

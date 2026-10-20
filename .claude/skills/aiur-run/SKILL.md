@@ -7,16 +7,10 @@ description: "Launch and operate an Aiur run end to end as its Executor: establi
 
 Before launch, resolve repository-local `.aiur/config`, then `~/.aiur/config`. If only global defaults exist, tell the user that Aiur will fall back to them; do not require `aiur init` or copy config into every repository. Global GitHub startup targets the current `origin` and ensures required workflow/marker and complexity labels before dispatch, without seeding model/effort/alias labels. Prefer config (`agent.priority`, backend settings, `agent.routing`) for model selection. Shared credentials belong in `~/.aiur/.env` outside Git, or configured App/keyring auth. Missing-label permission failures must be resolved before launch; existing pauses and human decisions remain binding. Omit `tracker.github.repo` in portable global defaults; a conflicting explicit repo fails safely. Use local `init` when repository-specific settings are needed.
 
-Home setup is performed once; each repository still needs readiness checks.
-Follow [per-repository setup](../aiur-intro/SKILL.md#prepare-each-repository-without-repeating-init):
-verify effective credential Write access, base-branch inputs, CODEOWNERS or
-explicit dispatch allowlist, and worker validation. Create missing CODEOWNERS
-with the approved human owner under the user's authority. Tell the user what
-was created and what remains blocked; distinguish startup from observed worker
-push/PR publication.
+Home setup is performed once; each repository still needs readiness checks. Follow [per-repository setup](../aiur-intro/SKILL.md#prepare-each-repository-without-repeating-init): verify effective credential Write access, base-branch inputs, CODEOWNERS or
+explicit dispatch allowlist, and worker validation. Create missing CODEOWNERS with the approved human owner under the user's authority. Tell the user what was created and what remains blocked; distinguish startup from observed worker push/PR publication.
 
-Use this skill when the agent owns the whole Aiur run, not merely its launch.
-It replaces the former `aiur-loop` workflow. Read the canonical
+Use this skill when the agent owns the whole Aiur run, not merely its launch. It replaces the former `aiur-loop` workflow. Read the canonical
 [Executor role](references/executor.md) before acting, then use `aiur-monitor`
 for status reads and the recurring observation loop.
 
@@ -579,7 +573,7 @@ that command records an Executor actor, which must remain distinguishable from
 an operator actor in the durable decision record and dashboard. The operator
 can find these decisions in dashboard history and revise or supersede them
 later. Never answer through an operator-attributed API or imply Executor
-attribution only in free-form rationale.
+attribution only in free-form rationale. Never run `aiur answer`; it is human-only and requires an interactive terminal.
 
 ```bash
 "$AIUR_CMD" executor-answer <decision-id> --expected-version <n> \
@@ -1053,6 +1047,12 @@ headline.
 
 Keep: the named bottleneck, anything needing an operator decision, corrections
 to claims you previously reported, and measured numbers that changed.
+
+### Run an Experiment analyst locally
+
+Use `aiur experiments analyze <id> --local` to obtain the sanitized analyst brief and any existing ticket URL.
+Park that ticket first, then run exactly one background agent with the brief and `aiur-experiment` skill.
+Confirm the submitted pre-registration or report version before completing the analysis ticket; never run two analysts for one experiment.
 
 ### Review the queue in parallel, with background agents
 

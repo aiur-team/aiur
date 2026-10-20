@@ -33,6 +33,7 @@ defmodule Aiur.Application.Children do
     telemetry? = Keyword.get(opts, :telemetry?, true)
     executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
     ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
+    build_index? = dashboard? and Keyword.get(opts, :build_index?, Application.get_env(:aiur, :build_index?, true))
 
     # Always true for a real run. The unit-test singleton turns it off so the
     # shared app process does not hold a VM-wide inbox and listener that every
@@ -218,14 +219,15 @@ defmodule Aiur.Application.Children do
       # the projection can seed from it at boot and cast retains into it.
       Aiur.ProgressRetention,
       Aiur.TicketActivity,
-      # Claude telemetry must be available before the Orchestrator starts owned workers.
-      Aiur.Claude.Telemetry,
+      # Harness children (today: Claude launch telemetry) must start before the Orchestrator.
+      Aiur.CodingAgent.child_specs(),
       BuildOrders.child_specs(:history, opts),
       Aiur.TicketContext.child_specs(:late, opts),
       BuildOrders.child_specs(:late, opts),
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
       # View-state cadence reconciles the pack-status writer; starts after its timerless sources so its first tick never races boot fill.
       BuildOrders.child_specs(:view_state_sweep, opts),
+      Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
       Aiur.DecisionExpiry,
@@ -277,7 +279,7 @@ defmodule Aiur.Application.Children do
         landing_watch_children() ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        quarantine_lifter_children() ++ List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
+        quarantine_lifter_children() ++ List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
     )
   end
 

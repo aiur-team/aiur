@@ -98,6 +98,7 @@ defmodule Aiur.CoordinationTasks do
        task_start_retry_base_ms: Keyword.get(opts, :task_start_retry_ms, @task_start_retry_ms),
        task_start_retry_max_ms: Keyword.get(opts, :task_start_retry_max_ms, @task_start_retry_max_ms),
        task_start_retry_ms: Keyword.get(opts, :task_start_retry_ms, @task_start_retry_ms),
+       send_after_fun: Keyword.get(opts, :send_after_fun, &Process.send_after/3),
        task_start_retry_timer: nil
      }}
   end
@@ -249,7 +250,7 @@ defmodule Aiur.CoordinationTasks do
 
     if is_nil(state.task_start_retry_timer) do
       Logger.warning("coordination task start failed failure=#{safe_detail(reason)}")
-      timer = Process.send_after(self(), :retry_dispatch, state.task_start_retry_ms)
+      timer = state.send_after_fun.(self(), :retry_dispatch, state.task_start_retry_ms)
 
       %{
         state

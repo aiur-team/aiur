@@ -27,6 +27,37 @@ defmodule Aiur.Orchestrator.DispatchPolicy.GatesTest do
       assert DispatchPolicy.load_admission_reason(24.0, 1.5, 16, @contention) == :dispatch
     end
 
+    # Regression guard for the existing admission contract; accounting coverage
+    # for this change lives in pressure_admission_test.exs and priority_load_test.exs.
+    test "regression guard: measured free CPU releases load holds but not the PSI hard ceiling" do
+      assert DispatchPolicy.load_admission_reason(143.0, 1.5, 16, @clear_headroom) == :dispatch
+
+      assert {:hold, %{signal: :load, measured: 143.0, reclaimable_cpu_percent: 5.0}} =
+               DispatchPolicy.load_admission_reason(143.0, 1.5, 16, @contention)
+
+      probes = %{
+        cpu_pressure: %{avg10: 83.0, avg60: 83.0},
+        pressure_threshold: 60.0,
+        memory_mb: :unavailable,
+        memory_threshold_mb: nil,
+        fd_sample: :unavailable,
+        runnable: :unavailable,
+        run_queue_threshold: nil,
+        schedulers: 16,
+        load: 143.0,
+        load_threshold: 1.5,
+        cpu_headroom: @clear_headroom,
+        cpu_snapshot: :unavailable,
+        build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+        provider_backends: [],
+        github_quota: :available,
+        queued_demand?: true
+      }
+
+      assert {:hold, %{signal: :cpu_pressure, measured: 83.0, threshold: 60.0}} =
+               DispatchPolicy.admission_gate(probes)
+    end
+
     test "requires real CPU contention before a high load average holds dispatch" do
       assert DispatchPolicy.load_admission_reason(143.0, 1.5, 16, @clear_headroom) == :dispatch
 

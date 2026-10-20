@@ -19,7 +19,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
         decision.decision_status == :dismissed ->
           {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
 
-        decision.decision_status not in [:open, :deferred] ->
+        decision.decision_status not in [:open, :deferred] and not expired_unanswered_blocker?(decision) ->
           {:reply, {:error, {:conflict, decision.decision_status}}, state}
 
         unresolvable_block?(decision) ->
@@ -33,14 +33,12 @@ defmodule Aiur.DecisionStore.Withdrawals do
     end
   end
 
-  # Dismissal records a status and stops: it delivers nothing to the waiting
-  # agent. That is honest for a non-blocking notice, and honest for a legacy
-  # attention because the caller resolves the underlying attention alongside
-  # it. For an agent-filed blocking Command neither holds — the ticket stays
-  # blocked while the row leaves the operator's inbox, which turns a visible
-  # block into an invisible one. Refuse instead: the answer path (including a
-  # custom response) is what actually releases the agent.
+  # Dismissal records a status and stops: it delivers nothing to a waiting
+  # agent. Live blocking Commands remain protected because dismissal would hide
+  # a real gate. An expired blocker no longer holds dispatch, so an operator may
+  # retire that stale record without leaving an invisible block.
   @spec unresolvable_block?(term()) :: term()
+  def unresolvable_block?(%Decision{decision_status: :expired, blocking: true, answer: nil}), do: false
   def unresolvable_block?(%Decision{blocking: true, legacy_attention: nil}), do: true
   def unresolvable_block?(_decision), do: false
 
@@ -60,6 +58,8 @@ defmodule Aiur.DecisionStore.Withdrawals do
   # about an existing Command, not operator-facing blocks, so they are excluded
   # exactly as in `RetainedIndex.operator_command?/1`.
   #
+  # An expired blocker means its original worker is gone. It remains visible,
+  # answerable and eligible for re-raise, but must not strand a later dispatch.
   # An option-less legacy attention never gates dispatch either, even when it
   # was persisted `blocking: true`. `DecisionAttention.project_attention/3` now
   # files attentions unblocking, but records written before that fix are still
@@ -85,6 +85,9 @@ defmodule Aiur.DecisionStore.Withdrawals do
       do: true
 
   def open_blocking_command?(%Decision{}), do: false
+
+  defp expired_unanswered_blocker?(%Decision{decision_status: :expired, blocking: true, answer: nil}), do: true
+  defp expired_unanswered_blocker?(_decision), do: false
 
   @spec open_nonblocking_agent_question?(term()) :: term()
   def open_nonblocking_agent_question?(%Decision{
@@ -180,6 +183,9 @@ defmodule Aiur.DecisionStore.Withdrawals do
           persist_mooting(decision, reason_class, detail, actor, state)
 
         :deferred ->
+          persist_mooting(decision, reason_class, detail, actor, state)
+
+        :expired when decision.blocking and is_nil(decision.answer) ->
           persist_mooting(decision, reason_class, detail, actor, state)
 
         :moot ->

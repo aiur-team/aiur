@@ -1,0 +1,469 @@
+/* Dashboard AS-02 reference: f03be54a9. Values preserved. */
+@layer aiur.components {
+  .aiur-shell__toggle[aria-pressed="true"] .aiur-shell__toggle-fill { display: none; }
+  /* Dashboard chrome differs from the site hairline/pill tokens. */
+  .aiur-shell {
+    --aiur-shell-measure: 75rem;
+    --aiur-shell-hairline: rgba(42, 37, 26, 0.1);
+    --aiur-shell-pill-bg: rgba(42, 37, 26, 0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme="light"]) .aiur-shell {
+      --aiur-shell-hairline: rgba(221, 226, 235, 0.08);
+      --aiur-shell-pill-bg: rgba(221, 226, 235, 0.04);
+    }
+  }
+  html[data-theme="dark"] .aiur-shell {
+    --aiur-shell-hairline: rgba(221, 226, 235, 0.08);
+    --aiur-shell-pill-bg: rgba(221, 226, 235, 0.04);
+  }
+  .aiur-shell__pause[aria-pressed="true"] {
+    border-color: var(--aiur-color-warning, #d08a2a);
+    color: var(--aiur-color-warning, #d08a2a);
+    background: color-mix(in srgb, var(--aiur-color-warning, #d08a2a) 16%, transparent);
+  }
+  .aiur-shell__pause:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .aiur-shell__badge,
+  .aiur-shell__tool {
+    font: inherit;
+    font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  }
+  .aiur-shell {
+    max-width: 1440px;
+    margin-inline: auto;
+    padding: 16px 1.15rem;
+  }
+  .aiur-shell {
+    display: grid;
+    min-width: 0;
+    gap: 1.25rem;
+  }
+  .aiur-shell__body {
+    display: grid;
+    min-width: 0;
+    --aiur-shell-gap: 1.25rem;
+    gap: var(--aiur-shell-gap);
+  }
+  .aiur-shell__sidebar {
+    position: relative;
+    display: grid;
+    align-self: start;
+    align-content: start;
+    gap: 0.45rem;
+    min-width: 0;
+  }
+  .aiur-shell__main {
+    display: grid;
+    min-width: 0;
+    gap: 1rem;
+  }
+  .aiur-shell__nav {
+    display: grid;
+    gap: 0.35rem;
+  }
+  .aiur-shell__nav--sidebar {
+    gap: 0.15rem;
+  }
+  .aiur-shell__item {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    min-width: 0;
+    min-height: 2.6rem;
+    padding: 0.62rem 0.72rem;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--aiur-color-muted-app);
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.2;
+    text-decoration: none;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .aiur-shell__item:hover {
+    color: var(--aiur-color-fg);
+    background: var(--aiur-color-surface-2);
+  }
+  .aiur-shell__item[aria-current="page"] {
+    color: var(--aiur-color-accent-ink);
+    background: var(--aiur-color-accent-soft);
+  }
+  .aiur-shell__item[aria-disabled="true"] {
+    cursor: not-allowed;
+    color: var(--aiur-color-muted-app);
+  }
+  .aiur-shell__nav--sidebar .aiur-shell__item {
+    border-start-start-radius: 0;
+    border-end-start-radius: 0;
+  }
+  .aiur-shell__nav--sidebar .aiur-shell__item:first-child {
+    padding-inline-end: 1.8rem;
+  }
+  .aiur-shell__icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    color: inherit;
+  }
+  .aiur-shell__icon svg {
+    width: 18px;
+    height: 18px;
+  }
+  .aiur-shell__label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .aiur-shell__state {
+    margin-left: auto;
+    color: var(--aiur-color-muted-app);
+    font-size: 0.6rem;
+    font-weight: 600;
+  }
+  .aiur-shell__count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.35rem;
+    height: 1.35rem;
+    margin-left: auto;
+    padding-inline: 0.4rem;
+    border-radius: 999px;
+    background: var(--aiur-color-surface-3);
+    color: var(--aiur-color-fg);
+    font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .aiur-shell__item[aria-current="page"] .aiur-shell__count {
+    background: color-mix(in srgb, var(--aiur-color-accent-ink) 22%, transparent);
+    color: var(--aiur-color-accent-ink);
+  }
+  .aiur-shell__count.is-attention {
+    background: var(--aiur-color-blocking-soft);
+    color: var(--aiur-color-blocking-ink);
+  }
+  .aiur-shell__nav--pill {
+    display: none;
+  }
+  .aiur-shell__topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 1.15rem;
+    background: color-mix(in srgb, var(--aiur-color-surface) 72%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--aiur-shell-hairline);
+  }
+  .aiur-shell__brand-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--aiur-color-muted-app);
+  }
+  .aiur-shell__brand-link:hover {
+    color: var(--aiur-color-fg);
+  }
+  .aiur-shell__logo {
+    width: 2.15rem;
+    height: 1.9rem;
+    object-fit: contain;
+    filter: drop-shadow(0 0 10px var(--aiur-color-accent-soft));
+  }
+  .aiur-shell__wordmark {
+    font-family: "Bungee", "JetBrains Mono", "SFMono-Regular", monospace;
+    font-size: 0.98rem;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .aiur-shell__wordmark b {
+    color: var(--aiur-color-fg);
+    font-weight: 400;
+  }
+  .aiur-shell__brand {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    min-width: 0;
+    flex: none;
+    padding: 0;
+  }
+  .aiur-shell__brand .aiur-shell__status {
+    margin-left: 0.1rem;
+    min-height: 2.05rem;
+    padding: 0 0.7rem;
+    border-radius: 999px;
+    font-size: 0.66rem;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .aiur-shell__tool.aiur-shell__toggle {
+    position: absolute;
+    top: 0.28rem;
+    right: -1rem;
+    z-index: 5;
+    background: var(--aiur-color-surface);
+    box-shadow: var(--aiur-shadow-md);
+  }
+  .aiur-shell__tool.aiur-shell__toggle:hover {
+    background: var(--aiur-color-surface-2);
+  }
+  .aiur-shell[data-nav-collapsed="true"] .aiur-shell__toggle {
+    right: auto;
+    left: 0.28rem;
+  }
+  .aiur-shell__tool.aiur-shell__tool--icon {
+    gap: 0;
+    padding: 0;
+    width: 2.05rem;
+    height: 2.05rem;
+    justify-content: center;
+    border-radius: 50%;
+    aspect-ratio: 1;
+    flex: none;
+  }
+  .aiur-shell__theme-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .aiur-shell__theme-icon svg {
+    display: block;
+    width: 16px;
+    height: 16px;
+  }
+  .aiur-shell__pause-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .aiur-shell__pause-icon svg {
+    display: block;
+    width: 15px;
+    height: 15px;
+  }
+  .aiur-shell__toggle-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .aiur-shell__toggle-icon svg {
+    width: 17px;
+    height: 17px;
+  }
+  .aiur-shell__show-icon {
+    display: none;
+  }
+  .aiur-shell__theme-icon .aiur-shell__moon {
+    display: none;
+  }
+  .aiur-shell__theme-icon .aiur-shell__sun {
+    display: inline-flex;
+  }
+  html[data-theme="light"] .aiur-shell__theme-icon .aiur-shell__sun {
+    display: none;
+  }
+  html[data-theme="light"] .aiur-shell__theme-icon .aiur-shell__moon {
+    display: inline-flex;
+  }
+  .aiur-shell[data-nav-collapsed="true"] .aiur-shell__nav--sidebar {
+    display: none;
+  }
+  @media (min-width: 960px) {
+    .aiur-shell[data-nav-collapsed="true"] .aiur-shell__body {
+      grid-template-columns: var(--aiur-shell-nav-w) minmax(0, 1fr);
+    }
+  }
+  .aiur-shell__toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+  .aiur-shell__controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .aiur-shell__badge,
+  .aiur-shell__tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.42rem;
+    min-height: 1.9rem;
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--aiur-color-line);
+    border-radius: 999px;
+    background: var(--aiur-shell-pill-bg);
+    color: var(--aiur-color-muted-app);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .aiur-shell__dot {
+    width: 0.48rem;
+    height: 0.48rem;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .aiur-shell__badge--offline {
+    color: var(--aiur-color-attention-ink);
+    background: var(--aiur-color-attention-soft);
+    border-color: var(--aiur-color-attention-line);
+  }
+  .aiur-shell__tool {
+    cursor: pointer;
+    transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  }
+  .aiur-shell__tool:hover {
+    color: var(--aiur-color-fg);
+    border-color: var(--aiur-color-line-strong);
+    background: var(--aiur-color-surface-2);
+  }
+  @media (min-width: 960px) {
+    .aiur-shell__body {
+      grid-template-columns: minmax(12rem, var(--aiur-shell-nav-w)) minmax(0, 1fr);
+      --aiur-shell-nav-w: 15rem;
+      --aiur-shell-rail: calc(var(--aiur-shell-nav-w) + var(--aiur-shell-gap));
+    }
+    .aiur-shell[data-nav-collapsed="true"] .aiur-shell__body {
+      --aiur-shell-nav-w: 2.6rem;
+    }
+    .aiur-shell {
+      max-width: none;
+      padding: 0;
+    }
+    .aiur-shell__main {
+      margin-inline-end: clamp(0px, calc(100vw - var(--aiur-shell-rail, 0px) - var(--aiur-shell-measure)), var(--aiur-shell-rail, 0px));
+    }
+    .aiur-shell__sidebar {
+      align-self: start;
+    }
+  }
+  @media (max-width: 959px) {
+    .aiur-shell {
+      padding-block-end: calc(7rem + env(safe-area-inset-bottom));
+    }
+    .aiur-shell__sidebar {
+      display: none;
+    }
+    .aiur-shell__nav--pill {
+      position: fixed;
+      z-index: 20;
+      right: max(0.65rem, env(safe-area-inset-right));
+      bottom: max(0.65rem, env(safe-area-inset-bottom));
+      left: max(0.65rem, env(safe-area-inset-left));
+      max-width: 26rem;
+      margin-inline: auto;
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(0, 1fr);
+      gap: 0.2rem;
+      padding: 0.3rem;
+      border: 1px solid var(--aiur-color-line-strong);
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--aiur-color-surface) 94%, transparent);
+      box-shadow: var(--aiur-shadow-sm);
+    }
+    .aiur-shell__nav--pill .aiur-shell__item {
+      position: relative;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.2rem;
+      min-height: 2.75rem;
+      padding: 0.35rem 0.2rem;
+      text-align: center;
+    }
+    .aiur-shell__nav--pill .aiur-shell__count {
+      position: absolute;
+      top: 0.2rem;
+      right: 0.3rem;
+      margin: 0;
+      min-width: 1.05rem;
+      height: 1.05rem;
+      padding-inline: 0.28rem;
+      font-size: 0.58rem;
+    }
+    .aiur-shell__nav--pill .aiur-shell__icon {
+      width: auto;
+    }
+    .aiur-shell__nav--pill .aiur-shell__label {
+      font-size: clamp(0.55rem, 2vw, 0.68rem);
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .aiur-shell__nav--pill .aiur-shell__state {
+      margin-left: 0;
+      font-size: clamp(0.43rem, 1.7vw, 0.55rem);
+      line-height: 1;
+    }
+    .aiur-shell__nav--pill .aiur-shell__item[aria-current="page"] {
+      box-shadow: inset 0 -3px var(--aiur-color-accent-line);
+    }
+    .aiur-shell__nav-controls {
+      grid-column: auto / auto;
+      width: max-content;
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding-inline: 0.15rem 0.05rem;
+      margin-inline-start: 0.15rem;
+      border-inline-start: 1px solid var(--aiur-color-line);
+    }
+    .aiur-shell__nav-controls .aiur-shell__tool.aiur-shell__tool--icon {
+      width: 1.9rem;
+      height: 1.9rem;
+    }
+    .aiur-shell__topbar {
+      flex-wrap: nowrap;
+      align-items: center;
+    }
+    .aiur-shell__topbar .aiur-shell__toolbar {
+      flex: none;
+    }
+  }
+  @media (max-width: 760px) {
+    .aiur-shell {
+      padding-inline: 0.8rem;
+    }
+    .aiur-shell__topbar {
+      gap: 0.6rem;
+    }
+    .aiur-shell__toolbar {
+      width: auto;
+      justify-content: flex-end;
+    }
+    .aiur-shell__tool {
+      flex: 1 1 auto;
+      justify-content: center;
+    }
+  }
+  @media (max-width: 500px) {
+    .aiur-shell {
+      padding-inline: 0.65rem;
+    }
+    .aiur-shell__wordmark {
+      font-size: 0.84rem;
+      letter-spacing: 0.02em;
+    }
+    .aiur-shell__badge {
+      font-size: 0.64rem;
+    }
+  }
+}

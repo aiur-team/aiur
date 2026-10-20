@@ -111,12 +111,22 @@ test('feature lanes lock and unsorted stays last; flow clears headers', async ({
     const unsorted = ctx.laneEls.get('unsorted')
     const cls = unsorted.className, label = unsorted.querySelector('span').textContent
     S.flow = true; S.K = 2; cols.applyCols(cols.visibleCols(), true)
-    return { locks, cls, label, lanes: ctx.laneEls.size, guides: ctx.guideEls.size, caption: ctx.lanesEl.querySelector('.bd-lane-g').textContent, hidden: ctx.svg.classList.contains('hide'), band: ctx.bandMap.b0, group: ctx.colMap.g }
+    return { locks, cls, label, lanes: ctx.laneEls.size, guides: ctx.guideEls.size, caption: ctx.lanesEl.querySelector('.bd-lane-g').textContent, hidden: ctx.svg.classList.contains('hide'), bands: ctx.bandMap, bandCount: ctx.L.band.BK, viewportWidth: ctx.vp.clientWidth, nowCount: ctx.D.now.length, group: ctx.colMap.g }
   })
   expect(result.locks.length).toBeGreaterThan(0); expect(result.locks.every(Boolean)).toBe(true)
   expect(result.cls).toContain('unsorted'); expect(result.label).toBe('Unsorted')
   expect(result.lanes).toBe(0); expect(result.guides).toBe(0); expect(result.caption).toBe('Colour = epic'); expect(result.hidden).toBe(true)
-  expect(result.band.w).toBe(380); expect(result.group.x).toBe(84)
+  // Reference design build.js: Now uses 230px columns, a 16px gap and a 380px width cap, independently of flow K.
+  const available = result.viewportWidth - 84 - 14
+  const bandCount = Math.max(1, Math.min(result.nowCount || 1, Math.floor(available / 230)))
+  const bandWidth = Math.min(380, (available - 16 * (bandCount - 1)) / bandCount)
+  expect(result.bandCount).toBe(bandCount); expect(Object.keys(result.bands)).toHaveLength(bandCount)
+  expect(bandWidth).toBeLessThan(380)
+  for (let i = 0; i < bandCount; i++) {
+    expect(result.bands['b' + i].w).toBeCloseTo(bandWidth)
+    expect(result.bands['b' + i].x).toBeCloseTo(84 + i * (bandWidth + 16))
+  }
+  expect(result.group.x).toBe(84)
 })
 
 test('leave callback cannot delete a replacement element', async ({ page }) => {

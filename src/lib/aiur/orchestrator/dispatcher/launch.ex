@@ -10,7 +10,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.BuildOrder.History
   alias Aiur.CodingAgent
   alias Aiur.Commands
-  alias Aiur.GitHub.LocalHold
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher.Budgets
@@ -27,6 +26,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.TelemetryCohort
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
   alias Aiur.Signal
+  alias Aiur.Tracker
 
   @doc false
   @spec recover_orphaned_claim(State.t(), Issue.t(), term(), term()) :: {State.t(), term()}
@@ -162,10 +162,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
     # and retries the fetch; a hold beyond the ceiling or past the cap still
     # fails, so real starvation is not masked.
     result =
-      LocalHold.run(
-        fn -> issue_fetcher.([issue_id]) end,
-        LocalHold.caller_opts(opts)
-      )
+      Tracker.with_transient_retry(fn -> issue_fetcher.([issue_id]) end, opts)
 
     case result do
       {:ok, [%Issue{} = refreshed_issue | _]} ->

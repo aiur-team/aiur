@@ -109,16 +109,25 @@ defmodule Aiur.ExecutorAttention.DecisionEscalation do
     end)
   end
 
-  @doc "`DECISIONS open N oldest <age> (#ticket, gates M)`; marked ATTENTION past 15 minutes."
+  @doc """
+  `DECISIONS open N (E expired) oldest <age> (#ticket, gates M)`; marked ATTENTION past 15 minutes.
+
+  Counts the same set as `aiur commands --filter open`, so an expired blocking
+  Decision that is still answerable is not hidden (#5109).
+  """
   @spec status_line([Decision.t()], DateTime.t(), (String.t() -> non_neg_integer())) :: String.t()
   def status_line(decisions, now, gates_fun \\ &gates/1) do
-    case open_blocking(decisions) do
+    open = decisions |> Enum.filter(&Commands.open?/1) |> Enum.sort_by(&DateTime.to_unix(&1.created_at, :microsecond))
+
+    case open do
       [] ->
         "DECISIONS open 0"
 
-      [oldest | _] = open ->
+      [oldest | _] ->
         ticket = oldest.ticket.identifier
-        line = "DECISIONS open #{length(open)} oldest #{age_label(age(oldest, now))} (##{ticket}, gates #{gates_fun.(ticket)})"
+        expired = Enum.count(open, &(&1.decision_status == :expired))
+        expired_label = if expired > 0, do: " (#{expired} expired)", else: ""
+        line = "DECISIONS open #{length(open)}#{expired_label} oldest #{age_label(age(oldest, now))} (##{ticket}, gates #{gates_fun.(ticket)})"
         if aged?(oldest, now), do: line <> " ATTENTION (answer with `aiur commands`)", else: line
     end
   end

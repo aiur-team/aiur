@@ -113,7 +113,7 @@ defmodule AiurWeb.VoiceChannelTest do
     Application.put_env(:aiur, :voice_provider, nil)
     {socket, _client} = voice_socket()
 
-    assert {:error, %{reason: "Speech-to-text could not start. Check the daemon log and retry."}} =
+    assert {:error, %{reason: "Voice input isn't installed in this Aiur. Typed messages work as usual."}} =
              AiurWeb.VoiceChannel.join("voice:dictation", %{}, socket)
 
     Application.put_env(:aiur, :voice_provider, FakeVoiceProvider)

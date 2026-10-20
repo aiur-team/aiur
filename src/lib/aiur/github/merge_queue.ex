@@ -66,6 +66,14 @@ defmodule Aiur.GitHub.MergeQueue do
 
   def recovery_state(_observation), do: :unknown
 
+  @doc false
+  @spec failed_entry_dropped?(map() | term(), map() | term()) :: boolean()
+  def failed_entry_dropped?(%{head_sha: head_sha, review_decision: "APPROVED", merge_queue_entry: nil, decision: :passed}, %{head_sha: head_sha, merge_queue_entry: %{"state" => state}})
+      when state in ["AWAITING_CHECKS", "LOCKED", "MERGEABLE", "QUEUED"],
+      do: true
+
+  def failed_entry_dropped?(_current, _previous), do: false
+
   # Only an observation that carries every required field, and whose optional
   # arm/queue fields are absent rather than malformed, can be classified. Any
   # other shape falls through to `:unknown` (fail closed).

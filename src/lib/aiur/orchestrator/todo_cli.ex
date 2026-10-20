@@ -376,6 +376,10 @@ defmodule Aiur.Orchestrator.TodoCLI do
       :unavailable ->
         IO.puts(:stderr, "aiur: the daemon did not accept a poll refresh; queued tickets wait for its next scheduled poll")
 
+      %{latest_dispatch_hold: %{reasons: reasons}} when is_list(reasons) and reasons != [] ->
+        hold = Enum.map_join(reasons, ", ", &to_string/1)
+        IO.puts(:stderr, "aiur: latest dispatcher hold: #{hold}; the next poll will reconsider queued tickets")
+
       _accepted ->
         :ok
     end

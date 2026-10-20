@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.CiReadiness
+  alias Aiur.GitHub.{Budget, CiReadiness}
 
   @workflow """
   name: CI
@@ -33,7 +33,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     assert {:error, _reason} = CiReadiness.fetch_required_checks(repo: "owner/repo", token: "test-gh-token", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
   end
 
-  test "PR workflow runs six fast jobs and the event gate produces the required check" do
+  test "PR workflow runs seven fast jobs, including soak, and the event gate produces the required check" do
     root = Path.expand("../../../../..", __DIR__)
     workflow = File.read!(Path.join(root, ".github/workflows/ci.yml"))
     parsed = YamlElixir.read_from_string!(workflow)
@@ -41,7 +41,8 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     assert Map.has_key?(parsed["on"], "merge_group")
     assert parsed["on"]["push"]["branches"] == ["main", "v2"]
     gate = "needs.changes.outputs.full_ci == 'true'"
-    fast = ~w(affected-tests changes ci-gate lint pre-handoff workflow-security)
+    fast = ~w(affected-tests changes ci-gate lint pre-handoff soak workflow-security)
+    # Queue-only jobs are separate from the PR's fast/full selection.
     selected = for {id, job} <- parsed["jobs"], id != "quarantine", not String.contains?(Map.get(job, "if", ""), gate), do: id
     assert Enum.sort(selected) == fast
 
@@ -49,6 +50,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
       assert String.contains?(job["if"], gate)
     end
 
+    refute Map.has_key?(parsed["jobs"], "home-parity")
     assert parsed["jobs"]["ci-gate"]["if"] =~ "always()"
     declaration = root |> Path.join("docs/security/human-only-merge-ruleset.json") |> File.read!() |> Jason.decode!()
     checks = declaration["rules"] |> Enum.find(&(&1["type"] == "required_status_checks")) |> get_in(["parameters", "required_status_checks"])
@@ -147,8 +149,8 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
 
     parent = self()
 
-    request_fun = fn %{url: url} ->
-      send(parent, {:readiness_request, url})
+    request_fun = fn %{url: url} = request ->
+      send(parent, {:readiness_request, url, Map.get(request, :credential_id), Map.get(request, :credential_key)})
 
       cond do
         url =~ "/rules/branches/develop" ->
@@ -184,7 +186,8 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     end
 
     assert {:ok, ^readiness} = CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, request_fun))
-    assert_received {:readiness_request, "workflow-content?ref=develop"}
+    assert_received {:readiness_request, "workflow-content?ref=develop", "ci_readiness", key}
+    assert key == Budget.token_key("operator-test-token")
   end
 
   test "dispatch reports the operator token required instead of accepting a persisted ready result" do

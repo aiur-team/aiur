@@ -385,8 +385,7 @@ defmodule AiurWeb.DashboardLiveTest do
   defmodule QueueOrchestrator do
     use GenServer
 
-    alias Aiur.Orchestrator.OperatorMessages
-    alias Aiur.Orchestrator.StatusReport
+    alias Aiur.Orchestrator.{GlobalPause, OperatorMessages, StatusReport}
 
     def start_link(opts) do
       GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
@@ -397,6 +396,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     @impl true
     def handle_call(:snapshot, _from, state), do: StatusReport.snapshot(state)
+
+    def handle_call(:global_pause_status, _from, state), do: {:reply, {:ok, GlobalPause.global_pause_status(state)}, state}
 
     def handle_call({:send_correlated_operator_message, issue_identifier, payload}, _from, state) do
       OperatorMessages.send_correlated_operator_message_call(state, issue_identifier, payload)
@@ -624,7 +625,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
       assert html =~ "ax-mi on"
       assert html =~ ~s(aria-checked="true")
-      assert html =~ "Resume all agents"
+      assert html =~ "Resume new starts"
       refute html =~ "global-pause-banner"
     end
 
@@ -656,9 +657,9 @@ defmodule AiurWeb.DashboardLiveTest do
       assert html =~ ~s(id="ax-pause")
       assert html =~ ~s(phx-click="toggle-global-pause")
       assert html =~ ~s(aria-checked="false")
-      assert html =~ "Pause all agents"
+      assert html =~ "Pause new starts"
       refute html =~ "ax-mi on"
-      refute html =~ ~s|aria-label="Resume all agents"|
+      refute html =~ ~s|aria-label="Resume new starts"|
     end
 
     test "renders a resume affordance while the daemon is globally paused" do
@@ -666,7 +667,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
       assert html =~ "ax-mi on"
       assert html =~ ~s(aria-checked="true")
-      assert html =~ "Resume all agents"
+      assert html =~ "Resume new starts"
       refute html =~ "global-pause-banner"
       refute html =~ "lift the global pause"
     end
@@ -834,12 +835,10 @@ defmodule AiurWeb.DashboardLiveTest do
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
     {:ok, view, initial_html} = live(build_conn(), "/")
-    # Before the first snapshot the fleet area degrades to its ordinary empty
-    # state, which names the missing fleet view rather than claiming the run is
-    # empty. No notice, no error card.
-    assert initial_html =~ "No live units. Fleet data is unavailable."
-    refute initial_html =~ "snapshot_unpublished"
-    refute initial_html =~ "No fleet data"
+    # Before the first fleet view is available, keep counts unknown and label
+    # the state as startup loading rather than empty or unavailable.
+    assert initial_html =~ "Loading Units…"
+    refute Enum.any?(["0+", "Pause state unknown", "snapshot_unpublished", "No fleet data"], &String.contains?(initial_html, &1))
 
     :ok = ObservabilityPubSub.subscribe()
     :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
@@ -969,7 +968,7 @@ defmodule AiurWeb.DashboardLiveTest do
         health: :ready,
         reconciliation: %{status: :complete, partial?: false}
       })
-      |> Map.put(:decisions, [decision])
+      |> Map.put(:decisions, [Map.put(decision, :open?, true)])
       |> Map.put(:overview, %{
         blocking_decisions: 1,
         running: 0,
@@ -1347,9 +1346,9 @@ defmodule AiurWeb.DashboardLiveTest do
         socket = :sys.get_state(view.pid).socket
         assert socket.assigns.financial_data_capability.state == :authorized
 
-        # Rotate credentials: the outstanding session marker is now stale, so
-        # the next mount sees no valid financial access and renders locked.
+        # Rotate credentials so the outstanding session marker becomes stale.
         System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-boundary-secret")
+        refute Map.has_key?(PayloadLoader.load(:fresh), :units_status_snapshot)
 
         {:ok, redirected, redirected_html} = live_redirect(view, to: "/commands")
         send(test_process, {:revoked_financial, redirected})
@@ -1362,7 +1361,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert socket.assigns.financial_data_capability.state == :locked
     assert socket.assigns.payload.fleet.agent_totals == %{seconds_running: 41}
     refute Map.has_key?(socket.assigns.payload.fleet, :rate_limits)
-    refute inspect(socket) =~ sentinel
+    Aiur.TestSupport.refute_leak(socket, sentinel)
     refute render(redirected) =~ sentinel
     refute log =~ sentinel
   end
@@ -1403,8 +1402,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert socket.assigns.financial_data_capability == %{state: :authorized, version: 1}
     assert %AiurWeb.FinancialDataAccess.Context{} = socket.private.aiur_financial_data_access
-    refute inspect(socket.private.aiur_financial_data_access) =~ "operator"
-    refute inspect(socket.private.aiur_financial_data_access) =~ "socket-bound-secret"
+    Aiur.TestSupport.refute_leak(socket.private.aiur_financial_data_access, "operator")
+    Aiur.TestSupport.refute_leak(socket.private.aiur_financial_data_access, "socket-bound-secret")
     assert socket.assigns.writable == false
   end
 

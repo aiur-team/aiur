@@ -1,7 +1,35 @@
 defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
-  alias Aiur.ExecutorSweep.SnapshotCache
+  alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
+  alias Aiur.GitHub.{Config, ResourceStore}
+  alias Aiur.OpenTicketSource.Snapshot
+
+  setup_all do
+    if Process.whereis(ResourceStore) == nil, do: Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
+    :ok
+  end
+
+  setup do
+    ResourceStore.reset()
+    on_exit(fn -> ResourceStore.reset() end)
+    :ok
+  end
+
+  test "skips a metadata-only ResourceStore entry while reading cached resources" do
+    [owner, repo] = String.split(Config.repo(), "/", parts: 2)
+    key = ResourceStore.key(:issue, owner, repo, 3787)
+    neighboring_key = ResourceStore.key(:issue, owner, repo, 3788)
+    assert :ok = ResourceStore.put_resource(key, %{"number" => 3787, "created_at" => "2026-10-15T13:25:40Z"}, source: :mutation, version: "2026-10-15T13:25:40Z")
+    ResourceStore.drop_data(key)
+    assert :ok = ResourceStore.put_resource(neighboring_key, %{"number" => 3788, "created_at" => "2026-10-15T13:25:41Z"}, source: :poll, version: "2026-10-15T13:25:41Z")
+
+    assert [{{:issue, ^owner, ^repo, "3787"}, %{data_source: :mutation} = entry}] = ResourceStore.list(:issue, owner, repo) |> Enum.filter(fn {{:issue, _, _, id}, _} -> id == "3787" end)
+    refute Map.has_key?(entry, :data)
+
+    assert %{tickets: [%{number: 3788, created_at: "2026-10-15T13:25:41Z"}]} =
+             SnapshotCache.read(fn -> %Snapshot{status: :available, tickets: [%{identifier: "3788", labels: []}]} end)
+  end
 
   test "joins cached PR bodies, current-head reviews, and ticket labels without a fetch" do
     snapshot =
@@ -42,17 +70,130 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
     assert [%{number: 3, mergeable: nil}] = SnapshotCache.build([{3, pr}], [], [], %{}, %{}, [{9, branch_pr}]).merge_queue
   end
 
+  test "a webhook-shaped branch row without GraphQL landing facts does not claim the PR is not landing" do
+    direct = %{
+      "number" => 3,
+      "state" => "open",
+      "head" => %{"ref" => "aiur/9-fix", "sha" => "current"},
+      "auto_merge" => nil
+    }
+
+    branch = %{
+      "number" => 3,
+      "state" => "open",
+      "head" => %{"ref" => "aiur/9-fix", "sha" => "current"},
+      "updated_at" => "2026-10-15T18:00:00Z"
+    }
+
+    snapshot = SnapshotCache.build([{3, direct}], [{3, [%{"commit_id" => "current", "state" => "APPROVED"}]}], [], %{}, %{}, [{9, branch}])
+
+    assert [%{landing_state_known?: false, in_merge_queue: false, auto_merge: false}] = snapshot.pull_requests
+    refute Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "approved_pr_not_landing"))
+  end
+
+  test "a stale open branch row does not reopen a merged PR" do
+    merged = %{"number" => 4574, "head" => %{"ref" => "aiur/4574-fix", "sha" => "head"}, "state" => "closed", "merged_at" => "2026-10-16T01:07:00Z"}
+    stale = %{"number" => 4574, "head" => %{"ref" => "aiur/4574-fix", "sha" => "head"}, "state" => "open", "merged_at" => nil}
+
+    assert [%{state: "closed", merged_at: "2026-10-16T01:07:00Z"}] = SnapshotCache.build([{4574, merged}], [], [], %{}, %{}, [{4574, stale}]).pull_requests
+  end
+
   test "filters closed cached blockers while retaining unresolved edges" do
     snapshot =
       SnapshotCache.build(
         [],
         [],
         [{42, [%{"name" => "agent:paused"}]}],
-        %{42 => %{"created_at" => "2026-10-15T16:00:00Z"}, 90 => %{"state" => "closed"}},
+        %{42 => %{"created_at" => "2026-10-15T16:00:00Z"}, 90 => %{"state" => "closed"}, 91 => %{"state" => "open"}},
         %{42 => [%{"number" => 90}, %{"number" => 91}]}
       )
 
     assert [%{number: 42, closed_blockers: [90], open_blocked_by: [%{"number" => 91}]}] = snapshot.tickets
+  end
+
+  test "retains an open blocker from the edge when its issue row has expired" do
+    snapshot =
+      SnapshotCache.build(
+        [],
+        [],
+        [{42, [%{"name" => "agent:rework"}]}],
+        %{},
+        %{42 => [%{"number" => 90, "state" => "open"}]}
+      )
+
+    assert [%{open_blocked_by: [%{"number" => 90}], closed_blockers: []}] = snapshot.tickets
+    assert Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "rework_ticket_blocked"))
+  end
+
+  test "the complete open-ticket listing confirms an open blocker without an issue row" do
+    ticket_snapshot = %Snapshot{status: :available, tickets: [%{identifier: "90", labels: []}]}
+
+    snapshot =
+      SnapshotCache.build(
+        [],
+        [],
+        [{42, [%{"name" => "agent:rework"}]}],
+        %{},
+        %{42 => [%{"number" => 90}]},
+        [],
+        %{},
+        ticket_snapshot
+      )
+
+    assert [%{open_blocked_by: [%{"number" => 90}], closed_blockers: []}] = snapshot.tickets
+    assert Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "rework_ticket_blocked"))
+  end
+
+  test "a complete open-ticket listing overrides a stale open blocker edge" do
+    ticket_snapshot = %Snapshot{status: :available, tickets: []}
+
+    snapshot =
+      SnapshotCache.build(
+        [],
+        [],
+        [{42, [%{"name" => "agent:rework"}]}],
+        %{},
+        %{42 => [%{"number" => 90, "state" => "open"}]},
+        [],
+        %{},
+        ticket_snapshot
+      )
+
+    assert [%{open_blocked_by: [], closed_blockers: [90]}] = snapshot.tickets
+    refute Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "rework_ticket_blocked"))
+  end
+
+  test "a cross-repository blocker uses its edge state instead of this repository's ticket listing" do
+    ticket_snapshot = %Snapshot{status: :available, tickets: []}
+
+    snapshot =
+      SnapshotCache.build(
+        [],
+        [],
+        [{42, [%{"name" => "agent:rework"}]}],
+        %{},
+        %{42 => [%{"number" => 77, "state" => "open", "repository_url" => "https://api.github.com/repos/other/repo"}]},
+        [],
+        %{},
+        ticket_snapshot
+      )
+
+    assert [%{open_blocked_by: [%{"number" => 77}], closed_blockers: []}] = snapshot.tickets
+    assert Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "rework_ticket_blocked"))
+  end
+
+  test "the blocker issue cache overrides an open state embedded in the held edge" do
+    snapshot =
+      SnapshotCache.build(
+        [],
+        [],
+        [{42, [%{"name" => "agent:rework"}]}],
+        %{90 => %{"state" => "closed"}},
+        %{42 => [%{"number" => "90", "state" => "open"}]}
+      )
+
+    assert [%{open_blocked_by: [], closed_blockers: ["90"]}] = snapshot.tickets
+    refute Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "rework_ticket_blocked"))
   end
 
   test "joins rework attempts only for the current open PR head" do

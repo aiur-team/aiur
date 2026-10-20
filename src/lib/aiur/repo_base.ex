@@ -22,17 +22,19 @@ defmodule Aiur.RepoBase do
   alias Aiur.AgentPubSub
   alias Aiur.Config
   alias Aiur.Config.Paths
+  alias Aiur.RepoBase.BuildProcess
+  alias Aiur.RepoBase.BuildTimeout
   alias Aiur.RepoBase.Clone
   alias Aiur.RepoBase.Migration
+  alias Aiur.RepoBase.Preparer
+  alias Aiur.RepoBase.Settings
   alias Aiur.RepoBase.StateTree
 
-  # The probe owns its 30-second timeout, so a *live* probe self-resolves. This
-  # watchdog instead bounds *idle* dispatch holds: it re-arms while the hold's
-  # worker (probe or build) is alive, and fires only once the worker has been
-  # dead for a full interval — releasing the gate for cold-clone fallback. A
-  # slow-but-progressing cold build (deps + compile + dialyzer PLT) is never
-  # killed by it; only a hold whose completion signal was lost is.
+  # The probe owns its 30-second timeout. The idle watchdog releases holds whose
+  # completion signal was lost; a separate total build deadline bounds even a
+  # live but wedged build and releases dispatch for cold-clone fallback.
   @dispatch_hold_timeout_ms 600_000
+  @build_hold_timeout_ms 3_600_000
 
   ## ---- Public API ----
 
@@ -166,18 +168,8 @@ defmodule Aiur.RepoBase do
   end
 
   defp run_refresh_steps(base_path, repo_url, base_build) do
-    with {:ok, changed?} <- prepare_clone(base_path, repo_url) do
+    with {:ok, changed?} <- Preparer.prepare(base_path, repo_url) do
       Clone.maybe_build(base_path, base_build, changed? or not Clone.built?(base_path, base_build))
-    end
-  end
-
-  # Shared by the sync and worker paths: migrate, create state, clone, fetch.
-  defp prepare_clone(base_path, repo_url) do
-    with :ok <- Migration.remove_obsolete_aiur_node(slug(repo_url), base_root()),
-         :ok <- Migration.migrate_legacy_layout(base_path),
-         :ok <- StateTree.ensure_state_tree_at(Path.dirname(base_path)),
-         :ok <- Clone.ensure_clone(base_path, repo_url) do
-      Clone.fetch_and_reset(base_path)
     end
   end
 
@@ -185,6 +177,7 @@ defmodule Aiur.RepoBase do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
     schedule_poll()
 
     {:ok,
@@ -197,13 +190,26 @@ defmodule Aiur.RepoBase do
        freshness: :unknown,
        remote_head_fun: Keyword.get(opts, :remote_head_fun, &Clone.remote_head/1),
        dispatch_hold_timeout_ms: Keyword.get(opts, :dispatch_hold_timeout_ms, @dispatch_hold_timeout_ms),
+       build_hold_timeout_ms: Keyword.get(opts, :build_hold_timeout_ms, @build_hold_timeout_ms),
+       build_hold_timeout_ms_override: Keyword.get(opts, :build_hold_timeout_ms),
        dispatch_watchdog: nil
      }}
   end
 
   @impl true
+  def terminate(_reason, state), do: BuildProcess.terminate(state)
+
+  @impl true
   def handle_call(:status, _from, state) do
     {:reply, {state.phase, state.base_path}, state}
+  end
+
+  def handle_call({:build_os_process, pid, event, os_pid, group_id, identity}, _from, %{build: %{pid: pid}} = state) do
+    {:reply, :ok, BuildProcess.update_process(state, event, os_pid, group_id, identity)}
+  end
+
+  def handle_call({:build_os_process, _pid, _event, _os_pid, _group_id, _identity}, _from, state) do
+    {:reply, :ok, state}
   end
 
   def handle_call(:refresh_for_dispatch, _from, state) do
@@ -231,7 +237,8 @@ defmodule Aiur.RepoBase do
 
   def handle_info({:build_head, _pid, _head}, state), do: {:noreply, state}
 
-  def handle_info({:build_done, pid, head, result}, %{build: %{pid: pid, ref: ref}} = state) do
+  def handle_info({:build_done, pid, head, result}, %{build: %{pid: pid, ref: ref, timer: timer}} = state) do
+    if is_reference(timer), do: Process.cancel_timer(timer)
     Process.demonitor(ref, [:flush])
     state = %{state | build: nil}
 
@@ -247,7 +254,8 @@ defmodule Aiur.RepoBase do
   def handle_info({:build_done, _pid, _head, _result}, state), do: {:noreply, state}
 
   # The build worker crashed without a clean :build_done.
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{build: %{ref: ref}} = state) do
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{build: %{ref: ref, timer: timer}} = state) do
+    if is_reference(timer), do: Process.cancel_timer(timer)
     log_and_emit_error({:build_crashed, reason})
 
     {:noreply,
@@ -273,10 +281,8 @@ defmodule Aiur.RepoBase do
   def handle_info({:dispatch_hold_timeout, watchdog_ref}, %{dispatch_watchdog: %{ref: watchdog_ref}} = state) do
     if hold_phase?(state.phase) do
       if hold_progress?(state) do
-        # The hold's worker is still alive, so the operation is progressing (a
-        # live probe self-resolves via its own 30-second timeout; a live build
-        # is a real process that may legitimately run for many minutes). Re-arm
-        # the idle watchdog instead of tearing the work down.
+        # A live worker avoids the idle timeout. Builds also have a separate
+        # total deadline that survives this re-arm.
         {:noreply, rearm_dispatch_watchdog(state)}
       else
         # The worker is dead with no completion signal in flight — the absorbing
@@ -298,12 +304,32 @@ defmodule Aiur.RepoBase do
     end
   end
 
+  def handle_info({:build_hold_timeout, timeout_ref}, %{build: %{timeout_ref: timeout_ref, deadline: deadline}} = state) do
+    case BuildTimeout.remaining(deadline) do
+      remaining when remaining > 0 ->
+        timer = BuildTimeout.schedule(self(), timeout_ref, deadline)
+        {:noreply, %{state | build: %{state.build | timer: timer}}}
+
+      _ ->
+        reason = {:repo_base_build_hold_timeout, state.build_hold_timeout_ms}
+        log_and_emit_error(reason)
+
+        {:noreply,
+         state
+         |> abort_build()
+         |> clear_dispatch_watchdog()
+         |> Map.merge(%{phase: {:error, reason}, freshness: :unknown})}
+    end
+  end
+
+  def handle_info({:build_hold_timeout, _build_ref}, state), do: {:noreply, state}
+
   def handle_info(_msg, state), do: {:noreply, state}
 
   ## ---- async orchestration ----
 
   defp do_refresh_async(state) do
-    case resolve() do
+    case Settings.resolve() do
       :disabled ->
         disable_prewarm(state)
 
@@ -313,6 +339,7 @@ defmodule Aiur.RepoBase do
         cond do
           state.build != nil -> ensure_probe(state, repo_url)
           state.phase == :checking -> ensure_probe(state, repo_url)
+          match?({:error, {:repo_base_build_hold_timeout, _}}, state.phase) -> state
           state.phase == :ready -> probe_freshness(state, repo_url)
           true -> start_build(state, base, repo_url, command)
         end
@@ -324,7 +351,7 @@ defmodule Aiur.RepoBase do
   # next probe and holds until it resolves. This keeps a remote advance from
   # creating a workspace off the previous recorded clone head.
   defp do_refresh_for_dispatch(state) do
-    case resolve() do
+    case Settings.resolve() do
       :disabled ->
         disable_prewarm(state)
 
@@ -356,7 +383,7 @@ defmodule Aiur.RepoBase do
   defp on_remote_head(state, {:error, reason}), do: probe_failed(state, reason)
 
   defp trigger_build(state) do
-    case resolve() do
+    case Settings.resolve() do
       {:ok, repo_url, base, command} -> start_build(state, base, repo_url, command)
       :disabled -> disable_prewarm(state)
     end
@@ -364,15 +391,20 @@ defmodule Aiur.RepoBase do
 
   defp start_build(state, base, repo_url, command) do
     kill_build(state)
+    timeout_ms = BuildTimeout.timeout_ms(state.build_hold_timeout_ms_override)
+    deadline = BuildTimeout.deadline(timeout_ms)
+    timeout_ref = make_ref()
+    timer = BuildTimeout.schedule(self(), timeout_ref, deadline)
     parent = self()
-
     {pid, ref} = spawn_monitor(fn -> build_worker(parent, base, repo_url, command) end)
 
-    %{state | phase: :building, base_path: base, build: %{pid: pid, ref: ref, head: nil}, freshness: :unknown}
+    build = BuildTimeout.build_state(pid, ref, timeout_ref, timer, deadline, timeout_ms)
+    %{state | phase: :building, base_path: base, build: build, freshness: :unknown, build_hold_timeout_ms: timeout_ms}
   end
 
   defp abort_build(%{build: %{}} = state) do
     kill_build(state)
+    if is_reference(state.build.timer), do: Process.cancel_timer(state.build.timer)
     %{state | build: nil}
   end
 
@@ -386,9 +418,10 @@ defmodule Aiur.RepoBase do
     |> Map.merge(%{phase: :idle, freshness: :unknown})
   end
 
-  defp kill_build(%{build: %{pid: pid, ref: ref}}) do
+  defp kill_build(%{build: %{pid: pid, ref: ref, timer: timer} = build}) do
     Process.demonitor(ref, [:flush])
-    Process.exit(pid, :kill)
+    if is_reference(timer), do: Process.cancel_timer(timer)
+    BuildProcess.kill_async(%{build | pid: pid})
     :ok
   end
 
@@ -397,12 +430,19 @@ defmodule Aiur.RepoBase do
   # Runs the refresh in the worker, reporting the locked head before building
   # (so the GenServer can preempt) and the final result when done.
   defp build_worker(server, base, repo_url, command) do
+    on_process = fn event, os_pid, group_id, identity ->
+      GenServer.call(server, {:build_os_process, self(), event, os_pid, group_id, identity}, :infinity)
+    end
+
     result =
-      case prepare_clone(base, repo_url) do
+      case Preparer.prepare(base, repo_url, on_process) do
         {:ok, changed?} ->
           head = Clone.head_of(base)
           send(server, {:build_head, self(), head})
-          outcome = Clone.maybe_build(base, command, changed? or not Clone.built?(base, command))
+
+          outcome =
+            Clone.maybe_build(base, command, changed? or not Clone.built?(base, command), on_process)
+
           send(server, {:build_done, self(), head, outcome})
           outcome
 
@@ -421,22 +461,9 @@ defmodule Aiur.RepoBase do
   @spec git_auth_env(String.t() | nil) :: [{String.t(), String.t()}]
   defdelegate git_auth_env(token), to: Clone
 
-  ## ---- config / topology ----
-
-  # Resolves the configured pre-warm target, or `:disabled` when pre-warm is off,
-  # has no detected build command, or the tracker is not a github repo (local
-  # base path is meaningless without a clone source).
-  defp resolve do
-    with {:ok, settings} <- Config.settings(),
-         %{enabled: true, base_build: command} when is_binary(command) and command != "" <-
-           settings.prewarm,
-         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-      url = "https://github.com/#{repo}.git"
-      {:ok, url, base_path(url), command}
-    else
-      _ -> :disabled
-    end
-  end
+  @doc false
+  @spec read_ledger(Path.t(), atom(), {module(), atom()} | nil) :: {:ok, String.t()} | {:error, term()}
+  defdelegate read_ledger(path, kind, validator), to: Aiur.RepoBase.Ledger
 
   defp schedule_poll do
     case poll_interval_ms() do
@@ -453,8 +480,6 @@ defmodule Aiur.RepoBase do
   end
 
   defp base_root, do: Paths.repo_state_root()
-  defp slug(repo_url), do: Paths.repo_slug(repo_url)
-
   defp emit(phase), do: AgentPubSub.broadcast_prewarm_phase(phase)
 
   # Prewarm failures used to be broadcast only as a phase event, so a base that

@@ -4,8 +4,6 @@ Aiur exposes a Phoenix WebSocket at `/streamdeck/websocket` for push-driven
 fleet state. Join the single `streamdeck:fleet` channel; internal PubSub topic
 names and tuple shapes are not part of this API.
 
-The canonical visual contract and parity vectors live in `src/priv/streamdeck/`; the sidecar keeps byte-checked mirrors in `packages/streamdeck/src/`. Edit the canonical files, then copy them to the mirrors.
-
 ## Authentication
 
 The device first requests `POST /api/v1/streamdeck/token` with the existing
@@ -21,6 +19,36 @@ the dashboard credential configuration changes.
 The WebSocket handshake therefore avoids placing a reusable dashboard password
 in the upgrade URL while retaining the same authorization boundary. Use
 HTTPS/WSS when the dashboard is exposed beyond loopback.
+
+## Shared projections vs deck presentation
+
+These daemon modules run without the physical sidecar. The dashboard's
+`/streamdeck` emulator uses the deck presentation; new non-deck surfaces should
+use the shared domain sources directly.
+
+| Module | Role | Needs the sidecar? | Other consumers |
+| --- | --- | --- | --- |
+| `Aiur.Conversation.Anchors` | Shared event-to-transcript anchoring | No | No non-deck consumer yet; MP-E4 conversations planned. `History` re-exports it; production caller: `StreamdeckLogs`. |
+| `AiurWeb.StreamdeckProjection` | Fleet, voice availability, decisions and transcript DTOs for the deck channel | No | `/streamdeck` emulator |
+| `AiurWeb.StreamdeckCommands` | Command history and answer DTOs; actor `streamdeck` | No | Emulator |
+| `AiurWeb.StreamDeckGrid` | Key ranking for the grid | No | `GET /api/v1/streamdeck/grid`, emulator, `AiurWeb.StreamdeckFleet` |
+| `AiurWeb.StreamdeckTranscriptRelay` | Throttled live transcript push | No | Emulator |
+| `AiurWeb.StreamdeckLogs`, `AiurWeb.StreamdeckStrip`, `AiurWeb.StreamdeckKeyFaceContract` | Deck presentation: paging, LIVE, log windows and key faces | No; the emulator renders them | — |
+| `AiurWeb.StreamdeckAuth`, `AiurWeb.StreamdeckSocket`, `AiurWeb.StreamdeckChannel` | Deck transport | Only for a physical deck | — |
+
+`StreamdeckProjection.voice/0` reads availability from the shared `Aiur.Voice`
+port. Command answers retain the operator actor `%{kind: :operator, id: "streamdeck"}`.
+`StreamDeckGrid.dependency_ready?/2` remains an internal grid helper with no
+external caller.
+
+The canonical visual contract is `src/priv/streamdeck/key-face-contract.json`;
+the parity vectors also live in `src/priv/streamdeck/`. The sidecar keeps
+byte-checked mirrors in `packages/streamdeck/src/`. Edit the canonical files,
+then copy them to the mirrors.
+
+New dashboard, phone or watch surfaces should read `Aiur.DecisionStore`, the
+orchestrator snapshot or `Aiur.Conversation.Anchors` directly, rather than the
+deck DTOs. Nothing in the dashboard needs the sidecar installed.
 
 ## Events
 
@@ -148,7 +176,10 @@ without ending the channel.
 `available` is `false` with the reason
 `"Aiur has no ElevenLabs API key - transcription is off"` when no key is
 configured, so the device can explain a disabled microphone key without a round
-trip. The entry reports the *presence* of a credential only; neither the key nor
+trip. Without a voice provider installed, the reason is
+`"Voice isn't installed in this Aiur"`, and `voice_start` replies with the
+`not_installed` reason code even if a key is set. Typed messages still work.
+The entry reports the *presence* of a credential only; neither the key nor
 any part of it ever appears in a projection.
 
 ### Why base64 in JSON on this channel, and not a binary frame
