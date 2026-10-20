@@ -76,6 +76,12 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   setup context do
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
 
+    # These daemon-level watchers share the application transport with this
+    # test. Drain their current fetches, then suspend their GenServers so their
+    # timers cannot send new work into the page-open recording window.
+    suspended_watchers = suspend_background_github_watchers()
+    on_exit(fn -> Enum.each(suspended_watchers, &:sys.resume/1) end)
+
     # Clear prior comment work and finish startup cleanup before counting.
     on_exit(fn -> assert :ok = Aiur.TestSupport.ensure_orchestrator_running() end)
     :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
@@ -89,14 +95,18 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     _frozen_state = Aiur.TestSupport.freeze_live_orchestrator()
 
     Aiur.TestSupport.await_orchestrator_state(orchestrator, fn state ->
-      map_size(state.tracker_tasks) == 0 and is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
+      map_size(state.tracker_tasks) == 0 and
+        is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
     end)
 
     if context[:comment_poll_leak_probe] do
       # This test sends a poll-cycle message while the page is held open. Make
       # the real GitHub comment-poll path eligible only after the Orchestrator
       # has been frozen, so the message deterministically proves the fence.
-      :ok = Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github")
+      :ok =
+        Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+          tracker_kind: "github"
+        )
     end
 
     # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
@@ -155,6 +165,54 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     end)
 
     {:ok, counter: counter, inherited_task: inherited_task}
+  end
+
+  defp suspend_background_github_watchers do
+    [
+      Aiur.MainWatch,
+      Aiur.LandingWatch,
+      Aiur.PRLifecycle.HealthScanner,
+      Aiur.PRLifecycle.HeadVerdictRouter,
+      Aiur.PRLifecycle.ReworkRequeue
+    ]
+    |> Enum.flat_map(fn name ->
+      case Process.whereis(name) do
+        pid when is_pid(pid) ->
+          await_watcher_idle(pid, name)
+          :ok = :sys.suspend(pid)
+          [pid]
+
+        nil ->
+          []
+      end
+    end)
+  end
+
+  defp await_watcher_idle(pid, Aiur.MainWatch) do
+    await_watcher_state(pid, &is_nil(&1.task))
+  end
+
+  defp await_watcher_idle(pid, Aiur.LandingWatch) do
+    await_watcher_state(pid, &is_nil(&1.task))
+  end
+
+  defp await_watcher_idle(pid, _periodic_worker) do
+    # Periodic workers execute their fetch synchronously inside the GenServer;
+    # observing state after a call barrier means no earlier tick is in flight.
+    _state = :sys.get_state(pid)
+    :ok
+  end
+
+  defp await_watcher_state(pid, predicate) do
+    state = :sys.get_state(pid)
+
+    if predicate.(state),
+      do: :ok,
+      else:
+        (
+          Process.sleep(10)
+          await_watcher_state(pid, predicate)
+        )
   end
 
   describe "opening a dashboard page" do
@@ -225,7 +283,10 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     # true for the wrong reason (the "zero, provably" trap the reviewer flagged).
 
     @tag :inherited_tracker_task
-    test "opening the dashboard under a github tracker reaches GitHub zero times", %{counter: counter, inherited_task: inherited_task} do
+    test "opening the dashboard under a github tracker reaches GitHub zero times", %{
+      counter: counter,
+      inherited_task: inherited_task
+    } do
       workflow_path = Aiur.Workflow.workflow_file_path()
       :ok = Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github")
 
@@ -267,7 +328,9 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     end
 
     @tag :comment_poll_leak_probe
-    test "holding a page open past its refresh ticks reaches GitHub zero times", %{counter: counter} do
+    test "holding a page open past its refresh ticks reaches GitHub zero times", %{
+      counter: counter
+    } do
       assert {:ok, view, html} = live(build_conn(), "/")
       assert html =~ "dashboard-shell"
 
@@ -282,7 +345,8 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       send(Aiur.Orchestrator, :run_poll_cycle)
 
       Aiur.TestSupport.await_orchestrator_state(Aiur.Orchestrator, fn state ->
-        map_size(state.tracker_tasks) == 0 and is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
+        map_size(state.tracker_tasks) == 0 and
+          is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
       end)
 
       # The page's own periodic ticks — a 1s clock, a 15s GitHub-quota snapshot
@@ -368,13 +432,19 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
     test "an issue already held costs no request at all", %{counter: counter} do
       {owner, repo} = @repository
-      ResourceStore.put_resource(ResourceStore.key(:issue, owner, repo, "2073"), held_issue(2073), source: :webhook, version: "2026-08-17T10:00:00Z")
+
+      ResourceStore.put_resource(ResourceStore.key(:issue, owner, repo, "2073"), held_issue(2073),
+        source: :webhook,
+        version: "2026-08-17T10:00:00Z"
+      )
 
       assert {:ok, detail} =
                TicketDetail.fetch(identity(2073),
                  configured_repo: @repository,
                  freshness_ms: 30_000,
-                 relationship_reader: fn _identity, _repository -> {:ok, %{nodes: [], truncated?: false}} end
+                 relationship_reader: fn _identity, _repository ->
+                   {:ok, %{nodes: [], truncated?: false}}
+                 end
                )
 
       assert detail.identity.identifier == "2073"
@@ -404,7 +474,8 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
       observed = Agent.get(counter, & &1)
 
-      assert observed != [], "the counting plug never fired, so every zero in this file is unproven"
+      assert observed != [],
+             "the counting plug never fired, so every zero in this file is unproven"
     end
   end
 
@@ -435,11 +506,20 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     fetcher = fn ["33189"] ->
       send(test_pid, {:inherited_tracker_task, self()})
       receive_barrier(:continue)
-      Issues.fetch_issue_raw_conditional(33_189, repository: {"aiur-team", "aiur"}, token: "test-token")
+
+      Issues.fetch_issue_raw_conditional(33_189,
+        repository: {"aiur-team", "aiur"},
+        token: "test-token"
+      )
+
       {:ok, []}
     end
 
-    send(Aiur.Orchestrator, {:event, %{topic: "ticket.33189.issue.commented", issue_state_fetcher: fetcher}})
+    send(
+      Aiur.Orchestrator,
+      {:event, %{topic: "ticket.33189.issue.commented", issue_state_fetcher: fetcher}}
+    )
+
     receive_barrier({:inherited_tracker_task, pid})
     pid
   end
@@ -479,7 +559,9 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     |> Plug.Conn.put_req_header(
       "authorization",
       "Basic " <>
-        Base.encode64("#{System.get_env("AIUR_DASHBOARD_USERNAME")}:#{System.get_env("AIUR_DASHBOARD_PASSWORD")}")
+        Base.encode64(
+          "#{System.get_env("AIUR_DASHBOARD_USERNAME")}:#{System.get_env("AIUR_DASHBOARD_PASSWORD")}"
+        )
     )
   end
 end
