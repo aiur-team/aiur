@@ -1,5 +1,6 @@
 defmodule Aiur.Events.SubscriptionStoreTest do
   use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Events.{IdGenerator, SubscriptionStore}
   alias Aiur.JsonStore
@@ -84,7 +85,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       monitor = Process.monitor(pid)
 
       Process.exit(pid, :shutdown)
-      assert_receive {:DOWN, ^monitor, :process, ^pid, :shutdown}
+      receive_barrier({:DOWN, ^monitor, :process, ^pid, :shutdown})
 
       SubscriptionStore.set_registry_lookup_fn(fn _registry, _identifier -> [{pid, nil}] end)
 
