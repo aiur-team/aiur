@@ -19,6 +19,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
   alias Aiur.RunTelemetry.FactsCapture
   alias Aiur.TestSupport.EndpointStubs
+  alias Aiur.TestSupport.ZeroFetchPageOpenWatchers
   alias Aiur.TrackerIdentity
   alias AiurWeb.ControlCenterCache
 
@@ -46,7 +47,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   setup context do
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
 
-    suspended_watchers = Aiur.TestSupport.ZeroFetchPageOpenWatchers.suspend()
+    suspended_watchers = ZeroFetchPageOpenWatchers.suspend()
     on_exit(fn -> Enum.each(suspended_watchers, &:sys.resume/1) end)
 
     # Clear prior comment work and finish startup cleanup before counting.
