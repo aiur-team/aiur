@@ -216,4 +216,4 @@ a {
   --aiur-dashboard-pill-bg: var(--pill-bg);
 }
 /* Let package buttons override the unlayered native button font reset. */
-button.aiur-button { font: revert-layer; }
+button.aiur-button, button.aiur-shell__menu-item { font: revert-layer; }
