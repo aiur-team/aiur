@@ -1,6 +1,5 @@
 defmodule Aiur.TestSupport.Processes do
   alias Aiur.TestSupport.EndpointStubs
-  alias Aiur.TestSupport.LifecycleLeakGuard
   alias Aiur.TestSupport.RuntimeChildren
 
   @doc "Waits for tracked task completions until the orchestrator satisfies a state predicate."
@@ -136,32 +135,6 @@ defmodule Aiur.TestSupport.Processes do
   end
 
   @doc """
-  Stops the agent runners a finished test left behind, and waits for each to
-  exit (#4733). A dispatched runner is an unlinked `Aiur.TaskSupervisor` child,
-  so it outlives the test, or the Orchestrator the test started, and writes
-  into the next test's lifecycle recorder. Kills, in order: processes the test
-  spawned as tasks, Orchestrators it started, then dispatched runners whose
-  Orchestrator is gone.
-  """
-  @spec stop_test_runners(pid()) :: :ok
-  def stop_test_runners(test_pid) when is_pid(test_pid) do
-    kill_all(&(test_pid in callers(&1)))
-    LifecycleLeakGuard.stop_owned_runners(test_pid)
-    kill_all(&(initial_call(&1) == {Aiur.Orchestrator, :init, 1} and test_pid in ancestors(&1)))
-    kill_all(&(match?({Aiur.Orchestrator.Dispatcher.Launch, _, _}, initial_call(&1)) and test_pid in callers(&1)))
-    :ok
-  end
-
-  defp kill_all(predicate) do
-    Process.list()
-    |> Enum.filter(predicate)
-    |> Enum.each(fn pid ->
-      Process.exit(pid, :kill)
-      await_process_down(pid)
-    end)
-  end
-
-  @doc """
   Returns an `AiurWeb.Endpoint` pid that is guaranteed to outlive this test.
 
   `AiurWeb.Endpoint` is a singleton registered under its own module name, and
@@ -266,17 +239,6 @@ defmodule Aiur.TestSupport.Processes do
     case Process.info(pid, :dictionary) do
       {:dictionary, dictionary} -> Keyword.get(dictionary, :"$ancestors", [])
       nil -> []
-    end
-  end
-
-  defp callers(pid), do: dictionary_value(pid, :"$callers", [])
-  defp initial_call(pid), do: dictionary_value(pid, :"$initial_call", nil)
-
-  defp dictionary_value(pid, key, default) do
-    case Process.info(pid, {:dictionary, key}) do
-      {_key, :undefined} -> default
-      {_key, value} -> value
-      nil -> default
     end
   end
 

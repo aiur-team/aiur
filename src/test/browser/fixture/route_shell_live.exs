@@ -1,32 +1,81 @@
 defmodule Aiur.BrowserHarness.RouteShellLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
+  alias Aiur.BrowserHarness.CommandAnswerFixture
+  alias AiurWeb.DashboardLive
   alias AiurWeb.OperatorControlCenter.{DashboardShell, History, NavState, RouteRegistry}
 
   @impl true
-  def mount(_params, _session, socket) do
-    {:ok,
-     socket
-     |> assign(:analytics, analytics(%{}))
-     |> assign(:selected_decision_id, nil)
-     |> NavState.assign_nav()
-     |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
+  def mount(params, session, socket) do
+    if CommandAnswerFixture.configured?(params) do
+      :ets.insert(
+        AiurWeb.EndpointConfig.overrides_table(),
+        {{self(), :decision_store}, CommandAnswerFixture.store_name()}
+      )
+
+      if Phoenix.LiveView.connected?(socket) and CommandAnswerFixture.join_delay_ms() > 0 do
+        CommandAnswerFixture.join_started!()
+        Process.sleep(CommandAnswerFixture.join_delay_ms())
+        CommandAnswerFixture.join_completed!()
+      end
+
+      # Production's live_session hooks, run here so the fixture keeps one root layout and LiveSocket.
+      {:cont, socket} = AiurWeb.DashboardPagesGate.on_mount(:default, params, session, socket)
+      {:cont, socket} = AiurWeb.FinancialDataAccess.on_mount(:default, params, session, socket)
+
+      with {:ok, socket} <- DashboardLive.mount(params, session, socket) do
+        {:ok, assign(socket, :fixture_command_answer_dashboard?, true)}
+      end
+    else
+      {:ok,
+       socket
+       |> assign(:analytics, analytics(%{}))
+       |> assign(:live_connected, Phoenix.LiveView.connected?(socket))
+       |> assign(:selected_decision_id, nil)
+       |> assign(:selected_decision, nil)
+       |> assign(:decision_actions, %{})
+       |> NavState.assign_nav()
+       |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
+    end
   end
 
   @impl true
-  def handle_params(params, _uri, socket) do
-    {:noreply,
-     socket
-     |> assign(:analytics, analytics(params))
-     |> assign(:selected_decision_id, params["decision_id"])
-     |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
+  def handle_params(params, uri, socket) do
+    if Map.get(socket.assigns, :fixture_command_answer_dashboard?, false) do
+      DashboardLive.handle_params(params, uri, socket)
+    else
+      decision_id = params["decision_id"] || params["fixture_decision"]
+
+      {:noreply,
+       socket
+       |> assign(:analytics, analytics(params))
+       |> assign(:selected_decision_id, decision_id)
+       |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
+    end
   end
 
   @impl true
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
 
+  def handle_event(event, params, %{assigns: %{fixture_command_answer_dashboard?: true}} = socket) do
+    DashboardLive.handle_event(event, params, socket)
+  end
+
+  @impl true
+  def handle_info(message, %{assigns: %{fixture_command_answer_dashboard?: true}} = socket) do
+    DashboardLive.handle_info(message, socket)
+  end
+
   @impl true
   def render(assigns) do
+    if Map.get(assigns, :fixture_command_answer_dashboard?, false) do
+      DashboardLive.render(assigns)
+    else
+      render_route_shell(assigns)
+    end
+  end
+
+  defp render_route_shell(assigns) do
     ~H"""
     <main class="app-shell">
       <DashboardShell.dashboard_shell

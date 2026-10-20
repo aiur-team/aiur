@@ -1,0 +1,31 @@
+name: merge queue ci
+on:
+  pull_request:
+    types: [enqueued, dequeued]
+# Concurrency groups are repo-wide: an enqueued run joins ci.yml's initial PR
+# group, so GitHub cancels the PR-head run the merge_group run supersedes (#4980).
+concurrency:
+  group: ${{ github.event.action == 'enqueued' && format('ci-pull_request-{0}-1', github.event.pull_request.number) || format('merge-queue-ci-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event.action == 'enqueued' }}
+permissions: {}
+jobs:
+  rerequest:
+    name: rerequest cancelled ci
+    # An ejected PR needs a green head again before auto-merge can re-enqueue it.
+    if: ${{ github.event.action == 'dequeued' && github.event.pull_request.state == 'open' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: { actions: write, pull-requests: read }
+    steps:
+      - name: Rerun the head's cancelled ci run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # The payload can predate the merge; a merged PR needs no head CI.
+          [ "$(gh pr view "$PR" --json state --jq .state)" = OPEN ] || exit 0
+          run="$(gh run list --workflow ci.yml --event pull_request --commit "$HEAD_SHA" --limit 1 \
+            --json databaseId,conclusion --jq '.[] | select(.conclusion == "cancelled") | .databaseId')"
+          [ -z "$run" ] || gh run rerun "$run"

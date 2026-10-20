@@ -85,9 +85,15 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
     end
   end
 
+  # GitHub's compare API stops listing files at 300 and sets no truncation flag, so
+  # only a comparison built from local git (`"complete" => true`) may list more.
+  defp files(%{"files" => files, "complete" => true}) when is_list(files), do: parse_files(files)
+  defp files(%{"files" => files}) when is_list(files) and length(files) < 300, do: parse_files(files)
+  defp files(_comparison), do: :error
+
   # A file without a readable patch can still be equal by blob sha; any other
   # unreadable file makes the comparison incomplete.
-  defp files(%{"files" => files}) when is_list(files) and length(files) < 300 do
+  defp parse_files(files) do
     Enum.reduce_while(files, {:ok, %{}}, fn file, {:ok, acc} ->
       case parse_file(file) do
         {:ok, filename, parsed} -> {:cont, {:ok, Map.put(acc, filename, parsed)}}
@@ -95,8 +101,6 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
       end
     end)
   end
-
-  defp files(_comparison), do: :error
 
   defp parse_file(%{"filename" => filename} = file) when is_binary(filename) and filename != "" do
     meta = {Map.get(file, "previous_filename"), Map.get(file, "sha")}

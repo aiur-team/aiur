@@ -55,21 +55,21 @@ test('stored aiur restores before first frame, persists and survives patch', asy
 })
 
 for (const theme of [undefined, 'blue', 'dark']) {
-  test(`theme follows OS unless stored choice is valid: ${theme}`, async ({ page }) => {
+  test(`theme defaults to dark regardless of OS unless stored choice is valid: ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'light' })
     await openProbe(page, { theme })
-    const expected = theme === 'dark' ? 'dark' : 'light'
+    const expected = 'dark'
     expect(await page.evaluate(() => window.firstPaletteFrame.theme)).toBe(expected)
     await expect(page.locator('html')).toHaveAttribute('data-theme', expected)
   })
 }
 
-test('blocked storage still follows OS and toggles, menu role uses aria-checked', async ({ page }) => {
+test('blocked storage falls back to the dark default and toggles, menu role uses aria-checked', async ({ page }) => {
   const errors = []
   page.on('pageerror', e => errors.push(e.message))
   await page.emulateMedia({ colorScheme: 'light' })
   await openProbe(page, { blocked: true })
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   await expect(page.locator('html')).toHaveAttribute('data-palette', 'gruvbox')
   await page.evaluate(() => { Storage.prototype.setItem = () => { throw Error('blocked') } })
   await page.locator('#ax-cog').click()

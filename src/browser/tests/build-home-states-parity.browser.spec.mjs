@@ -18,8 +18,12 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['light', 'dark']) 
       expect(await read(pair.product)).toEqual(await read(pair.design))
       // Isolate the owned marker from the adjacent Now band's shadow, retaining
       // its real size, CSS, typography and viewport background on both sides.
+      // Render sets --dot, which transitions background-size for 400ms; copying it
+      // mid-transition freezes a fractional dot grid into the capture (#4880).
       for (const page of [pair.design, pair.product]) await page.locator(region).evaluate(el => {
-        const vp = document.querySelector('#bd-vp'), bg = getComputedStyle(vp), box = el.getBoundingClientRect()
+        const vp = document.querySelector('#bd-vp')
+        vp.getAnimations().find(animation => animation.transitionProperty === 'background-size')?.finish()
+        const bg = getComputedStyle(vp), box = el.getBoundingClientRect()
         const host = document.createElement('div'); host.className = 'bd-root'; host.id = 'marker-capture'
         Object.assign(host.style, { position: 'fixed', top: '0', left: '0', zIndex: '2147483647',
           width: box.width + 'px', height: box.height + 'px', background: bg.background, backgroundSize: bg.backgroundSize })

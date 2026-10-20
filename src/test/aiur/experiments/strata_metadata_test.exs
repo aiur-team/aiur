@@ -80,6 +80,7 @@ defmodule Aiur.Experiments.StrataMetadataTest do
 
     assert {:ok, input} = AnalysisInput.export(spec["id"], context: ctx)
     assert input["metric_metadata"] == %{@ref => %{"strata_metadata" => @metadata}}
+    assert input["taken_at"] == "2026-10-09T14:00:00Z"
     assert input["spec"] == expected_spec
     refute Map.has_key?(hd(input["spec"]["metrics"]), "strata_metadata")
     assert input["input_sha256"] == Evidence.hash(Map.delete(input, "input_sha256"))

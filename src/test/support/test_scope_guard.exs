@@ -2,6 +2,7 @@ defmodule Aiur.TestScopeGuard do
   @scope_env [
     "AIUR_DEV_TEST_TICKET_IDS",
     "AIUR_DEV_TEST_STATE_DIR",
+    "AIUR_INSTANCE_KEY",
     "AIUR_DASHBOARD_USERNAME",
     "AIUR_DASHBOARD_PASSWORD"
   ]

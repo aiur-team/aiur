@@ -41,10 +41,8 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
     :ok
   end
 
-  @doc "Teardown's last step: marks the test finished, raises its scope violation, then checks for leaks."
-  def finish!(test_pid, scope_violation) do
-    runner_leaks = live_runners(test_pid)
-
+  @doc "Teardown's last step: marks the test finished and reports leaks captured before cleanup."
+  def finish!(test_pid, scope_violation, runner_leaks \\ live_runners(test_pid)) do
     stop_owned_runners(test_pid)
 
     finish(test_pid)
@@ -97,7 +95,8 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
     end
   end
 
-  defp live_runners(test_pid) do
+  @doc false
+  def live_runners(test_pid) do
     Process.list()
     |> Enum.filter(fn pid ->
       match?({Aiur.Orchestrator.Dispatcher.Launch, _, _}, dictionary_value(pid, :"$initial_call", nil)) and
@@ -108,18 +107,17 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
   end
 
   defp runner_owner(pid, seen) do
-    cond do
-      :ets.member(@tests, pid) ->
+    case {:ets.member(@tests, pid), :ets.lookup(@owners, pid)} do
+      {true, _} ->
         pid
 
-      [{^pid, test_pid}] <- :ets.lookup(@owners, pid) ->
+      {false, [{^pid, test_pid}]} ->
         test_pid
 
-      pid not in seen and Process.alive?(pid) ->
-        Enum.find_value(parents(pid), &runner_owner(&1, [pid | seen]))
-
-      true ->
-        nil
+      {false, []} ->
+        if pid not in seen and Process.alive?(pid) do
+          Enum.find_value(parents(pid), &runner_owner(&1, [pid | seen]))
+        end
     end
   end
 
@@ -177,14 +175,11 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
     |> Enum.filter(&is_pid/1)
   end
 
-  defp callers(pid), do: dictionary_value(pid, :"$callers", [])
-  defp ancestors(pid), do: dictionary_value(pid, :"$ancestors", [])
-
   defp dictionary_value(pid, key, default) do
     case Process.info(pid, {:dictionary, key}) do
       {_key, :undefined} -> default
       {_key, value} -> value
-      nil -> []
+      nil -> default
     end
   end
 end

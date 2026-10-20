@@ -10,19 +10,22 @@ defmodule Aiur.TestSupport.LifecycleLeakGuardTest do
 
     on_exit(fn -> Application.put_env(:aiur, :signal, previous_signal) end)
 
-    owner = LifecycleLeakGuard.track(%{module: __MODULE__, test: :"teardown fails the test that leaves a dispatched runner alive"})
+    owner = self()
+    runners_before = Aiur.TestSupport.capture_runner_tasks()
 
     runner =
-      spawn(fn ->
+      Task.Supervisor.start_child!(Aiur.TaskSupervisor, fn ->
         Process.put(:"$initial_call", {Aiur.Orchestrator.Dispatcher.Launch, :"-start_runner_task/5-fun-0-", 0})
-        Process.put(:"$callers", [owner])
 
         receive do
           :stop -> :ok
         end
       end)
 
-    error = assert_raise RuntimeError, fn -> LifecycleLeakGuard.finish!(owner, nil) end
+    runner_leaks = Aiur.TestSupport.capture_and_stop_test_runners(owner, runners_before)
+    assert Enum.map(runner_leaks, &elem(&1, 0)) == [runner]
+
+    error = assert_raise RuntimeError, fn -> Aiur.TestSupport.finish_lifecycle!(owner, nil, runner_leaks) end
     assert error.message =~ "#{inspect(__MODULE__)} teardown fails the test that leaves a dispatched runner alive"
     assert error.message =~ inspect(runner)
     refute Process.alive?(runner)

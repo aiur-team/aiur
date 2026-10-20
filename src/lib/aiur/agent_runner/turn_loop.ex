@@ -138,6 +138,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
       )
 
     record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
+    if turn_number == 1, do: SessionResume.track_resume_turn_start(app_session, issue.identifier, result)
 
     TurnStreams.close(issue, aiur_turn_id, turn_done_reason(result))
     backend = SessionLifecycle.session_backend!(app_session)

@@ -4,9 +4,9 @@ defmodule Aiur.AgentSkills do
   workspace.
 
   The per-turn agent prompt (`shared-agent-instructions.md`) routes every agent
-  to the `aiur-agent` operating manual — the single skill covering the ticket
-  workflow, the dev loop, and cross-ticket events — while `/aiur-debug` is the
-  shared diagnosis overlay available when a run or ticket fails. Those skills
+  to the `aiur-agent` operating manual for the ticket workflow, dev loop
+  and cross-ticket events. `/aiur-debug` provides the diagnosis overlay,
+  and `/aiur-experiment` provides the experiment analyst. These skills
   ship in aiur's own tree under
   `.claude/skills/`, but an agent's workspace is a checkout of the *target*
   repo, which has no copy — so
@@ -40,7 +40,7 @@ defmodule Aiur.AgentSkills do
   # skills (aiur-build, aiur-run, aiur-monitor, release) are excluded because an
   # issue worker has no reason to run aiur itself. That test cross-checks this
   # subset, so the two cannot silently drift.
-  @aiur_issue_worker_skills ~w(aiur-agent aiur-debug design-import)
+  @aiur_issue_worker_skills ~w(aiur-agent aiur-debug aiur-experiment design-import)
 
   # The bundled source tree is the release build input. Backend workspace paths
   # are supplied by `CodingAgent.skill_install_locations/0` below.
@@ -235,7 +235,7 @@ defmodule Aiur.AgentSkills do
 
   defp install_embedded_skill(dest, skill) do
     unless exists?(dest) do
-      File.mkdir_p!(Path.dirname(dest))
+      ensure_directory!(Path.dirname(dest))
       stage_and_rename(dest, skill_files(skill))
     end
   end
@@ -243,7 +243,7 @@ defmodule Aiur.AgentSkills do
   defp install_support_files(workspace, %{path: path} = location) do
     if is_nil(Map.get(location, :link_to)) do
       root = Path.join(workspace, path)
-      File.mkdir_p!(root)
+      ensure_directory!(root)
       Enum.each(@compound_engineering_support_files, &install_support_file(root, &1))
     end
   end
@@ -251,6 +251,16 @@ defmodule Aiur.AgentSkills do
   defp install_support_file(root, {name, content}) do
     target = Path.join(root, name)
     unless exists?(target), do: stage_file_and_rename(target, content)
+  end
+
+  # File.mkdir_p!/1 retries every ancestor from the root on every bundled file.
+  # Each ancestor is a separate file-server call; under concurrent file I/O each one queues.
+  # Stop at an existing directory to avoid those repeated round trips.
+  defp ensure_directory!(path) do
+    case :filelib.ensure_path(path) do
+      :ok -> :ok
+      {:error, reason} -> raise File.Error, reason: reason, action: "make directory", path: path
+    end
   end
 
   defp stage_file_and_rename(target, content) do
@@ -310,7 +320,7 @@ defmodule Aiur.AgentSkills do
     try do
       Enum.each(files, fn {rel, content} ->
         target = Path.join(tmp, rel)
-        File.mkdir_p!(Path.dirname(target))
+        ensure_directory!(Path.dirname(target))
         File.write!(target, content)
       end)
 
@@ -334,7 +344,7 @@ defmodule Aiur.AgentSkills do
   # duplicate copy. The registry owns both paths.
   defp link_skill(dest, target) do
     unless exists?(dest) do
-      File.mkdir_p!(Path.dirname(dest))
+      ensure_directory!(Path.dirname(dest))
       File.ln_s!(target, dest)
     end
   end

@@ -1,8 +1,8 @@
 defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   @moduledoc false
 
-  alias Aiur.AgentRunner.ReworkFindings
-  alias Aiur.{Alerts, Issue, LocalTestEvidence, Tracker}
+  alias Aiur.AgentRunner.{ApprovedHandoff, ReworkFindings}
+  alias Aiur.{Alerts, Issue, LocalTestEvidence, PrBodyLint, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.ReworkGate
 
@@ -21,6 +21,8 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
         {:error, {reason, message}}
 
       {:allow, findings} ->
+        state = ApprovedHandoff.target_state(issue, state, opts)
+
         case writer.(issue_id, state) do
           :ok -> {:ok, report_checklist(issue, findings, opts, %{state: state, issue: issue_id})}
           {:ok, result} -> {:ok, report_checklist(issue, findings, opts, result)}
@@ -32,7 +34,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
 
   defp blockers(issue, state, workspace, opts) do
     with :allow <- rework_blockers(issue, state, opts),
-         :allow <- evidence_blockers(issue, state, opts),
+         :allow <- evidence_blockers(issue, state, workspace, opts),
          :allow <- conflict_blockers(issue, state, opts) do
       findings_blockers(issue, state, workspace, opts)
     end
@@ -45,24 +47,59 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   defp rework_blockers(_issue, _state, _opts), do: :allow
 
   # #4611: a PR created after the first `aiur pre-pr` keeps stale Local tests evidence; refuse the handoff until it is refreshed.
+  # #4937: with the worker's checkout at hand it runs the full `mix pr_body.check` lint (`Aiur.PrBodyLint`), so a body CI would reject is refused too.
   # An unreadable PR fails open here; the `pr body` CI check and the push backstop alert still cover it.
-  defp evidence_blockers(issue, state, opts) when state in ["ci-wait", "human-review"] do
+  defp evidence_blockers(issue, state, workspace, opts) when state in ["ci-wait", "human-review"] do
     with {:ok, pr} <- ReworkGate.open_pr(issue.identifier, opts),
          head when is_binary(head) <- ReworkGate.head_sha(pr),
          body when is_binary(body) <- pr["body"],
-         {:error, reason} <- evidence_error(body, head) do
-      {:refused, :stale_pr_body_evidence,
-       "Cannot hand ticket #{issue.identifier} to #{state}: PR ##{pr["number"]} body is wrong (#{reason}). Run `aiur pre-pr` again after `gh pr create` so it writes `Tested head: #{head}` and `Base:`, then hand off."}
+         {:error, reason} <- evidence_error(body, head, workspace) do
+      {:refused, :stale_pr_body_evidence, evidence_refusal(issue, state, pr, head, reason)}
     else
       _ -> :allow
     end
   end
 
-  defp evidence_blockers(_issue, _state, _opts), do: :allow
+  defp evidence_blockers(_issue, _state, _workspace, _opts), do: :allow
 
-  defp evidence_error(body, head) do
-    with {:ok, evidence} <- LocalTestEvidence.parse(body), do: LocalTestEvidence.validate(evidence, "none", head)
+  defp evidence_refusal(issue, state, pr, head, {:stale_tested_head, tested_head}) do
+    "Cannot hand ticket #{issue.identifier} to #{state}: PR ##{pr["number"]} body Tested head #{tested_head} does not match PR head #{head}. Rerun the touched tests at the PR head, then update the Tested head and Base evidence before handing off."
   end
+
+  defp evidence_refusal(issue, state, pr, head, reason) do
+    "Cannot hand ticket #{issue.identifier} to #{state}: PR ##{pr["number"]} body fails the PR body check (#{reason}). Fix the body. Run `aiur pre-pr` again after `gh pr create` so it writes `Tested head: #{head}` and `Base:`, then hand off."
+  end
+
+  defp evidence_error(body, head, workspace) do
+    case LocalTestEvidence.parse(body) do
+      {:ok, %{tested_head: tested_head}} ->
+        if String.downcase(tested_head) != String.downcase(head) do
+          {:error, {:stale_tested_head, tested_head}}
+        else
+          lint_evidence_error(body, head, workspace)
+        end
+
+      _ ->
+        lint_evidence_error(body, head, workspace)
+    end
+  end
+
+  defp lint_evidence_error(body, head, workspace) do
+    case pr_template(workspace) do
+      {:ok, template} ->
+        case PrBodyLint.errors(template, body, head: head) do
+          [] -> :ok
+          errors -> {:error, Enum.join(errors, "; ")}
+        end
+
+      _no_template ->
+        with {:ok, evidence} <- LocalTestEvidence.parse(body), do: LocalTestEvidence.validate(evidence, "none", head)
+    end
+  end
+
+  # A remote worker's checkout is not on this host, so the read fails and only the evidence is checked.
+  defp pr_template(workspace) when is_binary(workspace), do: File.read(Path.join(workspace, ".github/pull_request_template.md"))
+  defp pr_template(_workspace), do: :error
 
   # #4654: PRs were handed back while GitHub reported them CONFLICTING. The list read carries no mergeability,
   # so this reads the PR itself; an unreadable or still-computing state fails open.
@@ -86,16 +123,18 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   defp findings_blockers(%Issue{state: rework} = issue, state, workspace, opts)
        when state in ["ci-wait", "human-review"] and rework in ["rework", "agent:rework"] do
     case ReworkFindings.fetch(issue.identifier, opts) do
-      {:ok, %{review_head: review_head, head: head, findings: findings}} when is_binary(review_head) ->
+      {:ok, %{review_head: review_head, head: head, findings: findings} = review} when is_binary(review_head) ->
         {commits, files} = ReworkFindings.branch_changes(workspace, review_head, head)
+        # evidence_blockers already held the body to the current head, so an edit after the review is a body fix (#4944).
+        body_edited? = commits == [] and ReworkFindings.body_edited_since?(review.number, review.review_at, opts)
 
-        case ReworkFindings.validate(findings, Keyword.get(opts, :review_findings), commits, files) do
+        case ReworkFindings.validate(findings, Keyword.get(opts, :review_findings), commits, files, body_edited?) do
           :allow ->
             {:allow, findings}
 
           {:blocked, reasons} ->
             {:refused, :rework_findings_unaddressed,
-             "Cannot hand ticket #{issue.identifier} back to #{state}: #{Enum.join(reasons, "; ")}. Pass every finding in `review_findings` as `fixed` (with its commit) or `disputed` (with evidence)."}
+             "Cannot hand ticket #{issue.identifier} back to #{state}: #{Enum.join(reasons, "; ")}. Pass every finding in `review_findings` as `fixed` (with its commit) or `disputed` (with evidence); a PR-body-only fix counts once the body is edited after the review."}
         end
 
       {:ok, _no_blocking_review} ->

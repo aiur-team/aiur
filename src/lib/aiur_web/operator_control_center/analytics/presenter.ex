@@ -6,21 +6,15 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   unit-testable against a fixture; `load/1` resolves the live telemetry file,
   concurrency cap, core count, and host memory before delegating to it.
 
-  The same model serves two scopes. The latest-run view passes
-  `session: :current` and gets absolute timestamps over one daemon boot. It
-  prefers the live boot, then falls back to the newest materialized prior boot
-  when a restart has moved the daemon to a fresh log root. The
-  Build Order view passes the selected member ticket set, `session: :current`,
-  and `timeline: :active`. That keeps its recurring refresh a bounded tail read;
-  cross-session reporting belongs to a materialized summary rather than a live
-  full-stream parse. Both feed the same `Charts`, whose axis already labels ticks
-  as elapsed time.
+  The same model serves latest-run, Build Order, and cross-boot scopes. Current
+  sessions use the live boot when available and otherwise fall back to retained
+  telemetry; Build Order refreshes use a bounded active timeline.
   """
 
   alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.RunTelemetry.{Dataset, SummaryMerge, Timeline}
-  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, Optimistic, ProjectedSeries, TicketRow, WastedCapacity}
+  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, LiveConcurrency, Optimistic, ProjectedSeries, TicketRow, WastedCapacity}
 
   @default_buckets 180
   @max_series_actors 8
@@ -29,7 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   @type model :: %{
           available?: boolean(),
-          retained_runs: %{included: non_neg_integer(), total: non_neg_integer()} | nil,
+          retained_runs: map() | nil,
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
           source_boot_id: String.t() | nil,
           source_observed_at: String.t() | nil,
@@ -39,6 +33,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           session_cap: non_neg_integer() | nil,
           cap_binding: String.t() | nil,
           cap_staleness: {:stale | :retained, non_neg_integer()} | nil,
+          live_concurrency: non_neg_integer() | nil,
+          live_occupied: non_neg_integer() | nil,
+          live_concurrency_state: atom() | {atom(), non_neg_integer() | nil} | nil,
           cores: pos_integer(),
           cpu_ceiling: number(),
           host_mem_bytes: number(),
@@ -67,9 +64,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       (a Build Order's member count) rather than inferring it from telemetry.
 
   Unavailable reasons distinguish an idle fleet from a persistence failure:
-  `:no_telemetry` means nothing analyzable was recorded, while
-  `:retained_unreadable` means retained run summaries exist but could not be
-  decoded, and `:error` is an unexpected analysis failure.
+  `:no_telemetry` means nothing analyzable was recorded, `:retained_scan_limited`
+  means no retained summary fit the cold scan budget, `:retained_unreadable` means
+  retained summaries could not be decoded, and `:error` is an unexpected failure.
   """
   @spec load(keyword()) :: {:ok, model()} | {:unavailable, atom()}
   def load(opts \\ []) do
@@ -85,7 +82,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           LatestRun.load(file, current_boot_id(), analyzable?, opts)
 
         :cross ->
-          cross_session(file)
+          cross_session(file, opts)
 
         _other ->
           Dataset.build(file, [])
@@ -98,14 +95,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       {:error, {:no_telemetry_files, _paths}} ->
         {:unavailable, :no_telemetry}
 
-      {:error, :retained_unreadable} ->
-        {:unavailable, :retained_unreadable}
+      {:error, reason} when reason in [:retained_unreadable, :retained_scan_limited] ->
+        {:unavailable, reason}
     end
   rescue
     _error -> {:unavailable, :error}
   end
 
-  defp cross_session(file), do: SummaryMerge.load(file, current_boot_id())
+  defp cross_session(file, opts), do: SummaryMerge.load(file, current_boot_id(), opts)
 
   # A readable stream that contains nothing for this scope is "no telemetry", not
   # a zero-cost build: rendering empty charts and zeroed KPIs would claim a build
@@ -126,8 +123,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     dataset |> Map.get(:actors, %{}) |> Enum.any?(fn {key, actor} -> actor_kind(key, actor) == :agent end)
   end
 
-  # ---- scope ----
-
+  # Scope handling.
   defp scope(dataset, opts) do
     boot_id = session_boot_id(dataset, Keyword.get(opts, :session, :all))
     tickets = ticket_set(Keyword.get(opts, :tickets))
@@ -252,6 +248,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       session_cap: session_cap,
       cap_binding: cap_binding,
       cap_staleness: cap_staleness,
+      live_concurrency: Keyword.get(opts, :live_concurrency),
+      live_occupied: Keyword.get(opts, :live_occupied),
+      live_concurrency_state: Keyword.get(opts, :live_concurrency_state),
       cores: cores,
       cpu_ceiling: cores * 100,
       host_mem_bytes: host_mem,
@@ -939,25 +938,35 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp runtime_opts(opts) do
     opts
-    |> Keyword.merge(runtime_caps(opts), fn _key, given, _derived -> given end)
+    |> Keyword.merge(runtime_facts(opts), fn _key, given, _derived -> given end)
     |> Keyword.put_new(:cores, System.schedulers_online())
     |> Keyword.put_new(:host_mem_bytes, host_mem_bytes())
     |> Keyword.put_new(:buckets, @default_buckets)
   end
 
-  defp runtime_caps(opts) do
+  defp runtime_facts(opts) do
     if Keyword.has_key?(opts, :cap) do
       []
     else
-      opts |> capacity_reading() |> cap_facts()
+      reading = capacity_reading(opts)
+      caps = cap_facts(reading)
+
+      if Keyword.get(opts, :session, :all) == :current and not Keyword.has_key?(opts, :tickets) do
+        caps ++ LiveConcurrency.snapshot_opts(reading)
+      else
+        caps
+      end
     end
   end
 
   # Every ceiling the daemon reports travels together. Reading only `effective`
   # is what let the page and `aiur status` disagree: the CLI prints the session
   # ceiling, so a page that never mentions it cannot be reconciled with the CLI.
-  defp cap_facts({%{effective: effective} = capacity, polling, staleness})
-       when is_integer(effective) and effective > 0 do
+  defp cap_facts({kind, %{capacity: %{effective: effective} = capacity} = snapshot, freshness})
+       when kind in [:current, :stale] and is_integer(effective) and effective > 0 do
+    staleness = if kind == :stale, do: staleness(freshness), else: nil
+    polling = snapshot_polling(snapshot)
+
     [
       cap: effective,
       cap_available?: true,
@@ -990,17 +999,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp capacity_reading(opts) do
     orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
     timeout = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
-
-    case Orchestrator.dashboard_snapshot(orchestrator, timeout) do
-      {:current, %{capacity: %{} = capacity} = snapshot, _freshness} ->
-        {capacity, snapshot_polling(snapshot), nil}
-
-      {:stale, %{capacity: %{} = capacity} = snapshot, freshness} ->
-        {capacity, snapshot_polling(snapshot), staleness(freshness)}
-
-      _other ->
-        :unavailable
-    end
+    snapshot_fun = Keyword.get(opts, :dashboard_snapshot_fun, &Orchestrator.dashboard_snapshot/2)
+    snapshot_fun.(orchestrator, timeout)
   end
 
   defp snapshot_polling(%{polling: %{} = polling}), do: polling

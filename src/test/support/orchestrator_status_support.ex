@@ -63,7 +63,7 @@ defmodule Aiur.OrchestratorStatusSupport do
     orchestrator_name = Module.concat(__MODULE__, :"ProgressOrchestrator#{identifier}")
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
-    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
 
     entry =
       issue_id

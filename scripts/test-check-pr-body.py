@@ -129,6 +129,7 @@ outside the example
             path.write_text(body)
             return subprocess.run([
                 'elixir', '-r', str(root / 'src/lib/aiur/local_test_evidence.ex'),
+                '-r', str(root / 'src/lib/aiur/pr_body_lint.ex'),
                 '-r', str(root / 'src/lib/mix/tasks/pr_body.check.ex'),
                 '-e', 'Mix.start(); Mix.Tasks.PrBody.Check.run(System.argv())',
                 '--', '--file', str(path), '--policy', 'partial', '--head', head,

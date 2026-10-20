@@ -4,7 +4,7 @@ defmodule Aiur.ExecutorSweep.Checks do
   GitHub snapshot data. This module performs no I/O.
   """
 
-  alias Aiur.ExecutorSweep.TriageBacklog
+  alias Aiur.ExecutorSweep.{FailureCause, StateLabels, TriageBacklog}
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
 
@@ -23,6 +23,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       {"unreviewed_prs", [:pull_requests, :tickets], fn -> unreviewed_prs(snapshot, now, unreviewed_minutes) end},
       {"old_decisions", [:decisions], fn -> old_decisions(snapshot, now) end},
       {"approved_prs", [:pull_requests], fn -> approved_prs(snapshot) end},
+      {"conflicting_waiting_prs", [:pull_requests, :tickets], fn -> conflicting_waiting_prs(snapshot) end},
       {"landing_rerun_backlog", [:landing_rerun_backlog], fn -> landing_rerun_backlog(snapshot, now) end},
       {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
       {"stale_merge_groups", [:merge_groups], fn -> stale_merge_groups(snapshot, now, stale_minutes) end},
@@ -99,19 +100,64 @@ defmodule Aiur.ExecutorSweep.Checks do
   defp approved_prs(snapshot) do
     snapshot
     |> Map.get(:pull_requests, [])
-    |> Enum.flat_map(&approved_pr_findings/1)
+    |> Enum.flat_map(&approved_pr_findings(&1, Map.get(snapshot, :base_checks, [])))
   end
 
-  defp approved_pr_findings(pr) do
-    failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
-    approved = approved_current_head?(pr)
-    landing = value(pr, :in_merge_queue, false) or value(pr, :auto_merge, false)
+  defp conflicting_waiting_prs(snapshot) do
+    base_branch = Aiur.Config.base_branch()
 
-    if value(pr, :state, "open") == "open" and approved and (failures != [] or not landing) do
-      [approved_pr_finding(pr, failures)]
+    waiting =
+      snapshot
+      |> Map.get(:tickets, [])
+      |> Enum.filter(fn ticket ->
+        labels = value(ticket, :labels, [])
+        "agent:ci-wait" in labels or "agent:human-review" in labels
+      end)
+      |> MapSet.new(&value(&1, :number, nil))
+
+    snapshot
+    |> Map.get(:pull_requests, [])
+    |> Enum.flat_map(fn pr ->
+      issue_number = value(pr, :issue_number, nil)
+
+      if issue_number in waiting and value(pr, :state, "") == "open" and value(pr, :mergeable, nil) == "CONFLICTING" do
+        [
+          finding(
+            "conflicting_waiting_pr",
+            2,
+            0,
+            "Merge #{base_branch} into the PR branch and resolve the conflicts.",
+            "Ticket ##{issue_number} is waiting while PR ##{value(pr, :number, "?")} is conflicting with #{base_branch}.",
+            pull_request: value(pr, :number, nil),
+            ticket: issue_number
+          )
+        ]
+      else
+        []
+      end
+    end)
+  end
+
+  defp approved_pr_findings(pr, base_checks) do
+    failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
+
+    # A cached row can keep "open" after the merge; merged_at is the landing proof (#5119).
+    if approved_pr_current_and_open?(pr) and (failures != [] or approved_pr_not_landing?(pr)) do
+      [approved_pr_finding(pr, failures, base_checks)]
     else
       []
     end
+  end
+
+  defp approved_pr_current_and_open?(pr) do
+    value(pr, :state, "open") == "open" and is_nil(value(pr, :merged_at, nil)) and approved_current_head?(pr)
+  end
+
+  defp approved_pr_not_landing?(pr) do
+    landing = value(pr, :in_merge_queue, false) or value(pr, :auto_merge, false)
+    landing_known = value(pr, :landing_state_known?, Map.has_key?(pr, :in_merge_queue) and Map.has_key?(pr, :auto_merge))
+
+    landing_known and not landing and value(pr, :mergeable, nil) != "CONFLICTING"
   end
 
   defp red_check?(check), do: value(check, :conclusion, nil) in ["failure", "cancelled", "timed_out", "startup_failure"]
@@ -121,10 +167,10 @@ defmodule Aiur.ExecutorSweep.Checks do
       (is_nil(value(pr, :head_sha, nil)) or value(pr, :approved_head_sha, nil) == value(pr, :head_sha, nil))
   end
 
-  defp approved_pr_finding(pr, failures) do
+  defp approved_pr_finding(pr, failures, base_checks) do
     red = failures != []
     kind = if red, do: "approved_pr_red", else: "approved_pr_not_landing"
-    classifications = Enum.map(failures, &failure_class(&1, value(pr, :failure_class, nil)))
+    classifications = Enum.map(failures, &FailureCause.classify(&1, value(pr, :base_sha, nil), base_checks))
     cause = classifications |> Enum.map(& &1.class) |> Enum.uniq() |> single_or_mixed()
     problem = if red, do: "has a red required check (#{cause})", else: "is not queued or auto-merging"
 
@@ -147,7 +193,7 @@ defmodule Aiur.ExecutorSweep.Checks do
 
       {kind, action, message} =
         if value(row, :action, nil) == "refresh" do
-          {"approved_pr_refresh_pending", "Update the branch from the base for a fresh merge ref; a rerun reuses the old one. The push may dismiss the approval.",
+          {"approved_pr_refresh_pending", "Wait for the landing watcher's next update-branch slot, or update the branch from the base manually. The push may dismiss the approval.",
            "Approved PR ##{pr} needs a fresh merge ref for #{checks} (#{reason}); waiting #{duration(age)}."}
         else
           {"approved_pr_rerun_pending", "Wait for the landing watcher's next rerun slot, or rerun the failed checks manually.",
@@ -255,42 +301,14 @@ defmodule Aiur.ExecutorSweep.Checks do
   end
 
   defp ticket_hygiene(snapshot, now) do
-    state_labels = ~w(todo in-progress ci-wait human-review rework error done)
-
     labels_findings =
       snapshot
       |> Map.get(:tickets, [])
-      |> Enum.flat_map(fn ticket ->
-        states = labels(ticket) |> Enum.filter(&(&1 in state_labels))
-
-        if length(states) == 1 do
-          []
-        else
-          [
-            finding("invalid_state_labels", 9, 0, "Leave exactly one agent state label on the ticket.", "Ticket #{value(ticket, :number, "?")} has #{length(states)} agent state labels.",
-              ticket: value(ticket, :number, nil),
-              state_labels: states
-            )
-          ]
-        end
-      end)
+      |> Enum.map(&%{number: value(&1, :number, nil), created_at: value(&1, :created_at, nil), labels: labels(&1)})
+      |> StateLabels.findings()
 
     stale_triage =
-      snapshot
-      |> Map.get(:open_tickets)
-      |> TriageBacklog.stale_tickets(now)
-      |> Enum.map(fn ticket ->
-        age = age_ms(ticket.created_at, now)
-
-        # The ticket keys the sweep fingerprint, so each newly stale ticket wakes the Executor; Wake routes only integer tickets.
-        number =
-          case Integer.parse(ticket.identifier) do
-            {n, ""} -> n
-            _ -> ticket.identifier
-          end
-
-        finding("stale_needs_triage", 10, age, "Triage the ticket and set its queue state.", "Ticket #{ticket.identifier} has needed triage for #{duration(age)}.", ticket: number)
-      end)
+      stale_triage_finding(Map.get(snapshot, :open_tickets), now)
 
     open_prs = MapSet.new(snapshot |> Map.get(:pull_requests, []) |> Enum.filter(&(value(&1, :state, "") == "open")) |> Enum.map(&value(&1, :issue_number, nil)))
 
@@ -314,6 +332,39 @@ defmodule Aiur.ExecutorSweep.Checks do
 
     labels_findings ++ stale_triage ++ parked_closed_blocker ++ error_prs
   end
+
+  defp stale_triage_finding(%Aiur.OpenTicketSource.Snapshot{} = snapshot, now) do
+    case TriageBacklog.stale_tickets(snapshot, now) do
+      [] ->
+        []
+
+      [oldest | _] = tickets ->
+        age = age_ms(oldest.created_at, now)
+        count = if snapshot.truncated?, do: ">=#{length(tickets)}", else: "#{length(tickets)}"
+
+        number =
+          case Integer.parse(oldest.identifier) do
+            {n, ""} -> n
+            _ -> oldest.identifier
+          end
+
+        [
+          finding(
+            "stale_needs_triage",
+            10,
+            age,
+            "Triage the listed tickets and set their queue states.",
+            "#{count} open ticket(s) have needed triage for over an hour (oldest ##{oldest.identifier}, #{duration(age)}).",
+            ticket: number,
+            ticket_count: length(tickets),
+            oldest_ticket: number,
+            truncated?: snapshot.truncated?
+          )
+        ]
+    end
+  end
+
+  defp stale_triage_finding(_snapshot, _now), do: []
 
   defp rework_hygiene(snapshot) do
     open_blockers =
@@ -371,16 +422,6 @@ defmodule Aiur.ExecutorSweep.Checks do
 
   defp finding(kind, priority, age, action, message, extra \\ []) do
     Map.merge(%{kind: kind, priority: priority, age_ms: age, action: action, message: message}, Map.new(extra))
-  end
-
-  defp failure_class(check, explicit) when explicit in ["infra", "pr", "caused_by_pr"] do
-    %{name: value(check, :name, "required check"), class: if(explicit == "infra", do: "infra", else: "caused_by_pr")}
-  end
-
-  defp failure_class(check, _explicit) do
-    conclusion = value(check, :conclusion, nil)
-    class = if conclusion in ["cancelled", "timed_out", "startup_failure"], do: "infra", else: "caused_by_pr"
-    %{name: value(check, :name, "required check"), class: class}
   end
 
   defp unreviewed_pr_finding(pr, snapshot, now, threshold_minutes) when is_map(pr) do

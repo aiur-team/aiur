@@ -11,6 +11,8 @@ def required_jobs(event, full, dialyzer):
     if event != 'pull_request' and not full:
         raise ValueError(f'{event} must run full CI')
     jobs = ['changes', 'workflow-security', 'pre-handoff', 'lint']
+    if event == 'pull_request':
+        jobs.append('soak')  # soak.yml repeats the PR's changed tests; it succeeds when there are none.
     if full:
         return jobs + ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css',
                        'layout-release', 'analytics', 'streamdeck']
@@ -31,7 +33,8 @@ def main():
     if dialyzer not in ('true', 'false'):
         print('CI gate failed: missing or invalid dialyzer classification', file=sys.stderr)
         return 1
-    required = required_jobs(os.environ['EVENT_NAME'], full == 'true', dialyzer == 'true')
+    event = os.environ['EVENT_NAME']
+    required = required_jobs(event, full == 'true', dialyzer == 'true')
     failed = [job for job in required if needs.get(job, {}).get('result') != 'success']
     if failed:
         if 'affected-tests' in failed and needs['affected-tests'].get('result') == 'cancelled':

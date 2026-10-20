@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import { buildSync } from 'esbuild';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -19,8 +20,10 @@ export const readableCss = css => css.replaceAll("'./fonts/", "'../fonts/");
 export function build(outputDir = path.join(packageRoot, 'dist')) {
   fs.mkdirSync(path.join(outputDir, 'css'), { recursive: true });
   execFileSync(path.join(packageRoot, 'node_modules/.bin/tsc'),
-    ['--project', path.join(packageRoot, 'tsconfig.json'), '--outDir', path.join(outputDir, 'js')],
+    ['--project', path.join(packageRoot, 'tsconfig.json'), '--outDir', outputDir],
     { cwd: packageRoot, stdio: 'inherit' });
+  buildSync({ entryPoints: [path.join(packageRoot, 'gallery/react.tsx')], bundle: true,
+    outfile: path.join(packageRoot, 'gallery/dist/react.js'), format: 'esm', jsx: 'automatic' });
   const contents = componentCssFiles().map(file => {
     const css = fs.readFileSync(path.join(cssDir, file), 'utf8').replace(/\r\n/g, '\n');
     fs.writeFileSync(path.join(outputDir, 'css', file), readableCss(css));

@@ -19,6 +19,8 @@ defmodule Aiur.Orchestrator.EventTopics do
     State
   }
 
+  alias Aiur.Commands
+
   @spec route(State.t(), map(), keyword()) :: State.t()
   def route(state, event, opts \\ [])
 
@@ -60,8 +62,13 @@ defmodule Aiur.Orchestrator.EventTopics do
   # Refresh the local gate for control calls, then wake the poll to reclaim a worker that
   # reconciliation stopped while the Command was open. The dispatch poll still
   # applies tracker, capacity, and other open-Command guards.
-  defp route_classified(state, {:decision_answered, _identifier}, _event, _opts),
-    do: state |> Dispatcher.refresh_blocked_ticket_ids() |> Lifecycle.wake_tick()
+  defp route_classified(state, {:decision_answered, _identifier}, _event, opts) do
+    decision_store = Keyword.get(opts, :decision_store, Commands.default_store())
+
+    state
+    |> Dispatcher.refresh_blocked_ticket_ids(decision_store)
+    |> Lifecycle.wake_tick()
+  end
 
   defp route_classified(
          state,
@@ -122,6 +129,7 @@ defmodule Aiur.Orchestrator.EventTopics do
     opts = [
       merged_by_login: get_in(pr, ["merged_by", "login"]),
       pr_body: Map.get(pr, "body"),
+      pr_url: Map.get(pr, "html_url"),
       head_sha: get_in(pr, ["head", "sha"])
     ]
 

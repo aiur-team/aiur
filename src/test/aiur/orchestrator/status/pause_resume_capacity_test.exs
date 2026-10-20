@@ -91,6 +91,7 @@ defmodule Aiur.Orchestrator.Status.PauseResumeCapacityTest do
       %{
         state
         | session_max_concurrent_agents: 2,
+          effective_concurrent_agents: 2,
           running: %{
             "issue-active" => running_entry("issue-active", "MT-ACTIVE", :working, parent),
             "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused, parent)
@@ -229,6 +230,7 @@ defmodule Aiur.Orchestrator.Status.PauseResumeCapacityTest do
       %{
         state
         | session_max_concurrent_agents: 3,
+          effective_concurrent_agents: 3,
           running: %{
             "issue-active-a" => running_entry("issue-active-a", "MT-ACTIVE-A", :working, parent, "worker-a"),
             "issue-active-b" => running_entry("issue-active-b", "MT-ACTIVE-B", :working, parent, "worker-b"),

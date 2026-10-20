@@ -27,6 +27,14 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
     assert :carried = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
   end
 
+  test "a complete local-git comparison of 300+ base files carries; a GitHub one of the same size is incomplete" do
+    approved = comparison([{"src/lib/a.ex", "a1", @approved_patch}])
+    main = comparison(for n <- 1..301, do: {"src/lib/base_#{n}.ex", "m#{n}", "@@ -1,1 +1,1 @@\n-x\n+y"})
+
+    assert :carried = ApprovalCarry.classify_diffs(approved, approved, Map.put(main, "complete", true), @body, @head)
+    assert {:changed, %{reason: {:unavailable, :comparison_incomplete}}} = ApprovalCarry.classify_diffs(approved, approved, main, @body, @head)
+  end
+
   test "a push editing a PR-owned line is not carried and reports the hunk" do
     approved = comparison([{"src/lib/a.ex", "a1", @approved_patch}])
     main = comparison([{"src/lib/b.ex", "m2", "@@ -1,1 +1,1 @@\n-x\n+y"}])

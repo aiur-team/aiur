@@ -417,7 +417,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ ~s(data-source-kind="live")
     assert html =~ "live boot"
     # A live boot is the only source that may speak in the present tense.
-    assert html =~ ~r/an-kpi-sub">\d+ now \//
+    assert html =~ ~r/an-kpi-sub">occupancy unavailable \/.*cap/
     assert html =~ ~r/an-kpi-sub">this run</
   end
 

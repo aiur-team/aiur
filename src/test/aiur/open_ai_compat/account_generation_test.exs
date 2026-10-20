@@ -11,7 +11,7 @@ defmodule Aiur.OpenAICompat.AccountGenerationTest do
     assert :ok = AccountGeneration.bind(session)
     assert %{generation: generation, backend: :openai_compat, source: :kimi_api_key} = AccountGeneration.snapshot(session)
     assert is_binary(generation)
-    refute inspect(session) =~ "MOONSHOT"
+    Aiur.TestSupport.refute_leak(session, "MOONSHOT")
 
     assert :ok = AccountGeneration.process_stopped(session)
 

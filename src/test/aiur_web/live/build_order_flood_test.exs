@@ -5,6 +5,7 @@ defmodule AiurWeb.BuildOrderFloodTest do
   alias Aiur.{AgentPubSub, TrackerIdentity}
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, RootSummary}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.TestSupport.LiveViewAsync
   alias AiurWeb.Endpoint
   @endpoint Endpoint
 
@@ -48,7 +49,7 @@ defmodule AiurWeb.BuildOrderFloodTest do
 
   test "thousands of broadcasts bound reads, renders, memory and a stalled LiveView mailbox", %{source: source} do
     {:ok, view, _} = live(build_conn(), "/build-orders")
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert render(view) =~ "Flood root 100"
     baseline_reads = Agent.get(source, & &1.reads)
     counter = :atomics.new(1, [])
@@ -75,7 +76,7 @@ defmodule AiurWeb.BuildOrderFloodTest do
     end
 
     Process.sleep(650)
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     reads = Agent.get(source, & &1.reads) - baseline_reads
     intervals = div(System.monotonic_time(:millisecond) - started_at, 500) + 1
     assert reads in 1..(intervals + 1)
@@ -114,7 +115,7 @@ defmodule AiurWeb.BuildOrderFloodTest do
     :erlang.garbage_collect(view.pid)
     assert {:memory, bytes} = Process.info(view.pid, :memory)
     assert bytes < 32_000_000
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert render(view) =~ "Flood root 100"
   end
 

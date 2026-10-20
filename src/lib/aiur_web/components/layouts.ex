@@ -25,10 +25,6 @@ defmodule AiurWeb.Layouts do
         <script>
           (function () {
             try { if (window.localStorage.getItem("aiur-nav-collapsed") === "true" && window.matchMedia("(min-width: 961px)").matches) document.documentElement.classList.add("nav-collapsed"); } catch (_error) {}
-            var theme;
-            try { theme = window.localStorage.getItem("aiur-theme"); } catch (_error) {}
-            document.documentElement.dataset.theme = theme === "light" || theme === "dark"
-              ? theme : (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
             try {
               if (window.localStorage.getItem("aiur-palette") === "aiur") {
                 document.documentElement.dataset.palette = "aiur";
@@ -36,6 +32,7 @@ defmodule AiurWeb.Layouts do
             } catch (_error) {}
           })();
         </script>
+        <script src="/aiur-style/init/theme-init.js" data-default="dark"></script>
         <script defer src="/vendor/phoenix_html/phoenix_html.js"></script>
         <script defer src="/vendor/phoenix/phoenix.js"></script>
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
@@ -112,6 +109,9 @@ defmodule AiurWeb.Layouts do
                 this.media = window.matchMedia("(min-width: 961px)");
                 this.onMedia = () => this.mirror();
                 this.media.addEventListener("change", this.onMedia);
+                this.nav = document.getElementById("ax-nav");
+                this.onNavFocus = (e) => { if (!this.media.matches && e.target.matches("a.snav")) e.target.scrollIntoView({block: "nearest", inline: "nearest"}); };
+                this.nav?.addEventListener("focusin", this.onNavFocus);
                 this.onKey = (e) => {
                   if (!["Enter", " ", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
                   e.preventDefault();
@@ -180,6 +180,7 @@ defmodule AiurWeb.Layouts do
                 this.cleanDrag();
                 clearTimeout(this.resizeTimer);
                 this.media.removeEventListener("change", this.onMedia);
+                this.nav?.removeEventListener("focusin", this.onNavFocus);
                 this.el.removeEventListener("keydown", this.onKey);
                 this.el.removeEventListener("pointerdown", this.onDown);
                 this.el.removeEventListener("pointermove", this.onMove);
@@ -192,6 +193,22 @@ defmodule AiurWeb.Layouts do
               mounted: function () {
                 this.cog = this.el.querySelector("#ax-cog");
                 this.menu = this.el.querySelector("#ax-menu");
+                this.fitMenu = () => {
+                  if (window.innerWidth <= 480) {
+                    var available = Math.max(0, window.innerWidth - 32), minimum = Math.min(210, available);
+                    this.menu.style.minWidth = minimum + "px";
+                    this.menu.style.maxWidth = available + "px";
+                    var rect = this.menu.getBoundingClientRect();
+                    if (getComputedStyle(this.menu).position === "absolute") {
+                      var left = Math.max(16, Math.min(rect.left, window.innerWidth - 16 - rect.width));
+                      this.menu.style.left = left - this.el.getBoundingClientRect().left + "px";
+                    }
+                  } else ["min-width", "max-width", "left"].forEach(key => this.menu.style.removeProperty(key));
+                };
+                this.fitMenu(); this.onResize = () => this.fitMenu();
+                window.addEventListener("resize", this.onResize);
+                this.brandObserver = new ResizeObserver(this.fitMenu);
+                this.brandObserver.observe(this.el.closest(".ax-brand"));
                 this.onClick = (e) => {
                   if (this.cog.contains(e.target)) this.setOpen(!this.el.classList.contains("open"));
                   else if (!this.el.contains(e.target)) this.setOpen(false);
@@ -224,9 +241,10 @@ defmodule AiurWeb.Layouts do
               destroyed: function () {
                 document.removeEventListener("click", this.onClick);
                 document.removeEventListener("keydown", this.onKey);
+                window.removeEventListener("resize", this.onResize);
+                this.brandObserver.disconnect();
               }
             };
-
             // Provider usage is polled from a rate-limited endpoint, so it is
             // polled only while someone is actually looking. Report focus to
             // the server; it keeps polling for a grace period after the last
@@ -260,16 +278,11 @@ defmodule AiurWeb.Layouts do
             Hooks.ThemeToggle = {
               mounted: function () {
                 this.onClick = () => {
-                  var current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
-                  var next = current === "light" ? "dark" : "light";
-                  document.documentElement.dataset.theme = next;
-
-                  try {
-                    window.localStorage.setItem("aiur-theme", next);
-                  } catch (_error) {}
+                  if (this.theme) this.theme.setTheme(this.theme.getTheme() === "dark" ? "light" : "dark");
                 };
 
                 this.el.addEventListener("click", this.onClick);
+                import("/aiur-style/js/theme.js").then((theme) => { this.theme = theme; });
               },
               destroyed: function () {
                 this.el.removeEventListener("click", this.onClick);
@@ -424,10 +437,18 @@ defmodule AiurWeb.Layouts do
               }
             });
 
+            var socketStatus = document.documentElement;
+            var socket = liveSocket.getSocket();
+            socket.onOpen(() => socketStatus.classList.add("live-socket-connected"));
+            var markSocketDown = () => socketStatus.classList.remove("live-socket-connected");
+            socket.onClose(markSocketDown);
+            socket.onError(markSocketDown);
+
             liveSocket.connect();
             window.liveSocket = liveSocket;
           });
         </script>
+        <link rel="stylesheet" href="/aiur-style/tokens.css" />
         <link rel="stylesheet" href="/dashboard.css" />
         <link rel="stylesheet" href="/build-home/home.css" />
       </head>

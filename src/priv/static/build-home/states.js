@@ -23,7 +23,8 @@ export function sectionState(P, D, H, sec, filtered) {
 export function reasonText(tag) {
   const words = { not_wired: 'not connected', timeout: 'timed out', crashed: 'the reader crashed',
     snapshot_unpublished: 'the daemon is starting', orchestrator_unavailable: 'the orchestrator is down',
-    incomplete: 'the read was partial', backfill_running: 'the history backfill is still running',
+    incomplete: 'the read was partial', open_tickets_loading: 'the open-ticket listing is in progress',
+    open_tickets_unavailable: 'the open-ticket listing is unavailable', open_tickets_timeout: 'the open-ticket listing timed out', backfill_running: 'the history backfill is still running',
     structurally_invalid: 'the stored data is malformed', tracker_unsupported: 'this tracker has no open-ticket index' };
   if (typeof tag !== 'string' || ['unknown', 'unavailable'].includes(tag)) return 'unknown cause';
   return Object.hasOwn(words, tag) ? words[tag] : tag.slice(0, 80);
@@ -32,8 +33,10 @@ export function ageText(src, now) {
   return Number.isFinite(src.observed_at) && Number.isFinite(now)
     ? `read ${fmtAge(now - src.observed_at)} (${fmtWhen(src.observed_at, now)})` : 'no successful read recorded';
 }
+// A sentence, never "Last no successful read recorded" (#4916).
+const lastText = (src, now) => Number.isFinite(src.observed_at) && Number.isFinite(now) ? 'Last ' + ageText(src, now) : 'No successful read recorded';
 export function emptyMark(sec, st, mctx) {
-  const { src, show } = st, age = ageText(src, mctx.now), why = reasonText(src.reason);
+  const { src, show } = st, last = lastText(src, mctx.now), why = reasonText(src.reason);
   const names = { hist: ['History', 'The build history', 'nothing has merged'], plan: ['Queue', 'The build queue', 'the queue is empty'], nq: ['Open tickets', 'The open-ticket index'] };
   const [name, subject, disclaimer] = names[sec];
   let label, sub;
@@ -41,7 +44,7 @@ export function emptyMark(sec, st, mctx) {
     label = { hist: 'History disabled', plan: 'Build queue disabled', nq: 'Open-ticket index disabled' }[sec]; sub = why + '.';
   } else if (['unavailable', 'incomplete'].includes(show)) {
     label = name + ' ' + show;
-    sub = `${subject} ${show === 'incomplete' ? 'was only partly read' : 'could not be read'} (${why}). Last ${age}.` + (disclaimer ? ` This does not mean ${disclaimer}.` : '');
+    sub = `${subject} ${show === 'incomplete' ? 'was only partly read' : 'could not be read'} (${why}). ${last}.` + (disclaimer ? ` This does not mean ${disclaimer}.` : '');
   } else if (show === 'filtered') {
     label = sec === 'hist' ? 'No history in the selected epics' : 'No planned tickets in the selected epics';
     sub = 'Clear the epic filter to see ' + (sec === 'hist' ? 'the loaded history.' : 'the build queue.');
@@ -54,7 +57,7 @@ export function emptyMark(sec, st, mctx) {
       ? `The build queue is empty. ${mctx.nqCount} open tickets are not queued — promote some to keep agents busy.`
       : 'The build queue is empty. The open-ticket index is unavailable, so the number not queued is unknown.';
   }
-  if (show === 'empty' && src.state === 'stale') sub += ` Last ${age}; this may be out of date.`;
+  if (show === 'empty' && src.state === 'stale') sub += ` ${last}; this may be out of date.`;
   const mark = { kind: 'empty', y: SEC, h: 96, label, sub };
   return src.state === 'ok' && show === 'empty' ? mark
     : { ...mark, source: keys[sec], state: src.state, observed_at: src.observed_at };
@@ -87,9 +90,17 @@ export function renderLoading() {
 export function renderUnavailable(reason) {
   const loading = ctx.root?.querySelector('.bd-loading');
   if (!loading) return;
-  const words = { not_wired: 'no data source', timeout: 'timed out', crashed: 'source crashed',
-    version: 'page out of date, reload', invalid: 'invalid data', unavailable: 'source unavailable' };
-  loading.textContent = 'Build timeline unavailable · ' + (Object.hasOwn(words, reason) ? words[reason] : 'unknown cause');
+  const words = { not_wired: 'no data source', timeout: 'build index read timed out', crashed: 'source crashed',
+    version: 'page out of date, reload', invalid: 'invalid data', invalid_data: 'build data failed validation',
+    index_not_running: 'build index is not running', read_failed: 'build index read failed',
+    epic_config_unavailable: 'Build Order settings could not be read' };
+  if (reason === 'settings_loading') {
+    loading.textContent = 'Loading build settings…';
+    loading.setAttribute('role', 'status');
+    return;
+  }
+  const cause = Object.hasOwn(words, reason) ? words[reason] : `unknown cause (${String(reason).slice(0, 80)})`;
+  loading.textContent = `Build timeline unavailable · ${cause}`;
   loading.setAttribute('role', 'status');
   ctx.vp.querySelectorAll('.bd-skel i').forEach(el => { el.style.animation = 'none'; });
 }

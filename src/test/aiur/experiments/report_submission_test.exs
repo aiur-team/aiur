@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.ReportSubmissionTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
   alias Aiur.{Experiments, ExperimentsCLI}
-  alias Aiur.Experiments.{Evidence, Paths, ReportRecords, ReportSubmission, Snapshot, StatsRunner, Store}
+  alias Aiur.Experiments.{Evidence, Paths, ReportInput, ReportRecords, ReportSubmission, Snapshot, StatsRunner, Store}
   alias Aiur.TestSupport.RuntimeChildren
   @fixtures Path.expand("../../fixtures/experiments", __DIR__)
 
@@ -71,12 +71,39 @@ defmodule Aiur.Experiments.ReportSubmissionTest do
     |> put_in(["header", "preregistration_hash"], Evidence.hash(registration))
   end
 
+  test "stored interim submission cannot complete an open confirmatory request", ctx do
+    assert {:ok, request} = Experiments.request_analysis(ctx.id, "report", analysis_type: "confirmatory")
+    assert {:ok, stats} = Experiments.stats(ctx.id)
+    submitted = report(stats, ctx.registration, ctx.events)
+    parent = self()
+
+    output =
+      capture_io(fn ->
+        assert ExperimentsCLI.run(verb: :report_submit, argv: [ctx.id, "--contract-json", Jason.encode!(submitted), "--json"], error_fun: fn message -> send(parent, {:pending, message}) end) == 1
+      end)
+
+    assert Jason.decode!(output)["report"]["header"]["analysis_type"] == "interim"
+    assert_received {:pending, message}
+    assert message =~ "submission stored; analysis request #{request["request_id"]} remains open"
+    assert {:ok, [still_open]} = Experiments.analysis_requests(ctx.id)
+    assert still_open["state"] == "open"
+    assert still_open["analysis_type"] == "confirmatory"
+    assert {:ok, records} = ReportRecords.read(ctx.id)
+    assert [stored] = records["reports"]
+    assert stored["header"]["report_version"] == 1
+  end
+
   test "CLI submits against recomputed engine output, assigns versions and persists rendered report", ctx do
+    assert {:ok, request} = Experiments.request_analysis(ctx.id, "report")
     output = capture_io(fn -> assert ExperimentsCLI.run(verb: :stats, argv: [ctx.id, "--json"]) == 0 end)
     stats = Jason.decode!(output)
+    assert {:ok, prepared} = ReportInput.prepare(ctx.id)
+    assert prepared.input["taken_at"] == "2026-10-10T00:00:00Z"
     assert stats["body"]["metrics"]["delivery-speed/start_to_merge"]["groups"]["before"]["n"] == 1
     submitted = report(stats, ctx.registration, ctx.events) |> put_in(["header", "report_version"], 999)
     parent = self()
+    id = ctx.id
+    assert :ok = Experiments.subscribe()
 
     output =
       capture_io(fn ->
@@ -85,6 +112,11 @@ defmodule Aiur.Experiments.ReportSubmissionTest do
       end)
 
     assert output == "report v1 stored\n"
+    assert_received {:experiments_changed, ^id}
+    assert {:ok, [fulfilled]} = Experiments.analysis_requests(ctx.id)
+    assert fulfilled["request_id"] == request["request_id"]
+    assert fulfilled["state"] == "fulfilled"
+    assert fulfilled["submission"] == %{"mode" => "report", "version" => 1, "analysis_type" => "interim"}
     assert_receive {:warning, warning}, 1_000
     assert warning =~ "confirmatory rewritten to interim"
     assert {:ok, records} = ReportRecords.read(ctx.id)

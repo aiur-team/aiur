@@ -6,6 +6,12 @@ defmodule Aiur.Orchestrator.Status.PausedChatAndStallTest do
   alias Aiur.AgentPubSub
   alias Aiur.Orchestrator.OperatorMessages
 
+  setup do
+    test_pid = self()
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+    :ok
+  end
+
   test "chat-send to a paused agent auto-resumes it when a slot is free" do
     orchestrator_name = Module.concat(__MODULE__, :ChatPausedAutoResumeOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)

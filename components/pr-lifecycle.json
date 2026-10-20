@@ -19,7 +19,8 @@
     "tracker"
   ],
   "optional": [
-    "executor-attention"
+    "executor-attention",
+    "github-access"
   ],
   "owns": {
     "config": [],

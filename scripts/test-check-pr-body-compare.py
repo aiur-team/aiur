@@ -40,6 +40,31 @@ class PrBodyCompareTests(unittest.TestCase):
                 self.git(root, 'commit', '-am', 'extra')
                 self.assertEqual(self.local_carry(pr(), root)[1], 'exact head')
 
+    def test_local_history_carries_a_main_merge_of_more_than_300_files(self):
+        with tempfile.TemporaryDirectory(prefix='pr-body-carry-') as scratch:
+            root = Path(scratch)
+            self.git(root, 'init', '-b', 'main')
+            self.git(root, 'config', 'user.name', 'Test')
+            self.git(root, 'config', 'user.email', 'test@example.invalid')
+            (root / 'a.ex').write_text('l1\n')
+            self.git(root, 'add', '.')
+            self.git(root, 'commit', '-m', 'initial')
+            self.git(root, 'switch', '-c', 'feature')
+            (root / 'a.ex').write_text('l1\nfeature\n')
+            self.git(root, 'commit', '-am', 'feature')
+            tested = self.git(root, 'rev-parse', 'HEAD').strip()
+            self.git(root, 'switch', 'main')
+            for n in range(301):
+                (root / f'base_{n}.ex').write_text(f'{n}\n')
+            self.git(root, 'add', '.')
+            self.git(root, 'commit', '-m', 'main moves 301 files')
+            self.git(root, 'switch', 'feature')
+            self.git(root, 'merge', '--no-edit', 'main')
+            pr = {'body': f'Tested head: {tested}\n', 'base': {'sha': 'main'},
+                  'head': {'sha': self.git(root, 'rev-parse', 'HEAD').strip()}}
+            with patch('builtins.print'):
+                self.assertEqual(self.local_carry(pr, root), (tested, f'identical contribution since {tested}'))
+
     def local_carry(self, pr, history):
         # History comes from the scratch repository; the classifier source from this checkout.
         real_git, real_ancestor = gate.git, gate.is_ancestor

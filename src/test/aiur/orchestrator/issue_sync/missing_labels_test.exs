@@ -11,6 +11,29 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabelsTest do
   alias Aiur.Orchestrator.State
 
   describe "reconcile_contradictory_state_labels (#2075)" do
+    test "does not heal the deliberately owner-only executor marker" do
+      held = %{
+        issue("owner-only", nil)
+        | executor_owner: "codex",
+          state_labels: [],
+          labels: ["agent:executor:codex"]
+      }
+
+      state = %State{last_polled_issues: %{held.id => issue("owner-only", "rework")}}
+
+      {next_state, [returned]} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [held],
+          fn _identifier, _target ->
+            flunk("must not write a state label over the ownership marker")
+          end
+        )
+
+      assert next_state == state
+      assert returned == held
+    end
+
     test "repairs an issue with no state label and passes through single-labelled issues" do
       single = %{issue("single", "rework") | state_labels: ["rework"]}
 
@@ -183,7 +206,12 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabelsTest do
       end)
 
       unknown = %{issue("unknown", nil) | state_labels: []}
-      {_state, [^unknown]} = IssueSync.reconcile_contradictory_state_labels(%State{}, [unknown], fn _, _ -> flunk("no prior state to restore") end)
+
+      {_state, [^unknown]} =
+        IssueSync.reconcile_contradictory_state_labels(%State{}, [unknown], fn _, _ ->
+          flunk("no prior state to restore")
+        end)
+
       refute_receive {:event, %{topic: ^topic}}, 50
     end
 
