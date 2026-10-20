@@ -7,13 +7,9 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
 
   alias Aiur.{AgentQueueStore, DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.GitHub.{Config, DispatchAuthorization, ReadCache, Transport}
-  alias Aiur.Orchestrator.{Dispatcher, GlobalPause, OperatorMessages, PauseResume, PriorityControl, RetryEngine, SnapshotStore, StatusReport}
+  alias Aiur.Orchestrator.{Dispatcher, GlobalPause, OperatorMessages, PauseResume, PriorityControl, RetryEngine, SnapshotStore, StatusReport, TrackerTasks}
 
-  # Handlers answer inside the production control budget. A short owner step
-  # still fsyncs its durable stores, which took seconds on a loaded host, so a
-  # tighter budget timed out without any tracker work in the owner. The tracker
-  # barriers in these cases are held until released, so a handler that blocks
-  # on the tracker still never answers.
+  # Production control budget tolerates local fsyncs under load; held tracker barriers still expose blocked handlers.
   @control_budget_ms 5_000
   @answer_ms @control_budget_ms + 1_000
 
@@ -31,9 +27,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       {owner, token} = Application.fetch_env!(:aiur, :tracker_io_test_barrier)
       send(owner, {:poll_started, token, self()})
 
-      receive do
-        {:release_poll, ^token} -> Application.get_env(:aiur, :tracker_io_test_result, {:error, :controlled_poll_failure})
-      end
+      receive do: ({:release_poll, ^token} -> Application.get_env(:aiur, :tracker_io_test_result, {:error, :controlled_poll_failure}))
     end
 
     def add_label(_id, _label) do
@@ -314,6 +308,8 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   end
 
   test "GitHub firehose and CI reads leave real handlers responsive", %{server: server, issue: issue, token: token} do
+    # Settle startup reads before changing the tracker behind them.
+    await_orchestrator_state(server, &(not TrackerTasks.running?(&1, :startup_workspace_cleanup)))
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", tracker_label_prefix: "agent", max_concurrent_agents: 4)
     put_test_env(:github_client_module, SlowTracker)
     put_test_env(:github_transport_test_options, plug: {Req.Test, __MODULE__})
@@ -352,7 +348,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       Req.Test.json(conn, [])
     end)
 
-    Req.Test.allow(__MODULE__, self(), server)
+    for client <- [server, Process.whereis(Aiur.GitHub.Listeners.Firehose)], do: Req.Test.allow(__MODULE__, self(), client)
     patterns = [{Aiur.Events.GithubFirehose, :poll, :_}, {Aiur.Events.GithubCIPoller, :poll, :_}, {Aiur.Tracker, :fetch_candidate_issues, :_}]
     Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
     :erlang.trace(server, true, [:call, {:tracer, self()}])
@@ -483,9 +479,12 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   end
 
   defp trace_handler_io(server) do
+    # Config/provider lookups, error formatting and cache scope are local; underlying tracker I/O remains traced.
     tracker_patterns =
       Enum.flat_map([{Aiur.Tracker.IssueTracker, Aiur.Tracker}, {Aiur.Tracker.CodeHost, Aiur.CodeHost}], fn {behaviour, facade} ->
-        for {function, arity} <- behaviour.behaviour_info(:callbacks), function != :open_issue_labels, do: {facade, function, arity}
+        for {function, arity} <- behaviour.behaviour_info(:callbacks),
+            function not in [:open_issue_labels, :clone_url, :workspace_repo_segment, :ci_readiness, :format_preflight_error, :with_poll_cycle],
+            do: {facade, function, arity}
       end)
 
     patterns =
@@ -510,7 +509,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     Enum.each(patterns, &:erlang.trace_pattern(&1, false, [:local]))
 
     Enum.each(patterns, fn {module, function, _arity} ->
-      refute_received {:trace, ^server, :call, {^module, ^function, _args}}, "an orchestrator handler performed remote work"
+      refute_received {:trace, ^server, :call, {^module, ^function, _args}}, "an orchestrator handler performed remote work: #{inspect(module)}.#{function}"
     end)
   end
 

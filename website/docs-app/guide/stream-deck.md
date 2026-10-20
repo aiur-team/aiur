@@ -10,7 +10,7 @@ The Claude provider meter names the selected account and shows “worst of N acc
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Grid** | Initial view | Up to eight agent keys | Fleet summary, provider meters, page | A: no action. B: scroll physical provider panel. C: no action. D: page agents; press for next window. |
+| **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Fleet summary, provider meters, page | A: no action. B: scroll physical provider panel. C: no action. D: page agents; press for next window. |
 | **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Selected agent status and progress, or the voice panel while dictating | A: Grid. B/C: no action. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B/C: no action. D: scroll event keys. |
@@ -19,6 +19,7 @@ The Claude provider meter names the selected account and shows “worst of N acc
 | Control state | Behavior |
 | --- | --- |
 | Pause | The label reflects the selected agent's current state. |
+| Agent key | Selects the agent only; it never pauses or resumes it. Use the dedicated Pause/Play key in Command mode for that. |
 | Read-only Dashboard | Pause and Mic are disabled; Logs and Settings stay available because they change what you see, not what the fleet does. |
 | Mic | **Mic is press-and-hold, not a click**; capture stops on release, cancellation, or mode change. |
 | Priority | There is no prioritize key; the microphone took the fourth slot. Priority stays a Dashboard control and shows on the deck as a star and in Grid ranking. |
@@ -78,6 +79,8 @@ A bar that drops to an empty track and back is a bug; report it.
 The order is the same in the browser emulator and on the physical deck.
 
 ## Physical sidecar status
+
+The dashboard's `/streamdeck` page emulates the deck without the sidecar; nothing in the dashboard needs it installed.
 
 Download the Linux x64 archive from the rolling [`streamdeck-nightly`](https://github.com/aiur-team/aiur/releases/tag/streamdeck-nightly) pre-release, which is rebuilt in place whenever the sidecar changes. The `/streamdeck` page's setup dialog links the same asset.
 

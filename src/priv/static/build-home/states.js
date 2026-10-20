@@ -23,7 +23,8 @@ export function sectionState(P, D, H, sec, filtered) {
 export function reasonText(tag) {
   const words = { not_wired: 'not connected', timeout: 'timed out', crashed: 'the reader crashed',
     snapshot_unpublished: 'the daemon is starting', orchestrator_unavailable: 'the orchestrator is down',
-    incomplete: 'the read was partial', backfill_running: 'the history backfill is still running',
+    incomplete: 'the read was partial', open_tickets_loading: 'the open-ticket listing is in progress',
+    open_tickets_unavailable: 'the open-ticket listing is unavailable', open_tickets_timeout: 'the open-ticket listing timed out', backfill_running: 'the history backfill is still running',
     structurally_invalid: 'the stored data is malformed', tracker_unsupported: 'this tracker has no open-ticket index' };
   if (typeof tag !== 'string' || ['unknown', 'unavailable'].includes(tag)) return 'unknown cause';
   return Object.hasOwn(words, tag) ? words[tag] : tag.slice(0, 80);
@@ -89,9 +90,12 @@ export function renderLoading() {
 export function renderUnavailable(reason) {
   const loading = ctx.root?.querySelector('.bd-loading');
   if (!loading) return;
-  const words = { not_wired: 'no data source', timeout: 'timed out', crashed: 'source crashed',
-    version: 'page out of date, reload', invalid: 'invalid data', unavailable: 'source unavailable' };
-  loading.textContent = 'Build timeline unavailable · ' + (Object.hasOwn(words, reason) ? words[reason] : 'unknown cause');
+  const words = { not_wired: 'no data source', timeout: 'build index read timed out', crashed: 'source crashed',
+    version: 'page out of date, reload', invalid: 'invalid data', invalid_data: 'build data failed validation',
+    index_not_running: 'build index is not running', read_failed: 'build index read failed',
+    epic_config_unavailable: 'Build Order settings could not be read' };
+  const cause = Object.hasOwn(words, reason) ? words[reason] : `unknown cause (${String(reason).slice(0, 80)})`;
+  loading.textContent = `Build timeline unavailable · ${cause}`;
   loading.setAttribute('role', 'status');
   ctx.vp.querySelectorAll('.bd-skel i').forEach(el => { el.style.animation = 'none'; });
 }

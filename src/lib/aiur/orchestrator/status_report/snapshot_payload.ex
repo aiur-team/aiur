@@ -172,6 +172,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       work_state: work_state,
       pause_reason: pause_reason,
       tracker_paused: Issue.paused?(metadata.issue),
+      executor_owner: Issue.executor_owner(metadata.issue),
       queue_depth: capabilities.queue_depth,
       pending_operator_messages: OM.pending_operator_messages_for_issue(state, metadata.identifier),
       control: capabilities,
@@ -285,6 +286,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       title: issue.title,
       url: issue.url,
       tracker_paused: Issue.paused?(issue),
+      executor_owner: Issue.executor_owner(issue),
       queue_depth: OM.queue_depth_for_issue(state, identifier),
       # #1453 supplies the idle-reason evidence; #1457 renders it.
       dispatch_latch: idle_evidence.dispatch_latch,

@@ -44,9 +44,11 @@ defmodule Aiur.Events.GithubCIPollerRequiredVerdictTest do
     end
   end
 
-  test "a cancelled run beside a failed required check is not re-run" do
+  test "a cancelled sibling does not hide a failed required check" do
     checks = [check("ci / required", "failure"), check("test", "cancelled")]
 
-    assert %{decision: :pending, pending_reason: :check_runs_incomplete} = poll(checks, request_fun: no_requests())
+    assert %{decision: :failed, failures: failures} = poll(checks, request_fun: no_requests())
+    assert Enum.map(failures, & &1.name) == ["ci / required"]
+    refute Map.has_key?(poll(checks, request_fun: no_requests()), :pending_reason)
   end
 end

@@ -46,6 +46,21 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert Epic.resolve(context, %{general: general(), features: :unknown}).source == "unknown"
   end
 
+  test "planning context keeps an open ticket read timeout unavailable without raising" do
+    parts = parts() |> Map.put(:open, {:error, :timeout})
+
+    context = Index.planning_context(parts, MapSet.new())
+
+    assert context.not_queued == %{
+             state: :unavailable,
+             reasons: [:open_tickets_timeout],
+             observed_at: nil,
+             truncated?: false,
+             skipped: 0,
+             rows: []
+           }
+  end
+
   test "preserves closure causes and unknown title, model and complexity" do
     p =
       parts([

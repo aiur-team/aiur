@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, capturePageBounded, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
+import './capture-dashboard-build_test.mjs'
 
 const captureScript = fileURLToPath(new URL('../capture-dashboard.mjs', import.meta.url))
 
@@ -294,6 +295,13 @@ test('extracts the peak card value separately from current concurrency and its c
   assert.deepEqual(result.issues.filter((issue) => issue.kind === 'capacity-overrun').map((issue) => issue.detail), ['peak concurrency is 33 above its cap 32'])
 })
 
+test('does not read capacity numbers from unrelated page text', () => {
+  const ticketTitle = "Ticket #4159: '17 now / 16 cap'"
+  const readings = extractCapacityReadings([], ticketTitle)
+
+  assert.deepEqual(readings, [])
+})
+
 test('a precondition verdict says did not run, never attention', () => {
   const verdict = didNotRunVerdict('AIUR_DASHBOARD_PASSWORD is not set; the dashboard refuses all requests without it.')
 
@@ -411,7 +419,7 @@ test('a direct invocation with a URL but no password exits 69 and writes did-not
   }
 })
 
-function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [] } = {}) {
+function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [], buildRoot = null, serialize = false } = {}) {
   const nodes = elements.map(({ innerText, selectors }) => ({
     innerText,
     selectors,
@@ -438,7 +446,6 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
       ? { querySelector: (childSelector) => childSelector === '.recent-subtitle' ? { innerText: summary.label } : null }
       : null
   }))
-
   return {
     evaluate: async (callback, pageName) => {
       const priorDocument = globalThis.document
@@ -454,13 +461,16 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
         },
         querySelector: (selector) => {
           if (selector === '[data-phx-main], [data-phx-session]') return {}
+          if (selector === '#build-root') return buildRoot
           return primarySelectors.includes(selector) ? {} : null
         }
       }
       globalThis.window = { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) }
 
       try {
-        return callback(pageName)
+        return serialize
+          ? new Function('pageName', `return (${callback.toString()})(pageName)`)(pageName)
+          : callback(pageName)
       } finally {
         globalThis.document = priorDocument
         globalThis.window = priorWindow
@@ -468,3 +478,23 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
     }
   }
 }
+
+test('inspectPage evaluates as serialized browser code and flags a blank Build timeline', async () => {
+  const root = {
+    querySelector: (selector) => selector === '.bd-loading' ? { innerText: 'Build timeline unavailable · source unavailable' } : null,
+    querySelectorAll: () => []
+  }
+  const snapshot = await inspectPage(fakePage({ buildRoot: root, primarySelectors: ['#build-root'], serialize: true }), 'build')
+
+  assert.equal(snapshot.buildUnavailable, 'Build timeline unavailable · source unavailable')
+  assert.equal(snapshot.buildHydrated, true)
+  const blankSnapshot = await inspectPage(fakePage({
+    buildRoot: { querySelector: () => null, querySelectorAll: () => [] },
+    primarySelectors: ['#build-root'],
+    serialize: true
+  }), 'build')
+  assert.equal(blankSnapshot.buildHydrated, false)
+  blankSnapshot.capacityReadings = []
+  const blankAssessment = analyzeDashboardSnapshot('build', blankSnapshot)
+  assert.ok(blankAssessment.issues.some(({ kind }) => kind === 'build-not-hydrated'))
+})

@@ -73,8 +73,8 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
 
     for id <- ~w(commands.supervisor_api tracker.github tracker.linear), do: refute(Map.get(caps[id], :reason) == :not_installed)
     refute Enum.any?(warnings, &match?({:failed, _}, &1))
+    on_exit(fn -> assert :ok = Aiur.TestSupport.ensure_orchestrator_running() end)
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
-    on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator) end)
     assert Process.whereis(Aiur.Orchestrator) == nil
     {after_stop, _warnings} = Collector.collect([])
     assert after_stop.capabilities["orchestration"] == %{state: :unavailable, reason: :not_running}

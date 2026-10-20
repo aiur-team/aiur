@@ -1,6 +1,8 @@
 Code.require_file("../support/browser_harness/fixture_endpoint_start.ex", __DIR__)
 for file <- ~w(earlier_control fixture_source index_parts index_seed), do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+Code.require_file("../support/build_home/usage_fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
+Code.require_file("../support/test_cleanup.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
 Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
@@ -57,6 +59,9 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
     get("/build-control/:action", Aiur.BrowserHarness.FixtureBuildControl, :configure)
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
+    get("/command-answer-control/answerable", Aiur.BrowserHarness.CommandAnswerFixture, :configure)
+    get("/command-answer-state", Aiur.BrowserHarness.CommandAnswerFixture, :status)
+    get("/command-answer-join-state", Aiur.BrowserHarness.CommandAnswerFixture, :join_status)
     get("/build-queue-control/:state", Aiur.BrowserHarness.BuildQueueFixture, :configure)
     get("/experiments-control/:scenario", Aiur.BrowserHarness.ExperimentsFixture, :configure)
   end
@@ -161,6 +166,8 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
     Application.put_env(:aiur, :build_data_source, FixtureSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
+    endpoint_overrides = AiurWeb.EndpointConfig.overrides_table()
+    if :ets.whereis(endpoint_overrides) == :undefined, do: :ets.new(endpoint_overrides, [:named_table, :public, :set])
     configure_forwarded_dashboard() |> FixtureSource.configure_usage()
     ExperimentsFixture.prepare("empty")
 

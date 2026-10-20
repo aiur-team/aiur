@@ -3,6 +3,20 @@ defmodule Aiur.CodeHost do
 
   alias Aiur.Tracker.NullCodeHost
 
+  @spec ci_readiness() :: module() | nil
+  def ci_readiness, do: readiness_provider(adapter())
+
+  @doc false
+  @spec ci_readiness(String.t() | nil) :: module() | nil
+  def ci_readiness(kind) do
+    tracker = Aiur.Tracker.Registry.adapter_for(kind)
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :code_host, 0), do: readiness_provider(tracker.code_host())
+  end
+
+  defp readiness_provider(adapter) do
+    if adapter && Code.ensure_loaded?(adapter) && function_exported?(adapter, :ci_readiness, 0), do: adapter.ci_readiness()
+  end
+
   @spec available?() :: boolean()
   def available?, do: adapter() != NullCodeHost
 
@@ -43,6 +57,9 @@ defmodule Aiur.CodeHost do
 
   @spec withdraw_landing(integer()) :: {:ok, [atom()]} | {:error, term(), [atom()]} | {:error, term()}
   def withdraw_landing(number), do: optimistic_call(:withdraw_landing, [number])
+
+  @spec pull_request_body_edited_at(integer()) :: {:ok, String.t() | nil} | {:error, term()}
+  def pull_request_body_edited_at(number), do: optimistic_call(:pull_request_body_edited_at, [number])
 
   defp optimistic_call(function, arguments) do
     adapter = adapter()

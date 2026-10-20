@@ -162,7 +162,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     continuation = """
     Continuation guidance (#{continuation_headline(reason)}):
 
-    - #{continuation_why(reason)} Do NOT re-run ce-brainstorm or ce-plan and do not restart the ticket from scratch.
+    - #{continuation_why(reason)}#{abandoned_thread_note(opts)} Do NOT re-run ce-brainstorm or ce-plan and do not restart the ticket from scratch.
     - If you complete `ce-plan` while the ticket is still active, proceed directly to `ce-work` — the planning-to-work transition is authorized on active tickets without an operator message, and interactive CE phase menus do not end an autonomous ticket turn unless a real operator decision is required.
     - #{continuation_orientation(reason)}
     - Reconcile against the current workspace and workpad state before acting; a few things may have changed since the prior run.
@@ -186,6 +186,13 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   end
 
   defp review_findings_section(_issue, _opts, :prior_work), do: ""
+
+  # #4561: the resumed thread kept losing its transport at turn start, so Aiur dropped it.
+  defp abandoned_thread_note(opts) do
+    if Keyword.get(opts, :abandoned_thread, false),
+      do: " The previous agent thread was abandoned after it repeatedly lost its transport at resume; this is a fresh session without that thread's history.",
+      else: ""
+  end
 
   defp continuation_headline(:rework), do: "this issue is in rework"
   defp continuation_headline(:prior_work), do: "this agent run continues prior work on this ticket"

@@ -102,6 +102,12 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
   end
 
   # Base CI was red for every failing job when the run started and is green for each now.
+  @doc false
+  @spec stale_merge_ref?(map(), keyword()) :: boolean()
+  def stale_merge_ref?(run, opts) do
+    stale_merge_ref?(failing_jobs(run), timestamp_ms(run["started_at"]), opts)
+  end
+
   defp stale_merge_ref?(_jobs, nil, _opts), do: false
 
   defp stale_merge_ref?(jobs, started, opts) do

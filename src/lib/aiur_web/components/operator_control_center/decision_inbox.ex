@@ -20,6 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   attr(:history, :list, default: [])
   attr(:action_states, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:live_connected, :boolean, default: true)
   attr(:provider_health, :any, default: :ok)
   attr(:retained_counts, :map, required: true)
   attr(:page, :map, default: %{})
@@ -70,6 +71,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
           history={@history}
           action_state={Map.get(@action_states, decision.decision_id, %{})}
           writable={@writable}
+          live_connected={@live_connected}
           filter={@filter}
           query={@query}
         />
@@ -115,7 +117,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp count_label(count) when is_integer(count), do: count
   defp count_label(_count), do: "—"
 
-  defp filtered(decisions, :open), do: Enum.filter(decisions, &open?/1)
+  defp filtered(decisions, :open), do: Enum.filter(decisions, & &1.open?)
   defp filtered(decisions, :blocking), do: Enum.filter(decisions, &blocking?/1)
   defp filtered(decisions, :undelivered), do: Enum.filter(decisions, &undelivered?/1)
   defp filtered(decisions, :supervisor), do: Enum.filter(decisions, &supervisor_decision?/1)
@@ -127,7 +129,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp filtered(_decisions, :resolved), do: []
 
   defp filtered(decisions, :superseded), do: Enum.filter(decisions, &Map.get(&1, :superseded?, false))
-  defp filtered(decisions, _filter), do: Enum.filter(decisions, &open?/1)
+  defp filtered(decisions, _filter), do: Enum.filter(decisions, & &1.open?)
 
   defp empty_message(:resolved), do: "Resolved Commands are shown in Command history below."
   defp empty_message(_filter), do: "No Commands match this filter."
@@ -141,8 +143,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     if is_nil(selected), do: filtered, else: [selected | filtered]
   end
 
-  defp open?(decision), do: decision.decision_status in [:open, :deferred]
-  defp blocking?(decision), do: decision.blocking and open?(decision)
+  defp blocking?(decision), do: decision.blocking and decision.open?
 
   defp undelivered?(decision) do
     not is_nil(decision.answer) and decision.delivery_status not in [:delivered, :consumed]

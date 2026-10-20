@@ -11,6 +11,7 @@ defmodule Aiur.GitHub.IssueState do
 
   alias Aiur.GitHub.Config
   alias Aiur.GitHub.{Errors, HumanReviewGate, Issues, Labels, LocalHold, StatePolicy, Transport, WriteThrough}
+  alias Aiur.GitHub.IssueState.ClosedIssue
   require Logger
 
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
@@ -120,18 +121,7 @@ defmodule Aiur.GitHub.IssueState do
   end
 
   defp handle_closed_active_target(context, current_issue_body) do
-    case remove_active_state_labels(
-           context.request_fun,
-           context.token,
-           context.owner,
-           context.repo,
-           context.issue_number,
-           current_issue_body,
-           context.prefix
-         ) do
-      :ok -> {:error, {:no_state_label_written, current_issue_body}}
-      {:error, _reason} = error -> error
-    end
+    ClosedIssue.apply(context, current_issue_body)
   end
 
   defp revalidate_expected_state(%{opts: opts} = context, issue_body) do
@@ -142,7 +132,7 @@ defmodule Aiur.GitHub.IssueState do
       # free `304` when nothing changed.
       case Issues.fetch_issue_raw_conditional(
              context.issue_number,
-             issue_read_opts(context) |> Keyword.put(:revalidate, true)
+             guarded_issue_read_opts(context) |> Keyword.put(:revalidate, true)
            ) do
         {:ok, current_issue_body, _outcome} ->
           validate_revalidated_state(context, current_issue_body)
@@ -309,6 +299,10 @@ defmodule Aiur.GitHub.IssueState do
 
   defp issue_read_opts(%{request_fun: request_fun, token: token}),
     do: [token: token, request_fun: request_fun]
+
+  # Expected-state guards need an authoritative body: an ETag can validate a
+  # stale stored snapshot when equal updated_at values allowed a racing deposit.
+  defp guarded_issue_read_opts(context), do: Keyword.put(issue_read_opts(context), :unconditional, true)
 
   defp retry_local_holds(request_fun, opts) do
     fn request ->

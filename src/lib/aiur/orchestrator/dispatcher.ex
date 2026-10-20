@@ -4,12 +4,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
   Tracker work executes outside the owner; guarded results apply inside it.
   """
 
-  alias Aiur.GitHub.CycleFetchCache
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.CiReadinessGate
   alias Aiur.Orchestrator.CommandScan
-  alias Aiur.Orchestrator.CommentPolling
+  alias Aiur.Orchestrator.CommentPollingState
   alias Aiur.Orchestrator.DispatchBatch
   alias Aiur.Orchestrator.DispatchCandidates
   alias Aiur.Orchestrator.DispatchCycleCompletion
@@ -18,10 +18,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
   alias Aiur.Orchestrator.Dispatcher.Candidates
   alias Aiur.Orchestrator.Dispatcher.Capacity
-  alias Aiur.Orchestrator.Dispatcher.CiReadinessAdmission
   alias Aiur.Orchestrator.Dispatcher.HoldsAndAlerts
   alias Aiur.Orchestrator.Dispatcher.Launch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.FirehosePolling
   alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.MergedTicketReconciler
@@ -37,18 +37,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RepoBase
+  alias Aiur.Tracker
 
   # Stable entry points; each responsibility lives under dispatcher/.
   @doc false
-  defdelegate maybe_warn_ci_readiness(state), to: CiReadinessAdmission
+  defdelegate maybe_warn_ci_readiness(state), to: CiReadinessGate
   @doc false
-  defdelegate start_initial_ci_readiness_check(state, kind, base_branch, check_fun), to: CiReadinessAdmission
+  defdelegate start_initial_ci_readiness_check(state, kind, base_branch, check_fun), to: CiReadinessGate
   @doc false
-  defdelegate handle_ci_readiness_result(state, token, result), to: CiReadinessAdmission
+  defdelegate handle_ci_readiness_result(state, token, result), to: CiReadinessGate
   @doc false
-  defdelegate handle_ci_readiness_timeout(state, token), to: CiReadinessAdmission
+  defdelegate handle_ci_readiness_timeout(state, token), to: CiReadinessGate
   @doc false
-  defdelegate check_initial_ci_readiness(state, kind, base_branch, check_fun, emit_fun), to: CiReadinessAdmission
+  defdelegate check_initial_ci_readiness(state, kind, base_branch, check_fun, emit_fun), to: CiReadinessGate
   @doc false
   defdelegate refresh_blocked_ticket_ids(state), to: Candidates
   @doc false
@@ -194,14 +195,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp start_poll_reads(state) do
     state
-    |> CiReadinessAdmission.maybe_warn_ci_readiness()
+    |> CiReadinessGate.maybe_warn_ci_readiness()
     |> TrackedSet.refresh()
-    |> CommentPolling.start_firehose(&after_firehose/1, &TrackerTasks.start/4)
+    |> FirehosePolling.start(&after_firehose/1, &TrackerTasks.start/4)
   end
 
   defp after_firehose(state) do
     state
-    |> CommentPolling.start_async()
+    |> CommentPollingState.start_async()
     |> CiLifecycle.start_poll(fn current ->
       current |> Candidates.refresh_blocked_ticket_ids() |> start_candidate_poll(&Candidates.default_candidate_fetch/1)
     end)
@@ -225,13 +226,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec maybe_dispatch(State.t()) :: State.t()
   def maybe_dispatch(%State{} = state) do
-    CycleFetchCache.start_cycle()
-
-    try do
-      maybe_dispatch(state, &do_maybe_dispatch/1)
-    after
-      CycleFetchCache.end_cycle()
-    end
+    Tracker.with_poll_cycle(fn -> maybe_dispatch(state, &do_maybe_dispatch/1) end)
   end
 
   @doc false
@@ -266,13 +261,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp prepare_candidate_poll(%State{} = state) do
-    state = CiReadinessAdmission.maybe_warn_ci_readiness(state)
+    state = CiReadinessGate.maybe_warn_ci_readiness(state)
     state = TrackedSet.refresh(state)
-    state = CommentPolling.poll_github_firehose(state)
+    state = FirehosePolling.poll(state)
     # Issued, not awaited: the Orchestrator was captured parked in this poll's
     # `Task.async_stream` fan-out with 5,729 messages behind it on an idle host
-    # (#1837). The answer arrives as `{:github_comments_polled, ...}`.
-    state = CommentPolling.start_async(state)
+    # (#1837). The answer arrives as `{:github_listener_outcome, :comments, ...}`.
+    state = CommentPollingState.start_async(state)
     state = CiLifecycle.poll_github_ci(state)
     # Reconciliation needs current holds before stopping blocked workers;
     # admission refreshes again after tracker work because answers can arrive during the poll.

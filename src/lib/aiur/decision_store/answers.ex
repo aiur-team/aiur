@@ -39,6 +39,10 @@ defmodule Aiur.DecisionStore.Answers do
   end
 
   @spec require_answerable(term()) :: term()
+  # An expired unanswered blocking Command remains actionable: the agent may
+  # still be waiting on its answer, so expiry must not remove that path.
+  def require_answerable(%Decision{decision_status: :expired, blocking: true, answer: nil}), do: :ok
+
   def require_answerable(%Decision{decision_status: status}) when status in [:expired, :moot, :resolved],
     do: {:error, {:conflict, status}}
 

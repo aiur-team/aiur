@@ -3,8 +3,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.GitHub.{Config, Errors, MainFixer, ReadCache, StatePolicy, TimelineCache, Transport}
-  alias Aiur.{Issue, Signal}
+  alias Aiur.GitHub.{Config, Errors, LocalProvenance, MainFixer, ReadCache, StatePolicy, TimelineCache, Transport}
+  alias Aiur.{GitHub.DispatchAuthorization.TimelineFetch, Issue, Signal}
 
   @cache_key {__MODULE__, :timeline_cache}
   # The timeline cache holds full event lists — up to four pages of 100 raw
@@ -51,14 +51,9 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     deny_ambiguous(issue, {:contradictory_state_labels, state_labels})
   end
 
-  # Trigger-label provenance authorizes dispatch; configured App fixers are the narrow exception.
+  # Verified label provenance is primary; App fixers and registered local provenance are narrow exceptions.
   #
-  # There used to be one: an issue whose creator was in `allowed_users` was
-  # dispatched with no label check at all. Agents create issues with that same
-  # credential, so an agent could file a ticket, label it `agent:todo`, and have
-  # it dispatched with no human anywhere in the loop — a self-sustaining work
-  # queue. It also meant that for any trusted-creator issue, a label applied by
-  # an outsider (or no verifiable `labeled` event at all) still dispatched.
+  # Creator allowlisting alone previously let agents enqueue their own work.
   #
   # Who *filed* a ticket says nothing about whether anyone decided it should
   # run. Requiring the verified label applier costs one timeline fetch per
@@ -119,7 +114,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # own state machine. Note this deliberately does NOT extend to any other
   # actor: an outsider re-labelling a ticket still revokes, because "latest
   # applier wins" is what stops a hostile relabel from riding a stale approval.
-  defp apply_label_decision({:verified, actor, event_id, prefix_appliers}, issue, allowed_users, opts) do
+  defp apply_label_decision({:verified, actor, event_id, prefix_appliers, label_actors}, issue, allowed_users, opts) do
     triaged_by = Enum.find(prefix_appliers, &member?(allowed_users, &1))
 
     {authorized?, source} =
@@ -127,7 +122,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         MainFixer.authorized?(issue, opts) and aiur_actor?(actor, opts) -> {true, "main_watch_fixer"}
         member?(allowed_users, actor) -> {true, "label_applier"}
         aiur_actor?(actor, opts) and not is_nil(triaged_by) -> {true, "prior_triage:#{triaged_by}"}
-        true -> {false, "label_applier"}
+        true -> LocalProvenance.decision(issue, actor, label_actors, opts)
       end
 
     log_decision(
@@ -213,7 +208,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     token = Keyword.get(opts, :token, Config.token())
 
     if is_binary(token) and token != "" do
-      case fetch_timeline_ladder(request_fun, token, owner, repo, issue, TimelineCache.page_sizes(owner, repo, issue.id, @timeline_page_sizes)) do
+      case TimelineFetch.run(&fetch_timeline_ladder/6, [request_fun, token, owner, repo, issue, TimelineCache.page_sizes(owner, repo, issue.id, @timeline_page_sizes)], opts) do
         {:ok, events, new_etag, single_page?, per_page} ->
           TimelineCache.put(owner, repo, issue.id, new_etag, events, single_page?, per_page)
           decide_fetched_timeline(issue, label, prefix, events, owner, repo)
@@ -394,7 +389,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     case latest_label_event(events, label) do
       %{id: event_id, actor: actor} ->
         if is_binary(actor) do
-          decision = {:verified, actor, event_id, prefix_label_appliers(events, prefix)}
+          decision = {:verified, actor, event_id, prefix_label_appliers(events, prefix), LocalProvenance.label_actors(events, prefix)}
           cache_decision(issue, label, event_id, decision)
           decision
         else

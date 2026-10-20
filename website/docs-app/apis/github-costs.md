@@ -57,6 +57,8 @@ Main-watch matches push or merge_group runs to the landed SHA and queue base. Co
 
 Failure events carry tests, flake classifications and suspects. Evidence uses existing CI callers; associations use `main_watch_suspects`, permissions `main_watch_permissions`, and reruns `main_watch_canary`. Actions write is cached until daemon restart; permission changes require a restart.
 
+Main-watch reruns failed jobs once per commit when one test fails and its path was untouched. Digest evidence and Actions write permission are required; incomplete or changed paths skip it. Callers: `main_watch_commit_files` and `main_watch_single_test_rerun`. A pass feeds same-commit recovery; a failed rerun stays red for the fixer. No saving is claimed.
+
 An idle completed head or any active watched run suppresses canaries; an eligible cancellation without write permission raises one persisted attention. Status distinguishes a running, unavailable or absent watcher and shows retained SHA and completed-run age after errors or poll crashes.
 
 
@@ -92,3 +94,15 @@ ResourceStore labels discover epics between polls.
 Closed completed members
 missing RecentMergeStore evidence use a bounded linked-PR GraphQL read for merge
 time and SHA. Incomplete or refused reads preserve state for retry. No saving is claimed.
+
+## Experiment analyst tickets
+
+Analysis requests create issues as `experiment_analysis_create`, with dispatch labels and a nonce marker in the same POST. Label definitions are ensured first.
+
+Uncertain writes reconcile as `experiment_analysis_reconcile`, using pages of 100 open and closed issues. The window begins at the first creation attempt minus five minutes for clock skew. Older journals use the original request time.
+
+GitHub's [`since` filter](https://docs.github.com/en/rest/issues/issues#list-repository-issues) filters update time. Results sort by creation time descending; a bounded scan ends at the first row created before the window, a match, or the last page. It can pass page ten. Legacy lookups without a usable time window retain the ten-page safety limit.
+
+Failed or incomplete reads never authorize a POST. After backoff, a complete scan proving absence permits creation with the same request and nonce.
+
+Attached-ticket failure detection uses the daemon's complete, fresh open-issue label snapshot through the tracker facade. It adds no per-ticket poll. The listing must have begun after the request's latest revision; its completion time cannot prove closure. Missing observation provenance also cannot prove closure. No quota saving is claimed.

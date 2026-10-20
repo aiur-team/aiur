@@ -2,11 +2,24 @@ defmodule Aiur.Workspace.Provisioner.AgentSupport do
   @moduledoc false
 
   require Logger
-  alias Aiur.{AgentGitHubGuard, Config}
+  alias Aiur.Config
   alias Aiur.Workspace.Remote
 
-  @remote_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentScratch]
-  @local_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentBuildGuard, Aiur.AgentScratch, Aiur.Workspace.AttributionGuard]
+  @spec support_modules(:local | :remote) :: [module()]
+  def support_modules(scope) do
+    tail = if scope == :local, do: [Aiur.AgentBuildGuard, Aiur.AgentScratch, Aiur.Workspace.AttributionGuard], else: [Aiur.AgentScratch]
+    [Aiur.AgentSkills] ++ registered_modules() ++ tail
+  end
+
+  defp registered_modules, do: Application.get_env(:aiur, :agent_support_modules, [])
+
+  defp missing_workspace_support(workspace) do
+    Enum.flat_map(registered_modules(), fn module ->
+      if Code.ensure_loaded?(module) and function_exported?(module, :missing_workspace_support, 1),
+        do: module.missing_workspace_support(workspace),
+        else: []
+    end)
+  end
 
   @doc false
   # Install aiur's bundled agent-operating skills and command guards into a
@@ -14,7 +27,7 @@ defmodule Aiur.Workspace.Provisioner.AgentSupport do
   # through one idempotent SSH script; build admission is currently local-only.
   @spec maybe_install_agent_support(Path.t(), String.t() | nil) :: :ok | {:error, term()}
   def maybe_install_agent_support(workspace, nil) do
-    Enum.reduce_while(@local_agent_support_modules, :ok, fn module, :ok ->
+    Enum.reduce_while(support_modules(:local), :ok, fn module, :ok ->
       case module.install(workspace) do
         :ok -> {:cont, :ok}
         {:error, _reason} = error -> {:halt, error}
@@ -35,7 +48,7 @@ defmodule Aiur.Workspace.Provisioner.AgentSupport do
   # missing, dispatch is refused with the names of the missing pieces.
   @spec ensure_local_agent_support(Path.t()) :: :ok | {:error, term()}
   def ensure_local_agent_support(workspace) when is_binary(workspace) do
-    case AgentGitHubGuard.missing_workspace_support(workspace) do
+    case missing_workspace_support(workspace) do
       [] ->
         :ok
 
@@ -47,13 +60,13 @@ defmodule Aiur.Workspace.Provisioner.AgentSupport do
             verify_local_agent_support(workspace)
 
           {:error, reason} ->
-            {:error, {:agent_support_repair_failed, workspace, AgentGitHubGuard.missing_workspace_support(workspace), reason}}
+            {:error, {:agent_support_repair_failed, workspace, missing_workspace_support(workspace), reason}}
         end
     end
   end
 
   defp verify_local_agent_support(workspace) do
-    case AgentGitHubGuard.missing_workspace_support(workspace) do
+    case missing_workspace_support(workspace) do
       [] -> :ok
       missing -> {:error, {:agent_support_incomplete, workspace, missing}}
     end
@@ -78,7 +91,14 @@ defmodule Aiur.Workspace.Provisioner.AgentSupport do
 
   @doc false
   @spec repair_agent_github_guard(Path.t(), String.t() | nil) :: :ok | {:error, term()}
-  def repair_agent_github_guard(workspace, nil), do: Aiur.AgentGitHubGuard.install(workspace)
+  def repair_agent_github_guard(workspace, nil) do
+    Enum.reduce_while(registered_modules(), :ok, fn module, :ok ->
+      case module.install(workspace) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
 
   def repair_agent_github_guard(workspace, worker_host) when is_binary(worker_host) do
     repair_agent_github_guard(workspace, worker_host, &Remote.run_remote_script/3)
@@ -89,7 +109,7 @@ defmodule Aiur.Workspace.Provisioner.AgentSupport do
           :ok | {:error, term()}
   def repair_agent_github_guard(workspace, worker_host, runner)
       when is_binary(workspace) and is_binary(worker_host) and is_function(runner, 3) do
-    case runner.(worker_host, Aiur.AgentGitHubGuard.remote_install_script(workspace, remote_host: worker_host), Config.settings!().hooks.timeout_ms) do
+    case runner.(worker_host, Enum.map_join(registered_modules(), "\n", &remote_install_script(&1, workspace, worker_host)), Config.settings!().hooks.timeout_ms) do
       {:ok, {_output, 0}} -> :ok
       result -> {:error, {:remote_agent_github_guard_repair_failed, result}}
     end
@@ -99,16 +119,14 @@ defmodule Aiur.Workspace.Provisioner.AgentSupport do
   # host-credential cleanup only ever runs on a genuinely remote install (#2478);
   # the same script executed locally must not touch the operator's own `$HOME`.
   defp remote_agent_support_script(workspace, worker_host) do
-    Enum.map_join(@remote_agent_support_modules, "\n", fn module ->
-      # `Code.ensure_loaded?/1` first: on a not-yet-loaded module
-      # `function_exported?/3` answers false, which would silently fall back to
-      # the arity-1 call and drop the remote credential cleanup rather than
-      # failing loudly.
-      if Code.ensure_loaded?(module) and function_exported?(module, :remote_install_script, 2) do
-        module.remote_install_script(workspace, remote_host: worker_host)
-      else
-        module.remote_install_script(workspace)
-      end
+    Enum.map_join(support_modules(:remote), "\n", fn module ->
+      remote_install_script(module, workspace, worker_host)
     end)
+  end
+
+  defp remote_install_script(module, workspace, worker_host) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :remote_install_script, 2),
+      do: module.remote_install_script(workspace, remote_host: worker_host),
+      else: module.remote_install_script(workspace)
   end
 end

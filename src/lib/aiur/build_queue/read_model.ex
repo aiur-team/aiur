@@ -13,7 +13,7 @@ defmodule Aiur.BuildQueue.ReadModel do
     build_orders =
       Map.new(
         document.queues |> Enum.filter(&(&1.kind == :build_order)),
-        &{&1.root, ProjectionRead.read(&1.root, now, projection)}
+        &{&1.root, ProjectionRead.read(&1.root, now, projection, Map.get(state, :sources, %{})["build_order:#{&1.root}"])}
       )
 
     context = %{

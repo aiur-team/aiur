@@ -1,3 +1,4 @@
+import { bandLayout } from './band-layout.js';
 import { sectionState, emptyMark } from './states.js';
 import { nowMs } from './clock.js';
 import { LH, SEC } from './state.js';
@@ -99,14 +100,13 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
     warned.add(D.hist);
     console.warn("History rows without finite end:", hs.unplaced);
   }
-  const gctx = y => ({ span, pph: pphG, flow, K, compact, gapLabel, colKey, CH, gap, det, nowRows: NOWL, hs, y });
+  const gctx = y => ({ span, pph: pphG, flow, K, compact, gapLabel, colKey, CH, gap, det, now: nowMs(), nowRows: NOWL, hs, y });
   const hst = sectionState(P, D, H, 'hist', histList);
   if (hst.show !== 'rows') { hs.marks.push(emptyMark('hist', hst, mctx)); hs.h = SEC + 104; }
   else if (S.view === "gantt") ext.gantt.hist(entries(histList), gctx(SEC + 4));
   else hs.h = rows(entries(histList), SEC + 4, hs.items, hs.marks, hs.labels, "hist", true) + gap;
   out.secs.hist = hs;
-  // J:486–496 Now band: C9-T08 bandLayout
-  out.band = { items: [], h: 0, BK: 1 };
+  out.band = bandLayout(D, S, dims, { ch, gap, base: baseDet, pphG, CH, gantt: ext.gantt });
   /* planned */
   const ps = { items: [], marks: [], labels: [], h: 0 };
   const pst = sectionState(P, D, H, 'plan', PLANL);

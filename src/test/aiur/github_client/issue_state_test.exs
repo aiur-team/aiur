@@ -213,7 +213,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
                      100
     end
 
-    test "closed issues remove stale active labels and report no state label written" do
+    test "closed issues preserve done while removing stale active labels" do
       test_pid = self()
 
       request_fun = fn req ->
@@ -240,9 +240,8 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
         end
       end
 
-      # Active target on a closed issue: the stale active labels are stripped,
-      # but no active state label was written, so the transition reports that
-      # honestly instead of a false `:ok` (#2420).
+      # Active target on a closed issue: the existing done state is preserved,
+      # stale active labels are stripped, and no active state is claimed (#2420).
       assert {:error, {:no_state_label_written, _issue}} =
                Client.update_issue_state("42", "rework", request_fun: request_fun)
 
@@ -342,8 +341,8 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
                Client.update_issue_state("42", "rework", request_fun: request_fun)
 
       assert_receive {:github_request, %{method: :get}}, 1000
+      assert_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:done"]}}}, 1000
       assert_receive {:github_request, %{method: :delete}}, 1000
-      refute_receive {:github_request, %{method: :post}}, 100
       refute_receive {:github_request, %{method: :patch}}, 100
     end
   end

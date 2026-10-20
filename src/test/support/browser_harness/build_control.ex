@@ -2,7 +2,8 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
   @moduledoc false
   use Phoenix.Controller, formats: []
   import Plug.Conn
-  alias Aiur.TestSupport.BuildHome.{EarlierControl, FixtureSource}
+  plug(:fetch_query_params)
+  alias Aiur.TestSupport.BuildHome.{EarlierControl, FixtureSource, UsageFixtures}
 
   def configure(conn, %{"action" => "stream", "key" => key}) do
     conn |> put_session("build_stream", key) |> send_resp(200, "build fixture stream: #{key}")
@@ -24,6 +25,21 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
     send_resp(conn, 200, "build fixture control: #{action}")
   end
 
+  def configure(conn, %{"action" => "usage", "name" => name}) do
+    case UsageFixtures.load(name) do
+      {:ok, block} ->
+        {:ok, data} = FixtureSource.full([])
+        Phoenix.PubSub.broadcast(Aiur.PubSub, FixtureSource.topic(get_session(conn, "build_stream")), {:build_changes, %{now: data["now"], upsert: [], remove: [], set: %{usage: block}}})
+        send_resp(conn, 200, "build fixture control: usage")
+
+      {:error, {:invalid, errors}} ->
+        send_resp(conn, 422, inspect(errors))
+
+      {:error, :not_found} ->
+        send_resp(conn, 404, "unknown usage fixture")
+    end
+  end
+
   def configure(conn, %{"action" => "earlier"} = params) do
     conn = fetch_query_params(conn)
     EarlierControl.configure(Map.merge(params, conn.query_params))
@@ -32,7 +48,9 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
 
   def configure(conn, _params), do: send_resp(conn, 404, "unknown build fixture control action")
 
-  defp diff_changes(_data, %{"name" => name}) when name in ~w(card-pct-null card-clock-3h plan-new-epic hist-new-epic counts-changed counts-unknown), do: named_diff(name)
+  defp diff_changes(_data, %{"name" => name})
+       when name in ~w(card-pct-null card-clock-3h plan-new-epic hist-new-epic counts-changed counts-unknown edge-state-cleared edge-unknown daemon-unknown offline-no-heartbeat agents-unavailable agents-stale agent-state-null add-four-agents),
+       do: named_diff(name)
 
   defp diff_changes(data, %{"name" => "queue-unavailable"}) do
     path = Path.expand("../../fixtures/build_home/diffs/queue-unavailable.json", __DIR__)

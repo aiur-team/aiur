@@ -95,7 +95,7 @@ defmodule Aiur.Config.Schema.Agent do
     # strictly exceeds `run_queue_threshold * schedulers`, catching short CPU
     # bursts the lagging load average smooths out.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.run_queue_threshold | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
+    # @config-reference config-configuration-agent-00 agent.run_queue_threshold | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and outside registered fleet-agent trees; holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
     field(:run_queue_threshold, :float)
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
     # 0 deliberately disables the gate for Executors who need unrestricted
@@ -104,7 +104,7 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-00 agent.max_concurrent_builds | integer | 4 | Caps local agent Mix verification and browser tests; 0 disables the concurrency cap. Busy or queued builds wait at the build gate without holding fleet dispatch. |
     field(:max_concurrent_builds, :integer, default: 4)
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.build_nice | integer | 10 | CPU nice adjustment (0–19) applied once to admitted build commands and inherited by descendants; 0 preserves launch priority. Nested builds reuse the lease without another adjustment. CPU niced above the daemon receives the existing load/run-queue discount; build capacity still counts it. |
+    # @config-reference config-configuration-agent-00 agent.build_nice | integer | 10 | CPU nice adjustment (0–19) applied once to admitted build commands and inherited by descendants; 0 preserves launch priority. Nested builds reuse the lease without another adjustment. Build processes under registered agent relays remain counted by soft load/run-queue admission; build capacity also counts them. |
     field(:build_nice, :integer, default: 10)
     # Minimum spacing between local Mix compile/test starts when more than one
     # build may run concurrently. 0 disables start pacing.
@@ -250,6 +250,10 @@ defmodule Aiur.Config.Schema.Agent do
     # observed in this window, wake the agent for one recovery check.
     # @config-reference config-configuration-agent-00 agent.ci_wait_rewake_minutes | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
     field(:ci_wait_rewake_minutes, :integer, default: 5)
+
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.unreviewed_pr_age_limit_minutes | positive integer | 120 | Re-raises ready PRs with green CI and no review after this many minutes; reminders repeat with the same interval. |
+    field(:unreviewed_pr_age_limit_minutes, :integer, default: 120)
     # @config-reference config-configuration-agent-00 agent.ci_recovery_enabled | boolean | true | Enables automatic CI recovery reruns; set `false` to disable them. |
     field(:ci_recovery_enabled, :boolean, default: true)
     # @config-reference config-configuration-agent-00 agent.ci_recovery_max_per_poll | positive integer | 5 | Maximum recovery reruns admitted by one CI poll. |
@@ -384,6 +388,7 @@ defmodule Aiur.Config.Schema.Agent do
         :stall_timeout_ms,
         :max_agent_duration_minutes,
         :ci_wait_rewake_minutes,
+        :unreviewed_pr_age_limit_minutes,
         :ci_recovery_enabled,
         :ci_recovery_max_per_poll,
         :ci_recovery_max_per_hour,
@@ -427,6 +432,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
     |> validate_number(:ci_wait_rewake_minutes, greater_than: 0)
+    |> validate_number(:unreviewed_pr_age_limit_minutes, greater_than: 0)
     |> validate_number(:ci_recovery_max_per_poll, greater_than: 0)
     |> validate_number(:ci_recovery_max_per_hour, greater_than: 0)
     |> validate_number(:max_cpu_pressure, greater_than: 0, less_than_or_equal_to: 100)

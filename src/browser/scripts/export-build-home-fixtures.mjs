@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { resolve, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
+import { nowPatch } from './build-home-now-patch.mjs';
 import { oddEdges } from './build-home-odd-edges.mjs';
 import { mapRawToPayload } from './build-home-fixture-map.mjs';
 
@@ -25,8 +26,8 @@ export const API_ROWS = [
 ];
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
-export function loadBuildJs({ designDir, expose, context = {}, prelude = '' }) {
-  const src = readFileSync(join(designDir, 'assets/build.js'), 'utf8');
+export function loadBuildJs({ designDir, expose, context = {}, prelude = '', dataset }) {
+  const src = nowPatch(readFileSync(join(designDir, 'assets/build.js'), 'utf8'), dataset);
   const count = src.split(ANCHOR).length - 1;
   assert.equal(count, 1, `build.js anchor '${ANCHOR}' found ${count} times`);
   for (const name of expose) assert.match(name, /^[A-Za-z_$][\w$]*$/, `invalid expose name: ${name}`);
@@ -90,6 +91,12 @@ export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}
         heartbeat_at: dataset === 'offline' ? NOW - 360000 : NOW, observed_at: NOW },
     }, { featureStats }));
   }
+  for (const dataset of ['now0', 'now24']) {
+    const patched = loadBuildJs({ designDir, expose: ['dataFor'], dataset }).dataFor('live');
+    const snapshot = JSON.parse(files['live.json']);
+    const mapped = mapRawToPayload({ meta: { now: NOW, tz: TZ }, data: raw(patched), usage: { models: PSETS[4], apis: API_ROWS }, daemon: snapshot.daemon });
+    files[`${dataset}.json`] = encode(mapped);
+  }
   const odd = oddEdges(JSON.parse(files['live.json']));
   files['odd-edges.json'] = encode(odd.snapshot);
   files['odd-edges-history.json'] = encode(odd.history);
@@ -102,13 +109,17 @@ export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}
   hostile.sections.plan[0].override = { hours: 1, reason: '" onmouseover="window.__xss=1', by: 'fixture', at: NOW };
   files['hostile.json'] = encode({ snapshot: hostile, invalid_title_base64: Buffer.from([65, 255, 66]).toString('base64') });
   files['usage-sets.json'] = encode(PSETS);
+  for (const n of [2, 7]) files[`usage/n${n}.json`] = encode(mapRawToPayload({
+    meta: { now: NOW, tz: TZ }, data: raw(dataFor('live')),
+    usage: { models: PSETS[n], apis: API_ROWS }, daemon: JSON.parse(files['live.json']).daemon,
+  }).usage);
   const offsets = new Set();
   for (const text of Object.values(files)) walk(decode(text), v => {
     if (Number.isFinite(v) && v >= 1.7e12 && v <= 1.9e12) offsets.add(-new Date(v).getTimezoneOffset());
   });
   files['manifest.json'] = encode({
     schema: 'build-home-payload/1', ids: Object.fromEntries(DATASETS.flatMap(k => Object.values(JSON.parse(files[`${k}.json`]).sections).flat().map(r => [`AIUR-${r.num}`, r.id]))), now: NOW, now_iso: '2026-10-07T14:20:00-07:00', tz: TZ,
-    design_etag: ETAG, datasets: DATASETS, extra_datasets: ['odd-edges'],
+    design_etag: ETAG, datasets: DATASETS, extra_datasets: ['odd-edges', 'now0', 'now24'],
     design_sha256: Object.fromEntries(designFiles(designDir).map(f => [f, sha256(readFileSync(join(designDir, f)))])),
     fixture_sha256: Object.fromEntries(Object.entries(files).map(([f, text]) => [f, sha256(text)])),
     utc_offsets_min: [...offsets].sort((a, b) => a - b), node: process.version,
@@ -154,6 +165,7 @@ function main(args) {
   if (check) return checkFiles(files, out);
   mkdirSync(out, { recursive: true });
   for (const [f, text] of Object.entries(files)) {
+    mkdirSync(resolve(out, f, '..'), { recursive: true });
     writeFileSync(join(out, `${f}.tmp`), text);
     renameSync(join(out, `${f}.tmp`), join(out, f));
   }

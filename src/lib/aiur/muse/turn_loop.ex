@@ -3,6 +3,7 @@ defmodule Aiur.Muse.TurnLoop do
 
   alias Aiur.AgentTools.MCP
   alias Aiur.AppServer.Messages
+  alias Aiur.AppServer.ToolCallLedger
   alias Aiur.Muse.{Approvals, Meters, Protocol, Transport, TurnControl, View}
 
   @spec await(map(), String.t(), map(), reference(), keyword(), pos_integer()) ::
@@ -17,6 +18,7 @@ defmodule Aiur.Muse.TurnLoop do
       operator_response: Keyword.get(opts, :on_operator_response, fn _command -> :noop end),
       on_message: Keyword.get(opts, :on_message, &Messages.default_on_message/1),
       executor: Keyword.get(opts, :tool_executor, &unavailable_tool/2),
+      tool_call_ledger: Keyword.get(opts, :tool_call_ledger, ToolCallLedger),
       deadline: System.monotonic_time(:millisecond) + timeout_ms,
       pending: "",
       view: View.new(session.thread_id),
@@ -52,7 +54,7 @@ defmodule Aiur.Muse.TurnLoop do
           continue(state, handle_frame(state, frame))
 
         {:aiur_mcp_call, ^gateway, _, _, _, _, _, _} = request ->
-          case MCP.execute_request(gateway, request, state.executor) do
+          case MCP.execute_request(gateway, request, state.executor, state.tool_call_ledger) do
             :ok -> loop(state)
             {:error, reason} -> close(state, {:error, {:native_mcp_dispatch_failed, reason}})
           end

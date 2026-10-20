@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   alias Aiur.{Config, SystemPressure}
   alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Slots, State, SustainedLoad}
 
+  @priority_bypass_pressure_ceiling 90.0
+
   @spec sample() :: map()
   def sample do
     pressure = SystemPressure.cpu()
@@ -33,6 +35,28 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   end
 
   def cpu_gate(probes), do: fallback_cpu_gate(probes)
+
+  @doc false
+  @spec priority_bypass_allowed?(map()) :: boolean()
+  def priority_bypass_allowed?(sample) when is_map(sample) do
+    pressure = get_in(sample, [:cpu_pressure, :avg60])
+    load = Map.get(sample, :load, :unavailable)
+    threshold = Map.get(sample, :load_threshold) || Config.max_load_average()
+    schedulers = Map.get(sample, :schedulers)
+
+    cond do
+      is_number(pressure) ->
+        pressure <= @priority_bypass_pressure_ceiling
+
+      is_number(load) and is_number(threshold) and threshold > 0 and is_integer(schedulers) and schedulers > 0 ->
+        load <= threshold * schedulers
+
+      true ->
+        false
+    end
+  end
+
+  def priority_bypass_allowed?(_sample), do: false
 
   defp raw_load_gate(probes) do
     case DispatchPolicy.load_gate(probes.load, probes.load_threshold, probes.schedulers) do
@@ -67,18 +91,19 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   @spec update(State.t(), map(), integer(), boolean(), boolean()) :: State.t()
   def update(state, %{cpu_pressure: %{avg60: pressure}} = probes, now_ms, _demand?, fresh?) do
     target = probes.pressure_target
+    soft_pressure = discount_niced_background(pressure, Map.get(probes, :cpu_headroom, :unavailable))
     state = reset_signal(state, :cpu_pressure)
     previous = EnvelopeResume.validate(state.load_envelope_state, target, probes.schedulers)
-    count = if fresh?, do: SustainedLoad.count(pressure, target, 1, previous), else: Map.get(previous, :overload_samples, 0)
+    count = if fresh?, do: SustainedLoad.count(soft_pressure, target, 1, previous), else: Map.get(previous, :overload_samples, 0)
     effective = state.effective_concurrent_agents || Slots.max_concurrent_agent_limit(state)
     bootstrap? = Map.get(previous, :bootstrap_complete?, false)
 
     {next, decreased_at} =
       if bootstrap_hold?(effective, previous, target, fresh?),
         do: {1, nil},
-        else: adjust(effective, previous, pressure, target, count, now_ms, fresh?, %{limit: Slots.max_concurrent_agent_limit(state), used_slots: Slots.used_slots(state)})
+        else: adjust(effective, previous, soft_pressure, target, count, now_ms, fresh?, %{limit: Slots.max_concurrent_agent_limit(state), used_slots: Slots.used_slots(state)})
 
-    previous = if fresh?, do: EnvelopeResume.observe(previous, Slots.used_slots(state), next, effective, pressure, target, count), else: previous
+    previous = if fresh?, do: EnvelopeResume.observe(previous, Slots.used_slots(state), next, effective, soft_pressure, target, count), else: previous
     snapshot = if is_map(probes.cpu_snapshot), do: probes.cpu_snapshot, else: nil
 
     %{
@@ -93,6 +118,14 @@ defmodule Aiur.Orchestrator.PressureAdmission do
     next = DispatchPolicy.update_load_envelope(state, if(fresh?, do: probes.load, else: :unavailable), probes.target, probes.schedulers, now_ms, probes.cpu_snapshot, demand?)
     put_in(next.load_envelope_state[:signal], :load)
   end
+
+  # Niced CPU outside the daemon and registered fleet-agent trees (including
+  # Executor review work) is treated as reclaimable by the fleet. cpu_gate/1
+  # still enforces raw host PSI as the hard admission ceiling.
+  defp discount_niced_background(pressure, %{background_percent: background}) when is_number(background),
+    do: max(0.0, pressure - background)
+
+  defp discount_niced_background(pressure, _headroom), do: pressure
 
   defp reset_signal(state, signal) do
     if Map.get(state.load_envelope_state, :signal, signal) == signal,

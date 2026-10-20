@@ -16,8 +16,13 @@ defmodule Aiur.LandingWatch.MergeGroups do
          {:ok, runs} <- MergeGroupRunFetcher.active_runs(owner, repo, base, token, opts),
          {:ok, completed} <- MergeGroupRunFetcher.completed_runs(owner, repo, base, token, opts),
          {:ok, fresh_observations} <- live_observations(observations, opts) do
-      with :ok <- MergeGroupFailureProcessor.process_completed(completed, fresh_observations, base, opts),
-           :ok <- MergeGroupQuarantine.process_completed(completed, base, opts),
+      # Quarantine runs first and on its own: a failure-routing error must not stop it, and
+      # the failure router then requeues, rather than reworks, PRs a quarantined test dropped.
+      quarantine = MergeGroupQuarantine.process_completed(completed, fresh_observations, base, opts)
+      routing_opts = Keyword.put(opts, :quarantined_run_ids, MergeGroupQuarantine.quarantined_run_ids(opts))
+
+      with :ok <- MergeGroupFailureProcessor.process_completed(completed, fresh_observations, base, routing_opts),
+           :ok <- quarantine,
            {:ok, reconciled_observations} <- live_observations(fresh_observations, opts) do
         live =
           Map.new(

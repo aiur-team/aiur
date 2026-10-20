@@ -30,10 +30,10 @@ while the worker keeps working; it must not trigger a self-pause. Bare coordinat
 pauses and explicit operator-decision pauses (including legacy attentions) remain
 valid.
 
-Only open blocking Commands
-(including deferred Commands) count toward the decision-based `waiting_for_human`
-state. Expired and moot Commands do not hold that gate, even if an attention
-chip remains visible.
+Open blocking Commands count toward `waiting_for_human`. Expired unanswered
+blockers remain visible and answerable, but stop gating dispatch. A matching
+re-raise moots the stale record before opening its replacement. The Executor
+can also moot or dismiss a blocker whose ticket is closed or question is moot.
 
 Agents classify the action, not the subsystem around it. Routine,
 reversible operational choices should use `supervisor_allowed`; irreversible
@@ -70,10 +70,11 @@ and legacy-attention Commands remain human-only.
 Reclassification records the Executor's rationale and increments the Command
 version. A separate `aiur executor-answer` must use the new version.
 
-Aiur warns when a human-required Command is reversible and all of its
-options are low-risk. It also raises attention when an Executor-unanswerable
-Command expires without a decision. These signals expose stale context and
-upstream misclassification; they do not weaken the answer-authorization floor.
+Aiur warns when reversible human-required Commands offer only low-risk options
+and when an Executor-unanswerable nonblocking Command expires. Expired blockers
+remain answerable until answered or mooted. A matching agent re-raise replaces
+an expired Command with a new open Command; the old record is mooted so it no
+longer inflates the open or awaiting counts.
 
 A blocking Command never waits in silence. When it is created, the Executor gets
 one `ticket.<N>.agent.attention.operator-decision` wake with the decision id,
@@ -86,8 +87,11 @@ resolves the alert and stops the ladder.
 
 The ladder is computed from the
 Command's age, so a restart continues it. `aiur status` prints
-`DECISIONS open N oldest <age> (#ticket, gates M)` and marks it `ATTENTION`
-when the oldest blocking Command is older than 15 minutes.
+`DECISIONS open N (E expired) oldest <age> (#ticket, gates M)`.
+
+That line counts the same Commands as `aiur commands --filter open`, including
+unanswered expired blocking Commands. It is marked `ATTENTION` when the oldest
+is older than 15 minutes.
 
 Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
 

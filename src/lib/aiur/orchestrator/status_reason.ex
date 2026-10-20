@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.StatusReason do
           | :workspace_retained
           | {:workspace_retained, String.t(), pos_integer(), atom()}
           | :workspace_ownership_waiting
+          | {:executor_owned, String.t()}
           | {:workspace_ownership_waiting, String.t(), pos_integer(), atom()}
           | {:latched, non_neg_integer(), non_neg_integer()}
           | {:claim_released, atom() | String.t(), non_neg_integer() | nil}
@@ -43,6 +44,7 @@ defmodule Aiur.Orchestrator.StatusReason do
   def render(:stale_claim), do: "stale in-progress claim: no live agent"
   def render(:workspace_retained), do: "workspace retained; awaiting safe release"
   def render(:workspace_ownership_waiting), do: "workspace ownership held; awaiting safe release"
+  def render({:executor_owned, owner}), do: "Executor-owned by #{owner}; no fleet slot"
 
   def render({reason, ticket, generation, proof}) when reason in [:workspace_ownership_waiting, :workspace_retained] do
     detail =
