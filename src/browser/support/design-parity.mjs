@@ -154,35 +154,38 @@ export async function openParityPair(browser, cell, opts = {}) {
 
 export async function captureStable(target, opts, page) {
   let previous
-  const screenshotOptions = {
-    ...opts,
-    // Keep the native track and its layout width, but remove the thumb's
-    // scroll-position-dependent paint from sequential reference captures.
-    style: `${opts.style ?? ''}\n* { scrollbar-color: transparent transparent !important; }\n*::-webkit-scrollbar-thumb { background: transparent !important; }`
-  }
-  for (let attempt = 0; attempt < 10; attempt++) {
-    // Locator screenshots scroll into view, disturbing motion under measurement.
-    const shoot = async () => {
-      if (!page) return target.screenshot(screenshotOptions)
-      const box = await target.boundingBox()
-      if (!box) throw new Error('unreachable screenshot region')
-      const offset = await page.evaluate(() => ({ x: scrollX, y: scrollY }))
-      return page.screenshot({ ...screenshotOptions, fullPage: true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
-    }
-    let png
-    try { png = await shoot() }
-    catch (error) {
-      if (!error.message.includes('Protocol error (Page.captureScreenshot): Unable to capture screenshot')) throw error
-      // Chromium can briefly refuse a capture during layout; retry once without spending a settle sample.
-      console.warn(`captureStable: retrying capture attempt ${attempt + 1} of 10: ${error.message}`)
+  const originalStyle = opts.style
+  // Keep the native track and its layout width, but remove the thumb's
+  // scroll-position-dependent paint from sequential reference captures.
+  opts.style = `${originalStyle ?? ''}\n* { scrollbar-color: transparent transparent !important; }\n*::-webkit-scrollbar-thumb { background: transparent !important; }`
+  try {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      // Locator screenshots scroll into view, disturbing motion under measurement.
+      const shoot = async () => {
+        if (!page) return target.screenshot(opts)
+        const box = await target.boundingBox()
+        if (!box) throw new Error('unreachable screenshot region')
+        const offset = await page.evaluate(() => ({ x: scrollX, y: scrollY }))
+        return page.screenshot({ ...opts, fullPage: true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
+      }
+      let png
+      try { png = await shoot() }
+      catch (error) {
+        if (!error.message.includes('Protocol error (Page.captureScreenshot): Unable to capture screenshot')) throw error
+        // Chromium can briefly refuse a capture during layout; retry once without spending a settle sample.
+        console.warn(`captureStable: retrying capture attempt ${attempt + 1} of 10: ${error.message}`)
+        await delay(100)
+        png = await shoot()
+      }
+      if (previous?.equals(png)) return png
+      previous = png
       await delay(100)
-      png = await shoot()
     }
-    if (previous?.equals(png)) return png
-    previous = png
-    await delay(100)
+    throw new Error('design did not settle after 10 captures')
+  } finally {
+    if (originalStyle === undefined) delete opts.style
+    else opts.style = originalStyle
   }
-  throw new Error('design did not settle after 10 captures')
 }
 
 async function one(page, region, side) {
