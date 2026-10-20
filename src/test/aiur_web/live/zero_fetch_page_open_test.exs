@@ -1,41 +1,11 @@
 defmodule AiurWeb.ZeroFetchPageOpenTest do
   @moduledoc """
-  A1, asserted by call count and run on every CI build: opening a dashboard page
-  against a cold store reaches GitHub **zero** times.
+  Every dashboard route must open against the held local snapshot without
+  fetching from GitHub. The test counts requests at Aiur's transport boundary,
+  including REST and GraphQL, and a positive control proves the counter is live.
 
-  There are no exceptions: every dashboard route, including `/` and
-  `/build-orders`, reaches GitHub zero times on open. The ticket backlog, Ad
-  Hoc overlay and Build Order catalog are event-sourced (#2325) — they
-  subscribe to `ResourceStore` changes and keep one listing per daemon boot, so
-  a page opens onto the held snapshot and costs nothing. The two routes that
-  used to be the deliberate one-request exceptions (a first demander buying a
-  view-originated refresh) are now asserted as zeros below, with the
-  github-tracker path proven explicitly so that zero means something.
-
-  ## Why this file is hermetic and the `:external` one is not
-
-  There is a companion measurement that reads real `x-ratelimit-used` deltas from
-  GitHub. It is the operator-facing corroboration, but it is tagged `:external`,
-  so it does **not run in CI** — which makes it useless as a regression guard. A
-  guard that never executes protects nothing.
-
-  This file therefore installs a counting plug at Aiur's own transport boundary
-  and needs no token, no network, and no tags. Every HTTP request Aiur would send
-  to GitHub — REST or GraphQL, from any module, on any code path — is counted
-  instead of sent, because `Aiur.GitHub.Transport` funnels both through
-  `request_options/2` (`transport.ex:453`) and `Transport.github_graphql/*` shares
-  that path.
-
-  Zero requests is zero rate limit by construction: no window, no shard, no
-  propagation delay to argue about.
-
-  ## The positive control is not optional
-
-  A zero from an instrument that was never wired up looks exactly like a zero
-  from a page that does not fetch. `the counter observes a real fetch` drives a
-  genuine application call through the same seam and asserts the counter fires,
-  so the zeros above it mean something. If that control ever fails, treat every
-  other assertion in this file as unproven rather than passing.
+  Shared daemon pollers are suspended during each test's recording window so
+  their independent requests cannot be mistaken for page-triggered requests.
   """
 
   use Aiur.TestSupport
@@ -76,10 +46,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   setup context do
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
 
-    # These daemon-level watchers share the application transport with this
-    # test. Drain their current fetches, then suspend their GenServers so their
-    # timers cannot send new work into the page-open recording window.
-    suspended_watchers = suspend_background_github_watchers()
+    suspended_watchers = Aiur.TestSupport.ZeroFetchPageOpenWatchers.suspend()
     on_exit(fn -> Enum.each(suspended_watchers, &:sys.resume/1) end)
 
     # Clear prior comment work and finish startup cleanup before counting.
@@ -165,54 +132,6 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     end)
 
     {:ok, counter: counter, inherited_task: inherited_task}
-  end
-
-  defp suspend_background_github_watchers do
-    [
-      Aiur.MainWatch,
-      Aiur.LandingWatch,
-      Aiur.PRLifecycle.HealthScanner,
-      Aiur.PRLifecycle.HeadVerdictRouter,
-      Aiur.PRLifecycle.ReworkRequeue
-    ]
-    |> Enum.flat_map(fn name ->
-      case Process.whereis(name) do
-        pid when is_pid(pid) ->
-          await_watcher_idle(pid, name)
-          :ok = :sys.suspend(pid)
-          [pid]
-
-        nil ->
-          []
-      end
-    end)
-  end
-
-  defp await_watcher_idle(pid, Aiur.MainWatch) do
-    await_watcher_state(pid, &is_nil(&1.task))
-  end
-
-  defp await_watcher_idle(pid, Aiur.LandingWatch) do
-    await_watcher_state(pid, &is_nil(&1.task))
-  end
-
-  defp await_watcher_idle(pid, _periodic_worker) do
-    # Periodic workers execute their fetch synchronously inside the GenServer;
-    # observing state after a call barrier means no earlier tick is in flight.
-    _state = :sys.get_state(pid)
-    :ok
-  end
-
-  defp await_watcher_state(pid, predicate) do
-    state = :sys.get_state(pid)
-
-    if predicate.(state),
-      do: :ok,
-      else:
-        (
-          Process.sleep(10)
-          await_watcher_state(pid, predicate)
-        )
   end
 
   describe "opening a dashboard page" do
