@@ -68,6 +68,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFiltersTest do
 
     assert loading =~ ~s(aria-label="Count loading")
     assert loading =~ "disabled"
+    assert loading =~ ~r/aria-label="Count loading">\s*—\s*<\/span>/
+    refute loading =~ ~r/aria-label="Count loading">\s*0\s*<\/span>/
     refute loading =~ "0+"
     refute loading =~ ~r/units-filter-count num[^>]*>0</
   end
