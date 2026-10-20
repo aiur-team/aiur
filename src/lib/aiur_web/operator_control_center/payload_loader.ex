@@ -138,6 +138,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
           |> Map.put(:stale, true)
           |> Map.put(:cache_error, reason)
           |> Map.put(:retained_counts, unavailable_retained_counts())
+          |> Map.merge(Map.take(payload, [:fleet_startup_pending?, :fleet_startup_timed_out?]))
 
         %{stale: true, stale_age_ms: age_ms, units: %{} = units} when is_integer(age_ms) ->
           units =

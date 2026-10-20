@@ -127,6 +127,32 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
     assert UnitsPresenter.project(unavailable.units, nil).count_status == :unavailable
   end
 
+  test "a timed out cold cache load keeps startup markers through payload conversion" do
+    boot = :atomics.new(1, [])
+    cache_clock = :atomics.new(1, [])
+    :atomics.put(boot, 1, 0)
+    :atomics.put(cache_clock, 1, 0)
+
+    start_endpoint(
+      [control_center_provider_budget_ms: 60_000, units_fleet_fun: fn -> Process.sleep(:infinity) end],
+      clock: fn -> :atomics.get(cache_clock, 1) end,
+      boot_elapsed_ms: fn -> :atomics.get(boot, 1) end,
+      startup_observation_timeout_ms: 100,
+      load_timeout_ms: 100
+    )
+
+    pending = PayloadLoader.load(:fresh)
+    assert pending.units.status == :loading
+
+    :atomics.put(cache_clock, 1, 100_000)
+    assert PayloadLoader.load(:fresh).units.status == :loading
+
+    :atomics.put(boot, 1, 100)
+    unavailable = PayloadLoader.load(:fresh)
+    assert unavailable.units.status == :unavailable
+    assert unavailable.units.message == "Fleet data is unavailable."
+  end
+
   test "a failed load demotes the retained Units catalog to stale with its age" do
     {:ok, fail?} = Agent.start_link(fn -> false end)
 
