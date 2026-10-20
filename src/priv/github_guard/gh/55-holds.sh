@@ -3,7 +3,7 @@
 # early refusal exits do not leak a temp copy. On a signal, stop lease renewal
 # without synchronously calling a broker that may be the command being killed;
 # the lease stays counted until its TTL expires.
-trap 'marker_cleanup; budget_stop_renewal; trap - 0; exit 143' HUP INT TERM
+trap 'stop_interruptible_sleep; marker_cleanup; budget_stop_renewal; trap - 0; exit 143' HUP INT TERM
 trap 'marker_cleanup; budget_release' 0
 
 secondary_delay_ms() {
@@ -162,7 +162,7 @@ fi
 if [ "$hold_until" -gt "$now" ]; then
   delay=$((hold_until - now))
   printf 'aiur: GitHub quota backoff; waiting %ss until %s\n' "$delay" "$(date -u -d "@$hold_until" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || printf '%s' "$hold_until")" >&2
-  sleep "$delay"
+  interruptible_sleep "$delay"
   now=$(date -u +%s)
 fi
 
