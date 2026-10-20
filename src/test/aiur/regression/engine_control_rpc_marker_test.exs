@@ -160,7 +160,7 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       #!/usr/bin/env bash
       set -euo pipefail
       cd "$AIUR_SOURCE_ROOT"
-      exec mise exec -- mix run --no-start -e "${@: -1}" 2>/dev/null
+      exec mix run --no-start --no-compile -e "${@: -1}" 2>/dev/null
       """)
 
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
@@ -413,7 +413,7 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       #!/usr/bin/env bash
       set -euo pipefail
       cd "$AIUR_SOURCE_ROOT"
-      exec mise exec -- mix run --no-start -e "${@: -1}" 2>/dev/null
+      exec mix run --no-start --no-compile -e "${@: -1}" 2>/dev/null
       """)
 
       File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)

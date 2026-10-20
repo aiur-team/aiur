@@ -576,9 +576,9 @@ jobs:
   affected-tests:
     name: affected tests
     needs: changes
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.full_ci == 'false' }}
+    if: ${{ !cancelled() && ((github.event_name == 'pull_request' && needs.changes.outputs.full_ci == 'false') || github.event_name == 'merge_group') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: src
@@ -604,7 +604,7 @@ jobs:
           test/aiur/application_child_order_test.exs
           test/aiur/pr_lifecycle/health_scanner_child_order_test.exs
       - name: Run affected tests on the PR merge
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.docs_only != 'true' }}
         env:
           AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}
         run: bash ../scripts/run-ci-affected-tests.sh
