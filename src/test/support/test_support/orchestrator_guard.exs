@@ -328,6 +328,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
   defp codeowners_leaks(expected) do
     case codeowners_state() do
+      nil -> []
       ^expected -> []
       actual -> ["Aiur.GitHub.CodeOwners changed from #{inspect(expected)} to #{inspect(actual)}"]
     end
@@ -336,7 +337,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   defp restore_codeowners(expected) do
     case expected do
       %{allowlist: allowlist, codeowners: codeowners} ->
-        restore_codeowners_to_running_server(allowlist, codeowners)
+        restore_codeowners_if_running(allowlist, codeowners)
 
       _ ->
         :ok
@@ -345,20 +346,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     :exit, _reason -> :ok
   end
 
-  defp restore_codeowners_to_running_server(allowlist, codeowners) do
-    case Process.whereis(Aiur.GitHub.CodeOwners) do
-      pid when is_pid(pid) ->
-        :sys.replace_state(pid, fn state ->
-          %{state | allowlist: MapSet.new(allowlist), codeowners: MapSet.new(codeowners)}
-        end)
-
-      nil ->
-        RuntimeChildren.ensure_runtime_children_running()
-        replace_codeowners_state(allowlist, codeowners)
-    end
-  end
-
-  defp replace_codeowners_state(allowlist, codeowners) do
+  defp restore_codeowners_if_running(allowlist, codeowners) do
     case Process.whereis(Aiur.GitHub.CodeOwners) do
       pid when is_pid(pid) ->
         :sys.replace_state(pid, fn state ->
