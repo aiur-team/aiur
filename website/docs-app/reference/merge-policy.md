@@ -55,9 +55,13 @@ config or unknown file types. Use the target repository's test-selection tool
 (Aiur's Elixir core uses `mix aiur.affected_tests`).
 
 `mix pr_body.check --file <body.md>` validates the template and evidence shape.
-CI runs the same checker in the `pr body` check, which reads the current PR
-body and head SHA; stale `Tested head` values fail. Editing the body reruns
-`pr body`, and `ci gate` requires its newest run, so a body fix needs no push.
+CI reads the current PR body and head; stale `Tested head` values fail. Editing
+the body reruns `pr body`, and `ci gate` requires its newest run, so a body fix
+needs no push.
+
+The worker handback gate also refuses stale evidence and reports both the SHA
+in the body and the live PR head. Rerun the touched tests at that head before
+updating the evidence and handing the ticket back.
 
 An older `Tested head` still passes when it is an ancestor of the head and the
 PR's contribution diff is identical, as for approval carry. A merge of the base
