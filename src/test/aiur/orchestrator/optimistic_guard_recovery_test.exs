@@ -2,8 +2,8 @@ defmodule Aiur.Orchestrator.OptimisticGuardRecoveryTest do
   use Aiur.TestSupport
 
   alias Aiur.BuildQueue.Attention
-  alias Aiur.Issue
   alias Aiur.Events.Exchange
+  alias Aiur.Issue
   alias Aiur.Orchestrator.{OptimisticGuardEffects, OptimisticLedger, State, TrackerTasks}
 
   @topic "ticket.11.queue.attention.optimistic_blocker_failed"
