@@ -76,6 +76,9 @@ def run(command: list[str], *, cwd: Path, allow_advisories: bool = False) -> str
 
 def audit_lock(lock_bytes: bytes, label: str, runner=run) -> set[tuple[str, str, str, str]]:
     LOCK.write_bytes(lock_bytes)
+    runner(["mise", "exec", "--", "mix", "deps.get"], cwd=SRC)
+    if LOCK.read_bytes() != lock_bytes:
+        raise RuntimeError(f"{label} dependency resolution changed the lock; refusing to audit a different snapshot")
     output = runner(["mise", "exec", "--", "mix", "hex.audit"], cwd=SRC, allow_advisories=True)
     findings = parse_findings(output)
     if "Found packages with security advisories" in output and not findings:

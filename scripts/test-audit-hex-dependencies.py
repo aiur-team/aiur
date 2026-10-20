@@ -67,11 +67,23 @@ class AuditPolicyTest(unittest.TestCase):
             with patch.object(audit, "LOCK", lock_path):
                 self.assertEqual(audit.audit_lock(lock_bytes, "fixture", runner), set())
 
-        self.assertEqual(len(commands), 1)
-        command, audited_lock, options = commands[0]
-        self.assertEqual(command[-2:], ["mix", "hex.audit"])
-        self.assertEqual(audited_lock, lock_bytes)
-        self.assertTrue(options["allow_advisories"])
+        self.assertEqual([command[-1] for command, _, _ in commands], ["deps.get", "hex.audit"])
+        self.assertTrue(all(audited_lock == lock_bytes for _, audited_lock, _ in commands))
+        self.assertTrue(commands[1][2]["allow_advisories"])
+
+    def test_audit_refuses_dependency_resolution_that_changes_lock(self):
+        lock_bytes = b'  "bandit": {:hex, :bandit, "1.12.5"}'
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "mix.lock"
+
+            def runner(command, **_kwargs):
+                if command[-1] == "deps.get":
+                    lock_path.write_bytes(b"rewritten lock")
+                return ""
+
+            with patch.object(audit, "LOCK", lock_path):
+                with self.assertRaisesRegex(RuntimeError, "changed the lock"):
+                    audit.audit_lock(lock_bytes, "fixture", runner)
 
     def test_registry_cache_fallback_fails_closed(self):
         result = type("Result", (), {"stdout": "Failed to fetch record for bandit from registry (using cache instead)", "returncode": 0})()
