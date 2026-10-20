@@ -34,7 +34,8 @@
     "tracker"
   ],
   "optional": [
-    "build-orders"
+    "build-orders",
+    "github-access"
   ],
   "owns": {
     "config": [],

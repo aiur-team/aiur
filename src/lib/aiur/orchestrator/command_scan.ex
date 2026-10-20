@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.CommandScan do
 
   Both streams this module reads — `pulls/comments` and `issues/comments` for the
   whole repository — are conditional requests, and their `ETag`s used to live in
-  `state.github_comment_etags` under the call-site names `:command_scan_review`
+  `state.github_command_scan_etags` under the call-site names `:command_scan_review`
   and `:command_scan_issue`. Two things followed from that key. Nothing else could
   use the validator this scan had already earned, and a restart threw it away, so
   the first scan of every boot re-read both streams in full.
@@ -30,8 +30,8 @@ defmodule Aiur.Orchestrator.CommandScan do
 
   require Logger
 
-  alias Aiur.Config
-  alias Aiur.Events.{GithubKeys, PrCommandScanner, Publisher, Sanitizer}
+  alias Aiur.{Config, Events}
+  alias Aiur.Events.{GithubKeys, PrCommandScanner, Sanitizer}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.{State, TrackerTasks}
@@ -51,11 +51,11 @@ defmodule Aiur.Orchestrator.CommandScan do
         :command_scan,
         fn ->
           scanned = do_scan_pr_commands(state, opts)
-          {scanned.github_command_scan_since, Map.take(scanned.github_comment_etags, [:command_scan_review, :command_scan_issue])}
+          {scanned.github_command_scan_since, Map.take(scanned.github_command_scan_etags, [:command_scan_review, :command_scan_issue])}
         end,
         fn
           current, {since, etags} when is_map(etags) ->
-            %{current | github_command_scan_since: since, github_comment_etags: Map.merge(current.github_comment_etags, etags)}
+            %{current | github_command_scan_since: since, github_command_scan_etags: Map.merge(current.github_command_scan_etags, etags)}
 
           current, failure ->
             Logger.warning("PR command scan task failed: #{inspect(failure)}")
@@ -79,7 +79,7 @@ defmodule Aiur.Orchestrator.CommandScan do
 
   defp do_scan_pr_commands(%State{} = state, opts) do
     since = command_scan_since(state, opts)
-    etags = state.github_comment_etags
+    etags = state.github_command_scan_etags
     repo = command_scan_repo(opts)
     fetch_opts = Keyword.put(opts, :since, since)
 
@@ -123,7 +123,7 @@ defmodule Aiur.Orchestrator.CommandScan do
     %{
       state
       | github_command_scan_since: advance_command_scan_since(since, newest),
-        github_comment_etags:
+        github_command_scan_etags:
           etags
           |> Map.put(:command_scan_review, review_etag)
           |> Map.put(:command_scan_issue, issue_etag)
@@ -328,7 +328,7 @@ defmodule Aiur.Orchestrator.CommandScan do
       %{issue_number: target, comment: comment}
       |> Sanitizer.github_payload(actor)
 
-    Publisher.publish(
+    Events.publish(
       "ticket.#{target}.pr.review_comment",
       payload,
       issue_number: target,

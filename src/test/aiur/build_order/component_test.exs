@@ -5,7 +5,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
 
   @config_keys [:build_history_backfill_enabled?, :build_order_adhoc_poll?, :build_order_pack_status_poll?, :build_order_root_import_enabled?, :orchestrator_initial_poll?]
   @metrics_path Path.join(System.tmp_dir!(), "aiur-3319-component-metrics.ndjson")
-  @opts [interactive_cli?: true, headless?: false, dashboard?: true, tailscale_funnel?: false, recording?: true, executor_mode?: false, ls_remote_ticker?: true]
+  @opts [interactive_cli?: true, headless?: false, dashboard?: true, tailscale_funnel?: false, recording?: true, executor_mode?: false, ls_remote_ticker?: true, build_index?: true]
 
   # Future regression guard: captured before extraction at d7fad40553019032df0a50354e1a9b559dd7540b, including options.
   @foreground [
@@ -95,6 +95,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.BuildOrder.PackStatus, [poll_on_start: true]},
     {Aiur.OpenTicketSource, [poll_on_start: true]},
     {Aiur.GitHub.ViewStateSweep, [sources: [Aiur.BuildOrder.PackStatus]]},
+    Aiur.GitHub.Listeners,
     {Aiur.Orchestrator, [name: Aiur.Orchestrator, initial_poll?: true]},
     Aiur.BuildQueue.Server,
     Aiur.DecisionExpiry,
@@ -141,6 +142,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.ExecutorSweep,
     Aiur.Experiments.Auto.Notifier,
     Aiur.Experiments.Auto.WindowManager,
+    Aiur.Experiments.Analyst,
+    Aiur.Experiments.AnalystTrigger,
     Aiur.LandingWatch.QuarantineLifter,
     AiurWeb.Build.IndexSupervisor
   ]

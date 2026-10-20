@@ -1,5 +1,6 @@
 defmodule Aiur.Events.DeliveryTest do
   use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [receive_barrier: 1]
   alias Aiur.Events.{Delivery, IdGenerator, SubscriptionStore}
 
   defmodule Sink do
@@ -47,7 +48,6 @@ defmodule Aiur.Events.DeliveryTest do
     id = "sink-#{System.unique_integer([:positive])}"
 
     on_exit(fn ->
-      SubscriptionStore.stop(id)
       Application.put_env(:aiur, Delivery, original)
       SubscriptionStore.set_enqueue_fn(original_fn)
       Aiur.TestCleanup.rm_rf!(tmp)
@@ -58,9 +58,10 @@ defmodule Aiur.Events.DeliveryTest do
   end
 
   defp attach(id) do
-    :ok = SubscriptionStore.attach(id)
+    # ExUnit stops children before on_exit restores the global delivery sink.
+    # Intentional crashes must not restart under the application's supervisor.
+    pid = start_supervised!({SubscriptionStore, identifier: id}, restart: :temporary)
     :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
-    [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
     pid
   end
 
@@ -137,7 +138,6 @@ defmodule Aiur.Events.DeliveryTest do
     pid = attach(id)
     monitor = Process.monitor(pid)
     send(pid, {:event, event()})
-    assert catch_exit(GenServer.call(pid, :snapshot))
-    assert_received {:DOWN, ^monitor, :process, ^pid, {%RuntimeError{message: "dead-letter sink failed"}, _}}
+    receive_barrier({:DOWN, ^monitor, :process, ^pid, {%RuntimeError{message: "dead-letter sink failed"}, _}})
   end
 end

@@ -95,7 +95,7 @@ defmodule Aiur.Config.Schema.Agent do
     # strictly exceeds `run_queue_threshold * schedulers`, catching short CPU
     # bursts the lagging load average smooths out.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.run_queue_threshold | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
+    # @config-reference config-configuration-agent-00 agent.run_queue_threshold | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and outside registered fleet-agent trees; holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
     field(:run_queue_threshold, :float)
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
     # 0 deliberately disables the gate for Executors who need unrestricted
@@ -104,7 +104,7 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-00 agent.max_concurrent_builds | integer | 4 | Caps local agent Mix verification and browser tests; 0 disables the concurrency cap. Busy or queued builds wait at the build gate without holding fleet dispatch. |
     field(:max_concurrent_builds, :integer, default: 4)
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.build_nice | integer | 10 | CPU nice adjustment (0–19) applied once to admitted build commands and inherited by descendants; 0 preserves launch priority. Nested builds reuse the lease without another adjustment. CPU niced above the daemon receives the existing load/run-queue discount; build capacity still counts it. |
+    # @config-reference config-configuration-agent-00 agent.build_nice | integer | 10 | CPU nice adjustment (0–19) applied once to admitted build commands and inherited by descendants; 0 preserves launch priority. Nested builds reuse the lease without another adjustment. Build processes under registered agent relays remain counted by soft load/run-queue admission; build capacity also counts them. |
     field(:build_nice, :integer, default: 10)
     # Minimum spacing between local Mix compile/test starts when more than one
     # build may run concurrently. 0 disables start pacing.
@@ -242,14 +242,18 @@ defmodule Aiur.Config.Schema.Agent do
     field(:turn_timeout_ms, :integer, default: 3_600_000)
     # @config-reference config-configuration-agent-00 agent.stall_timeout_ms | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
     field(:stall_timeout_ms, :integer, default: 3_600_000)
-    # Runtime cap: pause an agent that has been actively running this
-    # many minutes (paused/blocked time excluded), then release it. 0 disables it.
+    # Runtime cap in minutes (paused/blocked time excluded); 0 disables it.
     # @config-reference config-configuration-agent-00 agent.max_agent_duration_minutes | integer | 60 | Active-runtime cap; the parked worker is released to rework or human-review. 0 disables it. |
     field(:max_agent_duration_minutes, :integer, default: 60)
-    # A CI-wait pause releases its dispatch slot. If no terminal CI event is
-    # observed in this window, wake the agent for one recovery check.
+    # Re-wake after this many minutes in CI-wait if no terminal event arrives.
     # @config-reference config-configuration-agent-00 agent.ci_wait_rewake_minutes | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
     field(:ci_wait_rewake_minutes, :integer, default: 5)
+
+    # @config-reference config-configuration-agent-00 agent.non_closing_merge_marker | string | `needs-triage` | Marker for a merged PR that references the ticket but does not close it. |
+    field(:non_closing_merge_marker, :string, default: "needs-triage")
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.unreviewed_pr_age_limit_minutes | positive integer | 120 | Re-raises ready PRs with green CI and no review after this many minutes; reminders repeat with the same interval. |
+    field(:unreviewed_pr_age_limit_minutes, :integer, default: 120)
     # @config-reference config-configuration-agent-00 agent.ci_recovery_enabled | boolean | true | Enables automatic CI recovery reruns; set `false` to disable them. |
     field(:ci_recovery_enabled, :boolean, default: true)
     # @config-reference config-configuration-agent-00 agent.ci_recovery_max_per_poll | positive integer | 5 | Maximum recovery reruns admitted by one CI poll. |
@@ -278,8 +282,7 @@ defmodule Aiur.Config.Schema.Agent do
     field(:load_ramp_step, :integer, default: 1)
     # @config-reference config-configuration-agent-00 agent.load_cooldown_seconds | integer | 60 | Minimum interval between adaptive capacity reductions. |
     field(:load_cooldown_seconds, :integer, default: 60)
-    # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
-    # load-generator guard; positive integers cap known generators per agent.
+    # Runtime synthetic load-generator cap; nil derives from CPUs, 0 disables.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.synthetic_load_process_cap | integer or nil | nil | Caps synthetic CPU load generators per agent process tree; nil derives `max(1, cores / 4)` and 0 disables the guard. A generator is a known command (`yes`, `stress`, `stress-ng`) or any process seen busy-looping for 10 seconds: runnable and burning CPU with no read/write syscall, no new page fault and no voluntary context switch. A tree with at least as many spinning processes as the host has cores is flagged after one sample (about a second) instead. Known commands above the cap are killed. A generator that outlives its agent command (its session leader has exited or init adopted it, and its working directory is under `workspace.root`) is flagged regardless of the cap; that orphan scan is skipped when `workspace.root` is the home directory or one of its ancestors. Every kill or first sighting raises an alert naming the workspace that wakes the Executor: the ticket's `ticket.<N>.agent.attention.synthetic-load` attention, or `system.agent.synthetic_load_cap` when no ticket is known (an orphan). |
     field(:synthetic_load_process_cap, :integer)
@@ -337,7 +340,6 @@ defmodule Aiur.Config.Schema.Agent do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.dispatch_hold_attention_threshold | integer | 3 | Consecutive dispatch declines caused by local GitHub budget holds on one ticket before Aiur raises an Executor attention. Earlier declines retry on the next dispatch poll; a successful dispatch validation or a different failure clears the count. |
     field(:dispatch_hold_attention_threshold, :integer, default: 3)
-
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
     embeds_one(:git_identity, GitIdentity, on_replace: :update, defaults_to_struct: true)
@@ -384,6 +386,8 @@ defmodule Aiur.Config.Schema.Agent do
         :stall_timeout_ms,
         :max_agent_duration_minutes,
         :ci_wait_rewake_minutes,
+        :non_closing_merge_marker,
+        :unreviewed_pr_age_limit_minutes,
         :ci_recovery_enabled,
         :ci_recovery_max_per_poll,
         :ci_recovery_max_per_hour,
@@ -427,6 +431,8 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
     |> validate_number(:ci_wait_rewake_minutes, greater_than: 0)
+    |> validate_length(:non_closing_merge_marker, min: 1)
+    |> validate_number(:unreviewed_pr_age_limit_minutes, greater_than: 0)
     |> validate_number(:ci_recovery_max_per_poll, greater_than: 0)
     |> validate_number(:ci_recovery_max_per_hour, greater_than: 0)
     |> validate_number(:max_cpu_pressure, greater_than: 0, less_than_or_equal_to: 100)

@@ -45,6 +45,7 @@ defmodule Aiur.Experiments.ReportEngine do
     effect_kind = metric["primary_effect"] || "median_difference"
     effect = get_in(metric, ["effects", effect_kind]) || %{}
     label = Map.fetch!(@labels, metric["status"])
+    needed = get_in(metric, ["power", "samples_needed_per_group"])
 
     %{
       "metric" => id,
@@ -58,9 +59,9 @@ defmodule Aiur.Experiments.ReportEngine do
       "p" => metric["p_raw"],
       "p_adjusted" => metric["p_adj"],
       "family" => metric["adjustment"],
-      "power_at_mde" => metric["power_at_mde"],
-      "mde_at_n" => metric["mde_at_n"],
-      "n_needed_per_cohort" => metric["n_needed_per_cohort"],
+      "power_at_mde" => get_in(metric, ["power", "power_at_current_n"]),
+      "mde_at_n" => get_in(metric, ["power", "mde_at_current_n"]),
+      "n_needed_per_cohort" => if(is_integer(needed), do: needed),
       "engine_label" => label,
       "label" => label,
       "label_reason" => "",

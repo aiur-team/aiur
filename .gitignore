@@ -85,6 +85,10 @@ __pycache__/
 .aiur/update-check.json
 .worktrees
 
+# Agent workpads and PR-body drafts are workspace scratch, not PR content.
+.agents/*
+!.agents/skills/
+
 # Component boundary checker toolchain.
 scripts/components/node_modules/
 

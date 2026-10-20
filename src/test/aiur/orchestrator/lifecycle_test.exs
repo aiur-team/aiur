@@ -225,6 +225,18 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert_receive {:tick, _token}, 1000
   end
 
+  test "note_queued_demand includes the latest dispatcher hold in its receipt" do
+    state = %State{
+      dispatch_selection_hold: %{reasons: [:build], candidates: 121},
+      next_poll_due_at_ms: System.monotonic_time(:millisecond) + 600_000,
+      poll_check_in_progress: false,
+      github_poll_delays: %{}
+    }
+
+    assert {:reply, %{queued: true, latest_dispatch_hold: %{reasons: [:build]}}, _refreshed} =
+             Lifecycle.note_queued_demand(state, ["4742"])
+  end
+
   test "a refresh publishes the collapsed countdown before its poll runs" do
     key = self()
     on_exit(fn -> SnapshotPublisher.clear(key) end)

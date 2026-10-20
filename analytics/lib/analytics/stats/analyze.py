@@ -9,10 +9,11 @@ from .methods import infer
 from .multiplicity import adjust
 from .ranks import min_achievable_p
 from .rng import seed_from
+from .power_result import attach
 from .summary_text import summarize
 from .stratification import stratify, submetric
 
-ENGINE_VERSION = "1.0.0"
+ENGINE_VERSION = "1.1.0"
 
 
 def _metric(metric, groups, annotations, settings, seed):
@@ -91,6 +92,7 @@ def analyze(snapshot, spec, annotations=None):
         result = _metric(metric, groups, annotations, settings, seed)
         if "strata_rows" in metric:
             stratify(result, metric, groups, annotations, settings, seed, _metric)
+        attach(result, metric, groups, settings, snapshot, spec, inputs["snapshot_sha256"])
         results[metric["id"]] = result
     for primary, method in ((True, "holm"), (False, "bh")):
         # Guarded hypotheses remain in the family as p=1, but have no test result.
@@ -112,6 +114,7 @@ def analyze(snapshot, spec, annotations=None):
             # Binary equivalence needs this stratum's baseline, not the pooled one.
             rows = metric["strata_rows"][name]
             definition = submetric(metric, rows, groups)
+            attach(child, definition, groups, settings, snapshot, spec, inputs["snapshot_sha256"])
             _label(child, definition, settings["alpha"])
             child = result["strata"][name] = rounded(child)
             child["summary_text"] = summarize(child, definition, groups)

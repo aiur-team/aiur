@@ -140,3 +140,60 @@ test('unknown experiment URL stays distinct from an empty index', async ({ page 
   await expect(page.locator('[data-empty-reason="not_found"]')).toContainText('Experiment not found')
   await expect(page.locator('[data-empty-reason="no_experiments"]')).toHaveCount(0)
 })
+
+
+test('chart metric switches patch without reload at 1440', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await openExperiments(page)
+  await page.evaluate(() => { window.experimentPageIdentity = 'same-document' })
+  await expect(page.locator('#exp-charts .exp-point')).toHaveCount(32)
+  const hollow = page.locator('#exp-charts .exp-hollow circle').first()
+  expect(await hollow.evaluate(dot => getComputedStyle(dot).fill)).toBe('none')
+  expect(await hollow.evaluate(dot => getComputedStyle(dot).stroke)).not.toBe('none')
+  const metrics = page.getByRole('navigation', { name: 'Chart metric', exact: true })
+  await metrics.getByRole('link').nth(1).click()
+  await expect(page).toHaveURL(/metric=delivery-speed%2Fpr_open_to_merge/)
+  await expect(metrics.getByRole('link').nth(1)).toHaveAttribute('aria-current', 'true')
+  expect(await page.evaluate(() => window.experimentPageIdentity)).toBe('same-document')
+  await expect(page.locator('#exp-charts h3').filter({ hasText: 'Distribution:' })).toContainText('pr open')
+})
+
+test('phone time series scrolls inside its container and chart tables expose every sample', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openExperiments(page)
+  await indexLinks(page).first().click()
+  const scroller = page.locator('.exp-series-scroll')
+  await expect(scroller).toBeVisible()
+  expect(await scroller.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)
+  await scroller.evaluate(el => { el.scrollLeft = 100 })
+  expect(await scroller.evaluate(el => el.scrollLeft)).toBeGreaterThan(0)
+  await assertNoDocumentOverflow(page)
+  const details = page.locator('#exp-charts details').filter({ has: page.locator('caption', { hasText: 'Time series samples' }) })
+  await details.locator('summary').click()
+  await expect(details.locator('tbody tr')).toHaveCount(16)
+  await assertNoDocumentOverflow(page)
+})
+
+for (const theme of ['light', 'dark']) {
+  test(`charts have no axe violations in ${theme}`, async ({ page }) => {
+    await openExperiments(page)
+    await page.evaluate(value => { document.documentElement.dataset.theme = value }, theme)
+    await expect(page.locator('#exp-charts svg')).toHaveCount(7)
+    expect((await new AxeBuilder({ page }).include('#exp-charts').analyze()).violations).toEqual([])
+  })
+}
+
+test('phone analyst report keeps wide tables inside a scrollable wrapper', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openExperiments(page)
+  await indexLinks(page).first().click()
+  const report = page.locator('#exp-report')
+  await expect(report).toContainText('Latency experiment')
+  await expect(report).toContainText('Results changed after this report was written')
+  const wrapper = report.locator('.md-table-wrap').filter({ hasText: 'p (adj.)' }).first()
+  await expect(wrapper).toBeVisible()
+  expect(await wrapper.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+  await wrapper.evaluate(element => { element.scrollLeft = element.scrollWidth })
+  expect(await wrapper.evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
+  await assertNoDocumentOverflow(page)
+})

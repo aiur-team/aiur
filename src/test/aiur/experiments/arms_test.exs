@@ -111,6 +111,7 @@ defmodule Aiur.Experiments.ArmsTest do
     assert {:ok, _snapshot} = Snapshot.freeze(id, "after", context: ctx)
     assert {:ok, before_delete} = Arms.read(id, context: ctx)
     assert {:ok, exported} = AnalysisInput.export(id, context: ctx)
+    assert exported["taken_at"] == "2026-10-09T14:00:00Z"
     assert Jason.decode!(File.read!(Paths.file(id, "report/analysis-input.json"))) == exported
     File.rm!(telemetry)
     assert Arms.read(id, context: ctx) == {:ok, before_delete}

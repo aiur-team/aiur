@@ -1,26 +1,20 @@
 # rule	target_module	reason
+R-optional	Aiur.Accounting.CLI	MP-R1-C9-T14 facade delegates existing usage and accounts verbs to their accounting owner
 R-optional	Aiur.Accounts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Accounts.Shims.Claude	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Accounts.Shims.Codex	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.Accounts.UsageReadings	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.AlertFeed	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.AlertLedger	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.BuildOrdersCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.BuildQueueCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.DaemonHeartbeatChecker	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.EpicCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.EventHumanizerHelpers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.Sanitizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Executor.StatePaths	MP-R2-C2-T07: full-product app boot supplies the existing Executor journal floor; reusable bus has no such dependency
 R-optional	Aiur.ExecutorAttention.CLI	MP-R1-C9-T11 delegates executor verbs
-R-optional	Aiur.ExecutorBindings	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorCommandCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.ExecutorEvents	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.ExecutorListener	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.CiReadiness	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.CodeOwners	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.ExecutorSweep.CLI	#5211 routes the optional sweep CLI through the shared control-protocol guard
 R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.HoldPressure	#4067 status reports local GitHub budget holds; gated on the GitHub tracker
 R-optional	Aiur.GitHub.HostCommand	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Labels	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -29,8 +23,6 @@ R-optional	Aiur.ProviderMeterProjection	baseline 22b2fa407c5d4218d25d63b1aa17472
 R-optional	Aiur.ProviderMeters.CLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.RunTelemetry.Dashboard	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.RunTelemetry.Summaries	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.SupervisionHealth	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.SystemLoad	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Usage.GroupedScopes	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Usage.GroupedScopes.Scope	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Usage.PriceTable.Data	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -38,7 +30,6 @@ R-optional	Aiur.Usage.PriceTable.Window	baseline 22b2fa407c5d4218d25d63b1aa17472
 R-optional	Aiur.UsageAggregate.Checkpoint	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.UsageAggregate.Projection	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.UsageEnvelope	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.Webhooks.ModePresenter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.Analytics.Charts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.Analytics.Presenter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.Analytics.ScopeResolver	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

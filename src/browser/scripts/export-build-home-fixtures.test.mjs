@@ -97,9 +97,11 @@ test('API usage literals still in build.js', () => {
     assert.ok(source.includes(`head: "${row.head}", rows: [["${row.rows[0][0]}", "${row.rows[0][1]}"]]`));
   }
 });
-test('GitHub is one icon row with the design core and GraphQL lines, without Search', () => {
+test('GitHub is icon row with design core and GraphQL lines alongside Search', () => {
   const { apis } = fixture('live').usage;
-  assert.equal(apis.length, 1);
+  assert.equal(apis.length, 2);
+  assert.equal(apis[1].name, 'Search');
+  assert.equal(apis[1].icon, 'bars');
   assert.equal(apis[0].name, 'GitHub');
   assert.equal(apis[0].icon, 'github');
   assert.equal(apis[0].session, null);
@@ -148,7 +150,7 @@ test('loader exposes what it is asked for', () => {
 });
 test('deterministic', t => {
   const a = exportTo(t), b = exportTo(t);
-  for (const f of readdirSync(a)) assert.equal(readFileSync(join(a, f), 'utf8'), readFileSync(join(b, f), 'utf8'));
+  for (const f of Object.keys(buildAll())) assert.equal(readFileSync(join(a, f), 'utf8'), readFileSync(join(b, f), 'utf8'));
 });
 test('trailing slash design paths preserve exported files and checks', t => {
   assert.deepEqual(buildAll({ designDir: `${designDir}/` }), buildAll({ designDir }));
@@ -233,7 +235,7 @@ test('edge fields preserve design children and classify each blocker', () => {
 test('odd edges are registered outside the design parity datasets', () => {
   const meta = JSON.parse(files['manifest.json']);
   assert.deepEqual(meta.datasets, ['live', 'dense', 'newrepo', 'noqueue', 'offline']);
-  assert.deepEqual(meta.extra_datasets, ['odd-edges']);
+  assert.deepEqual(meta.extra_datasets, ['odd-edges', 'now0', 'now24']);
   const history = fixture('odd-edges-history');
   const odd = fixture('odd-edges');
   assert.equal(history.rows.length, 12);

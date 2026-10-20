@@ -75,7 +75,7 @@ defmodule Aiur.GitHub.ReadCache do
   use GenServer
 
   alias Aiur.GitHub.GraphQLCost
-  alias Aiur.GitHub.ReadCache.{Identity, Metrics, Policy}
+  alias Aiur.GitHub.ReadCache.{Identity, Metrics, Outcome, Policy}
 
   require Logger
 
@@ -199,6 +199,15 @@ defmodule Aiur.GitHub.ReadCache do
   def invalidate_repo(full_name) do
     case split_repo(full_name) do
       {owner, repo} -> invalidate([{:repo, owner, repo}])
+      _unusable -> :ok
+    end
+  end
+
+  @doc "Retires repository configuration after a configuration-specific webhook."
+  @spec invalidate_repo_config(String.t()) :: :ok
+  def invalidate_repo_config(full_name) do
+    case split_repo(full_name) do
+      {owner, repo} -> invalidate([{:repo_config, owner, repo}])
       _unusable -> :ok
     end
   end
@@ -431,13 +440,12 @@ defmodule Aiur.GitHub.ReadCache do
 
   # Every miss either deposits or does not, and the not-deposited side is
   # counted with its reason so the gap between misses and deposits is
-  # attributable rather than a silent subtraction. `success?/1` rejects a
-  # GraphQL failure or partial failure that arrived as HTTP 200 — common on
-  # graph queries, and not a cache problem — while `room?/0` refuses a good
+  # attributable rather than a silent subtraction. `Outcome.cacheable?/1`
+  # rejects failed or partial responses while `room?/0` refuses a good
   # response only at the entry ceiling.
   defp deposit(key, result, started_at, class, caller) do
     cond do
-      not success?(result) ->
+      not Outcome.cacheable?(result, class) ->
         Metrics.not_deposited(:unsuccessful, class, caller)
         :ok
 
@@ -470,19 +478,6 @@ defmodule Aiur.GitHub.ReadCache do
         false
     end
   end
-
-  # A GraphQL failure arrives as HTTP 200 with an `errors` key, and a *partial*
-  # failure arrives as 200 with both `data` and `errors`. Neither is a
-  # deposit: caching the first turns one bad minute into a cached one, and
-  # caching the second holds a body with a hole in it under an identity that
-  # claims to be complete. Status alone cannot tell them apart, which is why
-  # the body is inspected here rather than the status trusted.
-  defp success?({:ok, %{status: status, body: %{"errors" => errors}}})
-       when is_integer(status) and status in 200..299 and is_list(errors) and errors != [],
-       do: false
-
-  defp success?({:ok, %{status: status}}) when is_integer(status) and status in 200..299, do: true
-  defp success?(_result), do: false
 
   defp answered?({:ok, %{status: status}}) when is_integer(status), do: true
   defp answered?(_result), do: false

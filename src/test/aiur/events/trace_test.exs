@@ -80,6 +80,7 @@ defmodule Aiur.Events.TraceTest do
     Application.put_env(:aiur, Trace, DebugLog)
     :ok = DebugLog.subscribe()
     :ok = DebugLog.subscribe(identifier)
+    :ok = DebugLog.broadcast(:publish, "ticket.other.pr.opened", body: %{})
     assert {:ok, id, _count} = Publisher.publish(topic, %{})
     assert_receive {:event_debug, %{topic: ^topic} = entry}, 500
     assert_receive {:event_debug, %{topic: ^topic} = duplicate}, 500

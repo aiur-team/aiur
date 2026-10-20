@@ -248,20 +248,42 @@ defmodule Aiur.Claude.ReplAgentTurnTest do
     assert {:ok, %{result: :completed}} = drive_pane_to_completion(tmux, task)
   end
 
-  # Answer only pane-liveness polls until the turn completes (used when no
-  # inject is expected, so there are no extra send-keys to drain).
-  defp drive_pane_to_completion(tmux, task) do
+  # Answer pane-liveness polls until the turn completes. A missing tmux server
+  # and a slow turn are distinct outcomes; neither should look like a pane
+  # disappearing due to a recursive receive timeout.
+  defp drive_pane_to_completion(tmux, task, deadline \\ System.monotonic_time(:millisecond) + 5_000) do
     receive do
       {:tmux_mock_out, "display-message" <> _} ->
-        respond(tmux, "4242\n")
-        drive_pane_to_completion(tmux, task)
+        if is_pid(GenServer.whereis(tmux)) do
+          respond(tmux, "4242\n")
+          drive_pane_to_completion(tmux, task, deadline)
+        else
+          {:error, :tmux_server_gone}
+        end
     after
-      30 ->
+      max(deadline - System.monotonic_time(:millisecond), 0) ->
         case Task.yield(task, 0) do
+          {:ok, {:error, :repl_gone} = result} -> result
           {:ok, result} -> result
-          nil -> drive_pane_to_completion(tmux, task)
+          nil -> {:error, :completion_timeout}
         end
     end
+  end
+
+  test "pane completion helper distinguishes a slow task from a vanished pane", %{tmux: tmux} do
+    task = Task.async(fn -> Process.sleep(200) end)
+
+    assert {:error, :completion_timeout} =
+             drive_pane_to_completion(tmux, task, System.monotonic_time(:millisecond) + 10)
+
+    Task.await(task)
+  end
+
+  test "pane completion helper preserves a real pane-gone result", %{tmux: tmux} do
+    task = Task.async(fn -> {:error, :repl_gone} end)
+
+    assert {:error, :repl_gone} =
+             drive_pane_to_completion(tmux, task, System.monotonic_time(:millisecond) + 100)
   end
 
   test "run_turn rejects an empty/whitespace prompt without sending keys", %{tmux: tmux} do

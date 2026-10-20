@@ -23,16 +23,37 @@ defmodule Aiur.LandingWatch.MergeGroupJournal do
   @doc "Takes one slot of the shared automatic-requeue cap from a journal state, without writing it."
   @spec take_requeue_slot(map(), integer()) :: {:ok, map(), :ok} | {:error, :merge_group_requeue_limit_reached}
   def take_requeue_slot(state, now) do
+    case take_requeue_slots(state, now, 1) do
+      {:ok, updated, _count} -> {:ok, updated, :ok}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Takes up to the available number of shared slots for individual automatic reruns."
+  @spec take_requeue_slots(map(), integer(), non_neg_integer()) :: {:ok, map(), non_neg_integer()} | {:error, :merge_group_requeue_limit_reached}
+  def take_requeue_slots(state, now, requested) do
+    slots = max(0, 3 - length(recent_requeues(state, now)))
+    reserved = min(requested, slots)
+
+    if reserved == 0 do
+      {:error, :merge_group_requeue_limit_reached}
+    else
+      timestamps = List.duplicate(now, reserved) ++ recent_requeues(state, now)
+      {:ok, Map.put(state, "merge_group_requeues", timestamps), reserved}
+    end
+  end
+
+  @doc "Returns whether the shared automatic-requeue cap is currently full."
+  @spec requeue_refusal(map(), integer()) :: :merge_group_requeue_limit_reached | nil
+  def requeue_refusal(state, now), do: if(length(recent_requeues(state, now)) >= 3, do: :merge_group_requeue_limit_reached)
+
+  defp recent_requeues(state, now) do
     recent =
       state
       |> Map.get("merge_group_requeues", [])
       |> Enum.filter(&(is_integer(&1) and now >= &1 and now - &1 < 15 * 60_000))
 
-    if length(recent) >= 3 do
-      {:error, :merge_group_requeue_limit_reached}
-    else
-      {:ok, Map.put(state, "merge_group_requeues", [now | recent]), :ok}
-    end
+    recent
   end
 
   @spec merge_group_requeues_by_hour(keyword()) ::
