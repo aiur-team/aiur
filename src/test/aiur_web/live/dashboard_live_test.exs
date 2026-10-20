@@ -1362,7 +1362,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert socket.assigns.financial_data_capability.state == :locked
     assert socket.assigns.payload.fleet.agent_totals == %{seconds_running: 41}
     refute Map.has_key?(socket.assigns.payload.fleet, :rate_limits)
-    refute inspect(socket) =~ sentinel
+    refute inspect(socket, limit: :infinity, printable_limit: :infinity) =~ sentinel
     refute render(redirected) =~ sentinel
     refute log =~ sentinel
   end
