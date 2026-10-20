@@ -1,4 +1,9 @@
 defmodule Aiur.TestSupport do
+  require ExUnit.Assertions
+  alias Phoenix.HTML.Safe, as: HTMLSafe
+  alias Phoenix.LiveView.Socket, as: LiveViewSocket
+  alias Phoenix.LiveViewTest.View, as: LiveViewTestView
+
   alias Aiur.Events.Publisher, as: EventsPublisher
   alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
   alias Aiur.GitHub.AuthPreflight, as: GitHubAuthPreflight
@@ -8,6 +13,28 @@ defmodule Aiur.TestSupport do
   alias Aiur.TestSupport.OrchestratorGuard
 
   @github_repository {"its-everdred", "aiur"}
+
+  @doc false
+  @spec refute_leak(term(), term()) :: :ok
+  def refute_leak(term, secret) do
+    ExUnit.Assertions.refute(contains_secret?(inspect(term, limit: :infinity, printable_limit: :infinity), secret))
+
+    rendered = rendered_live_view(term)
+    if rendered, do: ExUnit.Assertions.refute(contains_secret?(rendered, secret))
+
+    :ok
+  end
+
+  defp contains_secret?(content, %Regex{} = secret), do: Regex.match?(secret, content)
+  defp contains_secret?(content, secret), do: String.contains?(content, secret)
+
+  defp rendered_live_view(%LiveViewSocket{view: view, assigns: assigns})
+       when is_atom(view) and not is_nil(view) do
+    view.render(assigns) |> HTMLSafe.to_iodata() |> IO.iodata_to_binary()
+  end
+
+  defp rendered_live_view(%LiveViewTestView{} = view), do: Phoenix.LiveViewTest.render(view)
+  defp rendered_live_view(_term), do: nil
 
   @doc "The synthetic GitHub repository used by fixture tests."
   @spec github_repository() :: String.t()
@@ -240,6 +267,7 @@ defmodule Aiur.TestSupport do
     EventsSubscriptionStore.set_enqueue_fn(nil)
     Aiur.TestCleanup.rm_rf!(workflow_root)
     Aiur.TestScopeGuard.restore(previous_test_scope_state)
+    OrchestratorGuard.restore_codeowners_baseline!()
 
     # Reload the store onto the restored baseline so the next test never
     # observes the now-deleted `workflow_root` config, and recover the app if
@@ -388,6 +416,7 @@ defmodule Aiur.TestSupport do
         Aiur.TestSupport.quiesce_live_orchestrator()
         Aiur.TestSupport.reset_global_state!()
         stop_default_http_server()
+        OrchestratorGuard.capture_codeowners_baseline!()
 
         on_exit(fn ->
           Aiur.TestSupport.teardown_test_scope!(

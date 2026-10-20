@@ -1,6 +1,7 @@
 defmodule Aiur.TestSupport.OrchestratorGuardTest do
   use Aiur.TestSupport
 
+  alias Aiur.GitHub.CodeOwners
   alias Aiur.TestSupport.OrchestratorGuard
 
   setup do
@@ -18,11 +19,39 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
     assert is_pid(Process.whereis(Aiur.Orchestrator))
   end
 
+  test "verify_restored! catches CodeOwners state left changed by a test", context do
+    previous = CodeOwners.snapshot()
+    baseline = OrchestratorGuard.capture_shared_state().codeowners
+    on_exit(fn -> :sys.replace_state(CodeOwners, &%{&1 | allowlist: MapSet.new(previous)}) end)
+    :sys.replace_state(CodeOwners, &%{&1 | allowlist: MapSet.new(["leaked-owner"])})
+
+    assert_raise RuntimeError, ~r/left shared test state changed .*Aiur.GitHub.CodeOwners changed/, fn ->
+      expected = OrchestratorGuard.capture_shared_state()
+      expected = %{expected | codeowners: baseline}
+      OrchestratorGuard.verify_restored!(Map.put(context, :aiur_expected_shared_state, expected))
+    end
+
+    assert CodeOwners.snapshot() == baseline.allowlist
+    assert CodeOwners.codeowners_snapshot() == baseline.codeowners
+  end
+
   test "verify_restored! skips async tests", context do
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
 
     assert :ok = OrchestratorGuard.verify_restored!(%{context | async: true})
     refute Process.whereis(Aiur.Orchestrator)
+  end
+
+  test "verify_restored! names and restores a missing ActiveTurns owner", context do
+    assert is_pid(Process.whereis(Aiur.Opencode.ActiveTurns))
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Opencode.ActiveTurns)
+
+    assert_raise RuntimeError, ~r/left Aiur\.Opencode\.ActiveTurns down/, fn ->
+      OrchestratorGuard.verify_restored!(context)
+    end
+
+    assert is_pid(Process.whereis(Aiur.Opencode.ActiveTurns))
+    assert Process.whereis(Aiur.Opencode.ActiveTurns) == :ets.info(Aiur.Opencode.ActiveTurns, :owner)
   end
 
   test "verify_restored! names and restores a leaked decision state directory", context do

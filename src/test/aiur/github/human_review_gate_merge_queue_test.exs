@@ -287,6 +287,28 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
              {:error, :invalid_pull_request_approval}
   end
 
+  test "optimistic guard observes approved current head and mergeability in one read" do
+    fetch = fn %{body: %{"query" => query}, caller: caller} ->
+      assert query =~ "headRefOid mergeable reviewDecision"
+      assert caller == "optimistic_guard_approval"
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "pullRequest" => %{"headRefOid" => "tested-head", "mergeable" => "MERGEABLE", "reviewDecision" => "APPROVED", "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "tested-head"}}]}}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{head_sha: "tested-head", approved?: true, mergeable?: true}} =
+             HumanReviewGate.optimistic_approval_status(77, request_fun: fetch)
+  end
+
   describe "the rework writer leaves a pull request approved at its head and queued alone" do
     @pr %{"number" => 77, "head" => %{"sha" => "tested-head"}}
     @threads [

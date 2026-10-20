@@ -49,6 +49,17 @@ defmodule Aiur.CodeHost do
   @spec optimistic_blocker(String.t() | integer(), integer() | nil) :: {:ok, map() | nil} | {:error, term()}
   def optimistic_blocker(value, number), do: optimistic_call(:optimistic_blocker, [value, number])
 
+  @spec optimistic_blocker(String.t() | integer(), integer() | nil, keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def optimistic_blocker(value, number, opts) do
+    adapter = adapter()
+
+    cond do
+      function_exported?(adapter, :optimistic_blocker, 3) -> adapter.optimistic_blocker(value, number, opts)
+      function_exported?(adapter, :optimistic_blocker, 2) -> adapter.optimistic_blocker(value, number)
+      true -> {:error, :code_host_unavailable}
+    end
+  end
+
   @spec park_pull_request(String.t() | integer()) :: :ok | {:error, term()}
   def park_pull_request(value), do: optimistic_call(:park_pull_request, [value])
 

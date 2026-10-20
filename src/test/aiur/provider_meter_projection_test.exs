@@ -180,8 +180,7 @@ defmodule Aiur.ProviderMeterProjectionTest do
 
     refute Map.has_key?(view, :provider_account_generation)
 
-    assert view |> inspect() |> String.contains?("gen-secret-1") == false,
-           "the opaque account generation must not reach a consumer view"
+    Aiur.TestSupport.refute_leak(view, "gen-secret-1")
   end
 
   test "the redacted snapshot strips the account generation but keeps the facts", %{projection: projection, pid: pid} do

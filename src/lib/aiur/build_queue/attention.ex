@@ -128,7 +128,7 @@ defmodule Aiur.BuildQueue.Attention do
        when reason in [:agent_error, :pr_closed_unmerged, :not_planned, :duplicate],
        do: :prerequisite_failed
 
-  defp kind({:optimistic_blocker_failed, reason}) when reason in [:trouble, :churn],
+  defp kind({:optimistic_blocker_failed, reason}) when reason in [:trouble, :churn, :merged],
     do: :optimistic_blocker_failed
 
   defp kind(cause), do: cause
@@ -201,7 +201,8 @@ defmodule Aiur.BuildQueue.Attention do
                     :paused,
                     :parked,
                     :todo,
-                    :churn
+                    :churn,
+                    :merged
                   ])
 
   defp valid_field?({:milestone, value}), do: value in [25, 50, 75, 100]
@@ -244,31 +245,35 @@ defmodule Aiur.BuildQueue.Attention do
   end
 
   defp message(:optimistic_blocker_failed, subject, payload) do
-    cause =
-      Map.get(
-        %{
-          pr_closed_unmerged: "has a PR closed unmerged",
-          not_planned: "closed as not planned",
-          duplicate: "closed as duplicate",
-          edge_removed: "was removed from the dependency graph",
-          agent_error: "is in agent:error",
-          paused: "is paused",
-          parked: "is parked",
-          todo: "was reset to todo",
-          churn: "has repeated conflicting integrations"
-        },
-        payload[:cause],
-        "failed"
-      )
+    if payload[:cause] == :merged do
+      "Blocker ##{payload[:blocker]} merged. Rebase ##{subject} on the default branch to include it, then resume."
+    else
+      cause =
+        Map.get(
+          %{
+            pr_closed_unmerged: "has a PR closed unmerged",
+            not_planned: "closed as not planned",
+            duplicate: "closed as duplicate",
+            edge_removed: "was removed from the dependency graph",
+            agent_error: "is in agent:error",
+            paused: "is paused",
+            parked: "is parked",
+            todo: "was reset to todo",
+            churn: "has repeated conflicting integrations"
+          },
+          payload[:cause],
+          "failed"
+        )
 
-    action =
-      case payload[:action] do
-        :paused_parked -> "Aiur paused and parked ##{subject}; branch and PR kept."
-        :parked -> "Aiur parked ##{subject}; branch and PR kept."
-        :none -> "##{subject} keeps running."
-      end
+      action =
+        case payload[:action] do
+          :paused_parked -> "Aiur paused and parked ##{subject}; branch and PR kept."
+          :parked -> "Aiur parked ##{subject}; branch and PR kept."
+          :none -> "##{subject} keeps running."
+        end
 
-    "##{subject} started on ##{payload[:blocker]} before it merged; ##{payload[:blocker]} #{cause}. #{action} Choose: wait for a replacement blocker, re-base ##{subject} on the default branch and resume it, or close it."
+      "##{subject} started on ##{payload[:blocker]} before it merged; ##{payload[:blocker]} #{cause}. #{action} Choose: wait for a replacement blocker, re-base ##{subject} on the default branch and resume it, or close it."
+    end
   end
 
   defp message(:promoted_unauthorized, subject, _),
