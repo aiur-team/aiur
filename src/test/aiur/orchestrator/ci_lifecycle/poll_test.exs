@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
@@ -19,6 +20,52 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
   setup :ci_lifecycle_setup
 
   describe "CI lifecycle coordination" do
+    test "only broker timeouts bypass CI cadence after a failed target lookup" do
+      PollCadence.forget_effective_interval_ms()
+      PollCadence.publish_effective_interval_ms(120_000, class: :ci)
+      on_exit(&PollCadence.forget_effective_interval_ms/0)
+      ticket = issue(unique_identifier("ci-broker-retry"), "ci-wait")
+
+      failures = [
+        {:github, :local_hold, %{reason: :github_budget_broker_timeout}},
+        {:aiur, :locally_held, %{reason: :shared_budget}},
+        {:github, :http, %{status: 500}}
+      ]
+
+      for failure <- failures do
+        calls = :ets.new(:ci_broker_retry_calls, [:set, :public])
+        :ets.insert(calls, {:count, 0})
+
+        opts = [
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [ticket]} end,
+          ci_poller: fn _targets, _opts ->
+            :ets.update_counter(calls, :count, 1)
+            {:ok, %{results: [], errors: [{ticket.identifier, {:pr_lookup, failure}}]}}
+          end,
+          parked_ready_alert_loader: fn -> MapSet.new() end,
+          draft_stall_alert_loader: fn -> MapSet.new() end
+        ]
+
+        failed = CiLifecycle.poll_github_ci(%State{}, opts)
+
+        if failure == hd(failures) do
+          assert failed.last_ci_poll_started_at_ms == nil
+          retried = CiLifecycle.poll_github_ci(failed, opts)
+          assert :ets.lookup_element(calls, :count, 2) == 2
+          assert is_integer(retried.last_ci_poll_started_at_ms)
+          assert retried.ci_lifecycle.broker_fast_retry_pending? == false
+          _cadence_limited = CiLifecycle.poll_github_ci(retried, opts)
+          assert :ets.lookup_element(calls, :count, 2) == 2
+        else
+          assert is_integer(failed.last_ci_poll_started_at_ms)
+          _still_on_cadence = CiLifecycle.poll_github_ci(failed, opts)
+          assert :ets.lookup_element(calls, :count, 2) == 1
+        end
+
+        :ets.delete(calls)
+      end
+    end
+
     test "CI poll fetch runs outside the owner and late results preserve current state" do
       recipient = self()
       ticket = issue(unique_identifier("async-ci"), "human-review")
@@ -189,6 +236,55 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
       next = CiLifecycle.poll_github_ci(%{next | last_ci_poll_started_at_ms: nil}, Keyword.put(opts, :ci_batch_fetcher, fn _, _ -> {:ok, batch} end))
       assert_received {:tracker_update, ^identifier, "in-progress", _}
       assert next.ci_lifecycle.approved_heads[identifier] == "head-71"
+    end
+
+    test "a same-head approved PR dropped from the merge queue transitions to dispatchable rework" do
+      identifier = unique_identifier("merge-queue-drop")
+      RecordingGitHubClient.record_to(self())
+      ticket = issue(identifier, "ci-wait")
+
+      base = %State{}
+
+      state = %{
+        base
+        | ci_lifecycle: %{
+            base.ci_lifecycle
+            | poll_cache: %{
+                identifier => %{
+                  decision: :pending,
+                  head_sha: "same-head",
+                  review_decision: "APPROVED",
+                  merge_queue_entry: %{"id" => "queue-entry", "state" => "AWAITING_CHECKS"}
+                }
+              }
+          }
+      }
+
+      next =
+        CiLifecycle.poll_github_ci(state,
+          ci_recovery_enabled: false,
+          ci_issue_fetcher: fn _ -> {:ok, [ticket]} end,
+          ci_poller: fn _targets, _opts ->
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :passed,
+                   head_sha: "same-head",
+                   pr_number: 71,
+                   review_decision: "APPROVED",
+                   merge_queue_entry: nil
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      assert_received {:tracker_update, ^identifier, "rework", _opts}
+      assert next.running == %{}
+      assert DispatchPolicy.should_dispatch_issue?(%{ticket | state: "rework"}, next)
     end
 
     test "a delivered (displaced) result is inert: no transition, no cache projection" do

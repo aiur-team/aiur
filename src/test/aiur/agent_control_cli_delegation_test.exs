@@ -60,7 +60,10 @@ defmodule Aiur.AgentControlCLIDelegationTest do
   # Future regression guard: build-queue behavior remains in its existing module.
   test "queue forwards to BuildQueueCLI without owning build-queue behavior" do
     source = File.read!(Path.expand("../../lib/aiur/agent_control_cli.ex", __DIR__))
-    queue = source |> String.split("\n") |> Enum.filter(&String.starts_with?(&1, "  def queue("))
+    assert source =~ "defdelegate queue(opts"
+    assert source =~ "to: Aiur.ControlCLI.EntryPoints"
+    glue = File.read!(Path.expand("../../lib/aiur/control_cli/entry_points.ex", __DIR__))
+    queue = glue |> String.split("\n") |> Enum.filter(&String.starts_with?(&1, "  def queue("))
     assert [line] = queue
     assert line =~ "Aiur.BuildQueueCLI.run()"
     assert {:run, 1} in Aiur.BuildQueueCLI.__info__(:functions)

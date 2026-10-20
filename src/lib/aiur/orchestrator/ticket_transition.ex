@@ -57,6 +57,15 @@ defmodule Aiur.Orchestrator.TicketTransition do
     result
   end
 
+  @spec write_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def write_comment(issue_id, body, opts) do
+    writer = Keyword.fetch!(opts, :writer)
+    tracker = Keyword.get(opts, :tracker, Tracker)
+    result = with_writer(writer, fn -> tracker.create_comment(issue_id, body) end)
+    record(issue_id, :comment, body, writer, opts, result)
+    result
+  end
+
   defp with_writer(writer, fun) do
     previous = Process.get(:aiur_ticket_writer)
     Process.put(:aiur_ticket_writer, writer)

@@ -7,14 +7,15 @@ const source = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.u
 const trigger = source.split(/^concurrency:/m)[0];
 assert.ok(/^  pull_request:$/m.test(trigger));
 assert.ok(/types: \[opened, synchronize, reopened, ready_for_review, labeled\]/.test(trigger), 'label events let ci:full start a full run');
-assert.ok(source.includes("github.event.action != 'labeled' || github.event.label.name == 'ci:full'"), 'unrelated labels must not cancel active CI');
+assert.ok(source.includes("github.event.action == 'synchronize'"), 'a new PR head cancels its superseded CI run');
+assert.ok(source.includes("github.event.label.name == 'ci:full'"), 'the full-CI label replaces the fast run');
 assert.ok(/^  merge_group:$/m.test(trigger));
 assert.ok(/  push:\n    branches: \[main, v2\]/.test(trigger), 'main pushes trigger CI');
 assert.ok(/  schedule:\n    - cron:/.test(trigger), 'scheduled CI is configured');
 const jobs = new Map([...source.split(/^jobs:\n/m)[1].matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:|$(?![\s\S]))/gm)]
   .map(([, id, body]) => [id, body]));
 const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css', 'layout-release', 'analytics', 'streamdeck', 'pre-handoff'];
-const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'ci-gate', 'pre-handoff'];
+const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'soak', 'ci-gate', 'pre-handoff'];
 function selected(event, full, dialyzer = false, payload = { pull_request: {} }) {
   const condition = (body) => body.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
   const run = (expression, changes) => !expression || runInNewContext(expression, {
@@ -35,6 +36,19 @@ assert.deepEqual(selected('pull_request', false, false, { action: 'ready_for_rev
 const website = readFileSync(new URL('../.github/workflows/website.yml', import.meta.url), 'utf8');
 assert.ok(website.includes('types: [opened, synchronize, reopened, ready_for_review, closed]'), 'website starts on ready and cancels on close');
 assert.ok(website.includes("  guards:\n    if: ${{ github.event.pull_request.draft != true && github.event.action != 'closed' }}"), 'website skips drafts and closed PRs');
+const websiteGuards = website.split(/^  guards:\n/m)[1];
+assert.ok(/^    timeout-minutes: 15$/m.test(websiteGuards), 'website guards job has a finite runner budget');
+assert.ok(/      - name: Test visual regressions\n        timeout-minutes: 8\n/.test(websiteGuards), 'Docker visual regression step has a shorter finite budget');
+const visualDocker = JSON.parse(readFileSync(new URL('../website/package.json', import.meta.url), 'utf8')).scripts['test:visual:docker'];
+assert.ok(visualDocker.includes('-v "$PWD/..":/repo -w /repo/website --tmpfs /repo/website/docs-app/node_modules:exec'),
+  'Docker visual build mounts the repository root so docs loaders resolve repository-relative paths');
+const aiurStyle = readFileSync(new URL('../.github/workflows/aiur-style.yml', import.meta.url), 'utf8');
+assert.ok(/^  merge_group:$/m.test(aiurStyle.split(/^jobs:/m)[0]), 'aiur-style checks dist on merge queue candidates (#4983)');
+const [queueDist, buildAndTest] = aiurStyle.split(/^  build-and-test:\n/m);
+assert.ok(queueDist.includes("if: ${{ github.event_name == 'merge_group' }}") && queueDist.includes('npm run check-dist'), 'queue job runs check-dist');
+assert.ok(!queueDist.includes('test:visual') && !queueDist.includes('container:'), 'queue job skips the Playwright visual suite');
+assert.ok(buildAndTest.startsWith("    if: ${{ github.event_name != 'merge_group' }}\n"), 'full aiur-style suite stays off merge groups');
+assert.ok(/^    timeout-minutes: 20$/m.test(buildAndTest), 'aiur-style visual job has a finite runner budget');
 assert.ok(selected('pull_request', false, true).includes('dialyzer'), 'PR changing src/lib Elixir runs dialyzer');
 assert.ok(!selected('pull_request', false, false).includes('dialyzer'), 'docs-only PR skips dialyzer');
 console.log(`Fast PR jobs (non-CI changes): ${selected('pull_request', false).sort().join(', ')}`);
@@ -42,12 +56,15 @@ assert.ok(selected('push', false).includes('quarantine'), 'main push selects qua
 assert.ok(selected('schedule', false).includes('quarantine'), 'schedule selects quarantine');
 assert.ok(!selected('pull_request', false).includes('quarantine'), 'pull request skips quarantine');
 assert.ok(!selected('merge_group', true).includes('quarantine'), 'merge group skips quarantine');
+const browserSmoke = readFileSync(new URL('../.github/actions/browser-smoke/action.yml', import.meta.url), 'utf8');
+assert.ok(/github.ref == 'refs\/heads\/main' }}\n.*\n      run: node scripts\/run-quarantined-browser-tests.mjs \|\| echo/.test(browserSmoke), 'quarantined browser specs run on main and never block');
 assert.ok(selected('merge_group', false).includes('ci-gate'), 'merge-group ci gate always runs');
 for (const event of ['merge_group', 'workflow_dispatch']) {
   const selectedFull = selected(event, true);
   for (const job of fullJobs) assert.ok(selectedFull.includes(job), `${event} requires ${job}`);
   assert.ok(!selectedFull.includes('affected-tests'));
 }
+assert.ok(!jobs.has('home-parity') && !jobs.get('ci-gate').includes('home-parity'), 'the full home matrix is manual-only (#5124)');
 assert.ok(jobs.get('ci-gate').includes('always()'), 'aggregate must run after failed dependencies');
 assert.ok(jobs.get('ci-gate').includes("github.event_name != 'schedule'"), 'schedule does not need the blocking gate');
 assert.ok(jobs.get('affected-tests').includes("github.event_name == 'pull_request'"), 'scoped selector only runs for PRs');
@@ -69,7 +86,7 @@ function gate(event, full, dialyzer, failedJob, result = 'failure', dialyzerOutp
 for (const [event, full, required] of [
   ['pull_request', false, fastJobs.filter((job) => job !== 'ci-gate')],
   ['merge_group', true, ['changes', 'workflow-security', 'lint', ...fullJobs]],
-  ['pull_request', true, ['changes', 'workflow-security', 'lint', ...fullJobs]],
+  ['pull_request', true, ['changes', 'workflow-security', 'lint', 'soak', ...fullJobs]],
 ]) {
   assert.equal(gate(event, full, false).status, 0, `${event} passes with selected set successful`);
   for (const job of required) {
@@ -93,11 +110,20 @@ for (const result of ['failure', 'skipped', 'cancelled', '']) {
 assert.notEqual(gate('pull_request', false, false, null, 'failure', 'missing').status, 0, 'gate rejects missing dialyzer output');
 assert.notEqual(gate('pull_request', false, false, null, 'failure', 'sometimes').status, 0, 'gate rejects malformed dialyzer output');
 assert.notEqual(gate('merge_group', false, false).status, 0, 'queue cannot claim fast evidence');
+// Soak: every PR, fast or full, repeats its changed tests; the queue never soaks.
+assert.ok(selected('pull_request', true).includes('soak'), 'full PR runs still soak');
+for (const event of ['merge_group', 'workflow_dispatch']) assert.ok(!selected(event, true).includes('soak'), `${event} never soaks`);
+assert.ok(jobs.get('soak').includes('uses: ./.github/workflows/soak.yml'));
+const soak = readFileSync(new URL('../.github/workflows/soak.yml', import.meta.url), 'utf8');
+assert.ok(/^on:\n  workflow_call:$/m.test(soak), 'soak runs only when ci.yml calls it');
+assert.ok(soak.includes('python3 scripts/ci-soak.py select HEAD^1 >> "$GITHUB_OUTPUT"'), 'soak selects against the PR merge base');
+assert.ok(soak.includes('SOAK_TESTS: ${{ needs.select.outputs.soak_tests }}'), 'paths reach the runner through env, not shell');
+assert.ok(soak.includes('SOAK_SPECS: ${{ needs.select.outputs.soak_specs }}'));
 assert.notEqual(gate('schedule', true, false).status, 0, 'gate refuses unsupported event');
 assert.ok(jobs.has('quarantine'), 'quarantine job remains available for scheduled/main runs');
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'schedule'"));
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'push' && github.ref == 'refs/heads/main'"));
-assert.ok(jobs.get('workflow-security').includes('timeout-minutes: 5'), 'security job keeps its original short budget');
+assert.ok(jobs.get('workflow-security').includes('timeout-minutes: 15'), 'security job allows for dependency setup and a cold registry');
 assert.ok(jobs.get('workflow-security').includes("needs['pre-handoff'].result"),
   'required workflow security check fails when pre-handoff checks fail');
 assert.ok(jobs.get('pre-handoff').includes('./.github/actions/pre-handoff'), 'bounded pre-handoff job runs its dedicated action');
@@ -134,7 +160,7 @@ const browserJob = jobs.get('browser');
 assert.ok(browserJob.includes('./.github/actions/browser-smoke'), 'browser uses the shared browser action');
 assert.ok(browserJob.includes('actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'), 'browser checks out before the local action');
 assert.ok(browserJob.includes('timeout-minutes: 22'), 'browser has headroom beyond the 9-minute shard target');
-for (const shard of [1, 2, 3, 4, 5]) assert.ok(browserJob.includes(`- { shard: ${shard}`), `browser matrix selects shard ${shard}`);
+assert.ok(browserJob.includes(`shard: [${Object.keys(shards).join(', ')}]`), 'browser matrix selects every shard in the shard map');
 const browserAction = readFileSync(new URL('../.github/actions/browser-smoke/action.yml', import.meta.url), 'utf8');
 assert.ok(browserAction.includes('using: composite'), 'shared browser setup is an allowed local composite action');
 assert.ok(!browserAction.includes('report-ci-run-attempt.sh'), 'the workflow job, not the action, discloses reruns once');

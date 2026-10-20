@@ -20,6 +20,7 @@
     "src/lib/aiur/os.ex",
     "src/lib/aiur/path_safety.ex",
     "src/lib/aiur/periodic_worker.ex",
+    "src/lib/aiur/pr_body_lint.ex",
     "src/lib/aiur/process_exhaustion.ex",
     "src/lib/aiur/process_identity.ex",
     "src/lib/aiur/process_tree.ex",

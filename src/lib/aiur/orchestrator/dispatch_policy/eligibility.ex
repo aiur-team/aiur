@@ -59,6 +59,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   @spec issue_not_parked?(Issue.t()) :: boolean()
   def issue_not_parked?(%Issue{} = issue), do: not Issue.parked?(issue)
 
+  @spec issue_not_executor_owned?(Issue.t()) :: boolean()
+  def issue_not_executor_owned?(%Issue{executor_owner: owner}), do: not (is_binary(owner) and owner != "")
+
   @spec issue_routable_to_worker?(term()) :: boolean()
   def issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
       when is_boolean(assigned_to_worker),

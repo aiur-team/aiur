@@ -27,6 +27,12 @@ def needs_check(pr, cutoff):
 
 
 TESTED_HEAD = re.compile(r'^Tested head: ([0-9a-fA-F]{40})\s*$', re.M)
+REFERENCE = re.compile(
+    r'(?i)\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s*:?[ \t]*'
+    r'(?P<reference>(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#\d+|'
+    r'https?://github\.com/aiur-team/aiur/issues/\d+)'
+)
+DECLARATION = re.compile(r'(?i)^(?P<kind>part of|refs|closes)\s+#(?P<number>\d+)\s*$')
 CLASSIFY = '''
 [approved, current, main, body, head] = System.argv()
 read = &(&1 |> File.read!() |> JSON.decode!())
@@ -38,6 +44,37 @@ end
 
 
 GIT_TIMEOUT = 60
+
+
+def issue_number(reference):
+    match = re.search(r'(?:#|/issues/)(\d+)$', reference)
+    return match.group(1) if match else None
+
+
+def check_closing_references(body):
+    """Reject prose that makes a non-closing PR close its declared issue."""
+    lines = (body or '').splitlines()
+    declaration = DECLARATION.match(lines[0].strip()) if lines else None
+    if not declaration:
+        return True
+
+    kind, declared = declaration.group('kind').lower(), declaration.group('number')
+    matches = [
+        (line_number, match.group(0).strip(), issue_number(match.group('reference')))
+        for line_number, line in enumerate(lines, 1)
+        for match in REFERENCE.finditer(line)
+    ]
+    if kind in ('part of', 'refs'):
+        offending = [(number, phrase) for number, phrase, target in matches if target == declared]
+        for number, phrase in offending:
+            print(f'PR body gate: line {number}: {phrase!r} closes declared {kind.title()} issue #{declared}')
+        return not offending
+
+    warnings = [(number, phrase, target) for number, phrase, target in matches
+                if target != declared]
+    for number, phrase, target in warnings:
+        print(f'PR body gate: warning: line {number}: {phrase!r} also closes issue #{target}')
+    return True
 
 
 def git(root, *args):
@@ -111,13 +148,15 @@ def evidence_head(pr, root):
 
 
 def check_evidence(pr, root):
+    if not check_closing_references(pr.get('body')):
+        return 1
     head, mode = evidence_head(pr, root)
     print(f'PR body gate: Tested head mode: {mode}')
     with tempfile.TemporaryDirectory(prefix='pr-body-') as scratch:
         body = Path(scratch) / 'body.md'
         body.write_text(pr['body'] or '', encoding='utf-8')
         return subprocess.run([
-            'elixir', '-r', 'src/lib/aiur/local_test_evidence.ex',
+            'elixir', '-r', 'src/lib/aiur/local_test_evidence.ex', '-r', 'src/lib/aiur/pr_body_lint.ex',
             '-r', 'src/lib/mix/tasks/pr_body.check.ex',
             '-e', 'Mix.start(); Mix.Tasks.PrBody.Check.run(System.argv())',
             '--', '--file', str(body), '--head', head,

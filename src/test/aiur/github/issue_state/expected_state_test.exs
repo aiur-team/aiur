@@ -1,6 +1,7 @@
 defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
   use Aiur.TestSupport
 
+  alias Aiur.GitHub.Issues
   alias Aiur.GitHub.IssueState
   alias Aiur.GitHub.ResourceStore
 
@@ -70,33 +71,6 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
       refute_received {:request, _}
     end
 
-    test "expected_state :none refuses existing single or multiple state labels" do
-      for states <- [["in-progress"], ["todo", "in-progress"]] do
-        request_fun = fn request ->
-          assert request.method == :get
-          {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(states, &%{"name" => "sym:#{&1}"})}}}
-        end
-
-        assert {:error, {:stale_issue_state, :none, actual}} =
-                 IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
-
-        assert actual in states
-        ResourceStore.reset()
-      end
-    end
-
-    test "regression guard: expected_state :none refuses a closed issue" do
-      body = %{"state" => "closed", "labels" => [%{"name" => "sym:watch"}]}
-
-      request_fun = fn request ->
-        assert request.method == :get
-        {:ok, %{status: 200, body: body}}
-      end
-
-      assert {:error, {:no_state_label_written, ^body}} =
-               IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
-    end
-
     test "rejects a stale expected state before mutating labels" do
       test_pid = self()
 
@@ -123,6 +97,70 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
       refute_receive {:request, %{method: _method}}, 100
     end
 
+    test "refuses a merge handoff when an operator park appears before revalidation" do
+      test_pid = self()
+      gets = :ets.new(:park_race_gets, [:set, :private])
+
+      request_fun = fn request ->
+        send(test_pid, {:request, request})
+
+        cond do
+          request.method == :get and String.contains?(request.url, "/pulls?") ->
+            {:ok, %{status: 200, body: [], headers: []}}
+
+          request.method == :get ->
+            count = :ets.update_counter(gets, :count, 1, {:count, 0})
+            labels = if count == 1, do: ["sym:in-progress"], else: ["sym:in-progress", "needs-triage"]
+            {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}}}
+
+          true ->
+            flunk("unexpected write: #{inspect(request)}")
+        end
+      end
+
+      assert {:error, {:operator_hold, "needs-triage"}} =
+               IssueState.update_issue_state("42", "human-review",
+                 expected_state: "in-progress",
+                 refuse_labels: ["needs-triage", "human:todo", "sym:paused", "sym:parked"],
+                 request_fun: request_fun
+               )
+
+      assert_received {:request, %{method: :get}}
+      assert_received {:request, %{method: :get}}
+      refute_received {:request, %{method: :post}}
+      refute_received {:request, %{method: :delete}}
+    end
+
+    test "expected_state :none refuses existing single or multiple state labels" do
+      for states <- [["in-progress"], ["todo", "in-progress"]] do
+        request_fun = fn request ->
+          assert request.method == :get
+          {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(states, &%{"name" => "sym:#{&1}"})}}}
+        end
+
+        assert {:error, {:stale_issue_state, :none, actual}} =
+                 IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
+
+        assert actual in states
+        ResourceStore.reset()
+      end
+    end
+
+    test "regression guard: expected_state :none refuses a closed issue" do
+      body = %{"state" => "closed", "labels" => [%{"name" => "sym:watch"}]}
+
+      request_fun = fn request ->
+        assert request.method == :get
+        {:ok, %{status: 200, body: body}}
+      end
+
+      assert {:error, {:no_state_label_written, ^body}} =
+               IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
+
+      refute_received {:request, %{method: :post}}
+      refute_received {:request, %{method: :delete}}
+    end
+
     test "revalidates expected state after the human-review gate" do
       test_pid = self()
       issue_gets = :ets.new(:issue_gets, [:set, :public])
@@ -135,16 +173,13 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
           request.method == :get and String.contains?(request.url, "/issues/42") ->
             [{:count, count}] = :ets.lookup(issue_gets, :count)
             :ets.insert(issue_gets, {:count, count + 1})
-            state = if count == 0, do: "ci-wait", else: "rework"
 
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [%{"name" => "sym:#{state}"}]
-               }
-             }}
+            if count == 0 do
+              {:ok, %{status: 200, headers: [{"etag", "stale-validator"}], body: %{"state" => "open", "labels" => [%{"name" => "sym:ci-wait"}]}}}
+            else
+              refute Map.has_key?(request, :etag)
+              {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}}}
+            end
 
           request.method == :get and String.contains?(request.url, "/pulls?") ->
             {:ok, %{status: 200, body: [], headers: []}}
@@ -162,6 +197,7 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
 
       assert_receive {:request, %{method: :get, url: issue_url}}, 1000
       assert issue_url =~ "/issues/42"
+      refute_receive {:request, %{method: :get, url: ^issue_url, etag: _etag}}, 100
       # One open-pull-request listing, not two: the `head=<owner>:aiur/42` probe
       # that used to run in front of it matched only branches the listing's own
       # filter already accepts, so it was a billed request that answered nothing
@@ -171,6 +207,27 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
       refute ticket_pull_url =~ "head="
       assert_receive {:request, %{method: :get, url: ^issue_url}}, 1000
       refute_receive {:request, %{method: _method}}, 100
+    end
+
+    # #5180: Build Order reconciliation files the body with `"labels" => []`, and
+    # the poll's `304` against its own ETag used to stamp that ETag beside it. The
+    # guarded read then got a `304` for the labelless body and saw no state.
+    test "a poll 304 cannot vouch for a reconciliation body it never saw" do
+      labels = Enum.map(~w(sym:in-progress sym:queued), &%{"name" => &1})
+      body = %{"number" => 42, "state" => "open", "updated_at" => "2026-10-18T21:42:13Z", "labels" => labels}
+      key = ResourceStore.key(:issue, "owner", "repo", "42")
+
+      request_fun = fn
+        %{method: :get, etag: ~s("v1")} -> {:ok, %{status: 304, headers: [{"etag", ~s("v1")}]}}
+        %{method: :get} -> {:ok, %{status: 200, headers: [{"etag", ~s("v1")}], body: body}}
+        %{method: _write} -> {:ok, %{status: 200, body: [%{"name" => "sym:todo"}]}}
+      end
+
+      assert {:ok, [%{state: "in-progress"}], cache} = Issues.fetch_issue_states_by_ids_conditional(["42"], %{}, request_fun: request_fun)
+      ResourceStore.deposit_unless_older(key, %{body | "labels" => []}, source: :reconciliation, version: body["updated_at"], etag: :derive)
+      assert {:ok, [%{state: "in-progress"}], _cache} = Issues.fetch_issue_states_by_ids_conditional(["42"], cache, request_fun: request_fun)
+
+      assert :ok = IssueState.update_issue_state("42", "todo", expected_state: "in-progress", request_fun: request_fun)
     end
   end
 end

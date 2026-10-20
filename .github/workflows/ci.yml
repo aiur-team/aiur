@@ -2,21 +2,16 @@ name: ci
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
-  # The merge queue requires checks on its candidate ref (#1381).
   merge_group:
   push:
     branches: [main, v2]
   schedule:
     - cron: '23 7 * * *'
-  # Manual head checks when pull_request synchronize does not create runs (#2397).
   workflow_dispatch:
-# Initial PR runs supersede each other; queue groups and reruns stay independent.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && (github.event.action != 'labeled' || github.event.label.name == 'ci:full') }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ format('{0}-{1}', github.run_attempt == 1 && (github.event_name == 'pull_request' && github.event.pull_request.number || github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main') || github.run_id, github.run_attempt) }}
+  cancel-in-progress: ${{ github.run_attempt == 1 && github.event_name == 'pull_request' && (github.event.action == 'synchronize' || (github.event.action == 'labeled' && github.event.label.name == 'ci:full')) }}
 jobs:
-  # PRs run fast checks unless ci:full or base policy opts into the full set; drafts run none until ready_for_review (#4942).
-  # Only ci gate is required: it rejects skipped jobs in the selected set.
   changes:
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
@@ -59,7 +54,7 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' }}
     name: workflow security
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -70,8 +65,8 @@ jobs:
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Guard workflow triggers, action pins and PR body rollout
-        run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py
+      - uses: ./.github/actions/workflow-security
+      - run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
       - name: Test human-only merge ruleset verifier
@@ -91,9 +86,9 @@ jobs:
       - name: Test CI run-attempt disclosure
         run: bash scripts/test-report-ci-run-attempt.sh
       - name: Test CI change classifier
-        run: bash scripts/test-classify-ci-changes.sh
+        run: bash scripts/test-classify-ci-changes.sh && node --test scripts/test-build-home-band-runner.mjs scripts/test-home-parity-signoff.mjs
       - name: Test CI concurrency
-        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-check-test-time-bombs.py
+        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-ci-soak.py && python3 scripts/test-check-test-time-bombs.py
       - name: Verify live merge rulesets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -125,9 +120,7 @@ jobs:
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: src
+    defaults: { run: { working-directory: src } }
     steps:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -147,9 +140,7 @@ jobs:
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: src
+    defaults: { run: { working-directory: src } }
     steps:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -213,9 +204,7 @@ jobs:
       fail-fast: false
       matrix:
         partition: [1, 2, 3, 4]
-    defaults:
-      run:
-        working-directory: src
+    defaults: { run: { working-directory: src } }
     steps:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -379,13 +368,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/run-quarantine
   home-css:
-    name: browser home CSS
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    container: {image: mcr.microsoft.com/playwright:v1.61.1-noble}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy: {fail-fast: false, matrix: {shard: [1, 2, 3, 4]}}
     steps:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -396,6 +384,7 @@ jobs:
       - name: Verify home CSS
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: ./.github/actions/verify-home-css
+        with: {shard: "${{ matrix.shard }}"}
   analytics:
     needs: changes
     if: ${{ needs.changes.outputs.full_ci == 'true' }}
@@ -444,7 +433,7 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make dialyzer
   browser:
-    name: browser smoke (${{ matrix.shard }}/5)
+    name: browser smoke (${{ matrix.shard }}/8)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
@@ -454,12 +443,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { shard: 1, verify_fixtures: true, upload_evidence: true }
-          - { shard: 2, visual_regression: first }
-          - { shard: 3 }
-          - { shard: 4 }
-          - { shard: 5, visual_regression: second }
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        include: [{ shard: 1, verify_fixtures: true, upload_evidence: true },
+          { shard: 2, visual_regression: first },
+          { shard: 5, visual_regression: second },
+          { shard: 2, upload_evidence: true }, { shard: 5, upload_evidence: true }, { shard: 8, upload_evidence: true }]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -620,9 +608,14 @@ jobs:
         env:
           AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}
         run: bash ../scripts/run-ci-affected-tests.sh
+  # Repeats the PR's added or modified tests with fresh seeds; see .github/workflows/soak.yml.
+  soak:
+    needs: changes
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result == 'success' }}
+    uses: ./.github/workflows/soak.yml
   ci-gate:
     name: ci gate
-    needs: [changes, workflow-security, pre-handoff, lint, affected-tests, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
+    needs: [changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 2

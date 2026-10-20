@@ -1827,7 +1827,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
   <div class="ax-set" id="ax-set">
     <button class="ax-ib ax-cog" id="ax-cog" type="button" title="Settings" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
     <div class="ax-menu" id="ax-menu" role="menu">
-    <button class="ax-mi" id="ax-pause" type="button" role="menuitemcheckbox" aria-pressed="false"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3.4" height="14" rx="1.1"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.1"/></svg><span>Pause all agents</span><i class="ax-sw"></i></button>
+    <button class="ax-mi" id="ax-pause" type="button" role="menuitemcheckbox" aria-pressed="false"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3.4" height="14" rx="1.1"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.1"/></svg><span>Pause new starts</span><i class="ax-sw"></i></button>
     <button class="ax-mi" id="theme-toggle" type="button" role="menuitem">
           <span class="toggle-icon">
             <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
@@ -5102,7 +5102,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
         d.addEventListener("pointermove", mv); d.addEventListener("pointerup", up);
       });
     })();
-    const axp = $("#ax-pause"); if (axp) axp.addEventListener("click", () => { const on = axp.getAttribute("aria-pressed") !== "true"; axp.setAttribute("aria-pressed", on); axp.classList.toggle("on", on); axp.title = on ? "Resume all agents" : "Pause all agents"; $("#ax-paused").classList.toggle("show", on); });
+    const axp = $("#ax-pause"); if (axp) axp.addEventListener("click", () => { const on = axp.getAttribute("aria-pressed") !== "true"; axp.setAttribute("title", on ? "Resume new starts" : "Pause new starts"); axp.setAttribute("aria-pressed", on); axp.classList.toggle("on", on); $("#ax-paused").classList.toggle("show", on); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeConversation(); closeTicketModal(); closeConfirm(); } });
 
     // decisions banner

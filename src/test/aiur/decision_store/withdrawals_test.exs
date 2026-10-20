@@ -126,7 +126,15 @@ defmodule Aiur.DecisionStore.WithdrawalsTest do
   end
 
   test "expiration is durable, idempotent, historic, and auditable", %{dir: dir} do
-    pid = start_store!(dir)
+    test_pid = self()
+
+    dispatcher = fn dispatched, opts ->
+      item = correlated_queue_item(dispatched, dispatched.answer, opts[:attempt_id], 3801)
+      send(test_pid, {:expired_answer_queued, item})
+      {:ok, %{status: :accepted, item: item}}
+    end
+
+    pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
     created_at = ~U[2026-07-24 12:00:00Z]
     expired_at = DateTime.add(created_at, 600, :second)
 
@@ -144,8 +152,26 @@ defmodule Aiur.DecisionStore.WithdrawalsTest do
 
     assert duplicate.decision_status == :expired
 
-    answer_payload = %{"idempotency_key" => "too-late", "expected_version" => 1, "custom_response" => "Ship"}
-    assert {:error, {:conflict, :expired}} = answer(pid, decision.decision_id, answer_payload)
+    answer_payload = %{"idempotency_key" => "answer-after-expiry", "expected_version" => 1, "custom_response" => "Continue waiting"}
+    assert {:ok, %{status: :accepted, decision: answered}} = answer(pid, decision.decision_id, answer_payload)
+    assert answered.decision_status == :decided
+    assert answered.answer.custom_response == "Continue waiting"
+    assert_receive {:expired_answer_queued, item}, 1_000
+    assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+    assert :ok = DecisionStore.record_transport_async(:consumed, item, nil, pid)
+    delivered = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :consumed))
+    assert delivered.answer.custom_response == "Continue waiting"
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+
+    assert Enum.map(audit, & &1.type) == [
+             :requested,
+             :decision_expired,
+             :answer_recorded,
+             :dispatch_queued,
+             :delivered,
+             :consumed
+           ]
 
     assert {:ok, %{decisions: [historic], total: 1}} =
              DecisionStore.retained_query(
@@ -154,18 +180,51 @@ defmodule Aiur.DecisionStore.WithdrawalsTest do
              )
 
     assert historic.decision_id == decision.decision_id
-
-    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
-
-    assert [
-             %DecisionEvent{type: :requested},
-             %DecisionEvent{type: :decision_expired, data: %{reason_class: "agent_not_running"}}
-           ] = audit
+    assert Enum.any?(audit, &match?(%DecisionEvent{type: :decision_expired, data: %{reason_class: "agent_not_running"}}, &1))
 
     GenServer.stop(pid)
     restarted = start_store!(dir)
     assert {:ok, replayed} = DecisionStore.get(decision.decision_id, restarted)
-    assert replayed.decision_status == :expired
+    assert replayed.decision_status == :decided
+  end
+
+  test "expired blockers can be mooted or dismissed after their ticket is no longer active", %{dir: dir} do
+    pid = start_store!(dir)
+    opts = [actor: %{kind: :operator, id: "dashboard"}]
+
+    assert {:ok, %{decision: closed_ticket}} =
+             request(pid, %{"question" => "Should closed work continue?", "blocking" => true}, ticket: %{@ticket | identifier: "closed-41"})
+
+    assert {:ok, %{decision: dismissed_ticket}} =
+             request(pid, %{"question" => "Should retired work continue?", "blocking" => true}, ticket: %{@ticket | identifier: "closed-42"})
+
+    for decision <- [closed_ticket, dismissed_ticket] do
+      assert {:ok, %{decision: %{decision_status: :expired}}} =
+               DecisionStore.expire(
+                 decision.decision_id,
+                 "agent_not_running",
+                 [now: DateTime.add(decision.created_at, 600, :second)],
+                 pid
+               )
+    end
+
+    assert {:ok, %{status: :accepted, decision: mooted}} =
+             DecisionStore.moot(
+               closed_ticket.decision_id,
+               %{"reason_class" => "ticket_closed"},
+               opts,
+               pid
+             )
+
+    assert mooted.decision_status == :moot
+    assert mooted.answer == nil
+
+    assert {:ok, %{status: :accepted, decision: dismissed}} =
+             DecisionStore.dismiss(dismissed_ticket.decision_id, opts, pid)
+
+    assert dismissed.decision_status == :dismissed
+    assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
+    assert ids == MapSet.new()
   end
 
   describe "moot disposition (#2099)" do
@@ -326,6 +385,40 @@ defmodule Aiur.DecisionStore.WithdrawalsTest do
 
       assert {:ok, %{counts: %{blocking: 0, open: 0}}} =
                DecisionStore.retained_counts(pid)
+    end
+
+    test "an expired blocker for a closed ticket can be mooted", %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{"question" => "Should closed ticket be deployed?", "blocking" => true})
+
+      assert {:ok, %{decision: expired}} =
+               DecisionStore.expire(
+                 decision.decision_id,
+                 "agent_not_running",
+                 [now: DateTime.add(decision.created_at, 600, :second)],
+                 pid
+               )
+
+      assert expired.decision_status == :expired
+
+      assert {:ok, %{status: :accepted, decision: mooted}} =
+               DecisionStore.moot(
+                 decision.decision_id,
+                 %{"reason_class" => "ticket_closed", "reason" => "The ticket is closed."},
+                 [actor: %{kind: :operator, id: "dashboard"}],
+                 pid
+               )
+
+      assert mooted.decision_status == :moot
+      assert mooted.answer == nil
+
+      assert {:ok, %{decisions: [], total: 0}} =
+               DecisionStore.retained_query(
+                 %{limit: 25, cursor: nil, lifecycle: :open, search: nil, ticket: nil},
+                 pid
+               )
     end
 
     test "moot requires a reason class and is write-gated", %{dir: dir} do

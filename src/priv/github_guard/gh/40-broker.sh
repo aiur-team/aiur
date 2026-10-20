@@ -1,9 +1,9 @@
 # Fragment of the assembled `gh` guard (Aiur.AgentGitHubGuard.Script); not a standalone script.
 budget_command() {
   if [ -n "$budget_identity_key" ]; then
-    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key" --identity-key "$budget_identity_key"
+    python3 -I "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key" --identity-key "$budget_identity_key"
   else
-    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
+    python3 -I "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
   fi
 }
 
@@ -52,7 +52,7 @@ valid_budget_lease() {
 valid_budget_hold_reset() {
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
 
-  python3 - "$1" <<'PY'
+  python3 -I - "$1" <<'PY'
 import sys
 import time
 
@@ -233,13 +233,17 @@ budget_acquire() {
 }
 
 budget_release() {
+  budget_stop_renewal
+  [ -n "$budget_lease" ] || return 0
+  budget_command release --lease-id "$budget_lease" >/dev/null 2>&1 || true
+  budget_lease=
+}
+
+budget_stop_renewal() {
   if [ -n "$budget_renewal_pid" ]; then
     kill "$budget_renewal_pid" 2>/dev/null || true
     budget_renewal_pid=
   fi
-  [ -n "$budget_lease" ] || return 0
-  budget_command release --lease-id "$budget_lease" >/dev/null 2>&1 || true
-  budget_lease=
 }
 
 # A stale-broker acquire abort: the ledger's schema trigger refused this

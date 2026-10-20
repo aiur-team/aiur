@@ -16,10 +16,10 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdict do
   end
 
   def settle(%{decision: :pending, pending_reason: :check_runs_incomplete, failures: failures} = result, runs, _head_sha, opts) do
-    if cancelled_only?(runs) and not required_failure?(failures, opts) do
-      %{result | pending_reason: :ci_cancelled, failures: []}
-    else
-      result
+    cond do
+      cancelled_only?(runs) and required_failure?(failures, opts) -> result |> Map.put(:decision, :failed) |> Map.delete(:pending_reason)
+      cancelled_only?(runs) -> %{result | pending_reason: :ci_cancelled, failures: []}
+      true -> result
     end
   end
 

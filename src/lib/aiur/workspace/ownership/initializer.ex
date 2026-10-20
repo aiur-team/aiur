@@ -40,6 +40,7 @@ defmodule Aiur.Workspace.Ownership.Initializer do
       process_alive_fun: Keyword.get(opts, :process_alive_fun, &ProcessTree.process_alive?/1),
       process_identity_fun: Keyword.get(opts, :process_identity_fun, &ProcessTree.process_identity/1),
       telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
+      retention_alert_fun: Keyword.get(opts, :retention_alert_fun, &Aiur.Signal.alert/2),
       audit_fun: Keyword.get(opts, :audit_fun, &AuditLog.write/1),
       host_lock: Map.get(receipt, :host_lock),
       reaping?: false,

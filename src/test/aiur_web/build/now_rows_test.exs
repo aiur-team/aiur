@@ -9,7 +9,6 @@ defmodule AiurWeb.Build.NowRowsTest do
   test "state precedence covers every table row and unknown command count" do
     cases = [
       {row(%{runtime: %{bucket: :running, work_state: :error}}), "error"},
-      {row(%{runtime: %{bucket: :idle}, reasons: %{waiting: :latched_lifetime}}), "retries"},
       {row(%{runtime: %{bucket: :running, work_state: :paused}, open_command_count: 2}), "command"},
       {row(%{reasons: %{pause: :ci_wait}}), "parked"},
       {row(%{reasons: %{pause: :operator_pause}}), "paused"},
@@ -17,15 +16,21 @@ defmodule AiurWeb.Build.NowRowsTest do
       {row(%{runtime: %{bucket: :running, work_state: :deactivated}}), nil}
     ]
 
-    for {input, expected} <- cases, do: assert(facts(input).agent.state == expected)
+    for {input, expected} <- cases do
+      result = facts(input)
+      assert result.agent.state == expected
+      assert result.status == if(expected == "error", do: "failed", else: if(expected == "retrying", do: "queued", else: "running"))
+    end
   end
 
-  test "policy stuck reasons beat command and paused; retry backoff is error" do
+  test "policy stuck reasons beat command and paused; retry backoff stays distinct from failure" do
     for waiting <- [:tracker_unavailable, :backing_off, :unresponsive] do
       assert facts(row(%{reasons: %{waiting: waiting, pause: :operator_pause}, open_command_count: 1})).agent.state == "error"
     end
 
-    assert facts(row(%{runtime: %{bucket: :retrying, work_state: :retrying}})).agent.state == "error"
+    retrying = facts(row(%{runtime: %{bucket: :retrying, work_state: :retrying}}))
+    assert retrying.agent.state == "retrying"
+    assert retrying.status == "queued"
     assert facts(row(%{reasons: %{waiting: :waiting_for_human}})).agent.state == "command"
     assert facts(row(%{runtime: %{bucket: :running, work_state: :starting}})).agent.state == "active"
   end
@@ -47,11 +52,17 @@ defmodule AiurWeb.Build.NowRowsTest do
       row(%{runtime: %{bucket: :idle}, reasons: %{waiting: :awaiting_dispatch}}),
       row(%{terminal?: true}),
       row(%{replacement_boundary?: true}),
+      row(%{runtime: %{bucket: :idle}, reasons: %{waiting: :latched_lifetime}}),
       row(%{identity: nil}),
       row(%{runtime: %{bucket: :idle}, reasons: %{waiting: :waiting_for_human}, open_command_count: 1})
     ]
 
     assert NowRows.build(catalog(inputs), repository: @repo).rows == %{}
+  end
+
+  test "spent lifetime retries with no live agent are excluded from Now" do
+    retry = row(%{runtime: %{bucket: :idle}, reasons: %{waiting: :latched_lifetime}})
+    assert NowRows.build(catalog([retry]), repository: @repo).rows == %{}
   end
 
   test "repository matching is case insensitive and excludes same-number foreign tickets" do
@@ -76,6 +87,8 @@ defmodule AiurWeb.Build.NowRowsTest do
     assert facts(row(%{agent_family: "muse"})).agent.model == "muse"
     assert facts(row(%{agent_family: "muse"})).agent.name == "Muse"
     assert facts(row(%{agent_family: nil, backend: "codex"})).agent.name == "Codex"
+    assert facts(row(%{agent_family: :bogus, backend: "codex"})).agent.model == "codex"
+    assert facts(row(%{agent_family: :bogus, backend: "codex"})).agent.name == "Codex"
     for value <- ~w(none minimal low medium high xhigh max), do: assert(facts(row(%{effort: value})).agent.effort == value)
     assert facts(row(%{effort: :high})).agent.effort == "high"
     assert facts(row(%{effort: "<b>"})).agent.effort == nil
@@ -127,21 +140,32 @@ defmodule AiurWeb.Build.NowRowsTest do
 
   test "eight design agents match data parity and validate after joining" do
     fixture = File.read!(Path.expand("../../fixtures/build_home/live.json", __DIR__)) |> Jason.decode!()
-    inputs = Enum.map(fixture["sections"]["now"], &design_row/1)
+    expected_rows = Enum.reject(fixture["sections"]["now"], &(&1["agent"]["state"] == "retries"))
+    inputs = Enum.map(expected_rows, &design_row/1)
     output = NowRows.build(catalog(inputs), repository: @repo).rows
-    assert map_size(output) == 8
+    assert map_size(output) == 7
 
     joined =
-      Enum.map(fixture["sections"]["now"], fn expected ->
+      Enum.map(expected_rows, fn expected ->
         actual = Payload.scrub(output[expected["id"]])
         assert Map.take(actual, ~w(agent pct)) == Map.take(expected, ~w(agent pct))
-        if expected["agent"]["state"] == "retries", do: assert(actual["start"] == nil), else: assert(abs(actual["start"] - expected["start"]) <= 1)
+        assert abs(actual["start"] - expected["start"]) <= 1
         merged = Map.merge(expected, actual)
         assert Payload.row(merged) == {:ok, merged}
         merged
       end)
 
     assert Payload.validate(put_in(fixture, ["sections", "now"], joined)) == :ok
+  end
+
+  test "a retry-backoff agent row validates inside a full snapshot" do
+    fixture = File.read!(Path.expand("../../fixtures/build_home/live.json", __DIR__)) |> Jason.decode!()
+    [first | rest] = fixture["sections"]["now"]
+    built = row(%{identity: identity(first["num"]), runtime: %{bucket: :retrying, work_state: :retrying}})
+    actual = Payload.scrub(NowRows.build(catalog([built]), repository: @repo).rows[first["id"]])
+    assert actual["agent"]["state"] == "retrying"
+    message = Payload.snapshot(put_in(fixture, ["sections", "now"], [Map.merge(first, actual) | rest]), "epoch", 0)
+    assert Payload.validate(message) == :ok
   end
 
   defp design_row(expected) do

@@ -45,6 +45,10 @@ defmodule Aiur.RunTelemetry.FactsCapture do
   @spec drain(GenServer.server()) :: :ok
   def drain(server), do: GenServer.call(server, :drain)
 
+  @doc false
+  @spec await_attempt(GenServer.server()) :: :ok
+  def await_attempt(server), do: GenServer.call(server, :await_attempt)
+
   @impl true
   def init(opts) do
     path = Keyword.get_lazy(opts, :path, fn -> Path.join(Summaries.analytics_dir(), "facts-pending.json") end)
@@ -61,7 +65,8 @@ defmodule Aiur.RunTelemetry.FactsCapture do
       fetch: Keyword.get(opts, :fetch, &GitHubFacts.fetch/1),
       record: Keyword.get(opts, :record, &record_facts/2),
       interval: Keyword.get(opts, :interval, 5_000),
-      task: nil
+      task: nil,
+      attempt_waiters: []
     }
 
     schedule(state)
@@ -83,6 +88,16 @@ defmodule Aiur.RunTelemetry.FactsCapture do
   @impl true
   def handle_call(:drain, _from, state), do: {:reply, :ok, work(state)}
 
+  def handle_call(:await_attempt, from, state) do
+    state = work(state)
+
+    if is_nil(state.task) do
+      {:reply, :ok, state}
+    else
+      {:noreply, %{state | attempt_waiters: [from | state.attempt_waiters]}}
+    end
+  end
+
   @impl true
   def handle_info(:work, state), do: {:noreply, work(state)}
 
@@ -93,11 +108,14 @@ defmodule Aiur.RunTelemetry.FactsCapture do
 
   def handle_info({ref, result}, %{task: {ref, ticket}} = state) do
     Process.demonitor(ref, [:flush])
-    {:noreply, finish(%{state | task: nil}, ticket, result)}
+    state = finish(%{state | task: nil}, ticket, result)
+    reply_to_attempt_waiters(state)
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{task: {ref, ticket}} = state),
-    do: {:noreply, finish(%{state | task: nil}, ticket, {:error, :capture_worker_exit})}
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{task: {ref, ticket}} = state) do
+    state = finish(%{state | task: nil}, ticket, {:error, :capture_worker_exit})
+    reply_to_attempt_waiters(state)
+  end
 
   def handle_info(_message, state), do: {:noreply, state}
 
@@ -184,6 +202,17 @@ defmodule Aiur.RunTelemetry.FactsCapture do
 
   defp schedule(%{interval: interval}) do
     Process.send_after(self(), :tick, interval)
+  end
+
+  defp reply_to_attempt_waiters(%{attempt_waiters: []} = state), do: {:noreply, state}
+
+  defp reply_to_attempt_waiters(%{attempt_waiters: waiters} = state) do
+    if is_nil(state.task) do
+      Enum.each(waiters, &GenServer.reply(&1, :ok))
+      {:noreply, %{state | attempt_waiters: []}}
+    else
+      {:noreply, state}
+    end
   end
 
   defp load(path) do

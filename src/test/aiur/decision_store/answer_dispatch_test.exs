@@ -14,14 +14,17 @@ defmodule Aiur.DecisionStore.AnswerDispatchTest do
       end
 
       pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      source_id = "answer-dispatch-#{System.unique_integer([:positive])}"
 
       assert {:ok, %{decision: decision}} =
                request(pid, %{
                  "question" => "Deploy now?",
                  "blocking" => true,
-                 "source_id" => "answer-1",
+                 "source_id" => source_id,
                  "options" => [%{"id" => "ship", "label" => "Ship it"}]
                })
+
+      decision_id = decision.decision_id
 
       :ok = Exchange.subscribe("ticket.979.agent.decision.answered")
       :ok = Exchange.subscribe("ticket.979.agent.decision.queued")
@@ -39,10 +42,9 @@ defmodule Aiur.DecisionStore.AnswerDispatchTest do
       settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
       assert settled.answer == accepted
       assert [%{queue_item_id: 41, attempt_id: ^attempt_id, status: :queued}] = settled.dispatch_attempts
-      assert_receive {:event, %{topic: "ticket.979.agent.decision.answered"}}, 500
-      assert_receive {:event, %{topic: "ticket.979.agent.decision.queued"}}, 500
-      assert_receive {:decision_changed, decision_id, 1}, 500
-      assert decision_id == decision.decision_id
+      assert_receive {:event, %{"decision_id" => ^decision_id, topic: "ticket.979.agent.decision.answered"}}, 500
+      assert_receive {:event, %{"decision_id" => ^decision_id, topic: "ticket.979.agent.decision.queued"}}, 500
+      assert_receive {:decision_changed, ^decision_id, 1}, 500
       assert_receive {:decision_changed, ^decision_id, 1}, 500
     end
 

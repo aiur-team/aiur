@@ -7,6 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   attr(:state, :map, default: %{})
   attr(:writable, :boolean, required: true)
   attr(:compact, :boolean, default: false)
+  attr(:live_connected, :boolean, default: true)
 
   @spec decision_action(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_action(assigns) do
@@ -17,7 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     status = decision.decision_status
     blocking? = Map.get(decision, :blocking, false)
 
-    answerable? = status in [:open, :deferred, :dismissed]
+    answerable? = status in [:open, :deferred, :dismissed] or expired_blocker?(decision)
 
     # Dismiss closes a Command outright: the operator waves it off and, when the
     # agent is live, the agent is told to proceed under its own judgement. Any
@@ -50,6 +51,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
       <p :if={@error} class="decision-action-message error" role="alert">{@error}</p>
       <p :if={@notice} class="decision-action-message success" role="status">{@notice}</p>
+      <p :if={@writable and not @live_connected} class="decision-action-message" role="status">
+        Connecting to the live dashboard. Decision controls will be ready when connected.
+      </p>
 
       <form
         :if={@writable and @answerable?}
@@ -114,6 +118,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-click="defer-decision"
               phx-value-decision-id={@decision.decision_id}
               phx-disable-with="Deferring…"
+              disabled={!@live_connected}
             >{if @decision.decision_status == :deferred, do: "Notify Executor again", else: "Defer to Executor"}</button>
             <button
               :if={@dismissible?}
@@ -124,6 +129,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-disable-with="×"
               aria-label="Dismiss blocker"
               title="Dismiss blocker"
+              disabled={!@live_connected}
             >×</button>
             <button
               :if={@acknowledgeable?}
@@ -132,8 +138,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-click="dismiss-decision"
               phx-value-decision-id={@decision.decision_id}
               phx-disable-with="Acknowledging…"
+              disabled={!@live_connected}
             >Acknowledge</button>
-            <button class="btn" type="submit" phx-disable-with="Recording…">{if @decision.decision_status in [:dismissed, :deferred], do: "Change choice", else: "Decision"}</button>
+            <button class="btn" type="submit" disabled={!@live_connected} phx-disable-with="Recording…">{if @decision.decision_status in [:dismissed, :deferred], do: "Change choice", else: "Decision"}</button>
           </div>
         </footer>
       </form>
@@ -190,6 +197,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   defp recommended?(%{recommendation: nil}, _option), do: false
   defp recommended?(decision, option), do: decision.recommendation.option_id == option.id
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
+
+  defp expired_blocker?(%{decision_status: :expired, blocking: true, answer: nil}), do: true
+  defp expired_blocker?(_decision), do: false
 
   defp failure_copy(nil), do: "The durable action remains available for an explicit retry."
   defp failure_copy(reason), do: "#{humanize(reason)}. The durable action remains available for an explicit retry."

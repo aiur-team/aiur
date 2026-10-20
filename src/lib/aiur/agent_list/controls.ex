@@ -73,9 +73,8 @@ defmodule Aiur.AgentList.Controls do
 
   defp handle_control_result(state, _action, {:ok, _}), do: state
 
-  defp handle_control_result(state, action, {:error, :globally_paused}) do
-    noun = if action == :pause, do: "pause", else: "resume"
-    rc_hint(state, "Aiur is globally paused — per-agent #{noun} has no effect; run `aiurdev resume` first")
+  defp handle_control_result(state, _action, {:error, :globally_paused}) do
+    rc_hint(state, "Aiur is globally paused — per-agent resume is refused while new starts are paused; run `aiurdev resume` first")
   end
 
   defp handle_control_result(state, _action, {:error, reason}) do

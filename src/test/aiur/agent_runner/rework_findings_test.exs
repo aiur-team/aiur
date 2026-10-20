@@ -78,9 +78,31 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
     end
 
     test "a handback with no commits since the review is refused" do
-      assert ReworkFindings.validate([], nil, [], :unknown) == {:blocked, ["no new commits since the review"]}
+      assert ReworkFindings.validate([], nil, [], :unknown) == {:blocked, ["no new commits or PR body edit since the review"]}
       assert ReworkFindings.validate([], nil, [@commit], []) == :allow
       assert ReworkFindings.validate([], nil, :unknown, :unknown) == :allow
+    end
+
+    test "a PR body edit stands in for a commit, but not for a code finding's fix" do
+      assert ReworkFindings.validate([], nil, [], :unknown, true) == :allow
+
+      answers = [%{"id" => "1", "status" => "fixed", "commit" => "aaaaaaa"}, %{"id" => "2", "status" => "disputed", "evidence" => "y"}]
+      assert {:blocked, [not_a_commit, untouched]} = ReworkFindings.validate(@findings, answers, [], [], true)
+      assert not_a_commit =~ "is marked fixed by \"aaaaaaa\", which is not a commit since the review"
+      assert untouched =~ "lib/a.ex was not changed since the review"
+    end
+  end
+
+  describe "body_edited_since?/3" do
+    test "only an edit after the review counts" do
+      edited = fn at -> [body_edit_fetcher: fn 4924 -> {:ok, at} end] end
+      review_at = "2026-10-17T13:43:10Z"
+
+      assert ReworkFindings.body_edited_since?(4924, review_at, edited.("2026-10-17T13:55:02Z"))
+      refute ReworkFindings.body_edited_since?(4924, review_at, edited.("2026-10-17T13:40:00Z"))
+      refute ReworkFindings.body_edited_since?(4924, review_at, edited.(nil))
+      refute ReworkFindings.body_edited_since?(4924, review_at, body_edit_fetcher: fn 4924 -> {:error, :rate_limited} end)
+      refute ReworkFindings.body_edited_since?(nil, review_at, edited.("2026-10-17T13:55:02Z"))
     end
   end
 
@@ -163,11 +185,37 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
       end
 
       response = executor.("clean").("aiur_set_ticket_state", %{"state" => "ci-wait"})
-      assert Jason.decode!(response["output"])["error"]["message"] =~ "no new commits since the review"
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "no new commits or PR body edit since the review"
 
       response = executor.("dirty").("aiur_set_ticket_state", %{"state" => "ci-wait"})
       assert Jason.decode!(response["output"])["error"]["reason"] == "pull_request_conflicting"
       refute_received :unexpected_write
+    end
+
+    test "hands back a body-only fix with no new commit once the body is edited after the review" do
+      head = String.duplicate("c", 40)
+      test_pid = self()
+      body = "Only the PR body blocks this now. No code change is needed."
+
+      executor = fn edited_at ->
+        ToolExecutor.build(%Issue{id: "4884", identifier: "4884", state: "rework"}, nil, nil, %{},
+          coordination_runner: fn _key, operation, _opts -> operation.() end,
+          ticket_state_writer: fn issue_id, state -> send(test_pid, {:state_write, issue_id, state}) && :ok end,
+          open_pr_fetcher: fn "4884" -> {:ok, %{"number" => 4924, "head" => %{"sha" => head}}} end,
+          reviews_fetcher: fn 4924 ->
+            {:ok, [%{"state" => "CHANGES_REQUESTED", "body" => body, "commit_id" => head, "submitted_at" => "2026-10-17T13:43:10Z", "id" => 1, "user" => %{"login" => "r"}, authoritative: true}]}
+          end,
+          body_edit_fetcher: fn 4924 -> {:ok, edited_at} end,
+          pull_request_fetcher: fn 4924 -> {:ok, %{"mergeable_state" => "clean"}} end
+        )
+      end
+
+      stale = executor.("2026-10-17T13:30:00Z").("aiur_set_ticket_state", %{"state" => "human-review"})
+      assert Jason.decode!(stale["output"])["error"]["message"] =~ "no new commits or PR body edit since the review"
+      refute_received {:state_write, _, _}
+
+      assert executor.("2026-10-17T13:55:02Z").("aiur_set_ticket_state", %{"state" => "human-review"})["success"]
+      assert_receive {:state_write, "4884", "human-review"}, 100
     end
   end
 

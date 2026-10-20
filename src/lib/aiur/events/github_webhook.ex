@@ -5,7 +5,7 @@ defmodule Aiur.Events.GithubWebhook do
   `Aiur.Events.GithubWebhook.Normalizer` decides *what* a delivery means;
   this module performs the same publish the pollers perform —
   `Aiur.Events.Sanitizer.github_payload/2` followed by
-  `Aiur.Events.Publisher.publish/3` — so push and poll are indistinguishable
+  `Aiur.Events.publish/3` — so push and poll are indistinguishable
   to every consumer, and `Publisher`'s replay dedup collapses the pair when
   both observe the same GitHub event.
 
@@ -61,13 +61,15 @@ defmodule Aiur.Events.GithubWebhook do
   alias Aiur.AllowedContributors
   alias Aiur.AllowedContributors.Candidate
   alias Aiur.Config
+  alias Aiur.Events
   alias Aiur.Events.GithubWebhook.{Deposit, Normalizer, ReadyTransition, ThreadResolver}
-  alias Aiur.Events.{Publisher, Sanitizer}
+  alias Aiur.Events.Sanitizer
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Issues
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator
   alias Aiur.Webhooks
+  alias Aiur.Webhooks.ModeTable
 
   @min_reconcile_debounce_ms 2_000
 
@@ -88,7 +90,7 @@ defmodule Aiur.Events.GithubWebhook do
   Options are passed through to `Normalizer.normalize/3` (notably `:repo`),
   plus:
 
-    * `:publish_fun` — 3-arity override for `Publisher.publish/3` (test seam)
+    * `:publish_fun` — 3-arity override for `Events.publish/3` (test seam)
     * `:reconcile_fun` — 1-arity override for the reconcile nudge
     * `:orchestrator` — process name or pid to nudge for a targeted
       `{:github_webhook_reconcile, hint}` review-thread wake; defaults to
@@ -164,6 +166,7 @@ defmodule Aiur.Events.GithubWebhook do
     case Normalizer.tracked_repo(payload, opts) do
       {:ok, repo} ->
         Webhooks.record_delivery(repo, Keyword.take(opts, [:at, :server]))
+        ModeTable.record_config_event(repo, event_type)
         Deposit.deposit(event_type, payload, repo, Keyword.take(opts, [:at, :delivery_id]))
         :ok
 
@@ -242,7 +245,7 @@ defmodule Aiur.Events.GithubWebhook do
   end
 
   defp publish_all(triples, opts) do
-    publish_fun = Keyword.get(opts, :publish_fun, &Publisher.publish/3)
+    publish_fun = Keyword.get(opts, :publish_fun, &Events.publish/3)
 
     results =
       Enum.map(triples, fn {topic, payload, publish_opts} ->

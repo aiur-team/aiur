@@ -24,9 +24,11 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) for (con
     await pair.design.evaluate(() => window.__E8Render.stop())
     // Collapse the separately owned sticky Now band through its actual UI, so
     // it cannot cover section headers while their natural pixels are captured.
-    await pair.design.locator('[data-min]').evaluate(button => button.click())
-    await expect(pair.design.locator('#bd-now')).toHaveClass(/min/)
-    await pair.product.evaluate(async () => { (await import('/build-home/state.js')).S.ready = false })
+    for (const page of [pair.design, pair.product]) {
+      await page.locator('[data-min]').evaluate(button => button.click())
+      await expect(page.locator('#bd-now')).toHaveClass(/min/)
+    }
+    await pair.product.evaluate(async () => { const { S, ctx } = await import('/build-home/state.js'); S.ready = false; ctx.snapping = true })
     // The fixture's initial zoom updates --dot and transitions background-size
     // for 400ms. Read it only after both pages finish that real transition;
     // otherwise their computed values can differ by a fraction of a pixel.
@@ -50,8 +52,8 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) for (con
       }))
     })))
     const design = await read(pair.design), product = await read(pair.product)
-    // C9-T02 deliberately leaves L.band.h=0 until C9-T08. History has the same
-    // global origin; later sections need equal section-relative viewport inputs.
+    // Section-relative inputs isolate virtualization and card geometry. The
+    // Now-band suite covers composed mobile headers at matching global scroll.
     // Compare every owned card/mark, with exact identity (never an intersection).
     for (let i = 0; i < design.length; i++) {
       expect(product[i].h).toBe(design[i].h); expect(product[i].head).toBe(design[i].head)

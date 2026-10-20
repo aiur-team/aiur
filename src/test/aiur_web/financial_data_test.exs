@@ -53,7 +53,7 @@ defmodule AiurWeb.FinancialDataTest do
       end)
 
     refute_receive {:protected_provider_invoked, _payload}, 0
-    refute inspect(:sys.get_state(cache)) =~ sentinel.account
+    Aiur.TestSupport.refute_leak(:sys.get_state(cache), sentinel.account)
     refute log =~ sentinel.account
   end
 
@@ -107,7 +107,7 @@ defmodule AiurWeb.FinancialDataTest do
 
     refute :sys.get_state(cache).entries == prior_entries
     assert :sys.get_state(cache).entries == %{}
-    refute inspect(:sys.get_state(cache)) =~ sentinel.account
+    Aiur.TestSupport.refute_leak(:sys.get_state(cache), sentinel.account)
 
     assert {:ok, %{account: "CURRENT-GENERATION"}} =
              FinancialData.fetch_provider_meter(
@@ -118,7 +118,7 @@ defmodule AiurWeb.FinancialDataTest do
                fn -> %{account: "CURRENT-GENERATION"} end
              )
 
-    refute inspect(:sys.get_state(cache)) =~ sentinel.account
+    Aiur.TestSupport.refute_leak(:sys.get_state(cache), sentinel.account)
   end
 
   test "configuration loss cancels an in-flight provider worker before cache or reply", %{cache: cache} do
@@ -149,7 +149,7 @@ defmodule AiurWeb.FinancialDataTest do
     assert {:ok, {:error, :authentication_required}} = Task.yield(task, 2_000)
     assert_receive {:DOWN, ^loader_ref, :process, ^loader_pid, :shutdown}, 2_000
     :sys.get_state(cache)
-    refute inspect(:sys.get_state(cache)) =~ sentinel.account
+    Aiur.TestSupport.refute_leak(:sys.get_state(cache), sentinel.account)
   end
 
   test "provider failures stay structured and never log or cache protected exception text", %{cache: cache} do
@@ -165,7 +165,7 @@ defmodule AiurWeb.FinancialDataTest do
       end)
 
     refute log =~ sentinel
-    refute inspect(:sys.get_state(cache)) =~ sentinel
+    Aiur.TestSupport.refute_leak(:sys.get_state(cache), sentinel)
   end
 
   test "a disconnected caller cannot populate the protected cache", %{cache: cache} do
@@ -195,7 +195,7 @@ defmodule AiurWeb.FinancialDataTest do
     assert_receive {:DOWN, ^loader_ref, :process, ^loader_pid, :normal}, 2_000
     :sys.get_state(cache)
 
-    refute inspect(:sys.get_state(cache)) =~ sentinel.account
+    Aiur.TestSupport.refute_leak(:sys.get_state(cache), sentinel.account)
   end
 
   test "pending provider loads are bounded before invoking another provider", %{cache: cache} do
@@ -270,7 +270,7 @@ defmodule AiurWeb.FinancialDataTest do
     assert :ok = FinancialData.subscribe(context)
     assert :ok = FinancialData.broadcast_update()
     assert_receive {FinancialData, :updated, _opaque_configuration_generation} = message, 2_000
-    refute inspect(message) =~ protected_payload().account
+    Aiur.TestSupport.refute_leak(message, protected_payload().account)
 
     assert {:ok, %{account: "acct-financial-sentinel"}} =
              FinancialData.reload(
@@ -301,7 +301,7 @@ defmodule AiurWeb.FinancialDataTest do
 
     refute_receive :stale_update_invoked_provider, 0
     assert :sys.get_state(cache).entries == %{}
-    refute inspect(:sys.get_state(cache)) =~ protected_payload().account
+    Aiur.TestSupport.refute_leak(:sys.get_state(cache), protected_payload().account)
 
     assert :ok = FinancialData.broadcast_update()
     refute_receive {FinancialData, :updated, _new_generation}, 0

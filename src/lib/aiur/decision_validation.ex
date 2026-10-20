@@ -459,7 +459,9 @@ defmodule Aiur.DecisionValidation do
   # id, so a retried request from the same conversation resolves to the same
   # canonical identity. Without a source id, mints a fresh (non-replayable)
   # component — the caller is expected to supply a stable one for dedup to
-  # apply across retries.
+  # apply across retries. Reusing one source id for independent requests on the
+  # same ticket intentionally aliases them, so callers must scope that id to
+  # the logical request.
   defp decision_id(ticket, source_id) do
     ticket_identifier = get(ticket, :identifier)
     material = "#{ticket_identifier}::#{source_id || unique_component()}"

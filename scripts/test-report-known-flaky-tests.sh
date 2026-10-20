@@ -184,4 +184,23 @@ if [[ "$(grep -Fc 'report-known-flaky-tests.sh' "$workflow")" -lt 1 ]]; then
   exit 1
 fi
 
+# OrchestratorGuard fails the suite after "0 failures" and names the last-finished test in a
+# RuntimeError (shape of main run 39126982641). That name is timing, not cause (#5114): it must
+# reach only the guard annotation, never a quarantinable aiur-test-failure.
+cat >"$test_dir/guard.log" <<'LOG'
+....Aiur.Orchestrator was down before Aiur.FixtureNeighbourTest: test notices a dead orchestrator; last finished test: AiurWeb.FixtureGuardLeakTest: test uses poll labels without waiting, and drops stale labels
+9 properties, 4946 tests, 0 failures, 5 skipped (10 excluded)
+** (RuntimeError) plain ExUnit tests broke Aiur.Orchestrator: AiurWeb.FixtureGuardLeakTest: test uses poll labels without waiting, and drops stale labels (down), Aiur.FixtureStandInTest: test holds the name (held by a stand-in #PID<0.123.0>)
+    test/support/test_support/orchestrator_guard.exs:57: Aiur.TestSupport.OrchestratorGuard.verify_suite!/0
+LOG
+guard_output="$(GITHUB_WORKSPACE="$root" bash "$reporter" "$test_dir/guard.log" "$test_dir/guard-summary.md" "$test_dir/list.txt")"
+assert_contains 'guard failure carries the named test as evidence' \
+  '::error title=aiur-guard-failure::orchestrator-guard :: AiurWeb.FixtureGuardLeakTest: test uses poll labels without waiting, and drops stale labels (down)' "$guard_output"
+assert_contains 'every guard name is reported' \
+  '::error title=aiur-guard-failure::orchestrator-guard :: Aiur.FixtureStandInTest: test holds the name (held by a stand-in #PID<0.123.0>)' "$guard_output"
+if grep -Fq 'title=aiur-test-failure' <<<"$guard_output"; then
+  echo "ASSERTION FAILED: a guard-named test must not become a quarantinable test failure" >&2
+  exit 1
+fi
+
 echo "known-flaky reporter tests passed"
