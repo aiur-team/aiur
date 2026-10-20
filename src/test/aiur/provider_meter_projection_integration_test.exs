@@ -55,8 +55,7 @@ defmodule Aiur.ProviderMeterProjectionIntegrationTest do
 
     view = await_observed(ctx.projection, :codex)
 
-    refute view |> inspect(limit: :infinity) |> String.contains?(generation),
-           "the account generation leaked into the consumer projection"
+    Aiur.TestSupport.refute_leak(view, generation)
   end
 
   defp await_observed(projection, provider, attempts \\ 50) do
