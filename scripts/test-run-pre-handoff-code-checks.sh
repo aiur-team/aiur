@@ -25,6 +25,10 @@ cat > "$tmp/bin/mix" <<'MIX'
 case "$*" in
   "aiur.affected_tests "*)
     printf 'selector:%s\n' "${AIUR_CI_CHANGED_PATHS_B64:-}" >> "$COMMAND_LOG"
+    if [[ "$CHANGED_PATHS" == *src/test/support/test_support.exs ]]; then
+      printf 'cd src && mise exec -- mix test --max-cases 4 test/consumer_a_test.exs test/consumer_b_test.exs\n'
+      exit 0
+    fi
     if [[ "$CHANGED_PATHS" == *src/test/support/* || "$CHANGED_PATHS" == *src/mix.exs || "$CHANGED_PATHS" == *src/mix.lock || "$CHANGED_PATHS" == *src/config/* ]]; then
       printf '%s\n' '# full suite recommended: shared test support changed' 'cd src && mise exec -- make ci'
       exit 0
@@ -104,7 +108,7 @@ if grep -F 'subsystem_test.exs' "$tmp/failing_test.commands" >/dev/null; then
   echo 'test-run-pre-handoff-code-checks: selector added subsystem-wide files outside mix aiur.affected_tests' >&2
   exit 1
 fi
-grep -F 'timeout:--signal=TERM --kill-after=60s 20m mise exec -- mix test --max-cases 4 test/aiur/foo test.exs' "$tmp/failing_test.commands" >/dev/null
+grep -F 'timeout:--signal=TERM --kill-after=60s 60m mise exec -- mix test --max-cases 4 test/aiur/foo test.exs' "$tmp/failing_test.commands" >/dev/null
 encoded_paths="$(grep '^selector:' "$tmp/failing_test.commands" | cut -d: -f2-)"
 decoded_paths="$(printf '%s' "$encoded_paths" | base64 --decode)"
 [[ "$decoded_paths" == '["src/lib/aiur/github/foo.ex"]' ]]
@@ -135,7 +139,7 @@ if ! run_check passing src/lib/aiur/github/foo.ex false false; then
   exit 1
 fi
 
-# A full-suite or over-cap selection is deferred to the merge queue, never run here.
+# Unsafe selections still defer to the merge queue; large scoped selections run locally.
 assert_deferred() {
   local name="$1" notice="$2"
   if grep -E 'make-ci|^test:' "$tmp/$name.commands" >/dev/null; then
@@ -149,7 +153,7 @@ assert_deferred() {
   }
 }
 
-if ! run_check full_suite src/test/support/foo.ex false false "" true; then
+if ! run_check full_suite src/test/support/factory.ex false false "" true; then
   cat "$tmp/full_suite.log" >&2
   echo 'test-run-pre-handoff-code-checks: full-suite selection refused handoff' >&2
   exit 1
@@ -161,8 +165,18 @@ if ! run_check over_cap src/lib/aiur/overcap.ex false false; then
   echo 'test-run-pre-handoff-code-checks: over-cap selection refused handoff' >&2
   exit 1
 fi
-assert_deferred over_cap 'selection 301 files > 300'
+grep -F 'running selected tests (301 files)' "$tmp/over_cap.log" >/dev/null
+grep -F 'mix test --max-cases 4' "$tmp/over_cap.commands" >/dev/null
 grep -Fx 'timeout:--signal=TERM --kill-after=60s 15m mise exec -- mix dialyzer' "$tmp/over_cap.commands" >/dev/null
+
+if ! run_check shared_support src/test/support/test_support.exs false false; then
+  cat "$tmp/shared_support.log" >&2
+  echo 'test-run-pre-handoff-code-checks: shared-support consumers were not run' >&2
+  exit 1
+fi
+grep -F 'consumer_a_test.exs' "$tmp/shared_support.commands" >/dev/null
+grep -F 'consumer_b_test.exs' "$tmp/shared_support.commands" >/dev/null
+grep -F 'selected 2 test files' "$tmp/shared_support.log" >/dev/null
 
 if ! run_check script_only scripts/run-pre-handoff-code-checks.sh false false; then
   cat "$tmp/script_only.log" >&2

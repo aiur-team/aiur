@@ -65,6 +65,31 @@ defmodule Mix.Tasks.Aiur.AffectedTests.ChangedPathsTest do
   end
 end
 
+defmodule Mix.Tasks.Aiur.AffectedTests.SupportSelectionTest do
+  use ExUnit.Case, async: true
+
+  alias Mix.Tasks.Aiur.AffectedTests
+
+  test "shared support changes select tests that use the changed module" do
+    root = Aiur.TestSupport.tmp_root!("affected-support-selection")
+    support = "src/test/support/test_support.exs"
+    consumer = "src/test/consumer_test.exs"
+    unrelated = "src/test/unrelated_test.exs"
+
+    File.mkdir_p!(Path.dirname(Path.join(root, support)))
+    File.mkdir_p!(Path.dirname(Path.join(root, consumer)))
+    File.write!(Path.join(root, support), "defmodule Aiur.TestSupport do\nend\n")
+    File.write!(Path.join(root, consumer), "defmodule ConsumerTest do\n  use Aiur.TestSupport\nend\n")
+    File.write!(Path.join(root, unrelated), "defmodule UnrelatedTest do\n  use ExUnit.Case\nend\n")
+
+    try do
+      assert AffectedTests.support_test_files(root, [support]) == [consumer]
+    after
+      Aiur.TestCleanup.rm_rf!(root)
+    end
+  end
+end
+
 # Env-mutation tests require async: false to avoid races on the process-global
 # AIUR_BASE_BRANCH env var.
 defmodule Mix.Tasks.Aiur.AffectedTests.DefaultOriginTest do
@@ -129,13 +154,13 @@ defmodule Mix.Tasks.Aiur.AffectedTests.XrefSelectionTest do
   alias Mix.Tasks.Aiur.AffectedTests
 
   @tag timeout: 120_000
-  test "uses compiled xref callers and bounds the replay selections" do
+  test "uses compiled xref callers and preserves large replay selections" do
     root = File.cwd!() |> Path.dirname()
     original_paths = System.get_env("AIUR_CI_CHANGED_PATHS_B64")
     original_event_name = System.get_env("GITHUB_EVENT_NAME")
 
     replay_cases = [
-      {"#4447", ["src/lib/aiur/orchestrator/ci_lifecycle/result_projection.ex"], ["failure_test.exs", "transitions_test.exs"], "full"},
+      {"#4447", ["src/lib/aiur/orchestrator/ci_lifecycle/result_projection.ex"], ["failure_test.exs", "transitions_test.exs"]},
       {"#4593",
        [
          "src/lib/aiur/build_queue/attention.ex",
@@ -146,13 +171,13 @@ defmodule Mix.Tasks.Aiur.AffectedTests.XrefSelectionTest do
          "src/lib/aiur/build_queue/settings.ex",
          "src/lib/aiur/build_queue_cli.ex",
          "src/lib/aiur/tracker.ex"
-       ], ["set_waiting_test.exs", "queue_set_next_test.exs"], "full"}
+       ], ["set_waiting_test.exs", "queue_set_next_test.exs"]}
     ]
 
     try do
       System.delete_env("GITHUB_EVENT_NAME")
 
-      Enum.each(replay_cases, fn {pr, changed, expected_tests, expected_status} ->
+      Enum.each(replay_cases, fn {pr, changed, expected_tests} ->
         System.put_env("AIUR_CI_CHANGED_PATHS_B64", Base.encode64(Jason.encode!(changed)))
 
         assert {:ok, selected, candidates, fallback, ^changed} =
@@ -163,10 +188,12 @@ defmodule Mix.Tasks.Aiur.AffectedTests.XrefSelectionTest do
                  "#{pr} pre-cap candidates omitted #{expected}"
         end)
 
-        assert length(fallback) > 400, "#{pr} should exceed the fallback cap"
+        assert length(fallback) > 400, "#{pr} should retain the full xref candidate set"
 
-        assert %{"status" => ^expected_status} =
+        assert %{"status" => "scoped", "tests" => selected_tests} =
                  AffectedTests.selection_json(selected) |> Jason.decode!()
+
+        assert length(selected_tests) > 400, "#{pr} should remain a large scoped selection"
       end)
     after
       if original_paths,

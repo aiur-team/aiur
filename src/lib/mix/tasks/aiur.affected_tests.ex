@@ -62,13 +62,63 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
          {:ok, dependents} <- xref_dependents(root, changed),
          {:ok, references} <- deleted_reference_tests(root, diff_range) do
       {selected, candidates, fallback} =
-        Aiur.AffectedTests.select_with_candidates(changed,
-          base_dir: root,
-          dependent_sources: dependents,
-          reference_tests: references
-        )
+        case support_test_files(root, changed) do
+          [] ->
+            Aiur.AffectedTests.select_with_candidates(changed,
+              base_dir: root,
+              dependent_sources: dependents,
+              reference_tests: references
+            )
+
+          tests ->
+            {{:scoped, tests}, tests, tests}
+        end
 
       {:ok, selected, candidates, fallback, changed}
+    end
+  end
+
+  @doc false
+  @spec support_test_files(String.t(), [String.t()]) :: [String.t()]
+  def support_test_files(root, changed) do
+    support_paths =
+      Enum.filter(changed, fn path ->
+        String.starts_with?(path, "src/test/support/") or path == "src/test/test_helper.exs"
+      end)
+
+    if support_paths == [] do
+      []
+    else
+      tests = Path.wildcard(Path.join(root, "src/test/**/*_test.exs"))
+
+      if Enum.any?(support_paths, &String.ends_with?(&1, "test_helper.exs")) do
+        Enum.map(tests, &Path.relative_to(&1, root))
+      else
+        modules = support_module_names(root, support_paths)
+
+        Enum.filter(tests, &uses_support_module?(&1, modules))
+        |> Enum.map(&Path.relative_to(&1, root))
+      end
+      |> Enum.sort()
+    end
+  end
+
+  defp support_module_names(root, paths) do
+    paths
+    |> Enum.flat_map(&module_names_in_file(root, &1))
+  end
+
+  defp module_names_in_file(root, path) do
+    case File.read(Path.join(root, path)) do
+      {:ok, contents} -> Regex.scan(~r/defmodule\s+([A-Z][\w.]*)/, contents, capture: :all_but_first) |> List.flatten()
+      _ -> []
+    end
+  end
+
+  defp uses_support_module?(test_path, modules) do
+    case File.read(test_path) do
+      {:ok, contents} -> Enum.any?(modules, &Regex.match?(~r/\b(?:use|import|alias)\s+#{Regex.escape(&1)}\b/, contents))
+      _ -> false
     end
   end
 

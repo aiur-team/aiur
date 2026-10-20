@@ -41,10 +41,6 @@ tests_file="$scratch/tests"
 evidence="$scratch/evidence"
 : > "$tests_file"
 : > "$evidence"
-# Same cap as scripts/run-ci-affected-tests.py: larger or full-suite selections
-# are left to the merge-queue full suite instead of holding the worker handback.
-selection_cap=300
-
 tested_head="$head"
 if [[ -n "$pr_json" ]]; then
   tested_head="$(python3 - "$pr_json" "$head" <<'PY'
@@ -68,7 +64,7 @@ print_evidence() {
     printf 'Tested head: %s\n' "$tested_head"
     printf 'Base: %s @ %s\n' "${AIUR_BASE_BRANCH:-main}" \
       "$(git -C "$repo_root" rev-parse "$base")"
-    echo 'Selection: `mix aiur.affected_tests` xref/module-caller selector plus pinned child-order tests for explicit child-list paths.'
+    printf 'Selection: `mix aiur.affected_tests` selected %s test files using xref/module callers and shared-support consumers, plus pinned child-order tests for explicit child-list paths.\n' "${selected_count:-0}"
     cat "$evidence"
   } > "$block"
   cat "$block"
@@ -125,11 +121,6 @@ PY
   esac
 done < "$scratch/selection"
 
-selected_count="$(grep -c . "$tests_file" || true)"
-if (( selected_count > selection_cap )); then
-  defer_selection "selection $selected_count files > $selection_cap"
-fi
-
 run_order_tests=false
 order_sensitive_paths=(
   src/lib/aiur/application/children.ex
@@ -154,13 +145,15 @@ if [[ "$run_order_tests" == true ]]; then
     test/aiur/application_child_order_test.exs >> "$tests_file"
 fi
 
+selected_count="$(grep -c . "$tests_file" || true)"
+
 if [[ -s "$tests_file" ]]; then
   sort -u "$tests_file" -o "$tests_file"
   mapfile -t tests < "$tests_file"
   test_args=(mix test --max-cases 4 "${tests[@]}")
-  command="$(selected_command timeout --signal=TERM --kill-after=60s 20m mise exec -- "${test_args[@]}")"
+  command="$(selected_command timeout --signal=TERM --kill-after=60s 60m mise exec -- "${test_args[@]}")"
   echo "run-pre-handoff-code-checks: running selected tests (${#tests[@]} files)"
-  run_check "$command" timeout --signal=TERM --kill-after=60s 20m mise exec -- "${test_args[@]}"
+  run_check "$command" timeout --signal=TERM --kill-after=60s 60m mise exec -- "${test_args[@]}"
 elif [[ "$deferred" == false ]]; then
   echo "run-pre-handoff-code-checks: no affected tests selected"
   record_result 'mix aiur.affected_tests' 'no affected test files selected'
