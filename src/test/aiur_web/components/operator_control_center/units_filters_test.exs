@@ -62,7 +62,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFiltersTest do
     loading =
       render_component(&UnitsFilters.units_filters/1, %{
         selection: %{scope: :all, conditions: []},
-        counts: %{scope: nil, active: nil, alert: nil, paused: nil, stuck: nil, queued: nil, finished: nil},
+        counts: %{scope: 0, active: 0, alert: 0, paused: 0, stuck: 0, queued: 0, finished: 0},
         count_status: :loading
       })
 
