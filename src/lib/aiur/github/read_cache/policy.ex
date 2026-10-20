@@ -47,7 +47,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   | --- | --- | --- | --- |
   | `:comments` | 30 s | 1 h | Per-issue REST comment reads (`Aiur.GitHub.Comments`). A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
   | `:issue_graph` | 30 s | 1 h | Build Order structure: dependency edges, pack status, linked pull requests. A stale edge delays a dispatch rather than corrupting one. |
-  | `:repo_config` | 5 min | 1 h | Repository configuration, not a verdict: default-branch existence, branch protection, workflow list/state/file contents, rulesets (`Aiur.GitHub.CiReadiness`). Repo config changes rarely and never gates a merge on its own, so a five-minute polling body cache costs little; every webhook delivery retires it via the collections marker, which is what lets it ride the same long bucket as the other classes. |
+  | `:repo_config` | 5 min | 1 h | Repository configuration used by required-check classification (`Aiur.GitHub.CiReadiness`), not a CI verdict. Config-specific deliveries and pushes to the configured base or repository default branch retire it immediately; otherwise staleness is bounded by 5 min while polling and 1 h when webhook-backed. Ordinary issue/PR and check-run deliveries do not retire this scope. GitHub's merge queue still enforces required checks on the server. |
   | `:issue_timeline` | 30 s | 1 h | An issue's timeline (`/issues/{n}/timeline`, `Aiur.GitHub.DispatchAuthorization`). The single largest REST family measured in #2352 (1,000–1,800 reads/hr); a timeline answered up to one poll cycle late costs a dispatch decision latency, never a wrong verdict. |
   | `:issue` | 30 s | 1 h | A single issue (`/issues/{n}`). Mixed call sites — some already conditional, some unconditional reads — so the body cache absorbs the unconditional spend. |
   | `:pull` | 30 s | 1 h | A single pull request (`/pulls/{n}`). Row 5 of #2352 was the strongest single candidate: it was read **unconditionally with no validator**, so every repeat was pure waste rather than a cheap revalidation. The body is a *routing* source, never a merge-verdict source — see below. |
@@ -248,14 +248,11 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   # (`build_order_catalog` above all) from a 30-second re-fetch into an
   # hourly one while leaving the correction path intact.
   #
-  # `:repo_config` rides the same long bucket because every delivery also
-  # retires the repository's collections — `invalidate_number/2` writes the
-  # `{:collections, ...}` marker unconditionally, and a repo-config read is a
-  # number-less REST read that carries exactly that identity (see `Identity`).
-  # Repository configuration is also the class that changes *with* a delivery —
-  # a push updates `.github/workflows`, branch protection or a ruleset — rather
-  # than independently of one, so the delivery is precisely the correction path
-  # the long bucket requires.
+  # `:repo_config` rides the same long bucket but carries a separate identity
+  # retired only by configuration-specific deliveries or a configured-base or
+  # repository-default branch push.
+  # Numbered writes and ordinary webhook traffic cannot retire this scope; the
+  # TTL is the fallback for a missed configuration event.
   #
   # `:issue_timeline`, `:issue` and `:pull` are numbered reads, so every
   # delivery or mutation that touches the number retires them through
@@ -309,7 +306,6 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   @spec classify(map()) :: decision()
   def classify(request) when is_map(request) do
     cond do
-      caller(request) == "ci_required_checks" -> {:no_cache, :unsafe_kind}
       Map.get(request, :method) != :get and not graphql_read?(request) -> {:no_cache, :write}
       unsafe?(request) -> {:no_cache, :unsafe_kind}
       # `Identity.extract/1` answers `[]` exactly when the repository cannot be
@@ -355,15 +351,15 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     end
   end
 
-  # Branch existence, branch protection, the workflow contents/state/action
+  # Branch existence, branch rules and protection, the workflow contents/state/action
   # listings, and the ruleset list/detail — the CIReadiness config surface,
   # minus the bare repository read and the candidate issue list (see above).
   # The optional query string rides along so `?ref=`/`?per_page=` URLs match.
-  @repo_config_rest ~r{/repos/[^/?#]+/[^/?#]+(?:/branches/[^/?#]+(?:/protection)?|/contents/\.github/workflows(?:/[^/?#]+)?|/actions/workflows|/rulesets(?:/[^/?#]+)?)(?:\?[^#]*)?$}
+  @repo_config_rest ~r{/repos/[^/?#]+/[^/?#]+(?:/branches/[^/?#]+(?:/protection)?|/rules/branches/[^/?#]+|/contents/\.github/workflows(?:/[^/?#]+)?|/actions/workflows|/rulesets(?:/[^/?#]+)?)(?:\?[^#]*)?$}
 
   # The ranked REST shapes (#2352), in the order they are matched, mapping a URL
   # to the call family it belongs to. Repository configuration is classified
-  # only by the anchored `@repo_config_rest` row at the end — branch protection,
+  # only by the anchored `@repo_config_rest` row at the end — branch rules and protection,
   # `.github/workflows` contents, workflow lists and rulesets — never by a bare
   # `/contents/{path}` or `/branches` list. The anchored forms are the only
   # ones anyone reads, so widening to the bare prefixes would hand an hour-long
