@@ -58,7 +58,7 @@ end
           ('stale allowlist entry: R-private orchestration -> Aiur.Codex.Frames',),
           source='defmodule A do\nend\n', change=allowed)
     check('harness_literal_violation', fixture, 1, ('R-private orchestration -> Aiur.Codex.Frames',),
-          source='defmodule A do\n  @provider Aiur.Codex.Frames\nend\n', change=contract)
+          source='defmodule A do\n  @provider :"Elixir.Aiur.Codex.Frames"\nend\n', change=contract)
 
     def facade_exception(root):
         contract(root)
