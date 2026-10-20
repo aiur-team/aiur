@@ -54,6 +54,25 @@ class AuditPolicyTest(unittest.TestCase):
         self.assertEqual(audit.evaluate_locks(b"", fixed_lock, set(), fixture_audit), [])
         self.assertEqual(audit.evaluate_locks(b"", vulnerable_lock, {"EEF-HIGH"}, fixture_audit), [])
 
+    def test_audit_uses_supplied_lock_without_resolving_dependencies(self):
+        lock_bytes = b'  "bandit": {:hex, :bandit, "1.12.5"}'
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "mix.lock"
+            commands = []
+
+            def runner(command, **kwargs):
+                commands.append((command, lock_path.read_bytes(), kwargs))
+                return ""
+
+            with patch.object(audit, "LOCK", lock_path):
+                self.assertEqual(audit.audit_lock(lock_bytes, "fixture", runner), set())
+
+        self.assertEqual(len(commands), 1)
+        command, audited_lock, options = commands[0]
+        self.assertEqual(command[-2:], ["mix", "hex.audit"])
+        self.assertEqual(audited_lock, lock_bytes)
+        self.assertTrue(options["allow_advisories"])
+
     def test_registry_cache_fallback_fails_closed(self):
         result = type("Result", (), {"stdout": "Failed to fetch record for bandit from registry (using cache instead)", "returncode": 0})()
         with patch.object(audit.subprocess, "run", return_value=result):

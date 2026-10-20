@@ -74,10 +74,9 @@ def run(command: list[str], *, cwd: Path, allow_advisories: bool = False) -> str
     return output
 
 
-def audit_lock(lock_bytes: bytes, label: str) -> set[tuple[str, str, str, str]]:
+def audit_lock(lock_bytes: bytes, label: str, runner=run) -> set[tuple[str, str, str, str]]:
     LOCK.write_bytes(lock_bytes)
-    run(["mise", "exec", "--", "mix", "deps.get"], cwd=SRC)
-    output = run(["mise", "exec", "--", "mix", "hex.audit"], cwd=SRC, allow_advisories=True)
+    output = runner(["mise", "exec", "--", "mix", "hex.audit"], cwd=SRC, allow_advisories=True)
     findings = parse_findings(output)
     if "Found packages with security advisories" in output and not findings:
         raise RuntimeError(f"{label} audit reported advisories in an unrecognized format; failing closed:\n{output}")

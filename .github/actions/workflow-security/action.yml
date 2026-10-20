@@ -1,5 +1,5 @@
 name: Hex dependency audit
-description: Install project dependencies and audit candidate locks against the base.
+description: Audit the base and candidate Hex locks against current advisories.
 runs:
   using: composite
   steps:
