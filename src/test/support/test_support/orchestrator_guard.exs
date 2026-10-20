@@ -60,14 +60,16 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     if leak = leak(), do: record_leak(:persistent_term.get(@last_finished_key, nil), leak)
 
     runtime_child_leaks = missing_runtime_children()
-    restore_missing_runtime_children()
 
     if runtime_child_leaks != [] do
       last = :persistent_term.get(@last_finished_key, nil)
       Enum.each(runtime_child_leaks, &record_runtime_child_leak(last, &1))
     end
 
-    case suite_errors() do
+    errors = suite_errors()
+    restore_missing_runtime_children()
+
+    case errors do
       [] -> :ok
       errors -> raise Enum.join(errors, "\n")
     end
@@ -134,14 +136,17 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     expected_instance_key = :persistent_term.get(@instance_key_key, System.get_env("AIUR_INSTANCE_KEY"))
     state_leaks = restore_test_scope_state(expected, expected_instance_key)
     {runtime_child_leaks, prior_test} = record_missing_runtime_children()
-    restore_missing_runtime_children()
 
-    if runtime_child_leaks == [] do
-      store_leaks = decision_store_leaks()
-      store_recovery = recover_decision_store(store_leaks)
-      report_before_test_leaks(context, prior_test, state_leaks, store_leaks, store_recovery)
-    else
-      report_before_test_leaks(context, prior_test, state_leaks, [], :ok)
+    try do
+      if runtime_child_leaks == [] do
+        store_leaks = decision_store_leaks()
+        store_recovery = recover_decision_store(store_leaks)
+        report_before_test_leaks(context, prior_test, state_leaks, store_leaks, store_recovery)
+      else
+        report_before_test_leaks(context, prior_test, state_leaks, [], :ok)
+      end
+    after
+      restore_missing_runtime_children()
     end
 
     :ok
@@ -183,12 +188,17 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     []
     |> maybe_missing(Process.whereis(Aiur.Supervisor), "Aiur.Supervisor")
     |> maybe_missing(Process.whereis(Aiur.PubSub), "Aiur.PubSub")
-    |> maybe_missing(Process.whereis(Aiur.Opencode.ActiveTurns), "Aiur.Opencode.ActiveTurns")
+    |> maybe_missing(if(active_turns_owner_missing?(), do: nil, else: :running), "Aiur.Opencode.ActiveTurns")
   end
 
   defp restore_missing_runtime_children do
-    if is_nil(Process.whereis(Aiur.Opencode.ActiveTurns)), do: restart_active_turns()
+    if active_turns_owner_missing?(), do: restart_active_turns()
     :ok
+  end
+
+  defp active_turns_owner_missing? do
+    is_nil(Process.whereis(Aiur.Opencode.ActiveTurns)) and is_pid(Process.whereis(Aiur.Supervisor)) and
+      is_pid(Process.whereis(Aiur.PubSub))
   end
 
   defp restart_active_turns do
@@ -233,7 +243,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     RuntimeChildren.supervisor_accepting_calls?(Process.whereis(Aiur.Supervisor), 1_000)
 
     pubsub_leak = is_nil(Process.whereis(Aiur.PubSub))
-    active_turns_leak = is_nil(Process.whereis(Aiur.Opencode.ActiveTurns))
+    active_turns_leak = active_turns_owner_missing?()
     orchestrator_leak = leak()
     orchestrator_restore = if orchestrator_leak, do: restore(orchestrator_leak)
     pubsub_errors = restore_and_report_pubsub(pubsub_leak, context)
@@ -261,6 +271,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
         ]
 
     errors = orchestrator_errors ++ pubsub_errors ++ active_turns_errors ++ shared_state_errors
+    if active_turns_leak, do: restart_active_turns()
 
     if errors != [], do: raise(Enum.join(errors, "\n"))
 
@@ -277,8 +288,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   defp restore_and_report_active_turns(false, _context), do: []
 
   defp restore_and_report_active_turns(true, context) do
-    restore = restart_active_turns()
-    ["#{test_name(context)} left Aiur.Opencode.ActiveTurns down (restore: #{inspect(restore)})."]
+    ["#{test_name(context)} left Aiur.Opencode.ActiveTurns down."]
   end
 
   defp capture_app_env do
