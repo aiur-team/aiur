@@ -50,7 +50,7 @@ else:
                                              TEST_DELAY=str(test_delay),
                                              AIUR_TIME_BOMB_CHECK=str(time_bombs), RECHECKS=str(rechecks),
                                              GITHUB_STEP_SUMMARY=str(summary),
-                                             GITHUB_EVENT_NAME=os.environ.get('GITHUB_EVENT_NAME', '')))
+                                             GITHUB_EVENT_NAME=''))
             self.last_stderr = result.stderr
             self.last_stdout = result.stdout
             self.last_summary = summary.read_text() if summary.exists() else ''
@@ -59,7 +59,7 @@ else:
             self.assertNotIn(b"can't open file", result.stderr)
             self.assertIn(b'::notice::affected-tests selection duration:', result.stderr)
             if ('mix test' in selection and len(selection.split()) <= 305
-                    and os.environ.get('GITHUB_EVENT_NAME') != 'merge_group'):
+                    and os.environ.get('GITHUB_EVENT_NAME', '') != 'merge_group'):
                 self.assertIn(b'::notice::affected-tests selected tests duration:', result.stderr)
             invoked = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
             return result.returncode, invoked, result.stdout.decode()
