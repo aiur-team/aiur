@@ -317,6 +317,9 @@ defmodule Aiur.GitHub.Tracker do
   defdelegate optimistic_blocker(value, number), to: Aiur.GitHub.OptimisticFailure
 
   @impl Aiur.Tracker.CodeHost
+  defdelegate optimistic_blocker(value, number, opts), to: Aiur.GitHub.OptimisticFailure
+
+  @impl Aiur.Tracker.CodeHost
   defdelegate park_pull_request(value), to: Aiur.GitHub.OptimisticFailure
 
   @impl Aiur.Tracker.CodeHost

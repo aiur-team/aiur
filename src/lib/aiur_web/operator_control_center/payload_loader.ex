@@ -189,6 +189,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     |> update_in([:provider_health], &Map.put(&1, :retained_counts, retained_counts.health.status))
     |> then(fn payload -> Map.put(payload, :units, UnitsPresenter.load(payload, units_options(bound, funs))) |> Map.delete(:units_status_snapshot) end)
     |> Map.put(:tickets, TicketsPresenter.load(tickets_options(bound, funs)))
+    |> Map.delete(:units_status_snapshot)
   end
 
   # Every provider read gets a deadline inside the cache's load timeout, so a slow

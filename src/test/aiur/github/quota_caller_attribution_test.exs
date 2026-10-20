@@ -201,7 +201,7 @@ defmodule Aiur.GitHub.QuotaCallerAttributionTest do
 
     observe(quota, "comment_poll_batch", 10, 4990)
 
-    refute inspect(Quota.snapshot(quota)) =~ "secret"
+    Aiur.TestSupport.refute_leak(Quota.snapshot(quota), "secret")
   end
 
   test "an unobserved budget reports no reconciliation rather than a zero" do

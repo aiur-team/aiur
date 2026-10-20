@@ -41,8 +41,8 @@ defmodule AiurWeb.FinancialDataAccessTest do
 
     assert is_map(marker)
     assert marker["version"] == 1
-    refute inspect(marker) =~ "operator"
-    refute inspect(marker) =~ "financial-auth-secret"
+    Aiur.TestSupport.refute_leak(marker, "operator")
+    Aiur.TestSupport.refute_leak(marker, "financial-auth-secret")
 
     assert {:ok, context} = FinancialDataAccess.context_from_session(%{FinancialDataAccess.session_key() => marker})
     assert :ok = FinancialDataAccess.authorize(context)
@@ -142,7 +142,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
     assert {:cont, absent} = FinancialDataAccess.on_mount(:default, %{}, %{}, live_socket())
     assert absent.assigns.financial_data_capability == FinancialDataAccess.locked_capability()
     assert absent.private.aiur_financial_data_access == nil
-    refute inspect(absent) =~ sentinel
+    Aiur.TestSupport.refute_leak(absent, sentinel)
 
     System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
     System.delete_env("AIUR_DASHBOARD_PASSWORD")
@@ -180,7 +180,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
 
     assert stale.assigns.financial_data_capability == FinancialDataAccess.locked_capability()
     assert stale.private.aiur_financial_data_access == nil
-    refute inspect(stale) =~ sentinel
+    Aiur.TestSupport.refute_leak(stale, sentinel)
   end
 
   test "an unconfigured request refuses prior session authority" do
@@ -297,7 +297,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
 
     assert socket.assigns.financial_data_capability == FinancialDataAccess.locked_capability()
     assert socket.private.aiur_financial_data_access == nil
-    refute inspect(socket) =~ sentinel
+    Aiur.TestSupport.refute_leak(socket, sentinel)
   end
 
   defp access_context(username, password) do
