@@ -3,6 +3,7 @@ defmodule Aiur.TestSupport.LifecycleLeakGuardTest do
   use Aiur.TestSupport
 
   alias Aiur.TestSupport.LifecycleLeakGuard
+  alias Aiur.TestSupport.LifecycleTeardown
 
   test "teardown fails the test that leaves a dispatched runner alive" do
     previous_signal = Application.get_env(:aiur, :signal)
@@ -22,10 +23,10 @@ defmodule Aiur.TestSupport.LifecycleLeakGuardTest do
         end
       end)
 
-    runner_leaks = Aiur.TestSupport.capture_and_stop_test_runners(owner, runners_before)
+    runner_leaks = LifecycleTeardown.capture_and_stop_test_runners(owner, runners_before)
     assert Enum.map(runner_leaks, &elem(&1, 0)) == [runner]
 
-    error = assert_raise RuntimeError, fn -> Aiur.TestSupport.finish_lifecycle!(owner, nil, runner_leaks) end
+    error = assert_raise RuntimeError, fn -> LifecycleLeakGuard.finish!(owner, nil, runner_leaks) end
     assert error.message =~ "#{inspect(__MODULE__)} test teardown fails the test that leaves a dispatched runner alive"
     assert error.message =~ inspect(runner)
     refute Process.alive?(runner)
