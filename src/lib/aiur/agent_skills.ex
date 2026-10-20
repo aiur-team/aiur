@@ -254,7 +254,8 @@ defmodule Aiur.AgentSkills do
   end
 
   # File.mkdir_p!/1 retries every ancestor from the root on every bundled file.
-  # Stop at an existing directory to avoid flooding the shared file server.
+  # Each ancestor is a separate file-server call; under concurrent file I/O each one queues.
+  # Stop at an existing directory to avoid those repeated round trips.
   defp ensure_directory!(path) do
     case :filelib.ensure_path(path) do
       :ok -> :ok

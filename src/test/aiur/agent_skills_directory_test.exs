@@ -8,16 +8,17 @@ defmodule Aiur.AgentSkillsDirectoryTest do
 
     caller = self()
     collector = Task.async(fn -> collect_directories(caller, []) end)
+    on_exit(fn -> :erlang.trace_pattern({:file, :make_dir, 1}, false, []) end)
     :erlang.trace_pattern({:file, :make_dir, 1}, true, [])
     :erlang.trace(caller, true, [:call, {:tracer, collector.pid}])
 
     try do
       assert :ok = Aiur.AgentSkills.install(workspace)
     after
+      :erlang.trace_pattern({:file, :make_dir, 1}, false, [])
       :erlang.trace(caller, false, [:call])
       delivered = :erlang.trace_delivered(caller)
       assert_receive {:trace_delivered, ^caller, ^delivered}, 1_000
-      :erlang.trace_pattern({:file, :make_dir, 1}, false, [])
       send(collector.pid, :done)
     end
 
