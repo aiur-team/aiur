@@ -196,9 +196,12 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   defp raw_progress_offenders(path) do
     relative = Path.relative_to(path, @lib_root)
 
-    if relative in @contract_boundary_files or relative in @raw_progress_exempt_files,
-      do: [],
-      else: ProgressRendererCensus.offenders(relative, File.read!(path))
+    if relative in @contract_boundary_files or relative in @raw_progress_exempt_files do
+      []
+    else
+      source = File.read!(path)
+      if String.contains?(source, "progress"), do: ProgressRendererCensus.offenders(relative, source), else: []
+    end
   end
 
   defp count_occurrences(source, needle), do: source |> :binary.matches(needle) |> length()
