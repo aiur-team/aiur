@@ -145,7 +145,7 @@ defmodule Aiur.GitHub.EventSourcePolicy do
 
   # `Aiur.Events.Sanitizer` deletes HTML comments as hidden-instruction
   # carriers, so on any path that sanitizes before publishing (notably
-  # `Aiur.Orchestrator.CommandScan`) the marker is already gone from the body by
+  # `Aiur.GitHub.Listeners.CommandScan.Scan`) the marker is already gone from the body by
   # the time this runs. The sanitizer therefore records what it saw *before*
   # stripping, and that record is consulted first. Its absence proves nothing
   # and falls through to the body, which in turn fails to human.
