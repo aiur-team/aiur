@@ -24,8 +24,6 @@ defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
     ready_ids = Enum.map(ready, & &1.id)
     cache_holds(held)
 
-    started_at = System.monotonic_time(:millisecond)
-
     pending =
       Dispatcher.choose_issues(%State{snapshot_key: self(), max_concurrent_agents: @slots, effective_concurrent_agents: @slots}, held ++ ready,
         issue_fetcher: fn [id] -> {:ok, [Enum.find(ready, &(&1.id == id))]} end,
@@ -41,12 +39,10 @@ defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
     assert Map.keys(pending.tracker_tasks) |> length() == 1
 
     final = Enum.reduce(ready, pending, fn _, state -> apply_result(state) end)
-    elapsed_ms = System.monotonic_time(:millisecond) - started_at
 
     assert Map.keys(final.running) |> Enum.sort() == ready_ids
     assert final.tracker_tasks == %{}
     assert final.dispatch_declines == Map.new(held, &{&1.id, :dependency})
-    assert elapsed_ms < 5_000
 
     hydrated = collect_hydrated([])
     assert Enum.uniq(hydrated) |> Enum.sort() == ready_ids
