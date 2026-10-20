@@ -42,8 +42,20 @@ defmodule Aiur.Webhooks.ModeTable do
 
   @impl true
   def init(opts) do
-    :ets.new(Keyword.get(opts, :table, @table), [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
-    :ets.new(@config_events_table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
+    table = Keyword.get(opts, :table, @table)
+
+    :ets.new(table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
+
+    if table == @table do
+      :ets.new(@config_events_table, [
+        :named_table,
+        :public,
+        :set,
+        read_concurrency: true,
+        write_concurrency: true
+      ])
+    end
+
     {:ok, %{}}
   end
 
@@ -65,7 +77,11 @@ defmodule Aiur.Webhooks.ModeTable do
   @doc "Records whether a verified delivery includes a repository-config retirement event."
   @spec record_config_event(String.t(), String.t()) :: :ok
   def record_config_event(repo, event) when event in @config_events do
-    with_table(:ok, fn table -> :ets.insert(table, {normalize(repo), true}) end, @config_events_table)
+    with_table(
+      :ok,
+      fn table -> :ets.insert(table, {normalize(repo), true}) end,
+      @config_events_table
+    )
   end
 
   def record_config_event(_repo, _event), do: :ok
