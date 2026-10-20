@@ -176,7 +176,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
         <%!-- No phx-disable-with, unlike History's "Load more": this reveal only
               widens a slice of rows the LiveView already holds, so there is no
               fetch to wait on and a transient disabled state would only flicker. --%>
-        <button type="button" class="btn ghost" phx-click="show-more-tickets">{@reveal_label}</button>
+        <button type="button" class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost" phx-click="show-more-tickets">{@reveal_label}</button>
       </div>
     </section>
     """
