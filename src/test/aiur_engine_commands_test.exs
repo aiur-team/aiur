@@ -327,7 +327,7 @@ defmodule AiurEngineCommandsTest do
         [{"AIUR_AGENT_WORKSPACE", "/tmp/agent-workspace"}]
       )
 
-    assert out =~ "Executor-only"
+    assert out =~ "operator-only"
     refute out =~ "RPC:"
   end
 

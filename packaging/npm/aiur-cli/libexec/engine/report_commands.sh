@@ -176,7 +176,7 @@ cmd_github_usage() {
 cmd_alerts() {
   local args="" arg
   if [ "${1:-}" = "ack" ] && env | grep -Eq '^(AIUR_AGENT_|CODEX_THREAD_ID=|CLAUDECODE=|OPENCODE_SESSION_ID=)'; then
-    echo "aiur: alerts ack is Executor-only; agent sessions cannot acknowledge their own attentions" >&2
+    echo "aiur: alerts ack is operator-only; agent sessions cannot acknowledge their own attentions" >&2
     exit 64
   fi
 

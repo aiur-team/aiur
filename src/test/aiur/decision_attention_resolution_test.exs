@@ -252,6 +252,7 @@ defmodule Aiur.DecisionAttentionResolutionTest do
 
   test "PID liveness detects a live OS process and one that has exited" do
     assert DecisionAttentionResolution.pid_alive?(String.to_integer(System.pid()))
+    assert DecisionAttentionResolution.ps_pid_alive?(String.to_integer(System.pid()))
 
     sleep = System.find_executable("sleep") || raise "sleep executable is required for this test"
 
@@ -266,6 +267,7 @@ defmodule Aiur.DecisionAttentionResolutionTest do
       {_output, 0} = System.cmd(kill, ["-TERM", Integer.to_string(child_pid)])
       assert_receive {^port, {:exit_status, _status}}, 1_000
       refute DecisionAttentionResolution.pid_alive?(child_pid)
+      refute DecisionAttentionResolution.ps_pid_alive?(child_pid)
     after
       if Port.info(port) != nil, do: Port.close(port)
     end

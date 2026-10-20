@@ -30,7 +30,9 @@ defmodule Aiur.DecisionAttentionResolution do
     end
   end
 
-  defp ps_pid_alive?(pid) do
+  @doc false
+  @spec ps_pid_alive?(pos_integer()) :: boolean()
+  def ps_pid_alive?(pid) do
     case System.find_executable("ps") do
       nil ->
         true
@@ -38,7 +40,7 @@ defmodule Aiur.DecisionAttentionResolution do
       ps ->
         case System.cmd(ps, ["-p", Integer.to_string(pid), "-o", "stat="], stderr_to_stdout: true) do
           {output, 0} -> process_state_alive?(String.trim(output))
-          {_output, _status} -> true
+          {output, _status} -> String.trim(output) != ""
         end
     end
   end
