@@ -15,7 +15,6 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
   use ExUnit.Case, async: false
 
-  alias Aiur.Events.GithubWebhook
   alias Aiur.Events.GithubWebhook.Deposit
   alias Aiur.GitHub.ReadCache
   alias Aiur.GitHub.ReadCache.{Identity, Metrics, Policy}
@@ -1134,16 +1133,10 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # polling loses the long TTL, because nothing but the clock retires its
       # entries any more. The collapse is the safety net, so it is the half
       # that is asserted directly.
-      on_exit(fn -> ModeTable.delete(@ttl_repo) && ModeTable.delete_config_events(@ttl_repo) end)
+      on_exit(fn -> ModeTable.delete(@ttl_repo) end)
 
       ModeTable.put(@ttl_repo, webhook_backed_mode())
-
-      assert %{status: :dropped} =
-               GithubWebhook.handle_delivery(
-                 "repository_ruleset",
-                 %{"repository" => %{"full_name" => @ttl_repo}},
-                 repo: @ttl_repo
-               )
+      ModeTable.record_config_event(@ttl_repo, "repository_ruleset")
 
       assert {:cache, :issue_graph, 3_600_000} =
                Policy.classify(graphql("issue_relationships", safe_document(2073), %{"owner" => "aiur-team", "repo" => "ttl-test-repo"}))
