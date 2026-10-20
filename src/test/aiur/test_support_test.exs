@@ -7,6 +7,7 @@ defmodule Aiur.TestSupportTest do
   alias Aiur.Events.SubscriptionStoreRegistry
   alias Aiur.Events.SubscriptionStoreSupervisor
   alias Aiur.GitHub.ReadCache
+  alias Aiur.TestSupport.OrchestratorGuard
 
   test "receive_barrier selectively receives and exports bindings without a clock" do
     send(self(), :unrelated)
@@ -94,7 +95,12 @@ defmodule Aiur.TestSupportTest do
   # PubSub only topples the tree when dependants exhaust the restart budget
   # inside the wait, which made the old premise itself flaky.
   test "ensure_pubsub_running recovers the whole app after the supervision tree collapsed" do
-    on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
+    codeowners_baseline = OrchestratorGuard.capture_shared_state().codeowners
+
+    on_exit(fn ->
+      Aiur.TestSupport.ensure_runtime_children_running()
+      OrchestratorGuard.restore_codeowners_state!(codeowners_baseline)
+    end)
 
     collapsing = Enum.map([Aiur.Supervisor, Aiur.PubSub, ReadCache], &Process.whereis/1)
     assert Enum.all?(collapsing, &is_pid/1)
