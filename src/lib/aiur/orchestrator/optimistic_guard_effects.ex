@@ -219,6 +219,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
 
   defp release_records(state, records, observations, opts) do
     ledger = Keyword.get(opts, :ledger, OptimisticLedger)
+    prefix = Keyword.fetch!(opts, :label_prefix)
 
     eligible =
       for row <- records,
@@ -226,15 +227,55 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
           Enum.any?(row["blockers"], &(&1["park_complete"] == true)),
           issue = get_in(observations, [:dependents, row["ticket"]]),
           is_map(issue),
-          (Keyword.fetch!(opts, :label_prefix) <> ":parked") not in issue.labels,
+          recovery_ready?(row, observations, issue, prefix),
           do: row
 
     Enum.reduce(eligible, state, fn row, current ->
-      case ledger.resume_park(row["ticket"], now(opts)) do
-        :ok -> execute(current, {:resolve, :optimistic_blocker_failed, row["ticket"]}, opts)
-        error -> report(current, row["ticket"], error)
+      issue = get_in(observations, [:dependents, row["ticket"]])
+      target = recovery_state(issue)
+
+      update =
+        Keyword.get(opts, :update_state_fun, fn identifier, state_name, expected -> TicketTransition.write_state(identifier, state_name, writer: :optimistic_guard, expected_state: expected) end)
+
+      update_marker = Keyword.get(opts, :remove_marker_fun, fn identifier, marker -> TicketTransition.write_marker(identifier, :remove, marker, writer: :optimistic_guard) end)
+
+      recovery = if (prefix <> ":parked") in issue.labels, do: restore_dispatch_state(issue, target, prefix, update, update_marker), else: :ok
+
+      case recovery do
+        :ok ->
+          resume_recovered_record(current, row["ticket"], ledger, opts)
+
+        error ->
+          report(current, row["ticket"], error)
       end
     end)
+  end
+
+  defp recovery_state(issue) do
+    if issue.state == "rework" or "agent:rework" in (issue.labels || []), do: "rework", else: "todo"
+  end
+
+  defp recovery_ready?(row, observations, issue, prefix) do
+    marker = prefix <> ":parked"
+    failed = Enum.any?(row["blockers"], fn blocker -> blocker["park_complete"] == true and blocker_recovered?(observations[blocker["id"]]) end)
+    marker not in issue.labels or failed
+  end
+
+  defp blocker_recovered?(%{confirmed?: true, issue_open?: false, state_reason: reason}) when reason in [:completed, "completed"], do: true
+  defp blocker_recovered?(%{confirmed?: true, pr_merged: true}), do: true
+  defp blocker_recovered?(_), do: false
+
+  defp restore_dispatch_state(issue, target, prefix, update, remove_marker) do
+    with :ok <- update.(issue.identifier, target, issue.state) do
+      remove_marker.(issue.identifier, prefix <> ":parked")
+    end
+  end
+
+  defp resume_recovered_record(state, ticket, ledger, opts) do
+    case ledger.resume_park(ticket, now(opts)) do
+      :ok -> execute(state, {:resolve, :optimistic_blocker_failed, ticket}, opts)
+      error -> report(state, ticket, error)
+    end
   end
 
   defp cause_atom(cause) when is_atom(cause), do: cause
