@@ -13,15 +13,22 @@ defmodule Aiur.CodingAgent do
   session starts.
   """
 
+  alias Aiur.CodingAgent.Backend
   alias Aiur.CodingAgent.ModelGrammar
   alias Aiur.CodingAgent.ProvidersView
   alias Aiur.CodingAgent.Routing
   alias Aiur.Config
+  alias Aiur.Harness.Capabilities
 
   @type backend :: String.t()
   @type provider_descriptor :: ProvidersView.provider_descriptor()
 
   @type operator_payload :: %{required(:kind) => :text, required(:body) => String.t()}
+  @type display_source_event ::
+          {:available, String.t() | nil, String.t()}
+          | {:available, String.t() | nil, String.t(), %{backfill?: boolean()}}
+          | {:unavailable, String.t() | nil, String.t(), atom()}
+
   @type safe_checkpoint :: %{required(:kind) => atom(), optional(:method) => String.t()}
 
   @type checkpoint_callback_result ::
@@ -30,6 +37,7 @@ defmodule Aiur.CodingAgent do
 
   # Registry views and provider descriptors.
   defdelegate backends(), to: ProvidersView
+  defdelegate child_specs(), to: ProvidersView
   defdelegate known_backends(), to: ProvidersView
   defdelegate model_required?(backend), to: ProvidersView
   defdelegate dispatchable_backends(backend_configs \\ %{}), to: ProvidersView
@@ -103,6 +111,30 @@ defmodule Aiur.CodingAgent do
   @doc "Delivery-policy default: whether the backend supports Executor interrupts."
   @spec can_interrupt?(backend()) :: boolean()
   def can_interrupt?(backend), do: fetch_backend!(backend).can_interrupt
+
+  @doc """
+  Invoke a backend's optional out-of-band interrupt callback.
+  A nil backend uses the sole pane harness while runtime messages are still arriving.
+  Unknown backends and adapters without the callback report `:interrupt_not_supported`.
+  """
+  @spec interrupt(backend() | nil, Backend.session()) :: :ok | {:error, term()}
+  def interrupt(backend, session) do
+    with {:ok, %{adapter: adapter}} <- Map.fetch(backends(), resolve_pane_backend(backend)),
+         true <- Code.ensure_loaded?(adapter) and function_exported?(adapter, :interrupt, 1) do
+      adapter.interrupt(session)
+    else
+      _ -> {:error, :interrupt_not_supported}
+    end
+  end
+
+  defp resolve_pane_backend(nil) do
+    Enum.find_value(backends(), fn {key, entry} ->
+      if Capabilities.delivery_primitives_for_entry(key, entry).transport == :tmux_pane,
+        do: key
+    end)
+  end
+
+  defp resolve_pane_backend(backend), do: backend
 
   @doc "Whether the provider can safely replace its session after this error."
   @spec recoverable_session_error?(backend(), term()) :: boolean()
@@ -204,6 +236,35 @@ defmodule Aiur.CodingAgent do
       :error -> false
     end
   end
+
+  @doc "Prepare optional launch correlation using the backend's declared telemetry module."
+  @spec prepare_launch_telemetry(backend(), Aiur.Issue.t(), keyword()) :: {:ok, term() | nil} | {:error, term()}
+  def prepare_launch_telemetry(backend, issue, opts) do
+    {registry, opts} = Keyword.pop_lazy(opts, :launch_telemetry_registry, &backends/0)
+
+    case get_in(registry, [backend, :launch_telemetry]) do
+      nil -> {:ok, nil}
+      module -> module.prepare_launch(issue, opts)
+    end
+  end
+
+  @doc "Revoke a launch with the backend that prepared it; absent capabilities are a no-op."
+  @spec revoke_launch_telemetry(backend(), term(), keyword()) :: :ok
+  def revoke_launch_telemetry(backend, launch, opts \\ [])
+  def revoke_launch_telemetry(_backend, nil, _opts), do: :ok
+
+  def revoke_launch_telemetry(backend, launch, opts) do
+    registry = Keyword.get_lazy(opts, :launch_telemetry_registry, &backends/0)
+
+    case get_in(registry, [backend, :launch_telemetry]) do
+      nil -> :ok
+      module -> module.revoke(launch)
+    end
+  end
+
+  @doc "Optional display source module, including its daemon handoff callbacks."
+  @spec display_tailer(backend()) :: module() | nil
+  def display_tailer(backend), do: get_in(backends(), [backend, :display_tailer])
 
   @doc """
   How a live session's OS-level runtime is reported to the orchestrator

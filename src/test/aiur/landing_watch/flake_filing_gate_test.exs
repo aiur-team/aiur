@@ -65,19 +65,19 @@ defmodule Aiur.LandingWatch.FlakeFilingGateTest do
 
   test "merge-group quarantine does not file a flake whose test changed on main after the run" do
     runs = [failed_run(601, "pr-61-a", 20), failed_run(602, "pr-62-b", 10)]
-    assert :ok = MergeGroupQuarantine.process_completed(runs, "main", quarantine_opts(compare_request("ahead")))
+    assert :ok = MergeGroupQuarantine.process_completed(runs, [], "main", quarantine_opts(compare_request("ahead")))
     refute_received :flake_ticket_recorded
   end
 
   test "merge-group quarantine does not file a flake seen only on runs older than the max age" do
     runs = [failed_run(611, "pr-63-a", 14 * 60), failed_run(612, "pr-64-b", 13 * 60)]
-    assert :ok = MergeGroupQuarantine.process_completed(runs, "main", quarantine_opts(compare_request("behind")))
+    assert :ok = MergeGroupQuarantine.process_completed(runs, [], "main", quarantine_opts(compare_request("behind")))
     refute_received :flake_ticket_recorded
   end
 
   test "merge-group quarantine still files a recent flake whose test did not change" do
     runs = [failed_run(621, "pr-65-a", 20), failed_run(622, "pr-66-b", 10)]
-    assert :ok = MergeGroupQuarantine.process_completed(runs, "main", quarantine_opts(compare_request("behind")))
+    assert :ok = MergeGroupQuarantine.process_completed(runs, [], "main", quarantine_opts(compare_request("behind")))
     assert_received :flake_ticket_recorded
   end
 
@@ -90,15 +90,17 @@ defmodule Aiur.LandingWatch.FlakeFilingGateTest do
       token: "test-gh-token",
       journal_path: journal,
       request_fun: request,
+      main_history_fun: fn -> [] end,
       changed_paths_fun: fn _pr, _opts -> {:ok, []} end,
       jobs_fun: fn _run, _opts -> {:ok, [%{"check_run_id" => 1, "name" => "test", "conclusion" => "failure"}]} end,
       annotations_fun: fn _id, _opts ->
         {:ok, [%{"title" => "aiur-test-failure", "message" => "new-failure :: Aiur.ExampleTest :: flakes", "path" => "src/test/example_test.exs"}]}
       end,
-      flake_recorder: fn _failure, _run, _passed, _opts ->
+      flake_recorder: fn _failure, _run, _passed, recorder_opts ->
         send(parent, :flake_ticket_recorded)
-        :ok
-      end
+        recorder_opts[:issue_recorded_fun].(900)
+      end,
+      quarantine_pr_fun: fn _candidate, _ticket, _opts -> {:ok, %{"number" => 901}} end
     ]
   end
 

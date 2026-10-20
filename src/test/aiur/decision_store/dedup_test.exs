@@ -103,6 +103,31 @@ defmodule Aiur.DecisionStore.DedupTest do
       assert length(decisions) == 1
     end
 
+    test "a matching re-raise moots the expired blocker before opening its replacement", %{dir: dir} do
+      pid = start_store!(dir)
+      question = "Should the old agent retry this operation?"
+
+      assert {:ok, %{decision: expired}} =
+               request(pid, %{"question" => question, "blocking" => true, "source_id" => "expired-source"})
+
+      assert {:ok, %{decision: %{decision_status: :expired}}} =
+               DecisionStore.expire(
+                 expired.decision_id,
+                 "agent_not_running",
+                 [now: DateTime.add(expired.created_at, 600, :second)],
+                 pid
+               )
+
+      assert {:ok, %{status: :accepted, decision: replacement}} =
+               request(pid, %{"question" => question, "blocking" => true, "source_id" => "reraised-source"})
+
+      refute replacement.decision_id == expired.decision_id
+      assert replacement.decision_status == :open
+      assert {:ok, %Decision{decision_status: :moot}} = DecisionStore.get(expired.decision_id, pid)
+      assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
+      assert ids == MapSet.new(["979"])
+    end
+
     test "an exact question with a human-required authority stays distinct", %{dir: dir} do
       pid = start_store!(dir)
       question = "Should we publish the customer records?"

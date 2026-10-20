@@ -256,8 +256,9 @@ defmodule Aiur.GitHub.ResourceStore do
 
   require Logger
 
-  alias Aiur.{Config, Fs, JsonStore}
+  alias Aiur.{Config, JsonStore}
   alias Aiur.GitHub.{MembershipAccess, ResourceEvents}
+  alias Aiur.GitHub.ResourceStore.Checkpoint
   alias Aiur.GitHub.ResourceStore.Memory
 
   @table __MODULE__.Table
@@ -353,13 +354,9 @@ defmodule Aiur.GitHub.ResourceStore do
     # a GraphQL node lookup (#2326). A comment's thread is immutable, so the
     # mapping never goes stale.
     :pr_review_comment_thread,
-    # The conditional validator for that lookup's open-pull-request listing
-    # (`GET /pulls?state=open`), held separately from `:branch_pull_request`.
-    # The three writers of the PR-body key — webhook deposit, human-review gate,
-    # and the per-cycle Client lookup — each write a different kind of validator,
-    # so sharing one key would clobber the listing's page-1 ETag with a
-    # PR-body-derived hash it can never match (#2126, #2298).
-    :branch_pull_request_listing
+    # Conditional validator for the page-one listing, separate from the PR-body key.
+    :branch_pull_request_listing,
+    :branch_pull_request_listing_all
   ]
 
   # The identities where a body's *order* decides correctness: a whole mutable
@@ -537,19 +534,19 @@ defmodule Aiur.GitHub.ResourceStore do
   end
 
   @doc """
-  Stores a validator for `key`. A `nil` or empty validator is discarded.
+  Stores a validator for `key`; a `nil` or empty one is discarded. Given `previous`, only while
+  `key` still holds it: a `304` answered against `previous` vouches for no other body (#5180).
 
-  This leaves the entry in the "validator, no body" state described in the
-  moduledoc unless a body is already held. A caller that wants a later `304` to
-  be able to *answer* rather than only say "unchanged" deposits the body with
-  `put_resource/3` instead.
+  Without a held body this leaves the moduledoc's "validator, no body" state; a caller whose
+  later `304` must *answer* rather than only say "unchanged" deposits the body with `put_resource/3`.
   """
-  @spec put_etag(key() | nil, String.t() | nil) :: :ok
-  def put_etag(nil, _etag), do: :ok
-  def put_etag(_key, etag) when not is_binary(etag) or etag == "", do: :ok
+  @spec put_etag(key() | nil, String.t() | nil, String.t() | nil | :any) :: :ok
+  def put_etag(key, etag, previous \\ :any)
+  def put_etag(nil, _etag, _previous), do: :ok
+  def put_etag(_key, etag, _previous) when not is_binary(etag) or etag == "", do: :ok
 
-  def put_etag(key, etag) do
-    update(key, fn entry -> Map.put(entry, :etag, etag) end)
+  def put_etag(key, etag, previous) do
+    update_reply(key, :ok, fn entry -> if previous in [:any, Map.get(entry, :etag)], do: {Map.put(entry, :etag, etag), :ok}, else: {:skip, :ok} end)
   end
 
   @doc """
@@ -1098,7 +1095,9 @@ defmodule Aiur.GitHub.ResourceStore do
       repo = String.downcase(repo)
 
       with_table(:ok, fn table ->
+        keys = :ets.match_object(table, {{resource_type, owner, repo, :_}, :_}) |> Enum.map(&elem(&1, 0))
         :ets.match_delete(table, {{resource_type, owner, repo, :_}, :_})
+        Checkpoint.remove_entries(keys)
         ResourceEvents.publish_cleared(resource_type, owner, repo)
         :ok
       end)
@@ -1144,8 +1143,12 @@ defmodule Aiur.GitHub.ResourceStore do
     with_table({:error, :unavailable}, fn table ->
       # All preparation precedes mutation; readers, writers, checkpoint and
       # expiry run on this same owner for membership, so none see a partial set.
+      old_keys = :ets.match_object(table, {{:sub_issue, owner, repo, :_}, :_}) |> Enum.map(&elem(&1, 0))
       :ets.match_delete(table, {{:sub_issue, owner, repo, :_}, :_})
       :ets.insert(table, entries)
+      new_keys = Enum.map(entries, &elem(&1, 0))
+      Checkpoint.remove_entries(old_keys -- new_keys)
+      Checkpoint.mark_entries_dirty(new_keys)
       ResourceEvents.publish_replaced(:sub_issue, owner, repo)
       :ok
     end)
@@ -1298,7 +1301,9 @@ defmodule Aiur.GitHub.ResourceStore do
 
   defp reset_entries do
     with_table(:ok, fn table ->
+      keys = :ets.tab2list(table) |> Enum.map(&elem(&1, 0))
       :ets.delete_all_objects(table)
+      Checkpoint.remove_entries(keys)
       :ok
     end)
   end
@@ -1312,6 +1317,7 @@ defmodule Aiur.GitHub.ResourceStore do
   defp forget_entry(key) do
     with_table(:ok, fn table ->
       :ets.delete(table, key)
+      Checkpoint.remove_entries([key])
       :ok
     end)
   end
@@ -1357,6 +1363,7 @@ defmodule Aiur.GitHub.ResourceStore do
   def init(opts) do
     Process.flag(:trap_exit, true)
     table = :ets.new(@table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
+    Checkpoint.init()
 
     path = resolve_path(opts)
     loaded = load(path)
@@ -1373,12 +1380,12 @@ defmodule Aiur.GitHub.ResourceStore do
     if path, do: schedule(:checkpoint, checkpoint_interval(opts))
     schedule(:sweep, sweep_interval(opts))
 
-    {:ok, %{table: table, path: path, last_written: nil}, :hibernate}
+    {:ok, %{table: table, path: path, last_written_revision: nil}, :hibernate}
   end
 
   @impl true
   def handle_call(:flush, _from, state) do
-    {reply, state} = checkpoint(state)
+    {reply, state} = checkpoint(state, force: true)
     {:reply, reply, state, :hibernate}
   end
 
@@ -1401,7 +1408,7 @@ defmodule Aiur.GitHub.ResourceStore do
 
   @impl true
   def terminate(_reason, state) do
-    checkpoint(state)
+    checkpoint(state, force: true)
     :ok
   end
 
@@ -1534,6 +1541,7 @@ defmodule Aiur.GitHub.ResourceStore do
         entry = Map.put(entry, :recorded_at_ms, now_ms())
 
         if swapped?(table, key, existing, entry) do
+          Checkpoint.mark_entry_dirty(key)
           announce(key, existing || %{}, entry)
           {reply, :ok}
         else
@@ -1862,9 +1870,17 @@ defmodule Aiur.GitHub.ResourceStore do
     # the whole entry goes. One C-side match spec — nothing is copied into this
     # process — and the guard is re-evaluated at the instant of deletion, so an
     # entry a writer refreshed in the meantime no longer matches and survives.
-    :ets.select_delete(table, [
-      {{:_, %{recorded_at_ms: :"$1"}}, [{:<, :"$1", cutoff}], [true]}
-    ])
+    deleted_keys =
+      :ets.select(table, [
+        {{:"$1", %{recorded_at_ms: :"$2"}}, [{:<, :"$2", cutoff}], [:"$1"]}
+      ])
+
+    deleted =
+      :ets.select_delete(table, [
+        {{:_, %{recorded_at_ms: :"$1"}}, [{:<, :"$1", cutoff}], [true]}
+      ])
+
+    if deleted > 0, do: Checkpoint.remove_entries(deleted_keys)
 
     # Pass 2 — the body is past retention but the entry is still in use. An
     # entry is one flat map, and the processed mark and the validator on it must
@@ -1883,7 +1899,6 @@ defmodule Aiur.GitHub.ResourceStore do
     # the processed mark beside a body are state a later read is still entitled
     # to — and reports what the table holds.
     Memory.enforce(table)
-
     :ok
   end
 
@@ -1926,51 +1941,24 @@ defmodule Aiur.GitHub.ResourceStore do
   end
 
   # Writes land in ETS directly from the poll fan-out rather than through this
-  # process, so there is no dirty flag to trust: the checkpoint compares a
-  # digest of the rendered document against the last one written and skips an
-  # identical one. That keeps a steady-state cycle — the case this whole change
-  # exists to make free — from also becoming a disk write every 30 seconds.
+  # process, so each mutation advances a shared revision. Periodic checkpoints
+  # skip rendering when that revision is already persisted; forced flush and
+  # shutdown checkpoints still render. Checkpoint caches the encoded JSON by
+  # key revision, so an ordinary periodic checkpoint only encodes changed
+  # entries before writing the complete restart document.
   #
-  # The document is rendered one entry at a time and only its digest is kept.
-  # Snapshotting the table and holding the previous document for the comparison
-  # put two decoded copies of every body on this process's heap (#3997). The
-  # callbacks hibernate for the same reason: this process is idle between
-  # timers, so whatever a checkpoint or the boot load allocated would otherwise
+  # Process hibernation releases transient checkpoint and boot allocations between timers (#3997).
   # sit on its heap until the next one.
-  defp checkpoint(%{path: nil} = state), do: {:ok, state}
-
-  defp checkpoint(%{table: table, path: path} = state) do
-    with {:ok, encoded} <- render(table),
-         digest = :erlang.md5(encoded),
-         false <- digest == state.last_written,
-         :ok <- write(path, encoded) do
-      {:ok, %{state | last_written: digest}}
-    else
-      true ->
-        {:ok, state}
-
-      {:error, reason} = error ->
-        Logger.warning("GitHub.ResourceStore checkpoint failed; reason=#{inspect(reason)}")
-        {error, state}
-    end
-  end
+  defp checkpoint(state, opts \\ []), do: Checkpoint.run(state, &render/1, opts)
 
   defp render(table) do
-    entries = :ets.foldl(&encode_entry/2, [], table)
+    entries = :ets.foldl(fn entry, acc -> encode_entry(entry, table, acc) end, [], table)
     {:ok, [~s({"version":1,"entries":{), Enum.intersperse(entries, ?,), "}}"]}
   rescue
     error -> {:error, Exception.message(error)}
   end
 
-  defp write(path, encoded) do
-    with :ok <- File.mkdir_p(Path.dirname(path)) do
-      Fs.atomic_write(path, encoded, fsync: true, mode: 0o600)
-    end
-  rescue
-    error -> {:error, Exception.message(error)}
-  end
-
-  defp encode_entry({key, entry}, acc) do
+  defp encode_entry({key, entry}, table, acc) do
     case encode_key(key) do
       nil ->
         # Loud, because this is the one place an entry can be lost with nothing
@@ -1982,7 +1970,12 @@ defmodule Aiur.GitHub.ResourceStore do
         acc
 
       encoded ->
-        [[Jason.encode!(encoded), ?:, Jason.encode!(encode_fields(key, entry))] | acc]
+        case Checkpoint.cached_entry(table, key, entry, fn current ->
+               [Jason.encode!(encoded), ?:, Jason.encode!(encode_fields(key, current))]
+             end) do
+          nil -> acc
+          cached -> [cached | acc]
+        end
     end
   end
 

@@ -4,6 +4,62 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
   use Aiur.DecisionStoreCase, async: false
 
   describe "answer outbox" do
+    test "boot moots expired unanswered blockers for confirmed closed tickets", %{dir: dir} do
+      resolver = fn identifiers ->
+        assert Enum.sort(identifiers) == ["closed-42", "open-42"]
+        {:ok, MapSet.new(["closed-42"])}
+      end
+
+      pid = start_store!(dir, terminal_ticket_resolver: resolver, dispatch_delay_ms: 60_000)
+
+      assert {:ok, %{decision: decision}} =
+               DecisionStore.request(
+                 %{"question" => "Should this closed ticket proceed?", "blocking" => true},
+                 [ticket: %{identifier: "closed-42", title: "Closed ticket", url: nil}, source: %{agent_id: "closed-boot-test", session_id: "session", event_id: nil}],
+                 pid
+               )
+
+      assert {:ok, %{decision: open_decision}} =
+               DecisionStore.request(
+                 answerable_request("open-boot-test"),
+                 [ticket: %{identifier: "open-42", title: "Open ticket", url: nil}, source: %{agent_id: "open-boot-test", session_id: "session", event_id: nil}],
+                 pid
+               )
+
+      assert {:ok, %{decision: expired}} = DecisionStore.expire(decision.decision_id, "agent_not_running", [], pid)
+      assert expired.decision_status == :expired
+
+      assert {:ok, %{decision: open_expired}} =
+               DecisionStore.expire(open_decision.decision_id, "agent_not_running", [], pid)
+
+      assert open_expired.decision_status == :expired
+      GenServer.stop(pid)
+
+      pid = start_store!(dir, terminal_ticket_resolver: resolver, dispatch_delay_ms: 60_000)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+
+      mooted = wait_for_decision(pid, decision.decision_id, &(&1.decision_status == :moot))
+      assert mooted.decision_status == :moot
+      assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+      assert Enum.any?(audit, &match?(%{type: :decision_mooted, data: %{reason_class: "ticket_closed"}}, &1))
+
+      still_answerable = wait_for_decision(pid, open_decision.decision_id, &(&1.decision_status == :expired))
+      assert still_answerable.decision_status == :expired
+      assert still_answerable.answer == nil
+
+      assert {:ok, %{action: action, decision: answered}} =
+               answer(
+                 pid,
+                 open_decision.decision_id,
+                 %{"idempotency_key" => "answer-open-after-boot", "expected_version" => 1, "option_id" => "ship"}
+               )
+
+      assert action.selected_option_id == "ship"
+      assert answered.decision_status == :decided
+
+      assert {:ok, %{counts: %{blocking: 0}}} = DecisionStore.retained_counts(pid)
+    end
+
     test "durable transport failure opens one stable attention and restoration resolves it", %{dir: dir} do
       parent = self()
       original_log_file = Application.get_env(:aiur, :log_file)
@@ -46,13 +102,31 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
       pid2 =
         start_store!(dir,
           dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end,
-          terminal_ticket_resolver: fn _identifiers -> {:ok, MapSet.new()} end
+          terminal_ticket_resolver: fn _identifiers ->
+            send(parent, {:failure_reprojection_started, self()})
+
+            receive do
+              :continue_failure_reprojection -> {:ok, MapSet.new()}
+            end
+          end
         )
+
+      assert_receive {:failure_reprojection_started, reprojection_task}, 1_000
 
       assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
       assert :ok = DecisionStore.record_transport_async(:restored, item, nil, pid2)
-      _restored = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
+      # This call follows the cast from the same sender, so its reply is a barrier
+      # for the restore projection and its synchronous alert-ledger append.
+      assert {:ok, restored} = DecisionStore.get(decision.decision_id, pid2)
+      assert restored.delivery_status == :queued
+
+      # Let the delayed startup task run only after restoration has been
+      # projected. It must re-read the current decision before re-raising its
+      # boot snapshot, and this barrier waits until that check is complete.
+      send(reprojection_task, :continue_failure_reprojection)
+      assert :ok = DecisionStore.await_failure_attention_reprojection(pid2)
+      assert AlertFeed.condition_state(topic, roots: [], log_roots: [log_root]) == :resolved
       assert case_attention_alerts(log_root, topic) == []
     end
 

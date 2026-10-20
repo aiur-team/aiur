@@ -154,6 +154,10 @@ defmodule Aiur.GitHub.ResourceStore.MemoryTest do
       assert :ok = ResourceStore.flush(store)
       _state = :sys.get_state(store)
 
+      # Measure live retention, independent of when the store next hibernates.
+      assert :erlang.garbage_collect(store)
+      _state = :sys.get_state(store)
+
       assert {:memory, bytes} = Process.info(store, :memory)
       assert bytes < 1024 * 1024
 

@@ -48,10 +48,11 @@ defmodule Aiur.AppServer.ToolCallLedger do
       do: execute_tracked(identity, fingerprint, fun, server, &execute_cancellable_claim/4)
 
   defp execute_tracked(identity, fingerprint, fun, server, execute) do
-    case GenServer.call(server, {:claim, identity, fingerprint}, :infinity) do
-      {:cached, result} -> result
-      {:execute, token} -> execute.(server, identity, token, fun)
-      {:error, reason} -> {:error, reason}
+    case safe_call(server, {:claim, identity, fingerprint}) do
+      {:ok, {:cached, result}} -> result
+      {:ok, {:execute, token}} -> execute.(server, identity, token, fun)
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, {:tool_call_ledger_unavailable, reason}}
     end
   end
 
@@ -204,9 +205,16 @@ defmodule Aiur.AppServer.ToolCallLedger do
   defp execute_claim(server, key, token, fun) do
     result = fun.()
 
-    case GenServer.call(server, {:complete, key, token, result}, :infinity) do
-      :ok -> result
-      {:error, reason} -> {:error, reason}
+    case safe_call(server, {:complete, key, token, result}) do
+      {:ok, :ok} ->
+        result
+
+      {:ok, {:error, reason}} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        mark_uncertain_safely(server, key, token)
+        {:error, {:tool_call_ledger_unavailable, reason}}
     end
   catch
     kind, reason ->
@@ -233,9 +241,16 @@ defmodule Aiur.AppServer.ToolCallLedger do
         Enum.each(dictionary, fn {name, _value} -> Process.delete(name) end)
         Enum.each(updated_dictionary, fn {name, value} -> Process.put(name, value) end)
 
-        case GenServer.call(server, {:complete, key, token, result}, :infinity) do
-          :ok -> result
-          {:error, reason} -> {:error, reason}
+        case safe_call(server, {:complete, key, token, result}) do
+          {:ok, :ok} ->
+            result
+
+          {:ok, {:error, reason}} ->
+            {:error, reason}
+
+          {:error, reason} ->
+            mark_uncertain_safely(server, key, token)
+            {:error, {:tool_call_ledger_unavailable, reason}}
         end
 
       {^token, {:raised, kind, reason, stacktrace}} ->
@@ -284,9 +299,14 @@ defmodule Aiur.AppServer.ToolCallLedger do
   end
 
   defp mark_uncertain_safely(server, key, token) do
-    GenServer.call(server, {:mark_uncertain, key, token}, :infinity)
+    safe_call(server, {:mark_uncertain, key, token})
+    :ok
+  end
+
+  defp safe_call(server, request) do
+    {:ok, GenServer.call(server, request, :infinity)}
   catch
-    :exit, _reason -> :ok
+    :exit, reason -> {:error, reason}
   end
 
   defp recover_entries(entries, storage) do

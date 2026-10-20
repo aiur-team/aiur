@@ -22,12 +22,17 @@ defmodule Aiur.TestSupport.BuildHome.ProtocolCase do
 
     defp result(:raise, _opts), do: raise("source raised")
     defp result(:exit, _opts), do: exit(:source_exit)
-    defp result(:error, _opts), do: {:error, :source_down}
+    defp result(:error, opts), do: {:error, Keyword.get(opts, :error_reason, :source_down)}
     defp result(:hold, _opts), do: receive(do: (:release -> {:error, :unavailable}))
 
     defp result(:invalid, opts) do
       {:ok, data} = FixtureSource.snapshot(opts)
       {:ok, put_in(data, ["sections", "now", Access.at(0), "pct"], "sensitive-source-value")}
+    end
+
+    defp result(:retrying, opts) do
+      {:ok, data} = FixtureSource.snapshot(opts)
+      {:ok, put_in(data, ["sections", "now", Access.at(0), "agent", "state"], "retrying")}
     end
 
     defp result(_mode, opts) do

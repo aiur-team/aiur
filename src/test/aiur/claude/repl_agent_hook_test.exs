@@ -265,8 +265,9 @@ defmodule Aiur.Claude.ReplAgentHookTest do
     expect_hook_prompt_submit(tmux)
 
     # First liveness poll reports the pane gone -> :repl_gone (no Stop needed).
-    assert_receive {:tmux_mock_out, "display-message" <> _}, 1_000
-    respond_error(tmux, "no server running")
+    pane_pid_query = "display-message -p -t %50 \#{pane_pid}"
+    assert_receive {:tmux_mock_out, ^pane_pid_query}, 1_000
+    respond_error(tmux, "no server running\n")
 
     assert {:error, :repl_gone} = Task.await(task, 2_000)
   end

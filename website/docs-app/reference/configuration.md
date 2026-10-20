@@ -1,7 +1,5 @@
 # Configuration reference
-Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels. Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below.
-
-Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
+Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels. Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below. Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
 ## Environment variables
 
@@ -55,6 +53,8 @@ The alert carries actionable evidence.
 A ticket that becomes terminal or leaves the run scope resolves its active advisory and forgets its convergence state; a re-opened ticket starts a fresh episode.
 
 ## tracker
+
+The [analysis-ticket exception](/apis/github-auth#who-aiur-trusts) requires a matching open local request and nonce; daemon authorship alone grants no trust.
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-01 -->
 | --- | --- | --- | --- |
@@ -213,18 +213,18 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 | --- | --- | --- | --- |
 | `prewarm.base_build` | string | none | One-time base build command. |
 | `prewarm.base_build_file` | string | none | Sibling script loaded into `base_build`. |
+| `prewarm.build_timeout_minutes` | integer | 60 | Total time allowed for a base clone, fetch, and build. |
 | `prewarm.enabled` | boolean | false | Opts into one warm base checkout. |
 | `prewarm.poll_seconds` | integer | 0 | Base-refresh interval; 0 disables polling. |
 
 `poll_seconds: 0` disables periodic refreshes, not dispatch-time freshness checks.
 
-When a prewarm build or freshness probe holds fleet dispatch, an independent idle
-watchdog releases the gate for cold-clone fallback once the hold has been stalled
-for 10 minutes.
+A base refresh is bounded from clone/fetch start by `prewarm.build_timeout_minutes` (default 60); on expiry,
+Aiur terminates its process group and releases dispatch for cold-clone fallback. The independent idle watchdog
+releases a stalled dispatch hold after 10 minutes.
 
-"Stalled" means the hold's worker process is dead with no completion signal in
-flight. A build that is still progressing — however slow a cold `deps` +
-`compile` + `dialyzer` run may be — is never killed by the watchdog.
+For the idle watchdog, "stalled" means the hold's worker is dead with no
+completion signal in flight. Timed-out builds are not retried automatically; restart Aiur to retry.
 
 The `system.dispatch.prewarm_blocked` alert is not raised for a routine refresh:
 a freshness probe that self-clears in seconds holds dispatch too briefly to
@@ -451,6 +451,7 @@ The daemon owns [experiment](../concepts/experiments) writes through control RPC
 
 | Key | Type | Default | Description | <!-- generated-reference:config-configuration-20 -->
 | --- | --- | --- | --- |
+| `experiments.analyst.auto_request` | boolean | true | Request analysts automatically; false keeps on-demand CLI analysis available. |
 | `experiments.auto.after_days` | integer | 14 | Initial after window length in days; positive. |
 | `experiments.auto.after_max_days` | integer | 42 | Maximum after window days; at least after_days. |
 | `experiments.auto.after_step_days` | integer | 7 | After window extension in days; positive. |

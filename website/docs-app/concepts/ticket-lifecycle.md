@@ -105,6 +105,11 @@ staleness. Unapproved stale heads need no conflicts or changed-file overlap
 since the merge base, including both paths of renames. Incomplete evidence or
 genuine conflicts leave labels unchanged.
 
+A worker's `human-review` handback
+goes to `ci-wait` instead when the PR is approved and that approval carries to
+the head: approved at the head, or only merge drift since. A rework handback
+keeps `human-review`.
+
 A rework handback to `ci-wait` or `human-review` must answer the latest
 blocking review. Its numbered `file:line` items form the rework prompt's
 checklist. The agent passes one `review_findings` answer per item: `fixed`

@@ -4,6 +4,10 @@ defmodule Aiur.AgentGitHubGuard.InstallAndTokenTest do
   test "installs the companion host-budget broker alongside the gh wrapper", context do
     assert File.regular?(AgentGitHubGuard.budget_broker_path(context.workspace))
     assert File.stat!(AgentGitHubGuard.budget_broker_path(context.workspace)).mode |> Bitwise.band(0o111) != 0
+
+    metrics_path = Path.join(AgentGitHubGuard.bin_dir(context.workspace), "github_budget_metrics.py")
+    assert File.regular?(metrics_path)
+    assert File.read!(metrics_path) =~ "def receive_requests"
   end
 
   test "a re-install replaces a stale workspace broker and logs the refresh", context do
@@ -299,6 +303,26 @@ defmodule Aiur.AgentGitHubGuard.InstallAndTokenTest do
     assert {_output, 77} = run_guard(context, ["api", "-X", "PUT", "repos/owner/repo/pulls/7/update-branch"])
 
     refute File.exists?(context.calls)
+  end
+
+  test "refuses gh pr update-branch during post-handoff states but permits it in progress", context do
+    assert {output, 77} =
+             run_guard(context, ["pr", "update-branch", "42", "--repo", "owner/other"],
+               FAKE_GH_FORMAT_OUTPUT: "priority:2 agent:human-review\\n",
+               FAKE_GH_FORMAT_ARGS: context.calls
+             )
+
+    assert output =~ "ticket #1670 is handed off"
+    assert output =~ "if GitHub reports the PR CONFLICTING or a reviewer asked for integration"
+    assert File.read!(context.calls) =~ "repos/aiur-team/aiur/issues/1670"
+
+    File.rm!(context.calls)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["pr", "update-branch", "42"],
+               FAKE_GH_FORMAT_OUTPUT: "priority:2 agent:in-progress\\n",
+               FAKE_GH_FORMAT_ARGS: context.calls
+             )
   end
 
   # Disarming the gate is as good as passing it: an agent that can delete branch

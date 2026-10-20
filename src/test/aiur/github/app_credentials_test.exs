@@ -169,7 +169,7 @@ defmodule Aiur.GitHub.AppCredentialsTest do
     sanitized = AppCredentials.sanitize_error({:private_key_path_unreadable, "/secrets/app.pem", :enoent})
 
     assert sanitized == {:private_key_path_unreadable, :enoent}
-    refute inspect(sanitized) =~ "/secrets/app.pem"
+    Aiur.TestSupport.refute_leak(sanitized, "/secrets/app.pem")
   end
 
   test "sanitize_error/1 passes other reasons through unchanged" do

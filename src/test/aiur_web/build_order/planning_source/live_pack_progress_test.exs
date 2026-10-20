@@ -32,7 +32,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgressTest do
       })
 
     on_exit(fn ->
-      Process.exit(busy, :kill)
+      stop_busy_process(busy)
       if retained, do: SnapshotCache.put(Aiur.Orchestrator, retained), else: SnapshotStore.forget(Aiur.Orchestrator)
 
       if is_pid(original) and Process.alive?(original) and is_nil(Process.whereis(Aiur.Orchestrator)),
@@ -75,5 +75,44 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgressTest do
 
     assert {:stale, _, %{status: :stale}} = Aiur.Orchestrator.dashboard_snapshot()
     assert LivePackProgress.current_poll_labels() == %{}
+
+    parent = self()
+
+    cleanup =
+      Task.async(fn ->
+        stop_busy_process(busy, fn _busy ->
+          send(parent, :stand_in_termination_requested)
+
+          receive do
+            :release_termination -> :ok
+          after
+            5_000 -> raise "test did not release the stand-in termination request"
+          end
+        end)
+      end)
+
+    assert_receive :stand_in_termination_requested, 1_000
+    send(cleanup.pid, :release_termination)
+    assert Task.yield(cleanup, 1_000) == nil
+
+    Process.exit(busy, :kill)
+    assert {:ok, :killed} = Task.yield(cleanup, 1_000)
+
+    if is_pid(original) and Process.alive?(original) and is_nil(Process.whereis(Aiur.Orchestrator)),
+      do: Process.register(original, Aiur.Orchestrator)
+
+    assert Process.whereis(Aiur.Orchestrator) == original,
+           "expected original Orchestrator #{inspect(original)} after stand-in #{inspect(busy)} exited :killed"
+  end
+
+  defp stop_busy_process(busy, request_exit \\ &Process.exit(&1, :kill)) do
+    monitor = Process.monitor(busy)
+    request_exit.(busy)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^busy, reason} -> reason
+    after
+      5_000 -> raise "temporary orchestrator stand-in did not exit"
+    end
   end
 end

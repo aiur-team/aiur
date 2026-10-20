@@ -7,6 +7,7 @@ defmodule AiurWeb.Experiments.SourceTest do
     def metric_catalog, do: Process.get(:experiments_catalog, %{metrics: %{}})
     def list, do: Process.get(:experiments_list, {:ok, []})
     def fetch(id), do: Process.get({:experiments_detail, id}, {:error, :not_found})
+    def chart_detail(id, _opts), do: fetch(id)
     def status, do: Process.get(:experiments_status, %{available?: true, store: :ok, capture: :off}) |> run()
     defp run(read) when is_function(read, 0), do: read.()
     defp run(value), do: value
@@ -52,6 +53,41 @@ defmodule AiurWeb.Experiments.SourceTest do
 
   test "empty index stays empty" do
     assert Source.index() == {:ok, []}
+  end
+
+  test "detail loads a cold facade and forwards chart query options" do
+    module = Module.concat(__MODULE__, ColdFacade)
+    directory = Path.join(System.tmp_dir!(), "experiments-cold-facade-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(directory)
+
+    [{^module, beam}] =
+      Code.compile_string("""
+      defmodule #{inspect(module)} do
+        def chart_detail(id, opts) do
+          send(self(), {:cold_chart_detail, id, opts})
+          {:ok, %{spec: %{}, stratum: opts[:stratum]}}
+        end
+        def fetch(_id), do: raise("chart detail must not fall back to fetch")
+        def metric_catalog, do: %{metrics: %{}}
+      end
+      """)
+
+    File.write!(Path.join(directory, "#{module}.beam"), beam)
+    :code.purge(module)
+    :code.delete(module)
+    :code.add_patha(String.to_charlist(directory))
+
+    on_exit(fn ->
+      :code.del_path(String.to_charlist(directory))
+      :code.purge(module)
+      :code.delete(module)
+      Aiur.TestCleanup.rm_rf!(directory)
+    end)
+
+    Application.put_env(:aiur, :experiments_facade, module)
+    assert :code.is_loaded(module) == false
+    assert {:ok, %{id: "cold", stratum: "complexity:2"}} = Source.detail("cold", metric: "duration", stratum: "complexity:2")
+    assert_receive {:cold_chart_detail, "cold", [metric: "duration", stratum: "complexity:2"]}, 100
   end
 
   test "read failures map to a path-free store error and unknown ids stay distinct" do
