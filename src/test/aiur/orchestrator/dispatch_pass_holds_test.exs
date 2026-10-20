@@ -8,11 +8,13 @@ defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
   @slots 12
 
   setup do
+    test_pid = self()
     path = Workflow.workflow_file_path()
     original = File.read!(path)
     write_workflow_file!(path, tracker_kind: "github", tracker_repo: "owner/repo", tracker_label_prefix: "sym", max_concurrent_agents: @slots)
     ResourceStore.reset()
     OpenIssueSnapshot.reset()
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
     on_exit(fn -> File.write!(path, original) end)
     :ok
   end
