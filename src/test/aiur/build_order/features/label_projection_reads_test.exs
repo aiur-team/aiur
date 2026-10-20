@@ -48,6 +48,7 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionReadsTest do
   end
 
   setup do
+    assert :ok = Aiur.TestSupport.ensure_pubsub_running()
     ctx = F.setup()
     availability = start_supervised!({Agent, fn -> true end}, id: :history_availability)
     options = [history: CountedHistory, history_options: [server: ctx.history, observer: self(), availability: availability]]
