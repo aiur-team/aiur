@@ -64,18 +64,18 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert QueueDrain.prepare_operator_delivery(correlated_item(), issue, store) ==
                {:error, {:retry, :store_unavailable}}
 
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
 
       exhausted = Map.put(correlated_item(), :delivery_attempts, 3)
 
       assert QueueDrain.prepare_operator_delivery(exhausted, issue, store) ==
                {:error, {:failed, :store_unavailable}}
 
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
       {:ok, recovered_store} = FakeDecisionStore.start_link(report: self(), reply: {:ok, :accepted})
       assert QueueDrain.prepare_operator_delivery(correlated_item(), issue, recovered_store) == :ok
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
     end
   end
 
@@ -123,5 +123,11 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
         attempt_id: "act_9:1"
       }
     }
+  end
+
+  defp case_attention_alerts(log_root, topic) do
+    # Other tests can emit into the VM-global runtime log root concurrently.
+    AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+    |> Enum.filter(&(&1["topic"] == topic))
   end
 end
