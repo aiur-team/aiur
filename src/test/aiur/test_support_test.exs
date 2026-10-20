@@ -84,6 +84,18 @@ defmodule Aiur.TestSupportTest do
     assert is_pid(Process.whereis(Aiur.Events.BranchRefStore))
   end
 
+  test "ensure_runtime_children_running restores a stopped ActiveTurns owner" do
+    on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
+
+    assert is_pid(Process.whereis(Aiur.Opencode.ActiveTurns))
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Opencode.ActiveTurns)
+    refute Process.whereis(Aiur.Opencode.ActiveTurns)
+
+    assert :ok = Aiur.TestSupport.ensure_runtime_children_running()
+    assert is_pid(Process.whereis(Aiur.Opencode.ActiveTurns))
+    assert Process.whereis(Aiur.Opencode.ActiveTurns) == :ets.info(Aiur.Opencode.ActiveTurns, :owner)
+  end
+
   # The only test in the suite that restarts the whole OTP application, through
   # the synchronous global `:application_controller`. It used to wedge that
   # controller for its whole partition (#2474): with the tree already down,
