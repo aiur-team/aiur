@@ -120,7 +120,9 @@ defmodule Aiur.DecisionStore.Info do
 
   def handle_info({:failure_attention_reprojection_complete, count}, state) do
     Logger.debug("aiur_decision_store phase=failure_attention_reprojection_complete count=#{count}")
-    {:noreply, state}
+    Enum.each(state.failure_attention_reprojection_waiters, &GenServer.reply(&1, :ok))
+
+    {:noreply, %{state | failure_attention_reprojection_pending?: false, failure_attention_reprojection_waiters: []}}
   end
 
   def handle_info({:project_revision_follow_up, decision_id, action_id}, state) do
