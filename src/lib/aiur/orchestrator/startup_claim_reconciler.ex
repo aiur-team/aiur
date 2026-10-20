@@ -188,6 +188,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     case Release.run(issue, opts) do
       {:ok, target} ->
         Logger.warning("Released orphaned startup claim to #{target}; no live runtime owns it #{State.issue_context(issue)}")
+        if release_changes_state?(issue, target), do: emit_released_alert(issue, target, opts)
         if DispatchPolicy.state_slug(target) == "human-review", do: TransitionAlerts.publish_human_review_handoff(issue, opts)
         state = resolve_release_failure(state, issue, opts)
         state = %{state | claimed: MapSet.delete(state.claimed, issue.id), orphaned_claim_since: Map.delete(state.orphaned_claim_since, issue.identifier)}
@@ -273,6 +274,28 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp retry_outlook(_reason, _attempts, true), do: "it will be retried on a later candidate poll without using up release attempts."
   defp retry_outlook(_reason, attempts, false) when attempts >= @max_release_attempts, do: "no further release attempts will run within this boot."
   defp retry_outlook(_reason, _attempts, false), do: "it will be retried up to #{@max_release_attempts} times within this boot."
+
+  defp release_changes_state?(%Issue{} = issue, target) do
+    DispatchPolicy.state_slug(issue.state) != DispatchPolicy.state_slug(target) and
+      DispatchPolicy.state_slug(target) != "human-review"
+  end
+
+  defp emit_released_alert(%Issue{} = issue, target, opts) do
+    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+
+    emit_alert_fun.(
+      "ticket.#{issue.identifier}.agent.attention.startup_orphan_claim_released",
+      issue: issue,
+      message: "Startup reconciliation released ticket #{issue.identifier} from in-progress to #{target}.",
+      reason:
+        "Ticket #{issue.identifier} carried an in-progress claim but no live runtime in the current orchestrator " <>
+          "registry owned it, so the claim was released by a guarded update.",
+      needs_attention: false,
+      severity: "warning",
+      central: true,
+      durable: true
+    )
+  end
 
   defp resolve_release_failure(%State{} = state, %Issue{} = issue, opts) do
     case Map.pop(state.startup_claim_reconciliation_failures, issue.identifier) do

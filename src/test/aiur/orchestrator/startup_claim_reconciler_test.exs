@@ -26,7 +26,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
       end)
 
     assert_receive {:transition, "2076", "todo", "in-progress"}, 1000
-    refute_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", _alert_opts}, 100
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", alert_opts}, 1000
+    refute alert_opts[:needs_attention]
 
     assert_receive {:result, {state, [%Issue{state: "todo"}]}}, 1000
     assert state.startup_claim_reconciliation_complete?
@@ -58,6 +59,21 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
     assert state.startup_claim_reconciliation_complete?
     refute_receive {:alert, "ticket.5330.agent.attention.startup_orphan_claim_released", _opts}, 100
+  end
+
+  test "a successful release that leaves labels unchanged does not wake the Executor" do
+    issue = issue("same-state", "in-progress")
+
+    {state, [%Issue{state: "in-progress"}]} =
+      reconcile(%State{}, [issue],
+        forced_target: "in-progress",
+        update_issue_state_fun: fn "same-state", "in-progress", "in-progress" -> :ok end,
+        emit_alert_fun: fn topic, _opts ->
+          flunk("an unchanged state must not publish #{topic}")
+        end
+      )
+
+    assert state.startup_claim_reconciliation_complete?
   end
 
   test "startup release to human-review publishes one handoff wake per head" do
@@ -442,7 +458,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert recovered_state.startup_claim_reconciliation_complete?
     assert recovered_state.startup_claim_reconciliation_failures == %{}
 
-    refute_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", _opts}, 100
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", _opts}, 1000
 
     assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed.resolved", resolved_opts}, 1000
     refute resolved_opts[:needs_attention]
