@@ -312,7 +312,16 @@ defmodule Aiur.Workspace.HooksTest do
     assert ["/opt/user-otp", "/opt/user-otp/bin", "custom-beam", "custom-erl", path] =
              String.split(output, "\n")
 
-    assert String.starts_with?(path, unrelated_path)
+    case System.get_env("AIUR_BUILD_GATE_BIN") do
+      build_gate_bin when is_binary(build_gate_bin) and build_gate_bin != "" ->
+        assert String.starts_with?(path, Path.join(Path.dirname(build_gate_bin), "build-bin"))
+        assert String.contains?(path, build_gate_bin)
+
+      _ ->
+        assert String.starts_with?(path, unrelated_path)
+    end
+
+    assert String.contains?(path, unrelated_path)
   end
 
   test "remote hook command preserves unrelated values beside release-owned values", %{workspace: workspace} do
