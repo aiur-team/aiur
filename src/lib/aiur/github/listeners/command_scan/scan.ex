@@ -1,4 +1,4 @@
-defmodule Aiur.Orchestrator.CommandScan do
+defmodule Aiur.GitHub.Listeners.CommandScan.Scan do
   @moduledoc """
   Repo-wide one-off PR command scan (/aiur, @bot) with cursor-based deduplication.
   Remote scan work executes outside the orchestrator GenServer process.
@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.CommandScan do
 
   Both streams this module reads — `pulls/comments` and `issues/comments` for the
   whole repository — are conditional requests, and their `ETag`s used to live in
-  `state.github_command_scan_etags` under the call-site names `:command_scan_review`
+  orchestrator memory under the call-site names `:command_scan_review`
   and `:command_scan_issue`. Two things followed from that key. Nothing else could
   use the validator this scan had already earned, and a restart threw it away, so
   the first scan of every boot re-read both streams in full.
@@ -34,7 +34,9 @@ defmodule Aiur.Orchestrator.CommandScan do
   alias Aiur.Events.{GithubKeys, PrCommandScanner, Sanitizer}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ResourceStore
-  alias Aiur.Orchestrator.{State, TrackerTasks}
+
+  defstruct since: nil, etags: %{}
+  @type t :: %__MODULE__{since: String.t() | nil, etags: map()}
 
   @command_scan_pull_requests_per_poll 25
 
@@ -43,28 +45,11 @@ defmodule Aiur.Orchestrator.CommandScan do
   @review_comment_stream "pulls/comments"
   @issue_comment_stream "issues/comments"
 
-  @spec scan_pr_commands(State.t(), keyword()) :: State.t()
-  def scan_pr_commands(%State{} = state, opts \\ []) do
-    if Config.tracker_kind() == "github" and Aiur.GitHub.Config.pr_watch_enabled?() do
-      TrackerTasks.run(
-        state,
-        :command_scan,
-        fn ->
-          scanned = do_scan_pr_commands(state, opts)
-          {scanned.github_command_scan_since, Map.take(scanned.github_command_scan_etags, [:command_scan_review, :command_scan_issue])}
-        end,
-        fn
-          current, {since, etags} when is_map(etags) ->
-            %{current | github_command_scan_since: since, github_command_scan_etags: Map.merge(current.github_command_scan_etags, etags)}
-
-          current, failure ->
-            Logger.warning("PR command scan task failed: #{inspect(failure)}")
-            current
-        end
-      )
-    else
-      state
-    end
+  @spec scan_pr_commands(t(), keyword()) :: t()
+  def scan_pr_commands(%__MODULE__{} = state, opts \\ []) do
+    if Config.tracker_kind() == "github" and Aiur.GitHub.Config.pr_watch_enabled?(),
+      do: do_scan_pr_commands(state, opts),
+      else: state
   end
 
   @doc false
@@ -77,9 +62,9 @@ defmodule Aiur.Orchestrator.CommandScan do
     |> DateTime.to_iso8601()
   end
 
-  defp do_scan_pr_commands(%State{} = state, opts) do
+  defp do_scan_pr_commands(%__MODULE__{} = state, opts) do
     since = command_scan_since(state, opts)
-    etags = state.github_command_scan_etags
+    etags = state.etags
     repo = command_scan_repo(opts)
     fetch_opts = Keyword.put(opts, :since, since)
 
@@ -122,8 +107,8 @@ defmodule Aiur.Orchestrator.CommandScan do
 
     %{
       state
-      | github_command_scan_since: advance_command_scan_since(since, newest),
-        github_command_scan_etags:
+      | since: advance_command_scan_since(since, newest),
+        etags:
           etags
           |> Map.put(:command_scan_review, review_etag)
           |> Map.put(:command_scan_issue, issue_etag)
@@ -386,11 +371,11 @@ defmodule Aiur.Orchestrator.CommandScan do
     Keyword.get(opts, :repo) || Aiur.Tracker.project_identity()
   end
 
-  defp command_scan_since(%State{github_command_scan_since: since}, _opts)
+  defp command_scan_since(%__MODULE__{since: since}, _opts)
        when is_binary(since),
        do: since
 
-  defp command_scan_since(%State{}, opts), do: GithubKeys.boot_cutoff_iso8601(opts)
+  defp command_scan_since(%__MODULE__{}, opts), do: GithubKeys.boot_cutoff_iso8601(opts)
 
   defp command_scan_limit(opts) do
     case Keyword.get(opts, :command_scan_pull_request_limit, @command_scan_pull_requests_per_poll) do
