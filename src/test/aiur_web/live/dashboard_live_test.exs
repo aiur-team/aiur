@@ -744,6 +744,7 @@ defmodule AiurWeb.DashboardLiveTest do
     # SVG wrappers carry no intrinsic dimensions; guard their shared sizing rules.
     test "every icon wrapper in the shell has an svg sizing rule" do
       css = File.read!(Application.app_dir(:aiur, "priv/static/aiur-style/css/dashboard-shell.css"))
+
       wrapper_classes =
         global_pause_fleet(false)
         |> render_payload(writable: true)
@@ -753,6 +754,7 @@ defmodule AiurWeb.DashboardLiveTest do
         |> Enum.flat_map(&String.split/1)
         |> Enum.filter(&String.starts_with?(&1, "aiur-"))
         |> Enum.uniq()
+
       assert wrapper_classes != [], "expected the shell to render icon wrappers"
 
       for class <- wrapper_classes do

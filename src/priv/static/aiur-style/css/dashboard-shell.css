@@ -1,6 +1,12 @@
 /* Dashboard variant: current draggable rail and settings menu. */
 @layer aiur.components {
 .aiur-shell.aiur-shell--dashboard { display: block; max-width: none; margin: 0; padding: 0; min-width: 0; }
+/* Reset properties supplied by the original shell when both variants are bundled. */
+.aiur-shell--dashboard .aiur-shell__topbar { flex-wrap: nowrap; }
+.aiur-shell--dashboard .aiur-shell__logo { filter: none; object-fit: fill; }
+.aiur-shell--dashboard .aiur-shell__item { min-height: 0; line-height: inherit; }
+.aiur-shell--dashboard .aiur-shell__count { display: inline; height: auto; margin-left: 0; }
+.aiur-shell--dashboard .aiur-shell__state { margin-left: 0; }
 /* Shell (ported from design build.css v10) */
 .aiur-shell--dashboard .aiur-page { display: grid; gap: 1rem; min-width: 0; }
 .aiur-shell--dashboard .aiur-page > * { min-width: 0; }
@@ -106,11 +112,11 @@ html.nav-collapsed .aiur-shell--dashboard .aiur-shell__count.attn { top: 8px; ri
 html[data-theme="light"] .aiur-shell--dashboard .aiur-shell__menu { background: var(--aiur-shell-surface, var(--aiur-color-surface)); box-shadow: 0 12px 30px rgba(40, 32, 20, .16), 0 0 0 1px var(--aiur-shell-line, var(--aiur-color-line)); }
 
 /* ---------- draggable nav (icons ↔ icon + label), tighter spacing, centred content ---------- */
-.aiur-shell--dashboard { --aiur-shell-nav-w: 188px; }
-html.nav-collapsed .aiur-shell--dashboard { --aiur-shell-nav-w: 60px; }
+.aiur-shell--dashboard { --aiur-dashboard-nav-w: 188px; }
+html.nav-collapsed .aiur-shell--dashboard { --aiur-dashboard-nav-w: 60px; }
 @media (min-width: 961px) {
-.aiur-shell--dashboard .aiur-shell__body, html.nav-collapsed .aiur-shell--dashboard .aiur-shell__body { grid-template-columns: var(--navw, var(--aiur-shell-nav-w)) minmax(0, 1fr); transition: grid-template-columns .26s cubic-bezier(.22,1,.36,1); }
-.aiur-shell--dashboard .aiur-shell__brand, html.nav-collapsed .aiur-shell--dashboard .aiur-shell__brand { width: var(--navw, var(--aiur-shell-nav-w)); transition: width .26s cubic-bezier(.22,1,.36,1); }
+.aiur-shell--dashboard .aiur-shell__body, html.nav-collapsed .aiur-shell--dashboard .aiur-shell__body { grid-template-columns: var(--navw, var(--aiur-dashboard-nav-w)) minmax(0, 1fr); transition: grid-template-columns .26s cubic-bezier(.22,1,.36,1); }
+.aiur-shell--dashboard .aiur-shell__brand, html.nav-collapsed .aiur-shell--dashboard .aiur-shell__brand { width: var(--navw, var(--aiur-dashboard-nav-w)); transition: width .26s cubic-bezier(.22,1,.36,1); }
 html.nav-drag .aiur-shell--dashboard .aiur-shell__body, html.nav-drag .aiur-shell--dashboard .aiur-shell__brand { transition: none; }
 html.nav-drag, html.nav-drag * { cursor: col-resize !important; user-select: none; }
 .aiur-shell--dashboard .aiur-shell__toggle { display: none !important; }

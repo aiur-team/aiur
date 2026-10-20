@@ -239,3 +239,6 @@ html.live-socket-connected [data-phx-main]:not(.phx-error) .status-badge-offline
   color: var(--muted);
   font-size: 0.67rem;
 }
+
+/* Generic links defer to the shared ghost/filled button ink. */
+a.aiur-button { color: revert-layer; }

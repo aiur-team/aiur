@@ -256,3 +256,20 @@ test('production navigation restores and persists through the shared storage hel
   expect(await page.evaluate(() => performance.getEntriesByType('resource')
     .some(resource => resource.name.endsWith('/aiur-style/js/storage.js')))).toBe(true)
 })
+
+
+test('migrated ghost button links keep the dashboard muted ink', async ({ page }) => {
+  await openFixture(page)
+  await page.goto('/commands/answered-command')
+  const link = page.getByRole('link', { name: 'Collapse details' })
+  await expect(link).toBeVisible()
+  const ink = await link.evaluate(node => {
+    const probe = document.createElement('span')
+    probe.style.color = 'var(--muted)'
+    node.append(probe)
+    const color = getComputedStyle(probe).color
+    probe.remove()
+    return color
+  })
+  await expect(link).toHaveCSS('color', ink)
+})
