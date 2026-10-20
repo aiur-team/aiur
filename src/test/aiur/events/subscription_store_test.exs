@@ -16,7 +16,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     identifier = "test-issue-#{System.unique_integer([:positive])}"
 
     on_exit(fn ->
-      SubscriptionStore.stop(identifier)
+      stop_store_if_alive(identifier)
 
       if original do
         Application.put_env(:aiur, :log_file, original)
@@ -42,6 +42,15 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     end)
 
     %{tmp_dir: tmp_dir, identifier: identifier}
+  end
+
+  defp stop_store_if_alive(identifier) do
+    case Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, identifier) do
+      [{pid, _}] when is_pid(pid) -> if Process.alive?(pid), do: SubscriptionStore.stop(identifier), else: :ok
+      _ -> :ok
+    end
+  rescue
+    ArgumentError -> :ok
   end
 
   describe "attach/1" do
