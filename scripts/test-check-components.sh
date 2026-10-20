@@ -268,8 +268,6 @@ if with_elixir and not shutil.which('elixir'):
 if not with_elixir:
     print('SKIP: Elixir reference fixtures (use --with-elixir in lint)')
 else:
-    import os
-
     def reference_check(name, fixture, code=0, messages=(), source=None, change=None, args=(), verify=None):
         if selected and name not in selected:
             return
@@ -312,6 +310,7 @@ else:
     reference_check('component_route_shell_fails', 'component_routes', 1,
                     ('R-down commands -> AiurWeb.Router',),
                     source='defmodule AiurWeb.Routes.Decisions do\n  require AiurWeb.Router\nend\n')
+    from components.harness_fixtures import run as harness_checks; harness_checks(reference_check, repo)
     reference_check('private_module_fails', 'private_module_fails', 1, ('R-private a -> B.Internal',))
     reference_check('facade_star_allows_any', 'facade_star_allows_any')
     reference_check('alias_resolution_counts', 'alias_resolution_counts', 1, ('R-private a -> B.Internal',))

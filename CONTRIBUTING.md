@@ -343,6 +343,11 @@ and `R-optional` (required code must not depend on optional code). Failures name
 source component, target module and the reference location. Fix the boundary or
 manifest first; an exemption is temporary debt, not permission to add more.
 
+A component may declare `private_namespaces` (trailing-dot prefixes). These
+restrict outside references, including aliases and module literals, in addition
+to the existing facade rule. Exact `facades` override namespace privacy. Harness adapters use this rule; registry values inside the
+component are legal. Dynamic module construction is outside the static scan.
+
 Allowlist TSVs in `scripts/components/allowlist/` match exact
 `(rule, source component, target module)` keys. A removed violation leaves a
 stale entry that fails lint: delete it in the same PR, or run
