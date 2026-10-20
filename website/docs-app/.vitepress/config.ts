@@ -154,6 +154,7 @@ export default withMermaid(defineConfig({
             { text: 'Build Orders', link: '/concepts/build-orders' },
             { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
             { text: 'Ticket flow: steps 0–8', link: '/concepts/ticket-lifecycle-steps' },
+            { text: 'Agent workspaces', link: '/concepts/workspaces' },
             { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
             { text: 'Operating with aiurdev', link: '/concepts/operating-with-aiurdev' },
             { text: 'Headroom dispatch', link: '/concepts/headroom-dispatch' },
@@ -185,6 +186,7 @@ export default withMermaid(defineConfig({
             { text: 'Configuration: build_order', link: '/reference/configuration-build-order' },
             { text: 'Configuration notes', link: '/reference/configuration-notes' },
             { text: 'Merge Policy', link: '/reference/merge-policy' },
+            { text: 'PR checks', link: '/reference/pr-checks' },
             { text: 'Experiment Statistics', link: '/reference/experiment-statistics' },
             { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
           ]

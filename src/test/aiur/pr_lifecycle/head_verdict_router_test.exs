@@ -194,6 +194,18 @@ defmodule Aiur.PRLifecycle.HeadVerdictRouterTest do
     refute_received {:state_write, _, _, _}
   end
 
+  test "skips a ticket held by an Executor" do
+    HeadVerdictRouter.tick(
+      worker(
+        tickets_fetcher: fn ->
+          {:ok, [issue("human-review", executor_owner: "codex")]}
+        end
+      )
+    )
+
+    refute_received {:state_write, _, _, _}
+  end
+
   test "makes one open-PR listing per tick and re-reads reviews only when the PR changed" do
     {:ok, calls} = Agent.start_link(fn -> %{listings: 0, reviews: 0} end)
     {:ok, current} = Agent.start_link(fn -> pr() end)

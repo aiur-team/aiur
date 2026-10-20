@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "fixture-feature",
+  "key": null,
+  "title": "Feature epic 9001 delivery speed",
+  "hypothesis": "Merging epic 9001 lowers start-to-merge time by about 20 percent.",
+  "owner": {"kind": "human", "id": "operator"},
+  "status": "active",
+  "origin": {"kind": "epic_merge", "ref": "#9001"},
+  "design": {"kind": "before_after", "change": {"type": "epic_merge", "ref": "#9001", "time": "2026-10-11T00:00:00Z"}, "assign_by": "start"},
+  "metrics": [{"ref": "delivery-speed/start_to_merge", "direction": "decrease", "primary": true}],
+  "min_samples": 12,
+  "alpha": 0.05,
+  "power_target": 0.8,
+  "windows": {
+    "before": {"start": "2026-10-01T00:00:00Z", "end": "2026-10-11T00:00:00Z"},
+    "after": {"start": "2026-10-11T00:00:00Z", "end": "2026-10-21T00:00:00Z"}
+  },
+  "filters": {"all": []},
+  "stratify_by": ["complexity"],
+  "tags": [],
+  "notes": "",
+  "created_at": "2026-10-11T00:00:00Z",
+  "updated_at": "2026-10-11T00:00:00Z",
+  "registered_at": null,
+  "confounder_sources": {"base_branch": "main", "required_workflows": ["CI"]},
+  "report_reason": null
+}

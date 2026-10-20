@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   Remote reconciliation work runs outside the orchestrator process.
   """
 
+  alias Aiur.Commands
   alias Aiur.CurrentRunMembership
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
@@ -161,6 +162,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
         state_acc
         |> TransitionAlerts.emit_task_state_transition_alert(previous_issue, issue)
+        |> resolve_stranded_attention_if_cleared(issue, terminal_states)
         |> TransitionAlerts.emit_tracker_pause_transition_alert(previous_issue, issue)
         |> Dependencies.emit_dependency_transition_events(previous_issue, issue)
         |> TelemetryEvents.observe(previous_issue, issue)
@@ -176,6 +178,16 @@ defmodule Aiur.Orchestrator.IssueSync do
     }
     |> StatusObservation.observe_tickets(issues, retained_issues)
     |> OptimisticGuardEffects.reconcile()
+  end
+
+  defp resolve_stranded_attention_if_cleared(%State{} = state, %Issue{} = issue, terminal_states) do
+    if TransitionAlerts.stranded_attention_cleared?(state, issue, terminal_states) do
+      :ok = Commands.resolve_attention(issue, "stranded-requeued")
+      topic = "ticket.#{issue.identifier}.agent.attention.stranded-requeued"
+      %{state | active_attention_topics: MapSet.delete(state.active_attention_topics, topic)}
+    else
+      state
+    end
   end
 
   # The poll diff sees every writer's rework move (daemon or Executor label

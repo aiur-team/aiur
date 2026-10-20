@@ -5,15 +5,17 @@ defmodule Aiur.DecisionExpiryTest do
 
   @ticket %{identifier: "979", title: "Expiry", url: nil}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
-  @now ~U[2026-07-24 12:10:00Z]
+  @now DateTime.utc_now() |> DateTime.truncate(:second)
   @async_assert_timeout 1_000
 
   test "expires only old open Decisions whose ticket is no longer active" do
     test_pid = self()
+    attempted = :ets.new(:expiry_attempts, [:set, :private])
 
     decisions = [
       decision("live", "LIVE-1", DateTime.add(@now, -600, :second)),
       decision("orphan", "DONE-1", DateTime.add(@now, -600, :second), blocking: false),
+      decision("orphan-blocking", "DONE-BLOCKED", DateTime.add(@now, -600, :second)),
       decision("young", "DONE-2", DateTime.add(@now, -299, :second), blocking: false),
       decision("answered", "DONE-3", DateTime.add(@now, -600, :second), status: :decided, blocking: false)
     ]
@@ -25,6 +27,7 @@ defmodule Aiur.DecisionExpiryTest do
                active_identifiers_fun: fn -> {:ok, ["LIVE-1"]} end,
                decisions_fun: fn -> {:ok, decisions} end,
                expire_fun: fn decision_id, reason_class, occurred_at ->
+                 :ets.insert(attempted, {decision_id, reason_class, occurred_at})
                  send(test_pid, {:expired, decision_id, reason_class, occurred_at})
                  {:ok, %{status: :accepted}}
                end,
@@ -42,6 +45,7 @@ defmodule Aiur.DecisionExpiryTest do
 
     assert_received {:expired, orphan_id, "agent_not_running", @now}
     assert orphan_id == Enum.at(decisions, 1).decision_id
+    refute Enum.any?(:ets.tab2list(attempted), fn {id, _reason, _at} -> id == Enum.at(decisions, 2).decision_id end)
     refute_received {:expired, _decision_id, _reason, _occurred_at}
   end
 
@@ -67,14 +71,14 @@ defmodule Aiur.DecisionExpiryTest do
     refute_received {:expired, _decision_id, _reason, _occurred_at}
   end
 
-  test "still expires a blocking supervisor-answerable Decision whose ticket is no longer active" do
+  test "does not expire a blocking supervisor-answerable Decision whose ticket is no longer active" do
     test_pid = self()
 
     decisions = [
       decision("supervised", "DONE-1", DateTime.add(@now, -600, :second), authority: "supervisor_allowed")
     ]
 
-    assert {:ok, 1} =
+    assert {:ok, 0} =
              DecisionExpiry.sweep(
                now: @now,
                grace_seconds: 300,
@@ -92,7 +96,7 @@ defmodule Aiur.DecisionExpiryTest do
                attention_reconcile_fun: fn _decisions, _stale, _expired, _occurred_at -> :ok end
              )
 
-    assert_received {:expired, _decision_id, "agent_not_running", @now}
+    refute_received {:expired, _decision_id, _reason, _occurred_at}
   end
 
   test "raises one attention when a blocking Command is older than a day" do

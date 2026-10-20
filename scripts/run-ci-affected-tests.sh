@@ -7,4 +7,4 @@ started=$SECONDS
 sudo apt-get update
 sudo apt-get install -y zsh
 echo "::notice::affected-tests dependency setup duration: $((SECONDS - started))s"
-python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"
+GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-}" python3 ../scripts/run-ci-affected-tests.py "$PR_BASE"

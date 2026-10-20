@@ -80,6 +80,16 @@ test('active navigation follows the design corners on desktop and phone', async 
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/')
+    const active = page.locator('.aiur-shell__item[aria-current="page"]')
+    const accentSoft = await active.evaluate(item => {
+      const probe = document.createElement('span')
+      probe.style.backgroundColor = 'var(--aiur-color-accent-soft)'
+      item.append(probe)
+      const color = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return color
+    })
+    await expect(active).toHaveCSS('background-color', accentSoft)
     const radii = await page.locator('.snav.is-active').evaluate(item => {
       const style = getComputedStyle(item)
       return [style.borderTopLeftRadius, style.borderBottomLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius]
@@ -228,4 +238,53 @@ test('a stored light theme never paints a dark frame and the toggle persists und
   await page.locator('#theme-toggle').evaluate((button) => button.click())
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   expect(await page.evaluate(() => window.localStorage.getItem('aiur-theme'))).toBe('dark')
+})
+
+test('production navigation restores and persists through the shared storage helper', async ({ page }) => {
+  // Observe calls at the module boundary while delegating to the real guarded helper.
+  // ThemeToggle imports this module too, so a resource request alone proves nothing.
+  await page.route('**/aiur-style/js/storage.js', async route => {
+    const actual = new URL('/aiur-style/js/storage.js?actual', route.request().url()).href
+    await route.fulfill({ contentType: 'application/javascript', body: `
+      import * as storage from ${JSON.stringify(actual)};
+      window.navStorageCalls = [];
+      export function readStorage(key) {
+        window.navStorageCalls.push(['read', key]); return storage.readStorage(key);
+      }
+      export function writeStorage(key, value) {
+        window.navStorageCalls.push(['write', key, value]); storage.writeStorage(key, value);
+      }
+    ` })
+  })
+  await openFixture(page)
+  await page.context().setHTTPCredentials(dashboardCredentials)
+  await page.evaluate(() => localStorage.setItem('aiur-nav-collapsed', 'true'))
+  await page.goto('/palette-probe')
+  const drag = page.locator('#ax-drag')
+  await expect(drag).toHaveAttribute('data-nav-collapsed', 'true')
+  await expect(page.locator('.aiur-shell__brand')).toHaveCSS('width', '60px')
+  await drag.press('ArrowRight')
+  await expect(drag).toHaveAttribute('data-nav-collapsed', 'false')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('aiur-nav-collapsed'))).toBe('false')
+  await expect.poll(() => page.evaluate(() => window.navStorageCalls)).toContainEqual(['write', 'aiur-nav-collapsed', 'false'])
+  await page.reload()
+  await expect(drag).toHaveAttribute('data-nav-collapsed', 'false')
+  await expect.poll(() => page.evaluate(() => window.navStorageCalls)).toContainEqual(['read', 'aiur-nav-collapsed'])
+})
+
+
+test('migrated ghost button links keep the dashboard muted ink', async ({ page }) => {
+  await openFixture(page)
+  await page.goto('/commands/answered-command')
+  const link = page.getByRole('link', { name: 'Collapse details' })
+  await expect(link).toBeVisible()
+  const ink = await link.evaluate(node => {
+    const probe = document.createElement('span')
+    probe.style.color = 'var(--muted)'
+    node.append(probe)
+    const color = getComputedStyle(probe).color
+    probe.remove()
+    return color
+  })
+  await expect(link).toHaveCSS('color', ink)
 })

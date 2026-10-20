@@ -132,7 +132,7 @@ defmodule Aiur.Orchestrator.ControlCLITest do
   end
 
   describe "global pause switch" do
-    test "pause_global halts the daemon and resume_global lifts it", %{orchestrator: pid} do
+    test "pause_global stops new starts and resume_global reopens admission", %{orchestrator: pid} do
       :sys.replace_state(pid, fn state -> %{state | globally_paused: false} end)
 
       pause_output = capture_io(fn -> AgentControlCLI.pause_global() end)
@@ -142,6 +142,7 @@ defmodule Aiur.Orchestrator.ControlCLITest do
 
       resume_output = capture_io(fn -> AgentControlCLI.resume_global() end)
       assert resume_output =~ "aiur: global pause OFF"
+      assert resume_output =~ "new starts resume"
       assert resume_output =~ "__AIUR_CONTROL_EXIT__:0"
       refute :sys.get_state(pid).globally_paused
     end
@@ -163,8 +164,20 @@ defmodule Aiur.Orchestrator.ControlCLITest do
           assert output =~ "__AIUR_CONTROL_EXIT__:1"
         end)
 
-      assert stderr =~ "error: aiur is globally paused; per-ticket resume has no effect."
+      assert stderr =~ "error: aiur is globally paused; per-ticket resume is refused while new starts are paused."
       assert stderr =~ "Run `aiurdev resume` (no arguments) to lift the global pause."
+    end
+
+    test "targeted pause reaches a running agent while globally paused", %{orchestrator: pid} do
+      :sys.replace_state(pid, fn state ->
+        %{state | globally_paused: true, running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.pause(["44"]) end)
+
+      assert output =~ "aiur: paused #44 (was: running)"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      assert [%{identifier: "repo#44", state: :paused}] = Orchestrator.status(Orchestrator, 1_000)
     end
 
     test "targeted control preserves a global-pause status timeout as exit 124" do

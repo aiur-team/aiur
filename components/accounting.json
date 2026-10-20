@@ -4,6 +4,7 @@
   "layer": 2,
   "kind": "in-app",
   "paths": [
+    "src/lib/aiur/accounting/**",
     "src/lib/aiur/accounts.ex",
     "src/lib/aiur/accounts/**",
     "src/lib/aiur/agent/**",

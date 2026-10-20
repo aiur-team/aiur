@@ -9,7 +9,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   @w 760
   @minimum_domain_ms 1_000
 
-  alias AiurWeb.OperatorControlCenter.Analytics.{LifecycleLane, Presenter}
+  alias AiurWeb.OperatorControlCenter.Analytics.{ConcurrencyCoverage, LifecycleLane, Presenter}
 
   @doc "Returns a model cropped to one shared, valid chart-axis domain."
   @spec with_time_domain(map(), term()) :: map()
@@ -118,12 +118,12 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
 
-    pts = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(s.conc)} end)
+    runs = for run <- ConcurrencyCoverage.known_runs(series), do: Enum.map(run, fn s -> {xf.(s.t_ms), yf.(s.conc)} end)
 
     inner =
       capacity_band(series, cap, xf, yf, ml, mr) <>
-        ~s|<path d="#{step_area(pts, mt + ph)}" fill="var(--accent)" fill-opacity="0.16"/>| <>
-        ~s|<path d="#{step_line(pts)}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>| <>
+        Enum.map_join(runs, &~s|<path d="#{step_area(&1, mt + ph)}" fill="var(--accent)" fill-opacity="0.16"/>|) <>
+        Enum.map_join(runs, &~s|<path d="#{step_line(&1)}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>|) <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
 
@@ -135,7 +135,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   defp capacity_band(series, cap, xf, yf, ml, mr) do
     cap_y = r2(yf.(cap))
     band_top = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(cap)} end)
-    band_bot = series |> Enum.map(fn s -> {xf.(s.t_ms), yf.(min(s.conc, cap))} end) |> Enum.reverse()
+    band_bot = series |> Enum.map(fn s -> {xf.(s.t_ms), yf.(min(s.conc || cap, cap))} end) |> Enum.reverse()
 
     ~s|<path d="#{poly(band_top ++ band_bot)}" fill="var(--blocking)" fill-opacity="0.07"/>| <>
       ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{cap_y}" y2="#{cap_y}" stroke="var(--attention)" stroke-width="1.2"/>| <>

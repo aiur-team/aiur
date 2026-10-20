@@ -22,8 +22,6 @@ defmodule Aiur.Orchestrator.CommentReworkLiveWorkerTest do
       claimed: MapSet.new(),
       retry_attempts: %{},
       last_polled_issues: %{},
-      github_comments_since: %{},
-      github_comment_issue_updated_at: %{},
       github_connectivity: %{},
       github_poll_delays: %{},
       github_command_scan_since: nil

@@ -1,5 +1,5 @@
 import { ctx, fx, onReset } from './state.js';
-import { nowMs } from './clock.js';
+import { nowMs, setNow } from './clock.js';
 import { $, esc } from './dom.js';
 import { I } from './icons.js';
 
@@ -47,13 +47,35 @@ function unreadText(daemon, short) {
   if (short) return 'Daemon up · unread' + (ms === null ? '' : ', last good ' + brief(ms));
   return 'Daemon up · fleet snapshot unread, ' + (ms === null ? 'no good reading yet' : 'last good ' + fmtAge(ms));
 }
+// The mount's last daemon reading stands in until the first snapshot; a never-observed one stays unknown (#4915).
+export function seedDaemon(raw) {
+  let hint;
+  try { hint = JSON.parse(raw || 'null'); } catch { return; }
+  const daemon = hint?.daemon;
+  if (!daemon || (daemon.state === 'unknown' && !Number.isFinite(daemon.heartbeat_at))) return;
+  ctx.mountDaemon = daemon;
+  if (nowMs() === null && Number.isFinite(hint.now)) setNow(hint.now);
+}
+function readAge(at, short) {
+  const ms = since(at);
+  return ms === null ? '' : short ? ` · ${brief(ms)} ago` : `, read ${fmtAge(ms)}`;
+}
 export function daemonView() {
-  const daemon = ctx.snap?.daemon, live = daemon?.state === 'live';
+  const hint = ctx.snap ? null : ctx.mountDaemon ?? null;
+  const daemon = hint ?? ctx.snap?.daemon;
+  // A mount hint is only a cached reading. Once it is old, don't let its former
+  // live state keep the footer green while the page has no fresh snapshot.
+  const hintAge = hint && Number.isFinite(hint.observed_at) && nowMs() !== null
+    ? Math.max(0, nowMs() - hint.observed_at) : null;
+  const hintStale = Boolean(hint && (hintAge === null || hintAge >= 30_000));
+  const live = daemon?.state === 'live' && !hintStale;
   const headline = st.linkDown ? 'Daemon unreachable'
-    : daemon?.state === 'offline' ? 'Daemon offline' : daemon?.state === 'stale' ? 'Daemon stale' : null;
-  const reachable = !headline && !live && Boolean(ctx.snap) && ctx.socket === 'up';
-  const text = short => headline || (live ? 'Daemon live' + heldNote(short)
-    : reachable ? unreadText(daemon, short) + heldNote(short) : 'Daemon status unknown');
+    : hintStale || daemon?.state === 'stale' ? 'Daemon stale'
+      : daemon?.state === 'offline' ? 'Daemon offline' : null;
+  const reachable = !headline && !live && Boolean(ctx.snap || hint) && ctx.socket === 'up';
+  const text = short => (headline || (live ? 'Daemon live' + heldNote(short)
+    : reachable ? unreadText(daemon, short) + heldNote(short) : 'Daemon status unknown'))
+    + (hint ? readAge(hint.observed_at, short) : '');
   return {
     stale: Boolean(headline), dotOff: Boolean(headline) || !(live || reachable),
     dotText: text(true), dotTitle: text(false),
@@ -95,6 +117,7 @@ export function renderOffline() {
     st.ticking = true; ctx.life.every(30_000, () => { if (daemonView().banner) renderOffline(); });
   }
   if (wasDown !== st.linkDown) fx.renderStatus?.();
+  fx.refreshBandClock?.();
 }
 function paintBanner(host, info) {
   host.innerHTML = info ? `<div class="bd-offline" role="status">${I.warn}<div><b>${esc(info.headline)}</b>${esc(info.detail)}</div><button class="btn secondary sm" type="button" id="bd-retry"${st.retry ? ' disabled' : ''}>${st.retry ? 'Reconnecting…' : 'Reconnect'}</button></div>` : '';

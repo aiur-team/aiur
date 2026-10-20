@@ -11,12 +11,14 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     previous_budget_dir = Application.get_env(:aiur, :github_budget_dir)
     previous_budget_settings = Application.get_env(:aiur, :github_budget_settings_override)
     previous_deadline = Application.get_env(:aiur, :github_request_deadline_ms)
+    previous_selector_options = Application.get_env(:aiur, :github_credential_selector_options)
     quota = start_supervised!({Quota, name: nil, emit_fun: fn _name, _opts -> :ok end})
     budget_dir = Aiur.TestSupport.tmp_root!("aiur-transport-budget")
 
     Application.put_env(:aiur, :github_transport_test_options, plug: {Req.Test, __MODULE__})
     Application.put_env(:aiur, :github_quota_server, quota)
     Application.put_env(:aiur, :github_budget_enabled?, false)
+    Application.put_env(:aiur, :github_credential_selector_options, credentials: [])
 
     # These tests drive `Transport.default_request_fun` with `/issues/{n}`
     # URLs and assert transport-level outcomes. Those reads are now cacheable
@@ -33,13 +35,14 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       restore_env(:github_budget_dir, previous_budget_dir)
       restore_env(:github_budget_settings_override, previous_budget_settings)
       restore_env(:github_request_deadline_ms, previous_deadline)
+      restore_env(:github_credential_selector_options, previous_selector_options)
       Aiur.TestCleanup.rm_rf!(budget_dir)
     end)
 
     {:ok, quota: quota, budget_dir: budget_dir}
   end
 
-  test "records the authoritative budget and ticket attribution from a response", %{quota: quota} do
+  test "keeps responses without a resolved credential out of the primary window", %{quota: quota} do
     Req.Test.stub(__MODULE__, fn conn ->
       conn
       |> Plug.Conn.put_resp_header("x-ratelimit-resource", "core")
@@ -57,7 +60,8 @@ defmodule Aiur.GitHub.TransportQuotaTest do
              })
 
     snapshot = Quota.snapshot(quota)
-    assert snapshot.windows["core"].remaining == 4100
+    refute Map.has_key?(snapshot.windows, "core")
+    assert snapshot.credential_windows[Budget.token_key("token")]["core"].remaining == 4100
     assert [%{consumer: "ticket:1670", reads: 1, writes: 0, total: 1, cost: 1, costs: %{"core" => 1}}] = snapshot.attribution
   end
 
@@ -66,7 +70,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     Quota.observe(
       quota,
-      %{method: :get, url: "https://api.github.com/repos/owner/repo/issues", token: "token"},
+      primary_request(:get, "https://api.github.com/repos/owner/repo/issues"),
       {:ok,
        %{
          status: 403,
@@ -123,7 +127,8 @@ defmodule Aiur.GitHub.TransportQuotaTest do
              })
 
     snapshot = Quota.snapshot(quota)
-    assert snapshot.windows["graphql"].remaining == 3999
+    refute Map.has_key?(snapshot.windows, "graphql")
+    assert snapshot.credential_windows[Budget.token_key("token")]["graphql"].remaining == 3999
     assert [%{consumer: "ticket:1670", reads: 0, writes: 1, total: 1, cost: 1, costs: %{"graphql" => 1}}] = snapshot.attribution
   end
 
@@ -132,7 +137,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     Quota.observe(
       quota,
-      %{method: :post, url: Transport.graphql_url(), token: "token", body: %{"query" => "query { viewer { login } }"}},
+      primary_request(:post, Transport.graphql_url(), %{"query" => "query { viewer { login } }"}),
       {:ok,
        %{
          status: 403,
@@ -169,7 +174,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
              Transport.github_graphql(&Transport.default_request_fun/1, "token", "query { viewer { login } }", %{})
   end
 
-  test "holds a second daemon-shaped request behind the shared host lease", %{budget_dir: budget_dir} do
+  test "waits for a shared lease to clear within the admission deadline", %{budget_dir: budget_dir} do
     Application.put_env(:aiur, :github_budget_enabled?, true)
     Application.put_env(:aiur, :github_budget_dir, budget_dir)
 
@@ -190,26 +195,61 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       end
     end)
 
-    request = fn ->
+    request = fn path ->
       Transport.default_request_fun(%{
         method: :get,
-        url: "https://api.github.com/repos/owner/repo/issues/1477",
+        url: "https://api.github.com#{path}",
         token: "shared-token"
       })
     end
 
-    first = Task.async(request)
+    first = Task.async(fn -> request.("/repos/owner/repo/issues/1477") end)
     assert_receive {:request_started, first_conn}, 2_000
 
-    second = Task.async(request)
-    refute_receive {:request_started, _second_conn}, 80
+    second = Task.async(fn -> request.("/repos/owner/repo/issues/1478") end)
+    assert is_nil(Task.yield(second, 1_800))
 
     send(first_conn, :release_request)
     assert_receive {:request_started, second_conn}, 2_000
     send(second_conn, :release_request)
 
-    assert {:ok, %{status: 200}} = Task.await(first, 1_500)
-    assert {:ok, %{status: 200}} = Task.await(second, 1_500)
+    assert {:ok, %{status: 200}} = Task.await(first, 2_000)
+    assert {:ok, %{status: 200}} = Task.await(second, 2_000)
+  end
+
+  # #1837: admission waits sleep on the caller, so the Orchestrator keeps its tighter bound.
+  test "the Orchestrator process gives up on a held lease after 1.5 s", %{budget_dir: budget_dir} do
+    Application.put_env(:aiur, :github_budget_enabled?, true)
+    Application.put_env(:aiur, :github_budget_dir, budget_dir)
+    Application.put_env(:aiur, :github_budget_settings_override, %{max_inflight: 1, max_inflight_per_endpoint: 1, requests_per_minute: 20, stagger_ms: 0})
+    previous_poll_owner = Application.get_env(:aiur, :github_poll_owner)
+    Application.put_env(:aiur, :github_poll_owner, :transport_quota_test_poll_owner)
+    on_exit(fn -> restore_env(:github_poll_owner, previous_poll_owner) end)
+    test_pid = self()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      send(test_pid, {:request_started, self()})
+
+      receive do
+        :release_request -> Req.Test.json(conn, [])
+      end
+    end)
+
+    request = fn path -> Transport.default_request_fun(%{method: :get, url: "https://api.github.com#{path}", token: "shared-token"}) end
+    first = Task.async(fn -> request.("/repos/owner/repo/issues/1477") end)
+    assert_receive {:request_started, first_conn}, 2_000
+
+    orchestrator =
+      Task.async(fn ->
+        Process.register(self(), :transport_quota_test_poll_owner)
+        {elapsed_us, result} = :timer.tc(fn -> request.("/repos/owner/repo/issues/1478") end)
+        {div(elapsed_us, 1000), result}
+      end)
+
+    assert {elapsed_ms, {:error, {:aiur, :locally_held, %{reason: :shared_budget}}}} = Task.await(orchestrator, 5_000)
+    assert elapsed_ms < 3_000
+    send(first_conn, :release_request)
+    assert {:ok, %{status: 200}} = Task.await(first, 2_000)
   end
 
   test "a 304 response leaves its admission unbilled end to end", %{budget_dir: budget_dir} do
@@ -357,4 +397,9 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)
+
+  defp primary_request(method, url, body \\ nil) do
+    %{method: method, url: url, token: "token", credential_id: "primary", credential_key: Budget.token_key("token")}
+    |> then(fn request -> if body, do: Map.put(request, :body, body), else: request end)
+  end
 end

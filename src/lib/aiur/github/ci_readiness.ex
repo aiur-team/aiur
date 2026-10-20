@@ -7,7 +7,13 @@ defmodule Aiur.GitHub.CiReadiness do
   init errors, dispatch warnings, and operator status output.
   """
 
+  @behaviour Aiur.CodeHost.CiReadiness
+
+  @impl true
+  defdelegate retryable_error?(reason), to: Aiur.GitHub.Errors, as: :retryable_github_error?
+
   alias Aiur.{Config, Workflow}
+  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.CiReadiness.{Assessment, RepositoryReads, WorkflowRules}
   alias Aiur.GitHub.Transport
 
@@ -42,6 +48,7 @@ defmodule Aiur.GitHub.CiReadiness do
       request_fun =
         opts
         |> Keyword.get(:request_fun, &Transport.default_request_fun/1)
+        |> tag_request_credential(Keyword.get(opts, :request_credential_id))
         |> bounded_request_fun(deadline_at_ms(opts))
 
       inspect_repository(request_fun, token, owner, repo, base_branch, opts)
@@ -69,6 +76,7 @@ defmodule Aiur.GitHub.CiReadiness do
   def operator_token_env, do: @operator_token_env
 
   @doc false
+  @impl true
   @spec check_fun() :: (keyword() -> {:ok, result()} | {:error, term()})
   def check_fun do
     Application.get_env(:aiur, :ci_readiness_check_fun, &dispatch_check/1)
@@ -79,7 +87,7 @@ defmodule Aiur.GitHub.CiReadiness do
   def dispatch_check(opts) do
     case operator_token() do
       token when is_binary(token) ->
-        opts |> Keyword.put(:token, token) |> check()
+        opts |> Keyword.put(:token, token) |> Keyword.put(:request_credential_id, "ci_readiness") |> check()
 
       nil ->
         {:ok, unavailable(Config.base_branch(opts), :ci_readiness_operator_token_required)}
@@ -93,11 +101,25 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
+  defp tag_request_credential(request_fun, credential_id) when is_binary(credential_id) do
+    fn request -> request_fun.(request |> Map.put_new(:credential_id, credential_id) |> put_operator_credential_key()) end
+  end
+
+  defp tag_request_credential(request_fun, _credential_id), do: request_fun
+
+  defp put_operator_credential_key(%{token: token} = request) when is_binary(token) and token != "" do
+    Map.put_new(request, :credential_key, Budget.token_key(token))
+  end
+
+  defp put_operator_credential_key(request), do: request
+
   @doc false
+  @impl true
   @spec unavailable(String.t(), term()) :: result()
   def unavailable(base_branch, reason) when is_binary(base_branch), do: result(base_branch, [], [], [], [{:unavailable, reason}])
 
   @doc "Formats a repository-readiness failure for an operator without exposing credentials."
+  @impl true
   @spec error_message(term()) :: String.t()
   def error_message({:github_org_repository_not_accessible, %{organization: organization, repo: repo, token_type: token_type}}) do
     "Cannot read #{repo} with the configured token. GitHub returns 404 (not 403) for inaccessible private organization resources, " <>
@@ -113,10 +135,12 @@ defmodule Aiur.GitHub.CiReadiness do
   def error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"
 
   @doc false
+  @impl true
   @spec cache_result(result(), keyword()) :: :ok
   defdelegate cache_result(result, opts \\ []), to: Assessment
 
   @doc false
+  @impl true
   @spec cached_result(keyword()) :: result() | :unavailable
   defdelegate cached_result(opts \\ []), to: Assessment
 
@@ -134,6 +158,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defdelegate assessment_path(config_path \\ Workflow.workflow_file_path()), to: Assessment
 
   @doc false
+  @impl true
   @spec readiness_scope(keyword()) :: {String.t(), String.t(), String.t()}
   defdelegate readiness_scope(opts \\ []), to: Assessment
 
@@ -270,6 +295,7 @@ defmodule Aiur.GitHub.CiReadiness do
     result(base_branch, Enum.map(pr_workflows, &elem(&1, 0)), workflow_check_names, required_checks, required_check_identities, issues)
   end
 
+  @impl true
   @spec format(result() | term()) :: String.t()
   def format(%{ready?: true, base_branch: base_branch, required_checks: checks}) do
     "CI readiness: ready for #{base_branch} (required: #{Enum.join(checks, ", ")})"

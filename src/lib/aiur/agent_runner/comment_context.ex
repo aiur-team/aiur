@@ -11,7 +11,8 @@ defmodule Aiur.AgentRunner.CommentContext do
   require Logger
 
   alias Aiur.AgentRunner.BootstrapDigest
-  alias Aiur.Events.{IdGenerator, Sanitizer}
+  alias Aiur.Events
+  alias Aiur.Events.Sanitizer
   alias Aiur.{ExternalContent, Issue, Tracker}
 
   @doc """
@@ -113,7 +114,7 @@ defmodule Aiur.AgentRunner.CommentContext do
 
   defp incomplete_comment_context(topic, reason) do
     message = "comment context incomplete: " <> ExternalContent.wrap(inspect(reason), :comment_body, nil)
-    %{id: IdGenerator.next_id(), topic: topic, source: :system, message: message}
+    %{id: Events.next_id(), topic: topic, source: :system, message: message}
   end
 
   defp fetch_unaddressed_review_thread_events(_topic, nil, _pr_number, _cutoff), do: []
@@ -293,7 +294,7 @@ defmodule Aiur.AgentRunner.CommentContext do
   defp comment_event_id(comment) when is_map(comment) do
     case Map.get(comment, "id") || Map.get(comment, :id) do
       id when is_integer(id) -> id
-      _ -> IdGenerator.next_id()
+      _ -> Events.next_id()
     end
   end
 

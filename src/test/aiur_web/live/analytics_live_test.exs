@@ -6,7 +6,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.Orchestrator.{SnapshotCache, SnapshotStore}
   alias Aiur.{RunTelemetry, TrackerIdentity}
-  alias Aiur.TestSupport.{AwaitingCommands, LiveViewAsync}
+  alias Aiur.TestSupport.{AwaitingCommands, EndpointStubs, LiveViewAsync}
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
   import Aiur.TestSupport.UsageAggregate, only: [envelope: 0, record: 3]
@@ -72,7 +72,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
       )
       |> Keyword.merge(awaiting_commands_config(context))
 
-    Application.put_env(:aiur, Endpoint, endpoint_config)
+    Application.put_env(:aiur, Endpoint, EndpointStubs.scope(endpoint_config))
     Aiur.TestSupport.start_owned_endpoint!()
 
     on_exit(fn ->

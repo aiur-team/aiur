@@ -40,9 +40,7 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
       OpenIssueSnapshot.reset()
       on_exit(fn -> OpenIssueSnapshot.reset() end)
       Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
-      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
-      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "7")
+      Aiur.TestScopeGuard.put_ticket_scope!("7")
       parent = self()
       base_url = "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
       second_url = base_url <> "&page=2"
@@ -65,7 +63,8 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
       expected = Map.new(["7", "8"], &{&1, %{labels: ["agent:queued", "sym:done"], updated_at: ~U[2026-10-06 00:00:00Z]}})
       assert {:ok, []} = Issues.fetch_candidate_issues(request_fun: request_fun)
       assert_received {:open_issues_recorded, first_time}
-      assert {:ok, ^expected, ^first_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert {:ok, ^expected, labels_from} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert labels_from <= first_time
       assert_received {:list_request, ^base_url}
       assert_received {:list_request, ^second_url}
       refute_received {:list_request, _}
@@ -76,35 +75,46 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
       refute_received {:list_request, _}
       assert {:ok, [], _} = Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
       assert_received {:open_issues_recorded, cached_time}
-      assert {:ok, ^expected, ^cached_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert {:ok, ^expected, cached_labels_from} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
       assert_received {:list_request, ^base_url}
       assert_received {:list_request, ^second_url}
       refute_received {:list_request, _}
+
+      assert cached_labels_from <= cached_time
 
       failed_page = fn request ->
         if request.url == base_url, do: request_fun.(request), else: {:error, :timeout}
       end
 
       assert {:error, _} = Issues.fetch_candidate_issues_conditional(%{}, request_fun: failed_page)
-      assert {:ok, ^expected, ^cached_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert {:ok, ^expected, ^cached_labels_from} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
       refute_received {:open_issues_recorded, _}
     end
 
     test "pinned test scope skips out-of-scope provenance before dispatch authorization" do
-      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
-      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+      Aiur.TestScopeGuard.put_ticket_scope!("99")
 
-      write_workflow_file!(Workflow.workflow_file_path(),
-        tracker_kind: "github",
-        tracker_repo: "owner/repo",
-        tracker_label_prefix: "sym",
-        tracker_active_states: ["todo"]
+      # Keep dispatch authorization independent of the shared CODEOWNERS
+      # snapshot; this test is about pinned-scope filtering, not trust loading.
+      write_workflow_file_atomic!(
+        Workflow.workflow_file_path(),
+        """
+        tracker:
+          kind: github
+          active_states: [todo]
+          github:
+            repo: owner/repo
+            label_prefix: sym
+            allowed_users: [its-everdred]
+        """
       )
+
+      :ok = WorkflowStore.force_reload()
 
       issue = fn number ->
         %{
           "number" => number,
+          "node_id" => "I_kwDOIssue#{number}",
           "title" => "Issue #{number}",
           "body" => nil,
           "html_url" => "https://github.com/owner/repo/issues/#{number}",

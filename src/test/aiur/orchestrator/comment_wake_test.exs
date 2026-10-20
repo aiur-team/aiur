@@ -29,10 +29,6 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: false,
-      events_etag: nil,
-      events_last_id: nil,
-      github_comments_since: %{},
-      github_comment_issue_updated_at: %{},
       github_connectivity: %{},
       github_poll_delays: %{},
       github_command_scan_since: nil
@@ -83,17 +79,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     end
   end
 
-  # #1756: a CHANGES_REQUESTED review whose findings were addressed keeps
-  # reading CHANGES_REQUESTED forever, so routing on it deadlocks the ticket in
-  # `agent:rework`. The fixture is the real shape — the review predates the head
-  # commit that fixed it. A skipped transition never touches the tracker, so
-  # these assert both the reason and that `Tracker.update_issue_state` is not
-  # reached (an unset tracker would fail loudly otherwise).
-  #
-  # #1971: the gate resolves the idle issue's current state first and only routes
-  # a comment to rework when the ticket carries an `agent:*` state label. These
-  # fixtures inject an `issue_state_fetcher` returning a *labelled* issue so the
-  # review-freshness rules (not the unlabelled gate) are the thing under test.
+  # #1756/#1971: these fixtures cover addressed findings and require a labelled
+  # ticket before the freshness gate routes a comment to rework.
   describe "maybe_transition_idle_issue_to_rework/5 review-freshness gate" do
     @head_committed_at "2026-08-10T04:29:00Z"
     @stale_submitted_at "2026-08-08T21:15:00Z"
@@ -1357,14 +1344,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert MapSet.member?(result.claimed, issue.id)
     end
 
-    # #2609: the live merged route resolves its ticket from the
-    # `aiur/<id>-<slug>` head branch, so a PR body deliberately written `Refs
-    # #N` — GitHub's documented "related, not resolving" — used to close the
-    # ticket anyway, retiring an operator's still-open acceptance checklist.
-    # The body decides the outcome now: the ticket lands in human-review, open,
-    # with no terminal teardown, and the open-PR enumeration is never even
-    # reached.
-    test "a merged PR whose body only refs the ticket leaves it open and never closes it" do
+    # The live route defers Refs-only triage to the poll reconciler.
+    test "a merged PR whose body only refs the ticket does not write triage twice" do
       issue = %Issue{
         id: "issue-refs-only",
         identifier: "176",
@@ -1384,10 +1365,18 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       result =
         CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
-          pr_body: "Refs #176 (merge does not close the ticket; six operator gates remain)",
+          pr_body: "Refs #176 (six operator gates remain)",
           merged_by_login: "its-everdred",
           update_issue_state_fun: fn identifier, state_name ->
             send(parent, {:transition, identifier, state_name})
+            :ok
+          end,
+          add_label_fun: fn identifier, label ->
+            send(parent, {:label, identifier, label})
+            :ok
+          end,
+          create_comment_fun: fn identifier, body ->
+            send(parent, {:triage_comment, identifier, body})
             :ok
           end,
           clear_session_handle_fun: fn _identifier ->
@@ -1408,7 +1397,9 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           end
         )
 
-      assert_receive {:transition, "176", "human-review"}, 1000
+      refute_receive {:label, "176", _label}, 100
+      refute_receive {:transition, "176", _state}, 100
+      refute_receive {:triage_comment, "176", _body}, 100
       refute_receive {:transition, "176", "done"}, 100
       refute_receive :membership_recorded, 100
       refute_receive :session_cleared, 100

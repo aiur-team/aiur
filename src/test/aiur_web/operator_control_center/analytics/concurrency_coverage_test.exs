@@ -1,9 +1,9 @@
 defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverageTest do
   use ExUnit.Case, async: true
 
-  alias AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverage
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, ConcurrencyCoverage, Presenter}
 
-  defp model(peak, occupied), do: %{kpis: %{peak_conc: peak}, pressure: %{peak_occupied: occupied}}
+  defp model(peak, occupied, util \\ 0), do: %{kpis: %{peak_conc: peak, mean_util_pct: util}, pressure: %{peak_occupied: occupied}}
 
   test "an unsampled fleet the daemon reports occupied reads unknown, never 0" do
     assert ConcurrencyCoverage.tile(model(0, 7), :session, "0 now / 10") ==
@@ -19,5 +19,53 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverageTest do
     assert ConcurrencyCoverage.tile(model(7, 7), :session, "7 now / 10") == %{val: 7, sub: "7 now / 10"}
     assert ConcurrencyCoverage.tile(model(0, nil), :session, "0 now / 10") == %{val: 0, sub: "0 now / 10"}
     assert ConcurrencyCoverage.tile(model(2, 7), %{kind: :build_order}, "of 10") == %{val: 2, sub: "of 10"}
+  end
+
+  # The daemon holds 7 slots but no ticket root was ever attributed (#4740).
+  defp occupied_dataset(agents) do
+    daemon = for i <- 0..4, do: %{"fleet_agents_occupied" => 7, actor: "_daemon", actor_type: "daemon", timestamp_ms: 1_000 + i * 1_000, availability: "measured", fleet_capacity_status: "current"}
+    agent = for i <- 0..4, do: %{"cpu_percent" => 5.0, actor: "ticket:1", actor_type: "agent", timestamp_ms: 1_000 + i * 1_000, availability: "measured"}
+    actors = %{"_daemon" => %{samples: daemon, profile: %{}}}
+    %{actors: if(agents, do: Map.put(actors, "ticket:1", %{samples: agent, profile: %{}}), else: actors), tickets: %{}, provenance: %{}}
+  end
+
+  test "an occupied window with no attributed agent is unknown in the series, never 0" do
+    model = Presenter.model(occupied_dataset(false), cap: 10, cores: 4, buckets: 5)
+
+    assert Enum.map(model.series, & &1.conc) == [nil, nil, nil, nil, nil]
+    assert model.kpis.conc_now == nil
+    refute Charts.concurrency(model) =~ ~s|stroke="var(--accent)"|
+  end
+
+  test "an attributed agent and a ticket-filtered scope keep measured counts" do
+    assert Enum.map(Presenter.model(occupied_dataset(true), cap: 10, cores: 4, buckets: 5).series, & &1.conc) == [1, 1, 1, 1, 1]
+    assert Enum.map(Presenter.model(occupied_dataset(false), cap: 10, cores: 4, buckets: 5, tickets: ["1"]).series, & &1.conc) == [0, 0, 0, 0, 0]
+  end
+
+  test "known runs split around unknown buckets" do
+    series = Enum.map([1, nil, nil, 2, 3], &%{conc: &1})
+    assert ConcurrencyCoverage.known_runs(series) == [[%{conc: 1}], [%{conc: 2}, %{conc: 3}]]
+  end
+
+  # #4852: utilization is computed from the same unsampled agents, so its 0% is not a measurement.
+  test "mean utilization of an unsampled fleet reads unknown with the concurrency reason, never 0%" do
+    assert ConcurrencyCoverage.utilization(model(0, 7), :session, "of 8 cores") ==
+             %{val: "unknown", sub: "partial: 7 of 7 occupied slots not seen as active"}
+
+    assert ConcurrencyCoverage.unknown?(model(0, 7), :session)
+  end
+
+  test "mean utilization of a partly sampled fleet keeps the measured figure and names the gap" do
+    assert ConcurrencyCoverage.utilization(model(5, 7, 12), :session, "of 8 cores") ==
+             %{val: "12%", sub: "partial: 2 of 7 occupied slots not seen as active"}
+
+    refute ConcurrencyCoverage.unknown?(model(5, 7), :session)
+  end
+
+  test "mean utilization of a fully sampled fleet or a Build Order scope keeps the plain tile" do
+    assert ConcurrencyCoverage.utilization(model(7, 7, 30), :session, "of 8 cores") == %{val: "30%", sub: "of 8 cores"}
+    assert ConcurrencyCoverage.utilization(model(0, 7), %{kind: :build_order}, "of 8 cores") == %{val: "0%", sub: "of 8 cores"}
+    refute ConcurrencyCoverage.unknown?(model(0, 7), %{kind: :build_order})
+    refute ConcurrencyCoverage.unknown?(model(0, nil), :session)
   end
 end

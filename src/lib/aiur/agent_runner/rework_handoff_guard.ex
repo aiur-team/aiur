@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   @moduledoc false
 
-  alias Aiur.AgentRunner.ReworkFindings
+  alias Aiur.AgentRunner.{ApprovedHandoff, ReworkFindings}
   alias Aiur.{Alerts, Issue, LocalTestEvidence, PrBodyLint, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.ReworkGate
@@ -21,6 +21,8 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
         {:error, {reason, message}}
 
       {:allow, findings} ->
+        state = ApprovedHandoff.target_state(issue, state, opts)
+
         case writer.(issue_id, state) do
           :ok -> {:ok, report_checklist(issue, findings, opts, %{state: state, issue: issue_id})}
           {:ok, result} -> {:ok, report_checklist(issue, findings, opts, result)}
@@ -52,8 +54,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
          head when is_binary(head) <- ReworkGate.head_sha(pr),
          body when is_binary(body) <- pr["body"],
          {:error, reason} <- evidence_error(body, head, workspace) do
-      {:refused, :stale_pr_body_evidence,
-       "Cannot hand ticket #{issue.identifier} to #{state}: PR ##{pr["number"]} body fails the PR body check (#{reason}). Fix the body. Run `aiur pre-pr` again after `gh pr create` so it writes `Tested head: #{head}` and `Base:`, then hand off."}
+      {:refused, :stale_pr_body_evidence, evidence_refusal(issue, state, pr, head, reason)}
     else
       _ -> :allow
     end
@@ -61,7 +62,29 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
 
   defp evidence_blockers(_issue, _state, _workspace, _opts), do: :allow
 
+  defp evidence_refusal(issue, state, pr, head, {:stale_tested_head, tested_head}) do
+    "Cannot hand ticket #{issue.identifier} to #{state}: PR ##{pr["number"]} body Tested head #{tested_head} does not match PR head #{head}. Rerun the touched tests at the PR head, then update the Tested head and Base evidence before handing off."
+  end
+
+  defp evidence_refusal(issue, state, pr, head, reason) do
+    "Cannot hand ticket #{issue.identifier} to #{state}: PR ##{pr["number"]} body fails the PR body check (#{reason}). Fix the body. Run `aiur pre-pr` again after `gh pr create` so it writes `Tested head: #{head}` and `Base:`, then hand off."
+  end
+
   defp evidence_error(body, head, workspace) do
+    case LocalTestEvidence.parse(body) do
+      {:ok, %{tested_head: tested_head}} ->
+        if String.downcase(tested_head) != String.downcase(head) do
+          {:error, {:stale_tested_head, tested_head}}
+        else
+          lint_evidence_error(body, head, workspace)
+        end
+
+      _ ->
+        lint_evidence_error(body, head, workspace)
+    end
+  end
+
+  defp lint_evidence_error(body, head, workspace) do
     case pr_template(workspace) do
       {:ok, template} ->
         case PrBodyLint.errors(template, body, head: head) do
