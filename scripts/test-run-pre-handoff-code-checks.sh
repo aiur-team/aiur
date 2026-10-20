@@ -37,6 +37,10 @@ case "$*" in
       printf '%s\n' '# full suite recommended: shared test support changed' 'cd src && mise exec -- make ci'
       exit 0
     fi
+    if [[ "$CHANGED_PATHS" == *src/examples/workflows/* ]]; then
+      printf '%s\n' '# full suite recommended: unclassified workflow fixture changed' 'cd src && mise exec -- make ci'
+      exit 0
+    fi
     if [[ "$CHANGED_PATHS" == *overcap* ]]; then
       printf 'cd src && mise exec -- mix test --max-cases 4'
       printf ' test/aiur/over_%s_test.exs' $(seq 401)
@@ -78,6 +82,8 @@ if [[ "$*" == "ci" ]]; then
   printf 'make-ci\n' >> "$COMMAND_LOG"
   [[ "${FAIL_FULL_CI:-}" != true ]]
 elif [[ "$*" == "-C "*" coverage-partition" ]]; then
+  [[ "$MIX_TEST_ARGS" == '--max-cases 4' ]] || exit 96
+  printf 'makeargs:%s\n' "$MIX_TEST_ARGS" >> "$COMMAND_LOG"
   printf 'partition:%s/4\n' "$MIX_TEST_PARTITION" >> "$COMMAND_LOG"
   [[ "${FAIL_PARTITION:-}" != "$MIX_TEST_PARTITION" ]]
 else
@@ -158,19 +164,6 @@ if ! run_check passing src/lib/aiur/github/foo.ex false false; then
 fi
 
 # Unsafe selections use CI partitions; large scoped selections also use partitions.
-assert_deferred() {
-  local name="$1" notice="$2"
-  if grep -E 'make-ci|^test:' "$tmp/$name.commands" >/dev/null; then
-    echo "test-run-pre-handoff-code-checks: $name selection ran tests in the worker handback" >&2
-    exit 1
-  fi
-  grep -F -- "$notice; deferred to the merge-queue full suite" "$tmp/$name.log" >/dev/null || {
-    cat "$tmp/$name.log" >&2
-    echo "test-run-pre-handoff-code-checks: $name selection did not record its deferral" >&2
-    exit 1
-  }
-}
-
 if ! run_check full_suite src/test/support/factory.ex false false "" true; then
   cat "$tmp/full_suite.log" >&2
   echo 'test-run-pre-handoff-code-checks: full-suite selection refused handoff' >&2
@@ -179,6 +172,15 @@ fi
 [[ "$(grep -c '^partition:' "$tmp/full_suite.commands")" == 4 ]]
 grep -F 'full selection (shared test support changed)' "$tmp/full_suite.log" >/dev/null
 grep -F 'all 4 CI coverage partitions' "$tmp/full_suite.log" >/dev/null
+[[ "$(grep -c '^makeargs:--max-cases 4$' "$tmp/full_suite.commands")" == 4 ]]
+
+if ! run_check unknown_full src/examples/workflows/demo.yaml false false; then
+  cat "$tmp/unknown_full.log" >&2
+  echo 'test-run-pre-handoff-code-checks: unsafe non-support full selection did not run partitions' >&2
+  exit 1
+fi
+[[ "$(grep -c '^partition:' "$tmp/unknown_full.commands")" == 4 ]]
+grep -F 'full selection (unclassified workflow fixture changed)' "$tmp/unknown_full.log" >/dev/null
 
 if ! run_check over_cap src/lib/aiur/overcap.ex false false; then
   cat "$tmp/over_cap.log" >&2
@@ -187,6 +189,7 @@ if ! run_check over_cap src/lib/aiur/overcap.ex false false; then
 fi
 grep -F '401 affected files exceed the 400-file worker limit' "$tmp/over_cap.log" >/dev/null
 [[ "$(grep -c '^partition:' "$tmp/over_cap.commands")" == 4 ]]
+[[ "$(grep -c '^makeargs:--max-cases 4$' "$tmp/over_cap.commands")" == 4 ]]
 grep -Fx 'timeout:--signal=TERM --kill-after=60s 15m mise exec -- mix dialyzer' "$tmp/over_cap.commands" >/dev/null
 
 if ! run_check shared_support src/test/support/test_support.exs false false; then

@@ -256,17 +256,22 @@ defmodule Mix.Tasks.Aiur.AffectedTests.XrefSelectionTest do
 
       for changed <- [
             ["src/test/support/test_support.exs"],
-            ["src/lib/aiur/events/event_topics.ex", "src/test/support/test_support.exs"]
+            ["src/lib/aiur/json_safe.ex", "src/test/support/test_support.exs"],
+            ["src/mix.exs", "src/test/support/test_support.exs"]
           ] do
         System.put_env("AIUR_CI_CHANGED_PATHS_B64", Base.encode64(Jason.encode!(changed)))
 
-        assert {:ok, {:scoped, selected}, _candidates, _fallback, ^changed} =
-                 AffectedTests.selection_details(root, "HEAD")
+        case AffectedTests.selection_details(root, "HEAD") do
+          {:ok, {:full, _reason}, _candidates, _fallback, ^changed} ->
+            assert "src/mix.exs" in changed
 
-        assert Enum.any?(selected, &String.ends_with?(&1, "/test_support_test.exs"))
+          {:ok, {:scoped, selected}, _candidates, _fallback, ^changed} ->
+            refute "src/mix.exs" in changed
+            assert Enum.any?(selected, &String.ends_with?(&1, "/test_support_test.exs"))
 
-        if "src/lib/aiur/events/event_topics.ex" in changed do
-          assert "src/test/aiur/orchestrator/event_topics_test.exs" in selected
+            if "src/lib/aiur/json_safe.ex" in changed do
+              assert "src/test/aiur/json_safe_test.exs" in selected
+            end
         end
       end
     after
