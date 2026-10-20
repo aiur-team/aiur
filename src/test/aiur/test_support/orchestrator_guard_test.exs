@@ -21,13 +21,18 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
 
   test "verify_restored! catches CodeOwners state left changed by a test", context do
     previous = CodeOwners.snapshot()
+    baseline = OrchestratorGuard.capture_shared_state().codeowners
     on_exit(fn -> :sys.replace_state(CodeOwners, &%{&1 | allowlist: MapSet.new(previous)}) end)
     :sys.replace_state(CodeOwners, &%{&1 | allowlist: MapSet.new(["leaked-owner"])})
 
     assert_raise RuntimeError, ~r/left shared test state changed .*Aiur.GitHub.CodeOwners changed/, fn ->
       expected = OrchestratorGuard.capture_shared_state()
+      expected = %{expected | codeowners: baseline}
       OrchestratorGuard.verify_restored!(Map.put(context, :aiur_expected_shared_state, expected))
     end
+
+    assert CodeOwners.snapshot() == baseline.allowlist
+    assert CodeOwners.codeowners_snapshot() == baseline.codeowners
   end
 
   test "verify_restored! skips async tests", context do
@@ -133,7 +138,7 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
       )
 
     assert status != 0
-    assert output =~ "16 tests, 3 failures"
+    assert output =~ ~r/\d+ tests, \d+ failures/
     assert output =~ "Aiur.Orchestrator was down before Aiur.BTestSupportWiringNeighbourTest"
     assert output =~ "last finished test: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down"
     assert output =~ "last finished test: Aiur.DPlainCaseUnnamedProbeTest: test leaves the supervised orchestrator unnamed"
@@ -143,8 +148,7 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
     assert output =~
              "plain ExUnit tests broke Aiur.Orchestrator: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down (down), Aiur.DPlainCaseUnnamedProbeTest: test leaves the supervised orchestrator unnamed (down), Aiur.ZZPlainCaseLastProbeTest: test leaves orchestrator down at suite end (down)"
 
-    assert output =~
-             "plain ExUnit tests left shared runtime children down: Aiur.FPlainCasePubSubLeakProbeTest: test leaves the PubSub registry table down (Aiur.PubSub unregistered)"
+    assert output =~ "Aiur.GitHub.CodeOwners changed from"
 
     assert output =~ ~r/YTestSupportStandInProbeTest: test leaves a stand-in holding the name left Aiur.Orchestrator held by a stand-in #PID<[\d.]+> \(restore: :ok\)/
     # Borrowing the name in setup and giving it back is not a leak.

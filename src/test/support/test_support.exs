@@ -267,6 +267,7 @@ defmodule Aiur.TestSupport do
     EventsSubscriptionStore.set_enqueue_fn(nil)
     Aiur.TestCleanup.rm_rf!(workflow_root)
     Aiur.TestScopeGuard.restore(previous_test_scope_state)
+    OrchestratorGuard.restore_codeowners_baseline!()
 
     # Reload the store onto the restored baseline so the next test never
     # observes the now-deleted `workflow_root` config, and recover the app if
