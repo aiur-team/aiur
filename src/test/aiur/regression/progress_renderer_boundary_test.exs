@@ -200,7 +200,10 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
       []
     else
       source = File.read!(path)
-      if String.contains?(source, "progress"), do: ProgressRendererCensus.offenders(relative, source), else: []
+
+      if String.contains?(source, ["progress", "completion_state", "completion_known"]),
+        do: ProgressRendererCensus.offenders(relative, source),
+        else: []
     end
   end
 
