@@ -135,6 +135,13 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     :ok
   end
 
+  @doc false
+  @spec without_issue_descriptions(Aiur.Orchestrator.State.t()) :: Aiur.Orchestrator.State.t()
+  def without_issue_descriptions(%Aiur.Orchestrator.State{} = state) do
+    issues = Map.new(state.last_polled_issues, fn {id, issue} -> {id, %{issue | description: nil}} end)
+    %{state | last_polled_issues: issues}
+  end
+
   @doc """
   Reads the last published snapshot without sending a message to the
   Orchestrator. A cache is retained across Orchestrator restarts; its metadata
