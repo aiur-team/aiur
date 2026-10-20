@@ -12,7 +12,9 @@ defmodule Aiur.GitHubBodyFilePolicyTest do
   ]
 
   test "Aiur source never passes gh message bodies inline" do
-    assert source_offenders(@repo_root, tracked_source_paths()) == []
+    {paths, 0} = System.cmd("git", ["ls-files", "--" | @source_paths], cd: @repo_root)
+
+    assert source_offenders(@repo_root, String.split(paths, "\n", trim: true)) == []
   end
 
   @tag :tmp_dir
@@ -54,11 +56,6 @@ defmodule Aiur.GitHubBodyFilePolicyTest do
         {:error, _reason} -> []
       end
     end)
-  end
-
-  defp tracked_source_paths do
-    {paths, 0} = System.cmd("git", ["ls-files", "--" | @source_paths], cd: @repo_root)
-    String.split(paths, "\n", trim: true)
   end
 
   defp offenders_from_contents(contents, path) do
