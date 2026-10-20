@@ -104,7 +104,7 @@ defmodule Aiur.AccountsTest do
     assert File.read_link!(Path.join(profile, "skills")) == Path.join(source, "skills")
     refute File.exists?(Path.join(profile, "auth.json"))
     assert %{"account_id" => "acct-123", "email" => "codex@example.com"} = CodexAccounts.identity(source)
-    refute inspect(CodexAccounts.identity(profile)) =~ "secret-token"
+    Aiur.TestSupport.refute_leak(CodexAccounts.identity(profile), "secret-token")
 
     # Exercise the child environment, not just the profile_env/2 return value.
     script = Path.join(home, "profile-probe.sh")
@@ -221,7 +221,7 @@ defmodule Aiur.AccountsTest do
     File.write!(Path.join(source, "auth.json"), Jason.encode!(%{"tokens" => %{"id_token" => token, "access_token" => "never-print-this"}}))
 
     assert %{"account_id" => "acct-nested", "email" => "nested@example.com"} = CodexAccounts.identity(source)
-    refute inspect(CodexAccounts.identity(source)) =~ "never-print-this"
+    Aiur.TestSupport.refute_leak(CodexAccounts.identity(source), "never-print-this")
   end
 
   test "backend capability explains native single-login backends" do
