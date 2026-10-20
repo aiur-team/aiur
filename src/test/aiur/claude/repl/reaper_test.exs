@@ -84,6 +84,13 @@ defmodule Aiur.Claude.Repl.ReaperTest do
       assert Task.await(task, 2_000) == :gone
     end
 
+    test "classifies a stopped tmux server as gone", %{tmux: tmux} do
+      task = Task.async(fn -> Reaper.pane_liveness(%{tmux: tmux, pane_id: "%43"}) end)
+      assert_receive {:tmux_mock_out, "display-message -p -t %43 " <> _}, 1_000
+      respond_error(tmux, "no server running on /tmp/tmux-test/default\n")
+      assert Task.await(task, 2_000) == :gone
+    end
+
     test "classifies a tmux timeout as unknown", %{tmux: tmux} do
       task = Task.async(fn -> Reaper.pane_liveness(%{tmux: tmux, pane_id: "%42"}, 0) end)
       assert_receive {:tmux_mock_out, "display-message -p -t %42 " <> _}, 1_000

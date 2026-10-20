@@ -169,7 +169,11 @@ defmodule Aiur.Claude.Repl.Reaper do
     match?({:ok, _}, Tmux.pane_pid(tmux, pane_id))
   end
 
-  defp missing_pane_error?(message), do: String.contains?(message, "can't find pane") or String.contains?(message, "no such pane")
+  defp missing_pane_error?(message) do
+    String.contains?(message, "can't find pane") or
+      String.contains?(message, "no such pane") or
+      String.contains?(message, "no server running")
+  end
 
   defp clear_spool(nil), do: :ok
 
