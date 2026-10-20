@@ -94,6 +94,11 @@ export function renderUnavailable(reason) {
     version: 'page out of date, reload', invalid: 'invalid data', invalid_data: 'build data failed validation',
     index_not_running: 'build index is not running', read_failed: 'build index read failed',
     epic_config_unavailable: 'Build Order settings could not be read' };
+  if (reason === 'settings_loading') {
+    loading.textContent = 'Loading build settings…';
+    loading.setAttribute('role', 'status');
+    return;
+  }
   const cause = Object.hasOwn(words, reason) ? words[reason] : `unknown cause (${String(reason).slice(0, 80)})`;
   loading.textContent = `Build timeline unavailable · ${cause}`;
   loading.setAttribute('role', 'status');

@@ -135,6 +135,16 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert {:error, :epic_config_unavailable} = assemble(%{parts() | settings: {:error, :down}})
   end
 
+  test "workflow settings still loading is distinct from an invalid or failed config" do
+    assert {:error, :settings_loading} = assemble(%{parts() | settings: {:error, :workflow_not_loaded}})
+    assert {:error, :epic_config_unavailable} = assemble(%{parts() | settings: {:error, :invalid_config}})
+  end
+
+  test "missing and timed out settings stay in the startup loading state" do
+    assert {:error, :settings_loading} = assemble(%{read_stale: %{settings: :timeout}})
+    assert {:error, :settings_loading} = assemble(%{})
+  end
+
   test "all open tickets appear exactly once including active labels absent from history" do
     p = parts() |> put_in([:open, Access.key(:tickets)], [open(50, ["agent:todo"]), open(51, ["agent:human-review"]), open(52), open(53, ["bug"])])
     p = p |> put_in([:now, :rows], %{"51" => now_row(51)}) |> put_in([:planned, :rows], [plan_row(50), plan_row(52)])
