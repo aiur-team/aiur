@@ -38,11 +38,41 @@ defmodule Aiur.GitHub.IssueStateLargeBodyTest do
     end
 
     assert :ok = IssueState.update_issue_state("42", "in-progress", request_fun: request_fun)
-    assert_received {:request, %{method: :get, max_response_bytes: 131_072}}
+    assert_received {:request, %{method: :get, max_response_bytes: 524_288}}
     assert_received {:request, %{method: :post, body: %{"labels" => ["sym:in-progress"]}}}
     assert_received {:request, %{method: :delete, url: first}}
     assert first =~ "sym%3Aci-wait" or first =~ "sym:ci-wait"
     assert_received {:request, %{method: :delete, url: second}}
     assert second =~ "sym%3Arework" or second =~ "sym:rework"
+  end
+
+  test "state transition accepts the maximum character count in multibyte UTF-8" do
+    parent = self()
+
+    body = %{
+      "state" => "open",
+      "labels" => [%{"name" => "sym:ci-wait"}],
+      "body" => String.duplicate("é", 65_536)
+    }
+
+    assert String.length(body["body"]) == 65_536
+    assert byte_size(Jason.encode!(body)) > 131_072
+
+    request_fun = fn request ->
+      send(parent, {:request, request})
+
+      case request.method do
+        :get -> {:ok, %{status: 200, body: body}}
+        :post -> {:ok, %{status: 200}}
+        :delete -> {:ok, %{status: 200}}
+        other -> flunk("unexpected request: #{inspect(other)}")
+      end
+    end
+
+    assert :ok = IssueState.update_issue_state("43", "in-progress", request_fun: request_fun)
+    assert_received {:request, %{method: :get, max_response_bytes: 524_288}}
+    assert_received {:request, %{method: :post, body: %{"labels" => ["sym:in-progress"]}}}
+    assert_received {:request, %{method: :delete, url: old_label_url}}
+    assert old_label_url =~ "sym%3Aci-wait" or old_label_url =~ "sym:ci-wait"
   end
 end
