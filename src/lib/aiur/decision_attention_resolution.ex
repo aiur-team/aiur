@@ -5,12 +5,33 @@ defmodule Aiur.DecisionAttentionResolution do
 
   @spec pid_alive?(pos_integer()) :: boolean()
   def pid_alive?(pid) when is_integer(pid) and pid > 0 do
-    case System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true) do
-      {_output, 0} -> true
-      {output, _status} -> not String.contains?(output, "No such process")
+    case :os.type() do
+      {:unix, :linux} -> proc_pid_alive?(pid)
+      _ -> ps_pid_alive?(pid)
     end
   rescue
     _error -> true
+  end
+
+  defp proc_pid_alive?(pid) do
+    case File.stat("/proc/#{pid}") do
+      {:ok, _stat} -> true
+      {:error, :enoent} -> false
+      {:error, _reason} -> ps_pid_alive?(pid)
+    end
+  end
+
+  defp ps_pid_alive?(pid) do
+    case System.find_executable("ps") do
+      nil ->
+        true
+
+      ps ->
+        case System.cmd(ps, ["-p", Integer.to_string(pid), "-o", "pid="], stderr_to_stdout: true) do
+          {output, 0} -> String.trim(output) == Integer.to_string(pid)
+          {_output, _status} -> true
+        end
+    end
   end
 
   @spec acknowledged?(String.t()) :: boolean()
@@ -22,18 +43,28 @@ defmodule Aiur.DecisionAttentionResolution do
       answered_operator_decision?(attention, state) or owner_status(attention, state) == :owner
   end
 
-  defp duplicate_dispatch_cleared?(%{slug: "duplicate-dispatch", question: question, issue: %{identifier: identifier}}, state) do
-    pids = Regex.scan(~r/\bpid\s+(\d+)\b/, question, capture: :all_but_first) |> List.flatten()
-
+  defp duplicate_dispatch_cleared?(
+         %{slug: "duplicate-dispatch", question: question, issue: %{identifier: identifier}} =
+           attention,
+         state
+       ) do
     topic = "ticket.#{identifier}.agent.attention.duplicate-dispatch"
     acknowledged? = state.attention_acknowledged?.(topic)
-    acknowledged? or (pids != [] and Enum.count(pids, &state.pid_alive?.(String.to_integer(&1))) <= 1)
+
+    if acknowledged? or not is_nil(Map.get(attention, :worker_host)) do
+      acknowledged?
+    else
+      pids = Regex.scan(~r/\bpid\s+(\d+)\b/, question, capture: :all_but_first) |> List.flatten()
+      pids != [] and Enum.count(pids, &state.pid_alive?.(String.to_integer(&1))) <= 1
+    end
   end
 
   defp duplicate_dispatch_cleared?(_attention, _state), do: false
 
   @spec owner_status(map(), map()) :: :owner | :none | :unknown | :not_applicable
-  def owner_status(%{slug: "stranded-requeued", issue: %{identifier: identifier}}, %{owner_lookup: lookup})
+  def owner_status(%{slug: "stranded-requeued", issue: %{identifier: identifier}}, %{
+        owner_lookup: lookup
+      })
       when is_function(lookup, 1) do
     case lookup.(identifier) do
       true -> :owner
@@ -51,11 +82,15 @@ defmodule Aiur.DecisionAttentionResolution do
 
   defp stale_condition?(_attention, _state), do: false
 
-  defp answered_operator_decision?(%{slug: "operator-decision", issue: %{identifier: identifier}}, state) do
+  defp answered_operator_decision?(
+         %{slug: "operator-decision", issue: %{identifier: identifier}},
+         state
+       ) do
     state.decision_store
     |> DecisionStore.list()
     |> Enum.all?(fn decision ->
-      decision.ticket.identifier != identifier or decision.decision_status not in [:open, :deferred]
+      decision.ticket.identifier != identifier or
+        decision.decision_status not in [:open, :deferred]
     end)
   end
 

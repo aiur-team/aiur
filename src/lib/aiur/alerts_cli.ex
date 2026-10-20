@@ -5,7 +5,7 @@ defmodule Aiur.AlertsCLI do
 
   @default_limit 100
 
-  @usage "aiur: alerts accepts --needs-attention, --limit <n>, --all, ack <ticket-attention-topic> --executor-id <id>"
+  @usage "aiur: alerts accepts --needs-attention, --limit <n>, --all, ack ticket.<id>.agent.attention.duplicate-dispatch --executor-id <id>"
 
   @spec parse([String.t()]) :: {:ok, keyword()} | {:error, String.t()}
   def parse(argv), do: parse(argv, [])
@@ -46,8 +46,16 @@ defmodule Aiur.AlertsCLI do
 
   def run(opts) do
     case Keyword.fetch(opts, :ack) do
-      {:ok, topic} -> acknowledge(topic, Keyword.fetch!(opts, :executor_id), opts)
-      :error -> list_alerts(opts)
+      {:ok, topic} ->
+        if valid_attention_topic?(topic) do
+          acknowledge(topic, Keyword.fetch!(opts, :executor_id), opts)
+        else
+          IO.puts(:stderr, @usage)
+          64
+        end
+
+      :error ->
+        list_alerts(opts)
     end
   end
 
@@ -79,7 +87,10 @@ defmodule Aiur.AlertsCLI do
   end
 
   defp acknowledge(topic, executor_id, opts) do
-    if AlertFeed.condition_state(topic, Keyword.take(opts, [:ledger_path, :ledger_paths, :log_roots])) == :firing do
+    if AlertFeed.condition_state(
+         topic,
+         Keyword.take(opts, [:ledger_path, :ledger_paths, :log_roots])
+       ) == :firing do
       append_acknowledgment(topic, executor_id, opts)
     else
       IO.puts(:stderr, "aiur: attention is not currently active: #{topic}")
@@ -113,8 +124,8 @@ defmodule Aiur.AlertsCLI do
 
   defp valid_attention_topic?("ticket." <> rest) do
     case String.split(rest, ".agent.attention.", parts: 2) do
-      [ticket, slug] when ticket != "" and slug != "" ->
-        Regex.match?(~r/\A[a-z0-9][a-z0-9.-]{0,63}\z/, slug)
+      [ticket, "duplicate-dispatch"] when ticket != "" ->
+        true
 
       _ ->
         false
