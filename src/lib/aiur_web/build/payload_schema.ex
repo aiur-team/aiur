@@ -82,7 +82,7 @@ defmodule AiurWeb.Build.PayloadSchema do
     do: %{
       "v" => {:literal, 1},
       "kind" => {:literal, "error"},
-      "reason" => enum(~w(invalid_params unavailable invalid_data read_only not_found throttled timeout index_not_running read_failed epic_config_unavailable))
+      "reason" => enum(~w(invalid_params unavailable invalid_data read_only not_found throttled timeout index_not_running read_failed epic_config_unavailable settings_loading))
     }
 
   def message(_kind), do: nil

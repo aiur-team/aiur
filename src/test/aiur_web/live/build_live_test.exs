@@ -95,6 +95,7 @@ defmodule AiurWeb.BuildLiveTest do
           {:not_wired, "not_wired"},
           {:timeout, "timeout"},
           {:epic_config_unavailable, "epic_config_unavailable"},
+          {:settings_loading, "settings_loading"},
           {:index_not_running, "index_not_running"},
           {:read_failed, "read_failed"}
         ] do

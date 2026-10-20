@@ -6,6 +6,7 @@ defmodule AiurWeb.Build.Index do
   require Logger
   @window 250
   @max_backoff 60_000
+  @settings_startup_timeout_ms 600_000
   @signals %{
     build_order_history_changed: ~w(history health catch_up planned not_queued)a,
     build_order_features_changed: [:features],
@@ -70,6 +71,7 @@ defmodule AiurWeb.Build.Index do
            daemon_task: nil,
            waiting: [],
            failures: 0,
+           settings_loading_since_ms: nil,
            table: table,
            opts: opts,
            history_at: nil
@@ -119,7 +121,8 @@ defmodule AiurWeb.Build.Index do
     Process.cancel_timer(state.task.deadline)
     dirty = dirty_set(state.task.dirty)
     parts = clear_read_staleness(parts, dirty)
-    failures = if match?({:error, _}, parts[:now]), do: state.failures, else: 0
+    settings_loading? = match?({:error, :settings_loading}, Core.assemble(parts, now: clock(state)))
+    failures = if match?({:error, _}, parts[:now]) or settings_loading?, do: state.failures, else: 0
     {:noreply, finish(%{state | task: nil, failures: failures}, parts, dirty)}
   end
 
@@ -218,13 +221,13 @@ defmodule AiurWeb.Build.Index do
   defp finish(state, parts, keys) do
     {parts, history_at} = HistoryCarry.carry(state.parts, parts, keys, state.history_at, clock(state))
     next = Core.assemble(parts, now: clock(state))
+    {parts, next, settings_loading_since_ms} = expire_settings_loading(state, parts, next)
     changes = changes(state.index, next)
     generation = if changes, do: state.generation + 1, else: state.generation
     if changes, do: broadcast(state, Map.merge(changes, %{index_generation: generation, now: clock(state)}))
     now_failed? = match?({:error, _}, parts[:now])
-    failures = if now_failed?, do: state.failures + 1, else: state.failures
-    retry_dirty = if now_failed?, do: MapSet.put(state.dirty, :now), else: state.dirty
-    state = %{state | parts: parts, index: next, generation: generation, history_at: history_at, failures: failures, dirty: retry_dirty}
+    {failures, retry_dirty} = retry_after_finish(state, next, now_failed?, parts)
+    state = %{state | parts: parts, index: next, generation: generation, history_at: history_at, failures: failures, dirty: retry_dirty, settings_loading_since_ms: settings_loading_since_ms}
     :ets.insert(state.table, {:index, with({:ok, index} <- next, do: {:ok, Core.base(index)})})
     :ets.insert(state.table, {:generation, generation})
     Enum.each(state.waiting, &GenServer.reply(&1, {:ok, state.table, clock(state)}))
@@ -237,6 +240,30 @@ defmodule AiurWeb.Build.Index do
       true -> state
     end
   end
+
+  defp retry_after_finish(state, next, now_failed?, parts) do
+    settings_loading? = match?({:error, :settings_loading}, next)
+    failures = if now_failed? or settings_loading?, do: state.failures + 1, else: state.failures
+    retry_dirty = if now_failed?, do: MapSet.put(state.dirty, :now), else: state.dirty
+    retry_dirty = if settings_loading?, do: MapSet.put(retry_dirty, :settings), else: retry_dirty
+    retry_dirty = if match?({:error, :settings_startup_timeout}, parts[:settings]), do: MapSet.delete(retry_dirty, :settings), else: retry_dirty
+    {failures, retry_dirty}
+  end
+
+  defp expire_settings_loading(state, parts, {:error, :settings_loading} = next) do
+    now = clock(state)
+    started_at = state.settings_loading_since_ms || now
+    timeout = Keyword.get(state.opts, :settings_startup_timeout_ms, @settings_startup_timeout_ms)
+
+    if now - started_at >= timeout do
+      parts = Map.put(parts, :settings, {:error, :settings_startup_timeout})
+      {parts, Core.assemble(parts, now: now), nil}
+    else
+      {parts, next, started_at}
+    end
+  end
+
+  defp expire_settings_loading(_state, parts, next), do: {parts, next, nil}
 
   defp changes({:ok, old}, {:ok, new}) do
     # An empty unavailable/backfilling window has no cutoff: pull a bounded day window on recovery.
