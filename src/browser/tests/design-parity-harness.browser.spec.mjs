@@ -197,6 +197,7 @@ test('stable capture recovers from a transient capture failure', async () => {
   } }
   expect((await captureStable(target, opts)).equals(expected)).toBe(true)
   expect(calls).toBe(3)
+  expect(opts).toEqual({ scale: 'device' })
 })
 for (const [name, message, attempts] of [
   ['persistent capture failure', 'page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot', 2],
