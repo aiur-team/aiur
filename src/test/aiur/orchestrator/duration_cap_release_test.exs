@@ -69,13 +69,12 @@ defmodule Aiur.Orchestrator.DurationCapReleaseTest do
   end
 
   test "teardown succeeds when the optional ActiveTurns table is missing" do
-    owner = Process.whereis(Aiur.Opencode.ActiveTurns)
-    assert is_pid(owner)
+    assert is_pid(Process.whereis(Aiur.Opencode.ActiveTurns))
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Opencode.ActiveTurns)
 
     assert :ok = AgentTeardown.close_active_chat_streams("issue-4849", :terminal)
   after
-    Aiur.TestSupport.ensure_runtime_children_running()
+    assert {:ok, _owner} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Opencode.ActiveTurns)
   end
 
   test "a sent startup digest detects a later workspace commit and redispatches" do
