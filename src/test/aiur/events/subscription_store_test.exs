@@ -46,12 +46,8 @@ defmodule Aiur.Events.SubscriptionStoreTest do
 
   defp stop_store_if_alive(identifier) do
     SubscriptionStore.stop(identifier)
-  rescue
-    ArgumentError -> :ok
   catch
-    :exit, :noproc -> :ok
-    :exit, :normal -> :ok
-    :exit, :shutdown -> :ok
+    :exit, {reason, {GenServer, :stop, _args}} when reason in [:noproc, :normal, :shutdown] -> :ok
   end
 
   describe "attach/1" do
@@ -77,6 +73,25 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       after
         {:ok, _pid} =
           Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
+      end
+    end
+  end
+
+  describe "cleanup" do
+    test "tolerates a store exiting immediately before cleanup", %{identifier: id} do
+      :ok = SubscriptionStore.attach(id)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+      monitor = Process.monitor(pid)
+
+      Process.exit(pid, :shutdown)
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :shutdown}
+
+      SubscriptionStore.set_registry_lookup_fn(fn _registry, _identifier -> [{pid, nil}] end)
+
+      try do
+        assert :ok = stop_store_if_alive(id)
+      after
+        SubscriptionStore.set_registry_lookup_fn(nil)
       end
     end
   end
