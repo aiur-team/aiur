@@ -56,8 +56,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.NonClosingMerge do
     lookup = Keyword.get(opts, :reference_merge_reconciled_fun, &RecentMergeStore.ticket_reconciled?/2)
     lookup.(merge.id, issue.identifier) == true
   rescue
-    _error -> false
+    _error -> true
   catch
-    :exit, _reason -> false
+    :exit, _reason -> true
   end
 end

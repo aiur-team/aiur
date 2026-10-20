@@ -69,24 +69,43 @@ defmodule Aiur.Orchestrator.NonClosingMergeRestartTest do
              )
   end
 
-  test "a failed reconciliation lookup allows triage to retry" do
+  test "a failed reconciliation lookup defers triage until the next successful read" do
     issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
     merge = stored_merge("Refs #1570")
     {:ok, writes} = Agent.start_link(fn -> [] end)
+    {:ok, lookups} = Agent.start_link(fn -> 0 end)
 
-    assert {%State{}, []} =
-             MergedTicketReconciler.reconcile(%State{}, [issue],
-               recent_merges_fun: fn -> [merge] end,
-               now_fun: fn -> @now end,
-               reference_merge_reconciled_fun: fn _, _ -> raise "store lookup failed" end,
-               mark_reference_merge_reconciled_fun: fn _, _ -> :ok end,
-               update_issue_state_fun: fn _, _, _ -> Agent.update(writes, &[:state | &1]) end,
-               add_label_fun: fn _, _ -> Agent.update(writes, &[:marker | &1]) end,
-               create_comment_fun: fn _, _ -> Agent.update(writes, &[:comment | &1]) end
-             )
+    lookup = fn _, _ ->
+      case Agent.get_and_update(lookups, &{&1, &1 + 1}) do
+        0 -> raise "store lookup failed"
+        1 -> false
+        _ -> true
+      end
+    end
 
+    opts = [
+      recent_merges_fun: fn -> [merge] end,
+      now_fun: fn -> @now end,
+      reference_merge_reconciled_fun: lookup,
+      mark_reference_merge_reconciled_fun: fn _, _ -> :ok end,
+      update_issue_state_fun: fn _, _, _ -> Agent.update(writes, &[:state | &1]) end,
+      add_label_fun: fn _, _ -> Agent.update(writes, &[:marker | &1]) end,
+      create_comment_fun: fn _, _ -> Agent.update(writes, &[:comment | &1]) end
+    ]
+
+    assert {%State{}, [^issue]} =
+             MergedTicketReconciler.reconcile(%State{}, [issue], opts)
+
+    assert Agent.get(writes, & &1) == []
+
+    assert {%State{}, []} = MergedTicketReconciler.reconcile(%State{}, [issue], opts)
     assert Enum.sort(Agent.get(writes, & &1)) == [:comment, :marker, :state]
+
+    assert {%State{}, [^issue]} = MergedTicketReconciler.reconcile(%State{}, [issue], opts)
+    assert Enum.sort(Agent.get(writes, & &1)) == [:comment, :marker, :state]
+
     Agent.stop(writes)
+    Agent.stop(lookups)
   end
 
   defp stored_merge(summary) do
