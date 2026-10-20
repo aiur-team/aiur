@@ -89,11 +89,12 @@ test('every post-warmup measurement dimension participates in the budget', () =>
 
 test('long-task budgets cover measured windows and use CI p95 without weakening local checks', () => {
   expect(longTasksInWindow([
-    { startTime: 9, duration: 80 },
+    { startTime: 9, duration: 1 },
     { startTime: 10, duration: 51 },
     { startTime: 15, duration: 52 },
     { startTime: 20, duration: 90 }
   ], 10, 20)).toEqual([51, 52])
+  expect(longTasksInWindow([{ startTime: 9, duration: 2 }], 10, 20)).toEqual([2])
 
   const samples = Array.from({ length: 20 }, (_, index) => ({ longTasks: index === 19 ? [63] : [] }))
   expect(() => assertMeasurementBudget({ samples }, { maxLongTaskMs: 50, longTaskPercentile: 95 })).not.toThrow()

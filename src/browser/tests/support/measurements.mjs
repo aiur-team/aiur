@@ -83,7 +83,7 @@ export async function measureBrowserWork(page, { operation, targetSelector = '#g
 
 export function longTasksInWindow(entries, start, end) {
   return entries
-    .filter(entry => entry.startTime >= start && entry.startTime < end)
+    .filter(entry => entry.startTime < end && entry.startTime + entry.duration > start)
     .map(entry => entry.duration)
 }
 
