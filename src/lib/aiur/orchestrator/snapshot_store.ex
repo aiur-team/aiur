@@ -396,7 +396,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       :persistent_term.put(warning_key, metadata.observed_at)
 
       Logger.warning(
-        "Dashboard snapshot timed out; serving last-known-good snapshot " <>
+        "Dashboard snapshot projection is stale; serving last-known-good snapshot " <>
           "(orchestrator_mailbox_depth=#{metadata.orchestrator_mailbox_depth}, age_ms=#{metadata.age_ms})"
       )
     end
@@ -411,7 +411,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       :persistent_term.put(warning_key, :before_first_snapshot)
 
       Logger.warning(
-        "Dashboard snapshot timed out before the first snapshot was published " <>
+        "Dashboard snapshot has not been published yet; waiting for the initial projection " <>
           "(orchestrator_mailbox_depth=#{mailbox_depth})"
       )
     end

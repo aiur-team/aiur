@@ -223,11 +223,19 @@ defmodule Aiur.Orchestrator.StatusReport do
       :session_max_concurrent_agents,
       :waiting_for_human_episodes
     ])
+    |> Map.update!(:last_polled_issues, &snapshot_issues/1)
     |> then(&struct!(State, &1))
     |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state))
     |> Map.put(:control_lifecycle, snapshot_control_lifecycle(state))
     |> Map.put(:queue_store, snapshot_queue_store(state))
     |> Map.put(:status_observed_at, DateTime.utc_now())
+  end
+
+  # Issue descriptions can contain large specifications. They are needed by
+  # dispatch, but no fleet row renders them; retaining them in the reader-side
+  # source state needlessly copies the entire polled backlog on every publish.
+  defp snapshot_issues(issues) do
+    Map.new(issues, fn {id, issue} -> {id, %{issue | description: nil}} end)
   end
 
   # The asynchronous projection needs only the cached result for rows it can
