@@ -172,7 +172,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
 
         target == "needs-triage" ->
           if result == :ok do
-            {record_reconciled(state, issue, merge), []}
+            {record_reference_triage(state, issue, merge, opts), []}
           else
             {emit_failed_alert(state, issue, merge, result, opts), [issue]}
           end
@@ -218,7 +218,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   defp reconcile_reference_only_ticket(state, issue, merge, opts, retained) do
     case NonClosingMerge.write_target(issue, merge, issue.state, opts, NonClosingMerge.update_issue_state_fun(opts)) do
       :ok ->
-        state = record_reconciled(state, issue, merge)
+        state = record_reference_triage(state, issue, merge, opts)
         {state, retained}
 
       {:error, reason} ->
@@ -226,6 +226,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
         {state, [issue | retained]}
     end
   end
+
+  defp record_reference_triage(state, issue, merge, opts),
+    do: NonClosingMerge.record_triage(state, issue, merge, opts, &record_reconciled/3, &emit_failed_alert/5)
 
   # Repair a physical close with a missing state label from its branch merge;
   # other open PRs cannot make an already-closed issue dispatchable again.
@@ -353,7 +356,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
       %RecentMerge{} = merge ->
         (identifier in RecentMerge.closing_issue_identifiers(merge) or
            (closed_without_state_label?(issue) and merge.ticket_id == identifier) or
-           NonClosingMerge.reference_only?(issue, merge, opts)) and
+           NonClosingMerge.triage_due?(issue, merge, opts)) and
           not stale_merge?(merge, now) and
           not already_reconciled?(state, issue, merge)
 

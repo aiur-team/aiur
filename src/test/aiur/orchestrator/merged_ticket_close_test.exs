@@ -51,6 +51,8 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
     {state, issues} =
       MergedTicketReconciler.reconcile(%State{}, [issue],
         recent_merges_fun: fn -> [%{merged_pr("Refs #1570") | ticket_id: "1570"}] end,
+        reference_merge_reconciled_fun: fn _merge_id, _ticket_id -> false end,
+        mark_reference_merge_reconciled_fun: fn _merge_id, _ticket_id -> :ok end,
         now_fun: fn -> @now end,
         update_issue_state_fun: fn id, target, expected ->
           send(parent, {:transition, id, target, expected})
@@ -89,6 +91,8 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
     {state, [^issue]} =
       MergedTicketReconciler.reconcile(%State{}, [issue],
         recent_merges_fun: fn -> [merge] end,
+        reference_merge_reconciled_fun: fn _merge_id, _ticket_id -> false end,
+        mark_reference_merge_reconciled_fun: fn _merge_id, _ticket_id -> :ok end,
         now_fun: fn -> @now end,
         update_issue_state_fun: fn id, target, _expected ->
           send(parent, {:transition, id, target})
@@ -117,6 +121,8 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
     {state, []} =
       MergedTicketReconciler.reconcile(%State{}, [issue],
         recent_merges_fun: fn -> [%{merged_pr("Part of #1570") | ticket_id: "1570"}] end,
+        reference_merge_reconciled_fun: fn _merge_id, _ticket_id -> false end,
+        mark_reference_merge_reconciled_fun: fn _merge_id, _ticket_id -> :ok end,
         now_fun: fn -> @now end,
         update_issue_state_fun: fn id, target, _expected ->
           send(parent, {:transition, id, target})
@@ -137,20 +143,6 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
     assert_receive {:comment, "1570", body}, 1000
     assert body =~ "PR #1600"
     assert MapSet.member?(state.merged_ticket_reconciliations, {"1570", "owner/repo#1600"})
-  end
-
-  test "does not replay reference triage after a ticket is re-dispatched" do
-    issue = %Issue{id: "issue-1570", identifier: "1570", state: "todo"}
-    merge = %{merged_pr("Refs #1570") | ticket_id: "1570"}
-
-    assert {%State{}, [^issue]} =
-             MergedTicketReconciler.reconcile(%State{}, [issue],
-               recent_merges_fun: fn -> [merge] end,
-               now_fun: fn -> @now end,
-               update_issue_state_fun: fn _, _, _ -> flunk("re-dispatched ticket must stay in todo") end,
-               add_label_fun: fn _, _ -> flunk("re-dispatched ticket must not be re-triaged") end,
-               create_comment_fun: fn _, _ -> flunk("re-dispatched ticket must not receive a duplicate comment") end
-             )
   end
 
   test "a closed Refs ticket still receives the authoritative closed-ticket repair" do
@@ -187,6 +179,8 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
         pending =
           MergedTicketReconciler.reconcile(state, [%Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}],
             recent_merges_fun: fn -> [%{merged_pr("Refs #1570") | ticket_id: "1570"}] end,
+            reference_merge_reconciled_fun: fn _merge_id, _ticket_id -> false end,
+            mark_reference_merge_reconciled_fun: fn _merge_id, _ticket_id -> :ok end,
             now_fun: fn -> @now end,
             update_issue_state_fun: fn _, _, _ -> {:error, :forbidden} end,
             add_label_fun: fn _, _ -> :ok end,

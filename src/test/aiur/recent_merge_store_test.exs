@@ -58,6 +58,23 @@ defmodule Aiur.RecentMergeStoreTest do
     assert Bitwise.band(mode, 0o777) == 0o600
   end
 
+  test "reference triage survives store restart with the merge record", %{dir: dir} do
+    merge = merge_for_number(1)
+    pid = start_store!(dir)
+
+    assert {:ok, %{status: :accepted}} = RecentMergeStore.upsert(merge, pid)
+    assert :ok = RecentMergeStore.mark_ticket_reconciled(merge.id, "ticket-1", pid)
+    assert RecentMergeStore.ticket_reconciled?(merge.id, "ticket-1", pid)
+    assert {:ok, %{status: :duplicate}} = RecentMergeStore.upsert(merge, pid)
+    assert RecentMergeStore.ticket_reconciled?(merge.id, "ticket-1", pid)
+    GenServer.stop(pid)
+
+    replayed = start_store!(dir)
+    assert RecentMergeStore.ticket_reconciled?(merge.id, "ticket-1", replayed)
+    assert [%RecentMerge{reconciled_ticket_ids: ["ticket-1"]}] = RecentMergeStore.list(replayed)
+    GenServer.stop(replayed)
+  end
+
   test "a backfilled repository merge makes no ticket, agent, or run claim", %{dir: dir} do
     event =
       merged_event(%{

@@ -248,7 +248,8 @@ defmodule Aiur.Config.Schema.Agent do
     # Re-wake after this many minutes in CI-wait if no terminal event arrives.
     # @config-reference config-configuration-agent-00 agent.ci_wait_rewake_minutes | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
     field(:ci_wait_rewake_minutes, :integer, default: 5)
-    # @config-reference config-configuration-agent-00 agent.non_closing_merge_marker | string | `needs-triage` | Marker for a merged PR that references its ticket without closing it. |
+
+    # @config-reference config-configuration-agent-00 agent.non_closing_merge_marker | string | `needs-triage` | Marker for a merged PR that references the ticket but does not close it. |
     field(:non_closing_merge_marker, :string, default: "needs-triage")
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.unreviewed_pr_age_limit_minutes | positive integer | 120 | Re-raises ready PRs with green CI and no review after this many minutes; reminders repeat with the same interval. |
