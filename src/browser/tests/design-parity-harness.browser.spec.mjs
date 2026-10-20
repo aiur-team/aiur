@@ -72,6 +72,12 @@ test('mutation: catches changed API count text', async ({ browser }) => {
   await pair.product.getByText('2 APIs', { exact: true }).evaluate(e => { e.textContent = '3 APIs' })
   await pixelFailure(pair, { name: 'api-count' })
 })
+test('mutation: parity screenshot style preserves overflowing layout differences', async ({ browser }) => {
+  const pair = await designPair(browser)
+  await pair.design.addStyleTag({ content: 'html { scrollbar-color: transparent transparent !important; } *::-webkit-scrollbar-thumb { background: transparent !important; }' })
+  await pair.product.addStyleTag({ content: 'html { scrollbar-color: transparent transparent !important; } *::-webkit-scrollbar-thumb { background: transparent !important; } #build-root { width: calc(100% + 1px) !important; }' })
+  await pixelFailure(pair, { name: 'overflow-layout', fullPage: false })
+})
 test('mutation: palette swap fails', async ({ browser }) => {
   const other = { ...cell, palette: 'aiur' }
   const pair = { design: await pageFor(browser), product: await pageFor(browser, other), cell, allowlist: [] }

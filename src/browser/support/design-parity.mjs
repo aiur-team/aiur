@@ -156,9 +156,9 @@ export async function captureStable(target, opts, page) {
   let previous
   const screenshotOptions = {
     ...opts,
-    // Viewport captures include the native scrollbar thumb, whose position
-    // changes as each reference page is brought to the front for capture.
-    style: `${opts.style ?? ''}\n* { scrollbar-width: none !important; }\n*::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }`
+    // Keep the native track and its layout width, but remove the thumb's
+    // scroll-position-dependent paint from sequential reference captures.
+    style: `${opts.style ?? ''}\n* { scrollbar-color: transparent transparent !important; }\n*::-webkit-scrollbar-thumb { background: transparent !important; }`
   }
   for (let attempt = 0; attempt < 10; attempt++) {
     // Locator screenshots scroll into view, disturbing motion under measurement.
