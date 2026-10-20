@@ -184,6 +184,69 @@ defmodule Aiur.GitHub.PullRequests.OpenPullRequests do
     end
   end
 
+  @doc """
+  Fetches the full open-pull-request listing with a page-one ETag.
+
+  Pollers that look up several ticket branches in one repository share the same
+  `GET /pulls?state=open&per_page=100` response. Revalidating that one response
+  avoids paying for a full listing each time a different ticket is checked.
+  New open PRs land on page one, so its validator is sufficient to detect a new
+  branch PR; later pages are fetched on a page-one change and then held with the
+  result, matching the singular branch lookup's freshness contract.
+  """
+  @spec fetch_open_pull_requests_conditional(keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_open_pull_requests_conditional(opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      etag = Keyword.get(opts, :etag)
+      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
+
+      case request_fun.(branch_pull_request_request(url, token, etag, opts)) do
+        {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+          headers = Map.get(response, :headers, [])
+          first_etag = Transport.header(headers, "etag") || etag
+          fetch_open_pull_request_pages(request_fun, token, Transport.parse_next_page_url(headers), body, first_etag, opts)
+
+        {:ok, %{status: 304} = response} ->
+          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  defp fetch_open_pull_request_pages(_request_fun, _token, nil, pull_requests, first_etag, _opts),
+    do: {:ok, pull_requests, first_etag}
+
+  defp fetch_open_pull_request_pages(request_fun, token, url, pull_requests, first_etag, opts) do
+    case request_fun.(branch_pull_request_request(url, token, nil, opts)) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        headers = Map.get(response, :headers, [])
+
+        fetch_open_pull_request_pages(
+          request_fun,
+          token,
+          Transport.parse_next_page_url(headers),
+          pull_requests ++ body,
+          first_etag,
+          opts
+        )
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
   defp branch_pull_request_request(url, token, etag, opts) do
     request = %{method: :get, url: url, token: token}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request

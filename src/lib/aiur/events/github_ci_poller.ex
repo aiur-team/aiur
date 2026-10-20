@@ -40,6 +40,7 @@ defmodule Aiur.Events.GithubCIPoller do
     required_check_fetcher = Keyword.get(opts, :required_check_fetcher, &CiReadiness.fetch_required_checks/1)
     required_checks = if targets == [], do: {:ok, []}, else: required_check_fetcher.(opts)
     opts = Keyword.put(opts, :required_checks, required_checks)
+    opts = prefetch_open_pull_requests(targets, opts)
 
     results =
       targets
@@ -102,10 +103,19 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp poll_target_from_rest(target, opts) do
-    case LocalHold.run(
-           fn -> Client.fetch_open_pull_request_for_branch(target, opts) end,
-           LocalHold.caller_opts(opts)
-         ) do
+    result =
+      case prefetched_open_pull_request(target, opts) do
+        {:ok, pull_request} ->
+          {:ok, pull_request}
+
+        :missing ->
+          LocalHold.run(
+            fn -> Client.fetch_open_pull_request_for_branch(target, opts) end,
+            LocalHold.caller_opts(opts)
+          )
+      end
+
+    case result do
       {:ok, nil} ->
         # A newly finalized PR can take a short time to appear in GitHub's
         # branch-filtered listing. Fail closed so the tracker does not stay
@@ -199,6 +209,32 @@ defmodule Aiur.Events.GithubCIPoller do
       {:ok, value}
     else
       _ -> :missing
+    end
+  end
+
+  defp prefetch_open_pull_requests(targets, opts) do
+    missing = Enum.reject(targets, &match?({:ok, _batch}, ci_batch_value(opts, &1)))
+
+    if missing == [] do
+      opts
+    else
+      case Client.fetch_open_pull_requests_for_branches(missing, opts) do
+        {:ok, pull_requests} -> Keyword.put(opts, :open_pull_requests_by_target, pull_requests)
+        {:error, _reason} -> opts
+      end
+    end
+  end
+
+  defp prefetched_open_pull_request(target, opts) do
+    case Keyword.get(opts, :open_pull_requests_by_target, %{}) do
+      pull_requests when is_map(pull_requests) ->
+        case Map.fetch(pull_requests, to_string(target)) do
+          {:ok, pull_request} -> {:ok, pull_request}
+          :error -> :missing
+        end
+
+      _other ->
+        :missing
     end
   end
 
