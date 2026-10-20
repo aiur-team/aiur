@@ -40,9 +40,11 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
     TrackerTasks
   }
 
-  alias Aiur.Orchestrator.MergedTicketReconciler.ClosedRepair
-  alias Aiur.Orchestrator.MergedTicketReconciler.OpenPullRequestTarget
-  alias Aiur.Orchestrator.MergedTicketReconciler.NonClosingMerge
+  alias Aiur.Orchestrator.MergedTicketReconciler.{
+    ClosedRepair,
+    NonClosingMerge,
+    OpenPullRequestTarget
+  }
 
   require Logger
 

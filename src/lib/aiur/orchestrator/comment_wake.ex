@@ -199,9 +199,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         {:error, _reason} = error -> error
       end
     else
-      if identifier in RecentMerge.referenced_issue_identifiers_in_body(Keyword.get(opts, :pr_body), merge_repository(opts)),
-        do: @non_closing_merge_state,
-        else: "human-review"
+      if identifier in RecentMerge.referenced_issue_identifiers_in_body(Keyword.get(opts, :pr_body), merge_repository(opts)), do: @non_closing_merge_state, else: "human-review"
     end
   end
 

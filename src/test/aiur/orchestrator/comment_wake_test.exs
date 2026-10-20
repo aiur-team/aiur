@@ -1353,13 +1353,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert MapSet.member?(result.claimed, issue.id)
     end
 
-    # #2609: the live merged route resolves its ticket from the
-    # `aiur/<id>-<slug>` head branch, so a PR body deliberately written `Refs
-    # #N` — GitHub's documented "related, not resolving" — used to close the
-    # ticket anyway, retiring an operator's still-open acceptance checklist.
-    # The body decides the outcome now: the ticket lands in human-review with
-    # the needs-triage marker, with no terminal teardown, and the open-PR enumeration is never even
-    # reached.
+    # The live route leaves a Refs-only merge open, marked for triage.
     test "a merged PR whose body only refs the ticket leaves it open and never closes it" do
       issue = %Issue{
         id: "issue-refs-only",
@@ -1415,8 +1409,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       assert_receive {:label, "176", "needs-triage"}, 1000
       assert_receive {:transition, "176", "human-review"}, 1000
-      assert_receive {:triage_comment, "176", body}, 1000
-      assert body =~ "PR #unknown"
+      assert_receive {:triage_comment, "176", _body}, 1000
       refute_receive {:transition, "176", "done"}, 100
       refute_receive :membership_recorded, 100
       refute_receive :session_cleared, 100

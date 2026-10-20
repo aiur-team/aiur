@@ -250,9 +250,7 @@ defmodule Aiur.Config.Schema.Agent do
     # observed in this window, wake the agent for one recovery check.
     # @config-reference config-configuration-agent-00 agent.ci_wait_rewake_minutes | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
     field(:ci_wait_rewake_minutes, :integer, default: 5)
-    # Marker applied when a merged PR references its ticket without closing it.
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.non_closing_merge_marker | string | `needs-triage` | Label added to a ticket when its merged PR does not contain a GitHub closing keyword. The ticket remains open in human-review. |
+    # @config-reference config-configuration-agent-00 agent.non_closing_merge_marker | string | `needs-triage` | Marker for a merged PR that references its ticket without closing it. |
     field(:non_closing_merge_marker, :string, default: "needs-triage")
 
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
