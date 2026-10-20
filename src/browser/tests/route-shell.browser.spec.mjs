@@ -241,6 +241,21 @@ test('a stored light theme never paints a dark frame and the toggle persists und
 })
 
 test('production navigation restores and persists through the shared storage helper', async ({ page }) => {
+  // Observe calls at the module boundary while delegating to the real guarded helper.
+  // ThemeToggle imports this module too, so a resource request alone proves nothing.
+  await page.route('**/aiur-style/js/storage.js', async route => {
+    const actual = new URL('/aiur-style/js/storage.js?actual', route.request().url()).href
+    await route.fulfill({ contentType: 'application/javascript', body: `
+      import * as storage from ${JSON.stringify(actual)};
+      window.navStorageCalls = [];
+      export function readStorage(key) {
+        window.navStorageCalls.push(['read', key]); return storage.readStorage(key);
+      }
+      export function writeStorage(key, value) {
+        window.navStorageCalls.push(['write', key, value]); storage.writeStorage(key, value);
+      }
+    ` })
+  })
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)
   await page.evaluate(() => localStorage.setItem('aiur-nav-collapsed', 'true'))
@@ -251,10 +266,10 @@ test('production navigation restores and persists through the shared storage hel
   await drag.press('ArrowRight')
   await expect(drag).toHaveAttribute('data-nav-collapsed', 'false')
   await expect.poll(() => page.evaluate(() => localStorage.getItem('aiur-nav-collapsed'))).toBe('false')
+  await expect.poll(() => page.evaluate(() => window.navStorageCalls)).toContainEqual(['write', 'aiur-nav-collapsed', 'false'])
   await page.reload()
   await expect(drag).toHaveAttribute('data-nav-collapsed', 'false')
-  expect(await page.evaluate(() => performance.getEntriesByType('resource')
-    .some(resource => resource.name.endsWith('/aiur-style/js/storage.js')))).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.navStorageCalls)).toContainEqual(['read', 'aiur-nav-collapsed'])
 })
 
 
