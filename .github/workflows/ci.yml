@@ -384,7 +384,7 @@ jobs:
       - name: Verify home CSS
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: ./.github/actions/verify-home-css
-        with: {shard: ${{ matrix.shard }}}
+        with: {shard: "${{ matrix.shard }}"}
   analytics:
     needs: changes
     if: ${{ needs.changes.outputs.full_ci == 'true' }}

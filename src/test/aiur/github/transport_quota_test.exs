@@ -42,7 +42,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     {:ok, quota: quota, budget_dir: budget_dir}
   end
 
-  test "records the authoritative budget when no credential identity resolves", %{quota: quota} do
+  test "keeps responses without a resolved credential out of the primary window", %{quota: quota} do
     Req.Test.stub(__MODULE__, fn conn ->
       conn
       |> Plug.Conn.put_resp_header("x-ratelimit-resource", "core")
@@ -60,7 +60,8 @@ defmodule Aiur.GitHub.TransportQuotaTest do
              })
 
     snapshot = Quota.snapshot(quota)
-    assert snapshot.windows["core"].remaining == 4100
+    refute Map.has_key?(snapshot.windows, "core")
+    assert snapshot.credential_windows[Budget.token_key("token")]["core"].remaining == 4100
     assert [%{consumer: "ticket:1670", reads: 1, writes: 0, total: 1, cost: 1, costs: %{"core" => 1}}] = snapshot.attribution
   end
 
@@ -69,7 +70,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     Quota.observe(
       quota,
-      %{method: :get, url: "https://api.github.com/repos/owner/repo/issues", token: "token"},
+      primary_request(:get, "https://api.github.com/repos/owner/repo/issues"),
       {:ok,
        %{
          status: 403,
@@ -126,7 +127,8 @@ defmodule Aiur.GitHub.TransportQuotaTest do
              })
 
     snapshot = Quota.snapshot(quota)
-    assert snapshot.windows["graphql"].remaining == 3999
+    refute Map.has_key?(snapshot.windows, "graphql")
+    assert snapshot.credential_windows[Budget.token_key("token")]["graphql"].remaining == 3999
     assert [%{consumer: "ticket:1670", reads: 0, writes: 1, total: 1, cost: 1, costs: %{"graphql" => 1}}] = snapshot.attribution
   end
 
@@ -135,7 +137,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     Quota.observe(
       quota,
-      %{method: :post, url: Transport.graphql_url(), token: "token", body: %{"query" => "query { viewer { login } }"}},
+      primary_request(:post, Transport.graphql_url(), %{"query" => "query { viewer { login } }"}),
       {:ok,
        %{
          status: 403,
@@ -395,4 +397,9 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)
+
+  defp primary_request(method, url, body \\ nil) do
+    %{method: method, url: url, token: "token", credential_id: "primary", credential_key: Budget.token_key("token")}
+    |> then(fn request -> if body, do: Map.put(request, :body, body), else: request end)
+  end
 end

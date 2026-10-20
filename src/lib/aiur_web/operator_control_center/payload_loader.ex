@@ -187,7 +187,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     |> put_units_status_snapshot(orchestrator: orchestrator, timeout: snapshot_timeout_ms)
     |> Map.put(:retained_counts, retained_counts)
     |> update_in([:provider_health], &Map.put(&1, :retained_counts, retained_counts.health.status))
-    |> then(&Map.put(&1, :units, UnitsPresenter.load(&1, units_options(bound, funs))))
+    |> then(fn payload -> Map.put(payload, :units, UnitsPresenter.load(payload, units_options(bound, funs))) |> Map.delete(:units_status_snapshot) end)
     |> Map.put(:tickets, TicketsPresenter.load(tickets_options(bound, funs)))
   end
 
