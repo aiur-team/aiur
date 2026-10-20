@@ -353,13 +353,14 @@ defmodule Aiur.TestSupport do
           scope_state_violation = Aiur.TestScopeGuard.violation(expected_test_scope_state)
 
           Aiur.TestSupport.quiesce_live_orchestrator()
+          Aiur.TestSupport.stop_runner_tasks_started_since(runner_tasks_before)
           Aiur.TestSupport.restore_app_env(previous_app_env)
           Application.delete_env(:aiur, :server_port_override)
           Application.delete_env(:aiur, :memory_tracker_issues)
           Application.delete_env(:aiur, :memory_tracker_recipient)
           EventsPublisher.set_tracked_fn(fn _ -> true end)
           EventsSubscriptionStore.set_enqueue_fn(nil)
-          Aiur.TestSupport.rm_workflow_root!(workflow_root, runner_tasks_before)
+          Aiur.TestCleanup.rm_rf!(workflow_root)
           Aiur.TestScopeGuard.restore(previous_test_scope_state)
 
           # Reload the store onto the restored baseline so the next test never
@@ -391,6 +392,7 @@ defmodule Aiur.TestSupport do
   defdelegate stop_default_http_server(), to: Aiur.TestSupport.Processes
   defdelegate safe_stop(server), to: Aiur.TestSupport.Processes
   defdelegate capture_runner_tasks(), to: Aiur.TestSupport.RunnerTasks, as: :capture
+  defdelegate stop_runner_tasks_started_since(before), to: Aiur.TestSupport.RunnerTasks, as: :stop_started_since
   defdelegate rm_workflow_root!(root, runner_tasks_before), to: Aiur.TestSupport.RunnerTasks, as: :stop_started_since_and_rm_rf!
   defdelegate start_owned_endpoint!(), to: Aiur.TestSupport.Processes
   defdelegate await_process_down(process, timeout \\ 2_000), to: Aiur.TestSupport.Processes
