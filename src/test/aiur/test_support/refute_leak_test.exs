@@ -13,16 +13,31 @@ defmodule Aiur.TestSupport.RefuteLeakTest do
 
   test "test tree rejects bare inspect refutes" do
     test_root = Path.expand("../..", __DIR__)
+    scratch_dir = Path.join(System.tmp_dir!(), "refute-leak-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(scratch_dir)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(scratch_dir) end)
+    scratch_path = Path.join(scratch_dir, "unsafe-pattern.exs")
+
+    unsafe_inspect =
+      ~r/(?:\brefute\s+inspect\s*\(|\bassert\s+[^\n]*\|>\s*inspect\s*\([^)]*\)\s*\|>\s*String\.contains\?\([^\n]*\)\s*==\s*false|\brefute\s+[^\n]*\|>\s*inspect\s*\([^)]*\)\s*\|>\s*String\.contains\?[^\n]*|\brefute\s+[^\n]*\|>\s*inspect\s*\([^)]*\)\s*=~[^\n]*|\b(?:assert|refute)\s+[^\n]*\|>\s*inspect\s*\(\s*limit\s*:\s*[^,)]*\)[^\n]*\|>\s*String\.contains\?)/
+
+    assert Regex.match?(unsafe_inspect, "refute view |> inspect() |> String.contains?(secret)")
+    assert Regex.match?(unsafe_inspect, "refute view |> inspect() =~ secret")
+    assert Regex.match?(unsafe_inspect, "refute view |> inspect(limit: :infinity) |> String.contains?(secret)")
+
+    File.write!(scratch_path, "refute view |> inspect() |> String.contains?(secret)")
+    assert Regex.match?(unsafe_inspect, File.read!(scratch_path))
 
     offenders =
       test_root
       |> Path.join("**/*.{ex,exs}")
       |> Path.wildcard()
+      |> Enum.reject(&(&1 == __ENV__.file))
       |> Enum.flat_map(fn path ->
         path
         |> File.read!()
         |> then(fn source ->
-          if Regex.match?(~r/\brefute\s+inspect\s*\(/, source), do: [path], else: []
+          if Regex.match?(unsafe_inspect, source), do: [path], else: []
         end)
       end)
 
