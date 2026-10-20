@@ -13,9 +13,9 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.MembershipLifecycle
   alias Aiur.Orchestrator.MergeAttribution
+  alias Aiur.Orchestrator.MergedTicketReconciler
   alias Aiur.Orchestrator.MergeStateWriter
   alias Aiur.Orchestrator.MergeTransition
-  alias Aiur.Orchestrator.MergedTicketReconciler
   alias Aiur.Orchestrator.OptimisticLedger
   alias Aiur.Orchestrator.PushRouting
   alias Aiur.Orchestrator.State

@@ -8,8 +8,8 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.Orchestrator.CommentWake.ReworkRetries
   alias Aiur.Orchestrator.CommentWake.ReworkTransition
-  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks

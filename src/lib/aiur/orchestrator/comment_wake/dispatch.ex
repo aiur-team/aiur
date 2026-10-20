@@ -7,8 +7,8 @@ defmodule Aiur.Orchestrator.CommentWake.Dispatch do
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWakeDecline
-  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.State
