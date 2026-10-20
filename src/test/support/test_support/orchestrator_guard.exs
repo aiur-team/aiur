@@ -22,6 +22,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
   # persistent_term, not GenServer state: after_suite callbacks run once formatters have stopped.
   @suite_leaks_key {__MODULE__, :suite_leaks}
+  @runtime_child_leaks_key {__MODULE__, :runtime_child_leaks}
   @instance_key_key {__MODULE__, :instance_key}
   @app_env_key {__MODULE__, :app_env}
   @last_finished_key {__MODULE__, :last_finished}
@@ -31,6 +32,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   def init(_opts) do
     Process.register(self(), __MODULE__)
     :persistent_term.put(@suite_leaks_key, [])
+    :persistent_term.put(@runtime_child_leaks_key, [])
     :persistent_term.put(@instance_key_key, System.get_env("AIUR_INSTANCE_KEY"))
     :persistent_term.put(@app_env_key, capture_app_env())
     :persistent_term.put(@last_finished_key, nil)
@@ -57,6 +59,24 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   def verify_suite! do
     if leak = leak(), do: record_leak(:persistent_term.get(@last_finished_key, nil), leak)
 
+    runtime_child_leaks = missing_runtime_children()
+
+    if runtime_child_leaks != [] do
+      last = :persistent_term.get(@last_finished_key, nil)
+      Enum.each(runtime_child_leaks, &record_runtime_child_leak(last, &1))
+    end
+
+    case suite_errors() do
+      [] -> :ok
+      errors -> raise Enum.join(errors, "\n")
+    end
+  end
+
+  defp suite_errors do
+    suite_state_errors() ++ suite_orchestrator_errors() ++ suite_runtime_child_errors()
+  end
+
+  defp suite_state_errors do
     expected_instance_key = :persistent_term.get(@instance_key_key, nil)
     actual_instance_key = System.get_env("AIUR_INSTANCE_KEY")
 
@@ -65,23 +85,25 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     store_leaks = decision_store_leaks()
     state_leaks = app_env_leaks ++ instance_key_leak ++ store_leaks
 
-    state_errors =
-      if state_leaks == [] do
-        []
-      else
-        last = :persistent_term.get(@last_finished_key, nil) || "unknown"
-        ["test suite found shared state changed after #{last} (upper bound only; plain-test culprit is unknown): #{Enum.join(state_leaks, "; ")}"]
-      end
+    if state_leaks == [] do
+      []
+    else
+      last = :persistent_term.get(@last_finished_key, nil) || "unknown"
+      ["test suite found shared state changed after #{last} (upper bound only; plain-test culprit is unknown): #{Enum.join(state_leaks, "; ")}"]
+    end
+  end
 
-    orchestrator_errors =
-      case :persistent_term.get(@suite_leaks_key, []) do
-        [] -> []
-        leaks -> ["plain ExUnit tests broke Aiur.Orchestrator: #{Enum.join(leaks, ", ")}"]
-      end
+  defp suite_orchestrator_errors do
+    case :persistent_term.get(@suite_leaks_key, []) do
+      [] -> []
+      leaks -> ["plain ExUnit tests broke Aiur.Orchestrator: #{Enum.join(leaks, ", ")}"]
+    end
+  end
 
-    case state_errors ++ orchestrator_errors do
-      [] -> :ok
-      errors -> raise Enum.join(errors, "\n")
+  defp suite_runtime_child_errors do
+    case :persistent_term.get(@runtime_child_leaks_key, []) do
+      [] -> []
+      leaks -> ["plain ExUnit tests left shared runtime children down: #{Enum.join(leaks, ", ")}"]
     end
   end
 
@@ -109,30 +131,60 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   def verify_shared_state_before_test!(context) do
     expected = :persistent_term.get(@app_env_key, capture_app_env())
     expected_instance_key = :persistent_term.get(@instance_key_key, System.get_env("AIUR_INSTANCE_KEY"))
-    app_env_leaks = app_env_leaks()
+    state_leaks = restore_test_scope_state(expected, expected_instance_key)
+    {runtime_child_leaks, prior_test} = record_missing_runtime_children()
+
+    if runtime_child_leaks == [] do
+      store_leaks = decision_store_leaks()
+      store_recovery = recover_decision_store(store_leaks)
+      report_before_test_leaks(context, prior_test, state_leaks, store_leaks, store_recovery)
+    else
+      report_before_test_leaks(context, prior_test, state_leaks, [], :ok)
+    end
+
+    :ok
+  end
+
+  defp restore_test_scope_state(expected, expected_instance_key) do
     actual_instance_key = System.get_env("AIUR_INSTANCE_KEY")
     instance_key_leaks = if actual_instance_key == expected_instance_key, do: [], else: ["AIUR_INSTANCE_KEY changed from #{inspect(expected_instance_key)} to #{inspect(actual_instance_key)}"]
-    leaks = app_env_leaks ++ instance_key_leaks
+    leaks = app_env_leaks() ++ instance_key_leaks
 
     if leaks != [] do
       Enum.each(@guarded_app_env_keys, fn key -> restore_app_env(key, Map.fetch!(expected, key)) end)
       restore_instance_key(expected_instance_key)
     end
 
-    store_leaks = decision_store_leaks()
-    store_recovery = recover_decision_store(store_leaks)
+    leaks
+  end
 
+  defp record_missing_runtime_children do
+    leaks = missing_runtime_children()
+    prior_test = if leaks == [], do: nil, else: last_finished()
+    Enum.each(leaks, &record_runtime_child_leak(prior_test, &1))
+    {leaks, prior_test}
+  end
+
+  defp report_before_test_leaks(context, prior_test, state_leaks, store_leaks, store_recovery) do
     recovery_errors = recovery_errors(store_recovery)
 
-    if leaks != [] or store_leaks != [] or recovery_errors != [] do
-      last = last_finished() || "unknown"
-      details = Enum.join(leaks ++ store_leaks ++ recovery_errors, "; ")
+    if state_leaks != [] or store_leaks != [] or recovery_errors != [] do
+      last = prior_test || last_finished() || "unknown"
+      details = Enum.join(state_leaks ++ store_leaks ++ recovery_errors, "; ")
       recovery_status = if recovery_errors == [], do: "restored shared state", else: "failed to restore shared state"
+
       raise "#{test_name(context)} started after last finished test #{last} (upper bound; plain-test culprit unknown); #{recovery_status}: #{details}"
     end
-
-    :ok
   end
+
+  defp missing_runtime_children do
+    []
+    |> maybe_missing(Process.whereis(Aiur.Supervisor), "Aiur.Supervisor")
+    |> maybe_missing(Process.whereis(Aiur.PubSub), "Aiur.PubSub")
+  end
+
+  defp maybe_missing(missing, nil, child), do: ["#{child} unregistered" | missing]
+  defp maybe_missing(missing, _pid, _child), do: missing
 
   @doc "Restores a missing or stood-in orchestrator before a test and reports the test that ran before it."
   @spec ensure_running(map()) :: :ok | :error
@@ -162,8 +214,10 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     # A call on the supervisor processes any child exit already in its mailbox.
     RuntimeChildren.supervisor_accepting_calls?(Process.whereis(Aiur.Supervisor), 1_000)
 
+    pubsub_leak = is_nil(Process.whereis(Aiur.PubSub))
     orchestrator_leak = leak()
     orchestrator_restore = if orchestrator_leak, do: restore(orchestrator_leak)
+    pubsub_errors = restore_and_report_pubsub(pubsub_leak, context)
     shared_leaks = verify_shared_state_restored!(context)
     store_leaks = decision_store_leaks()
     store_recovery = recover_decision_store(store_leaks)
@@ -186,11 +240,18 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
           "#{test_name(context)} left shared test state changed (#{if(recovery_errors == [], do: "restored", else: "restore failed")}): #{Enum.join(shared_leaks ++ store_leaks ++ recovery_errors, "; ")}"
         ]
 
-    errors = orchestrator_errors ++ shared_state_errors
+    errors = orchestrator_errors ++ pubsub_errors ++ shared_state_errors
 
     if errors != [], do: raise(Enum.join(errors, "\n"))
 
     :ok
+  end
+
+  defp restore_and_report_pubsub(false, _context), do: []
+
+  defp restore_and_report_pubsub(true, context) do
+    restore = RuntimeChildren.ensure_pubsub_running()
+    ["#{test_name(context)} left Aiur.PubSub unregistered (restore: #{inspect(restore)}). Restore it in on_exit with Aiur.TestSupport.ensure_pubsub_running/0."]
   end
 
   defp capture_app_env do
@@ -292,6 +353,9 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
   defp record_leak(name, leak),
     do: :persistent_term.put(@suite_leaks_key, :persistent_term.get(@suite_leaks_key, []) ++ ["#{name || "unknown"} (#{leak})"])
+
+  defp record_runtime_child_leak(name, leak),
+    do: :persistent_term.put(@runtime_child_leaks_key, :persistent_term.get(@runtime_child_leaks_key, []) ++ ["#{name || "unknown"} (#{leak})"])
 
   defp last_finished do
     GenServer.call(__MODULE__, :last_finished, 1_000)

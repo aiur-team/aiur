@@ -21,6 +21,8 @@ for var <- contaminating_env_vars do
   System.delete_env(var)
 end
 
+run_orchestrator_guard_probes = System.get_env("AIUR_RUN_ORCHESTRATOR_GUARD_PROBES") == "1"
+
 # Dashboard routes fail closed when credentials are absent. Keep the broad
 # integration-test fixture authenticated by default; tests that exercise the
 # missing-configuration path delete these variables explicitly.
@@ -82,7 +84,8 @@ ExUnit.start(
       else: [ExUnit.CLIFormatter]
     ),
   exclude:
-    [:external, :perf_regression, :quarantine, :orchestrator_guard_probe] ++
+    [:external, :perf_regression, :quarantine] ++
+      if(run_orchestrator_guard_probes, do: [], else: [:orchestrator_guard_probe]) ++
       real_proc_exclude ++
       manual_sandbox_reset_exclude ++ quarantine_filters
 )
@@ -127,6 +130,7 @@ Code.require_file("support/test_support/runner_tasks.exs", __DIR__)
 ExUnit.configure(formatters: ExUnit.configuration()[:formatters] ++ [Aiur.TestSupport.OrchestratorGuard])
 ExUnit.after_suite(fn _result -> Aiur.TestSupport.RunnerTasks.verify_suite!() end)
 ExUnit.after_suite(fn _result -> Aiur.TestSupport.OrchestratorGuard.verify_suite!() end)
+
 Code.require_file("support/test_support/endpoint_stubs.exs", __DIR__)
 Code.require_file("support/test_support/processes.exs", __DIR__)
 Code.require_file("support/test_support/workflow_files.exs", __DIR__)
