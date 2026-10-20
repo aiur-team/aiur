@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
   test "creates a labeled identity issue and emits the same evidence durably" do
     parent = self()
     journal = temp_path("flake-create")
-    failure = %{module: "ExampleTest", name: "sometimes fails", job: "test", excerpt: "assertion failed at test/example_test.exs:12"}
+    failure = %{module: "ExampleTest", name: "sometimes fails", job: "test", excerpt: "assertion failed at test/example_test.exs:12", cascade_modules: ["OtherTest"]}
     run = %{"id" => 804}
 
     request = fn
@@ -44,6 +44,7 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
     assert body["body"] =~ "Run ID: 804"
     assert body["body"] =~ "Job: test"
     assert body["body"] =~ "Failing test: ExampleTest :: sometimes fails"
+    assert body["body"] =~ "Likely cascade modules (not quarantined): OtherTest"
     assert body["body"] =~ "Error excerpt: assertion failed"
     assert body["body"] =~ "PRs that passed this test in another merge group containing the PR: #17, #24"
 

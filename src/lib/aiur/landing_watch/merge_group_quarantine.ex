@@ -101,13 +101,41 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
          {:ok, jobs} <- Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2).(run["id"], opts),
          {:ok, found} <- QuarantineAnnotations.from_jobs(jobs, opts),
          :ok <- record_guards(found.guards, run, opts) do
-      found.tests
-      |> Enum.filter(&is_binary(&1.path))
-      |> first_error(&record_observations(&1, run, prs, at_ms, opts))
+      tests = Enum.filter(found.tests, &is_binary(&1.path))
+
+      case Enum.uniq_by(tests, & &1.module) do
+        [_] -> first_error(tests, &record_observations(&1, run, prs, at_ms, opts))
+        [] -> :ok
+        _modules -> record_cascade(tests, run, opts)
+      end
     else
       [] -> :ok
       {:error, _} = error -> error
     end
+  end
+
+  # A shard attempt with failures in multiple modules can contain setup/leaked-state
+  # cascades. File one diagnostic ticket for the module with the most failures (ties
+  # keep log/annotation order), and do not turn any of that attempt into quarantine evidence.
+  defp record_cascade(tests, run, opts) do
+    {primary, cascades} = primary_module(tests)
+    failure = Map.put(primary, :cascade_modules, cascades)
+    recorder = Keyword.get(opts, :flake_recorder, &FlakeRecorder.record/4)
+    recorder.(failure, run, [], Keyword.delete(opts, :issue_recorded_fun))
+  end
+
+  defp primary_module(tests) do
+    grouped = Enum.group_by(tests, & &1.module)
+
+    primary_module =
+      tests
+      |> Enum.map(& &1.module)
+      |> Enum.uniq()
+      |> Enum.max_by(&length(Map.fetch!(grouped, &1)))
+
+    primary = grouped |> Map.fetch!(primary_module) |> List.first()
+    cascades = grouped |> Map.keys() |> Enum.reject(&(&1 == primary_module)) |> Enum.sort()
+    {primary, cascades}
   end
 
   # The guard names the last test to finish, not the cause, so it files evidence on one ticket only.
