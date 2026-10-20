@@ -14,31 +14,9 @@ defmodule Aiur.TestSupport.RuntimeChildren do
          :ok <- ensure_subscription_store_supervisor_running(),
          :ok <- ensure_branch_ref_store_running(),
          :ok <- ensure_workflow_store_running(),
-         :ok <- ensure_read_cache_running(),
-         :ok <- ensure_active_turns_running() do
+         :ok <- ensure_read_cache_running() do
       ensure_resource_store_running()
     end
-  end
-
-  @doc "Ensures the shared ActiveTurns table owner is running after a sibling stops it."
-  @spec ensure_active_turns_running() :: :ok | :error
-  def ensure_active_turns_running do
-    ensure_aiur_supervisor_running()
-
-    case Process.whereis(Aiur.Opencode.ActiveTurns) do
-      pid when is_pid(pid) -> :ok
-      nil -> restart_active_turns()
-    end
-  end
-
-  defp restart_active_turns do
-    case Supervisor.restart_child(Aiur.Supervisor, Aiur.Opencode.ActiveTurns) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-      _ -> if(Process.whereis(Aiur.Opencode.ActiveTurns), do: :ok, else: :error)
-    end
-  catch
-    :exit, _reason -> :error
   end
 
   @doc """

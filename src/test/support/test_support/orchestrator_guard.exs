@@ -187,8 +187,18 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   end
 
   defp restore_missing_runtime_children do
-    if is_nil(Process.whereis(Aiur.Opencode.ActiveTurns)), do: RuntimeChildren.ensure_active_turns_running()
+    if is_nil(Process.whereis(Aiur.Opencode.ActiveTurns)), do: restart_active_turns()
     :ok
+  end
+
+  defp restart_active_turns do
+    case Supervisor.restart_child(Aiur.Supervisor, Aiur.Opencode.ActiveTurns) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      _ -> if(Process.whereis(Aiur.Opencode.ActiveTurns), do: :ok, else: :error)
+    end
+  catch
+    :exit, _reason -> :error
   end
 
   defp maybe_missing(missing, nil, child), do: ["#{child} unregistered" | missing]
@@ -267,7 +277,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   defp restore_and_report_active_turns(false, _context), do: []
 
   defp restore_and_report_active_turns(true, context) do
-    restore = RuntimeChildren.ensure_active_turns_running()
+    restore = restart_active_turns()
     ["#{test_name(context)} left Aiur.Opencode.ActiveTurns down (restore: #{inspect(restore)})."]
   end
 
