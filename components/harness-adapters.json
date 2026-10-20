@@ -24,9 +24,25 @@
     "src/priv/claude_hook_spool.py"
   ],
   "facades": [
-    "*"
+    "Aiur.AgentTools.Catalog",
+    "Aiur.AgentTools.Dispatch",
+    "Aiur.AgentTools.EmitEvent",
+    "Aiur.AppServer.ProviderTurnLedger",
+    "Aiur.AppServer.RelayPort",
+    "Aiur.AppServer.ToolCallLedger",
+    "Aiur.AppServer.TurnLoop",
+    "Aiur.CodexProber",
+    "Aiur.CodingAgent",
+    "Aiur.CodingAgent.Backend",
+    "Aiur.CodingAgent.HeadroomDispatch",
+    "Aiur.CodingAgent.Models",
+    "Aiur.CodingAgent.RouteFailure",
+    "Aiur.ModelAvailability",
+    "Aiur.ModelCatalog",
+    "Aiur.ModelDiscovery",
+    "Aiur.Rtk"
   ],
-  "facade_pending": "MP-R1-C1-T02",
+  "facade_pending": null,
   "requires": [
     "agent-sandbox",
     "config",
@@ -71,5 +87,11 @@
   "env": [],
   "capabilities": [
     "remote_control"
+  ],
+  "private_namespaces": [
+    "Aiur.Claude.",
+    "Aiur.Codex.",
+    "Aiur.Muse.",
+    "Aiur.OpenAICompat."
   ]
 }
