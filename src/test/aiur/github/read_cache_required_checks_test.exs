@@ -13,8 +13,10 @@ defmodule Aiur.GitHub.ReadCacheRequiredChecksTest do
     :ok
   end
 
-  test "required-check configuration is a repository-config read" do
-    request = rest("https://api.github.com/repos/aiur-team/required-check-policy-test/branches/main/protection")
+  test "required-check config stays on the short TTL without config event coverage" do
+    request =
+      rest("https://api.github.com/repos/aiur-team/required-check-policy-test/branches/main/protection")
+
     prior_mode = ModeTable.mode(@policy_repo)
     on_exit(fn -> restore_mode(prior_mode) end)
 
@@ -26,7 +28,7 @@ defmodule Aiur.GitHub.ReadCacheRequiredChecksTest do
       |> DeliveryMode.record_delivery(DateTime.utc_now())
 
     ModeTable.put(@policy_repo, webhook_mode)
-    assert {:cache, :repo_config, 3_600_000} = Policy.classify(request)
+    assert {:cache, :repo_config, 300_000} = Policy.classify(request)
   end
 
   defp restore_mode(nil), do: ModeTable.delete(@policy_repo)
@@ -42,7 +44,12 @@ defmodule Aiur.GitHub.ReadCacheRequiredChecksTest do
   end
 
   test "404 responses for non-configuration classes are not cached" do
-    request = %{method: :get, url: "https://api.github.com/repos/aiur-team/aiur/issues/2073", caller: "issue_reader"}
+    request = %{
+      method: :get,
+      url: "https://api.github.com/repos/aiur-team/aiur/issues/2073",
+      caller: "issue_reader"
+    }
+
     response = {:ok, %{status: 404, body: %{"message" => "Not Found"}}}
     assert ^response = ReadCache.through(request, fn -> response end)
 
@@ -56,7 +63,11 @@ defmodule Aiur.GitHub.ReadCacheRequiredChecksTest do
     assert ^response = ReadCache.through(request, fn -> response end)
 
     :ok = ReadCache.invalidate_number("aiur-team/aiur", 2073)
-    assert ^response = ReadCache.through(request, fn -> flunk("numbered invalidation must preserve config") end)
+
+    assert ^response =
+             ReadCache.through(request, fn ->
+               flunk("numbered invalidation must preserve config")
+             end)
   end
 
   test "failed required-check responses are not cached and the next read retries" do
@@ -66,7 +77,9 @@ defmodule Aiur.GitHub.ReadCacheRequiredChecksTest do
 
     assert ^failure = ReadCache.through(request, fn -> failure end)
     assert ^success = ReadCache.through(request, fn -> success end)
-    assert %{miss: 2, deposit: 1, not_deposited: 1} = Metrics.snapshot().callers["ci_required_checks"]
+
+    assert %{miss: 2, deposit: 1, not_deposited: 1} =
+             Metrics.snapshot().callers["ci_required_checks"]
   end
 
   defp rest(url), do: %{method: :get, url: url, caller: "ci_required_checks"}

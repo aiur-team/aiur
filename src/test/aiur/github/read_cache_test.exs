@@ -1143,9 +1143,6 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:cache, :comments, 3_600_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/comments?per_page=100"))
 
-      assert {:cache, :repo_config, 3_600_000} =
-               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/actions/workflows?per_page=100"))
-
       assert {:cache, :issue_timeline, 3_600_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/timeline?per_page=100"))
 

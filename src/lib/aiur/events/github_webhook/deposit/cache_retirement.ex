@@ -60,7 +60,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
   end
 
   defp base_branch_push?(%{"ref" => ref} = payload) when is_binary(ref) do
-    ref == "refs/heads/" <> TrackerSettings.base_branch() or ref == default_branch_ref(payload)
+    ref == "refs/heads/" <> TrackerSettings.base_branch() or
+      is_nil(default_branch_ref(payload)) or ref == default_branch_ref(payload)
   end
 
   defp base_branch_push?(_payload), do: true
@@ -128,7 +129,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
         "issue_comment" ->
           [get_in(payload, ["issue", "number"])]
 
-        event when event in ["pull_request_review_comment", "pull_request_review", "pull_request"] ->
+        event
+        when event in ["pull_request_review_comment", "pull_request_review", "pull_request"] ->
           [get_in(payload, ["pull_request", "number"])]
 
         "issues" ->
