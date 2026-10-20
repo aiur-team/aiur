@@ -12,10 +12,10 @@ defmodule Aiur.Orchestrator.NonClosingMergeRestartTest do
     merge = stored_merge("Refs #1570")
     dir = Aiur.TestSupport.tmp_root!("aiur-reference-triage")
     store_name = String.to_atom("reference_triage_store_#{System.unique_integer([:positive])}")
-    {:ok, store} = RecentMergeStore.start_link(name: store_name, state_dir: dir)
+    {:ok, store} = GenServer.start(RecentMergeStore, [name: store_name, state_dir: dir], name: store_name)
 
     on_exit(fn ->
-      if pid = Process.whereis(store_name), do: GenServer.stop(pid)
+      if pid = Process.whereis(store_name), do: GenServer.stop(pid, :normal, :infinity)
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
