@@ -3,7 +3,7 @@ defmodule Aiur.Events.GithubWebhook.CacheRetirementTest do
 
   alias Aiur.Config.TrackerSettings
   alias Aiur.Events.GithubWebhook.Deposit.CacheRetirement
-  alias Aiur.GitHub.ReadCache
+  alias Aiur.GitHub.{ReadCache, ResourceStore}
 
   setup do
     await_read_cache()
@@ -29,6 +29,20 @@ defmodule Aiur.Events.GithubWebhook.CacheRetirementTest do
 
     assert :ok = CacheRetirement.invalidate_read_cache("branch_protection_rule", %{}, "aiur-team/aiur")
     assert ^second = ReadCache.through(request, fn -> second end)
+  end
+
+  test "pull-request webhook retires the shared open-pull-request listing" do
+    key = ResourceStore.key_for_repo(:branch_pull_request_listing_all, "aiur-team/aiur", "open")
+    assert :ok = ResourceStore.put_resource(key, [%{"number" => 2073}], etag: ~s("open-v1"))
+
+    assert :ok =
+             CacheRetirement.invalidate_read_cache(
+               "pull_request",
+               %{"pull_request" => %{"number" => 2073}},
+               "aiur-team/aiur"
+             )
+
+    assert :miss = ResourceStore.fetch(key)
   end
 
   test "push to repository default branch retires config when it differs from tracker base" do

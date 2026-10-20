@@ -3,10 +3,17 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
 
   import Aiur.GitHub.ClientTestSupport
 
-  alias Aiur.GitHub.{Client, ResourceStore}
+  alias Aiur.GitHub.{Client, CycleFetchCache, ResourceStore}
 
   setup do
     setup_client()
+    key = ResourceStore.key_for_repo(:branch_pull_request_listing_all, "owner/repo", "open")
+    ResourceStore.drop_data(key)
+
+    on_exit(fn ->
+      CycleFetchCache.end_cycle()
+      ResourceStore.drop_data(key)
+    end)
   end
 
   describe "fetch_pull_request_head_ref/2" do
@@ -58,7 +65,8 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
 
     test "returns nil for a closed/merged PR (routes to the legacy path)" do
       request_fun = fn _ ->
-        {:ok, %{status: 200, body: %{"number" => 9, "state" => "closed", "head" => %{"ref" => "x"}}}}
+        {:ok,
+         %{status: 200, body: %{"number" => 9, "state" => "closed", "head" => %{"ref" => "x"}}}}
       end
 
       assert {:ok, nil} = Client.fetch_open_pull_request(9, request_fun: request_fun)
@@ -87,7 +95,12 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
         {:ok,
          %{
            status: 200,
-           body: %{"number" => 4242, "state" => "open", "head" => %{"ref" => "x"}, "updated_at" => "2026-01-01T00:00:00Z"},
+           body: %{
+             "number" => 4242,
+             "state" => "open",
+             "head" => %{"ref" => "x"},
+             "updated_at" => "2026-01-01T00:00:00Z"
+           },
            headers: [{"etag", ~s("v1")}]
          }}
       end
@@ -98,7 +111,9 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
       end
 
       assert {:ok, %{"number" => 4242}} = Client.fetch_open_pull_request(4242, request_fun: first)
-      assert {:ok, %{"number" => 4242}} = Client.fetch_open_pull_request(4242, request_fun: second)
+
+      assert {:ok, %{"number" => 4242}} =
+               Client.fetch_open_pull_request(4242, request_fun: second)
 
       assert_receive {:requested, request}, 1000
       assert request.etag == ~s("v1")
@@ -186,6 +201,55 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
       assert Agent.get(counter, & &1) == 1
     end
 
+    test "different ticket lookups share one repo listing validator and held result" do
+      {:ok, counts} = Agent.start_link(fn -> %{full: 0, conditional: 0} end)
+      parent = self()
+      etag = ~s("repo-open-pulls-v1")
+
+      request_fun = fn %{method: :get, url: url} = request ->
+        assert url =~ "/repos/owner/repo/pulls?"
+
+        case Map.get(request, :etag) do
+          nil ->
+            Agent.update(counts, &Map.update!(&1, :full, fn count -> count + 1 end))
+            send(parent, :full_listing)
+
+            {:ok,
+             %{
+               status: 200,
+               headers: [{"etag", etag}],
+               body: [
+                 %{"number" => 49, "head" => %{"ref" => "aiur/35"}},
+                 %{"number" => 50, "head" => %{"ref" => "aiur/36-readable-slug"}},
+                 %{"number" => 51, "head" => %{"ref" => "aiur/37"}}
+               ]
+             }}
+
+          ^etag ->
+            Agent.update(counts, &Map.update!(&1, :conditional, fn count -> count + 1 end))
+            send(parent, {:conditional, request.etag})
+            {:ok, %{status: 304, headers: [{"etag", etag}]}}
+
+          other ->
+            flunk("unexpected listing validator #{inspect(other)}")
+        end
+      end
+
+      assert {:ok, %{"number" => 49}} =
+               Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
+
+      assert {:ok, %{"number" => 50}} =
+               Client.fetch_open_pull_request_for_branch(36, request_fun: request_fun)
+
+      assert {:ok, %{"number" => 51}} =
+               Client.fetch_open_pull_request_for_branch(37, request_fun: request_fun)
+
+      assert_receive :full_listing, 1000
+      assert_receive {:conditional, ^etag}, 1000
+      assert_receive {:conditional, ^etag}, 1000
+      assert Agent.get(counts, & &1) == %{full: 1, conditional: 2}
+    end
+
     test "returns nil when the branch has no open PR" do
       request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: []}} end
 
@@ -193,13 +257,9 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
                Client.fetch_open_pull_request_for_branch("35", request_fun: request_fun)
     end
 
-    # #2298 item 1: the busiest REST call site routes through `ResourceStore`
-    # under the `:branch_pull_request` key, so a second cycle on an unchanged
-    # branch revalidates with `If-None-Match` instead of paying full price for
-    # the open-pull-request listing again. Asserted on the request map itself
-    # (the validator is what the transport turns into the header), then on the
-    # `304` being served back as the held pull request.
-    test "a second cycle on an unchanged branch issues a conditional request" do
+    # The repo-scoped listing validator is re-used on the next strict lookup.
+    # Assert the request carries it and the held list answers the 304.
+    test "a second lookup on an unchanged listing issues a conditional request" do
       parent = self()
       etag = ~s("open-pulls-v1")
 
@@ -207,7 +267,13 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
         case Map.get(request, :etag) do
           nil ->
             send(parent, :unconditional)
-            {:ok, %{status: 200, headers: [{"etag", etag}], body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
+
+            {:ok,
+             %{
+               status: 200,
+               headers: [{"etag", etag}],
+               body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]
+             }}
 
           ^etag ->
             send(parent, :conditional)
@@ -239,7 +305,9 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
 
       request_fun = fn request ->
         send(parent, {:request, request})
-        {:ok, %{status: 200, headers: [], body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
+
+        {:ok,
+         %{status: 200, headers: [], body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
       end
 
       assert {:ok, %{"number" => 49}} =
@@ -307,10 +375,24 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
       first = fn %{url: url} ->
         cond do
           String.ends_with?(url, "/check-runs?filter=latest&per_page=100") ->
-            {:ok, %{status: 200, body: %{"check_runs" => [%{"name" => "lint", "status" => "completed", "conclusion" => "success"}]}, headers: [{"etag", ~s("runs-v1")}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "check_runs" => [
+                   %{"name" => "lint", "status" => "completed", "conclusion" => "success"}
+                 ]
+               },
+               headers: [{"etag", ~s("runs-v1")}]
+             }}
 
           String.ends_with?(url, "/status") ->
-            {:ok, %{status: 200, body: %{"state" => "success", "statuses" => []}, headers: [{"etag", ~s("status-v1")}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "success", "statuses" => []},
+               headers: [{"etag", ~s("status-v1")}]
+             }}
         end
       end
 
@@ -334,19 +416,36 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
       keys = [first_page_key, second_page_key, status_key]
       on_exit(fn -> Enum.each(keys, &ResourceStore.drop_data/1) end)
 
-      page_two = "https://api.github.com/repos/owner/repo/commits/paged-sha/check-runs?filter=latest&per_page=100&page=2"
+      page_two =
+        "https://api.github.com/repos/owner/repo/commits/paged-sha/check-runs?filter=latest&per_page=100&page=2"
+
       parent = self()
 
       first = fn %{url: url} ->
         cond do
           url =~ "page=2" ->
-            {:ok, %{status: 200, body: %{"check_runs" => [%{"name" => "second", "status" => "completed"}]}, headers: [{"etag", ~s("runs-p2")}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: %{"check_runs" => [%{"name" => "second", "status" => "completed"}]},
+               headers: [{"etag", ~s("runs-p2")}]
+             }}
 
           url =~ "/check-runs?" ->
-            {:ok, %{status: 200, body: %{"check_runs" => [%{"name" => "first", "status" => "completed"}]}, headers: [{"etag", ~s("runs-p1")}, {"link", "<#{page_two}>; rel=\"next\""}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: %{"check_runs" => [%{"name" => "first", "status" => "completed"}]},
+               headers: [{"etag", ~s("runs-p1")}, {"link", "<#{page_two}>; rel=\"next\""}]
+             }}
 
           true ->
-            {:ok, %{status: 200, body: %{"state" => "success", "statuses" => []}, headers: [{"etag", ~s("status-v1")}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "success", "statuses" => []},
+               headers: [{"etag", ~s("status-v1")}]
+             }}
         end
       end
 
@@ -440,7 +539,8 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
             {:ok, %{status: 429, body: %{}}}
 
           url =~ "/repos/owner/repo/issues/43/comments" ->
-            {:ok, %{status: 200, body: [%{"user" => %{"login" => "owner"}, "body" => "Directive"}]}}
+            {:ok,
+             %{status: 200, body: [%{"user" => %{"login" => "owner"}, "body" => "Directive"}]}}
         end
       end
 

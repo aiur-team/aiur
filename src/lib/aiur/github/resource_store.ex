@@ -360,7 +360,9 @@ defmodule Aiur.GitHub.ResourceStore do
     # and the per-cycle Client lookup — each write a different kind of validator,
     # so sharing one key would clobber the listing's page-1 ETag with a
     # PR-body-derived hash it can never match (#2126, #2298).
-    :branch_pull_request_listing
+    :branch_pull_request_listing,
+    # Shared conditional response for every ticket branch lookup in the repo.
+    :branch_pull_request_listing_all
   ]
 
   # The identities where a body's *order* decides correctness: a whole mutable

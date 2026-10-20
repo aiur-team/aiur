@@ -145,6 +145,10 @@ defmodule Aiur.GitHub.PullRequests do
           {:ok, map() | nil, String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   defdelegate fetch_open_pull_request_for_branch_conditional(issue_number, opts \\ []), to: OpenPullRequests
 
+  @spec fetch_open_pull_requests_conditional(keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  defdelegate fetch_open_pull_requests_conditional(opts \\ []), to: OpenPullRequests
+
   @doc """
   Fetches the GitHub check runs and legacy combined commit status for `sha`.
 

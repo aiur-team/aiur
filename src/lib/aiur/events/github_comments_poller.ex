@@ -43,6 +43,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   defp do_poll(targets, since_by_target, etags_by_target, opts) do
     repo = Keyword.get(opts, :repo) || Aiur.Tracker.project_identity()
+    opts = prefetch_open_pull_requests(targets, opts)
 
     results =
       targets
@@ -107,6 +108,24 @@ defmodule Aiur.Events.GithubCommentsPoller do
        pr_review_seen_at: pr_review_seen_at,
        pr_draft_observations: pr_draft_observations
      }}
+  end
+
+  defp prefetch_open_pull_requests(targets, opts) do
+    existing = Keyword.get(opts, :open_pull_requests_by_target, %{})
+
+    missing =
+      Enum.reject(targets, fn target ->
+        Map.has_key?(existing, target) or match?({:ok, _pr}, batch_value(opts, target, :open_pull_request))
+      end)
+
+    if missing == [] do
+      opts
+    else
+      case Client.fetch_open_pull_requests_for_branches(missing, opts) do
+        {:ok, fetched} -> Keyword.put(opts, :open_pull_requests_by_target, Map.merge(existing, fetched))
+        {:error, _reason} -> opts
+      end
+    end
   end
 
   defp target_task_results(targets, since_by_target, etags_by_target, repo, opts) do

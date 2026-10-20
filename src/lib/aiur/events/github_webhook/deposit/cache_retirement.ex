@@ -4,7 +4,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
   """
 
   alias Aiur.Config.TrackerSettings
-  alias Aiur.GitHub.{PollSnapshots, ReadCache}
+  alias Aiur.GitHub.{PollSnapshots, ReadCache, ResourceStore}
 
   # A delivery is a fact about GitHub state that arrived for free, and the
   # `ReadCache` entries about the resources it touches are stale from that
@@ -27,6 +27,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
   @spec invalidate_read_cache(String.t(), map(), String.t()) :: :ok
   def invalidate_read_cache("pull_request", payload, repo) do
     invalidate_ci_snapshot(payload, repo)
+    clear_open_pull_request_listing(repo)
 
     case delivery_numbers("pull_request", payload) do
       [number | _] -> ReadCache.invalidate_number(repo, number)
@@ -80,6 +81,16 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
         end
 
       _other ->
+        :ok
+    end
+  end
+
+  defp clear_open_pull_request_listing(repo) do
+    case String.split(repo, "/") do
+      [owner, name] when owner != "" and name != "" ->
+        ResourceStore.clear(:branch_pull_request_listing_all, owner, name)
+
+      _invalid_repo ->
         :ok
     end
   end

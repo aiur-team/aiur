@@ -38,8 +38,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                request_fun: request_fun
              )
 
-    assert_receive {:requested, issue_comments_url}, 1000
     assert_receive {:requested, pulls_url}, 1000
+    assert_receive {:requested, issue_comments_url}, 1000
     refute_receive {:requested, _url}, 100
 
     assert String.contains?(issue_comments_url, fixture_value0)
@@ -49,6 +49,39 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     # answered nothing new.
     assert String.contains?(pulls_url, "/pulls?")
     refute String.contains?(pulls_url, "head=")
+  end
+
+  test "shares one branch listing across all REST-fallback targets in a poll" do
+    parent = self()
+    targets = ["42", "43", "44"]
+
+    request_fun = fn %{url: url} ->
+      if String.contains?(url, "/pulls?") do
+        send(parent, :open_pull_request_listing)
+        {:ok, %{status: 200, headers: [{"etag", ~s("open-prs")}], body: []}}
+      else
+        send(parent, {:issue_comments, url})
+        {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok, %{count: 0, errors: []}} =
+             GithubCommentsPoller.poll(targets,
+               since: "2026-06-24T11:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert_receive :open_pull_request_listing, 1000
+
+    requested =
+      for _target <- targets do
+        assert_receive {:issue_comments, url}, 1000
+        url
+      end
+
+    assert Enum.all?(targets, fn target -> Enum.any?(requested, &String.contains?(&1, "/issues/#{target}/comments?")) end)
+    refute_receive :open_pull_request_listing, 100
   end
 
   test "keeps a per-target issue ETag when comments are unchanged" do
@@ -82,6 +115,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                request_fun: request_fun
              )
 
+    assert_receive {:requested, %{url: pulls_url}}, 1000
+    assert String.contains?(pulls_url, "/pulls?")
     assert_receive {:requested, %{url: issue_comments_url}}, 1000
     assert String.contains?(issue_comments_url, fixture_value0)
   end
