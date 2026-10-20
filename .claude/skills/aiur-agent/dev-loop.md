@@ -159,6 +159,8 @@ It never pushes and refuses a dirty checkout. Once a PR exists it rewrites the
 body's `Tested head:` and `Base:` lines; with no PR yet it skips that. So the
 order is: push, `gh pr create`, `aiur pre-pr` again, then hand off;
 `aiur_set_ticket_state` refuses `ci-wait`/`human-review` while the body fails `mix pr_body.check` at the PR head.
+If `Tested head` is stale, the refusal names both the body SHA and live PR head;
+rerun the touched tests at the pushed head and update the evidence before handback.
 
 **Resolve validation from the target repository first.** Read [`validation.md`](validation.md).
 The Elixir examples below apply only to Aiur's Elixir core.
