@@ -69,7 +69,10 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
       Enum.each(runtime_child_leaks, &record_runtime_child_leak(last, &1))
     end
 
-    case suite_errors() do
+    errors = suite_errors()
+    restore_missing_runtime_children()
+
+    case errors do
       [] -> :ok
       errors -> raise Enum.join(errors, "\n")
     end
@@ -142,12 +145,16 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     state_leaks = restore_test_scope_state(expected, expected_instance_key)
     {runtime_child_leaks, prior_test} = record_missing_runtime_children()
 
-    if runtime_child_leaks == [] do
-      store_leaks = decision_store_leaks()
-      store_recovery = recover_decision_store(store_leaks)
-      report_before_test_leaks(context, prior_test, state_leaks, store_leaks, store_recovery)
-    else
-      report_before_test_leaks(context, prior_test, state_leaks, [], :ok)
+    try do
+      if runtime_child_leaks == [] do
+        store_leaks = decision_store_leaks()
+        store_recovery = recover_decision_store(store_leaks)
+        report_before_test_leaks(context, prior_test, state_leaks, store_leaks, store_recovery)
+      else
+        report_before_test_leaks(context, prior_test, state_leaks, [], :ok)
+      end
+    after
+      restore_missing_runtime_children()
     end
 
     :ok
@@ -191,6 +198,27 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     []
     |> maybe_missing(Process.whereis(Aiur.Supervisor), "Aiur.Supervisor")
     |> maybe_missing(Process.whereis(Aiur.PubSub), "Aiur.PubSub")
+    |> maybe_missing(if(active_turns_owner_missing?(), do: nil, else: :running), "Aiur.Opencode.ActiveTurns")
+  end
+
+  defp restore_missing_runtime_children do
+    if active_turns_owner_missing?(), do: restart_active_turns()
+    :ok
+  end
+
+  defp active_turns_owner_missing? do
+    is_nil(Process.whereis(Aiur.Opencode.ActiveTurns)) and is_pid(Process.whereis(Aiur.Supervisor)) and
+      is_pid(Process.whereis(Aiur.PubSub))
+  end
+
+  defp restart_active_turns do
+    case Supervisor.restart_child(Aiur.Supervisor, Aiur.Opencode.ActiveTurns) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      _ -> if(Process.whereis(Aiur.Opencode.ActiveTurns), do: :ok, else: :error)
+    end
+  catch
+    :exit, _reason -> :error
   end
 
   defp maybe_missing(missing, nil, child), do: ["#{child} unregistered" | missing]
@@ -225,9 +253,11 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     RuntimeChildren.supervisor_accepting_calls?(Process.whereis(Aiur.Supervisor), 1_000)
 
     pubsub_leak = is_nil(Process.whereis(Aiur.PubSub))
+    active_turns_leak = active_turns_owner_missing?()
     orchestrator_leak = leak()
     orchestrator_restore = if orchestrator_leak, do: restore(orchestrator_leak)
     pubsub_errors = restore_and_report_pubsub(pubsub_leak, context)
+    active_turns_errors = restore_and_report_active_turns(active_turns_leak, context)
     shared_leaks = verify_shared_state_restored!(context)
     store_leaks = decision_store_leaks()
     store_recovery = recover_decision_store(store_leaks)
@@ -250,7 +280,8 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
           "#{test_name(context)} left shared test state changed (#{if(recovery_errors == [], do: "restored", else: "restore failed")}): #{Enum.join(shared_leaks ++ store_leaks ++ recovery_errors, "; ")}"
         ]
 
-    errors = orchestrator_errors ++ pubsub_errors ++ shared_state_errors
+    errors = orchestrator_errors ++ pubsub_errors ++ active_turns_errors ++ shared_state_errors
+    if active_turns_leak, do: restart_active_turns()
 
     if errors != [], do: raise(Enum.join(errors, "\n"))
 
@@ -262,6 +293,12 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   defp restore_and_report_pubsub(true, context) do
     restore = RuntimeChildren.ensure_pubsub_running()
     ["#{test_name(context)} left Aiur.PubSub unregistered (restore: #{inspect(restore)}). Restore it in on_exit with Aiur.TestSupport.ensure_pubsub_running/0."]
+  end
+
+  defp restore_and_report_active_turns(false, _context), do: []
+
+  defp restore_and_report_active_turns(true, context) do
+    ["#{test_name(context)} left Aiur.Opencode.ActiveTurns down."]
   end
 
   defp capture_app_env do

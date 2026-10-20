@@ -42,6 +42,18 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
     refute Process.whereis(Aiur.Orchestrator)
   end
 
+  test "verify_restored! names and restores a missing ActiveTurns owner", context do
+    assert is_pid(Process.whereis(Aiur.Opencode.ActiveTurns))
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Opencode.ActiveTurns)
+
+    assert_raise RuntimeError, ~r/left Aiur\.Opencode\.ActiveTurns down/, fn ->
+      OrchestratorGuard.verify_restored!(context)
+    end
+
+    assert is_pid(Process.whereis(Aiur.Opencode.ActiveTurns))
+    assert Process.whereis(Aiur.Opencode.ActiveTurns) == :ets.info(Aiur.Opencode.ActiveTurns, :owner)
+  end
+
   test "verify_restored! names and restores a leaked decision state directory", context do
     expected = OrchestratorGuard.capture_shared_state()
     original = Map.fetch!(expected.app_env, :decision_state_dir)

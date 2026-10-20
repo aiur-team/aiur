@@ -129,6 +129,7 @@ defmodule Aiur.Orchestrator.EventTopics do
     opts = [
       merged_by_login: get_in(pr, ["merged_by", "login"]),
       pr_body: Map.get(pr, "body"),
+      pr_url: Map.get(pr, "html_url"),
       head_sha: get_in(pr, ["head", "sha"])
     ]
 
