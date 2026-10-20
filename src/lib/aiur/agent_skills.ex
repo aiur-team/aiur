@@ -235,7 +235,7 @@ defmodule Aiur.AgentSkills do
 
   defp install_embedded_skill(dest, skill) do
     unless exists?(dest) do
-      File.mkdir_p!(Path.dirname(dest))
+      ensure_directory!(Path.dirname(dest))
       stage_and_rename(dest, skill_files(skill))
     end
   end
@@ -243,7 +243,7 @@ defmodule Aiur.AgentSkills do
   defp install_support_files(workspace, %{path: path} = location) do
     if is_nil(Map.get(location, :link_to)) do
       root = Path.join(workspace, path)
-      File.mkdir_p!(root)
+      ensure_directory!(root)
       Enum.each(@compound_engineering_support_files, &install_support_file(root, &1))
     end
   end
@@ -251,6 +251,16 @@ defmodule Aiur.AgentSkills do
   defp install_support_file(root, {name, content}) do
     target = Path.join(root, name)
     unless exists?(target), do: stage_file_and_rename(target, content)
+  end
+
+  # File.mkdir_p!/1 retries every ancestor from the root on every bundled file.
+  # Each ancestor is a separate file-server call; under concurrent file I/O each one queues.
+  # Stop at an existing directory to avoid those repeated round trips.
+  defp ensure_directory!(path) do
+    case :filelib.ensure_path(path) do
+      :ok -> :ok
+      {:error, reason} -> raise File.Error, reason: reason, action: "make directory", path: path
+    end
   end
 
   defp stage_file_and_rename(target, content) do
@@ -310,7 +320,7 @@ defmodule Aiur.AgentSkills do
     try do
       Enum.each(files, fn {rel, content} ->
         target = Path.join(tmp, rel)
-        File.mkdir_p!(Path.dirname(target))
+        ensure_directory!(Path.dirname(target))
         File.write!(target, content)
       end)
 
@@ -334,7 +344,7 @@ defmodule Aiur.AgentSkills do
   # duplicate copy. The registry owns both paths.
   defp link_skill(dest, target) do
     unless exists?(dest) do
-      File.mkdir_p!(Path.dirname(dest))
+      ensure_directory!(Path.dirname(dest))
       File.ln_s!(target, dest)
     end
   end

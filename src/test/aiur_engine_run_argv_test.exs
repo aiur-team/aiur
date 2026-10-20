@@ -1,6 +1,8 @@
 defmodule AiurEngineRunArgvTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Workspace.WipPreservation.Command
+
   import Aiur.TestSupport.EngineCase
 
   test "take passes the caller shell owner through the daemon RPC" do
@@ -254,6 +256,18 @@ defmodule AiurEngineRunArgvTest do
     assert engine =~ ~r/if ! wait_for_session_startup.*then\n\s+print_config_status/s
   end
 
+  test "a stalled version subprocess fails with its last output before ExUnit times out" do
+    rel = fake_release()
+    File.write!(Path.join([rel, "releases", "0.1.1", "elixir"]), "#!/usr/bin/env bash\necho version-probe-ready\nexec sleep 30\n")
+
+    error = assert_raise ExUnit.AssertionError, fn -> run_bounded_version([{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}], 5_000, Path.join([rel, "releases", "0.1.1", "elixir"])) end
+    assert error.message =~ "command_timeout"
+    assert error.message =~ "Last child output:"
+    assert error.message =~ "version-probe-ready"
+    assert error.message =~ "engine-step"
+    assert error.message =~ "elixir:"
+  end
+
   test "--version is distribution-free so it never collides with a running node" do
     rel = fake_release()
     state = Aiur.TestSupport.tmp_root!("aiur-st")
@@ -266,7 +280,7 @@ defmodule AiurEngineRunArgvTest do
     )
 
     {out, _} =
-      run_engine(["--version"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+      run_bounded_version([{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
 
     # Runs through the start_clean `elixir --eval` path (like init), never the
     # distributed release start script — so it claims no node name.
@@ -452,5 +466,23 @@ defmodule AiurEngineRunArgvTest do
     {out, 0} = run_sourced_engine(script, [{"RECORD", record}])
 
     assert String.trim(out) == root_file
+  end
+
+  defp run_bounded_version(env, timeout_ms \\ 10_000, command \\ engine()) do
+    output = Aiur.TestSupport.tmp_root!("engine-version-output")
+    File.write!(output, "")
+    trace = output <> ".bashenv"
+    File.write!(trace, ~S(set -T; trap 'printf "engine-step %s:%s %s\n" "${BASH_SOURCE[0]:-entry}" "$LINENO" "${FUNCNAME[0]:-main}" >&2' DEBUG) <> "\n")
+    on_exit(fn -> Enum.each([output, trace], &File.rm/1) end)
+    shell = System.find_executable("bash")
+    args = ["-c", ~S(exec "$@" > "$AIUR_TEST_OUTPUT" 2>&1), "version-probe", command, "--version"]
+    env = [{"USER", "tester"}, {"AIUR_TEST_OUTPUT", output}, {"BASH_ENV", trace} | env]
+    result = Command.run(shell, args, timeout_ms: timeout_ms, env: env, stderr_to_stdout: true)
+    last_output = File.read!(output)
+
+    case result do
+      {:ok, {_output, status}} -> {last_output, status}
+      {:error, reason} -> flunk("engine --version failed: #{inspect(reason)}\nLast child output:\n#{String.slice(last_output, -4_096, 4_096)}")
+    end
   end
 end
