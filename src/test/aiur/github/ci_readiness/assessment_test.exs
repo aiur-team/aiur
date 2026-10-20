@@ -149,8 +149,8 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
 
     parent = self()
 
-    request_fun = fn %{url: url} ->
-      send(parent, {:readiness_request, url})
+    request_fun = fn %{url: url} = request ->
+      send(parent, {:readiness_request, url, Map.get(request, :credential_id)})
 
       cond do
         url =~ "/rules/branches/develop" ->
@@ -186,7 +186,7 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     end
 
     assert {:ok, ^readiness} = CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, request_fun))
-    assert_received {:readiness_request, "workflow-content?ref=develop"}
+    assert_received {:readiness_request, "workflow-content?ref=develop", "ci_readiness"}
   end
 
   test "dispatch reports the operator token required instead of accepting a persisted ready result" do

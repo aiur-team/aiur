@@ -132,6 +132,14 @@ windows, so REST core sitting near-idle is not headroom a GraphQL query can spen
 Headroom comes from the `x-ratelimit-*` headers of calls the daemon was already
 making, so selection costs no budget of its own.
 
+The dashboard's primary GitHub window follows the daemon's primary credential.
+Readiness checks that use the operator-only `AIUR_CI_READINESS_TOKEN` do not
+replace it; other credential windows remain available in `aiur github-usage`.
+
+Readiness requests carry an explicit non-primary identity. Requests without a
+resolved credential identity remain on the primary window so missing registry
+data cannot suppress quota observations or make the dispatch gate fail open.
+
 A credential with no observation this window is treated as probably full rather
 than as empty, and ties resolve to the primary credential.
 
