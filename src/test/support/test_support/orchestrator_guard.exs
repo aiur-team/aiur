@@ -16,6 +16,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   """
   use GenServer
 
+  alias Aiur.GitHub.CodeOwners
   alias Aiur.TestSupport.OrchestratorChild
 
   alias Aiur.TestSupport.RuntimeChildren
@@ -25,6 +26,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   @runtime_child_leaks_key {__MODULE__, :runtime_child_leaks}
   @instance_key_key {__MODULE__, :instance_key}
   @app_env_key {__MODULE__, :app_env}
+  @codeowners_key {__MODULE__, :codeowners}
   @last_finished_key {__MODULE__, :last_finished}
   @guarded_app_env_keys [:decision_state_dir, :github_budget_dir, :executor_state_dir, :runtime_state_dir]
 
@@ -35,6 +37,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     :persistent_term.put(@runtime_child_leaks_key, [])
     :persistent_term.put(@instance_key_key, System.get_env("AIUR_INSTANCE_KEY"))
     :persistent_term.put(@app_env_key, capture_app_env())
+    :persistent_term.put(@codeowners_key, :unset)
     :persistent_term.put(@last_finished_key, nil)
     {:ok, nil}
   end
@@ -83,7 +86,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     app_env_leaks = app_env_leaks()
     instance_key_leak = if actual_instance_key == expected_instance_key, do: [], else: ["AIUR_INSTANCE_KEY changed from #{inspect(expected_instance_key)} to #{inspect(actual_instance_key)}"]
     store_leaks = decision_store_leaks()
-    state_leaks = app_env_leaks ++ instance_key_leak ++ store_leaks
+    state_leaks = app_env_leaks ++ instance_key_leak ++ codeowners_leaks() ++ store_leaks
 
     if state_leaks == [] do
       []
@@ -108,9 +111,13 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   end
 
   @doc false
-  @spec capture_shared_state() :: %{app_env: %{optional(atom()) => {:ok, term()} | :error}, instance_key: String.t() | nil}
+  @spec capture_shared_state() :: %{app_env: %{optional(atom()) => {:ok, term()} | :error}, instance_key: String.t() | nil, codeowners: map() | nil}
   def capture_shared_state do
-    %{app_env: capture_app_env(), instance_key: System.get_env("AIUR_INSTANCE_KEY")}
+    %{
+      app_env: capture_app_env(),
+      instance_key: System.get_env("AIUR_INSTANCE_KEY"),
+      codeowners: :persistent_term.get(@codeowners_key, :unset)
+    }
   end
 
   @doc false
@@ -118,7 +125,8 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   def verify_restored_shared_state!(previous_app_env, previous_instance_key, context) do
     expected = %{
       app_env: Map.new(previous_app_env),
-      instance_key: previous_instance_key
+      instance_key: previous_instance_key,
+      codeowners: :persistent_term.get(@codeowners_key, :unset)
     }
 
     verify_restored!(Map.put(context, :aiur_expected_shared_state, expected))
@@ -148,11 +156,13 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   defp restore_test_scope_state(expected, expected_instance_key) do
     actual_instance_key = System.get_env("AIUR_INSTANCE_KEY")
     instance_key_leaks = if actual_instance_key == expected_instance_key, do: [], else: ["AIUR_INSTANCE_KEY changed from #{inspect(expected_instance_key)} to #{inspect(actual_instance_key)}"]
-    leaks = app_env_leaks() ++ instance_key_leaks
+    codeowners_leaks = codeowners_leaks(:persistent_term.get(@codeowners_key, :unset))
+    leaks = app_env_leaks() ++ instance_key_leaks ++ codeowners_leaks
 
     if leaks != [] do
       Enum.each(@guarded_app_env_keys, fn key -> restore_app_env(key, Map.fetch!(expected, key)) end)
       restore_instance_key(expected_instance_key)
+      restore_codeowners(:persistent_term.get(@codeowners_key, :unset))
     end
 
     leaks
@@ -280,17 +290,88 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
       end)
 
     instance_key_leaks = if actual_instance_key == expected_instance_key, do: [], else: ["AIUR_INSTANCE_KEY changed from #{inspect(expected_instance_key)} to #{inspect(actual_instance_key)}"]
-    leaks = app_env_leaks ++ instance_key_leaks
+    expected_codeowners = Map.get(expected, :codeowners, :unset)
+    codeowners_leaks = codeowners_leaks(expected_codeowners)
+    leaks = app_env_leaks ++ instance_key_leaks ++ codeowners_leaks
 
     if leaks != [] do
       Enum.each(@guarded_app_env_keys, fn key -> restore_app_env(key, Map.fetch!(expected.app_env, key)) end)
       restore_instance_key(expected_instance_key)
+      restore_codeowners(expected_codeowners)
     end
 
     leaks
   end
 
-  defp verify_shared_state_restored!(_context), do: []
+  defp verify_shared_state_restored!(_context) do
+    leaks = codeowners_leaks()
+    if leaks != [], do: restore_codeowners(:persistent_term.get(@codeowners_key, :unset))
+    leaks
+  end
+
+  def capture_codeowners_baseline! do
+    case codeowners_state() do
+      nil -> :ok
+      state -> :persistent_term.put(@codeowners_key, state)
+    end
+  end
+
+  @doc false
+  def restore_codeowners_state!(state), do: restore_codeowners(state)
+
+  @doc false
+  def restore_codeowners_baseline!, do: restore_codeowners(:persistent_term.get(@codeowners_key, :unset))
+
+  defp codeowners_leaks(expected \\ :persistent_term.get(@codeowners_key, :unset))
+
+  defp codeowners_leaks(expected) when expected in [:unset, nil], do: []
+
+  defp codeowners_leaks(expected) do
+    case codeowners_state() do
+      nil -> []
+      ^expected -> []
+      actual -> ["Aiur.GitHub.CodeOwners changed from #{inspect(expected)} to #{inspect(actual)}"]
+    end
+  end
+
+  defp restore_codeowners(expected) do
+    case expected do
+      %{allowlist: allowlist, codeowners: codeowners} ->
+        restore_codeowners_if_running(allowlist, codeowners)
+
+      _ ->
+        :ok
+    end
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp restore_codeowners_if_running(allowlist, codeowners) do
+    case Process.whereis(Aiur.GitHub.CodeOwners) do
+      pid when is_pid(pid) ->
+        :sys.replace_state(pid, fn state ->
+          %{state | allowlist: MapSet.new(allowlist), codeowners: MapSet.new(codeowners)}
+        end)
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp codeowners_state do
+    case Process.whereis(Aiur.GitHub.CodeOwners) do
+      pid when is_pid(pid) ->
+        %{
+          allowlist: CodeOwners.snapshot(pid),
+          codeowners: CodeOwners.codeowners_snapshot(pid)
+        }
+
+      nil ->
+        nil
+    end
+  catch
+    :exit, _reason -> nil
+  end
 
   defp decision_store_leaks do
     case Aiur.DecisionStore.health() do
