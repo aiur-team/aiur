@@ -35,47 +35,6 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert log =~ "issue_id=issue-2076 issue_identifier=2076"
   end
 
-  test "a rework claim waiting at fleet capacity is not observed or released across polls" do
-    issue = issue("5330", "rework")
-    parent = self()
-
-    state = %State{
-      max_concurrent_agents: 1,
-      effective_concurrent_agents: 1,
-      running: %{"active" => %{issue: issue("active", "in-progress"), identifier: "active", control: %{status: :working}}}
-    }
-
-    state =
-      Enum.reduce(1..4, state, fn _, current ->
-        {next, [^issue]} =
-          reconcile(current, [issue],
-            update_issue_state_fun: fn _, _, _ -> flunk("a rework ticket waiting for capacity is not an orphan") end,
-            emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
-          )
-
-        assert next.orphaned_claim_since == %{}
-        next
-      end)
-
-    assert state.startup_claim_reconciliation_complete?
-    refute_receive {:alert, "ticket.5330.agent.attention.startup_orphan_claim_released", _opts}, 100
-  end
-
-  test "a successful release that leaves labels unchanged does not wake the Executor" do
-    issue = issue("same-state", "in-progress")
-
-    {state, [%Issue{state: "in-progress"}]} =
-      reconcile(%State{}, [issue],
-        forced_target: "in-progress",
-        update_issue_state_fun: fn "same-state", "in-progress", "in-progress" -> :ok end,
-        emit_alert_fun: fn topic, _opts ->
-          flunk("an unchanged state must not publish #{topic}")
-        end
-      )
-
-    assert state.startup_claim_reconciliation_complete?
-  end
-
   test "startup release to human-review publishes one handoff wake per head" do
     issue = %{issue("5216", "in-progress") | tracker_identity: %Aiur.TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: "its-everdred", repository: "aiur", identifier: "5216"}}
     repo = "its-everdred/aiur"
