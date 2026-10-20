@@ -14,6 +14,11 @@ defmodule Aiur.GitHub.Quota.Windows do
   @metered_resources [@anonymous_resource | @primary_resources]
   @low_water_percent 10.0
 
+  # This snapshot's single `core`/`graphql` window is the daemon-primary meter
+  # used by Units, Build and dispatch. Other configured credentials have their
+  # own `CredentialHeadroom` windows, and an unregistered operator token must
+  # never replace the primary reading here.
+
   # GitHub does not always say how long a secondary limit lasts. Its own
   # guidance is to wait at least a minute, and the ceiling keeps a hostile or
   # malformed `Retry-After` from parking the whole fleet for hours.
@@ -21,6 +26,9 @@ defmodule Aiur.GitHub.Quota.Windows do
   @max_secondary_backoff_seconds 60 * 60
 
   @spec observe_response(map(), map(), term(), DateTime.t()) :: map()
+  def observe_response(state, %{credential_id: credential_id}, _result, _now) when credential_id != "primary",
+    do: state
+
   def observe_response(state, _request, {:ok, %{body: %{"resources" => resources}}}, now) when is_map(resources) do
     Enum.reduce(@primary_resources, state, fn resource, acc ->
       case Map.get(resources, resource) do

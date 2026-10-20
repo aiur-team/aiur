@@ -47,6 +47,7 @@ defmodule Aiur.GitHub.CiReadiness do
       request_fun =
         opts
         |> Keyword.get(:request_fun, &Transport.default_request_fun/1)
+        |> tag_request_credential(Keyword.get(opts, :request_credential_id))
         |> bounded_request_fun(deadline_at_ms(opts))
 
       inspect_repository(request_fun, token, owner, repo, base_branch, opts)
@@ -85,7 +86,7 @@ defmodule Aiur.GitHub.CiReadiness do
   def dispatch_check(opts) do
     case operator_token() do
       token when is_binary(token) ->
-        opts |> Keyword.put(:token, token) |> check()
+        opts |> Keyword.put(:token, token) |> Keyword.put(:request_credential_id, "ci_readiness") |> check()
 
       nil ->
         {:ok, unavailable(Config.base_branch(opts), :ci_readiness_operator_token_required)}
@@ -98,6 +99,12 @@ defmodule Aiur.GitHub.CiReadiness do
       _ -> nil
     end
   end
+
+  defp tag_request_credential(request_fun, credential_id) when is_binary(credential_id) do
+    fn request -> request_fun.(Map.put_new(request, :credential_id, credential_id)) end
+  end
+
+  defp tag_request_credential(request_fun, _credential_id), do: request_fun
 
   @doc false
   @impl true

@@ -72,6 +72,12 @@ test('mutation: catches changed API count text', async ({ browser }) => {
   await pair.product.getByText('2 APIs', { exact: true }).evaluate(e => { e.textContent = '3 APIs' })
   await pixelFailure(pair, { name: 'api-count' })
 })
+test('mutation: parity screenshot style preserves overflowing layout differences', async ({ browser }) => {
+  const pair = await designPair(browser)
+  await pair.design.addStyleTag({ content: 'html { scrollbar-color: transparent transparent !important; } *::-webkit-scrollbar-thumb { background: transparent !important; }' })
+  await pair.product.addStyleTag({ content: 'html { scrollbar-color: transparent transparent !important; } *::-webkit-scrollbar-thumb { background: transparent !important; } #build-root { width: calc(100% + 1px) !important; }' })
+  await pixelFailure(pair, { name: 'overflow-layout', fullPage: false })
+})
 test('mutation: palette swap fails', async ({ browser }) => {
   const other = { ...cell, palette: 'aiur' }
   const pair = { design: await pageFor(browser), product: await pageFor(browser, other), cell, allowlist: [] }
@@ -185,12 +191,33 @@ test('stable capture recovers from a transient capture failure', async () => {
   const expected = Buffer.from('stable')
   let calls = 0
   const target = { screenshot: async options => {
-    expect(options).toBe(opts)
+    expect(options).toMatchObject(opts)
+    expect(options.style).toContain('*::-webkit-scrollbar-thumb { background: transparent !important; }')
     if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
     return Buffer.from('stable')
   } }
   expect((await captureStable(target, opts)).equals(expected)).toBe(true)
   expect(calls).toBe(3)
+  expect(opts).toEqual({ scale: 'device' })
+})
+test('stable clipped capture includes thumb-hiding style without mutating caller options', async () => {
+  const opts = { scale: 'device' }
+  const expected = Buffer.from('stable')
+  let calls = 0
+  const target = { boundingBox: async () => ({ x: 10, y: 20, width: 30, height: 40 }) }
+  const page = {
+    evaluate: async () => ({ x: 2, y: 3 }),
+    screenshot: async options => {
+      expect(options).toMatchObject(opts)
+      expect(options.style).toContain('*::-webkit-scrollbar-thumb { background: transparent !important; }')
+      expect(options).toMatchObject({ fullPage: true, clip: { x: 12, y: 23, width: 30, height: 40 } })
+      if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
+      return Buffer.from('stable')
+    }
+  }
+  expect((await captureStable(target, opts, page)).equals(expected)).toBe(true)
+  expect(calls).toBe(3)
+  expect(opts).toEqual({ scale: 'device' })
 })
 for (const [name, message, attempts] of [
   ['persistent capture failure', 'page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot', 2],

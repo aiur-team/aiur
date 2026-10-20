@@ -11,12 +11,14 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     previous_budget_dir = Application.get_env(:aiur, :github_budget_dir)
     previous_budget_settings = Application.get_env(:aiur, :github_budget_settings_override)
     previous_deadline = Application.get_env(:aiur, :github_request_deadline_ms)
+    previous_selector_options = Application.get_env(:aiur, :github_credential_selector_options)
     quota = start_supervised!({Quota, name: nil, emit_fun: fn _name, _opts -> :ok end})
     budget_dir = Aiur.TestSupport.tmp_root!("aiur-transport-budget")
 
     Application.put_env(:aiur, :github_transport_test_options, plug: {Req.Test, __MODULE__})
     Application.put_env(:aiur, :github_quota_server, quota)
     Application.put_env(:aiur, :github_budget_enabled?, false)
+    Application.put_env(:aiur, :github_credential_selector_options, credentials: [])
 
     # These tests drive `Transport.default_request_fun` with `/issues/{n}`
     # URLs and assert transport-level outcomes. Those reads are now cacheable
@@ -33,13 +35,14 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       restore_env(:github_budget_dir, previous_budget_dir)
       restore_env(:github_budget_settings_override, previous_budget_settings)
       restore_env(:github_request_deadline_ms, previous_deadline)
+      restore_env(:github_credential_selector_options, previous_selector_options)
       Aiur.TestCleanup.rm_rf!(budget_dir)
     end)
 
     {:ok, quota: quota, budget_dir: budget_dir}
   end
 
-  test "records the authoritative budget and ticket attribution from a response", %{quota: quota} do
+  test "records the authoritative budget when no credential identity resolves", %{quota: quota} do
     Req.Test.stub(__MODULE__, fn conn ->
       conn
       |> Plug.Conn.put_resp_header("x-ratelimit-resource", "core")
