@@ -386,6 +386,13 @@ The Elixir examples below apply only to Aiur's Elixir core.
     new-head CI. Record observed SHAs and the conflict or reviewer request in
     the workpad across restarts. Never open a blocking decision for base
     integration.
+
+    The agent `git` guard refuses pushes to ticket branches in `agent:ci-wait`
+    or `agent:human-review`, including detached-HEAD pushes named by their
+    destination ref; `gh pr update-branch` is refused in those states too.
+    Review rework is allowed. When GitHub reports the PR `CONFLICTING` or a
+    reviewer asked for integration, first move the ticket to `agent:in-progress`
+    with `aiur_set_ticket_state`, then integrate and push.
 14. If you still believe the work is complete and correct and only CI remains,
     mark the PR ready (`gh pr ready`) and verify it is no longer a draft, then
     move the ticket with `aiur_set_ticket_state({ "state": "ci-wait" })`, and end the turn. Do

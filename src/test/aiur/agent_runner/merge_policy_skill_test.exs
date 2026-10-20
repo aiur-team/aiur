@@ -13,6 +13,7 @@ defmodule Aiur.AgentRunner.MergePolicySkillTest do
 
       assert content =~ "only when GitHub reports the exact PR head as `CONFLICTING`"
       assert content =~ "or a reviewer asks"
+      refute content =~ "An approved PR is exempt from integration"
       refute content =~ "changed-file overlap require integration"
       refute content =~ "overlap allow up to 3 integrations per handoff"
       refute content =~ "up to 3 integrations"

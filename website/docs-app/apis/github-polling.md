@@ -62,7 +62,7 @@ On main CI recovery, the watcher checks approved auto-merge PRs for failures sta
 
 If the base changed the PR's own files, that refresh routes to rework instead. Other failures route to rework.
 
-The agent `git` guard spends one GraphQL read per push of the current branch and refuses the push when that PR is in the merge queue, unless GitHub reports it `CONFLICTING` or changes are requested. A lookup that cannot answer lets the push through.
+Agent pushes and `gh pr update-branch` check ticket labels via REST and refuse in `agent:ci-wait` or `agent:human-review`. Detached pushes use destination refs; `--repo` does not change the ticket. Rework is allowed. Current-branch pushes check queue status via GraphQL and refuse unless the PR conflicts or changes are requested. Failed lookups pass.
 
 Draft PRs remain pending even with green checks. Mark completed work ready before CI wait; `ci gate` requires fast checks on PRs and full checks in the merge queue, or on policy-forced PRs. Main has no `ci` push run.
 
