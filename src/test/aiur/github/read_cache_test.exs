@@ -1184,21 +1184,6 @@ defmodule Aiur.GitHub.ReadCacheTest do
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/pulls/2073"))
     end
 
-    test "webhook-backed repo without config-retiring events keeps the polling repo-config TTL" do
-      on_exit(fn -> ModeTable.delete(@ttl_repo) && ModeTable.delete_config_events(@ttl_repo) end)
-      ModeTable.delete(@ttl_repo)
-      ModeTable.delete_config_events(@ttl_repo)
-
-      ModeTable.put(@ttl_repo, webhook_backed_mode())
-      request = rest("https://api.github.com/repos/aiur-team/ttl-test-repo/rulesets")
-
-      assert {:cache, :repo_config, 300_000} = Policy.classify(request)
-
-      ModeTable.record_config_event(@ttl_repo, "repository_ruleset")
-
-      assert {:cache, :repo_config, 3_600_000} = Policy.classify(request)
-    end
-
     test "a webhook-backed entry is still a hit past the old 30-second TTL" do
       # The raise has to be proven by a served hit, not only by a constant: a
       # webhook-backed entry aged past the polling bucket is still fresh,

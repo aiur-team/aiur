@@ -91,7 +91,7 @@ The hostname is yours to choose — `hooks.aiur.dev` is this operator's setup, n
 
 `POST /api/v1/github/webhook` has no configuration keys and no bearer credential, authenticates every delivery by its `X-Hub-Signature-256` digest, and fails closed.
 
-Select every event listed above so a `pull_request_review_thread` delivery reconciles resolved or reopened threads immediately while the scheduled comment sweep remains the loss-recovery path. The `push`, `branch_protection_rule`, `repository_ruleset`, and `repository` events also retire cached repository configuration promptly; without those deliveries, Aiur keeps that cache on its five-minute polling TTL even when other webhook events are flowing. The daemon does not change a live hook's subscription.
+Select every event listed above so `pull_request_review_thread` deliveries reconcile immediately while the scheduled comment sweep remains the loss-recovery path.
 
 | Delivery | Result |
 | --- | --- |
@@ -106,6 +106,8 @@ Select every event listed above so a `pull_request_review_thread` delivery recon
 | Configured but never delivered | Polls at the full interval until a verified delivery proves the path works. |
 | Delivering | Uses the configured `webhooks.poll_widen_factor` for slower reconciliation polls. |
 | Silent past the threshold | Returns to full polling and raises an attention; a later delivery restores webhook mode. |
+
+For prompt repository-configuration refresh, also subscribe the live hook to `push`, `branch_protection_rule`, `repository_ruleset`, and `repository`. Without observed deliveries from these event families, Aiur retains the five-minute polling TTL even while other webhook events flow. The daemon does not change a live hook's subscription.
 
 A proven webhook also lengthens the daemon's read-cache TTL: a delivering repo gets hour-long `ReadCache` TTLs, because a delivery retires the reads it makes stale — the TTL is only a backstop.
 

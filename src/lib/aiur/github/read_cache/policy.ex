@@ -93,22 +93,12 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   them a TTL; the fix for an expensive conditional row is a cheaper validator,
   not a body cache.
 
-  There are two buckets, and which one applies is decided by the repository's
-  delivery mode, not by the class. A repo that is not proven webhook-backed —
-  never configured, configured-but-unproven, or degraded from silence — gets
-  the short bucket, because for it the TTL is the only freshness mechanism:
-  nothing but the clock retires its entries. A repo proven webhook-backed gets
-  the long bucket for ordinary issue and PR reads, because deliveries retire
-  the `ReadCache` entries they make stale. Repository configuration gets the
-  long bucket only after a verified config-retiring event family is observed
-  for that repo. Both collapse back to the short bucket when the repo degrades
-  (silence past
-  `webhooks.silence_threshold_seconds`), which is the measured bound on how
-  long a missed delivery can go uncorrected. One hour is four times that bound.
-
-  Every TTL here is an upper bound on staleness only in the absence of news. An
-  invalidation retires the entry immediately, so the observed staleness for
-  anything Aiur itself changes is zero.
+  TTL depends on repository delivery mode. Unproven and degraded repos get the
+  short bucket because only the clock retires stale entries. Proven repos get
+  the long bucket for ordinary issue and PR reads because deliveries invalidate
+  them. Repo configuration earns the long bucket only after a verified
+  config-retiring event is observed. Degradation restores the short bucket;
+  one hour is four times `webhooks.silence_threshold_seconds`.
 
   ## Two rows, because the rest were unreachable
 
@@ -506,10 +496,6 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     configured_override(class) || mode_ttl(class, transport)
   end
 
-  defp mode_ttl(:repo_config, :webhook) do
-    Map.fetch!(@webhook_backed_ttls, :repo_config)
-  end
-
   defp mode_ttl(class, :webhook), do: Map.fetch!(@webhook_backed_ttls, class)
   defp mode_ttl(class, _polling), do: Map.fetch!(@default_ttls, class)
 
@@ -527,15 +513,8 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   end
 
   defp request_ttl(:repo_config, request) do
-    case Identity.repository(request) do
-      {owner, repo} ->
-        if transport(request) == :webhook and ModeTable.config_events?("#{owner}/#{repo}"),
-          do: ttl_ms(:repo_config, :webhook),
-          else: ttl_ms(:repo_config, :polling)
-
-      _repo ->
-        ttl_ms(:repo_config, :polling)
-    end
+    {owner, repo} = Identity.repository(request)
+    ttl_ms(:repo_config, ModeTable.repo_config_transport("#{owner}/#{repo}", transport(request)))
   end
 
   defp request_ttl(class, request), do: ttl_ms(class, transport(request))

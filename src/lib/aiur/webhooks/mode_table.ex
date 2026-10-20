@@ -76,6 +76,14 @@ defmodule Aiur.Webhooks.ModeTable do
     with_table(false, fn table -> :ets.member(table, normalize(repo)) end, @config_events_table)
   end
 
+  @doc "The effective webhook transport for repository configuration reads."
+  @spec repo_config_transport(String.t(), DeliveryMode.transport()) :: DeliveryMode.transport()
+  def repo_config_transport(repo, :webhook) do
+    if config_events?(repo), do: :webhook, else: :polling
+  end
+
+  def repo_config_transport(_repo, transport), do: transport
+
   @doc "Removes observed config-event coverage for `repo`. Test seam."
   @spec delete_config_events(String.t()) :: :ok
   def delete_config_events(repo) do
