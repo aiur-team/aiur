@@ -199,6 +199,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     |> maybe_missing(Process.whereis(Aiur.Supervisor), "Aiur.Supervisor")
     |> maybe_missing(Process.whereis(Aiur.PubSub), "Aiur.PubSub")
     |> maybe_missing(if(active_turns_owner_missing?(), do: nil, else: :running), "Aiur.Opencode.ActiveTurns")
+    |> maybe_missing(Process.whereis(Aiur.DecisionStore), "Aiur.DecisionStore")
   end
 
   defp restore_missing_runtime_children do
@@ -219,7 +220,6 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     end
   catch
     :exit, _reason -> :error
-  end
 
   defp maybe_missing(missing, nil, child), do: ["#{child} unregistered" | missing]
   defp maybe_missing(missing, _pid, _child), do: missing

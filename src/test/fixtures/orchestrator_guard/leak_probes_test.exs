@@ -92,10 +92,44 @@ defmodule Aiur.GTestSupportPubSubNeighbourTest do
     assert is_pid(Process.whereis(Aiur.PubSub))
 
     assert_raise RuntimeError,
-                 ~r/plain ExUnit tests left shared runtime children down: Aiur.FPlainCasePubSubLeakProbeTest: test leaves the PubSub registry table down \(Aiur.PubSub unregistered\)/,
+                 ~r/plain ExUnit tests left shared runtime children down: .*Aiur.FPlainCasePubSubLeakProbeTest: test leaves the PubSub registry table down \(Aiur.PubSub unregistered\)/,
                  fn ->
                    OrchestratorGuard.verify_suite!()
                  end
+  end
+end
+
+defmodule Aiur.IPlainCaseDecisionStoreLeakProbeTest do
+  use ExUnit.Case, async: false
+
+  @moduletag :orchestrator_guard_probe
+
+  test "leaves the durable decision store down" do
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.DecisionStore)
+  end
+end
+
+defmodule Aiur.JTestSupportDecisionStoreNeighbourTest do
+  use Aiur.TestSupport, async: false
+
+  alias Aiur.TestSupport.OrchestratorGuard
+
+  @moduletag :orchestrator_guard_probe
+
+  setup do
+    on_exit(fn ->
+      if is_nil(Process.whereis(Aiur.DecisionStore)) do
+        assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, Aiur.DecisionStore)
+      end
+    end)
+  end
+
+  test "the guard reports which plain test left DecisionStore down" do
+    assert is_nil(Process.whereis(Aiur.DecisionStore))
+
+    assert_raise RuntimeError,
+                 ~r/plain ExUnit tests left shared runtime children down: .*Aiur.IPlainCaseDecisionStoreLeakProbeTest: test leaves the durable decision store down \(Aiur.DecisionStore unregistered\)/,
+                 fn -> OrchestratorGuard.verify_suite!() end
   end
 end
 
