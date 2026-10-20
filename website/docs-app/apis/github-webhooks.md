@@ -107,7 +107,9 @@ Select every event listed above so `pull_request_review_thread` deliveries recon
 | Delivering | Uses the configured `webhooks.poll_widen_factor` for slower reconciliation polls. |
 | Silent past the threshold | Returns to full polling and raises an attention; a later delivery restores webhook mode. |
 
-For prompt repository-configuration refresh, also subscribe the live hook to `push`, `branch_protection_rule`, `repository_ruleset`, and `repository`. Pushes to the tracker base or repository default branch, plus `repository` deliveries, retire repository-config entries. The one-hour `:repo_config` TTL requires Aiur to observe both `branch_protection_rule` and `repository_ruleset`; a push or another event alone does not prove both rule-change families are delivered. Until both are observed, the TTL stays at five minutes. The daemon does not change a live hook's subscription.
+For prompt repository-configuration refresh, also subscribe the live hook to `push`, `branch_protection_rule`, `repository_ruleset`, and `repository`. Pushes to the tracker base or repository default branch, plus `repository` deliveries, retire repository-config entries.
+
+The one-hour `:repo_config` TTL requires Aiur to observe both `branch_protection_rule` and `repository_ruleset`. A push or another event alone does not prove both rule-change families are delivered, so the TTL stays at five minutes until both are observed. The daemon does not change a live hook's subscription.
 
 A proven webhook also lengthens the daemon's read-cache TTL: a delivering repo gets hour-long `ReadCache` TTLs, because a delivery retires the reads it makes stale — the TTL is only a backstop.
 
