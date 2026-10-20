@@ -100,8 +100,8 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   defp pause_item(assigns) do
     ~H"""
     <button id="ax-pause" class={["ax-mi", @globally_paused == true && "on"]} type="button" role={if is_boolean(@globally_paused), do: "menuitemcheckbox", else: "menuitem"}
-      phx-click="toggle-global-pause" disabled={not @writable or is_nil(@globally_paused)}
-      aria-disabled={to_string(not @writable or is_nil(@globally_paused))}
+      phx-click="toggle-global-pause" disabled={not @writable or not is_boolean(@globally_paused)}
+      aria-disabled={to_string(not @writable or not is_boolean(@globally_paused))}
       aria-checked={if is_boolean(@globally_paused), do: to_string(@globally_paused)}
       title={pause_title(@globally_paused, @writable)}>
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="5" width="3.4" height="14" rx="1.1"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.1"/></svg>
@@ -259,10 +259,12 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     Phoenix.HTML.raw(~s(<svg #{@nav_svg_attrs}><circle cx="12" cy="12" r="9"/></svg>))
   end
 
+  defp pause_label(:loading), do: "Loading status…"
   defp pause_label(nil), do: "Pause state unknown"
   defp pause_label(true), do: "Resume new starts"
   defp pause_label(false), do: "Pause new starts"
 
+  defp pause_title(:loading, _writable), do: "The daemon is starting"
   defp pause_title(nil, _writable), do: "The daemon's pause state is not available"
   defp pause_title(_paused, false), do: "Read-only dashboard: pausing is unavailable"
   defp pause_title(paused, true), do: pause_label(paused)
