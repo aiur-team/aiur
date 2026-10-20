@@ -107,12 +107,12 @@ Select every event listed above so `pull_request_review_thread` deliveries recon
 | Delivering | Uses the configured `webhooks.poll_widen_factor` for slower reconciliation polls. |
 | Silent past the threshold | Returns to full polling and raises an attention; a later delivery restores webhook mode. |
 
-For prompt repository-configuration refresh, also subscribe the live hook to `push`, `branch_protection_rule`, `repository_ruleset`, and `repository`. Without observed deliveries from these event families, Aiur retains the five-minute polling TTL even while other webhook events flow. The daemon does not change a live hook's subscription.
+For prompt repository-configuration refresh, also subscribe the live hook to `push`, `branch_protection_rule`, `repository_ruleset`, and `repository`. Pushes to the tracker base or repository default branch, plus `repository` deliveries, retire repository-config entries. The one-hour `:repo_config` TTL requires Aiur to observe both `branch_protection_rule` and `repository_ruleset`; a push or another event alone does not prove both rule-change families are delivered. Until both are observed, the TTL stays at five minutes. The daemon does not change a live hook's subscription.
 
 A proven webhook also lengthens the daemon's read-cache TTL: a delivering repo gets hour-long `ReadCache` TTLs, because a delivery retires the reads it makes stale — the TTL is only a backstop.
 
 A repo that is not proven (or degraded back to full polling) keeps 30-second TTLs, and degradation collapses the TTL immediately.
 
-Repository-configuration reads (`:repo_config`) keep a five-minute TTL until Aiur observes `push`, `branch_protection_rule`, `repository_ruleset`, or `repository` deliveries. Ordinary issue, pull-request, and check-run events do not establish the coverage needed for a one-hour TTL.
+Repository-configuration reads (`:repo_config`) keep a five-minute TTL until Aiur observes both `branch_protection_rule` and `repository_ruleset` deliveries. Push, repository, issue, pull-request, and check-run events do not establish that both rule-change families are covered. If the webhook mode degrades to polling, the recorded event coverage is cleared.
 
 See [Configuration](/reference/configuration#webhooks) for the repository list, silence threshold, sweep interval, and widen factor.
