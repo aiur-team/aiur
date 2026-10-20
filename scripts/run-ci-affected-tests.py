@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Run the existing selector's command without evaluating it as shell code."""
+import base64
+import json
 import os
 from pathlib import Path
 import shlex
@@ -36,7 +38,19 @@ def defer_to_merge_group(notice):
             summary.write(f'{notice}\n')
 
 
+def merge_group_changed_paths(base):
+    """Return paths changed by this merge-group candidate vs its base."""
+    return subprocess.check_output(
+        ['git', 'diff', '--name-only', f'{base}...HEAD'], text=True
+    ).splitlines()
+
+
 def main():
+    if os.environ.get('GITHUB_EVENT_NAME') == 'merge_group':
+        paths = merge_group_changed_paths(sys.argv[1])
+        os.environ['AIUR_CI_CHANGED_PATHS_B64'] = base64.b64encode(
+            json.dumps(paths).encode('utf-8')
+        ).decode('ascii')
     selection_started = time.monotonic()
     selection = subprocess.check_output(['mix', 'aiur.affected_tests', sys.argv[1]], text=True)
     print(f'::notice::affected-tests selection duration: {time.monotonic() - selection_started:.1f}s',

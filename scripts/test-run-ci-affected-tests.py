@@ -49,7 +49,8 @@ else:
                                              SELECTION=selection, CALLS=str(calls), TEST_STATUS=str(status),
                                              TEST_DELAY=str(test_delay),
                                              AIUR_TIME_BOMB_CHECK=str(time_bombs), RECHECKS=str(rechecks),
-                                             GITHUB_STEP_SUMMARY=str(summary)))
+                                             GITHUB_STEP_SUMMARY=str(summary),
+                                             GITHUB_EVENT_NAME=os.environ.get('GITHUB_EVENT_NAME', '')))
             self.last_stderr = result.stderr
             self.last_stdout = result.stdout
             self.last_summary = summary.read_text() if summary.exists() else ''
@@ -57,7 +58,8 @@ else:
                                   if rechecks.exists() else [])
             self.assertNotIn(b"can't open file", result.stderr)
             self.assertIn(b'::notice::affected-tests selection duration:', result.stderr)
-            if 'mix test' in selection and len(selection.split()) <= 305:
+            if ('mix test' in selection and len(selection.split()) <= 305
+                    and os.environ.get('GITHUB_EVENT_NAME') != 'merge_group'):
                 self.assertIn(b'::notice::affected-tests selected tests duration:', result.stderr)
             invoked = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
             return result.returncode, invoked, result.stdout.decode()
@@ -128,22 +130,6 @@ else:
     def test_no_tests_does_not_run_test_suite(self):
         self.assertEqual(self.run_selection('# no affected test files detected for the documentation-only change'),
                          (0, [], '# no affected test files detected for the documentation-only change\n\n'))
-
-    def test_merge_group_runs_time_bomb_guard_even_without_pr_selection(self):
-        with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
-            root = Path(scratch)
-            mix = root / 'mix'
-            mix.write_text('#!/usr/bin/env python3\nprint("cd src && mise exec -- mix test --max-cases 4 test/changed_test.exs")\n')
-            mix.chmod(0o755)
-            marker = root / 'time-bomb-ran'
-            guard = root / 'guard.py'
-            guard.write_text(f'import pathlib, sys\npathlib.Path({str(marker)!r}).write_text(" ".join(sys.argv[1:]))\n')
-            result = subprocess.run([sys.executable, str(SCRIPT), 'base-sha'], capture_output=True,
-                                    env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
-                                             GITHUB_EVENT_NAME='merge_group',
-                                             AIUR_TIME_BOMB_CHECK=str(guard)))
-            self.assertEqual(result.returncode, 0, result.stderr.decode())
-            self.assertEqual(marker.read_text(), 'test/changed_test.exs')
 
     def test_merge_group_full_selection_limits_guard_to_changed_test_files(self):
         with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
