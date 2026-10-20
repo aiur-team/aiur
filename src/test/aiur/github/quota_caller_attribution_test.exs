@@ -12,7 +12,7 @@ defmodule Aiur.GitHub.QuotaCallerAttributionTest do
 
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.{Budget, Quota}
 
   @now ~U[2026-08-09 21:30:00Z]
   @reset ~U[2026-08-09 22:00:00Z]
@@ -225,6 +225,8 @@ defmodule Aiur.GitHub.QuotaCallerAttributionTest do
         method: :post,
         url: "https://api.github.com/graphql",
         token: "secret",
+        credential_id: "primary",
+        credential_key: Budget.token_key("secret"),
         caller: "comment_poll_batch",
         body: %{"query" => "query B { x }", "variables" => %{"number" => 2073}}
       },
@@ -248,6 +250,8 @@ defmodule Aiur.GitHub.QuotaCallerAttributionTest do
       method: :post,
       url: "https://api.github.com/graphql",
       token: "secret",
+      credential_id: "primary",
+      credential_key: Budget.token_key("secret"),
       caller: caller,
       body: %{"query" => "query A { rateLimit { cost } x }", "variables" => %{}}
     }
@@ -258,6 +262,8 @@ defmodule Aiur.GitHub.QuotaCallerAttributionTest do
       method: :post,
       url: "https://api.github.com/graphql",
       token: "secret",
+      credential_id: "primary",
+      credential_key: Budget.token_key("secret"),
       caller: caller,
       body: %{"query" => "query A { x }", "variables" => %{}}
     }
