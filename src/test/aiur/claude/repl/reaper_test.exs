@@ -69,6 +69,36 @@ defmodule Aiur.Claude.Repl.ReaperTest do
     end
   end
 
+  describe "pane_liveness/1" do
+    test "classifies a successful pid reply as alive", %{tmux: tmux} do
+      task = Task.async(fn -> Reaper.pane_liveness(%{tmux: tmux, pane_id: "%40"}) end)
+      assert_receive {:tmux_mock_out, "display-message -p -t %40 " <> _}, 1_000
+      respond(tmux, "9999\n")
+      assert Task.await(task, 2_000) == :alive
+    end
+
+    test "classifies an explicit missing-pane response as gone", %{tmux: tmux} do
+      task = Task.async(fn -> Reaper.pane_liveness(%{tmux: tmux, pane_id: "%41"}) end)
+      assert_receive {:tmux_mock_out, "display-message -p -t %41 " <> _}, 1_000
+      respond_error(tmux, "can't find pane: %41\n")
+      assert Task.await(task, 2_000) == :gone
+    end
+
+    test "classifies a stopped tmux server as gone", %{tmux: tmux} do
+      task = Task.async(fn -> Reaper.pane_liveness(%{tmux: tmux, pane_id: "%43"}) end)
+      assert_receive {:tmux_mock_out, "display-message -p -t %43 " <> _}, 1_000
+      respond_error(tmux, "no server running on /tmp/tmux-test/default\n")
+      assert Task.await(task, 2_000) == :gone
+    end
+
+    test "classifies a tmux timeout as unknown", %{tmux: tmux} do
+      task = Task.async(fn -> Reaper.pane_liveness(%{tmux: tmux, pane_id: "%42"}, 0) end)
+      assert_receive {:tmux_mock_out, "display-message -p -t %42 " <> _}, 1_000
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n"})
+      assert Task.await(task, 2_000) == :unknown
+    end
+  end
+
   describe "stop_session/1" do
     test "proves cleanup only after the pane's whole process group is gone", %{tmux: tmux} do
       parent = self()
