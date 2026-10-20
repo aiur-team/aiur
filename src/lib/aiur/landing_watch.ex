@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, LocalRead, MergeGroups, Observer, PrRerun}
+  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, LocalRead, MergeGroups, MergeQueueWatchdog, Observer, PrRerun}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.PrMerge.Queue
@@ -148,7 +148,7 @@ defmodule Aiur.LandingWatch do
     opts = poll_required_checks(observations, opts)
     result = process_all(observations, opts)
     reconcile = Keyword.get(opts, :queue_reconcile_fun, &MergeGroups.cancel_stale/2).(observations, opts)
-    if result == :ok, do: reconcile, else: result
+    MergeQueueWatchdog.after_reconcile(result, reconcile, observations, opts)
   end
 
   defp process_all(observations, opts) do

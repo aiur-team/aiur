@@ -1347,9 +1347,9 @@ defmodule AiurWeb.DashboardLiveTest do
         socket = :sys.get_state(view.pid).socket
         assert socket.assigns.financial_data_capability.state == :authorized
 
-        # Rotate credentials: the outstanding session marker is now stale, so
-        # the next mount sees no valid financial access and renders locked.
+        # Rotate credentials so the outstanding session marker becomes stale.
         System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-boundary-secret")
+        refute Map.has_key?(PayloadLoader.load(:fresh), :units_status_snapshot)
 
         {:ok, redirected, redirected_html} = live_redirect(view, to: "/commands")
         send(test_process, {:revoked_financial, redirected})
@@ -1362,7 +1362,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert socket.assigns.financial_data_capability.state == :locked
     assert socket.assigns.payload.fleet.agent_totals == %{seconds_running: 41}
     refute Map.has_key?(socket.assigns.payload.fleet, :rate_limits)
-    refute inspect(socket) =~ sentinel
+    refute inspect(socket, limit: :infinity, printable_limit: :infinity) =~ sentinel
     refute render(redirected) =~ sentinel
     refute log =~ sentinel
   end

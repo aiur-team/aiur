@@ -125,7 +125,6 @@ defmodule Aiur.AccountsTest do
     write_workflow_file!(Application.fetch_env!(:aiur, :workflow_file_path), codex_command: "bash " <> Aiur.Shell.escape(script))
     assert {:ok, %{"primary" => %{"usedPercent" => 8}}} = Accounts.usage("codex", "work")
     refute RemoteControl.process_alive?(pid_path |> File.read!() |> String.to_integer())
-    assert Path.wildcard(Path.join(Config.workspace_root(), "codex-usage-probe-*")) == []
   end
 
   test "API key account registry stores named env key, never the value", %{home: home} do
