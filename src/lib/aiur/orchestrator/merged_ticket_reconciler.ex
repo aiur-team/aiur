@@ -52,13 +52,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   # ticket has had a full day to be reopened deliberately.
   @stale_merge_after_seconds 24 * 60 * 60
 
-  # A draft pull request with no update within this window no longer stands
-  # between a ticket and `done`. Deliberately longer than the merge-staleness
-  # window: a live parallel draft can legitimately sit idle for days while its
-  # author works, so declaring a draft abandoned early would abandon real work —
-  # the exact failure this reconciler exists to prevent. The safer failure is
-  # the opposite: an abandoned draft lingers a few days longer than strictly
-  # necessary before the ticket completes.
+  # An idle draft only stops blocking `done` after a longer window than merge
+  # staleness: live parallel work can sit idle for days.
 
   @spec reconcile(State.t(), [Issue.t()], keyword()) :: {State.t(), [Issue.t()]}
   def reconcile(state, issues, opts \\ [])
@@ -71,7 +66,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
 
     {state, retained} =
       Enum.reduce(issues, {state, []}, fn issue, {state_acc, retained} ->
-        case merged_pull_request_for(state_acc, issue, merges, now) do
+        case merged_pull_request_for(state_acc, issue, merges, now, opts) do
           nil ->
             {state_acc, [issue | retained]}
 
@@ -107,8 +102,10 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   end
 
   defp reconcile_merged_ticket(state, %Issue{} = issue, merge, opts, retained) do
-    unless NonClosingMerge.reference_only?(issue, merge),
-      do: OptimisticLedger.close(issue.identifier, :merged, System.system_time(:millisecond))
+    unless NonClosingMerge.reference_only?(issue, merge, opts) do
+      close_ledger = Keyword.get(opts, :close_optimistic_ledger_fun, &OptimisticLedger.close/3)
+      close_ledger.(issue.identifier, :merged, System.system_time(:millisecond))
+    end
 
     if TrackerTasks.owner?(state) do
       input = Reconciler.issue_input(state, issue.id)
@@ -170,16 +167,25 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
 
     {state, _retained} =
       cond do
-        target == "done" -> reconcile_merged_ticket_to_done(state, issue, merge, opts, [])
-        target == "needs-triage" -> if(result == :ok, do: {record_reconciled(state, issue, merge), []}, else: {state, [issue]})
-        true -> reconcile_merged_ticket_remaining_open(state, issue, merge, target, opts, [])
+        target == "done" ->
+          reconcile_merged_ticket_to_done(state, issue, merge, opts, [])
+
+        target == "needs-triage" ->
+          if result == :ok do
+            {record_reconciled(state, issue, merge), []}
+          else
+            {emit_failed_alert(state, issue, merge, result, opts), [issue]}
+          end
+
+        true ->
+          reconcile_merged_ticket_remaining_open(state, issue, merge, target, opts, [])
       end
 
     if result == :ok, do: Lifecycle.wake_tick(state), else: state
   end
 
   defp reconcile_merged_ticket_sync(state, %Issue{} = issue, merge, opts, retained) do
-    if NonClosingMerge.reference_only?(issue, merge) do
+    if NonClosingMerge.reference_only?(issue, merge, opts) do
       reconcile_reference_only_ticket(state, issue, merge, opts, retained)
     else
       reconcile_closing_merge_ticket(state, issue, merge, opts, retained)
@@ -221,12 +227,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
     end
   end
 
-  # A merge may arrive twice: the first wake can fail its label write, while a
-  # later wake has no PR body and routes to human-review. If GitHub has already
-  # closed the ticket and the merged branch identifies it, the physical close
-  # plus missing state label is sufficient evidence to restore the terminal label.
-  # Do not consult other open PRs in this repair path: they cannot make an
-  # already-closed issue dispatchable again.
+  # Repair a physical close with a missing state label from its branch merge;
+  # other open PRs cannot make an already-closed issue dispatchable again.
   defp merged_ticket_target_for_issue(%Issue{} = issue, opts) do
     if closed_without_state_label?(issue), do: {:ok, "done"}, else: merged_ticket_target(issue.identifier, opts)
   end
@@ -310,14 +312,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   def merged_ticket_target(identifier, opts),
     do: OpenPullRequestTarget.merged_ticket_target(identifier, opts)
 
-  # The ticket was already transitioned above, so the terminalisation pass only
-  # has to tear the agent down and resume dependents.
-  # `merged_by` is the sole input to the merger-attribution audit, so it is
-  # passed through: with it stubbed out the audit could never fire. A record
-  # backfilled from the Events API often carries no merger at all, and an
-  # unattributed merge is not evidence of an unauthorised one, so in that case
-  # the audit is skipped rather than allowed to assert a merger who is not
-  # in the record.
+  # Terminalization already checked open PRs; preserve merger attribution for
+  # the audit and skip that audit when the stored merge has no attributed actor.
   defp merged_ticket_opts(%RecentMerge{merged_by: merged_by}, opts) do
     base = [
       update_issue_state_fun: fn _identifier, "done" -> :ok end,
@@ -349,14 +345,15 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
          %State{} = state,
          %Issue{identifier: identifier} = issue,
          merges,
-         now
+         now,
+         opts
        )
        when is_binary(identifier) and is_list(merges) do
     Enum.find(merges, fn
       %RecentMerge{} = merge ->
         (identifier in RecentMerge.closing_issue_identifiers(merge) or
            (closed_without_state_label?(issue) and merge.ticket_id == identifier) or
-           NonClosingMerge.reference_only?(issue, merge)) and
+           NonClosingMerge.reference_only?(issue, merge, opts)) and
           not stale_merge?(merge, now) and
           not already_reconciled?(state, issue, merge)
 
@@ -365,7 +362,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
     end)
   end
 
-  defp merged_pull_request_for(_state, _issue, _merges, _now), do: nil
+  defp merged_pull_request_for(_state, _issue, _merges, _now, _opts), do: nil
 
   defp closed_without_state_label?(%Issue{state: state, state_labels: labels}) do
     String.downcase(to_string(state || "")) == "closed" and labels in [nil, []]
@@ -483,9 +480,12 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   defp blocked_reason(0), do: "; no dependent agents are waiting on it"
   defp blocked_reason(count), do: "; #{count} dependent agent(s) remain paused"
 
-  defp fetch_merged_ticket_state({issue, merge, opts}) do
-    if NonClosingMerge.reference_only?(issue, merge), do: {:ok, "needs-triage"}, else: merged_ticket_target_for_issue(issue, opts)
-  end
+  defp fetch_merged_ticket_state({issue, merge, opts}),
+    do:
+      if(NonClosingMerge.reference_only?(issue, merge, opts),
+        do: {:ok, "needs-triage"},
+        else: merged_ticket_target_for_issue(issue, opts)
+      )
 
   defp apply_merged_ticket_state(current, result, {input, issue, merge, opts}) do
     if Reconciler.issue_input(current, issue.id) == input do

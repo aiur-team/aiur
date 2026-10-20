@@ -63,26 +63,44 @@ defmodule Aiur.RecentMerge.ClosingReferences do
   # and issue URLs. Keep the parser aligned with that behavior.
   @closing_reference_regex ~r/
 
-    (?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)
-    [ \t]*:?[ \t]*
-    (?:(?:https?:\/\/github\.com\/)?(?<repository>[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)(?:\/issues)?\/?(?:\#)?|\#)
-    (?<number>\d+)\b
+    \b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)
+    (?:[ \t]+|:[ \t]+)
+    (?<reference>https?:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/issues\/\d+|[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\#\d+|\#\d+)\b
   /imx
 
   @spec references(term()) :: [{String.t() | nil, String.t()}]
   def references(text) when is_binary(text) do
     text
     |> quotable_text()
-    |> then(&Regex.scan(@closing_reference_regex, &1, capture: [:repository, :number]))
-    |> Enum.map(fn [repository, number] -> {empty_to_nil(repository), number} end)
+    |> then(&Regex.scan(@closing_reference_regex, &1, capture: [:reference]))
+    |> Enum.map(fn [reference] -> parse_closing_reference(reference) end)
     |> Enum.filter(fn {_repository, number} -> String.to_integer(number) > 0 end)
-    |> Enum.map(fn {repository, number} ->
-      {repository, number |> String.to_integer() |> Integer.to_string()}
-    end)
+    |> Enum.map(fn {repository, number} -> {repository, number |> String.to_integer() |> Integer.to_string()} end)
     |> Enum.uniq()
   end
 
   def references(_text), do: []
+
+  defp leading_part_of_reference(text) do
+    case Regex.run(~r{\A[ \t]*part[ \t]+of[ \t]+(?:([A-Za-z0-9._-]+/[A-Za-z0-9._-]+))?#([0-9]+)\b}i, text, capture: :all) do
+      [_match, repository, number] -> [{empty_to_nil(repository), number}]
+      nil -> []
+    end
+  end
+
+  defp parse_closing_reference(reference) do
+    case Regex.run(~r{^https?://github\.com/([^/]+/[^/]+)/issues/(\d+)$}, reference) do
+      [_match, repository, number] -> {repository, number}
+      nil -> parse_non_url_reference(reference)
+    end
+  end
+
+  defp parse_non_url_reference(reference) do
+    case Regex.run(~r{^([^#]+)\#(\d+)$}, reference) do
+      [_match, repository, number] -> {repository, number}
+      nil -> {nil, Regex.replace(~r/^\#/, reference, "")}
+    end
+  end
 
   @reference_regex ~r/(?:^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?|[,;][ \t]*|\band[ \t]+)(?:refs?|mentions?|related[ \t]+to)[ \t]+(?<repository>[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?\#(?<number>\d+)\b/im
 
@@ -92,6 +110,7 @@ defmodule Aiur.RecentMerge.ClosingReferences do
     |> quotable_text()
     |> then(&Regex.scan(@reference_regex, &1, capture: [:repository, :number]))
     |> Enum.map(fn [reference_repository, number] -> {empty_to_nil(reference_repository), number} end)
+    |> then(&(&1 ++ leading_part_of_reference(body)))
     |> Enum.filter(fn {reference_repository, _number} -> reference_repository == nil or same_repository?(reference_repository, repository) end)
     |> Enum.map(&elem(&1, 1))
     |> Enum.filter(&(String.to_integer(&1) > 0))

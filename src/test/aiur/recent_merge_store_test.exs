@@ -125,6 +125,13 @@ defmodule Aiur.RecentMergeStoreTest do
     assert closing_identifiers_for("- fixed #1\n* Resolve #2\n1. CLOSE #3") == ["1", "2", "3"]
     assert closing_identifiers_for("Closes owner/repo#1570") == ["1570"]
     assert closing_identifiers_for("Closes other/repo#1570") == []
+    assert closing_identifiers_for("Closes: #4\nfixes: #5") == ["4", "5"]
+  end
+
+  test "requires a whole closing keyword and a separator before the issue reference" do
+    for body <- ["This was disclosed #42", "enclosed #42", "close#42", "Closes aiur-team/aiur/42"] do
+      assert closing_identifiers_for(body) == []
+    end
   end
 
   # #2609: the live merged route has a raw PR body and no stored merge record,
@@ -149,6 +156,10 @@ defmodule Aiur.RecentMergeStoreTest do
 
   test "reads explicit Refs lines for non-closing merge triage" do
     assert RecentMerge.referenced_issue_identifiers_in_body("Refs #176", "owner/repo") == ["176"]
+    assert RecentMerge.referenced_issue_identifiers_in_body("Part of #176\nimplementation details", "owner/repo") == ["176"]
+    assert RecentMerge.referenced_issue_identifiers_in_body("Part of other/repo#176", "owner/repo") == []
+    assert RecentMerge.referenced_issue_identifiers_in_body("Context\nPart of #176", "owner/repo") == []
+    assert RecentMerge.referenced_issue_identifiers_in_body("Refs other/repo#176", "owner/repo") == []
     assert RecentMerge.referenced_issue_identifiers_in_body("> Refs #176", "owner/repo") == []
     assert RecentMerge.referenced_issue_identifiers_in_body("Refs #176", nil) == ["176"]
   end

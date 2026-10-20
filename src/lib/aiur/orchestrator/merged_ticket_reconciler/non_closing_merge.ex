@@ -4,9 +4,15 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.NonClosingMerge do
   alias Aiur.{Issue, RecentMerge}
   alias Aiur.Orchestrator.TicketTransition
 
-  @spec reference_only?(Issue.t(), RecentMerge.t()) :: boolean()
-  def reference_only?(%Issue{identifier: identifier}, %RecentMerge{} = merge) do
+  @pending_states ~w(in-progress ci-wait human-review merging)
+
+  @spec reference_only?(Issue.t(), RecentMerge.t(), keyword()) :: boolean()
+  def reference_only?(%Issue{identifier: identifier} = issue, %RecentMerge{} = merge, opts \\ []) do
+    marker = Keyword.get(opts, :non_closing_merge_marker, Aiur.Config.settings!().agent.non_closing_merge_marker || "needs-triage")
+
     merge.ticket_id == identifier and
+      String.downcase(to_string(issue.state || "")) in @pending_states and
+      marker not in Issue.label_names(issue) and
       identifier in RecentMerge.referenced_issue_identifiers_in_body(merge.summary, merge.repository) and
       identifier not in RecentMerge.closing_issue_identifiers(merge)
   end

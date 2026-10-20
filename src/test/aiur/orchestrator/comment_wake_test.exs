@@ -1344,8 +1344,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert MapSet.member?(result.claimed, issue.id)
     end
 
-    # The live route leaves a Refs-only merge open, marked for triage.
-    test "a merged PR whose body only refs the ticket leaves it open and never closes it" do
+    # The live route defers Refs-only triage to the poll reconciler.
+    test "a merged PR whose body only refs the ticket does not write triage twice" do
       issue = %Issue{
         id: "issue-refs-only",
         identifier: "176",
@@ -1371,7 +1371,6 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
             send(parent, {:transition, identifier, state_name})
             :ok
           end,
-          non_closing_merge_marker: "needs-triage",
           add_label_fun: fn identifier, label ->
             send(parent, {:label, identifier, label})
             :ok
@@ -1398,9 +1397,9 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           end
         )
 
-      assert_receive {:label, "176", "needs-triage"}, 1000
-      assert_receive {:transition, "176", "human-review"}, 1000
-      assert_receive {:triage_comment, "176", _body}, 1000
+      refute_receive {:label, "176", _label}, 100
+      refute_receive {:transition, "176", _state}, 100
+      refute_receive {:triage_comment, "176", _body}, 100
       refute_receive {:transition, "176", "done"}, 100
       refute_receive :membership_recorded, 100
       refute_receive :session_cleared, 100

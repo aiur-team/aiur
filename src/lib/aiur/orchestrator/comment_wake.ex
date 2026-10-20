@@ -175,12 +175,8 @@ defmodule Aiur.Orchestrator.CommentWake do
     :ok
   end
 
-  # The state a merged-PR ticket should land in. Callers that already ran
-  # `MergedTicketReconciler.merged_ticket_target/2` pass the decided
-  # `:target_state` (the reconciler does, so its terminal path does not
-  # re-enumerate the open-PR listing); everyone else — the live webhook route —
-  # computes it here so no path can write `done` without first checking that the
-  # merged PR actually claimed to close the ticket, and then that no other open PR remains.
+  # Reuse the reconciler's target when available; the webhook computes one only
+  # after checking the closing keyword and remaining open PRs.
   @spec merged_issue_target_state(String.t() | integer(), keyword()) :: String.t() | {:error, term()}
   def merged_issue_target_state(identifier, opts) do
     case Keyword.get(opts, :target_state) do
@@ -203,8 +199,6 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  # Does the merged PR's body actually claim to close this ticket?
-  #
   # The live merged route resolves its ticket from the `aiur/<id>-<slug>` head
   # branch, which says only that the PR belongs to the ticket — not that it
   # completes it. A PR body deliberately written `Refs #176 (merge does not
@@ -1696,9 +1690,13 @@ defmodule Aiur.Orchestrator.CommentWake do
       )
 
     {target, result} =
-      target
-      |> then(&MergeTransition.write_terminal_target(&1, identifier, update_issue_state_fun, opts))
-      |> then(&MergeTransition.normalize({target, &1}))
+      if target == @non_closing_merge_state do
+        {target, :ok}
+      else
+        target
+        |> then(&MergeTransition.write_terminal_target(&1, identifier, update_issue_state_fun, opts))
+        |> then(&MergeTransition.normalize({target, &1}))
+      end
 
     result = if target == "done", do: Alerts.StaleNotClosed.resolve_on_ok(result, identifier), else: result
 
