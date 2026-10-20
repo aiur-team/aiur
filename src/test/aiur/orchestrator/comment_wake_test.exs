@@ -79,17 +79,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     end
   end
 
-  # #1756: a CHANGES_REQUESTED review whose findings were addressed keeps
-  # reading CHANGES_REQUESTED forever, so routing on it deadlocks the ticket in
-  # `agent:rework`. The fixture is the real shape — the review predates the head
-  # commit that fixed it. A skipped transition never touches the tracker, so
-  # these assert both the reason and that `Tracker.update_issue_state` is not
-  # reached (an unset tracker would fail loudly otherwise).
-  #
-  # #1971: the gate resolves the idle issue's current state first and only routes
-  # a comment to rework when the ticket carries an `agent:*` state label. These
-  # fixtures inject an `issue_state_fetcher` returning a *labelled* issue so the
-  # review-freshness rules (not the unlabelled gate) are the thing under test.
+  # #1756/#1971: these fixtures cover addressed findings and require a labelled
+  # ticket before the freshness gate routes a comment to rework.
   describe "maybe_transition_idle_issue_to_rework/5 review-freshness gate" do
     @head_committed_at "2026-08-10T04:29:00Z"
     @stale_submitted_at "2026-08-08T21:15:00Z"
