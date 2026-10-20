@@ -32,7 +32,7 @@ defmodule Aiur.AlertsCLI do
   defp parse(_, _), do: {:error, @usage}
 
   # Open attention items are never cut: only the other history rows are capped.
-  @spec run(keyword()) :: 0 | 64
+  @spec run(keyword()) :: 0 | 1 | 64
   def run(argv: argv) do
     case parse(argv) do
       {:ok, opts} ->
