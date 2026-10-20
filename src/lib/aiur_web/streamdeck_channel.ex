@@ -57,7 +57,13 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_in("focus", _payload, socket), do: {:reply, {:error, %{reason: "invalid_identifier"}}, socket}
 
   def handle_in("unfocus", _payload, socket) do
-    {:reply, {:ok, %{"focused" => nil}}, socket |> stop_voice_session() |> unsubscribe_focused()}
+    socket =
+      socket
+      |> stop_voice_session()
+      |> unsubscribe_focused()
+      |> assign(focused_agent: nil, focus_token: nil)
+
+    {:reply, {:ok, %{"focused" => nil}}, socket}
   end
 
   @doc """

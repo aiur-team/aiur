@@ -27,7 +27,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       {:reply, GenServer.call(delegate, request), state}
     end
 
-    def handle_call(request, _from, {delegate, _delay_ms} = state), do: {:reply, GenServer.call(delegate, request), state}
+    def handle_call(request, _from, {delegate, _report_pid} = state), do: {:reply, GenServer.call(delegate, request), state}
   end
 
   describe "Commands" do
