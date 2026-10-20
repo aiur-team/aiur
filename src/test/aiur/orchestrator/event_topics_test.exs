@@ -288,6 +288,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
         topic: "ticket.176.pr.merged",
         pr: %{
           "body" => "Refs #176 (merge does not close the ticket)",
+          "html_url" => "https://github.com/aiur-team/aiur/pull/176",
           "merged_by" => %{"login" => "its-everdred"},
           "head" => %{"sha" => "4ab677b8b"}
         }
@@ -296,6 +297,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.pr_merged_opts(event) == [
                merged_by_login: "its-everdred",
                pr_body: "Refs #176 (merge does not close the ticket)",
+               pr_url: "https://github.com/aiur-team/aiur/pull/176",
                head_sha: "4ab677b8b"
              ]
     end
@@ -304,12 +306,14 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged"}) == [
                merged_by_login: nil,
                pr_body: nil,
+               pr_url: nil,
                head_sha: nil
              ]
 
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged", pr: nil}) == [
                merged_by_login: nil,
                pr_body: nil,
+               pr_url: nil,
                head_sha: nil
              ]
     end

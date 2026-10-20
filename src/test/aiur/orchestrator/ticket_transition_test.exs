@@ -126,6 +126,12 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
     assert_received {[:aiur, :ticket_transition], _, %{action: :add, outcome: :unknown}}
   end
 
+  test "write_comment attributes the comment to its lifecycle writer" do
+    assert :ok = TicketTransition.write_comment("7", "triage note", writer: :merged_ticket_reconciler, identifier: "T-7")
+    assert_received {:memory_tracker_comment, "7", "triage note"}
+    assert_received {[:aiur, :ticket_transition], %{}, %{issue_id: "7", identifier: "T-7", action: :comment, to: "triage note", writer: :merged_ticket_reconciler, outcome: :ok}}
+  end
+
   test "writer is required before adapter IO" do
     assert_raise KeyError, fn -> TicketTransition.write_state("7", "todo", []) end
     assert_raise MatchError, fn -> TicketTransition.write_marker("7", :add, "agent:paused", writer: "cli") end
