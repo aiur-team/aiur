@@ -20,8 +20,8 @@ defmodule Aiur.GitHub.Issues do
 
   alias Aiur.GitHub.Issues.DispatchAuthorization
   alias Aiur.Orchestrator.DispatchPolicy
-
-  @max_issue_response_bytes 65_536
+  # 64 KiB body plus bounded JSON metadata.
+  @max_issue_response_bytes 131_072
   # The open-issue list (`issues?state=open&per_page=100`) can be an order of
   # magnitude larger than any single issue: 44+ open issues plus their labels,
   # assignees, and bodies measured ~390 KiB (#2140), and a backlog whose ticket
