@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.DurationCapReleaseTest do
 
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DurationCapRelease, DurationCapRetryStore, PauseResume, State}
+  alias Aiur.Orchestrator.{AgentTeardown, DurationCapRelease, DurationCapRetryStore, PauseResume, State}
 
   setup do
     previous = Application.get_env(:aiur, :duration_cap_release_opts)
@@ -66,6 +66,15 @@ defmodule Aiur.Orchestrator.DurationCapReleaseTest do
     assert_received {:redispatch, "4849", 1}
     assert_received {:retry_recorded, "issue-4849"}
     assert_received {:alert, "ticket.4849.agent.attention.paused-max_agent_duration.resolved"}
+  end
+
+  test "teardown succeeds when the optional ActiveTurns table is missing" do
+    assert is_pid(Process.whereis(Aiur.Opencode.ActiveTurns))
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Opencode.ActiveTurns)
+
+    assert :ok = AgentTeardown.close_active_chat_streams("issue-4849", :terminal)
+  after
+    assert {:ok, _owner} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Opencode.ActiveTurns)
   end
 
   test "a sent startup digest detects a later workspace commit and redispatches" do
