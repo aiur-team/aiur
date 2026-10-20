@@ -7,6 +7,7 @@ defmodule Aiur.AgentRunner.HandoffTest do
   alias Aiur.AgentRunner.SessionCleanup
   alias Aiur.AppServer.{Adapter, Transport, TurnLoop}
   alias Aiur.AppServer.RelayPort
+  alias Aiur.Claude.Telemetry
   alias Aiur.Handoff.Fallback
 
   @tag :tmp_dir
@@ -117,6 +118,32 @@ defmodule Aiur.AgentRunner.HandoffTest do
     assert record["transport"]["kind"] == "unsupported"
     Handoff.abort(runner)
     assert_receive {:next_turn, ^session}, 1_000
+  end
+
+  test "session cleanup revokes its prepared launch telemetry" do
+    baseline = Telemetry.health().active_generations
+
+    {:ok, tracker_identity} =
+      Aiur.TrackerIdentity.from_github(
+        %{"node_id" => "I_kwDOCleanup", "number" => 5182},
+        {"owner", "repo"},
+        {"owner", "repo"}
+      )
+
+    issue = %Aiur.Issue{id: "5182", identifier: "5182", tracker_identity: tracker_identity}
+
+    assert {:ok, launch} =
+             Telemetry.prepare_launch(issue,
+               backend: "claude",
+               attempt_id: "cleanup-test",
+               workspace_ownership: %{generation: System.unique_integer([:positive])}
+             )
+
+    session = %{backend: "claude", telemetry_launch: launch}
+
+    assert Telemetry.health().active_generations == baseline + 1
+    assert :ok = SessionCleanup.stop(session, nil, fn _session -> :ok end)
+    assert Telemetry.health().active_generations == baseline
   end
 
   test "direct transport preflight abort releases the live runner without closing its provider" do
