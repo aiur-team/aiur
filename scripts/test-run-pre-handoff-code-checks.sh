@@ -25,6 +25,10 @@ cat > "$tmp/bin/mix" <<'MIX'
 case "$*" in
   "aiur.affected_tests "*)
     printf 'selector:%s\n' "${AIUR_CI_CHANGED_PATHS_B64:-}" >> "$COMMAND_LOG"
+    if [[ "$CHANGED_PATHS" == *empty-support* ]]; then
+      printf '%s\n' '# no affected test files detected for the documentation-only change'
+      exit 0
+    fi
     if [[ "$CHANGED_PATHS" == *src/test/support/test_support.exs ]]; then
       printf 'cd src && mise exec -- mix test --max-cases 4 test/consumer_a_test.exs test/consumer_b_test.exs\n'
       exit 0
@@ -35,7 +39,7 @@ case "$*" in
     fi
     if [[ "$CHANGED_PATHS" == *overcap* ]]; then
       printf 'cd src && mise exec -- mix test --max-cases 4'
-      printf ' test/aiur/over_%s_test.exs' $(seq 301)
+      printf ' test/aiur/over_%s_test.exs' $(seq 401)
       printf '\n'
       exit 0
     fi
@@ -70,9 +74,16 @@ exec "$@"
 MISE
 cat > "$tmp/bin/make" <<'MAKE'
 #!/usr/bin/env bash
-[[ "$*" == "ci" ]] || exit 93
-printf 'make-ci\n' >> "$COMMAND_LOG"
-[[ "${FAIL_FULL_CI:-}" != true ]]
+if [[ "$*" == "ci" ]]; then
+  printf 'make-ci\n' >> "$COMMAND_LOG"
+  [[ "${FAIL_FULL_CI:-}" != true ]]
+elif [[ "$*" == "-C "*" coverage-partition" ]]; then
+  printf 'partition:%s/4\n' "$MIX_TEST_PARTITION" >> "$COMMAND_LOG"
+  [[ "${FAIL_PARTITION:-}" != "$MIX_TEST_PARTITION" ]]
+else
+  echo "unexpected make args: $*" >&2
+  exit 93
+fi
 MAKE
 cat > "$tmp/bin/timeout" <<'TIMEOUT'
 #!/usr/bin/env bash
@@ -81,7 +92,14 @@ printf 'timeout:%s\n' "$*" >> "$COMMAND_LOG"
 shift 3
 exec "$@"
 TIMEOUT
-chmod +x "$tmp/bin/git" "$tmp/bin/mix" "$tmp/bin/mise" "$tmp/bin/make" "$tmp/bin/timeout" "$fixture/scripts/run-pre-handoff-code-checks.sh"
+cat > "$tmp/bin/nice" <<'NICE'
+#!/usr/bin/env bash
+[[ "$1 $2" == "-n 10" ]] || exit 95
+printf 'nice:%s\n' "$*" >> "$COMMAND_LOG"
+shift 2
+exec "$@"
+NICE
+chmod +x "$tmp/bin/git" "$tmp/bin/mix" "$tmp/bin/mise" "$tmp/bin/make" "$tmp/bin/timeout" "$tmp/bin/nice" "$fixture/scripts/run-pre-handoff-code-checks.sh"
 
 base="$(printf 'a%.0s' {1..40})"
 head="$(printf 'b%.0s' {1..40})"
@@ -108,7 +126,7 @@ if grep -F 'subsystem_test.exs' "$tmp/failing_test.commands" >/dev/null; then
   echo 'test-run-pre-handoff-code-checks: selector added subsystem-wide files outside mix aiur.affected_tests' >&2
   exit 1
 fi
-grep -F 'timeout:--signal=TERM --kill-after=60s 60m mise exec -- mix test --max-cases 4 test/aiur/foo test.exs' "$tmp/failing_test.commands" >/dev/null
+grep -F 'nice:-n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- mix test --max-cases 4 test/aiur/foo test.exs' "$tmp/failing_test.commands" >/dev/null
 encoded_paths="$(grep '^selector:' "$tmp/failing_test.commands" | cut -d: -f2-)"
 decoded_paths="$(printf '%s' "$encoded_paths" | base64 --decode)"
 [[ "$decoded_paths" == '["src/lib/aiur/github/foo.ex"]' ]]
@@ -139,7 +157,7 @@ if ! run_check passing src/lib/aiur/github/foo.ex false false; then
   exit 1
 fi
 
-# Unsafe selections still defer to the merge queue; large scoped selections run locally.
+# Unsafe selections use CI partitions; large scoped selections also use partitions.
 assert_deferred() {
   local name="$1" notice="$2"
   if grep -E 'make-ci|^test:' "$tmp/$name.commands" >/dev/null; then
@@ -158,15 +176,17 @@ if ! run_check full_suite src/test/support/factory.ex false false "" true; then
   echo 'test-run-pre-handoff-code-checks: full-suite selection refused handoff' >&2
   exit 1
 fi
-assert_deferred full_suite 'full suite recommended (shared test support changed)'
+[[ "$(grep -c '^partition:' "$tmp/full_suite.commands")" == 4 ]]
+grep -F 'full selection (shared test support changed)' "$tmp/full_suite.log" >/dev/null
+grep -F 'all 4 CI coverage partitions' "$tmp/full_suite.log" >/dev/null
 
 if ! run_check over_cap src/lib/aiur/overcap.ex false false; then
   cat "$tmp/over_cap.log" >&2
   echo 'test-run-pre-handoff-code-checks: over-cap selection refused handoff' >&2
   exit 1
 fi
-grep -F 'running selected tests (301 files)' "$tmp/over_cap.log" >/dev/null
-grep -F 'mix test --max-cases 4' "$tmp/over_cap.commands" >/dev/null
+grep -F '401 affected files exceed the 400-file worker limit' "$tmp/over_cap.log" >/dev/null
+[[ "$(grep -c '^partition:' "$tmp/over_cap.commands")" == 4 ]]
 grep -Fx 'timeout:--signal=TERM --kill-after=60s 15m mise exec -- mix dialyzer' "$tmp/over_cap.commands" >/dev/null
 
 if ! run_check shared_support src/test/support/test_support.exs false false; then
@@ -177,6 +197,13 @@ fi
 grep -F 'consumer_a_test.exs' "$tmp/shared_support.commands" >/dev/null
 grep -F 'consumer_b_test.exs' "$tmp/shared_support.commands" >/dev/null
 grep -F 'selected 2 test files' "$tmp/shared_support.log" >/dev/null
+grep -F 'nice:-n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- mix test --max-cases 4 test/consumer_a_test.exs test/consumer_b_test.exs' "$tmp/shared_support.commands" >/dev/null
+
+if run_check empty_shared_support src/test/support/empty-support.exs false false; then
+  echo 'test-run-pre-handoff-code-checks: shared-support change with no selected tests must refuse handoff' >&2
+  exit 1
+fi
+grep -F 'shared test-support change selected no tests; refusing handoff' "$tmp/empty_shared_support.log" >/dev/null
 
 if ! run_check script_only scripts/run-pre-handoff-code-checks.sh false false; then
   cat "$tmp/script_only.log" >&2

@@ -79,11 +79,51 @@ defmodule Mix.Tasks.Aiur.AffectedTests.SupportSelectionTest do
     File.mkdir_p!(Path.dirname(Path.join(root, support)))
     File.mkdir_p!(Path.dirname(Path.join(root, consumer)))
     File.write!(Path.join(root, support), "defmodule Aiur.TestSupport do\nend\n")
-    File.write!(Path.join(root, consumer), "defmodule ConsumerTest do\n  use Aiur.TestSupport\nend\n")
-    File.write!(Path.join(root, unrelated), "defmodule UnrelatedTest do\n  use ExUnit.Case\nend\n")
+
+    File.write!(
+      Path.join(root, consumer),
+      "defmodule ConsumerTest do\n  use Aiur.TestSupport\nend\n"
+    )
+
+    File.write!(
+      Path.join(root, unrelated),
+      "defmodule UnrelatedTest do\n  use ExUnit.Case\nend\n"
+    )
 
     try do
       assert AffectedTests.support_test_files(root, [support]) == [consumer]
+    after
+      Aiur.TestCleanup.rm_rf!(root)
+    end
+  end
+
+  test "support dependency closure finds qualified calls through another support module" do
+    root = Aiur.TestSupport.tmp_root!("affected-support-closure")
+    changed = "src/test/support/test_support/orchestrator_guard.exs"
+    dependent = "src/test/support/test_support.exs"
+    consumer = "src/test/qualified_consumer_test.exs"
+
+    Enum.each([changed, dependent, consumer], fn path ->
+      File.mkdir_p!(Path.dirname(Path.join(root, path)))
+    end)
+
+    File.write!(
+      Path.join(root, changed),
+      "defmodule Aiur.TestSupport.OrchestratorGuard do\nend\n"
+    )
+
+    File.write!(
+      Path.join(root, dependent),
+      "defmodule Aiur.TestSupport do\n  alias Aiur.TestSupport.OrchestratorGuard\nend\n"
+    )
+
+    File.write!(
+      Path.join(root, consumer),
+      "defmodule QualifiedConsumerTest do\n  Aiur.TestSupport.verify!()\nend\n"
+    )
+
+    try do
+      assert AffectedTests.support_test_files(root, [changed]) == [consumer]
     after
       Aiur.TestCleanup.rm_rf!(root)
     end
@@ -195,6 +235,40 @@ defmodule Mix.Tasks.Aiur.AffectedTests.XrefSelectionTest do
 
         assert length(selected_tests) > 400, "#{pr} should remain a large scoped selection"
       end)
+    after
+      if original_paths,
+        do: System.put_env("AIUR_CI_CHANGED_PATHS_B64", original_paths),
+        else: System.delete_env("AIUR_CI_CHANGED_PATHS_B64")
+
+      if original_event_name,
+        do: System.put_env("GITHUB_EVENT_NAME", original_event_name),
+        else: System.delete_env("GITHUB_EVENT_NAME")
+    end
+  end
+
+  test "selection unions shared-support consumers with source and changed-test selections" do
+    root = File.cwd!() |> Path.dirname()
+    original_paths = System.get_env("AIUR_CI_CHANGED_PATHS_B64")
+    original_event_name = System.get_env("GITHUB_EVENT_NAME")
+
+    try do
+      System.delete_env("GITHUB_EVENT_NAME")
+
+      for changed <- [
+            ["src/test/support/test_support.exs"],
+            ["src/lib/aiur/events/event_topics.ex", "src/test/support/test_support.exs"]
+          ] do
+        System.put_env("AIUR_CI_CHANGED_PATHS_B64", Base.encode64(Jason.encode!(changed)))
+
+        assert {:ok, {:scoped, selected}, _candidates, _fallback, ^changed} =
+                 AffectedTests.selection_details(root, "HEAD")
+
+        assert Enum.any?(selected, &String.ends_with?(&1, "/test_support_test.exs"))
+
+        if "src/lib/aiur/events/event_topics.ex" in changed do
+          assert "src/test/aiur/orchestrator/event_topics_test.exs" in selected
+        end
+      end
     after
       if original_paths,
         do: System.put_env("AIUR_CI_CHANGED_PATHS_B64", original_paths),

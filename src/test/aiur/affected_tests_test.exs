@@ -51,9 +51,9 @@ defmodule Aiur.AffectedTestsTest do
              {:scoped, []}
   end
 
-  test "forces the full suite for shared test support" do
-    assert {:full, _} = AffectedTests.select(["src/test/test_helper.exs"], all_exist())
-    assert {:full, _} = AffectedTests.select(["src/test/support/factory.ex"], all_exist())
+  test "leaves shared support expansion to the Mix selector" do
+    assert {:scoped, []} = AffectedTests.select(["src/test/test_helper.exs"], all_exist())
+    assert {:scoped, []} = AffectedTests.select(["src/test/support/factory.ex"], all_exist())
   end
 
   test "maps xref-dependent sources when a changed module has no sibling test" do

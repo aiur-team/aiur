@@ -79,7 +79,10 @@ defmodule Aiur.AffectedTests do
       |> Enum.filter(exists?)
 
     changed_directory_tests = changed_directory_tests(base, changed, exists?) |> Enum.uniq()
-    caller_directory_tests = changed_directory_tests(base, dependent_sources, exists?) |> Enum.uniq()
+
+    caller_directory_tests =
+      changed_directory_tests(base, dependent_sources, exists?) |> Enum.uniq()
+
     tests = Enum.uniq(exact_tests ++ changed_directory_tests ++ caller_directory_tests)
 
     fallback_tests = Enum.uniq(exact_tests ++ changed_directory_tests)
@@ -208,6 +211,7 @@ defmodule Aiur.AffectedTests do
   defp recognized?(path) do
     library_source?(path) or
       (String.starts_with?(path, "src/test/") and String.ends_with?(path, "_test.exs")) or
+      String.starts_with?(path, "src/test/support/") or path == "src/test/test_helper.exs" or
       ignorable?(path) or
       forces_full?(path)
   end
@@ -225,7 +229,6 @@ defmodule Aiur.AffectedTests do
       String.ends_with?(path, "mix.exs") or
       String.ends_with?(path, "mix.lock") or
       String.starts_with?(path, "src/config/") or
-      String.starts_with?(path, "config/") or
-      (String.starts_with?(path, "src/test/") and not String.ends_with?(path, "_test.exs"))
+      String.starts_with?(path, "config/")
   end
 end
