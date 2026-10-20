@@ -77,9 +77,8 @@ defmodule Aiur.GitHub.TransportAuthDiagnosticTest do
     refute log =~ token
   end
 
-  test "an unregistered request credential is identified before quota observation" do
-    primary = %Credential{id: "primary", kind: :machine_user, token_env: "GITHUB_TOKEN", primary?: true, writes?: true}
-    Application.put_env(:aiur, @selector_options_key, credentials: [primary])
+  test "an unresolved token does not imply a non-primary quota identity" do
+    Application.put_env(:aiur, @selector_options_key, credentials: [])
 
     request = %{
       method: :get,
@@ -88,7 +87,8 @@ defmodule Aiur.GitHub.TransportAuthDiagnosticTest do
       token: "readiness-token"
     }
 
-    assert %{credential_id: "unregistered"} = AuthDiagnostic.run(request, & &1)
+    assert result = AuthDiagnostic.run(request, & &1)
+    refute Map.has_key?(result, :credential_id)
   end
 
   test "401 class follows the selected credential when the configured source is env" do
