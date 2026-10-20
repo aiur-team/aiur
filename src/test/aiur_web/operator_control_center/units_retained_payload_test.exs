@@ -20,7 +20,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
   defp start_endpoint(overrides, cache_opts \\ []) do
     previous = Application.fetch_env(:aiur, Endpoint)
     {:ok, clock} = Agent.start_link(fn -> 0 end)
-    cache = start_supervised!({ControlCenterCache, [name: nil, clock: fn -> Agent.get(clock, & &1) end] ++ cache_opts})
+    cache_opts = Keyword.merge([name: nil, clock: fn -> Agent.get(clock, & &1) end], cache_opts)
+    cache = start_supervised!({ControlCenterCache, cache_opts})
 
     config =
       Application.get_env(:aiur, Endpoint, [])
@@ -99,10 +100,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
 
   test "the cache keeps an unobserved stale fleet loading only until the boot deadline" do
     boot = :atomics.new(1, [])
+    cache_clock = :atomics.new(1, [])
     :atomics.put(boot, 1, 0)
+    :atomics.put(cache_clock, 1, 0)
 
     start_endpoint(
       [units_fleet_fun: fn -> %{error: %{code: "snapshot_timeout", message: "Fleet snapshot timed out."}} end],
+      clock: fn -> :atomics.get(cache_clock, 1) end,
       boot_elapsed_ms: fn -> :atomics.get(boot, 1) end,
       startup_observation_timeout_ms: 100
     )
@@ -111,6 +115,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
     assert pending.units.status == :loading
     assert pending.units.message == "The daemon is starting."
     assert UnitsPresenter.project(pending.units, nil).count_status == :loading
+
+    :atomics.put(cache_clock, 1, 100_000)
+    assert PayloadLoader.load(:fresh).units.status == :loading
 
     :atomics.put(boot, 1, 100)
     unavailable = PayloadLoader.load(:fresh)
