@@ -10,8 +10,19 @@ defmodule Aiur.ProviderMeterProjectionTest do
     name = :"projection_#{System.unique_integer([:positive])}"
     # No PubSub subscription: the tests deliver observations directly so they
     # do not need the app's PubSub running.
-    {:ok, pid} = ProviderMeterProjection.start_link(name: name, subscribe?: false, clock: fn -> @now end)
+    pid =
+      start_supervised!(
+        {ProviderMeterProjection, name: name, subscribe?: false, clock: fn -> @now end},
+        id: name
+      )
+
     %{projection: name, pid: pid}
+  end
+
+  test "the projection is not linked to the test process", %{pid: pid} do
+    {:links, links} = Process.info(self(), :links)
+
+    refute pid in links
   end
 
   test "a provider with no observation reads as unknown, not as zero", %{projection: projection} do
