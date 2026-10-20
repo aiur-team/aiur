@@ -96,15 +96,18 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     assert Agent.get(Boundary, & &1.closure_reads) == ["9"]
   end
 
-  test "batch add gives every ID the same first-observation verdict", %{server: pid} do
-    # This server-side rejection already exists; keep both orders covered as a guard against CLI batching bypassing it.
+  test "same-command anchor add gets the same first-observation verdict in either order", %{server: pid} do
+    # Regression guard: the CLI must send either order through the server's mutation gate.
     state = :sys.get_state(pid)
     :sys.replace_state(pid, &%{&1 | phase: :awaiting_first_observation})
 
-    for ids <- [["1", "2"], ["2", "1"]] do
-      assert {:ok, results} = MutationCLI.execute(verb: :add, ids: ids, queue: "e2e", after: "9", server: pid)
-      assert Enum.map(results, &elem(&1, 1)) == [{:error, :awaiting_first_observation}, {:error, :awaiting_first_observation}]
-    end
+    verdicts =
+      for ids <- [["1", "2"], ["2", "1"]] do
+        assert {:ok, results} = MutationCLI.execute(verb: :add, ids: ids, queue: "e2e", after: "9", server: pid)
+        Enum.map(results, &elem(&1, 1))
+      end
+
+    assert verdicts == List.duplicate([{:error, :awaiting_first_observation}, {:error, :awaiting_first_observation}], 2)
 
     assert document() == @empty
     :sys.replace_state(pid, fn current -> %{current | phase: state.phase} end)
@@ -124,6 +127,14 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     assert output =~ "#1: already in queue paseo"
     assert output =~ "#2: ok"
     assert Enum.map(document().items, & &1.issue_id) == ["1", "2"]
+  end
+
+  test "same-command batch reports only the queued ID as the cause of atomic refusal", %{server: pid} do
+    run(pid, :add, ids: ["1"], queue: "paseo")
+    output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["1", "2"], queue: "other", after: "1", server: pid) == 1 end)
+    assert output =~ "#1: already in queue paseo"
+    assert output =~ "#2: not applied because another ID in this all-or-nothing batch was refused"
+    assert Enum.map(document().items, & &1.issue_id) == ["1"]
   end
 
   test "add reports an unobserved but closed issue closed and does not queue it", %{server: pid} do

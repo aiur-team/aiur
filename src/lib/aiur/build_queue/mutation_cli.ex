@@ -118,10 +118,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   end
 
   defp dispatch(:add, opts) do
-    case server_phase(opts) do
-      :awaiting_first_observation -> {:ok, Enum.map(opts[:ids], &{"##{&1}", {:error, :awaiting_first_observation}})}
-      _ -> if(opts[:after] in opts[:ids], do: dispatch_add_batch(opts), else: dispatch_add_ids(opts))
-    end
+    if(opts[:after] in opts[:ids], do: dispatch_add_batch(opts), else: dispatch_add_ids(opts))
   end
 
   defp dispatch(:order, opts), do: {:ok, [{opts[:queue], call({:mutate, {:order, opts[:queue], opts[:to]}}, opts)}]}
@@ -155,24 +152,32 @@ defmodule Aiur.BuildQueue.MutationCLI do
     options = if Keyword.has_key?(opts, :start_on), do: Keyword.put(options, :start_trigger, opts[:start_on]), else: options
 
     case call({:mutate, {:add, opts[:ids], options}}, opts) do
-      {:ok, {:not_observed, ids}} -> {:ok, Enum.map(opts[:ids], fn id -> {"##{id}", if(id in ids, do: {:ok, {:not_observed, [id]}}, else: :ok)} end)}
-      result -> {:ok, Enum.map(opts[:ids], &{"##{&1}", result})}
-    end
-  end
+      {:ok, {:not_observed, ids}} ->
+        {:ok, Enum.map(opts[:ids], fn id -> {"##{id}", if(id in ids, do: {:ok, {:not_observed, [id]}}, else: :ok)} end)}
 
-  defp server_phase(opts) do
-    case :sys.get_state(server(opts)) do
-      %{status: :running, phase: phase} -> phase
-      _ -> :unavailable
+      {:error, {:already_queued, _queue}} = result ->
+        queued_ids = queued_ids(server(opts), opts[:ids])
+        {:ok, Enum.map(opts[:ids], fn candidate -> {"##{candidate}", if(candidate in queued_ids, do: result, else: {:error, :batch_aborted})} end)}
+
+      result ->
+        {:ok, Enum.map(opts[:ids], &{"##{&1}", result})}
     end
-  catch
-    :exit, _ -> :unavailable
   end
 
   defp inserted?(:ok), do: true
   defp inserted?({:ok, {:not_observed, ids}}) when is_list(ids), do: true
   defp inserted?({:error, {:marker_write_failed, _}}), do: true
   defp inserted?(_), do: false
+
+  defp queued_ids(server, ids) do
+    case BuildQueue.show(server) do
+      %{queues: queues} ->
+        for queue <- queues, item <- queue.items, "#{item.number}" in ids, do: "#{item.number}"
+
+      _ ->
+        []
+    end
+  end
 
   defp successful?({_id, :ok}), do: true
   defp successful?({_id, {:ok, {:not_observed, ids}}}) when is_list(ids), do: true
@@ -217,6 +222,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp message({:error, :invalid_start_trigger}), do: "--start-on must be one of: #{Enum.join(Aiur.StartTrigger.triggers(), ", ")} (set also accepts default)"
   defp message({:error, :trigger_mismatch}), do: "queue has a different start trigger; use queue set NAME --start-on TRIGGER"
   defp message({:error, :anchor_not_in_queue}), do: "--after anchor is not in this queue (add it in the same command or choose a queue member)"
+  defp message({:error, :batch_aborted}), do: "not applied because another ID in this all-or-nothing batch was refused"
   defp message(:ok), do: "ok"
   defp message({:error, {:already_queued, name}}), do: "already in queue #{name}"
   defp message({:error, :agent_workspace}), do: "blocked in agent workspace"
