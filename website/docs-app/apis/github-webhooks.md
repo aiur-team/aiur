@@ -85,13 +85,13 @@ The webhook shortens reaction time for repository events while polling continues
 | Content type | `application/json` |
 | Secret | The same strong value exported as `AIUR_GITHUB_WEBHOOK_SECRET` to Aiur. |
 | Signature | GitHub `X-Hub-Signature-256`, HMAC-SHA256 over the raw request body. |
-| Events | `issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, `check_run`, and `check_suite`. |
+| Events | `issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, `check_run`, `check_suite`, `push`, `branch_protection_rule`, `repository_ruleset`, and `repository`. |
 
 The hostname is yours to choose — `hooks.aiur.dev` is this operator's setup, not a requirement. Without a domain, a quick tunnel (`cloudflared tunnel --url`) exposes the daemon on a temporary public URL, fine for a single session.
 
 `POST /api/v1/github/webhook` has no configuration keys and no bearer credential, authenticates every delivery by its `X-Hub-Signature-256` digest, and fails closed.
 
-Select every event listed above so a `pull_request_review_thread` delivery reconciles resolved or reopened threads immediately while the scheduled comment sweep remains the loss-recovery path.
+Select every event listed above so a `pull_request_review_thread` delivery reconciles resolved or reopened threads immediately while the scheduled comment sweep remains the loss-recovery path. The `push`, `branch_protection_rule`, `repository_ruleset`, and `repository` events also retire cached repository configuration promptly; without those deliveries, Aiur keeps that cache on its five-minute polling TTL even when other webhook events are flowing. The daemon does not change a live hook's subscription.
 
 | Delivery | Result |
 | --- | --- |

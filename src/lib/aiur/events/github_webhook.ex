@@ -69,6 +69,7 @@ defmodule Aiur.Events.GithubWebhook do
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator
   alias Aiur.Webhooks
+  alias Aiur.Webhooks.ModeTable
 
   @min_reconcile_debounce_ms 2_000
 
@@ -165,6 +166,7 @@ defmodule Aiur.Events.GithubWebhook do
     case Normalizer.tracked_repo(payload, opts) do
       {:ok, repo} ->
         Webhooks.record_delivery(repo, Keyword.take(opts, [:at, :server]))
+        ModeTable.record_config_event(repo, event_type)
         Deposit.deposit(event_type, payload, repo, Keyword.take(opts, [:at, :delivery_id]))
         :ok
 

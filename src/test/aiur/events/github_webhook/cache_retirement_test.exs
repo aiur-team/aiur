@@ -47,6 +47,17 @@ defmodule Aiur.Events.GithubWebhook.CacheRetirementTest do
     assert ^second = ReadCache.through(request, fn -> second end)
   end
 
+  test "push to tracker base branch retires repo config" do
+    request = %{method: :get, url: "https://api.github.com/repos/aiur-team/aiur/branches/main/protection", caller: "ci_required_checks"}
+    first = {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["old"]}}}}
+    second = {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["new"]}}}}
+    assert ^first = ReadCache.through(request, fn -> first end)
+
+    base_push = %{"ref" => "refs/heads/" <> TrackerSettings.base_branch()}
+    assert :ok = CacheRetirement.invalidate_read_cache("push", base_push, "aiur-team/aiur")
+    assert ^second = ReadCache.through(request, fn -> second end)
+  end
+
   defp await_read_cache(attempts \\ 100)
 
   defp await_read_cache(attempts) do

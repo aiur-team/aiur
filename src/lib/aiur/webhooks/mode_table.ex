@@ -13,10 +13,11 @@ defmodule Aiur.Webhooks.ModeTable do
   exists to be shorter, not to wait on a mailbox that may be servicing a
   sweep.
 
-  This table is where `ModeRegistry` publishes the current mode of every repo
-  it knows, and where the policy reads it back. Writes land in ETS from the
-  registry's own process; reads land in ETS from the request's process, exactly
-  like `ReadCache`'s own tables.
+  The delivery mode and config-event coverage live in two ETS tables. The
+  registry publishes mode changes, and the verified receiver marks event
+  families it has actually observed; the policy reads both tables without a
+  process hop. Reads run in the request process, exactly like `ReadCache`'s
+  own tables.
 
   ## Failing safe
 
@@ -31,6 +32,8 @@ defmodule Aiur.Webhooks.ModeTable do
   alias Aiur.Webhooks.DeliveryMode
 
   @table :aiur_webhook_delivery_modes
+  @config_events_table :aiur_webhook_repo_config_events
+  @config_events ~w(push branch_protection_rule repository_ruleset repository)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -40,6 +43,7 @@ defmodule Aiur.Webhooks.ModeTable do
   @impl true
   def init(opts) do
     :ets.new(Keyword.get(opts, :table, @table), [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
+    :ets.new(@config_events_table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
     {:ok, %{}}
   end
 
@@ -56,6 +60,26 @@ defmodule Aiur.Webhooks.ModeTable do
   @spec put(String.t(), DeliveryMode.t()) :: :ok
   def put(repo, %DeliveryMode{} = mode) do
     with_table(:ok, fn table -> :ets.insert(table, {normalize(repo), mode}) end)
+  end
+
+  @doc "Records whether a verified delivery includes a repository-config retirement event."
+  @spec record_config_event(String.t(), String.t()) :: :ok
+  def record_config_event(repo, event) when event in @config_events do
+    with_table(:ok, fn table -> :ets.insert(table, {normalize(repo), true}) end, @config_events_table)
+  end
+
+  def record_config_event(_repo, _event), do: :ok
+
+  @doc "Whether a verified config-retiring delivery has been observed for this repository."
+  @spec config_events?(String.t()) :: boolean()
+  def config_events?(repo) do
+    with_table(false, fn table -> :ets.member(table, normalize(repo)) end, @config_events_table)
+  end
+
+  @doc "Removes observed config-event coverage for `repo`. Test seam."
+  @spec delete_config_events(String.t()) :: :ok
+  def delete_config_events(repo) do
+    with_table(:ok, fn table -> :ets.delete(table, normalize(repo)) end, @config_events_table)
   end
 
   @doc """
@@ -96,8 +120,8 @@ defmodule Aiur.Webhooks.ModeTable do
   defp normalize(repo) when is_binary(repo), do: repo |> String.trim() |> String.downcase()
   defp normalize(_repo), do: ""
 
-  defp with_table(fallback, fun) do
-    case :ets.whereis(@table) do
+  defp with_table(fallback, fun, table_name \\ @table) do
+    case :ets.whereis(table_name) do
       :undefined -> fallback
       table -> fun.(table)
     end

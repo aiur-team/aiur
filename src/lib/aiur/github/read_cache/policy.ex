@@ -47,7 +47,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   | --- | --- | --- | --- |
   | `:comments` | 30 s | 1 h | Per-issue REST comment reads (`Aiur.GitHub.Comments`). A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
   | `:issue_graph` | 30 s | 1 h | Build Order structure: dependency edges, pack status, linked pull requests. A stale edge delays a dispatch rather than corrupting one. |
-  | `:repo_config` | 5 min | 1 h | Repository configuration used by required-check classification (`Aiur.GitHub.CiReadiness`), not a CI verdict. Config-specific deliveries and pushes to the configured base or repository default branch retire it immediately; otherwise staleness is bounded by 5 min while polling and 1 h when webhook-backed. Ordinary issue/PR and check-run deliveries do not retire this scope. GitHub's merge queue still enforces required checks on the server. |
+  | `:repo_config` | 5 min | 1 h | Repository configuration used by required-check classification (`Aiur.GitHub.CiReadiness`), not a CI verdict. A webhook-backed repo earns 1 h only after a verified `push`, `branch_protection_rule`, `repository_ruleset`, or `repository` delivery has been observed; without one, it keeps the 5 min polling TTL. Matching pushes to the configured base or repository default branch retire it immediately. GitHub's merge queue still enforces required checks on the server. |
   | `:issue_timeline` | 30 s | 1 h | An issue's timeline (`/issues/{n}/timeline`, `Aiur.GitHub.DispatchAuthorization`). The single largest REST family measured in #2352 (1,000–1,800 reads/hr); a timeline answered up to one poll cycle late costs a dispatch decision latency, never a wrong verdict. |
   | `:issue` | 30 s | 1 h | A single issue (`/issues/{n}`). Mixed call sites — some already conditional, some unconditional reads — so the body cache absorbs the unconditional spend. |
   | `:pull` | 30 s | 1 h | A single pull request (`/pulls/{n}`). Row 5 of #2352 was the strongest single candidate: it was read **unconditionally with no validator**, so every repeat was pure waste rather than a cheap revalidation. The body is a *routing* source, never a merge-verdict source — see below. |
@@ -98,10 +98,11 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   never configured, configured-but-unproven, or degraded from silence — gets
   the short bucket, because for it the TTL is the only freshness mechanism:
   nothing but the clock retires its entries. A repo proven webhook-backed gets
-  the long bucket, because `Aiur.Events.GithubWebhook.Deposit` retires the
-  `ReadCache` entries a delivery makes stale, so the TTL stops being a guess at
-  staleness and becomes a backstop against a missed delivery. It collapses back
-  to the short bucket the moment the repo degrades (silence past
+  the long bucket for ordinary issue and PR reads, because deliveries retire
+  the `ReadCache` entries they make stale. Repository configuration gets the
+  long bucket only after a verified config-retiring event family is observed
+  for that repo. Both collapse back to the short bucket when the repo degrades
+  (silence past
   `webhooks.silence_threshold_seconds`), which is the measured bound on how
   long a missed delivery can go uncorrected. One hour is four times that bound.
 
@@ -505,6 +506,10 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     configured_override(class) || mode_ttl(class, transport)
   end
 
+  defp mode_ttl(:repo_config, :webhook) do
+    Map.fetch!(@webhook_backed_ttls, :repo_config)
+  end
+
   defp mode_ttl(class, :webhook), do: Map.fetch!(@webhook_backed_ttls, class)
   defp mode_ttl(class, _polling), do: Map.fetch!(@default_ttls, class)
 
@@ -515,11 +520,25 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   end
 
   defp cache(class, request) do
-    case ttl_ms(class, transport(request)) do
+    case request_ttl(class, request) do
       ttl_ms when ttl_ms > 0 -> {:cache, class, ttl_ms}
       _disabled -> {:no_cache, :disabled}
     end
   end
+
+  defp request_ttl(:repo_config, request) do
+    case Identity.repository(request) do
+      {owner, repo} ->
+        if transport(request) == :webhook and ModeTable.config_events?("#{owner}/#{repo}"),
+          do: ttl_ms(:repo_config, :webhook),
+          else: ttl_ms(:repo_config, :polling)
+
+      _repo ->
+        ttl_ms(:repo_config, :polling)
+    end
+  end
+
+  defp request_ttl(class, request), do: ttl_ms(class, transport(request))
 
   # The transport for the repository a request observes, read from `ModeTable`
   # without a process hop. A request whose repository cannot be named has
