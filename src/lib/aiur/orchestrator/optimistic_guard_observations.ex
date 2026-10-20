@@ -13,8 +13,8 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservations do
     fetch = Keyword.get(opts, :fetch_issues, &Tracker.fetch_issue_states_by_ids/1)
     grace = Keyword.get(opts, :grace_ms, 600_000)
     stale = records |> Enum.flat_map(& &1["blockers"]) |> Enum.reject(&cache_usable?(&1, now, max_age, grace, force)) |> Enum.uniq_by(& &1["id"])
-    {edges, edge_cache} = edge_evidence(records, blockers, now, max_age, opts)
-    stale_ids = MapSet.new(stale, & &1["id"]) |> MapSet.union(edge_removed_blockers(records, edges))
+    {edges, edge_cache, edge_reads} = edge_evidence(records, blockers, now, max_age, opts)
+    stale_ids = MapSet.new(stale, & &1["id"]) |> MapSet.union(edge_removed_blockers(records, edges, edge_cache, edge_reads))
     dependents = for row <- records, row["status"] == "parked", do: row["ticket"]
     grace_refresh = for row <- records, blocker <- row["blockers"], grace_crossed?(blocker["suspect_since_ms"], get_in(blocker, ["guard_observation", "observed_at_ms"]), now, grace), do: blocker["id"]
     confirm = dependents ++ grace_refresh
@@ -80,22 +80,23 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservations do
         Map.merge(acc, get_in(blocker, ["guard_observation", "edge_cache"]) || %{})
       end)
 
-    Enum.reduce(records, {%{}, %{}}, fn row, acc ->
+    Enum.reduce(records, {%{}, %{}, MapSet.new()}, fn row, acc ->
       read_edge(row["ticket"], cached[row["ticket"]], now, max_age, read, acc)
     end)
   end
 
-  defp read_edge(dep, entry, now, max_age, read, {edges, cache}) do
+  defp read_edge(dep, entry, now, max_age, read, {edges, cache, reads}) do
     fresh = edge_fresh?(entry, now, max_age)
     result = if fresh, do: {:ok, entry["ids"]}, else: safe_read(read, [dep])
 
     case result do
       {:ok, ids} ->
         at = if fresh, do: entry["observed_at_ms"], else: now
-        {Map.put(edges, dep, MapSet.new(ids)), Map.put(cache, dep, %{"ids" => ids, "observed_at_ms" => at})}
+        reads = if fresh, do: reads, else: MapSet.put(reads, dep)
+        {Map.put(edges, dep, MapSet.new(ids)), Map.put(cache, dep, %{"ids" => ids, "observed_at_ms" => at}), reads}
 
       _ ->
-        {Map.put(edges, dep, :unknown), cache}
+        {Map.put(edges, dep, :unknown), cache, reads}
     end
   end
 
@@ -104,18 +105,38 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservations do
 
   defp edge_fresh?(_, _, _), do: false
 
-  defp edge_removed_blockers(records, edges) do
+  defp edge_removed_blockers(records, edges, edge_cache, edge_reads) do
     Enum.reduce(records, MapSet.new(), fn record, missing ->
-      case edges[record["ticket"]] do
-        %MapSet{} = ids ->
-          record["blockers"]
-          |> Enum.reject(&MapSet.member?(ids, &1["id"]))
-          |> Enum.reduce(missing, &MapSet.put(&2, &1["id"]))
+      edge_removed_blocker_ids(
+        record,
+        Map.get(edges, record["ticket"]),
+        Map.get(edge_cache, record["ticket"]),
+        edge_reads,
+        missing
+      )
+    end)
+  end
 
-        _ ->
-          missing
+  defp edge_removed_blocker_ids(record, %MapSet{} = ids, cache, edge_reads, missing) do
+    edge_at = cache && cache["observed_at_ms"]
+
+    Enum.reduce(record["blockers"], missing, fn blocker, acc ->
+      if not MapSet.member?(ids, blocker["id"]) and
+           edge_read_requires_blocker_refresh?(blocker, record["ticket"], edge_at, edge_reads) do
+        MapSet.put(acc, blocker["id"])
+      else
+        acc
       end
     end)
+  end
+
+  defp edge_removed_blocker_ids(_record, _ids, _cache, _edge_reads, missing), do: missing
+
+  defp edge_read_requires_blocker_refresh?(blocker, dependent, edge_at, edge_reads) do
+    observation_at = get_in(blocker, ["guard_observation", "observed_at_ms"])
+
+    MapSet.member?(edge_reads, dependent) or
+      (is_integer(edge_at) and (not is_integer(observation_at) or observation_at < edge_at))
   end
 
   defp observe(id, blocker, issue, now, context) do

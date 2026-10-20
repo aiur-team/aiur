@@ -43,6 +43,48 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservationsTest do
     assert {:merged_notice, "11", "10"} in actions
   end
 
+  test "fresh removed edge evidence does not repeat blocker confirmation reads" do
+    pid = self()
+
+    opts =
+      opts(
+        blocked_by: fn _ ->
+          send(pid, :blocked_by_read)
+          {:ok, []}
+        end,
+        fetch_issues: fn ids ->
+          send(pid, {:fetch_issues, ids})
+          {:ok, [%Issue{identifier: "10", state: "completed"}]}
+        end,
+        closure: fn "10", _ ->
+          send(pid, :closure_read)
+          {:ok, %{open?: false, state_reason: "completed"}}
+        end,
+        read_pr: fn id, number ->
+          send(pid, {:read_pr, id, number})
+          {:ok, Map.merge(pr(number), %{"state" => "closed", "merged" => true})}
+        end
+      )
+
+    row = put_in(record(cached()), ["blockers", Access.at(0), "guard_observation", "edge_cache", "11", "observed_at_ms"], @now - 120_000)
+    first = OptimisticGuardObservations.read([row], @now, opts)
+    assert_receive :blocked_by_read, 500
+    assert_receive {:fetch_issues, ["10"]}, 500
+    assert_receive :closure_read, 500
+    assert_receive {:read_pr, "10", 100}, 500
+
+    persisted = first["10"] |> Map.drop([:edges]) |> Map.new(fn {key, value} -> {to_string(key), value} end)
+    row = put_in(row, ["blockers", Access.at(0), "guard_observation"], persisted)
+    second = OptimisticGuardObservations.read([row], @now + 100, opts)
+
+    refute_received :blocked_by_read
+    refute_received {:fetch_issues, _}
+    refute_received :closure_read
+    refute_received {:read_pr, _, _}
+    assert second["10"].observed_at_ms == @now
+    assert second["10"].state_reason == "completed"
+  end
+
   test "refresh fetches only stale blockers and reuses poll-held issues" do
     row = Map.update!(record(cached()), "blockers", &(&1 ++ [%{"id" => "12", "pr_number" => 120}]))
     pid = self()
