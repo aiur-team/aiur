@@ -36,6 +36,16 @@ defmodule Aiur.RecentMergeStore do
   @spec history(String.t(), GenServer.server()) :: {:ok, [RecentMerge.t()]} | {:error, :not_found}
   def history(id, server \\ __MODULE__) when is_binary(id), do: GenServer.call(server, {:history, id})
 
+  @spec ticket_reconciled?(String.t(), String.t(), GenServer.server()) :: boolean()
+  def ticket_reconciled?(merge_id, ticket_id, server \\ __MODULE__)
+      when is_binary(merge_id) and is_binary(ticket_id),
+      do: GenServer.call(server, {:ticket_reconciled?, merge_id, ticket_id})
+
+  @spec mark_ticket_reconciled(String.t(), String.t(), GenServer.server()) :: :ok | {:error, term()}
+  def mark_ticket_reconciled(merge_id, ticket_id, server \\ __MODULE__)
+      when is_binary(merge_id) and is_binary(ticket_id),
+      do: GenServer.call(server, {:mark_ticket_reconciled, merge_id, ticket_id}, 60_000)
+
   @spec health(GenServer.server()) :: :writable | tuple()
   def health(server \\ __MODULE__), do: GenServer.call(server, :health)
 
@@ -241,6 +251,34 @@ defmodule Aiur.RecentMergeStore do
     end
   end
 
+  def handle_call({:ticket_reconciled?, merge_id, ticket_id}, _from, state) do
+    reconciled? =
+      case Map.get(state.current, merge_id) do
+        %RecentMerge{reconciled_ticket_ids: ids} -> ticket_id in ids
+        _ -> false
+      end
+
+    {:reply, reconciled?, state}
+  end
+
+  def handle_call({:mark_ticket_reconciled, _merge_id, _ticket_id}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:mark_ticket_reconciled, merge_id, ticket_id}, _from, state) do
+    case Map.get(state.current, merge_id) do
+      nil ->
+        {:reply, {:error, :merge_not_found}, state}
+
+      %RecentMerge{} = merge ->
+        if ticket_id in merge.reconciled_ticket_ids do
+          {:reply, :ok, state}
+        else
+          persist_ticket_reconciliation(merge, ticket_id, state)
+        end
+    end
+  end
+
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
   def handle_call(:reconciliation, _from, state), do: {:reply, state.reconciliation, state}
 
@@ -253,6 +291,15 @@ defmodule Aiur.RecentMergeStore do
 
     if reconciliation != state.reconciliation, do: notify()
     {:reply, :ok, %{state | reconciliation: reconciliation}}
+  end
+
+  defp persist_ticket_reconciliation(merge, ticket_id, state) do
+    updated_merge = %{merge | reconciled_ticket_ids: [ticket_id | merge.reconciled_ticket_ids]}
+
+    case persist(updated_merge, state) do
+      {:reply, {:ok, _result}, updated} -> {:reply, :ok, updated}
+      {:reply, {:error, reason}, updated} -> {:reply, {:error, reason}, updated}
+    end
   end
 
   defp reconciliation_status(%{partial?: true} = current, _partial?, pages_fetched) do
