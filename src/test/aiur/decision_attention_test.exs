@@ -5,6 +5,81 @@ defmodule Aiur.DecisionAttentionTest do
 
   alias Aiur.Events.{Exchange, SubscriptionStore}
 
+  test "duplicate-dispatch attention resolves once at most one reported pid remains live" do
+    attention = %{
+      issue: %Issue{identifier: "5133"},
+      slug: "duplicate-dispatch",
+      question: "Ticket 5133 has two agent sessions: pid 101 and pid 202"
+    }
+
+    state = %{pid_alive?: fn pid -> pid == 101 end, attention_acknowledged?: fn _topic -> false end}
+    assert Aiur.DecisionAttentionResolution.resolve?(attention, state)
+
+    dead_pids = %{state | pid_alive?: fn _pid -> false end}
+    assert Aiur.DecisionAttentionResolution.resolve?(attention, dead_pids)
+
+    live_pids = %{state | pid_alive?: fn _pid -> true end}
+    refute Aiur.DecisionAttentionResolution.resolve?(attention, live_pids)
+  end
+
+  test "duplicate-dispatch recheck clears the attention and prevents another re-ask" do
+    identifier = "DUPLICATE-#{System.unique_integer([:positive])}"
+    issue = %Issue{identifier: identifier, title: "Duplicate dispatch"}
+    test_pid = self()
+
+    {pid, name} =
+      start_attention(
+        pid_alive?: fn _pid -> false end,
+        alert_emitter: fn attention -> send(test_pid, {:duplicate_alert, attention}) end,
+        resolution_emitter: fn attention -> send(test_pid, {:duplicate_resolved, attention}) end
+      )
+
+    :ok = DecisionAttention.open(name, issue, nil, nil, "duplicate-dispatch", "Two sessions: pid 101 and pid 202")
+    assert_received {:duplicate_alert, %{slug: "duplicate-dispatch"}}
+
+    send(pid, {:reask, {identifier, "duplicate-dispatch"}})
+    _ = :sys.get_state(pid)
+    assert_received {:duplicate_resolved, %{slug: "duplicate-dispatch"}}
+
+    send(pid, {:reask, {identifier, "duplicate-dispatch"}})
+    _ = :sys.get_state(pid)
+    refute_received {:duplicate_alert, _}
+  end
+
+  test "acknowledging a duplicate-dispatch alert resolves it on the next recheck" do
+    identifier = "DUPLICATE-ACK-#{System.unique_integer([:positive])}"
+    issue = %Issue{identifier: identifier, title: "Duplicate dispatch"}
+    topic = "ticket.#{identifier}.agent.attention.duplicate-dispatch"
+    ledger_dir = Aiur.TestSupport.tmp_root!("duplicate-ack-alerts")
+    File.mkdir_p!(ledger_dir)
+    ledger = Path.join(ledger_dir, "alerts.ndjson")
+    timestamp = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601()
+    File.write!(ledger, Jason.encode!(%{"event" => "alert", "timestamp" => timestamp, "topic" => topic, "needs_attention" => true}) <> "\n")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(ledger_dir) end)
+
+    assert Aiur.AlertsCLI.run(ack: topic, executor_id: "operator-7", ledger_path: ledger) == 0
+
+    test_pid = self()
+
+    {pid, name} =
+      start_attention(
+        attention_acknowledged?: fn acknowledged_topic -> AlertFeed.condition_state(acknowledged_topic, ledger_path: ledger) == :resolved end,
+        alert_emitter: fn attention -> send(test_pid, {:duplicate_alert, attention}) end,
+        resolution_emitter: fn attention -> send(test_pid, {:duplicate_resolved, attention}) end
+      )
+
+    :ok = DecisionAttention.open(name, issue, nil, nil, "duplicate-dispatch", "Two sessions: pid 101 and pid 202")
+    assert_received {:duplicate_alert, %{slug: "duplicate-dispatch"}}
+
+    send(pid, {:reask, {identifier, "duplicate-dispatch"}})
+    _ = :sys.get_state(pid)
+    assert_received {:duplicate_resolved, %{slug: "duplicate-dispatch"}}
+
+    send(pid, {:reask, {identifier, "duplicate-dispatch"}})
+    _ = :sys.get_state(pid)
+    refute_received {:duplicate_alert, _}
+  end
+
   defp accepted_projection do
     fn _payload, _opts ->
       {:ok, %{status: :accepted, decision: %{decision_id: "dec_test", version: 1}}}
