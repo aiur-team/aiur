@@ -106,7 +106,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
       case Enum.uniq_by(tests, & &1.module) do
         [_] -> first_error(tests, &record_observations(&1, run, prs, at_ms, opts))
         [] -> :ok
-        _modules -> record_cascade(tests, run, opts)
+        _modules -> record_cascade(tests, run, prs, opts)
       end
     else
       [] -> :ok
@@ -117,11 +117,33 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   # A shard attempt with failures in multiple modules can contain setup/leaked-state
   # cascades. File one diagnostic ticket for the module with the most failures (ties
   # keep log/annotation order), and do not turn any of that attempt into quarantine evidence.
-  defp record_cascade(tests, run, opts) do
+  defp record_cascade(tests, run, prs, opts) do
     {primary, cascades} = primary_module(tests)
-    failure = Map.put(primary, :cascade_modules, cascades)
-    recorder = Keyword.get(opts, :flake_recorder, &FlakeRecorder.record/4)
-    recorder.(failure, run, [], Keyword.delete(opts, :issue_recorded_fun))
+
+    with {:ok, untouched_by_any_pr?} <- paths_leave_failure_unexplained?(primary, prs, opts) do
+      if untouched_by_any_pr? do
+        failure = Map.put(primary, :cascade_modules, cascades)
+        recorder = Keyword.get(opts, :flake_recorder, &FlakeRecorder.record/4)
+        recorder.(failure, run, [], Keyword.delete(opts, :issue_recorded_fun))
+      else
+        :ok
+      end
+    end
+  end
+
+  defp paths_leave_failure_unexplained?(failure, prs, opts) do
+    changed_paths = Keyword.get(opts, :changed_paths_fun, &PullRequests.fetch_pull_request_changed_paths/2)
+
+    Enum.reduce_while(prs, {:ok, false}, fn pr, {:ok, found_untouched?} ->
+      case cached_changed_paths(pr, changed_paths, opts) do
+        {:ok, paths} when is_list(paths) ->
+          untouched? = not QuarantineEvidence.touched?(failure.path, paths)
+          {:cont, {:ok, found_untouched? or untouched?}}
+
+        {:error, _} = error ->
+          {:halt, error}
+      end
+    end)
   end
 
   defp primary_module(tests) do
