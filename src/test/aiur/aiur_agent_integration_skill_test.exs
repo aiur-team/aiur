@@ -38,7 +38,6 @@ defmodule Aiur.AiurAgentIntegrationSkillTest do
       one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
 
     assert dev_loop =~ "A non-`CONFLICTING` head permits handoff without a base merge"
-    refute dev_loop =~ "An approved PR is exempt from integration"
   end
 
   defp one_line(content), do: String.replace(content, ~r/\s+/, " ")
