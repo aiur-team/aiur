@@ -13,6 +13,7 @@ defmodule Aiur.GitHub.Listeners.CommandScanListenerTest do
 
   test "since and both validators advance in the listener across two scans", %{listener: listener} do
     warm(listener)
+    ResourceStore.reset()
     assert :ok = Listeners.scan_commands(probe(listener, self()))
     assert_received {:review, "2026-06-25T01:59:59Z", "review-etag"}
     assert_received {:issue, "2026-06-25T01:59:59Z", "issue-etag"}
