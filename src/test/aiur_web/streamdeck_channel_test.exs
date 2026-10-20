@@ -216,6 +216,12 @@ defmodule AiurWeb.StreamdeckChannelTest do
     focus = push(socket, "focus", %{"identifier" => identifier})
     assert_reply(focus, :ok, %{"focused" => ^identifier})
 
+    # The reply acknowledges the focus request before the channel processes its
+    # queued focus-change message. A second request is handled after that message
+    # in the channel mailbox, so its reply is a causal barrier for the logs push.
+    barrier = push(socket, "unfocus", %{})
+    assert_reply(barrier, :ok, %{"focused" => nil})
+
     # `receive_barrier/1` receives the decoded Phoenix socket payload, proving the
     # nonempty DTO crossed the channel serializer rather than only Jason.encode/1
     # on the projection helper.
