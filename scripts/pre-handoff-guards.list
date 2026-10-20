@@ -1,5 +1,6 @@
 # One command per line; shared by scripts/pre-handoff-guards and workflow security.
 python3 scripts/check-pr-body.py --pr-json <PR_JSON> --base <BASE_SHA>
+python3 scripts/check-agent-scratch.py --base <BASE_SHA>
 python3 scripts/check-on-exit-rm-rf.py
 python3 scripts/check-bare-assert-receive.py
 node scripts/check-browser-smoke-shards.mjs

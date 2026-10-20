@@ -23,7 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
             last re-converge, so an operator needs a way to buy one without
             restarting the daemon (#2544). Server-side rate limited. --%>
       <div class="bo-catalog-actions">
-        <button type="button" id="build-orders-refresh-catalog" class="btn ghost" phx-click="refresh-catalog">
+        <button type="button" id="build-orders-refresh-catalog" class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost" phx-click="refresh-catalog">
           Refresh catalog
         </button>
       </div>

@@ -18,7 +18,6 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
           main > *, nav, .controls { min-width: 0; }
           nav:not(.sidenav-nav), .controls { display: flex; flex-wrap: wrap; gap: .5rem; }
           nav button, .controls button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-          button:focus-visible, [tabindex="0"]:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
           #graph-viewport { border: 1px solid currentColor; min-width: 0; min-height: 8rem; overflow: auto; padding: 1rem; }
           #graph-content { min-width: 36rem; }
           @media (prefers-reduced-motion: no-preference) { #graph-content { transition: transform 120ms ease; } }
@@ -38,6 +37,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/build-home/loader.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/aiur-style/tokens.css" />
+        <link rel="stylesheet" href="/aiur-style/css/focus.css" />
+        <link rel="stylesheet" href="/aiur-style/css/button.css" />
+        <link rel="stylesheet" href="/aiur-style/css/dashboard-button.css" />
+        <link rel="stylesheet" href="/aiur-style/css/dashboard-shell.css" />
         <link rel="stylesheet" href="/dashboard.css" />
         <link rel="stylesheet" href="/build-home/home.css" />
         <script>

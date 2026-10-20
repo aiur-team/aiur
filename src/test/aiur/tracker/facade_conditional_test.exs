@@ -4,14 +4,17 @@ defmodule Aiur.Tracker.FacadeConditionalTest do
   alias Aiur.Orchestrator.Dispatcher.Candidates
 
   defmodule Adapter do
-    def fetch_candidate_issues_conditional(cache), do: {:ok, [%Aiur.Issue{id: "7", queued: true}], Map.put(cache, :renewed, true)}
+    def fetch_candidate_issues_conditional(cache),
+      do: {:ok, [%Aiur.Issue{id: "7", queued: true}], Map.put(cache, :renewed, true)}
+
     def hydrate_blocked_by(_issue), do: {:error, :dependency_unavailable}
     def with_transient_retry(fun, opts), do: {Keyword.fetch!(opts, :marker), fun.()}
   end
 
   setup do
-    saved = for key <- [:memory_tracker_issues, :tracker_adapters, :github_client_module], do: {key, Application.fetch_env(:aiur, key)}
-    scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+    saved =
+      for key <- [:memory_tracker_issues, :tracker_adapters, :github_client_module],
+          do: {key, Application.fetch_env(:aiur, key)}
 
     on_exit(fn ->
       for {key, value} <- saved do
@@ -20,8 +23,6 @@ defmodule Aiur.Tracker.FacadeConditionalTest do
           :error -> Application.delete_env(:aiur, key)
         end
       end
-
-      if scope, do: System.put_env("AIUR_DEV_TEST_TICKET_IDS", scope), else: System.delete_env("AIUR_DEV_TEST_TICKET_IDS")
     end)
 
     :ok
@@ -31,7 +32,7 @@ defmodule Aiur.Tracker.FacadeConditionalTest do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
     issue = %Issue{id: "7", identifier: "7", queued: true}
     Application.put_env(:aiur, :memory_tracker_issues, [issue, %Issue{id: "8", identifier: "8"}])
-    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "7")
+    Aiur.TestScopeGuard.put_ticket_scope!("7")
     cache = %{etag: "held"}
 
     assert {:ok, [^issue], ^cache} = Tracker.fetch_candidate_issues_conditional(cache)
@@ -52,7 +53,9 @@ defmodule Aiur.Tracker.FacadeConditionalTest do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
     issue = %Issue{id: "7"}
     assert {:ok, ^issue} = Tracker.hydrate_blocked_by(issue)
-    assert {:error, :unavailable} = Tracker.with_transient_retry(fn -> {:error, :unavailable} end, [])
+
+    assert {:error, :unavailable} =
+             Tracker.with_transient_retry(fn -> {:error, :unavailable} end, [])
   end
 
   test "registered callbacks preserve queued candidates, renewed cache and hydration errors" do
@@ -63,12 +66,19 @@ defmodule Aiur.Tracker.FacadeConditionalTest do
     assert {:ok, [%Issue{id: "7", queued: true}], %{held: true, renewed: true}} =
              Candidates.default_candidate_fetch(%{held: true})
 
-    assert {:error, :dependency_unavailable} = Candidates.default_blocked_by_hydrator(%Issue{id: "7"})
-    assert {:delegated, :result} = Tracker.with_transient_retry(fn -> :result end, marker: :delegated)
+    assert {:error, :dependency_unavailable} =
+             Candidates.default_blocked_by_hydrator(%Issue{id: "7"})
+
+    assert {:delegated, :result} =
+             Tracker.with_transient_retry(fn -> :result end, marker: :delegated)
   end
 
   test "github retry waits out a local hold and preserves caller options" do
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo"
+    )
+
     issue = %Issue{id: "7"}
     reset_at = DateTime.add(DateTime.utc_now(), 5, :second)
     hold = {:error, {:github, :local_hold, %{hold: %{reset_at: reset_at}}}}
@@ -81,7 +91,12 @@ defmodule Aiur.Tracker.FacadeConditionalTest do
       result
     end
 
-    opts = [local_hold_sleep_fun: fn ms -> Process.put(:facade_sleeps, [ms | Process.get(:facade_sleeps)]) end]
+    opts = [
+      local_hold_sleep_fun: fn ms ->
+        Process.put(:facade_sleeps, [ms | Process.get(:facade_sleeps)])
+      end
+    ]
+
     assert {:ok, [^issue]} = Tracker.with_transient_retry(fun, opts)
     assert [] = Process.get(:facade_attempts)
     assert [sleep_ms] = Process.get(:facade_sleeps)
@@ -89,10 +104,16 @@ defmodule Aiur.Tracker.FacadeConditionalTest do
   end
 
   test "github conditional fetch and hydration use the client through the facade" do
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo"
+    )
+
     Application.put_env(:aiur, :github_client_module, Adapter)
 
-    assert {:ok, [%Issue{id: "7", queued: true}], %{renewed: true}} = Tracker.fetch_candidate_issues_conditional(%{})
+    assert {:ok, [%Issue{id: "7", queued: true}], %{renewed: true}} =
+             Tracker.fetch_candidate_issues_conditional(%{})
+
     assert {:error, :dependency_unavailable} = Tracker.hydrate_blocked_by(%Issue{id: "7"})
   end
 end
