@@ -113,6 +113,6 @@ A proven webhook also lengthens the daemon's read-cache TTL: a delivering repo g
 
 A repo that is not proven (or degraded back to full polling) keeps 30-second TTLs, and degradation collapses the TTL immediately.
 
-Repository-configuration reads are the one exception: branch protection, rulesets and workflow-file reads (`:repo_config`) ride a five-minute TTL in polling mode and still rise to an hour under a proven webhook, because every delivery also retires a repository's config reads.
+Repository-configuration reads (`:repo_config`) keep a five-minute TTL until Aiur observes `push`, `branch_protection_rule`, `repository_ruleset`, or `repository` deliveries. Ordinary issue, pull-request, and check-run events do not establish the coverage needed for a one-hour TTL.
 
 See [Configuration](/reference/configuration#webhooks) for the repository list, silence threshold, sweep interval, and widen factor.
