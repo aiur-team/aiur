@@ -4,6 +4,7 @@ defmodule AiurWeb.Build.UsageLoadTest do
   alias Aiur.GitHub.Quota
   alias Aiur.TestSupport.BuildHome.UsageInputs, as: I
   alias AiurWeb.Build.{Read, Usage}
+  alias AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows
 
   defmodule MeterSource do
     def load(pid, _opts) do
@@ -88,9 +89,14 @@ defmodule AiurWeb.Build.UsageLoadTest do
   end
 
   test "a slow quota server uses its recent snapshot without delaying the build read", %{path: path} do
-    server = start_quota()
-    Quota.observe(server, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 3766))
-    Quota.observe(server, graphql_request("query { viewer { login } }", %{}), response("graphql", 5000, 4861))
+    server = start_quota(clock: fn -> I.now() end)
+    reset_at = DateTime.add(I.now(), 3600)
+    Quota.observe(server, request(:get, "/repos/owner/repo/issues") |> Map.put(:credential_id, "primary"), response("core", 5000, 3766, reset_at))
+    Quota.observe(server, graphql_request("query { viewer { login } }", %{}) |> Map.put(:credential_id, "primary"), response("graphql", 5000, 4861, reset_at))
+
+    # CI readiness uses an operator credential. It must not replace the
+    # daemon credential's primary budget window shown by Units and Build.
+    Quota.observe(server, request(:get, "/repos/owner/repo/issues") |> Map.put(:credential_id, "unregistered"), response("core", 5000, 4900, DateTime.add(I.now(), 1740)))
     quota = Quota.snapshot!(server)
     :sys.suspend(server)
     on_exit(fn -> if Process.alive?(server), do: :sys.resume(server) end)
@@ -104,8 +110,9 @@ defmodule AiurWeb.Build.UsageLoadTest do
     assert quota.windows["graphql"].remaining == 4861
     assert is_integer(inputs.github_snapshot_observed_at)
 
-    github = Usage.block({:ok, :context}, inputs, DateTime.utc_now()).apis |> hd()
+    github = Usage.block({:ok, :context}, inputs, I.now()).apis |> hd()
     [core, graphql] = github.lines
+    units_core = quota.windows["core"]
     assert core.acc == [round(quota.windows["core"].used_percent)]
     assert graphql.acc == [round(quota.windows["graphql"].used_percent)]
     assert core.reset_at == DateTime.to_unix(quota.windows["core"].reset_at, :millisecond)
@@ -113,6 +120,7 @@ defmodule AiurWeb.Build.UsageLoadTest do
     assert core.tip == [["Requests left", "3,766 of 5,000"]]
     assert graphql.tip == [["Points left", "4,861 of 5,000"]]
     assert github.snapshot_observed_at == inputs.github_snapshot_observed_at
+    assert ServiceRows.github_window_meta(units_core, I.now()) == "3766/5000 left · resets in 1h 0m"
   end
 
   test "an expired quota snapshot uses the bounded fallback", %{path: path} do

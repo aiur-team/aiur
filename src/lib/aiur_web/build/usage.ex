@@ -110,7 +110,7 @@ defmodule AiurWeb.Build.Usage do
   def block({:ok, _}, inputs, now) do
     cards = ProviderMetersPresenter.present(%{state: :authorized}, inputs.meters, %{}).cards
     providers = for family <- order_families(inputs.families), card = Enum.find(cards, &(&1.provider == family)), card != nil, do: provider(card, inputs, ms(now))
-    apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now), inputs.github_snapshot_observed_at)
+    apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now), Map.get(inputs, :github_snapshot_observed_at))
     %{state: "authorized", observed_at: latest(Enum.map(providers ++ apis, & &1.observed_at)), apis: apis, providers: providers}
   end
 

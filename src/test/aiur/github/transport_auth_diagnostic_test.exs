@@ -4,6 +4,7 @@ defmodule Aiur.GitHub.TransportAuthDiagnosticTest do
   import ExUnit.CaptureLog
 
   alias Aiur.GitHub.{AppTokenRefresher, Config, Credential, Transport}
+  alias Aiur.GitHub.Transport.AuthDiagnostic
 
   @cache_key {Config, :resolved_token}
   @app_token_key {AppTokenRefresher, :installation_token}
@@ -74,6 +75,20 @@ defmodule Aiur.GitHub.TransportAuthDiagnosticTest do
     assert log =~ "credential_id=primary credential_class=github_token"
     assert log =~ "auth_bytes=#{byte_size(token)}"
     refute log =~ token
+  end
+
+  test "an unregistered request credential is identified before quota observation" do
+    primary = %Credential{id: "primary", kind: :machine_user, token_env: "GITHUB_TOKEN", primary?: true, writes?: true}
+    Application.put_env(:aiur, @selector_options_key, credentials: [primary])
+
+    request = %{
+      method: :get,
+      url: "https://api.github.com/rate_limit",
+      caller: "ci_readiness",
+      token: "readiness-token"
+    }
+
+    assert %{credential_id: "unregistered"} = AuthDiagnostic.run(request, & &1)
   end
 
   test "401 class follows the selected credential when the configured source is env" do

@@ -9,6 +9,7 @@ defmodule Aiur.GitHub.Transport.AuthDiagnostic do
   def run(request, execute) do
     selector_opts = Application.get_env(:aiur, :github_credential_selector_options, [])
     request = request |> QueueCost.tag() |> CredentialSelector.assign(selector_opts)
+    request = if is_binary(Map.get(request, :token)), do: Map.put_new(request, :credential_id, "unregistered"), else: request
     request |> execute.() |> annotate(request)
   end
 
