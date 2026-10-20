@@ -35,7 +35,7 @@ defmodule Aiur.OpenAICompat.CodingAgentSessionTest do
              )
 
     assert resolved.api_key == "account-secret"
-    refute inspect(Map.drop(resolved, [:api_key])) =~ "account-secret"
+    Aiur.TestSupport.refute_leak(Map.drop(resolved, [:api_key]), "account-secret")
   end
 
   test "adapter uses the selected account key for its request", %{workspace: workspace} do
@@ -91,7 +91,7 @@ defmodule Aiur.OpenAICompat.CodingAgentSessionTest do
     assert {:error, {:http_error, 500, "provider failed"}} =
              CodingAgent.run_turn(session, "trigger failure", issue(), [])
 
-    refute inspect(session) =~ "credential-that-must-not-leak"
+    Aiur.TestSupport.refute_leak(session, "credential-that-must-not-leak")
     assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
   end
 

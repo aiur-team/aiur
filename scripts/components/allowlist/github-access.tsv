@@ -1,0 +1,17 @@
+# rule	target_module	reason
+R-declared	Aiur.AgentGitHubGuard	MP-R1-GHA-5 (#3827): move host wrapper installation into access
+R-declared	Aiur.Config	MP-R1-GHA-2 (#3824): inject access settings
+R-declared	Aiur.Config.Paths	MP-R1-GHA-2 (#3824): inject resource state root
+R-declared	Aiur.Config.Schema	MP-R1-GHA-2 (#3824): inject sandbox budget settings
+R-declared	Aiur.Config.Schema.Agent	MP-R1-GHA-2 (#3824): inject broker timeout settings
+R-declared	Aiur.Config.TurnSandboxRoots	MP-R1-GHA-2 (#3824): inject sandbox budget roots
+R-declared	Aiur.GitHub.Config	MP-R1-GHA-2 (#3824): extract credential configuration
+R-declared	Aiur.GitHub.HoldPressure	MP-R1-GHA-3 (#3825): inject hold observation hook
+R-declared	Aiur.GitHub.QueueCost	MP-R1-GHA-3 (#3825): inject caller attribution hook
+R-declared	Aiur.RepoBase	MP-R1-GHA-2 (#3824): inject quota state root
+R-declared	Aiur.TestTicketScope	MP-R1-GHA-3 (#3825): inject transport sandbox scope policy
+R-declared	Aiur.Webhooks.DeliveryMode	MP-R1-GHA-3 (#3825): inject freshness port
+R-declared	Aiur.Webhooks.ModeTable	MP-R1-GHA-3 (#3825): inject freshness port
+R-declared	Aiur.Workspace.Layout	MP-R1-GHA-2 (#3824): inject workspace state root
+R-down	Aiur.TestTicketScope	MP-R1-GHA-3 (#3825): inject transport sandbox scope policy
+R-private	Aiur.GitHub.QueueCost	MP-R1-GHA-3 (#3825): inject caller attribution hook

@@ -131,6 +131,88 @@ defmodule Aiur.MainWatchTest do
     refute_received {:emitted, _, _}
   end
 
+  test "a new single-test failure on an untouched file reruns failed jobs once per commit" do
+    parent = self()
+    digest = %FailureDigest{signature: "single", test_only: true, tests: [%{identity: "flaky", path: "src/test/flaky_test.exs", classification: :new_failure}]}
+    failed = %{observation("single-failure", 1) | digest: digest}
+    runs = [%{run("failure", 1) | id: 41, sha: "single-failure"}]
+    reservation = start_supervised!({Agent, fn -> false end})
+
+    server =
+      launch(Persistence.empty(),
+        changed_paths_fun: fn "single-failure", _ -> {:ok, ["src/lib/other.ex"]} end,
+        reserve_single_test_rerun_fun: fn "owner/repo", "single-failure", 0, _ ->
+          Agent.get_and_update(reservation, fn reserved? -> if reserved?, do: {{:error, :already_attempted}, true}, else: {:ok, true} end)
+        end,
+        rerun_failed_jobs_fun: fn 41, _ ->
+          send(parent, {:failed_jobs_rerun, 41})
+          :ok
+        end
+      )
+
+    finish_poll(server, {:ok, %{result([failed]) | actions_write: true, runs: runs}})
+    assert_received {:failed_jobs_rerun, 41}
+    assert_received {:emitted, "system.main.ci.flake_rerun", %{sha: "single-failure", outcome: [%{run_id: 41, result: %{status: "ok"}}]}}
+
+    GenServer.cast(server, :reconcile)
+    finish_poll(server, {:ok, %{result([failed]) | actions_write: true, runs: runs}})
+    refute_received {:failed_jobs_rerun, _}
+  end
+
+  test "a single-test failure whose file changed on main is left for the fixer" do
+    parent = self()
+    digest = %FailureDigest{signature: "touched", test_only: true, tests: [%{identity: "regression", path: "src/test/regression_test.exs", classification: :new_failure}]}
+    failed = %{observation("touched-failure", 1) | digest: digest}
+    runs = [%{run("failure", 1) | id: 42, sha: "touched-failure"}]
+
+    server =
+      launch(Persistence.empty(),
+        changed_paths_fun: fn _, _ -> {:ok, ["src/test/regression_test.exs"]} end,
+        reserve_single_test_rerun_fun: fn _, sha, _, _ ->
+          send(parent, {:reserved_single_test_rerun, sha})
+          :ok
+        end,
+        rerun_failed_jobs_fun: fn id, _ ->
+          send(parent, {:failed_jobs_rerun, id})
+          :ok
+        end
+      )
+
+    persisted = finish_poll(server, {:ok, %{result([failed]) | actions_write: true, runs: runs}})
+    refute_received {:reserved_single_test_rerun, "touched-failure"}
+    refute_received {:failed_jobs_rerun, 42}
+    refute_received {:emitted, "system.main.ci.flake_rerun", _}
+    assert persisted.last_error == nil
+    assert MainWatch.state(server).last_error == nil
+  end
+
+  test "a single-test failure without complete changed-path evidence is not rerun" do
+    parent = self()
+    digest = %FailureDigest{signature: "unknown-paths", test_only: true, tests: [%{identity: "uncertain", path: "src/test/uncertain_test.exs", classification: :new_failure}]}
+    failed = %{observation("unknown-paths", 1) | digest: digest}
+    runs = [%{run("failure", 1) | id: 43, sha: "unknown-paths"}]
+
+    server =
+      launch(Persistence.empty(),
+        changed_paths_fun: fn _, _ -> {:error, :main_commit_files_incomplete} end,
+        reserve_single_test_rerun_fun: fn _, sha, _, _ ->
+          send(parent, {:reserved_single_test_rerun, sha})
+          :ok
+        end,
+        rerun_failed_jobs_fun: fn id, _ ->
+          send(parent, {:failed_jobs_rerun, id})
+          :ok
+        end
+      )
+
+    persisted = finish_poll(server, {:ok, %{result([failed]) | actions_write: true, runs: runs}})
+    refute_received {:reserved_single_test_rerun, "unknown-paths"}
+    refute_received {:failed_jobs_rerun, 43}
+    refute_received {:emitted, "system.main.ci.flake_rerun", _}
+    assert persisted.last_error == nil
+    assert MainWatch.state(server).last_error == nil
+  end
+
   test "canary rerun failure alerts once within a window and again next window" do
     parent = self()
     clock = start_supervised!({Agent, fn -> 46 * 60_000 end})

@@ -33,6 +33,13 @@ defmodule Aiur.Events.GithubCIPoller.ApprovedLandingRecoveryTest do
     refute_received :live_read
   end
 
+  test "a cancelled head run while queued does not create a recovery hold or attention", ctx do
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, merge_queue_entry: %{"id" => "MQE_1"}})
+
+    assert ^result = Recovery.recover(ctx.issue, result, ctx.opts)
+    refute_received {:attention, _}
+  end
+
   test "the cached landing hold stops applying once the PR is no longer approved", ctx do
     opts = with_live_pr(ctx.opts, %{"autoMergeRequest" => %{"enabledAt" => "2026-10-16T07:54:08Z"}})
     assert %{decision: :pending} = Recovery.recover(ctx.issue, ctx.result, opts)

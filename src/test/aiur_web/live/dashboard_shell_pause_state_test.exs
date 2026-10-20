@@ -10,6 +10,16 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
 
   @endpoint Endpoint
 
+  defmodule StartingOrchestrator do
+    use GenServer
+
+    def start_link, do: GenServer.start_link(__MODULE__, :starting)
+    @impl true
+    def init(state), do: {:ok, state}
+    @impl true
+    def handle_call(_request, _from, state), do: {:reply, :starting, state}
+  end
+
   setup do
     previous_endpoint = Application.get_env(:aiur, Endpoint)
     previous_store = Application.get_env(:aiur, :global_pause_store_path)
@@ -41,7 +51,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
   end
 
   test "every shell page renders the orchestrator's current global pause state" do
-    for {paused, label} <- [{false, "Pause all agents"}, {true, "Resume all agents"}] do
+    for {paused, label} <- [{false, "Pause new starts"}, {true, "Resume new starts"}] do
       for path <- ["/analytics", "/build-orders", "/build", "/streamdeck", "/post-deploy"] do
         assert {:ok, _} = GlobalPause.set_global_pause(paused)
         {:ok, view, html} = live(authorized_conn(), path)
@@ -53,7 +63,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
         refute has_element?(view, "#ax-pause[disabled]"), path
 
         target = not paused
-        expected_after_click = if target, do: "Resume all agents", else: "Pause all agents"
+        expected_after_click = if target, do: "Resume new starts", else: "Pause new starts"
         assert view |> element("#ax-pause") |> render_click() =~ expected_after_click, path
         assert {:ok, %{globally_paused: ^target}} = GlobalPause.global_pause_status()
 
@@ -70,7 +80,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
     assert {:ok, _} = GlobalPause.set_global_pause(true)
 
     Process.sleep(600)
-    assert render(view) =~ "Resume all agents"
+    assert render(view) =~ "Resume new starts"
     assert has_element?(view, "#ax-pause[aria-checked=true]")
   end
 
@@ -91,38 +101,79 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
     end
   end
 
-  test "stale snapshots render unknown and keep the pause action disabled" do
-    assert_unknown_pause_state(Aiur.Orchestrator, stale?: true)
+  test "stale snapshots retain the separately published global pause state" do
+    previous = SnapshotCache.get(Aiur.Orchestrator)
+    on_exit(fn -> restore_snapshot(Aiur.Orchestrator, previous) end)
+    :ok = SnapshotStore.publish(Aiur.Orchestrator, %{running: [], retrying: [], idle: []})
+    cached = SnapshotCache.get(Aiur.Orchestrator)
+    SnapshotCache.put(Aiur.Orchestrator, %{cached | observed_at_ms: System.monotonic_time(:millisecond) - SnapshotStore.stale_age_ceiling_ms()})
+
+    assert PauseState.pause_state(Aiur.Orchestrator) == false
+  end
+
+  test "a stale snapshot without pause state loads during startup without calling its publisher" do
+    {:ok, pid} = Agent.start_link(fn -> :unused end)
+    on_exit(fn -> if Process.alive?(pid), do: Agent.stop(pid) end)
+    :ok = SnapshotStore.publish(pid, %{running: [], retrying: [], idle: []})
+    cached = SnapshotCache.get(pid)
+    SnapshotCache.put(pid, %{cached | observed_at_ms: System.monotonic_time(:millisecond) - SnapshotStore.stale_age_ceiling_ms()})
+
+    assert PauseState.pause_state(pid, 0) == :loading
+    assert Process.alive?(pid)
+    assert PauseState.pause_state(pid, 600_000) == nil
+    assert Process.alive?(pid)
+  end
+
+  test "an unpublished live orchestrator stops loading after the startup deadline" do
+    {:ok, pid} = StartingOrchestrator.start_link()
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+    assert PauseState.pause_state(pid, 0) == :loading
+    assert PauseState.pause_state(pid, 600_000) == nil
+  end
+
+  test "the pause loading surface leaves loading at its deadline" do
+    socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, globally_paused: :loading}}
+
+    assert {:noreply, %{assigns: %{globally_paused: nil}}} = PauseState.handle_info(:pause_startup_deadline, socket)
   end
 
   test "unavailable snapshots render unknown and keep the pause action disabled" do
     assert_unknown_pause_state(:missing_orchestrator)
   end
 
+  test "unpublished daemon snapshot renders a loading pause state" do
+    {:ok, pid} = StartingOrchestrator.start_link()
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    assert :loading == PauseState.pause_state(pid)
+
+    html =
+      render_component(&DashboardShell.dashboard_shell/1,
+        route: RouteRegistry.current_route(:analytics),
+        routes: RouteRegistry.routes(%{}),
+        tracker_kind: "github",
+        agent_kind: "codex",
+        inner_block: [],
+        pause_state: %{globally_paused: :loading, writable: true, global_pause_error: nil}
+      )
+
+    assert html =~ "Loading status"
+    refute html =~ "Pause state unknown"
+    assert html =~ "disabled"
+  end
+
   test "read-only mode disables the shell toggle and ignores forged events" do
     reconfigure_endpoint(:dashboard_writable, false)
     {:ok, view, html} = live(authorized_conn(), "/analytics")
 
-    assert html =~ "Pause all agents"
+    assert html =~ "Pause new starts"
     assert has_element?(view, "#ax-pause[disabled]")
     render_click(view, "toggle-global-pause", %{})
     assert {:ok, %{globally_paused: false}} = GlobalPause.global_pause_status()
   end
 
-  defp assert_unknown_pause_state(orchestrator, opts \\ []) do
-    if Keyword.get(opts, :stale?, false) do
-      previous = SnapshotCache.get(orchestrator)
-      on_exit(fn -> restore_snapshot(orchestrator, previous) end)
-      :ok = SnapshotStore.publish(orchestrator, %{globally_paused: true})
-      cached = SnapshotCache.get(orchestrator)
-
-      SnapshotCache.put(orchestrator, %{
-        cached
-        | observed_at_ms: System.monotonic_time(:millisecond) - SnapshotStore.stale_age_ceiling_ms()
-      })
-    end
-
-    state = PauseState.pause_state(orchestrator)
+  defp assert_unknown_pause_state(orchestrator) do
+    state = PauseState.pause_state(orchestrator, 600_000)
     assert is_nil(state)
 
     html =

@@ -58,13 +58,13 @@ for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']
         })
       }
       const productFaces = await pair.product.evaluate(faces)
-      expect(productFaces).toEqual(await pair.design.evaluate(faces))
-      for (const widths of Object.values(productFaces)) {
-        expect(widths[2]).toBe(widths[3])
-        expect(widths[4]).toBe(widths[5])
-      }
-      expect(await pair.product.evaluate(() => ['Space Grotesk', 'JetBrains Mono'].every(family => [...document.fonts].some(face => face.family.replace(/["']/g, '') === family && face.status === 'loaded')))).toBe(true)
-      expect(resources.some(name => name.includes('space-grotesk'))).toBe(true)
+      const designFaces = await pair.design.evaluate(faces)
+      // The design's Google faces snap 550/650 to 600/700; the aiur-style variable faces render them.
+      const shared = widths => widths.filter((_, index) => index !== 2 && index !== 4)
+      for (const family of Object.keys(productFaces)) expect(shared(productFaces[family])).toEqual(shared(designFaces[family]))
+      // Each family loads once: one face (variable where aiur-style ships one) and one file.
+      expect(await pair.product.evaluate(() => [...document.fonts].map(face => `${face.family.replace(/["']/g, '')}:${face.weight}:${face.status}`).sort())).toEqual(['Bungee:400:loaded', 'JetBrains Mono:100 800:loaded', 'Space Grotesk:300 700:loaded'])
+      expect([...new Set(resources.map(name => new URL(name).pathname))].sort()).toEqual(['/aiur-style/fonts/Bungee-Regular.woff2', '/aiur-style/fonts/JetBrainsMono-Variable.woff2', '/aiur-style/fonts/SpaceGrotesk-Variable.woff2'])
       expect(resources.every(name => new URL(name).origin === new URL(test.info().project.use.baseURL).origin)).toBe(true)
       // C2-T02 owns the design's reserved scrollbar gutter; compare this ticket's wash at equal widths.
       for (const page of [pair.design, pair.product]) await page.addStyleTag({ content: 'html { scrollbar-gutter: auto !important; } body > * { display: none !important; } body { transition: none !important; }' })
@@ -74,7 +74,7 @@ for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']
           const specimen = document.createElement('div')
           specimen.id = 'faces-specimen'
           specimen.style.cssText = 'display:block!important;position:fixed;top:0;left:0;width:max-content'
-          for (const family of ['Space Grotesk', 'JetBrains Mono']) for (const weight of [550, 650]) {
+          for (const family of ['Space Grotesk', 'JetBrains Mono']) for (const weight of [500, 600]) {
             const text = document.createElement('span')
             text.style.cssText = `display:block;font:${weight} 40px "${family}";line-height:1.5`
             text.textContent = 'Aiur stroke specimen 0123456789'

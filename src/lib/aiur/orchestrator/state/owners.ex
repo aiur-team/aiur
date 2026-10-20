@@ -47,6 +47,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     max_concurrent_agents: :dispatch,
     session_max_concurrent_agents: :dispatch,
     effective_concurrent_agents: :dispatch,
+    priority_dispatch_reservations: :dispatch,
     load_envelope_state: :dispatch,
     capacity_hold: :dispatch,
     dispatch_hold: :dispatch,
@@ -66,6 +67,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     ci_readiness_unavailable_alerted: :dispatch,
     ci_readiness_check_pid: :dispatch,
     ci_readiness_check_token: :dispatch,
+    ci_readiness_check_provider: :dispatch,
     ci_readiness_retry_at_ms: :dispatch,
     ci_readiness_scope: :dispatch,
     ci_readiness_result: :dispatch,
@@ -106,6 +108,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     rework_attempts: :pr_lifecycle,
     rework_attempt_alerted: :pr_lifecycle,
     merged_ticket_reconciliations: :pr_lifecycle,
+    merged_ticket_issue_cache: :pr_lifecycle,
     merged_ticket_reconciliation_failures: :pr_lifecycle,
     restack_completed: :pr_lifecycle,
     queue_store: :messaging,
@@ -113,19 +116,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     agent_rate_limits: :accounting,
     codex_totals: :accounting,
     codex_rate_limits: :accounting,
-    events_etag: :github_listeners,
-    events_last_id: :github_listeners,
-    firehose_partial_streak: :github_listeners,
-    firehose_truncation_alert_active: :github_listeners,
-    firehose_truncation_alert_resolution_emitted: :github_listeners,
-    github_comments_since: :github_listeners,
-    github_comment_etags: :github_listeners,
-    github_comment_issue_updated_at: :github_listeners,
-    github_comment_issue_list_cache: :github_listeners,
-    github_comment_poll: :github_listeners,
-    github_comment_reconcile_targets: :github_listeners,
-    github_comment_reconcile_timer: :github_listeners,
-    last_comment_poll_started_at_ms: :github_listeners,
+    github_command_scan_etags: :github_listeners,
     github_command_scan_since: :github_listeners
   }
 
@@ -142,6 +133,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     ],
     dispatch: [
       Aiur.Orchestrator.AdoptedBoot,
+      Aiur.Orchestrator.CiReadinessGate,
       Aiur.Orchestrator.Dispatcher,
       Aiur.Orchestrator.DispatchOutcome,
       Aiur.Orchestrator.DispatchPolicy,
@@ -182,7 +174,12 @@ defmodule Aiur.Orchestrator.State.Owners do
     messaging: [Aiur.Orchestrator.OperatorMessages, Aiur.Orchestrator.DigestCoalescer],
     accounting: [Aiur.Orchestrator.TokenAccounting],
     # Listener names are data; this table neither loads nor calls the optional component.
-    github_listeners: [Aiur.Orchestrator.CommentPolling, Aiur.Orchestrator.CommandScan, :"Elixir.Aiur.Events.GithubFirehose", :"Elixir.Aiur.Events.GithubCommentsPoller"]
+    github_listeners: [
+      Aiur.Orchestrator.CommentPollingState,
+      Aiur.Orchestrator.CommandScan,
+      :"Elixir.Aiur.Events.GithubFirehose",
+      :"Elixir.Aiur.Events.GithubCommentsPoller"
+    ]
   }
 
   @spec owner(atom()) :: atom() | nil

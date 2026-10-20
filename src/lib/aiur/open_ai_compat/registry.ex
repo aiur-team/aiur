@@ -113,6 +113,8 @@ defmodule Aiur.OpenAICompat.Registry do
         adapter: CodingAgent,
         transcript: Transcript,
         family: family,
+        # In-process HTTP; Checkpoint.defer/flush injects between tools; ToolSpec exposes aiur tools.
+        delivery: %{transport: :in_process_http, mid_turn_inject: :native, pull_tool: true, hook_boundaries: [], native_question: :none},
         can_interrupt: false,
         safe_checkpoints: [:notification, :tool_result],
         # The OpenAI-compat worker implements the correlated unit-control

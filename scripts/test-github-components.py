@@ -14,16 +14,16 @@ REPO = Path(__file__).resolve().parent.parent
 MANIFEST = read_manifest(REPO)
 
 
-def check(target, expected):
+def check(target, expected, owner='github'):
     manifest = copy.deepcopy(MANIFEST)
     for component in manifest['components']:
         component['paths'] = []
         component['status'] = 'core'
         if component['id'] == 'orchestration':
             component['paths'] = ['src/lib/aiur/orchestrator/probe.ex']
-            component['optional'] = sorted(set(component['optional'] + ['github']))
+            component['optional'] = sorted(set(component['optional'] + ['github', 'github-access']))
             component['dependency_kind'] = 'optional'
-        if component['id'] == 'github':
+        if component['id'] == owner:
             component['paths'] = ['src/lib/aiur/github/probe.ex']
     manifest['features'] = []
     with tempfile.TemporaryDirectory(prefix='github-component-') as directory:
@@ -50,6 +50,6 @@ def check(target, expected):
 # Future regression guard: existing Client access must remain allowed.
 check('Aiur.GitHub.Client', 0)
 # Future regression guard: main's status command already consumes this facade.
-check('Aiur.GitHub.ResourceStore.Memory', 0)
+check('Aiur.GitHub.ResourceStore.Memory', 0, 'github-access')
 # RequestLog is internal at this census; PollSnapshots is already an external API.
-check('Aiur.GitHub.RequestLog', 1)
+check('Aiur.GitHub.RequestLog', 1, 'github-access')

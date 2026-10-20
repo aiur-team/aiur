@@ -1,0 +1,367 @@
+{
+  "valid": true,
+  "spec": {
+    "schema_version": 1,
+    "id": "chart-example",
+    "key": null,
+    "title": "Delivery speed",
+    "hypothesis": "Delivery gets faster",
+    "owner": {
+      "kind": "human",
+      "id": "operator"
+    },
+    "status": "active",
+    "origin": {
+      "kind": "manual",
+      "ref": null
+    },
+    "design": {
+      "kind": "before_after",
+      "change": {
+        "type": "release",
+        "ref": "v0.0.9",
+        "time": "2026-10-09T00:00:00Z"
+      },
+      "assign_by": "start"
+    },
+    "metrics": [
+      {
+        "ref": "delivery-speed/start_to_merge",
+        "direction": "decrease",
+        "primary": true
+      },
+      {
+        "ref": "delivery-speed/pr_open_to_merge",
+        "direction": "decrease",
+        "primary": false
+      }
+    ],
+    "min_samples": 10,
+    "alpha": 0.05,
+    "power_target": 0.8,
+    "windows": {
+      "before": {
+        "start": "2026-09-25T00:00:00Z",
+        "end": "2026-10-09T00:00:00Z"
+      },
+      "after": {
+        "start": "2026-10-09T00:00:00Z",
+        "end": null
+      }
+    },
+    "filters": {
+      "all": []
+    },
+    "stratify_by": [
+      "complexity"
+    ],
+    "tags": [],
+    "notes": "",
+    "created_at": "2026-10-09T00:00:00Z",
+    "updated_at": "2026-10-09T00:00:00Z",
+    "registered_at": null,
+    "confounder_sources": {},
+    "report_reason": null
+  },
+  "analysis": {
+    "schema_version": "experiment-result/v1",
+    "experiment_id": "release-speed",
+    "group_order": [
+      "before",
+      "after"
+    ],
+    "engine": {
+      "name": "experiment-stats",
+      "version": "1.0.0"
+    },
+    "inputs": {
+      "snapshot_sha256": "68ed4437643a2d8067785285bc18c805f4884fb58cb0bc545340ec5b943a8219",
+      "spec_sha256": "832c83217f5c74659a0026dbb98af81ac5cc102c29e0bd16899b10ff83171bf8",
+      "annotations_sha256": "a893b601925d8626bf508fc130f313adbf2a82dff46d6d3a3c27271be1fde176"
+    },
+    "defaults": {
+      "alpha": 0.05,
+      "min_samples": 10,
+      "power_target": 0.8,
+      "bootstrap_primary": 400,
+      "bootstrap_exploratory": 200,
+      "permutation_resamples": 500
+    },
+    "metrics": {
+      "delivery-speed/start_to_merge": {
+        "kind": "duration",
+        "groups": {
+          "before": {
+            "n": 12,
+            "median": 100.055,
+            "q1": 100.0275,
+            "q3": 100.0825,
+            "iqr": 0.055,
+            "p90": 100.099,
+            "min": 100.0,
+            "max": 100.11,
+            "n_censored": 0
+          },
+          "after": {
+            "n": 4,
+            "median": 70.0105,
+            "q1": 70.00525,
+            "q3": 70.01575,
+            "iqr": 0.0105,
+            "p90": 70.0189,
+            "min": 70.0,
+            "max": 70.021,
+            "n_censored": 0
+          }
+        },
+        "min_achievable_p": 0.001098901099,
+        "excluded_counts": {
+          "before": 0,
+          "after": 0
+        },
+        "flags": [
+          "confounded"
+        ],
+        "analyst_flags": [
+          {
+            "metric": "delivery-speed/start_to_merge",
+            "flag": "confounded",
+            "reason": "Release overlap",
+            "author": "fixture-analyst"
+          }
+        ],
+        "status": "insufficient_data",
+        "direction": "no_change",
+        "adjustment": "holm",
+        "summary_text": "Delivery speed: n 12 vs 4, median 0.001667583333 min to 0.001166841667 min; insufficient_data, no_change; 0 units excluded; flags: confounded (analyst: confounded \u2014 Release overlap).",
+        "strata": {
+          "2": {
+            "kind": "duration",
+            "groups": {
+              "before": {
+                "n": 6,
+                "median": 100.05000000000001,
+                "q1": 100.025,
+                "q3": 100.075
+              },
+              "after": {
+                "n": 2,
+                "median": 70.007,
+                "q1": 70.0035,
+                "q3": 70.0105
+              }
+            },
+            "min_achievable_p": 0.001098901099,
+            "excluded_counts": {
+              "before": 0,
+              "after": 0
+            },
+            "flags": [
+              "confounded"
+            ],
+            "analyst_flags": [
+              {
+                "metric": "delivery-speed/start_to_merge",
+                "flag": "confounded",
+                "reason": "Release overlap",
+                "author": "fixture-analyst"
+              }
+            ],
+            "status": "insufficient_data",
+            "direction": "no_change",
+            "adjustment": "bh",
+            "summary_text": "Delivery speed: n 12 vs 4, median 0.001667583333 min to 0.001166841667 min; insufficient_data, no_change; 0 units excluded; flags: confounded (analyst: confounded \u2014 Release overlap)."
+          }
+        }
+      },
+      "delivery-speed/pr_open_to_merge": {
+        "kind": "duration",
+        "groups": {
+          "before": {
+            "n": 12,
+            "median": 100.055,
+            "q1": 100.0275,
+            "q3": 100.0825,
+            "iqr": 0.055,
+            "p90": 100.099,
+            "min": 100.0,
+            "max": 100.11,
+            "n_censored": 0
+          },
+          "after": {
+            "n": 4,
+            "median": 70.0105,
+            "q1": 70.00525,
+            "q3": 70.01575,
+            "iqr": 0.0105,
+            "p90": 70.0189,
+            "min": 70.0,
+            "max": 70.021,
+            "n_censored": 0
+          }
+        },
+        "min_achievable_p": 0.001098901099,
+        "excluded_counts": {
+          "before": 0,
+          "after": 0
+        },
+        "flags": [
+          "confounded"
+        ],
+        "analyst_flags": [
+          {
+            "metric": "delivery-speed/pr_open_to_merge",
+            "flag": "confounded",
+            "reason": "Release overlap",
+            "author": "fixture-analyst"
+          }
+        ],
+        "status": "insufficient_data",
+        "direction": "no_change",
+        "adjustment": "bh",
+        "summary_text": "Delivery speed: n 12 vs 4, median 0.001667583333 min to 0.001166841667 min; insufficient_data, no_change; 0 units excluded; flags: confounded (analyst: confounded \u2014 Release overlap).",
+        "strata": {
+          "2": {
+            "kind": "duration",
+            "groups": {
+              "before": {
+                "n": 6,
+                "median": 100.05000000000001,
+                "q1": 100.025,
+                "q3": 100.075
+              },
+              "after": {
+                "n": 2,
+                "median": 70.007,
+                "q1": 70.0035,
+                "q3": 70.0105
+              }
+            },
+            "min_achievable_p": 0.001098901099,
+            "excluded_counts": {
+              "before": 0,
+              "after": 0
+            },
+            "flags": [
+              "confounded"
+            ],
+            "analyst_flags": [
+              {
+                "metric": "delivery-speed/pr_open_to_merge",
+                "flag": "confounded",
+                "reason": "Release overlap",
+                "author": "fixture-analyst"
+              }
+            ],
+            "status": "insufficient_data",
+            "direction": "no_change",
+            "adjustment": "bh",
+            "summary_text": "Delivery speed: n 12 vs 4, median 0.001667583333 min to 0.001166841667 min; insufficient_data, no_change; 0 units excluded; flags: confounded (analyst: confounded \u2014 Release overlap)."
+          }
+        }
+      }
+    },
+    "exclusions": [],
+    "warnings": [],
+    "overall": {
+      "primary_statuses": {
+        "delivery-speed/start_to_merge": "insufficient_data"
+      },
+      "note": "",
+      "flags": [
+        "confounded"
+      ]
+    }
+  },
+  "snapshots": [
+    {
+      "schema_version": 1,
+      "experiment_id": "chart-example",
+      "window_name": "before",
+      "window": {
+        "start": "2026-09-25T00:00:00Z",
+        "end": "2026-10-09T00:00:00Z"
+      },
+      "revision": 1,
+      "computed_at": "2026-10-11T00:00:00Z",
+      "aiur_version": "0.0.9",
+      "packs": [],
+      "metrics": {
+        "delivery-speed/start_to_merge": {
+          "observations": [
+            {"unit_id": "0before", "value": 100.0, "at": "2026-10-08T00:00:00Z", "started_at": "2026-10-08T00:00:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "1before", "value": 100.01, "at": "2026-10-08T00:01:00Z", "started_at": "2026-10-08T00:01:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "2before", "value": 100.02, "at": "2026-10-08T00:02:00Z", "started_at": "2026-10-08T00:02:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "3before", "value": 100.03, "at": "2026-10-08T00:03:00Z", "started_at": "2026-10-08T00:03:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "4before", "value": 100.04, "at": "2026-10-08T00:04:00Z", "started_at": "2026-10-08T00:04:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "5before", "value": 100.05, "at": "2026-10-08T00:05:00Z", "started_at": "2026-10-08T00:05:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "6before", "value": 100.06, "at": "2026-10-08T00:06:00Z", "started_at": "2026-10-08T00:06:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "7before", "value": 100.07, "at": "2026-10-08T00:07:00Z", "started_at": "2026-10-08T00:07:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "8before", "value": 100.08, "at": "2026-10-08T00:08:00Z", "started_at": "2026-10-08T00:08:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "9before", "value": 100.09, "at": "2026-10-08T00:09:00Z", "started_at": "2026-10-08T00:09:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "10before", "value": 100.1, "at": "2026-10-08T00:10:00Z", "started_at": "2026-10-08T00:10:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "11before", "value": 100.11, "at": "2026-10-08T00:11:00Z", "started_at": "2026-10-08T00:11:00Z", "attrs": {"complexity": 3}, "censored": false}
+          ],
+          "coverage": {}
+        },
+        "delivery-speed/pr_open_to_merge": {
+          "observations": [
+            {"unit_id": "0before", "value": 100.0, "at": "2026-10-08T00:00:00Z", "started_at": "2026-10-08T00:00:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "1before", "value": 100.01, "at": "2026-10-08T00:01:00Z", "started_at": "2026-10-08T00:01:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "2before", "value": 100.02, "at": "2026-10-08T00:02:00Z", "started_at": "2026-10-08T00:02:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "3before", "value": 100.03, "at": "2026-10-08T00:03:00Z", "started_at": "2026-10-08T00:03:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "4before", "value": 100.04, "at": "2026-10-08T00:04:00Z", "started_at": "2026-10-08T00:04:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "5before", "value": 100.05, "at": "2026-10-08T00:05:00Z", "started_at": "2026-10-08T00:05:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "6before", "value": 100.06, "at": "2026-10-08T00:06:00Z", "started_at": "2026-10-08T00:06:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "7before", "value": 100.07, "at": "2026-10-08T00:07:00Z", "started_at": "2026-10-08T00:07:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "8before", "value": 100.08, "at": "2026-10-08T00:08:00Z", "started_at": "2026-10-08T00:08:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "9before", "value": 100.09, "at": "2026-10-08T00:09:00Z", "started_at": "2026-10-08T00:09:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "10before", "value": 100.1, "at": "2026-10-08T00:10:00Z", "started_at": "2026-10-08T00:10:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "11before", "value": 100.11, "at": "2026-10-08T00:11:00Z", "started_at": "2026-10-08T00:11:00Z", "attrs": {"complexity": 3}, "censored": false}
+          ],
+          "coverage": {}
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "experiment_id": "chart-example",
+      "window_name": "after",
+      "window": {
+        "start": "2026-10-09T00:00:00Z",
+        "end": null
+      },
+      "revision": 1,
+      "computed_at": "2026-10-11T00:00:00Z",
+      "aiur_version": "0.0.9",
+      "packs": [],
+      "metrics": {
+        "delivery-speed/start_to_merge": {
+          "observations": [
+            {"unit_id": "0after", "value": 70.0, "at": "2026-10-10T00:00:00Z", "started_at": "2026-10-10T00:00:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "1after", "value": 70.007, "at": "2026-10-10T00:01:00Z", "started_at": "2026-10-10T00:01:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "2after", "value": 70.014, "at": "2026-10-10T00:02:00Z", "started_at": "2026-10-10T00:02:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "3after", "value": 70.021, "at": "2026-10-10T00:03:00Z", "started_at": "2026-10-10T00:03:00Z", "attrs": {"complexity": 3}, "censored": false}
+          ],
+          "coverage": {}
+        },
+        "delivery-speed/pr_open_to_merge": {
+          "observations": [
+            {"unit_id": "0after", "value": 70.0, "at": "2026-10-10T00:00:00Z", "started_at": "2026-10-10T00:00:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "1after", "value": 70.007, "at": "2026-10-10T00:01:00Z", "started_at": "2026-10-10T00:01:00Z", "attrs": {"complexity": 3}, "censored": false},
+            {"unit_id": "2after", "value": 70.014, "at": "2026-10-10T00:02:00Z", "started_at": "2026-10-10T00:02:00Z", "attrs": {"complexity": 2}, "censored": false},
+            {"unit_id": "3after", "value": 70.021, "at": "2026-10-10T00:03:00Z", "started_at": "2026-10-10T00:03:00Z", "attrs": {"complexity": 3}, "censored": false}
+          ],
+          "coverage": {}
+        }
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "at": "2026-10-09T01:00:00Z",
+      "label": "Release <overlap>"
+    }
+  ],
+  "phase": "collecting"
+}

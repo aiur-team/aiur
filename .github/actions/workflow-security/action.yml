@@ -1,0 +1,13 @@
+name: Hex dependency audit
+description: Audit the base and candidate Hex locks against current advisories.
+runs:
+  using: composite
+  steps:
+    - name: Set up Elixir for dependency audit
+      uses: ./.github/actions/setup-elixir
+    - name: Audit Hex dependencies against base
+      shell: bash
+      run: python3 scripts/audit-hex-dependencies.py origin/main
+    - name: Test Hex advisory policy
+      shell: bash
+      run: python3 scripts/test-audit-hex-dependencies.py

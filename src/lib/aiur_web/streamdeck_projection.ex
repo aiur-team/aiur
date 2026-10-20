@@ -5,6 +5,7 @@ defmodule AiurWeb.StreamdeckProjection do
 
   alias AiurWeb.{Endpoint, EndpointConfig, StreamdeckFleet}
 
+  @voice_not_installed_reason "Voice isn't installed in this Aiur"
   @version 1
   @voice_unconfigured_reason "Aiur has no ElevenLabs API key - transcription is off"
 
@@ -35,7 +36,8 @@ defmodule AiurWeb.StreamdeckProjection do
   def voice do
     case Aiur.Voice.availability() do
       %{available: true} -> %{available: true, reason: nil}
-      %{reason: reason} when reason in [:unconfigured, :not_installed] -> %{available: false, reason: @voice_unconfigured_reason}
+      %{reason: :unconfigured} -> %{available: false, reason: @voice_unconfigured_reason}
+      %{reason: :not_installed} -> %{available: false, reason: @voice_not_installed_reason}
     end
   end
 

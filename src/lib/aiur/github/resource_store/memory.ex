@@ -16,11 +16,23 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
   revalidates a shed entry is answered `304`, holds nothing, and re-reads
   unconditionally, which is the documented reader's half of the contract.
 
+  The checkpoint encoder also retains one encoded JSON entry per stored key so
+  a write to one resource does not re-encode every body. In a measured 2,000
+  entry store, its iodata was about 1.02 times the 20.06 MB of body bytes, adding
+  about 20.67 MB of off-heap binaries. With the default 128 MiB body cap, this
+  puts bodies plus their encoded copy near 256 MiB at the cap; this is an
+  approximate payload bound, not a total-memory limit, because JSON escaping
+  and entry metadata add overhead. `stats/1` and `enforce/2` report and cap
+  decoded bodies, not the encoded checkpoint cache. Shedding invalidates the
+  affected entries, and the next checkpoint caches their bodyless encoding.
+
   Sizes are `:erlang.external_size/1` of the body: computed without allocating,
   and within a few percent of the JSON the checkpoint writes for it.
   """
 
   require Logger
+
+  alias Aiur.GitHub.ResourceStore.Checkpoint
 
   @table Aiur.GitHub.ResourceStore.Table
   @max_entries 100_000
@@ -79,6 +91,8 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
       end)
 
     shed = Enum.filter(victims, fn {key, recorded_at, _bytes} -> shed?(table, key, recorded_at) end)
+
+    if shed != [], do: Checkpoint.mark_entries_dirty(Enum.map(shed, &elem(&1, 0)))
 
     if shed != [] do
       Logger.warning(

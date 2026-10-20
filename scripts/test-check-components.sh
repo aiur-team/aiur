@@ -20,7 +20,6 @@ selected = set(sys.argv[2:]) - {'--with-node', '--with-elixir'}
 checker = repo / 'scripts/check-components.py'
 ran = set()
 
-
 def check(name, components, files, code=0, messages=(), change=None, git=False, format=False, declarations=None, rules='ownership', links=None):
     if selected and name not in selected:
         return
@@ -306,6 +305,7 @@ else:
     reference_check('experiments_forbid_orchestrator', 'experiments_forbid_orchestrator', 1,
                     ('R-forbid experiments -> Aiur.Orchestrator',), change=use_experiments_contract)
     reference_check('undeclared_dependency_fails', 'undeclared_dependency_fails', 1, ('R-declared a -> B.Facade',))
+    from components.github_access_fixtures import run as access_checks; access_checks(reference_check)
     reference_check('declared_facade_passes', 'declared_facade_passes')
     # Future-regression guard: component routes import the kit, never the shell.
     reference_check('component_route_kit_passes', 'component_routes', messages=('R-down: 0',))

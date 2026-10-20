@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.PauseResume.ControlRequest do
   """
 
   alias Aiur.AgentPubSub
-  alias Aiur.Events.IdGenerator
+  alias Aiur.Events
   alias Aiur.Issue
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.ControlLifecycleStore
@@ -252,7 +252,7 @@ defmodule Aiur.Orchestrator.PauseResume.ControlRequest do
   defp arm_pause_containment(_request, _issue_identifier), do: :ok
 
   defp next_control_request_id do
-    case IdGenerator.reserve_durable_id() do
+    case Events.reserve_durable_id() do
       {:ok, request_id} -> {:ok, request_id}
       {:error, :not_durable} -> {:error, :control_id_unavailable}
     end

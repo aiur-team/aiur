@@ -20,6 +20,8 @@ import secrets
 import sqlite3
 import sys
 import time
+sys.path.insert(0, os.path.dirname(__file__))
+import github_budget_metrics as broker_metrics
 
 
 # Per-actor hourly usage is read from `admissions`, so an admission must stay
@@ -512,10 +514,9 @@ def acquire(args):
         hold_until = max(token_hold, resource_hold[1] if resource_hold and resource_hold[1] else 0)
 
         max_inflight, max_inflight_per_endpoint, requests_per_minute, stagger_ms = conn.execute(
-            "SELECT MIN(max_inflight), MIN(max_inflight_per_endpoint), "
-            "MIN(requests_per_minute), MAX(stagger_ms) FROM policies WHERE token_key = ? "
-            "AND observed_at_ms > ?",
-            (args.token_key, now - POLICY_RECONCILE_WINDOW_MS),
+            "SELECT MIN(max_inflight) + ?, MIN(max_inflight_per_endpoint) + ?, MIN(requests_per_minute), MAX(stagger_ms) "
+            "FROM policies WHERE token_key = ? AND observed_at_ms > ?",
+            (int(args.priority), int(args.priority), args.token_key, now - POLICY_RECONCILE_WINDOW_MS),
         ).fetchone()
 
         if hold_until > now:
@@ -879,6 +880,7 @@ def parser():
     acquire_parser.add_argument("--resource", required=True)
     acquire_parser.add_argument("--consumer-key", required=True)
     acquire_parser.add_argument("--ignore-token-cooldown", action="store_true")
+    acquire_parser.add_argument("--priority", action="store_true", help="main-watch: one lease above each in-flight cap; pacing still applies")
     acquire_parser.add_argument("--endpoint-family", required=True)
     acquire_parser.add_argument("--max-inflight", type=lambda value: clamp(value, 1, 100), required=True)
     acquire_parser.add_argument("--max-inflight-per-endpoint", type=lambda value: clamp(value, 1, 100), required=True)
@@ -955,27 +957,24 @@ def execute(args):
 
 
 def read_requests(inbox):
-    try:
-        for line in sys.stdin:
-            inbox.put(json.loads(line))
-    finally:
-        inbox.put(None)
+    broker_metrics.receive_requests(sys.stdin, inbox)
 
 
-def run_batch(requests, command_parser):
+def run_batch(requests, command_parser, queue_depth=0):
     parsed = []
     for request in requests:
+        broker_metrics.prepare_request(request, queue_depth)
         try:
             with contextlib.redirect_stderr(io.StringIO()):
                 args = command_parser.parse_args(request["args"])
             parsed.append((request, args))
         except (Exception, SystemExit) as error:
-            yield {"id": request["id"], "status": 1, "output": str(error)}
+            yield {"id": request["id"], "status": 1, "output": str(error), "python_queue_wait_ms": request["_python_queue_wait_ms"], "python_queue_depth": queue_depth}
     for db, group in itertools.groupby(parsed, key=lambda item: item[1].db):
         active = []
         for request, args in group:
             if request["deadline_ms"] <= now_ms():
-                yield {"id": request["id"], "status": 2, "output": "broker deadline expired before admission"}
+                yield {"id": request["id"], "status": 2, "output": "broker deadline expired before admission", "python_queue_wait_ms": request["_python_queue_wait_ms"], "python_queue_depth": queue_depth}
             else:
                 active.append((request, args))
         if active:
@@ -986,40 +985,21 @@ COMMIT_MARGIN_MS = 50
 
 
 def begin_batch(conn, requests, replies):
-    # SQLite's long busy wait can lose every lock race to a hot resident peer.
-    # Short waits plus jitter give competing daemons chances to acquire it,
-    # while preserving the caller's absolute deadline and fail-closed behavior.
-    while True:
-        active = []
-        for request, args in requests:
-            if request["deadline_ms"] - COMMIT_MARGIN_MS <= now_ms():
-                replies.append({"id": request["id"], "status": 2, "output": "broker deadline expired waiting for SQLite"})
-            else:
-                active.append((request, args))
-        requests[:] = active
-        if not requests:
-            return False
-        remaining = min(request["deadline_ms"] for request, _args in requests) - COMMIT_MARGIN_MS - now_ms()
-        if remaining <= 0:
-            continue
-        conn.conn.execute(f"PRAGMA busy_timeout = {min(remaining, 20)}")
-        try:
-            conn.conn.execute("BEGIN IMMEDIATE")
-            return True
-        except sqlite3.OperationalError as error:
-            if "locked" not in str(error).lower():
-                raise
-            time.sleep(min(remaining, 2 + secrets.randbelow(9)) / 1000)
+    return broker_metrics.begin_batch(conn, requests, replies, now_ms, COMMIT_MARGIN_MS)
 
 
 def run_transaction(db, requests):
+    requests = list(requests)
     replies = []
     conn = None
+    sqlite_open_ms = 0
+    transaction_started_ns = None
     try:
-        conn = connection(db)
-        requests = list(requests)
-        if not begin_batch(conn, requests, replies):
-            return replies
+        conn, sqlite_open_ms = broker_metrics.open_connection(connection, db)
+        acquired, lock_wait_ms = begin_batch(conn, requests, replies)
+        if not acquired:
+            return broker_metrics.add_open_time(replies, sqlite_open_ms)
+        transaction_started_ns = time.monotonic_ns()
         conn.batching = True
         if any(args.command in ("acquire", "release", "reconcile", "renew", "hold") for _request, args in requests):
             _ensure_writable(conn)
@@ -1052,7 +1032,8 @@ def run_transaction(db, requests):
             remaining = [(request, args) for request, args in requests if request["id"] not in expired]
             return waiting_replies + timed_out + (run_transaction(db, remaining) if remaining else [])
         conn.conn.execute("COMMIT")
-        return replies
+        transaction_ms = (time.monotonic_ns() - transaction_started_ns) / 1_000_000
+        return broker_metrics.successful_replies(replies, {request["id"]: request for request, _args in requests}, sqlite_open_ms, lock_wait_ms, transaction_ms)
     except Exception as error:
         if conn is not None and conn.in_transaction:
             conn.conn.execute("ROLLBACK")
@@ -1060,7 +1041,9 @@ def run_transaction(db, requests):
         local_timeout = isinstance(error, TimeoutError) or (isinstance(error, sqlite3.OperationalError) and "locked" in str(error).lower())
         active_ids = {request["id"] for request, _args in requests}
         completed = [reply for reply in replies if reply["id"] not in active_ids]
-        return completed + [{"id": request["id"], "status": 2 if local_timeout else 1, "output": str(error)} for request, _args in requests]
+        transaction_ms = 0 if transaction_started_ns is None else (time.monotonic_ns() - transaction_started_ns) / 1_000_000
+        failed = broker_metrics.failed_replies(error, requests, local_timeout, sqlite_open_ms, transaction_ms)
+        return completed + failed
     finally:
         if conn is not None:
             conn.batching = False
@@ -1090,7 +1073,7 @@ def serve():
                 batch.append(request)
             # Replies are published only after the batch commits: a granted
             # lease must be durable before a caller may contact GitHub.
-            for reply in run_batch(batch, command_parser):
+            for reply in run_batch(batch, command_parser, inbox.qsize()):
                 print(json.dumps(reply), flush=True)
     finally:
         for conn in SESSION_CONNECTIONS.values():

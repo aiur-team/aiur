@@ -13,7 +13,7 @@ defmodule Aiur.BuildOrder.ProgressObserver do
 
   @impl true
   def init(opts) do
-    state = %{projection: Keyword.get(opts, :projection, GraphProjection), progress: Keyword.get(opts, :progress, BuildProgress), repository: nil, test_observer: Keyword.get(opts, :test_observer)}
+    state = %{projection: Keyword.get(opts, :projection, GraphProjection), progress: Keyword.get(opts, :progress, BuildProgress), repository: nil}
     {:ok, observe(state)}
   end
 
@@ -27,9 +27,7 @@ defmodule Aiur.BuildOrder.ProgressObserver do
   def handle_info({:graph_projection_reset, _generation}, state) do
     :ok = Phoenix.PubSub.unsubscribe(Aiur.PubSub, GraphProjection.reset_topic())
     if match?({_, _}, state.repository), do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, GraphProjection.catalog_topic(state.repository))
-    state = observe(%{state | repository: nil})
-    if is_pid(state.test_observer), do: send(state.test_observer, {:progress_observer_reset_subscribed, self()})
-    {:noreply, state}
+    {:noreply, observe(%{state | repository: nil})}
   end
 
   def handle_info(_message, state), do: {:noreply, state}

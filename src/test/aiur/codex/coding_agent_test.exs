@@ -224,7 +224,7 @@ defmodule Aiur.Codex.CodingAgentTest do
                       }},
                      2_000
 
-      refute inspect(notification) =~ secret
+      Aiur.TestSupport.refute_leak(notification, secret)
     end
   end
 

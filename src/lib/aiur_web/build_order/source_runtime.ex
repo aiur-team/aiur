@@ -71,7 +71,7 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   defp start_catalog_read(socket) do
     source = socket.assigns.source
     ref = make_ref()
-    timer = Process.send_after(self(), {:build_order_catalog_timeout, ref}, catalog_read_timeout_ms())
+    timer = schedule_catalog_read_timeout(ref, catalog_read_timeout_ms())
 
     socket
     |> assign(:catalog_read, {ref, timer})
@@ -84,6 +84,13 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
 
   defp catalog_read_timeout_ms,
     do: Application.get_env(:aiur, :build_order_catalog_read_timeout_ms, @catalog_read_timeout_ms)
+
+  defp schedule_catalog_read_timeout(ref, timeout_ms) do
+    case Application.get_env(:aiur, :build_order_catalog_timeout_scheduler) do
+      scheduler when is_function(scheduler, 3) -> scheduler.(self(), ref, timeout_ms)
+      _ -> Process.send_after(self(), {:build_order_catalog_timeout, ref}, timeout_ms)
+    end
+  end
 
   defp stop_catalog_read(%{assigns: %{catalog_read: {_ref, timer}}} = socket) do
     _ = Process.cancel_timer(timer)
