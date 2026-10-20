@@ -415,6 +415,7 @@ defmodule Aiur.TestSupport do
         Aiur.TestSupport.quiesce_live_orchestrator()
         Aiur.TestSupport.reset_global_state!()
         stop_default_http_server()
+        OrchestratorGuard.capture_codeowners_baseline!()
 
         on_exit(fn ->
           Aiur.TestSupport.teardown_test_scope!(
