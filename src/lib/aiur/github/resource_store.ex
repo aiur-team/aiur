@@ -354,14 +354,8 @@ defmodule Aiur.GitHub.ResourceStore do
     # a GraphQL node lookup (#2326). A comment's thread is immutable, so the
     # mapping never goes stale.
     :pr_review_comment_thread,
-    # The conditional validator for that lookup's open-pull-request listing
-    # (`GET /pulls?state=open`), held separately from `:branch_pull_request`.
-    # The three writers of the PR-body key — webhook deposit, human-review gate,
-    # and the per-cycle Client lookup — each write a different kind of validator,
-    # so sharing one key would clobber the listing's page-1 ETag with a
-    # PR-body-derived hash it can never match (#2126, #2298).
+    # Conditional validator for the page-one listing, separate from the PR-body key.
     :branch_pull_request_listing,
-    # Shared conditional response for every ticket branch lookup in the repo.
     :branch_pull_request_listing_all
   ]
 

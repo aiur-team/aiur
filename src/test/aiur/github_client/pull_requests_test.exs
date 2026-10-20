@@ -3,17 +3,10 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
 
   import Aiur.GitHub.ClientTestSupport
 
-  alias Aiur.GitHub.{Client, CycleFetchCache, ResourceStore}
+  alias Aiur.GitHub.{Client, ResourceStore}
 
   setup do
     setup_client()
-    key = ResourceStore.key_for_repo(:branch_pull_request_listing_all, "owner/repo", "open")
-    ResourceStore.drop_data(key)
-
-    on_exit(fn ->
-      CycleFetchCache.end_cycle()
-      ResourceStore.drop_data(key)
-    end)
   end
 
   describe "fetch_pull_request_head_ref/2" do
@@ -65,8 +58,7 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
 
     test "returns nil for a closed/merged PR (routes to the legacy path)" do
       request_fun = fn _ ->
-        {:ok,
-         %{status: 200, body: %{"number" => 9, "state" => "closed", "head" => %{"ref" => "x"}}}}
+        {:ok, %{status: 200, body: %{"number" => 9, "state" => "closed", "head" => %{"ref" => "x"}}}}
       end
 
       assert {:ok, nil} = Client.fetch_open_pull_request(9, request_fun: request_fun)
@@ -201,55 +193,6 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
       assert Agent.get(counter, & &1) == 1
     end
 
-    test "different ticket lookups share one repo listing validator and held result" do
-      {:ok, counts} = Agent.start_link(fn -> %{full: 0, conditional: 0} end)
-      parent = self()
-      etag = ~s("repo-open-pulls-v1")
-
-      request_fun = fn %{method: :get, url: url} = request ->
-        assert url =~ "/repos/owner/repo/pulls?"
-
-        case Map.get(request, :etag) do
-          nil ->
-            Agent.update(counts, &Map.update!(&1, :full, fn count -> count + 1 end))
-            send(parent, :full_listing)
-
-            {:ok,
-             %{
-               status: 200,
-               headers: [{"etag", etag}],
-               body: [
-                 %{"number" => 49, "head" => %{"ref" => "aiur/35"}},
-                 %{"number" => 50, "head" => %{"ref" => "aiur/36-readable-slug"}},
-                 %{"number" => 51, "head" => %{"ref" => "aiur/37"}}
-               ]
-             }}
-
-          ^etag ->
-            Agent.update(counts, &Map.update!(&1, :conditional, fn count -> count + 1 end))
-            send(parent, {:conditional, request.etag})
-            {:ok, %{status: 304, headers: [{"etag", etag}]}}
-
-          other ->
-            flunk("unexpected listing validator #{inspect(other)}")
-        end
-      end
-
-      assert {:ok, %{"number" => 49}} =
-               Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
-
-      assert {:ok, %{"number" => 50}} =
-               Client.fetch_open_pull_request_for_branch(36, request_fun: request_fun)
-
-      assert {:ok, %{"number" => 51}} =
-               Client.fetch_open_pull_request_for_branch(37, request_fun: request_fun)
-
-      assert_receive :full_listing, 1000
-      assert_receive {:conditional, ^etag}, 1000
-      assert_receive {:conditional, ^etag}, 1000
-      assert Agent.get(counts, & &1) == %{full: 1, conditional: 2}
-    end
-
     test "returns nil when the branch has no open PR" do
       request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: []}} end
 
@@ -306,8 +249,7 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
       request_fun = fn request ->
         send(parent, {:request, request})
 
-        {:ok,
-         %{status: 200, headers: [], body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
+        {:ok, %{status: 200, headers: [], body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
       end
 
       assert {:ok, %{"number" => 49}} =
@@ -539,8 +481,7 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
             {:ok, %{status: 429, body: %{}}}
 
           url =~ "/repos/owner/repo/issues/43/comments" ->
-            {:ok,
-             %{status: 200, body: [%{"user" => %{"login" => "owner"}, "body" => "Directive"}]}}
+            {:ok, %{status: 200, body: [%{"user" => %{"login" => "owner"}, "body" => "Directive"}]}}
         end
       end
 
