@@ -1,6 +1,8 @@
 defmodule AiurEngineRunArgvTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Workspace.WipPreservation.Command
+
   import Aiur.TestSupport.EngineCase
 
   test "take passes the caller shell owner through the daemon RPC" do
@@ -475,7 +477,7 @@ defmodule AiurEngineRunArgvTest do
     shell = System.find_executable("bash")
     args = ["-c", ~S(exec "$@" > "$AIUR_TEST_OUTPUT" 2>&1), "version-probe", command, "--version"]
     env = [{"USER", "tester"}, {"AIUR_TEST_OUTPUT", output}, {"BASH_ENV", trace} | env]
-    result = Aiur.Workspace.WipPreservation.Command.run(shell, args, timeout_ms: timeout_ms, env: env, stderr_to_stdout: true)
+    result = Command.run(shell, args, timeout_ms: timeout_ms, env: env, stderr_to_stdout: true)
     last_output = File.read!(output)
 
     case result do
