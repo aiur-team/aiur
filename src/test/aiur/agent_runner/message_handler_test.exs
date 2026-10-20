@@ -138,8 +138,8 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       assert %{messages: [%{role: "tool", title: "Tool result", body: "Tool completed"}]} =
                LiveConversation.snapshot(source)
 
-      refute inspect(LiveConversation.snapshot(source)) =~ "dangerous_tool"
-      refute inspect(LiveConversation.snapshot(source)) =~ "private/full/output"
+      Aiur.TestSupport.refute_leak(LiveConversation.snapshot(source), "dangerous_tool")
+      Aiur.TestSupport.refute_leak(LiveConversation.snapshot(source), "private/full/output")
 
       handler.(%{
         event: :notification,
@@ -159,7 +159,7 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
       assert %{messages: messages} = LiveConversation.snapshot(source)
       assert Enum.map(messages, & &1.body) == ["Tool completed", "Tool reported an error"]
-      refute inspect(messages) =~ "super-secret"
+      Aiur.TestSupport.refute_leak(messages, "super-secret")
     end
 
     test "deduplicates replayed tool results using provider identity" do

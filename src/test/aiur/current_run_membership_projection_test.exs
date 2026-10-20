@@ -81,7 +81,7 @@ defmodule Aiur.CurrentRunMembership.ProjectionTest do
     assert decoded == event
 
     assert {:error, :invalid_checksum} = Event.from_record(Map.put(record, "checksum", "not-the-original-checksum"))
-    refute inspect(record) =~ "ticket title"
+    Aiur.TestSupport.refute_leak(record, "ticket title")
     refute Map.has_key?(record, "title")
     refute Map.has_key?(record, "workspace_path")
   end
