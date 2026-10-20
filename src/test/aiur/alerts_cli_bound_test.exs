@@ -16,19 +16,96 @@ defmodule Aiur.AlertsCLIBoundTest do
     assert {:ok, opts} = Aiur.AlertsCLI.parse(["--needs-attention", "--limit", "7"])
     assert Enum.sort(opts) == [limit: 7, needs_attention: true]
     assert {:ok, [limit: :all]} = Aiur.AlertsCLI.parse(["--all"])
-    assert {:error, "aiur: alerts --limit needs a positive integer"} = Aiur.AlertsCLI.parse(["--limit", "0"])
+
+    assert {:ok, [ack: "ticket.42.agent.attention.duplicate-dispatch", executor_id: "operator"]} =
+             Aiur.AlertsCLI.parse([
+               "ack",
+               "ticket.42.agent.attention.duplicate-dispatch",
+               "--executor-id",
+               "operator"
+             ])
+
+    assert {:error, _} =
+             Aiur.AlertsCLI.parse([
+               "ack",
+               "ticket.42.agent.attention.operator-decision",
+               "--executor-id",
+               "operator"
+             ])
+
+    assert {:error, "aiur: alerts --limit needs a positive integer"} =
+             Aiur.AlertsCLI.parse(["--limit", "0"])
+
     assert {:error, "aiur: alerts accepts" <> _} = Aiur.AlertsCLI.parse(["--limit"])
     assert {:error, "aiur: alerts accepts" <> _} = Aiur.AlertsCLI.parse(["--bogus"])
   end
 
+  test "acknowledgment records the principal and resolves the attention", %{ledger: ledger} do
+    topic = "ticket.42.agent.attention.duplicate-dispatch"
+
+    write_ledger(ledger, [
+      %{
+        "event" => "alert",
+        "timestamp" => "2026-10-19T00:00:00Z",
+        "topic" => topic,
+        "needs_attention" => true
+      }
+    ])
+
+    assert capture_io(fn ->
+             assert Aiur.AlertsCLI.run(ack: topic, executor_id: "operator-7", ledger_path: ledger) ==
+                      0
+           end) =~ "Acknowledged #{topic} as operator-7"
+
+    refute Enum.any?(
+             AlertFeed.list(ledger_path: ledger, needs_attention: true),
+             &(&1["topic"] == topic)
+           )
+
+    assert AlertFeed.condition_state(topic, ledger_path: ledger) == :resolved
+
+    assert [%{"acknowledged_by" => %{"kind" => "executor", "id" => "operator-7"}}] =
+             ledger
+             |> File.read!()
+             |> String.split("\n", trim: true)
+             |> Enum.map(&Jason.decode!/1)
+             |> Enum.filter(&Map.has_key?(&1, "acknowledged_by"))
+  end
+
+  test "acknowledgment refuses unsupported attention types without changing the ledger", %{ledger: ledger} do
+    topic = "ticket.42.agent.attention.operator-decision"
+
+    write_ledger(ledger, [
+      %{
+        "event" => "alert",
+        "timestamp" => "2026-10-19T00:00:00Z",
+        "topic" => topic,
+        "needs_attention" => true
+      }
+    ])
+
+    assert capture_io(:stderr, fn ->
+             assert Aiur.AlertsCLI.run(ack: topic, executor_id: "operator-7", ledger_path: ledger) == 64
+           end) =~ "duplicate-dispatch"
+
+    assert AlertFeed.condition_state(topic, ledger_path: ledger) == :firing
+    refute String.contains?(File.read!(ledger), "acknowledged_by")
+  end
+
   test "argv entry point exits 64 on bad input" do
-    assert capture_io(:stderr, fn -> assert Aiur.AlertsCLI.run(argv: ["--bogus"]) == 64 end) =~ "alerts accepts"
+    assert capture_io(:stderr, fn -> assert Aiur.AlertsCLI.run(argv: ["--bogus"]) == 64 end) =~
+             "alerts accepts"
   end
 
   test "default view keeps every open attention item and caps only other rows", %{ledger: ledger} do
     open = Enum.map(1..150, &alert(&1, true))
     history = Enum.map(1001..1200, &alert(&1, false))
-    resolved = [alert(2001, true), Map.put(alert(2001, false), "topic", "system.test.2001.resolved")]
+
+    resolved = [
+      alert(2001, true),
+      Map.put(alert(2001, false), "topic", "system.test.2001.resolved")
+    ]
+
     write_ledger(ledger, open ++ history ++ resolved)
 
     [notice | alerts] = run_alerts(ledger_path: ledger)
@@ -45,7 +122,11 @@ defmodule Aiur.AlertsCLIBoundTest do
 
   test "--needs-attention never truncates and excludes resolved conditions", %{ledger: ledger} do
     records = Enum.map(1..151, &alert(&1, true))
-    write_ledger(ledger, records ++ [Map.put(alert(151, false), "topic", "system.test.151.resolved")])
+
+    write_ledger(
+      ledger,
+      records ++ [Map.put(alert(151, false), "topic", "system.test.151.resolved")]
+    )
 
     alerts = run_alerts(ledger_path: ledger, needs_attention: true)
     assert length(alerts) == 150
@@ -67,12 +148,16 @@ defmodule Aiur.AlertsCLIBoundTest do
     assert large < small * 6
   end
 
-  defp write_ledger(ledger, records), do: File.write!(ledger, Enum.map(records, &[Jason.encode!(&1), "\n"]))
+  defp write_ledger(ledger, records),
+    do: File.write!(ledger, Enum.map(records, &[Jason.encode!(&1), "\n"]))
 
   defp run_alerts(opts), do: capture_io(fn -> AgentControlCLI.alerts(opts) end) |> decode_output()
 
   defp decode_output(output) do
-    output |> String.split("\n", trim: true) |> Enum.filter(&String.starts_with?(&1, "{")) |> Enum.map(&Jason.decode!/1)
+    output
+    |> String.split("\n", trim: true)
+    |> Enum.filter(&String.starts_with?(&1, "{"))
+    |> Enum.map(&Jason.decode!/1)
   end
 
   defp reductions(ledger, count) do
@@ -85,6 +170,11 @@ defmodule Aiur.AlertsCLIBoundTest do
   end
 
   defp alert(index, attention) do
-    %{"event" => "alert", "timestamp" => "2026-10-09T00:00:00Z", "topic" => "system.test.#{index}", "needs_attention" => attention}
+    %{
+      "event" => "alert",
+      "timestamp" => "2026-10-09T00:00:00Z",
+      "topic" => "system.test.#{index}",
+      "needs_attention" => attention
+    }
   end
 end
