@@ -31,7 +31,7 @@ defmodule Aiur.GitHub.CIRecoveryStore do
   defp valid_hold?(nil), do: true
 
   defp valid_hold?(%{"sha" => sha, "reason" => reason, "tests" => tests, "mode" => mode}),
-    do: is_binary(sha) and is_binary(reason) and is_binary(tests) and mode in ["hold", "fallback"]
+    do: is_binary(sha) and is_binary(reason) and is_binary(tests) and mode in ["hold", "fallback", "landing", "transient", "base"]
 
   defp valid_hold?(_), do: false
   defp valid_limit_hold?(nil), do: true

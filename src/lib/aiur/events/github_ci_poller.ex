@@ -11,7 +11,7 @@ defmodule Aiur.Events.GithubCIPoller do
   require Logger
 
   alias Aiur.Events.GithubCIPoller.{ApprovalCarry, BaseRepair, Evaluation, Recovery}
-  alias Aiur.GitHub.{CiReadiness, Client}
+  alias Aiur.GitHub.{CiReadiness, Client, LocalHold}
   alias Aiur.Stacking.StackBaseEvidence
 
   @type target :: String.t() | integer()
@@ -40,6 +40,7 @@ defmodule Aiur.Events.GithubCIPoller do
     required_check_fetcher = Keyword.get(opts, :required_check_fetcher, &CiReadiness.fetch_required_checks/1)
     required_checks = if targets == [], do: {:ok, []}, else: required_check_fetcher.(opts)
     opts = Keyword.put(opts, :required_checks, required_checks)
+    opts = prefetch_open_pull_requests(targets, opts)
 
     results =
       targets
@@ -102,7 +103,19 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp poll_target_from_rest(target, opts) do
-    case Client.fetch_open_pull_request_for_branch(target, opts) do
+    result =
+      case prefetched_open_pull_request(target, opts) do
+        {:ok, pull_request} ->
+          {:ok, pull_request}
+
+        :missing ->
+          LocalHold.run(
+            fn -> Client.fetch_open_pull_request_for_branch(target, opts) end,
+            LocalHold.caller_opts(opts)
+          )
+      end
+
+    case result do
       {:ok, nil} ->
         # A newly finalized PR can take a short time to appear in GitHub's
         # branch-filtered listing. Fail closed so the tracker does not stay
@@ -149,7 +162,14 @@ defmodule Aiur.Events.GithubCIPoller do
           |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
           |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
           |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
-          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
+          |> Map.merge(%{
+            target: target,
+            pr_number: pr_number,
+            head_sha: head_sha,
+            base_sha: get_in(pr, ["base", "sha"]),
+            ready_at_ms: Map.get(pr, "ready_at_ms"),
+            reviewed_head?: Map.get(pr, "reviewed_head?")
+          })
           |> Map.merge(Evaluation.merge_queue_observation(pr))
           |> log_classification()
 
@@ -158,7 +178,15 @@ defmodule Aiur.Events.GithubCIPoller do
           |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
           |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
           |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
-          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})
+          |> Map.merge(%{
+            target: target,
+            pr_number: pr_number,
+            head_sha: head_sha,
+            base_sha: get_in(pr, ["base", "sha"]),
+            ready_at_ms: Map.get(pr, "ready_at_ms"),
+            reviewed_head?: Map.get(pr, "reviewed_head?"),
+            base_repair_invalidation: recovered_invalidation
+          })
           |> Map.merge(Evaluation.merge_queue_observation(pr))
           |> log_classification()
 
@@ -181,6 +209,32 @@ defmodule Aiur.Events.GithubCIPoller do
       {:ok, value}
     else
       _ -> :missing
+    end
+  end
+
+  defp prefetch_open_pull_requests(targets, opts) do
+    missing = Enum.reject(targets, &match?({:ok, _batch}, ci_batch_value(opts, &1)))
+
+    if missing == [] do
+      opts
+    else
+      case Client.fetch_open_pull_requests_for_branches(missing, opts) do
+        {:ok, pull_requests} -> Keyword.put(opts, :open_pull_requests_by_target, pull_requests)
+        {:error, _reason} -> opts
+      end
+    end
+  end
+
+  defp prefetched_open_pull_request(target, opts) do
+    case Keyword.get(opts, :open_pull_requests_by_target, %{}) do
+      pull_requests when is_map(pull_requests) ->
+        case Map.fetch(pull_requests, to_string(target)) do
+          {:ok, pull_request} -> {:ok, pull_request}
+          :error -> :missing
+        end
+
+      _other ->
+        :missing
     end
   end
 
@@ -302,10 +356,14 @@ defmodule Aiur.Events.GithubCIPoller do
           target: target,
           pr_number: pr_number,
           head_sha: observed_head_sha,
+          base_sha: get_in(current_pr, ["base", "sha"]),
           draft?: Evaluation.pr_draft?(current_pr),
           review_decision: Map.get(current_pr, "review_decision"),
           mergeable: normalize_mergeable(Map.get(current_pr, "mergeable"))
         })
+        |> Map.put(:ready_at_ms, Map.get(current_pr, "ready_at_ms"))
+        |> Map.put(:reviewed_head?, Map.get(current_pr, "reviewed_head?"))
+        |> Map.merge(Evaluation.merge_queue_observation(current_pr))
         |> log_classification()
 
       {:ok, current_head_sha} ->

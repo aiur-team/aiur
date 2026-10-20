@@ -46,6 +46,21 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert Epic.resolve(context, %{general: general(), features: :unknown}).source == "unknown"
   end
 
+  test "planning context keeps an open ticket read timeout unavailable without raising" do
+    parts = parts() |> Map.put(:open, {:error, :timeout})
+
+    context = Index.planning_context(parts, MapSet.new())
+
+    assert context.not_queued == %{
+             state: :unavailable,
+             reasons: [:open_tickets_timeout],
+             observed_at: nil,
+             truncated?: false,
+             skipped: 0,
+             rows: []
+           }
+  end
+
   test "preserves closure causes and unknown title, model and complexity" do
     p =
       parts([
@@ -118,6 +133,16 @@ defmodule Aiur.BuildOrder.IndexTest do
 
   test "epic config failure never supplies defaults" do
     assert {:error, :epic_config_unavailable} = assemble(%{parts() | settings: {:error, :down}})
+  end
+
+  test "workflow settings still loading is distinct from an invalid or failed config" do
+    assert {:error, :settings_loading} = assemble(%{parts() | settings: {:error, :workflow_not_loaded}})
+    assert {:error, :epic_config_unavailable} = assemble(%{parts() | settings: {:error, :invalid_config}})
+  end
+
+  test "missing and timed out settings stay in the startup loading state" do
+    assert {:error, :settings_loading} = assemble(%{read_stale: %{settings: :timeout}})
+    assert {:error, :settings_loading} = assemble(%{})
   end
 
   test "all open tickets appear exactly once including active labels absent from history" do

@@ -20,6 +20,71 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservationsTest do
     assert fresh.pr_number == 100
   end
 
+  test "removed dependency edge forces a current blocker read to detect recovery" do
+    pid = self()
+
+    opts =
+      opts(
+        blocked_by: fn _ -> {:ok, []} end,
+        closure: fn "10", _ -> {:ok, %{open?: false, state_reason: "completed"}} end,
+        read_pr: fn id, number ->
+          send(pid, {:read_after_edge_removal, id, number})
+          {:ok, Map.merge(pr(number), %{"state" => "closed", "merged" => true})}
+        end
+      )
+
+    row = put_in(record(cached()), ["blockers", Access.at(0), "guard_observation", "edge_cache", "11", "observed_at_ms"], @now - 120_000)
+    observations = OptimisticGuardObservations.read([row], @now, opts)
+    assert_receive {:read_after_edge_removal, "10", 100}, 500
+    assert observations["10"].state_reason == "completed"
+    assert observations["10"].pr_merged
+    actions = OptimisticGuard.decide([row], observations, @now)
+    refute Enum.any?(actions, &match?({:park, _, _, _}, &1))
+    assert {:merged_notice, "11", "10"} in actions
+  end
+
+  test "fresh removed edge evidence does not repeat blocker confirmation reads" do
+    pid = self()
+
+    opts =
+      opts(
+        blocked_by: fn _ ->
+          send(pid, :blocked_by_read)
+          {:ok, []}
+        end,
+        fetch_issues: fn ids ->
+          send(pid, {:fetch_issues, ids})
+          {:ok, [%Issue{identifier: "10", state: "completed"}]}
+        end,
+        closure: fn "10", _ ->
+          send(pid, :closure_read)
+          {:ok, %{open?: false, state_reason: "completed"}}
+        end,
+        read_pr: fn id, number ->
+          send(pid, {:read_pr, id, number})
+          {:ok, Map.merge(pr(number), %{"state" => "closed", "merged" => true})}
+        end
+      )
+
+    row = put_in(record(cached()), ["blockers", Access.at(0), "guard_observation", "edge_cache", "11", "observed_at_ms"], @now - 120_000)
+    first = OptimisticGuardObservations.read([row], @now, opts)
+    assert_receive :blocked_by_read, 500
+    assert_receive {:fetch_issues, ["10"]}, 500
+    assert_receive :closure_read, 500
+    assert_receive {:read_pr, "10", 100}, 500
+
+    persisted = first["10"] |> Map.drop([:edges]) |> Map.new(fn {key, value} -> {to_string(key), value} end)
+    row = put_in(row, ["blockers", Access.at(0), "guard_observation"], persisted)
+    second = OptimisticGuardObservations.read([row], @now + 100, opts)
+
+    refute_received :blocked_by_read
+    refute_received {:fetch_issues, _}
+    refute_received :closure_read
+    refute_received {:read_pr, _, _}
+    assert second["10"].observed_at_ms == @now
+    assert second["10"].state_reason == "completed"
+  end
+
   test "refresh fetches only stale blockers and reuses poll-held issues" do
     row = Map.update!(record(cached()), "blockers", &(&1 ++ [%{"id" => "12", "pr_number" => 120}]))
     pid = self()
@@ -129,6 +194,27 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservationsTest do
     refute Enum.any?(OptimisticGuard.decide([record()], observations, @now), &match?({:park, _, _, _}, &1))
   end
 
+  test "approval status is queried only after conflict evidence advances" do
+    row = put_in(record(), ["blockers", Access.at(0), "conflicts_at_approval"], 2)
+    row = put_in(row, ["blockers", Access.at(0), "approval_checked_conflicts"], 3)
+    row = Map.put(row, "integration_reports", conflict_reports(3))
+    pid = self()
+
+    read_pr = fn _id, _number, approval_check, conflicts_seen ->
+      send(pid, {:approval_check, approval_check, conflicts_seen})
+      {:ok, Map.put(pr(100), "approval", %{approved?: false, mergeable?: false, checked_conflicts: if(approval_check, do: conflicts_seen)})}
+    end
+
+    observations = OptimisticGuardObservations.read([row], @now, opts(read_pr: read_pr))
+    assert_receive {:approval_check, false, 3}, 500
+    refute observations["10"].pr_approved?
+
+    advanced = Map.put(row, "integration_reports", conflict_reports(4))
+    observations = OptimisticGuardObservations.read([advanced], @now, opts(read_pr: read_pr))
+    assert_receive {:approval_check, true, 4}, 500
+    assert observations["10"].pr_approval_checked_conflicts == 4
+  end
+
   test "raising closure, PR and issue readers leave the observation unconfirmed" do
     failures = [closure: fn _, _ -> raise "closure unavailable" end, read_pr: fn _, _ -> raise "PR unavailable" end, fetch_issues: fn _ -> raise "issues unavailable" end]
 
@@ -210,6 +296,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardObservationsTest do
 
   defp unexpected(_), do: flunk("unexpected confirming read")
   defp unexpected(_, _), do: flunk("unexpected confirming read")
+  defp conflict_reports(count), do: for(n <- 1..count, do: %{"blocker" => "10", "conflict" => true, "sha" => String.pad_leading(Integer.to_string(n), 40, "0")})
   defp pr(number), do: %{"number" => number, "state" => "open", "merged" => false, "head" => %{"ref" => "aiur/10", "sha" => "head"}}
 
   defp cached,

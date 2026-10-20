@@ -27,6 +27,7 @@ defmodule Aiur.Orchestrator.PauseResume.DeclineReason do
   def resume_decline_reason(:unauthorized, _issue, _state, _opts), do: :dispatch_not_authorized
   def resume_decline_reason(:paused, _issue, _state, _opts), do: :pause_override_still_present
   def resume_decline_reason(:parked, _issue, _state, _opts), do: :ticket_parked
+  def resume_decline_reason(:executor_owned, _issue, _state, _opts), do: :ticket_executor_owned
 
   def resume_decline_reason(reason, issue, _state, _opts)
       when reason in [:inactive_state, :no_agent_work_state, :terminal_state],

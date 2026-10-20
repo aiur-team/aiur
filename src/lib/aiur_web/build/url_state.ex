@@ -5,7 +5,7 @@ defmodule AiurWeb.Build.URLState do
   @views ~w(gantt list)
   @spans [1, 2, 3, 5, 7, 10, 14, 21, 30]
   @tstates ["merged", "failed", "in progress", "queued", "held", "blocked", "open", "not planned"]
-  @astates ~w(active error retries command paused parked none)
+  @astates ~w(active error retrying retries command paused parked none)
   # ponytail: C5-T01/C6-T01 share this slug shape; widen together if their slugs change.
   @slug ~r/\A[A-Za-z0-9._-]{1,64}\z/
   @model_key ~r/\A[a-z0-9][a-z0-9._-]{0,31}\z/

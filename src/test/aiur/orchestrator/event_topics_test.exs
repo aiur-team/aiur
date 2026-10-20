@@ -134,13 +134,54 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
   test "an answered Command wakes the idle dispatch poll for a stopped in-progress claim" do
     identifier = "answered-hold-#{System.unique_integer([:positive])}"
     topic = "ticket.#{identifier}.agent.decision.answered"
+    test_pid = self()
+    state_dir = Aiur.TestSupport.tmp_root!("aiur-event-topics-decisions")
+
+    File.mkdir_p!(state_dir)
+
+    # This test covers the dispatch gate wakeup, so accept delivery locally
+    # and keep the fixture out of the retry ladder entirely.
+    dispatcher = fn _decision, _opts ->
+      send(test_pid, :decision_dispatched)
+      {:ok, %{status: :accepted, item: %{id: System.unique_integer([:positive])}}}
+    end
+
+    dispatch_scheduler =
+      fn owner, message, delay ->
+        case message do
+          {:dispatch_action, _, _} when delay > 0 ->
+            send(test_pid, {:delivery_retry_scheduled, message, delay})
+            make_ref()
+
+          _other ->
+            Process.send_after(owner, message, delay)
+        end
+      end
+
+    {:ok, store} =
+      DecisionStore.start_link(
+        name: nil,
+        state_dir: state_dir,
+        dispatcher: dispatcher,
+        dispatch_scheduler: dispatch_scheduler
+      )
+
+    on_exit(fn ->
+      if Process.alive?(store), do: GenServer.stop(store)
+
+      Aiur.TestCleanup.rm_rf!(state_dir)
+    end)
 
     decisions =
       for question <- ["Choose the implementation", "Confirm the acceptance"] do
         assert {:ok, %{decision: decision}} =
-                 DecisionStore.request(%{"question" => question, "blocking" => true},
-                   ticket: %{identifier: identifier},
-                   source: %{agent_id: "event-test", session_id: "s", event_id: nil}
+                 DecisionStore.request(
+                   %{"question" => question, "blocking" => true},
+                   [
+                     ticket: %{identifier: identifier},
+                     source: %{agent_id: "event-test", session_id: "s", event_id: nil}
+                   ],
+                   store
                  )
 
         decision
@@ -157,13 +198,14 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
                    "custom_response" => "Proceed",
                    "idempotency_key" => decision.decision_id
                  },
-                 actor: %{kind: :operator, id: "event-test"}
+                 [actor: %{kind: :operator, id: "event-test"}],
+                 store
                )
 
       assert status in [:accepted, :duplicate]
+      assert_receive :decision_dispatched, 1_000
     end
 
-    on_exit(fn -> Enum.each(decisions, answer) end)
     answer.(first)
     assert "ticket.*.agent.decision.answered" in Lifecycle.orchestrator_topics()
 
@@ -181,7 +223,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     }
 
     try do
-      woken = EventTopics.route(state, %{topic: topic})
+      woken = EventTopics.route(state, %{topic: topic}, decision_store: store)
 
       assert woken.next_poll_due_at_ms <= System.monotonic_time(:millisecond) + 1_000
       assert woken.tick_token != state.tick_token
@@ -189,12 +231,22 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       # Another open Command still holds the ticket.
       assert MapSet.member?(woken.blocked_ticket_ids, identifier)
       answer.(second)
-      released = EventTopics.route(woken, %{topic: topic})
+      released = EventTopics.route(woken, %{topic: topic}, decision_store: store)
       # Control calls must see the fresh local gate before the tracker poll runs.
       refute MapSet.member?(released.blocked_ticket_ids, identifier)
     after
       Process.cancel_timer(timer_ref)
     end
+
+    refute_received :decision_dispatched
+    refute_received {:delivery_retry_scheduled, _, _}
+
+    assert Enum.count(DecisionStore.list(store), fn decision ->
+             decision.ticket.identifier == identifier and decision.decision_status == :decided
+           end) == 2
+
+    refute Enum.any?(DecisionStore.list(), &(&1.ticket.identifier == identifier))
+    GenServer.stop(store)
   end
 
   describe "classify_event_topic/1" do
@@ -236,6 +288,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
         topic: "ticket.176.pr.merged",
         pr: %{
           "body" => "Refs #176 (merge does not close the ticket)",
+          "html_url" => "https://github.com/aiur-team/aiur/pull/176",
           "merged_by" => %{"login" => "its-everdred"},
           "head" => %{"sha" => "4ab677b8b"}
         }
@@ -244,6 +297,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.pr_merged_opts(event) == [
                merged_by_login: "its-everdred",
                pr_body: "Refs #176 (merge does not close the ticket)",
+               pr_url: "https://github.com/aiur-team/aiur/pull/176",
                head_sha: "4ab677b8b"
              ]
     end
@@ -252,12 +306,14 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged"}) == [
                merged_by_login: nil,
                pr_body: nil,
+               pr_url: nil,
                head_sha: nil
              ]
 
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged", pr: nil}) == [
                merged_by_login: nil,
                pr_body: nil,
+               pr_url: nil,
                head_sha: nil
              ]
     end

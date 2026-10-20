@@ -11,7 +11,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   alias Aiur.{Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
   alias Aiur.AgentTools.Dispatch
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
 
@@ -74,7 +74,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       enqueue: coordination.enqueue,
       run: coordination.run,
       issue: issue,
-      publish: Keyword.get(opts, :event_bus_publisher, &Publisher.publish/3),
+      publish: Keyword.get(opts, :event_bus_publisher, &Events.publish/3),
       publication_recorder:
         Keyword.get(opts, :event_publication_recorder, fn record ->
           EventPublicationLog.write(workspace, record)

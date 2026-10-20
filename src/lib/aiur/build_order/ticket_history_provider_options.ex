@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider.Options do
   @moduledoc false
 
   alias Aiur.BuildOrder.{Settings, TicketDetail, TicketHistory.Normalizer}
-  alias Aiur.Events.Exchange
+  alias Aiur.{Events, Events.Exchange}
   alias Aiur.IssueLog
   alias Aiur.PollCadence
   alias Aiur.TicketActivity
@@ -37,7 +37,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider.Options do
       history_fun: Keyword.get(opts, :history_fun, &IssueLog.event_history/2),
       activity_snapshot_fun: Keyword.get(opts, :activity_snapshot_fun, &TicketActivity.snapshot/1),
       activity_snapshots_fun: Keyword.get(opts, :activity_snapshots_fun, &TicketActivity.snapshots/0),
-      exchange_subscribe_fun: Keyword.get(opts, :exchange_subscribe_fun, fn -> Exchange.subscribe("ticket.*.#") end),
+      exchange_subscribe_fun: Keyword.get(opts, :exchange_subscribe_fun, fn -> Events.subscribe("ticket.*.#") end),
       exchange_pid_fun: Keyword.get(opts, :exchange_pid_fun, fn -> Process.whereis(Exchange) end),
       activity_subscribe_fun: Keyword.get(opts, :activity_subscribe_fun, &TicketActivity.subscribe/0),
       configuration_subscribe_fun: Keyword.get(opts, :configuration_subscribe_fun, &WorkflowStore.subscribe/1),

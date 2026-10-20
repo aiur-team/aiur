@@ -172,12 +172,14 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
     first_focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
     assert_reply(first_focus, :ok, %{"focused" => "AIUR-1"})
+    receive_barrier(%Message{event: "logs"})
 
     AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "first"))
     assert_push("transcript", %{"identifier" => "AIUR-1", "body" => "first"})
 
     second_focus = push(socket, "focus", %{"identifier" => "AIUR-2"})
     assert_reply(second_focus, :ok, %{"focused" => "AIUR-2"})
+    receive_barrier(%Message{event: "logs"})
 
     AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "ignored"))
     refute_push("transcript", _payload, 50)
@@ -214,10 +216,10 @@ defmodule AiurWeb.StreamdeckChannelTest do
     focus = push(socket, "focus", %{"identifier" => identifier})
     assert_reply(focus, :ok, %{"focused" => ^identifier})
 
-    # `assert_push/2` receives the decoded Phoenix socket payload, proving the
+    # `receive_barrier/1` receives the decoded Phoenix socket payload, proving the
     # nonempty DTO crossed the channel serializer rather than only Jason.encode/1
     # on the projection helper.
-    assert_push("logs", payload)
+    receive_barrier(%Message{event: "logs", payload: payload})
 
     # One key per shared-event-bus row, anchored by the synthesised origin at
     # index 0 and closed by LIVE at the end. A transcript turn is a detail row
@@ -257,11 +259,11 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
 
     assert_reply(push(socket, "focus", %{"identifier" => first}), :ok, %{"focused" => ^first})
-    assert_push("logs", first_payload)
+    receive_barrier(%Message{event: "logs", payload: first_payload})
     assert Enum.any?(first_payload["transcript"], &(&1["body"] == "first agent body"))
 
     assert_reply(push(socket, "focus", %{"identifier" => second}), :ok, %{"focused" => ^second})
-    assert_push("logs", second_payload)
+    receive_barrier(%Message{event: "logs", payload: second_payload})
     assert Enum.any?(second_payload["transcript"], &(&1["body"] == "second agent body"))
     refute Enum.any?(second_payload["transcript"], &(&1["body"] == "first agent body"))
 
@@ -294,10 +296,30 @@ defmodule AiurWeb.StreamdeckChannelTest do
     refute_push("transcript", _payload, 50)
   end
 
+  test "unfocus invalidates focus work that is already queued" do
+    socket = joined_socket()
+    pid = socket.channel_pid
+    :sys.suspend(pid)
+
+    focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
+    unfocus = push(socket, "unfocus", %{})
+
+    :sys.resume(pid)
+
+    assert_reply(focus, :ok, %{"focused" => "AIUR-1"}, 5_000)
+    assert_reply(unfocus, :ok, %{"focused" => nil}, 5_000)
+
+    %{assigns: assigns} = :sys.get_state(pid)
+    assert assigns.focused_agent == nil
+    assert assigns.focus_token == nil
+    assert assigns.transcript_relay == nil
+  end
+
   test "focused alerts and control updates are projected without exposing the internal topic" do
     socket = joined_socket()
     focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
     assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+    receive_barrier(%Message{event: "logs"})
 
     AgentPubSub.broadcast_alert("AIUR-1", AgentEvents.alert_event("deploy", "Needs attention", severity: "warning"))
 
@@ -334,6 +356,24 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     send(socket.channel_pid, {:streamdeck_transcript, "AIUR-1", AgentEvents.transcript_event(:assistant, "stale")})
     refute_push("transcript", _payload, 50)
+  end
+
+  test "a deferred stale refocus cannot replace the live transcript relay" do
+    socket = joined_socket()
+    focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
+    assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+    receive_barrier(%Message{event: "logs"})
+
+    %{assigns: %{transcript_relay: relay, focus_token: focus_token}} = :sys.get_state(socket.channel_pid)
+    assert is_pid(relay)
+    assert is_reference(focus_token)
+
+    send(socket.channel_pid, {:streamdeck_focus_changed, "AIUR-1", make_ref(), socket})
+    %{assigns: %{transcript_relay: current_relay, focus_token: current_token}} = :sys.get_state(socket.channel_pid)
+
+    assert current_relay == relay
+    assert current_token == focus_token
+    assert Process.alive?(relay)
   end
 
   test "a transcript burst is coalesced to one latest event" do

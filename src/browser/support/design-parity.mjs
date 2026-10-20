@@ -154,14 +154,20 @@ export async function openParityPair(browser, cell, opts = {}) {
 
 export async function captureStable(target, opts, page) {
   let previous
+  const screenshotOptions = {
+    ...opts,
+    // Keep the native track and its layout width, but remove the thumb's
+    // scroll-position-dependent paint from sequential reference captures.
+    style: `${opts.style ?? ''}\n* { scrollbar-color: transparent transparent !important; }\n*::-webkit-scrollbar-thumb { background: transparent !important; }`
+  }
   for (let attempt = 0; attempt < 10; attempt++) {
     // Locator screenshots scroll into view, disturbing motion under measurement.
     const shoot = async () => {
-      if (!page) return target.screenshot(opts)
+      if (!page) return target.screenshot(screenshotOptions)
       const box = await target.boundingBox()
       if (!box) throw new Error('unreachable screenshot region')
       const offset = await page.evaluate(() => ({ x: scrollX, y: scrollY }))
-      return page.screenshot({ ...opts, fullPage: true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
+      return page.screenshot({ ...screenshotOptions, fullPage: true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
     }
     let png
     try { png = await shoot() }
@@ -184,6 +190,13 @@ async function one(page, region, side) {
   const count = await target.count()
   if (count !== 1) throw new Error(`region ${count ? 'not unique' : 'missing'} on ${side}: ${region}`)
   return target
+}
+
+async function settleRegionImages(page, region) {
+  await page.locator(region).evaluate(async root => {
+    const images = [...root.querySelectorAll('img')]
+    await Promise.all(images.map(image => image.decode()))
+  })
 }
 
 export async function capturePairEvidence(pair) {
@@ -225,17 +238,18 @@ async function captureParityPixels(pair, { name, region, fullPage, preserveAnima
   const product = region ? await one(pair.product, region, 'product') : pair.product
   const opts = { animations: preserveAnimations ? 'allow' : 'disabled', caret: 'hide', scale: 'device', maskColor: '#ff00ff', ...(region ? {} : { fullPage }) }
   await pair.design.bringToFront()
+  if (region) await settleRegionImages(pair.design, region)
   const png = await captureStable(design, { ...opts, mask: designMask }, preserveAnimations && region ? pair.design : undefined)
   await pair.product.bringToFront()
+  if (region) await settleRegionImages(pair.product, region)
   checkPage(pair.design)
   checkPage(pair.product)
   const file = test.info().snapshotPath(`${name}.png`, { kind: 'screenshot' })
   await mkdir(path.dirname(file), { recursive: true })
   await writeFile(file, png)
-  if (preserveAnimations && region) {
-    const actual = await captureStable(product, { ...opts, mask: productMask }, pair.product)
-    expect(actual).toMatchSnapshot(`${name}.png`, { threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
-  } else await expect(product).toHaveScreenshot(`${name}.png`, { ...opts, mask: productMask, threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
+  // Use the same capture protocol on both sides, including rounded image clips.
+  const actual = await captureStable(product, { ...opts, mask: productMask }, preserveAnimations && region ? pair.product : undefined)
+  expect(actual).toMatchSnapshot(`${name}.png`, { threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
   checkPage(pair.design)
   checkPage(pair.product)
 }

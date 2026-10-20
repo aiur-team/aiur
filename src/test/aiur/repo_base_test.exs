@@ -175,7 +175,7 @@ defmodule Aiur.RepoBaseTest do
       # only appears base64-encoded inside the Authorization header — so a raw
       # token string never lands in argv/`ps` or the env list verbatim.
       env = RepoBase.git_auth_env("ghp_secrettoken")
-      refute inspect(env) =~ "ghp_secrettoken"
+      Aiur.TestSupport.refute_leak(env, "ghp_secrettoken")
 
       {_k, value} = Enum.find(env, fn {k, _v} -> k == "GIT_CONFIG_VALUE_0" end)
       assert "AUTHORIZATION: basic " <> b64 = value

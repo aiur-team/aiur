@@ -122,7 +122,7 @@ defmodule Aiur.Orchestrator.ControlCLI do
 
     case set_global_pause_call(on?, source) do
       {:ok, %{globally_paused: paused}} ->
-        IO.puts("aiur: global pause #{if paused, do: "ON — no agents will be provisioned", else: "OFF — agents resuming"}")
+        IO.puts("aiur: global pause #{if paused, do: "ON — no agents will be provisioned", else: "OFF — new starts resume"}")
 
         exit_marker(0)
 
@@ -146,7 +146,7 @@ defmodule Aiur.Orchestrator.ControlCLI do
 
   defp control_status(action, targets, statuses) when is_list(statuses) do
     case global_pause_status_for_control() do
-      {:ok, %{globally_paused: true}} ->
+      {:ok, %{globally_paused: true}} when action == :resume ->
         print_global_pause_control_error(action)
         1
 

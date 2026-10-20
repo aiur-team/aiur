@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TerminalEvent do
   Publishes the terminal CI event and keeps the ticket subscribed to it.
   """
 
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
   alias Aiur.Events.Sanitizer
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.Issue
@@ -41,7 +41,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TerminalEvent do
         )
       end)
 
-    case Publisher.publish(topic, payload,
+    case Events.publish(topic, payload,
            issue_number: target,
            bypass_contamination: true,
            dedup_key: ci_event_dedup_key(target, outcome, Map.get(result, :head_sha))
