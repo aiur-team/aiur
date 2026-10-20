@@ -1,6 +1,6 @@
 defmodule Aiur.Experiments.ReportRecords do
   @moduledoc false
-  alias Aiur.Experiments.{Paths, Persistence, Preregistration, Reader}
+  alias Aiur.Experiments.{AnalysisRequests, Paths, Persistence, Preregistration, Reader}
 
   @spec read(String.t()) :: {:ok, map()} | {:error, term()}
   def read(id) do
@@ -16,7 +16,8 @@ defmodule Aiur.Experiments.ReportRecords do
          {:ok, records} <- read(id),
          {:ok, registration} <- Preregistration.prepare(attrs, records["preregistration"], records["first_results_read_at"], now),
          true <- registration["experiment_id"] == id and attrs["experiment_id"] == id,
-         :ok <- write(id, Map.put(records, "preregistration", registration)) do
+         :ok <- write(id, Map.put(records, "preregistration", registration)),
+         :ok <- AnalysisRequests.submitted(id, "spec", registration) do
       :ok = Persistence.broadcast(id)
       {:ok, registration}
     else

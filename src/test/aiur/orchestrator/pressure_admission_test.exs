@@ -99,6 +99,19 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
     assert disabled.effective_concurrent_agents == 20
   end
 
+  test "niced background CPU is discounted from the soft PSI target but not the hard ceiling" do
+    state = %State{max_concurrent_agents: 20, effective_concurrent_agents: 10}
+    sample = %{probes(11.0) | cpu_headroom: %{background_percent: 4.0}}
+
+    adjusted = PressureAdmission.update(state, sample, 60_000, true, true)
+    assert adjusted.effective_concurrent_agents == 11
+    assert adjusted.load_envelope_state.overload_samples == 0
+
+    held = dispatch(%State{max_concurrent_agents: 20, effective_concurrent_agents: 10}, %{sample | cpu_pressure: %{avg10: 25.0, avg60: 25.0}}, 120_000)
+    assert %{signal: :cpu_pressure, measured: 25.0, threshold: 20.0} = held.capacity_hold
+    assert held.running == %{}
+  end
+
   test "switching between PSI and fallback never combines overload streaks" do
     state = %State{max_concurrent_agents: 20, effective_concurrent_agents: 20}
     two = state |> update(11.0, 60_000) |> update(11.0, 120_000)

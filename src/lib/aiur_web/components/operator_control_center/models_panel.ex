@@ -103,8 +103,9 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
 
     account_lines = Enum.map(accounts, &account_line(&1, now))
     window_lines = Enum.map(windows, &window_line(&1, tagged?, now))
+    headroom_lines = if card.provider == :codex and Map.has_key?(card, :headroom), do: [headroom_line(card.headroom)], else: []
 
-    case account_lines ++ window_lines do
+    case account_lines ++ window_lines ++ headroom_lines do
       [] -> [fallback_line(card)]
       lines -> lines
     end
@@ -141,6 +142,36 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
       title: "#{account.name} · weekly #{title_percent(percent)} · #{account.freshness}, #{age}#{title_reset(reset)}"
     })
   end
+
+  defp headroom_line(%{status: :observed, remaining_percent: remaining} = headroom) do
+    age = age_text(Map.get(headroom, :age_seconds))
+
+    line(%{
+      tag: "headroom",
+      account: "codex-headroom",
+      percent: 100 - remaining,
+      note: "#{remaining}% left · #{age} old",
+      aria_label: "Codex headroom",
+      title: "Codex headroom · #{remaining}% remaining · observed #{age} ago"
+    })
+  end
+
+  defp headroom_line(%{status: status} = headroom) do
+    reason = Map.get(headroom, :reason, "Headroom unavailable")
+    age = age_text(Map.get(headroom, :age_seconds))
+
+    line(%{
+      tag: "headroom",
+      account: "codex-headroom",
+      note: "#{reason} · #{age} old",
+      stale?: status == :stale,
+      aria_label: "Codex headroom",
+      title: "Codex headroom · #{reason} · #{age} old"
+    })
+  end
+
+  defp age_text(age) when is_integer(age), do: "#{age}s"
+  defp age_text(_unknown), do: "age unknown"
 
   defp window_line(%{kind: :credit} = window, tagged?, _now) do
     percent = credit_percent(window)

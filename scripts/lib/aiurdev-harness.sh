@@ -62,11 +62,11 @@ if [ "${1:-}" = "build" ]; then
   build_status=0
   if [ "${2:-}" = "--deps" ]; then
     echo "🔨 clean force-rebuild incl. deps (wiping _build/dev)" >&2
-    rm -rf "$elixir_dir/_build/dev"
+    mkdir -p "$elixir_dir/_build/dev"
+    find "$elixir_dir/_build/dev" -mindepth 1 -maxdepth 1 ! -name rel -exec rm -rf {} +
     ensure_elixir_deps || build_status=$?
   else
     echo "🔨 force-rebuild aiur app + release (keeping dep artifacts)" >&2
-    rm -rf "$elixir_dir/_build/dev/rel"
     ensure_elixir_deps || build_status=$?
     require_mise || build_status=$?
   fi

@@ -3,6 +3,20 @@ defmodule Aiur.CodeHost do
 
   alias Aiur.Tracker.NullCodeHost
 
+  @spec ci_readiness() :: module() | nil
+  def ci_readiness, do: readiness_provider(adapter())
+
+  @doc false
+  @spec ci_readiness(String.t() | nil) :: module() | nil
+  def ci_readiness(kind) do
+    tracker = Aiur.Tracker.Registry.adapter_for(kind)
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :code_host, 0), do: readiness_provider(tracker.code_host())
+  end
+
+  defp readiness_provider(adapter) do
+    if adapter && Code.ensure_loaded?(adapter) && function_exported?(adapter, :ci_readiness, 0), do: adapter.ci_readiness()
+  end
+
   @spec available?() :: boolean()
   def available?, do: adapter() != NullCodeHost
 
@@ -34,6 +48,17 @@ defmodule Aiur.CodeHost do
   def fetch_open_pull_requests_for_branch(value), do: adapter().fetch_open_pull_requests_for_branch(value)
   @spec optimistic_blocker(String.t() | integer(), integer() | nil) :: {:ok, map() | nil} | {:error, term()}
   def optimistic_blocker(value, number), do: optimistic_call(:optimistic_blocker, [value, number])
+
+  @spec optimistic_blocker(String.t() | integer(), integer() | nil, keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def optimistic_blocker(value, number, opts) do
+    adapter = adapter()
+
+    cond do
+      function_exported?(adapter, :optimistic_blocker, 3) -> adapter.optimistic_blocker(value, number, opts)
+      function_exported?(adapter, :optimistic_blocker, 2) -> adapter.optimistic_blocker(value, number)
+      true -> {:error, :code_host_unavailable}
+    end
+  end
 
   @spec park_pull_request(String.t() | integer()) :: :ok | {:error, term()}
   def park_pull_request(value), do: optimistic_call(:park_pull_request, [value])

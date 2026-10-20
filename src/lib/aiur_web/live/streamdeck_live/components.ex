@@ -301,7 +301,7 @@ defmodule AiurWeb.StreamdeckLive.Components do
         >
           <header class="modal-header">
             <h2 id="streamdeck-install-title" class="sd-install-title" tabindex="-1" data-dialog-heading>Install on your Stream Deck +</h2>
-            <button type="button" class="tool-btn" phx-click="close-streamdeck-install">Close</button>
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn" phx-click="close-streamdeck-install">Close</button>
           </header>
 
     <!-- `list-style: none` plus `display: grid` drops list semantics in some

@@ -35,6 +35,11 @@ test('installation modal renders its steps and closes by backdrop or Escape at m
     await page.getByRole('button', { name: 'Download' }).click()
     let dialog = page.getByRole('dialog', { name: 'Install on your Stream Deck +' })
     await expect(dialog).toBeVisible()
+    const close = dialog.getByRole('button', { name: 'Close', exact: true })
+    await expect(close).toHaveCSS('display', 'flex')
+    await expect(close).toHaveCSS('border-radius', '999px')
+    await expect(close).toHaveCSS('min-height', '30.4px')
+
 
     // Two steps, and step 1 offers exactly one download — the modal is the only
     // place a package download starts.

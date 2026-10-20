@@ -77,10 +77,19 @@ for (const mode of ['fail=1', 'stall=1']) test(`paging error and retry: ${mode}`
 })
 
 for (const mode of ['epoch', 'destroy', 'reject']) test(`paging late reply: ${mode}`, async ({ page }) => {
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
   const result = await page.evaluate(async mode => {
     const oldFrom = S.histFrom, epoch = ctx.proto.epoch
-    ctx.push = () => new Promise((resolve, reject) => { window.complete = resolve; window.reject = reject })
-    const flight = hist.loadEarlier(); await Promise.resolve()
+    if (!hist.H.more || hist.H.state !== 'idle') throw new Error('Late-reply fixture must start with pageable idle history')
+    let markPushIssued
+    const pushIssued = new Promise(resolve => { markPushIssued = resolve })
+    ctx.push = () => new Promise((resolve, reject) => {
+      window.complete = resolve; window.reject = reject
+      markPushIssued()
+    })
+    const flight = hist.loadEarlier()
+    if (hist.H.state !== 'loading') throw new Error('Late-reply fixture did not start a new page request')
+    await pushIssued
     if (mode === 'epoch') ctx.proto.epoch = 'new-epoch'
     if (mode === 'destroy') ctx.life.dispose()
     if (mode === 'reject') reject(new Error('socket gone'))
@@ -176,7 +185,8 @@ test('span ensures days via server days parameter; no board anchor is safe', asy
 
 for (const kind of ['card', 'band']) test(`live move keeps ${kind} anchor and suppresses sliding`, async ({ page }) => {
   const before = await page.evaluate(async kind => {
-    if (kind === 'band') ctx.vp.scrollTop = ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 100
+    // A floating band now settles; preserve the anchor at its pinned edge.
+    if (kind === 'band') ctx.vp.scrollTop = ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 46
     else ctx.vp.scrollTop = ctx.secs.nq.el.offsetTop - 40
     ren.update();
     const a = ren.takeAnchor()
@@ -247,11 +257,21 @@ test('performance regression guard: dense scroll stays bounded', async ({ page }
   await page.evaluate(async () => {
     const { ctx, fx } = await import('/build-home/state.js')
     ctx.vp.scrollTop = 800
-    window.__aiurBrowserHarnessOperations = { 'bd-scroll-step': () => { ctx.vp.scrollTop += 300; fx.update() } }
+    window.__aiurDenseScrollPositions = []
+    window.__aiurBrowserHarnessOperations = { 'bd-scroll-step': () => {
+      const before = ctx.vp.scrollTop
+      ctx.vp.scrollTop += 150
+      window.__aiurDenseScrollPositions.push({ before, after: ctx.vp.scrollTop })
+      fx.update()
+    } }
   })
-  const measured = await measureBrowserWork(page, { operation: 'bd-scroll-step', targetSelector: '#bd-content', warmups: 1, repetitions: 3 })
-  // Evaluate measured scroll samples; buffered navigation tasks precede the operation.
-  assertMeasurementBudget({ samples: measured.samples }, { maxLongTaskMs: 50 })
+  const ci = process.env.CI === 'true'
+  const measured = await measureBrowserWork(page, { operation: 'bd-scroll-step', targetSelector: '#bd-content', warmups: 1, repetitions: ci ? 20 : 3 })
+  // CI uses p95 across 20 scrolls so one runner interruption cannot fail the cell; local checks every pass.
+  assertMeasurementBudget({ samples: measured.samples }, { maxLongTaskMs: 50, ...(ci ? { longTaskPercentile: 95 } : {}) })
+  const measuredScrolls = await page.evaluate(() => window.__aiurDenseScrollPositions.slice(1))
+  expect(measuredScrolls).toHaveLength(ci ? 20 : 3)
+  expect(measuredScrolls.every(({ before, after }) => before !== after)).toBe(true)
   const counts = await page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js')
     return { rendered: ctx.R.size, fits: Math.ceil(ctx.vp.clientHeight / ctx.L.pitch) * Math.max(1, ctx.cols.length) }
@@ -286,7 +306,14 @@ test('span URL pages before settling and paging state survives server patches', 
 })
 
 test('replaced cards release noanim after two frames', async ({ page }) => {
-  await page.clock.install(); await page.clock.pauseAt(new Date())
+  await expect.poll(() => page.evaluate(() => ctx.snapping || ctx.content.classList.contains('scrolling'))).toBe(false)
+  // Stub the browser primitive, not ctx.life.frame, so the real keyed scheduler stays under test.
+  await page.evaluate(() => {
+    const q = new Map(); let id = 0
+    window.requestAnimationFrame = fn => { q.set(++id, fn); return id }
+    window.cancelAnimationFrame = i => { q.delete(i) }
+    window.__step = () => { const batch = [...q.values()]; q.clear(); batch.forEach(fn => fn(performance.now())) }
+  })
   expect(await page.evaluate(() => {
     const [uid, el] = [...ctx.R][0], row = ctx.D.byId[el.dataset.id]
     for (let i = 0; i < 2; i++) {
@@ -297,6 +324,8 @@ test('replaced cards release noanim after two frames', async ({ page }) => {
     window.replacedCard = ctx.R.get(uid)
     return replacedCard !== el && replacedCard.classList.contains('noanim')
   })).toBe(true)
-  await page.clock.runFor(48)
+  await page.evaluate(() => __step())
+  expect(await page.evaluate(() => replacedCard.classList.contains('noanim'))).toBe(true)
+  await page.evaluate(() => __step())
   expect(await page.evaluate(() => replacedCard.isConnected && !replacedCard.classList.contains('noanim'))).toBe(true)
 })

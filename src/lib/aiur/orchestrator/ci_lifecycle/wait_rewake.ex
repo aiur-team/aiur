@@ -4,8 +4,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitRewake do
   """
 
   alias Aiur.Config
+  alias Aiur.Events
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.Events.IdGenerator
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Poll
@@ -128,11 +128,25 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitRewake do
       GithubCIPoller.attention_hold?(get_in(state.ci_lifecycle, [:poll_cache, CiLifecycle.ci_target_for_issue(issue)])) ->
         cancel_ci_wait_rewake(state, issue.id)
 
+      approved_pr_in_merge_queue?(state, issue) ->
+        cancel_ci_wait_rewake(state, issue.id)
+
       not DispatchPolicy.issue_routable_to_worker?(issue) ->
         state
 
       true ->
         transition_ci_wait_fallback(state, issue)
+    end
+  end
+
+  defp approved_pr_in_merge_queue?(state, issue) do
+    target = CiLifecycle.ci_target_for_issue(issue)
+
+    case get_in(state.ci_lifecycle, [:poll_cache, target]) do
+      %{review_decision: "APPROVED", merge_queue_entry: %{"state" => "UNMERGEABLE"}} -> false
+      %{review_decision: "APPROVED", auto_merge_request: auto_merge} when is_map(auto_merge) -> true
+      %{review_decision: "APPROVED", merge_queue_entry: entry} when is_map(entry) -> true
+      _other -> false
     end
   end
 
@@ -199,7 +213,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitRewake do
         "A green or skipped gh pr checks aggregate alone is not a full pass; otherwise return to agent:ci-wait without polling."
 
     event = %{
-      id: IdGenerator.next_id(),
+      id: Events.next_id(),
       topic: "ticket.#{identifier}.ci.rewake",
       source: :system,
       reason: :ci_wait_timeout,

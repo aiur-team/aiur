@@ -34,9 +34,7 @@ defmodule Aiur.GitHub.OpenIssueListingTest do
       OpenIssueSnapshot.reset()
       on_exit(fn -> OpenIssueSnapshot.reset() end)
       Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
-      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
-      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "7")
+      Aiur.TestScopeGuard.put_ticket_scope!("7")
       parent = self()
       base_url = "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
       second_url = base_url <> "&page=2"
@@ -70,7 +68,8 @@ defmodule Aiur.GitHub.OpenIssueListingTest do
       assert DateTime.compare(listed_from, before_request) != :lt
       assert_received {:open_issues_recorded, first_time}
       assert DateTime.to_unix(listed_from, :millisecond) <= first_time
-      assert {:ok, ^expected, ^first_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert {:ok, ^expected, labels_from} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert labels_from == DateTime.to_unix(listed_from, :millisecond)
       assert_received {:list_request, ^base_url}
       assert_received {:list_request, ^second_url}
       refute_received {:list_request, _}
@@ -91,11 +90,13 @@ defmodule Aiur.GitHub.OpenIssueListingTest do
       assert_received {:first_page_at, cached_page_at}
       assert DateTime.compare(cached_from, cached_page_at) != :gt
       assert DateTime.compare(cached_from, conditional_from) != :lt
-      assert_received {:open_issues_recorded, cached_time}
-      assert {:ok, ^expected, ^cached_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert_received {:open_issues_recorded, _cached_time}
+      assert {:ok, ^expected, cached_labels_from} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
       assert_received {:list_request, ^base_url}
       assert_received {:list_request, ^second_url}
       refute_received {:list_request, _}
+
+      assert cached_labels_from == DateTime.to_unix(cached_from, :millisecond)
 
       failed_page = fn request ->
         if request.url == base_url, do: request_fun.(request), else: {:error, :timeout}
@@ -103,7 +104,7 @@ defmodule Aiur.GitHub.OpenIssueListingTest do
 
       assert {:error, _} = Issues.fetch_candidate_issues_conditional(%{}, request_fun: failed_page)
       refute_received {:open_issue_listing, _, _, _}
-      assert {:ok, ^expected, ^cached_time} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert {:ok, ^expected, ^cached_labels_from} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
       refute_received {:open_issues_recorded, _}
     end
   end

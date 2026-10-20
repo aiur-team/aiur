@@ -111,8 +111,8 @@ for (const tier of ['full', 'line', 'mini', 'bar']) test(`tier markup: ${tier}`,
   await expect(card.locator('.bd-top')).toHaveCount(tier === 'full' ? 1 : 0)
   await expect(card.locator('.bd-dot')).toHaveCount(['mini', 'line'].includes(tier) ? 1 : 0)
   await expect(card.locator('.bd-id')).toHaveCount(tier === 'bar' ? 0 : 1)
-  if (tier === 'bar') { await expect(card.locator('.bd-in')).toBeEmpty(); await expect(card.locator('.bd-in')).toHaveAttribute('title', /#9002 · .* · Running/) }
-  if (tier === 'mini') expect(await card.locator('.bd-in').evaluate(el => [...el.children].map(el => el.className))).toEqual(['bd-dot', 'bd-id'])
+  if (tier === 'bar') { await expect(card.locator('.bd-in > :not(.sr-only)')).toHaveCount(0); await expect(card.locator('.bd-in')).toHaveAttribute('title', /#9002 · .* · Running/) }
+  if (tier === 'mini') expect(await card.locator('.bd-in').evaluate(el => [...el.children].map(el => el.className))).toEqual(['sr-only', 'bd-dot', 'bd-id'])
 })
 
 test('Gantt detail respects height, lane caps and base cap', async ({ page }) => {
@@ -250,7 +250,7 @@ test('hostile text stays literal in all tiers, cues and model slots', async ({ p
   await page.evaluate(([id, hostile]) => inject(id, { agent: { model: 'claude', name: hostile, state: 'active' } }), [nowId, hostile])
   await draw(page, nowId)
   await expect(probe(page).locator('.bd-ag')).toHaveAttribute('title', hostile + ' · Running')
-  await expect(probe(page).locator('.bd-ag img')).toHaveAttribute('alt', hostile)
+  await expect(probe(page).locator('.bd-ag img')).toHaveAttribute('alt', '')
   await page.evaluate(([id, hostile]) => inject(id, { agent: { model: hostile, name: null, state: 'active' } }), [nowId, hostile])
   await draw(page, nowId)
   await expect(probe(page).locator('.bd-ag')).toHaveAttribute('title', hostile + ' · Running')

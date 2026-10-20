@@ -34,6 +34,7 @@
     "build-queue",
     "conversations",
     "github",
+    "github-access",
     "github-listeners",
     "orchestration"
   ],

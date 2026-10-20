@@ -218,8 +218,8 @@ defmodule Aiur.ElevenLabs.QuotaTest do
     quota = start_quota()
     Quota.observe(quota, {:ok, response(%{"character_count" => 1, "character_limit" => 2})})
 
-    refute inspect(Quota.snapshot(quota)) =~ "xi-secret"
-    refute inspect(:sys.get_state(quota)) =~ "xi-secret"
+    Aiur.TestSupport.refute_leak(Quota.snapshot(quota), "xi-secret")
+    Aiur.TestSupport.refute_leak(:sys.get_state(quota), "xi-secret")
   end
 
   test "fetch hands the resolved key to the request function and nothing else" do

@@ -6,6 +6,12 @@ defmodule Aiur.Orchestrator.Deactivate.SlotsAndReactivationTest do
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.Slots
 
+  setup do
+    test_pid = self()
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+    :ok
+  end
+
   describe "slot counting on the public status snapshot" do
     test "deactivated entries do not consume a slot in the (N/M) counter" do
       test_root = Aiur.TestSupport.tmp_root!("aiur-orch-slot-counting")

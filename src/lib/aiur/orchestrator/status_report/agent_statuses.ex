@@ -85,6 +85,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       work_state: work_state,
       tracker_state: Map.get(issue, :state),
       tracker_paused: Issue.paused?(issue),
+      executor_owner: Issue.executor_owner(issue),
       tag: State.issue_tag(issue),
       title: Map.get(issue, :title),
       url: Map.get(issue, :url),
@@ -127,6 +128,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
         work_state: :retrying,
         tracker_state: Map.get(issue || %{}, :state),
         tracker_paused: tracker_paused,
+        executor_owner: status_executor_owner(issue),
         tag: State.issue_tag(issue),
         title: Map.get(issue || %{}, :title),
         url: Map.get(issue || %{}, :url),
@@ -161,6 +163,9 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       |> WaitingReason.attach(state)
     end)
   end
+
+  defp status_executor_owner(%Issue{} = issue), do: Issue.executor_owner(issue)
+  defp status_executor_owner(_issue), do: nil
 
   defp tracker_paused?(%Issue{} = issue), do: Issue.paused?(issue)
   defp tracker_paused?(issue) when is_map(issue), do: Map.get(issue, :paused) == true
@@ -218,6 +223,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       work_state: work_state,
       tracker_state: Map.get(issue, :state),
       tracker_paused: Issue.paused?(issue),
+      executor_owner: Issue.executor_owner(issue),
       tag: State.issue_tag(issue),
       title: Map.get(issue, :title),
       url: Map.get(issue, :url),
@@ -234,9 +240,14 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       claim_release_cause: release && release.cause,
       reason:
         idle_reason(waiting_reason, identifier, fn ->
-          if waiting_reason in [:optimistic_share, :queue_set_order],
-            do: QueueSetSlots.waiting_reason(waiting_reason, issue.id, state),
-            else:
+          cond do
+            waiting_reason in [:optimistic_share, :queue_set_order] ->
+              QueueSetSlots.waiting_reason(waiting_reason, issue.id, state)
+
+            owner = Issue.executor_owner(issue) ->
+              {:executor_owned, owner}
+
+            true ->
               idle_status_reason(
                 work_state,
                 pause_reason,
@@ -247,6 +258,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
                 release && release.cause,
                 idle_evidence.auto_resume_retry_in_ms
               )
+          end
         end),
       waiting_reason: waiting_reason,
       dispatch_latch: idle_evidence.dispatch_latch,
