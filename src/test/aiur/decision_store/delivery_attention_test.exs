@@ -108,7 +108,11 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
       assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
       assert :ok = DecisionStore.record_transport_async(:restored, item, nil, pid2)
-      _restored = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
+      # This call follows the cast from the same sender, so its reply is a barrier
+      # for the restore projection and its synchronous alert-ledger append.
+      assert {:ok, restored} = DecisionStore.get(decision.decision_id, pid2)
+      assert restored.delivery_status == :queued
+      assert AlertFeed.condition_state(topic, roots: [], log_roots: [log_root]) == :resolved
       assert case_attention_alerts(log_root, topic) == []
     end
 
