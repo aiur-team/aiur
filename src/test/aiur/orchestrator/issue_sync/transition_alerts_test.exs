@@ -90,11 +90,12 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlertsTest do
     Publisher.set_tracked_fn(fn _ -> true end)
     on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
     previous = issue("handoff", "in-progress")
+    previous = %{previous | tracker_identity: %{previous.tracker_identity | identifier: "3019"}}
     start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
     listener = start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.IssueSyncHandoffTest, patterns: ["ticket.#{previous.identifier}.agent.handoff.human_review"]})
     {:ok, _, _} = Publisher.publish("ticket.42.agent.attention.comment_wake_state_unresolved", %{"needs_attention" => false})
     sha = String.duplicate("c", 40)
-    :ok = ResourceStore.put_resource(ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id), %{"number" => 3019, "head" => %{"sha" => sha}})
+    :ok = ResourceStore.put_resource(ResourceStore.key_for_repo(:branch_pull_request_listing_all, "its-everdred/aiur", "open"), [%{"number" => 3019, "head" => %{"ref" => "aiur/3019", "sha" => sha}}])
 
     state =
       IssueSync.sync_polled_issue_state(
@@ -152,11 +153,12 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlertsTest do
 
   defp observe_handoff_twice(name, pr_number, reviews) do
     previous = issue(name, "in-progress")
+    previous = %{previous | tracker_identity: %{previous.tracker_identity | identifier: to_string(pr_number)}}
     current = %{previous | state: "human-review"}
     listener = start_supervised!({ExecutorListener, name: Module.concat(__MODULE__, name), patterns: ["ticket.#{previous.identifier}.agent.handoff.human_review"]})
     sha = 40 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower) |> binary_part(0, 40)
-    pr = %{"number" => pr_number, "head" => %{"sha" => sha}, "user" => %{"login" => "agent-bot"}}
-    :ok = ResourceStore.put_resource(ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id), pr)
+    pr = %{"number" => pr_number, "head" => %{"ref" => "aiur/#{pr_number}", "sha" => sha}, "user" => %{"login" => "agent-bot"}}
+    :ok = ResourceStore.put_resource(ResourceStore.key_for_repo(:branch_pull_request_listing_all, "its-everdred/aiur", "open"), [pr])
     :ok = ResourceStore.put_resource(ResourceStore.key_for_repo(:pull_request_reviews, "its-everdred/aiur", pr_number), reviews.(sha))
 
     state =

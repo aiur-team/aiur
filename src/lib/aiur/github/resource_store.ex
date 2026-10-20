@@ -354,8 +354,7 @@ defmodule Aiur.GitHub.ResourceStore do
     # a GraphQL node lookup (#2326). A comment's thread is immutable, so the
     # mapping never goes stale.
     :pr_review_comment_thread,
-    # Conditional validator for the page-one listing, separate from the PR-body key.
-    :branch_pull_request_listing,
+    # Conditional validator for the repository-wide page-one open-PR listing.
     :branch_pull_request_listing_all
   ]
 
