@@ -180,10 +180,12 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     second_focus = push(socket, "focus", %{"identifier" => "AIUR-2"})
     assert_reply(second_focus, :ok, %{"focused" => "AIUR-2"})
+    channel_barrier(socket)
     receive_barrier(%Message{event: "logs"})
 
     AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "ignored"))
-    refute_push("transcript", _payload, 50)
+    channel_barrier(socket)
+    refute_received %Message{event: "transcript"}
 
     AgentPubSub.broadcast_transcript("AIUR-2", AgentEvents.transcript_event(:assistant, "second"))
     assert_push("transcript", %{"identifier" => "AIUR-2", "body" => "second"})
@@ -295,7 +297,8 @@ defmodule AiurWeb.StreamdeckChannelTest do
     receive_barrier(%Phoenix.Socket.Reply{ref: ^unfocus, status: :ok, payload: %{"focused" => nil}})
 
     AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "ignored"))
-    refute_push("transcript", _payload, 50)
+    channel_barrier(socket)
+    refute_received %Message{event: "transcript"}
   end
 
   test "unfocus invalidates focus work that is already queued" do
@@ -357,7 +360,8 @@ defmodule AiurWeb.StreamdeckChannelTest do
     assert_reply(second_focus, :ok, %{"focused" => "AIUR-2"})
 
     send(socket.channel_pid, {:streamdeck_transcript, "AIUR-1", AgentEvents.transcript_event(:assistant, "stale")})
-    refute_push("transcript", _payload, 50)
+    channel_barrier(socket)
+    refute_received %Message{event: "transcript"}
   end
 
   test "a deferred stale refocus cannot replace the live transcript relay" do
@@ -382,13 +386,18 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
     focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
     assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+    channel_barrier(socket)
 
     for number <- 1..25 do
       AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "line #{number}"))
     end
 
-    assert_push("transcript", %{"body" => "line 25"})
-    refute_push("transcript", _payload, 50)
+    %{assigns: %{transcript_relay: relay}} = :sys.get_state(socket.channel_pid)
+    :sys.get_state(relay)
+    send(relay, :flush)
+
+    receive_barrier(%Message{event: "transcript", payload: %{"body" => "line 25"}})
+    refute_received %Message{event: "transcript"}
   end
 
   test "provider changes reach the joined socket through the redacted usage projection" do
