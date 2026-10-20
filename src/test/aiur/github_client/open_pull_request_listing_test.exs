@@ -10,9 +10,10 @@ defmodule Aiur.GitHub.Client.OpenPullRequestListingTest do
 
     keys = [
       ResourceStore.key_for_repo(:branch_pull_request_listing_all, "owner/repo", "open"),
-      ResourceStore.key_for_repo(:branch_pull_request, "owner/repo", "35"),
-      ResourceStore.key_for_repo(:branch_pull_request, "owner/repo", "36"),
-      ResourceStore.key_for_repo(:branch_pull_request, "owner/repo", "37")
+      ResourceStore.key_for_repo(:branch_pull_request_listing, "owner/repo", "35"),
+      ResourceStore.key_for_repo(:branch_pull_request_listing, "owner/repo", "36"),
+      ResourceStore.key_for_repo(:branch_pull_request_listing, "owner/repo", "37"),
+      ResourceStore.key_for_repo(:branch_pull_request, "owner/repo", "35")
     ]
 
     Enum.each(keys, &ResourceStore.drop_data/1)
@@ -65,8 +66,9 @@ defmodule Aiur.GitHub.Client.OpenPullRequestListingTest do
     assert_receive {:conditional, ^etag}, 1000
     assert Agent.get(counts, & &1) == %{full: 1, conditional: 2}
 
-    assert %{"number" => 49} = ResourceStore.data(ResourceStore.key_for_repo(:branch_pull_request, "owner/repo", "35"))
-    assert %{"number" => 50} = ResourceStore.data(ResourceStore.key_for_repo(:branch_pull_request, "owner/repo", "36"))
-    assert %{"number" => 51} = ResourceStore.data(ResourceStore.key_for_repo(:branch_pull_request, "owner/repo", "37"))
+    assert %{"number" => 49} = ResourceStore.data(ResourceStore.key_for_repo(:branch_pull_request_listing, "owner/repo", "35"))
+    assert %{"number" => 50} = ResourceStore.data(ResourceStore.key_for_repo(:branch_pull_request_listing, "owner/repo", "36"))
+    assert %{"number" => 51} = ResourceStore.data(ResourceStore.key_for_repo(:branch_pull_request_listing, "owner/repo", "37"))
+    assert ResourceStore.data(ResourceStore.key_for_repo(:branch_pull_request, "owner/repo", "35")) == nil
   end
 end

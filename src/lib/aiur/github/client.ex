@@ -223,7 +223,7 @@ defmodule Aiur.GitHub.Client do
             :ok
 
           ticket_id ->
-            key = ResourceStore.key_for_repo(:branch_pull_request, repo, ticket_id)
+            key = ResourceStore.key_for_repo(:branch_pull_request_listing, repo, ticket_id)
 
             ResourceStore.deposit_unless_older(key, pull_request,
               source: :poll,
