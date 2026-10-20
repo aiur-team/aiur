@@ -36,7 +36,7 @@ test('installation modal renders its steps and closes by backdrop or Escape at m
     let dialog = page.getByRole('dialog', { name: 'Install on your Stream Deck +' })
     await expect(dialog).toBeVisible()
     const close = dialog.getByRole('button', { name: 'Close', exact: true })
-    await expect(close).toHaveCSS('display', 'inline-flex')
+    await expect(close).toHaveCSS('display', 'flex')
     await expect(close).toHaveCSS('border-radius', '999px')
     await expect(close).toHaveCSS('min-height', '30.4px')
 
