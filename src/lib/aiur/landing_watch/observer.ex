@@ -122,7 +122,7 @@ defmodule Aiur.LandingWatch.Observer do
 
   defp fields do
     "number id state headRefOid baseRefName isDraft reviewDecision mergeable " <>
-      "mergeStateStatus autoMergeRequest { enabledAt } mergeQueueEntry { id headCommit { oid } pullRequest { id headRefOid } } " <>
+      "mergeStateStatus autoMergeRequest { enabledAt } mergeQueueEntry { id state headCommit { oid committedDate } pullRequest { id headRefOid } } " <>
       "reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } " <>
       "commits(last: 1) { nodes { commit { committedDate } } }"
   end

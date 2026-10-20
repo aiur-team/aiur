@@ -13,21 +13,46 @@ defmodule Aiur.Events.GithubWebhook.CacheRetirementTest do
   end
 
   test "numbered webhook invalidation preserves repo-config entries" do
-    request = %{method: :get, url: "https://api.github.com/repos/aiur-team/aiur/branches/main/protection", caller: "ci_required_checks"}
+    request = %{
+      method: :get,
+      url: "https://api.github.com/repos/aiur-team/aiur/branches/main/protection",
+      caller: "ci_required_checks"
+    }
+
     response = {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["ci"]}}}}
     assert ^response = ReadCache.through(request, fn -> response end)
 
-    assert :ok = CacheRetirement.invalidate_read_cache("check_run", %{"check_run" => %{"pull_requests" => [%{"number" => 2073}]}}, "aiur-team/aiur")
-    assert ^response = ReadCache.through(request, fn -> flunk("check_run must not evict repository configuration") end)
+    assert :ok =
+             CacheRetirement.invalidate_read_cache(
+               "check_run",
+               %{"check_run" => %{"pull_requests" => [%{"number" => 2073}]}},
+               "aiur-team/aiur"
+             )
+
+    assert ^response =
+             ReadCache.through(request, fn ->
+               flunk("check_run must not evict repository configuration")
+             end)
   end
 
   test "configuration webhook retires repo-config entries" do
-    request = %{method: :get, url: "https://api.github.com/repos/aiur-team/aiur/branches/main/protection", caller: "ci_required_checks"}
+    request = %{
+      method: :get,
+      url: "https://api.github.com/repos/aiur-team/aiur/branches/main/protection",
+      caller: "ci_required_checks"
+    }
+
     first = {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["old"]}}}}
     second = {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["new"]}}}}
     assert ^first = ReadCache.through(request, fn -> first end)
 
-    assert :ok = CacheRetirement.invalidate_read_cache("branch_protection_rule", %{}, "aiur-team/aiur")
+    assert :ok =
+             CacheRetirement.invalidate_read_cache(
+               "branch_protection_rule",
+               %{},
+               "aiur-team/aiur"
+             )
+
     assert ^second = ReadCache.through(request, fn -> second end)
   end
 
@@ -46,18 +71,72 @@ defmodule Aiur.Events.GithubWebhook.CacheRetirementTest do
   end
 
   test "push to repository default branch retires config when it differs from tracker base" do
-    request = %{method: :get, url: "https://api.github.com/repos/aiur-team/aiur/branches/main/protection", caller: "ci_required_checks"}
+    request = %{
+      method: :get,
+      url: "https://api.github.com/repos/aiur-team/aiur/branches/main/protection",
+      caller: "ci_required_checks"
+    }
+
     first = {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["old"]}}}}
     second = {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["new"]}}}}
     assert ^first = ReadCache.through(request, fn -> first end)
 
     default_branch = TrackerSettings.base_branch() <> "-default"
-    feature_push = %{"ref" => "refs/heads/feature", "repository" => %{"default_branch" => default_branch}}
-    assert :ok = CacheRetirement.invalidate_read_cache("push", feature_push, "aiur-team/aiur")
-    assert ^first = ReadCache.through(request, fn -> flunk("feature push must preserve repo config") end)
 
-    default_push = %{"ref" => "refs/heads/" <> default_branch, "repository" => %{"default_branch" => default_branch}}
+    feature_push = %{
+      "ref" => "refs/heads/feature",
+      "repository" => %{"default_branch" => default_branch}
+    }
+
+    assert :ok = CacheRetirement.invalidate_read_cache("push", feature_push, "aiur-team/aiur")
+
+    assert ^first =
+             ReadCache.through(request, fn -> flunk("feature push must preserve repo config") end)
+
+    default_push = %{
+      "ref" => "refs/heads/" <> default_branch,
+      "repository" => %{"default_branch" => default_branch}
+    }
+
     assert :ok = CacheRetirement.invalidate_read_cache("push", default_push, "aiur-team/aiur")
+    assert ^second = ReadCache.through(request, fn -> second end)
+  end
+
+  test "push without default branch metadata conservatively retires repo config" do
+    request = %{
+      method: :get,
+      url: "https://api.github.com/repos/aiur-team/aiur/branches/main/protection",
+      caller: "ci_required_checks"
+    }
+
+    first = {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["old"]}}}}
+    second = {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["new"]}}}}
+    assert ^first = ReadCache.through(request, fn -> first end)
+
+    push = %{"ref" => "refs/heads/feature"}
+    assert :ok = CacheRetirement.invalidate_read_cache("push", push, "aiur-team/aiur")
+    assert ^second = ReadCache.through(request, fn -> second end)
+  end
+
+  test "push to tracker base branch retires repo config" do
+    request = %{
+      method: :get,
+      url: "https://api.github.com/repos/aiur-team/aiur/branches/main/protection",
+      caller: "ci_required_checks"
+    }
+
+    first = {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["old"]}}}}
+    second = {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["new"]}}}}
+    assert ^first = ReadCache.through(request, fn -> first end)
+
+    repository_default = TrackerSettings.base_branch() <> "-default"
+
+    base_push = %{
+      "ref" => "refs/heads/" <> TrackerSettings.base_branch(),
+      "repository" => %{"default_branch" => repository_default}
+    }
+
+    assert :ok = CacheRetirement.invalidate_read_cache("push", base_push, "aiur-team/aiur")
     assert ^second = ReadCache.through(request, fn -> second end)
   end
 

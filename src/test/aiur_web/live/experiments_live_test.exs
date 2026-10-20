@@ -36,6 +36,9 @@ defmodule AiurWeb.ExperimentsLiveTest do
 
   test "empty store names creation paths without chart frames" do
     {:ok, view, html} = live(build_conn(), "/experiments")
+    assert html =~ "Pause new starts"
+    refute html =~ "Pause state unknown"
+    assert has_element?(view, "#ax-pause[aria-checked=false]")
     assert has_element?(view, "[data-empty-reason=no_experiments]")
     assert html =~ "version bump or release"
     assert html =~ "tagged feature epic merge"
