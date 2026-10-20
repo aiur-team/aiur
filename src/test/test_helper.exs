@@ -76,6 +76,11 @@ quarantine_filters =
     else: Aiur.TestQuarantine.filters(quarantine_entries)
 
 ExUnit.start(
+  formatters:
+    if(System.get_env("AIUR_TEST_PROGRESS") == "1",
+      do: [ExUnit.CLIFormatter, Aiur.TestSupport.ProgressFormatter],
+      else: [ExUnit.CLIFormatter]
+    ),
   exclude:
     [:external, :perf_regression, :quarantine, :orchestrator_guard_probe] ++
       real_proc_exclude ++
