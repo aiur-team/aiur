@@ -114,6 +114,7 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
     {:ok, store} = BuildProgress.start_link(name: nil, state_file: context.path)
     {:ok, projection} = GenServer.start_link(Projection, %{snapshot | repository: :unknown})
     {:ok, observer} = ProgressObserver.start_link(name: nil, projection: projection, progress: store)
+    on_exit(fn -> Enum.each([observer, projection, store], &Aiur.TestSupport.safe_stop/1) end)
     assert BuildProgress.facts(:all, store) == []
 
     # Pause the projection's catalog lookup after the reset has removed the
@@ -125,7 +126,7 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
     Phoenix.PubSub.broadcast!(Aiur.PubSub, GraphProjection.reset_topic(), {:graph_projection_reset, 2})
     assert_receive {:catalog_topic_requested, ^projection}, 1_000
     catalog_topic = GraphProjection.catalog_topic(snapshot.repository)
-    assert Enum.count(Registry.lookup(Aiur.PubSub, catalog_topic), &(elem(&1, 0) == observer)) == 0
+    refute Enum.any?(Registry.lookup(Aiur.PubSub, catalog_topic), &(elem(&1, 0) == observer))
     Phoenix.PubSub.broadcast!(Aiur.PubSub, catalog_topic, {:graph_projection_generation, updated_snapshot})
     send(projection, :allow_catalog_topic)
     :sys.get_state(observer)
@@ -144,8 +145,6 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
     for topic <- [GraphProjection.reset_topic(), catalog_topic] do
       assert Enum.count(Registry.lookup(Aiur.PubSub, topic), &(elem(&1, 0) == observer)) == 1
     end
-
-    on_exit(fn -> Enum.each([observer, projection, store], &Aiur.TestSupport.safe_stop/1) end)
   end
 
   test "invalid observer facts are rejected without changing the store", context do
