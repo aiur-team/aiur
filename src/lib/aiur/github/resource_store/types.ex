@@ -30,7 +30,7 @@ defmodule Aiur.GitHub.ResourceStore.Types do
     :issue_comments,
     :issue_timeline,
     :pr_issue_comments,
-    # The two repo-wide comment streams. `Aiur.Orchestrator.CommandScan` used to
+    # The two repo-wide comment streams. `Aiur.GitHub.Listeners.CommandScan.Scan` used to
     # keep their validators under its own call-site names, so its cached state
     # was private to that one caller and died with the orchestrator's memory. The
     # streams are a property of the repository, not of the scan, so they are

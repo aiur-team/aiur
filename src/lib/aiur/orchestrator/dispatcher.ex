@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiReadinessGate
-  alias Aiur.Orchestrator.CommandScan
+  alias Aiur.Orchestrator.CommandPolling
   alias Aiur.Orchestrator.CommentPollingState
   alias Aiur.Orchestrator.DispatchBatch
   alias Aiur.Orchestrator.DispatchCandidates
@@ -305,8 +305,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # does not. Once both views are fresh, release only claims with no
         # positive current-generation runtime evidence before normal dispatch.
         {state, issues} = StartupClaimReconciler.reconcile(state, issues, Keyword.get(opts, :startup_claim_opts, []))
-        state = CommandScan.scan_pr_commands(state)
-        state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
+        state = Keyword.get(opts, :scan_commands_fun, &CommandPolling.scan/1).(state)
+        state = Keyword.get(opts, :stop_closed_pr_agents_fun, &PrAnchored.maybe_stop_closed_pr_anchored_agents/1).(state)
 
         state =
           state
@@ -351,7 +351,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec monitor_without_candidates(State.t(), keyword()) :: State.t()
   def monitor_without_candidates(%State{} = state, opts \\ []) when is_list(opts) do
     refresh_running = Keyword.get(opts, :refresh_running_fun, &Reconciler.refresh_running_issue_states/1)
-    scan_commands = Keyword.get(opts, :scan_commands_fun, &CommandScan.scan_pr_commands/1)
+    scan_commands = Keyword.get(opts, :scan_commands_fun, &CommandPolling.scan/1)
     stop_closed_pr_agents = Keyword.get(opts, :stop_closed_pr_agents_fun, &PrAnchored.maybe_stop_closed_pr_anchored_agents/1)
     notify_dashboard = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1)
 

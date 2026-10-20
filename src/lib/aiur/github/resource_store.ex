@@ -20,7 +20,7 @@ defmodule Aiur.GitHub.ResourceStore do
   Deliberately recorded so a later unit does not assume more than exists.
   Writers: `Aiur.Events.GithubCommentsPoller` deposits each watched target's
   comment *lists* as bodies with the endpoint's validator,
-  `Aiur.Orchestrator.CommandScan` deposits the two repo-wide comment streams the
+  `Aiur.GitHub.Listeners.CommandScan.Scan` deposits the two repo-wide comment streams the
   same way, `Aiur.Events.GitHubWebhook.Deposit` deposits delivered issues, labels,
   pull requests and the open pull request for a ticket's head branch,
   `Aiur.GitHub.ResourceFetch` deposits what it fetches, mutation write-through
