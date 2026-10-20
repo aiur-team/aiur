@@ -10,6 +10,10 @@ export function fmtLeft(ms) {
   if (d < 1) return `${h}h ${String(m % 60).padStart(2, '0')}m`;
   return `${d}d` + (h % 24 ? ` ${h % 24}h` : '');
 }
+function fmtAge(ms) {
+  const seconds = Math.floor(Math.max(0, ms) / 1000);
+  return seconds < 60 ? `${seconds}s` : fmtLeft(ms);
+}
 export function avgKnown(acc) {
   const known = acc.filter(Number.isInteger);
   return known.length ? Math.round(known.reduce((a, b) => a + b, 0) / known.length) : null;
@@ -36,6 +40,7 @@ function lineHTML(p, o, key, now) {
   const stale = Boolean(p.stale || ended), rows = [...o.rows];
   let head = o.head + (reset ? ` · ${o.renew ? 'renews' : 'resets'} in ${reset}` : '');
   if (stale) { head += ' · stale'; rows.push(['Observed', p.observed_at == null || now === null ? 'never' : fmtLeft(now - p.observed_at) + ' ago']); }
+  if (p.snapshot_observed_at != null && now !== null) rows.push(['Snapshot age', fmtAge(now - p.snapshot_observed_at) + ' ago']);
   if (now !== null && o.hold_until > now) rows.push(['Held for', fmtLeft(o.hold_until - now)]);
   if (p.note != null && !o.none) rows.push(['Status', p.note]);
   const right = o.right ?? (reset ? `<span>${reset}${o.win == null ? '' : `<em>/${esc(o.win)}</em>`}</span>${I.cycle}` : no(ended ? 'window ended' : 'reset unknown'));

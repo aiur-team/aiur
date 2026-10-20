@@ -23,6 +23,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       {"unreviewed_prs", [:pull_requests, :tickets], fn -> unreviewed_prs(snapshot, now, unreviewed_minutes) end},
       {"old_decisions", [:decisions], fn -> old_decisions(snapshot, now) end},
       {"approved_prs", [:pull_requests], fn -> approved_prs(snapshot) end},
+      {"conflicting_waiting_prs", [:pull_requests, :tickets], fn -> conflicting_waiting_prs(snapshot) end},
       {"landing_rerun_backlog", [:landing_rerun_backlog], fn -> landing_rerun_backlog(snapshot, now) end},
       {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
       {"stale_merge_groups", [:merge_groups], fn -> stale_merge_groups(snapshot, now, stale_minutes) end},
@@ -102,18 +103,61 @@ defmodule Aiur.ExecutorSweep.Checks do
     |> Enum.flat_map(&approved_pr_findings(&1, Map.get(snapshot, :base_checks, [])))
   end
 
+  defp conflicting_waiting_prs(snapshot) do
+    base_branch = Aiur.Config.base_branch()
+
+    waiting =
+      snapshot
+      |> Map.get(:tickets, [])
+      |> Enum.filter(fn ticket ->
+        labels = value(ticket, :labels, [])
+        "agent:ci-wait" in labels or "agent:human-review" in labels
+      end)
+      |> MapSet.new(&value(&1, :number, nil))
+
+    snapshot
+    |> Map.get(:pull_requests, [])
+    |> Enum.flat_map(fn pr ->
+      issue_number = value(pr, :issue_number, nil)
+
+      if issue_number in waiting and value(pr, :state, "") == "open" and value(pr, :mergeable, nil) == "CONFLICTING" do
+        [
+          finding(
+            "conflicting_waiting_pr",
+            2,
+            0,
+            "Merge #{base_branch} into the PR branch and resolve the conflicts.",
+            "Ticket ##{issue_number} is waiting while PR ##{value(pr, :number, "?")} is conflicting with #{base_branch}.",
+            pull_request: value(pr, :number, nil),
+            ticket: issue_number
+          )
+        ]
+      else
+        []
+      end
+    end)
+  end
+
   defp approved_pr_findings(pr, base_checks) do
     failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
-    approved = approved_current_head?(pr)
-    landing = value(pr, :in_merge_queue, false) or value(pr, :auto_merge, false)
-    landing_known = value(pr, :landing_state_known?, Map.has_key?(pr, :in_merge_queue) and Map.has_key?(pr, :auto_merge))
 
     # A cached row can keep "open" after the merge; merged_at is the landing proof (#5119).
-    if value(pr, :state, "open") == "open" and is_nil(value(pr, :merged_at, nil)) and approved and (failures != [] or (landing_known and not landing)) do
+    if approved_pr_current_and_open?(pr) and (failures != [] or approved_pr_not_landing?(pr)) do
       [approved_pr_finding(pr, failures, base_checks)]
     else
       []
     end
+  end
+
+  defp approved_pr_current_and_open?(pr) do
+    value(pr, :state, "open") == "open" and is_nil(value(pr, :merged_at, nil)) and approved_current_head?(pr)
+  end
+
+  defp approved_pr_not_landing?(pr) do
+    landing = value(pr, :in_merge_queue, false) or value(pr, :auto_merge, false)
+    landing_known = value(pr, :landing_state_known?, Map.has_key?(pr, :in_merge_queue) and Map.has_key?(pr, :auto_merge))
+
+    landing_known and not landing and value(pr, :mergeable, nil) != "CONFLICTING"
   end
 
   defp red_check?(check), do: value(check, :conclusion, nil) in ["failure", "cancelled", "timed_out", "startup_failure"]
