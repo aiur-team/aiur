@@ -22,7 +22,7 @@
     "test:smoke": "node scripts/run-browser-tests.mjs tests/liveview-smoke.spec.mjs",
     "test:command-answer": "node scripts/run-browser-tests.mjs tests/command-answer.browser.spec.mjs",
     "test:build-index-live": "node scripts/run-browser-tests.mjs tests/build-index-live.browser.spec.mjs",
-    "test:shell": "node scripts/run-browser-tests.mjs tests/route-shell.browser.spec.mjs tests/shell-history-contrast.browser.spec.mjs",
+    "test:shell": "node scripts/run-browser-tests.mjs tests/route-shell.browser.spec.mjs tests/shell-history-contrast.browser.spec.mjs tests/shell-reflow.browser.spec.mjs",
     "test:shell-width": "node scripts/run-browser-tests.mjs tests/shell-content-width.browser.spec.mjs",
     "test:command-history": "node scripts/run-browser-tests.mjs tests/command-history.browser.spec.mjs",
     "test:build-queue": "node scripts/run-browser-tests.mjs tests/build-queue.browser.spec.mjs",
