@@ -177,7 +177,7 @@ cmd_alerts() {
   local args="" arg
   for arg in "$@"; do
     case "$arg" in
-      '' | *[!a-z0-9-]*) echo "aiur: alerts accepts --needs-attention, --limit <n>, --all" >&2; exit 64 ;;
+      '' | *[!a-z0-9.-]*) echo "aiur: alerts accepts --needs-attention, --limit <n>, --all, ack <ticket-attention-topic> --executor-id <id>" >&2; exit 64 ;;
     esac
     args="${args}\"$arg\", "
   done

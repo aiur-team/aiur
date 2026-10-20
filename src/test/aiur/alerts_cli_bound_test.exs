@@ -16,9 +16,27 @@ defmodule Aiur.AlertsCLIBoundTest do
     assert {:ok, opts} = Aiur.AlertsCLI.parse(["--needs-attention", "--limit", "7"])
     assert Enum.sort(opts) == [limit: 7, needs_attention: true]
     assert {:ok, [limit: :all]} = Aiur.AlertsCLI.parse(["--all"])
+
+    assert {:ok, [ack: "ticket.42.agent.attention.duplicate-dispatch", executor_id: "operator"]} =
+             Aiur.AlertsCLI.parse(["ack", "ticket.42.agent.attention.duplicate-dispatch", "--executor-id", "operator"])
+
     assert {:error, "aiur: alerts --limit needs a positive integer"} = Aiur.AlertsCLI.parse(["--limit", "0"])
     assert {:error, "aiur: alerts accepts" <> _} = Aiur.AlertsCLI.parse(["--limit"])
     assert {:error, "aiur: alerts accepts" <> _} = Aiur.AlertsCLI.parse(["--bogus"])
+  end
+
+  test "acknowledgment records the principal and resolves the attention", %{ledger: ledger} do
+    topic = "ticket.42.agent.attention.duplicate-dispatch"
+    write_ledger(ledger, [%{"event" => "alert", "timestamp" => "2026-10-19T00:00:00Z", "topic" => topic, "needs_attention" => true}])
+
+    assert capture_io(fn ->
+             assert Aiur.AlertsCLI.run(ack: topic, executor_id: "operator-7", ledger_path: ledger) == 0
+           end) =~ "Acknowledged #{topic} as operator-7"
+
+    refute Enum.any?(AlertFeed.list(ledger_path: ledger, needs_attention: true), &(&1["topic"] == topic))
+
+    assert [%{"acknowledged_by" => %{"kind" => "executor", "id" => "operator-7"}}] =
+             ledger |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1) |> Enum.filter(&Map.has_key?(&1, "acknowledged_by"))
   end
 
   test "argv entry point exits 64 on bad input" do
