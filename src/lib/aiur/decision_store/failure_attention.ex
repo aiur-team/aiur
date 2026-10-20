@@ -5,7 +5,6 @@ defmodule Aiur.DecisionStore.FailureAttention do
 
   alias Aiur.Commands.DeliveryTarget
   alias Aiur.Decision
-  alias Aiur.DecisionStore
   alias Aiur.Issue
   alias Aiur.Signal
   alias Aiur.Tracker
@@ -96,49 +95,44 @@ defmodule Aiur.DecisionStore.FailureAttention do
 
   defp reproject_failure_attentions(store, resolver, failed) do
     terminal_ticket_ids = resolve_terminal_ticket_ids(resolver, failed)
-
-    Enum.each(failed, &reproject_failure_decision(store, terminal_ticket_ids, &1))
-
-    send(store, {:failure_attention_reprojection_complete, length(failed)})
+    send(store, {:failure_attention_reprojection_complete, {:ok, terminal_ticket_ids}, failed})
   rescue
     error ->
       Logger.warning("aiur_decision_store phase=failure_attention_reprojection_failed error=#{Exception.message(error)}")
-      send(store, {:failure_attention_reprojection_complete, length(failed)})
+      send(store, {:failure_attention_reprojection_complete, {:error, :failed}, failed})
   catch
     kind, reason ->
       Logger.warning("aiur_decision_store phase=failure_attention_reprojection_failed kind=#{kind} reason=#{inspect(reason)}")
-      send(store, {:failure_attention_reprojection_complete, length(failed)})
+      send(store, {:failure_attention_reprojection_complete, {:error, :failed}, failed})
   end
 
-  defp reproject_failure_decision(store, terminal_ticket_ids, snapshot) do
-    case current_failed_decision(store, snapshot) do
-      %Decision{} = current ->
-        reproject_current_failure(current, terminal_ticket_ids)
+  @doc false
+  @spec complete_failure_attention_reprojection(term(), term(), [term()]) :: term()
+  def complete_failure_attention_reprojection(state, {:ok, terminal_ticket_ids}, failed) do
+    Enum.each(failed, &project_reprojected_decision(state, terminal_ticket_ids, &1))
 
-      nil ->
+    state
+  end
+
+  def complete_failure_attention_reprojection(state, _result, _failed), do: state
+
+  defp project_reprojected_decision(state, terminal_ticket_ids, snapshot) do
+    case Map.get(state.current, snapshot.decision_id) do
+      %Decision{delivery_status: :failed, active_action_id: action_id} = current
+      when action_id == snapshot.active_action_id ->
+        project_current_failure(current, terminal_ticket_ids)
+
+      _changed_or_missing ->
         :ok
     end
   end
 
-  defp reproject_current_failure(decision, terminal_ticket_ids) do
+  defp project_current_failure(decision, terminal_ticket_ids) do
     if MapSet.member?(terminal_ticket_ids, decision.ticket.identifier) do
       emit_failure_resolution(decision, :terminal)
     else
       emit_failure_attention(decision)
     end
-  end
-
-  defp current_failed_decision(store, snapshot) do
-    case DecisionStore.get(snapshot.decision_id, store) do
-      {:ok, %Decision{delivery_status: :failed, active_action_id: action_id} = current}
-      when action_id == snapshot.active_action_id ->
-        current
-
-      _changed_or_missing ->
-        nil
-    end
-  catch
-    :exit, _reason -> nil
   end
 
   defp resolve_terminal_ticket_ids(resolver, failed) do

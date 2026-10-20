@@ -9,6 +9,7 @@ defmodule Aiur.DecisionStore.Info do
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.Boot
   alias Aiur.DecisionStore.Dispatch
+  alias Aiur.DecisionStore.FailureAttention
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Settlement
 
@@ -118,8 +119,9 @@ defmodule Aiur.DecisionStore.Info do
     {:noreply, Dispatch.monitor_decision_dispatch_tasks(%{state | decision_dispatch_monitor_timer: nil})}
   end
 
-  def handle_info({:failure_attention_reprojection_complete, count}, state) do
-    Logger.debug("aiur_decision_store phase=failure_attention_reprojection_complete count=#{count}")
+  def handle_info({:failure_attention_reprojection_complete, result, failed}, state) do
+    state = FailureAttention.complete_failure_attention_reprojection(state, result, failed)
+    Logger.debug("aiur_decision_store phase=failure_attention_reprojection_complete count=#{length(failed)}")
     Enum.each(state.failure_attention_reprojection_waiters, &GenServer.reply(&1, :ok))
 
     {:noreply, %{state | failure_attention_reprojection_pending?: false, failure_attention_reprojection_waiters: []}}
