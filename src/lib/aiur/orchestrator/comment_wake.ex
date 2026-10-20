@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     DispatchPolicy,
     MembershipLifecycle,
     MergedTicketReconciler,
+    MergeStateWriter,
     PrAnchored,
     PushRouting,
     ReviewFreshness,
@@ -66,8 +67,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   def mark_pr_merged_issue_done(%State{} = state, identifier, opts \\ []) when is_list(opts) do
     if merged_pr_closes_ticket?(identifier, opts), do: OptimisticLedger.close(to_string(identifier), :merged, System.system_time(:millisecond))
 
-    update_issue_state_fun =
-      Keyword.get(opts, :update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
+    update_issue_state_fun = Keyword.get(opts, :update_issue_state_fun, &MergeStateWriter.write_if_current(&1, &2, Keyword.take(opts, [:tracker, :fetch_issue_states_fun])))
 
     clear_session_handle_fun =
       Keyword.get(opts, :clear_session_handle_fun, &WorkspaceCleanup.clear_session_handle/1)

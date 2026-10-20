@@ -14,6 +14,24 @@ defmodule Aiur.LandingWatch.Journal do
     end
   end
 
+  @doc "Persists who last wrote a ticket's pause override so conflict routing can preserve operator holds."
+  @spec record_pause_writer(String.t(), atom() | String.t() | nil, keyword()) :: :ok | {:error, term()}
+  def record_pause_writer(issue, writer, opts \\ []) when is_binary(issue) and issue != "" do
+    update(opts, fn state ->
+      writers = Map.get(state, "pause_writers", %{})
+      writers = if is_nil(writer), do: Map.delete(writers, issue), else: Map.put(writers, issue, to_string(writer))
+      {:ok, Map.put(state, "pause_writers", writers)}
+    end)
+  end
+
+  @doc "Returns the recorded writer for a ticket's current pause override, if known."
+  @spec pause_writer(String.t(), keyword()) :: {:ok, String.t() | nil} | {:error, term()}
+  def pause_writer(issue, opts \\ []) when is_binary(issue) do
+    with {:ok, state} <- state(opts) do
+      {:ok, get_in(state, ["pause_writers", issue])}
+    end
+  end
+
   @spec reserve_rerun(pos_integer(), String.t(), integer(), keyword()) :: :ok | {:error, term()}
   def reserve_rerun(pr, head, now, opts \\ [])
 

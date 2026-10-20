@@ -32,11 +32,11 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
 
   alias Aiur.Orchestrator.{
     Lifecycle,
+    MergeStateWriter,
     OptimisticLedger,
     PushRouting,
     Reconciler,
     State,
-    TicketTransition,
     TrackerTasks
   }
 
@@ -88,7 +88,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   defp repair_closed_issue(state, issue, merge, opts) do
     update =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, target, expected ->
-        TicketTransition.write_state(identifier, target, writer: :merged_ticket_reconciler, expected_state: expected)
+        MergeStateWriter.write_reconciler_transition(identifier, target, expected, opts)
       end)
 
     case update.(issue.identifier, "done", :none) do
@@ -134,10 +134,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
 
     update =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, target, expected ->
-        TicketTransition.write_state(identifier, target,
-          writer: :merged_ticket_reconciler,
-          expected_state: expected
-        )
+        MergeStateWriter.write_reconciler_transition(identifier, target, expected, opts)
       end)
 
     TrackerTasks.run(
@@ -240,10 +237,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   defp reconcile_merged_ticket_to_done(state, %Issue{} = issue, merge, opts, retained) do
     update_issue_state_fun =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, state_name, expected_state ->
-        TicketTransition.write_state(identifier, state_name,
-          writer: :merged_ticket_reconciler,
-          expected_state: expected_state
-        )
+        MergeStateWriter.write_reconciler_transition(identifier, state_name, expected_state, opts)
       end)
 
     case update_issue_state_fun.(issue.identifier, "done", expected_state(issue)) do
@@ -291,10 +285,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
        ) do
     update_issue_state_fun =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, state_name, expected_state ->
-        TicketTransition.write_state(identifier, state_name,
-          writer: :merged_ticket_reconciler,
-          expected_state: expected_state
-        )
+        MergeStateWriter.write_reconciler_transition(identifier, state_name, expected_state, opts)
       end)
 
     case update_issue_state_fun.(issue.identifier, target, issue.state) do

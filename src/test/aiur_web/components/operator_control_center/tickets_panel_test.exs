@@ -72,7 +72,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanelTest do
 
     assert html =~ ~s(<div class="tickets-more">)
     assert html =~ ~s(phx-click="show-more-tickets")
-    assert html =~ ~s(<button type="button" class="btn ghost")
+    assert html =~ ~s(<button type="button" class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost")
     assert html =~ "Show 10 more tickets"
   end
 

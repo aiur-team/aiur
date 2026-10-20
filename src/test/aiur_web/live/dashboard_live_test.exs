@@ -623,7 +623,7 @@ defmodule AiurWeb.DashboardLiveTest do
       start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: true)
       {:ok, _view, html} = live(build_conn(), "/")
 
-      assert html =~ "ax-mi on"
+      assert html =~ "ax-mi aiur-shell__menu-item on"
       assert html =~ ~s(aria-checked="true")
       assert html =~ "Resume new starts"
       refute html =~ "global-pause-banner"
@@ -658,14 +658,14 @@ defmodule AiurWeb.DashboardLiveTest do
       assert html =~ ~s(phx-click="toggle-global-pause")
       assert html =~ ~s(aria-checked="false")
       assert html =~ "Pause new starts"
-      refute html =~ "ax-mi on"
+      refute html =~ "ax-mi aiur-shell__menu-item on"
       refute html =~ ~s|aria-label="Resume new starts"|
     end
 
     test "renders a resume affordance while the daemon is globally paused" do
       html = render_payload(global_pause_fleet(true), writable: true)
 
-      assert html =~ "ax-mi on"
+      assert html =~ "ax-mi aiur-shell__menu-item on"
       assert html =~ ~s(aria-checked="true")
       assert html =~ "Resume new starts"
       refute html =~ "global-pause-banner"
@@ -741,12 +741,9 @@ defmodule AiurWeb.DashboardLiveTest do
       assert Floki.attribute(mobile_readonly, "aria-disabled") == ["true"]
     end
 
-    # `.global-pause-icon` shipped with no stylesheet rule, so the inline SVG —
-    # which carries no intrinsic dimensions — collapsed and the button rendered
-    # as an empty circle on every breakpoint. Guard the whole class of bug: any
-    # icon wrapper the shell renders must have its SVG sized in dashboard.css.
+    # SVG wrappers carry no intrinsic dimensions; guard their shared sizing rules.
     test "every icon wrapper in the shell has an svg sizing rule" do
-      {:ok, "text/css", css} = AiurWeb.StaticAssets.fetch("/dashboard.css")
+      css = File.read!(Application.app_dir(:aiur, "priv/static/aiur-style/css/dashboard-shell.css"))
 
       wrapper_classes =
         global_pause_fleet(false)
@@ -754,6 +751,8 @@ defmodule AiurWeb.DashboardLiveTest do
         |> Floki.parse_document!()
         |> Floki.find("#ax-frame .snav-ic, #ax-frame .toggle-icon")
         |> Enum.flat_map(&Floki.attribute([&1], "class"))
+        |> Enum.flat_map(&String.split/1)
+        |> Enum.filter(&String.starts_with?(&1, "aiur-"))
         |> Enum.uniq()
 
       assert wrapper_classes != [], "expected the shell to render icon wrappers"

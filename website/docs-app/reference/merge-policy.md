@@ -101,3 +101,5 @@ An armed auto-merge does not hold a failed approved PR, because auto-merge never
 A failed required check beside cancelled runs counts as failed; cancelled runs alone stay a person cancel.
 
 The landing watcher does not queue a PR whose ticket is in `agent:rework`, `agent:in-progress` or `agent:todo` (these win over a review label it still carries), so an Executor dequeue holds until the ticket returns to review.
+
+When an approved PR conflicts with its base, the watcher dequeues it, routes the ticket to `agent:rework`, and comments rebase-only. It removes `agent:paused` only when provenance identifies the approval-pause writer; otherwise it preserves the hold and raises attention. Approval remains for diff review.

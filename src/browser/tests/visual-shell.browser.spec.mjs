@@ -77,6 +77,17 @@ for (const theme of THEMES) {
     }
     await expect(item).toBeFocused()
     expect(await item.evaluate((node) => node.matches(':focus-visible'))).toBe(true)
+    await expect(item).toHaveCSS('outline-width', '2px')
+    await expect(item).toHaveCSS('outline-offset', '3px')
+    const focusColor = await item.evaluate(node => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--aiur-color-focus)'
+      node.append(probe)
+      const color = getComputedStyle(probe).color
+      probe.remove()
+      return color
+    })
+    await expect(item).toHaveCSS('outline-color', focusColor)
     const bounds = await item.boundingBox()
     // Locator screenshots clip outside outlines. Include the surrounding gap
     // so the keyboard focus ring itself is constrained by the baseline.

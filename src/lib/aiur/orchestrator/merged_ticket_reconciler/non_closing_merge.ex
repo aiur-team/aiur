@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.MergedTicketReconciler.NonClosingMerge do
   @moduledoc false
 
-  alias Aiur.{Issue, RecentMerge, RecentMergeStore}
-  alias Aiur.Orchestrator.TicketTransition
+  alias Aiur.{Issue, RecentMerge, RecentMergeStore, Tracker}
+  alias Aiur.Orchestrator.{MergeStateWriter, TicketTransition}
 
   @pending_states ~w(in-progress ci-wait human-review merging)
 
@@ -39,8 +39,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.NonClosingMerge do
     add_marker = Keyword.get(opts, :add_label_fun, fn id, label -> TicketTransition.write_marker(id, :add, label, writer: :merged_ticket_reconciler) end)
     comment = Keyword.get(opts, :create_comment_fun, fn id, body -> TicketTransition.write_comment(id, body, writer: :merged_ticket_reconciler) end)
 
-    with :ok <- add_marker.(issue.identifier, marker),
-         :ok <- update.(issue.identifier, "human-review", expected) do
+    with :ok <- update.(issue.identifier, "human-review", expected),
+         :ok <- add_marker.(issue.identifier, marker) do
       comment.(issue.identifier, "Merged PR ##{merge.number} (#{merge.url}) references this ticket without a closing keyword; moved to human-review with `#{marker}` for triage.")
     end
   end
@@ -48,7 +48,12 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.NonClosingMerge do
   @spec update_issue_state_fun(keyword()) :: function()
   def update_issue_state_fun(opts) do
     Keyword.get(opts, :update_issue_state_fun, fn identifier, target, expected ->
-      TicketTransition.write_state(identifier, target, writer: :merged_ticket_reconciler, expected_state: expected)
+      TicketTransition.write_state(identifier, target,
+        writer: :merged_ticket_reconciler,
+        expected_state: expected,
+        refuse_labels: MergeStateWriter.operator_hold_labels(),
+        tracker: Keyword.get(opts, :tracker, Tracker)
+      )
     end)
   end
 

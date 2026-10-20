@@ -97,6 +97,40 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
       refute_receive {:request, %{method: _method}}, 100
     end
 
+    test "refuses a merge handoff when an operator park appears before revalidation" do
+      test_pid = self()
+      gets = :ets.new(:park_race_gets, [:set, :private])
+
+      request_fun = fn request ->
+        send(test_pid, {:request, request})
+
+        cond do
+          request.method == :get and String.contains?(request.url, "/pulls?") ->
+            {:ok, %{status: 200, body: [], headers: []}}
+
+          request.method == :get ->
+            count = :ets.update_counter(gets, :count, 1, {:count, 0})
+            labels = if count == 1, do: ["sym:in-progress"], else: ["sym:in-progress", "needs-triage"]
+            {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}}}
+
+          true ->
+            flunk("unexpected write: #{inspect(request)}")
+        end
+      end
+
+      assert {:error, {:operator_hold, "needs-triage"}} =
+               IssueState.update_issue_state("42", "human-review",
+                 expected_state: "in-progress",
+                 refuse_labels: ["needs-triage", "human:todo", "sym:paused", "sym:parked"],
+                 request_fun: request_fun
+               )
+
+      assert_received {:request, %{method: :get}}
+      assert_received {:request, %{method: :get}}
+      refute_received {:request, %{method: :post}}
+      refute_received {:request, %{method: :delete}}
+    end
+
     test "expected_state :none refuses existing single or multiple state labels" do
       for states <- [["in-progress"], ["todo", "in-progress"]] do
         request_fun = fn request ->
