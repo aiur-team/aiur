@@ -297,7 +297,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
   defp recovery_ready?(row, observations, issue, prefix) do
     marker = prefix <> ":parked"
     failed = Enum.any?(row["blockers"], fn blocker -> blocker["park_complete"] == true and blocker_recovered?(observations[blocker["id"]]) end)
-    no_other_hold? = not independent_hold?(issue, marker)
+    no_other_hold? = not independent_hold?(issue, marker, prefix)
     marker not in issue.labels or (failed and no_other_hold?)
   end
 
@@ -342,11 +342,11 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
     )
   end
 
-  defp independent_hold?(issue, marker) do
+  defp independent_hold?(issue, marker, prefix) do
     labels = issue.labels || []
 
     Enum.any?(labels, fn label ->
-      label != marker and (label in ["agent:paused", "needs-triage", "human:todo"] or String.starts_with?(label, "epic:"))
+      label != marker and (label in [prefix <> ":paused", "needs-triage", "human:todo"] or String.starts_with?(label, "epic:"))
     end) or Map.get(issue, :executor_owner) not in [nil, ""] or Map.get(issue, :paused) == true
   end
 

@@ -96,7 +96,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardRecoveryTest do
     state = parked_attempt(opts)
 
     opts =
-      Keyword.put(opts, :observe, recovered_observation("11", ["agent:parked", "agent:in-progress", "needs-triage"]))
+      Keyword.put(opts, :observe, recovered_observation("11", ["agent:parked", "agent:in-progress", "needs-triage", "worker:paused"]))
       |> Keyword.put(:update_state_fun, fn _, _, _ -> flunk("operator-held state must not be rewritten") end)
 
     OptimisticGuardEffects.reconcile(state, opts)
