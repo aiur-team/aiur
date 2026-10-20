@@ -120,8 +120,8 @@ defmodule Aiur.CoordinationTasksAdmissionTest do
     {:ok, attempts} = Agent.start_link(fn -> 0 end)
 
     task_starter = fn _entry ->
-      Agent.update(attempts, &(&1 + 1))
-      send(test_pid, :task_start_attempted)
+      attempt = Agent.get_and_update(attempts, fn count -> {count + 1, count + 1} end)
+      send(test_pid, {:task_start_attempted, attempt})
       exit(:task_supervisor_unavailable)
     end
 
@@ -130,12 +130,14 @@ defmodule Aiur.CoordinationTasksAdmissionTest do
     log =
       capture_log(fn ->
         assert :pending = CoordinationTasks.enqueue(:first, fn -> :ok end, name)
-        assert_receive :task_start_attempted, 2_000
+        assert_receive {:task_start_attempted, 1}, 2_000
 
         for key <- 2..20 do
           assert :pending = CoordinationTasks.enqueue(key, fn -> :ok end, name)
         end
 
+        state = :sys.get_state(name)
+        assert state.pending == 20
         assert Agent.get(attempts, & &1) == 1
       end)
 
