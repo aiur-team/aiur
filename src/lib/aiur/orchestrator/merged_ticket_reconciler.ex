@@ -106,7 +106,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   defp reconcile_merged_ticket(state, %Issue{} = issue, merge, opts, retained) do
     OptimisticLedger.close(issue.identifier, :merged, System.system_time(:millisecond))
 
-    if TrackerTasks.owner?(state) do
+    if TrackerTasks.owner?(state) and not reference_only_merge?(issue, merge) do
       input = Reconciler.issue_input(state, issue.id)
 
       state =
@@ -169,6 +169,14 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   end
 
   defp reconcile_merged_ticket_sync(state, %Issue{} = issue, merge, opts, retained) do
+    if reference_only_merge?(issue, merge) do
+      reconcile_reference_only_ticket(state, issue, merge, opts, retained)
+    else
+      reconcile_closing_merge_ticket(state, issue, merge, opts, retained)
+    end
+  end
+
+  defp reconcile_closing_merge_ticket(state, issue, merge, opts, retained) do
     case merged_ticket_target_for_issue(issue, opts) do
       {:ok, "done"} ->
         reconcile_merged_ticket_to_done(state, issue, merge, opts, retained)
@@ -185,6 +193,32 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
     end
   end
 
+  defp reference_only_merge?(%Issue{identifier: identifier}, %RecentMerge{} = merge) do
+    identifier in RecentMerge.referenced_issue_identifiers_in_body(merge.summary, merge.repository) and
+      identifier not in RecentMerge.closing_issue_identifiers(merge)
+  end
+
+  defp reconcile_reference_only_ticket(state, issue, merge, opts, retained) do
+    target = Keyword.get(opts, :non_closing_merge_state, "needs-triage")
+
+    update =
+      Keyword.get(opts, :update_issue_state_fun, fn id, to, expected ->
+        TicketTransition.write_state(id, to, writer: :merged_ticket_reconciler, expected_state: expected)
+      end)
+
+    case update.(issue.identifier, target, issue.state) do
+      :ok ->
+        comment = Keyword.get(opts, :create_comment_fun, &Aiur.Tracker.create_comment/2)
+        _ = comment.(issue.identifier, "Merged PR ##{merge.number} (#{merge.url}) references this ticket without a closing keyword; moved to #{target} for triage.")
+        state = record_reconciled(state, issue, merge)
+        {state, retained}
+
+      {:error, reason} ->
+        state = emit_failed_alert(state, issue, merge, reason, opts)
+        {state, [issue | retained]}
+    end
+  end
+
   # A merge may arrive twice: the first wake can fail its label write, while a
   # later wake has no PR body and routes to human-review. If GitHub has already
   # closed the ticket and the merged branch identifies it, the physical close
@@ -192,9 +226,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   # Do not consult other open PRs in this repair path: they cannot make an
   # already-closed issue dispatchable again.
   defp merged_ticket_target_for_issue(%Issue{} = issue, opts) do
-    if closed_without_state_label?(issue),
-      do: {:ok, "done"},
-      else: merged_ticket_target(issue.identifier, opts)
+    merged_ticket_target(issue.identifier, opts)
   end
 
   # The merge closed the ticket's last open PR: no other PR remains, so the
@@ -320,8 +352,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
        when is_binary(identifier) and is_list(merges) do
     Enum.find(merges, fn
       %RecentMerge{} = merge ->
-        (identifier in RecentMerge.closing_issue_identifiers(merge) or
-           (closed_without_state_label?(issue) and merge.ticket_id == identifier)) and
+        (identifier in RecentMerge.closing_issue_identifiers(merge) or reference_only_merge?(issue, merge)) and
           not stale_merge?(merge, now) and
           not already_reconciled?(state, issue, merge)
 

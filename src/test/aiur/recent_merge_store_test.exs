@@ -144,6 +144,12 @@ defmodule Aiur.RecentMergeStoreTest do
     assert RecentMerge.closing_issue_identifiers_in_body("Closes #176", nil) == ["176"]
   end
 
+  test "reads explicit Refs lines for non-closing merge triage" do
+    assert RecentMerge.referenced_issue_identifiers_in_body("Refs #176", "owner/repo") == ["176"]
+    assert RecentMerge.referenced_issue_identifiers_in_body("> Refs #176", "owner/repo") == []
+    assert RecentMerge.referenced_issue_identifiers_in_body("Refs #176", nil) == ["176"]
+  end
+
   test "retains closing references beyond the bounded merged PR summary" do
     event =
       merged_event(%{

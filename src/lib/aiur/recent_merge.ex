@@ -142,6 +142,12 @@ defmodule Aiur.RecentMerge do
     ClosingReferences.identifiers_in_body(body, repository)
   end
 
+  @doc "Returns same-repository ticket ids explicitly referenced by `Refs #N` lines."
+  @spec referenced_issue_identifiers_in_body(String.t() | nil, String.t() | nil) :: [String.t()]
+  def referenced_issue_identifiers_in_body(body, repository \\ nil) do
+    ClosingReferences.referenced_identifiers_in_body(body, repository)
+  end
+
   defp normalize_github_merge(event, pull, opts) do
     live? = Keyword.get(opts, :live?, false) == true
     now = Keyword.get(opts, :now, DateTime.utc_now())

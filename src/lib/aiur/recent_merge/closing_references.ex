@@ -76,6 +76,20 @@ defmodule Aiur.RecentMerge.ClosingReferences do
 
   def references(_text), do: []
 
+  @reference_regex ~r/(?:^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?|[,;][ \t]*|\band[ \t]+)(?:refs?|mentions?|related[ \t]+to)[ \t]+(?:[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?\#(?<number>\d+)\b/im
+
+  @spec referenced_identifiers_in_body(String.t() | nil, String.t() | nil) :: [String.t()]
+  def referenced_identifiers_in_body(body, _repository) when is_binary(body) do
+    body
+    |> quotable_text()
+    |> then(&Regex.scan(@reference_regex, &1, capture: :all_but_first))
+    |> Enum.map(&List.last/1)
+    |> Enum.filter(&(String.to_integer(&1) > 0))
+    |> Enum.uniq()
+  end
+
+  def referenced_identifiers_in_body(_, _), do: []
+
   # Drops the regions GitHub itself does not read closing keywords from:
   # fenced code blocks, inline code spans and blockquotes.
   defp quotable_text(text) do
