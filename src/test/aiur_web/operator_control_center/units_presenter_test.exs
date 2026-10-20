@@ -1,6 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
   use ExUnit.Case, async: true
 
+  alias AiurWeb.DashboardLive.UnitsPanel
   alias AiurWeb.OperatorControlCenter.{UnitsPresenter, UnitsURL}
 
   import AiurWeb.OperatorControlCenter.UnitsPresenterFixtures
@@ -12,7 +13,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert view.status == :loading
     assert view.message == "The daemon is starting."
     assert view.total_count == nil
-    assert view.count_status == :unavailable
+    assert view.count_status == :loading
+    assert Enum.all?(Map.values(view.counts), &is_nil/1)
+    assert UnitsPanel.units_count_label(view) == "loading units…"
     assert UnitsPresenter.announcement(view) =~ "Loading Units"
   end
 

@@ -6,7 +6,7 @@ defmodule AiurWeb.ControlCenterCache do
   Provider events also refresh the ordinary TTL entry. Retained entries
   are bounded because keys may include provider incarnations. A failed load
   re-serves the last payload marked `stale: true` with its `stale_age_ms`.
-  `:clock` and `:load_timeout_ms` are test seams.
+  `:clock`, `:boot_elapsed_ms` and `:load_timeout_ms` are test seams.
   """
 
   use GenServer
@@ -52,14 +52,15 @@ defmodule AiurWeb.ControlCenterCache do
   @impl true
   def init(opts) do
     clock = Keyword.get(opts, :clock, fn -> System.monotonic_time(:millisecond) end)
+    boot_elapsed_ms = Keyword.get(opts, :boot_elapsed_ms, &Aiur.Boot.elapsed_ms/0)
 
     {:ok,
      %{
        entries: %{},
        loads: %{},
        clock: clock,
+       boot_elapsed_ms: boot_elapsed_ms,
        load_timeout_ms: Keyword.get(opts, :load_timeout_ms, @load_timeout_ms),
-       startup_started_at_ms: Keyword.get(opts, :startup_started_at_ms, clock.()),
        startup_observation_timeout_ms: Keyword.get(opts, :startup_observation_timeout_ms, @startup_observation_timeout_ms)
      }}
   end
@@ -88,7 +89,7 @@ defmodule AiurWeb.ControlCenterCache do
 
     case Map.get(state.entries, entry_key) do
       %{loaded_at_ms: loaded_at_ms, payload: payload} = entry when now_ms - loaded_at_ms < max_age_ms ->
-        {:reply, startup_marker(payload, entry, state), state}
+        {:reply, startup_marker(payload, entry_key, entry, state), state}
 
       _entry ->
         load_key = if max_age_ms == 0, do: make_ref(), else: entry_key
@@ -119,7 +120,7 @@ defmodule AiurWeb.ControlCenterCache do
         Process.exit(load.task.pid, :kill)
         Process.demonitor(ref, [:flush])
         {payload, entries} = load_result(result, load, state.entries, state.clock.())
-        payload = startup_marker(payload, Map.get(entries, load.key), state)
+        payload = startup_marker(payload, load.key, Map.get(entries, load.key), state)
         Enum.each(load.waiters, &GenServer.reply(&1, payload))
         %{state | entries: entries, loads: Map.delete(state.loads, load_key)}
     end
@@ -151,11 +152,11 @@ defmodule AiurWeb.ControlCenterCache do
     {payload, entries}
   end
 
-  defp startup_marker(payload, entry, state) do
-    elapsed_ms = state.clock.() - state.startup_started_at_ms
+  defp startup_marker(payload, key, entry, state) do
+    elapsed_ms = state.boot_elapsed_ms.()
 
     cond do
-      previous_fleet_observed?(entry) or not dashboard_payload?(payload) ->
+      previous_fleet_observed?(entry) or not dashboard_payload?(payload, key) ->
         payload |> Map.delete(:fleet_startup_pending?) |> Map.delete(:fleet_startup_timed_out?)
 
       elapsed_ms < state.startup_observation_timeout_ms ->
@@ -166,7 +167,16 @@ defmodule AiurWeb.ControlCenterCache do
     end
   end
 
-  defp dashboard_payload?(payload), do: is_map(Map.get(payload, :provider_health)) or is_map(Map.get(payload, :units))
+  defp dashboard_payload?(payload, key) do
+    is_map(Map.get(payload, :provider_health)) or is_map(Map.get(payload, :units)) or
+      (dashboard_cache_key?(key) and match?(%{error: {:cache_unavailable, _reason}}, payload))
+  end
+
+  defp dashboard_cache_key?(
+         {%{fleet: _fleet, membership: _membership, activity: _activity, tickets: _tickets}, _orchestrator, _decision_store, _decision_metrics, _recent_merge_store, _snapshot_timeout_ms}
+       ), do: true
+
+  defp dashboard_cache_key?(_key), do: false
 
   defp fleet_observed?(payload) do
     get_in(payload, [:provider_health, :fleet]) == :ok and

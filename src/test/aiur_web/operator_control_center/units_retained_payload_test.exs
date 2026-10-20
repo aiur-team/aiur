@@ -94,7 +94,30 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
     payload = PayloadLoader.load(:fresh)
 
     assert payload.units.status == :loading
-    assert UnitsPresenter.project(payload.units, nil).count_status == :unavailable
+    assert UnitsPresenter.project(payload.units, nil).count_status == :loading
+  end
+
+  test "the cache keeps an unobserved stale fleet loading only until the boot deadline" do
+    boot = :atomics.new(1, [])
+    :atomics.put(boot, 1, 0)
+
+    start_endpoint(
+      [units_fleet_fun: fn -> %{error: %{code: "snapshot_timeout", message: "Fleet snapshot timed out."}} end],
+      boot_elapsed_ms: fn -> :atomics.get(boot, 1) end,
+      startup_observation_timeout_ms: 100
+    )
+
+    pending = PayloadLoader.load(:fresh)
+    assert pending.units.status == :loading
+    assert pending.units.message == "The daemon is starting."
+    assert UnitsPresenter.project(pending.units, nil).count_status == :loading
+
+    :atomics.put(boot, 1, 100)
+    unavailable = PayloadLoader.load(:fresh)
+
+    assert unavailable.units.status == :unavailable
+    assert unavailable.units.message == "No live units. Fleet data is unavailable."
+    assert UnitsPresenter.project(unavailable.units, nil).count_status == :unavailable
   end
 
   test "a failed load demotes the retained Units catalog to stale with its age" do

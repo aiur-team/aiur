@@ -101,14 +101,27 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
     end
   end
 
-  test "stale snapshots refresh pause state from the live orchestrator" do
+  test "stale snapshots retain the separately published global pause state" do
     previous = SnapshotCache.get(Aiur.Orchestrator)
     on_exit(fn -> restore_snapshot(Aiur.Orchestrator, previous) end)
-    :ok = SnapshotStore.publish(Aiur.Orchestrator, %{globally_paused: true})
+    :ok = SnapshotStore.publish(Aiur.Orchestrator, %{running: [], retrying: [], idle: []})
     cached = SnapshotCache.get(Aiur.Orchestrator)
     SnapshotCache.put(Aiur.Orchestrator, %{cached | observed_at_ms: System.monotonic_time(:millisecond) - SnapshotStore.stale_age_ceiling_ms()})
 
     assert PauseState.pause_state(Aiur.Orchestrator) == false
+  end
+
+  test "a stale snapshot without pause state loads during startup without calling its publisher" do
+    {:ok, pid} = Agent.start_link(fn -> :unused end)
+    on_exit(fn -> if Process.alive?(pid), do: Agent.stop(pid) end)
+    :ok = SnapshotStore.publish(pid, %{running: [], retrying: [], idle: []})
+    cached = SnapshotCache.get(pid)
+    SnapshotCache.put(pid, %{cached | observed_at_ms: System.monotonic_time(:millisecond) - SnapshotStore.stale_age_ceiling_ms()})
+
+    assert PauseState.pause_state(pid, 0) == :loading
+    assert Process.alive?(pid)
+    assert PauseState.pause_state(pid, 600_000) == nil
+    assert Process.alive?(pid)
   end
 
   test "an unpublished live orchestrator stops loading after the startup deadline" do

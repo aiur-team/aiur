@@ -68,9 +68,11 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
     if orchestrator == Orchestrator do
       case SnapshotStore.read(orchestrator, 1_000) do
         {:current, %{globally_paused: paused}, _freshness} when is_boolean(paused) -> paused
-        {:stale, _, _freshness} -> live_or_starting_pause_state(orchestrator, startup_elapsed_ms)
+        {:stale, %{globally_paused: paused}, _freshness} when is_boolean(paused) -> paused
+        {:stale, _, _freshness} -> startup_pause_state(orchestrator, startup_elapsed_ms)
         :snapshot_unpublished -> loading_pause_state(orchestrator, startup_elapsed_ms)
-        _unavailable -> live_or_starting_pause_state(orchestrator, startup_elapsed_ms)
+        {:current, _snapshot, _freshness} -> startup_pause_state(orchestrator, startup_elapsed_ms)
+        _unavailable -> nil
       end
     else
       snapshot_pause_state(orchestrator, startup_elapsed_ms)
@@ -81,23 +83,9 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
 
   defp orchestrator, do: EndpointConfig.get(:orchestrator) || Orchestrator
 
-  defp live_pause_state(orchestrator) do
-    case GlobalPause.global_pause_status(orchestrator, 1_000) do
-      {:ok, %{globally_paused: paused}} when is_boolean(paused) -> paused
-      _unavailable -> nil
-    end
-  end
-
   defp loading_pause_state(orchestrator, startup_elapsed_ms) do
     case GlobalPause.global_pause_status(orchestrator, 1_000) do
       {:ok, %{globally_paused: paused}} when is_boolean(paused) -> paused
-      _unavailable -> startup_pause_state(orchestrator, startup_elapsed_ms)
-    end
-  end
-
-  defp live_or_starting_pause_state(orchestrator, startup_elapsed_ms) do
-    case live_pause_state(orchestrator) do
-      paused when is_boolean(paused) -> paused
       _unavailable -> startup_pause_state(orchestrator, startup_elapsed_ms)
     end
   end
@@ -120,17 +108,20 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
       {:current, %{globally_paused: paused}, _freshness} when is_boolean(paused) ->
         paused
 
+      {:stale, %{globally_paused: paused}, _freshness} when is_boolean(paused) ->
+        paused
+
       {:stale, _, _freshness} ->
-        live_or_starting_pause_state(orchestrator, startup_elapsed_ms)
+        startup_pause_state(orchestrator, startup_elapsed_ms)
 
       :snapshot_unpublished ->
         loading_pause_state(orchestrator, startup_elapsed_ms)
 
       :orchestrator_unavailable ->
-        live_or_starting_pause_state(orchestrator, startup_elapsed_ms)
+        nil
 
       _unavailable ->
-        live_or_starting_pause_state(orchestrator, startup_elapsed_ms)
+        startup_pause_state(orchestrator, startup_elapsed_ms)
     end
   end
 

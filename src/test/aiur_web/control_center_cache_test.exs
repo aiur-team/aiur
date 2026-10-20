@@ -52,12 +52,19 @@ defmodule AiurWeb.ControlCenterCacheTest do
 
   test "an unobserved fleet view is startup-pending only until the deadline" do
     clock = :atomics.new(1, [])
+    boot = :atomics.new(1, [])
     :atomics.put(clock, 1, 0)
-    cache = start_supervised!({ControlCenterCache, name: nil, clock: fn -> :atomics.get(clock, 1) end, startup_observation_timeout_ms: 100})
+    :atomics.put(boot, 1, 0)
+
+    cache =
+      start_supervised!({ControlCenterCache, name: nil, clock: fn -> :atomics.get(clock, 1) end, boot_elapsed_ms: fn -> :atomics.get(boot, 1) end, startup_observation_timeout_ms: 100})
+
     payload = %{provider_health: %{fleet: :unavailable}, fleet: %{error: %{code: "snapshot_timeout"}}, units: %{status: :stale}}
 
     assert %{fleet_startup_pending?: true} = ControlCenterCache.fetch(cache, :fleet, 10_000, fn -> payload end)
-    :atomics.put(clock, 1, 100)
+    :atomics.put(clock, 1, 100_000)
+    assert %{fleet_startup_pending?: true} = ControlCenterCache.fetch(cache, :fleet, 10_000, fn -> flunk("fresh cached payload expected") end)
+    :atomics.put(boot, 1, 100)
     assert %{fleet_startup_timed_out?: true} = ControlCenterCache.fetch(cache, :fleet, 10_000, fn -> flunk("fresh cached payload expected") end)
   end
 

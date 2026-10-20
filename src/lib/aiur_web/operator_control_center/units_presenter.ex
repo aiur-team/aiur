@@ -327,13 +327,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
 
   defp safe_rows(_fleet, _bucket), do: []
 
-  defp count_status(%{status: status}) when status in [:unavailable, :loading], do: :unavailable
+  defp count_status(%{status: :loading}), do: :loading
+  defp count_status(%{status: :unavailable}), do: :unavailable
   defp count_status(%{status: :stale}), do: :partial
   defp count_status(%{truncated?: true}), do: :partial
   defp count_status(%{snapshot: %{truncated?: true}}), do: :partial
   defp count_status(_catalog), do: :exact
 
-  defp display_counts(_rows, _selection, :unavailable) do
+  defp display_counts(_rows, _selection, count_status) when count_status in [:unavailable, :loading] do
     [:scope | UnitsPolicy.conditions()]
     |> Map.new(&{&1, nil})
   end
@@ -341,6 +342,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   defp display_counts(rows, selection, _count_status), do: UnitsPolicy.counts(rows, selection)
 
   defp display_total(_rows, :unavailable), do: nil
+  defp display_total(_rows, :loading), do: nil
   defp display_total(rows, _count_status), do: length(rows)
 
   defp catalog_revision(catalog) do

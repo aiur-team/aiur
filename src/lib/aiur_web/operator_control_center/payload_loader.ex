@@ -138,7 +138,6 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
           |> Map.put(:stale, true)
           |> Map.put(:cache_error, reason)
           |> Map.put(:retained_counts, unavailable_retained_counts())
-          |> maybe_mark_startup_pending(Aiur.Boot.elapsed_ms())
 
         %{stale: true, stale_age_ms: age_ms, units: %{} = units} when is_integer(age_ms) ->
           units =
@@ -173,10 +172,6 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
   defp unavailable_units do
     %{status: :unavailable, message: "Fleet data is unavailable.", truncated?: false, snapshot: %{rows: [], truncated?: false}}
-  end
-
-  defp maybe_mark_startup_pending(payload, elapsed_ms) do
-    if elapsed_ms < @startup_observation_timeout_ms, do: Map.put(payload, :fleet_startup_pending?, true), else: payload
   end
 
   defp schedule_startup_deadline(socket) do
