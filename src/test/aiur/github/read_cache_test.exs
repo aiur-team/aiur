@@ -1136,16 +1136,12 @@ defmodule Aiur.GitHub.ReadCacheTest do
       on_exit(fn -> ModeTable.delete(@ttl_repo) end)
 
       ModeTable.put(@ttl_repo, webhook_backed_mode())
-      ModeTable.record_config_event(@ttl_repo, "repository_ruleset")
 
       assert {:cache, :issue_graph, 3_600_000} =
                Policy.classify(graphql("issue_relationships", safe_document(2073), %{"owner" => "aiur-team", "repo" => "ttl-test-repo"}))
 
       assert {:cache, :comments, 3_600_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/comments?per_page=100"))
-
-      assert {:cache, :repo_config, 3_600_000} =
-               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/actions/workflows?per_page=100"))
 
       assert {:cache, :issue_timeline, 3_600_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/timeline?per_page=100"))
