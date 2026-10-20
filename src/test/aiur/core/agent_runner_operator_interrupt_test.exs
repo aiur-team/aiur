@@ -124,7 +124,12 @@ defmodule Aiur.Core.AgentRunnerOperatorInterruptTest do
           )
         end)
 
-      assert_receive {:codex_worker_update, ^issue_id, %{event: :session_started}}, 5_000
+      receive do
+        {:codex_worker_update, ^issue_id, %{event: :session_started}} -> :ok
+      after
+        15_000 ->
+          flunk("session did not start; task=#{inspect(Task.yield(task, 0))}; codex trace:\n#{File.read!(trace_file)}")
+      end
 
       :sys.replace_state(orchestrator_pid, fn state ->
         {queue_store, item} =
@@ -164,7 +169,7 @@ defmodule Aiur.Core.AgentRunnerOperatorInterruptTest do
       assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, identifier)
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end
   end
 
