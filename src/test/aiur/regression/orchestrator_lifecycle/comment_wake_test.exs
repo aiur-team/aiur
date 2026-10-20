@@ -6,6 +6,12 @@ defmodule Aiur.Regression.OrchestratorLifecycle.CommentWakeTest do
   alias Aiur.OrchestratorLifecycleSupport.HermeticReworkGitHubClient
   require Logger
 
+  setup do
+    test_pid = self()
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+    :ok
+  end
+
   describe "comment wake/rework transitions" do
     setup do
       previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)

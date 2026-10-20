@@ -13,8 +13,8 @@ defmodule Aiur.TestSupport.LifecycleLeakGuardTest do
     owner = self()
     runners_before = Aiur.TestSupport.capture_runner_tasks()
 
-    runner =
-      Task.Supervisor.start_child!(Aiur.TaskSupervisor, fn ->
+    {:ok, runner} =
+      Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
         Process.put(:"$initial_call", {Aiur.Orchestrator.Dispatcher.Launch, :"-start_runner_task/5-fun-0-", 0})
 
         receive do
@@ -26,7 +26,7 @@ defmodule Aiur.TestSupport.LifecycleLeakGuardTest do
     assert Enum.map(runner_leaks, &elem(&1, 0)) == [runner]
 
     error = assert_raise RuntimeError, fn -> Aiur.TestSupport.finish_lifecycle!(owner, nil, runner_leaks) end
-    assert error.message =~ "#{inspect(__MODULE__)} teardown fails the test that leaves a dispatched runner alive"
+    assert error.message =~ "#{inspect(__MODULE__)} test teardown fails the test that leaves a dispatched runner alive"
     assert error.message =~ inspect(runner)
     refute Process.alive?(runner)
   end

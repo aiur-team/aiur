@@ -437,16 +437,19 @@ defmodule Aiur.TestSupport do
   defdelegate stop_default_http_server(), to: Aiur.TestSupport.Processes
   defdelegate safe_stop(server), to: Aiur.TestSupport.Processes
   defdelegate track_lifecycle(context), to: Aiur.TestSupport.LifecycleLeakGuard, as: :track
+  defdelegate stop_test_runners(test_pid), to: Aiur.TestSupport.LifecycleLeakGuard, as: :stop_owned_runners
   defdelegate capture_runner_tasks(), to: Aiur.TestSupport.RunnerTasks, as: :capture
   defdelegate stop_runner_tasks_started_since(before), to: Aiur.TestSupport.RunnerTasks, as: :stop_started_since
   defdelegate rm_workflow_root!(root, runner_tasks_before), to: Aiur.TestSupport.RunnerTasks, as: :stop_started_since_and_rm_rf!
   defdelegate capture_test_runner_leaks(test_pid), to: Aiur.TestSupport.LifecycleLeakGuard, as: :live_runners
   defdelegate finish_lifecycle!(test_pid, scope_violation, runner_leaks), to: Aiur.TestSupport.LifecycleLeakGuard, as: :finish!
+
   def capture_and_stop_test_runners(test_pid, runner_tasks_before) do
     runner_leaks = capture_test_runner_leaks(test_pid)
     stop_runner_tasks_started_since(runner_tasks_before)
     runner_leaks
   end
+
   defdelegate start_owned_endpoint!(), to: Aiur.TestSupport.Processes
   defdelegate await_process_down(process, timeout \\ 2_000), to: Aiur.TestSupport.Processes
   defdelegate await_supervised_restart(name, prior, timeout \\ 5_000), to: Aiur.TestSupport.Processes

@@ -42,8 +42,9 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
   end
 
   @doc "Teardown's last step: marks the test finished and reports leaks captured before cleanup."
-  def finish!(test_pid, scope_violation, runner_leaks \\ live_runners(test_pid)) do
-    stop_owned_runners(test_pid)
+  def finish!(test_pid, scope_violation, runner_leaks \\ nil) do
+    runner_leaks = runner_leaks || live_runners(test_pid)
+    stop_runners(runner_leaks)
 
     finish(test_pid)
 
@@ -55,10 +56,23 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
   end
 
   def stop_owned_runners(test_pid) when is_pid(test_pid) do
-    live_runners(test_pid)
-    |> Enum.each(fn {runner, _test} ->
-      Process.exit(runner, :kill)
-      await_down(runner)
+    if Process.whereis(Aiur.TaskSupervisor) do
+      Aiur.TaskSupervisor
+      |> Task.Supervisor.children()
+      |> Enum.filter(fn pid -> launch_runner?(pid) and runner_owner(pid, []) == test_pid end)
+      |> Enum.map(&{&1, test_name(test_pid)})
+      |> stop_runners()
+    end
+
+    :ok
+  end
+
+  defp stop_runners(runner_leaks) do
+    Enum.each(runner_leaks, fn {runner, _test} ->
+      if Process.alive?(runner) do
+        Process.exit(runner, :kill)
+        await_down(runner)
+      end
     end)
 
     :ok
@@ -182,4 +196,7 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
       nil -> default
     end
   end
+
+  defp launch_runner?(pid),
+    do: match?({Aiur.Orchestrator.Dispatcher.Launch, _, _}, dictionary_value(pid, :"$initial_call", nil))
 end
