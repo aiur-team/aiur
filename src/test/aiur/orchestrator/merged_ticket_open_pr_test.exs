@@ -65,6 +65,24 @@ defmodule Aiur.Orchestrator.MergedTicketOpenPRTest do
     assert Tracker.labels("1570") == ["needs-triage"]
   end
 
+  test "a reference-only merge refuses an existing operator park before adding its marker" do
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    tracker = Tracker.start("1570", ["agent:in-progress"], true)
+    on_exit(fn -> Tracker.stop("1570", tracker) end)
+
+    {_state, [^issue]} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [%{merged_pr("Refs #1570") | ticket_id: "1570"}] end,
+        now_fun: fn -> @now end,
+        tracker: Tracker,
+        add_label_fun: fn _identifier, _label -> flunk("a parked ticket must not receive a merge marker") end,
+        emit_alert_fun: fn _topic, _opts -> :ok end
+      )
+
+    assert Tracker.result("1570") == {:error, {:operator_hold, "needs-triage"}}
+    assert Tracker.labels("1570") == ["needs-triage"]
+  end
+
   test "a merged PR routes a ticket to rework when its remaining open PR has unresolved review threads" do
     # The acceptance regression: ticket #2307 had two open PRs; the first merged
     # and the reconciler stamped `done`, abandoning the second PR's

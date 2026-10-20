@@ -223,7 +223,7 @@ defmodule Aiur.Regression.OrchestratorLifecycle.CommentWakeTest do
     test "pr.merged terminalizes the ticket to done and tears down the running entry" do
       issue_id = "7416"
       identifier = "7416"
-      memory_tracker!([])
+      memory_tracker!([%Issue{id: issue_id, identifier: identifier, state: "rework", title: "Merged ticket"}])
       entry = Map.put(running_entry(issue_id, identifier, :working), :pid, worker_pid())
       state = base_state(running: %{issue_id => entry}, claimed: MapSet.new([issue_id]))
 

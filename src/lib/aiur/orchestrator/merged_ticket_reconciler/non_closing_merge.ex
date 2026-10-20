@@ -39,8 +39,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.NonClosingMerge do
     add_marker = Keyword.get(opts, :add_label_fun, fn id, label -> TicketTransition.write_marker(id, :add, label, writer: :merged_ticket_reconciler) end)
     comment = Keyword.get(opts, :create_comment_fun, fn id, body -> TicketTransition.write_comment(id, body, writer: :merged_ticket_reconciler) end)
 
-    with :ok <- add_marker.(issue.identifier, marker),
-         :ok <- update.(issue.identifier, "human-review", expected) do
+    with :ok <- update.(issue.identifier, "human-review", expected),
+         :ok <- add_marker.(issue.identifier, marker) do
       comment.(issue.identifier, "Merged PR ##{merge.number} (#{merge.url}) references this ticket without a closing keyword; moved to human-review with `#{marker}` for triage.")
     end
   end
