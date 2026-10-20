@@ -47,7 +47,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   | --- | --- | --- | --- |
   | `:comments` | 30 s | 1 h | Per-issue REST comment reads (`Aiur.GitHub.Comments`). A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
   | `:issue_graph` | 30 s | 1 h | Build Order structure: dependency edges, pack status, linked pull requests. A stale edge delays a dispatch rather than corrupting one. |
-  | `:repo_config` | 5 min | 1 h | Repository configuration used by required-check classification (`Aiur.GitHub.CiReadiness`), not a CI verdict. A ruleset or protection change can affect classification, so config-specific deliveries and pushes to the configured base branch retire it immediately; otherwise staleness is bounded by 5 min while polling and 1 h when webhook-backed. Ordinary issue/PR and check-run deliveries do not retire this scope. GitHub's merge queue still enforces required checks on the server. |
+  | `:repo_config` | 5 min | 1 h | Repository configuration used by required-check classification (`Aiur.GitHub.CiReadiness`), not a CI verdict. Config-specific deliveries and pushes to the configured base or repository default branch retire it immediately; otherwise staleness is bounded by 5 min while polling and 1 h when webhook-backed. Ordinary issue/PR and check-run deliveries do not retire this scope. GitHub's merge queue still enforces required checks on the server. |
   | `:issue_timeline` | 30 s | 1 h | An issue's timeline (`/issues/{n}/timeline`, `Aiur.GitHub.DispatchAuthorization`). The single largest REST family measured in #2352 (1,000–1,800 reads/hr); a timeline answered up to one poll cycle late costs a dispatch decision latency, never a wrong verdict. |
   | `:issue` | 30 s | 1 h | A single issue (`/issues/{n}`). Mixed call sites — some already conditional, some unconditional reads — so the body cache absorbs the unconditional spend. |
   | `:pull` | 30 s | 1 h | A single pull request (`/pulls/{n}`). Row 5 of #2352 was the strongest single candidate: it was read **unconditionally with no validator**, so every repeat was pure waste rather than a cheap revalidation. The body is a *routing* source, never a merge-verdict source — see below. |
@@ -249,7 +249,8 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   # hourly one while leaving the correction path intact.
   #
   # `:repo_config` rides the same long bucket but carries a separate identity
-  # retired only by configuration-specific deliveries or a base-branch push.
+  # retired only by configuration-specific deliveries or a configured-base or
+  # repository-default branch push.
   # Numbered writes and ordinary webhook traffic cannot retire this scope; the
   # TTL is the fallback for a missed configuration event.
   #

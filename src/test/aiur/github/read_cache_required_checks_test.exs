@@ -2,6 +2,9 @@ defmodule Aiur.GitHub.ReadCacheRequiredChecksTest do
   use ExUnit.Case, async: false
 
   alias Aiur.GitHub.{ReadCache, ReadCache.Metrics, ReadCache.Policy}
+  alias Aiur.Webhooks.{DeliveryMode, ModeTable}
+
+  @policy_repo "aiur-team/required-check-policy-test"
 
   setup do
     await_read_cache()
@@ -11,10 +14,23 @@ defmodule Aiur.GitHub.ReadCacheRequiredChecksTest do
   end
 
   test "required-check configuration is a repository-config read" do
-    request = rest("https://api.github.com/repos/aiur-team/aiur/branches/main/protection")
+    request = rest("https://api.github.com/repos/aiur-team/required-check-policy-test/branches/main/protection")
+    prior_mode = ModeTable.mode(@policy_repo)
+    on_exit(fn -> restore_mode(prior_mode) end)
 
+    ModeTable.delete(@policy_repo)
     assert {:cache, :repo_config, 300_000} = Policy.classify(request)
+
+    {webhook_mode, :proven} =
+      DeliveryMode.new(@policy_repo, configured?: true)
+      |> DeliveryMode.record_delivery(DateTime.utc_now())
+
+    ModeTable.put(@policy_repo, webhook_mode)
+    assert {:cache, :repo_config, 3_600_000} = Policy.classify(request)
   end
+
+  defp restore_mode(nil), do: ModeTable.delete(@policy_repo)
+  defp restore_mode(mode), do: ModeTable.put(@policy_repo, mode)
 
   test "caches an unprotected branch response" do
     request = rest("https://api.github.com/repos/aiur-team/aiur/branches/main/protection")

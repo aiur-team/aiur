@@ -58,11 +58,18 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
     end
   end
 
-  defp base_branch_push?(%{"ref" => ref}) when is_binary(ref) do
-    ref == "refs/heads/" <> TrackerSettings.base_branch()
+  defp base_branch_push?(%{"ref" => ref} = payload) when is_binary(ref) do
+    ref == "refs/heads/" <> TrackerSettings.base_branch() or ref == default_branch_ref(payload)
   end
 
   defp base_branch_push?(_payload), do: true
+
+  defp default_branch_ref(payload) do
+    case get_in(payload, ["repository", "default_branch"]) do
+      branch when is_binary(branch) and branch != "" -> "refs/heads/" <> branch
+      _unset -> nil
+    end
+  end
 
   defp invalidate_ci_snapshot(payload, repo) do
     case get_in(payload, ["pull_request", "head", "ref"]) do
