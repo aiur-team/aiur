@@ -22,7 +22,7 @@ defmodule AiurWeb.AnalyticsLive do
     UsageSummaryPresenter
   }
 
-  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, ConcurrencyCoverage, LiveConcurrency, Loading, Presenter, Runtime, ScopeResolver, Styles}
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, ConcurrencyCoverage, Loading, Presenter, Runtime, ScopeResolver, Styles}
 
   @usage_summary_max_age_ms 30_000
   # Matches the CLI: telemetry within this window is "just now", older telemetry shows elapsed age.
@@ -262,7 +262,7 @@ defmodule AiurWeb.AnalyticsLive do
                 <p :if={ConcurrencyCoverage.partial_reason(@model, @analytics_scope)} id="analytics-concurrency-coverage" class="an-card-sub" role="status">{ConcurrencyCoverage.partial_reason(@model, @analytics_scope)}</p>
               </div>
             </div>
-            <div id="analytics-concurrency-chart" class="an-chart" phx-hook="TimeBrush">{if ConcurrencyCoverage.unknown?(@model, @analytics_scope), do: "Concurrency unknown: no active agents were sampled.", else: Phoenix.HTML.raw(Charts.concurrency(@chart_model))}</div>
+            <div id="analytics-concurrency-chart" class="an-chart" phx-hook="TimeBrush">{if ConcurrencyCoverage.unknown?(@model, @analytics_scope), do: ConcurrencyCoverage.chart_unknown_label(@model, @analytics_scope), else: Phoenix.HTML.raw(Charts.concurrency(@chart_model))}</div>
           </section>
 
           <section class="an-card wide">
@@ -469,7 +469,7 @@ defmodule AiurWeb.AnalyticsLive do
     [
       Map.merge(
         %{label: "Peak concurrency", tone: nil},
-        ConcurrencyCoverage.tile(model, scope, "#{LiveConcurrency.label(model, present?, scope)} / #{Presenter.cap_label(model)}")
+        ConcurrencyCoverage.tile(model, scope, "of #{model.cores} cores")
       ),
       Map.merge(%{label: "Mean utilization", tone: nil}, ConcurrencyCoverage.utilization(model, scope, "of #{model.cores} cores")),
       %{
