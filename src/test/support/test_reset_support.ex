@@ -55,14 +55,24 @@ defmodule Aiur.TestResetSupport do
   defp restore_system_env(key, value), do: System.put_env(key, value)
 
   def reset_tmp_root!(prefix) do
-    Path.join(System.tmp_dir!(), "#{prefix}-#{System.pid()}-#{System.unique_integer([:positive])}")
+    Path.join(
+      System.tmp_dir!(),
+      "#{prefix}-#{System.pid()}-#{System.unique_integer([:positive])}"
+    )
   end
 
   defp reset_fixture_root! do
-    if System.get_env("AIUR_AGENT_WORKSPACE") do
-      Path.join("/tmp", "aiur-reset-fixtures-#{System.pid()}-#{System.unique_integer([:positive])}")
+    if System.get_env("AIUR_AGENT_WORKSPACE") ||
+         String.contains?(System.tmp_dir!(), "/aiur-workspaces/") do
+      Path.join(
+        "/tmp",
+        "aiur-reset-fixtures-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
     else
-      Path.join(System.tmp_dir!(), "aiur-reset-fixtures-#{System.pid()}-#{System.unique_integer([:positive])}")
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-reset-fixtures-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
     end
   end
 
