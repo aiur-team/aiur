@@ -108,19 +108,37 @@ defmodule Aiur.Orchestrator.OptimisticGuardRecoveryTest do
 
   test "unrecovered blockers and failed state writes keep the park and alert", %{opts: opts} do
     state = parked_attempt(opts)
+    owner = self()
+    state = %{state | snapshot_key: owner}
     open = %{confirmed?: true, observed_at_ms: 1_000, issue_open?: true, pr_merged: false, pr_state: "open", any_open_pr?: true}
     unrecovered = fn _, now, _ -> %{"10" => %{open | observed_at_ms: now}, dependents: %{"11" => issue("11", "in-progress", ["agent:parked", "agent:in-progress"])}} end
     no_write = Keyword.put(opts, :observe, unrecovered) |> Keyword.put(:update_state_fun, fn _, _, _ -> flunk("open blockers must not be released") end)
-    OptimisticGuardEffects.reconcile(state, no_write)
+    state = OptimisticGuardEffects.reconcile(state, no_write)
+    [observe_ref] = Map.keys(state.tracker_tasks)
+    assert_receive {^observe_ref, observations}, 1_000
+    assert {:handled, state} = TrackerTasks.result(state, observe_ref, observations)
+    assert state.tracker_tasks == %{}
     assert {:ok, row} = OptimisticLedger.get("11")
     assert row["status"] == "parked"
     assert row["counters"]["resumes_after_park"] == 0
 
     failing_write =
       Keyword.put(opts, :observe, recovered_observation("11", ["agent:parked", "agent:in-progress"]))
-      |> Keyword.put(:update_state_fun, fn _, _, _ -> {:error, :offline} end)
+      |> Keyword.put(:update_state_fun, fn _, _, _ ->
+        send(owner, {:state_write_owner, self()})
+        {:error, :offline}
+      end)
 
-    OptimisticGuardEffects.reconcile(state, failing_write)
+    state = OptimisticGuardEffects.reconcile(state, failing_write)
+    [observe_ref] = Map.keys(state.tracker_tasks)
+    assert_receive {^observe_ref, observations}, 1_000
+    assert {:handled, state} = TrackerTasks.result(state, observe_ref, observations)
+    [recovery_ref] = Map.keys(state.tracker_tasks)
+    assert_receive {^recovery_ref, {:error, :offline}}, 1_000
+    assert {:handled, state} = TrackerTasks.result(state, recovery_ref, {:error, :offline})
+    assert_receive {:state_write_owner, writer}, 1_000
+    refute writer == owner
+    assert state.tracker_tasks == %{}
     assert {:ok, row} = OptimisticLedger.get("11")
     assert row["status"] == "parked"
     assert row["guard_attention_open"]
