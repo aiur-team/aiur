@@ -2,6 +2,7 @@ defmodule Aiur.LogFileTest do
   use ExUnit.Case, async: false
 
   alias Aiur.LogFile
+  alias Aiur.TestSupport.OrchestratorGuard
 
   test "default_log_file/0 uses the current working directory" do
     assert LogFile.default_log_file() == Path.join(File.cwd!(), "log/aiur.log")
@@ -266,7 +267,7 @@ defmodule Aiur.LogFileTest do
     setup do
       original_debug = System.get_env("AIUR_DEBUG")
       original_path = Application.get_env(:aiur, :workflow_file_path)
-      Aiur.TestSupport.OrchestratorGuard.capture_codeowners_baseline!()
+      OrchestratorGuard.capture_codeowners_baseline!()
       System.delete_env("AIUR_DEBUG")
 
       dir = Aiur.TestSupport.tmp_root!("aiur-config-debug")
@@ -278,7 +279,7 @@ defmodule Aiur.LogFileTest do
           path -> Aiur.Workflow.set_workflow_file_path(path)
         end
 
-        Aiur.TestSupport.OrchestratorGuard.restore_codeowners_baseline!()
+        OrchestratorGuard.restore_codeowners_baseline!()
 
         case original_debug do
           nil -> System.delete_env("AIUR_DEBUG")
