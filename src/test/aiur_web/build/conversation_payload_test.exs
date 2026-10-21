@@ -22,6 +22,7 @@ defmodule AiurWeb.Build.ConversationPayloadTest do
   test "strict entry schema refuses private data, bad kinds, timestamps and oversized text" do
     view = %{state: :live, live?: true, entries: [%{id: "a:0", k: "say", at: nil, text: "hello"}], more?: false}
     message = ConversationPayload.view("12", view)
+    assert Payload.validate(message) == :ok
 
     for entry <- [
           %{"id" => "a:0", "k" => "say", "at" => 0, "text" => "hello", "workspace" => "/private"},
