@@ -78,6 +78,8 @@ defmodule AiurWeb.Build.PayloadSchema do
   def message("diff"), do: Map.merge(envelope(), %{"upsert" => list(:row), "remove" => list(:id), "set" => object(blocks(), Map.keys(blocks()))})
   def message("earlier"), do: Map.merge(Map.delete(envelope(), "now"), %{"rows" => list(:row), "history" => object(history())})
 
+  def message("ticket"), do: Map.put(Map.delete(envelope(), "now"), "row", :row)
+
   def message("error"),
     do: %{
       "v" => {:literal, 1},
@@ -140,7 +142,7 @@ defmodule AiurWeb.Build.PayloadSchema do
 
   defp window, do: %{"acc" => list(nullable({:range, 0, 100})), "reset_at" => nullable(:integer), "win" => nullable(:string)}
   defp line, do: Map.merge(window(), %{"tag" => :string, "tip" => list({:pair, :string}), "hold_until" => nullable(:integer)})
-  defp envelope, do: %{"v" => {:literal, 1}, "kind" => enum(~w(snapshot diff earlier)), "epoch" => :string, "generation" => :nonnegative, "now" => :integer}
+  defp envelope, do: %{"v" => {:literal, 1}, "kind" => enum(~w(snapshot diff earlier ticket)), "epoch" => :string, "generation" => :nonnegative, "now" => :integer}
 
   defp epic,
     do: %{

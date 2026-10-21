@@ -110,16 +110,16 @@ export function renderList() {
 function bindOnce(vp) {
   if (ctx.listVp === vp) return;
   ctx.listVp = vp;
-  const open = id => { const t = ctx.D.byId[id]; if (t) fx.openModal(t); };
+  const open = row => { const t = ctx.D.byId[row.dataset.id]; if (t) fx.openModal(t, { origin: row }); };
   ctx.life.on(vp, 'click', e => {
     if (S.view !== 'list') return;
     const btn = e.target.closest('#lr-more');
     if (btn) { earlier(btn); return; }
-    const row = e.target.closest('.lr[data-id]'); if (row) open(row.dataset.id);
+    const row = e.target.closest('.lr[data-id]'); if (row) open(row);
   });
   ctx.life.on(vp, 'keydown', e => {
     if (S.view !== 'list' || e.key !== 'Enter' || e.target.matches('button')) return;
-    const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row.dataset.id); }
+    const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row); }
   });
 }
 async function earlier(btn) {

@@ -40,3 +40,15 @@ export const I = {
   dCard: sv('<rect x="3" y="3" width="8" height="18" rx="2"/><rect x="13" y="3" width="8" height="18" rx="2"/><path d="M6 7h2M16 7h2"/>'),
   bars: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>',
 };
+
+export const MI = {
+    mic: sv('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
+    send: sv('<path d="M5 12h14M13 6l6 6-6 6"/>', 2.2),
+    expand: sv('<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>'),
+    review: sv('<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+    prog: sv('<path d="M3 12h4l3-8 4 16 3-8h4"/>'),
+    tool: sv('<path d="m8 8-5 4 5 4M16 8l5 4-5 4"/>'),
+    pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
+    play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+    down: sv('<path d="M12 5v14M5 12l7 7 7-7"/>', 2.4),
+  };

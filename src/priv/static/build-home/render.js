@@ -35,12 +35,16 @@ export function viewport() {
     ctx.lt = document.createElement("div"); ctx.lt.className = "bd-lt";
     ctx.lt.innerHTML = '<button type="button" data-lt="lock" title="Lock this dependency tree">' + I.lock + '</button><button type="button" data-lt="fit" title="Zoom out to fit this tree">' + I.fit + '</button><button type="button" data-lt="tree" title="View the whole tree">' + I.eye + "</button>";
     ctx.content.appendChild(ctx.lt);
+    ctx.life.on(ctx.content, 'keydown', e => {
+      if (!['Enter', ' '].includes(e.key) || !e.target.matches('.bd-card')) return;
+      e.preventDefault(); e.target.click();
+    });
     ctx.life.on(ctx.content, "click", (e) => {
       const eh = e.target.closest(".bd-eh");
       if (eh) { e.stopPropagation(); fx.lockTree(eh.dataset.e); return; }
       const b = e.target.closest("[data-lt]");
       if (b) { e.stopPropagation(); if (b.dataset.lt === "lock") { if (ctx.lockId) fx.unlock(); else if (ctx.hoverId) { ctx.lockId = ctx.hoverId; ctx.lt.classList.add("locked"); } } else if (ctx.lockId) { if (b.dataset.lt === "fit") fx.fitTree(ctx.lockId); else fx.openTree(ctx.lockId); } return; }
-      const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid]); return; }
+      const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid], { origin: sd }); return; }
       if (fx.onBandClick?.(e)) return;
       const c = e.target.closest(".bd-card");
       if (ctx.lockId) { if (c && fx.chainOf(ctx.lockId).has(c.dataset.id)) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c }); return; }

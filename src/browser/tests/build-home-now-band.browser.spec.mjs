@@ -280,7 +280,7 @@ test('future guard: a mounted hook awaiting its first snapshot never presents mi
   const state = await page.evaluate(async () => {
     const { createBuildHomeHook } = await import('/build-home/hook.js')
     const { ctx } = await import('/build-home/state.js'), clock = await import('/build-home/clock.js')
-    document.body.innerHTML = '<main id="build-root" class="bd-root">' + ['bd-usage', 'bd-offline', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status'].map(id => `<div id="${id}">${id === 'bd-sb' ? '<i></i>' : ''}</div>`).join('') + '</main>'
+    document.body.innerHTML = '<main id="build-root" class="bd-root">' + ['bd-usage', 'bd-offline', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status'].map(id => `<div id="${id}">${id === 'bd-sb' ? '<i></i>' : ''}</div>`).join('') + '<div id="tk-backdrop"><div id="tk-modal"><header id="tk-head"></header><div id="tk-body"></div></div></div></main>'
     const hook = Object.assign(createBuildHomeHook(), { el: document.querySelector('#build-root'), handleEvent() {}, pushEvent: () => new Promise(() => {}) })
     hook.mounted()
     const result = { now: clock.nowMs(), data: ctx.D, text: document.querySelector('.bd-now-h time')?.textContent ?? null }
