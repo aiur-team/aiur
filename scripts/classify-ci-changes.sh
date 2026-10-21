@@ -3,10 +3,10 @@
 set -euo pipefail
 if [[ "$EVENT_NAME" != pull_request ]]; then
   if [[ "$EVENT_NAME" == merge_group || "$EVENT_NAME" == workflow_dispatch || "${GITHUB_REF:-}" == refs/heads/v2 || ("$EVENT_NAME" == push && "${GITHUB_REF:-}" == refs/heads/main) ]]; then
-    printf 'full_ci=true\ndocs_only=false\n' >> "$GITHUB_OUTPUT"
+    printf 'full_ci=true\ndocs_only=false\nbrowser_smoke=true\n' >> "$GITHUB_OUTPUT"
     echo "event $EVENT_NAME: full CI" >> "$GITHUB_STEP_SUMMARY"
   else
-    printf 'full_ci=false\ndocs_only=false\n' >> "$GITHUB_OUTPUT"
+    printf 'full_ci=false\ndocs_only=false\nbrowser_smoke=false\n' >> "$GITHUB_OUTPUT"
     echo "event $EVENT_NAME: quarantine only" >> "$GITHUB_STEP_SUMMARY"
   fi
   printf 'affected_paths_b64=\ndialyzer=false\n' >> "$GITHUB_OUTPUT"
@@ -21,6 +21,8 @@ gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/files" \
 base="$(jq -er '.base.sha' "$scratch/pr.json")"
 git -C "${GITHUB_WORKSPACE:-.}" show "$base:.aiur/config" > "$scratch/policy"
 ruby scripts/ci-policy.rb "$scratch/policy" "$scratch/pr.json" "$scratch/files.json" > "$scratch/classification"
+browser_smoke="$(sed -n 's/^browser_smoke=//p' "$scratch/classification")"
+sed -i '/^browser_smoke=/d' "$scratch/classification"
 # Keep the old required-check set until all open PRs require the new aggregate.
 branch="$(jq -er '.base.ref | @uri' "$scratch/pr.json")"
 gh api "repos/$REPO/rules/branches/$branch" > "$scratch/rules.json"
@@ -73,4 +75,5 @@ else
   echo 'dialyzer=false' >> "$scratch/classification"
   echo 'affected_paths_b64=' >> "$GITHUB_OUTPUT"
 fi
+echo "browser_smoke=$browser_smoke" >> "$scratch/classification"
 cat "$scratch/classification" | tee -a "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
