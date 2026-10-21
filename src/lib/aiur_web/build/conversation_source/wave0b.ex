@@ -125,7 +125,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
         log = History.workspace_log(ref.workspace)
 
         messages =
-          if(is_map(log), do: log[:messages] || [], else: [])
+          log.messages
           |> Enum.reject(&legacy_placeholder?/1)
           |> Enum.with_index()
           |> Enum.map(fn {message, index} -> Map.put(message, :id, "legacy:#{index}") end)
