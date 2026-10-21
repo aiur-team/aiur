@@ -9,5 +9,4 @@ Aiur.ExperimentsCLITest	create freezes the baseline and reports its window, coun
 Aiur.Muse.TurnTest	an accepted receipt without a terminal times out	#4463
 Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#4463
 Aiur.Orchestrator.Status.ProgressAndIdentityTest	orchestrator snapshot reads open decisions without calling the per-ticket store	#4463
-Aiur.OrchestratorRemoteControlTest	ensure_remote_control_trust/2 (direct-dispatch trust seeding) seeds hasTrustDialogAccepted for the workspace	#4765
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#4463

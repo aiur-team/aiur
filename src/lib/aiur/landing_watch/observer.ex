@@ -29,6 +29,29 @@ defmodule Aiur.LandingWatch.Observer do
   def refresh_queue(_, _), do: {:error, :invalid_queue_observations}
 
   @doc false
+  @spec prs_ahead(map(), keyword()) :: {:ok, [pos_integer()]} | {:error, term()}
+  def prs_ahead(%{number: number, merge_queue_entry: %{"position" => position}}, opts)
+      when is_integer(number) and is_integer(position) and position > 1 do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts),
+         {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"mergeQueue" => %{"entries" => %{"nodes" => nodes}}}}}}} <-
+           Transport.github_graphql(
+             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+             token,
+             "query($owner:String!,$repo:String!,$number:Int!,$limit:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){mergeQueue{entries(first:$limit){nodes{position pullRequest{number}}}}}}}",
+             %{owner: owner, repo: repo, number: number, limit: position - 1},
+             caller: "landing_watch_conflict_queue_ahead"
+           ) do
+      {:ok, nodes |> Enum.filter(&(is_integer(&1["position"]) and &1["position"] < position)) |> Enum.map(&get_in(&1, ["pullRequest", "number"])) |> Enum.filter(&is_integer/1)}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_merge_queue_entries}
+    end
+  end
+
+  def prs_ahead(_, _), do: {:error, :invalid_merge_queue_position}
+
+  @doc false
   @spec revalidate_approved_head(pos_integer(), String.t(), keyword()) :: :ok | {:error, term()}
   def revalidate_approved_head(number, expected_head, opts) when is_integer(number) and number > 0 and is_binary(expected_head) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
@@ -122,7 +145,7 @@ defmodule Aiur.LandingWatch.Observer do
 
   defp fields do
     "number id state headRefOid baseRefName isDraft reviewDecision mergeable " <>
-      "mergeStateStatus autoMergeRequest { enabledAt } mergeQueueEntry { id state headCommit { oid committedDate } pullRequest { id headRefOid } } " <>
+      "mergeStateStatus autoMergeRequest { enabledAt } mergeQueueEntry { id state position headCommit { oid committedDate } pullRequest { id number headRefOid } } " <>
       "reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } " <>
       "commits(last: 1) { nodes { commit { committedDate } } }"
   end

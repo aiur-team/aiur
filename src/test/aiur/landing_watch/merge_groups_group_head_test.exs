@@ -170,7 +170,7 @@ defmodule Aiur.LandingWatch.MergeGroupsGroupHeadTest do
         {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
 
       %{body: %{"query" => query}} ->
-        assert query =~ "mergeQueueEntry { id state headCommit { oid committedDate }"
+        assert query =~ "mergeQueueEntry { id state position headCommit { oid committedDate } pullRequest { id number headRefOid } }"
 
         entry = %{
           "id" => "entry-5",
