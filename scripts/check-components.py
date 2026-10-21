@@ -14,7 +14,7 @@ from components.ratchet import growth_errors, stale_entries, write_summary
 from components.promotion_report import run as report_component_debt, validate_options as validate_report_options
 from components.manifest import read_manifest, write_manifest
 from components.docs_rules import check_docs
-from components.config_ownership import nested_config_keys
+from components.declaration_ownership import declaration_ownership
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'components'))
 from import_rules import client_imports, reverse_resources
@@ -375,44 +375,6 @@ def check_references(root, manifest, file_owners, baseline, rules, prune=False, 
     write_summary(violations, allowed, stale, rules, largest_scc, time.monotonic() - started)
     return bool(violations.keys() - allowed or stale or growth_failed)
 
-def declaration_ownership(root, manifest):
-    # Keep these literal matchers aligned with check-config-docs.py.
-    config = (root / 'src/lib/aiur/config/schema.ex').read_text()
-    sections = re.findall(r"^\s*embeds_(?:one|many)\(\s*:([a-zA-Z0-9_]+)\s*,\s*[A-Za-z0-9_.]+", config, re.MULTILINE)
-    fields = re.findall(r"^\s*field\(\s*:([a-zA-Z0-9_]+)", config, re.MULTILINE)
-    env = re.findall(r'^\s*\{"([A-Z][A-Z0-9_]+)",',
-                     (root / 'src/lib/aiur/env/schema.ex').read_text(), re.MULTILINE)
-    state_sources = [root / path for path in ('src/lib/aiur/config/paths.ex', 'src/lib/aiur/repo_base.ex')]
-    state = [name for path in state_sources if path.exists()
-             for name in re.findall(r'^\s*def\s+([a-z][a-z0-9_]*(?:_dir|_path))\b', path.read_text(), re.MULTILINE)]
-    # Root owners cover their sections; explicit nested fields override that default.
-    nested = {key for c in manifest['components'] for key in c['owns']['config'] if '.' in key}
-    known_nested = nested_config_keys(root) if nested else set()
-    inventories = {'config': sections + fields + sorted(nested & known_nested), 'env': env, 'state': state}
-    for kind, names in inventories.items():
-        if not names or (kind == 'config' and not sections):
-            raise InvalidManifest(f'O-{kind}: matcher is broken, not the schema (zero matches)')
-    problems = []
-    for kind, names in inventories.items():
-        owners = {}
-        for component in manifest['components']:
-            for name in component['owns'][kind]:
-                owners.setdefault(name, []).append(component['id'])
-        noun = {'config': 'section/field', 'env': 'env var', 'state': 'state path'}[kind]
-        for name in sorted(set(names) | owners.keys()):
-            assigned = owners.get(name, [])
-            if name not in names:
-                problems.append((f'O-{kind}', f"{noun} '{name}' is stale ({', '.join(assigned)})"))
-            elif not assigned:
-                problems.append((f'O-{kind}', f"{noun} '{name}' has no owner"))
-            elif len(assigned) > 1:
-                problems.append((f'O-{kind}', f"{noun} '{name}' owned twice: {', '.join(assigned)}"))
-    return problems, {'sections': len(sections), 'fields': len(fields),
-                      'env vars': len(env), 'state paths': len(state)}
-
-
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--docs', action='store_true', help='validate public docs references without source checks')
@@ -460,7 +422,7 @@ def main():
         problems, counts, file_owners = ownership(manifest, files)
         declaration_counts = {}
         if args.rules in ('all', 'ownership'):
-            declaration_problems, declaration_counts = declaration_ownership(root, manifest)
+            declaration_problems, declaration_counts = declaration_ownership(root, manifest, InvalidManifest)
             problems.extend(declaration_problems)
         if args.rules == 'all' and not args.format:
             problems += client_imports(root) + reverse_resources(root, files)
