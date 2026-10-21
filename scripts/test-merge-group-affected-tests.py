@@ -48,7 +48,7 @@ class MergeGroupSelectionTest(unittest.TestCase):
                 git.chmod(0o755)
                 marker = root / 'time-bomb-ran'
                 guard = root / 'guard.py'
-                guard.write_text(f'import pathlib, sys\npathlib.Path({str(marker)!r}).write_text(" ".join(sys.argv[1:]))\n')
+                guard.write_text(f'import os, pathlib, sys\npathlib.Path({str(marker)!r}).write_text(" ".join(sys.argv[1:]))\npathlib.Path(os.environ["AIUR_TIME_BOMB_COUNT_FILE"]).write_text("1")\n')
                 summary = root / 'summary.md'
                 result = subprocess.run([sys.executable, str(SCRIPT), 'base-sha'], capture_output=True,
                                         env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
@@ -57,7 +57,7 @@ class MergeGroupSelectionTest(unittest.TestCase):
                                                  GITHUB_STEP_SUMMARY=str(summary)))
                 self.assertEqual(result.returncode, 0, result.stderr.decode())
                 self.assertEqual(marker.read_text(), 'test/changed_test.exs')
-                self.assertRegex(summary.read_text(), r'merge-group time-bomb rerun: 1 changed test files, [0-9.]+s')
+                self.assertRegex(summary.read_text(), r'merge-group time-bomb rerun: 1 dated test files, [0-9.]+s')
 
         def test_time_bomb_timeout_is_warning_with_budget_metrics(self):
             with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
@@ -69,7 +69,7 @@ class MergeGroupSelectionTest(unittest.TestCase):
                 git.write_text('#!/usr/bin/env python3\nprint("src/test/changed_test.exs")\n')
                 git.chmod(0o755)
                 guard = root / 'guard.py'
-                guard.write_text('import time\ntime.sleep(5)\n')
+                guard.write_text('import os, pathlib, time\npathlib.Path(os.environ["AIUR_TIME_BOMB_COUNT_FILE"]).write_text("1")\ntime.sleep(5)\n')
                 summary = root / 'summary.md'
                 result = subprocess.run([sys.executable, str(SCRIPT), 'base-sha'], capture_output=True,
                                         env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
@@ -79,8 +79,8 @@ class MergeGroupSelectionTest(unittest.TestCase):
                                                  AIUR_TIME_BOMB_TIMEOUT_SECONDS='0.1'))
                 self.assertEqual(result.returncode, 0, result.stderr.decode())
                 self.assertIn(b'::warning::', result.stderr)
-                self.assertIn(b'1 changed test files', result.stderr)
-                self.assertIn('1 changed test files', summary.read_text())
+                self.assertIn(b'1 dated test files', result.stderr)
+                self.assertIn('1 dated test files', summary.read_text())
 
         def test_time_bomb_failure_still_fails_merge_group(self):
             with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
