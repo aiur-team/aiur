@@ -129,6 +129,29 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
     assert url =~ "/actions/runs/99/rerun-failed-jobs"
   end
 
+  test "supported infrastructure failure signals each get one exact-head rerun", ctx do
+    failures = [
+      %{name: "test", result: "timed_out", url: @run_url},
+      %{name: "test", excerpt: "ECONNRESET", url: @run_url},
+      %{name: "test", excerpt: "runner lost connection", url: @run_url},
+      %{name: "test", excerpt: "artifact upload failed", url: @run_url}
+    ]
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: :disabled,
+        ci_recovery_observation: {:ok, %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "mergeQueueEntry" => nil, "autoMergeRequest" => nil}}
+      )
+
+    for {failure, index} <- Enum.with_index(failures) do
+      result = Map.merge(ctx.result, %{pr_number: 100 + index, failures: [failure]})
+
+      assert %{decision: :pending, recovery: "rerun_requested"} = Recovery.recover(ctx.issue, result, opts)
+      assert_received {:rerun, url}
+      assert url =~ "/actions/runs/99/rerun-failed-jobs"
+    end
+  end
+
   test "an approved head whose landing state is unreadable holds", ctx do
     result = Map.merge(ctx.result, %{review_decision: "APPROVED", auto_merge_request: nil, merge_queue_entry: nil})
     opts = Keyword.merge(ctx.opts, main_watch_history: :disabled, ci_recovery_observation: {:ok, %{"state" => "OPEN", "headRefOid" => "head"}})

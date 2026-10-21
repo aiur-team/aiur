@@ -20,9 +20,19 @@ defmodule Aiur.ExecutorSweep.StaleCiWait do
     required = value(pr, :required_checks, nil)
     pending? = is_list(required) and Enum.any?(required, &(value(&1, :conclusion, nil) in [nil, "pending", "in_progress", "queued"]))
 
-    if Map.has_key?(waiting, issue_number) and value(pr, :state, "open") == "open" and
-         value(pr, :ci_head_sha, nil) == value(pr, :head_sha, nil) and is_integer(age) and age > 2 * 60 * 60_000 and
-         is_list(required) and not pending? do
+    if Enum.all?(
+         [
+           Map.has_key?(waiting, issue_number),
+           value(pr, :state, "open") == "open",
+           value(pr, :ci_head_sha, nil) == value(pr, :head_sha, nil),
+           value(pr, :ci_decision, nil) in [:passed, :failed, "passed", "failed"],
+           is_integer(age),
+           is_integer(age) and age > 2 * 60 * 60_000,
+           is_list(required),
+           not pending?
+         ],
+         & &1
+       ) do
       [
         %{
           kind: "stale_ci_wait_without_pending_checks",

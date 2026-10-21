@@ -154,9 +154,34 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
   def announce_ci_ready(%State{} = state, ticket, pr_number, head_sha, opts \\ []) do
     observation =
       observation(ticket, pr_number, head_sha, false)
-      |> Map.put(:was_draft?, true)
 
-    observe(state, [observation], opts)
+    announce_ci_ready_observation(state, observation, opts)
+  end
+
+  defp announce_ci_ready_observation(state, nil, _opts), do: state
+
+  defp announce_ci_ready_observation(state, observation, opts) do
+    ticket = observation.ticket
+    pr_number = observation.pr_number
+    head_sha = observation.head_sha
+    key = {ticket, pr_number}
+
+    case Keyword.get(opts, :repo_fun, &GitHubConfig.repo/0).() do
+      repo when is_binary(repo) and repo != "" ->
+        Events.publish(
+          "ticket.#{ticket}.pr.ready_for_review",
+          ready_payload(repo, pr_number, head_sha, observation, opts),
+          issue_number: ticket,
+          bypass_contamination: true,
+          dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ci_ready_for_review", head_sha)
+        )
+
+        ready_at_ms = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
+        update_entry(state, key, {:announced, head_sha, ready_at_ms, nil})
+
+      _no_repo ->
+        state
+    end
   end
 
   @doc "Re-raises an aged ready PR when its current head is green and has no review."

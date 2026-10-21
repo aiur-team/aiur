@@ -287,6 +287,44 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
     end
 
+    test "CI review handoff wakes a PR previously classified as never draft" do
+      assert_ci_review_wake_for_ledger(:never_draft)
+    end
+
+    test "CI review handoff wakes a PR already announced at the same head" do
+      assert_ci_review_wake_for_ledger({:announced, "same-head"})
+    end
+
+    defp assert_ci_review_wake_for_ledger(entry) do
+      isolate_ready_ledger()
+      identifier = unique_identifier("ci-ready-ledger-wake")
+      topic = "ticket.#{identifier}.pr.ready_for_review"
+      pr_number = System.unique_integer([:positive])
+      head_sha = if entry == :never_draft, do: "never-draft-head", else: "same-head"
+      recorder = start_recorder(topic)
+      issue = issue(identifier, "ci-wait")
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      state = %{state | pr_ready_ledger: %{{identifier, pr_number} => entry}}
+
+      _next =
+        poll_ci(state, issue, %{
+          decision: :passed,
+          head_sha: head_sha,
+          pr_number: pr_number,
+          draft?: false,
+          review_decision: "REVIEW_REQUIRED",
+          reviewed_head?: false
+        })
+
+      sync_recorder(recorder)
+      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review"}}}
+    end
+
     test "a draft PR becoming ready publishes ready_for_review once for its current head" do
       isolate_ready_ledger()
       identifier = unique_identifier("ready-for-review")

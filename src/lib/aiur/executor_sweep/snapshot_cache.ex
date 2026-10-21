@@ -1,6 +1,7 @@
 defmodule Aiur.ExecutorSweep.SnapshotCache do
   @moduledoc "Reads the current repository's already-cached GitHub resources."
 
+  alias Aiur.ExecutorSweep.CiObservation
   alias Aiur.GitHub.{Config, ResourceStore}
 
   @spec read((-> Aiur.OpenTicketSource.Snapshot.t())) :: map()
@@ -184,20 +185,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     }
   end
 
-  defp attach_ci(pr, ci_wait) do
-    case Enum.find(ci_wait, fn ci ->
-           (value(ci, :pr_number, nil) == pr.number or value(ci, :identifier, nil) == to_string(pr.issue_number)) and
-             value(ci, :head_sha, nil) == pr.head_sha
-         end) do
-      nil ->
-        pr
-
-      ci ->
-        failures = value(ci, :failures, [])
-        required = Enum.map(failures, &%{name: value(&1, :name, "required check"), conclusion: value(&1, :result, value(&1, :conclusion, nil))})
-        Map.merge(pr, %{ci_head_sha: value(ci, :head_sha, nil), required_checks: required, failure_class: to_string(value(ci, :failure_class, "unknown"))})
-    end
-  end
+  defp attach_ci(pr, ci_wait), do: CiObservation.attach(pr, ci_wait)
 
   defp merge_queue_entries(pull_requests) do
     pull_requests
