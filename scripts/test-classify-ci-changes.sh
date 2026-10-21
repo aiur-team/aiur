@@ -94,12 +94,12 @@ done
 for path in src/browser/tests/example.browser.spec.mjs src/lib/aiur_web/router.ex src/priv/static/js/app.js; do
   expect 'browser_smoke=true docs_only=false full_ci=false' pull_request false "[{\"filename\":\"$path\"}]"
 done
-expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/orchestrator.ex"}]'
-expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.exs"}]'
-grep -Fxq 'dialyzer=false' "$test_dir/out"
 for path in .github/workflows/ci.yml scripts/check-ci-gate.py scripts/ci-policy.rb scripts/classify-ci-changes.sh; do
   expect 'browser_smoke=true docs_only=false full_ci=true' pull_request false "[{\"filename\":\"$path\"}]"
 done
+expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/orchestrator.ex"}]'
+expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.exs"}]'
+grep -Fxq 'dialyzer=false' "$test_dir/out"
 for path in scripts/ci-test-selection.exs scripts/run-ci-affected-tests.py src/lib/aiur/affected_tests.ex src/lib/mix/tasks/aiur.affected_tests.ex; do
   expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false "[{\"filename\":\"$path\"}]"
 done
