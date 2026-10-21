@@ -38,30 +38,6 @@ defmodule Aiur.AgentGitHubGuardTestSupport do
     )
   end
 
-  # Keep related policy probes in one shell process. Each wrapper invocation
-  # otherwise starts its own deadline supervisor and child shell; coverage
-  # shards running many integration tests can starve that short process burst.
-  def run_guard_sequence(context, commands) do
-    script =
-      commands
-      |> Enum.with_index()
-      |> Enum.map_join("\n", fn {args, index} ->
-        invocation = Enum.map_join(args, " ", &shell_quote/1)
-        "output_#{index}=$(#{shell_quote(context.wrapper)} #{invocation} 2>&1); status_#{index}=$?; printf '%s\\n' \"$status_#{index}\"; printf '%s\\n' \"$output_#{index}\""
-      end)
-
-    {output, 0} =
-      System.cmd("sh", ["-c", script],
-        env: guard_env(context),
-        stderr_to_stdout: true
-      )
-
-    output
-    |> String.split("\n", trim: true)
-    |> Enum.chunk_every(2)
-    |> Enum.map(fn [status, message] -> {message, String.to_integer(status)} end)
-  end
-
   def run_guard_with_stdin(context, args, input, extra_env \\ []) do
     {output, status} =
       System.cmd(
