@@ -11,7 +11,7 @@ defmodule Aiur.AgentPubSub do
 
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub.FleetRefresh}
+  alias Aiur.{AgentEvents, AgentPubSub.FleetBroadcast, AgentPubSub.FleetRefresh}
 
   @pubsub Aiur.PubSub
   @fleet_refresh_topic "agents:fleet_refresh"
@@ -73,34 +73,16 @@ defmodule Aiur.AgentPubSub do
     do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.poll_state_topic())
 
   @doc """
-  Broadcast the orchestrator's polling state.
-
-  `checking?` is true while the orchestrator is mid-dispatch (fetching
-  candidate issues, syncing tracker state, etc.). `next_poll_due_at_ms`
-  is an absolute `System.system_time(:millisecond)` timestamp when the
-  next poll cycle will begin, or `nil` while a cycle is in progress.
-
-  AgentList consumes this so its 1 Hz countdown render does NOT need to
-  GenServer.call into the orchestrator on every tick — that call was
-  blocking the agent-list mailbox for several seconds during each poll
-  cycle, freezing arrow keys until the cycle completed.
+  Broadcasts poll progress and the absolute next-poll deadline for AgentList.
+  `checking?` marks active dispatch work; a nil deadline means no next poll is scheduled.
   """
   @spec broadcast_poll_state(%{
           checking?: boolean(),
           next_poll_due_at_ms: integer() | nil,
           max_concurrent_agents: integer() | nil
         }) :: :ok
-  def broadcast_poll_state(%{checking?: _, next_poll_due_at_ms: _} = payload) do
-    # The deadline is part of the state: a newly scheduled poll must refresh
-    # the agent-list countdown, while duplicate notifications within a state
-    # transition should not fan out again.
-    broadcast_if_changed(
-      :poll_state,
-      Map.take(payload, [:checking?, :next_poll_due_at_ms, :max_concurrent_agents]),
-      AgentEvents.poll_state_topic(),
-      {:poll_state_changed, payload}
-    )
-  end
+  def broadcast_poll_state(%{checking?: _, next_poll_due_at_ms: _} = payload),
+    do: FleetBroadcast.poll_state(payload)
 
   @spec broadcast_transcript(AgentEvents.agent_identifier(), AgentEvents.transcript_event()) ::
           :ok
@@ -111,11 +93,8 @@ defmodule Aiur.AgentPubSub do
   end
 
   @doc """
-  Single global topic that fires `{:agent_chat_active, identifier}`
-  every time an agent emits any transcript event. AgentList uses this
-  to promote its 🔘 → ⚪ marker once the agent has actually produced
-  visible content — duplicates are harmless because subscribers
-  dedup with `MapSet.put`.
+  Subscribes to the global topic signaling visible transcript activity. AgentList
+  uses it to mark an agent active once it has produced user-visible content.
   """
   @spec subscribe_agent_chat_active() :: :ok | {:error, term()}
   def subscribe_agent_chat_active do
@@ -153,15 +132,8 @@ defmodule Aiur.AgentPubSub do
   end
 
   @spec broadcast_running_change([AgentEvents.agent_summary()]) :: :ok
-  def broadcast_running_change(summaries) when is_list(summaries) do
-    broadcast_if_changed(
-      :running,
-      summaries,
-      AgentEvents.running_topic(),
-      {:running_changed, summaries},
-      FleetRefresh
-    )
-  end
+  def broadcast_running_change(summaries) when is_list(summaries),
+    do: FleetBroadcast.running_change(summaries)
 
   @spec broadcast_status_change(AgentEvents.agent_identifier(), atom()) :: :ok
   def broadcast_status_change(identifier, status)
@@ -212,19 +184,6 @@ defmodule Aiur.AgentPubSub do
         # No PubSub registry — expected in CLI contexts (e.g. `aiur init`) that
         # don't start the full supervision tree. A broadcast with no subscribers
         # is a silent no-op; logging it just adds noise to command output.
-        :ok
-    end
-  end
-
-  defp broadcast_if_changed(key, signature, topic, message, dispatcher \\ Phoenix.PubSub) do
-    case Process.whereis(@pubsub) do
-      pid when is_pid(pid) ->
-        case FleetRefresh.publish_if_changed(self(), key, signature) do
-          :changed -> do_broadcast(topic, message, dispatcher)
-          :unchanged -> :ok
-        end
-
-      _ ->
         :ok
     end
   end
