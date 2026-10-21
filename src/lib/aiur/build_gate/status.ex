@@ -3,6 +3,7 @@ defmodule Aiur.BuildGate.Status do
 
   alias Aiur.BuildGate
   alias Aiur.BuildGate.CommandSummary
+  alias Aiur.BuildGate.OwnerMetadata
 
   @scan_output_budget_bytes 256 * 1024
   @recovery "check the build-gate holder metadata and retry; disable build admission only if the gate cannot be repaired, using " <>
@@ -151,7 +152,7 @@ defmodule Aiur.BuildGate.Status do
   defp inspected_metadata(%{"contents" => encoded}, %{kind: kind, slot: slot, metadata_path: path})
        when kind in [:slot, :queue] do
     with {:ok, contents} <- Base.decode64(encoded),
-         {:ok, fields} <- parse_v2_record(contents) do
+         {:ok, fields} <- OwnerMetadata.parse_v2_record(contents) do
       holder = holder_from_fields(fields, kind, slot)
       {Map.put(holder, :lease_alive?, true), []}
     else
@@ -161,7 +162,7 @@ defmodule Aiur.BuildGate.Status do
 
   defp inspected_metadata(%{"contents" => encoded}, %{kind: :phase, metadata_path: path}) do
     with {:ok, contents} <- Base.decode64(encoded),
-         {:ok, _fields} <- parse_v2_record(contents) do
+         {:ok, _fields} <- OwnerMetadata.parse_v2_record(contents) do
       {nil, []}
     else
       _error -> {nil, [status_issue(:metadata_unreadable, path, {:reader_status, 0})]}
@@ -186,7 +187,7 @@ defmodule Aiur.BuildGate.Status do
   defp scan_error_detail(result), do: result
 
   defp inspect_metadata_contents("version=2\n" <> _rest = contents, path, kind, slot) when byte_size(contents) <= 4096 do
-    case parse_v2_record(contents) do
+    case OwnerMetadata.parse_v2_record(contents) do
       {:ok, fields} ->
         holder = holder_from_fields(fields, kind, slot)
         {Map.put(holder, :command, CommandSummary.summarize(fields, holder.command)), []}
@@ -197,7 +198,7 @@ defmodule Aiur.BuildGate.Status do
   end
 
   defp inspect_metadata_contents(contents, path, kind, slot) do
-    case parse_v2_record(contents) do
+    case OwnerMetadata.parse_v2_record(contents) do
       {:ok, fields} ->
         holder = holder_from_fields(fields, kind, slot)
         {Map.put(holder, :command, CommandSummary.summarize(fields, holder.command)), []}
@@ -215,7 +216,7 @@ defmodule Aiur.BuildGate.Status do
   def maybe_holder(holders, path, kind, slot) do
     case read_metadata(path) do
       {:ok, contents} ->
-        case parse_v2_record(contents) do
+        case OwnerMetadata.parse_v2_record(contents) do
           {:ok, fields} -> [holder_from_fields(fields, kind, slot) | holders]
           _ -> holders
         end
@@ -245,33 +246,18 @@ defmodule Aiur.BuildGate.Status do
     error -> {:error, Exception.message(error)}
   end
 
-  defp parse_v2_record(contents) do
-    contents
-    |> String.split("\n", trim: true)
-    |> Enum.reduce_while({:ok, %{}}, fn line, {:ok, acc} ->
-      case String.split(line, "=", parts: 2) do
-        [key, value] -> {:cont, {:ok, Map.put(acc, key, value)}}
-        _ -> {:halt, :error}
-      end
-    end)
-    |> case do
-      {:ok, fields} when map_size(fields) > 0 -> {:ok, fields}
-      _ -> :error
-    end
-  end
-
   defp holder_from_fields(fields, kind, slot) do
     now = System.os_time(:second)
-    started_at = int_field(fields, "started_at")
+    started_at = OwnerMetadata.int_field(fields, "started_at")
     held_for_seconds = if is_integer(started_at) and started_at > 0 and now >= started_at, do: now - started_at, else: nil
-    command_pgid = int_field(fields, "command_pgid")
+    command_pgid = OwnerMetadata.int_field(fields, "command_pgid")
 
     %{
       kind: kind,
       slot: slot,
-      pid: int_field(fields, "pid"),
-      pgid: int_field(fields, "pgid"),
-      holder_pid: int_field(fields, "holder_pid"),
+      pid: OwnerMetadata.int_field(fields, "pid"),
+      pgid: OwnerMetadata.int_field(fields, "pgid"),
+      holder_pid: OwnerMetadata.int_field(fields, "holder_pid"),
       command_pgid: command_pgid,
       command_pid_namespace: Map.get(fields, "command_pid_namespace"),
       # A slot whose command process group is gone is "held, command gone" —
@@ -310,7 +296,7 @@ defmodule Aiur.BuildGate.Status do
   defp parse_timeout_marker(path) do
     case read_metadata(path) do
       {:ok, contents} ->
-        case parse_v2_record(contents) do
+        case OwnerMetadata.parse_v2_record(contents) do
           {:ok, fields} -> [timeout_from_fields(fields, path)]
           _ -> []
         end
@@ -336,23 +322,10 @@ defmodule Aiur.BuildGate.Status do
     %{
       slot: slot,
       command: Map.get(fields, "command"),
-      held_for_seconds: int_field(fields, "held_for_seconds"),
+      held_for_seconds: OwnerMetadata.int_field(fields, "held_for_seconds"),
       reason: Map.get(fields, "reason"),
       path: path
     }
-  end
-
-  defp int_field(fields, key) do
-    case Map.get(fields, key) do
-      nil ->
-        nil
-
-      value ->
-        case Integer.parse(value) do
-          {integer, ""} -> integer
-          _ -> nil
-        end
-    end
   end
 
   defp legacy_issues(gate_dir) do
