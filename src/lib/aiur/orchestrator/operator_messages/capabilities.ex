@@ -4,7 +4,16 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
   """
 
   alias Aiur.AgentQueueStore
+  alias Aiur.CodingAgent
+  alias Aiur.Harness.Capabilities, as: HarnessCapabilities
   alias Aiur.Orchestrator.{ControlLifecycle, State}
+
+  @type harness_delivery :: %{
+          harness_id: String.t(),
+          source: :session | :dispatch,
+          primitives: map() | :unknown,
+          callbacks: map() | :unknown
+        }
 
   @spec queue_depth_for_issue(State.t(), String.t()) :: non_neg_integer()
   def queue_depth_for_issue(%State{} = state, issue_identifier)
@@ -61,6 +70,35 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
     |> maybe_put(:latest_control, control_payload(state, running_entry, :latest))
     |> maybe_put(:latest_resume_control, control_payload(state, running_entry, :resume))
     |> maybe_put(:recent_controls, control_history_payload(state, running_entry))
+  end
+
+  @doc "Projects the running harness, or the dispatched harness while session start is pending."
+  @spec harness_delivery(State.t(), String.t()) :: harness_delivery() | nil
+  def harness_delivery(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+    harness_delivery(state, issue_identifier, State.find_running_by_identifier(state.running, issue_identifier))
+  end
+
+  @doc false
+  @spec harness_delivery(State.t(), String.t(), map() | nil) :: harness_delivery() | nil
+  def harness_delivery(state, issue_identifier, running_entry)
+
+  def harness_delivery(%State{}, issue_identifier, nil) when is_binary(issue_identifier), do: nil
+
+  def harness_delivery(%State{}, issue_identifier, running_entry)
+      when is_binary(issue_identifier) and is_map(running_entry) do
+    {backend, source} =
+      case get_in(running_entry, [:session_execution, :backend]) do
+        nil -> {CodingAgent.backend_for(running_entry.issue), :dispatch}
+        backend -> {backend, :session}
+      end
+
+    case HarnessCapabilities.delivery_primitives(backend) do
+      {:ok, primitives} ->
+        %{harness_id: backend, source: source, primitives: primitives, callbacks: HarnessCapabilities.callback_support(backend)}
+
+      {:error, :unknown_backend} ->
+        %{harness_id: backend, source: source, primitives: :unknown, callbacks: :unknown}
+    end
   end
 
   defp operator_item_text(%{body: %{text: text}}) when is_binary(text), do: text
