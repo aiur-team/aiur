@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.TransportTest do
 
   alias Aiur.GitHub.Transport
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")

@@ -103,7 +103,7 @@ defmodule Aiur.Extensions.HttpServerTest do
           "/build-home/loader.js",
           "/build-home/logos/kimi-logo.png",
           "/build-home/nope.js",
-          "/fonts/space-grotesk-v22-latin.woff2"
+          "/aiur-style/fonts/SpaceGrotesk-Variable.woff2"
         ] do
       unauthenticated_asset = Req.get!("http://127.0.0.1:#{port}#{asset_path}")
       assert unauthenticated_asset.status == 401

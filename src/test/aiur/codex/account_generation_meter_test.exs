@@ -129,8 +129,8 @@ defmodule Aiur.Codex.AccountGenerationMeterTest do
     assert %{generation: nil, reason: :untrusted_lifecycle} =
              ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
 
-    refute inspect(details) =~ "person@example.test"
-    refute inspect(:sys.get_state(owner)) =~ "person@example.test"
+    Aiur.TestSupport.refute_leak(details, "person@example.test")
+    Aiur.TestSupport.refute_leak(:sys.get_state(owner), "person@example.test")
   end
 
   test "process teardown loses continuity and owner outages do not prevent cleanup", %{owner: owner, session: session} do

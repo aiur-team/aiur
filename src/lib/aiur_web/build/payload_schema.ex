@@ -26,7 +26,7 @@ defmodule AiurWeb.Build.PayloadSchema do
           object(%{
             "model" => nullable(:model),
             "name" => nullable({:short_string, 64}),
-            "state" => nullable(enum(~w(active error retries command paused parked))),
+            "state" => nullable(enum(~w(active error retrying retries command paused parked))),
             "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
           })
         ),
@@ -77,7 +77,16 @@ defmodule AiurWeb.Build.PayloadSchema do
   def message("snapshot"), do: Map.merge(envelope(), Map.put(blocks(), "sections", object(Map.new(~w(hist now plan nq), &{&1, list(:row)}))))
   def message("diff"), do: Map.merge(envelope(), %{"upsert" => list(:row), "remove" => list(:id), "set" => object(blocks(), Map.keys(blocks()))})
   def message("earlier"), do: Map.merge(Map.delete(envelope(), "now"), %{"rows" => list(:row), "history" => object(history())})
-  def message("error"), do: %{"v" => {:literal, 1}, "kind" => {:literal, "error"}, "reason" => enum(~w(invalid_params unavailable read_only not_found throttled))}
+
+  def message("ticket"), do: Map.put(Map.delete(envelope(), "now"), "row", :row)
+
+  def message("error"),
+    do: %{
+      "v" => {:literal, 1},
+      "kind" => {:literal, "error"},
+      "reason" => enum(~w(invalid_params unavailable invalid_data read_only not_found throttled timeout index_not_running read_failed epic_config_unavailable settings_loading))
+    }
+
   def message(_kind), do: nil
 
   @spec usage(String.t()) :: map() | nil
@@ -88,8 +97,8 @@ defmodule AiurWeb.Build.PayloadSchema do
     do: %{
       "state" => {:literal, "authorized"},
       "observed_at" => nullable(:integer),
-      "apis" => list(object(provider(), ~w(lines icon stale observed_at note))),
-      "providers" => list(object(provider(), ~w(lines icon stale observed_at note)))
+      "apis" => list(object(provider(), ~w(lines icon stale observed_at snapshot_observed_at note))),
+      "providers" => list(object(provider(), ~w(lines icon stale observed_at snapshot_observed_at note)))
     }
 
   def usage(_state), do: nil
@@ -123,16 +132,17 @@ defmodule AiurWeb.Build.PayloadSchema do
       "credits" => nullable(object(%{"pct" => nullable({:range, 0, 100}), "left" => :string, "tip" => list({:pair, :string})})),
       "none" => :boolean,
       "lines" => nullable(list(object(line()))),
-      "icon" => nullable({:literal, "github"}),
+      "icon" => nullable(enum(~w(github bars))),
       "stale" => :boolean,
       "observed_at" => nullable(:integer),
+      "snapshot_observed_at" => nullable(:integer),
       "note" => nullable(:string)
     }
   end
 
   defp window, do: %{"acc" => list(nullable({:range, 0, 100})), "reset_at" => nullable(:integer), "win" => nullable(:string)}
   defp line, do: Map.merge(window(), %{"tag" => :string, "tip" => list({:pair, :string}), "hold_until" => nullable(:integer)})
-  defp envelope, do: %{"v" => {:literal, 1}, "kind" => enum(~w(snapshot diff earlier)), "epoch" => :string, "generation" => :nonnegative, "now" => :integer}
+  defp envelope, do: %{"v" => {:literal, 1}, "kind" => enum(~w(snapshot diff earlier ticket)), "epoch" => :string, "generation" => :nonnegative, "now" => :integer}
 
   defp epic,
     do: %{

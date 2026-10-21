@@ -1,5 +1,6 @@
 defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
   use Aiur.AgentGitHubGuardCase, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   # The field failure: `gh` refused with a rate-limit error while both primary
   # windows still read healthy. Without a secondary hold the guard recorded
@@ -26,25 +27,53 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
   end
 
   test "a secondary hold prevents an immediate retry of the real gh command", context do
-    hold_file = Path.join(context.state_path, "github-quota/core-secondary-hold")
-    File.mkdir_p!(Path.dirname(hold_file))
-    File.write!(hold_file, "#{System.os_time(:second) + 60}\n")
-
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
-    {_output, 124} = System.cmd(timeout, ["0.2", context.wrapper, "api", "repos/owner/repo/issues/1670"], env: guard_env(context), stderr_to_stdout: true)
-
-    refute File.exists?(context.calls)
+    assert_hold_waits_before_retry(context, "core-secondary-hold")
   end
 
   test "a retained hold prevents the real gh command from being retried immediately", context do
-    hold_file = Path.join(context.state_path, "github-quota/core-hold")
+    assert_hold_waits_before_retry(context, "core-hold")
+  end
+
+  defp assert_hold_waits_before_retry(context, hold_name) do
+    hold_file = Path.join(context.state_path, "github-quota/#{hold_name}")
     File.mkdir_p!(Path.dirname(hold_file))
-    File.write!(hold_file, "#{System.os_time(:second) + 60}\n")
+    now = System.os_time(:second)
+    File.write!(hold_file, "#{now + 60}\n")
 
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
-    {_output, 124} = System.cmd(timeout, ["0.2", context.wrapper, "api", "repos/owner/repo/issues/1670"], env: guard_env(context), stderr_to_stdout: true)
+    sleep_started = Path.join(context.state_path, "sleep-started")
+    release_sleep = Path.join(context.state_path, "release-sleep")
+    sleep_bin = Path.join(context.state_path, "sleep-bin")
+    File.mkdir_p!(sleep_bin)
+    date = System.find_executable("date") || flunk("date executable is required for this guard test")
+    File.write!(Path.join(sleep_bin, "date"), "#!/bin/sh\nif [ \"$*\" = '-u +%s' ]; then printf '%s\\n' #{now}; else exec #{date} \"$@\"; fi\n")
+    File.write!(Path.join(sleep_bin, "sleep"), "#!/bin/sh\nprintf '%s\\n' \"$1\" >> #{sleep_started}\nif [ \"$1\" = 60 ]; then while [ ! -e #{release_sleep} ]; do /bin/sleep 0.01; done; fi\n")
+    File.chmod!(Path.join(sleep_bin, "date"), 0o755)
+    File.chmod!(Path.join(sleep_bin, "sleep"), 0o755)
 
-    refute File.exists?(context.calls)
+    command =
+      Task.async(fn ->
+        run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+          PATH: sleep_bin <> ":" <> System.get_env("PATH", ""),
+          AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+          AIUR_GITHUB_STATE_CACHE_ROOT: "",
+          AIUR_GITHUB_BUDGET_ENABLED: "0",
+          AIUR_GITHUB_BUDGET_ROOT: "",
+          AIUR_GITHUB_BUDGET_KEY: "",
+          AIUR_GITHUB_BUDGET_IDENTITY_KEY: "",
+          AIUR_GH_CALL_TIMEOUT_SECONDS: "3"
+        )
+      end)
+
+    try do
+      wait_until(fn -> File.read(sleep_started) == {:ok, "60\n"} end, 100)
+      assert File.read(context.calls) == {:error, :enoent}
+    after
+      File.write!(release_sleep, "continue\n")
+    end
+
+    assert {output, 0} = Task.await(command, 5_000)
+    assert output =~ "GitHub quota backoff; waiting 60s"
+    assert File.read!(context.calls) =~ "api repos/owner/repo/issues/1670"
   end
 
   test "a core hold does not block an explicitly GraphQL command", context do
@@ -70,6 +99,10 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
     :ok = AgentGitHubGuard.install(other_workspace)
 
     budget_root = Path.join(context.state_path, "host-budget")
+    calls_fifo = Path.join(context.workspace, "first-gh-call.fifo")
+    assert {"", 0} = System.cmd("mkfifo", [calls_fifo])
+    cat = System.find_executable("cat") || flunk("cat executable is required for this Linux-only guard test")
+    call_reader = Port.open({:spawn_executable, cat}, [:binary, :exit_status, args: [calls_fifo]])
 
     first =
       Task.async(fn ->
@@ -81,11 +114,13 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
           AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT: "1",
           AIUR_GITHUB_REQUESTS_PER_MINUTE: "20",
           AIUR_GITHUB_STAGGER_MS: "0",
+          FAKE_GH_CALLS: calls_fifo,
           FAKE_GH_SLEEP: "0.3"
         )
       end)
 
-    wait_for_calls(context.calls, 1)
+    receive_barrier({^call_reader, {:data, "api repos/owner/repo/issues/1670\n"}})
+    receive_barrier({^call_reader, {:exit_status, 0}})
 
     second =
       Task.async(fn ->
@@ -108,8 +143,8 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
       end)
 
     assert Task.yield(second, 80) == nil
-    assert {"ok\n", 0} = Task.await(first, 1_500)
-    assert {"ok\n", 0} = Task.await(second, 1_500)
+    assert {"ok\n", 0} = Task.await(first, 5_000)
+    assert {"ok\n", 0} = Task.await(second, 5_000)
   end
 
   test "the wrapper keeps one admission ledger when its publication token rotates", context do

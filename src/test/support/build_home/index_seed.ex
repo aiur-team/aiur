@@ -39,7 +39,7 @@ defmodule Aiur.TestSupport.BuildHome.IndexSeed do
 
     core = Index.read_core_parts(MapSet.new(~w(history health features overrides settings repository)a), opts)
     source = %{state: "ok", observed_at: data["now"], reason: nil}
-    now = Enum.map(data["sections"]["now"], &facts(&1, ~w(id num sec status ord start start_src pct agent)))
+    now = Enum.map(data["sections"]["now"], &facts(&1, ~w(id num sec status ord start start_src pct agent pr)))
     planned = Enum.map(data["sections"]["plan"], &facts(&1, ~w(id num sec status ord deps wave qpos cue)))
     nq = Enum.map(data["sections"]["nq"], &facts(&1, ~w(num sec status title created cx pts))) |> Enum.map(&Map.put(&1, :ord, &1.num))
 
@@ -89,6 +89,8 @@ defmodule Aiur.TestSupport.BuildHome.IndexSeed do
       created_at: dt(row["created"]),
       lifecycle: %Lifecycle{state: if(closed?, do: :closed, else: :open), state_reason: if(closed?, do: reason(row["status"]), else: :none)},
       closed_at: if(closed?, do: dt(row["end"]), else: :none),
+      merged_at: if(get_in(row, ["pr", "state"]) == "merged", do: dt(row["end"]), else: :none),
+      pr_number: get_in(row, ["pr", "num"]) || :none,
       blocked_by: blocked_by,
       blocked_by_complete: true,
       in_progress_at: start_time(row, "label"),

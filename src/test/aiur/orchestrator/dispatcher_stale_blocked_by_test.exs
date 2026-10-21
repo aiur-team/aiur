@@ -23,7 +23,7 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
   alias Aiur.GitHub.{Quota, ResourceStore}
   alias Aiur.Orchestrator.{Dispatcher, State}
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     {:ok, _started} = Application.ensure_all_started(:req)

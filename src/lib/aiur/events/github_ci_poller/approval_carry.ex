@@ -20,6 +20,35 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
 
   @spec classify(String.t(), String.t(), integer(), keyword()) :: verdict()
   def classify(approved_head, head, pr_number, opts \\ []) do
+    case contribution_comparison(approved_head, head, pr_number, opts) do
+      {:ok, approved, current, main, body} ->
+        classify_approved_contribution(approved, current, main, body, head)
+
+      {:error, reason} ->
+        {:changed, %{reason: {:unavailable, reason}, hunks: []}}
+    end
+  end
+
+  defp classify_approved_contribution(approved, current, main, body, head) do
+    case classify_contribution_diffs(approved, current, main) do
+      :identical ->
+        if Regex.match?(~r/(?m)^Tested head: #{Regex.escape(head)}\s*$/, body), do: :carried, else: {:changed, %{reason: :tested_head_stale, hunks: []}}
+
+      {:changed, _} = changed ->
+        changed
+    end
+  end
+
+  @doc "Classifies whether the PR contribution stayed identical between two heads, without checking body evidence."
+  @spec classify_contribution(String.t(), String.t(), integer(), keyword()) :: :identical | {:changed, map()}
+  def classify_contribution(approved_head, head, pr_number, opts \\ []) do
+    case contribution_comparison(approved_head, head, pr_number, opts) do
+      {:ok, approved, current, main, _body} -> classify_contribution_diffs(approved, current, main)
+      {:error, reason} -> {:changed, %{reason: {:unavailable, reason}, hunks: []}}
+    end
+  end
+
+  defp contribution_comparison(approved_head, head, pr_number, opts) do
     with {:ok, token} <- Transport.require_token(opts),
          {:ok, {owner, repo}} <- Transport.parse_repo() do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
@@ -35,12 +64,12 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
            {:ok, approved_base} <- merge_base(approved),
            {:ok, current_base} <- merge_base(current),
            {:ok, main} <- base_changes(fetch, approved_base, current_base) do
-        classify_diffs(approved, current, main, Map.get(pr, "body") || "", head)
+        {:ok, approved, current, main, Map.get(pr, "body") || ""}
       else
-        {:error, reason} -> {:changed, %{reason: {:unavailable, reason}, hunks: []}}
+        {:error, reason} -> {:error, reason}
       end
     else
-      {:error, reason} -> {:changed, %{reason: {:unavailable, reason}, hunks: []}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -64,6 +93,18 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   """
   @spec classify_diffs(map(), map(), map(), String.t(), String.t()) :: verdict()
   def classify_diffs(approved, current, main, body, head) do
+    case classify_contribution_diffs(approved, current, main) do
+      :identical ->
+        if Regex.match?(~r/(?m)^Tested head: #{Regex.escape(head)}\s*$/, body), do: :carried, else: {:changed, %{reason: :tested_head_stale, hunks: []}}
+
+      {:changed, _} = changed ->
+        changed
+    end
+  end
+
+  @doc "Pure comparison of the PR contribution changes at the approved and current heads."
+  @spec classify_contribution_diffs(map(), map(), map()) :: :identical | {:changed, map()}
+  def classify_contribution_diffs(approved, current, main) do
     with {:ok, approved_files} <- files(approved),
          {:ok, current_files} <- files(current),
          {:ok, main_files} <- files(main) do
@@ -75,11 +116,7 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
         |> Enum.sort()
         |> Enum.flat_map(&compare_file(&1, approved_files[&1], current_files[&1], main_files[&1]))
 
-      cond do
-        differing != [] -> {:changed, %{reason: :contribution_changed, hunks: differing}}
-        not Regex.match?(~r/(?m)^Tested head: #{Regex.escape(head)}\s*$/, body) -> {:changed, %{reason: :tested_head_stale, hunks: []}}
-        true -> :carried
-      end
+      if differing != [], do: {:changed, %{reason: :contribution_changed, hunks: differing}}, else: :identical
     else
       :error -> {:changed, %{reason: {:unavailable, :comparison_incomplete}, hunks: []}}
     end

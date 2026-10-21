@@ -149,21 +149,13 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       refute out =~ "__AIUR_CONTROL_EXIT__"
     end
 
-    # These boot a real `mix run`, which outlasts the 10 s default RPC budget on
-    # a loaded host (#4223); the budget under test here is the marker seam's.
+    # Use the compiled runtime: nested Mise re-resolves tools after HOME isolation.
     @tag timeout: 180_000
     test "executor application errors cross the real guarded RPC marker seam" do
       rel = fake_release()
       state = tmp_state()
 
-      File.write!(Path.join([rel, "bin", "aiur"]), """
-      #!/usr/bin/env bash
-      set -euo pipefail
-      cd "$AIUR_SOURCE_ROOT"
-      exec mise exec -- mix run --no-start -e "${@: -1}" 2>/dev/null
-      """)
-
-      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+      install_real_rpc_fixture(rel)
 
       on_exit(fn ->
         Aiur.TestCleanup.rm_rf!(rel)
@@ -181,8 +173,6 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
           [
             {"AIUR_RELEASE_DIR", rel},
             {"AIUR_BG_STATE_DIR", state},
-            {"AIUR_SOURCE_ROOT", Path.expand("../../..", __DIR__)},
-            {"MIX_ENV", "test"},
             {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", "120"}
           ],
           ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND='executor command'|
@@ -409,14 +399,7 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       state = tmp_state()
       rel = fake_release()
 
-      File.write!(Path.join([rel, "bin", "aiur"]), """
-      #!/usr/bin/env bash
-      set -euo pipefail
-      cd "$AIUR_SOURCE_ROOT"
-      exec mise exec -- mix run --no-start -e "${@: -1}" 2>/dev/null
-      """)
-
-      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+      install_real_rpc_fixture(rel)
 
       on_exit(fn ->
         Aiur.TestCleanup.rm_rf!(rel)
@@ -424,23 +407,21 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       end)
 
       commands = [
-        {"set max-agents", "Aiur.AgentControlCLI.set_max_agents(2)"},
-        {"pause", ~s|Aiur.AgentControlCLI.pause(["44"])|},
-        {"resume", ~s|Aiur.AgentControlCLI.resume(["44"])|},
-        {"reset-budget", ~s|Aiur.AgentControlCLI.reset_budget(["44"])|},
-        {"pause", "Aiur.AgentControlCLI.pause_global()"},
-        {"resume", "Aiur.AgentControlCLI.resume_global()"}
+        {"set max-agents", "Aiur.AgentControlCLI.set_max_agents(2)", "failed to set max-agents (orchestrator unavailable)"},
+        {"pause", ~s|Aiur.AgentControlCLI.pause(["44"])|, "orchestrator is not running"},
+        {"resume", ~s|Aiur.AgentControlCLI.resume(["44"])|, "orchestrator is not running"},
+        {"reset-budget", ~s|Aiur.AgentControlCLI.reset_budget(["44"])|, "failed to reset lifetime dispatch budget for #44 (orchestrator unavailable)"},
+        {"pause", "Aiur.AgentControlCLI.pause_global()", "failed to pause the daemon (orchestrator unavailable)"},
+        {"resume", "Aiur.AgentControlCLI.resume_global()", "failed to resume the daemon (orchestrator unavailable)"}
       ]
 
-      for {command, expression} <- commands do
+      for {command, expression, diagnostic} <- commands do
         {out, 0} =
           run_control_rpc_captured(
             expression,
             [
               {"AIUR_RELEASE_DIR", rel},
               {"AIUR_BG_STATE_DIR", state},
-              {"AIUR_SOURCE_ROOT", Path.expand("../../..", __DIR__)},
-              {"MIX_ENV", "test"},
               {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", "120"}
             ],
             ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND='#{command}'|
@@ -449,7 +430,10 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
         context = "#{command}: #{out}"
         assert out =~ "CODE=1", context
         assert out =~ "STDOUT_BYTES=0", context
-        assert out =~ ~r/STDERR_LINES=[1-9]/, context
+        assert out =~ "STDERR_LINES=1", context
+        assert out =~ "aiur: #{diagnostic}", context
+        refute out =~ "timed out", context
+        refute out =~ "__AIUR_CONTROL_", context
       end
     end
 
@@ -465,4 +449,25 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       assert engine =~ "__AIUR_CONTROL_NOT_READY__"
     end
   end
+
+  defp install_real_rpc_fixture(rel) do
+    elixir = Path.expand("../../bin/elixir", to_string(:code.lib_dir(:elixir)))
+    paths = Enum.map_join(:code.get_path(), " ", fn path -> "-pa " <> shell_quote(to_string(path)) end)
+    bin = Path.join([rel, "bin", "aiur"])
+
+    # Remote stderr belongs to the daemon; only stdout markers travel over RPC.
+    # Capture evaluated stderr, while leaving runtime startup failures visible.
+    File.write!(bin, """
+    #!/usr/bin/env bash
+    set -euo pipefail
+    exec #{shell_quote(elixir)} #{paths} -e '
+      {:ok, _} = Application.ensure_all_started(:ex_unit)
+      ExUnit.CaptureIO.capture_io(:stderr, fn -> Code.eval_string(hd(System.argv())) end)
+    ' -- "${@: -1}"
+    """)
+
+    File.chmod!(bin, 0o755)
+  end
+
+  defp shell_quote(value), do: "'" <> String.replace(value, "'", "'\\''") <> "'"
 end

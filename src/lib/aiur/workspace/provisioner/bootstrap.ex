@@ -134,6 +134,36 @@ defmodule Aiur.Workspace.Provisioner.Bootstrap do
     end
   end
 
+  # A worker lost mid-provisioning can leave only `.aiur-runtime/` scratch
+  # (#4970). Nothing there is work, so move it aside (never delete) and let the
+  # caller bootstrap a missing path; any other content stays ambiguous.
+  @doc false
+  @spec set_aside_runtime_scratch(Path.t()) :: :ok | {:error, term()}
+  def set_aside_runtime_scratch(workspace) when is_binary(workspace) do
+    Reconstruction.with_log_lock(workspace, fn ->
+      if runtime_scratch_only?(workspace), do: set_aside(workspace), else: :ok
+    end)
+  end
+
+  defp set_aside(workspace) do
+    stale = "#{workspace}.stale-#{Calendar.strftime(DateTime.utc_now(), "%Y%m%dT%H%M%S%fZ")}"
+
+    case File.rename(workspace, stale) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:workspace_set_aside_failed, workspace, reason}}
+    end
+  end
+
+  defp runtime_scratch_only?(workspace) do
+    with {:ok, %File.Stat{type: :directory}} <- File.lstat(workspace),
+         {:ok, entries} <- File.ls(workspace),
+         {:ok, %File.Stat{type: :directory}} <- File.lstat(Path.join(workspace, ".aiur-runtime")) do
+      entries == [".aiur-runtime"]
+    else
+      _ -> false
+    end
+  end
+
   @spec git_metadata_present?(Path.t()) :: boolean()
   def git_metadata_present?(workspace), do: File.exists?(Path.join(workspace, ".git"))
 

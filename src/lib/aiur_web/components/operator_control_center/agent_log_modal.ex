@@ -25,10 +25,10 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
             <h2 id="agent-log-title">{@modal.issue_identifier}</h2>
           </div>
           <div class="modal-actions">
-            <button type="button" class="tool-btn live-button" data-agent-log-live data-live="true" aria-pressed="true">
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn live-button" data-agent-log-live data-live="true" aria-pressed="true">
               <span class="status-badge-dot"></span>Live
             </button>
-            <button type="button" class="tool-btn" phx-click="close-agent-log">Close</button>
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn" phx-click="close-agent-log">Close</button>
           </div>
         </header>
 
@@ -52,8 +52,8 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
             enterkeyhint="send"
           >{@drafts[@modal.target_key] || ""}</textarea>
           <div class="agent-chat-actions">
-            <button class="btn danger" type="button" phx-click="pause-agent">Pause</button>
-            <button class="btn" type="submit">Send</button>
+            <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="button" phx-click="pause-agent">Pause</button>
+            <button class="aiur-button aiur-button--dashboard btn" type="submit">Send</button>
           </div>
         </form>
 
@@ -142,7 +142,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   def format_error({:not_queued, :timeout}), do: "Send timed out and was not queued."
   def format_error(:unavailable), do: "Orchestrator unavailable."
   def format_error(:ambiguous_identifier), do: "Agent actions require a unique typed target."
-  def format_error(:globally_paused), do: "Aiur is globally paused; per-ticket control has no effect. Resume Aiur globally first."
+  def format_error(:globally_paused), do: "New starts are paused; per-ticket resume is unavailable until new starts resume. You can still pause a running agent for containment."
   def format_error(reason), do: inspect(reason)
 
   defp refresh_from_path(%{path: path} = modal) when is_binary(path) do

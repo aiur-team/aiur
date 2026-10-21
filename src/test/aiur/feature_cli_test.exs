@@ -9,9 +9,9 @@ defmodule Aiur.FeatureCLITest do
   setup do
     dir = Aiur.TestSupport.tmp_root!("feature-cli")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
-    {:ok, store_clock} = Agent.start_link(fn -> @now end)
-    {:ok, pid} = Features.start_link(name: nil, state_dir: dir, clock: fn -> Agent.get(store_clock, & &1) end, general_epics: fn -> {:ok, []} end)
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    store_clock = start_supervised!({Agent, fn -> @now end})
+    # Supervised stop: a linked store can die with the test process between an on_exit alive? check and stop.
+    pid = start_supervised!({Features, name: nil, state_dir: dir, clock: fn -> Agent.get(store_clock, & &1) end, general_epics: fn -> {:ok, []} end})
 
     context = [
       server: pid,

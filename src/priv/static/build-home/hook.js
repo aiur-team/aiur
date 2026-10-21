@@ -9,10 +9,16 @@ import './clock.js';
 import './render.js';
 import './columns.js';
 import './cards.js';
-import './offline.js';
+import { seedDaemon } from './offline.js';
 import './tools.js';
+import './usage.js';
+
 import './span.js';
+import './edges.js';
+import './band.js';
 import './states.js';
+import './list.js';
+import './modal/frame.js';
 
 export function writeOwnData() {
   if (ctx.bdStates != null) ctx.root.dataset.bdStates = ctx.bdStates;
@@ -54,7 +60,7 @@ export function receive(msg) {
       }
       fx.tickCardAges();
       if (msg.kind === 'snapshot') { if (first) firstPaint(); else repaint(); }
-      else { fx.dataChanged(msg); fx.drawEdgesSoon(30); }
+      else { fx.dataChanged(msg); fx.modalSync(msg); fx.drawEdgesSoon(30); }
       writeOwnData();
       break;
     }
@@ -71,8 +77,9 @@ export function resync() {
   }, () => { if (current()) ctx.proto.inFlight = false; });
 }
 function onServerURL({ state }) {
-  const view = S.view, span = S.span;
+  const view = S.view, span = S.span, ticket = S.ticket;
   fromServer(state);
+  if (ticket !== S.ticket) fx.syncTicket(S.ticket);
   renderChrome();
   if (view !== S.view && !S.loading) fx.viewport();
   fx.relayout(); fx.update();
@@ -83,13 +90,13 @@ export function createBuildHomeHook() {
     mounted() {
       let urlState;
       try { urlState = JSON.parse(this.el.dataset.urlState || '{}'); } catch { urlState = {}; }
-      resetState(urlState);
+      resetState(urlState); seedDaemon(this.el.dataset.daemon);
       ctx.root = this.el; ctx.life = createLife(); ctx.resync = resync;
       ctx.push = (e, p) => this.pushEvent(e, p); ctx.reload = () => location.reload();
       this.buildLife = ctx.life;
       this.buildActive = shell();
       if (!this.buildActive) return;
-      fx.renderTools();
+      fx.renderTools(); fx.initModal();
       writeOwnData();
       this.handleEvent('build-diff', receive); this.handleEvent('build:url', onServerURL);
       showServerState(this.el.dataset); resync();

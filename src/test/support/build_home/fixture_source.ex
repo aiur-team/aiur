@@ -5,7 +5,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   alias Aiur.TestSupport.BuildHome.EarlierControl
   alias AiurWeb.Build.Read
 
-  @files ~w(live dense newrepo noqueue offline odd-edges unknowns hostile)
+  @files ~w(live dense newrepo noqueue offline odd-edges unknowns hostile list-edges now0 now24)
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   def datasets, do: @files ++ ~w(degraded unavailable hold)
@@ -64,6 +64,16 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
         {:ok, %{"rows" => rows, "history" => history}}
       end
     end)
+  end
+
+  @impl true
+  def ticket(id, opts) do
+    with {:ok, data} <- full(opts) do
+      case data["sections"] |> Map.values() |> List.flatten() |> Enum.find(&(&1["id"] == id)) do
+        nil -> {:error, :not_found}
+        row -> {:ok, row}
+      end
+    end
   end
 
   def full(opts), do: load(dataset(opts), Keyword.get(opts, :dir, @dir))

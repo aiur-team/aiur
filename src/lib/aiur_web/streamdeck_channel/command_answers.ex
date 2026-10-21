@@ -61,7 +61,7 @@ defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
           # silently become answerable the moment it exists. The TS client
           # renders the same two statuses as answerable (`commands.ts`), so
           # client and server agree on what "answerable" means.
-          Map.get(item, "status") not in ["open", "deferred"] ->
+          not answerable?(item) ->
             {:error, {:not_answerable, Map.get(item, "status")}}
 
           true ->
@@ -75,6 +75,11 @@ defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
         {:error, reason}
     end
   end
+
+  defp answerable?(%{"status" => status}) when status in ["open", "deferred"], do: true
+
+  defp answerable?(%{"status" => "expired", "blocking" => true, "answer" => nil}), do: true
+  defp answerable?(_item), do: false
 
   @spec record_command_answer(String.t(), map()) :: {:ok, term()} | {:error, term()}
   def record_command_answer(decision_id, answer) do

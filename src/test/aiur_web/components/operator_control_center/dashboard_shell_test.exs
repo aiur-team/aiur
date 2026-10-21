@@ -45,6 +45,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
     paused = shell(globally_paused: true, writable: true)
     assert Floki.attribute(Floki.find(paused, "#ax-pause"), "disabled") == []
     assert Floki.attribute(Floki.find(paused, "#ax-pause"), "aria-checked") == ["true"]
+    assert Floki.text(Floki.find(paused, "#ax-pause")) =~ "Resume new starts"
     assert Floki.text(Floki.find(paused, "#ax-paused.show")) == "New starts paused"
   end
 

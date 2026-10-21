@@ -119,7 +119,7 @@ defmodule Aiur.Workspace.HooksTest do
   # agent run. The sleep is injected so the test asserts on the run surviving
   # (a `:ok`, not a failure tuple), not merely on a log line or a real 2s wait.
   test "run_github_preflight waits out a short local hold so the run is not terminated", %{workspace: workspace} do
-    token_cache_key = {Aiur.GitHub.Config, :resolved_token}
+    token_cache_key = {Aiur.GitHub.Access.Token, :resolved_token}
     prev_token = System.get_env("GITHUB_TOKEN")
     prev_cached_token = :persistent_term.get(token_cache_key, :unset)
     prev_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
@@ -312,7 +312,16 @@ defmodule Aiur.Workspace.HooksTest do
     assert ["/opt/user-otp", "/opt/user-otp/bin", "custom-beam", "custom-erl", path] =
              String.split(output, "\n")
 
-    assert String.starts_with?(path, unrelated_path)
+    case System.get_env("AIUR_BUILD_GATE_BIN") do
+      build_gate_bin when is_binary(build_gate_bin) and build_gate_bin != "" ->
+        assert String.starts_with?(path, Path.join(Path.dirname(build_gate_bin), "build-bin"))
+        assert String.contains?(path, build_gate_bin)
+
+      _ ->
+        assert String.starts_with?(path, unrelated_path)
+    end
+
+    assert String.contains?(path, unrelated_path)
   end
 
   test "remote hook command preserves unrelated values beside release-owned values", %{workspace: workspace} do

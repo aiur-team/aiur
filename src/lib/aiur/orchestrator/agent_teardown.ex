@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
   alias Aiur.AgentPubSub
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{CiLifecycle, LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, TrackedSet, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{CiLifecycle, DockerCleanup, LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, TrackedSet, WorkspaceCleanup}
   alias Aiur.ProcessTree
   alias Aiur.Tmux.Socket
 
@@ -22,15 +22,22 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec close_active_chat_streams(String.t(), term()) :: :ok
   def close_active_chat_streams(identifier, reason) when is_binary(identifier) do
-    for aiur_turn_id <- ActiveTurns.active_turn_ids(identifier) do
+    active_turn_ids(identifier)
+    |> Enum.each(fn aiur_turn_id ->
       AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
       ActiveTurns.mark_closed(identifier, aiur_turn_id, reason)
-    end
+    end)
 
     :ok
   end
 
   def close_active_chat_streams(_identifier, _reason), do: :ok
+
+  defp active_turn_ids(identifier) do
+    ActiveTurns.active_turn_ids(identifier)
+  rescue
+    ArgumentError -> []
+  end
 
   defp terminate_reason(true), do: :terminal
   defp terminate_reason(false), do: :replaced
@@ -73,8 +80,11 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # Save and delete the workspace only after the runner is gone, so the
         # agent no longer writes to it while it is saved (#2743). The work runs
         # in a task; see `WorkspaceCleanup.start_terminal_workspace_cleanups/1`.
+        # Terminal artifact cleanup also reaps the ticket's Docker containers.
         if cleanup_workspace do
           WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, worker_host)
+        else
+          DockerCleanup.start_ticket_cleanup(identifier)
         end
 
         state = LifecycleFenceExpiry.recover_terminated_input(state, running_entry)
@@ -137,6 +147,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         if is_pid(pid) do
           terminate_task(pid)
         end
+
+        DockerCleanup.start_ticket_cleanup(identifier)
 
         if is_reference(ref) do
           Process.demonitor(ref, [:flush])

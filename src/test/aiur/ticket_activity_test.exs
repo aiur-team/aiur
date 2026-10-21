@@ -36,7 +36,7 @@ defmodule Aiur.TicketActivityTest do
     assert_receive {:ticket_activity_changed, %{identity: ^ticket, snapshot: snapshot}}, 500
     assert %{progress: %{percent: 40}, latest_evidence: evidence} = snapshot
     refute Map.has_key?(evidence, :message)
-    refute inspect(snapshot) =~ "do not retain this raw payload"
+    Aiur.TestSupport.refute_leak(snapshot, "do not retain this raw payload")
 
     assert {:ok, %{progress: %{percent: 40}}} = TicketActivity.snapshot(ticket, server: server)
   end

@@ -190,7 +190,7 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
     assert opened_attrs.ticket == "930"
     assert opened_attrs.pr_number == 77
     refute Map.has_key?(opened_attrs, :pr)
-    refute inspect(opened_attrs) =~ "private"
+    Aiur.TestSupport.refute_leak(opened_attrs, "private")
 
     trusted = %{
       id: 42,
@@ -205,7 +205,7 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
     assert comment_attrs.event == "comment_received"
     assert comment_attrs.comment_id == 88
     assert comment_attrs.author_trusted == true
-    refute inspect(comment_attrs) =~ "please change"
+    Aiur.TestSupport.refute_leak(comment_attrs, "please change")
 
     assert :skip = Lifecycle.external_anchor(%{trusted | author_trusted?: false})
 

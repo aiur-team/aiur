@@ -12,6 +12,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
 
   describe "CI lifecycle coordination" do
     test "a deactivated+ci-wait entry is woken by the CI terminal event" do
+      test_pid = self()
+      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+
       identifier = unique_identifier("deactivated-terminal-wake")
       recorder = start_recorder()
       issue = issue(identifier, "ci-wait")
@@ -95,6 +98,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
                  pr_number: 941,
                  head_sha: "failed-head",
                  draft?: false,
+                 auto_merge_request: nil,
+                 merge_queue_entry: nil,
                  review_decision: nil,
                  recovery: nil,
                  failures: [%{name: "lint", result: "failure", excerpt: "failed"}],
@@ -343,6 +348,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
                  pr_number: 941,
                  head_sha: "stalled-head",
                  draft?: true,
+                 auto_merge_request: nil,
+                 merge_queue_entry: nil,
                  review_decision: "APPROVED",
                  recovery: nil,
                  failures: [],

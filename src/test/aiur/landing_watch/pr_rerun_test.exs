@@ -2,7 +2,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
   use ExUnit.Case, async: true
 
   alias Aiur.LandingWatch
-  alias Aiur.LandingWatch.{Journal, PrRerun}
+  alias Aiur.LandingWatch.{Journal, PrRerun, PrRerunClassifier}
 
   @started "2026-10-14T10:00:00Z"
   @started_ms 1_791_972_000_000
@@ -79,6 +79,45 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     still_red = List.update_at(history, 1, &%{&1 | checks: [%{name: "test (1/4)", conclusion: "failure"}]})
     assert :ok = LandingWatch.process(observation(), opts(journal_path(), main_history_fun: fn -> still_red end))
     assert_received {:rework, _}
+  end
+
+  test "base movement without a passing check does not qualify a merge ref refresh" do
+    history = [
+      %{completed_at: @started_ms - 60_000, checks: [%{name: "ci gate", conclusion: "failure"}]},
+      %{completed_at: @started_ms + 60_000, checks: [%{name: "ci gate", conclusion: "failure"}]}
+    ]
+
+    refute PrRerunClassifier.stale_merge_ref?(failed_gate(), main_history_fun: fn -> history end)
+  end
+
+  test "main recovery reruns only approved auto-merge failures started during the red interval" do
+    path = journal_path()
+    armed = %{observation() | auto_merge_request: %{"enabledAt" => "2026-10-14T09:00:00Z"}}
+    run = failed_gate() |> Map.put("started_at", @started)
+
+    assert :ok =
+             LandingWatch.process(
+               armed,
+               opts(path,
+                 main_ci_recovery_window: {@started_ms - 60_000, @started_ms + 60_000},
+                 ci_status_fun: fn _, _ -> {:ok, %{check_runs: [run], commit_status: %{"state" => "success", "statuses" => []}}} end
+               )
+             )
+
+    assert_received {:rerun, 99}
+    assert_received {:comment, 17, "Landing watcher reran the failed CI (ci gate) on approved head `head-sha`: main CI recovered."}
+
+    outside = %{run | "started_at" => "2026-10-14T09:58:00Z"}
+
+    assert :ok =
+             LandingWatch.process(
+               armed,
+               opts(journal_path(),
+                 main_ci_recovery_window: {@started_ms - 60_000, @started_ms + 60_000},
+                 ci_status_fun: fn _, _ -> {:ok, %{check_runs: [outside], commit_status: %{"state" => "success", "statuses" => []}}} end,
+                 rerun_fun: fn _, _ -> flunk("a failure outside the recovered red interval must not rerun") end
+               )
+             )
   end
 
   test "a merged workflow change sends older failed runs of that workflow only to a fresh merge ref" do
@@ -242,6 +281,19 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     assert {:ok, []} = Journal.rerun_backlog(journal_path: path)
   end
 
+  test "a mergeable head is not refreshed unless newer base CI fixes a failing check" do
+    history = [
+      %{completed_at: @started_ms - 60_000, checks: [%{name: "ci gate", conclusion: "failure"}]},
+      %{completed_at: @started_ms + 60_000, checks: [%{name: "ci gate", conclusion: "failure"}]}
+    ]
+
+    opts = [main_history_fun: fn -> history end]
+    refute PrRerunClassifier.stale_merge_ref?(failed_gate(), opts)
+
+    fixed = List.update_at(history, 1, &%{&1 | checks: [%{name: "ci gate", conclusion: "success"}]})
+    assert PrRerunClassifier.stale_merge_ref?(failed_gate(), main_history_fun: fn -> fixed end)
+  end
+
   test "a cancelled-only run set still alerts the person cancel and reruns nothing" do
     cancelled = %{failed_gate() | "conclusion" => "cancelled"}
     parent = self()
@@ -254,6 +306,44 @@ defmodule Aiur.LandingWatch.PrRerunTest do
 
     assert :ok = LandingWatch.process(observation(), opts(journal_path(), cancel))
     assert_received {:alert, "ticket.17.pr.ci_recovery.rerun_skipped"}
+    refute_received {:rerun, _}
+
+    assert :ok =
+             LandingWatch.process(
+               observation(),
+               opts(journal_path(),
+                 main_ci_recovery_window: {@started_ms - 60_000, @started_ms + 60_000},
+                 rerun_classifier_fun: fn _, _, _, _ -> {:ok, :rework} end
+               )
+             )
+
+    assert_received {:rework, _}
+    refute_received {:rerun, _}
+  end
+
+  test "main recovery refreshes an in-window failure whose merge ref predates the fix" do
+    path = journal_path()
+    armed = %{observation() | auto_merge_request: %{"enabledAt" => "2026-10-14T09:00:00Z"}}
+    run = failed_gate() |> Map.put("started_at", @started)
+
+    history = [
+      %{completed_at: @started_ms - 60_000, checks: [%{name: "test (1/4)", conclusion: "failure"}]},
+      %{completed_at: @started_ms + 60_000, checks: [%{name: "test (1/4)", conclusion: "success"}]}
+    ]
+
+    assert :ok =
+             LandingWatch.process(
+               armed,
+               opts(path,
+                 main_ci_recovery_window: {@started_ms - 60_000, @started_ms + 60_000},
+                 main_history_fun: fn -> history end,
+                 ci_status_fun: fn _, _ -> {:ok, %{check_runs: [run], commit_status: %{"state" => "success", "statuses" => []}}} end
+               )
+             )
+
+    assert_received {:update_branch, 17, "head-sha"}
+    assert_received {:comment, 17, body}
+    assert body =~ "merge ref predates a fix on the base branch"
     refute_received {:rerun, _}
   end
 

@@ -1,5 +1,9 @@
 name: Verify home CSS
 description: Run the complete home CSS matrix and retain its evidence.
+inputs:
+  shard:
+    description: Playwright shard in the full home CSS matrix.
+    required: true
 runs:
   using: composite
   steps:
@@ -8,12 +12,12 @@ runs:
     - name: Run complete home CSS matrix
       working-directory: src/browser
       shell: bash
-      run: npm run fixture:preflight && npm run test:home-css
+      run: npm run fixture:preflight && npm run test:home-css -- --shard=${{ inputs.shard }}/4
     - name: Upload home CSS evidence
       if: ${{ always() }}
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
-        name: home-css-artifacts
+        name: home-css-artifacts-${{ inputs.shard }}
         path: src/browser/.artifacts-run-*/
         if-no-files-found: ignore
         include-hidden-files: true
