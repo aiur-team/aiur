@@ -1,7 +1,7 @@
 defmodule Aiur.ControlCLI.EntryPoints do
   @moduledoc false
-  alias Aiur.BuildOrder.EstimateCLI
   alias Aiur.AnalyticsCLI
+  alias Aiur.BuildOrder.EstimateCLI
   alias Aiur.BuildOrdersCLI
   alias Aiur.CommandsCLI
   alias Aiur.ExecutorCommandCLI
