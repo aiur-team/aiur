@@ -6,7 +6,7 @@ defmodule AiurWeb.Build.Payload do
 
   Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
   features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
-  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets),
+  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
@@ -65,7 +65,8 @@ defmodule AiurWeb.Build.Payload do
   snapshot_observed_at and note. Credits require nullable pct, string left and
   two-string tip pairs. Unavailable usage requires observed_at and reason.
   Locked usage requires only state/accessible_name/authentication_path/reason.
-  Repo is nil or a url string; writable is boolean.
+  Repo is nil or a url string; writable is boolean. Capacity requires positive max or nil,
+  observed_at milliseconds or nil and stale boolean; it follows the runtime agent cap.
 
   Diff: envelope plus upsert/remove/set. Set replaces whole blocks, never merges
   deeply; history_meta is translated to the socket's history block. Hist upserts

@@ -55,6 +55,9 @@ defmodule Aiur.ControlCLI.EntryPoints do
   @spec build_orders(keyword()) :: :ok
   def build_orders(opts \\ []), do: guarded("build-orders", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> BuildOrdersCLI.run() |> exit_marker() end)
 
+  @spec ticket_estimate(keyword()) :: :ok
+  def ticket_estimate(opts \\ []), do: guarded("ticket estimate", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildOrder.EstimateCLI.run() |> exit_marker() end)
+
   @spec queue(keyword()) :: :ok
   def queue(opts \\ []), do: guarded("queue", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker() end)
 

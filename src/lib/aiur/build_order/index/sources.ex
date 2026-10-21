@@ -6,6 +6,7 @@ defmodule Aiur.BuildOrder.Index.Sources do
   def build(parts, now) do
     sources = %{
       history: history(parts),
+      estimates: Aiur.BuildOrder.Index.Estimates.source(parts[:estimates]),
       features: SourceFreshness.source(health(parts[:features])),
       queue: producer(parts[:planned]),
       agents: producer(parts[:now]),
@@ -72,6 +73,7 @@ defmodule Aiur.BuildOrder.Index.Sources do
   end
 
   defp source_key(part) when part in [:history, :health, :catch_up], do: :history
+  defp source_key(:estimates), do: :estimates
   defp source_key(:features), do: :features
   defp source_key(part) when part in [:queue, :planned], do: :queue
   defp source_key(:now), do: :agents

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { test, expect } from '@playwright/test'
 import { openParityPair, waitParityReady, expectDesignParity, PARITY_VIEWPORTS, FIXTURE_META } from '../support/design-parity.mjs'
-import { alignBoard, alignEtaMask, primeBoardPaint } from '../support/build-home-band-canvas.mjs'
+import { alignBoard, primeBoardPaint } from '../support/build-home-band-canvas.mjs'
 import { nowPatch } from '../scripts/build-home-now-patch.mjs'
 
 test.use({ trace: 'off' })
@@ -40,8 +40,6 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'now0',
         await waitParityReady(pair.product, 'board', 'product', true)
       }
       await freeze(pair, dataset)
-      pair.allowlist = pair.allowlist.map(entry => entry.id === 'now-band-eta-pending' ? { ...entry, kind: 'pixel-mask', selector: '.bd-now-eta' } : entry)
-      await alignEtaMask(pair)
       const geometry = page => page.evaluate(() => ({
         h: document.querySelector('#bd-now').style.height,
         cards: Array.from(document.querySelectorAll('#bd-now .bd-card'), el => ({ id: el.dataset.id.replace('AIUR-', ''), ...Object.fromEntries(['top', 'left', 'width', 'height'].map(k => [k, parseFloat(el.style[k])])) }))
@@ -63,12 +61,11 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'now0',
         await expectDesignParity(pair, { name: `band-${dataset}-${viewport.viewport.width}-${theme}-${palette}-${position}`, region, preserveAnimations: true })
       }
       await Promise.all([pair.design, pair.product].map(page => page.locator('[data-min]').evaluate(el => el.click())))
-      await alignEtaMask(pair)
       await primeBoardPaint(pair)
       await expectDesignParity(pair, { name: `band-${dataset}-${viewport.viewport.width}-${theme}-${palette}-min`, region: '#bd-now', preserveAnimations: true })
       for (const ast of await pair.design.locator('.bd-now-st [data-ast]').evaluateAll(els => els.map(el => el.dataset.ast))) {
         await Promise.all([pair.design, pair.product].map(page => page.locator('.bd-now-h [data-ast="' + ast + '"]').first().evaluate(el => el.click())))
-        await alignEtaMask(pair); await primeBoardPaint(pair)
+        await primeBoardPaint(pair)
         // Filter dimming behind the blurred band belongs to C10-T02.
         await expectDesignParity(pair, { name: `band-${dataset}-${viewport.viewport.width}-${theme}-${palette}-${ast}`, region: '.bd-now-st', preserveAnimations: true })
       }

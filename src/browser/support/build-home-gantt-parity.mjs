@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect } from '@playwright/test'
-import { alignBoard, alignEtaMask, primeBoardPaint } from './build-home-band-canvas.mjs'
+import { alignBoard, primeBoardPaint } from './build-home-band-canvas.mjs'
 import { installScrollPaint, flushScrollPaint } from './build-home-scroll-paint.mjs'
 import { waitParityReady, FIXTURE_META } from './design-parity.mjs'
 
@@ -60,9 +60,6 @@ export async function freezeGanttComposition(pair) {
   for (const page of [pair.design, pair.product]) await page.locator('#bd-vp').evaluate(el => {
     document.body.style.minHeight = Math.ceil(el.getBoundingClientRect().bottom + scrollY) + 'px'
   })
-  // Existing C9-T08 exception only: C7-T03 owns ETA copy. Do not mask cards, edges or band geometry.
-  pair.allowlist = pair.allowlist.map(entry => entry.id === 'now-band-eta-pending' ? { ...entry, kind: 'pixel-mask', selector: '.bd-now-eta' } : entry)
-  await alignEtaMask(pair)
   await Promise.all([pair.design, pair.product].map(async page => {
     await page.clock.setSystemTime(FIXTURE_META.now)
     await installScrollPaint(page)

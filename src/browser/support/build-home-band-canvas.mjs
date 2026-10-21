@@ -9,11 +9,6 @@ export async function alignBoard(pair) {
     Object.assign(host.style, { position: 'fixed', left: Math.round(box.x) + 'px', top: '100px', width: box.width + 'px', zIndex: '9999' })
   })
 }
-export async function alignEtaMask(pair) {
-  const widths = await Promise.all([pair.design, pair.product].map(page => page.locator('.bd-now-eta').evaluate(el => el.getBoundingClientRect().width)))
-  for (const page of [pair.design, pair.product]) await page.locator('.bd-now-eta').evaluate((el, width) => { el.style.minWidth = width + 'px' }, Math.max(...widths))
-}
-
 // Force a fresh paint after relocating the fixture's sticky viewport. A warm
 // screenshot alone does not reconcile its glyph raster. Use between paused
 // JS-clock scroll samples; no pixels are masked or final styles changed.

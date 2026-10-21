@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
-import { guardTarget, settleTarget, bandClock, bandCounts, bandEta, bandEmptyText } from '../../priv/static/build-home/band.js'
+import { guardTarget, settleTarget, bandClock, bandCounts, bandEmptyText } from '../../priv/static/build-home/band.js'
 import { bandLayout } from '../../priv/static/build-home/band-layout.js'
+import { etaLabel } from '../../priv/static/build-home/estimate.js'
 const live = JSON.parse(readFileSync(new URL('../../test/fixtures/build_home/live.json', import.meta.url)))
 
 test('B1 guard thresholds preserve strict boundaries and 72px give-up', () => {
@@ -35,10 +36,10 @@ test('retrying agents get a timeline count and are not state unknown', () => {
   const retrying = { agent: { state: 'retrying' } }
   assert.deepEqual(bandCounts([retrying]), { nr: 0, nt: 1, ns: 0, ni: 0, nu: 0 })
 })
-test('B5 ETA stays unknown rather than dividing by demo capacity', () => {
+test('B5 ETA stays unknown when capacity is missing', () => {
   const D = { now: live.sections.now, plan: live.sections.plan, sources: live.sources }
-  assert.equal(bandEta(D).text, `${D.now.length + D.plan.length} to go · ETA —`)
-  assert.equal(bandEta({ ...D, sources: { queue: { state: 'unavailable' } } }).text, '— to go · ETA —')
+  assert.equal(etaLabel(D).text, `${D.now.length + D.plan.length} to go · ETA —`)
+  assert.equal(etaLabel({ ...D, sources: { queue: { state: 'unavailable' } } }).text, '— to go · ETA —')
 })
 test('B6 unavailable is distinct from an empty fleet', () => {
   const D = { now: [], sources: { agents: { state: 'unavailable' } } }

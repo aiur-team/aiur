@@ -15,19 +15,17 @@ Without local config, `aiur` and `aiurdev` use `~/.aiur/config`. Global launches
 Global launches require Issues write access; conflicting repos fail. Omit `tracker.github.repo` for portable settings; exported credentials override `.env`. Run the command from the repository that owns the run. An instance is keyed to that project, so control commands address that repository's daemon.
 
 ## What the CLI does
-
 | Job | Commands | Notes |
 | --- | --- | --- |
 | Start or attach | `aiur`, `aiur run` | Bare `aiur` attaches to this repository's live session when one exists; otherwise foreground gives the TUI board and chat panes. Background is headless unless launched with `--interactive`. |
 | Inspect live state | `status`, `agents`, `watch`, `alerts`, `usage`, `github-cost`, `github-usage` | Read-only reports from the running daemon. |
 | Operate the fleet | `set max-agents`, `pause`, `resume`, `park`, `take`, `release`, `message`, `reset-budget`, `workspace-recover`, `stop`, `restart` | Steers a live run, assigns Executor-owned tickets, recovers identified workspace holds, and manages paused reservations. |
 | Mirror a dashboard page | `units`, `commands`, `build-orders`, `queue show`, `analytics` | Read-only terminal forms of the dashboard pages. |
-| Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-reclassify`, `executor-moot`, `executor-emit`, `listen`, `findings`, `feature`, `epic` | Decision inbox, Executor actions, and findings ledger. |
+| Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-reclassify`, `executor-moot`, `executor-emit`, `listen`, `findings`, `feature`, `epic`, `ticket estimate` | Decision inbox, Executor actions, and findings ledger. |
 
 Background mode is the shape that matters for an agent Executor. `aiur --bg` starts the daemon with no board and no panes, the dashboard stays up, and every command below reads and writes the same live state through that detached daemon.
 
 ## Start, initialize, and queue
-
 See [global launch options](/reference/cli-options) for parser flags and launcher-only options.
 
 ### Commands
@@ -71,7 +69,6 @@ Launch mode determines which interfaces remain available:
 When an unknown subcommand is routed through a release built from a checkout, Aiur also compares the dispatcher and checkout package versions. If the dispatcher is older, the error tells you to update `aiur-cli` instead of presenting the command as simply unavailable.
 
 ## Inspect and operate a running daemon
-
 A `workspace_retained` row means provider exit is unproven, or the recovery audit could not be written. It reports the retention age (or `since unknown` for leases saved before retention tracking) and raises one `workspace_lease_retained` attention per lease.
 
 Time alone never releases the lease, and a release call that times out returns `{:error, :release_timeout}`. Use `aiur stop` for graceful provider containment; restarting alone does not clear persisted ownership. Only a local hold with verified reboot proof is eligible for `aiur workspace-recover <ticket-identifier> <generation>`.
@@ -207,11 +204,9 @@ If a closed ticket's cleanup crashes before the delete, Aiur keeps the workspace
 To recover saved work by hand, run the `restore_commands` of `manifest.json` in order in a clone of the repository. Change the first command, `cd`, to point at that clone.
 
 ## Build history commands
-
 See [feature and epic commands](/reference/build-history-commands) for local collections, membership, provenance and original-scope baselines.
 
 ## Dashboard page commands
-
 `aiur units`, `aiur commands`, `aiur build-orders`, and `aiur analytics` are read-only terminal forms of the corresponding Dashboard pages and show the same data.
 
 | Command | Page view and important inputs | Example |
@@ -263,7 +258,6 @@ Fleet-capacity and build-gate evidence have independent source states: stale fle
 | Separately derived value, such as provider spend | Lives under `auxiliary` with its own source metadata. |
 
 ## Experiments
-
 [Experiments](../concepts/experiments) use control RPC and require a running daemon.
 
 | Command | What it does | Example |
@@ -286,9 +280,17 @@ Fleet-capacity and build-gate evidence have independent source states: stale fle
 Quick creation accepts `--hypothesis`, `--draft`, `--no-freeze` and `--json`. Manual lines need a UTC timestamp; tag/commit times resolve from base history. Before/after creation freezes before unless `--no-freeze`, reporting count and coverage (`frozen_snapshot` in JSON). Exit codes: 0 success, 1 refused, 64 usage. Newer specs refuse writes.
 
 ## Decisions, Executor events, and findings
+`aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]` shows the default, override and last 20 changes, or sets/clears an override.
+
+Hours must be multiples of 0.25 in 0.25..999; writes require a reason (1..500 characters, no controls). Actor defaults to `cli:$USER` and accepts 1..64 letters, digits or `._:@-`.
+
+JSON includes `default_hours` and `planned` (true, false, or `"unknown"`); overrides for tickets outside the plan are saved for later. Defaults by complexity 1..5 are 1, 2, 4, 7, 11 hours; unknown complexity has no default.
+
+A timeout leaves the outcome unknown: repeat the show form. An unavailable store refuses writes; restore or remove the quarantined file and restart after corruption.
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
+| `aiur ticket estimate <id> [<hours> or --clear] [--reason <text>] [--by <who>] [--json]` | Show, set or clear durable estimate overrides; writes require a reason. See the validation and recovery details above. | `aiur ticket estimate 2412 7 --reason "Three design rounds"` |
 | `aiur ask "Title"` | Creates a durable operator request for the current repository. Add `--body` or `--body-file`, `--urgency low\|normal\|high`, and `--blocking` as needed. | `aiur ask "Approve production cutover" --blocking --urgency high` |
 | `aiur ask "Title" --body "Context"` | Stores short supporting Markdown in the ask. | `aiur ask "Approve production cutover" --body "Production freeze ends today."` |
 | `aiur ask "Title" --body-file request.md` | Reads the supporting body from a UTF-8 file. | `aiur ask "Approve production cutover" --body-file request.md` |

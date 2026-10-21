@@ -116,7 +116,7 @@ test('U9 unknown planned estimates are marked and propagate a lower bound; overr
   })).toEqual({ items: [[32.5, true, true], [108, false, true]], unknown: true, label: '≈ ≥+6h' })
 })
 test('U10 band height honors overrides and unknown estimate uses the floor', async ({ page }) => {
-  expect(await page.evaluate(() => [g.bandGanttHeight({ est: 2, override: { hours: 8 } }, context()), g.bandGanttHeight({ est: null }, context()), g.estOf({ est: null, cx: 5 }), g.estOf({ est: 2, override: { hours: 8 } })])).toEqual([144, 32.5, null, 8])
+  expect(await page.evaluate(async () => { const estimate = await import('/build-home/estimate.js'); return [g.bandGanttHeight({ est: 2, override: { hours: 8 } }, context()), g.bandGanttHeight({ est: null }, context()), estimate.estHours({ est: null, cx: 5 }), estimate.estHours({ est: 2, override: { hours: 8 } })] })).toEqual([144, 32.5, null, 8])
   expect(await page.evaluate(() => {
     initCards()
     const t = row('band-unknown', null, null, { sec: 'now' })

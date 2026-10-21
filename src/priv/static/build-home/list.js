@@ -3,6 +3,7 @@ import { S, ctx, fx } from './state.js';
 import { esc } from './dom.js';
 import { nowMs } from './clock.js';
 import { fmtD, fmtH } from './util.js';
+import { estLabel } from './estimate.js';
 import { I } from './icons.js';
 import { LOGOS } from './logos.js';
 import { agentState, progress, modelLabel } from './now-state.js';
@@ -34,8 +35,7 @@ function progCell(t) {
   if (t.sec === 'hist') return muted((Number.isFinite(t.end) ? fmtD(t.end) : '—') + ' · ' +
     (Number.isFinite(t.start) && Number.isFinite(t.end) && t.end >= t.start ? fmtH((t.end - t.start) / 36e5) : '—'));
   if (t.sec === 'plan') {
-    const hours = Number.isFinite(t.override?.hours) ? t.override.hours : t.est;
-    return muted('Q' + number(t.qpos) + ' · W' + (Number.isFinite(t.wave) ? t.wave : '?') + ' · ' + (Number.isFinite(hours) ? '≈' + hours + 'h' : '—'));
+    return muted('Q' + number(t.qpos) + ' · W' + (Number.isFinite(t.wave) ? t.wave : '?') + ' · ' + estLabel(t));
   }
   return muted(number(t.pts) + ' pts');
 }

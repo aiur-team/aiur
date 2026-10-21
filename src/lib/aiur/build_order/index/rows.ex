@@ -117,7 +117,13 @@ defmodule Aiur.BuildOrder.Index.Rows do
       pr: pr(row)
     }
 
-    base |> Map.merge(timing) |> Map.merge(Edges.to_payload(edges, producer.num)) |> Map.merge(producer) |> Map.update!(:created, &SourceFreshness.ms/1) |> align_dependencies()
+    base
+    |> Map.merge(timing)
+    |> Map.merge(Edges.to_payload(edges, producer.num))
+    |> Map.merge(producer)
+    |> Map.update!(:created, &SourceFreshness.ms/1)
+    |> align_dependencies()
+    |> Aiur.BuildOrder.Index.Estimates.row(parts[:estimates])
   end
 
   defp align_dependencies(row) do

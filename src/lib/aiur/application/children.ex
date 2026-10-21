@@ -279,7 +279,7 @@ defmodule Aiur.Application.Children do
         landing_watch_children() ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        quarantine_lifter_children() ++ List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
+        quarantine_lifter_children() ++ List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor)) ++ BuildOrders.child_specs(:estimates, opts)
     )
   end
 
