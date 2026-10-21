@@ -37,6 +37,7 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
 
   @table Aiur.GitHub.ResourceStore.Table
   @max_entries 100_000
+  @cap_attention_topic "system.github.resource_store.cap"
 
   # Three times what the busiest observed daemon holds (43.9 MB across 6,768
   # entries, ~10 agents and ~130 open tickets, 2026-10-10), so it does not bind
@@ -140,14 +141,51 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
   def print_status(table \\ @table) do
     case stats(table) do
       :unavailable ->
+        resolve_cap_attention()
         IO.puts("GITHUB RESOURCES unavailable (resource store is not running)")
 
       stats ->
+        update_cap_attention(stats)
+
         IO.puts(
           "GITHUB RESOURCES entries=#{stats.entries} bodies=#{stats.bodies} " <>
             "body_bytes=#{mib(stats.body_bytes)}/#{mib(stats.max_body_bytes)} process=#{mib(stats.process_bytes)}"
         )
     end
+  end
+
+  defp update_cap_attention(%{body_bytes: bytes, max_body_bytes: cap}) when bytes >= cap do
+    if cap_condition_state() != :firing, do: emit_cap_attention(cap)
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp update_cap_attention(_stats) do
+    if cap_condition_state() == :firing, do: resolve_cap_attention()
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp cap_condition_state do
+    Aiur.AlertFeed.condition_state(@cap_attention_topic)
+  rescue
+    _ -> :unknown
+  end
+
+  defp emit_cap_attention(cap) do
+    message = "GitHub read cache is at its #{mib(cap)} body cap; least recently written bodies will be shed on the next store sweep."
+    _ = Aiur.Signal.agent_alert(@cap_attention_topic, message, reason: message, severity: "warning", needs_attention: true)
+    :ok
+  end
+
+  defp resolve_cap_attention do
+    message = "GitHub read cache is below its body cap."
+    _ = Aiur.Signal.agent_alert(@cap_attention_topic <> ".resolved", message, reason: message)
+    :ok
+  rescue
+    _ -> :ok
   end
 
   # One `{recorded_at_ms, key, body_bytes}` row per entry. `foldl/3` copies one

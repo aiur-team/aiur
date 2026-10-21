@@ -18,15 +18,16 @@ defmodule Aiur.ExecutorSweep.Checks do
   def all(snapshot, %DateTime{} = now, opts \\ []) do
     unreviewed_minutes = Keyword.get(opts, :unreviewed_pr_minutes, 10)
     stale_minutes = Keyword.get(opts, :merge_group_stale_minutes, 15)
+    github_freshness_ms = Keyword.get(opts, :github_freshness_ms, 5 * 60_000)
 
     [
       {"unreviewed_prs", [:pull_requests, :tickets], fn -> unreviewed_prs(snapshot, now, unreviewed_minutes) end},
       {"old_decisions", [:decisions], fn -> old_decisions(snapshot, now) end},
-      {"approved_prs", [:pull_requests], fn -> approved_prs(snapshot) end},
+      {"approved_prs", [:pull_requests], fn -> approved_prs(snapshot, github_freshness_ms) end},
       {"conflicting_waiting_prs", [:pull_requests, :tickets], fn -> conflicting_waiting_prs(snapshot) end},
       {"landing_rerun_backlog", [:landing_rerun_backlog], fn -> landing_rerun_backlog(snapshot, now) end},
       {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
-      {"stale_merge_groups", [:merge_groups], fn -> stale_merge_groups(snapshot, now, stale_minutes) end},
+      {"stale_merge_groups", [:merge_groups], fn -> stale_merge_groups(snapshot, now, stale_minutes, github_freshness_ms) end},
       {"queue_sets", [:queue_sets, :idle_slots], fn -> queue_sets(snapshot) end},
       {"queue_order", [:queue_order, :feature_order], fn -> queue_order(snapshot) end},
       {"ticket_hygiene", [:tickets, :pull_requests], fn -> ticket_hygiene(snapshot, now) end},
@@ -97,10 +98,11 @@ defmodule Aiur.ExecutorSweep.Checks do
     end)
   end
 
-  defp approved_prs(snapshot) do
+  defp approved_prs(snapshot, max_age_ms) do
     snapshot
     |> Map.get(:pull_requests, [])
-    |> Enum.flat_map(&approved_pr_findings(&1, Map.get(snapshot, :base_checks, [])))
+    |> Enum.flat_map(&approved_pr_findings(&1, Map.get(snapshot, :base_checks, []), cache_age(snapshot, :pull_request)))
+    |> Enum.filter(&fresh_github_finding?(&1, cache_age(snapshot, :pull_request), max_age_ms))
   end
 
   defp conflicting_waiting_prs(snapshot) do
@@ -138,12 +140,12 @@ defmodule Aiur.ExecutorSweep.Checks do
     end)
   end
 
-  defp approved_pr_findings(pr, base_checks) do
+  defp approved_pr_findings(pr, base_checks, cache_age_ms) do
     failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
 
     # A cached row can keep "open" after the merge; merged_at is the landing proof (#5119).
     if approved_pr_current_and_open?(pr) and (failures != [] or approved_pr_not_landing?(pr)) do
-      [approved_pr_finding(pr, failures, base_checks)]
+      [approved_pr_finding(pr, failures, base_checks, cache_age_ms)]
     else
       []
     end
@@ -167,17 +169,18 @@ defmodule Aiur.ExecutorSweep.Checks do
       (is_nil(value(pr, :head_sha, nil)) or value(pr, :approved_head_sha, nil) == value(pr, :head_sha, nil))
   end
 
-  defp approved_pr_finding(pr, failures, base_checks) do
+  defp approved_pr_finding(pr, failures, base_checks, cache_age_ms) do
     red = failures != []
     kind = if red, do: "approved_pr_red", else: "approved_pr_not_landing"
     classifications = Enum.map(failures, &FailureCause.classify(&1, value(pr, :base_sha, nil), base_checks))
     cause = classifications |> Enum.map(& &1.class) |> Enum.uniq() |> single_or_mixed()
     problem = if red, do: "has a red required check (#{cause})", else: "is not queued or auto-merging"
 
-    finding(kind, 3, 0, "Inspect the check cause or restore merge queue/auto-merge progress.", "Approved PR ##{value(pr, :number, "?")} #{problem}.",
+    finding(kind, 3, 0, "Inspect the check cause or restore merge queue/auto-merge progress.", "Approved PR ##{value(pr, :number, "?")} #{problem} (GitHub cache age: #{duration(cache_age_ms)}).",
       pull_request: value(pr, :number, nil),
       failure_class: cause,
-      failed_checks: classifications
+      failed_checks: classifications,
+      cache_age_ms: cache_age_ms
     )
   end
 
@@ -231,21 +234,23 @@ defmodule Aiur.ExecutorSweep.Checks do
     end)
   end
 
-  defp stale_merge_groups(snapshot, now, stale_minutes) do
+  defp stale_merge_groups(snapshot, now, stale_minutes, max_age_ms) do
     snapshot
     |> Map.get(:merge_groups, [])
     |> Enum.flat_map(fn group ->
       age = age_ms(date(value(group, :started_at, nil)), now)
+      cache_age_ms = cache_age(snapshot, :landing_merge_group_runs)
 
-      if value(group, :state, "") in ["queued", "in_progress"] and age >= stale_minutes * 60_000 do
+      if value(group, :state, "") in ["queued", "in_progress"] and age >= stale_minutes * 60_000 and fresh_age?(cache_age_ms, max_age_ms) do
         [
           finding(
             "stale_merge_group",
             5,
             age,
             "Inspect the merge-group run and start a fresh required run if needed.",
-            "Merge group #{value(group, :name, "?")} is #{value(group, :state, "stale")} for #{duration(age)}.",
-            merge_group: value(group, :name, nil)
+            "Merge group #{value(group, :name, "?")} is #{value(group, :state, "stale")} for #{duration(age)} (GitHub cache age: #{duration(cache_age_ms)}).",
+            merge_group: value(group, :name, nil),
+            cache_age_ms: cache_age_ms
           )
         ]
       else
@@ -253,6 +258,14 @@ defmodule Aiur.ExecutorSweep.Checks do
       end
     end)
   end
+
+  defp cache_age(snapshot, type), do: get_in(snapshot, [:github_cache_ages, type])
+
+  defp fresh_github_finding?(finding, cache_age_ms, max_age_ms) do
+    if finding.kind in ["approved_pr_red", "approved_pr_not_landing"], do: fresh_age?(cache_age_ms, max_age_ms), else: true
+  end
+
+  defp fresh_age?(age, max_age_ms), do: is_integer(age) and age <= max_age_ms
 
   defp queue_sets(snapshot) do
     slots_idle = value(snapshot, :idle_slots, 0) > 0

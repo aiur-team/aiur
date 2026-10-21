@@ -28,8 +28,29 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       snapshot
       |> Map.put(:pull_requests, pull_requests)
       |> Map.put(:merge_queue, merge_queue_entries(pull_requests))
+      |> Map.put(:github_cache_ages, github_cache_ages(owner, name))
     else
       _ -> Map.merge(%{pull_requests: [], tickets: []}, local_snapshot())
+    end
+  end
+
+  @doc false
+  @spec github_cache_ages(String.t(), String.t(), integer()) :: map()
+  def github_cache_ages(owner, repo, now_ms \\ System.system_time(:millisecond)) do
+    [:pull_request, :pull_request_reviews, :landing_merge_group_runs]
+    |> Map.new(fn type ->
+      ages =
+        ResourceStore.list(type, owner, repo)
+        |> Enum.flat_map(&entry_age(&1, now_ms))
+
+      {type, if(ages == [], do: nil, else: Enum.max(ages))}
+    end)
+  end
+
+  defp entry_age({_key, entry}, now_ms) do
+    case Map.get(entry, :fetched_at_ms) do
+      at when is_integer(at) and at <= now_ms -> [now_ms - at]
+      _ -> []
     end
   end
 
