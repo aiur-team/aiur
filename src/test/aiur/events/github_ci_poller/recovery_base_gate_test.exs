@@ -162,6 +162,15 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
     refute_received {:rerun, _}
   end
 
+  test "a PR already in the merge queue is not retried", ctx do
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+    observation = %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "reviewDecision" => nil, "mergeQueueEntry" => %{"id" => "MQE_1"}, "autoMergeRequest" => nil}
+    opts = Keyword.put(ctx.opts, :ci_recovery_observation, {:ok, observation})
+
+    assert %{decision: :pending, recovery: "merge_queue"} = Recovery.recover(ctx.issue, result, opts)
+    refute_received {:rerun, _}
+  end
+
   test "a required startup failure gets one automatic rerun for the current head", ctx do
     result = Map.put(ctx.result, :failures, [%{name: "test", result: "startup_failure", url: @run_url}])
 
