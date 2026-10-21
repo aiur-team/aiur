@@ -317,7 +317,6 @@ defmodule AiurWeb.AnalyticsLiveTest do
     # The effective cap leads. The session ceiling is the figure `aiur status`
     # prints as `AGENTS n/8`, so omitting it is what let the two surfaces
     # contradict each other; the configured value is what #2241 saw alone.
-    assert html =~ ~r/\d+ at run end \/ 3 cap \(binding: AIMD envelope, session 8, configured 16\)/
     assert html =~ ~r/\d+ at run end \/ 3 cap \(binding: AIMD envelope, session 8, configured 16\) · of 4 cores/
     refute html =~ ~r/\d+ at run end \/ 16 cap/
     refute html =~ ~r/\d+ at run end \/ 8 cap/
