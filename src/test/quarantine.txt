@@ -5,5 +5,10 @@ Aiur.DecisionStore.EnrichmentTest	supervisor enrichment exact replay is duplicat
 Aiur.Events.GithubCIPoller.ApprovedLandingRecoveryTest	*	#5568
 Aiur.ExecutorSweep.SnapshotCacheTest	skips a metadata-only ResourceStore entry while reading cached resources	#5568
 Aiur.ExperimentsCLITest	create freezes the baseline and reports its window, count and coverage	#4463
+Aiur.GitHub.MonotonicDepositTest	*	#5605
+Aiur.LandingWatch.MainRecoveryRerunTest	*	#5605
+Aiur.MainWatch.FixerTest	*	#5605
 Aiur.Orchestrator.Status.ProgressAndIdentityTest	orchestrator snapshot reads open decisions without calling the per-ticket store	#4463
+Aiur.PerClassCadenceTest	*	#5605
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#4463
+AiurWeb.ZeroFetchPageOpenTest	*	#5605
