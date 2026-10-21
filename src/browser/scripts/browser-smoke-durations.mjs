@@ -6,6 +6,10 @@
 // run 39100789804 spent 80-120s per shard outside its suites.
 export const preflightSeconds = 120
 export const recordedSeconds = {
+  // #3159 local acceptance (2026-10-21): 10 helper cases in 0.49s; 2 browser cases in 8.5s.
+  // Rounded up; refresh from the first CI suite-duration log.
+  'test:build-home-estimate': 1,
+  'test:build-home-estimate-browser': 9,
   // #3157 restored local harness (2026-10-21): 23 functional tests in 1.6m; 24 parity comparisons in 3.8m.
   // Provisional rounded bounds; refresh from the first CI suite-duration log.
   'test:build-home-modal-doc': 100,
