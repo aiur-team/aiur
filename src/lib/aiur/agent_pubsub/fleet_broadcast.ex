@@ -14,7 +14,18 @@ defmodule Aiur.AgentPubSub.FleetBroadcast do
 
   @spec running_change([AgentEvents.agent_summary()]) :: :ok
   def running_change(summaries) do
-    publish(:running, summaries, AgentEvents.running_topic(), {:running_changed, summaries}, FleetRefresh)
+    publish_always(AgentEvents.running_topic(), {:running_changed, summaries}, FleetRefresh)
+  end
+
+  @spec running_projection_change([AgentEvents.agent_summary()], term()) :: :ok
+  def running_projection_change(summaries, signature) do
+    publish(
+      :running,
+      signature,
+      AgentEvents.running_topic(),
+      {:running_changed, summaries},
+      FleetRefresh
+    )
   end
 
   defp publish(key, signature, topic, message, dispatcher \\ Phoenix.PubSub) do
@@ -26,6 +37,17 @@ defmodule Aiur.AgentPubSub.FleetBroadcast do
         else
           :ok
         end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp publish_always(topic, message, dispatcher) do
+    case Process.whereis(@pubsub) do
+      pid when is_pid(pid) ->
+        Logger.debug("AgentPubSub.broadcast topic=#{topic} tag=#{inspect(elem(message, 0))}")
+        Phoenix.PubSub.broadcast(@pubsub, topic, message, dispatcher)
 
       _ ->
         :ok

@@ -96,15 +96,26 @@ defmodule Aiur.AgentPubSubTest do
       :ok = AgentPubSub.subscribe_running()
       summaries = [AgentEvents.agent_summary("MT-DEDUPE", :running, 0)]
 
-      :ok = AgentPubSub.broadcast_running_change(summaries)
+      :ok = AgentPubSub.broadcast_running_projection_change(summaries, summaries)
       assert_receive {:running_changed, ^summaries}, 1000
 
-      :ok = AgentPubSub.broadcast_running_change(summaries)
+      :ok = AgentPubSub.broadcast_running_projection_change(summaries, summaries)
       refute_receive {:running_changed, _}, 50
 
       changed = [AgentEvents.agent_summary("MT-DEDUPE", :paused, 0)]
-      :ok = AgentPubSub.broadcast_running_change(changed)
+      :ok = AgentPubSub.broadcast_running_projection_change(changed, changed)
       assert_receive {:running_changed, ^changed}, 1000
+    end
+
+    test "a late running subscriber receives the current projection after a duplicate is suppressed" do
+      summaries = [AgentEvents.agent_summary("MT-LATE", :running, 0)]
+      :ok = AgentPubSub.broadcast_running_projection_change(summaries, summaries)
+      :ok = AgentPubSub.broadcast_running_projection_change(summaries, summaries)
+
+      :ok = AgentPubSub.subscribe_running()
+      :ok = AgentPubSub.broadcast_running_projection_change(summaries, summaries)
+
+      assert_receive {:running_changed, ^summaries}, 1000
     end
 
     test "poll_state_changed is suppressed until its state changes" do
@@ -120,6 +131,17 @@ defmodule Aiur.AgentPubSubTest do
       changed = %{payload | checking?: true}
       :ok = AgentPubSub.broadcast_poll_state(changed)
       assert_receive {:poll_state_changed, ^changed}, 1000
+    end
+
+    test "a late poll subscriber receives the current projection after a duplicate is suppressed" do
+      payload = %{checking?: false, next_poll_due_at_ms: 5678, max_concurrent_agents: 4}
+      :ok = AgentPubSub.broadcast_poll_state(payload)
+      :ok = AgentPubSub.broadcast_poll_state(payload)
+
+      :ok = AgentPubSub.subscribe_poll_state()
+      :ok = AgentPubSub.broadcast_poll_state(payload)
+
+      assert_receive {:poll_state_changed, ^payload}, 1000
     end
 
     test "status_changed reaches subscribers" do

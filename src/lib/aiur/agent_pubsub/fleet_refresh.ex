@@ -19,6 +19,14 @@ defmodule Aiur.AgentPubSub.FleetRefresh do
     end
   end
 
+  @spec reset_projection_signatures(:running | :poll_state) :: :ok
+  def reset_projection_signatures(key) when key in [:running, :poll_state] do
+    :ets.match_delete(__MODULE__, {{:publisher, :_, key}, :_})
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
   @spec dispatch([{pid(), term()}], pid() | :none, term()) :: :ok
   def dispatch(entries, from, message) do
     Enum.each(entries, fn {pid, metadata} ->

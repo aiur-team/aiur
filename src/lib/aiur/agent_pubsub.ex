@@ -42,12 +42,17 @@ defmodule Aiur.AgentPubSub do
   end
 
   @spec subscribe_running() :: :ok | {:error, term()}
-  def subscribe_running, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic())
+  def subscribe_running do
+    result = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic())
+    FleetRefresh.reset_projection_signatures(:running)
+    result
+  end
 
   @doc "Payload-free fleet invalidations for consumers that read the published snapshot."
   @spec subscribe_fleet_refresh(:atomics.atomics_ref()) :: :ok | {:error, term()}
   def subscribe_fleet_refresh(latch) do
     :ok = FleetRefresh.register(self())
+    :ok = FleetRefresh.reset_projection_signatures(:running)
     opts = [metadata: {:fleet_refresh, latch}]
     :ok = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic(), opts)
     :ok = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic(), opts)
@@ -68,9 +73,12 @@ defmodule Aiur.AgentPubSub do
   @spec subscribe_status() :: :ok | {:error, term()}
   def subscribe_status, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic())
 
-  @spec subscribe_poll_state() :: :ok | {:error, term()}
-  def subscribe_poll_state,
-    do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.poll_state_topic())
+  @spec subscribe_poll_state(GenServer.server()) :: :ok | {:error, term()}
+  def subscribe_poll_state(pubsub \\ @pubsub) do
+    result = Phoenix.PubSub.subscribe(pubsub, AgentEvents.poll_state_topic())
+    FleetRefresh.reset_projection_signatures(:poll_state)
+    result
+  end
 
   @doc """
   Broadcasts poll progress and the absolute next-poll deadline for AgentList.
@@ -134,6 +142,11 @@ defmodule Aiur.AgentPubSub do
   @spec broadcast_running_change([AgentEvents.agent_summary()]) :: :ok
   def broadcast_running_change(summaries) when is_list(summaries),
     do: FleetBroadcast.running_change(summaries)
+
+  @doc false
+  @spec broadcast_running_projection_change([AgentEvents.agent_summary()], term()) :: :ok
+  def broadcast_running_projection_change(summaries, signature) when is_list(summaries),
+    do: FleetBroadcast.running_projection_change(summaries, signature)
 
   @spec broadcast_status_change(AgentEvents.agent_identifier(), atom()) :: :ok
   def broadcast_status_change(identifier, status)
