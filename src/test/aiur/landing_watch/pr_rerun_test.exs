@@ -348,7 +348,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
 
   test "a refresh deferred by the shared cap waits in the backlog, then updates the branch" do
     path = journal_path()
-    for _ <- 1..3, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
+    for _ <- 1..4, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
     refresh = [rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:refresh, "superseded job name"}} end]
 
     assert :ok = LandingWatch.process(observation(), opts(path, refresh))
@@ -363,7 +363,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
 
   test "a refresh waiting for the shared cap does not repeat overlap reads" do
     path = journal_path()
-    for _ <- 1..3, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
+    for _ <- 1..4, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
     refresh = [rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:refresh, "superseded job name"}} end]
     assert :ok = LandingWatch.process(observation(), opts(path, refresh))
 

@@ -73,7 +73,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
     File.rm(journal)
   end
 
-  test "the fourth group requeue in fifteen minutes is not enqueued" do
+  test "the fifth group requeue in fifteen minutes is not enqueued" do
     parent = self()
 
     journal =
@@ -82,10 +82,10 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
         "landing-watch-rate-cap-#{System.unique_integer([:positive])}.json"
       )
 
-    run = group_run(401, "failure", "pr-17-a-pr-18-b-pr-19-c-pr-20-d")
+    run = group_run(401, "failure", "pr-17-a-pr-18-b-pr-19-c-pr-20-d-pr-21-e")
 
     prs =
-      for number <- 17..20,
+      for number <- 17..21,
           do: %{
             number: number,
             base: "main",
@@ -127,15 +127,15 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
     assert :ok = MergeGroups.cancel_stale([], options)
 
     enqueued =
-      for _ <- 1..3 do
+      for _ <- 1..4 do
         assert_received {:enqueue, node, _}
         node
       end
 
-    assert length(enqueued) == 3
+    assert length(enqueued) == 4
     assert :ok = MergeGroups.cancel_stale([], options)
     refute_received {:enqueue, _, _}
-    assert {:ok, %{"1970-01-01T00:00:00Z" => 3}} = journal_counts(journal)
+    assert {:ok, %{"1970-01-01T00:00:00Z" => 4}} = journal_counts(journal)
     File.rm(journal)
   end
 
