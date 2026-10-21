@@ -3,8 +3,8 @@ defmodule Aiur.GitHub.AccessSettingsTest do
 
   alias Aiur.Config.Paths
   alias Aiur.GitHub.{AccessSettings, Budget, CredentialRegistry, RequestLog}
-  alias Aiur.GitHub.ReadCache.Policy, as: CachePolicy
   alias Aiur.GitHub.Quota.{ShellObservations, Windows}
+  alias Aiur.GitHub.ReadCache.Policy, as: CachePolicy
   alias Aiur.GitHub.ResourceStore.Persistence
   alias Aiur.TestSupport.WorkflowFiles
   alias Aiur.{Workflow, WorkflowStore}

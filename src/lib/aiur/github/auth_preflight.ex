@@ -51,8 +51,7 @@ defmodule Aiur.GitHub.AuthPreflight do
   # directly: that function already answers `:github_app` when the App is
   # configured, and also distinguishes `:env` from `:keyring`, which the plain
   # `AppCredentials.configured?/0` split could not.
-  alias Aiur.GitHub.Access.Token
-  alias Aiur.GitHub.{Errors, HostCommand, LocalHold, Transport}
+  alias Aiur.GitHub.{Access.Token, Errors, HostCommand, LocalHold, Transport}
 
   require Logger
 
