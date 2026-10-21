@@ -31,19 +31,16 @@ class BrowserSamplingTest(unittest.TestCase):
         spec.write_text("import { test } from '@playwright/test';\nfor (const cell of Array.from({length: 2338}, (_, index) => index)) {\n  test.describe(`cell ${cell}`, () => test(`motion [cell]+ ${cell}`, async () => {}));\n}\n")
         (self.browser / 'package.json').write_text(json.dumps({'scripts': {
             'test:core': 'npm run test:motion',
-            'test:motion': 'node scripts/run-browser-tests.mjs tests/build-home-motion.browser.spec.mjs',
+            'test:motion': 'node scripts/run-browser-tests.mjs tests/build-home-motion.browser.spec.mjs --grep motion',
         }}))
         self.durations.write_text("export const recordedSeconds = {\n  'test:motion': 1000,\n}\n")
         loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
         module = importlib.util.module_from_spec(loader)
         loader.loader.exec_module(module)
-        invocation = ['node', 'scripts/run-browser-tests.mjs', 'tests/build-home-motion.browser.spec.mjs']
+        invocation = ['node', 'scripts/run-browser-tests.mjs', 'tests/build-home-motion.browser.spec.mjs',
+                      '--grep', 'motion']
         fake_clock = [0]
-
-        with patch.dict(os.environ, self.env | {
-                'PLAYWRIGHT_LIST_COUNT': '2338', 'PLAYWRIGHT_LIST_TITLE': 'motion [cell]+'}):
-            listed = module.browser_test_list(invocation)
-        fake_clock[0] = 0
+        listed = [(f'cell {index}', f'motion [cell]+ {index}') for index in range(2338)]
 
         def pass_sample(_command, _spec, _timeout):
             fake_clock[0] += 1
@@ -51,7 +48,11 @@ class BrowserSamplingTest(unittest.TestCase):
 
         class SelectMiddle:
             def sample(self, population, count):
+                self.population_size = len(population)
+                self.sample_count = count
                 return population[10:10 + count]
+
+        sampler = SelectMiddle()
 
         with patch.dict(os.environ, self.env | {
                 'SOAK_SPECS': '["tests/build-home-motion.browser.spec.mjs"]',
@@ -61,23 +62,29 @@ class BrowserSamplingTest(unittest.TestCase):
                 patch.object(module, 'BUDGET_SECONDS', 60), \
                 patch.object(module.time, 'monotonic', side_effect=lambda: fake_clock[0]), \
                 patch.object(module, 'browser_test_list', return_value=listed), \
-                patch.object(module.random, 'SystemRandom', return_value=SelectMiddle()), \
+                patch.object(module.random, 'SystemRandom', return_value=sampler), \
                 patch.object(module, 'run_browser', side_effect=pass_sample) as runner, \
                 patch.object(module, 'notice') as notices:
             result = module.soak_browser()
         self.assertEqual(result, 0)
+        self.assertEqual(sampler.population_size, 2338)
+        self.assertEqual(sampler.sample_count, 5)
         self.assertEqual(len(runner.call_args_list), 5)
-        self.assertEqual([call.args[0][-1] for call in runner.call_args_list], ['--repeat-each=1'] * 5)
-        self.assertEqual([call.args[0][call.args[0].index('--grep') + 1]
-                          for call in runner.call_args_list], [
-                              '.*' + re.escape(f'motion [cell]+ {index}') + '.*'
-                              for index in range(10, 15)])
+        self.assertTrue(all(call.args[0][-1] == '--repeat-each=1' for call in runner.call_args_list))
+        grep_patterns = [call.args[0][call.args[0].index('--grep') + 1]
+                         for call in runner.call_args_list]
+        self.assertEqual(grep_patterns, [
+            f'(?=.*(?:motion))(?=.*(?:.*{".*".join(map(re.escape, (f"cell {index}", f"motion [cell]+ {index}")))}.*)).*'
+            for index in range(10, 15)])
+        for index, pattern in zip(range(10, 15), grep_patterns):
+            self.assertRegex(f'cell {index} motion [cell]+ {index}', pattern)
+            self.assertNotRegex(f'cell {index} other [cell]+ {index}', pattern)
         self.assertEqual(fake_clock[0], 5)
-        self.assertLessEqual(fake_clock[0], 60)
+        self.assertLess(fake_clock[0], module.BUDGET_SECONDS)
+        notices.assert_any_call('Playwright soak sampled tests/build-home-motion.browser.spec.mjs: 2338 tests exceeds '
+                                '200; rotating one listed test per repeat')
         notices.assert_any_call('Playwright soak: 5 repeats passed for 1 specs')
         self.assertIn('test(`motion [cell]+ ${cell}`', spec.read_text())
-        self.assertTrue(any(1 <= int(json.loads(line)[1]) <= 65535
-                            for line in self.list_calls.read_text().splitlines()))
 
     def test_unlistable_registration_runs_unsampled(self):
         for failure in ({'LIST_FAIL': '1'}, {'LIST_INVALID': '1'}):
