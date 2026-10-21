@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { openModalPair } from '../support/build-home-modal-pair.mjs'
-import { PARITY_VIEWPORTS, expectDesignParity } from '../support/design-parity.mjs'
+import { compareRegion } from '../support/build-home-region-parity.mjs'
+import { PARITY_VIEWPORTS } from '../support/design-parity.mjs'
 
 const snapshot = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/live.json', import.meta.url), 'utf8'))
 const conversations = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/conversations/live.json', import.meta.url), 'utf8'))
@@ -30,7 +31,8 @@ for (const viewport of [PARITY_VIEWPORTS[0], PARITY_VIEWPORTS[2]]) for (const th
         await expect.poll(async () => (await census(pair.design)).bottom).toBe(true)
         const product = await census(pair.product), design = await census(pair.design)
         expect(product.kinds).toEqual(design.kinds); expect(product.bottom).toBe(true); expect(design.bottom).toBe(true)
-        await expectDesignParity(pair, { name: `conversation.${ticket.id}.${viewport.viewport.width}.${theme}.${palette}`, region: '.cv-main' })
+        for (const side of ['design', 'product']) await pair[side].locator('.cv-main').evaluate(el => { el.style.height = el.getBoundingClientRect().height + 'px' })
+        await compareRegion(pair, { name: `conversation.${ticket.id}.${viewport.viewport.width}.${theme}.${palette}`, region: '.cv-main' })
       }
     } finally { await pair.close() }
   })

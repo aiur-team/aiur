@@ -35,7 +35,7 @@ async function scenario(page, name, opts = {}) {
     openModal(t)
   }, { fixture: states[name], opts })
 }
-const proof = async (page, name) => test.info().attach(name, { body: await page.locator('#tk-modal').screenshot({ animations: 'disabled' }), contentType: 'image/png' })
+const proof = async (page, name) => test.info().attach(name, { body: await page.locator('#tk-modal').screenshot({ animations: 'disabled', path: test.info().outputPath(name + '.png') }), contentType: 'image/png' })
 const messageCount = page => page.locator('#cv-log [data-k]')
 const top = page => page.locator('#cv-log').evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
 
@@ -76,6 +76,10 @@ test('all six item branches render; hostile text stays text and unknown times/mo
 })
 
 test('state cues, retained-history handoff and unknown dates render explicitly', async ({ page }) => {
+  await scenario(page, 'not_retained')
+  await expect(page.locator('.cv')).toHaveCount(0)
+  await expect(page.locator('.bm-cue')).toHaveText('Conversation not retained')
+  await proof(page, 'conversation-not-retained')
   await page.evaluate(async () => {
     const { registerBody } = await import('/build-home/modal/frame.js')
     registerBody('doc', (_t, body, opts) => { window.docNote = opts.note; body.innerHTML = '<div class="bm-doc"><p class="bm-cue"></p></div>'; body.querySelector('p').textContent = opts.note })
@@ -83,7 +87,6 @@ test('state cues, retained-history handoff and unknown dates render explicitly',
   await scenario(page, 'not_retained'); await expect(page.locator('.cv')).toHaveCount(0)
   await expect(page.locator('.bm-doc .bm-cue')).toHaveText('Conversation not retained')
   expect(await page.evaluate(() => window.docNote)).toBe('Conversation not retained')
-  await proof(page, 'conversation-not-retained')
   await scenario(page, 'known_empty'); await expect(page.locator('#cv-log [data-empty]')).toHaveText('No messages yet'); await expect(messageCount(page)).toHaveCount(0)
   await scenario(page, 'unavailable'); await expect(page.locator('#cv-footer')).toHaveText('Conversation unavailable'); await expect(messageCount(page)).toHaveCount(0)
   await proof(page, 'conversation-unavailable')

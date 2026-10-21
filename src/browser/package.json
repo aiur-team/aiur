@@ -84,7 +84,7 @@
     "test:build-home-usage": "node --test scripts/build-home-usage.test.mjs && node scripts/run-browser-tests.mjs tests/build-home-usage.browser.spec.mjs && node scripts/run-browser-tests.mjs tests/build-home-usage-parity.browser.spec.mjs --config playwright.design-parity.config.mjs",
     "test:build-home-band-parity": "node scripts/run-browser-tests.mjs tests/build-home-now-band-parity.browser.spec.mjs --config playwright.build-home-band.config.mjs",
     "test:build-home-band-full": "npm run fixture:preflight && node scripts/run-build-home-band-full.mjs",
-    "test:build-home-conversation": "node scripts/run-browser-tests.mjs tests/build-home-conversation.browser.spec.mjs tests/build-home-conversation-parity.browser.spec.mjs --config playwright.design-parity.config.mjs --fully-parallel --workers=2"
+    "test:build-home-conversation": "node scripts/run-browser-tests.mjs tests/build-home-conversation.browser.spec.mjs tests/build-home-conversation-parity.browser.spec.mjs --config playwright.design-parity.config.mjs --fully-parallel --workers=3"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.3",

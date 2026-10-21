@@ -11,8 +11,8 @@ export const recordedSeconds = {
   'test:build-modal': 25,
   'test:build-modal-parity': 90,
   'test:build-modal-motion': 20,
-  // #3162 local conversation harness: six functional cases ~49s; desktop parity cell 35s.
-  'test:build-home-conversation': 180,
+  // #3162 focused local run: 14 cases at 3 workers passed in 3.8 min (24 strict region captures).
+  'test:build-home-conversation': 230,
   // Governed core commands (2026-10-18): 31 cases in 518s; 32 cases on 2ed995a67 in 445s.
   // Keep the slower observed bound; wall timings include fixture startup and build-gate wait.
   'test:build-home-gantt': 518,
@@ -32,7 +32,8 @@ export const recordedSeconds = {
   'test:home-css-ci': 5,
   'test:admission': 1,
   'check:elk': 1,
-  'check:build-home-fixtures': 6,
+  // #3162 complete conversation corpus: 26 exporter tests + 29 URL goldens passed in 59s.
+  'check:build-home-fixtures': 60,
   'test:build-home-protocol': 1,
   'test:build-home-now-state': 1,
   'test:harness': 7,

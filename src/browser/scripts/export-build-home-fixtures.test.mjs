@@ -150,10 +150,10 @@ test('loader exposes what it is asked for', () => {
 });
 test('deterministic', t => {
   const a = exportTo(t), b = exportTo(t);
-  for (const f of Object.keys(buildAll())) assert.equal(readFileSync(join(a, f), 'utf8'), readFileSync(join(b, f), 'utf8'));
+  for (const f of Object.keys(files)) assert.equal(readFileSync(join(a, f), 'utf8'), readFileSync(join(b, f), 'utf8'));
 });
 test('trailing slash design paths preserve exported files and checks', t => {
-  assert.deepEqual(buildAll({ designDir: `${designDir}/` }), buildAll({ designDir }));
+  assert.deepEqual(buildAll({ designDir: `${designDir}/` }), files);
   // Existing CLI normalization is a control; the exported API assertion guards the fix.
   const dir = exportTo(t);
   const before = readFileSync(join(dir, 'manifest.json'), 'utf8');
