@@ -43,7 +43,7 @@ CI batches and landing require all ruleset checks on PR heads. Startup readiness
 
 Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework. With no required list, every failure still decides.
 
-User-cancelled CI runs get one exact-head rerun through the CI recovery journal; a still-failing rerun routes through the normal repair path. Landing watcher classifies failed groups from Actions logs and requeues approved PRs for infra, inherited, or known non-PR failures. Known tests match an open flake issue or base failure in 24h, and are untouched by the PR. Others route to rework with job/run details. It checks attribution and cancels stale groups.
+Canceled runs get one exact-head rerun through the recovery journal. Landing watcher requeues approved PRs for infrastructure, inherited-base, or known non-PR failures. It requeues tests linked to an open flake issue or base failure in 24h; other failures route to rework with job details. It checks attribution and cancels stale groups.
 
 The landing watcher quarantines a flaky test within 24 hours (caller `landing_watch_flake_gate` for the age check):
 

@@ -444,9 +444,6 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     end
   end
 
-  # Besides a rerun in flight, a transient error or an approved head whose
-  # landing state is unreadable holds red; other stops raise their attention
-  # and still route the failure, subject to the base gate (#5133).
   defp hold_result(result, %{"tests" => tests, "mode" => mode} = hold) do
     result = Map.put(result, :ci_recovery_tests, tests)
 
@@ -455,8 +452,6 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       else: held(result, hold["reason"])
   end
 
-  # A red head reaches rework only when the PR caused it; a check also red on
-  # the base, or with no base evidence, holds with one attention (#5133).
   defp base_gate(%{decision: :failed, head_sha: sha} = result, issue, entry, opts) do
     case BaseCause.classify(result, opts) do
       :caused_by_pr ->

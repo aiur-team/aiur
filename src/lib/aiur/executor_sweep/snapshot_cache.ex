@@ -240,8 +240,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       created_at: value(issue, "created_at", nil),
       updated_at: value(issue, "updated_at", nil),
       ci_wait_since: ci_wait_since(labels, Map.get(timelines, number), value(issue, "updated_at", nil)),
-      # Prefer the complete open-ticket projection; the issue row and embedded
-      # edge state are fallbacks when that listing cannot decide.
+      # Prefer complete open-ticket projection; issue/embedded edges are fallbacks.
       open_blocked_by: Enum.filter(blockers, &(blocker_state.(&1) == "open")),
       closed_blockers: blockers |> Enum.filter(&(blocker_state.(&1) == "closed")) |> Enum.map(&value(&1, "number", nil))
     }

@@ -1,10 +1,7 @@
 defmodule Aiur.ExecutorSweep.Checks do
-  @moduledoc """
-  Builds prioritized Executor sweep findings from already-observed daemon and
-  GitHub snapshot data. This module performs no I/O.
-  """
+  @moduledoc "Builds prioritized Executor sweep findings from observed daemon and GitHub snapshot data."
 
-  alias Aiur.ExecutorSweep.{FailureCause, StateLabels, TriageBacklog}
+  alias Aiur.ExecutorSweep.{FailureCause, StaleCiWait, StateLabels, TriageBacklog}
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
 
@@ -139,39 +136,7 @@ defmodule Aiur.ExecutorSweep.Checks do
     end)
   end
 
-  defp stale_ci_wait_prs(snapshot, now) do
-    waiting =
-      snapshot
-      |> Map.get(:tickets, [])
-      |> Enum.filter(&("ci-wait" in labels(&1)))
-      |> Map.new(&{value(&1, :number, nil), date(value(&1, :ci_wait_since, value(&1, :updated_at, nil)))})
-
-    snapshot
-    |> Map.get(:pull_requests, [])
-    |> Enum.flat_map(fn pr ->
-      issue_number = value(pr, :issue_number, nil)
-      age = age_ms(Map.get(waiting, issue_number), now)
-      required = value(pr, :required_checks, nil)
-      pending? = is_list(required) and Enum.any?(required, &(value(&1, :conclusion, nil) in [nil, "pending", "in_progress", "queued"]))
-
-      if Map.has_key?(waiting, issue_number) and value(pr, :state, "open") == "open" and value(pr, :ci_head_sha, nil) == value(pr, :head_sha, nil) and is_integer(age) and age > 2 * 60 * 60_000 and
-           is_list(required) and not pending? do
-        [
-          finding(
-            "stale_ci_wait_without_pending_checks",
-            2,
-            age,
-            "Inspect the current PR head and move the ticket to human-review or rework.",
-            "Ticket ##{issue_number} has been in ci-wait for #{duration(age)} with no pending required check.",
-            issue_number: issue_number,
-            pull_request: value(pr, :number, nil)
-          )
-        ]
-      else
-        []
-      end
-    end)
-  end
+  defp stale_ci_wait_prs(snapshot, now), do: StaleCiWait.findings(snapshot, now)
 
   defp approved_pr_findings(pr, base_checks) do
     failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
@@ -216,7 +181,6 @@ defmodule Aiur.ExecutorSweep.Checks do
     )
   end
 
-  # Approved heads whose automatic rerun waits behind the shared 3-per-15-minute cap, or that need a fresh merge ref.
   defp landing_rerun_backlog(snapshot, now) do
     snapshot
     |> Map.get(:landing_rerun_backlog, [])
