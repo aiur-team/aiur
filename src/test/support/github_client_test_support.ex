@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.ClientTestSupport do
   alias Aiur.GitHub.DispatchAuthorization
   alias Aiur.Workflow
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   def setup_client do
     prev_token = System.get_env("GITHUB_TOKEN")

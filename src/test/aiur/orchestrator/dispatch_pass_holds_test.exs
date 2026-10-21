@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{BoundedBlockedBy, CycleFetchCache, OpenIssueSnapshot, ResourceStore, Tracker}
+  alias Aiur.GitHub.{BoundedBlockedBy, BudgetBroker, CycleFetchCache, OpenIssueSnapshot, ResourceStore, Tracker}
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DispatchCandidates, Dispatcher, DispatchPolicy, State, TrackerTasks}
 
@@ -90,6 +90,59 @@ defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
     assert {:ok, %Issue{blocked_by: [%{identifier: "100"}]}} = Tracker.last_known_blocked_by(stale)
     assert Tracker.cached_blocked_by(stale) == {:error, :cache_miss}
     CycleFetchCache.end_cycle()
+  end
+
+  test "a broker timeout still dispatches with fresh cached dependency evidence" do
+    [ready] = tickets = [candidate(1, 1)]
+    ResourceStore.put_resource(ResourceStore.key(:issue_blocked_by, "owner", "repo", ready.id), [])
+    root = Aiur.TestSupport.tmp_root!("dispatch-broker-stall")
+    File.mkdir_p!(root)
+    broker = Path.join(root, "stalling-broker.py")
+
+    File.write!(broker, """
+    import json, os, sys, time
+    request = json.loads(sys.stdin.readline())
+    time.sleep(1)
+    try:
+        print(json.dumps({"id": request["id"], "output": "late", "status": 0}), flush=True)
+    except BrokenPipeError:
+        sys.stdout = open(os.devnull, "w")
+    for line in sys.stdin:
+        pass
+    """)
+
+    server = start_supervised!({BudgetBroker, name: :dispatch_stall_broker})
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+
+    pending =
+      Dispatcher.choose_issues(%State{snapshot_key: self(), max_concurrent_agents: 1, effective_concurrent_agents: 1}, tickets,
+        issue_fetcher: fn [_id] ->
+          assert :timeout = BudgetBroker.command(server, broker, [], System.monotonic_time(:millisecond) + 100)
+          {:error, {:github, :local_hold, %{reason: :github_budget_broker_timeout}}}
+        end,
+        runner: fn _issue, _, _ -> :ok end
+      )
+
+    final = apply_result(pending)
+    assert Map.has_key?(final.running, ready.id)
+    refute Map.has_key?(final.dispatch_declines, ready.id)
+  end
+
+  test "a broker timeout with stale dependency cache remains fail-closed" do
+    [candidate_issue] = tickets = [candidate(1, 1)]
+    cache_holds(tickets)
+    age(ResourceStore.key(:issue_blocked_by, "owner", "repo", candidate_issue.id))
+
+    pending =
+      Dispatcher.choose_issues(%State{snapshot_key: self(), max_concurrent_agents: 1, effective_concurrent_agents: 1}, tickets,
+        issue_fetcher: fn [_id] -> {:error, :github_budget_broker_timeout} end,
+        blocked_by_hydrator: fn _issue -> {:error, :cache_miss} end,
+        runner: fn _issue, _, _ -> :ok end
+      )
+
+    final = apply_result(pending)
+    refute Map.has_key?(final.running, candidate_issue.id)
+    assert final.dispatch_declines[candidate_issue.id] == :tracker_revalidation_failed
   end
 
   defp partition(issues), do: DispatchCandidates.partition(issues, DispatchPolicy.terminal_state_set())

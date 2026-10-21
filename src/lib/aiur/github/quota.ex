@@ -33,8 +33,8 @@ defmodule Aiur.GitHub.Quota do
 
   use GenServer
 
+  alias Aiur.GitHub.Access.Token
   alias Aiur.GitHub.Budget
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Credential
   alias Aiur.GitHub.CredentialRegistry
   alias Aiur.GitHub.{HoldSweep, RequestLog, RequestOrigin, Transport}
@@ -354,7 +354,7 @@ defmodule Aiur.GitHub.Quota do
   defp cancel_recovery_timer(_state), do: false
 
   defp refresh_from_github do
-    with token when is_binary(token) and token != "" <- GitHubConfig.token() do
+    with token when is_binary(token) and token != "" <- Token.token() do
       credential = CredentialRegistry.credentials() |> Enum.find(&(&1.primary? and Credential.token(&1) == token))
       credential_key = if credential, do: Credential.identity_key(credential), else: Budget.token_key(token)
 

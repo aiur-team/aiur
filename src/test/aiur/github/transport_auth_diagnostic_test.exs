@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.TransportAuthDiagnosticTest do
   alias Aiur.GitHub.{AppTokenRefresher, Config, Credential, Transport}
   alias Aiur.GitHub.Transport.AuthDiagnostic
 
-  @cache_key {Config, :resolved_token}
+  @cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @app_token_key {AppTokenRefresher, :installation_token}
   @transport_test_options_key :github_transport_test_options
   @selector_options_key :github_credential_selector_options
