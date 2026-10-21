@@ -3,9 +3,9 @@ defmodule Aiur.LandingWatch.PrRerun do
   Reruns an approved, not-landing PR's failed CI when the failure has a non-PR
   cause, and routes PR-caused failures to rework.
 
-  Each head action spends the per-head budget, and each workflow rerun spends
-  one shared automatic-requeue slot in the journal. A head deferred by the
-  shared cap stays in the journal's rerun backlog until a later poll reruns it.
+  Each head action spends the per-head budget, and each automatic requeue or
+  refresh spends one of four shared 15-minute slots in the journal. A head
+  deferred by the shared cap stays in the journal's rerun backlog until a later poll retries it.
   A head whose failure needs a fresh merge ref is never rerun; it gets GitHub's
   update-branch under the same budget and cap (#4930), unless the base changed
   the PR's own files; then it routes to rework so the worker retests the new
@@ -13,6 +13,7 @@ defmodule Aiur.LandingWatch.PrRerun do
   check; ordinary base movement is not a reason to update the branch.
   """
 
+  alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.{CIRecovery, Client}
   alias Aiur.LandingWatch
   alias Aiur.LandingWatch.{Journal, MergeGroupJournal, MergeGroupRunFetcher, PrRerunClassifier}
@@ -300,12 +301,28 @@ defmodule Aiur.LandingWatch.PrRerun do
   defp failed_checks(runs), do: for(run <- runs, run["conclusion"] in @rerun_conclusions, uniq: true, do: run["name"])
 
   defp apply_remedy(:refresh, observation, _failed, opts) do
-    case Keyword.get(opts, :update_branch_fun, &CIRecovery.update_branch/3).(observation.number, observation.head, opts) do
-      {:ok, _} -> :ok
+    with true <- approved_at_head?(observation),
+         {:ok, _response} <- Keyword.get(opts, :update_branch_fun, &CIRecovery.update_branch/3).(observation.number, observation.head, opts),
+         {:ok, refreshed} <- Keyword.get(opts, :observe_refresh_fun, &CIRecovery.observe/2).(observation.number, opts),
+         {:ok, :identical} <- classify_refreshed_contribution(observation, refreshed, opts) do
+      :ok
+    else
+      false -> {:error, :approval_not_on_observed_head}
+      {:ok, {:changed, evidence}} -> {:error, {:approval_not_carried, evidence}}
       {:error, _} = error -> error
       _ -> {:error, :update_branch_unconfirmed}
     end
   end
+
+  defp approved_at_head?(%{review_decision: "APPROVED", head: head, reviews: [%{"commit" => %{"oid" => head}} | _]}) when is_binary(head), do: true
+  defp approved_at_head?(_), do: false
+
+  defp classify_refreshed_contribution(observation, %{"headRefOid" => head}, opts) when is_binary(head) and head != "" do
+    classifier = Keyword.get(opts, :approval_carry_classifier, &GithubCIPoller.classify_contribution/4)
+    {:ok, classifier.(observation.head, head, observation.number, opts)}
+  end
+
+  defp classify_refreshed_contribution(_observation, _refreshed, _opts), do: {:error, :refreshed_head_unconfirmed}
 
   defp rerun_all(runs, opts) do
     Enum.reduce_while(runs, :ok, fn run, :ok ->

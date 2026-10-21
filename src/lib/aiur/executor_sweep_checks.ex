@@ -181,7 +181,7 @@ defmodule Aiur.ExecutorSweep.Checks do
     )
   end
 
-  # Approved heads whose automatic rerun waits behind the shared 3-per-15-minute cap, or that need a fresh merge ref.
+  # Approved heads whose automatic rerun waits behind the shared 4-per-15-minute cap, or that need a fresh merge ref.
   defp landing_rerun_backlog(snapshot, now) do
     snapshot
     |> Map.get(:landing_rerun_backlog, [])

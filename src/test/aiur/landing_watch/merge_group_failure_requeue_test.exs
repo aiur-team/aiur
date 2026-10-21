@@ -71,7 +71,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
     ]
 
     assert :ok = MergeGroups.cancel_stale([], options)
-    assert_received {:enqueue, "PR_17", "current"}
+    assert_receive {:enqueue, "PR_17", "current"}, 1_000
     assert :ok = MergeGroups.cancel_stale([], options)
     refute_received {:enqueue, _, _}
     File.rm(journal)
@@ -139,7 +139,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
 
     enqueued =
       for _ <- 1..4 do
-        assert_received {:enqueue, node, _}
+        assert_receive {:enqueue, node, _}, 1_000
         node
       end
 
