@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Exercise ci-soak.py selection and runners against a temp git repo and fake mix/node executables."""
+"""Exercise ci-soak.py selection and runners against a temp git repo and fake mix/node executables.
+
+Keep the CLI fixtures and behavior tests together because they verify one
+standalone runner across selection, ExUnit, and Playwright entry points.
+"""
 import importlib.util
 import json
 import os
