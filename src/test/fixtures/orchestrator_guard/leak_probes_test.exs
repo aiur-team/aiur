@@ -116,14 +116,6 @@ defmodule Aiur.JTestSupportDecisionStoreNeighbourTest do
 
   @moduletag :orchestrator_guard_probe
 
-  setup do
-    on_exit(fn ->
-      if is_nil(Process.whereis(Aiur.DecisionStore)) do
-        assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, Aiur.DecisionStore)
-      end
-    end)
-  end
-
   test "the guard reports which plain test left DecisionStore down" do
     assert is_nil(Process.whereis(Aiur.DecisionStore))
 
@@ -137,6 +129,20 @@ defmodule Aiur.HTestSupportPubSubTerminationProbeTest do
   use Aiur.TestSupport, async: false
 
   @moduletag :orchestrator_guard_probe
+
+  setup_all do
+    # The PubSub supervisor is first in Aiur.Supervisor's :rest_for_one tree.
+    # Recover downstream shared children after this module has exercised the
+    # normal per-test teardown, so its leak report remains observable without
+    # contaminating later probe modules or the nested suite's final check.
+    on_exit(fn ->
+      assert :ok = Aiur.TestSupport.ensure_runtime_children_running()
+      assert :ok = Aiur.TestSupport.RuntimeChildren.ensure_financial_data_running()
+      Aiur.TestSupport.OrchestratorGuard.restore_codeowners_baseline!()
+    end)
+
+    :ok
+  end
 
   test "a real registry-table loss is restored and reported" do
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Phoenix.PubSub.Supervisor)
