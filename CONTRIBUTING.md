@@ -86,6 +86,48 @@ instrumentation only, with no census CI enforcement or claimed saving.
   atomic writes) must have exactly one implementation; a second copy is a bug.
 - Prefer config access through `Aiur.Config` over ad-hoc environment reads.
 
+## Adding a harness adapter
+
+A harness needs an adapter and a registry entry; shared dispatch must stay
+independent of provider names. Use this checklist:
+
+1. Implement [`Aiur.CodingAgent.Backend`](src/lib/aiur/coding_agent/backend.ex):
+   `start_session/2`, `run_turn/4`, `stop_session/1`, `normalize_event/1`, and
+   `send_operator_message/2`. Follow its session, resume, and cleanup contracts.
+   `interrupt/1` is optional. The optional extension points `steer/3`,
+   `reply_native_question/3`, and `release_native_question/3` have reserved
+   signatures; export them only when supported, with reply and release paired.
+2. Add a provider definition under
+   [`coding_agent/providers/`](src/lib/aiur/coding_agent/providers/) and wire its
+   entry into [`Registry.entries/0`](src/lib/aiur/coding_agent/registry.ex), exposed
+   through `Aiur.CodingAgent.backends/0`. Supply required keys and supported
+   capabilities from `Backend.capabilities/0`, including a transcript module.
+   Use `:launch_telemetry` for launch preparation/revocation, `:display_tailer`
+   for display lifecycle (required with `:rc_display_tail`), and `:children` for
+   supervised harness services. Keep their contracts in the Backend typedoc.
+3. Declare non-derivable transport facts in the entry's `:delivery` map.
+   [`Aiur.Harness.Capabilities.delivery_primitives/1`](src/lib/aiur/harness/capabilities.ex)
+   derives the delivery descriptor from those facts, scheduling flags, and
+   callback exports; do not add provider-name branches or a second profile table.
+4. Expose the shared `Aiur.AgentTools` surface through
+   [`Catalog`](src/lib/aiur/agent_tools/catalog.ex) and
+   [`Dispatch`](src/lib/aiur/agent_tools/dispatch.ex); adapt the harness transport
+   to these tools rather than copying their catalog or handlers.
+5. Keep provider implementation details inside the harness component. Add its
+   source paths and trailing-dot namespace to `paths` and `private_namespaces`
+   in [`components/harness-adapters.json`](components/harness-adapters.json).
+   Outside callers use declared facades, never private adapter modules; add a
+   neutral callback or capability instead of an upward provider reference.
+   Run `python3 scripts/check-components.py` to check the boundary.
+6. Extend the [registry contract tests](src/test/aiur/coding_agent/registry_contract_test.exs)
+   and [delivery capability tests](src/test/aiur/harness/capabilities_test.exs)
+   for new contracts. Preserve the C1 `:r7_characterization` baseline and run
+   `mise exec -- mix test --only r7_characterization --max-cases 4` from `src/`
+   before and after the change, recording the non-zero count. For app-server
+   harnesses, extend the C5 [sibling protocol replay fixture](src/test/fixtures/aiur_claude/)
+   and its [adapter replay test](src/test/aiur/claude/protocol_fixture_test.exs)
+   to guard wire compatibility without requiring a live sibling checkout.
+
 ## Testing
 
 **Harness characterization suite:** From `src/`, run

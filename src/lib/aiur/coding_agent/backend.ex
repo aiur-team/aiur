@@ -14,6 +14,8 @@ defmodule Aiur.CodingAgent.Backend do
   declared capability in the registry entry (`t:capabilities/0`).
   Unknown backends fail loud in the registry accessors, never here.
 
+  See `CONTRIBUTING.md` § Adding a harness adapter for the contributor checklist.
+
   ## Session contract
 
   A session is the adapter-owned map returned by `c:start_session/2`
