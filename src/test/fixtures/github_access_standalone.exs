@@ -6,6 +6,13 @@ alias Aiur.GitHub.{Budget, BudgetBroker, ReadCache, ResourceStore}
 Application.load(:aiur)
 Application.ensure_all_started(:crypto)
 Application.ensure_all_started(:telemetry)
+Application.put_env(:aiur, :github_access_settings_provider, Aiur.GitHub.AccessSettings)
+Application.put_env(:aiur, :workflow_file_path, Path.join(root, "missing-workflow.yaml"))
+unconfigured = Aiur.GitHub.AccessSettings.settings()
+assert unconfigured.budget == %{}
+assert unconfigured.credentials == []
+assert unconfigured.repo == nil
+assert Settings.path(:probe_dir) == nil
 Application.put_env(:aiur, :github_access_settings_provider, StaticSettings)
 Application.put_env(:aiur, :github_access_settings, Settings.new(root, repo: "o/r", budget: %{stagger_ms: 0}))
 # Poison the domain paths: a forgotten Config.Paths read must fail the path assertion.

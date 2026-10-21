@@ -15,27 +15,46 @@ defmodule Aiur.GitHub.AccessSettings do
     config = safely(fn -> Config.settings!() end, nil)
     github = if config, do: config.tracker.github, else: %{}
     repo = safely(&GitHubConfig.repo/0, nil)
-    quota_dir = if is_binary(repo) and repo != "", do: Path.join(RepoBase.repo_path(repo), "github-quota")
 
     %Settings{
-      state_root: decision_root(),
-      budget_dir: budget_dir(),
+      state_root: &decision_root/0,
+      budget_dir: &budget_dir/0,
       budget_enabled?: Application.get_env(:aiur, :github_budget_enabled?, true),
       budget: if(is_struct(github), do: plain(github), else: %{}),
       repo: repo,
       app_account: get_in(plain(github), [:github_app, :account]),
       bot_account: Map.get(github, :bot_account),
       credentials: github |> Map.get(:credentials, []) |> Enum.reject(&(&1.enabled == false)) |> Enum.map(&credential/1),
-      quota_dir: quota_dir,
-      request_log_dir: if(Application.get_env(:aiur, :env) != :test, do: quota_dir),
-      resource_store_path: resource_store_path(),
-      probe_dir: safely(fn -> Config.workspace_root() |> Path.expand() |> Layout.issue_workspace_path("__github_quota_probe__") end, nil),
+      quota_dir: &quota_dir/0,
+      request_log_dir: &request_log_dir/0,
+      resource_store_path: &resource_store_path/0,
+      probe_dir: &probe_dir/0,
       cache: %{
         ttls: Application.get_env(:aiur, :github_read_cache_ttls, %{}),
         max_body_bytes: Application.get_env(:aiur, :github_resource_store_max_body_bytes)
       },
       broker_timeout: broker_timeout(config)
     }
+  end
+
+  defp quota_dir do
+    safely(
+      fn ->
+        case GitHubConfig.repo() do
+          repo when is_binary(repo) and repo != "" -> Path.join(RepoBase.repo_path(repo), "github-quota")
+          _ -> nil
+        end
+      end,
+      nil
+    )
+  end
+
+  defp request_log_dir do
+    if Application.get_env(:aiur, :env) != :test, do: quota_dir()
+  end
+
+  defp probe_dir do
+    safely(fn -> Config.workspace_root() |> Path.expand() |> Layout.issue_workspace_path("__github_quota_probe__") end, nil)
   end
 
   defp budget_dir do

@@ -255,7 +255,7 @@ defmodule Aiur.GitHub.ResourceStore.Persistence do
         path
 
       :error ->
-        Settings.current().resource_store_path
+        Settings.path(:resource_store_path)
     end
   end
 end

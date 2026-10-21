@@ -23,6 +23,16 @@ defmodule Aiur.GitHub.Access.Settings do
   ]
 
   @type t :: %__MODULE__{}
+  @type path_field :: :state_root | :budget_dir | :quota_dir | :request_log_dir | :resource_store_path | :probe_dir
+
+  @doc "Resolve a path only when its consumer needs it; providers may supply zero-arity resolvers."
+  @spec path(path_field()) :: Path.t() | nil
+  def path(field) do
+    case Map.fetch!(current(), field) do
+      resolve when is_function(resolve, 0) -> resolve.()
+      value -> value
+    end
+  end
 
   @doc "Build standalone settings with every durable path beneath the given root."
   @spec new(Path.t(), keyword()) :: t()

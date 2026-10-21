@@ -1,7 +1,9 @@
 defmodule Aiur.GitHub.AccessSettingsTest do
   use Aiur.TestSupport
 
+  alias Aiur.Config.Paths
   alias Aiur.GitHub.{AccessSettings, Budget, CredentialRegistry, RequestLog}
+  alias Aiur.GitHub.ReadCache.Policy, as: CachePolicy
   alias Aiur.GitHub.Quota.{ShellObservations, Windows}
   alias Aiur.GitHub.ResourceStore.Persistence
   alias Aiur.TestSupport.WorkflowFiles
@@ -92,5 +94,39 @@ defmodule Aiur.GitHub.AccessSettingsTest do
       assert :ok = WorkflowStore.force_reload()
       assert Budget.guard_settings().daemon_core_limit_per_hour == limit
     end
+  end
+
+  test "scalar cache and budget reads do not resolve durable filesystem paths" do
+    parent = self()
+    paths_call = {Paths, :decision_state_dir, 0}
+    Code.ensure_loaded!(Paths)
+    :erlang.trace_pattern(paths_call, true, [:local])
+
+    worker =
+      spawn(fn ->
+        receive do
+          :read ->
+            CachePolicy.ttl_ms(:issue)
+            send(parent, {:read_done, self(), Budget.guard_settings()})
+
+            receive do
+              :stop -> :ok
+            end
+        end
+      end)
+
+    on_exit(fn ->
+      :erlang.trace_pattern(paths_call, false, [:local])
+      if Process.alive?(worker), do: Process.exit(worker, :kill)
+    end)
+
+    :erlang.trace(worker, true, [:call, {:tracer, self()}])
+    send(worker, :read)
+    receive_barrier({:read_done, ^worker, settings})
+    barrier = :erlang.trace_delivered(worker)
+    receive_barrier({:trace_delivered, ^worker, ^barrier})
+    assert settings.daemon_core_limit_per_hour == 3000
+    refute_received {:trace, ^worker, :call, {Paths, :decision_state_dir, []}}
+    send(worker, :stop)
   end
 end

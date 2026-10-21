@@ -363,7 +363,7 @@ defmodule Aiur.GitHub.Quota.Windows do
 
   @spec default_hold_dir() :: String.t() | nil
   def default_hold_dir do
-    Settings.current().quota_dir
+    Settings.path(:quota_dir)
   rescue
     _unavailable -> nil
   end
