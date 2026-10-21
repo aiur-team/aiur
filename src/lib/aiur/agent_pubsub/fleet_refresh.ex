@@ -21,6 +21,7 @@ defmodule Aiur.AgentPubSub.FleetRefresh do
 
   @spec reset_projection_signatures(:running | :poll_state) :: :ok
   def reset_projection_signatures(key) when key in [:running, :poll_state] do
+    # Make the next unchanged projection reach a newly joined subscriber.
     :ets.match_delete(__MODULE__, {{:publisher, :_, key}, :_})
     :ok
   rescue

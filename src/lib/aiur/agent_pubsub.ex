@@ -42,22 +42,11 @@ defmodule Aiur.AgentPubSub do
   end
 
   @spec subscribe_running() :: :ok | {:error, term()}
-  def subscribe_running do
-    result = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic())
-    FleetRefresh.reset_projection_signatures(:running)
-    result
-  end
+  defdelegate subscribe_running(), to: Aiur.AgentPubSub.FleetSubscriptions
 
   @doc "Payload-free fleet invalidations for consumers that read the published snapshot."
   @spec subscribe_fleet_refresh(:atomics.atomics_ref()) :: :ok | {:error, term()}
-  def subscribe_fleet_refresh(latch) do
-    :ok = FleetRefresh.register(self())
-    :ok = FleetRefresh.reset_projection_signatures(:running)
-    opts = [metadata: {:fleet_refresh, latch}]
-    :ok = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic(), opts)
-    :ok = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic(), opts)
-    Phoenix.PubSub.subscribe(@pubsub, @fleet_refresh_topic, opts)
-  end
+  defdelegate subscribe_fleet_refresh(latch), to: Aiur.AgentPubSub.FleetSubscriptions
 
   @doc "Subscribes to payload-free fleet invalidations without running or status events."
   @spec subscribe_fleet_invalidation() :: :ok | {:error, term()}
@@ -74,11 +63,7 @@ defmodule Aiur.AgentPubSub do
   def subscribe_status, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic())
 
   @spec subscribe_poll_state(GenServer.server()) :: :ok | {:error, term()}
-  def subscribe_poll_state(pubsub \\ @pubsub) do
-    result = Phoenix.PubSub.subscribe(pubsub, AgentEvents.poll_state_topic())
-    FleetRefresh.reset_projection_signatures(:poll_state)
-    result
-  end
+  defdelegate subscribe_poll_state(pubsub \\ @pubsub), to: Aiur.AgentPubSub.FleetSubscriptions
 
   @doc """
   Broadcasts poll progress and the absolute next-poll deadline for AgentList.
