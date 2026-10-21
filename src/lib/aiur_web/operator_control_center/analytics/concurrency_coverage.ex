@@ -12,6 +12,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverage do
   # Occupancy is fleet-wide, so a Build Order scope legitimately samples fewer agents.
   def partial_reason(_model, %{kind: :build_order}), do: nil
 
+  def partial_reason(%{kpis: %{peak_conc: 0}, pressure: %{peak_occupied: nil}}, _scope),
+    do: "no fleet-capacity or agent samples in this window"
+
   def partial_reason(%{kpis: %{peak_conc: peak}, pressure: %{peak_occupied: occupied}}, _scope)
       when is_number(occupied) and occupied > peak,
       do: "partial: #{occupied - peak} of #{occupied} occupied slots not seen as active"
@@ -22,6 +25,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverage do
   @spec unknown?(map(), term()) :: boolean()
   def unknown?(%{kpis: %{peak_conc: peak}} = model, scope), do: peak == 0 and partial_reason(model, scope) != nil
 
+  @spec chart_unknown_label(map(), term()) :: String.t()
+  def chart_unknown_label(model, scope) do
+    case partial_reason(model, scope) do
+      "no fleet-capacity or agent samples in this window" = reason -> "Concurrency unknown: #{reason}."
+      _reason -> "Concurrency unknown: no active agents were sampled."
+    end
+  end
+
   @spec tile(map(), term(), String.t()) :: %{val: term(), sub: String.t()}
   def tile(%{kpis: %{peak_conc: peak}} = model, scope, sub) do
     case partial_reason(model, scope) do
@@ -30,7 +41,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverage do
 
       reason ->
         val = if unknown?(model, scope), do: "unknown", else: peak
-        %{val: val, sub: "#{reason}; #{sub}"}
+        cores = if reason == "no fleet-capacity or agent samples in this window", do: core_suffix(model), else: ""
+        %{val: val, sub: "#{reason}; #{sub}#{cores}"}
     end
   end
 
@@ -38,10 +50,17 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverage do
   @spec utilization(map(), term(), String.t()) :: %{val: term(), sub: String.t()}
   def utilization(%{kpis: %{mean_util_pct: pct}} = model, scope, sub) do
     case partial_reason(model, scope) do
-      nil -> %{val: "#{pct}%", sub: sub}
-      reason -> %{val: if(unknown?(model, scope), do: "unknown", else: "#{pct}%"), sub: reason}
+      nil ->
+        %{val: "#{pct}%", sub: sub}
+
+      reason ->
+        suffix = if reason == "no fleet-capacity or agent samples in this window", do: "; #{sub}", else: ""
+        %{val: if(unknown?(model, scope), do: "unknown", else: "#{pct}%"), sub: "#{reason}#{suffix}"}
     end
   end
+
+  defp core_suffix(%{cores: cores}) when is_integer(cores), do: "; of #{cores} cores"
+  defp core_suffix(_model), do: ""
 
   @doc """
   Sets `conc` to nil for every bucket where the daemon reports occupied slots
