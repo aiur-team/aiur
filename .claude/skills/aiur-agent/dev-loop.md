@@ -360,10 +360,14 @@ The Elixir examples below apply only to Aiur's Elixir core.
    unchanged; if it differs, PATCH only the PR's `base` through GitHub's pull
    request REST endpoint, then re-fetch and verify `baseRefName`. Stop with the
    observed branch, expected branch, and repair error if verification fails.
-9. **Own integration safety before review:** during `human-review` or
-   `ci-wait`, integrate only when GitHub reports the exact PR head as
-   `CONFLICTING` or a reviewer asks. File overlap and base movement alone do
-   not require a push; the merge queue tests the PR on current base.
+9. **Own integration safety:** while a PR is open and waiting for CI, review,
+   or the merge queue, do not merge/rebase the integration branch just because
+   it moved, files overlap, a check failed, or a freshness check says the head
+   is behind. The merge queue tests each PR on current base. Integrate only
+   when GitHub reports the exact PR head as `CONFLICTING`, a reviewer asks, or
+   a newer base commit is identified as fixing a failing check (name that
+   commit in the PR comment). File overlap and base movement alone do not
+   require a push.
 10. **Self-review the draft PR with `ce-code-review`** against the diff you just
     pushed. A missing doc that the threshold above required is a review finding —
     fix it here, not in a follow-up ticket.
@@ -374,9 +378,10 @@ The Elixir examples below apply only to Aiur's Elixir core.
     verify the PR's `baseRefName` equals `AIUR_BASE_BRANCH` and its
     `headRefOid` equals your local `HEAD`. For a `human-review` or `ci-wait`
     handoff, integrate the configured base only when GitHub reports the exact
-    PR head as `CONFLICTING` or a reviewer asks. File overlap, base movement,
-    ancestry, and local path comparisons do not require a push: the merge queue
-    tests the PR on current base. A non-`CONFLICTING` head permits handoff
+    PR head as `CONFLICTING`, a reviewer asks, or a newer base commit is
+    identified as fixing a failing check (name it in the PR comment). File
+    overlap, base movement, ancestry, and local path comparisons do not require
+    a push: the merge queue tests the PR on current base. A non-`CONFLICTING` head permits handoff
     without a base merge; unavailable or mismatched GitHub evidence remains
     fail-closed in the state writer.
 
