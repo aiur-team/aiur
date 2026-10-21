@@ -92,12 +92,15 @@ class MergeGroupSelectionTest(unittest.TestCase):
                 git.write_text('#!/usr/bin/env python3\nprint("src/test/changed_test.exs")\n')
                 git.chmod(0o755)
                 guard = root / 'guard.py'
-                guard.write_text('import sys\nsys.exit(1)\n')
+                guard.write_text('import os, pathlib, sys\npathlib.Path(os.environ["AIUR_TIME_BOMB_COUNT_FILE"]).write_text("1")\nsys.exit(1)\n')
+                summary = root / 'summary.md'
                 result = subprocess.run([sys.executable, str(SCRIPT), 'base-sha'], capture_output=True,
                                         env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
                                                  GITHUB_EVENT_NAME='merge_group',
-                                                 AIUR_TIME_BOMB_CHECK=str(guard)))
+                                                 AIUR_TIME_BOMB_CHECK=str(guard),
+                                                 GITHUB_STEP_SUMMARY=str(summary)))
                 self.assertNotEqual(result.returncode, 0)
+                self.assertRegex(summary.read_text(), r'merge-group time-bomb rerun: 1 dated test files, [0-9.]+s')
 
 
 

@@ -52,26 +52,32 @@ def run_merge_group_time_bombs(selected):
     started = time.monotonic()
     label = 'merge-group time-bomb rerun'
     timed_out = False
+    failed = False
     with tempfile.TemporaryDirectory(prefix='aiur-time-bomb-count-') as temp_dir:
         count_file = Path(temp_dir) / 'count'
         child_env = dict(os.environ, AIUR_TIME_BOMB_COUNT_FILE=str(count_file))
         try:
-            subprocess.run([sys.executable, TIME_BOMB_CHECK, *selected], check=True,
-                           timeout=TIME_BOMB_TIMEOUT_SECONDS, env=child_env)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-        elapsed = time.monotonic() - started
-        file_count = count_file.read_text(encoding='utf-8') if count_file.exists() else 'unknown'
-        report = f'{label}: {file_count} dated test files, {elapsed:.1f}s'
-        if timed_out:
-            report += f' (stopped at its {TIME_BOMB_TIMEOUT_SECONDS:g}s budget)'
-            print(f'::warning::affected-tests {report}', file=sys.stderr, flush=True)
-        else:
-            print(f'::notice::affected-tests {label} duration: {elapsed:.1f}s', file=sys.stderr, flush=True)
-        summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
-        if summary_path:
-            with open(summary_path, 'a', encoding='utf-8') as summary:
-                summary.write(f'{report}\n')
+            try:
+                subprocess.run([sys.executable, TIME_BOMB_CHECK, *selected], check=True,
+                               timeout=TIME_BOMB_TIMEOUT_SECONDS, env=child_env)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+            except subprocess.CalledProcessError:
+                failed = True
+                raise
+        finally:
+            elapsed = time.monotonic() - started
+            file_count = count_file.read_text(encoding='utf-8') if count_file.exists() else 'unknown'
+            report = f'{label}: {file_count} dated test files, {elapsed:.1f}s'
+            if timed_out:
+                report += f' (stopped at its {TIME_BOMB_TIMEOUT_SECONDS:g}s budget)'
+                print(f'::warning::affected-tests {report}', file=sys.stderr, flush=True)
+            elif not failed:
+                print(f'::notice::affected-tests {label} duration: {elapsed:.1f}s', file=sys.stderr, flush=True)
+            summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+            if summary_path:
+                with open(summary_path, 'a', encoding='utf-8') as summary:
+                    summary.write(f'{report}\n')
 
 
 def merge_group_changed_paths(base):
