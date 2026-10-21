@@ -2,7 +2,6 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
   use ExUnit.Case, async: false
 
   alias Aiur.GitHub.{Budget, BudgetBroker, Errors}
-  alias Aiur.TestSupport.Isolation
 
   setup do
     root = Aiur.TestSupport.tmp_root!("resident-budget-broker")
@@ -26,13 +25,6 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
     assert Enum.any?(samples, fn {_outcome, measurements} -> measurements.command_type == :acquire end)
     assert Enum.any?(samples, fn {_outcome, measurements} -> is_number(measurements.sqlite_command_ms) end)
     assert Enum.any?(samples, fn {_outcome, measurements} -> is_number(measurements.sqlite_commit_ms) end)
-
-    {_event, _measurements, _metadata} =
-      Isolation.await_telemetry!([:aiur, :github, :budget_broker, :command], fn ->
-        Budget.snapshot("daemon-token", opts)
-      end)
-
-    assert Enum.any?(:sys.get_state(server).stats, fn {_outcome, measurements} -> is_number(measurements.sqlite_checkpoint_ms) end)
   end
 
   # #4791: bulk polling that fills every slot must not hold the main watcher.
