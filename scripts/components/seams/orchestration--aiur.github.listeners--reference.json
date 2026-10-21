@@ -3,10 +3,11 @@
   "to_module": "Aiur.GitHub.Listeners",
   "kind": "reference",
   "only_paths": [
+    "src/lib/aiur/orchestrator/command_polling.ex",
     "src/lib/aiur/orchestrator/comment_polling_state.ex",
     "src/lib/aiur/orchestrator/firehose_polling.ex",
     "src/lib/aiur/orchestrator/lifecycle.ex",
     "src/lib/aiur/orchestrator/tracker_health.ex"
   ],
-  "reason": "#3327 preserve dispatch order, connectivity backoff updates, and restart cursor reset through the optional listener facade"
+  "reason": "#3328 preserve asynchronous command scanning alongside dispatch order, connectivity backoff, and restart cursor reset through the optional listener facade"
 }

@@ -4,6 +4,7 @@ defmodule Aiur.GitHub.Listeners.Comments.TargetSelection.HumanReview do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Listeners.Comments.Cursor
   alias Aiur.GitHub.Listeners.Comments.TargetSelection
+  alias Aiur.GitHub.LocalHold
   alias Aiur.Issue
   alias Aiur.Tracker
   @human_review_comment_targets_per_poll 25
@@ -177,7 +178,7 @@ defmodule Aiur.GitHub.Listeners.Comments.TargetSelection.HumanReview do
   defp with_human_review_pr_updated_at(%{target: target} = entry, opts) do
     fetcher = human_review_pr_fetcher(opts)
 
-    case fetcher.(target) do
+    case LocalHold.run(fn -> fetcher.(target) end, LocalHold.caller_opts(opts)) do
       {:ok, pr} when is_map(pr) ->
         pr_updated_at =
           pr

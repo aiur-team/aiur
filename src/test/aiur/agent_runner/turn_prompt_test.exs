@@ -39,6 +39,17 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
   end
 
   describe "build_turn_prompt/4" do
+    test "review and CI handoffs do not receive routine base-merge instructions" do
+      for state <- ["human-review", "ci-wait"] do
+        prompt = TurnPrompt.build_turn_prompt(%Issue{id: "5237", identifier: "5237", title: "Review handoff", state: state}, [], 1, nil)
+
+        normalized = String.replace(prompt, ~r/\s+/, " ")
+        assert normalized =~ "do not merge or rebase `$AIUR_BASE_BRANCH`"
+        assert normalized =~ "only when GitHub reports the PR `CONFLICTING`"
+        assert normalized =~ "In `rework`, follow the reviewer’s request"
+      end
+    end
+
     test "turn one prior_work recycle gets continuation guidance plus the ticket contract" do
       issue = %Issue{id: "1091", identifier: "1091", title: "Fetch graph", state: "in-progress"}
 

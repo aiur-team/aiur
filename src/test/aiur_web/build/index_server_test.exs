@@ -93,6 +93,65 @@ defmodule AiurWeb.Build.IndexServerTest do
     refute_received {:trace, _, :call, {:persistent_term, :put, _}}
   end
 
+  test "consecutive now failures back off exponentially and recover without another signal" do
+    parent = self()
+    initial = parts()
+    recovered = put_in(initial, [:now, :rows], %{"12" => now_row(12)})
+
+    pid =
+      start_supervised!(
+        {Index,
+         name: nil,
+         subscribe: fn -> :ok end,
+         read: fn
+           :all, _previous, _opts ->
+             initial
+
+           dirty, _previous, _opts ->
+             send(parent, {:retry_read, self(), dirty})
+             receive(do: ({:return, value} -> value))
+         end,
+         timer: fn server, message, ms ->
+           send(parent, {:retry_timer, server, message, ms})
+           make_ref()
+         end,
+         daemon_timer: fn _, _, _ -> make_ref() end,
+         daemon_read: fn _ -> %{state: "live", heartbeat_at: 1, observed_at: 2} end,
+         clock: &now/0},
+        id: :now_retry_index
+      )
+
+    assert {:ok, _} = Index.window(pid, "Etc/UTC")
+    send(pid, {:ticket_activity_changed, %{}})
+    :sys.get_state(pid)
+    assert_receive {:retry_timer, ^pid, :flush, 250}, 1_000
+    send(pid, :flush)
+    receive_barrier({:retry_read, worker, dirty})
+    assert MapSet.member?(dirty, :now)
+
+    Enum.reduce([500, 1_000, 2_000, 4_000, 8_000, 16_000], worker, fn expected_delay, read_worker ->
+      send(read_worker, {:return, %{initial | now: {:error, :running_snapshot_timeout}}})
+      assert await_read_finish(pid, 100)
+      assert_receive {:retry_timer, ^pid, :flush, ^expected_delay}, 1_000
+
+      if expected_delay != 16_000 do
+        send(pid, :flush)
+        receive_barrier({:retry_read, retry_worker, retry_dirty})
+        assert retry_dirty == MapSet.new([:now])
+        retry_worker
+      end
+    end)
+
+    send(pid, :flush)
+    receive_barrier({:retry_read, retry_worker, retry_dirty})
+    assert retry_dirty == MapSet.new([:now])
+    send(retry_worker, {:return, recovered})
+    assert await_read_finish(pid, 100)
+    assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
+    assert Enum.map(snapshot.sections.now, & &1.id) == ["12"]
+    refute_received {:retry_timer, ^pid, :flush, _delay}
+  end
+
   test "a mount cuts its window in the caller, not in the shared server", %{pid: pid} do
     mfa = {Aiur.BuildOrder.Index.Pages, :window, 3}
     :erlang.trace(pid, true, [:call])

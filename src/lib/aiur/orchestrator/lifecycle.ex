@@ -129,7 +129,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       # `--max-agents N` at launch: seed the session override (highest
       # precedence; `refresh_runtime_config/1` never clobbers it) so the cap
       # holds without editing `.aiur/config`.
-      session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override(),
+      session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override() || control_lifecycle.max_agents,
       # `--pause` at launch: cold-start globally paused so no agents provision
       # even with agent:todo tickets, until the operator unpauses.
       globally_paused: global_pause.globally_paused,

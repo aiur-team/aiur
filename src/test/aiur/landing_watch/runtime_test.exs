@@ -1,5 +1,6 @@
 defmodule Aiur.LandingWatch.RuntimeTest do
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog
 
   alias Aiur.LandingWatch
   alias Aiur.LandingWatch.Journal
@@ -20,6 +21,33 @@ defmodule Aiur.LandingWatch.RuntimeTest do
     assert_received {:seen, 1}
     assert_received {:seen, 2}
     assert {:error, :invalid_observations} = LandingWatch.poll(observe_fun: fn _ -> :bad end)
+  end
+
+  test "poll waits through an expired shared-budget hold and retries the observation" do
+    parent = self()
+    reset_at = DateTime.add(DateTime.utc_now(), -1, :second)
+    hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+    failure = {:error, {:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}}
+
+    log =
+      capture_log(fn ->
+        assert :ok =
+                 LandingWatch.poll(
+                   observe_fun: fn _ ->
+                     attempt = Process.get(:landing_watch_poll_attempt, 0)
+                     Process.put(:landing_watch_poll_attempt, attempt + 1)
+                     send(parent, {:poll_attempt, attempt})
+                     if attempt == 0, do: failure, else: {:ok, []}
+                   end,
+                   queue_reconcile_fun: fn _, _ -> :ok end,
+                   local_hold_sleep_fun: fn _ms -> flunk("an expired hold must retry without sleeping") end
+                 )
+      end)
+
+    refute log =~ "landing watcher poll unavailable"
+    assert_received {:poll_attempt, 0}
+    assert_received {:poll_attempt, 1}
+    refute_received {:poll_attempt, _}
   end
 
   test "approved human-review PR reruns gate failure caused by cancelled upstream jobs" do

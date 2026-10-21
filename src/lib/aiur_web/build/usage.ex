@@ -35,10 +35,24 @@ defmodule AiurWeb.Build.Usage do
     meters = isolated(fn -> meter_read(source, context, opts) end, %{})
     accounts = isolated(Keyword.get(opts, :accounts_fun, &account_readings/0), %{})
     durable = isolated(fn -> Map.new(families, &{&1, durable(&1, Keyword.get(opts, :durable_path, ModelAvailability.path()))}) end, %{})
-    # The quota server also handles every GitHub observation; when it is busy only this chip degrades, not the build snapshot.
-    github = isolated(fn -> {:ok, GitHubQuota.snapshot!(Keyword.get(opts, :github_server, GitHubQuota), Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
+    # Prefer the Units page's recent snapshot so this strip never queues behind GitHub observations.
+    {github, github_snapshot_observed_at} = github_snapshot(opts)
     elevenlabs = isolated(fn -> ElevenLabsQuota.snapshot(Keyword.get(opts, :elevenlabs_server, ElevenLabsQuota)) end, %{state: :unconfigured})
-    %{families: families, meters: meters, accounts: accounts, durable: durable, github: github, elevenlabs: elevenlabs}
+    %{families: families, meters: meters, accounts: accounts, durable: durable, github: github, github_snapshot_observed_at: github_snapshot_observed_at, elevenlabs: elevenlabs}
+  end
+
+  defp github_snapshot(opts) do
+    server = Keyword.get(opts, :github_server, GitHubQuota)
+    now_ms = Keyword.get(opts, :github_cache_now_ms, System.monotonic_time(:millisecond))
+
+    case GitHubQuota.cached_snapshot_at(server, Keyword.get(opts, :github_cache_max_age, 60_000), now_ms) do
+      {:ok, snapshot, _age_ms, observed_at_ms} ->
+        {{:ok, snapshot}, observed_at_ms}
+
+      :miss ->
+        github = isolated(fn -> {:ok, GitHubQuota.snapshot!(server, Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
+        {github, if(match?({:ok, _}, github), do: System.system_time(:millisecond))}
+    end
   end
 
   defp meter_read(source, context, opts) do
@@ -96,14 +110,31 @@ defmodule AiurWeb.Build.Usage do
   def block({:ok, _}, inputs, now) do
     cards = ProviderMetersPresenter.present(%{state: :authorized}, inputs.meters, %{}).cards
     providers = for family <- order_families(inputs.families), card = Enum.find(cards, &(&1.provider == family)), card != nil, do: provider(card, inputs, ms(now))
-    apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now))
+    apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now), Map.get(inputs, :github_snapshot_observed_at))
     %{state: "authorized", observed_at: latest(Enum.map(providers ++ apis, & &1.observed_at)), apis: apis, providers: providers}
   end
 
   @doc false
   @spec row(String.t()) :: map()
   def row(name),
-    do: %{name: name, logo: nil, mono: nil, hue: nil, tag: nil, accounts: nil, session: nil, weekly: nil, credits: nil, none: false, lines: nil, icon: nil, stale: false, observed_at: nil, note: nil}
+    do: %{
+      name: name,
+      logo: nil,
+      mono: nil,
+      hue: nil,
+      tag: nil,
+      accounts: nil,
+      session: nil,
+      weekly: nil,
+      credits: nil,
+      none: false,
+      lines: nil,
+      icon: nil,
+      stale: false,
+      observed_at: nil,
+      snapshot_observed_at: nil,
+      note: nil
+    }
 
   defp provider(card, inputs, now) do
     logo = if card.provider in @logos, do: Atom.to_string(card.provider)

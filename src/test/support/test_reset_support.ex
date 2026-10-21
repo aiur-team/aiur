@@ -5,21 +5,27 @@ defmodule Aiur.TestResetSupport do
 
   using do
     quote do
-      import Aiur.TestResetSupport, only: [with_env: 2, write_reset_fixture!: 1, write_reset_fixture!: 2]
+      import Aiur.TestResetSupport,
+        only: [with_env: 2, reset_tmp_root!: 1, write_reset_fixture!: 1, write_reset_fixture!: 2]
     end
   end
 
   setup do
-    tmp_dir = Aiur.TestSupport.tmp_root!("aiur_test_reset")
-    File.mkdir_p!(tmp_dir)
-
+    original_tmpdir = System.get_env("TMPDIR")
+    isolated_tmpdir = reset_fixture_root!()
+    File.mkdir_p!(isolated_tmpdir)
     previous_agent_workspace = System.get_env("AIUR_AGENT_WORKSPACE")
     previous_agent_ir_sandbox = System.get_env("AIUR_AGENT_IR_SANDBOX")
+    System.put_env("TMPDIR", isolated_tmpdir)
     System.delete_env("AIUR_AGENT_WORKSPACE")
     System.delete_env("AIUR_AGENT_IR_SANDBOX")
+    tmp_dir = reset_tmp_root!("aiur_test_reset")
+    File.mkdir_p!(tmp_dir)
 
     on_exit(fn ->
       Aiur.TestCleanup.rm_rf!(tmp_dir)
+      Aiur.TestCleanup.rm_rf!(isolated_tmpdir)
+      restore_system_env("TMPDIR", original_tmpdir)
       restore_system_env("AIUR_AGENT_WORKSPACE", previous_agent_workspace)
       restore_system_env("AIUR_AGENT_IR_SANDBOX", previous_agent_ir_sandbox)
     end)
@@ -47,6 +53,28 @@ defmodule Aiur.TestResetSupport do
 
   defp restore_system_env(key, nil), do: System.delete_env(key)
   defp restore_system_env(key, value), do: System.put_env(key, value)
+
+  def reset_tmp_root!(prefix) do
+    Path.join(
+      System.tmp_dir!(),
+      "#{prefix}-#{System.pid()}-#{System.unique_integer([:positive])}"
+    )
+  end
+
+  defp reset_fixture_root! do
+    if System.get_env("AIUR_AGENT_WORKSPACE") ||
+         String.contains?(System.tmp_dir!(), "/aiur-workspaces/") do
+      Path.join(
+        "/tmp",
+        "aiur-reset-fixtures-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
+    else
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-reset-fixtures-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
+    end
+  end
 
   def write_reset_fixture!(tmp, tickets \\ [101, 102, 103]) do
     File.mkdir_p!(Path.join(tmp, "src/lib/aiur/sandbox"))

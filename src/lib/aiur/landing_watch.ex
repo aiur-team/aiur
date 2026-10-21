@@ -6,8 +6,9 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, MergeGroups, Observer, PrRerun}
+  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, Journal, LocalRead, MergeGroups, MergeQueueWatchdog, Observer, PrRerun}
   alias Aiur.LandingWatch.RecoveryRuntime
+  alias Aiur.LandingWatch.TicketLookup
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.PrMerge.Queue
   alias Aiur.TicketBranch
@@ -117,8 +118,10 @@ defmodule Aiur.LandingWatch do
 
   @doc false
   @spec poll(keyword()) :: :ok | {:error, term()}
-  def poll(opts \\ []) do
-    case Keyword.get(opts, :observe_fun, &Observer.observe/1).(opts) do
+  def poll(opts \\ []), do: poll_once(opts)
+
+  defp poll_once(opts) do
+    case LocalRead.run(Keyword.get(opts, :observe_fun, &Observer.observe/1), [opts], opts) do
       {:ok, observations} when is_list(observations) -> poll_observations(observations, opts)
       {:error, _} = error -> error
       _ -> {:error, :invalid_observations}
@@ -146,7 +149,7 @@ defmodule Aiur.LandingWatch do
     opts = poll_required_checks(observations, opts)
     result = process_all(observations, opts)
     reconcile = Keyword.get(opts, :queue_reconcile_fun, &MergeGroups.cancel_stale/2).(observations, opts)
-    if result == :ok, do: reconcile, else: result
+    MergeQueueWatchdog.after_reconcile(result, reconcile, observations, opts)
   end
 
   defp process_all(observations, opts) do
@@ -170,12 +173,18 @@ defmodule Aiur.LandingWatch do
     required_checks = Keyword.get(opts, :required_checks_fun, &CiReadiness.fetch_required_checks/1)
     ci_status = Keyword.get(opts, :ci_status_fun, &Client.fetch_commit_ci_status/2)
     required_result = Keyword.get(opts, :required_checks_snapshot, :not_fetched)
-    required_result = if required_result == :not_fetched, do: required_checks.(opts), else: required_result
+    required_result = if required_result == :not_fetched, do: LocalRead.run(required_checks, [opts], opts), else: required_result
+
+    conflict_queue_persistent? = ConflictRouting.persistent_queue_conflict?(observation, opts)
+    observation = Map.put(observation, :conflict_queue_persistent?, conflict_queue_persistent?)
+    observation = if conflict_queue_persistent?, do: Map.put(observation, :conflicting_queue_prs, ConflictRouting.queue_prs_ahead(observation, opts)), else: observation
 
     with true <- Classifier.approved_at_head?(raw),
-         {:ok, true} <- current_approval.(number, opts),
+         {:ok, true} <- LocalRead.run(current_approval, [number, opts], opts),
+         # A conflict blocks landing whatever CI says, queued or not (#4729).
+         false <- ConflictRouting.conflicting?(observation),
          {:ok, required} <- required_result,
-         {:ok, %{check_runs: runs, commit_status: commit_status}} <- ci_status.(head, opts) do
+         {:ok, %{check_runs: runs, commit_status: commit_status}} <- LocalRead.run(ci_status, [head, opts], opts) do
       result = Classifier.ci_verdict(runs, commit_status, %{"head" => %{"sha" => head}, "draft" => Map.get(raw, "isDraft")}, required_checks: {:ok, required})
 
       with {:ok, runs} <- hydrate_failed_jobs(runs, opts) do
@@ -184,6 +193,7 @@ defmodule Aiur.LandingWatch do
     else
       {:ok, false} -> :ok
       false -> :ok
+      true -> ConflictRouting.route(observation, &route_rework/3, opts)
       {:error, reason} -> {:error, reason}
       _ -> {:error, :invalid_approved_pull_request_observation}
     end
@@ -209,7 +219,7 @@ defmodule Aiur.LandingWatch do
 
   defp hydrate_run(run, opts) do
     if run["status"] == "completed" and run["conclusion"] in ["failure", "timed_out", "startup_failure"] and is_integer(run["run_id"]) do
-      case Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2).(run["run_id"], opts) do
+      case LocalRead.run(Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2), [run["run_id"], opts], opts) do
         {:ok, jobs} ->
           {:ok,
            run
@@ -232,9 +242,6 @@ defmodule Aiur.LandingWatch do
 
   defp handle_verdict(%{mergeable: "MERGEABLE", merge_state_status: "CLEAN"} = observation, %{decision: :pending}, _runs, opts),
     do: landing_eligibility(observation, opts)
-
-  defp handle_verdict(%{mergeable: "CONFLICTING", merge_queue_entry: nil} = observation, %{decision: :pending}, _runs, opts),
-    do: route_rework(observation, [%{name: "Merge conflict with base"}], opts)
 
   defp handle_verdict(_observation, %{decision: :pending}, _runs, _opts), do: :ok
 
@@ -353,9 +360,9 @@ defmodule Aiur.LandingWatch do
 
   # A ticket back in rework or with a running agent owns its PR; an Executor dequeue must stick (#4772).
   defp land_unless_ticket_active(observation, opts) do
-    case fetch_ticket(observation, opts) do
-      {:ok, _issue, state} when state in ["rework", "in-progress", "todo"] -> :ok
-      {:ok, _issue, _state} -> revalidate_attribution_and_enqueue(observation, opts)
+    case TicketLookup.fetch(observation, opts) do
+      {:ok, _issue, state, _paused?} when state in ["rework", "in-progress", "todo"] -> :ok
+      {:ok, _issue, _state, _paused?} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, :pull_request_not_linked_to_ticket_branch} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, _} = error -> error
     end
@@ -364,15 +371,18 @@ defmodule Aiur.LandingWatch do
   defp poll_required_checks(observations, opts) do
     if Enum.any?(observations, fn observation -> Classifier.approved_at_head?(Map.get(observation, :raw, %{})) end) do
       required_checks = Keyword.get(opts, :required_checks_fun, &CiReadiness.fetch_required_checks/1)
-      Keyword.put(opts, :required_checks_snapshot, required_checks.(opts))
+      Keyword.put(opts, :required_checks_snapshot, LocalRead.run(required_checks, [opts], opts))
     else
       opts
     end
   end
 
   defp revalidate_attribution_and_enqueue(observation, opts) do
-    with :ok <- Keyword.get(opts, :revalidate_fun, &Observer.revalidate_approved_head/3).(observation.number, observation.head, opts) do
-      case Keyword.get(opts, :attribution_fun, fn pr -> Attribution.pull_request_clean?(pr.number, opts) end).(observation) do
+    revalidate = Keyword.get(opts, :revalidate_fun, &Observer.revalidate_approved_head/3)
+    attribution = Keyword.get(opts, :attribution_fun, &default_attribution(&1, opts))
+
+    with :ok <- LocalRead.run(revalidate, [observation.number, observation.head, opts], opts) do
+      case LocalRead.run(attribution, [observation], opts) do
         {:ok, :clean} -> maybe_enqueue(observation, opts)
         {:ok, {:ai_attribution, detail}} -> route_rework(observation, [%{name: "AI commit attribution", excerpt: detail}], opts)
         {:error, reason} -> {:error, reason}
@@ -414,7 +424,7 @@ defmodule Aiur.LandingWatch do
         case transition_rework(observation, failures, opts) do
           {:error, :pull_request_not_linked_to_ticket_branch} ->
             log_unlinked_head_once(observation, opts)
-            :ok
+            not_routed(opts)
 
           result ->
             result
@@ -433,23 +443,39 @@ defmodule Aiur.LandingWatch do
   end
 
   defp transition_rework(observation, failures, opts) do
-    case fetch_ticket(observation, opts) do
-      {:ok, issue, state} when state in ["human-review", "ci-wait", "merging"] ->
+    case TicketLookup.fetch(observation, opts) do
+      {:ok, issue, state, paused?} when state in ["human-review", "ci-wait", "merging"] ->
         transition = Keyword.get(opts, :transition_fun, fn identifier, target, options -> TicketTransition.write_state(identifier, target, options) end)
 
         case transition.(issue, "rework", writer: :landing_watch, expected_state: state) do
-          :ok -> emit_rework_alert(observation, failures, issue, opts)
-          {:error, reason} -> {:error, reason}
-          _ -> {:error, :ticket_rework_transition_unconfirmed}
+          :ok ->
+            opts = Keyword.put(opts, :conflict_ticket_paused?, paused?)
+            emit_rework_alert(observation, failures, issue, opts)
+
+          {:error, reason} ->
+            {:error, reason}
+
+          _ ->
+            {:error, :ticket_rework_transition_unconfirmed}
         end
 
-      {:ok, _issue, _state} ->
-        :ok
+      {:ok, issue, "rework", paused?} ->
+        if Keyword.get(opts, :conflict_rework_claim) == :new do
+          :conflict_already_rework
+        else
+          Keyword.get(opts, :after_rework, fn _issue, _paused? -> :ok end).(issue, paused?)
+        end
+
+      {:ok, _issue, _state, _paused?} ->
+        not_routed(opts)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  # A conflict route that moved nothing must release its claim (#4729).
+  defp not_routed(opts), do: if(Keyword.has_key?(opts, :conflict_rework_claim), do: :conflict_not_routed, else: :ok)
 
   defp emit_rework_alert(observation, failures, issue, opts) do
     run_link = Keyword.get(opts, :run_url)
@@ -458,32 +484,10 @@ defmodule Aiur.LandingWatch do
     message = "Approved PR ##{observation.number} moved ticket ##{issue} to rework: " <> evidence
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
     emitter.("system.pr.landing.rework", central: true, needs_attention: false, message: message, reason: message)
-    :ok
+    Keyword.get(opts, :after_rework, fn _issue, _paused? -> :ok end).(issue, Keyword.get(opts, :conflict_ticket_paused?, false))
   end
 
-  defp fetch_ticket(observation, opts) do
-    case TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"])) do
-      nil ->
-        {:error, :pull_request_not_linked_to_ticket_branch}
-
-      issue ->
-        case Keyword.get(opts, :ticket_state_fun, &fetch_ticket_state/2).(issue, opts) do
-          {:ok, state} -> {:ok, issue, state}
-          {:error, _} = error -> error
-          _ -> {:error, :ticket_state_unavailable}
-        end
-    end
-  end
-
-  @ticket_states ["rework", "in-progress", "todo", "human-review", "ci-wait", "merging"]
-
-  defp fetch_ticket_state(issue, opts) do
-    with {:ok, raw, _freshness} <- Client.fetch_issue_raw_conditional(issue, Keyword.put(opts, :revalidate, true)) do
-      names = Enum.map(Map.get(raw, "labels", []), &Map.get(&1, "name"))
-      # Gating states win: label edits add before they remove, so a ticket can briefly hold both.
-      {:ok, Enum.find(@ticket_states, "other", &("agent:#{&1}" in names))}
-    end
-  end
+  defp default_attribution(observation, opts), do: Attribution.pull_request_clean?(observation.number, opts)
 
   defp failure_text(%{name: name, excerpt: excerpt}) when is_binary(excerpt) and excerpt != "", do: "#{name}: #{excerpt}"
   defp failure_text(%{name: name}), do: to_string(name)

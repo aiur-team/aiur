@@ -10,14 +10,14 @@ on:
   workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ format('{0}-{1}', github.run_attempt == 1 && (github.event_name == 'pull_request' && github.event.pull_request.number || github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main') || github.run_id, github.run_attempt) }}
-  cancel-in-progress: ${{ github.run_attempt == 1 && (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci:full')) }}
+  cancel-in-progress: ${{ github.run_attempt == 1 && github.event_name == 'pull_request' && (github.event.action == 'synchronize' || (github.event.action == 'labeled' && github.event.label.name == 'ci:full')) }}
 jobs:
   changes:
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: { contents: read, pull-requests: read }
-    outputs: {docs_only: "${{ steps.classify.outputs.docs_only }}", full_ci: "${{ steps.classify.outputs.full_ci }}", dialyzer: "${{ steps.classify.outputs.dialyzer }}", affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"}
+    outputs: {docs_only: "${{ steps.classify.outputs.docs_only }}", full_ci: "${{ steps.classify.outputs.full_ci }}", browser_smoke: "${{ steps.classify.outputs.browser_smoke }}", dialyzer: "${{ steps.classify.outputs.dialyzer }}", affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -54,7 +54,7 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' }}
     name: workflow security
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -65,8 +65,8 @@ jobs:
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Guard workflow triggers, action pins and PR body rollout
-        run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py
+      - uses: ./.github/actions/workflow-security
+      - run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
       - name: Test human-only merge ruleset verifier
@@ -186,10 +186,10 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/check-env-example.py
-      - name: Coverage-shard rule agrees across implementations
+      - name: Test isolation ratchet and coverage-shard rule
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
-        run: python3 scripts/check-test-shard-parity.py
+        run: python3 scripts/test-check-test-isolation.py && python3 scripts/check-test-isolation.py && python3 scripts/check-test-shard-parity.py
       - name: Platform publish/pin drift check
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
@@ -218,7 +218,7 @@ jobs:
         uses: ./.github/actions/setup-elixir
       - name: Install zsh for agent scratch regression
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: sudo apt-get update && sudo apt-get install -y zsh
+        run: bash ../scripts/install-ci-zsh.sh
       - name: Test coverage partition
         id: partition-tests
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -368,13 +368,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/run-quarantine
   home-css:
-    name: browser home CSS
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    container: {image: mcr.microsoft.com/playwright:v1.61.1-noble}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy: {fail-fast: false, matrix: {shard: [1, 2, 3, 4]}}
     steps:
       - name: Checkout
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -385,6 +384,7 @@ jobs:
       - name: Verify home CSS
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: ./.github/actions/verify-home-css
+        with: {shard: "${{ matrix.shard }}"}
   analytics:
     needs: changes
     if: ${{ needs.changes.outputs.full_ci == 'true' }}
@@ -433,9 +433,9 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make dialyzer
   browser:
-    name: browser smoke (${{ matrix.shard }}/7)
+    name: browser smoke (${{ matrix.shard }}/8)
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
+    if: ${{ !cancelled() && ((github.event_name != 'pull_request' && needs.changes.outputs.full_ci == 'true') || (github.event_name == 'pull_request' && needs.changes.outputs.browser_smoke == 'true')) }}
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
@@ -443,11 +443,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
         include: [{ shard: 1, verify_fixtures: true, upload_evidence: true },
           { shard: 2, visual_regression: first },
           { shard: 5, visual_regression: second },
-          { shard: 2, upload_evidence: true }, { shard: 5, upload_evidence: true }]
+          { shard: 2, upload_evidence: true }, { shard: 5, upload_evidence: true }, { shard: 8, upload_evidence: true }]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -576,9 +576,9 @@ jobs:
   affected-tests:
     name: affected tests
     needs: changes
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.full_ci == 'false' }}
+    if: ${{ !cancelled() && ((github.event_name == 'pull_request' && needs.changes.outputs.full_ci == 'false') || github.event_name == 'merge_group') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: src
@@ -604,7 +604,7 @@ jobs:
           test/aiur/application_child_order_test.exs
           test/aiur/pr_lifecycle/health_scanner_child_order_test.exs
       - name: Run affected tests on the PR merge
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.docs_only != 'true' }}
         env:
           AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}
         run: bash ../scripts/run-ci-affected-tests.sh

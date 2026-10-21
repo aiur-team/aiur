@@ -31,7 +31,7 @@ test('required full CI gate rejects failures, cancellations and skipped browser 
   for (const browser of ['success', 'failure', 'cancelled', 'skipped']) {
     for (const css of ['success', 'failure', 'cancelled', 'skipped']) {
       const needs = Object.fromEntries(gate.needs.map(job => [job, { result: 'success' }]))
-      needs.changes.outputs = { full_ci: 'true', dialyzer: 'false' }
+      needs.changes.outputs = { full_ci: 'true', dialyzer: 'false', browser_smoke: 'true' }
       needs.browser.result = browser
       needs['home-css'].result = css
       const result = spawnSync('bash', ['-c', step.run], {
@@ -59,7 +59,7 @@ test('browser shards have bounded timeouts and home matrix keeps an independent 
     { shard: 2, visual_regression: 'first' },
     { shard: 5, visual_regression: 'second' },
     ...Object.entries(shards).filter(([id, commands]) => Number(id) !== 1 &&
-      commands.some(command => ['test:build-home-usage', 'test:build-home-edges-parity'].includes(command)))
+      commands.some(command => ['test:build-home-usage', 'test:build-home-edges-parity', 'test:build-home-gantt'].includes(command)))
       .map(([id]) => ({ shard: Number(id), upload_evidence: true })),
   ])
   assert.equal(browser.steps[2].with.visual_regression, "${{ matrix.visual_regression || 'none' }}")
@@ -69,13 +69,19 @@ test('browser shards have bounded timeouts and home matrix keeps an independent 
   assert.equal(browserAction.runs.steps.find(step => step.name === 'Report slowest browser smoke suites').if, '${{ always() }}')
   assert.match(workflow.jobs['home-css'].if, /outputs.full_ci == 'true'/)
   assert.equal(workflow.jobs['home-css']['timeout-minutes'], 25)
+  assert.equal(workflow.jobs['home-css'].strategy['fail-fast'], false)
+  assert.deepEqual(workflow.jobs['home-css'].strategy.matrix.shard, [1, 2, 3, 4])
   assert.equal(workflow.jobs['home-css'].steps.at(-1).uses, './.github/actions/verify-home-css')
-  assert.equal(home.runs.steps.find(step => step.name === 'Run complete home CSS matrix').run,
-    'npm run fixture:preflight && npm run test:home-css')
+  const homeRun = home.runs.steps.find(step => step.name === 'Run complete home CSS matrix')
+  assert.equal(homeRun.run,
+    'npm run fixture:preflight && npm run test:home-css -- --shard=${{ inputs.shard }}/4')
+  assert.equal(home.inputs.shard.required, true)
+  assert.match(home.runs.steps.at(-1).with.name, /home-css-artifacts-\$\{\{ inputs\.shard \}\}/)
   assert.equal(home.runs.steps.at(-1).if, '${{ always() }}')
   assert.equal(scripts.test, 'npm run test:core && npm run test:home-css')
   assert.doesNotMatch(scripts['test:core'], /npm run test:home-css(?:\s|$)/)
   assert.match(scripts['test:home-css'], /home-css-census\.browser\.spec\.mjs tests\/home-css-parity\.browser\.spec\.mjs/)
+  assert.match(scripts['test:home-css'], /--fully-parallel --workers=4/)
 })
 
 test('browser shards execute every core suite exactly once', () => {

@@ -61,8 +61,8 @@ defmodule AiurWeb.Build.Payload do
   nullable string accounts, nullable session/weekly windows, nullable credits,
   and boolean none. Windows require nullable 0..100 acc values, nullable reset_at
   milliseconds and nullable string win. Optional row fields carry lines (tagged
-  windows with tip pairs and nullable hold_until), icon, stale, observed_at and
-  note. Credits require nullable pct, string left and
+  windows with tip pairs and nullable hold_until), icon, stale, observed_at,
+  snapshot_observed_at and note. Credits require nullable pct, string left and
   two-string tip pairs. Unavailable usage requires observed_at and reason.
   Locked usage requires only state/accessible_name/authentication_path/reason.
   Repo is nil or a url string; writable is boolean.
@@ -97,6 +97,12 @@ defmodule AiurWeb.Build.Payload do
 
   @spec earlier(map(), String.t(), non_neg_integer()) :: map()
   def earlier(page, epoch, generation), do: page |> scrub() |> Map.merge(envelope("earlier", epoch, generation))
+
+  @spec ticket(map() | nil, String.t(), non_neg_integer()) :: map()
+  def ticket(row, epoch, generation) do
+    message = envelope("ticket", epoch, generation)
+    if row == nil, do: message, else: Map.put(message, "row", scrub(row))
+  end
 
   @spec error(atom()) :: map()
   def error(reason), do: %{"v" => @version, "kind" => "error", "reason" => Atom.to_string(reason)}

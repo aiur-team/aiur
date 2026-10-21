@@ -241,7 +241,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp pull_request_fields(_entry) do
     """
-    number state createdAt headRefName headRefOid baseRefName
+    number state createdAt headRefName headRefOid baseRefName baseRefOid
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     #{CIPollBatchReadyReview.fields()}
@@ -382,7 +382,7 @@ defmodule Aiur.GitHub.CIPollBatch do
           "number" => Map.get(node, "number"),
           "state" => String.downcase(to_string(Map.get(node, "state", "open"))),
           "head" => %{"ref" => Map.get(node, "headRefName"), "sha" => Map.get(node, "headRefOid")},
-          "base" => %{"ref" => Map.get(node, "baseRefName")}
+          "base" => %{"ref" => Map.get(node, "baseRefName"), "sha" => Map.get(node, "baseRefOid")}
         }
         |> put_merge_queue_observation(node)
         |> Map.put("reopened_at", get_in(node, ["timelineItems", "nodes"]) |> List.wrap() |> List.last() |> then(&get_in(&1 || %{}, ["createdAt"]))),
@@ -450,6 +450,7 @@ defmodule Aiur.GitHub.CIPollBatch do
       "conclusion" => check_run |> Map.get("conclusion") |> normalize_optional_string(),
       "started_at" => Map.get(check_run, "startedAt"),
       "completed_at" => Map.get(check_run, "completedAt"),
+      "details_url" => Map.get(check_run, "detailsUrl"),
       "check_suite_id" => get_in(check_run, ["checkSuite", "id"]),
       "app" => %{"id" => get_in(check_run, ["checkSuite", "app", "databaseId"])},
       "output" => Map.get(check_run, "output", %{})
@@ -463,7 +464,8 @@ defmodule Aiur.GitHub.CIPollBatch do
           "context" => Map.get(status, "context"),
           "state" => Map.get(status, "state") |> to_string() |> String.downcase(),
           "created_at" => Map.get(status, "createdAt"),
-          "description" => Map.get(status, "description")
+          "description" => Map.get(status, "description"),
+          "target_url" => Map.get(status, "targetUrl")
         }
       end)
 

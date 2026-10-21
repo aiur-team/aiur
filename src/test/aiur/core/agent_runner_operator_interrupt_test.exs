@@ -34,6 +34,8 @@ defmodule Aiur.Core.AgentRunnerOperatorInterruptTest do
       File.write!(codex_binary, """
       #!/bin/sh
       trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex.trace}"
+      startup_marker="${SYMP_TEST_CODEX_STARTUP:-/tmp/codex-startup}"
+      printf 'child_started %s\n' "$(date +%s)" > "$startup_marker"
       first_turn_started=0
 
       while IFS= read -r line; do
@@ -70,8 +72,12 @@ defmodule Aiur.Core.AgentRunnerOperatorInterruptTest do
 
       File.chmod!(codex_binary, 0o755)
       System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+      System.put_env("SYMP_TEST_CODEX_STARTUP", Path.join(test_root, "codex-startup"))
 
-      on_exit(fn -> System.delete_env("SYMP_TEST_CODEX_TRACE") end)
+      on_exit(fn ->
+        System.delete_env("SYMP_TEST_CODEX_TRACE")
+        System.delete_env("SYMP_TEST_CODEX_STARTUP")
+      end)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
@@ -124,7 +130,23 @@ defmodule Aiur.Core.AgentRunnerOperatorInterruptTest do
           )
         end)
 
-      assert_receive {:codex_worker_update, ^issue_id, %{event: :session_started}}, 5_000
+      startup_started_at = System.monotonic_time(:millisecond)
+
+      receive do
+        {:codex_worker_update, ^issue_id, %{event: :session_started}} -> :ok
+      after
+        5_000 ->
+          elapsed_ms = System.monotonic_time(:millisecond) - startup_started_at
+          fake_child = File.read(Path.join(test_root, "codex-startup"))
+          codex_trace = File.read(trace_file)
+
+          flunk("session did not start within 5s; elapsed_ms=#{elapsed_ms}; fake_child_marker=#{inspect(fake_child)}; task=#{inspect(Task.yield(task, 0))}; codex trace=#{inspect(codex_trace)}")
+      end
+
+      startup_event_at = System.monotonic_time(:millisecond)
+      startup_marker = Path.join(test_root, "codex-startup")
+      assert File.exists?(startup_marker), "session_started must follow fake Codex child startup"
+      assert ["child_started", _unix_seconds] = String.split(String.trim(File.read!(startup_marker)), " ")
 
       :sys.replace_state(orchestrator_pid, fn state ->
         {queue_store, item} =
@@ -162,9 +184,11 @@ defmodule Aiur.Core.AgentRunnerOperatorInterruptTest do
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) == "stop and answer this"
       assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, identifier)
+      assert startup_event_at - startup_started_at < 5_000
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
-      File.rm_rf(test_root)
+      System.delete_env("SYMP_TEST_CODEX_STARTUP")
+      Aiur.TestCleanup.rm_rf!(test_root)
     end
   end
 

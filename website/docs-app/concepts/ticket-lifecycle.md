@@ -110,6 +110,11 @@ goes to `ci-wait` instead when the PR is approved and that approval carries to
 the head: approved at the head, or only merge drift since. A rework handback
 keeps `human-review`.
 
+The state tool reports the applied `state` and the
+`requested_state` separately. An approval redirect includes
+`result.reason: "approval_carries_to_pr_head"`; it does not mean CI is pending
+or that the worker must update its branch.
+
 A rework handback to `ci-wait` or `human-review` must answer the latest
 blocking review. Its numbered `file:line` items form the rework prompt's
 checklist. The agent passes one `review_findings` answer per item: `fixed`

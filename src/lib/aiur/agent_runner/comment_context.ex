@@ -2,9 +2,10 @@ defmodule Aiur.AgentRunner.CommentContext do
   @moduledoc """
   Fetches and normalises GitHub comment context for agent bootstrap.
 
-  Collects issue comments after the `## Agent Workpad` cutoff, PR review
-  comments, formal changes-requested reviews, and unaddressed review threads after the latest workpad cutoff,
-  then converts them to event maps suitable for the bootstrap digest. The
+  Collects issue comments after the `## Agent Workpad` cutoff, plus PR
+  conversation comments, review comments, formal reviews and unaddressed review
+  threads. The workpad is on the issue, so it must not hide later PR feedback.
+  Results become event maps suitable for the bootstrap digest. The
   `Sanitizer.scrub` pass is applied before events enter the digest.
   """
 
@@ -18,8 +19,9 @@ defmodule Aiur.AgentRunner.CommentContext do
   @doc """
   Return comment-context events for `issue`.
 
-  Fetches issue and PR comments, applying the workpad cutoff to every comment
-  source including unaddressed review threads. Results are deduped by
+  Fetches issue and PR comments, applying the workpad cutoff to ticket comments
+  and review threads. PR conversation comments remain visible independently of
+  issue workpad edits. Results are deduped by
   `(topic, comment_id)`.
   """
   @spec events(Issue.t(), map()) :: [map()]
@@ -63,7 +65,7 @@ defmodule Aiur.AgentRunner.CommentContext do
     fetch_comment_events(
       "ticket.#{identifier}.issue.commented",
       fn -> fetchers.issue_comments.(pr_number) end,
-      cutoff
+      nil
     ) ++
       fetch_comment_events(
         "ticket.#{identifier}.pr.review_comment",

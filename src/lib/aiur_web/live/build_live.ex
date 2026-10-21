@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildLive do
 
   require Logger
 
-  alias AiurWeb.Build.{DataSource, Protocol, Read, URLState, UsageUpdates}
+  alias AiurWeb.Build.{DataSource, Protocol, Read, Ticket, URLState, UsageUpdates}
   alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, RouteRegistry}
   alias AiurWeb.Presenter
@@ -24,6 +24,7 @@ defmodule AiurWeb.BuildLive do
       |> UsageUpdates.init(connected)
       |> AwaitingCommands.mount(connected)
       |> assign(
+        open_ticket: nil,
         build_state: :loading,
         build_snapshot: nil,
         daemon_hint: nil,
@@ -110,6 +111,8 @@ defmodule AiurWeb.BuildLive do
 
   @impl true
   def handle_event("build-resync", _params, socket), do: Protocol.resync(socket, source_opts(socket))
+  def handle_event("open-ticket", params, socket), do: Ticket.open(socket, params)
+  def handle_event("close-ticket", _params, socket), do: {:noreply, assign(socket, :open_ticket, nil)}
   def handle_event("load-earlier", params, socket), do: Protocol.earlier(socket, params, source_opts(socket))
   def handle_event("usage-watch-start", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :start)}
   def handle_event("usage-watch-stop", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :stop)}
@@ -140,6 +143,7 @@ defmodule AiurWeb.BuildLive do
   defp reason_tag(:not_wired), do: "not_wired"
   defp reason_tag(:timeout), do: "timeout"
   defp reason_tag(:epic_config_unavailable), do: "epic_config_unavailable"
+  defp reason_tag(:settings_loading), do: "settings_loading"
   defp reason_tag(:index_not_running), do: "index_not_running"
   defp reason_tag(:read_failed), do: "read_failed"
   defp reason_tag(_reason), do: "unknown"

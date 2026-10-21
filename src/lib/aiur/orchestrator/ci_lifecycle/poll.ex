@@ -130,6 +130,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     |> merge_journaled_base_repairs()
     |> note_ci_poll_connectivity(targets, errors)
     |> log_ci_poll_errors(errors)
+    |> record_conflict_streaks(results, issues_by_target)
     |> apply_ci_poll_results(results, issues_by_target, opts)
     |> RestackScheduler.reconcile(Map.values(issues_by_target))
     |> retry_ci_poll_on_errors(errors)
@@ -320,6 +321,35 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     end)
   end
 
+  defp record_conflict_streaks(state, results, issues_by_target) do
+    Enum.reduce(results, state, fn result, acc -> record_conflict_streak(acc, result, issues_by_target) end)
+  end
+
+  defp record_conflict_streak(acc, result, issues_by_target) do
+    target = Map.get(result, :target)
+    issue = Map.get(issues_by_target, target)
+    cache = Map.get(acc.ci_lifecycle, :poll_cache, %{})
+    previous = Map.get(cache, target, %{})
+
+    cond do
+      Map.get(result, :delivered) == true or is_nil(issue) or not is_binary(target) ->
+        acc
+
+      Map.get(result, :mergeable) == "CONFLICTING" ->
+        prior_head = Map.get(previous, :conflicting_head_sha)
+        head = Map.get(result, :head_sha)
+        streak = if prior_head == head and is_binary(head), do: Map.get(previous, :conflicting_polls, 0) + 1, else: 1
+        updated = Map.merge(previous, %{conflicting_head_sha: head, conflicting_polls: streak})
+        cache = Map.put(cache, target, updated)
+        %{acc | ci_lifecycle: Map.put(acc.ci_lifecycle, :poll_cache, cache)}
+
+      true ->
+        updated = Map.drop(previous, [:conflicting_head_sha, :conflicting_polls])
+        cache = if updated == %{}, do: Map.delete(cache, target), else: Map.put(cache, target, updated)
+        %{acc | ci_lifecycle: Map.put(acc.ci_lifecycle, :poll_cache, cache)}
+    end
+  end
+
   # Repair markers are journaled from concurrent poll tasks before GitHub is
   # mutated. Merge the durable ledger back into the GenServer snapshot before
   # any result transition can persist the lifecycle-wide document; otherwise
@@ -346,6 +376,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
           state
         else
           result = classify_merge_queue_departure(state, issue, result)
+          result = confirm_conflict_streak(state, issue, result)
           ProgressStore.ci_identity(CiLifecycle.ci_target_for_issue(issue), result)
 
           state
@@ -360,6 +391,19 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
       _ ->
         state
+    end
+  end
+
+  defp confirm_conflict_streak(state, issue, result) do
+    target = CiLifecycle.ci_target_for_issue(issue)
+    observation = get_in(state.ci_lifecycle, [:poll_cache, target]) || %{}
+    waiting? = Transition.effective_ci_state(issue) in [@ci_wait_state, @human_review_state]
+
+    if waiting? and Map.get(result, :mergeable) == "CONFLICTING" and Map.get(observation, :conflicting_polls, 0) >= 2 and
+         Map.get(observation, :conflicting_head_sha) == Map.get(result, :head_sha) do
+      Map.put(result, :conflict_confirmed?, true)
+    else
+      result
     end
   end
 

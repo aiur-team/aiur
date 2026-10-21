@@ -1,3 +1,5 @@
+import { ganttExt } from './gantt.js';
+import { cardDetail } from './cards.js';
 import { S, ctx, fx, gutW, LH, onReset, renderChrome } from './state.js';
 import { syncStates } from './states.js';
 import { $ } from './dom.js';
@@ -33,12 +35,16 @@ export function viewport() {
     ctx.lt = document.createElement("div"); ctx.lt.className = "bd-lt";
     ctx.lt.innerHTML = '<button type="button" data-lt="lock" title="Lock this dependency tree">' + I.lock + '</button><button type="button" data-lt="fit" title="Zoom out to fit this tree">' + I.fit + '</button><button type="button" data-lt="tree" title="View the whole tree">' + I.eye + "</button>";
     ctx.content.appendChild(ctx.lt);
+    ctx.life.on(ctx.content, 'keydown', e => {
+      if (!['Enter', ' '].includes(e.key) || !e.target.matches('.bd-card')) return;
+      e.preventDefault(); e.target.click();
+    });
     ctx.life.on(ctx.content, "click", (e) => {
       const eh = e.target.closest(".bd-eh");
       if (eh) { e.stopPropagation(); fx.lockTree(eh.dataset.e); return; }
       const b = e.target.closest("[data-lt]");
       if (b) { e.stopPropagation(); if (b.dataset.lt === "lock") { if (ctx.lockId) fx.unlock(); else if (ctx.hoverId) { ctx.lockId = ctx.hoverId; ctx.lt.classList.add("locked"); } } else if (ctx.lockId) { if (b.dataset.lt === "fit") fx.fitTree(ctx.lockId); else fx.openTree(ctx.lockId); } return; }
-      const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid]); return; }
+      const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid], { origin: sd }); return; }
       if (fx.onBandClick?.(e)) return;
       const c = e.target.closest(".bd-card");
       if (ctx.lockId) { if (c && fx.chainOf(ctx.lockId).has(c.dataset.id)) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c }); return; }
@@ -69,9 +75,9 @@ export function relayout({ live = false } = {}) {
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
   const previousDetail = ctx.L?.det;
-  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H });
+  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H, gantt: ganttExt });
   // The design counts only live and planned lanes; also flow when the packed day columns would still be slivers (#4769).
-  if (!S.flow && !S.feature && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H }); }
+  if (!S.flow && !S.feature && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H, gantt: ganttExt }); }
   ctx.content.classList.toggle('flow', S.flow);
   const detailChanged = previousDetail !== ctx.L.det;
   ctx.svg.setAttribute('height', 0);
@@ -122,6 +128,7 @@ function renderSection(s, keep, keepL, focused) {
     if (!overlaps(it.y, it.h) && it.t.id !== focused) continue;
     const uid = s + ':' + it.t.id; keep.add(uid);
     let el = ctx.R.get(uid);
+    if (el && !el.classList.contains(cardDetail(it))) { el.remove(); el = null; }
     if (!el) { el = fx.makeCard(it); noanim(el); sec.layer.appendChild(el); ctx.R.set(uid, el); }
     el._it = it; place(el, it);
   }

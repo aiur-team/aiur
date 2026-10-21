@@ -152,9 +152,9 @@ defmodule Aiur.Orchestrator.ControlLifecycleTest do
     assert payload.request_id == "pause-1"
     assert payload.action == :pause
     refute Map.has_key?(payload, :metadata)
-    refute inspect(payload) =~ "workspace"
-    refute inspect(payload) =~ "secret"
-    refute inspect(payload) =~ "capability"
+    Aiur.TestSupport.refute_leak(payload, "workspace")
+    Aiur.TestSupport.refute_leak(payload, "secret")
+    Aiur.TestSupport.refute_leak(payload, "capability")
   end
 
   defp request_attrs(overrides) do

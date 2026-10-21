@@ -7,9 +7,9 @@ defmodule Aiur.GitHub.Config.KeyringTest do
 
   alias Aiur.GitHub.Config
 
-  @cache_key {Config, :resolved_token}
+  @cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @keyring_timeout_env "AIUR_GH_KEYRING_TIMEOUT_MS"
-  @source_cache_key {Config, :resolved_token_source}
+  @source_cache_key {Aiur.GitHub.Access.Token, :resolved_token_source}
 
   setup do
     original = System.get_env("GITHUB_TOKEN")

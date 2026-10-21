@@ -4,7 +4,8 @@ defmodule AiurWeb.Build.PayloadValidator do
 
   @spec validate(map()) :: :ok | {:error, [{String.t(), atom()}]}
   def validate(message) do
-    errors = check(message, {:object, Schema.message(message["kind"]), []}, "") ++ references(message) ++ page_rules(message)
+    optional = if message["kind"] == "ticket", do: ["row"], else: []
+    errors = check(message, {:object, Schema.message(message["kind"]), optional}, "") ++ references(message) ++ page_rules(message)
     if errors == [], do: :ok, else: {:error, errors}
   end
 

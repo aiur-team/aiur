@@ -142,7 +142,6 @@ defmodule Aiur.Orchestrator.State do
           agent_rate_limits: map() | nil,
           codex_totals: map() | nil,
           codex_rate_limits: map() | nil,
-          github_command_scan_etags: map(),
           # Monotonic time the CI poll last ran, used to throttle it to the
           # `:ci` class cadence (#2309). `nil` until the first run.
           last_ci_poll_started_at_ms: integer() | nil,
@@ -151,7 +150,6 @@ defmodule Aiur.Orchestrator.State do
           # `PrReadyLedgerStore` on first use (`nil` until then). See
           # `ReadyForReviewTransitions` (#2707).
           pr_ready_ledger: Aiur.PrReadyLedgerStore.ledger() | nil,
-          github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
           github_poll_delays: map(),
           globally_paused: boolean(),
@@ -294,11 +292,9 @@ defmodule Aiur.Orchestrator.State do
     agent_rate_limits: nil,
     codex_totals: nil,
     codex_rate_limits: nil,
-    github_command_scan_etags: %{},
     last_ci_poll_started_at_ms: nil,
     pr_review_seen_at: %{},
     pr_ready_ledger: nil,
-    github_command_scan_since: nil,
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
