@@ -10,12 +10,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Orchestrator.CiLifecycle.FailureComment
   alias Aiur.Orchestrator.CiLifecycle.Poll
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
+  alias Aiur.Orchestrator.CiLifecycle.ReviewHandoff
   alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.CiLifecycle.WaitRewake
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.LifecycleFence
-  alias Aiur.Orchestrator.CiLifecycle.ReviewHandoff
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Orchestrator.State
