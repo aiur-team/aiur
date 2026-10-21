@@ -17,27 +17,14 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
       parent = self()
       coordinator = unique_coordinator_name("Restart")
       task_supervisor = start_supervised!({Task.Supervisor, name: unique_coordinator_name("RestartTasks")})
-      shared_task_supervisor = unique_coordinator_name("RestartSharedTasks")
-      earlier_sibling = unique_coordinator_name("RestartEarlierSibling")
-
-      {:ok, shared_root} =
-        Supervisor.start_link(
-          [
-            Supervisor.child_spec({Agent, fn -> :ready end}, id: earlier_sibling),
-            {Task.Supervisor, name: shared_task_supervisor}
-          ],
-          strategy: :rest_for_one
-        )
-
-      Process.unlink(shared_root)
+      root = Process.whereis(Aiur.Supervisor)
+      shared_task_supervisor = Process.whereis(Aiur.TaskSupervisor)
+      root_ref = Process.monitor(root)
+      shared_task_supervisor_ref = Process.monitor(shared_task_supervisor)
 
       on_exit(fn ->
-        if Process.alive?(shared_root), do: Supervisor.stop(shared_root, :normal)
+        if Process.alive?(root), do: :sys.trace(root, false)
       end)
-
-      earlier_sibling_pid = child_pid(shared_root, earlier_sibling)
-      shared_task_supervisor_pid = Process.whereis(shared_task_supervisor)
-      shared_task_supervisor_ref = Process.monitor(shared_task_supervisor_pid)
 
       coordinator_pid =
         start_supervised!(
@@ -55,7 +42,7 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
         end
       end
 
-      pid =
+      store =
         start_store!(dir,
           decision_dispatch_tasks: coordinator,
           dispatcher: dispatcher,
@@ -64,107 +51,131 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
 
       decisions =
         for source <- ["restart-active", "restart-queued"] do
-          assert {:ok, %{decision: decision}} = request(pid, answerable_request(source))
+          assert {:ok, %{decision: decision}} = request(store, answerable_request(source))
           payload = %{"idempotency_key" => source, "expected_version" => 1, "option_id" => "ship"}
-          assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
+          assert {:ok, %{action: action}} = answer(store, decision.decision_id, payload)
           {decision, action}
         end
 
       [{active, _active_action}, {queued, queued_action}] = decisions
-      assert_receive {:restart_dispatch_started, active_id, orphaned_worker}, 1_000
+      assert_receive {:restart_dispatch_started, active_id, worker}, 1_000
       assert active_id == active.decision_id
-      wait_for_dispatch_count(pid, 2)
+      worker_links = Process.info(worker, :links) |> elem(1)
+      assert coordinator_pid in worker_links
+      assert task_supervisor in worker_links
+      worker_ref = Process.monitor(worker)
 
-      # Force the shared Task.Supervisor's :rest_for_one restart in the exact
-      # gap that used to precede Process.monitor/1. The private worker must
-      # remain alive; using the shared supervisor here makes the strict :killed
-      # assertion below fail because its late monitor sees :noproc.
-      Process.exit(earlier_sibling_pid, :kill)
-      assert_receive {:DOWN, ^shared_task_supervisor_ref, :process, ^shared_task_supervisor_pid, :shutdown}, 1_000
-      restarted_shared_task_supervisor = wait_for_named_process(shared_task_supervisor, shared_task_supervisor_pid)
-      assert restarted_shared_task_supervisor != shared_task_supervisor_pid
+      :ok = :sys.trace(root, true)
+      wait_for_dispatch_count(store, 2)
+      :ok = :sys.trace(root, false)
 
-      orphaned_worker_ref = Process.monitor(orphaned_worker)
+      IO.puts(
+        "original dispatch root=#{inspect(root)} shared_task_supervisor=#{inspect(shared_task_supervisor)} " <>
+          "worker=#{inspect(worker)} worker_links=#{inspect(worker_links)}"
+      )
 
+      coordinator_ref = Process.monitor(coordinator_pid)
       Process.exit(coordinator_pid, :kill)
-      assert_receive {:DOWN, ^orphaned_worker_ref, :process, ^orphaned_worker, :killed}, 1_000
+      assert_receive {:DOWN, ^coordinator_ref, :process, ^coordinator_pid, :killed}, 1_000
+      assert_receive {:DOWN, ^worker_ref, :process, ^worker, :killed}, 1_000
+      refute_receive {:DOWN, ^shared_task_supervisor_ref, :process, ^shared_task_supervisor, _reason}, 0
+      assert Process.alive?(shared_task_supervisor)
+      refute_receive {:DOWN, ^root_ref, :process, ^root, _reason}, 0
+
+      IO.puts(
+        "original dispatch worker_exit=:killed killer_coordinator=#{inspect(coordinator_pid)} " <>
+          "shared_task_supervisor_still_alive=#{inspect(shared_task_supervisor)}"
+      )
 
       for {decision, _action} <- decisions do
-        failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+        failed = wait_for_decision(store, decision.decision_id, &(&1.delivery_status == :failed))
         assert List.last(failed.dispatch_attempts).failure_reason_class == "decision_dispatch_coordinator_exit"
       end
 
       restarted = wait_for_named_process(coordinator, coordinator_pid)
       assert Process.alive?(restarted)
 
-      assert {:ok, :scheduled} = DecisionStore.retry_dispatch(queued.decision_id, queued_action.action_id, pid)
+      assert {:ok, :scheduled} = DecisionStore.retry_dispatch(queued.decision_id, queued_action.action_id, store)
       assert_receive {:restart_retry_started, queued_id, retry_attempt_id}, 1_000
       assert queued_id == queued.decision_id
       assert String.ends_with?(retry_attempt_id, ":2")
 
-      settled = wait_for_decision(pid, queued.decision_id, &(&1.delivery_status == :queued))
+      settled = wait_for_decision(store, queued.decision_id, &(&1.delivery_status == :queued))
       assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
     end
 
-    test "rest_for_one restart can kill a dispatch worker before a late monitor", %{dir: dir} do
+    test "real root restart leaves a private dispatch worker alive", %{dir: dir} do
       parent = self()
-      blocker_id = unique_coordinator_name("EarlierSibling")
-      task_supervisor = unique_coordinator_name("SharedTasks")
-      coordinator = unique_coordinator_name("SharedCoordinator")
+      coordinator = unique_coordinator_name("RootRestart")
+      task_supervisor = start_supervised!({Task.Supervisor, name: unique_coordinator_name("RootRestartTasks")})
+      root = Process.whereis(Aiur.Supervisor)
+      shared_task_supervisor = Process.whereis(Aiur.TaskSupervisor)
+      earlier_sibling = Aiur.Workspace.Ownership.Reconciler
+      earlier_sibling_pid = child_pid(root, earlier_sibling)
 
-      children = [
-        Supervisor.child_spec({Agent, fn -> :ready end}, id: blocker_id),
-        {Task.Supervisor, name: task_supervisor}
-      ]
-
-      {:ok, root} = Supervisor.start_link(children, strategy: :rest_for_one)
-      Process.unlink(root)
+      assert is_pid(root)
+      assert is_pid(shared_task_supervisor)
+      assert is_pid(earlier_sibling_pid)
+      root_ref = Process.monitor(root)
+      shared_task_supervisor_ref = Process.monitor(shared_task_supervisor)
 
       on_exit(fn ->
-        if Process.alive?(root), do: Supervisor.stop(root, :normal)
+        if Process.alive?(root), do: :sys.trace(root, false)
       end)
-
-      blocker_pid = child_pid(root, blocker_id)
-      assert is_pid(blocker_pid)
-      task_supervisor_pid = Process.whereis(task_supervisor)
 
       coordinator_pid =
         start_supervised!(
-          {DecisionDispatchTasks, name: coordinator, task_starter: fn operation -> {:ok, Task.Supervisor.async(task_supervisor, operation)} end},
+          {DecisionDispatchTasks, name: coordinator, max_concurrency: 1, task_starter: fn operation -> {:ok, Task.Supervisor.async(task_supervisor, operation)} end},
           id: coordinator
         )
 
-      task_supervisor_ref = Process.monitor(task_supervisor_pid)
-
       dispatcher = fn _decision, _opts ->
-        send(parent, {:cascade_worker_started, self()})
+        send(parent, {:root_restart_worker_started, self()})
         receive do: (:never -> :ok)
       end
 
       store = start_store!(dir, decision_dispatch_tasks: coordinator, dispatcher: dispatcher, dispatch_delay_ms: 0)
-      assert {:ok, %{decision: decision}} = request(store, answerable_request("cascade-worker"))
-      payload = %{"idempotency_key" => "cascade-worker", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{decision: decision}} = request(store, answerable_request("root-restart-worker"))
+      payload = %{"idempotency_key" => "root-restart-worker", "expected_version" => 1, "option_id" => "ship"}
       assert {:ok, _result} = answer(store, decision.decision_id, payload)
-      assert_receive {:cascade_worker_started, worker}, 1_000
+      assert_receive {:root_restart_worker_started, worker}, 1_000
 
       worker_links = Process.info(worker, :links) |> elem(1)
       assert coordinator_pid in worker_links
-      assert task_supervisor_pid in worker_links
+      assert Enum.any?([task_supervisor, shared_task_supervisor], &(&1 in worker_links))
       worker_ref = Process.monitor(worker)
 
-      Process.exit(blocker_pid, :kill)
+      IO.puts(
+        "forced restart root=#{inspect(root)} sibling=#{inspect(earlier_sibling)} " <>
+          "sibling_pid=#{inspect(earlier_sibling_pid)} task_supervisor=#{inspect(shared_task_supervisor)} " <>
+          "worker=#{inspect(worker)} worker_links=#{inspect(worker_links)}"
+      )
 
-      assert_receive {:DOWN, ^task_supervisor_ref, :process, ^task_supervisor_pid, :shutdown}, 1_000
-      assert_receive {:DOWN, ^worker_ref, :process, ^worker, :shutdown}, 1_000
+      :ok = :sys.trace(root, true)
+      Process.exit(earlier_sibling_pid, :kill)
 
-      # The worker links to both pids above; the coordinator remains alive, so
-      # the old Task.Supervisor is the process that ended this worker.
-      late_worker_ref = Process.monitor(worker)
-      assert_receive {:DOWN, ^late_worker_ref, :process, ^worker, :noproc}, 1_000
+      assert_receive {:DOWN, ^shared_task_supervisor_ref, :process, ^shared_task_supervisor, task_supervisor_exit}, 1_000
+      restarted_shared_task_supervisor = wait_for_named_process(Aiur.TaskSupervisor, shared_task_supervisor)
+      :ok = :sys.trace(root, false)
+      assert task_supervisor_exit == :shutdown
+      assert restarted_shared_task_supervisor != shared_task_supervisor
 
-      restarted_task_supervisor = wait_for_named_process(task_supervisor, task_supervisor_pid)
-      assert Process.alive?(coordinator_pid)
-      assert restarted_task_supervisor != task_supervisor_pid
+      worker_exit =
+        receive do
+          {:DOWN, ^worker_ref, :process, ^worker, reason} -> {:down, reason}
+        after
+          100 -> :alive
+        end
+
+      IO.puts(
+        "forced restart Aiur.TaskSupervisor old_pid=#{inspect(shared_task_supervisor)} " <>
+          "exit_reason=#{inspect(task_supervisor_exit)} restarted_pid=#{inspect(restarted_shared_task_supervisor)} " <>
+          "worker_exit=#{inspect(worker_exit)}"
+      )
+
+      assert Process.alive?(root)
+      refute_receive {:DOWN, ^root_ref, :process, ^root, _reason}, 0
+      assert worker_exit == :alive
     end
   end
 end
