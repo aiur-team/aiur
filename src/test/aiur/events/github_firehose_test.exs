@@ -205,7 +205,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
       # claim — while refuting the whole namespace also asserted that no *other*
       # part of Aiur emits anything about ticket 7 for the duration, which is not
       # this test's business and is not true: the exchange is global, and
-      # `orchestrator/comment_wake_test.exs` publishes
+      # `orchestrator/comment_wake/merged_pr_attribution_test.exs` publishes
       # `ticket.7.merge.unauthorized_merger` from an async case whose work can
       # still be in flight when this one subscribes.
       refute_receive {:event, %{topic: "ticket.7.pr." <> _}}, 100

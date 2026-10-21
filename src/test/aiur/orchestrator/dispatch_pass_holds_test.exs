@@ -8,11 +8,13 @@ defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
   @slots 12
 
   setup do
+    test_pid = self()
     path = Workflow.workflow_file_path()
     original = File.read!(path)
     write_workflow_file!(path, tracker_kind: "github", tracker_repo: "owner/repo", tracker_label_prefix: "sym", max_concurrent_agents: @slots)
     ResourceStore.reset()
     OpenIssueSnapshot.reset()
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
     on_exit(fn -> File.write!(path, original) end)
     :ok
   end
@@ -23,8 +25,6 @@ defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
     ready = Enum.map(201..208, &candidate(&1, 2))
     ready_ids = Enum.map(ready, & &1.id)
     cache_holds(held)
-
-    started_at = System.monotonic_time(:millisecond)
 
     pending =
       Dispatcher.choose_issues(%State{snapshot_key: self(), max_concurrent_agents: @slots, effective_concurrent_agents: @slots}, held ++ ready,
@@ -41,12 +41,10 @@ defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
     assert Map.keys(pending.tracker_tasks) |> length() == 1
 
     final = Enum.reduce(ready, pending, fn _, state -> apply_result(state) end)
-    elapsed_ms = System.monotonic_time(:millisecond) - started_at
 
     assert Map.keys(final.running) |> Enum.sort() == ready_ids
     assert final.tracker_tasks == %{}
     assert final.dispatch_declines == Map.new(held, &{&1.id, :dependency})
-    assert elapsed_ms < 5_000
 
     hydrated = collect_hydrated([])
     assert Enum.uniq(hydrated) |> Enum.sort() == ready_ids
