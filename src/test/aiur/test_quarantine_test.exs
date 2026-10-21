@@ -34,7 +34,8 @@ defmodule Aiur.TestQuarantineTest do
     entries = [
       %{module: "Aiur.ExampleTest", name: "plain synthetic test", ticket: "#1"},
       %{module: "Aiur.ExampleTest", name: "synthetic describe described test", ticket: "#2"},
-      %{module: "Aiur.ExampleTest", name: ~s(synthetic handles [brackets] and "quotes"), ticket: "#3"}
+      %{module: "Aiur.ExampleTest", name: ~s(synthetic handles [brackets] and "quotes"), ticket: "#3"},
+      %{module: "Aiur.ExampleWildcardTest", name: "*", ticket: "#4"}
     ]
 
     filters = TestQuarantine.filters(entries)
@@ -47,6 +48,18 @@ defmodule Aiur.TestQuarantineTest do
       assert {:excluded, "due to test filter"} =
                ExUnit.Filters.eval([], filters, %{module: Aiur.ExampleTest, test: String.to_atom(name)}, :test)
     end
+
+    assert {:excluded, "due to module filter"} =
+             ExUnit.Filters.eval([], filters, %{module: Aiur.ExampleWildcardTest, test: :"test any name"}, :test)
+  end
+
+  test "test helper wires parsed quarantine rows into ExUnit exclusions" do
+    path = Path.join([File.cwd!(), "test", "quarantine.txt"])
+    assert {:ok, entries} = TestQuarantine.read(path)
+    configured_exclusions = ExUnit.configuration()[:exclude]
+
+    assert Enum.all?(TestQuarantine.filters(entries), &(&1 in configured_exclusions))
+    assert TestQuarantine.filters([]) == []
   end
 
   defp test_module_names(files) do
