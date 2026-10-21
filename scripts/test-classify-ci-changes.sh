@@ -56,6 +56,9 @@ printf '==> aiur\nCompiling 3 files (.ex)\nGenerated aiur app\n'
 if [[ -n "${TEST_SELECTOR:-}" ]]; then
   echo "$TEST_SELECTOR" >> "$GITHUB_STEP_SUMMARY"
   echo "$TEST_SELECTOR"
+  if [[ "${TEST_SELECTOR_TRAILING_NOISE:-false}" == true ]]; then
+    echo 'Generated trailing compile output'
+  fi
 else
   echo scoped:1
 fi
@@ -122,6 +125,8 @@ TEST_FILE_CAP=true expect 'browser_smoke=false docs_only=false full_ci=true' pul
 expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[]' '[]' '' true
 expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scoped:401
 expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scoped:400
+TEST_SELECTOR_TRAILING_NOISE=true expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scoped:1
+TEST_SELECTOR_TRAILING_NOISE=true expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' full
 classify pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' >/dev/null
 grep -Fxq 'scoped:1' "$test_dir/summary"
 classify pull_request false '[{"filename":"src/test/aiur/config_test.exs"},{"filename":"src/lib/aiur/config.ex"}]' >/dev/null
