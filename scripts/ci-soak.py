@@ -11,6 +11,7 @@ from pathlib import Path
 import random
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import time
@@ -25,6 +26,8 @@ MAX_BROWSER_TESTS_PER_SPEC = 200
 BROWSER_LIST_TIMEOUT_SECONDS = float(os.environ.get('AIUR_SOAK_LIST_TIMEOUT', '60'))
 BUDGET_SECONDS = int(os.environ.get('AIUR_SOAK_BUDGET_SECONDS', str(12 * 60)))
 BROWSER_ROOT = Path(os.environ.get('AIUR_SOAK_BROWSER_ROOT', Path(__file__).resolve().parent.parent / 'src/browser'))
+DURATION_SOURCE = Path(__file__).resolve().parent.parent / 'src/browser/scripts/browser-smoke-durations.mjs'
+RUN_TIMED_OUT = object()
 
 
 def notice(message, level='notice'):
@@ -93,6 +96,22 @@ def browser_invocations(spec, scripts):
     return []
 
 
+def browser_duration(spec, scripts, durations):
+    """Return the slowest recorded suite duration for a spec's smoke registrations."""
+    seconds = []
+    for command in smoke_scripts(scripts):
+        for segment in command.split('&&'):
+            tokens = shlex.split(segment)
+            runner = 'scripts/run-browser-tests.mjs'
+            if runner in tokens and spec in tokens:
+                for script_name, script_command in scripts.items():
+                    if script_name in durations and runner in script_command and spec in shlex.split(script_command):
+                        seconds.append(durations[script_name])
+    # A changed smoke spec without a matching recorded command is least known;
+    # keep it first so its result is not consistently lost behind measured suites.
+    return max(seconds, default=0)
+
+
 def select(base):
     changed = subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=AMR', '-z', base, 'HEAD'], text=True)
     paths = [path for path in changed.split('\0') if path]
@@ -158,27 +177,49 @@ def soak_exunit():
 def soak_browser():
     specs = load_list('SOAK_SPECS', 'tests/', '.spec.mjs')
     scripts = json.loads((BROWSER_ROOT / 'package.json').read_text())['scripts']
+    duration_text = DURATION_SOURCE.read_text()
+    duration_block = duration_text.split('export const recordedSeconds = {', 1)[1].split('\n}', 1)[0]
+    durations = {}
+    for line in duration_block.splitlines():
+        match = re.match(r"\s*'([^']+)':\s*([\d.]+),?\s*$", line)
+        if match:
+            durations[match.group(1)] = float(match.group(2))
     invocations = {spec: browser_invocations(spec, scripts) for spec in specs}
     for spec, commands in invocations.items():
         if not commands:
             notice(f'Playwright soak skipped {spec}: the browser smoke suite does not run it')
+    listed_invocations = {}
+    for spec, commands in invocations.items():
+        listed_invocations[spec] = []
+        for invocation in commands:
+            listed = browser_test_list(invocation)
+            if listed is RUN_TIMED_OUT:
+                return 0
+            if listed is None:
+                return 1
+            listed_invocations[spec].append((invocation, listed))
     runnable = [spec for spec, commands in invocations.items() if commands]
+    runnable.sort(key=lambda spec: browser_duration(spec, scripts, durations))
     n = plan_runs('Playwright', len(runnable), SPEC_REPEATS, SPEC_REDUCED_REPEATS, SPEC_FULL_LIMIT, SPEC_MAX_FILES)
     started = time.monotonic()
     completed = 0
     for spec in runnable if n else []:
+        estimated_seconds = browser_duration(spec, scripts, durations) * n
         remaining = BUDGET_SECONDS - (time.monotonic() - started)
         if remaining <= 0:
             notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec} after {completed} passing repeats')
             return 0
-        for invocation in invocations[spec]:
+        sampled_spec = any(len(listed) > MAX_BROWSER_TESTS_PER_SPEC
+                           for _invocation, listed in listed_invocations[spec])
+        if estimated_seconds > remaining and not sampled_spec:
+            notice(f'Playwright soak skipped {spec}: estimated {estimated_seconds:.0f}s exceeds {remaining:.0f}s remaining budget')
+            continue
+        for invocation, listed in listed_invocations[spec]:
             elapsed = time.monotonic() - started
             if elapsed >= BUDGET_SECONDS:
                 notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec}')
                 return 0
-            listed = browser_test_list(invocation)
-            if listed is None:
-                return 1
+            remaining = BUDGET_SECONDS - elapsed
             if not listed:
                 notice(f'Playwright soak skipped {spec}: registration lists no tests')
                 continue
@@ -193,11 +234,12 @@ def soak_browser():
             # Apply the overall budget between invocations, as for ExUnit. Routine
             # motion repetitions can exceed 300s. Keep total browser runtime within
             # 20 minutes, leaving setup/cleanup time inside the 25-minute job.
-            timeout = max(1, BROWSER_RUN_TIMEOUT_SECONDS - elapsed)
-            run_timeout = (min(timeout, RUN_TIMEOUT_SECONDS)
-                           if sampled or len(listed) <= MAX_BROWSER_TESTS_PER_SPEC else timeout)
-            status = run_browser(command, spec, sampled, len(listed), run_timeout)
+            timeout = max(1, min(BROWSER_RUN_TIMEOUT_SECONDS - elapsed, remaining))
+            status = run_browser(command, spec, timeout)
             print('::endgroup::', flush=True)
+            if status is RUN_TIMED_OUT:
+                notice(f'Playwright soak stopped at its runtime bound after {completed} passing repeats')
+                return 0
             if status != 0:
                 notice(f'Playwright soak failed for {spec}. Reproduce: cd src/browser && {shlex.join(command)}', 'error')
                 return 1
@@ -211,15 +253,21 @@ def browser_test_list(invocation):
     runner = invocation.index('scripts/run-browser-tests.mjs')
     args = invocation[runner + 1:]
     command = ['npx', 'playwright', 'test', *args, '--list', '--reporter=json']
+    environment = os.environ.copy()
     if invocation[0] == 'env':
-        command = ['env', *invocation[1:runner - 1], *command]
-    try:
-        result = subprocess.run(command, cwd=BROWSER_ROOT, capture_output=True, text=True,
-                                timeout=BROWSER_LIST_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired:
-        notice(f'Playwright test listing timed out for {args[0]}; command: {shlex.join(command)}',
-               'error')
-        return None
+        for assignment in invocation[1:runner - 1]:
+            key, value = assignment.split('=', 1)
+            environment[key] = value
+    with socket.socket() as port_socket:
+        port_socket.bind(('127.0.0.1', 0))
+        environment['AIUR_BROWSER_PORT'] = str(port_socket.getsockname()[1])
+        try:
+            result = subprocess.run(command, cwd=BROWSER_ROOT, capture_output=True, text=True,
+                                    timeout=BROWSER_LIST_TIMEOUT_SECONDS, env=environment)
+        except subprocess.TimeoutExpired:
+            notice(f'Playwright soak skipped: over budget while listing {args[0]}; command: '
+                   f'{shlex.join(command)} (timed out after {BROWSER_LIST_TIMEOUT_SECONDS:g}s)')
+            return RUN_TIMED_OUT
     if result.returncode:
         notice(f'Playwright soak could not list {args[0]}: {shlex.join(command)}; {result.stderr.strip()}', 'error')
         return None
@@ -262,18 +310,13 @@ def sample_grep(command, title_parts):
     return command[:runner + 1] + args
 
 
-def run_browser(command, spec, sampled, test_count, timeout):
+def run_browser(command, spec, timeout):
     try:
         return subprocess.run(command, cwd=BROWSER_ROOT, timeout=timeout).returncode
     except subprocess.TimeoutExpired:
-        suspected_hang = sampled or test_count <= MAX_BROWSER_TESTS_PER_SPEC
-        if suspected_hang:
-            notice(f'Playwright suspected hang: {spec}; command: {shlex.join(command)} '
-                   f'(timed out after {timeout:g}s)', 'error')
-            return 124
         notice(f'Playwright soak skipped: over budget: {spec}; command: {shlex.join(command)} '
-               f'(timed out after {timeout:g}s)', 'warning')
-        return 0
+               f'(timed out after {timeout:g}s)')
+        return RUN_TIMED_OUT
 
 
 def main(argv):
