@@ -24,10 +24,9 @@ Expired work is rolled back before commit, with 50 ms reserved for commit and
 reply delivery.
 
 The resident broker disables WAL auto-checkpointing on request connections. A
-background thread runs passive checkpoints so checkpoint I/O does not hold the
-serialized request loop. One-minute measurements report latency by command
-type, Python queue wait, SQLite lock wait, command execution, commit, and the
-latest completed checkpoint duration and frame counts.
+background thread runs passive checkpoints outside the serialized request loop.
+One-minute measurements report latency by command type, Python queue wait,
+SQLite lock wait, execution, commit, and latest checkpoint duration and frames.
 
 Sustained timeouts raise one `system.github.budget_broker_degraded` attention with duration; its `.resolved` clears it on recovery.
 
