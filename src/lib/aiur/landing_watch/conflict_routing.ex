@@ -16,7 +16,10 @@ defmodule Aiur.LandingWatch.ConflictRouting do
   @failure %{name: "Merge conflict with base"}
 
   @spec conflicting?(map()) :: boolean()
-  def conflicting?(observation), do: Map.get(observation, :mergeable) == "CONFLICTING"
+  def conflicting?(observation) do
+    Map.get(observation, :mergeable) == "CONFLICTING" or
+      Map.get(observation, :conflict_queue_persistent?, false)
+  end
 
   @doc "Takes the PR out of the queue, then routes it through `rework` with a rebase-only follow-up."
   @spec route(map(), (map(), [map()], keyword() -> :ok | {:error, term()}), keyword()) :: :ok | {:error, term()}
@@ -164,13 +167,25 @@ defmodule Aiur.LandingWatch.ConflictRouting do
   @spec comment_body(map()) :: String.t()
   def comment_body(observation) do
     base = Map.get(observation, :base) || "the base branch"
+    queue_context = queue_conflict_context(observation)
 
     """
-    **Rebase only.** Approved PR ##{observation.number} conflicts with `#{base}`, so the landing watcher took it out of the merge queue and moved this ticket to rework.
+    **Rebase only.** Approved PR ##{observation.number} conflicts with `#{base}#{queue_context}`, so the landing watcher took it out of the merge queue and moved this ticket to rework.
 
     Integrate `#{base}`, resolve the conflicts, and push. Make no other change. The approval at `#{observation.head}` stays on record so re-review can compare the contribution diff.
     """
   end
+
+  defp queue_conflict_context(%{conflict_queue_persistent?: true} = observation) do
+    ahead = Map.get(observation, :conflicting_queue_prs, [])
+
+    case Enum.filter(ahead, &is_integer/1) do
+      [] -> " (its merge-queue entry stayed UNMERGEABLE for five minutes)"
+      numbers -> " in the merge queue with PRs ahead: " <> Enum.map_join(numbers, ", ", &"##{&1}")
+    end
+  end
+
+  defp queue_conflict_context(_), do: ""
 
   defp pause_label, do: "#{Config.settings!().tracker.github.label_prefix}:paused"
 end
