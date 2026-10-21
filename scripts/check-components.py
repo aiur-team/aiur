@@ -408,7 +408,6 @@ def declaration_ownership(root, manifest):
             for pattern, owners in state_files.items():
                 if len(owners) > 1:
                     problems.append(('O-state', f"state file pattern '{pattern}' owned twice: {', '.join(owners)}"))
-            names = [name for name in names if not name.startswith('file: ')]
         owners = {}
         for component in manifest['components']:
             for name in component['owns'][kind]:
