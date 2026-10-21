@@ -76,7 +76,17 @@ export function listHTML(D, state, history, P, now) {
   const keep = t => match(t, state), rows = Object.fromEntries(['now', 'plan', 'nq'].map(sec => [sec, D[sec].filter(keep)]));
   rows.hist = D.hist.filter(t => t.end >= (state.histFrom || 0) && keep(t)).sort((a, b) => b.end - a.end);
   const labels = { now: '<i class="lh-live" aria-hidden="true"></i>Live', plan: 'Planned', nq: 'Not queued', hist: 'History' };
-  const subs = { now: rows.now.length + ' running', plan: rows.plan.length + ' in build-queue order', nq: rows.nq.length + ' open', hist: rows.hist.length + ' loaded · newest first' };
+  const nowCounts = { running: 0, retrying: 0, stuck: 0, paused: 0, unknown: 0 };
+  for (const ticket of rows.now) {
+    const key = ticket.agent?.state === 'active' ? 'running'
+      : ticket.agent?.state === 'retrying' ? 'retrying'
+        : ['error', 'retries', 'command'].includes(ticket.agent?.state) ? 'stuck'
+          : ['paused', 'parked'].includes(ticket.agent?.state) ? 'paused' : 'unknown';
+    nowCounts[key]++;
+  }
+  const nowSummary = Object.entries(nowCounts).filter(([key, count]) => key === 'running' || count > 0)
+    .map(([key, count]) => count + ' ' + (key === 'unknown' ? 'state unknown' : key)).join(' · ');
+  const subs = { now: nowSummary, plan: rows.plan.length + ' in build-queue order', nq: rows.nq.length + ' open', hist: rows.hist.length + ' loaded · newest first' };
   const more = history.more ? '<div role="row"><div role="cell"><button type="button" class="lr-more" id="lr-more"' + (history.state === 'loading' ? ' disabled aria-busy="true"' : '') + '>Load earlier day</button></div></div>' : '';
   return '<div class="bd-list" role="table" aria-label="Build tickets" tabindex="-1"><div class="lr lr-h" role="row">' +
     ['id', 'tt', 'ep', 'st', 'ag', 'pg', 'dp'].map((key, i) => '<span class="c-' + key + '" role="columnheader">' + ['Ticket', 'Title', 'Epic', 'State', 'Agent', 'Progress', 'Deps'][i] + '</span>').join('') + '</div>' +
@@ -100,16 +110,16 @@ export function renderList() {
 function bindOnce(vp) {
   if (ctx.listVp === vp) return;
   ctx.listVp = vp;
-  const open = id => { const t = ctx.D.byId[id]; if (t) fx.openModal(t); };
+  const open = row => { const t = ctx.D.byId[row.dataset.id]; if (t) fx.openModal(t, { origin: row }); };
   ctx.life.on(vp, 'click', e => {
     if (S.view !== 'list') return;
     const btn = e.target.closest('#lr-more');
     if (btn) { earlier(btn); return; }
-    const row = e.target.closest('.lr[data-id]'); if (row) open(row.dataset.id);
+    const row = e.target.closest('.lr[data-id]'); if (row) open(row);
   });
   ctx.life.on(vp, 'keydown', e => {
     if (S.view !== 'list' || e.key !== 'Enter' || e.target.matches('button')) return;
-    const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row.dataset.id); }
+    const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row); }
   });
 }
 async function earlier(btn) {

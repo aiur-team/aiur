@@ -13,7 +13,6 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
-    CommentPollingState,
     CommentWake,
     ControlLifecycleStore,
     DispatchPolicy,
@@ -130,7 +129,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       # `--max-agents N` at launch: seed the session override (highest
       # precedence; `refresh_runtime_config/1` never clobbers it) so the cap
       # holds without editing `.aiur/config`.
-      session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override(),
+      session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override() || control_lifecycle.max_agents,
       # `--pause` at launch: cold-start globally paused so no agents provision
       # even with agent:todo tickets, until the operator unpauses.
       globally_paused: global_pause.globally_paused,
@@ -212,11 +211,6 @@ defmodule Aiur.Orchestrator.Lifecycle do
   @spec terminate(term(), State.t() | term()) :: :ok
   def terminate(_reason, %State{running: running} = state) when is_map(running) do
     _ = TrackerTasks.stop(state)
-    # The comment poll owns linked target tasks whose guarded request workers
-    # may still hold GitHub sockets. Reap that tree before this owner exits so
-    # an orderly stop never overlaps it with a successor's first poll.
-    _ = CommentPollingState.terminate_poll(state.github_comment_cursor.poll)
-
     # Comment-rework retries reschedule themselves for up to a minute with
     # escalating delays. Cancel them here so a stopping orchestrator never leaves
     # a timer firing — and logging — into whatever runs after it (#1747).

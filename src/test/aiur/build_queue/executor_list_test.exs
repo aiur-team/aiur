@@ -12,13 +12,25 @@ defmodule Aiur.BuildQueue.ExecutorListTest do
   end
 
   test "after creates list edges and the planner keeps the dependent waiting" do
-    {:ok, doc, [{:mark, "2"}]} = add(@empty, ["2"], after: "1")
+    {:ok, doc, _} = add(@empty, ["1"])
+    {:ok, doc, [{:mark, "2"}]} = add(doc, ["2"], after: "1")
     [queue] = doc.queues
-    assert {:ok, [item], [%Model.Edge{prerequisite: "1", dependent: "2", source: :list}], :current} = ExecutorList.members(queue, doc)
+    assert {:ok, [anchor, item], [%Model.Edge{prerequisite: "1", dependent: "2", source: :list}], :current} = ExecutorList.members(queue, doc)
+    assert anchor.issue_id == "1"
     assert item.issue_id == "2"
     input = struct!(Planner.Input, Map.to_list(doc) ++ [observations: Map.new(["1", "2"], &{&1, observation(&1)}), now_ms: 1_000, opts: opts()])
-    assert {[%{issue_id: "2", state: :waiting}], actions} = Planner.plan(input)
+    {states, actions} = Planner.plan(input)
+    assert Enum.map(states, &{&1.issue_id, &1.state}) == [{"1", :ready}, {"2", :waiting}]
+    assert {:promote, "1"} in actions
     refute {:promote, "2"} in actions
+  end
+
+  test "after anchor membership verdict is stable in either batch order" do
+    for ids <- [["1", "2"], ["2", "1"]] do
+      assert {:error, :anchor_not_in_queue} = add(@empty, ids, after: "9")
+      assert {:ok, doc, _} = add(@empty, ids, after: "1")
+      assert Enum.map(doc.edges, &{&1.prerequisite, &1.dependent}) == [{"1", "2"}]
+    end
   end
 
   test "insertion, reorder and removal renumber positions densely" do
@@ -44,7 +56,8 @@ defmodule Aiur.BuildQueue.ExecutorListTest do
   end
 
   test "remove deletes incoming list edges but preserves prerequisites of remaining members" do
-    {:ok, doc, _} = add(@empty, ["1"], after: "9")
+    {:ok, doc, _} = add(@empty, ["9"])
+    {:ok, doc, _} = add(doc, ["1"], after: "9")
     {:ok, doc, _} = add(doc, ["2"], after: "1")
     {:ok, doc, _} = ListMutations.remove(doc, "1")
     assert doc.edges == [%Model.Edge{prerequisite: "1", dependent: "2", source: :list}]
@@ -52,6 +65,7 @@ defmodule Aiur.BuildQueue.ExecutorListTest do
 
   test "source isolates queues and sorts local items; codec accepts output" do
     {:ok, doc, _} = add(@empty, ["1", "2"])
+    {:ok, doc, _} = add(doc, ["8"], queue: "other")
     {:ok, doc, _} = add(doc, ["3"], queue: "other", after: "8")
     [queue | _] = doc.queues
     assert {:ok, items, [], :current} = ExecutorList.members(queue, %{doc | items: Enum.reverse(doc.items)})

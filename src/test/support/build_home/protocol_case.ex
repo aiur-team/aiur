@@ -7,6 +7,10 @@ defmodule Aiur.TestSupport.BuildHome.ProtocolCase do
   defmodule Spy do
     @moduledoc false
     @behaviour AiurWeb.Build.DataSource
+    alias Aiur.TestSupport.BuildHome.FixtureSource
+    @impl true
+    def ticket(id, opts), do: FixtureSource.ticket(id, opts)
+
     @impl true
     def subscribe(opts) do
       send(opts[:test_pid], :subscribed)
@@ -28,6 +32,11 @@ defmodule Aiur.TestSupport.BuildHome.ProtocolCase do
     defp result(:invalid, opts) do
       {:ok, data} = FixtureSource.snapshot(opts)
       {:ok, put_in(data, ["sections", "now", Access.at(0), "pct"], "sensitive-source-value")}
+    end
+
+    defp result(:retrying, opts) do
+      {:ok, data} = FixtureSource.snapshot(opts)
+      {:ok, put_in(data, ["sections", "now", Access.at(0), "agent", "state"], "retrying")}
     end
 
     defp result(_mode, opts) do

@@ -161,9 +161,9 @@ defmodule Aiur.DecisionApiTest do
       refute Map.has_key?(projection, "content_hash")
       refute Map.has_key?(projection, "legacy_attention")
       refute Map.has_key?(projection["provenance"], "session_id")
-      refute inspect(projection) =~ "session-private"
-      refute inspect(projection) =~ "capability=private"
-      refute inspect(projection) =~ "account@example.test"
+      Aiur.TestSupport.refute_leak(projection, "session-private")
+      Aiur.TestSupport.refute_leak(projection, "capability=private")
+      Aiur.TestSupport.refute_leak(projection, "account@example.test")
     end
   end
 

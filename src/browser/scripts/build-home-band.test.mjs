@@ -29,7 +29,11 @@ test('B3 clock unknown branches never invent the live time', () => {
 })
 test('B4 missing agents and states stay outside known counts', () => {
   const rows = structuredClone(live.sections.now); rows.at(-1).agent.state = null; rows.push({ agent: null })
-  assert.deepEqual(bandCounts(rows), { nr: 2, ns: 3, ni: 2, nu: 2 })
+  assert.deepEqual(bandCounts(rows), { nr: 2, nt: 0, ns: 3, ni: 2, nu: 2 })
+})
+test('retrying agents get a timeline count and are not state unknown', () => {
+  const retrying = { agent: { state: 'retrying' } }
+  assert.deepEqual(bandCounts([retrying]), { nr: 0, nt: 1, ns: 0, ni: 0, nu: 0 })
 })
 test('B5 ETA stays unknown rather than dividing by demo capacity', () => {
   const D = { now: live.sections.now, plan: live.sections.plan, sources: live.sources }

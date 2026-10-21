@@ -1,50 +1,57 @@
 defmodule Aiur.Orchestrator.CommentPollingState do
-  @moduledoc "Adapts the in-place comment poll to State and folds lifecycle observations in order."
-  alias Aiur.Orchestrator.{CommentPolling, ReadyForReviewTransitions, State, TrackerHealth}
+  @moduledoc "Adapts orchestrator facts for the comments listener and folds its observations in order."
+  alias Aiur.GitHub.Listeners
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State, TrackerHealth}
   alias Aiur.PrReadyLedgerStore
 
-  @spec poll_github_comments(State.t(), keyword()) :: State.t()
-  def poll_github_comments(state, opts \\ []), do: run(state, :poll_github_comments, [], opts) |> elem(0)
-  @spec start_async(State.t(), keyword()) :: State.t()
-  def start_async(state, opts \\ []), do: run(state, :start_async, [], opts) |> elem(0)
-  @spec request_reconcile(State.t(), map(), keyword()) :: State.t()
-  def request_reconcile(state, hint, opts \\ []), do: run(state, :request_reconcile, [hint], opts) |> elem(0)
-  @spec apply_async(State.t(), reference(), term(), keyword()) :: State.t()
-  def apply_async(state, ref, payload, opts \\ []), do: run(state, :apply_async, [ref, payload], opts) |> elem(0)
-  @spec apply_async_started(State.t(), reference(), pid(), pid(), keyword()) :: State.t()
-  def apply_async_started(state, ref, owner, pid, opts \\ []), do: run(state, :apply_async_started, [ref, owner, pid], opts) |> elem(0)
-  @spec apply_async_guarding(State.t(), reference(), pid(), pid(), keyword()) :: State.t()
-  def apply_async_guarding(state, ref, owner, pid, opts \\ []), do: run(state, :apply_async_guarding, [ref, owner, pid], opts) |> elem(0)
-  @spec run_scheduled_reconcile(State.t(), reference(), keyword()) :: State.t()
-  def run_scheduled_reconcile(state, token, opts \\ []), do: run(state, :run_scheduled_reconcile, [token], opts) |> elem(0)
+  @spec input(State.t()) :: Listeners.comment_input()
+  def input(%State{} = state) do
+    entries = Map.values(state.running)
 
-  @spec apply_async_down(State.t(), reference()) :: {:handled, State.t()} | :unhandled
-  def apply_async_down(%State{} = state, ref) do
-    {state, outcome} = run(state, :apply_async_down, [ref], [])
-    if outcome.handled?, do: {:handled, state}, else: :unhandled
+    titles =
+      Enum.reduce(entries, %{}, fn entry, acc ->
+        with identifier when is_binary(identifier) and identifier != "" <- Map.get(entry, :identifier),
+             %{title: title} when is_binary(title) and title != "" <- Map.get(entry, :issue) do
+          Map.put(acc, identifier, title)
+        else
+          _other -> acc
+        end
+      end)
+
+    Listeners.comment_input(%{
+      running_targets: Enum.map(entries, &Map.get(&1, :identifier)),
+      running_titles: titles,
+      ownership_key: state.snapshot_key,
+      next_github_delay_ms: TrackerHealth.github_next_poll_delay_ms(state)
+    })
   end
 
-  @spec terminate_poll(map() | nil) :: :ok
-  defdelegate terminate_poll(poll), to: CommentPolling
-  @spec reconcile_retry_delay_ms(State.t()) :: non_neg_integer()
-  def reconcile_retry_delay_ms(state), do: CommentPolling.reconcile_retry_delay_ms(CommentPolling.input(state))
+  @spec start_async(State.t(), keyword()) :: State.t()
+  def start_async(state, opts \\ []) do
+    Listeners.start_comment_poll(input(state), poll_opts(state, opts))
+    state
+  end
 
-  defp run(state, function, args, opts) do
-    opts =
-      opts
-      |> Keyword.put(:pr_review_seen_at, state.pr_review_seen_at)
-      |> Keyword.put(:pr_ready_ledger, state.pr_ready_ledger)
-      |> Keyword.put(:load_pr_ready_ledger, &PrReadyLedgerStore.load/0)
-      |> Keyword.put(:poll_frozen, state.poll_frozen)
+  @spec request_reconcile(State.t(), map(), keyword()) :: State.t()
+  def request_reconcile(state, hint, opts \\ []) do
+    Listeners.reconcile_hint(hint, input(state), poll_opts(state, opts))
+    state
+  end
 
-    {cursor, outcome} = apply(CommentPolling, function, [state.github_comment_cursor, CommentPolling.input(state)] ++ args ++ [opts])
-    state = fold(%{state | github_comment_cursor: cursor}, outcome)
+  @spec apply_outcome(State.t(), map()) :: State.t()
+  def apply_outcome(state, outcome) do
+    state = fold(state, outcome)
+    Listeners.update_backoff(TrackerHealth.github_next_poll_delay_ms(state), completion: outcome.completion, poll_opts: poll_opts(state, []))
+    state
+  end
 
-    # Connectivity changes the retry delay; finish against the freshly folded State.
-    cursor = CommentPolling.finish(cursor, CommentPolling.input(state), outcome, opts)
-    state = %{state | github_comment_cursor: cursor}
-
-    {state, outcome}
+  defp poll_opts(state, opts) do
+    opts
+    |> Keyword.put(:pr_review_seen_at, state.pr_review_seen_at)
+    |> Keyword.put(:pr_ready_ledger, state.pr_ready_ledger)
+    |> Keyword.put(:load_pr_ready_ledger, &PrReadyLedgerStore.load/0)
+    |> Keyword.put(:poll_frozen, state.poll_frozen)
+    |> Keyword.put_new(:recipient, self())
   end
 
   @doc false

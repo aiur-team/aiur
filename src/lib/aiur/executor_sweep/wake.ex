@@ -25,7 +25,7 @@ defmodule Aiur.ExecutorSweep.Wake do
 
   defp wake_finding(finding) do
     finding
-    |> Map.take([:kind, :priority, :message, :action, :ticket, :issue_number, :pull_request, :head_sha, :failure_class, :failed_checks, :age_ms])
+    |> Map.take([:kind, :priority, :message, :action, :ticket, :ticket_count, :oldest_ticket, :truncated?, :issue_number, :pull_request, :head_sha, :failure_class, :failed_checks, :age_ms])
     |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
     |> Map.put("needs_attention", true)
   end

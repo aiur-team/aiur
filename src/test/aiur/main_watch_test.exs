@@ -2,7 +2,6 @@ defmodule Aiur.MainWatchTest do
   use Aiur.TestSupport
   alias Aiur.CI.FailureDigest
   alias Aiur.Events.Exchange
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.MainWatch
   alias Aiur.MainWatch.GitHub, as: MainWatchGitHub
   alias Aiur.MainWatch.{Persistence, State}
@@ -91,8 +90,8 @@ defmodule Aiur.MainWatchTest do
 
   test "bounded production request wrapper preserves the configured GitHub token" do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
-    token_key = {GitHubConfig, :resolved_token}
-    source_key = {GitHubConfig, :resolved_token_source}
+    token_key = {Aiur.GitHub.Access.Token, :resolved_token}
+    source_key = {Aiur.GitHub.Access.Token, :resolved_token_source}
     previous_token = :persistent_term.get(token_key, :unset)
     previous_source = :persistent_term.get(source_key, :unset)
 

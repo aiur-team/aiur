@@ -6,6 +6,10 @@ defmodule Aiur.Tracker.IssueTracker do
 
   @type ticket_pull_request_result :: Aiur.Tracker.ticket_pull_request_result()
 
+  @callback with_poll_cycle((-> term())) :: term()
+  @callback format_preflight_error(term()) :: String.t()
+  @optional_callbacks with_poll_cycle: 1, format_preflight_error: 1
+
   @callback ticket_pull_request(String.t()) :: ticket_pull_request_result()
 
   @type issue_closure_result :: {:ok, %{open?: boolean(), state_reason: String.t() | nil}} | {:error, term()}

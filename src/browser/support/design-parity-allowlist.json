@@ -149,7 +149,7 @@
     "kind": "copy",
     "selector": "#bd-vp",
     "cells": {},
-    "reason": "earlier days could not load \u00b7 scroll up to retry",
+    "reason": "earlier days could not load · scroll up to retry",
     "approval": {
       "status": "pending-sign-off",
       "by": null,
@@ -162,7 +162,7 @@
     "kind": "copy",
     "selector": "#bd-vp",
     "cells": {},
-    "reason": "loaded \u00b7 total unknown",
+    "reason": "loaded · total unknown",
     "approval": {
       "status": "pending-sign-off",
       "by": null,
@@ -207,6 +207,20 @@
       "by": null,
       "date": null,
       "ref": "MP-E8-C9-T13 / DESIGN-E8 S-9"
+    }
+  },
+  {
+    "id": "live-list-state-counts",
+    "kind": "copy",
+    "selector": "#bd-vp",
+    "mask": ".bd-list > .lh:nth-child(2) > em",
+    "cells": {},
+    "reason": "#5175: the Live list head counts running, retrying, stuck, paused and unknown rows; the design calls every Live row running.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/pull/5179 review finding 3"
     }
   },
   {
@@ -315,6 +329,32 @@
       "by": null,
       "date": null,
       "ref": "MP-E8-C9-T08 Decisions 3 / C7-T03"
+    }
+  },
+  {
+    "id": "gantt-start-unknown",
+    "kind": "copy",
+    "selector": "#build-root",
+    "cells": {},
+    "reason": "S-5: start-unknown product-only element captures have no design counterpart; committed regression baselines await visual sign-off.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "MP-E8-C9-T09 Pixel parity / DESIGN-E8 S-5"
+    }
+  },
+  {
+    "id": "gantt-estimate-unknown",
+    "kind": "copy",
+    "selector": "#build-root",
+    "cells": {},
+    "reason": "S-5: estimate-unknown product-only element captures have no design counterpart; committed regression baselines await visual sign-off.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "MP-E8-C9-T09 Pixel parity / DESIGN-E8 S-5"
     }
   }
 ]

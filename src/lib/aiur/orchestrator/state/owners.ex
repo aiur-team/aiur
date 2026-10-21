@@ -67,6 +67,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     ci_readiness_unavailable_alerted: :dispatch,
     ci_readiness_check_pid: :dispatch,
     ci_readiness_check_token: :dispatch,
+    ci_readiness_check_provider: :dispatch,
     ci_readiness_retry_at_ms: :dispatch,
     ci_readiness_scope: :dispatch,
     ci_readiness_result: :dispatch,
@@ -114,10 +115,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     agent_totals: :accounting,
     agent_rate_limits: :accounting,
     codex_totals: :accounting,
-    codex_rate_limits: :accounting,
-    github_comment_cursor: :github_listeners,
-    github_command_scan_etags: :github_listeners,
-    github_command_scan_since: :github_listeners
+    codex_rate_limits: :accounting
   }
 
   @members %{
@@ -133,6 +131,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     ],
     dispatch: [
       Aiur.Orchestrator.AdoptedBoot,
+      Aiur.Orchestrator.CiReadinessGate,
       Aiur.Orchestrator.Dispatcher,
       Aiur.Orchestrator.DispatchOutcome,
       Aiur.Orchestrator.DispatchPolicy,
@@ -175,8 +174,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     # Listener names are data; this table neither loads nor calls the optional component.
     github_listeners: [
       Aiur.Orchestrator.CommentPollingState,
-      Aiur.Orchestrator.CommentPolling,
-      Aiur.Orchestrator.CommandScan,
+      Aiur.Orchestrator.CommandPolling,
       :"Elixir.Aiur.Events.GithubFirehose",
       :"Elixir.Aiur.Events.GithubCommentsPoller"
     ]

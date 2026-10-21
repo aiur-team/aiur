@@ -6,7 +6,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     segment_count = length(configured_providers()) + 2
 
     assert html =~ ~s(<b id="route-title" role="heading" aria-level="1">Streamdeck+</b>)
-    assert html =~ ~s(<span class="snav-label">Streamdeck</span>)
+    assert html =~ ~s(<span class="snav-label aiur-shell__label">Streamdeck</span>)
     assert html =~ ~s(id="sd-keys")
     assert html =~ ~s(id="sd-screen")
     # The grid container is a bare <div>, so it needs an explicit role for its

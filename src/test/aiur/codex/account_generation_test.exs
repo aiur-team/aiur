@@ -24,9 +24,9 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert snapshot = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
     assert is_binary(snapshot.generation)
     assert snapshot.source == :codex_app_server
-    refute inspect(snapshot) =~ raw_identity
-    refute inspect(:sys.get_state(owner)) =~ raw_identity
-    refute inspect(:sys.get_state(owner)) =~ "chatgpt"
+    Aiur.TestSupport.refute_leak(snapshot, raw_identity)
+    Aiur.TestSupport.refute_leak(:sys.get_state(owner), raw_identity)
+    Aiur.TestSupport.refute_leak(:sys.get_state(owner), "chatgpt")
   end
 
   test "account updates create a shared generation and emit only a redacted audit message", %{owner: owner, session: session} do
@@ -42,8 +42,8 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
     assert snapshot = ProviderAccountGeneration.lookup(owner, :codex, :app_server, session.account_generation_binding)
     assert is_binary(snapshot.generation)
-    refute inspect(details) =~ raw_identity
-    refute inspect(:sys.get_state(owner)) =~ raw_identity
+    Aiur.TestSupport.refute_leak(details, raw_identity)
+    Aiur.TestSupport.refute_leak(:sys.get_state(owner), raw_identity)
   end
 
   test "same-mode account updates rotate without explicit continuity proof", %{owner: owner, session: session} do

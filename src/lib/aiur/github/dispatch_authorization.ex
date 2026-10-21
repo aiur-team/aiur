@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   require Logger
 
   alias Aiur.GitHub.{Config, Errors, LocalProvenance, MainFixer, ReadCache, StatePolicy, TimelineCache, Transport}
-  alias Aiur.{Issue, Signal}
+  alias Aiur.{GitHub.DispatchAuthorization.TimelineFetch, Issue, Signal}
 
   @cache_key {__MODULE__, :timeline_cache}
   # The timeline cache holds full event lists — up to four pages of 100 raw
@@ -208,7 +208,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     token = Keyword.get(opts, :token, Config.token())
 
     if is_binary(token) and token != "" do
-      case fetch_timeline_ladder(request_fun, token, owner, repo, issue, TimelineCache.page_sizes(owner, repo, issue.id, @timeline_page_sizes)) do
+      case TimelineFetch.run(&fetch_timeline_ladder/6, [request_fun, token, owner, repo, issue, TimelineCache.page_sizes(owner, repo, issue.id, @timeline_page_sizes)], opts) do
         {:ok, events, new_etag, single_page?, per_page} ->
           TimelineCache.put(owner, repo, issue.id, new_etag, events, single_page?, per_page)
           decide_fetched_timeline(issue, label, prefix, events, owner, repo)

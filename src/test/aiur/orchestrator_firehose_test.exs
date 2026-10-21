@@ -105,12 +105,14 @@ defmodule Aiur.OrchestratorFirehoseTest do
       }
     }
 
-    next =
-      CommentPolling.poll_github_comments(state,
-        repo: "owner/repo",
-        request_fun: request_fun,
-        review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end
-      )
+    CommentPolling.start_async(state,
+      repo: "owner/repo",
+      request_fun: request_fun,
+      review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end
+    )
+
+    receive_barrier({:github_listener_outcome, :comments, outcome})
+    next = CommentPolling.apply_outcome(state, outcome)
 
     assert {:rate_limited, 1} = next.github_connectivity[:comments]
     assert TrackerHealth.github_next_poll_delay_ms(next) == 9_000

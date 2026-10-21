@@ -3,6 +3,7 @@ defmodule Aiur.ExperimentsCLITest do
   import ExUnit.CaptureIO
   alias Aiur.{Experiments, ExperimentsCLI}
   alias Aiur.Experiments.Paths
+  alias AiurWeb.Experiments.Source
 
   defmodule FixturePack do
     @behaviour Aiur.Experiments.MetricPack
@@ -36,10 +37,13 @@ defmodule Aiur.ExperimentsCLITest do
       if previous_packs, do: Application.put_env(:aiur, :experiment_metric_packs, previous_packs), else: Application.delete_env(:aiur, :experiment_metric_packs)
     end)
 
-    root = Path.join(System.tmp_dir!(), "experiments-cli-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("experiments-cli")
     previous = Application.get_env(:aiur, :experiments_dir)
     previous_base = Application.get_env(:aiur, :repo_base_root)
-    Application.put_env(:aiur, :repo_base_root, Path.join(root, "repo"))
+    # Keep repository state in the suite root, which lives until after_suite;
+    # a late writer must not race deletion of a per-test state root.
+    state_root = Path.join(Application.fetch_env!(:aiur, :test_run_root), "experiments-cli-#{System.pid()}-#{System.unique_integer([:positive])}")
+    Application.put_env(:aiur, :repo_base_root, state_root)
     Application.put_env(:aiur, :experiments_dir, root)
 
     on_exit(fn ->
@@ -116,6 +120,41 @@ defmodule Aiur.ExperimentsCLITest do
     for argv <- [["--kind", "unexpected"], ["--status", "unexpected"]] do
       assert capture_io(:stderr, fn -> assert ExperimentsCLI.run(verb: :list, argv: argv) == 64 end) =~ "expects list"
     end
+  end
+
+  test "confirmed abandonment is audited and hidden from default and page lists" do
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: quick_args("abandon smoke") ++ ["--no-freeze", "--json"]) == 0 end)
+    spec = Jason.decode!(output)
+
+    assert capture_io(:stderr, fn -> assert ExperimentsCLI.run(verb: :abandon, argv: [spec["id"], "--reason", "smoke complete"]) == 64 end) =~ "abandon <id>"
+    assert capture_io(fn -> assert ExperimentsCLI.run(verb: :abandon, argv: [spec["id"], "--reason", "smoke complete", "--confirm"]) == 0 end) =~ "abandoned"
+
+    assert {:ok, detail} = Experiments.fetch(spec["id"])
+    assert detail.spec["status"] == "abandoned"
+    assert Enum.any?(detail.journal, &(&1["kind"] == "abandoned" and &1["reason"] == "smoke complete" and &1["actor"] == "operator"))
+    assert {:ok, []} = Experiments.list()
+    assert {:ok, []} = Experiments.list(status: nil)
+    assert {:ok, [%{id: id, status: "abandoned"}]} = Experiments.list(status: "abandoned")
+    assert id == spec["id"]
+
+    previous_facade = Application.get_env(:aiur, :experiments_facade)
+    Application.put_env(:aiur, :experiments_facade, Experiments)
+
+    try do
+      assert {:ok, []} = Source.index()
+    after
+      if previous_facade, do: Application.put_env(:aiur, :experiments_facade, previous_facade), else: Application.delete_env(:aiur, :experiments_facade)
+    end
+  end
+
+  test "abandon list filtering keeps incomplete summary rows" do
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: quick_args("corrupt summary") ++ ["--no-freeze", "--json"]) == 0 end)
+    spec = Jason.decode!(output)
+    File.write!(Paths.file(spec["id"], "spec.json"), "{")
+    File.rm!(Path.join(Paths.root(), "index.json"))
+
+    assert {:ok, [%{id: id, error: :unreadable}]} = Experiments.list()
+    assert id == spec["id"]
   end
 
   test "a tag line leaves timestamp resolution to the spec" do

@@ -61,7 +61,22 @@ test('U10 section heads expose unavailable causes and read ages', () => {
   assert.match(html({ plan: [row('plan')] }, { ...P.sources, queue: source }), /1 in build-queue order · unavailable, showing the read 6 min ago/);
   assert.match(html({}, { ...P.sources, queue: { ...source, state: 'disabled', reason: 'configured off' } }), /disabled · configured off/);
   assert.match(html({}, { ...P.sources, open_tickets: { ...source, state: 'incomplete', reason: 'incomplete' } }), /incomplete · the read was partial · read 6 min ago/);
+  assert.match(html({}, { ...P.sources, open_tickets: { state: 'unavailable', reason: 'open_tickets_loading', observed_at: null } }), /the open-ticket listing is in progress/);
   assert.match(html({ hist: [row('hist')] }, { ...P.sources, history: { state: 'stale', observed_at: null } }), /stale, no successful read recorded/);
+});
+test('retrying agents are counted separately from running and timeout cause is readable', () => {
+  const retrying = row('now', { status: 'queued', agent: { state: 'retrying', model: null, name: null } });
+  const out = html({ now: [row('now'), retrying] }, { ...P.sources, open_tickets: { state: 'unavailable', reason: 'open_tickets_timeout', observed_at: null } });
+  assert.match(out, /1 running · 1 retrying/);
+  assert.match(out, /the open-ticket listing timed out/);
+});
+test('live list header accounts for every row state', () => {
+  const rows = [
+    row('now', { agent: { state: 'active' } }), row('now', { id: 'retry', agent: { state: 'retrying' } }),
+    row('now', { id: 'error', agent: { state: 'error' } }), row('now', { id: 'command', agent: { state: 'command' } }),
+    row('now', { id: 'paused', agent: { state: 'paused' } }), row('now', { id: 'unknown', agent: { state: null } })
+  ];
+  assert.match(html({ now: rows }), /1 running · 1 retrying · 2 stuck · 1 paused · 1 state unknown/);
 });
 test('U11 long sections render every row and healthy empty sections stay hidden', () => {
   const out = html({ nq: Array.from({ length: 600 }, (_, i) => row('nq', { id: String(i) })) });

@@ -165,7 +165,12 @@ def soak_browser():
     runnable = [spec for spec, commands in invocations.items() if commands]
     n = plan_runs('Playwright', len(runnable), SPEC_REPEATS, SPEC_REDUCED_REPEATS, SPEC_FULL_LIMIT, SPEC_MAX_FILES)
     started = time.monotonic()
+    completed = 0
     for spec in runnable if n else []:
+        remaining = BUDGET_SECONDS - (time.monotonic() - started)
+        if remaining <= 0:
+            notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec} after {completed} passing repeats')
+            return 0
         for invocation in invocations[spec]:
             elapsed = time.monotonic() - started
             if elapsed >= BUDGET_SECONDS:
@@ -196,6 +201,9 @@ def soak_browser():
             if status != 0:
                 notice(f'Playwright soak failed for {spec}. Reproduce: cd src/browser && {shlex.join(command)}', 'error')
                 return 1
+            completed += n
+    if completed:
+        notice(f'Playwright soak: {completed} repeats passed for {len(runnable)} specs')
     return 0
 
 def browser_test_list(invocation):

@@ -15,6 +15,7 @@
   "requires": [
     "dashboard-ui",
     "experiments",
+    "kernel",
     "web-kit",
     "web-shell"
   ],

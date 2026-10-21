@@ -5,6 +5,18 @@ defmodule Aiur.Tracker do
 
   alias Aiur.{Config, TestTicketScope}
 
+  @spec with_poll_cycle((-> term())) :: term()
+  def with_poll_cycle(fun) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :with_poll_cycle, 1), do: tracker.with_poll_cycle(fun), else: fun.()
+  end
+
+  @spec format_preflight_error(term()) :: String.t()
+  def format_preflight_error(reason) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :format_preflight_error, 1), do: tracker.format_preflight_error(reason), else: inspect(reason)
+  end
+
   @type open_issue_label_map :: %{String.t() => %{labels: [String.t()], updated_at: DateTime.t() | nil}}
   @type open_issue_labels_result :: {:ok, open_issue_label_map(), integer()} | :none | {:error, :unsupported}
   @type ticket_pull_request_result ::

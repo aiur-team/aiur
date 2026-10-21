@@ -53,7 +53,7 @@ export function shell() {
     fx.unlock();
   });
   life.on(document, 'keydown', e => {
-    if (e.key !== 'Escape') return;
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
     if (!$('#bd-tree', root).hidden) fx.closeTree(); else if (ctx.lockId) fx.unlock();
   });
   life.on(vp, 'scroll', () => {

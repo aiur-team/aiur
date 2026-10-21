@@ -2,6 +2,7 @@ import { columnSequence, alignColumnPolls } from './build-home-columns-motion.mj
 import { spanState } from './build-home-span-state.mjs'
 import { historySequence } from './build-home-history-motion.mjs'
 import { scrollbar } from './build-home-scrollbar-motion.mjs'
+import { alignCardIconToDevicePixel, restoreCardIconAlignment } from './build-home-motion-pixel-align.mjs'
 // Shared records and ownership stay together; feature sequences live beside them.
 // Motion records use the same allowlist as screenshot parity. Design bytes stay untouched.
 import { captureStable } from './design-parity.mjs'
@@ -138,7 +139,7 @@ export const OWNER = {
   'columns': { owners: ['MP-E8-C9-T04'], anchor: '.bd-content .bd-lane' },
   'view.span': { owners: ['MP-E8-C9-T10'], anchor: '.bd-zoom [data-z]' },
   'view.switch.graph': { owners: ['MP-E8-C10-T01'], pending: true },
-  'view.switch.gantt': { owners: ['MP-E8-C9-T09'], pending: true },
+  'view.switch.gantt': { owners: ['MP-E8-C9-T09'] },
   'view.switch.list': { owners: ['MP-E8-C9-T12'] },
   'filter': { owners: ['MP-E8-C10-T02'], anchor: '.bd-fg' },
   'feature': { owners: ['MP-E8-C10-T03'], pending: true, anchor: '.bd-fg[data-g="feature"]' },
@@ -220,8 +221,9 @@ async function snap(page, ctx, kind) {
   const start = await page.locator('#bd-vp').evaluate(el => el.scrollTop)
   const delta = kind === 'pinned' ? -1 : kind === 'guard-up' ? -100 : kind === 'guard-down' ? 100 : kind.includes('bottom') ? 20 : -20
   await scrollTo(page, start + delta)
+  const pixelAlignment = kind === 'tall-band' ? await alignCardIconToDevicePixel(page) : null
   const frame = [{ scrollTop: await page.locator('#bd-vp').evaluate(el => el.scrollTop) }]
-  await ctx.onFrame?.(0, '#bd-vp')
+  try { await ctx.onFrame?.(0, '#bd-vp') } finally { if (pixelAlignment) await restoreCardIconAlignment(page, pixelAlignment) }
   for (let i = 0; i < 40; i++) {
     await page.clock.runFor(16)
     frame.push({ scrollTop: await page.locator('#bd-vp').evaluate(el => el.scrollTop) })

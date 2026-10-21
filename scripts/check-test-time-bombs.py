@@ -11,15 +11,17 @@ windows.
 
 Usage: check-test-time-bombs.py [--days N] [TEST_FILE ...]
 Runs the given test files (paths relative to src/) that contain a date
-literal; with no files, every such *_test.exs. The tree under src/test must be
-clean; it is restored with git afterwards.
+literal; with no files, every such *_test.exs. Tests run from a temporary source
+tree with sibling and support files present; only dated contents are shifted.
 """
 import argparse
 import datetime
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATE = re.compile(r'(?<![0-9])(20[2-3][0-9])-([01][0-9])-([0-3][0-9])(?![0-9])')
@@ -67,7 +69,6 @@ FIXED_DATE_FILES = {
     'test/aiur/usage/price_table_deepseek_test.exs',
     'test/aiur/usage/price_table_test.exs',
     'test/aiur/usage/pricing_test.exs',
-    'test/aiur_engine_pre_pr_test.exs',
     'test/aiur_web/build/freshness_test.exs',
     'test/aiur_web/build/now_rows_test.exs',
     'test/aiur_web/build/planned_rows_test.exs',
@@ -93,7 +94,19 @@ def tracked_test_files():
     return [ROOT / name for name in out.decode().split('\0') if name]
 
 
-def shift_tree(days):
+def copy_src_tree(destination):
+    out = subprocess.check_output(['git', '-C', str(ROOT), 'ls-files', '-z', '--', 'src'])
+    for name in out.decode().split('\0'):
+        if not name:
+            continue
+        source = ROOT / name
+        relative = pathlib.Path(name).relative_to('src')
+        target = pathlib.Path(destination) / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+
+
+def copy_test_tree(days, destination):
     dated = []
     for path in tracked_test_files():
         try:
@@ -102,13 +115,16 @@ def shift_tree(days):
             continue
         shifted = shift_text(text, days)
         if shifted != text:
-            path.write_text(shifted, encoding='utf-8')
-            dated.append(path)
+            relative = path.relative_to(ROOT / 'src' / 'test')
+            copy = pathlib.Path(destination) / relative
+            copy.write_text(shifted, encoding='utf-8')
+            dated.append(pathlib.Path('test') / relative)
     return dated
 
 
 def select(requested, dated):
-    dated_tests = {str(p.relative_to(ROOT / 'src')) for p in dated if p.name.endswith('_test.exs')}
+    dated_tests = {p.as_posix() if not p.is_absolute() else p.relative_to(ROOT / 'src').as_posix()
+                   for p in dated if p.name.endswith('_test.exs')}
     # ponytail: a requested file without its own date literal is skipped even if it reads dated support fixtures.
     candidates = requested if requested else sorted(dated_tests)
     return [f for f in candidates if f in dated_tests and f not in FIXED_DATE_FILES]
@@ -125,8 +141,16 @@ def main():
     if dirty:
         sys.exit('check-test-time-bombs: src/test has uncommitted changes; commit or stash them first')
 
-    try:
-        files = select(args.files, shift_tree(args.days))
+    with tempfile.TemporaryDirectory(prefix='aiur-time-bombs-') as temp_dir:
+        temp_root = pathlib.Path(temp_dir)
+        temp_src = temp_root / 'src'
+        copy_src_tree(temp_src)
+        (temp_src / 'deps').symlink_to(ROOT / 'src' / 'deps', target_is_directory=True)
+        for entry in ROOT.iterdir():
+            if entry.name not in {'.git', '.aiur-runtime', '.aws', 'AGENTS.local.md', 'src'} and not entry.name.startswith('.env'):
+                (temp_root / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
+        shifted = copy_test_tree(args.days, temp_src / 'test')
+        files = select(args.files, shifted)
         if not files:
             print('check-test-time-bombs: no dated test files to run')
             return 0
@@ -135,14 +159,13 @@ def main():
         status = 0
         for start in range(0, len(files), BATCH):
             batch = files[start:start + BATCH]
-            status = subprocess.run(['mix', 'test', '--max-cases', '4', *batch], cwd=ROOT / 'src').returncode or status
+            status = subprocess.run(['mix', 'test', '--max-cases', '4', *batch],
+                                    cwd=temp_src).returncode or status
         if status:
             print(f'::error::tests fail with fixture dates {args.days} days older; a fixed date is compared '
                   'with the real clock. Inject the clock or date the fixture relative to now (#4691).',
                   flush=True)
         return status
-    finally:
-        subprocess.run(['git', '-C', str(ROOT), 'checkout', '--', 'src/test'], check=True)
 
 
 if __name__ == '__main__':

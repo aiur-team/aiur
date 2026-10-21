@@ -36,6 +36,12 @@ defmodule Aiur.BuildOrder.Index.Parts do
   defp read_part(:overrides, opts), do: Keyword.get(opts, :overrides, EpicOverrides).all(Keyword.get(opts, :overrides_opts, []))
   defp read_part(:settings, opts), do: Keyword.get(opts, :settings_fun, &Aiur.Config.settings/0).()
   defp read_part(:repository, opts), do: Keyword.get(opts, :repository_fun, &Aiur.GitHub.Config.configured_repo/0).()
-  defp read_part(:open, opts), do: Keyword.get(opts, :open_source, Aiur.OpenTicketSource).snapshot(Keyword.get(opts, :open_server, Aiur.OpenTicketSource))
+
+  defp read_part(:open, opts) do
+    source = Keyword.get(opts, :open_source, Aiur.OpenTicketSource)
+    server = Keyword.get(opts, :open_server, Aiur.OpenTicketSource)
+    source.snapshot_for_index(server, Keyword.get(opts, :open_timeout, 1_000))
+  end
+
   defp read_part(:queue, opts), do: Keyword.get(opts, :queue, Aiur.BuildQueue).show()
 end

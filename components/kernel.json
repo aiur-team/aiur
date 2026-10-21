@@ -17,8 +17,6 @@
     "src/lib/aiur/jsonl.ex",
     "src/lib/aiur/local_test_evidence.ex",
     "src/lib/aiur/opaque_identifier.ex",
-    "src/lib/aiur/orchestrator/comment_polling/cursor.ex",
-    "src/lib/aiur/orchestrator/comment_polling/input.ex",
     "src/lib/aiur/os.ex",
     "src/lib/aiur/path_safety.ex",
     "src/lib/aiur/periodic_worker.ex",

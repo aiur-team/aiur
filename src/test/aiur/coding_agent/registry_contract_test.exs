@@ -6,6 +6,7 @@ defmodule Aiur.CodingAgent.RegistryContractTest do
   @moduletag :r7_characterization
 
   alias Aiur.CodingAgent.Registry
+  alias Aiur.Harness.Capabilities
 
   @required_keys [
     :adapter,
@@ -56,6 +57,64 @@ defmodule Aiur.CodingAgent.RegistryContractTest do
 
   defp valid_delivery_value?(field, value),
     do: Map.has_key?(@delivery_values, field) and value in Map.fetch!(@delivery_values, field)
+
+  # Future regression guard: nil-backend pane interrupts rely on this uniqueness.
+  test "at most one backend uses the tmux pane transport" do
+    pane_backends =
+      Enum.filter(Registry.entries(), fn {key, entry} ->
+        Capabilities.delivery_primitives_for_entry(key, entry).transport == :tmux_pane
+      end)
+
+    assert length(pane_backends) <= 1
+  end
+
+  @tag r7_characterization: false
+  test "declared children are valid child specs with no conflicting ids" do
+    assert failures(fn _key, entry ->
+             for child <- Map.get(entry, :children, []),
+                 not match?(%{id: _}, safe_child_spec(child)),
+                 do: {:bad_child, child}
+           end) == []
+
+    specs = for {_key, entry} <- Registry.entries(), child <- Map.get(entry, :children, []), do: Supervisor.child_spec(child, [])
+
+    assert specs |> Enum.uniq() |> Enum.frequencies_by(& &1.id) |> Enum.filter(fn {_, n} -> n > 1 end) == []
+  end
+
+  defp safe_child_spec(child) do
+    Supervisor.child_spec(child, [])
+  rescue
+    _ -> :invalid
+  end
+
+  # Future regression guards for optional launch/display capabilities.
+  @tag r7_characterization: false
+  test "launch and display modules implement their capability contracts" do
+    assert failures(fn _key, entry -> capability_failures(entry) end) == []
+  end
+
+  @tag r7_characterization: false
+  test "RC display requires a module implementing all display callbacks" do
+    assert :missing_display_tailer in capability_failures(%{rc_display_tail: true})
+    assert {:missing_capability_callback, :display_tailer, :start, 1} in capability_failures(%{rc_display_tail: true, display_tailer: __MODULE__})
+  end
+
+  defp capability_failures(entry) do
+    missing = if entry[:rc_display_tail] == true and is_nil(entry[:display_tailer]), do: [:missing_display_tailer], else: []
+
+    callbacks = [
+      launch_telemetry: [prepare_launch: 2, revoke: 1],
+      display_tailer: [start: 1, current_session: 1, buffer_operator_delivery: 3, handoff_state: 1, restore_handoff: 2]
+    ]
+
+    missing ++
+      for {key, exports} <- callbacks,
+          Map.has_key?(entry, key),
+          module <- [Map.fetch!(entry, key)],
+          {fun, arity} <- exports,
+          not (is_atom(module) and Code.ensure_loaded?(module) and function_exported?(module, fun, arity)),
+          do: {:missing_capability_callback, key, fun, arity}
+  end
 
   test "registry is not empty" do
     assert map_size(Registry.entries()) > 0

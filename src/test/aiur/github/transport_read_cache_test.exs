@@ -115,8 +115,9 @@ defmodule Aiur.GitHub.TransportReadCacheTest do
     # interplay): the first read is a 200 + deposit, the second is a cache hit,
     # and after expiry the third read sends `If-None-Match` and GitHub's `304`
     # is the free answer.
-    ModeTable.delete("owner/repo")
-    on_exit(fn -> ModeTable.delete("owner/repo") end)
+    repo = "aiur-team/transport-read-cache-conditional-test"
+    ModeTable.delete(repo)
+    on_exit(fn -> ModeTable.delete(repo) end)
 
     test_process = self()
 
@@ -136,7 +137,7 @@ defmodule Aiur.GitHub.TransportReadCacheTest do
       end
     end)
 
-    url = "https://api.github.com/repos/owner/repo/pulls/4242"
+    url = "https://api.github.com/repos/#{repo}/pulls/4242"
     unconditional = %{method: :get, url: url, token: "test-gh-token"}
 
     # First read: a `:pull` miss, so the request reaches the socket and the

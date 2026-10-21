@@ -431,6 +431,12 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     assert out =~ "aiur executor-sweep [--json] [--apply]"
   end
 
+  test "executor-sweep routes through its guarded RPC entry point" do
+    {out, 0} = run_sourced_engine(~S|run_control_rpc() { echo "$1"; }; cmd_executor_sweep --json|, [])
+
+    assert out =~ "Aiur.AgentControlCLI.executor_sweep([json: true])"
+  end
+
   # #2717. `--message-id` names one send, so the retry the CLI prints after an
   # unknown outcome reaches the daemon with the same id.
 

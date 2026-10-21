@@ -358,6 +358,7 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
       name: Map.get(check, "name") || Map.get(check, "context") || "unnamed check",
       kind: kind,
       result: result,
+      url: Map.get(check, "details_url") || Map.get(check, "html_url") || Map.get(check, "target_url"),
       excerpt: Map.get(output, "summary") || Map.get(output, "text") || Map.get(check, "description")
     }
   end

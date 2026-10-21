@@ -16,6 +16,9 @@ defmodule Aiur.Commands do
   @spec all_asks(String.t()) :: {:ok, [Aiur.Asks.ask()]} | {:error, term()}
   defdelegate all_asks(repo), to: Aiur.Asks, as: :all
 
+  @spec get(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate get(decision_id, opts \\ []), to: Aiur.DecisionQuery
+
   @spec answer(String.t(), map()) :: {:ok, map()} | {:error, term()}
   defdelegate answer(decision_id, payload), to: Aiur.DecisionStore
 
@@ -187,6 +190,9 @@ defmodule Aiur.Commands do
 
   @spec open_blocking_decision_ids([String.t()], GenServer.server(), timeout()) :: {:ok, [String.t()]} | {:error, :store_unavailable}
   defdelegate open_blocking_decision_ids(ticket_identifiers, server, timeout), to: Aiur.DecisionStore
+
+  @spec open?(Aiur.Decision.t()) :: boolean()
+  defdelegate open?(decision), to: Aiur.DecisionStore.RetainedIndex
 
   @spec print_projection_status() :: :ok
   defdelegate print_projection_status(), to: Aiur.DecisionStore.ProjectionRecovery, as: :print_status

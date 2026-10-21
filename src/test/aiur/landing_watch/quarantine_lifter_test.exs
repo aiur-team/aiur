@@ -53,6 +53,33 @@ defmodule Aiur.LandingWatch.QuarantineLifterTest do
     refute_received {:request, :put, "https://api.github.com/repos/test-org/test-repo/contents/src/test/quarantine.txt", _}
   end
 
+  test "a ticket closed without a merged fix PR has its entry lifted; an open ticket keeps its entry" do
+    parent = self()
+    journal = Path.join(System.tmp_dir!(), "quarantine-lifter-closed-#{System.unique_integer([:positive])}.json")
+    on_exit(fn -> File.rm(journal) end)
+    original = "# Quarantine list\nAiur.ExampleTest\tabandoned flake\t#900\nAiur.OtherTest\tstill flaky\t#901\n"
+
+    request = fn %{method: method, url: url} = call ->
+      send(parent, {:request, method, url, Map.get(call, :body)})
+
+      case url do
+        "https://api.github.com/repos/test-org/test-repo/issues/900" -> {:ok, %{status: 200, body: %{"state" => "closed"}}}
+        "https://api.github.com/repos/test-org/test-repo/issues/901" -> {:ok, %{status: 200, body: %{"state" => "open"}}}
+        _ -> response(method, url, original)
+      end
+    end
+
+    assert :ok = QuarantineLifter.lift_closed(request_fun: request, token: "test-gh-token", base_branch: "main", journal_path: journal)
+
+    assert_received {:request, :put, "https://api.github.com/repos/test-org/test-repo/contents/src/test/quarantine.txt", body}
+    {:ok, content} = Base.decode64(body["content"])
+    refute content =~ "#900"
+    assert content =~ "#901"
+    assert_received {:request, :post, "https://api.github.com/repos/test-org/test-repo/pulls", pr}
+    assert pr["body"] =~ "#900 now that the ticket is closed"
+    refute_received {:request, :put, _, _}
+  end
+
   defp response(:get, "https://api.github.com/repos/test-org/test-repo/contents/src/test/quarantine.txt?ref=main", contents),
     do: {:ok, %{status: 200, body: %{"content" => Base.encode64(contents), "sha" => "list-blob", "encoding" => "base64"}}}
 

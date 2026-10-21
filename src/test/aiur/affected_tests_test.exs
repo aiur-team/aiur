@@ -51,9 +51,9 @@ defmodule Aiur.AffectedTestsTest do
              {:scoped, []}
   end
 
-  test "forces the full suite for shared test support" do
-    assert {:full, _} = AffectedTests.select(["src/test/test_helper.exs"], all_exist())
-    assert {:full, _} = AffectedTests.select(["src/test/support/factory.ex"], all_exist())
+  test "leaves shared support expansion to the Mix selector" do
+    assert {:scoped, []} = AffectedTests.select(["src/test/test_helper.exs"], all_exist())
+    assert {:scoped, []} = AffectedTests.select(["src/test/support/factory.ex"], all_exist())
   end
 
   test "maps xref-dependent sources when a changed module has no sibling test" do
@@ -90,7 +90,7 @@ defmodule Aiur.AffectedTestsTest do
     end
   end
 
-  test "drops oversized caller-directory expansion and keeps changed-module tests" do
+  test "keeps oversized xref caller-directory expansion in the local selection" do
     root = Aiur.TestSupport.tmp_root!("affected-xref-caller-cap")
     File.mkdir_p!(Path.join(root, "src/test/aiur/callee"))
     File.mkdir_p!(Path.join(root, "src/test/aiur/callers"))
@@ -101,20 +101,21 @@ defmodule Aiur.AffectedTestsTest do
         File.write!(Path.join(root, "src/test/aiur/callers/fixture_#{index}_test.exs"), "")
       end)
 
-      assert {:scoped, [callee_test]} =
+      assert {:scoped, tests} =
                AffectedTests.select(
                  ["src/lib/aiur/callee/callee.ex"],
                  base_dir: root,
                  dependent_sources: ["src/lib/aiur/callers/caller.ex"]
                )
 
-      assert callee_test == "src/test/aiur/callee/callee_test.exs"
+      assert "src/test/aiur/callee/callee_test.exs" in tests
+      assert length(tests) == 402
     after
       Aiur.TestCleanup.rm_rf!(root)
     end
   end
 
-  test "falls back to full CI when the module directory itself exceeds the cap" do
+  test "keeps module-directory selections above 400 files scoped" do
     root = Aiur.TestSupport.tmp_root!("affected-module-directory-cap")
     File.mkdir_p!(Path.join(root, "src/test/aiur/build_queue"))
 
@@ -123,10 +124,10 @@ defmodule Aiur.AffectedTestsTest do
         File.write!(Path.join(root, "src/test/aiur/build_queue/fixture_#{index}_test.exs"), "")
       end)
 
-      assert {:full, reason} =
+      assert {:scoped, tests} =
                AffectedTests.select(["src/lib/aiur/build_queue/read_model.ex"], base_dir: root)
 
-      assert reason =~ "fallback exceeds 400 files"
+      assert length(tests) == 401
     after
       Aiur.TestCleanup.rm_rf!(root)
     end
@@ -248,20 +249,11 @@ defmodule Aiur.AffectedTestsTest do
              {:scoped, ["src/test/aiur/foo_test.exs"]}
   end
 
-  test "budget overflow reports on stderr and leaves stdout empty" do
+  test "keeps large deleted-reference selections scoped for local execution" do
     references = for n <- 1..401, do: "src/test/aiur/ref_#{n}_test.exs"
     opts = [reference_tests: references] ++ all_exist()
 
-    stderr =
-      ExUnit.CaptureIO.capture_io(:stderr, fn ->
-        stdout =
-          ExUnit.CaptureIO.capture_io(fn ->
-            assert {:full, _} = AffectedTests.select(["src/lib/aiur/foo.ex"], opts)
-          end)
-
-        assert stdout == ""
-      end)
-
-    assert stderr =~ "affected tests budget: widened set has 402 tests"
+    assert {:scoped, tests} = AffectedTests.select(["src/lib/aiur/foo.ex"], opts)
+    assert length(tests) == 402
   end
 end
