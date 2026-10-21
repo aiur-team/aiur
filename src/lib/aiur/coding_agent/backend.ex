@@ -87,6 +87,10 @@ defmodule Aiur.CodingAgent.Backend do
       version itself). Defaults to `:native`.
     * `:recoverable_session_error` — provider-owned predicate for errors
       that can safely restore claimed work and replace the stale session.
+    * Provider adapters may expose `restore_handoff_session/3`,
+      `handoff_socket_name/1`, `restore_handoff_transport/3`,
+      `adopt_handoff_turn/4`, and `compact_session/3` for provider-owned
+      daemon handoff and compaction behavior.
   """
   @type capabilities :: %{
           required(:adapter) => module(),
