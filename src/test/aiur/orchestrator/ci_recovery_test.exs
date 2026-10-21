@@ -453,10 +453,15 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
   end
 
   defp response(%{url: url}, state, _, _) do
-    cond do
-      String.contains?(url, "/actions/runs?head_sha=") ->
-        ok(%{"workflow_runs" => [%{"id" => 99, "name" => "CI", "head_sha" => state.head, "run_attempt" => state.attempt}]})
+    if String.contains?(url, "/actions/runs?head_sha=") do
+      ok(%{"workflow_runs" => [%{"id" => 99, "name" => "CI", "head_sha" => state.head, "run_attempt" => state.attempt}]})
+    else
+      response_without_workflow_runs(url, state)
+    end
+  end
 
+  defp response_without_workflow_runs(url, state) do
+    cond do
       String.contains?(url, "/check-runs?") ->
         ok(%{"check_runs" => [check_run(state)]})
 
