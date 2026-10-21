@@ -267,7 +267,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   defp mode_ttl(class, _polling), do: Map.fetch!(@default_ttls, class)
 
   defp configured_override(class) do
-    overrides = Application.get_env(:aiur, :github_read_cache_ttls, %{})
+    overrides = Map.get(Aiur.GitHub.Access.Settings.current().cache, :ttls, %{})
     configured = if is_map(overrides), do: Map.get(overrides, class), else: nil
     if is_integer(configured), do: configured, else: nil
   end

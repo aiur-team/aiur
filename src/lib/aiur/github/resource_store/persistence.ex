@@ -12,14 +12,13 @@ defmodule Aiur.GitHub.ResourceStore.Persistence do
   """
 
   require Logger
-  alias Aiur.{Config, JsonStore}
+  alias Aiur.JsonStore
   alias Aiur.GitHub.ResourceStore.{Checkpoint, Types}
   import Aiur.GitHub.ResourceStore.Body, only: [json_round_trips?: 1]
   import Aiur.GitHub.ResourceStore.Retention, only: [entry_expired?: 2, body_expired?: 2, drop_body: 1]
   import Aiur.GitHub.ResourceStore.Storage, only: [now_ms: 0]
   @retention_ms Aiur.GitHub.ResourceStore.Retention.retention_ms()
   @resource_types Types.resource_types()
-  @filename "github_resources.json"
 
   # Writes land in ETS directly from the poll fan-out rather than through this
   # process, so each mutation advances a shared revision. Periodic checkpoints
@@ -255,28 +254,7 @@ defmodule Aiur.GitHub.ResourceStore.Persistence do
         path
 
       :error ->
-        configured_path() || default_path()
-    end
-  end
-
-  defp configured_path do
-    case Application.get_env(:aiur, :github_resource_store_path) do
-      path when is_binary(path) and path != "" -> path
-      _other -> nil
-    end
-  end
-
-  defp default_path do
-    case Config.Paths.decision_state_dir() do
-      {:ok, dir} ->
-        Path.join(dir, @filename)
-
-      {:error, reason} ->
-        # No resolvable state directory means no durability, not no store: the
-        # in-memory half still suppresses a duplicate inside one boot, which is
-        # strictly better than the pre-store behavior it falls back to.
-        Logger.debug("GitHub.ResourceStore has no state directory; running in-memory reason=#{inspect(reason)}")
-        nil
+        Aiur.GitHub.Access.Settings.current().resource_store_path
     end
   end
 end

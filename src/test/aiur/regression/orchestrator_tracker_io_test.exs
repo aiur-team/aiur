@@ -317,7 +317,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     put_test_env(:tracker_io_test_result, {:ok, [issue]})
     previous_token = System.get_env("GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "test-tracker-io-token")
-    cache_key = {Config, :resolved_token}
+    cache_key = {Aiur.GitHub.Access.Token, :resolved_token}
     previous_cache = :persistent_term.get(cache_key, :unset)
     :persistent_term.erase(cache_key)
 

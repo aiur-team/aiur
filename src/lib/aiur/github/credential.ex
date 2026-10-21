@@ -16,7 +16,7 @@ defmodule Aiur.GitHub.Credential do
   """
 
   alias Aiur.GitHub.{AppCredentials, AppTokenRefresher, Budget}
-  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.Access.Token
 
   @enforce_keys [:id, :kind]
   defstruct [:id, :kind, :identity, :token_env, source: :env, writes?: false, primary?: false]
@@ -47,7 +47,7 @@ defmodule Aiur.GitHub.Credential do
   # The legacy credential is whatever the single-credential path already
   # resolves, keyring fallback and boot-time cache included. Re-deriving it from
   # the environment here would quietly drop the `gh` keyring fallback.
-  def token(%__MODULE__{source: :legacy}), do: normalize(GitHubConfig.token())
+  def token(%__MODULE__{source: :legacy}), do: normalize(Token.token())
 
   def token(%__MODULE__{kind: :app_installation}), do: normalize(AppTokenRefresher.current_token())
 

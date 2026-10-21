@@ -20,9 +20,8 @@ defmodule Aiur.GitHub.CredentialRegistry do
   availability.
   """
 
-  alias Aiur.Config
   alias Aiur.GitHub.AppCredentials
-  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.Access.{Settings, Token}
   alias Aiur.GitHub.Credential
 
   require Logger
@@ -52,7 +51,7 @@ defmodule Aiur.GitHub.CredentialRegistry do
   def configured(opts \\ []) do
     case Keyword.fetch(opts, :credentials) do
       {:ok, credentials} when is_list(credentials) -> credentials
-      _absent -> [legacy_credential(opts) | Enum.map(configured_entries(opts), &from_schema/1)]
+      _absent -> [legacy_credential(opts) | configured_entries(opts)]
     end
   end
 
@@ -103,7 +102,7 @@ defmodule Aiur.GitHub.CredentialRegistry do
     # daemon's login — the App bot when App auth is configured, the bot account
     # otherwise. Reporting it as the agent publication account would label an
     # App-installation row with a login that credential cannot write as.
-    identity_fun = Keyword.get(opts, :identity_fun, &GitHubConfig.daemon_account/0)
+    identity_fun = Keyword.get(opts, :identity_fun, &Token.daemon_account/0)
 
     %Credential{
       id: @legacy_id,
@@ -118,19 +117,14 @@ defmodule Aiur.GitHub.CredentialRegistry do
   end
 
   defp configured_entries(opts) do
-    settings_fun = Keyword.get(opts, :settings_fun, &Config.settings/0)
+    settings_fun = Keyword.get(opts, :settings_fun, &Settings.current/0)
 
     safely(fn -> credentials_from_config(settings_fun) end, [])
   end
 
   defp credentials_from_config(settings_fun) do
-    case settings_fun.() do
-      {:ok, %{tracker: %{github: %{credentials: credentials}}}} when is_list(credentials) ->
-        Enum.reject(credentials, &(&1.enabled == false))
-
-      _unavailable ->
-        []
-    end
+    %Settings{credentials: credentials} = settings_fun.()
+    credentials
   end
 
   # Both failure modes, deliberately. `Aiur.Config.settings/0` reaches a
@@ -150,22 +144,6 @@ defmodule Aiur.GitHub.CredentialRegistry do
   catch
     :exit, _reason -> default
   end
-
-  defp from_schema(entry) do
-    %Credential{
-      id: entry.id,
-      kind: kind(entry.kind),
-      identity: entry.identity,
-      token_env: entry.token_env,
-      source: if(entry.kind == "app_installation", do: :app, else: :env),
-      writes?: entry.writes == true and entry.kind != "human",
-      primary?: false
-    }
-  end
-
-  defp kind("app_installation"), do: :app_installation
-  defp kind("human"), do: :human
-  defp kind(_machine_user), do: :machine_user
 
   defp resolvable?(%Credential{} = credential) do
     case Credential.token(credential) do

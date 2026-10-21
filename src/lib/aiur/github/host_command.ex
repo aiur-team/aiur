@@ -27,7 +27,7 @@ defmodule Aiur.GitHub.HostCommand do
   """
 
   alias Aiur.AgentGitHubGuard
-  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.Access.Token
 
   @doc """
   The host `gh` executable to use for daemon-side calls.
@@ -94,7 +94,7 @@ defmodule Aiur.GitHub.HostCommand do
   """
   @spec bot_token() :: String.t() | nil
   def bot_token do
-    GitHubConfig.token()
+    Token.token()
   rescue
     _unavailable -> nil
   catch

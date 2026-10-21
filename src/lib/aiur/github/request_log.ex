@@ -60,8 +60,7 @@ defmodule Aiur.GitHub.RequestLog do
   """
 
   alias Aiur.GitHub.{Budget, GraphQLCost}
-  alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.RepoBase
+  alias Aiur.GitHub.Access.Settings
 
   @max_bytes 1_048_576
   @generations 2
@@ -96,13 +95,9 @@ defmodule Aiur.GitHub.RequestLog do
   @doc false
   @spec default_path() :: String.t() | nil
   def default_path do
-    if Application.get_env(:aiur, :env) == :test do
-      # The test env resolves `GitHub.Config.repo()` from this checkout's git
-      # remote or a mocked workflow repo; never write a request log there. Tests
-      # that want one pass `path:` explicitly.
-      nil
-    else
-      resolve_default_path()
+    case Settings.current().request_log_dir do
+      nil -> nil
+      dir -> Path.join(dir, "daemon-requests.tsv")
     end
   end
 
@@ -156,21 +151,6 @@ defmodule Aiur.GitHub.RequestLog do
   # io_device so the rename lands on the right inode.
   @spec rotate(String.t()) :: :ok
   def rotate(path), do: rotate(path, @generations)
-
-  defp resolve_default_path do
-    case GitHubConfig.repo() do
-      repo when is_binary(repo) and repo != "" ->
-        repo
-        |> RepoBase.repo_path()
-        |> Path.join("github-quota")
-        |> Path.join("daemon-requests.tsv")
-
-      _unconfigured ->
-        nil
-    end
-  rescue
-    _unavailable -> nil
-  end
 
   defp record(request, result, now) do
     resource = request_resource(request)

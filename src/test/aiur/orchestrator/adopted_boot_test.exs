@@ -75,7 +75,7 @@ defmodule Aiur.Orchestrator.AdoptedBootTest do
 
   test "adopted tickets skip only first-poll authorization while fresh state remains visible", %{dir: dir} do
     old_token = System.get_env("GITHUB_TOKEN")
-    key = {Aiur.GitHub.Config, :resolved_token}
+    key = {Aiur.GitHub.Access.Token, :resolved_token}
     old_cached = :persistent_term.get(key, :unset)
     :persistent_term.erase(key)
     System.put_env("GITHUB_TOKEN", "test-gh-token")

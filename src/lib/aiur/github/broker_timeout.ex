@@ -37,8 +37,8 @@ defmodule Aiur.GitHub.BrokerTimeout do
 
   use GenServer
 
-  alias Aiur.{Config, Signal}
-  alias Aiur.Config.Schema.Agent, as: AgentConfig
+  alias Aiur.Signal
+  alias Aiur.GitHub.Access.Settings
 
   @retry_topic "system.github.budget_broker_retry"
   @degraded_topic "system.github.budget_broker_degraded"
@@ -138,7 +138,7 @@ defmodule Aiur.GitHub.BrokerTimeout do
     check_interval_ms =
       Keyword.get(opts, :check_interval_ms, Application.get_env(:aiur, :broker_timeout_check_interval_ms, @check_interval_ms))
 
-    emit_fun = Keyword.get(opts, :emit_fun, &Signal.alert/2)
+    emit_fun = Keyword.get_lazy(opts, :emit_fun, fn -> Settings.current().alert_sink end)
 
     state = %__MODULE__{check_interval_ms: check_interval_ms, emit_fun: emit_fun}
     {:ok, maybe_schedule_check(state)}
@@ -270,26 +270,7 @@ defmodule Aiur.GitHub.BrokerTimeout do
     :exit, _reason -> :ok
   end
 
-  defp window_ms,
-    do: config_integer(&Config.budget_broker_rate_window_seconds/0, :budget_broker_rate_window_seconds) * 1_000
-
-  defp threshold,
-    do: config_integer(&Config.budget_broker_degraded_retry_threshold/0, :budget_broker_degraded_retry_threshold)
-
-  defp dwell_ms,
-    do: config_integer(&Config.budget_broker_degraded_alert_after_seconds/0, :budget_broker_degraded_alert_after_seconds) * 1_000
-
-  # Config is the source of truth; a config that cannot be read must degrade to
-  # its schema default rather than crash the monitor that guards the retry
-  # signal. Reading that default from the schema keeps one source of truth.
-  defp config_integer(read, field) do
-    case read.() do
-      value when is_integer(value) and value > 0 -> value
-      _ -> schema_default(field)
-    end
-  rescue
-    _error -> schema_default(field)
-  end
-
-  defp schema_default(field), do: AgentConfig |> struct!() |> Map.fetch!(field)
+  defp window_ms, do: Settings.current().broker_timeout.budget_broker_rate_window_seconds * 1_000
+  defp threshold, do: Settings.current().broker_timeout.budget_broker_degraded_retry_threshold
+  defp dwell_ms, do: Settings.current().broker_timeout.budget_broker_degraded_alert_after_seconds * 1_000
 end
