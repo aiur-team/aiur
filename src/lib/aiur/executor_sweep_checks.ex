@@ -237,7 +237,7 @@ defmodule Aiur.ExecutorSweep.Checks do
   defp cache_age(snapshot, type), do: get_in(snapshot, [:github_cache_ages, type])
 
   defp fresh_github_finding?(finding, cache_age_ms, max_age_ms) do
-    if finding.kind in ["approved_pr_red", "approved_pr_not_landing"], do: fresh_age?(cache_age_ms, max_age_ms), else: true
+    if finding.kind in ["approved_pr_red", "approved_pr_not_landing"], do: is_integer(cache_age_ms) and cache_age_ms <= max_age_ms, else: true
   end
 
   defp queue_sets(snapshot) do
