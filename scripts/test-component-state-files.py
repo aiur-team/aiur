@@ -52,6 +52,7 @@ run('valid state file pattern', ['file: <runtime_state_dir>/event-id.json'],
 run('stale state file pattern', ['file: <missing_state_dir>/missing.json'], [], 1,
     'state file pattern')
 run('malformed state file pattern', ['file: <runtime_state_dir>/../outside.json'], [], 2, 'invalid string')
+run('trailing newline is rejected', ['file: <runtime_state_dir>/event-id.json\n'], [], 2, 'invalid string')
 declarations = ['src/lib/aiur/config/schema.ex', 'src/lib/aiur/env/schema.ex',
                 'src/lib/aiur/config/paths.ex']
 second = fixture_component('b', declarations)
