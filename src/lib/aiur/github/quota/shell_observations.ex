@@ -1,8 +1,7 @@
 defmodule Aiur.GitHub.Quota.ShellObservations do
   @moduledoc false
 
-  alias Aiur.Config
-  alias Aiur.Workspace.Layout
+  alias Aiur.GitHub.Access.Settings
 
   @primary_resources ~w(core graphql)
   @attribution_window_seconds 60 * 60
@@ -159,9 +158,7 @@ defmodule Aiur.GitHub.Quota.ShellObservations do
   # uncounted while the meter still billed them (#1805).
   @spec default_shell_log_path() :: String.t() | nil
   def default_shell_log_path do
-    Config.workspace_root()
-    |> Path.expand()
-    |> Layout.issue_workspace_path("__github_quota_probe__")
+    Settings.path(:probe_dir)
     |> Path.dirname()
     |> Path.join("*/.aiur-runtime/github-quota/agent-requests.tsv")
   rescue
@@ -174,9 +171,7 @@ defmodule Aiur.GitHub.Quota.ShellObservations do
   # each workspace's dot-directory.
   @spec default_stale_broker_path() :: String.t() | nil
   def default_stale_broker_path do
-    Config.workspace_root()
-    |> Path.expand()
-    |> Layout.issue_workspace_path("__github_quota_probe__")
+    Settings.path(:probe_dir)
     |> Path.dirname()
     |> Path.join("*/.aiur-runtime/github-quota/#{@stale_broker_marker}")
   rescue

@@ -1,9 +1,94 @@
-"""Timing helpers for the resident GitHub budget broker."""
+"""Timing helpers and background WAL checkpoints for the resident broker."""
 
 import json
+import queue
 import secrets
 import sqlite3
+import threading
 import time
+
+
+CHECKPOINT_REQUESTS = None
+CHECKPOINT_RESULTS = None
+CHECKPOINT_LOCK = None
+
+
+class SessionConnection:
+    """Keep a request batch on one SQLite connection and transaction."""
+
+    def __init__(self, conn):
+        self.conn = conn
+        self.prepared = False
+        self.batching = False
+
+    def __getattr__(self, name):
+        return getattr(self.conn, name)
+
+    def execute(self, sql, *args):
+        if self.batching and sql in ("BEGIN IMMEDIATE", "COMMIT"):
+            return None
+        if self.batching and sql == "ROLLBACK":
+            return self.conn.execute("ROLLBACK TO request")
+        return self.conn.execute(sql, *args)
+
+    def close(self):
+        pass
+
+
+def configure_connection(conn):
+    # Keep automatic WAL checkpoints out of request COMMIT; checkpoint I/O is
+    # handled by the passive background worker below. One-shot CLI commands do
+    # not start that worker and keep SQLite's automatic checkpoint behavior.
+    if CHECKPOINT_REQUESTS is not None:
+        conn.execute("PRAGMA wal_autocheckpoint = 0")
+
+
+def take_checkpoint_result(db):
+    if CHECKPOINT_RESULTS is None:
+        return None
+    if CHECKPOINT_LOCK is None:
+        return CHECKPOINT_RESULTS.pop(db, None)
+    with CHECKPOINT_LOCK:
+        return CHECKPOINT_RESULTS.pop(db, None)
+
+
+def schedule_checkpoint(db):
+    if CHECKPOINT_REQUESTS is None:
+        return
+    try:
+        CHECKPOINT_REQUESTS.put_nowait(db)
+    except queue.Full:
+        pass
+
+
+def start_checkpoint_worker():
+    global CHECKPOINT_REQUESTS, CHECKPOINT_RESULTS, CHECKPOINT_LOCK
+    CHECKPOINT_REQUESTS = queue.Queue(maxsize=1)
+    CHECKPOINT_RESULTS = {}
+    CHECKPOINT_LOCK = threading.Lock()
+
+    def run():
+        while True:
+            db = CHECKPOINT_REQUESTS.get()
+            started_ns = time.monotonic_ns()
+            try:
+                conn = sqlite3.connect(db, timeout=0.05, isolation_level=None)
+                try:
+                    busy, frames, checkpointed = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
+                finally:
+                    conn.close()
+                result = {
+                    "sqlite_checkpoint_ms": (time.monotonic_ns() - started_ns) / 1_000_000,
+                    "sqlite_checkpoint_busy": busy,
+                    "sqlite_wal_frames": frames,
+                    "sqlite_checkpointed_frames": checkpointed,
+                }
+            except sqlite3.Error:
+                result = {"sqlite_checkpoint_ms": (time.monotonic_ns() - started_ns) / 1_000_000}
+            with CHECKPOINT_LOCK:
+                CHECKPOINT_RESULTS[db] = result
+
+    threading.Thread(target=run, daemon=True).start()
 
 
 def receive_requests(lines, inbox):
@@ -66,7 +151,7 @@ def add_open_time(replies, sqlite_open_ms):
     return replies
 
 
-def successful_replies(replies, requests, sqlite_open_ms, lock_wait_ms, transaction_ms):
+def successful_replies(replies, requests, sqlite_open_ms, lock_wait_ms, transaction_ms, checkpoint=None):
     for reply in replies:
         request = requests.get(reply["id"], {})
         reply.update({
@@ -75,7 +160,12 @@ def successful_replies(replies, requests, sqlite_open_ms, lock_wait_ms, transact
             "sqlite_open_ms": sqlite_open_ms,
             "sqlite_lock_wait_ms": lock_wait_ms,
             "sqlite_transaction_ms": transaction_ms,
+            "sqlite_command_ms": request.get("_sqlite_command_ms", transaction_ms),
+            "sqlite_commit_ms": request.get("_sqlite_commit_ms", 0),
+            "command_type": request.get("_command_type", "unknown"),
         })
+        if checkpoint:
+            reply.update(checkpoint)
     return replies
 
 
@@ -87,4 +177,7 @@ def failed_replies(error, requests, local_timeout, sqlite_open_ms, transaction_m
         "sqlite_open_ms": sqlite_open_ms,
         "sqlite_lock_wait_ms": 0,
         "sqlite_transaction_ms": transaction_ms,
+        "sqlite_command_ms": request.get("_sqlite_command_ms", transaction_ms),
+        "sqlite_commit_ms": request.get("_sqlite_commit_ms", 0),
+        "command_type": request.get("_command_type", "unknown"),
     } for request, _args in requests]

@@ -26,7 +26,7 @@ defmodule Aiur.GitHub.Transport do
   tighter one.
   """
 
-  alias Aiur.GitHub
+  alias Aiur.GitHub.Access.{Settings, Token}
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.Budget
   alias Aiur.GitHub.CredentialHeadroom
@@ -38,9 +38,6 @@ defmodule Aiur.GitHub.Transport do
 
   require Logger
 
-  @base_url "https://api.github.com"
-  @graphql_url "#{@base_url}/graphql"
-
   @default_request_timeout_ms 30_000
   @default_request_deadline_ms 60_000
   @deadline_margin_ms 5_000
@@ -48,14 +45,14 @@ defmodule Aiur.GitHub.Transport do
   @budget_admission_timeout_ms 5_000
 
   @spec base_url() :: String.t()
-  def base_url, do: @base_url
+  def base_url, do: Settings.current().api_base_url
 
   @spec graphql_url() :: String.t()
-  def graphql_url, do: @graphql_url
+  def graphql_url, do: Settings.current().graphql_url
 
   @spec parse_repo() :: {:ok, {String.t(), String.t()}} | {:error, term()}
   def parse_repo do
-    case GitHub.Config.repo() do
+    case Settings.current().repo do
       nil ->
         {:error, :missing_github_repo}
 
@@ -69,7 +66,7 @@ defmodule Aiur.GitHub.Transport do
 
   @spec require_token() :: {:ok, String.t()} | {:error, :missing_github_token}
   def require_token do
-    case GitHub.Config.token() do
+    case Token.token() do
       nil -> {:error, :missing_github_token}
       token -> {:ok, token}
     end
