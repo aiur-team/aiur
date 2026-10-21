@@ -11,10 +11,31 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudget.PersistenceAndPollTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Orchestrator.Dispatcher.BudgetTrip
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.TrackerTasks
 
   defmodule LifetimeLatchGitHubClient do
+    def add_label(identifier, label) do
+      send(Process.get(:lifetime_latch_test_parent), {:add_label, identifier, label})
+      Process.put(:lifetime_latch_test_labels, Enum.uniq([label | Process.get(:lifetime_latch_test_labels, [])]))
+      :ok
+    end
+
+    def remove_label(identifier, label) do
+      send(Process.get(:lifetime_latch_test_parent), {:remove_label, identifier, label})
+      Process.put(:lifetime_latch_test_labels, List.delete(Process.get(:lifetime_latch_test_labels, []), label))
+      :ok
+    end
+
+    def update_issue_state(identifier, "needs-triage", _opts) do
+      send(Process.get(:lifetime_latch_test_parent), {:state_transition, identifier, "needs-triage"})
+      labels = Process.get(:lifetime_latch_test_labels, [])
+      labels = ["agent:needs-triage" | Enum.reject(labels, &String.starts_with?(&1, "agent:"))]
+      Process.put(:lifetime_latch_test_labels, Enum.uniq(labels))
+      :ok
+    end
+
     def fetch_open_pull_requests_for_branch(identifier) do
       send(Process.get(:lifetime_latch_test_parent), {:open_prs, identifier})
       {:ok, [%{"number" => 3001, "html_url" => "https://github.test/pull/3001"}]}
@@ -102,6 +123,32 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudget.PersistenceAndPollTest do
 
     refute_received {:durable_latch, "repo#lifetime", "needs-triage"}
     refute_received {:latch_comment, "repo#lifetime", _body}
+  end
+
+  @tag config: @github_enabled
+  test "a lifetime latch leaves the bare needs-triage marker and no agent state label" do
+    previous_client = Application.get_env(:aiur, :github_client_module)
+    Process.put(:lifetime_latch_test_parent, self())
+    Process.put(:lifetime_latch_test_labels, ["agent:in-progress"])
+    Application.put_env(:aiur, :github_client_module, LifetimeLatchGitHubClient)
+
+    on_exit(fn ->
+      if previous_client, do: Application.put_env(:aiur, :github_client_module, previous_client), else: Application.delete_env(:aiur, :github_client_module)
+    end)
+
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime-labels", state: "in-progress"}
+    state = dispatch_n(%Orchestrator.State{}, 10)
+    assert {:trip, state} = run(state, 11 * (@window_ms + 1))
+
+    BudgetTrip.trip_thrash_breaker(state, issue)
+
+    assert_receive {:add_label, "repo#lifetime-labels", "needs-triage"}, 1000
+    assert_receive {:state_transition, "repo#lifetime-labels", "needs-triage"}, 1000
+    assert_receive {:remove_label, "repo#lifetime-labels", "agent:needs-triage"}, 1000
+
+    labels = Process.get(:lifetime_latch_test_labels)
+    assert labels == ["needs-triage"]
+    refute Enum.any?(labels, &String.starts_with?(&1, "agent:"))
   end
 
   @tag config: @enabled

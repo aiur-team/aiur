@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.Dispatcher.BudgetTrip do
 
   alias Aiur.Alerts
   alias Aiur.{CodeHost, Config, Issue, Tracker}
+  alias Aiur.GitHub.{Issues, StatePolicy}
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
@@ -52,7 +53,19 @@ defmodule Aiur.Orchestrator.Dispatcher.BudgetTrip do
   end
 
   defp write_lifetime_latch_state(issue, identifier, target) do
-    case TicketTransition.write_state(identifier, target, writer: :dispatcher, expected_state: issue.state) do
+    result =
+      if Tracker.adapter() == Aiur.GitHub.Tracker do
+        prefix = Aiur.GitHub.Config.label_prefix()
+
+        with :ok <- TicketTransition.write_marker(identifier, :add, "needs-triage", writer: :dispatcher),
+             :ok <- TicketTransition.write_state(identifier, target, writer: :dispatcher, expected_state: issue.state) do
+          TicketTransition.write_marker(identifier, :remove, StatePolicy.state_label(prefix, target), writer: :dispatcher)
+        end
+      else
+        TicketTransition.write_state(identifier, target, writer: :dispatcher, expected_state: issue.state)
+      end
+
+    case result do
       {:error, {:stale_issue_state, _expected, _actual}} = error ->
         confirm_lifetime_latch_state(error, identifier, target)
 
@@ -62,12 +75,32 @@ defmodule Aiur.Orchestrator.Dispatcher.BudgetTrip do
   end
 
   defp confirm_lifetime_latch_state(error, identifier, target) do
+    if Tracker.adapter() == Aiur.GitHub.Tracker do
+      confirm_github_lifetime_latch(error, identifier)
+    else
+      confirm_other_lifetime_latch(error, identifier, target)
+    end
+  end
+
+  defp confirm_other_lifetime_latch(error, identifier, target) do
     case Tracker.fetch_issue_states_by_ids([identifier]) do
       {:ok, [%Issue{state: current_state}]} ->
         if DispatchPolicy.state_slug(current_state) == DispatchPolicy.state_slug(target), do: :ok, else: error
 
       _other ->
         error
+    end
+  end
+
+  defp confirm_github_lifetime_latch(error, identifier) do
+    with {:ok, body, _source} <- Issues.fetch_issue_raw_conditional(identifier, revalidate: true, caller: "lifetime_latch_verify"),
+         labels when is_list(labels) <- Map.get(body, "labels"),
+         label_names <- Enum.map(labels, &Map.get(&1, "name", "")),
+         true <- "needs-triage" in label_names,
+         true <- Issues.extract_state_labels(label_names, Aiur.GitHub.Config.label_prefix()) == [] do
+      :ok
+    else
+      _other -> error
     end
   end
 
