@@ -60,7 +60,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     case digest(sha, opts) do
       {:ok, digest} ->
         case Safety.cancelled_checks(digest, sha, entry) do
-          [] -> result
+          [] -> attention(issue, result, "rerun_skipped", "cancelled_run", opts)
           checks -> recover_failure(issue, Map.merge(result, %{ci_failure_digest: digest, failures: checks}), entry, opts)
         end
 
@@ -224,16 +224,25 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp rerun(issue, result, entry, opts) do
     case get_in(entry, ["heads", result.head_sha]) do
-      nil -> start_rerun(issue, result, opts)
+      nil -> start_rerun(issue, result, entry, opts)
       %{"error" => error} -> attention(issue, result, "rerun_failed", error, opts)
       %{"runs" => runs} = attempt -> observe_rerun(issue, result, runs, attempt, opts)
     end
   end
 
-  defp start_rerun(issue, result, opts) do
-    case Safety.failing_runs(result.ci_failure_digest.checks, result.head_sha, opts) do
-      {:ok, runs} -> prepare_reruns(issue, result, runs, opts)
-      {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
+  defp start_rerun(issue, result, entry, opts) do
+    checks = Safety.cancelled_checks(result.ci_failure_digest, result.head_sha, entry)
+
+    if checks == [] and result.ci_failure_digest.checks != [] do
+      attention(issue, result, "rerun_skipped", "cancelled_run", opts)
+    else
+      digest = %{result.ci_failure_digest | checks: checks}
+      result = %{result | ci_failure_digest: digest}
+
+      case Safety.failing_runs(checks, result.head_sha, opts) do
+        {:ok, runs} -> prepare_reruns(issue, result, runs, opts)
+        {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
+      end
     end
   end
 

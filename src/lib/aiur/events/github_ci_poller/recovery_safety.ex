@@ -31,11 +31,11 @@ defmodule Aiur.Events.GithubCIPoller.RecoverySafety do
   @spec failed_current_run(integer(), String.t(), keyword()) :: {:ok, map()} | :superseded | {:error, term()}
   def failed_current_run(id, sha, opts) do
     case CIRecovery.read("/actions/runs/#{id}", opts) do
-      {:ok, %{"head_sha" => ^sha, "run_attempt" => attempt, "status" => "completed", "conclusion" => conclusion, "name" => name} = run}
+      {:ok, %{"head_sha" => ^sha, "run_attempt" => attempt, "status" => "completed", "conclusion" => conclusion, "name" => _name} = run}
       when is_integer(attempt) and conclusion in ["failure", "timed_out", "cancelled"] ->
         case newer_workflow_run?(run, id, attempt, sha, opts) do
           {:ok, true} -> :superseded
-          {:ok, false} -> {:ok, %{"id" => id, "attempt" => attempt, "conclusion" => conclusion, "name" => name}}
+          {:ok, false} -> {:ok, %{"id" => id, "attempt" => attempt, "conclusion" => conclusion}}
           {:error, reason} -> {:error, reason}
         end
 
