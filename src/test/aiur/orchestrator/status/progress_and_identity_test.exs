@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
   alias Aiur.DecisionStore
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator.StatusReport
+  alias Aiur.Orchestrator.StatusReport.RowFacts
   alias Aiur.TicketActivity
   alias Aiur.TicketActivity.Projection
   alias Aiur.TrackerIdentity
@@ -347,5 +348,22 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     after
       :ok = :sys.resume(store_pid)
     end
+  end
+
+  test "decision count degrades when its store call times out" do
+    store_name = Module.concat(__MODULE__, :UnresponsiveDecisionStore)
+    parent = self()
+
+    store_pid =
+      spawn(fn ->
+        Process.register(self(), store_name)
+        send(parent, :decision_store_ready)
+        receive do: (:stop -> :ok)
+      end)
+
+    assert_receive :decision_store_ready, 1_000
+    on_exit(fn -> send(store_pid, :stop) end)
+
+    assert {0, :unavailable} = RowFacts.open_decision_count("MT-TEST", store_name)
   end
 end
