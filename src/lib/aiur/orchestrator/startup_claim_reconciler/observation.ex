@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
   @moduledoc false
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
   alias Aiur.Workspace.Ownership
 
   @grace_ms 60_000
@@ -40,8 +40,14 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
   defp orphan?(state, issue, opts) do
     DispatchPolicy.state_slug(issue.state) == "in-progress" and is_binary(issue.identifier) and
       not Issue.paused?(issue) and not Issue.held?(issue) and
+      not rework_waiting_for_capacity?(state, issue) and
       not tracked?(state, issue) and
       lease_free?(issue, opts)
+  end
+
+  defp rework_waiting_for_capacity?(state, issue) do
+    DispatchPolicy.state_slug(issue.state) == "rework" and
+      Slots.available_slots(state) == 0
   end
 
   defp tracked?(state, issue) do

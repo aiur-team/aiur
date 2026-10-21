@@ -22,10 +22,10 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert view.locked.authentication_path == "Sign in."
 
       # No protected snapshot value leaks into the locked view.
-      refute inspect(view) =~ "gen-codex"
-      refute inspect(view) =~ "Primary"
-      refute inspect(view) =~ "subscription"
-      refute inspect(view) =~ ":pro"
+      Aiur.TestSupport.refute_leak(view, "gen-codex")
+      Aiur.TestSupport.refute_leak(view, "Primary")
+      Aiur.TestSupport.refute_leak(view, "subscription")
+      Aiur.TestSupport.refute_leak(view, ":pro")
     end
 
     test "announcement names the locked state" do
@@ -104,7 +104,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert codex.auth_mode.value == :unknown
       assert codex.identity.state == :unknown
       assert codex.windows == []
-      refute inspect(codex) =~ "Enterprise"
+      Aiur.TestSupport.refute_leak(codex, "Enterprise")
     end
 
     test "a rotated account renders a different account generation label" do

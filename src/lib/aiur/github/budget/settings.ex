@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.Budget.Settings do
   @moduledoc false
 
-  alias Aiur.Config
+  alias Aiur.GitHub.Access.Settings, as: AccessSettings
   alias Aiur.GitHub.Budget
 
   @default_max_inflight 4
@@ -91,10 +91,7 @@ defmodule Aiur.GitHub.Budget.Settings do
         settings
 
       _ ->
-        case Config.settings() do
-          {:ok, %{tracker: %{github: settings}}} -> Map.from_struct(settings)
-          _unavailable -> %{}
-        end
+        AccessSettings.current().budget
     end
   rescue
     _unavailable -> %{}

@@ -2,6 +2,7 @@ import { columnSequence, alignColumnPolls } from './build-home-columns-motion.mj
 import { spanState } from './build-home-span-state.mjs'
 import { historySequence } from './build-home-history-motion.mjs'
 import { scrollbar } from './build-home-scrollbar-motion.mjs'
+import { alignCardIconToDevicePixel, restoreCardIconAlignment } from './build-home-motion-pixel-align.mjs'
 // Shared records and ownership stay together; feature sequences live beside them.
 // Motion records use the same allowlist as screenshot parity. Design bytes stay untouched.
 import { captureStable } from './design-parity.mjs'
@@ -220,8 +221,9 @@ async function snap(page, ctx, kind) {
   const start = await page.locator('#bd-vp').evaluate(el => el.scrollTop)
   const delta = kind === 'pinned' ? -1 : kind === 'guard-up' ? -100 : kind === 'guard-down' ? 100 : kind.includes('bottom') ? 20 : -20
   await scrollTo(page, start + delta)
+  const pixelAlignment = kind === 'tall-band' ? await alignCardIconToDevicePixel(page) : null
   const frame = [{ scrollTop: await page.locator('#bd-vp').evaluate(el => el.scrollTop) }]
-  await ctx.onFrame?.(0, '#bd-vp')
+  try { await ctx.onFrame?.(0, '#bd-vp') } finally { if (pixelAlignment) await restoreCardIconAlignment(page, pixelAlignment) }
   for (let i = 0; i < 40; i++) {
     await page.clock.runFor(16)
     frame.push({ scrollTop: await page.locator('#bd-vp').evaluate(el => el.scrollTop) })

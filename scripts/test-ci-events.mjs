@@ -7,7 +7,8 @@ const source = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.u
 const trigger = source.split(/^concurrency:/m)[0];
 assert.ok(/^  pull_request:$/m.test(trigger));
 assert.ok(/types: \[opened, synchronize, reopened, ready_for_review, labeled\]/.test(trigger), 'label events let ci:full start a full run');
-assert.ok(source.includes("github.event.action != 'labeled' || github.event.label.name == 'ci:full'"), 'unrelated labels must not cancel active CI');
+assert.ok(source.includes("github.event.action == 'synchronize'"), 'a new PR head cancels its superseded CI run');
+assert.ok(source.includes("github.event.label.name == 'ci:full'"), 'the full-CI label replaces the fast run');
 assert.ok(/^  merge_group:$/m.test(trigger));
 assert.ok(/  push:\n    branches: \[main, v2\]/.test(trigger), 'main pushes trigger CI');
 assert.ok(/  schedule:\n    - cron:/.test(trigger), 'scheduled CI is configured');
@@ -61,12 +62,13 @@ assert.ok(selected('merge_group', false).includes('ci-gate'), 'merge-group ci ga
 for (const event of ['merge_group', 'workflow_dispatch']) {
   const selectedFull = selected(event, true);
   for (const job of fullJobs) assert.ok(selectedFull.includes(job), `${event} requires ${job}`);
-  assert.ok(!selectedFull.includes('affected-tests'));
+  assert.equal(selectedFull.includes('affected-tests'), event === 'merge_group',
+    `${event} ${event === 'merge_group' ? 'runs' : 'skips'} the time-bomb guard job`);
 }
 assert.ok(!jobs.has('home-parity') && !jobs.get('ci-gate').includes('home-parity'), 'the full home matrix is manual-only (#5124)');
 assert.ok(jobs.get('ci-gate').includes('always()'), 'aggregate must run after failed dependencies');
 assert.ok(jobs.get('ci-gate').includes("github.event_name != 'schedule'"), 'schedule does not need the blocking gate');
-assert.ok(jobs.get('affected-tests').includes("github.event_name == 'pull_request'"), 'scoped selector only runs for PRs');
+assert.ok(jobs.get('affected-tests').includes("github.event_name == 'merge_group'"), 'merge queue also runs the time-bomb guard');
 assert.ok(jobs.get('changes').includes('affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"'));
 assert.ok(jobs.get('changes').includes('dialyzer: "${{ steps.classify.outputs.dialyzer }}"'));
 assert.ok(jobs.get('affected-tests').includes('AIUR_CI_CHANGED_PATHS_B64: ${{ needs.changes.outputs.affected_paths_b64 }}'));
@@ -84,7 +86,7 @@ function gate(event, full, dialyzer, failedJob, result = 'failure', dialyzerOutp
 }
 for (const [event, full, required] of [
   ['pull_request', false, fastJobs.filter((job) => job !== 'ci-gate')],
-  ['merge_group', true, ['changes', 'workflow-security', 'lint', ...fullJobs]],
+  ['merge_group', true, ['changes', 'workflow-security', 'lint', 'affected-tests', ...fullJobs]],
   ['pull_request', true, ['changes', 'workflow-security', 'lint', 'soak', ...fullJobs]],
 ]) {
   assert.equal(gate(event, full, false).status, 0, `${event} passes with selected set successful`);
@@ -92,7 +94,7 @@ for (const [event, full, required] of [
     for (const result of ['failure', 'skipped', 'cancelled', '']) {
       const run = gate(event, full, false, job, result);
       assert.notEqual(run.status, 0, `${event} rejects ${job}=${result}`);
-      const cancelledAffected = event === 'pull_request' && !full && job === 'affected-tests' && result === 'cancelled';
+      const cancelledAffected = job === 'affected-tests' && result === 'cancelled';
       assert.ok(run.stderr.includes(cancelledAffected
         ? 'CI gate failed: affected tests (cancelled; possible timeout)'
         : `CI gate failed: ${job}`), run.stderr);
@@ -109,12 +111,15 @@ for (const result of ['failure', 'skipped', 'cancelled', '']) {
 assert.notEqual(gate('pull_request', false, false, null, 'failure', 'missing').status, 0, 'gate rejects missing dialyzer output');
 assert.notEqual(gate('pull_request', false, false, null, 'failure', 'sometimes').status, 0, 'gate rejects malformed dialyzer output');
 assert.notEqual(gate('merge_group', false, false).status, 0, 'queue cannot claim fast evidence');
+assert.notEqual(gate('merge_group', true, false, 'affected-tests', 'skipped').status, 0,
+  'merge-group gate requires the time-bomb guard');
 // Soak: every PR, fast or full, repeats its changed tests; the queue never soaks.
 assert.ok(selected('pull_request', true).includes('soak'), 'full PR runs still soak');
 for (const event of ['merge_group', 'workflow_dispatch']) assert.ok(!selected(event, true).includes('soak'), `${event} never soaks`);
 assert.ok(jobs.get('soak').includes('uses: ./.github/workflows/soak.yml'));
 const soak = readFileSync(new URL('../.github/workflows/soak.yml', import.meta.url), 'utf8');
 assert.ok(/^on:\n  workflow_call:$/m.test(soak), 'soak runs only when ci.yml calls it');
+assert.ok(soak.includes('bash ../scripts/install-ci-zsh.sh'), 'soak uses the shared resilient zsh installer');
 assert.ok(soak.includes('python3 scripts/ci-soak.py select HEAD^1 >> "$GITHUB_OUTPUT"'), 'soak selects against the PR merge base');
 assert.ok(soak.includes('SOAK_TESTS: ${{ needs.select.outputs.soak_tests }}'), 'paths reach the runner through env, not shell');
 assert.ok(soak.includes('SOAK_SPECS: ${{ needs.select.outputs.soak_specs }}'));
@@ -122,7 +127,7 @@ assert.notEqual(gate('schedule', true, false).status, 0, 'gate refuses unsupport
 assert.ok(jobs.has('quarantine'), 'quarantine job remains available for scheduled/main runs');
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'schedule'"));
 assert.ok(jobs.get('quarantine').includes("github.event_name == 'push' && github.ref == 'refs/heads/main'"));
-assert.ok(jobs.get('workflow-security').includes('timeout-minutes: 5'), 'security job keeps its original short budget');
+assert.ok(jobs.get('workflow-security').includes('timeout-minutes: 15'), 'security job allows for dependency setup and a cold registry');
 assert.ok(jobs.get('workflow-security').includes("needs['pre-handoff'].result"),
   'required workflow security check fails when pre-handoff checks fail');
 assert.ok(jobs.get('pre-handoff').includes('./.github/actions/pre-handoff'), 'bounded pre-handoff job runs its dedicated action');
@@ -131,9 +136,10 @@ assert.ok(readFileSync(new URL('../.github/actions/pre-handoff/action.yml', impo
 assert.ok(!jobs.get('workflow-security').includes("Set up Elixir for PR evidence\n        if:"));
 const affected = jobs.get('affected-tests');
 const affectedTimeout = Number(affected.match(/^    timeout-minutes: (\d+)$/m)?.[1]);
-assert.equal(affectedTimeout, 15, 'the job retains its original overall budget');
+assert.equal(affectedTimeout, 25, 'the job allows the bounded merge-queue time-bomb rerun');
 assert.ok(affected.includes('run-ci-affected-tests.sh'), 'affected-tests delegates setup and base selection to its helper');
 const affectedRunner = readFileSync(new URL('../scripts/run-ci-affected-tests.sh', import.meta.url), 'utf8');
+assert.ok(affectedRunner.includes('bash ../scripts/install-ci-zsh.sh'), 'affected-tests uses the shared resilient zsh installer');
 assert.ok(affectedRunner.includes('git rev-parse HEAD^1'), 'affected-tests uses the PR merge base, not a stale event payload');
 assert.ok(affectedRunner.includes('affected-tests merge base: $PR_BASE'), 'affected-tests logs the base used for selection');
 assert.ok(affectedRunner.includes('affected-tests dependency setup duration: $((SECONDS - started))s'),

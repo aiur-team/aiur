@@ -52,6 +52,8 @@ A webhook delivery is the cheapest writer of all — GitHub has already paid for
 | A comment or issue is deleted | Nothing is deposited and the held body is discarded, because serving an object that no longer exists is worse than not holding one. |
 | A delayed delivery carrying older state | Refused. A body cannot walk a resource backwards and then be reported as freshly fetched. |
 
+For ticket-branch PRs, a webhook's REST-shaped body replaces the cached branch row. The store retains the sweep poll's GraphQL-only review and landing fields only when the PR head SHA and `updated_at` still match; a changed PR invalidates those facts until the next poll.
+
 A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
 
 A cold, corrupt or stopped cache falls back to fetching. It costs throughput, never correctness. Timelines persist (at most 1,000 bodies per repository). After boot, single-page evidence is ETag-revalidated against the current allowlist. Multi-page timelines and a `304` reporting a new page require a full refetch.
@@ -83,13 +85,13 @@ The webhook shortens reaction time for repository events while polling continues
 | Content type | `application/json` |
 | Secret | The same strong value exported as `AIUR_GITHUB_WEBHOOK_SECRET` to Aiur. |
 | Signature | GitHub `X-Hub-Signature-256`, HMAC-SHA256 over the raw request body. |
-| Events | `issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, `check_run`, and `check_suite`. |
+| Events | `issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, `check_run`, `check_suite`, `push`, `branch_protection_rule`, `repository_ruleset`, and `repository`. |
 
 The hostname is yours to choose — `hooks.aiur.dev` is this operator's setup, not a requirement. Without a domain, a quick tunnel (`cloudflared tunnel --url`) exposes the daemon on a temporary public URL, fine for a single session.
 
 `POST /api/v1/github/webhook` has no configuration keys and no bearer credential, authenticates every delivery by its `X-Hub-Signature-256` digest, and fails closed.
 
-Select every event listed above so a `pull_request_review_thread` delivery reconciles resolved or reopened threads immediately while the scheduled comment sweep remains the loss-recovery path.
+Select every event listed above so `pull_request_review_thread` deliveries reconcile immediately while the scheduled comment sweep remains the loss-recovery path.
 
 | Delivery | Result |
 | --- | --- |
@@ -105,10 +107,14 @@ Select every event listed above so a `pull_request_review_thread` delivery recon
 | Delivering | Uses the configured `webhooks.poll_widen_factor` for slower reconciliation polls. |
 | Silent past the threshold | Returns to full polling and raises an attention; a later delivery restores webhook mode. |
 
+For prompt repository-configuration refresh, also subscribe the live hook to `push`, `branch_protection_rule`, `repository_ruleset`, and `repository`. Pushes to the tracker base or repository default branch, plus `repository` deliveries, retire repository-config entries.
+
+The one-hour `:repo_config` TTL requires Aiur to observe both `branch_protection_rule` and `repository_ruleset`. A push or another event alone does not prove both rule-change families are delivered, so the TTL stays at five minutes until both are observed. The daemon does not change a live hook's subscription.
+
 A proven webhook also lengthens the daemon's read-cache TTL: a delivering repo gets hour-long `ReadCache` TTLs, because a delivery retires the reads it makes stale — the TTL is only a backstop.
 
 A repo that is not proven (or degraded back to full polling) keeps 30-second TTLs, and degradation collapses the TTL immediately.
 
-Repository-configuration reads are the one exception: branch protection, rulesets and workflow-file reads (`:repo_config`) ride a five-minute TTL in polling mode and still rise to an hour under a proven webhook, because every delivery also retires a repository's config reads.
+Repository-configuration reads (`:repo_config`) keep a five-minute TTL until Aiur observes both `branch_protection_rule` and `repository_ruleset` deliveries. Push, repository, issue, pull-request, and check-run events do not establish that both rule-change families are covered. If the webhook mode degrades to polling, the recorded event coverage is cleared.
 
 See [Configuration](/reference/configuration#webhooks) for the repository list, silence threshold, sweep interval, and widen factor.

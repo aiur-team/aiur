@@ -6,10 +6,11 @@ defmodule Aiur.LandingWatch.PrRerun do
   Each head action spends the per-head budget, and each workflow rerun spends
   one shared automatic-requeue slot in the journal. A head deferred by the
   shared cap stays in the journal's rerun backlog until a later poll reruns it.
-  A head whose failure needs a fresh
-  merge ref is never rerun; it gets GitHub's update-branch under the same budget
-  and cap (#4930), unless the base changed the PR's own files; then it routes
-  to rework so the worker retests the new head.
+  A head whose failure needs a fresh merge ref is never rerun; it gets GitHub's
+  update-branch under the same budget and cap (#4930), unless the base changed
+  the PR's own files; then it routes to rework so the worker retests the new
+  head. The refresh is allowed only when a newer base commit fixes a failing
+  check; ordinary base movement is not a reason to update the branch.
   """
 
   alias Aiur.GitHub.{CIRecovery, Client}

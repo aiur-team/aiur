@@ -1,5 +1,7 @@
 import Config
 
+config :aiur, :github_access_settings_provider, Aiur.GitHub.AccessSettings
+
 # OTP terminate reports inspect the last message and server state while they
 # are translated into Logger events. Bound inspection here so a malformed or
 # unexpectedly large GenServer state cannot exhaust the daemon during logging.
@@ -91,6 +93,8 @@ config :aiur, :project_identity_source, Aiur.Tracker
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
 
 # Exclusive order preserves the legacy cond, including GitHub taking precedence over Claude.
+config :aiur, :backend_catalog, Aiur.CodingAgent.ConfigCatalog
+
 config :aiur, :config_semantic_checks,
   exclusive: [
     Aiur.Tracker.SemanticCheck.MissingKind,

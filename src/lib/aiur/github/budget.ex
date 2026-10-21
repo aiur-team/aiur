@@ -34,7 +34,7 @@ defmodule Aiur.GitHub.Budget do
 
   @spec enabled?(keyword()) :: boolean()
   def enabled?(opts \\ []) do
-    Keyword.get(opts, :enabled?, Application.get_env(:aiur, :github_budget_enabled?, true))
+    Keyword.get_lazy(opts, :enabled?, fn -> Aiur.GitHub.Access.Settings.current().budget_enabled? end)
   end
 
   @doc """

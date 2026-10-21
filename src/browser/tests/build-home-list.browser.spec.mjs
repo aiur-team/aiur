@@ -81,6 +81,28 @@ test('B2 delegated Enter opens once across renders and remounts', async ({ page 
     expect(await page.evaluate(() => opened.length)).toBe(2)
   }
 })
+test('Enter opens the real ticket modal and Escape restores the list row', async ({ page }) => {
+  const row = rows(page).first(), id = await row.getAttribute('data-id')
+  const title = await row.locator('.c-tt').textContent()
+  await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js'), push = ctx.push
+    window.keyboardOpens = []
+    ctx.push = (event, params) => {
+      if (event === 'open-ticket') window.keyboardOpens.push(params)
+      return push(event, params)
+    }
+  })
+  await row.focus(); await page.keyboard.press('Enter')
+  await expect(page.locator('#tk-backdrop')).toHaveClass(/\bshow\b/)
+  await expect(page.locator('#bm-title')).toContainText(title)
+  await expect(page.locator('#bm-title')).toBeFocused()
+  await expect(page).toHaveURL(new RegExp('ticket=' + id))
+  expect(await page.evaluate(() => window.keyboardOpens)).toEqual([{ id, loaded: true }])
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#tk-backdrop')).not.toHaveClass(/\bshow\b/)
+  await expect(page).not.toHaveURL(/ticket=/)
+  await expect(row).toBeFocused()
+})
 test('B3 real live diff preserves focus and position; removal and empty filters move focus safely', async ({ page }) => {
   const row = rows(page).nth(4), id = await row.getAttribute('data-id')
   await row.focus(); const before = await row.boundingBox()

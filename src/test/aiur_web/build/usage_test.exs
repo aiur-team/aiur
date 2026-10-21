@@ -107,6 +107,17 @@ defmodule AiurWeb.Build.UsageTest do
            ]
   end
 
+  test "G1 reads the primary windows when snapshots also include operator credentials" do
+    quota = I.quota(4159, 4444)
+    operator = %{resource: "core", limit: 5000, remaining: 4900, used_percent: 2.0, reset_at: DateTime.add(I.now(), 1800)}
+    quota = Map.put(quota, :credential_windows, %{"operator-fingerprint" => %{"core" => operator}})
+
+    [core | _graphql] = hd(block(I.inputs(%{github: {:ok, quota}})).apis).lines
+
+    assert core.tip == [["Requests left", "4,159 of 5,000"]]
+    assert core.acc == [17]
+  end
+
   test "G2 G3 unknown and unavailable meters remain distinct" do
     for {github, note} <- [{I.inputs().github, "not observed yet"}, {{:error, :unavailable}, "GitHub budget meter unavailable"}] do
       row = block(I.inputs(%{github: github})).apis |> hd()

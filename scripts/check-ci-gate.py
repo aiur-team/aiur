@@ -14,8 +14,9 @@ def required_jobs(event, full, dialyzer):
     if event == 'pull_request':
         jobs.append('soak')  # soak.yml repeats the PR's changed tests; it succeeds when there are none.
     if full:
-        return jobs + ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css',
-                       'layout-release', 'analytics', 'streamdeck']
+        selected = jobs + ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css',
+                           'layout-release', 'analytics', 'streamdeck']
+        return selected + (['affected-tests'] if event == 'merge_group' else [])
     selected = jobs + ['affected-tests']
     if event == 'pull_request' and dialyzer:
         selected.append('dialyzer')

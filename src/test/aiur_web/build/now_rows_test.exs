@@ -87,6 +87,8 @@ defmodule AiurWeb.Build.NowRowsTest do
     assert facts(row(%{agent_family: "muse"})).agent.model == "muse"
     assert facts(row(%{agent_family: "muse"})).agent.name == "Muse"
     assert facts(row(%{agent_family: nil, backend: "codex"})).agent.name == "Codex"
+    assert facts(row(%{agent_family: :bogus, backend: "codex"})).agent.model == "codex"
+    assert facts(row(%{agent_family: :bogus, backend: "codex"})).agent.name == "Codex"
     for value <- ~w(none minimal low medium high xhigh max), do: assert(facts(row(%{effort: value})).agent.effort == value)
     assert facts(row(%{effort: :high})).agent.effort == "high"
     assert facts(row(%{effort: "<b>"})).agent.effort == nil

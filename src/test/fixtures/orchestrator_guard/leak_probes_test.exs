@@ -71,6 +71,44 @@ defmodule Aiur.ETestSupportReregisterNeighbourTest do
   end
 end
 
+defmodule Aiur.FPlainCasePubSubLeakProbeTest do
+  use ExUnit.Case, async: false
+
+  @moduletag :orchestrator_guard_probe
+
+  test "leaves the PubSub registry table down" do
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Phoenix.PubSub.Supervisor)
+  end
+end
+
+defmodule Aiur.GTestSupportPubSubNeighbourTest do
+  use Aiur.TestSupport, async: false
+
+  alias Aiur.TestSupport.OrchestratorGuard
+
+  @moduletag :orchestrator_guard_probe
+
+  test "does not silently accept a prior plain-test PubSub leak" do
+    assert is_pid(Process.whereis(Aiur.PubSub))
+
+    assert_raise RuntimeError,
+                 ~r/plain ExUnit tests left shared runtime children down: Aiur.FPlainCasePubSubLeakProbeTest: test leaves the PubSub registry table down \(Aiur.PubSub unregistered\)/,
+                 fn ->
+                   OrchestratorGuard.verify_suite!()
+                 end
+  end
+end
+
+defmodule Aiur.HTestSupportPubSubTerminationProbeTest do
+  use Aiur.TestSupport, async: false
+
+  @moduletag :orchestrator_guard_probe
+
+  test "a real registry-table loss is restored and reported" do
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Phoenix.PubSub.Supervisor)
+  end
+end
+
 defmodule Aiur.YTestSupportStandInProbeTest do
   use Aiur.TestSupport, async: false
 
