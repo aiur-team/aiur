@@ -36,4 +36,13 @@ defmodule AiurEngineTicketEstimateTest do
     {clear, 0} = run_sourced_engine(~S|run_control_rpc() { echo "$1"; }; cmd_ticket estimate 5 --clear --reason reset|, [])
     assert clear =~ "id: 5, clear: true, reason: Base.decode64!"
   end
+
+  test "dev shim reaches the running daemon without rebuilding for ticket estimates" do
+    source = File.read!(Path.expand("../../scripts/aiurdev", __DIR__))
+
+    for {function, code} <- [{"targets_release_deliberately", 1}, {"pure_control_command", 0}] do
+      [definition] = Regex.run(~r/^#{function}\(\) \{.*?^\}/ms, source)
+      assert {"", ^code} = System.cmd("bash", ["-c", definition <> "\n#{function} ticket"], stderr_to_stdout: true)
+    end
+  end
 end

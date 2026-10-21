@@ -429,9 +429,8 @@ test.describe('parity', () => {
         const pair = await openCardParityPair(browser, cell, { query: `span=${span}`, productPending: true })
         try {
           await expect(pair.product.locator('#bd-content')).toHaveCount(1)
-          // History and open cards have the same payload values as the design.
-          // Plan estimates are deliberately unknown: compare their top/cues below.
-          const selector = '.bd-card.hist, .bd-card.nq, .bd-card.now'
+          // Fixture estimates preserve the design values across every section.
+          const selector = '.bd-card.hist, .bd-card.nq, .bd-card.now, .bd-card.plan'
           const count = await pair.design.locator(selector).count()
           expect(count).toBeGreaterThan(0)
           const tier = await compareCard(pair, selector, 'card-' + name)
@@ -454,10 +453,9 @@ test.describe('parity', () => {
         const plans = await pair.design.locator('.bd-card.plan.full').evaluateAll(nodes => nodes.map(el => ({ id: el.dataset.id, cue: !!el.querySelector('.bd-cues'), alert: !!el.querySelector('.bd-alert') })))
         expect(plans.some(p => p.cue)).toBe(true)
         for (const row of plans.filter(p => p.cue || p.alert)) {
-          // Estimate remains unknown in the product; the design's invented EST
-          // value cannot be used as a status baseline. Compare the real known parts.
+          // Include the shared estimate label alongside the override cue.
           await compareCard(pair, `.bd-card[data-id="${row.id}"]`, 'plan-' + row.id + '-' + name,
-            ['bd-top', 'bd-title', row.alert ? 'bd-alert' : 'bd-cues'])
+            ['bd-top', 'bd-title', row.alert ? 'bd-alert' : 'bd-cues', 'bd-status'])
         }
       } finally { await pair.close() }
     })

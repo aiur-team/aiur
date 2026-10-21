@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.Estimates.Store do
   @moduledoc false
   require Logger
   alias Aiur.BuildOrder.{Estimates, ProviderHealth}
+  alias Aiur.Config.Paths
   @max_bytes 1_048_576
 
   @spec healthy(non_neg_integer()) :: ProviderHealth.t()
@@ -33,7 +34,7 @@ defmodule Aiur.BuildOrder.Estimates.Store do
   defp directory(opts) do
     case Keyword.fetch(opts, :state_dir) do
       {:ok, dir} when is_binary(dir) and dir != "" -> {:ok, dir}
-      :error -> Aiur.Config.Paths.build_estimates_state_dir()
+      :error -> Paths.build_estimates_state_dir()
       _ -> {:error, :state_dir_unavailable}
     end
   end

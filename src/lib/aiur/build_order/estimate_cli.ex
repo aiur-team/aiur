@@ -1,6 +1,8 @@
 defmodule Aiur.BuildOrder.EstimateCLI do
   @moduledoc "CLI reads and durable writes for ticket estimate overrides."
   alias Aiur.BuildOrder.Estimates
+  alias Aiur.Config.Paths
+  alias AiurWeb.Build.Index
 
   @spec run(keyword()) :: 0 | 1
   def run(opts \\ []) do
@@ -78,7 +80,7 @@ defmodule Aiur.BuildOrder.EstimateCLI do
   defp result({:error, reason}), do: {:error, reason}
 
   defp context(id, opts) do
-    snapshot = Keyword.get(opts, :snapshot_fun, fn -> AiurWeb.Build.Index.window(AiurWeb.Build.Index, "Etc/UTC", 1_000) end)
+    snapshot = Keyword.get(opts, :snapshot_fun, fn -> Index.window(Index, "Etc/UTC", 1_000) end)
 
     case safe_snapshot(snapshot) do
       {:ok, %{sections: sections, sources: %{queue: %{state: state}}}} ->
@@ -123,7 +125,7 @@ defmodule Aiur.BuildOrder.EstimateCLI do
 
   defp unavailable(reason) do
     path =
-      case Aiur.Config.Paths.build_estimates_state_dir() do
+      case Paths.build_estimates_state_dir() do
         {:ok, path} -> Path.join(path, "estimates.json")
         _ -> "estimates.json"
       end

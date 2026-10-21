@@ -2,11 +2,13 @@ defmodule Aiur.BuildOrder.Index.Sources do
   @moduledoc false
   alias Aiur.BuildOrder.{ProviderHealth, SourceFreshness}
 
+  alias Aiur.BuildOrder.Index.Estimates
+
   @spec build(map(), integer()) :: map()
   def build(parts, now) do
     sources = %{
       history: history(parts),
-      estimates: Aiur.BuildOrder.Index.Estimates.source(parts[:estimates]),
+      estimates: Estimates.source(parts[:estimates]),
       features: SourceFreshness.source(health(parts[:features])),
       queue: producer(parts[:planned]),
       agents: producer(parts[:now]),

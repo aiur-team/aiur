@@ -1,5 +1,6 @@
 defmodule Aiur.BuildOrder.EstimatesPathsTest do
   use ExUnit.Case, async: false
+  alias Aiur.Config.Paths
 
   test "estimate path honors its override and otherwise owns a separate decision-state leaf" do
     dir = Aiur.TestSupport.tmp_root!("estimate-path")
@@ -18,9 +19,9 @@ defmodule Aiur.BuildOrder.EstimatesPathsTest do
 
     Application.delete_env(:aiur, :build_estimates_state_dir)
     Application.put_env(:aiur, :decision_state_dir, dir)
-    assert Aiur.Config.Paths.build_estimates_state_dir() == {:ok, Path.join(dir, "build-estimates")}
+    assert Paths.build_estimates_state_dir() == {:ok, Path.join(dir, "build-estimates")}
     specific = Path.join(dir, "explicit")
     Application.put_env(:aiur, :build_estimates_state_dir, specific)
-    assert Aiur.Config.Paths.build_estimates_state_dir() == {:ok, specific}
+    assert Paths.build_estimates_state_dir() == {:ok, specific}
   end
 end
