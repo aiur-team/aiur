@@ -141,18 +141,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
   end
 
   defp repository_root(opts) do
-    case Keyword.get(opts, :repo_root) || System.get_env("AIUR_REPO_ROOT") do
-      root when is_binary(root) -> Path.expand(root)
-      _ -> find_repository_root(File.cwd!())
-    end
-  end
-
-  defp find_repository_root(path) do
-    cond do
-      File.dir?(Path.join(path, ".github")) -> path
-      File.dir?(Path.join(Path.dirname(path), ".github")) -> Path.dirname(path)
-      true -> path
-    end
+    Keyword.get(opts, :repo_root, Aiur.Codeowners.repo_root())
   end
 
   defp known_flaky_signatures(line) do
