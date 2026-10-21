@@ -1,14 +1,14 @@
 # Module, full ExUnit test name (describe prefix included, as failures print it), and tracking ticket. Tabs delimit fields.
-Aiur.ExperimentsCLITest	create freezes the baseline and reports its window, count and coverage	#4463
-Aiur.DecisionRevisionIntegrationTest	preserves and delivers original plus revised actions across restart	#4463
-Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#4463
-Aiur.DecisionStore.EnrichmentTest	supervisor enrichment exact replay is duplicate while changed reuse conflicts without append or notification	#4463
-Aiur.Muse.TurnTest	an accepted receipt without a terminal times out	#4463
 Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the real gh command	#4463
 Aiur.AgentGitHubGuard.InstallAndTokenTest	refuses gh aliases and any command name the guard cannot recognise	#4463
+Aiur.AppServerStderrCaptureTest	app server logs Codex stderr before returning completed turn	#4756
 Aiur.Core.AgentRunnerCheckpointQueueTest	*	#4463
 Aiur.Core.AgentRunnerStartupFailureTest	agent runner pauses on before_run failure and resumes after operator intervention	#4463
+Aiur.DecisionRevisionIntegrationTest	preserves and delivers original plus revised actions across restart	#4463
+Aiur.DecisionStore.EnrichmentTest	supervisor enrichment exact replay is duplicate while changed reuse conflicts without append or notification	#4463
+Aiur.ExperimentsCLITest	create freezes the baseline and reports its window, count and coverage	#4463
+Aiur.Muse.TurnTest	an accepted receipt without a terminal times out	#4463
+Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#4463
 Aiur.Orchestrator.Status.ProgressAndIdentityTest	orchestrator snapshot reads open decisions without calling the per-ticket store	#4463
-Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#4463
-Aiur.AppServerStderrCaptureTest	app server logs Codex stderr before returning completed turn	#4756
 Aiur.OrchestratorRemoteControlTest	ensure_remote_control_trust/2 (direct-dispatch trust seeding) seeds hasTrustDialogAccepted for the workspace	#4765
+Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#4463

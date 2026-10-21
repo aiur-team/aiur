@@ -14,7 +14,7 @@ defmodule Aiur.AgentControlCLIFreshness do
 
   def print(freshness, _global_pause), do: IO.puts("FLEET SNAPSHOT " <> StatusObservation.label(freshness))
 
-  defp stale_reason(:snapshot_timeout, _global_pause), do: " (the orchestrator is busy)"
+  defp stale_reason(:snapshot_timeout, _global_pause), do: " (the snapshot projection timed out)"
 
   defp stale_reason(:snapshot_stalled, %{globally_paused: true, paused_at: %DateTime{} = paused_at}),
     do: " (global pause active since #{DateTime.to_iso8601(paused_at)})"
