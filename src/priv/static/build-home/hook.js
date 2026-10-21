@@ -19,6 +19,7 @@ import './band.js';
 import './states.js';
 import './list.js';
 import './modal/frame.js';
+import './modal/conversation.js';
 
 export function writeOwnData() {
   if (ctx.bdStates != null) ctx.root.dataset.bdStates = ctx.bdStates;
@@ -98,6 +99,7 @@ export function createBuildHomeHook() {
       if (!this.buildActive) return;
       fx.renderTools(); fx.initModal();
       writeOwnData();
+      this.handleEvent('build-conversation', msg => fx.receiveConversation(msg));
       this.handleEvent('build-diff', receive); this.handleEvent('build:url', onServerURL);
       showServerState(this.el.dataset); resync();
     },
@@ -108,7 +110,7 @@ export function createBuildHomeHook() {
     },
     reconnected() {
       if (!this.buildActive) return;
-      ctx.socket = 'up'; writeOwnData(); resync(); flushURL(); fx.renderOffline();
+      ctx.socket = 'up'; writeOwnData(); resync(); flushURL(); fx.renderOffline(); fx.reconnectConversation();
     },
     destroyed() {
       this.buildLife?.dispose();

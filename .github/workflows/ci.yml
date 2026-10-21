@@ -439,7 +439,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
-    timeout-minutes: 22
+    timeout-minutes: 23
     strategy:
       fail-fast: false
       matrix:
