@@ -54,7 +54,11 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:github_pr_synchronize, ticket, pr_number}, %State{} = state)
       when is_binary(ticket) and is_integer(pr_number) do
-    _ = Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> StaleApprovedHead.reconcile(ticket, pr_number) end)
+    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> StaleApprovedHead.reconcile(ticket, pr_number) end) do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> StaleApprovedHead.task_start_failed(ticket, pr_number, reason)
+    end
+
     {:noreply, state}
   end
 

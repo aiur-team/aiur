@@ -20,7 +20,7 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawalTest do
     assert body =~ "removed it from the merge queue and turned auto-merge off"
   end
 
-  test "a trusted CHANGES_REQUESTED review disables auto-merge when the PR is not queued" do
+  test "regression guard: trusted CHANGES_REQUESTED disables auto-merge when the PR is not queued" do
     ReviewLandingWithdrawal.changes_requested(
       %State{},
       "42",

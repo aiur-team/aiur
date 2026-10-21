@@ -102,8 +102,8 @@ defmodule Aiur.Events.GithubWebhookWakeTest do
                  orchestrator: self()
                )
 
-      assert_receive {:github_pr_synchronize, ^ticket, 901}, 500
-      assert_receive :request_refresh, 500
+      assert_received {:github_pr_synchronize, ^ticket, 901}
+      assert_received :request_refresh
     end
 
     test "a comment publish does not wake the dispatcher" do

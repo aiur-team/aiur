@@ -5,13 +5,39 @@ defmodule Aiur.Orchestrator.StaleApprovedHead do
   alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.LandingWithdrawal
 
+  @read_retries 2
+  @read_retry_delay_ms 200
+
   @spec reconcile(String.t(), integer(), keyword()) :: :ok
   def reconcile(ticket, pr_number, opts \\ []) do
-    with {:ok, %{head_sha: head, approved_head_sha: approved}} <- LandingWithdrawal.approved_auto_merge_head(pr_number, opts),
-         {:changed, %{reason: reason, hunks: hunks}} <- classify(approved, head, pr_number, opts) do
-      withdraw(ticket, pr_number, approved, head, reason, hunks, opts)
-    else
-      _unchanged_or_unavailable -> :ok
+    case read_approved_head(pr_number, opts, @read_retries) do
+      {:ok, %{head_sha: head, approved_head_sha: approved}} ->
+        case classify(approved, head, pr_number, opts) do
+          {:changed, %{reason: reason, hunks: hunks}} -> withdraw(ticket, pr_number, approved, head, reason, hunks, opts)
+          :identical -> :ok
+        end
+
+      :not_applicable ->
+        :ok
+
+      {:error, reason} ->
+        emit_check_failure(ticket, pr_number, reason)
+    end
+  end
+
+  @spec task_start_failed(String.t(), integer(), term()) :: :ok
+  def task_start_failed(ticket, pr_number, reason) do
+    emit_check_failure(ticket, pr_number, {:task_start, reason})
+  end
+
+  defp read_approved_head(pr_number, opts, retries_left) do
+    case LandingWithdrawal.approved_auto_merge_head(pr_number, opts) do
+      {:error, _reason} when retries_left > 0 ->
+        Process.sleep(Keyword.get(opts, :read_retry_delay_ms, @read_retry_delay_ms))
+        read_approved_head(pr_number, opts, retries_left - 1)
+
+      result ->
+        result
     end
   end
 
@@ -52,6 +78,17 @@ defmodule Aiur.Orchestrator.StaleApprovedHead do
       issue: ticket,
       message: "Could not disable auto-merge on PR ##{pr_number} after its approved contribution changed",
       reason: "Disable auto-merge before the new head can merge (#{inspect(reason)}).",
+      needs_attention: true,
+      severity: "critical",
+      central: true
+    )
+  end
+
+  defp emit_check_failure(ticket, pr_number, reason) do
+    Alerts.emit_system("ticket.#{ticket}.agent.attention.landing_withdrawal_failed",
+      issue: ticket,
+      message: "Could not verify or protect auto-merge on PR ##{pr_number} after a synchronize event",
+      reason: "Review the PR's current head and disable auto-merge if it has not been approved (#{inspect(reason)}).",
       needs_attention: true,
       severity: "critical",
       central: true
