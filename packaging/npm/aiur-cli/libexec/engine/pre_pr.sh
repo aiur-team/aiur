@@ -69,6 +69,17 @@ cmd_pre_pr() {
     fi
   }
 
+  run_coverage_partitions() {
+    local partition
+    full_suite_recommended=1
+    for partition in 1 2 3 4; do
+      run_gate "coverage partition ($partition/4)" "${test_env[@]}" \
+        "MIX_TEST_ARGS=--max-cases 4" "MIX_TEST_PARTITION=$partition" TEST_PARTITIONS=4 \
+        nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- \
+        make -C "$root/src" coverage-partition
+    done
+  }
+
   run_gate "mix format --check-formatted" bash -c 'cd src && mise exec -- mix format --check-formatted'
   run_gate "mix compile --warnings-as-errors" bash -c 'cd src && mise exec -- mix compile --warnings-as-errors'
   run_gate "check-pr-structure" python3 scripts/check-pr-structure.py --base "$base_sha"
@@ -94,7 +105,8 @@ cmd_pre_pr() {
     case "$selection" in
       full)
         full_suite_recommended=1
-        results+=("NOTE full suite recommended ($(jq -r '.reason' <<<"$affected")); runs in merge queue")
+        results+=("NOTE full selection ($(jq -r '.reason' <<<"$affected")); running CI coverage partitions locally; full CI suite runs in merge queue")
+        run_coverage_partitions
         while IFS= read -r edited; do
           [ -n "$edited" ] || continue
           while IFS= read -r reader_test; do
@@ -109,18 +121,28 @@ cmd_pre_pr() {
         else
           local -a mix_paths=()
           for test_path in "${test_files[@]}"; do mix_paths+=("${test_path#src/}"); done
-          run_gate "reader tests" "${test_env[@]}" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+          run_gate "reader tests" "${test_env[@]}" nice -n 10 bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
           report_unedited_test_failures "$base_sha"
         fi
         ;;
       scoped)
         while IFS= read -r test_path; do test_files+=("$test_path"); done < <(jq -r '.tests[]' <<<"$affected")
         if [ "${#test_files[@]}" -eq 0 ]; then
-          results+=("PASS affected tests (no test files selected)")
+          if git diff --name-only "$base_sha...HEAD" | grep -Eq '^src/test/support/|^src/test/test_helper\.exs$'; then
+            results+=("FAIL affected tests (shared support changed but no tests were selected)")
+            result=1
+          else
+            results+=("PASS affected tests (no test files selected)")
+          fi
         else
           local -a mix_paths=()
           for test_path in "${test_files[@]}"; do mix_paths+=("${test_path#src/}"); done
-          run_gate "affected tests" "${test_env[@]}" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+          if [ "${#mix_paths[@]}" -gt 400 ]; then
+            results+=("NOTE affected selection includes ${#mix_paths[@]} files; running CI coverage partitions locally")
+            run_coverage_partitions
+          else
+            run_gate "affected tests" "${test_env[@]}" nice -n 10 bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+          fi
           report_unedited_test_failures "$base_sha"
         fi
         ;;
@@ -210,11 +232,11 @@ pre_pr_report() {
   printf '%s\n' '--- aiur pre-pr result (paste into the PR body) ---'
   printf 'Merged main SHA: %s\n' "$base_sha"
   if [ "$status" = PASS ] && [ "${full_suite_recommended:-0}" -eq 1 ]; then
-    printf '%s\n' 'Result: PASS (full suite not run)'
+  printf '%s\n' 'Result: PASS (full CI suite not run)'
   else
     printf 'Result: %s\n' "$status"
   fi
-  printf '%s\n' 'Not run: Credo and specs (make lint), dialyzer, full suite'
+  printf '%s\n' 'Not run: Credo and specs (make lint), dialyzer, full CI suite'
   for line in "${results[@]}"; do printf '%s\n' "$line"; done
   printf '%s\n' '--- end aiur pre-pr result ---'
   for log in "${failures[@]}"; do
