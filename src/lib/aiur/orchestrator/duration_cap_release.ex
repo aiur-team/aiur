@@ -105,7 +105,7 @@ defmodule Aiur.Orchestrator.DurationCapRelease do
   defp classify_pr(pr, opts) do
     case ReworkGate.open_pull_request_rework_verdict(pr, opts) do
       {:ok, :rework} -> {:ok, "rework"}
-      {:skip, :no_unresolved_review_threads} -> {:ok, "human-review"}
+      {:skip, :no_unresolved_review_threads} -> {:ok, ReworkGate.post_agent_handoff_target(pr, "human-review", opts)}
       {:error, reason} -> {:error, reason}
     end
   end

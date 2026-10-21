@@ -1,5 +1,6 @@
 defmodule AiurWeb.Build.PayloadSchema do
   @moduledoc false
+  alias AiurWeb.Build.ConversationPayload
   # Cohesive schema definitions: required keys are literal; only epic flags are optional.
   @spec row() :: map()
   def row do
@@ -87,7 +88,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "reason" => enum(~w(invalid_params unavailable invalid_data read_only not_found throttled timeout index_not_running read_failed epic_config_unavailable settings_loading))
     }
 
-  def message(_kind), do: nil
+  def message(kind), do: ConversationPayload.message(kind)
 
   @spec usage(String.t()) :: map() | nil
   def usage("locked"), do: %{"state" => {:literal, "locked"}, "accessible_name" => :string, "authentication_path" => :string, "reason" => :string}

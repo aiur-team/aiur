@@ -97,16 +97,18 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   end
 
   def build(entry, payload) do
-    %{path: path, messages: messages} = read_agent_log(entry)
+    Map.merge(composer(entry, payload), read_agent_log(entry))
+  end
+
+  @spec composer(map(), map() | nil) :: map()
+  def composer(entry, payload) do
     identity = Map.get(entry, :tracker_identity)
 
     %{
       issue_identifier: entry.issue_identifier,
       tracker_identity: identity,
       target_key: target_key(identity, entry.issue_identifier),
-      writable_target?: unique_identifier?(payload, entry.issue_identifier),
-      path: path,
-      messages: messages
+      writable_target?: unique_identifier?(payload, entry.issue_identifier)
     }
   end
 
