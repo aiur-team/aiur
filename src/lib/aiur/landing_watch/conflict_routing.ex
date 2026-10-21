@@ -21,6 +21,46 @@ defmodule Aiur.LandingWatch.ConflictRouting do
       Map.get(observation, :conflict_queue_persistent?, false)
   end
 
+  @doc false
+  @spec persistent_queue_conflict?(map(), keyword()) :: boolean()
+  def persistent_queue_conflict?(%{merge_queue_entry: %{"state" => "UNMERGEABLE"}, mergeable: mergeable, number: number, head: head}, opts)
+      when mergeable in ["MERGEABLE", "UNKNOWN"] and is_integer(number) and is_binary(head) do
+    now = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
+    key = "#{number}:#{head}"
+
+    case Journal.update(opts, fn state ->
+           rows = Map.get(state, "unmergeable_conflict_entries", %{})
+           since = Map.get(rows, key) || now
+           {:ok, Map.put(state, "unmergeable_conflict_entries", Map.put(rows, key, since)), since}
+         end) do
+      {:ok, since} -> now - since >= 5 * 60_000
+      _ -> false
+    end
+  end
+
+  def persistent_queue_conflict?(%{number: number, head: head}, opts) when is_integer(number) and is_binary(head) do
+    Journal.update(opts, fn state ->
+      rows = Map.get(state, "unmergeable_conflict_entries", %{})
+      {:ok, Map.put(state, "unmergeable_conflict_entries", Map.delete(rows, "#{number}:#{head}"))}
+    end)
+
+    false
+  end
+
+  def persistent_queue_conflict?(_, _), do: false
+
+  @doc false
+  @spec queue_prs_ahead(map(), keyword()) :: [pos_integer()]
+  def queue_prs_ahead(%{number: number, merge_queue_entry: %{"position" => position}} = observation, opts)
+      when is_integer(number) and is_integer(position) and position > 1 do
+    case Keyword.get(opts, :queue_prs_ahead_fun, &Aiur.LandingWatch.Observer.prs_ahead/2).(observation, opts) do
+      {:ok, numbers} when is_list(numbers) -> Enum.filter(numbers, &is_integer/1)
+      _ -> []
+    end
+  end
+
+  def queue_prs_ahead(_, _), do: []
+
   @doc "Takes the PR out of the queue, then routes it through `rework` with a rebase-only follow-up."
   @spec route(map(), (map(), [map()], keyword() -> :ok | {:error, term()}), keyword()) :: :ok | {:error, term()}
   def route(observation, rework, opts) do

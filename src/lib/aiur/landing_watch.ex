@@ -159,43 +159,6 @@ defmodule Aiur.LandingWatch do
     end)
   end
 
-  defp persistent_queue_conflict?(%{merge_queue_entry: %{"state" => "UNMERGEABLE"}, mergeable: mergeable, number: number, head: head}, opts)
-       when mergeable in ["MERGEABLE", "UNKNOWN"] and is_integer(number) and is_binary(head) do
-    now = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
-    key = "#{number}:#{head}"
-
-    case Journal.update(opts, fn state ->
-           rows = Map.get(state, "unmergeable_conflict_entries", %{})
-           since = Map.get(rows, key) || now
-           next = Map.put(state, "unmergeable_conflict_entries", Map.put(rows, key, since))
-           {:ok, next, since}
-         end) do
-      {:ok, since} -> now - since >= 5 * 60_000
-      _ -> false
-    end
-  end
-
-  defp persistent_queue_conflict?(%{number: number, head: head}, opts) when is_integer(number) and is_binary(head) do
-    Journal.update(opts, fn state ->
-      rows = Map.get(state, "unmergeable_conflict_entries", %{})
-      {:ok, Map.put(state, "unmergeable_conflict_entries", Map.delete(rows, "#{number}:#{head}"))}
-    end)
-
-    false
-  end
-
-  defp persistent_queue_conflict?(_, _), do: false
-
-  defp queue_prs_ahead(%{number: number, merge_queue_entry: %{"position" => position}} = observation, opts)
-       when is_integer(number) and is_integer(position) and position > 1 do
-    case Keyword.get(opts, :queue_prs_ahead_fun, &Observer.prs_ahead/2).(observation, opts) do
-      {:ok, numbers} when is_list(numbers) -> Enum.filter(numbers, &is_integer/1)
-      _ -> []
-    end
-  end
-
-  defp queue_prs_ahead(_, _), do: []
-
   defp process_observation(observation, opts) do
     case Keyword.get(opts, :process_fun, &process/2).(observation, opts) do
       :ok -> :ok
@@ -212,9 +175,9 @@ defmodule Aiur.LandingWatch do
     required_result = Keyword.get(opts, :required_checks_snapshot, :not_fetched)
     required_result = if required_result == :not_fetched, do: LocalRead.run(required_checks, [opts], opts), else: required_result
 
-    conflict_queue_persistent? = persistent_queue_conflict?(observation, opts)
+    conflict_queue_persistent? = ConflictRouting.persistent_queue_conflict?(observation, opts)
     observation = Map.put(observation, :conflict_queue_persistent?, conflict_queue_persistent?)
-    observation = if conflict_queue_persistent?, do: Map.put(observation, :conflicting_queue_prs, queue_prs_ahead(observation, opts)), else: observation
+    observation = if conflict_queue_persistent?, do: Map.put(observation, :conflicting_queue_prs, ConflictRouting.queue_prs_ahead(observation, opts)), else: observation
 
     with true <- Classifier.approved_at_head?(raw),
          {:ok, true} <- LocalRead.run(current_approval, [number, opts], opts),
