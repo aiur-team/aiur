@@ -69,6 +69,7 @@ class BrowserSamplingTest(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(sampler.population_size, 2338)
         self.assertEqual(sampler.sample_count, 5)
+        self.assertGreater(1000 * 5, module.BUDGET_SECONDS)
         self.assertEqual(len(runner.call_args_list), 5)
         self.assertTrue(all(call.args[0][-1] == '--repeat-each=1' for call in runner.call_args_list))
         grep_patterns = [call.args[0][call.args[0].index('--grep') + 1]
