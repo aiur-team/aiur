@@ -286,7 +286,11 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     if predicate.(decision) do
       decision
     else
-      assert_receive {:decision_changed, ^decision_id, _version}, 2_000
+      # DecisionPubSub notifications are best-effort refresh signals. A state
+      # transition can race the read above and its notification can be
+      # consumed before this receive, so poll the owning store instead of
+      # treating PubSub as a completion barrier.
+      Process.sleep(10)
       wait_for(pid, decision_id, predicate, attempts - 1)
     end
   end
