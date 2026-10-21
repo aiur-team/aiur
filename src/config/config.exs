@@ -1,5 +1,15 @@
 import Config
 
+config :aiur, :github_access_settings_provider, Aiur.GitHub.AccessSettings
+
+# OTP terminate reports inspect the last message and server state while they
+# are translated into Logger events. Bound inspection here so a malformed or
+# unexpectedly large GenServer state cannot exhaust the daemon during logging.
+config :logger, :translator_inspect_opts,
+  limit: 100,
+  printable_limit: 4_096,
+  width: 120
+
 config :aiur, Aiur.Events.Trace, Aiur.Events.DebugLog
 
 config :aiur, env: config_env()
@@ -225,11 +235,7 @@ if config_env() == :test do
   System.put_env("MISE_OFFLINE", "1")
   System.put_env("npm_config_offline", "true")
 
-  test_log_root =
-    Path.join(
-      System.tmp_dir!(),
-      "aiur-test-logs-#{System.os_time(:millisecond)}-#{System.pid()}"
-    )
+  test_log_root = Aiur.TestLogTmp.test_root(System.tmp_dir!(), System.os_time(:millisecond), System.pid())
 
   # mix starts the application before test_helper. Capture HOME before changing
   # it, then isolate environment-based paths (provider credentials

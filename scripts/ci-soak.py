@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import shlex
 import subprocess
 import sys
@@ -22,6 +23,8 @@ RUN_TIMEOUT_SECONDS = 300
 BROWSER_RUN_TIMEOUT_SECONDS = 20 * 60
 BUDGET_SECONDS = int(os.environ.get('AIUR_SOAK_BUDGET_SECONDS', str(12 * 60)))
 BROWSER_ROOT = Path(os.environ.get('AIUR_SOAK_BROWSER_ROOT', Path(__file__).resolve().parent.parent / 'src/browser'))
+DURATION_SOURCE = Path(__file__).resolve().parent.parent / 'src/browser/scripts/browser-smoke-durations.mjs'
+RUN_TIMED_OUT = object()
 
 
 def notice(message, level='notice'):
@@ -90,6 +93,22 @@ def browser_invocations(spec, scripts):
     return []
 
 
+def browser_duration(spec, invocations, scripts, durations):
+    """Return the slowest recorded suite duration for a spec's smoke registrations."""
+    seconds = []
+    for command in smoke_scripts(scripts):
+        for segment in command.split('&&'):
+            tokens = shlex.split(segment)
+            runner = 'scripts/run-browser-tests.mjs'
+            if runner in tokens and spec in tokens:
+                for script_name, script_command in scripts.items():
+                    if script_name in durations and runner in script_command and spec in shlex.split(script_command):
+                        seconds.append(durations[script_name])
+    # A changed smoke spec without a matching recorded command is least known; run it
+    # first so its result is not consistently lost behind measured, longer suites.
+    return max(seconds, default=0)
+
+
 def select(base):
     changed = subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=AMR', '-z', base, 'HEAD'], text=True)
     paths = [path for path in changed.split('\0') if path]
@@ -117,7 +136,7 @@ def run(command, cwd=None, timeout=RUN_TIMEOUT_SECONDS):
         return subprocess.run(command, cwd=cwd, timeout=timeout).returncode
     except subprocess.TimeoutExpired:
         notice(f'soak run exceeded {timeout:.0f}s', 'error')
-        return 124
+        return RUN_TIMED_OUT
 
 
 def plan_runs(kind, count, full, reduced, full_limit, max_files):
@@ -155,14 +174,32 @@ def soak_exunit():
 def soak_browser():
     specs = load_list('SOAK_SPECS', 'tests/', '.spec.mjs')
     scripts = json.loads((BROWSER_ROOT / 'package.json').read_text())['scripts']
+    duration_text = DURATION_SOURCE.read_text()
+    # Read the checked-in JS object without evaluating arbitrary source as Python.
+    duration_block = duration_text.split('export const recordedSeconds = {', 1)[1].split('\n}', 1)[0]
+    durations = {}
+    for line in duration_block.splitlines():
+        match = re.match(r"\s*'([^']+)':\s*([\d.]+),?\s*$", line)
+        if match:
+            durations[match.group(1)] = float(match.group(2))
     invocations = {spec: browser_invocations(spec, scripts) for spec in specs}
     for spec, commands in invocations.items():
         if not commands:
             notice(f'Playwright soak skipped {spec}: the browser smoke suite does not run it')
     runnable = [spec for spec, commands in invocations.items() if commands]
+    runnable.sort(key=lambda spec: browser_duration(spec, invocations[spec], scripts, durations))
     n = plan_runs('Playwright', len(runnable), SPEC_REPEATS, SPEC_REDUCED_REPEATS, SPEC_FULL_LIMIT, SPEC_MAX_FILES)
     started = time.monotonic()
+    completed = 0
     for spec in runnable if n else []:
+        estimated_seconds = browser_duration(spec, invocations[spec], scripts, durations) * n
+        remaining = BUDGET_SECONDS - (time.monotonic() - started)
+        if remaining <= 0:
+            notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec} after {completed} passing repeats')
+            return 0
+        if estimated_seconds > remaining:
+            notice(f'Playwright soak skipped {spec}: estimated {estimated_seconds:.0f}s exceeds {remaining:.0f}s remaining budget')
+            continue
         for invocation in invocations[spec]:
             elapsed = time.monotonic() - started
             if elapsed >= BUDGET_SECONDS:
@@ -175,9 +212,15 @@ def soak_browser():
             # 20 minutes, leaving setup/cleanup time inside the 25-minute job.
             status = run(command, cwd=BROWSER_ROOT, timeout=max(1, BROWSER_RUN_TIMEOUT_SECONDS - elapsed))
             print('::endgroup::', flush=True)
+            if status is RUN_TIMED_OUT:
+                notice(f'Playwright soak stopped at its runtime bound after {completed} passing repeats')
+                return 0
             if status != 0:
                 notice(f'Playwright soak failed for {spec}. Reproduce: cd src/browser && {shlex.join(command)}', 'error')
                 return 1
+            completed += n
+    if completed:
+        notice(f'Playwright soak: {completed} repeats passed for {len(runnable)} specs')
     return 0
 
 

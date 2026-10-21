@@ -412,7 +412,7 @@ defmodule Aiur.Orchestrator.ReworkDispatchPausedLabelTest do
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
-    token_key = {Aiur.GitHub.Config, :resolved_token}
+    token_key = {Aiur.GitHub.Access.Token, :resolved_token}
     previous_cached_token = :persistent_term.get(token_key, :unset)
     :persistent_term.erase(token_key)
     System.put_env("GITHUB_TOKEN", "test-gh-token")
