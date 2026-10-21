@@ -8,6 +8,7 @@ import './band-scroll.js';
 export { SNAP_T, guardTarget, settleTarget } from './band-scroll.js';
 
 const groups = [['ok', 'nr', 'active', 'running'], ['queued', 'nt', 'retrying', 'retrying'], ['bad', 'ns', 'error,retries,command', 'stuck'], ['idle', 'ni', 'paused,parked', 'paused']];
+const AGENTS_STALE_MAX_AGE_MS = 120_000;
 export function bandCounts(rows) {
   const result = { nr: 0, nt: 0, ns: 0, ni: 0, nu: 0 };
   for (const t of rows) {
@@ -30,9 +31,13 @@ export function bandEta(D) {
   const known = ['ok', 'stale'].includes(D.sources?.queue?.state);
   return { text: (known ? D.plan.length + D.now.length : '—') + ' to go · ETA —', title: 'ETA not available yet' };
 }
-export function bandEmptyText(D) {
-  if (!['ok', 'stale'].includes(D.sources?.agents?.state)) return 'Agent states unavailable';
-  return D.now.length ? null : 'No agents are working right now.';
+export function bandEmptyText(D, now = nowMs()) {
+  const source = D.sources?.agents;
+  const age = Number.isFinite(now) && Number.isFinite(source?.observed_at) ? now - source.observed_at : null;
+  const retained = source?.state === 'unavailable' && D.now.length > 0 && age !== null && age >= 0 && age <= AGENTS_STALE_MAX_AGE_MS;
+  if (!['ok', 'stale'].includes(source?.state) && !retained) return 'Agent states unavailable';
+  if (source?.state === 'stale' && (age === null || age < 0 || age > AGENTS_STALE_MAX_AGE_MS)) return 'Agent states unavailable';
+  return D.now.length ? null : ['stale', 'unavailable'].includes(source?.state) ? 'Agent states stale · last seen ' + fmtT(source.observed_at) : 'No agents are working right now.';
 }
 function paintClock() {
   if (!ctx.life || ctx.life.disposed) return;
@@ -70,7 +75,7 @@ export function renderBand() {
   $('.bd-now-h', ctx.bandEl).innerHTML = header(bandCounts(ctx.D.now), available);
   fx.syncAst(); paintClock();
   if (selector) (ctx.bandEl.querySelector(selector) || ctx.bandEl.querySelector('[data-min]')).focus({ preventScroll: true });
-  const bl = $('.bd-layer', ctx.bandEl), empty = bandEmptyText(ctx.D);
+  const bl = $('.bd-layer', ctx.bandEl), empty = bandEmptyText(ctx.D, nowMs());
   bl.innerHTML = empty ? '<div class="bd-now-empty">' + esc(empty) + '</div>' : '';
   ctx.bandEl.classList.toggle('min', S.liveMin);
   ctx.L.band.items.forEach(it => {

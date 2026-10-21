@@ -40,10 +40,17 @@ test('B5 ETA stays unknown rather than dividing by demo capacity', () => {
   assert.equal(bandEta(D).text, `${D.now.length + D.plan.length} to go · ETA —`)
   assert.equal(bandEta({ ...D, sources: { queue: { state: 'unavailable' } } }).text, '— to go · ETA —')
 })
-test('B6 unavailable is distinct from an empty fleet', () => {
+test('B6 unavailable is shown only before any reading or after stale data expires', () => {
   const D = { now: [], sources: { agents: { state: 'unavailable' } } }
-  assert.equal(bandEmptyText(D), 'Agent states unavailable')
-  assert.equal(bandEmptyText({ ...D, sources: { agents: { state: 'ok' } } }), 'No agents are working right now.')
+  assert.equal(bandEmptyText(D, live.now), 'Agent states unavailable')
+  assert.equal(bandEmptyText({ ...D, sources: { agents: { state: 'ok' } } }, live.now), 'No agents are working right now.')
+  const observed_at = live.now - 30_000
+  const failed = { ...D, now: live.sections.now, sources: { agents: { state: 'unavailable', observed_at } } }
+  assert.equal(bandEmptyText(failed, live.now), null)
+  assert.equal(bandEmptyText({ ...failed, now: [] }, live.now), 'Agent states unavailable')
+  assert.equal(bandEmptyText({ ...failed, now: [], sources: { agents: { state: 'stale', observed_at } } }, live.now), 'Agent states stale · last seen 14:19')
+  assert.equal(bandEmptyText(failed, live.now + 120_001), 'Agent states unavailable')
+  assert.equal(bandEmptyText({ ...failed, sources: { agents: { state: 'stale', observed_at: live.now - 120_001 } } }, live.now), 'Agent states unavailable')
 })
 test('geometry stacks all agents despite epic filters and never caps tall bands', () => {
   const D = { now: live.sections.now, order: live.order }, dims = { vpW: 1200, gut: 84 }
