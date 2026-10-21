@@ -31,4 +31,28 @@ defmodule Aiur.TestSupport.LifecycleLeakGuardTest do
     assert error.message =~ inspect(runner)
     refute Process.alive?(runner)
   end
+
+  test "teardown restores app env and test scope when quiesce exits" do
+    previous_app_env = Aiur.TestSupport.capture_app_env()
+    previous_scope = Aiur.TestScopeGuard.capture()
+    expected_scope = Map.update!(previous_scope, :env, &Map.put(&1, "AIUR_DEV_TEST_STATE_DIR", "expected-test-state"))
+    context = %{async: false}
+    root = Path.join(System.tmp_dir!(), "lifecycle-teardown-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+
+    Application.put_env(:aiur, :runtime_state_dir, "temporary-runtime-state")
+    System.put_env("AIUR_DEV_TEST_STATE_DIR", "temporary-test-state")
+
+    try do
+      assert_raise RuntimeError, ~r/test scope state leaked/, fn ->
+        LifecycleTeardown.teardown_test_scope!(root, Aiur.TestSupport.capture_runner_tasks(), self(), expected_scope, previous_app_env, previous_scope, context)
+      end
+    after
+      Aiur.TestScopeGuard.restore(previous_scope)
+    end
+
+    assert Application.fetch_env(:aiur, :runtime_state_dir) == Keyword.fetch!(previous_app_env, :runtime_state_dir)
+    assert System.get_env("AIUR_DEV_TEST_STATE_DIR") == Map.fetch!(previous_scope.env, "AIUR_DEV_TEST_STATE_DIR")
+    refute File.exists?(root)
+  end
 end

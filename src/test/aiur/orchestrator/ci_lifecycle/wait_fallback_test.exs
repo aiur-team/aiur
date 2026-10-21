@@ -11,6 +11,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitFallbackTest do
 
   describe "CI lifecycle coordination" do
     test "a matching fallback token revalidates, queues one-check guidance, and resumes" do
+      test_pid = self()
+      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+
       identifier = unique_identifier("ci-rewake")
       recorder = start_recorder()
       issue = issue(identifier, "ci-wait")
@@ -274,6 +277,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitFallbackTest do
     # to block both exits from `ci-wait` forever — and `ci-wait` is a
     # no-agent-work state, so dispatch and `aiurdev resume` both refuse it.
     test "the fallback rewake recovers a ci-wait entry fenced after its agent exited" do
+      test_pid = self()
+      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+
       identifier = unique_identifier("ci-wait-fenced-exited")
       recorder = start_recorder()
       issue = issue(identifier, "ci-wait")
@@ -335,6 +341,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitFallbackTest do
     end
 
     test "a deactivated ci-wait entry is recovered by the fallback rewake" do
+      test_pid = self()
+      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+
       identifier = unique_identifier("deactivated-rewake")
       recorder = start_recorder()
       issue = issue(identifier, "ci-wait")
