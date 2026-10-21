@@ -260,7 +260,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ "Peak concurrency"
-    assert html =~ ~r/\d+ at run end \/ unknown cap</
+    assert html =~ ~r/\d+ at run end \/ unknown cap · of \d+ cores</
     assert html =~ "Wasted capacity"
     assert html =~ "Provider spend"
     assert html =~ "Per-unit CPU"
@@ -318,6 +318,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     # prints as `AGENTS n/8`, so omitting it is what let the two surfaces
     # contradict each other; the configured value is what #2241 saw alone.
     assert html =~ ~r/\d+ at run end \/ 3 cap \(binding: AIMD envelope, session 8, configured 16\)/
+    assert html =~ ~r/\d+ at run end \/ 3 cap \(binding: AIMD envelope, session 8, configured 16\) · of 4 cores/
     refute html =~ ~r/\d+ at run end \/ 16 cap/
     refute html =~ ~r/\d+ at run end \/ 8 cap/
   end
@@ -417,7 +418,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ ~s(data-source-kind="live")
     assert html =~ "live boot"
     # A live boot is the only source that may speak in the present tense.
-    assert html =~ ~r/an-kpi-sub">occupancy unavailable \/.*cap/
+    assert html =~ ~r/an-kpi-sub">no fleet-capacity or agent samples in this window; occupancy unavailable \/.*cap · of \d+ cores/
     assert html =~ ~r/an-kpi-sub">this run</
   end
 
@@ -489,7 +490,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert render_click(view, "toggle_unit", %{"key" => "ticket:404"}) =~ "Run analytics"
   end
 
-  test "a time-domain hook event zooms every time chart and reset restores the full range" do
+  test "a time-domain hook event zooms every measured time chart and reset restores the full range" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
     {:ok, view, html} = loaded_live(build_conn(), "/analytics")
@@ -503,14 +504,14 @@ defmodule AiurWeb.AnalyticsLiveTest do
       render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_065_000})
 
     assert zoomed =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="1783728061000"/, zoomed)) == 6
-    assert length(Regex.scan(~r/data-time-end="1783728065000"/, zoomed)) == 6
+    assert length(Regex.scan(~r/data-time-start="1783728061000"/, zoomed)) == 5
+    assert length(Regex.scan(~r/data-time-end="1783728065000"/, zoomed)) == 5
     assert zoomed =~ "phx-click=\"reset-time-domain\""
 
     patched = render_click(view, "sort", %{"by" => "mem"})
     assert patched =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="1783728061000"/, patched)) == 6
-    assert length(Regex.scan(~r/data-time-end="1783728065000"/, patched)) == 6
+    assert length(Regex.scan(~r/data-time-start="1783728061000"/, patched)) == 5
+    assert length(Regex.scan(~r/data-time-end="1783728065000"/, patched)) == 5
 
     nav_patched = render_click(view, "toggle-nav", %{})
     assert nav_patched =~ ~s(class="an-zoombar")
@@ -521,8 +522,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
     reset = render_click(view, "reset-time-domain", %{})
 
     refute reset =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="#{full_start}"/, reset)) == 6
-    assert length(Regex.scan(~r/data-time-end="#{full_end}"/, reset)) == 6
+    assert length(Regex.scan(~r/data-time-start="#{full_start}"/, reset)) == 5
+    assert length(Regex.scan(~r/data-time-end="#{full_end}"/, reset)) == 5
   end
 
   test "a degenerate domain event leaves the full chart range intact" do
