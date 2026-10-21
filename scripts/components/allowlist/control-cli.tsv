@@ -5,6 +5,7 @@ R-optional	Aiur.Accounts.Shims.Claude	baseline 22b2fa407c5d4218d25d63b1aa17472ae
 R-optional	Aiur.Accounts.Shims.Codex	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.AlertFeed	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.AlertLedger	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.BuildOrder.EstimateCLI	MP-E8-C7-T03 guarded CLI entry invokes the optional build-order estimate command, matching build-orders and epic controls
 R-optional	Aiur.BuildOrdersCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.BuildQueueCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.DaemonHeartbeatChecker	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

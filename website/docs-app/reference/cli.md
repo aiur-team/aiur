@@ -286,7 +286,7 @@ Hours must be multiples of 0.25 in 0.25..999; writes require a reason (1..500 ch
 
 JSON includes `default_hours` and `planned` (true, false, or `"unknown"`); overrides for tickets outside the plan are saved for later. Defaults by complexity 1..5 are 1, 2, 4, 7, 11 hours; unknown complexity has no default.
 
-A timeout leaves the outcome unknown: repeat the show form. An unavailable store refuses writes; restore or remove the quarantined file and restart after corruption.
+A timeout leaves the outcome unknown (repeat the show form); an unavailable store refuses writes, so restore or remove the quarantined file and restart after corruption.
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
