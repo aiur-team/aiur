@@ -271,12 +271,15 @@ defmodule Aiur.AgentGitHubGuard.InstallAndTokenTest do
   test "refuses gh aliases and any command name the guard cannot recognise", context do
     # The denylist keys on the command name, so an alias renames the command out
     # of its reach: `alias set zz "pr merge"` then `zz 7` is a two-command merge.
-    assert {output, 77} = run_guard(context, ["alias", "set", "zz", "pr merge"])
-    assert output =~ "refusing a command this guard cannot inspect"
+    [{output, 77}, {_, 77}, {_, 77}, {_, 77}] =
+      run_guard_sequence(context, [
+        ["alias", "set", "zz", "pr merge"],
+        ["alias", "delete", "zz"],
+        ["alias", "import", "aliases.yml"],
+        ["zz", "7"]
+      ])
 
-    assert {_output, 77} = run_guard(context, ["alias", "delete", "zz"])
-    assert {_output, 77} = run_guard(context, ["alias", "import", "aliases.yml"])
-    assert {_output, 77} = run_guard(context, ["zz", "7"])
+    assert output =~ "refusing a command this guard cannot inspect"
 
     refute File.exists?(context.calls)
   end
