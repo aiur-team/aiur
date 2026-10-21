@@ -18,7 +18,7 @@ def run(name, state, paths, code, expected):
     component['owns']['state'] = state
     component['owns'].update(config=['fixture'], env=['AIUR_FIXTURE'])
     if not any(value.endswith(('_dir', '_path')) for value in state):
-        component['owns']['state'].append('fixture_dir')
+        component['owns']['state'].append('runtime_state_dir')
     manifest = {'manifest_version': 1, 'directory_published': False,
                 'components': [component], 'features': []}
     with tempfile.TemporaryDirectory() as directory:
@@ -28,7 +28,7 @@ def run(name, state, paths, code, expected):
         for path, content in {
             'src/lib/aiur/config/schema.ex': 'embeds_one(:fixture, Fixture)\n',
             'src/lib/aiur/env/schema.ex': '{"AIUR_FIXTURE", type: :string}\n',
-            'src/lib/aiur/config/paths.ex': 'def fixture_dir, do: "/tmp"\n',
+            'src/lib/aiur/config/paths.ex': 'def runtime_state_dir, do: "/tmp"\n',
         }.items():
             file = root / path
             file.parent.mkdir(parents=True, exist_ok=True)
@@ -47,17 +47,17 @@ def run(name, state, paths, code, expected):
     print(f'PASS: {name}')
 
 
-run('valid state file pattern', ['file: src/runtime/event-id.json'],
-    ['src/runtime/event-id.json'], 0, '1 state paths owned once')
-run('stale state file pattern', ['file: src/runtime/missing.json'], [], 1,
+run('valid state file pattern', ['file: <runtime_state_dir>/event-id.json'],
+    [], 0, '1 state paths owned once')
+run('stale state file pattern', ['file: <missing_state_dir>/missing.json'], [], 1,
     'state file pattern')
-run('malformed state file pattern', ['file: ../outside.json'], [], 2, 'invalid string')
+run('malformed state file pattern', ['file: <runtime_state_dir>/../outside.json'], [], 2, 'invalid string')
 declarations = ['src/lib/aiur/config/schema.ex', 'src/lib/aiur/env/schema.ex',
                 'src/lib/aiur/config/paths.ex']
-second = fixture_component('b', ['src/runtime/subscriptions/*.json', *declarations])
-first = fixture_component('a', ['src/runtime/subscriptions/*.json', *declarations])
+second = fixture_component('b', declarations)
+first = fixture_component('a', declarations)
 for item in (first, second):
-    item['owns'].update(state=['file: src/runtime/subscriptions/*.json', 'fixture_dir'],
+    item['owns'].update(state=['file: <runtime_state_dir>/subscriptions/*.json', 'runtime_state_dir'],
                         config=['fixture'], env=['AIUR_FIXTURE'])
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
@@ -67,7 +67,7 @@ with tempfile.TemporaryDirectory() as directory:
     for path, content in {
         'src/lib/aiur/config/schema.ex': 'embeds_one(:fixture, Fixture)\n',
         'src/lib/aiur/env/schema.ex': '{"AIUR_FIXTURE", type: :string}\n',
-        'src/lib/aiur/config/paths.ex': 'def fixture_dir, do: "/tmp"\n',
+        'src/lib/aiur/config/paths.ex': 'def runtime_state_dir, do: "/tmp"\n',
     }.items():
         file = root / path
         file.parent.mkdir(parents=True, exist_ok=True)
