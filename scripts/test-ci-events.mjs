@@ -119,6 +119,7 @@ for (const event of ['merge_group', 'workflow_dispatch']) assert.ok(!selected(ev
 assert.ok(jobs.get('soak').includes('uses: ./.github/workflows/soak.yml'));
 const soak = readFileSync(new URL('../.github/workflows/soak.yml', import.meta.url), 'utf8');
 assert.ok(/^on:\n  workflow_call:$/m.test(soak), 'soak runs only when ci.yml calls it');
+assert.ok(soak.includes('bash ../scripts/install-ci-zsh.sh'), 'soak uses the shared resilient zsh installer');
 assert.ok(soak.includes('python3 scripts/ci-soak.py select HEAD^1 >> "$GITHUB_OUTPUT"'), 'soak selects against the PR merge base');
 assert.ok(soak.includes('SOAK_TESTS: ${{ needs.select.outputs.soak_tests }}'), 'paths reach the runner through env, not shell');
 assert.ok(soak.includes('SOAK_SPECS: ${{ needs.select.outputs.soak_specs }}'));
@@ -138,6 +139,7 @@ const affectedTimeout = Number(affected.match(/^    timeout-minutes: (\d+)$/m)?.
 assert.equal(affectedTimeout, 25, 'the job allows the bounded merge-queue time-bomb rerun');
 assert.ok(affected.includes('run-ci-affected-tests.sh'), 'affected-tests delegates setup and base selection to its helper');
 const affectedRunner = readFileSync(new URL('../scripts/run-ci-affected-tests.sh', import.meta.url), 'utf8');
+assert.ok(affectedRunner.includes('bash ../scripts/install-ci-zsh.sh'), 'affected-tests uses the shared resilient zsh installer');
 assert.ok(affectedRunner.includes('git rev-parse HEAD^1'), 'affected-tests uses the PR merge base, not a stale event payload');
 assert.ok(affectedRunner.includes('affected-tests merge base: $PR_BASE'), 'affected-tests logs the base used for selection');
 assert.ok(affectedRunner.includes('affected-tests dependency setup duration: $((SECONDS - started))s'),
