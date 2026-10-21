@@ -51,6 +51,8 @@ if [[ "${TEST_FAIL_SELECTOR:-false}" == true ]]; then
   echo 'fixture selector diagnostic' >&2
   exit 1
 fi
+# A cold _build makes Mix print compile output before the result line.
+printf '==> aiur\nCompiling 3 files (.ex)\nGenerated aiur app\n'
 if [[ -n "${TEST_SELECTOR:-}" ]]; then
   echo "$TEST_SELECTOR" >> "$GITHUB_STEP_SUMMARY"
   echo "$TEST_SELECTOR"
