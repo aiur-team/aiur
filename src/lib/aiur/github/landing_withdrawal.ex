@@ -13,22 +13,32 @@ defmodule Aiur.GitHub.LandingWithdrawal do
 
   @spec withdraw(integer(), keyword()) :: {:ok, [action()]} | {:error, term(), [action()]}
   def withdraw(pr_number, opts \\ []) when is_integer(pr_number) do
+    withdraw(pr_number, opts, :queue_and_auto_merge)
+  end
+
+  @spec disable_auto_merge(integer(), keyword()) :: {:ok, [action()]} | {:error, term(), [action()]}
+  def disable_auto_merge(pr_number, opts \\ []) when is_integer(pr_number) do
+    withdraw(pr_number, opts, :auto_merge_only)
+  end
+
+  defp withdraw(pr_number, opts, mode) do
     with {:ok, token} <- Transport.require_token(opts),
          {:ok, {owner, name}} <- Transport.parse_repo() do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      graphql = fn query, variables -> Transport.github_graphql(request_fun, token, query, variables, caller: "landing_withdrawal") end
-      withdraw_read(graphql, fn -> read(graphql, owner, name, pr_number) end)
+      caller = Keyword.get(opts, :caller, "landing_withdrawal")
+      graphql = fn query, variables -> Transport.github_graphql(request_fun, token, query, variables, caller: caller) end
+      withdraw_read(graphql, fn -> read(graphql, owner, name, pr_number) end, mode)
     else
       {:error, reason} -> {:error, reason, []}
     end
   end
 
-  defp withdraw_read(graphql, read) do
+  defp withdraw_read(graphql, read, mode) do
     with {:ok, pr} <- read.(),
-         {:ok, dequeued} <- dequeue(graphql, pr) do
+         {:ok, dequeued} <- if(mode == :auto_merge_only, do: {:ok, []}, else: dequeue(graphql, pr)) do
       # Dequeuing can clear the auto-merge request itself, so re-read before disabling it.
       with {:ok, pr} <- reread(dequeued, pr, read),
-           {:ok, disabled} <- disable_auto_merge(graphql, pr) do
+           {:ok, disabled} <- disable_auto_merge_request(graphql, pr) do
         {:ok, dequeued ++ disabled}
       else
         {:error, reason} -> {:error, reason, dequeued}
@@ -67,7 +77,7 @@ defmodule Aiur.GitHub.LandingWithdrawal do
 
   defp dequeue(_graphql, _pr), do: {:ok, []}
 
-  defp disable_auto_merge(graphql, %{"id" => id, "autoMergeRequest" => %{}}) do
+  defp disable_auto_merge_request(graphql, %{"id" => id, "autoMergeRequest" => %{}}) do
     query = "mutation AiurDisableAutoMerge($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { pullRequest { id } } }"
 
     case graphql.(query, %{"id" => id}) do
@@ -77,5 +87,5 @@ defmodule Aiur.GitHub.LandingWithdrawal do
     end
   end
 
-  defp disable_auto_merge(_graphql, _pr), do: {:ok, []}
+  defp disable_auto_merge_request(_graphql, _pr), do: {:ok, []}
 end

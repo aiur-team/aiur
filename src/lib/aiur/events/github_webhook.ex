@@ -66,6 +66,7 @@ defmodule Aiur.Events.GithubWebhook do
   alias Aiur.Events.Sanitizer
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Issues
+  alias Aiur.GitHub.StaleApprovedHead
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator
   alias Aiur.Webhooks
@@ -276,6 +277,13 @@ defmodule Aiur.Events.GithubWebhook do
   # window. The poll cycle has nothing to discover that the delivery did not
   # already carry, so a generic wake would only duplicate the targeted pass.
   defp nudge_orchestrator(%{kind: :main_ci}, _opts), do: Aiur.MainWatch.reconcile()
+
+  defp nudge_orchestrator(%{kind: :ci, action: "synchronize", ticket: ticket, pr_number: pr_number}, opts)
+       when is_binary(ticket) and is_integer(pr_number) do
+    stale_check = Keyword.get(opts, :stale_approved_head_fun, &StaleApprovedHead.reconcile/2)
+    _ = Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> stale_check.(ticket, pr_number) end)
+    maybe_wake_orchestrator(opts)
+  end
 
   defp nudge_orchestrator(%{kind: :review_thread} = hint, opts) do
     case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator)) do
