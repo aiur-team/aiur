@@ -205,7 +205,11 @@ defmodule Aiur.GitHub.ResourceStore.MemoryTest do
 
       Application.put_env(:aiur, :signal, alert_sink: CaptureAlertSink)
       Process.put(:memory_test_pid, test_pid)
-      on_exit(fn -> Application.put_env(:aiur, :signal, original) end)
+
+      on_exit(fn ->
+        Application.put_env(:aiur, :signal, original)
+        :persistent_term.erase({Memory, :cap_attention_firing})
+      end)
 
       Memory.print_status(:no_such_resource_store_table)
       assert_received {:alert, "system.github.resource_store.cap.resolved", _, _}
