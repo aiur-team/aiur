@@ -20,7 +20,9 @@ export default defineConfig({
   updateSnapshots: 'none',
   workers: 1,
   reporter: reporters,
-  timeout: 30_000,
+  // Keep every spec below the browser-smoke shard deadline. A stuck focus or
+  // action reports its test title instead of cancelling the entire shard.
+  timeout: 10_000,
   expect: {
     timeout: 10_000,
     toHaveScreenshot: {
