@@ -123,8 +123,7 @@ defmodule Aiur.TestSupport.Isolation.LogHandler do
   def log(%{meta: %{pid: pid}, level: level} = event, %{config: %{table: table, owned: owned}})
       when level in [:warning, :error] do
     if MapSet.member?(owned, pid),
-      do:
-        :ets.insert(table, {IO.iodata_to_binary(Logger.Formatter.format_event(event, :infinity))})
+      do: :ets.insert(table, {IO.iodata_to_binary(Logger.Formatter.format_event(event, :infinity))})
 
     :ok
   end
