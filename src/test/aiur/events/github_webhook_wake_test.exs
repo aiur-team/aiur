@@ -86,9 +86,7 @@ defmodule Aiur.Events.GithubWebhookWakeTest do
       ticket = Integer.to_string(System.unique_integer([:positive]))
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
-      parent = self()
       request_refresh_fun = fn -> send(self(), :request_refresh) end
-      stale_check = fn ^ticket, 901 -> send(parent, {:stale_check, ticket, 901}) end
 
       delivery = %{
         "action" => "synchronize",
@@ -101,10 +99,10 @@ defmodule Aiur.Events.GithubWebhookWakeTest do
                GithubWebhook.handle_delivery("pull_request", delivery,
                  repo: @repo,
                  request_refresh_fun: request_refresh_fun,
-                 stale_approved_head_fun: stale_check
+                 orchestrator: self()
                )
 
-      assert_receive {:stale_check, ^ticket, 901}, 500
+      assert_receive {:github_pr_synchronize, ^ticket, 901}, 500
       assert_receive :request_refresh, 500
     end
 

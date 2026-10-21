@@ -1,8 +1,8 @@
-defmodule Aiur.GitHub.StaleApprovedHeadTest do
+defmodule Aiur.Orchestrator.StaleApprovedHeadTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.Exchange
-  alias Aiur.GitHub.StaleApprovedHead
+  alias Aiur.Orchestrator.StaleApprovedHead
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")

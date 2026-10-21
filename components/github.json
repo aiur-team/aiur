@@ -43,6 +43,7 @@
     "Aiur.GitHub.FailureEvidence",
     "Aiur.GitHub.HoldPressure",
     "Aiur.GitHub.HumanReviewGate",
+    "Aiur.GitHub.LandingWithdrawal",
     "Aiur.GitHub.IssueDependencies",
     "Aiur.GitHub.IssueRelationships",
     "Aiur.GitHub.IssueState",

@@ -1,4 +1,4 @@
-defmodule Aiur.GitHub.StaleApprovedHead do
+defmodule Aiur.Orchestrator.StaleApprovedHead do
   @moduledoc "Disarms auto-merge when a pushed PR head changes its approved contribution."
 
   alias Aiur.Alerts
