@@ -224,6 +224,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :waiting_for_human_episodes
     ])
     |> then(&struct!(State, &1))
+    |> SnapshotStore.without_issue_descriptions()
     |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state))
     |> Map.put(:control_lifecycle, snapshot_control_lifecycle(state))
     |> Map.put(:queue_store, snapshot_queue_store(state))
