@@ -84,7 +84,7 @@ defmodule Aiur.LocalTestEvidenceTest do
   end
 
   test "accepts a post-deploy check after command evidence" do
-    body = @body <> "\n- Post-deploy check: run the browser smoke on a physical Stream Deck.\n"
+    body = String.replace(@body, "\n## Next section", "\n- Post-deploy check: run the browser smoke on a physical Stream Deck.\n\n## Next section")
 
     assert {:ok, %{commands: [_, _]}} = LocalTestEvidence.parse(body)
   end

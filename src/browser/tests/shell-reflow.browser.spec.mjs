@@ -4,6 +4,7 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 
 for (const width of [320, 390, 720]) {
   test(`bottom navigation keeps every link reachable without page overflow at 200% text zoom (${width}px)`, async ({ browser }) => {
+    test.setTimeout(10_000)
     const context = await browser.newContext({
       viewport: { width, height: 900 },
       deviceScaleFactor: 2,
@@ -80,6 +81,7 @@ for (const width of [320, 390, 720]) {
   })
 
   test(`Tab keeps each bottom navigation link fully visible at 200% text zoom (${width}px)`, async ({ browser }) => {
+    test.setTimeout(10_000)
     const context = await browser.newContext({
       viewport: { width, height: 900 },
       deviceScaleFactor: 2,
