@@ -67,6 +67,16 @@ for (const width of [1440, 390]) {
       await expect(claude.locator('.rs-ln .rs-tg')).toHaveText(['default', 'everdred', 'session'])
       await expect(claude.locator('.rs-ln .rs-rs svg')).toHaveCount(3)
 
+      const claudeWindowTracks = await claude.locator('.rs-ln:not([data-account]) .rs-meter').evaluateAll((tracks) =>
+        tracks.map((track) => ({ left: track.getBoundingClientRect().left, width: track.getBoundingClientRect().width }))
+      )
+      expect(claudeWindowTracks).toHaveLength(2)
+      expect(claudeWindowTracks[0].left).toBeCloseTo(claudeWindowTracks[1].left, 1)
+      expect(claudeWindowTracks[0].width).toBeCloseTo(claudeWindowTracks[1].width, 1)
+      for (const track of claudeWindowTracks) {
+        expect(track.width).toBeGreaterThan(0)
+      }
+
       const deepseek = panel.locator('.rs-model[data-provider="deepseek"]')
       await expect(deepseek.locator('.rs-pc')).toHaveText('2%')
       await expect(deepseek.locator('.rs-usd')).toHaveText('$10.40')
