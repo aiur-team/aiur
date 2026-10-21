@@ -3,8 +3,8 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
 
   alias Aiur.AgentRunner.{ApprovedHandoff, ReworkFindings}
   alias Aiur.{Alerts, Issue, LocalTestEvidence, PrBodyLint, Tracker}
-  alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Events.GithubCIPoller.ApprovalCarry
+  alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.ReworkGate
 
   @spec write(Issue.t(), String.t(), String.t(), Path.t() | nil, String.t() | nil, keyword(), fun()) ::
