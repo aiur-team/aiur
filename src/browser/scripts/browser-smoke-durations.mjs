@@ -8,8 +8,8 @@ export const preflightSeconds = 120
 export const recordedSeconds = {
   // #3157 restored local harness (2026-10-21): 23 functional tests in 1.6m; 24 parity comparisons in 3.8m.
   // Provisional rounded bounds; refresh from the first CI suite-duration log.
-  'test:browser-suite -- build-home-modal-doc': 100,
-  'test:browser-suite -- build-home-modal-doc-parity': 230,
+  'test:build-home-modal-doc': 100,
+  'test:build-home-modal-doc-parity': 230,
   // #3156 local harness (2026-10-20): functional 19.3s, parity 1.2m, motion 15.0s.
   // Round up for fixture startup; refresh these provisional bounds from the first CI suite log.
   'test:build-modal': 25,
