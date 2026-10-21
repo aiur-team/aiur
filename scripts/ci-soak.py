@@ -4,6 +4,9 @@
   ci-soak.py select <base>   print GitHub outputs for the files changed between <base> and HEAD
   ci-soak.py exunit          run SOAK_TESTS (JSON list, relative to src/) N times, one seed each
   ci-soak.py browser         run SOAK_SPECS (JSON list, relative to src/browser/) with --repeat-each
+
+Keep selection, smoke discovery, and execution together because CI invokes this
+standalone script from separate ExUnit and browser working directories.
 """
 import json
 import os
