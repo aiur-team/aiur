@@ -121,6 +121,8 @@ defmodule AiurWeb.Build.UsageLoadTest do
     assert graphql.tip == [["Points left", "4,861 of 5,000"]]
     assert github.snapshot_observed_at == inputs.github_snapshot_observed_at
     assert ServiceRows.github_window_meta(units_core, I.now()) == "3766/5000 left · resets in 1h 0m"
+    stale_core = Map.merge(units_core, %{snapshot_stale?: true, observed_at: DateTime.add(I.now(), -1_200, :second)})
+    assert ServiceRows.github_window_meta(stale_core, I.now()) == "3766/5000 left · resets in 1h 0m · as of 11:40Z (20m ago)"
   end
 
   test "an expired quota snapshot uses the bounded fallback", %{path: path} do
