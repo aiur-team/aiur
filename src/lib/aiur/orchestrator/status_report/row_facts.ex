@@ -47,7 +47,7 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
   end
 
   @doc false
-  @spec open_decision_count(term()) :: {non_neg_integer(), :available | :unavailable}
+  @spec open_decision_count(term(), term()) :: {non_neg_integer(), :available | :unavailable}
   def open_decision_count(identifier, store \\ Commands.default_store())
 
   def open_decision_count(identifier, store) when is_binary(identifier) do
