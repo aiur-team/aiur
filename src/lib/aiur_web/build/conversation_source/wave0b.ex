@@ -23,27 +23,28 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
   def prepare(_, _), do: {:error, :invalid_id}
 
   defp prepare_valid(ref, opts) do
-    with :ok <- repository(ref) do
-      {:ok, running, fleet, unknown?} = running(ref.id, opts)
-      workspace = if running, do: running[:workspace_path], else: nil
-      workspace = workspace || Layout.issue_workspace_path(Aiur.Config.settings!().workspace.root, ref.id)
-      remote? = running != nil and is_binary(running[:worker_host])
-      reason = if remote?, do: nil, else: path_reason(workspace)
-      handle = get_in(running || %{}, [:live_conversation, :generation_handle])
+    case repository(ref) do
+      :ok ->
+        {:ok, running, fleet, unknown?} = running(ref.id, opts)
+        workspace = if running, do: running[:workspace_path], else: nil
+        workspace = workspace || Layout.issue_workspace_path(Aiur.Config.settings!().workspace.root, ref.id)
+        remote? = running != nil and is_binary(running[:worker_host])
+        reason = if remote?, do: nil, else: path_reason(workspace)
+        handle = get_in(running || %{}, [:live_conversation, :generation_handle])
 
-      {:ok,
-       Map.merge(ref, %{
-         prepared?: true,
-         running: running,
-         fleet: fleet,
-         workspace: workspace,
-         path: Path.join([workspace, "logs", "agent.ndjson"]),
-         handle: handle,
-         remote?: remote?,
-         reason: reason,
-         running_unknown?: unknown?
-       })}
-    else
+        {:ok,
+         Map.merge(ref, %{
+           prepared?: true,
+           running: running,
+           fleet: fleet,
+           workspace: workspace,
+           path: Path.join([workspace, "logs", "agent.ndjson"]),
+           handle: handle,
+           remote?: remote?,
+           reason: reason,
+           running_unknown?: unknown?
+         })}
+
       {:error, reason} when reason in [:other_repository, :workspace_root_unknown] ->
         {:ok, Map.merge(ref, %{prepared?: true, running: nil, fleet: nil, path: nil, handle: nil, remote?: false, reason: reason})}
     end
