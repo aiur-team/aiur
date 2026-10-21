@@ -2,7 +2,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   @moduledoc "One exact-head rerun, then bounded CI/rework escalation."
   require Logger
   alias Aiur.{AlertFeed, Alerts, Config}
-  alias Aiur.CI.FailureDigest
+  alias Aiur.CI.{FailureDigest, TransientNetworkFailure}
   alias Aiur.Events.GithubCIPoller.BaseCause
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
@@ -173,7 +173,14 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp retryable?(%{flake_only: true}, _number, _opts), do: true
 
-  defp retryable?(%{test_only: true, tests: tests, truncated: false}, number, opts) when is_list(tests) and tests != [] do
+  defp retryable?(%{checks: checks, test_only: true, tests: tests, truncated: false}, number, opts) when is_list(checks) and is_list(tests) and tests != [] do
+    network_failure?(checks, opts) or retryable_tests?(tests, number, opts)
+  end
+
+  defp retryable?(%{checks: checks}, _number, opts) when is_list(checks), do: network_failure?(checks, opts)
+  defp retryable?(_, _, _), do: false
+
+  defp retryable_tests?(tests, number, opts) do
     case PullRequests.fetch_pull_request_changed_paths(number, opts) do
       {:ok, paths} ->
         Enum.all?(tests, &(&1.classification == :known_flake or outside_diff?(&1, paths)))
@@ -184,7 +191,13 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     end
   end
 
-  defp retryable?(_, _, _), do: false
+  defp network_failure?(checks, opts) do
+    Enum.any?(checks, fn
+      %{id: id, url: url} when is_integer(id) -> TransientNetworkFailure.run_has_network_only_failed_jobs?(url, opts)
+      _ -> false
+    end)
+  end
+
   defp outside_diff?(%{path: path}, paths) when is_binary(path) and path != "", do: path not in paths
   defp outside_diff?(_, _), do: false
 

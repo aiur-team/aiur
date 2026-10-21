@@ -88,6 +88,8 @@ defmodule AiurWeb.Build.IndexParityTest do
   end
 
   defp canonical_row(row, corrections, features) do
+    # The design's failed history PR has no persisted closed-PR fact.
+    row = if get_in(row, ["pr", "state"]) == "closed", do: Map.put(row, "pr", nil), else: row
     if row["id"] in corrections, do: Map.put(row, "epic", hd(features[row["feature"]]["epics"])), else: row
   end
 

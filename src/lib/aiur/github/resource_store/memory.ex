@@ -32,6 +32,7 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
 
   require Logger
 
+  alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.ResourceStore.Checkpoint
 
   @table Aiur.GitHub.ResourceStore.Table
@@ -56,7 +57,7 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
   @doc "The body-byte cap: `:github_resource_store_max_body_bytes`, or 128 MiB."
   @spec max_body_bytes() :: pos_integer()
   def max_body_bytes do
-    case Application.get_env(:aiur, :github_resource_store_max_body_bytes) do
+    case Map.get(Settings.current().cache, :max_body_bytes) do
       bytes when is_integer(bytes) and bytes > 0 -> bytes
       _other -> @max_body_bytes
     end

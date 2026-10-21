@@ -134,6 +134,8 @@ defmodule Aiur.DecisionAttention do
       decision_projector: Keyword.get(opts, :decision_projector, &DecisionStore.project_attention/2),
       decision_store: Keyword.get(opts, :decision_store, DecisionStore),
       owner_lookup: Keyword.get(opts, :owner_lookup, fn _identifier -> :unknown end),
+      pid_alive?: Keyword.get(opts, :pid_alive?, &DecisionAttentionResolution.pid_alive?/1),
+      attention_acknowledged?: Keyword.get(opts, :attention_acknowledged?, &DecisionAttentionResolution.acknowledged?/1),
       import_limit: LegacyImport.limit(opts),
       importing?: true,
       resolved_during_import: MapSet.new()
@@ -339,6 +341,7 @@ defmodule Aiur.DecisionAttention do
       issue: issue,
       workspace: nil,
       worker_host: nil,
+      restored?: true,
       slug: slug,
       question: question,
       opened_at: source_created_at || state.now_fun.(),

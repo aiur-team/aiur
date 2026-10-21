@@ -20,7 +20,7 @@ defmodule Aiur.Claude.ReplAgent do
 
   @behaviour Aiur.CodingAgent.Backend
 
-  alias Aiur.Claude.Repl.Command
+  alias Aiur.Claude.Repl.{Adoption, Command}
   alias Aiur.Claude.Repl.HookTurn
   alias Aiur.Claude.Repl.Launcher
   alias Aiur.Claude.Repl.OperatorInject
@@ -98,6 +98,22 @@ defmodule Aiur.Claude.ReplAgent do
           {:ok, integer()} | {:error, term()}
   @impl Aiur.CodingAgent.Backend
   defdelegate send_operator_message(session, payload), to: OperatorInject
+
+  @doc false
+  @spec restore_handoff_session(map(), Aiur.Issue.t(), GenServer.server()) :: map()
+  def restore_handoff_session(session, _issue, _server), do: session
+
+  @doc false
+  @spec handoff_socket_name(map()) :: String.t() | nil
+  def handoff_socket_name(session), do: Adoption.socket_name(session)
+
+  @doc false
+  @spec restore_handoff_transport(map(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
+  def restore_handoff_transport(session, socket, actor_meta), do: Adoption.rebind(session, socket, actor_meta)
+
+  @doc false
+  @spec adopt_handoff_turn(map(), map(), non_neg_integer(), keyword()) :: term()
+  def adopt_handoff_turn(session, state, offset, opts), do: HookTurn.adopt(session, state, offset, opts)
 
   @doc """
   Interrupt the REPL's current turn by sending `Ctrl+C` to its pane.

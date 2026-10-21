@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.OpenIssueListingTest do
   use Aiur.TestSupport
   alias Aiur.GitHub.{Issues, OpenIssueListing, OpenIssueSnapshot}
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -34,9 +34,7 @@ defmodule Aiur.GitHub.OpenIssueListingTest do
       OpenIssueSnapshot.reset()
       on_exit(fn -> OpenIssueSnapshot.reset() end)
       Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
-      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
-      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "7")
+      Aiur.TestScopeGuard.put_ticket_scope!("7")
       parent = self()
       base_url = "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
       second_url = base_url <> "&page=2"

@@ -106,7 +106,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
       </div>
 
       <footer class="decision-detail-footer">
-        <.link patch={@collapse_path} class="btn ghost">Collapse details</.link>
+        <.link patch={@collapse_path} class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost">Collapse details</.link>
       </footer>
     </div>
     """

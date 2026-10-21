@@ -188,7 +188,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     case Release.run(issue, opts) do
       {:ok, target} ->
         Logger.warning("Released orphaned startup claim to #{target}; no live runtime owns it #{State.issue_context(issue)}")
-        emit_released_alert(issue, target, opts)
+        if release_changes_state?(issue, target), do: emit_released_alert(issue, target, opts)
         if DispatchPolicy.state_slug(target) == "human-review", do: TransitionAlerts.publish_human_review_handoff(issue, opts)
         state = resolve_release_failure(state, issue, opts)
         state = %{state | claimed: MapSet.delete(state.claimed, issue.id), orphaned_claim_since: Map.delete(state.orphaned_claim_since, issue.identifier)}
@@ -274,6 +274,11 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp retry_outlook(_reason, _attempts, true), do: "it will be retried on a later candidate poll without using up release attempts."
   defp retry_outlook(_reason, attempts, false) when attempts >= @max_release_attempts, do: "no further release attempts will run within this boot."
   defp retry_outlook(_reason, _attempts, false), do: "it will be retried up to #{@max_release_attempts} times within this boot."
+
+  defp release_changes_state?(%Issue{} = issue, target) do
+    DispatchPolicy.state_slug(issue.state) != DispatchPolicy.state_slug(target) and
+      DispatchPolicy.state_slug(target) != "human-review"
+  end
 
   defp emit_released_alert(%Issue{} = issue, target, opts) do
     emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)

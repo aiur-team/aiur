@@ -90,7 +90,7 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call(:status, _from, state), do: {:reply, state.status, state}
 
   def handle_call({:optimistic_attention, action, id, payload}, _from, state) when action in [:open, :resolve] do
-    cause = if payload[:action] == :none, do: {:optimistic_blocker_failed, if(payload[:cause] == :churn, do: :churn, else: :trouble)}, else: :optimistic_blocker_failed
+    cause = if payload[:action] == :none, do: {:optimistic_blocker_failed, if(payload[:cause] in [:churn, :merged], do: payload[:cause], else: :trouble)}, else: :optimistic_blocker_failed
 
     result =
       case action do
@@ -228,7 +228,7 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call({:release, _target}, _from, state), do: {:reply, {:error, state.status}, state}
 
   defp resolve_optimistic_attention(id, store) do
-    Enum.reduce_while([:optimistic_blocker_failed, {:optimistic_blocker_failed, :trouble}, {:optimistic_blocker_failed, :churn}], :ok, fn key, _ ->
+    Enum.reduce_while([:optimistic_blocker_failed, {:optimistic_blocker_failed, :trouble}, {:optimistic_blocker_failed, :churn}, {:optimistic_blocker_failed, :merged}], :ok, fn key, _ ->
       case Attention.resolve(key, id, store) do
         :ok -> {:cont, :ok}
         error -> {:halt, error}

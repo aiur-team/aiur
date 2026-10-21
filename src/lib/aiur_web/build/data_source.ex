@@ -4,6 +4,7 @@ defmodule AiurWeb.Build.DataSource do
   @callback subscribe(keyword()) :: :ok | {:error, term()}
   @callback snapshot(keyword()) :: {:ok, map()} | {:error, term()}
   @callback earlier(integer(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback ticket(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback daemon(keyword()) :: map() | nil
   @optional_callbacks daemon: 1
 
@@ -30,6 +31,9 @@ defmodule AiurWeb.Build.DataSource do
   def snapshot(_opts), do: {:error, :not_wired}
   @spec earlier(integer(), String.t(), keyword()) :: {:error, :not_wired}
   def earlier(_before, _zone, _opts), do: {:error, :not_wired}
+
+  @spec ticket(String.t(), keyword()) :: {:error, :not_wired}
+  def ticket(_id, _opts), do: {:error, :not_wired}
 
   defp merge_opts([], opts), do: [opts]
 

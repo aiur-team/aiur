@@ -1,5 +1,7 @@
 import Config
 
+config :aiur, :github_access_settings_provider, Aiur.GitHub.AccessSettings
+
 config :aiur, Aiur.Events.Trace, Aiur.Events.DebugLog
 
 config :aiur, env: config_env()
@@ -83,6 +85,8 @@ config :aiur, :project_identity_source, Aiur.Tracker
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
 
 # Exclusive order preserves the legacy cond, including GitHub taking precedence over Claude.
+config :aiur, :backend_catalog, Aiur.CodingAgent.ConfigCatalog
+
 config :aiur, :config_semantic_checks,
   exclusive: [
     Aiur.Tracker.SemanticCheck.MissingKind,
@@ -223,11 +227,7 @@ if config_env() == :test do
   System.put_env("MISE_OFFLINE", "1")
   System.put_env("npm_config_offline", "true")
 
-  test_log_root =
-    Path.join(
-      System.tmp_dir!(),
-      "aiur-test-logs-#{System.os_time(:millisecond)}-#{System.pid()}"
-    )
+  test_log_root = Aiur.TestLogTmp.test_root(System.tmp_dir!(), System.os_time(:millisecond), System.pid())
 
   # mix starts the application before test_helper. Capture HOME before changing
   # it, then isolate environment-based paths (provider credentials

@@ -153,6 +153,23 @@ defmodule Aiur.GitHub.IssueState do
   end
 
   defp validate_expected_state(%{opts: opts, prefix: prefix}, issue_body) do
+    case reject_held_labels(opts, issue_body) do
+      :ok -> validate_state_precondition(opts, issue_body, prefix)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp reject_held_labels(opts, issue_body) do
+    held = Keyword.get(opts, :refuse_labels, []) |> Enum.map(&normalize_label_name/1)
+    labels = issue_body |> Map.get("labels", []) |> Enum.map(&normalize_label_name(Map.get(&1, "name", "")))
+
+    case Enum.find(held, &(&1 in labels)) do
+      nil -> :ok
+      label -> {:error, {:operator_hold, label}}
+    end
+  end
+
+  defp validate_state_precondition(opts, issue_body, prefix) do
     case Keyword.fetch(opts, :expected_state) do
       :error ->
         :ok
