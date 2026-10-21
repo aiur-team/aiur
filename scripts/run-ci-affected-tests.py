@@ -11,6 +11,8 @@ import time
 
 SELECTED_TEST_TIMEOUT_SECONDS = 600
 TIME_BOMB_CHECK = os.environ.get('AIUR_TIME_BOMB_CHECK', str(Path(__file__).with_name('check-test-time-bombs.py')))
+TIME_BOMB_TIMEOUT_SECONDS = float(os.environ.get('AIUR_TIME_BOMB_TIMEOUT_SECONDS',
+                                                 str(SELECTED_TEST_TIMEOUT_SECONDS)))
 
 
 def run_timed(label, command, **options):
@@ -36,6 +38,37 @@ def defer_to_merge_group(notice):
     if summary_path:
         with open(summary_path, 'a', encoding='utf-8') as summary:
             summary.write(f'{notice}\n')
+
+
+def changed_test_files(base):
+    paths = subprocess.check_output(
+        ['git', 'diff', '--name-only', base, 'HEAD', '--', 'src/test'], text=True
+    ).splitlines()
+    return [path.removeprefix('src/') for path in paths if path.endswith('_test.exs')]
+
+
+def run_merge_group_time_bombs(selected):
+    started = time.monotonic()
+    label = 'merge-group time-bomb rerun'
+    try:
+        subprocess.run([sys.executable, TIME_BOMB_CHECK, *selected], check=True,
+                       timeout=TIME_BOMB_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        elapsed = time.monotonic() - started
+        notice = (f'affected-tests {label} stopped at its {TIME_BOMB_TIMEOUT_SECONDS:g}s '
+                  f'budget; {len(selected)} changed test files selected, {elapsed:.1f}s elapsed')
+        print(f'::warning::{notice}', file=sys.stderr, flush=True)
+        summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+        if summary_path:
+            with open(summary_path, 'a', encoding='utf-8') as summary:
+                summary.write(f'{notice}\n')
+    else:
+        elapsed = time.monotonic() - started
+        print(f'::notice::affected-tests {label} duration: {elapsed:.1f}s', file=sys.stderr, flush=True)
+        summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+        if summary_path:
+            with open(summary_path, 'a', encoding='utf-8') as summary:
+                summary.write(f'{label}: {len(selected)} changed test files, {elapsed:.1f}s\n')
 
 
 def merge_group_changed_paths(base):
@@ -69,16 +102,9 @@ def main():
             raise ValueError('selector produced multiple commands')
         command = shlex.split(commands[0].removeprefix('cd src && mise exec -- '))
         if os.environ.get('GITHUB_EVENT_NAME') == 'merge_group':
-            if command[:4] == ['mix', 'test', '--max-cases', '4']:
-                selected = command[4:]
-            else:
-                selected = subprocess.check_output(
-                    ['git', 'diff', '--name-only', sys.argv[1], 'HEAD', '--', 'src/test'], text=True
-                ).splitlines()
-                selected = [path.removeprefix('src/') for path in selected if path.endswith('_test.exs')]
+            selected = changed_test_files(sys.argv[1])
             if selected:
-                run_timed('merge-group time-bomb rerun', [sys.executable, TIME_BOMB_CHECK, *selected],
-                          timeout=SELECTED_TEST_TIMEOUT_SECONDS)
+                run_merge_group_time_bombs(selected)
             else:
                 print('::notice::merge-group time-bomb guard has no changed test files', flush=True)
             return
