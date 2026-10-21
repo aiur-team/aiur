@@ -111,6 +111,7 @@ export function relayout({ live = false } = {}) {
 }
 export const colFor = it => it.sec === 'now' ? ctx.bandMap[it.key] : ctx.colMap[it.key];
 export function place(el, it) {
+  if (!el) return;
   const c = colFor(it);
   el.style.top = it.y + 'px'; el.style.height = it.h + 'px';
   if (!c) { el.style.opacity = '0'; el.style.pointerEvents = 'none'; if (!el.style.left) el.style.left = '0px'; return; }

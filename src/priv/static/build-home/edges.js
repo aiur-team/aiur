@@ -56,7 +56,7 @@ export function drawEdges(force) {
   const cr = content.getBoundingClientRect();
   const vis = new Map(), rects = new Map();
   ctx.R.forEach(el => { if (el.style.opacity !== '0') vis.set(el.dataset.id, el); });
-  L.band.items.forEach(it => { if (it.el.style.opacity !== '0') vis.set(it.t.id, it.el); });
+  L.band.items.forEach(it => { if (it.el && it.el.style.opacity !== '0') vis.set(it.t.id, it.el); });
   const rectOf = (id) => { let r = rects.get(id); if (!r) rects.set(id, r = vis.get(id).getBoundingClientRect()); return r; };
   const hid = ctx.hoverId ?? null;
   const sig = [...vis.keys()].join(',') + '|' + ctx.cols.join(',') + '|' + hid + '|' +
