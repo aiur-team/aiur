@@ -11,7 +11,7 @@ defmodule Aiur.AgentPubSub do
 
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub.FleetRefresh}
+  alias Aiur.{AgentEvents, AgentPubSub.FleetBroadcast, AgentPubSub.FleetRefresh}
 
   @pubsub Aiur.PubSub
   @fleet_refresh_topic "agents:fleet_refresh"
@@ -20,7 +20,9 @@ defmodule Aiur.AgentPubSub do
   def subscribe_agent(identifier) when is_binary(identifier) do
     topic = AgentEvents.agent_topic(identifier)
     result = Phoenix.PubSub.subscribe(@pubsub, topic)
+
     Logger.debug("AgentPubSub.subscribe_agent topic=#{topic} pid=#{inspect(self())} result=#{inspect(result)}")
+
     result
   end
 
@@ -40,17 +42,11 @@ defmodule Aiur.AgentPubSub do
   end
 
   @spec subscribe_running() :: :ok | {:error, term()}
-  def subscribe_running, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic())
+  defdelegate subscribe_running(), to: Aiur.AgentPubSub.FleetSubscriptions
 
   @doc "Payload-free fleet invalidations for consumers that read the published snapshot."
   @spec subscribe_fleet_refresh(:atomics.atomics_ref()) :: :ok | {:error, term()}
-  def subscribe_fleet_refresh(latch) do
-    :ok = FleetRefresh.register(self())
-    opts = [metadata: {:fleet_refresh, latch}]
-    :ok = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic(), opts)
-    :ok = Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic(), opts)
-    Phoenix.PubSub.subscribe(@pubsub, @fleet_refresh_topic, opts)
-  end
+  defdelegate subscribe_fleet_refresh(latch), to: Aiur.AgentPubSub.FleetSubscriptions
 
   @doc "Subscribes to payload-free fleet invalidations without running or status events."
   @spec subscribe_fleet_invalidation() :: :ok | {:error, term()}
@@ -60,38 +56,29 @@ defmodule Aiur.AgentPubSub do
   def latest_fleet_summaries, do: FleetRefresh.latest(self())
 
   @spec broadcast_fleet_refresh() :: :ok
-  def broadcast_fleet_refresh, do: do_broadcast(@fleet_refresh_topic, :fleet_changed, FleetRefresh)
+  def broadcast_fleet_refresh,
+    do: do_broadcast(@fleet_refresh_topic, :fleet_changed, FleetRefresh)
 
   @spec subscribe_status() :: :ok | {:error, term()}
   def subscribe_status, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic())
 
-  @spec subscribe_poll_state() :: :ok | {:error, term()}
-  def subscribe_poll_state,
-    do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.poll_state_topic())
+  @spec subscribe_poll_state(GenServer.server()) :: :ok | {:error, term()}
+  defdelegate subscribe_poll_state(pubsub \\ @pubsub), to: Aiur.AgentPubSub.FleetSubscriptions
 
   @doc """
-  Broadcast the orchestrator's polling state.
-
-  `checking?` is true while the orchestrator is mid-dispatch (fetching
-  candidate issues, syncing tracker state, etc.). `next_poll_due_at_ms`
-  is an absolute `System.system_time(:millisecond)` timestamp when the
-  next poll cycle will begin, or `nil` while a cycle is in progress.
-
-  AgentList consumes this so its 1 Hz countdown render does NOT need to
-  GenServer.call into the orchestrator on every tick — that call was
-  blocking the agent-list mailbox for several seconds during each poll
-  cycle, freezing arrow keys until the cycle completed.
+  Broadcasts poll progress and the absolute next-poll deadline for AgentList.
+  `checking?` marks active dispatch work; a nil deadline means no next poll is scheduled.
   """
   @spec broadcast_poll_state(%{
           checking?: boolean(),
           next_poll_due_at_ms: integer() | nil,
           max_concurrent_agents: integer() | nil
         }) :: :ok
-  def broadcast_poll_state(%{checking?: _, next_poll_due_at_ms: _} = payload) do
-    do_broadcast(AgentEvents.poll_state_topic(), {:poll_state_changed, payload})
-  end
+  def broadcast_poll_state(%{checking?: _, next_poll_due_at_ms: _} = payload),
+    do: FleetBroadcast.poll_state(payload)
 
-  @spec broadcast_transcript(AgentEvents.agent_identifier(), AgentEvents.transcript_event()) :: :ok
+  @spec broadcast_transcript(AgentEvents.agent_identifier(), AgentEvents.transcript_event()) ::
+          :ok
   def broadcast_transcript(identifier, %{role: _, body: _, timestamp: _} = event)
       when is_binary(identifier) do
     do_broadcast(AgentEvents.agent_topic(identifier), {:transcript_event, event})
@@ -99,11 +86,8 @@ defmodule Aiur.AgentPubSub do
   end
 
   @doc """
-  Single global topic that fires `{:agent_chat_active, identifier}`
-  every time an agent emits any transcript event. AgentList uses this
-  to promote its 🔘 → ⚪ marker once the agent has actually produced
-  visible content — duplicates are harmless because subscribers
-  dedup with `MapSet.put`.
+  Subscribes to the global topic signaling visible transcript activity. AgentList
+  uses it to mark an agent active once it has produced user-visible content.
   """
   @spec subscribe_agent_chat_active() :: :ok | {:error, term()}
   def subscribe_agent_chat_active do
@@ -135,18 +119,28 @@ defmodule Aiur.AgentPubSub do
 
   @doc "Publishes a normalized, redacted per-unit control lifecycle projection."
   @spec broadcast_control_lifecycle(AgentEvents.agent_identifier(), map()) :: :ok
-  def broadcast_control_lifecycle(identifier, payload) when is_binary(identifier) and is_map(payload) do
+  def broadcast_control_lifecycle(identifier, payload)
+      when is_binary(identifier) and is_map(payload) do
     do_broadcast(AgentEvents.agent_topic(identifier), {:control_lifecycle, payload})
   end
 
   @spec broadcast_running_change([AgentEvents.agent_summary()]) :: :ok
-  def broadcast_running_change(summaries) when is_list(summaries) do
-    do_broadcast(AgentEvents.running_topic(), {:running_changed, summaries}, FleetRefresh)
-  end
+  def broadcast_running_change(summaries) when is_list(summaries),
+    do: FleetBroadcast.running_change(summaries)
+
+  @doc false
+  @spec broadcast_running_projection_change([AgentEvents.agent_summary()], term()) :: :ok
+  def broadcast_running_projection_change(summaries, signature) when is_list(summaries),
+    do: FleetBroadcast.running_projection_change(summaries, signature)
 
   @spec broadcast_status_change(AgentEvents.agent_identifier(), atom()) :: :ok
-  def broadcast_status_change(identifier, status) when is_binary(identifier) and is_atom(status) do
-    do_broadcast(AgentEvents.status_topic(), {:status_changed, %{identifier: identifier, status: status}}, FleetRefresh)
+  def broadcast_status_change(identifier, status)
+      when is_binary(identifier) and is_atom(status) do
+    do_broadcast(
+      AgentEvents.status_topic(),
+      {:status_changed, %{identifier: identifier, status: status}},
+      FleetRefresh
+    )
   end
 
   @spec broadcast_turn_event(AgentEvents.agent_identifier(), atom(), map()) :: :ok
@@ -154,7 +148,10 @@ defmodule Aiur.AgentPubSub do
       when is_binary(identifier) and
              event_tag in [:turn_completed, :turn_failed, :turn_cancelled, :turn_input_required] and
              is_map(payload) do
-    do_broadcast(AgentEvents.agent_topic(identifier), {:turn_event, identifier, event_tag, payload})
+    do_broadcast(
+      AgentEvents.agent_topic(identifier),
+      {:turn_event, identifier, event_tag, payload}
+    )
   end
 
   @doc """

@@ -156,10 +156,9 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     assert_refresh(path, "CI change merged in #4604")
   end
 
-  test "the shared 3-per-15-minute cap spans merge-group requeues and PR reruns across watcher restarts" do
+  test "the shared 4-per-15-minute cap spans merge-group requeues and PR reruns across watcher restarts" do
     path = journal_path()
-    assert :ok = Journal.reserve_merge_group_requeue(@started_ms, journal_path: path)
-    assert :ok = Journal.reserve_merge_group_requeue(@started_ms, journal_path: path)
+    for _ <- 1..3, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms, journal_path: path))
 
     first = run_watcher(observation(), path, @started_ms)
     assert_receive {:rerun, 99}, 2_000
@@ -349,7 +348,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
 
   test "a refresh deferred by the shared cap waits in the backlog, then updates the branch" do
     path = journal_path()
-    for _ <- 1..3, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
+    for _ <- 1..4, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
     refresh = [rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:refresh, "superseded job name"}} end]
 
     assert :ok = LandingWatch.process(observation(), opts(path, refresh))
@@ -364,7 +363,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
 
   test "a refresh waiting for the shared cap does not repeat overlap reads" do
     path = journal_path()
-    for _ <- 1..3, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
+    for _ <- 1..4, do: assert(:ok = Journal.reserve_merge_group_requeue(@started_ms + 3_600_000, journal_path: path))
     refresh = [rerun_classifier_fun: fn _, _, _, _ -> {:ok, {:refresh, "superseded job name"}} end]
     assert :ok = LandingWatch.process(observation(), opts(path, refresh))
 
@@ -428,6 +427,8 @@ defmodule Aiur.LandingWatch.PrRerunTest do
           send(parent, {:update_branch, number, head})
           {:ok, %{}}
         end,
+        observe_refresh_fun: fn _, _ -> {:ok, %{"headRefOid" => "refreshed-sha"}} end,
+        approval_carry_classifier: fn _, _, _, _ -> :identical end,
         comment_fun: fn number, body, _ ->
           send(parent, {:comment, number, body})
           {:ok, %{}}
@@ -464,7 +465,8 @@ defmodule Aiur.LandingWatch.PrRerunTest do
       merge_queue_entry: nil,
       auto_merge_request: nil,
       rest: %{"head" => %{"ref" => "aiur/17-work"}},
-      raw: %{"reviewDecision" => "APPROVED", "headRefOid" => "head-sha", "isDraft" => false, "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "head-sha"}}]}}
+      raw: %{"reviewDecision" => "APPROVED", "headRefOid" => "head-sha", "isDraft" => false, "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "head-sha"}}]}},
+      reviews: [%{"commit" => %{"oid" => "head-sha"}}]
     }
   end
 
