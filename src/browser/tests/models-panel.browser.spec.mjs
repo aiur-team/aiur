@@ -67,14 +67,19 @@ for (const width of [1440, 390]) {
       await expect(claude.locator('.rs-ln .rs-tg')).toHaveText(['default', 'everdred', 'session'])
       await expect(claude.locator('.rs-ln .rs-rs svg')).toHaveCount(3)
 
-      const claudeWindowTracks = await claude.locator('.rs-ln:not([data-account]) .rs-meter').evaluateAll((tracks) =>
-        tracks.map((track) => ({ left: track.getBoundingClientRect().left, width: track.getBoundingClientRect().width }))
-      )
-      expect(claudeWindowTracks).toHaveLength(2)
-      expect(claudeWindowTracks[0].left).toBeCloseTo(claudeWindowTracks[1].left, 1)
-      expect(claudeWindowTracks[0].width).toBeCloseTo(claudeWindowTracks[1].width, 1)
-      for (const track of claudeWindowTracks) {
-        expect(track.width).toBeGreaterThan(0)
+      const claudeTracks = await claude.locator('.rs-lines').evaluate((lines) => {
+        const content = lines.getBoundingClientRect()
+        return Array.from(lines.querySelectorAll('.rs-meter')).map((track) => {
+          const box = track.getBoundingClientRect()
+          return { left: box.left, width: box.width, contentLeft: content.left, contentWidth: content.width }
+        })
+      })
+      expect(claudeTracks).toHaveLength(3)
+      expect(new Set(claudeTracks.map(({ left }) => left)).size).toBe(1)
+      expect(new Set(claudeTracks.map(({ width }) => width)).size).toBe(1)
+      for (const track of claudeTracks) {
+        expect(track.left).toBeCloseTo(track.contentLeft, 1)
+        expect(track.width).toBeCloseTo(track.contentWidth, 1)
       }
 
       const deepseek = panel.locator('.rs-model[data-provider="deepseek"]')
