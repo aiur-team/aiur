@@ -79,7 +79,13 @@ defmodule Aiur.OrchestratorLifecycleSupport do
     end
 
     {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
-    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
+    test_pid = self()
+
+    on_exit(fn ->
+      Aiur.TestSupport.stop_test_runners(test_pid)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+    end)
+
     pid
   end
 

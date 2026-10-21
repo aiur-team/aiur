@@ -67,10 +67,11 @@ defmodule AiurWeb.DashboardCssThemeTest do
   # The specific regression: this badge counts blocking decisions, so it belongs
   # on the themed --blocking-* family, which is legible in both themes.
   test "the nav attention badge uses themed blocking tokens" do
-    rule = Regex.scan(~r/^\.snav-c\.attn\s*\{([^}]*)\}/m, css(), capture: :all_but_first) |> List.last() |> hd()
+    shell = File.read!(Application.app_dir(:aiur, "priv/static/aiur-style/css/dashboard-shell.css"))
+    rule = Regex.scan(~r/^\.aiur-shell--dashboard \.aiur-shell__count\.attn\s*\{([^}]*)\}/m, shell, capture: :all_but_first) |> List.last() |> hd()
 
-    assert rule =~ "var(--block-soft)"
-    assert rule =~ "var(--block)"
+    assert rule =~ "var(--aiur-shell-block-soft, var(--aiur-color-blocking-soft))"
+    assert rule =~ "var(--aiur-shell-block, var(--aiur-color-blocking))"
 
     css = css()
     refute css =~ "#f5b8a8", "the dark-only salmon ink is back"
@@ -213,11 +214,12 @@ defmodule AiurWeb.DashboardCssThemeTest do
   # edit that reaches back for a multi-line literal hex fails the debt test
   # above (a single-line `color: #hex` rule still slips past its anchor).
   test "filled buttons take their ink from themed on-fill tokens" do
-    btn = css_rule(".btn")
-    assert btn =~ "background: var(--accent-strong)"
-    assert btn =~ "color: var(--on-accent)"
+    button_css = File.read!(Application.app_dir(:aiur, "priv/static/aiur-style/css/dashboard-button.css"))
+    btn = css_rule(".aiur-button.aiur-button--dashboard", button_css)
+    assert btn =~ "background: var(--aiur-dashboard-accent-strong, var(--aiur-color-fill))"
+    assert btn =~ "color: var(--aiur-dashboard-on-accent, var(--aiur-color-on-fill))"
 
-    assert css_rule(".btn.danger") =~ "color: var(--on-blocking)"
+    assert css_rule(".aiur-button.aiur-button--dashboard.aiur-button--danger", button_css) =~ "color: var(--aiur-dashboard-on-blocking, var(--aiur-color-on-blocking))"
     assert css_rule(".blocking .decision-banner-cta") =~ "color: var(--on-blocking)"
 
     # --accent-strong exists because --accent is deliberately too bright to hold
@@ -372,8 +374,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
 
   # Anchored on a line start so a descendant rule (`.decision-follow-up .btn {`)
   # can never be mistaken for the base rule it contains as a substring.
-  defp css_rule(selector) do
-    css = css()
+  defp css_rule(selector, css \\ css()) do
     [_before, rest] = String.split(css, "\n" <> selector <> " {", parts: 2)
     [body, _after] = String.split(rest, "}", parts: 2)
     body

@@ -1,5 +1,7 @@
 defmodule Aiur.TestTmp do
   @moduledoc false
+  @sweep_max_entries 1_000
+  @probe_timeout_ms 250
 
   def start!(base) do
     File.mkdir_p!(base)
@@ -73,19 +75,38 @@ defmodule Aiur.TestTmp do
   defp files(root), do: root |> Path.join("**") |> Path.wildcard(match_dot: true) |> Enum.reject(&File.dir?/1)
 
   # `rm` replaces the remover so a test can stage a leftover the sweep cannot delete.
-  def sweep!(base, owner, rm \\ &writable_rm_rf/1) do
-    for name <- File.ls!(base) do
-      case Regex.run(~r/^(?:run-\d+|workflow)-(\d+)-\d+$/, name) do
-        [_, pid] -> remove_dead_run!(Path.join(base, name), owner, String.to_integer(pid), rm)
-        nil -> :ok
+  def sweep!(base, owner), do: sweep_internal(base, owner, &writable_rm_rf/1, alive_probe())
+  def sweep!(base, owner, rm), do: sweep_internal(base, owner, rm, alive_probe())
+
+  defp sweep_internal(base, owner, rm, alive_probe) do
+    base = Path.expand(base)
+
+    with true <- safe_sweep_base?(base),
+         {:ok, names} <- File.ls(base) do
+      names
+      |> Enum.take(@sweep_max_entries)
+      |> Enum.each(&sweep_name(&1, base, owner, rm, alive_probe))
+
+      if length(names) > @sweep_max_entries do
+        IO.puts(:stderr, "warning: TestTmp sweep stopped after #{@sweep_max_entries} entries under #{base}")
       end
+    else
+      _ -> :ok
     end
   end
 
-  defp remove_dead_run!(path, owner, pid, rm) do
+  defp sweep_name(name, base, owner, rm, alive_probe) do
+    case Regex.run(~r/^(?:run-\d+|workflow)-(\d+)-\d+$/, name) do
+      [_, pid] -> remove_dead_run!(Path.join(base, name), owner, String.to_integer(pid), rm, alive_probe)
+      nil -> :ok
+    end
+  end
+
+  defp remove_dead_run!(path, owner, pid, rm, alive_probe) do
     case File.lstat(path) do
       {:ok, %File.Stat{type: :directory, uid: ^owner}} ->
-        unless Aiur.ProcessIdentity.alive?(pid), do: remove_or_warn(path, rm)
+        alive = bounded_alive?(path, pid, alive_probe)
+        unless alive, do: remove_or_warn(path, rm)
 
       {:ok, _stat} ->
         :ok
@@ -98,11 +119,48 @@ defmodule Aiur.TestTmp do
     end
   end
 
+  defp safe_sweep_base?(base) do
+    expanded = Path.expand(base)
+    tmp = Path.expand(System.tmp_dir!())
+    components = Path.split(expanded)
+
+    String.starts_with?(expanded <> "/", tmp <> "/") and
+      not Enum.any?(components, &(&1 in [".X11-unix", ".ICE-unix"])) and
+      not Enum.any?(components, &Regex.match?(~r/^\.X.*-lock$/, &1))
+  end
+
   # A leaked build-gate runner leaves read-only hook snapshots, and rm_rf cannot clear a 0555 directory.
   # chmod -R does not follow symlinks, so this stays inside the run directory.
   defp writable_rm_rf(path) do
     _ = System.cmd("chmod", ["-R", "u+w", path], stderr_to_stdout: true)
     File.rm_rf(path)
+  end
+
+  defp alive_probe do
+    case Process.get({__MODULE__, :alive_probe}) do
+      nil -> &Aiur.ProcessIdentity.alive?/1
+      fun when is_function(fun, 1) -> {:custom, fun}
+    end
+  end
+
+  defp bounded_alive?(path, pid, alive?) when is_function(alive?, 1) do
+    bounded_alive?(path, pid, {:custom, alive?})
+  end
+
+  defp bounded_alive?(path, pid, {:custom, alive?}) do
+    task = Task.async(fn -> alive?.(pid) end)
+
+    case Task.yield(task, @probe_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, true} ->
+        true
+
+      {:ok, false} ->
+        false
+
+      _ ->
+        IO.puts(:stderr, "warning: TestTmp sweep preserving #{path}: process liveness probe timed out after #{@probe_timeout_ms}ms")
+        true
+    end
   end
 
   # A stale run we cannot delete (say, files another uid wrote) must never block test boot.

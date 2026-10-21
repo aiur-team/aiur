@@ -79,10 +79,10 @@ jobs:
 
       - name: Check committed copy matches dist
         run: |
-          cd src/priv/static/aiur-style
-          find . -type f | while read -r f; do
-            cmp "$f" "../../../../packages/aiur-style/dist/$f" || { echo "$f differs from dist; run scripts/sync-aiur-style"; exit 1; }
-          done
+          # diff -r reports changed files and files missing from either side.
+          mkdir -p "$RUNNER_TEMP/aiur-style-sync"
+          scripts/sync-aiur-style "$RUNNER_TEMP/aiur-style-sync"
+          diff -r "$RUNNER_TEMP/aiur-style-sync/aiur-style" src/priv/static/aiur-style || { echo "committed copy differs from dist; run scripts/sync-aiur-style"; exit 1; }
 
       - name: Verify packed assets
         run: |

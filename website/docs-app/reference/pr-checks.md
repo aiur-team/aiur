@@ -33,9 +33,9 @@ Run counts depend on how many test files the pull request changes.
 - A failure prints the exact command to reproduce it, including the seed.
 
 
-## Home band and mobile parity
+## Home band, mobile and Gantt parity
 
-PR browser smoke stays at **seven shards**, including PRs selecting full CI.
+PR browser smoke stays at **eight shards**, including PRs selecting full CI.
 The routine pixel selection uses **390px**, datasets **live/offline**, both
 **dark/light** themes and **gruvbox/aiur** palettes: eight band pixel cases and
 eight unmasked composed mobile card/header cases.
@@ -54,11 +54,14 @@ The full check runs only on demand: Actions → **home parity sign-off** (`workf
 | Sign-off job | Covers |
 |--------------|--------|
 | band 1–4/4 | `npm run test:build-home-band-full` with `AIUR_HOME_PARITY_PART=1..4`. |
+| gantt 1–4/4 | `npm run test:build-home-gantt:full -- --shard=1..4/4`: the 108-cell dataset/span/width/theme/palette composition matrix. |
 | motion 1–32/32 | Every spec that reads `AIUR_PARITY_FULL`, with the flag set: about 5,000 tests. |
 | One job per other parity spec | Each `*parity*` browser spec, through its existing npm script. |
 
 The sign-off is meant to run once, when the home-page tickets are done, and
 again after their gaps are fixed. One run costs about 15–20 runner-hours.
+
+Routine browser smoke runs the fast Gantt checks (`npm run test:build-home-gantt`): geometry, live updates, complete history edges, unknown-value captures and four representative composition cells.
 
 `scripts/test-home-parity-signoff.mjs` fails when a parity spec has no sign-off
 job. Every partition uses one browser worker, because dataset selection is

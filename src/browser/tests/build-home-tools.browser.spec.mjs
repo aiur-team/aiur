@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(async () => {
     const state = await import('/build-home/state.js')
     const { createBuildHomeHook } = await import('/build-home/hook.js')
-    document.body.innerHTML = '<main id="build-root" class="bd-root">' + ['bd-usage', 'bd-offline', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status'].map(id => `<div id="${id}">${id === 'bd-sb' ? '<i></i>' : ''}</div>`).join('') + '</main>'
+    document.body.innerHTML = '<main id="build-root" class="bd-root">' + ['bd-usage', 'bd-offline', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status'].map(id => `<div id="${id}">${id === 'bd-sb' ? '<i></i>' : ''}</div>`).join('') + '<div id="tk-backdrop"><div id="tk-modal"><header id="tk-head"></header><div id="tk-body"></div></div></div></main>'
     window.events = {}; window.pushes = []; window.board = []; window.m = state
     window.hook = createBuildHomeHook()
     Object.assign(hook, { el: document.querySelector('#build-root'), handleEvent: (name, fn) => events[name] = fn,

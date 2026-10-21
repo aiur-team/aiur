@@ -112,6 +112,10 @@ running agents in the timeline and list. Tickets whose lifetime retry latch is
 spent have no live agent and are left out of Now.
 
 The toolbar selects Timeline, Gantt or List and retains the view in the URL.
+
+In Gantt, history card height represents elapsed run time; idle gaps over three hours fold into hatched bands.
+Hatched, dashed planned cards show estimates. A “start unknown” card has minimum height and ends at its recorded end time; unknown estimates stay marked as unknown.
+
 Use Left/Right arrows or Home/End to move between view tabs, then Enter or Space
 to select. The status line shows the daemon state, including unknown before
 the first snapshot, and the legend for the selected view.
@@ -225,7 +229,7 @@ Retained Analytics charts use at most 180 evenly spaced resource observations pe
 
 Full log combines newest runs that fit its bounded projection with current telemetry. Latest-run fallback and Full log decode at most 45 MiB per cold load. The source line reports included runs and omissions, and names skipped newer runs in Latest-run. Analytics is unavailable if none fit; without materialized history, raw files over 1 MiB are unavailable.
 
-The Build page usage strip shows API budgets and provider windows or credits. Hover or focus a usage line for account details, observation age, and budget holds.
+The Build page usage strip shows API budgets and provider windows or credits. Hover or focus a usage line for account details, observation age, GitHub snapshot age, and budget holds.
 
 Unknown readings stay marked as unobserved; expired windows and stale readings are identified explicitly. Reset labels refresh every 30 seconds while the tab is visible. Locked sessions show an authentication message without financial values.
 

@@ -4,6 +4,7 @@
   "layer": 2,
   "kind": "in-app",
   "paths": [
+    "src/lib/aiur/github/access/**",
     "src/lib/aiur/github/agent_cache**",
     "src/lib/aiur/github/agent_cache_bridge**",
     "src/lib/aiur/github/app_credentials**",
@@ -41,6 +42,10 @@
     "src/priv/github_guard/gh/**"
   ],
   "facades": [
+    "Aiur.GitHub.Access.Settings",
+    "Aiur.GitHub.Access.SettingsProvider",
+    "Aiur.GitHub.Access.StaticSettings",
+    "Aiur.GitHub.Access.Token",
     "Aiur.GitHub.AgentCacheBridge",
     "Aiur.GitHub.AppCredentials",
     "Aiur.GitHub.AppToken",

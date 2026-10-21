@@ -70,8 +70,8 @@ defmodule Aiur.LiveConversationIngestTest do
     assert snapshot.truncated?
     assert snapshot.evicted_count == 1
     assert snapshot.diagnostic_counts.unsafe_tool == 1
-    refute inspect(snapshot) =~ "private/data"
-    refute inspect(snapshot) =~ "secret"
+    Aiur.TestSupport.refute_leak(snapshot, "private/data")
+    Aiur.TestSupport.refute_leak(snapshot, "secret")
   end
 
   test "isolates worker generations and reports restart_unknown for absent projections", %{server: server} do
@@ -180,7 +180,7 @@ defmodule Aiur.LiveConversationIngestTest do
 
     assert is_binary(snapshot.source.session_id)
     assert String.starts_with?(snapshot.source.session_id, "session:")
-    refute inspect(snapshot) =~ provider_session_id
+    Aiur.TestSupport.refute_leak(snapshot, provider_session_id)
   end
 
   test "ended sources never accept late events", %{server: server} do

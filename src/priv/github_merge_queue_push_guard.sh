@@ -12,8 +12,10 @@ if [ "$push_command" = true ] && [ "$queue_install" = true ] && [ -x "$(dirname 
   queue_branch=$(git_in_context symbolic-ref --quiet --short HEAD 2>/dev/null || true)
   queue_slug=${push_url#https://github.com/}
   queue_slug=${queue_slug%.git}
+
   queue_refspec=
   queue_hits_branch=false
+  queue_target_branch=
   after_push=false
 
   for arg in "$@"; do
@@ -26,12 +28,56 @@ if [ "$push_command" = true ] && [ "$queue_install" = true ] && [ -x "$(dirname 
     esac
     [ "$arg" = "$push_target" ] && continue
     queue_refspec=$arg
-    case "${arg#+}" in
-      HEAD | "$queue_branch" | *:"$queue_branch" | *:refs/heads/"$queue_branch") queue_hits_branch=true ;;
+    queue_normalized_refspec=${arg#+}
+    case "$queue_normalized_refspec" in
+      *:refs/heads/*)
+        queue_target_branch=${queue_normalized_refspec##*:refs/heads/}
+        [ -n "$queue_branch" ] && [ "$queue_target_branch" = "$queue_branch" ] && queue_hits_branch=true
+        ;;
+      *:*) queue_target_branch=${queue_normalized_refspec##*:} ;;
+      *)
+        queue_target_branch=${queue_normalized_refspec#refs/heads/}
+        [ -n "$queue_branch" ] && { [ "$queue_normalized_refspec" = HEAD ] || [ "$queue_normalized_refspec" = "$queue_branch" ]; } && queue_hits_branch=true
+        ;;
     esac
   done
   # A push with no refspec pushes the current branch.
-  [ -n "$queue_refspec" ] || queue_hits_branch=true
+  if [ -z "$queue_refspec" ]; then
+    queue_hits_branch=true
+    queue_target_branch=$queue_branch
+  fi
+
+  # Once the ticket is handed off, no worker wake may move the PR head while
+  # the reviewer is examining it. Read the live tracker state at push time;
+  # rework is the explicit exception after changes were requested. The leaf
+  # workspace directory is the tracker issue number (or `pr-<number>` for a
+  # watched PR workspace).
+  agent_workspace=${AIUR_AGENT_WORKSPACE:-}
+  if [ -z "$agent_workspace" ]; then
+    agent_workspace=$(CDPATH= cd "$(dirname "$0")/../.." 2>/dev/null && pwd) || agent_workspace=
+  fi
+  ticket_leaf=${agent_workspace##*/}
+  ticket_number=${ticket_leaf#pr-}
+  ticket_number=${ticket_number##*-}
+  case "$ticket_number" in *[!0-9]* | '') ticket_number= ;; esac
+  # In a detached checkout the branch name is absent, but an explicit
+  # destination such as HEAD:refs/heads/aiur/5085 remains authoritative. A
+  # ticket workspace may only push its own ticket branch while handed off;
+  # rescue refs and other non-head refs remain available.
+  queue_ticket_branch=false
+  [ -n "$queue_branch" ] && [ "$queue_hits_branch" = true ] && queue_ticket_branch=true
+  [ -z "$queue_branch" ] && [ -n "$queue_target_branch" ] && case "$queue_target_branch" in refs/*|rescue/*) ;; *) queue_ticket_branch=true ;; esac
+  if [ "$queue_ticket_branch" = true ] && [ "$queue_slug" != "$push_url" ] &&
+    [ -n "$ticket_number" ]; then
+    ticket_state=$("$(dirname "$0")/gh" api "repos/$queue_slug/issues/$ticket_number" --jq '[.labels[].name] | join(" ")' 2>/dev/null || true)
+    case " $ticket_state " in
+      *" agent:human-review "*|*" agent:ci-wait "*)
+        printf '%s\n' "aiur: refusing git push: ticket #$ticket_number is handed off for review or CI" >&2
+        printf '%s\n' 'aiur: wait for the review verdict; if GitHub reports the PR CONFLICTING or a reviewer asked for integration, first move the ticket to agent:in-progress with aiur_set_ticket_state, then integrate and push' >&2
+        exit 64
+        ;;
+    esac
+  fi
 
   if [ -n "$queue_branch" ] && [ "$queue_hits_branch" = true ] && [ "$queue_slug" != "$push_url" ]; then
     queue_state=$("$(dirname "$0")/gh" api graphql \

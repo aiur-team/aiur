@@ -1,5 +1,5 @@
 defmodule Aiur.LandingWatch.QuarantineLifter do
-  @moduledoc "Removes a test from quarantine after its tracking fix PR merges."
+  @moduledoc "Removes a test from quarantine after its tracking fix PR merges or its tracking ticket closes."
   use GenServer
   require Logger
 
@@ -9,6 +9,8 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   alias Aiur.LandingWatch.Journal
 
   @list_paths ["src/test/quarantine.txt", "src/browser/quarantine.txt"]
+  # A ticket closed without a merged fix PR never sees `pr.merged`, so its entries are swept.
+  @sweep_interval_ms :timer.hours(1)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -28,9 +30,54 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
 
   def lift(_, _), do: {:error, :invalid_quarantine_ticket}
 
+  @doc "Lifts every quarantine entry whose tracking ticket is closed."
+  @spec lift_closed(keyword()) :: :ok | {:error, term()}
+  def lift_closed(opts \\ []) do
+    with {:ok, tickets} <- quarantined_tickets(opts) do
+      Enum.each(tickets, &lift_if_closed(&1, opts))
+    end
+  end
+
+  defp lift_if_closed(ticket, opts) do
+    case issue_state(ticket, opts) do
+      {:ok, "closed"} -> log_result(ticket, lift(ticket, Keyword.put(opts, :lift_reason, "now that the ticket is closed")))
+      {:ok, _open} -> :ok
+      {:error, reason} -> Logger.warning("quarantine ticket state failed ticket=#{ticket} reason=#{inspect(reason)}")
+    end
+  end
+
+  defp quarantined_tickets(opts) do
+    Enum.reduce_while(@list_paths, {:ok, []}, fn path, {:ok, acc} ->
+      with {:ok, context} <- context(path, opts),
+           {:ok, contents, _sha} <- get_contents(context, opts) do
+        {:cont, {:ok, Enum.uniq(acc ++ list_tickets(contents))}}
+      else
+        {:error, {:github, _, %{status: 404}}} -> {:cont, {:ok, acc}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp list_tickets(contents) do
+    for line <- String.split(contents, "\n"), [_module, _name, "#" <> number] <- [String.split(line, "\t")], {ticket, ""} <- [Integer.parse(number)], do: ticket
+  end
+
+  defp issue_state(ticket, opts) do
+    with {:ok, context} <- context(hd(@list_paths), opts) do
+      url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/issues/#{ticket}"
+
+      case request(opts).(%{method: :get, url: url, token: context.token, caller: "quarantine_lift_ticket_state"}) do
+        {:ok, %{status: 200, body: %{"state" => state}}} when is_binary(state) -> {:ok, state}
+        {:ok, response} -> {:error, Errors.github_status_error(response)}
+        {:error, _} = error -> error
+      end
+    end
+  end
+
   @impl true
   def init(opts) do
     if Keyword.get(opts, :subscribe?, true), do: :ok = Events.subscribe("ticket.*.pr.merged")
+    schedule_sweep(opts)
     {:ok, opts}
   end
 
@@ -44,7 +91,24 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
     {:noreply, opts}
   end
 
+  def handle_info(:sweep_closed, opts) do
+    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> lift_closed(opts) end) do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> Logger.warning("quarantine closed-ticket sweep failed to start reason=#{inspect(reason)}")
+    end
+
+    schedule_sweep(opts)
+    {:noreply, opts}
+  end
+
   def handle_info(_event, opts), do: {:noreply, opts}
+
+  defp schedule_sweep(opts) do
+    case Keyword.get(opts, :sweep_interval_ms, @sweep_interval_ms) do
+      interval when is_integer(interval) and interval > 0 -> Process.send_after(self(), :sweep_closed, interval)
+      _disabled -> :ok
+    end
+  end
 
   defp start_lift(ticket, opts) do
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> log_result(ticket, lift(ticket, opts)) end) do
@@ -162,7 +226,14 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
 
   defp create_pr(context, branch, ticket, opts) do
     url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/pulls"
-    body = %{"title" => "Lift fixed test quarantine", "body" => "Removes quarantine entries tracked by ##{ticket} after the fix merged.", "head" => branch, "base" => context.base}
+
+    body = %{
+      "title" => "Lift fixed test quarantine",
+      "body" => "Removes quarantine entries tracked by ##{ticket} #{Keyword.get(opts, :lift_reason, "after the fix merged")}.",
+      "head" => branch,
+      "base" => context.base
+    }
+
     expect_write(request(opts).(%{method: :post, url: url, token: context.token, caller: "quarantine_lift_pr", body: body}), [200, 201])
   end
 

@@ -17,6 +17,7 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
     current = comparison([{"src/lib/a.ex", "a2", "@@ -8,7 +8,7 @@\n l7\n l8\n l9\n-old\n+feature\n l11\n l12\n l13"}])
 
     assert :carried = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
+    assert :identical = ApprovalCarry.classify_contribution_diffs(approved, current, main)
   end
 
   test "a merge-only push carries the approval when the base changed the same file far below the PR's hunk" do
@@ -41,6 +42,7 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
     current = comparison([{"src/lib/a.ex", "a2", "@@ -7,7 +7,7 @@\n l7\n l8\n l9\n-old\n+feature_v2\n l11\n l12\n l13"}])
 
     assert {:changed, %{reason: :contribution_changed, hunks: hunks}} = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
+    assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_contribution_diffs(approved, current, main)
     assert %{file: "src/lib/a.ex", side: :current, header: "@@ -7,7 +7,7 @@", lines: ["-old", "+feature_v2"]} in hunks
     assert %{file: "src/lib/a.ex", side: :approved, header: "@@ -7,7 +7,7 @@", lines: ["-old", "+feature"]} in hunks
   end
@@ -51,6 +53,7 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
     current = comparison([{"src/lib/a.ex", "a2", "@@ -8,6 +8,7 @@\n l8\n l9\n upstream\n+feature\n l11\n l12\n l13"}])
 
     assert {:changed, %{reason: :contribution_changed, hunks: hunks}} = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
+    assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_contribution_diffs(approved, current, main)
     assert %{file: "src/lib/a.ex", side: :current, header: "@@ -8,6 +8,7 @@", lines: ["+feature"]} in hunks
   end
 

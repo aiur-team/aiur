@@ -63,7 +63,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsFixtures do
       failure_reason: nil
     }
 
-    Map.merge(defaults, Map.new(attrs))
+    defaults |> Map.merge(Map.new(attrs)) |> put_open()
   end
 
   def action_answer(kind, attrs \\ []) do
@@ -107,7 +107,16 @@ defmodule AiurWeb.OperatorControlCenterComponentsFixtures do
       lifecycle: :recorded
     }
 
-    Map.merge(defaults, Map.new(attrs))
+    defaults |> Map.merge(Map.new(attrs)) |> put_open()
+  end
+
+  # Hand-built rows skip DecisionPresenter, so derive its `open?` field from the row's own fields.
+  # Keep this in step with `RetainedIndex.open?/1` (rows carry no `legacy_attention`).
+  defp put_open(row) do
+    Map.put_new_lazy(row, :open?, fn ->
+      row.decision_status in [:open, :deferred] or
+        (row.decision_status == :expired and Map.get(row, :blocking, false) and is_nil(row.answer))
+    end)
   end
 
   def render_history(decisions, opts \\ []) do

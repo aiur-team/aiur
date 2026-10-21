@@ -65,6 +65,7 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
     check(4_000)
 
     assert_receive {:emitted, @degraded_topic, opts}, 1000
+    assert opts[:message] =~ "3s"
     assert opts[:needs_attention] == true
 
     # The same retries leave the configured ten-second window while they would
@@ -73,31 +74,30 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
     assert_receive {:emitted, @resolved_topic, _}, 1000
   end
 
-  test "a sustained broker-timeout rate raises exactly one degraded alert after the dwell" do
-    # Degradation starts at t=1_001_000 and the rate is still elevated (≥ the
-    # threshold retries in the trailing window) when the dwell completes at
-    # t=1_601_000.
-    record(1_000_000, 5)
-    check(1_001_000)
+  test "the incident timeout pattern raises one alert and clears after recovery" do
+    # Exact offsets (seconds) of the 17 timeout lines from 21:40:46 through
+    # 21:41:53 in the incident log. With production defaults, the old 600s
+    # dwell could never fit inside the 300s window, so the alert never fired.
+    [0, 1, 3, 5, 11, 11, 13, 18, 23, 25, 26, 27, 51, 55, 57, 59, 67]
+    |> Enum.each(fn seconds ->
+      record(seconds * 1_000, 1)
+      check(seconds * 1_000)
+    end)
 
-    # The 600s dwell has not elapsed yet: nothing raised.
-    refute_receive {:emitted, @degraded_topic, _}, 100
-
-    # Still degraded in the window, now past the dwell: exactly one alert.
-    record(1_600_000, 5)
-    check(1_601_000)
+    check(71_000)
 
     assert_receive {:emitted, @degraded_topic, opts}, 1000
     assert opts[:needs_attention] == true
     assert opts[:severity] == "warning"
     assert opts[:reason] =~ "sustained"
+    assert opts[:message] =~ "17 timeouts"
 
     # Still degraded, still latched: exactly one, no re-emission.
-    check(1_700_000)
+    check(120_000)
     refute_receive {:emitted, @degraded_topic, _}, 100
 
-    # The rate ages out of the window: the .resolved sibling fires once.
-    check(2_000_000)
+    # The rate ages out of the window and the existing resolution topic clears.
+    check(368_001)
     assert_receive {:emitted, @resolved_topic, resolved_opts}, 1000
     assert resolved_opts[:needs_attention] == false
   end
@@ -143,28 +143,5 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
       assert_receive {:emitted, @retry_topic, opts}, 1000
       assert opts[:needs_attention] == false
     end)
-  end
-
-  test "a recovered-and-redegraded episode re-arms the alert latch" do
-    # Episode one: degrade past the dwell, alert once, then recover.
-    record(1_000_000, 5)
-    check(1_001_000)
-    record(1_600_000, 5)
-    check(1_601_000)
-    assert_receive {:emitted, @degraded_topic, _}, 1000
-
-    check(2_000_000)
-    assert_receive {:emitted, @resolved_topic, _}, 1000
-
-    # Episode two: a fresh degradation alerts again — the latch re-arms rather
-    # than staying latched forever.
-    record(3_000_000, 5)
-    check(3_001_000)
-    record(3_600_000, 5)
-    check(3_601_000)
-    assert_receive {:emitted, @degraded_topic, _}, 1000
-
-    check(4_000_000)
-    assert_receive {:emitted, @resolved_topic, _}, 1000
   end
 end

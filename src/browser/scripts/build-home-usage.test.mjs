@@ -52,6 +52,10 @@ test('stale observation ages, never observed, holds and provider notes appear in
   assert.match(tip(html('none')),/Awaiting first observation/)
   assert.match(tip(html('none')),/Last known 40% \(previous boot\)/)
 })
+test('GitHub quota tooltip shows the age of the 60 second snapshot used by the build chip', () => {
+  const u=fixture('one');u.apis[0].snapshot_observed_at=now-60000
+  assert.match(tip(stripHTML(u,now)),/"Snapshot age","1m ago"/)
+})
 test('credits distinguish unknown amounts, missing windows keep a visible row', () => {
   const s=html('credits')
   assert.match(s,/<b class="ax-usd">\$10.40/)

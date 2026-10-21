@@ -60,6 +60,35 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [] = Checks.all(snapshot, now)
   end
 
+  test "names conflicting PRs that strand ci-wait and human-review tickets" do
+    snapshot = %{
+      tickets: [%{number: 5267, labels: ["agent:ci-wait"]}, %{number: 5268, labels: ["agent:human-review"]}],
+      pull_requests: [
+        %{
+          number: 5172,
+          issue_number: 5267,
+          state: "open",
+          mergeable: "CONFLICTING",
+          review_decision: "APPROVED",
+          head_sha: "head",
+          approved_head_sha: "head",
+          in_merge_queue: false,
+          auto_merge: false,
+          required_checks: []
+        },
+        %{number: 5173, issue_number: 5268, state: "open", mergeable: "CONFLICTING"}
+      ]
+    }
+
+    findings = Checks.all(snapshot, ~U[2026-10-19 12:00:00Z])
+
+    assert [%{kind: "conflicting_waiting_pr", ticket: 5267, pull_request: 5172, message: message, action: action}, %{kind: "conflicting_waiting_pr", ticket: 5268, pull_request: 5173}] = findings
+
+    assert message =~ "conflicting"
+    assert action =~ "Merge main"
+    refute Enum.any?(findings, &(&1.kind == "approved_pr_not_landing"))
+  end
+
   test "does not treat an old-head approval as current approval" do
     snapshot = %{pull_requests: [%{number: 10, state: "open", head_sha: "new", approved_head_sha: "old", review_decision: "APPROVED", in_merge_queue: false, auto_merge: false, required_checks: []}]}
 
@@ -128,6 +157,25 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{ticket: 1800, ticket_count: 2, message: message}] = Checks.all(%{tickets: tickets}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "invalid_state_labels"))
     assert message =~ "2 open ticket(s)"
     assert message =~ "oldest ticket #1800"
+  end
+
+  test "summarizes a stale triage backlog in one finding with its count and oldest ticket" do
+    snapshot = %{
+      open_tickets: %Aiur.OpenTicketSource.Snapshot{
+        status: :available,
+        tickets: [
+          %{identifier: "4466", labels: ["needs-triage"], created_at: ~U[2026-10-15 09:00:00Z]},
+          %{identifier: "4500", labels: ["needs-triage"], created_at: ~U[2026-10-16 10:30:00Z]},
+          %{identifier: "4511", labels: ["agent:todo"], created_at: ~U[2026-10-15 09:00:00Z]}
+        ]
+      }
+    }
+
+    assert [%{kind: "stale_needs_triage", ticket: 4466, oldest_ticket: 4466, ticket_count: 2, message: message}] =
+             Enum.filter(Checks.all(snapshot, ~U[2026-10-16 12:00:00Z]), &(&1.kind == "stale_needs_triage"))
+
+    assert message =~ "2 open ticket(s)"
+    assert message =~ "oldest #4466"
   end
 
   test "2026-10-15 fixture produces every operational finding family" do

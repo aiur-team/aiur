@@ -117,7 +117,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp count_label(count) when is_integer(count), do: count
   defp count_label(_count), do: "—"
 
-  defp filtered(decisions, :open), do: Enum.filter(decisions, &open?/1)
+  defp filtered(decisions, :open), do: Enum.filter(decisions, & &1.open?)
   defp filtered(decisions, :blocking), do: Enum.filter(decisions, &blocking?/1)
   defp filtered(decisions, :undelivered), do: Enum.filter(decisions, &undelivered?/1)
   defp filtered(decisions, :supervisor), do: Enum.filter(decisions, &supervisor_decision?/1)
@@ -129,7 +129,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp filtered(_decisions, :resolved), do: []
 
   defp filtered(decisions, :superseded), do: Enum.filter(decisions, &Map.get(&1, :superseded?, false))
-  defp filtered(decisions, _filter), do: Enum.filter(decisions, &open?/1)
+  defp filtered(decisions, _filter), do: Enum.filter(decisions, & &1.open?)
 
   defp empty_message(:resolved), do: "Resolved Commands are shown in Command history below."
   defp empty_message(_filter), do: "No Commands match this filter."
@@ -143,9 +143,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     if is_nil(selected), do: filtered, else: [selected | filtered]
   end
 
-  defp open?(%{decision_status: :expired, blocking: true, answer: nil}), do: true
-  defp open?(decision), do: decision.decision_status in [:open, :deferred]
-  defp blocking?(decision), do: decision.blocking and open?(decision)
+  defp blocking?(decision), do: decision.blocking and decision.open?
 
   defp undelivered?(decision) do
     not is_nil(decision.answer) and decision.delivery_status not in [:delivered, :consumed]

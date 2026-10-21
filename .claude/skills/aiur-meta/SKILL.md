@@ -89,7 +89,7 @@ is one copy to keep true.
 
 ### Dashboard pages
 
-Capture all four at a desktop viewport, full page, with console errors collected.
+Capture all five at a desktop viewport, full page, with console errors collected.
 Stream Deck is excluded: it is a control surface, not a report, and has its own
 coverage.
 
@@ -98,7 +98,12 @@ coverage.
 | Units | `/` | every active agent, live state |
 | Commands | `/commands` | real commands awaiting response |
 | Build Order | `/build-orders` | progress that tracks reality |
+| Build | `/build` | an available timeline and ticket cards for queued members |
 | Analytics | `/analytics` | current data, not a frozen window |
+
+The `/build` capture reports an unavailable timeline banner, skeleton cards
+that remain after the LiveView settle, and a visible non-empty planned queue
+with no rendered ticket cards.
 
 Playwright is already vendored at `src/browser/`. Two details that cost time if
 rediscovered each run:

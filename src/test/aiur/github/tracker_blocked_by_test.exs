@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.TrackerBlockedByTest do
   use Aiur.TestSupport
   alias Aiur.GitHub.{ResourceStore, Tracker}
 
-  @token_key {Aiur.GitHub.Config, :resolved_token}
+  @token_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")

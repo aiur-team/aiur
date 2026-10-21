@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
   test "creates a labeled identity issue and emits the same evidence durably" do
     parent = self()
     journal = temp_path("flake-create")
-    failure = %{module: "ExampleTest", name: "sometimes fails", job: "test", excerpt: "assertion failed at test/example_test.exs:12"}
+    failure = %{module: "ExampleTest", name: "sometimes fails", job: "test", excerpt: "assertion failed at test/example_test.exs:12", cascade_modules: ["OtherTest"]}
     run = %{"id" => 804}
 
     request = fn
@@ -44,12 +44,16 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
     assert body["body"] =~ "Run ID: 804"
     assert body["body"] =~ "Job: test"
     assert body["body"] =~ "Failing test: ExampleTest :: sometimes fails"
+    assert body["body"] =~ "Likely cascade modules (not quarantined): OtherTest"
     assert body["body"] =~ "Error excerpt: assertion failed"
     assert body["body"] =~ "PRs that passed this test in another merge group containing the PR: #17, #24"
 
     assert_received {:alert, "system.pr.landing.flake_recorded", alert_opts}
     assert Keyword.fetch!(alert_opts, :durable)
-    assert Keyword.fetch!(alert_opts, :exchange_payload)["flake_evidence"] == String.replace(body["body"], ~r/\A<!--.*?-->\n\n/s, "")
+    assert body["body"] =~ "<!--"
+    assert String.contains?(body["body"], "\n\n" <> Keyword.fetch!(alert_opts, :exchange_payload)["flake_evidence"] <> "\n\n")
+    # A quarantined run without the variable reports 0 tests; the fixer must know how to run it.
+    assert body["body"] =~ "`AIUR_RUN_QUARANTINED=1`"
     File.rm(journal)
   end
 

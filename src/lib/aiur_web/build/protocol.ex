@@ -166,5 +166,6 @@ defmodule AiurWeb.Build.Protocol do
   defp error_reason(:timeout), do: :timeout
   defp error_reason(:index_not_running), do: :index_not_running
   defp error_reason(:epic_config_unavailable), do: :epic_config_unavailable
+  defp error_reason(:settings_loading), do: :settings_loading
   defp error_reason(_reason), do: :read_failed
 end

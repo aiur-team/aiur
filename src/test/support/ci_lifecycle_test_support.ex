@@ -34,6 +34,11 @@ defmodule Aiur.CiLifecycleTestSupport do
 
     def hydrate_blocked_by(issue), do: {:ok, issue}
 
+    def create_comment(issue_id, body) do
+      if is_pid(recipient()), do: send(recipient(), {:tracker_comment, issue_id, body})
+      :ok
+    end
+
     def update_issue_state(issue_id, state_name) do
       record_update(issue_id, state_name, [])
     end
@@ -86,6 +91,8 @@ defmodule Aiur.CiLifecycleTestSupport do
         :finish_ci_transition -> :ok
       end
     end
+
+    def create_comment(_issue_id, _body), do: :ok
   end
 
   def ci_lifecycle_setup(_context) do

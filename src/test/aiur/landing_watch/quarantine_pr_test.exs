@@ -133,6 +133,12 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
     assert contents =~ ~r/\A# BrowserSpec/
     assert contents =~ "BrowserSpec\tsrc/browser/tests/build-home-list.browser.spec.mjs\t#5118\n"
     assert_received {:request, :post, @api <> "/git/trees", %{"tree" => [%{"path" => "src/browser/quarantine.txt"}]}}
+
+    # The entry skips the whole spec file, so the body must name the file rather than "the test".
+    assert_received {:request, :post, @api <> "/pulls", %{"body" => pr_body}}
+    assert pr_body =~ "Skip the flaky spec file `src/browser/tests/build-home-list.browser.spec.mjs`"
+    assert pr_body =~ "blocking CI skips every test in `src/browser/tests/build-home-list.browser.spec.mjs`"
+    refute pr_body =~ "skips the test"
   end
 
   test "decodes GitHub content with line-wrapped base64" do

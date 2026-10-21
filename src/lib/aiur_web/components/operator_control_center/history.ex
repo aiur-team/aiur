@@ -87,7 +87,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
       <div :if={@has_more} class="history-more">
         <button
           type="button"
-          class="btn ghost"
+          class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost"
           phx-click="load-more-history"
           phx-disable-with="Loading…"
         >Load more</button>
