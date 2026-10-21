@@ -220,6 +220,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     end
   catch
     :exit, _reason -> :error
+  end
 
   defp maybe_missing(missing, nil, child), do: ["#{child} unregistered" | missing]
   defp maybe_missing(missing, _pid, _child), do: missing
