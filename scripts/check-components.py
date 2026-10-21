@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Validate the component manifest and ownership of tracked source files."""
+# Cohesion: this CLI coordinates manifest, ownership, and reference checks.
 import argparse
 import json
 import os
@@ -373,7 +374,6 @@ def check_references(root, manifest, file_owners, baseline, rules, prune=False, 
         print(f'components: {rule}: {sum(key[0] == rule for key in violations)} baseline keys')
     write_summary(violations, allowed, stale, rules, largest_scc, time.monotonic() - started)
     return bool(violations.keys() - allowed or stale or growth_failed)
-
 
 def declaration_ownership(root, manifest):
     # Keep these literal matchers aligned with check-config-docs.py.
