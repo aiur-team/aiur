@@ -5,7 +5,8 @@ defmodule Aiur.BuildGate.Status do
   alias Aiur.BuildGate.CommandSummary
   alias Aiur.BuildGate.OwnerMetadata
 
-  @scan_output_budget_bytes 256 * 1024
+  # Python bounds encoded owner metadata at 4 MiB; leave room for JSON and paths.
+  @scan_output_budget_bytes 5 * 1024 * 1024
   @recovery "check the build-gate holder metadata and retry; disable build admission only if the gate cannot be repaired, using " <>
               "agent.max_concurrent_builds: 0, agent.build_start_stagger_seconds: 0, and " <>
               "agent.min_free_memory_mb omitted"
