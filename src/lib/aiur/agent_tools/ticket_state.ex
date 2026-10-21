@@ -95,10 +95,13 @@ defmodule Aiur.AgentTools.TicketState do
     with {:ok, state} <- normalize_state(arguments),
          true <- is_function(setter, 2) || {:error, :ticket_state_setter_unavailable},
          {:ok, result} <- setter.(state, review_findings(arguments)) do
+      result = Response.jsonable(result)
+      applied_state = if is_map(result), do: Map.get(result, "state", state), else: state
+
       Response.build(
         true,
         Jason.encode!(
-          %{"ok" => true, "state" => state, "result" => Response.jsonable(result)},
+          %{"ok" => true, "state" => applied_state, "requested_state" => state, "result" => result},
           pretty: true
         )
       )
