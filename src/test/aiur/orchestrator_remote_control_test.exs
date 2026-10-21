@@ -300,6 +300,42 @@ defmodule Aiur.OrchestratorRemoteControlTest do
       config = claude_json |> File.read!() |> Jason.decode!()
       assert get_in(config, ["projects", workspace, "hasTrustDialogAccepted"]) == true
     end
+
+    test "captures the config path before the async trust task runs" do
+      workspace = "/workspace/trust-capture"
+      intended = Aiur.TestSupport.tmp_root!("rc-trust-intended") <> ".json"
+      changed = Aiur.TestSupport.tmp_root!("rc-trust-changed") <> ".json"
+      previous = Application.fetch_env(:aiur, :remote_control_claude_json)
+      Application.put_env(:aiur, :remote_control_claude_json, intended)
+
+      on_exit(fn ->
+        restore_trust_config(previous)
+        Aiur.TestCleanup.rm_rf!(intended)
+        Aiur.TestCleanup.rm_rf!(changed)
+      end)
+
+      parent = self()
+
+      start_task = fn state, _key, fetch, _apply ->
+        send(parent, {:captured_trust_task, fetch})
+        state
+      end
+
+      assert {:noreply, %State{}} =
+               RemoteControlMode.ensure_remote_control_trust_call(
+                 %State{},
+                 workspace,
+                 {self(), make_ref()},
+                 start_task
+               )
+
+      assert_received {:captured_trust_task, fetch}
+      Application.put_env(:aiur, :remote_control_claude_json, changed)
+      assert :ok = fetch.()
+
+      assert get_in(intended |> File.read!() |> Jason.decode!(), ["projects", workspace, "hasTrustDialogAccepted"]) == true
+      refute File.exists?(changed)
+    end
   end
 
   defp restore_trust_config({:ok, value}), do: Application.put_env(:aiur, :remote_control_claude_json, value)

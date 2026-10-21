@@ -136,21 +136,28 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
   # #4791: a retry that times out is a hold only when the admission deadline cut it off.
   describe "a broker that answers wait and then stalls" do
     setup %{root: root} do
-      fake_python = Path.join(root, "wait-then-stall-broker")
-      marker = Path.join(root, "answered")
-      File.write!(fake_python, "#!/bin/sh\nif [ -e #{marker} ]; then sleep 10; fi\ntouch #{marker}\nprintf '%s\\n' 'wait 50'\n")
-      File.chmod!(fake_python, 0o755)
-      %{opts: [state_dir: root, enabled?: true, python: fake_python]}
+      server = start_supervised!({__MODULE__.WaitThenStallBroker, test: self()})
+      %{opts: [state_dir: root, enabled?: true, broker_server: server]}
     end
 
     test "is a broker timeout when the per-command bound fires with admission time left", %{opts: opts} do
-      assert {:error, :github_budget_broker_timeout} =
-               Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), opts ++ [timeout_ms: 5_000, command_timeout_ms: 1_000])
+      acquire =
+        Task.async(fn ->
+          Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), opts ++ [timeout_ms: 5_000, command_timeout_ms: 1_000])
+        end)
+
+      assert_receive {:broker_call, 2}, 1_000
+      assert {:error, :github_budget_broker_timeout} = Task.await(acquire, 2_000)
     end
 
     test "is a hold when the admission deadline cuts the retry off", %{opts: opts} do
-      assert {:hold, %{reason: :shared_budget}} =
-               Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), opts ++ [timeout_ms: 1_500, command_timeout_ms: 5_000])
+      acquire =
+        Task.async(fn ->
+          Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), opts ++ [timeout_ms: 1_500, command_timeout_ms: 5_000])
+        end)
+
+      assert_receive {:broker_call, 2}, 1_000
+      assert {:hold, %{reason: :shared_budget}} = Task.await(acquire, 2_000)
     end
   end
 
@@ -301,5 +308,32 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
     assert Enum.max(admitted_at) - Enum.min(admitted_at) >= 3
 
     Enum.each(leases, &Budget.release(&1, opts))
+  end
+
+  defmodule WaitThenStallBroker do
+    use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+    @impl true
+    def init(opts), do: {:ok, %{test: opts[:test], calls: 0}}
+
+    @impl true
+    def handle_call({:command, _broker, _args, _deadline_at, _submitted_at}, _from, %{calls: 0} = state) do
+      {:reply, {:ok, "wait 50", 0}, %{state | calls: 1}}
+    end
+
+    def handle_call({:command, _broker, _args, deadline_at, _submitted_at}, from, state) do
+      send(state.test, {:broker_call, 2})
+      delay = max(deadline_at - System.monotonic_time(:millisecond), 0)
+      Process.send_after(self(), {:reply_timeout, from}, delay)
+      {:noreply, %{state | calls: 2}}
+    end
+
+    @impl true
+    def handle_info({:reply_timeout, from}, state) do
+      GenServer.reply(from, :timeout)
+      {:noreply, state}
+    end
   end
 end

@@ -39,12 +39,18 @@ defmodule Aiur.BuildOrder.HomeRepositorySnapshotTest do
   end
 
   test "a config that fails schema validation remains a configuration failure" do
-    # `Aiur.LogFileTest` writes this exact fixture. Before the fix, the raise
-    # crashed the shared GraphProjection child and restarted every later child.
-    state = Options.new(configured_repo: {"team", "consumer"})
     path = Path.join(Path.dirname(Workflow.workflow_file_path()), "invalid-config")
     File.write!(path, "tracker:\n  kind: memory\npolling:\n  interval_ms: 1000\n")
-    Workflow.set_workflow_file_path(path)
+
+    assert_raise ArgumentError, ~r/polling\.interval_ms is no longer supported/, fn ->
+      Aiur.Config.settings_from(Workflow.load(path))
+    end
+
+    state =
+      Options.new(
+        configured_repo: {"team", "consumer"},
+        authority_snapshot: fn -> Aiur.Config.settings_from(Workflow.load(path)) end
+      )
 
     assert {:error, :configuration} = Configuration.snapshot(state, nil)
   end

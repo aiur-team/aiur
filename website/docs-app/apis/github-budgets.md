@@ -55,6 +55,12 @@ The REST `/rate_limit` refresh updates Core from its `resources.core` value.
 The GraphQL window comes from GraphQL response headers or `rateLimit` data; the
 REST response's `resources.graphql` value does not update it.
 
+The dashboard retains the last quota snapshot if a live read times out and
+labels those values with their sample time and age. The meter raises
+`system.github.quota.sample_stale` when it has gone over ten minutes without a
+quota sample; a new sample clears the condition so a later stale period alerts
+again.
+
 ### Where the budget went
 
 The meters above say how much is left.
