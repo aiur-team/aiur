@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Orchestrator.CiLifecycle.WaitRewake
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.LifecycleFence
+  alias Aiur.Orchestrator.ReadyForReviewTransitions
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Orchestrator.State
@@ -52,7 +53,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
       |> clear_stale_ci_wait(issue)
       |> Reconciler.refresh_running_issue_state(Transition.effective_issue_state(issue))
     else
-      transition_ci_pass(state, issue, result)
+      if CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and ready_unreviewed_head?(result) do
+        transition_ci_review(state, issue, result)
+      else
+        transition_ci_pass(state, issue, result)
+      end
     end
   end
 
@@ -83,6 +88,41 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   end
 
   defp apply_ci_poll_result(state, _issue, _result), do: state
+
+  defp transition_ci_review(state, issue, result) do
+    if LifecycleFence.handoff_blocked?(state, issue) do
+      Transition.log_fenced_ci_handoff(issue, @human_review_state)
+      state
+    else
+      Poll.run_ci_effect(
+        state,
+        issue,
+        "transition_ci_review",
+        fn -> TicketTransition.write_state(to_string(issue.id || issue.identifier), @human_review_state, Keyword.put(Transition.expected_state_opts(issue), :writer, :ci_lifecycle)) end,
+        fn current, response -> apply_ci_review_transition(current, response, {issue, result}) end
+      )
+    end
+  end
+
+  defp apply_ci_review_transition(current, :ok, {issue, result}) do
+    review_issue = %{issue | state: @human_review_state}
+
+    current
+    |> ReadyForReviewTransitions.announce_ci_ready(to_string(issue.identifier || issue.id), result.pr_number, result.head_sha)
+    |> Reconciler.refresh_running_issue_state(review_issue)
+    |> TerminalEvent.ensure_ci_terminal_subscription(issue)
+    |> TerminalEvent.publish_ci_terminal_event(issue, result, :passed)
+  end
+
+  defp apply_ci_review_transition(current, {:error, reason}, {issue, _result}) do
+    Logger.warning("CI review handoff skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+    current
+  end
+
+  defp ready_unreviewed_head?(%{draft?: false, reviewed_head?: false, pr_number: number, head_sha: sha})
+       when is_integer(number) and is_binary(sha) and sha != "", do: true
+
+  defp ready_unreviewed_head?(_result), do: false
 
   @doc false
   @spec route_conflicting_pr(State.t(), Issue.t(), map(), keyword()) :: State.t()

@@ -98,6 +98,37 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
     assert_received {:rerun, _}
   end
 
+  test "a cancelled required run gets one automatic rerun for the current head", ctx do
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: :disabled,
+        ci_recovery_observation: {:ok, %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "mergeQueueEntry" => nil, "autoMergeRequest" => nil}}
+      )
+
+    assert %{decision: :pending, recovery: "rerun_requested"} = Recovery.recover(ctx.issue, result, opts)
+    assert_received {:rerun, url}
+    assert url =~ "/actions/runs/99/rerun-failed-jobs"
+
+    assert %{decision: :pending, recovery: "rerun_pending"} = Recovery.recover(ctx.issue, result, opts)
+    refute_received {:rerun, _}
+  end
+
+  test "a required startup failure gets one automatic rerun for the current head", ctx do
+    result = Map.put(ctx.result, :failures, [%{name: "test", result: "startup_failure", url: @run_url}])
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: :disabled,
+        ci_recovery_observation: {:ok, %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "mergeQueueEntry" => nil, "autoMergeRequest" => nil}}
+      )
+
+    assert %{decision: :pending, recovery: "rerun_requested"} = Recovery.recover(ctx.issue, result, opts)
+    assert_received {:rerun, url}
+    assert url =~ "/actions/runs/99/rerun-failed-jobs"
+  end
+
   test "an approved head whose landing state is unreadable holds", ctx do
     result = Map.merge(ctx.result, %{review_decision: "APPROVED", auto_merge_request: nil, merge_queue_entry: nil})
     opts = Keyword.merge(ctx.opts, main_watch_history: :disabled, ci_recovery_observation: {:ok, %{"state" => "OPEN", "headRefOid" => "head"}})

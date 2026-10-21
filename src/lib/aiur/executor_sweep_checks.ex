@@ -24,6 +24,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       {"old_decisions", [:decisions], fn -> old_decisions(snapshot, now) end},
       {"approved_prs", [:pull_requests], fn -> approved_prs(snapshot) end},
       {"conflicting_waiting_prs", [:pull_requests, :tickets], fn -> conflicting_waiting_prs(snapshot) end},
+      {"stale_ci_wait_prs", [:pull_requests, :tickets], fn -> stale_ci_wait_prs(snapshot, now) end},
       {"landing_rerun_backlog", [:landing_rerun_backlog], fn -> landing_rerun_backlog(snapshot, now) end},
       {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
       {"stale_merge_groups", [:merge_groups], fn -> stale_merge_groups(snapshot, now, stale_minutes) end},
@@ -130,6 +131,40 @@ defmodule Aiur.ExecutorSweep.Checks do
             "Ticket ##{issue_number} is waiting while PR ##{value(pr, :number, "?")} is conflicting with #{base_branch}.",
             pull_request: value(pr, :number, nil),
             ticket: issue_number
+          )
+        ]
+      else
+        []
+      end
+    end)
+  end
+
+  defp stale_ci_wait_prs(snapshot, now) do
+    waiting =
+      snapshot
+      |> Map.get(:tickets, [])
+      |> Enum.filter(&("ci-wait" in labels(&1)))
+      |> Map.new(&{value(&1, :number, nil), date(value(&1, :ci_wait_since, value(&1, :updated_at, nil)))})
+
+    snapshot
+    |> Map.get(:pull_requests, [])
+    |> Enum.flat_map(fn pr ->
+      issue_number = value(pr, :issue_number, nil)
+      age = age_ms(Map.get(waiting, issue_number), now)
+      required = value(pr, :required_checks, nil)
+      pending? = is_list(required) and Enum.any?(required, &(value(&1, :conclusion, nil) in [nil, "pending", "in_progress", "queued"]))
+
+      if Map.has_key?(waiting, issue_number) and value(pr, :state, "open") == "open" and value(pr, :ci_head_sha, nil) == value(pr, :head_sha, nil) and is_integer(age) and age > 2 * 60 * 60_000 and
+           is_list(required) and not pending? do
+        [
+          finding(
+            "stale_ci_wait_without_pending_checks",
+            2,
+            age,
+            "Inspect the current PR head and move the ticket to human-review or rework.",
+            "Ticket ##{issue_number} has been in ci-wait for #{duration(age)} with no pending required check.",
+            issue_number: issue_number,
+            pull_request: value(pr, :number, nil)
           )
         ]
       else
@@ -488,7 +523,7 @@ defmodule Aiur.ExecutorSweep.Checks do
   defp date(_), do: nil
 
   defp age_ms(%DateTime{} = timestamp, %DateTime{} = now), do: max(DateTime.diff(now, timestamp, :millisecond), 0)
-  defp age_ms(_, _), do: 0
+  defp age_ms(_, _), do: nil
 
   defp duration(ms) do
     total_minutes = div(ms, 60_000)

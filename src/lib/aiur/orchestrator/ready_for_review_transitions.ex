@@ -149,6 +149,16 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
     end
   end
 
+  @doc false
+  @spec announce_ci_ready(State.t(), String.t(), pos_integer(), String.t(), keyword()) :: State.t()
+  def announce_ci_ready(%State{} = state, ticket, pr_number, head_sha, opts \\ []) do
+    observation =
+      observation(ticket, pr_number, head_sha, false)
+      |> Map.put(:was_draft?, true)
+
+    observe(state, [observation], opts)
+  end
+
   @doc "Re-raises an aged ready PR when its current head is green and has no review."
   @spec re_raise_unreviewed(State.t(), observation(), map(), keyword()) :: State.t()
   def re_raise_unreviewed(state, observation, result, opts \\ [])
@@ -306,6 +316,9 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
           "ticket.#{ticket}.pr.ready_for_review",
           ready_payload(repo, pr_number, observation.head_sha, observation, opts),
           issue_number: ticket,
+          # A ready PR is itself the wake signal for a parked ticket, which
+          # may be absent from the active tracked set while it waits on CI.
+          bypass_contamination: true,
           dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ready_for_review", observation.head_sha)
         )
 

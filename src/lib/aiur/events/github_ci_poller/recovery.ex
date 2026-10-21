@@ -24,13 +24,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   def recover(issue, %{pending_reason: :ci_cancelled, pr_number: number, head_sha: sha} = result, opts)
       when is_integer(number) and is_binary(sha) do
-    target = to_string(issue.identifier || issue.id)
-
-    case Store.read(target, number, opts) do
-      {:ok, %{"hold" => %{"sha" => ^sha} = hold}} -> hold_result(result, hold)
-      {:ok, _entry} -> attention(issue, result, "rerun_skipped", "cancelled_run", opts)
-      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
-    end
+    if recovery_enabled?(opts), do: recover_cancelled(issue, result, number, sha, opts), else: result
   end
 
   def recover(issue, %{pr_number: number, head_sha: sha} = result, opts) when is_integer(number) and is_binary(sha) do
@@ -43,6 +37,30 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   def recover(_issue, result, _opts), do: result
+
+  defp recovery_enabled?(opts), do: Keyword.get_lazy(opts, :ci_recovery_enabled, &Config.ci_recovery_enabled?/0)
+
+  defp recover_cancelled(issue, result, number, sha, opts) do
+    target = to_string(issue.identifier || issue.id)
+
+    case Store.read(target, number, opts) do
+      {:ok, %{"hold" => %{"sha" => ^sha} = hold}} ->
+        hold_result(result, hold)
+
+      {:ok, entry} ->
+        recover_cancelled_entry(issue, result, entry, sha, opts)
+
+      {:error, reason} ->
+        attention(issue, result, "evidence_unavailable", reason, opts)
+    end
+  end
+
+  defp recover_cancelled_entry(issue, result, entry, sha, opts) do
+    case digest(sha, opts) do
+      {:ok, digest} -> recover_failure(issue, Map.put(result, :ci_failure_digest, digest), entry, opts)
+      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts, "transient")
+    end
+  end
 
   # The batch snapshot can predate an auto-merge re-enable (#4672), so an
   # approved failure it reports as not landing is confirmed live before rework.
@@ -139,7 +157,8 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   defp digest(sha, opts), do: Keyword.get(opts, :ci_failure_digest, &FailureDigest.build/2).(sha, opts)
 
   defp recover_failure(issue, result, entry, opts) do
-    if get_in(entry, ["heads", result.head_sha]) != nil or retryable?(result.ci_failure_digest, result.pr_number, opts) do
+    if result[:pending_reason] == :ci_cancelled or infrastructure_failure?(result) or get_in(entry, ["heads", result.head_sha]) != nil or
+         retryable?(result.ci_failure_digest, result.pr_number, opts) do
       case Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(result.pr_number, opts) do
         {:ok, pr} -> choose_recovery(issue, result, entry, pr, opts)
         {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts, "transient")
@@ -148,6 +167,15 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       result
     end
   end
+
+  defp infrastructure_failure?(%{failures: [_ | _] = failures}) do
+    Enum.all?(failures, fn failure ->
+      failure[:result] in ["cancelled", "timed_out", "startup_failure"] or
+        (is_binary(failure[:excerpt]) and String.match?(failure[:excerpt], ~r/(?:ECONNRESET|runner.*lost|artifact.*upload.*(?:error|failed))/i))
+    end)
+  end
+
+  defp infrastructure_failure?(_result), do: false
 
   defp choose_recovery(issue, result, entry, pr, opts) do
     cond do
@@ -217,22 +245,18 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp prepare_reruns(issue, result, runs, opts) do
-    if Enum.any?(runs, &(&1["conclusion"] == "cancelled")) do
-      attention(issue, result, "rerun_skipped", "cancelled_run", opts)
-    else
-      case Store.reserve_reruns(
-             Keyword.get(opts, :ci_recovery_poll_id, :standalone),
-             length(runs),
-             Config.ci_recovery_max_per_poll(),
-             Config.ci_recovery_max_per_hour(),
-             opts
-           ) do
-        :ok -> persist_and_request(issue, result, runs, opts)
-        {:error, :poll_limit_reached} -> held(result, "rerun_limit")
-        {:error, {:hour_limit_reached, retry_at}} -> defer_reruns(issue, result, retry_at, opts)
-        {:error, :ticket_exceeds_rerun_limit} -> attention(issue, result, "rerun_skipped", "ticket_exceeds_limit", opts)
-        {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
-      end
+    case Store.reserve_reruns(
+           Keyword.get(opts, :ci_recovery_poll_id, :standalone),
+           length(runs),
+           Config.ci_recovery_max_per_poll(),
+           Config.ci_recovery_max_per_hour(),
+           opts
+         ) do
+      :ok -> persist_and_request(issue, result, runs, opts)
+      {:error, :poll_limit_reached} -> held(result, "rerun_limit")
+      {:error, {:hour_limit_reached, retry_at}} -> defer_reruns(issue, result, retry_at, opts)
+      {:error, :ticket_exceeds_rerun_limit} -> attention(issue, result, "rerun_skipped", "ticket_exceeds_limit", opts)
+      {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
     end
   end
 
