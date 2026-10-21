@@ -175,6 +175,10 @@ defmodule Aiur.LandingWatch do
     required_result = Keyword.get(opts, :required_checks_snapshot, :not_fetched)
     required_result = if required_result == :not_fetched, do: LocalRead.run(required_checks, [opts], opts), else: required_result
 
+    conflict_queue_persistent? = ConflictRouting.persistent_queue_conflict?(observation, opts)
+    observation = Map.put(observation, :conflict_queue_persistent?, conflict_queue_persistent?)
+    observation = if conflict_queue_persistent?, do: Map.put(observation, :conflicting_queue_prs, ConflictRouting.queue_prs_ahead(observation, opts)), else: observation
+
     with true <- Classifier.approved_at_head?(raw),
          {:ok, true} <- LocalRead.run(current_approval, [number, opts], opts),
          # A conflict blocks landing whatever CI says, queued or not (#4729).

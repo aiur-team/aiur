@@ -4,6 +4,7 @@ R-declared	Aiur.Accounts.UsageReadings	baseline 4aba33f8aae03cdaec432d6614e70a57
 R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Commands	#3312 delivery and request callers retain upward Commands dependency until the agent-side port
 R-declared	Aiur.Events.DebugLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Events.GithubCIPoller.ApprovalCarry	#5408 rework handback uses CI's contribution comparison for Tested head drift
 R-declared	Aiur.Events.Sanitizer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ExternalContent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Client	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -45,6 +46,7 @@ R-optional	Aiur.Alerts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.BuildOrder.EpicOverrides	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.BuildOrder.EpicOverrides.Override	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.DebugLog	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Events.GithubCIPoller.ApprovalCarry	#5408 rework handback uses CI's contribution comparison for Tested head drift
 R-optional	Aiur.Events.Sanitizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Client	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -58,9 +60,3 @@ R-optional	Aiur.RunTelemetry.Lifecycle	baseline 22b2fa407c5d4218d25d63b1aa17472a
 R-optional	Aiur.Usage.Headless.Emitter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-private	Aiur.BuildOrder.EpicOverrides	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur/agent_runner/epic_setter.ex:12 (Aiur.AgentRunner.EpicSetter); facade tightening preserves current callers
 R-private	Aiur.BuildOrder.EpicOverrides.Override	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur/agent_runner/epic_setter.ex:17 (Aiur.AgentRunner.EpicSetter); facade tightening preserves current callers
-R-private	Aiur.Claude.AccountGeneration	#5439 move provider-specific handoff restoration and compaction behind harness-owned contracts
-R-private	Aiur.Claude.Repl.Adoption	#5439 move provider-specific handoff restoration and compaction behind harness-owned contracts
-R-private	Aiur.Claude.Repl.HookTurn	#5439 move provider-specific handoff restoration and compaction behind harness-owned contracts
-R-private	Aiur.Codex.AccountGeneration	#5439 move provider-specific handoff restoration and compaction behind harness-owned contracts
-R-private	Aiur.Codex.Rpc	#5439 move provider-specific handoff restoration and compaction behind harness-owned contracts
-R-private	Aiur.Codex.SessionLifecycle	#5439 move provider-specific handoff restoration and compaction behind harness-owned contracts

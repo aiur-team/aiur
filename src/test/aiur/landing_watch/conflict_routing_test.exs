@@ -33,6 +33,35 @@ defmodule Aiur.LandingWatch.ConflictRoutingTest do
     assert body =~ "Rebase only"
   end
 
+  test "a persistent unmergeable queue entry routes an UNKNOWN PR to rebase-only rework" do
+    parent = self()
+    opts = cycle_opts(parent, queue_conflict("UNKNOWN"), "human-review") |> Keyword.put(:queue_prs_ahead_fun, fn _, _ -> {:ok, [5009, 5414, 5007]} end)
+
+    assert :ok = LandingWatch.poll(Keyword.put(opts, :now_ms, 1_000_000))
+    refute_received {:withdraw, _}
+
+    assert :ok = LandingWatch.poll(Keyword.put(opts, :now_ms, 1_300_000))
+
+    assert_received {:withdraw, 17}
+    assert_received {:transition, "17", "rework", _}
+    assert_received {:comment, "17", body}
+    assert body =~ "queued behind PRs #5009, #5414, #5007"
+  end
+
+  test "a transient unmergeable queue entry that clears is not routed" do
+    parent = self()
+    opts = cycle_opts(parent, queue_conflict("UNKNOWN"), "human-review")
+
+    assert :ok = LandingWatch.poll(Keyword.put(opts, :now_ms, 1_000_000))
+    cleared = %{queue_conflict("UNKNOWN") | merge_queue_entry: %{"id" => "MQE_1", "state" => "AWAITING_CHECKS"}}
+    assert :ok = LandingWatch.poll(Keyword.put(opts, :observe_fun, fn _ -> {:ok, [cleared]} end) |> Keyword.put(:now_ms, 1_060_000))
+
+    assert :ok = LandingWatch.poll(Keyword.put(opts, :now_ms, 1_400_000))
+    refute_received {:withdraw, _}
+    refute_received {:transition, _, _, _}
+    refute_received {:comment, _, _}
+  end
+
   test "an operator-held conflicting ticket stays paused and raises attention" do
     parent = self()
 
@@ -187,6 +216,10 @@ defmodule Aiur.LandingWatch.ConflictRoutingTest do
       rest: %{"head" => %{"ref" => "aiur/17-work"}},
       raw: %{"reviewDecision" => "APPROVED", "headRefOid" => "head-sha", "isDraft" => false, "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "head-sha"}}]}}
     }
+  end
+
+  defp queue_conflict(mergeable) do
+    %{conflicting(%{"id" => "MQE_1", "state" => "UNMERGEABLE", "position" => 4}) | mergeable: mergeable, merge_state_status: "UNKNOWN"}
   end
 
   defp journal_path do

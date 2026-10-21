@@ -38,7 +38,7 @@ jobs:
       - name: Set up Elixir
         uses: ./.github/actions/setup-elixir
       - name: Install zsh
-        run: sudo apt-get update && sudo apt-get install -y zsh
+        run: bash ../scripts/install-ci-zsh.sh
       - name: Compile tests
         env:
           MIX_ENV: test

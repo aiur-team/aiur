@@ -218,7 +218,7 @@ jobs:
         uses: ./.github/actions/setup-elixir
       - name: Install zsh for agent scratch regression
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: sudo apt-get update && sudo apt-get install -y zsh
+        run: bash ../scripts/install-ci-zsh.sh
       - name: Test coverage partition
         id: partition-tests
         if: ${{ needs.changes.outputs.docs_only != 'true' }}

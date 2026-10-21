@@ -9,7 +9,12 @@ test.setTimeout(180_000)
 for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']) {
   test(`modal headers and frame ${viewport.viewport.width} ${theme} ${palette}`, async ({ browser }) => {
     const pair = await openModalPair(browser, { ...viewport, theme, palette, dataset: 'offline' }, { productPending: true })
+    for (const side of ['design', 'product']) pair[side].on('pageerror', error =>
+      console.error(`[modal parity ${side}] ${pair[side].url()}\n${error.stack}`))
     try {
+      // The body is excluded from this comparison. Prevent its reference-only mock log
+      // from queuing scroll callbacks that run after another ticket replaces the body.
+      await pair.design.addStyleTag({ content: '#tk-body #cv-log { overflow: clip !important; }' })
       await expect(pair.product.locator("#build-root")).toHaveAttribute("data-build-generation", /\d+/)
       const rows = await pair.product.evaluate(async () => {
         const { ctx } = await import('/build-home/state.js')
