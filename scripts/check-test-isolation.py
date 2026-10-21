@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Ratcheting checks for recurring test-isolation hazards."""
+"""Ratcheting checks for recurring test-isolation hazards.
+
+After a test-file split or rename lands on main, refresh the per-file baseline
+with ``python3 scripts/check-test-isolation.py --write-baseline``. Review the
+old and new file counts first: moved findings are existing debt, while findings
+added by new test logic are not. The writer rejects count growth in existing
+files and records the moved counts under their current paths.
+"""
 import argparse
 import json
 from pathlib import Path
@@ -26,7 +33,7 @@ def counts(path):
         lines[index] = re.sub(r"(?<!\\)#.*$", "", line)
     clean = "\n".join(lines)
     module_ranges = []
-    cases = list(re.finditer(r"(?m)^\s*use\s+ExUnit\.Case\b[^\n]*", clean))
+    cases = list(re.finditer(r"(?m)^\s*use\s+[\w.]*Case\b[^\n]*", clean))
     for index, match in enumerate(cases):
         async_match = re.search(r"async:\s*(true|false)", match.group(0))
         end = cases[index + 1].start() if index + 1 < len(cases) else len(clean)

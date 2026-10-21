@@ -4,9 +4,9 @@ defmodule Aiur.TestSupport.Isolation do
   import ExUnit.Callbacks, only: [start_supervised!: 1]
 
   @doc "Temporarily sets application env, restoring the previous value after the test (even on failure)."
-  @spec with_app_env!(atom(), atom(), term(), map()) :: :ok
-  def with_app_env!(app, key, value, context \\ %{}) do
-    ensure_sync!(context)
+  @spec with_app_env!(atom(), atom(), term(), keyword()) :: :ok
+  def with_app_env!(app, key, value, opts \\ []) do
+    ensure_sync!(opts)
     previous = Application.fetch_env(app, key)
     Application.put_env(app, key, value)
     ExUnit.Callbacks.on_exit(fn -> restore_app_env(app, key, previous) end)
@@ -14,9 +14,9 @@ defmodule Aiur.TestSupport.Isolation do
   end
 
   @doc "Temporarily sets an OS env variable, restoring it after the test (even on failure)."
-  @spec with_system_env!(String.t(), String.t() | nil, map()) :: :ok
-  def with_system_env!(key, value, context \\ %{}) do
-    ensure_sync!(context)
+  @spec with_system_env!(String.t(), String.t() | nil, keyword()) :: :ok
+  def with_system_env!(key, value, opts \\ []) do
+    ensure_sync!(opts)
     previous = System.get_env(key)
     if is_nil(value), do: System.delete_env(key), else: System.put_env(key, value)
     ExUnit.Callbacks.on_exit(fn -> restore_system_env(key, previous) end)
@@ -79,8 +79,8 @@ defmodule Aiur.TestSupport.Isolation do
   @spec capture_owned_log!([pid()], (-> term())) :: {String.t(), term()}
   def capture_owned_log!(pids, fun) when is_list(pids) and is_function(fun, 0) do
     owned = MapSet.new(pids)
-    messages = :ets.new(__MODULE__, [:bag, :private])
-    handler = "aiur-test-log-#{inspect(make_ref())}"
+    messages = :ets.new(__MODULE__, [:bag, :public])
+    handler = String.to_atom("aiur_test_log_#{System.unique_integer([:positive])}")
 
     :ok =
       :logger.add_handler(handler, Aiur.TestSupport.Isolation.LogHandler, %{
@@ -100,8 +100,8 @@ defmodule Aiur.TestSupport.Isolation do
     end
   end
 
-  defp ensure_sync!(context) do
-    if Map.get(context, :async, false),
+  defp ensure_sync!(opts) do
+    if Keyword.get(opts, :async, false),
       do: raise(ArgumentError, "global environment helpers cannot be used with async: true")
   end
 

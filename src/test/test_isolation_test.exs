@@ -1,11 +1,13 @@
 defmodule Aiur.TestSupport.IsolationTest do
   use ExUnit.Case, async: false
+  require Logger
 
   alias Aiur.TestSupport.Isolation
 
   test "application environment is restored after an exception" do
     key = :isolation_restore_probe
     Application.put_env(:aiur, key, :before)
+    on_exit(fn -> assert Application.get_env(:aiur, key) == :before end)
 
     try do
       Isolation.with_app_env!(:aiur, key, :during)
@@ -15,8 +17,8 @@ defmodule Aiur.TestSupport.IsolationTest do
       RuntimeError -> :ok
     end
 
-    assert Application.get_env(:aiur, key) == :before
-    Application.delete_env(:aiur, key)
+    assert Application.get_env(:aiur, key) == :during
+    on_exit(fn -> Application.delete_env(:aiur, key) end)
   end
 
   test "application environment helper rejects async use" do
@@ -27,9 +29,11 @@ defmodule Aiur.TestSupport.IsolationTest do
 
   test "owned log capture excludes an unrelated process warning" do
     owner = self()
+    supervisor = Isolation.unique_name(%{module: __MODULE__, test: :owned_log}, :tasks)
+    Isolation.start_owned!({Task.Supervisor, name: supervisor})
 
     owned =
-      spawn(fn ->
+      Task.Supervisor.async_nolink(supervisor, fn ->
         receive do
           :warn ->
             Logger.warning("owned-isolation-warning")
@@ -38,7 +42,7 @@ defmodule Aiur.TestSupport.IsolationTest do
       end)
 
     unrelated =
-      spawn(fn ->
+      Task.Supervisor.async_nolink(supervisor, fn ->
         receive do
           :warn ->
             Logger.warning("unrelated-isolation-warning")
@@ -47,22 +51,18 @@ defmodule Aiur.TestSupport.IsolationTest do
       end)
 
     {captured, _} =
-      Isolation.capture_owned_log!([owned], fn ->
-        send(unrelated, :warn)
-        send(owned, :warn)
-
-        receive do
-          :owned_logged -> :ok
-        end
-
-        receive do
-          :unrelated_logged -> :ok
-        end
+      Isolation.capture_owned_log!([owned.pid], fn ->
+        send(unrelated.pid, :warn)
+        send(owned.pid, :warn)
+        assert_receive :owned_logged, 1_000
+        assert_receive :unrelated_logged, 1_000
+        Logger.flush()
+        :ok
       end)
 
     assert captured =~ "owned-isolation-warning"
     refute captured =~ "unrelated-isolation-warning"
-    Process.exit(owned, :kill)
-    Process.exit(unrelated, :kill)
+    Task.shutdown(owned)
+    Task.shutdown(unrelated)
   end
 end

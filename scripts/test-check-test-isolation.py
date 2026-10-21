@@ -88,6 +88,12 @@ System.put_env("SAFE", "yes")
 """)
             self.assertEqual(checker.counts(file)["async_global_env"], 1)
 
+    def test_custom_async_case_environment_writes_are_counted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            file = Path(directory) / "custom_case_test.exs"
+            file.write_text("use Aiur.BuildHome.AsyncCase, async: true\nApplication.put_env(:app, :unsafe, true)\n")
+            self.assertEqual(checker.counts(file)["async_global_env"], 1)
+
     def test_unowned_process_start_is_reported(self):
         with tempfile.TemporaryDirectory() as directory:
             file = Path(directory) / "spawn_test.exs"
