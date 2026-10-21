@@ -31,8 +31,10 @@ fi
 if [[ "${EVENT_NAME}" == pull_request ]] && grep -qx 'full_ci=false' "$scratch/classification" && ! grep -qx 'docs_only=true' "$scratch/classification"; then
   jq -r '.[] | .filename, (.previous_filename // empty)' "$scratch/files.json" > "$scratch/paths"
   base_sha="$(jq -er '.base.sha' "$scratch/pr.json")"
-  if ! selection="$(AIUR_CI_CHANGED_PATHS_B64="$(jq -cj '[.[] | .filename, (.previous_filename | select(. != null))] | unique' "$scratch/files.json" | base64 -w0)" AIUR_BASE_SHA="$base_sha" "${MIX_BIN:-mix}" run --no-start scripts/ci-test-selection.exs "$scratch/paths" 2> >(tee -a "$GITHUB_STEP_SUMMARY" >&2))"; then
-    printf '%s\n' 'affected test selection failed; forcing full CI' >&2
+  if ! selection="$(cd "${GITHUB_WORKSPACE:-.}/src" && AIUR_CI_CHANGED_PATHS_B64="$(jq -cj '[.[] | .filename, (.previous_filename | select(. != null))] | unique' "$scratch/files.json" | base64 -w0)" AIUR_BASE_SHA="$base_sha" "${MIX_BIN:-mix}" run --no-start ../scripts/ci-test-selection.exs "$scratch/paths" 2> >(tee -a "$GITHUB_STEP_SUMMARY" >&2))"; then
+    error='affected test selection failed; forcing full CI (see classifier stderr above)'
+    printf '::warning::%s\n' "$error" >&2
+    printf '\n### Affected-test selection warning\n\n%s\n' "$error" >> "$GITHUB_STEP_SUMMARY"
     printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification"
     selection=full
   fi
