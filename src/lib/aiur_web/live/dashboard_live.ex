@@ -2192,7 +2192,25 @@ defmodule AiurWeb.DashboardLive do
   defp schedule_github_quota_tick, do: Process.send_after(self(), :github_quota_tick, @github_quota_tick_ms)
   defp schedule_elevenlabs_quota_tick, do: Process.send_after(self(), :elevenlabs_quota_tick, @elevenlabs_quota_tick_ms)
 
-  defp github_quota_snapshot, do: GitHubQuota.snapshot()
+  defp github_quota_snapshot do
+    case GitHubQuota.cached_snapshot(GitHubQuota, 24 * 60 * 60_000) do
+      {:ok, snapshot, age_ms, observed_at_ms} ->
+        stale_github_snapshot(snapshot, age_ms, observed_at_ms)
+
+      :miss ->
+        try do
+          GitHubQuota.snapshot!(GitHubQuota, 1_000)
+        catch
+          :exit, _reason -> %{state: :unknown, windows: %{}, backoffs: []}
+        end
+    end
+  end
+
+  defp stale_github_snapshot(snapshot, age_ms, observed_at_ms) do
+    observed_at = DateTime.from_unix!(observed_at_ms, :millisecond)
+
+    %{snapshot | windows: Map.new(snapshot.windows, fn {resource, window} -> {resource, Map.put(window, :snapshot_stale?, true) |> Map.put(:observed_at, observed_at)} end), snapshot_age_ms: age_ms}
+  end
 
   defp elevenlabs_quota_snapshot, do: Aiur.Voice.quota_snapshot()
 
