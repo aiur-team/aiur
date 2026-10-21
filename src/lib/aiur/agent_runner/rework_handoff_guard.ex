@@ -2,8 +2,9 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   @moduledoc false
 
   alias Aiur.AgentRunner.{ApprovedHandoff, ReworkFindings}
-  alias Aiur.{Alerts, Events.GithubCIPoller, Issue, LocalTestEvidence, PrBodyLint, Tracker}
+  alias Aiur.{Alerts, Issue, LocalTestEvidence, PrBodyLint, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.Events.GithubCIPoller.ApprovalCarry
   alias Aiur.Orchestrator.ReworkGate
 
   @spec write(Issue.t(), String.t(), String.t(), Path.t() | nil, String.t() | nil, keyword(), fun()) ::
@@ -104,7 +105,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   defp identical_contribution_after_base_advance?(_workspace, _tested_head, _head, _base_sha, _pr, _opts), do: false
 
   defp classify_approval_carry(nil, tested_head, head, number, opts),
-    do: GithubCIPoller.classify_contribution(tested_head, head, number, opts)
+    do: ApprovalCarry.classify_contribution(tested_head, head, number, opts)
 
   defp classify_approval_carry(classifier, tested_head, head, number, opts) when is_function(classifier, 4),
     do: classifier.(tested_head, head, number, opts)
