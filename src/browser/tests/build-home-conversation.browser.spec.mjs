@@ -87,10 +87,12 @@ test('state cues, retained-history handoff and unknown dates render explicitly',
   await scenario(page, 'not_retained'); await expect(page.locator('.cv')).toHaveCount(0)
   await expect(page.locator('.bm-doc .bm-cue')).toHaveText('Conversation not retained')
   expect(await page.evaluate(() => window.docNote)).toBe('Conversation not retained')
+  await proof(page, 'conversation-doc-cue')
   await scenario(page, 'known_empty'); await expect(page.locator('#cv-log [data-empty]')).toHaveText('No messages yet'); await expect(messageCount(page)).toHaveCount(0)
   await scenario(page, 'unavailable'); await expect(page.locator('#cv-footer')).toHaveText('Conversation unavailable'); await expect(messageCount(page)).toHaveCount(0)
   await proof(page, 'conversation-unavailable')
   await scenario(page, 'restart_unknown'); await expect(page.locator('#cv-footer')).toHaveText('Live state unknown after a restart')
+  await proof(page, 'conversation-restart-unknown')
   for (const [note, text] of [['live_window', 'Only the latest messages are shown'], ['legacy_log', 'Older entries are in a legacy log and are not shown'], ['remote_window', '12 earlier messages are not kept for remote workers']]) {
     await scenario(page, 'ended', { reply: { note, evicted: 12 } })
     await expect(page.locator('#cv-log > :first-child')).toHaveText(text)

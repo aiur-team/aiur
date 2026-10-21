@@ -120,7 +120,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bTest do
            ]
 
     assert Enum.at(mapped, 1).id == "answer:action"
-    assert Enum.at(mapped, 1).at == 1_792_576_800_000
+    assert Enum.at(mapped, 1).at == DateTime.to_unix(~U[2026-10-21 10:00:00Z], :millisecond)
     assert hd(mapped).at == nil
     assert Enum.at(mapped, 5) == %{id: "6", at: nil, k: "tool", name: "bash", arg: "first …", res: "✗ exit 2", bad: true}
     assert Enum.at(mapped, 6).res == "✗ auth failure"
