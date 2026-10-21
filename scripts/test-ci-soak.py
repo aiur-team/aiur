@@ -279,6 +279,12 @@ class SoakTest(unittest.TestCase):
         module = importlib.util.module_from_spec(loader)
         loader.loader.exec_module(module)
         invocation = ['node', 'scripts/run-browser-tests.mjs', 'tests/build-home-motion.browser.spec.mjs']
+        fake_clock = [0]
+
+        def stop_at_timeout(_command, _spec, timeout):
+            fake_clock[0] += timeout
+            return module.RUN_TIMED_OUT
+
         with patch.dict(os.environ, self.env | {
                 'PLAYWRIGHT_LIST_COUNT': '2338', 'PLAYWRIGHT_LIST_TITLE': 'motion [cell]+'}):
             listed = module.browser_test_list(invocation)
@@ -288,9 +294,9 @@ class SoakTest(unittest.TestCase):
                 patch.object(module, 'BROWSER_ROOT', self.browser), \
                 patch.object(module, 'DURATION_SOURCE', self.durations), \
                 patch.object(module, 'BUDGET_SECONDS', 60), \
-                patch.object(module.time, 'monotonic', side_effect=[0, 0, 0, 0]), \
+                patch.object(module.time, 'monotonic', side_effect=lambda: fake_clock[0]), \
                 patch.object(module, 'browser_test_list', return_value=listed), \
-                patch.object(module, 'run_browser', return_value=module.RUN_TIMED_OUT) as runner, \
+                patch.object(module, 'run_browser', side_effect=stop_at_timeout) as runner, \
                 patch.object(module, 'notice') as notices:
             result = module.soak_browser()
         self.assertEqual(result, 0)
@@ -298,6 +304,7 @@ class SoakTest(unittest.TestCase):
             'node', 'scripts/run-browser-tests.mjs', 'tests/build-home-motion.browser.spec.mjs',
             '--grep', '.*' + re.escape('motion [cell]+ 0') + '.*', '--repeat-each=5'])
         self.assertLessEqual(runner.call_args.args[2], 60)
+        self.assertLessEqual(fake_clock[0], 60)
         notices.assert_any_call('Playwright soak stopped at its runtime bound after 0 passing repeats')
         self.assertIn('test(`motion [cell]+ ${cell}`', spec.read_text())
         self.assertTrue(any(1 <= int(json.loads(line)[1]) <= 65535
