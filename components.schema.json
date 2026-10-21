@@ -178,7 +178,7 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[a-z][a-z0-9_]*(?:_dir|_path)(?![\\s\\S])"
+                "pattern": "^(?:[a-z][a-z0-9_]*(?:_dir|_path)|file: (?:[a-zA-Z0-9_-]+/)*[a-zA-Z0-9_-]+(?:\\.json|/\\*[.]json))$"
               },
               "uniqueItems": true
             },

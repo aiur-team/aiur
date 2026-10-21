@@ -394,9 +394,30 @@ def declaration_ownership(root, manifest):
             raise InvalidManifest(f'O-{kind}: matcher is broken, not the schema (zero matches)')
     problems = []
     for kind, names in inventories.items():
+        if kind == 'state':
+            file_owners = {pattern: component['id'] for component in manifest['components']
+                           for pattern in component['paths']}
+            state_files = {}
+            for component in manifest['components']:
+                for entry in component['owns']['state']:
+                    if entry.startswith('file: '):
+                        pattern = entry[6:]
+                        if not re.fullmatch(r'[a-zA-Z0-9_./*-]+', pattern) or '**' in pattern or pattern.startswith('/') or '..' in pattern.split('/'):
+                            raise InvalidManifest(f"invalid state file pattern '{pattern}' ({component['id']})")
+                        elif pattern not in file_owners:
+                            problems.append(('O-state', f"state file pattern '{pattern}' is stale ({component['id']})"))
+                        elif file_owners[pattern] != component['id']:
+                            problems.append(('O-state', f"state file pattern '{pattern}' is not in {component['id']}'s paths"))
+                        state_files.setdefault(pattern, []).append(component['id'])
+            for pattern, owners in state_files.items():
+                if len(owners) > 1:
+                    problems.append(('O-state', f"state file pattern '{pattern}' owned twice: {', '.join(owners)}"))
+            names = [name for name in names if not name.startswith('file: ')]
         owners = {}
         for component in manifest['components']:
             for name in component['owns'][kind]:
+                if kind == 'state' and name.startswith('file: '):
+                    continue
                 owners.setdefault(name, []).append(component['id'])
         noun = {'config': 'section/field', 'env': 'env var', 'state': 'state path'}[kind]
         for name in sorted(set(names) | owners.keys()):

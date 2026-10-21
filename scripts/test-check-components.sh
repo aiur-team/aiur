@@ -228,6 +228,19 @@ repo_owner['owns']['state'].append('experiments_path')
 check('repo_state_path_owned_passes', [repo_owner], [], declarations=repo_declarations)
 check('repo_state_path_without_owner_fails', [repo_owner], [], 1, ("'experiments_path' has no owner",),
       change=lambda m: m['components'][0]['owns']['state'].remove('experiments_path'), declarations=repo_declarations)
+file_owner = json.loads(json.dumps(owner))
+file_owner['paths'].append('src/runtime/subscriptions/*.json')
+file_owner['owns']['state'].append('file: src/runtime/subscriptions/*.json')
+check('state_file_pattern_passes', [file_owner], {'src/runtime/subscriptions/a.json': ''}, declarations=declarations)
+check('state_file_pattern_stale_fails', [owner], [], 1, ("state file pattern 'src/runtime/missing.json' is stale (a)",),
+      change=lambda m: m['components'][0]['owns']['state'].append('file: src/runtime/missing.json'), declarations=declarations)
+second_file_owner = component('b', [])
+second_file_owner['paths'].append('src/runtime/subscriptions/*.json')
+second_file_owner['owns']['state'].append('file: src/runtime/subscriptions/*.json')
+check('state_file_pattern_duplicate_fails', [file_owner, second_file_owner], {'src/runtime/subscriptions/a.json': ''}, 1,
+      ("state file pattern 'src/runtime/subscriptions/*.json' owned twice: a, b",), declarations=declarations)
+check('state_file_pattern_malformed_fails', [owner], [], 2, ('invalid string',),
+      change=lambda m: m['components'][0]['owns']['state'].append('file: ../outside.json'), declarations=declarations)
 check('unknown_shared_component_fails', [dict(owner, shared_with=['absent'])], [], 2,
       ('unknown component absent',), declarations=declarations)
 for kind, name in [('config', 'bad..section'), ('env', 'lowercase'), ('state', 'repo_name')]:
