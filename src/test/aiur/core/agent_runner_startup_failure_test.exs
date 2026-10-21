@@ -1,6 +1,8 @@
 defmodule Aiur.Core.AgentRunnerStartupFailureTest do
   use Aiur.TestSupport
 
+  alias Aiur.Workspace.Layout
+
   test "agent runner surfaces ssh startup failures instead of silently hopping hosts" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-single-host")
 
@@ -129,10 +131,7 @@ defmodule Aiur.Core.AgentRunnerStartupFailureTest do
       )
 
       {:ok, test_workspace} =
-        Aiur.Workspace.Layout.workspace_path_for_issue(
-          Aiur.Workspace.Layout.safe_identifier(identifier),
-          nil
-        )
+        Layout.workspace_path_for_issue(Layout.safe_identifier(identifier), nil)
 
       issue = %Issue{
         id: "issue-before-run-pause",
