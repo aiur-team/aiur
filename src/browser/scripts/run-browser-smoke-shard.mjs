@@ -14,7 +14,7 @@ export const shards = {
   4: ["test:build-home-motion", "test:design-parity", "test:shell", "test:smoke", "test:meter-row", "test:models-panel"],
   5: ["test:build-home-band-motion", "test:build-home-states-parity", "test:build-home-edges-parity", "test:streamdeck", "test:interaction", "test:performance", "test:build-home-assets", "test:harness", "test:build-modal"],
   6: ["test:build-home-cards:4", "test:build-home-cards:3", "test:build-home-cards:1", "test:units", "test:layout", "test:responsive", "test:streamdeck-flow", "test:admission", "check:elk", "test:build-home-protocol", "test:build-home-now-state", "test:build-home-list-unit"],
-  7: ["test:build-home-cards:2", "test:build-home-span-parity", "test:build-home-edges", "test:build-home-now-band", "test:build-home-layout", "test:parity", "test:experiments", "test:time-brush", "test:build-modal-motion"],
+  7: ["test:build-home-cards:2", "test:build-home-span-parity", "test:build-home-edges", "test:build-home-now-band", "test:build-home-layout", "test:parity", "test:experiments", "test:time-brush", "test:build-modal-motion", "test:build-home-conversation"],
   8: ["test:build-home-gantt", "test:provider-meters", "test:shell-chrome", "test:palette", "test:command-answer", "test:build-index-live", "test:build-modal-parity"],
 };
 

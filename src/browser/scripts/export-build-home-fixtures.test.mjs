@@ -259,3 +259,20 @@ test('the design and full motion matrices exclude synthetic edge fixtures', asyn
   assert.equal(motionGroups.length, 120);
   assert.ok(motionGroups.every(cell => !meta.extra_datasets.includes(cell.dataset)));
 });
+
+test('conversation injection is fixed and all eligible design conversations are exported', () => {
+  assert.throws(() => loadBuildJs({ designDir, expose: [], inject: ['convoFor; globalThis.x = 1'] }), /unknown injection/);
+  const { dataFor, convoFor } = loadBuildJs({ designDir, expose: ['dataFor'], inject: ['convoFor'] });
+  for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline']) {
+    const kind = dataset === 'offline' ? 'live' : dataset;
+    const rows = Array.from(dataFor(kind).all).filter(t => t.agent && t.start != null);
+    const conversations = decode(files['conversations/' + dataset + '.json']);
+    assert.equal(Object.keys(conversations).length, rows.length);
+    const t = rows[0], entries = conversations[t.id.replace('AIUR-', '')];
+    assert.equal(entries.length, convoFor(kind, t.id).items.length);
+    assert.ok(entries.every((o, n) => o.id === 'd:' + n && Number.isInteger(o.at)));
+  }
+  const states = decode(files['conversations/states.json']);
+  assert.equal(states.paged.entries.length, 600);
+  assert.equal(states.unknown_time.entries[0].at, null);
+});
