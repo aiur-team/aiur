@@ -98,9 +98,10 @@ defmodule Aiur.Muse.TurnTest do
 
   @tag :tmp_dir
   test "an accepted receipt without a terminal times out", %{tmp_dir: dir} do
-    task = run_fixture(dir, "receipt_only", 2_000)
+    task = run_fixture(dir, "receipt_only_delayed", 150)
 
-    assert {:error, :native_turn_timeout} = Task.await(task, 5_000)
+    assert_receive {:event, %{event: :session_started, turn_id: "turn-1"}}, 5_000
+    assert {:error, :native_turn_timeout} = Task.await(task, :infinity)
   end
 
   @tag :tmp_dir
