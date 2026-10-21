@@ -20,10 +20,10 @@ EXUNIT_RUNS, EXUNIT_REDUCED_RUNS, EXUNIT_FULL_LIMIT, EXUNIT_MAX_FILES = 10, 3, 1
 # affected-tests uses 4; more concurrent cases surface shared-state and timing races sooner.
 MAX_CASES = 8
 SPEC_REPEATS, SPEC_REDUCED_REPEATS, SPEC_FULL_LIMIT, SPEC_MAX_FILES = 5, 2, 3, 10
-RUN_TIMEOUT_SECONDS = float(os.environ.get('AIUR_SOAK_TEST_TIMEOUT', '300'))
-BROWSER_RUN_TIMEOUT_SECONDS = float(os.environ.get('AIUR_SOAK_BROWSER_TIMEOUT', str(20 * 60)))
+RUN_TIMEOUT_SECONDS = 300
+BROWSER_RUN_TIMEOUT_SECONDS = 20 * 60
 MAX_BROWSER_TESTS_PER_SPEC = 200
-BROWSER_LIST_TIMEOUT_SECONDS = float(os.environ.get('AIUR_SOAK_LIST_TIMEOUT', '60'))
+BROWSER_LIST_TIMEOUT_SECONDS = 60
 BUDGET_SECONDS = int(os.environ.get('AIUR_SOAK_BUDGET_SECONDS', str(12 * 60)))
 BROWSER_ROOT = Path(os.environ.get('AIUR_SOAK_BROWSER_ROOT', Path(__file__).resolve().parent.parent / 'src/browser'))
 DURATION_SOURCE = Path(__file__).resolve().parent.parent / 'src/browser/scripts/browser-smoke-durations.mjs'
@@ -55,7 +55,7 @@ def smoke_scripts(scripts):
             continue
         seen.add(name)
         command = scripts[name]
-        yield command
+        yield name, command
         for segment in command.split('&&'):
             tokens = shlex.split(segment)
             if 'npm' in tokens:
@@ -68,7 +68,7 @@ def browser_invocations(spec, scripts):
     """Keep every smoke registration's filters/options, rather than just its first config."""
     invocations = []
     registered = False
-    for command in smoke_scripts(scripts):
+    for _name, command in smoke_scripts(scripts):
         for segment in command.split('&&'):
             tokens = shlex.split(segment)
             runner = 'scripts/run-browser-tests.mjs'
@@ -96,17 +96,21 @@ def browser_invocations(spec, scripts):
     return []
 
 
-def browser_duration(spec, scripts, durations):
-    """Return the slowest recorded suite duration for a spec's smoke registrations."""
+def browser_duration(spec, invocation, scripts, durations):
+    """Return the recorded duration for this spec's matching smoke registration."""
     seconds = []
-    for command in smoke_scripts(scripts):
+    runner = 'scripts/run-browser-tests.mjs'
+    invocation_args = invocation[invocation.index(runner) + 1:]
+    for script_name, command in smoke_scripts(scripts):
         for segment in command.split('&&'):
             tokens = shlex.split(segment)
-            runner = 'scripts/run-browser-tests.mjs'
-            if runner in tokens and spec in tokens:
-                for script_name, script_command in scripts.items():
-                    if script_name in durations and runner in script_command and spec in shlex.split(script_command):
-                        seconds.append(durations[script_name])
+            if runner not in tokens or spec not in tokens:
+                continue
+            args = tokens[tokens.index(runner) + 1:]
+            args = [token for token in args
+                    if not (token.startswith('tests/') and token.endswith('.spec.mjs') and token != spec)]
+            if args == invocation_args and script_name in durations:
+                seconds.append(durations[script_name])
     # A changed smoke spec without a matching recorded command is least known;
     # keep it first so its result is not consistently lost behind measured suites.
     return max(seconds, default=0)
@@ -138,8 +142,8 @@ def run(command, cwd=None, timeout=RUN_TIMEOUT_SECONDS):
     try:
         return subprocess.run(command, cwd=cwd, timeout=timeout).returncode
     except subprocess.TimeoutExpired:
-        notice(f'soak run timed out after {timeout:g}s: {shlex.join(command)}', 'error')
-        return 124
+        notice(f'soak run exceeded {timeout:.0f}s', 'error')
+        return RUN_TIMED_OUT
 
 
 def plan_runs(kind, count, full, reduced, full_limit, max_files):
@@ -188,67 +192,66 @@ def soak_browser():
     for spec, commands in invocations.items():
         if not commands:
             notice(f'Playwright soak skipped {spec}: the browser smoke suite does not run it')
-    listed_invocations = {}
-    for spec, commands in invocations.items():
-        listed_invocations[spec] = []
-        for invocation in commands:
-            listed = browser_test_list(invocation)
-            if listed is RUN_TIMED_OUT:
-                return 0
-            if listed is None:
-                return 1
-            listed_invocations[spec].append((invocation, listed))
     runnable = [spec for spec, commands in invocations.items() if commands]
-    runnable.sort(key=lambda spec: browser_duration(spec, scripts, durations))
+    runnable.sort(key=lambda spec: max(
+        (browser_duration(spec, invocation, scripts, durations) for invocation in invocations[spec]), default=0))
     n = plan_runs('Playwright', len(runnable), SPEC_REPEATS, SPEC_REDUCED_REPEATS, SPEC_FULL_LIMIT, SPEC_MAX_FILES)
     started = time.monotonic()
     completed = 0
     for spec in runnable if n else []:
-        estimated_seconds = browser_duration(spec, scripts, durations) * n
-        remaining = BUDGET_SECONDS - (time.monotonic() - started)
-        if remaining <= 0:
-            notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec} after {completed} passing repeats')
-            return 0
-        sampled_spec = any(len(listed) > MAX_BROWSER_TESTS_PER_SPEC
-                           for _invocation, listed in listed_invocations[spec])
-        if estimated_seconds > remaining and not sampled_spec:
-            notice(f'Playwright soak skipped {spec}: estimated {estimated_seconds:.0f}s exceeds {remaining:.0f}s remaining budget')
-            continue
-        for invocation, listed in listed_invocations[spec]:
+        for invocation in invocations[spec]:
             elapsed = time.monotonic() - started
             if elapsed >= BUDGET_SECONDS:
-                notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec}')
+                notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec} after {completed} passing repeats')
                 return 0
+            listing_timeout = min(BROWSER_LIST_TIMEOUT_SECONDS, max(0.001, (BUDGET_SECONDS - elapsed) / 2))
+            listed = browser_test_list(invocation, timeout=listing_timeout)
+            elapsed = time.monotonic() - started
             remaining = BUDGET_SECONDS - elapsed
-            if not listed:
+            if remaining <= 0:
+                notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec} after {completed} passing repeats')
+                return 0
+            if listed == []:
                 notice(f'Playwright soak skipped {spec}: registration lists no tests')
                 continue
-            sampled = len(listed) > MAX_BROWSER_TESTS_PER_SPEC
-            command = list(invocation)
+            sampled = listed is not None and len(listed) > MAX_BROWSER_TESTS_PER_SPEC
+            if listed is None:
+                notice(f'Playwright soak could not count tests for {spec}; running this registration unsampled')
+            estimated_seconds = browser_duration(spec, invocation, scripts, durations) * n
+            if listed is not None and not sampled and estimated_seconds > remaining:
+                notice(f'Playwright soak skipped {spec}: estimated {estimated_seconds:.0f}s exceeds {remaining:.0f}s remaining budget')
+                continue
+            commands = []
             if sampled:
                 notice(f'Playwright soak sampled {spec}: {len(listed)} tests exceeds '
-                       f'{MAX_BROWSER_TESTS_PER_SPEC}; running one listed test per repeat')
-                command = sample_grep(command, listed[0])
-            command.append(f'--repeat-each={n}')
-            print(f'::group::Playwright soak: {shlex.join(command)}', flush=True)
-            # Apply the overall budget between invocations, as for ExUnit. Routine
-            # motion repetitions can exceed 300s. Keep total browser runtime within
-            # 20 minutes, leaving setup/cleanup time inside the 25-minute job.
-            timeout = max(1, min(BROWSER_RUN_TIMEOUT_SECONDS - elapsed, remaining))
-            status = run_browser(command, spec, timeout)
-            print('::endgroup::', flush=True)
-            if status is RUN_TIMED_OUT:
-                notice(f'Playwright soak stopped at its runtime bound after {completed} passing repeats')
-                return 0
-            if status != 0:
-                notice(f'Playwright soak failed for {spec}. Reproduce: cd src/browser && {shlex.join(command)}', 'error')
-                return 1
-            completed += n
+                       f'{MAX_BROWSER_TESTS_PER_SPEC}; rotating one listed test per repeat')
+                sample_count = min(n, len(listed))
+                sampled_titles = random.SystemRandom().sample(listed, sample_count)
+                commands = [[*sample_grep(invocation, sampled_titles[index % sample_count]), '--repeat-each=1']
+                            for index in range(n)]
+            else:
+                commands = [[*invocation, f'--repeat-each={n}']]
+            for command in commands:
+                elapsed = time.monotonic() - started
+                if elapsed >= BUDGET_SECONDS:
+                    notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec} after {completed} passing repeats')
+                    return 0
+                print(f'::group::Playwright soak: {shlex.join(command)}', flush=True)
+                timeout = max(1, BROWSER_RUN_TIMEOUT_SECONDS - elapsed)
+                status = run_browser(command, spec, timeout)
+                print('::endgroup::', flush=True)
+                if status is RUN_TIMED_OUT:
+                    notice(f'Playwright soak stopped at its runtime bound after {completed} passing repeats')
+                    return 0
+                if status != 0:
+                    notice(f'Playwright soak failed for {spec}. Reproduce: cd src/browser && {shlex.join(command)}', 'error')
+                    return 1
+                completed += 1 if sampled else n
     if completed:
         notice(f'Playwright soak: {completed} repeats passed for {len(runnable)} specs')
     return 0
 
-def browser_test_list(invocation):
+def browser_test_list(invocation, timeout=BROWSER_LIST_TIMEOUT_SECONDS):
     """List one smoke registration's actual Playwright tests and preserve its filters."""
     runner = invocation.index('scripts/run-browser-tests.mjs')
     args = invocation[runner + 1:]
@@ -263,18 +266,20 @@ def browser_test_list(invocation):
         environment['AIUR_BROWSER_PORT'] = str(port_socket.getsockname()[1])
         try:
             result = subprocess.run(command, cwd=BROWSER_ROOT, capture_output=True, text=True,
-                                    timeout=BROWSER_LIST_TIMEOUT_SECONDS, env=environment)
+                                    timeout=timeout, env=environment)
         except subprocess.TimeoutExpired:
-            notice(f'Playwright soak skipped: over budget while listing {args[0]}; command: '
-                   f'{shlex.join(command)} (timed out after {BROWSER_LIST_TIMEOUT_SECONDS:g}s)')
-            return RUN_TIMED_OUT
+            notice(f'Playwright soak could not list {args[0]} within {timeout:g}s; '
+                   f'running this registration unsampled; command: {shlex.join(command)}')
+            return None
     if result.returncode:
-        notice(f'Playwright soak could not list {args[0]}: {shlex.join(command)}; {result.stderr.strip()}', 'error')
+        notice(f'Playwright soak could not list {args[0]}; running this registration unsampled; '
+               f'command: {shlex.join(command)}; {result.stderr.strip()}')
         return None
     try:
         return playwright_titles(json.loads(result.stdout))
-    except (json.JSONDecodeError, TypeError, KeyError) as error:
-        notice(f'Playwright soak received invalid test listing for {args[0]}: {error}', 'error')
+    except (json.JSONDecodeError, TypeError, KeyError, AttributeError) as error:
+        notice(f'Playwright soak received invalid test listing for {args[0]}; '
+               f'running this registration unsampled; command: {shlex.join(command)} ({error})')
         return None
 
 
@@ -300,11 +305,11 @@ def sample_grep(command, title_parts):
     pattern = '.*' + '.*'.join(re.escape(part) for part in title_parts) + '.*'
     for index, arg in enumerate(args):
         if arg in ('--grep', '-g') and index + 1 < len(args):
-            args[index + 1] = f'(?=(?:{args[index + 1]}))(?=.*(?:{pattern})).*'
+            args[index + 1] = f'(?=.*(?:{args[index + 1]}))(?=.*(?:{pattern})).*'
             return command[:runner + 1] + args
         if arg.startswith('--grep='):
             original = arg.split('=', 1)[1]
-            args[index] = f'--grep=(?=(?:{original}))(?=.*(?:{pattern})).*'
+            args[index] = f'--grep=(?=.*(?:{original}))(?=.*(?:{pattern})).*'
             return command[:runner + 1] + args
     args.extend(['--grep', pattern])
     return command[:runner + 1] + args

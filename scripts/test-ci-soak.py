@@ -35,6 +35,12 @@ if not 1 <= port <= 65535:
 if os.environ.get('LIST_TIMEOUT_ON'):
     import time
     time.sleep(1)
+if os.environ.get('LIST_FAIL'):
+    print('listing failed', file=sys.stderr)
+    sys.exit(2)
+if os.environ.get('LIST_INVALID'):
+    print('{not json')
+    sys.exit(0)
 count = int(os.environ.get('PLAYWRIGHT_LIST_COUNT', '1'))
 title = os.environ.get('PLAYWRIGHT_LIST_TITLE', 'sample title')
 print(json.dumps({'suites': [{'specs': [{'title': f'{title} {i}' if count > 1 else title} for i in range(count)]}]}))
@@ -212,32 +218,47 @@ class SoakTest(unittest.TestCase):
         loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
         module = importlib.util.module_from_spec(loader)
         loader.loader.exec_module(module)
+        fake_clock = [0]
+
+        def pass_after_budget(_command, _spec, _timeout):
+            fake_clock[0] = 721
+            return 0
+
         with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs", "tests/p.spec.mjs"]'}), \
                 patch.object(module, 'BROWSER_ROOT', self.browser), \
                 patch.object(module, 'DURATION_SOURCE', self.durations), \
                 patch.object(module, 'BUDGET_SECONDS', 720), \
-                patch.object(module.time, 'monotonic', side_effect=[0, 0, 0, 721]), \
+                patch.object(module.time, 'monotonic', side_effect=lambda: fake_clock[0]), \
                 patch.object(module, 'browser_test_list', return_value=[('sample title',)]), \
-                patch.object(module, 'run_browser', return_value=0) as runner, \
+                patch.object(module, 'run_browser', side_effect=pass_after_budget) as runner, \
                 patch.object(module, 'notice') as notices:
             self.assertEqual(module.soak_browser(), 0)
-        runner.assert_called_once_with(
-            ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs', '--repeat-each=5'],
-            'tests/a.spec.mjs', 720)
-        notices.assert_called_once_with('Playwright soak stopped at its 720s budget before tests/p.spec.mjs after 5 passing repeats')
+        self.assertEqual(runner.call_args.args[0],
+                         ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs', '--repeat-each=5'])
+        self.assertEqual(runner.call_args.args[1], 'tests/a.spec.mjs')
+        self.assertAlmostEqual(runner.call_args.args[2], 1200, delta=1)
+        notices.assert_any_call('Playwright soak stopped at its 720s budget before tests/p.spec.mjs after 5 passing repeats')
 
     def test_later_invocation_cannot_exceed_the_browser_job_runtime_bound(self):
+        self.durations.write_text("export const recordedSeconds = {\n  'test:a': 0,\n  'test:p': 0,\n}\n")
         loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
         module = importlib.util.module_from_spec(loader)
         loader.loader.exec_module(module)
+        fake_clock = [0]
+        passes = [700, 1200]
+
+        def advance_elapsed(_command, _spec, _timeout):
+            fake_clock[0] = passes.pop(0)
+            return 0
+
         with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs", "tests/p.spec.mjs"]'}), \
                 patch.object(module, 'BROWSER_ROOT', self.browser), \
                 patch.object(module, 'DURATION_SOURCE', self.durations), \
-                patch.object(module.time, 'monotonic', side_effect=[0, 0, 0, 0, 700, 700, 700]), \
+                patch.object(module.time, 'monotonic', side_effect=lambda: fake_clock[0]), \
                 patch.object(module, 'browser_test_list', return_value=[('sample title',)]), \
-                patch.object(module, 'run_browser', return_value=0) as runner:
+                patch.object(module, 'run_browser', side_effect=advance_elapsed) as runner:
             self.assertEqual(module.soak_browser(), 0)
-        self.assertEqual([call.args[2] for call in runner.call_args_list], [720, 20])
+        self.assertEqual([call.args[2] for call in runner.call_args_list], [1200, 500])
 
     def test_generic_runner_timeout_is_a_failure(self):
         loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
@@ -246,9 +267,8 @@ class SoakTest(unittest.TestCase):
         command = ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs']
         with patch.object(module.subprocess, 'run', side_effect=subprocess.TimeoutExpired(command, 1200)), \
                 patch.object(module, 'notice') as notices:
-            self.assertEqual(module.run(command, timeout=1200), 124)
-        notices.assert_called_once_with(
-            'soak run timed out after 1200s: node scripts/run-browser-tests.mjs tests/a.spec.mjs', 'error')
+            self.assertIs(module.run(command, timeout=1200), module.RUN_TIMED_OUT)
+        notices.assert_called_once_with('soak run exceeded 1200s', 'error')
 
     def test_browser_budget_timeout_stops_successfully_after_completed_repeats(self):
         result, calls = self.soak('browser', SOAK_SPECS='["tests/a.spec.mjs"]', AIUR_SOAK_BUDGET_SECONDS='0')
@@ -266,7 +286,7 @@ class SoakTest(unittest.TestCase):
         _result, calls = self.soak('browser', SOAK_SPECS=json.dumps(specs))
         self.assertEqual({call[-1] for call in calls}, {'--repeat-each=2'})
 
-    def test_browser_samples_large_spec_and_timeout_stops_within_budget(self):
+    def test_browser_samples_large_spec_and_rotates_within_budget(self):
         spec = self.browser / 'tests/build-home-motion.browser.spec.mjs'
         spec.parent.mkdir(parents=True)
         spec.write_text("import { test } from '@playwright/test';\nfor (const cell of Array.from({length: 2338}, (_, index) => index)) {\n  test.describe(`cell ${cell}`, () => test(`motion [cell]+ ${cell}`, async () => {}));\n}\n")
@@ -281,13 +301,19 @@ class SoakTest(unittest.TestCase):
         invocation = ['node', 'scripts/run-browser-tests.mjs', 'tests/build-home-motion.browser.spec.mjs']
         fake_clock = [0]
 
-        def stop_at_timeout(_command, _spec, timeout):
-            fake_clock[0] += timeout
-            return module.RUN_TIMED_OUT
-
         with patch.dict(os.environ, self.env | {
                 'PLAYWRIGHT_LIST_COUNT': '2338', 'PLAYWRIGHT_LIST_TITLE': 'motion [cell]+'}):
             listed = module.browser_test_list(invocation)
+        fake_clock[0] = 0
+
+        def pass_sample(_command, _spec, _timeout):
+            fake_clock[0] += 1
+            return 0
+
+        class SelectMiddle:
+            def sample(self, population, count):
+                return population[10:10 + count]
+
         with patch.dict(os.environ, self.env | {
                 'SOAK_SPECS': '["tests/build-home-motion.browser.spec.mjs"]',
                 'PLAYWRIGHT_LIST_COUNT': '2338', 'PLAYWRIGHT_LIST_TITLE': 'motion [cell]+'}), \
@@ -296,26 +322,36 @@ class SoakTest(unittest.TestCase):
                 patch.object(module, 'BUDGET_SECONDS', 60), \
                 patch.object(module.time, 'monotonic', side_effect=lambda: fake_clock[0]), \
                 patch.object(module, 'browser_test_list', return_value=listed), \
-                patch.object(module, 'run_browser', side_effect=stop_at_timeout) as runner, \
+                patch.object(module.random, 'SystemRandom', return_value=SelectMiddle()), \
+                patch.object(module, 'run_browser', side_effect=pass_sample) as runner, \
                 patch.object(module, 'notice') as notices:
             result = module.soak_browser()
         self.assertEqual(result, 0)
-        self.assertEqual(runner.call_args.args[0], [
-            'node', 'scripts/run-browser-tests.mjs', 'tests/build-home-motion.browser.spec.mjs',
-            '--grep', '.*' + re.escape('motion [cell]+ 0') + '.*', '--repeat-each=5'])
-        self.assertLessEqual(runner.call_args.args[2], 60)
+        self.assertEqual(len(runner.call_args_list), 5)
+        self.assertEqual([call.args[0][-1] for call in runner.call_args_list], ['--repeat-each=1'] * 5)
+        self.assertEqual([call.args[0][call.args[0].index('--grep') + 1]
+                          for call in runner.call_args_list], [
+                              '.*' + re.escape(f'motion [cell]+ {index}') + '.*'
+                              for index in range(10, 15)])
+        self.assertEqual(fake_clock[0], 5)
         self.assertLessEqual(fake_clock[0], 60)
-        notices.assert_any_call('Playwright soak stopped at its runtime bound after 0 passing repeats')
+        notices.assert_any_call('Playwright soak: 5 repeats passed for 1 specs')
         self.assertIn('test(`motion [cell]+ ${cell}`', spec.read_text())
         self.assertTrue(any(1 <= int(json.loads(line)[1]) <= 65535
                             for line in self.list_calls.read_text().splitlines()))
 
-    def test_exunit_timeout_still_fails_with_error_and_command(self):
-        result, calls = self.soak('exunit', SOAK_TESTS='["test/a_test.exs"]',
-                                  AIUR_SOAK_BUDGET_SECONDS='600', TIMEOUT_ON='--seed',
-                                  AIUR_SOAK_TEST_TIMEOUT='0.05', AIUR_SOAK_SEEDS='11')
-        self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn('::error::soak run timed out after 0.05s: mix test --seed 11', result.stdout)
+    def test_exunit_timeout_still_fails(self):
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        with patch.dict(os.environ, self.env | {
+                'SOAK_TESTS': '["test/a_test.exs"]', 'AIUR_SOAK_SEEDS': '11'}), \
+                patch.object(module, 'run', return_value=module.RUN_TIMED_OUT), \
+                patch.object(module, 'notice') as notices:
+            self.assertEqual(module.soak_exunit(), 1)
+        notices.assert_called_once_with(
+            'ExUnit soak run 1/10 failed with seed 11. Reproduce: cd src && mix test --seed 11 --max-cases 8 test/a_test.exs',
+            'error')
 
     def test_browser_timeout_is_a_successful_budget_stop(self):
         # Guard the successful timeout policy already established on main.
@@ -323,12 +359,30 @@ class SoakTest(unittest.TestCase):
         module = importlib.util.module_from_spec(loader)
         loader.loader.exec_module(module)
         command = ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs']
-        with patch.object(module.subprocess, 'run', side_effect=subprocess.TimeoutExpired(command, 60)), \
+        with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs"]'}), \
+                patch.object(module, 'BROWSER_ROOT', self.browser), \
+                patch.object(module, 'DURATION_SOURCE', self.durations), \
+                patch.object(module, 'browser_test_list', return_value=[('sample title',)]), \
+                patch.object(module.subprocess, 'run', side_effect=subprocess.TimeoutExpired(command, 60)) as runner, \
                 patch.object(module, 'notice') as notices:
-            self.assertIs(module.run_browser(command, 'tests/a.spec.mjs', 60), module.RUN_TIMED_OUT)
-        notices.assert_called_once_with(
-            'Playwright soak skipped: over budget: tests/a.spec.mjs; command: '
-            'node scripts/run-browser-tests.mjs tests/a.spec.mjs (timed out after 60s)')
+            self.assertEqual(module.soak_browser(), 0)
+        runner.assert_called_once()
+        notices.assert_any_call('Playwright soak stopped at its runtime bound after 0 passing repeats')
+
+    def test_browser_process_exit_124_still_fails(self):
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs"]'}), \
+                patch.object(module, 'BROWSER_ROOT', self.browser), \
+                patch.object(module, 'DURATION_SOURCE', self.durations), \
+                patch.object(module, 'browser_test_list', return_value=[('sample title',)]), \
+                patch.object(module, 'run_browser', return_value=124), \
+                patch.object(module, 'notice') as notices:
+            self.assertEqual(module.soak_browser(), 1)
+        notices.assert_any_call(
+            'Playwright soak failed for tests/a.spec.mjs. Reproduce: cd src/browser && '
+            'node scripts/run-browser-tests.mjs tests/a.spec.mjs --repeat-each=5', 'error')
 
     def test_browser_duration_orders_small_specs_first_and_skips_oversized_spec(self):
         # Keep main's duration ordering while adding sampling for oversized specs.
@@ -340,26 +394,124 @@ class SoakTest(unittest.TestCase):
         loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
         module = importlib.util.module_from_spec(loader)
         loader.loader.exec_module(module)
-        times = iter([0, 0, 0, 25])
+        fake_clock = [0]
+
+        def advance_25(_command, _spec, _timeout):
+            fake_clock[0] += 25
+            return 0
+
         with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/p.spec.mjs", "tests/a.spec.mjs"]'}), \
                 patch.object(module, 'BROWSER_ROOT', self.browser), \
                 patch.object(module, 'DURATION_SOURCE', self.durations), \
                 patch.object(module, 'BUDGET_SECONDS', 60), \
-                patch.object(module.time, 'monotonic', side_effect=lambda: next(times)), \
+                patch.object(module.time, 'monotonic', side_effect=lambda: fake_clock[0]), \
                 patch.object(module, 'browser_test_list', return_value=[('sample title',)]), \
-                patch.object(module, 'run_browser', return_value=0) as runner, \
+                patch.object(module, 'run_browser', side_effect=advance_25) as runner, \
                 patch.object(module, 'notice') as notices:
             self.assertEqual(module.soak_browser(), 0)
         self.assertEqual([call.args[0][2] for call in runner.call_args_list], ['tests/a.spec.mjs'])
         notices.assert_any_call('Playwright soak skipped tests/p.spec.mjs: estimated 100s exceeds 35s remaining budget')
 
-    def test_browser_listing_timeout_skips_with_a_budget_notice(self):
-        result, calls = self.soak(
-            'browser', SOAK_SPECS='["tests/a.spec.mjs"]',
-            LIST_TIMEOUT_ON='1', AIUR_SOAK_LIST_TIMEOUT='0.05')
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertIn('::notice::Playwright soak skipped: over budget while listing tests/a.spec.mjs; command:', result.stdout)
-        self.assertNotIn('registration lists no tests', result.stdout)
+    def test_unlistable_registration_runs_unsampled(self):
+        for failure in ({'LIST_FAIL': '1'}, {'LIST_INVALID': '1'}):
+            self.calls.unlink(missing_ok=True)
+            result, calls = self.soak('browser', SOAK_SPECS='["tests/a.spec.mjs"]', **failure)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][1:], [
+                'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs', '--repeat-each=5'])
+            self.assertIn('running this registration unsampled', result.stdout)
+            self.assertNotIn('::error::', result.stdout)
+
+    def test_listing_timeout_falls_back_to_unsampled_run(self):
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        with patch.dict(os.environ, self.env | {
+                'SOAK_SPECS': '["tests/a.spec.mjs"]', 'LIST_TIMEOUT_ON': '1'}), \
+                patch.object(module, 'BROWSER_ROOT', self.browser), \
+                patch.object(module, 'DURATION_SOURCE', self.durations), \
+                patch.object(module, 'BUDGET_SECONDS', 60), \
+                patch.object(module, 'BROWSER_LIST_TIMEOUT_SECONDS', 0.01), \
+                patch.object(module, 'run_browser', return_value=0) as runner, \
+                patch.object(module, 'notice') as notices:
+            self.assertEqual(module.soak_browser(), 0)
+        self.assertEqual(runner.call_args.args[0],
+                         ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs', '--repeat-each=5'])
+        self.assertEqual(runner.call_args.args[1], 'tests/a.spec.mjs')
+        self.assertAlmostEqual(runner.call_args.args[2], 1200, delta=1)
+        self.assertTrue(any('running this registration unsampled' in call.args[0]
+                            for call in notices.call_args_list))
+
+    def test_listing_time_counts_toward_the_soak_budget(self):
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        fake_clock = [0]
+
+        def list_after_elapsed(_invocation, timeout=None):
+            self.assertEqual(timeout, 30)
+            fake_clock[0] += 30
+            return [('sample title',)]
+
+        with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs"]'}), \
+                patch.object(module, 'BROWSER_ROOT', self.browser), \
+                patch.object(module, 'DURATION_SOURCE', self.durations), \
+                patch.object(module, 'BUDGET_SECONDS', 60), \
+                patch.object(module.time, 'monotonic', side_effect=lambda: fake_clock[0]), \
+                patch.object(module, 'browser_test_list', side_effect=list_after_elapsed), \
+                patch.object(module, 'run_browser') as runner, \
+                patch.object(module, 'notice') as notices:
+            self.assertEqual(module.soak_browser(), 0)
+        runner.assert_not_called()
+        notices.assert_any_call('Playwright soak skipped tests/a.spec.mjs: estimated 50s exceeds 30s remaining budget')
+
+    def test_sampling_one_registration_does_not_bypass_another_budget_estimate(self):
+        spec = 'tests/shared.spec.mjs'
+        (self.browser / 'package.json').write_text(json.dumps({'scripts': {
+            'test:core': 'npm run test:sampled && npm run test:expensive',
+            'test:sampled': f'node scripts/run-browser-tests.mjs {spec} --config sampled.mjs --grep sampled',
+            'test:expensive': f'node scripts/run-browser-tests.mjs {spec} --config expensive.mjs --grep expensive',
+        }}))
+        self.durations.write_text("export const recordedSeconds = {\n  'test:sampled': 1,\n  'test:expensive': 100,\n}\n")
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        fake_clock = [0]
+
+        def list_by_config(invocation, timeout=None):
+            count = 201 if 'sampled.mjs' in invocation else 1
+            return [(f'title {index}',) for index in range(count)]
+
+        with patch.dict(os.environ, self.env | {'SOAK_SPECS': json.dumps([spec])}), \
+                patch.object(module, 'BROWSER_ROOT', self.browser), \
+                patch.object(module, 'DURATION_SOURCE', self.durations), \
+                patch.object(module, 'BUDGET_SECONDS', 60), \
+                patch.object(module.time, 'monotonic', side_effect=lambda: fake_clock[0]), \
+                patch.object(module, 'browser_test_list', side_effect=list_by_config), \
+                patch.object(module.random, 'SystemRandom', return_value=type('Sample', (), {
+                    'sample': lambda _self, population, count: population[:count]})()), \
+                patch.object(module, 'run_browser', return_value=0) as runner, \
+                patch.object(module, 'notice') as notices:
+            self.assertEqual(module.soak_browser(), 0)
+        self.assertEqual(len(runner.call_args_list), 5)
+        self.assertTrue(all('sampled.mjs' in call.args[0] for call in runner.call_args_list))
+        notices.assert_any_call(
+            'Playwright soak skipped tests/shared.spec.mjs: estimated 500s exceeds 60s remaining budget')
+
+    def test_sample_grep_conjoins_filters_that_match_after_the_title_start(self):
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        for original in ('--grep', '--grep='):
+            command = ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs']
+            command.extend([original, 'product interactions.*columns[.]'] if original == '--grep'
+                            else ['--grep=product interactions.*columns[.]'])
+            sampled = module.sample_grep(command, ('product interactions', 'columns.cell'))
+            pattern = sampled[sampled.index('--grep') + 1] if '--grep' in sampled else next(
+                arg.removeprefix('--grep=') for arg in sampled if arg.startswith('--grep='))
+            self.assertRegex('prefix product interactions show columns.cell update', pattern)
+            self.assertNotRegex('prefix product interactions show rows.cell update', pattern)
 
 if __name__ == '__main__':
     unittest.main()
