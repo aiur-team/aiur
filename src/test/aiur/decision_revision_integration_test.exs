@@ -1,5 +1,6 @@
 defmodule Aiur.DecisionRevisionIntegrationTest do
   use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.{Decision, DecisionEvent, DecisionHistory, DecisionPubSub, DecisionStore}
 
@@ -156,7 +157,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     assert {:ok, %{action: original}} =
              DecisionStore.answer(decision.decision_id, answer_payload, [actor: @operator], pid)
 
-    assert_receive {:queue_item, original_action_id, original_item}, 1_000
+    receive_barrier({:queue_item, original_action_id, original_item})
     assert original_action_id == original.action_id
     _queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
     assert {:ok, :accepted} = DecisionStore.record_delivery(original_item, pid)
@@ -177,7 +178,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     assert {:ok, %{status: :accepted, action: revision}} =
              DecisionStore.revise(decision.decision_id, revision_payload, [actor: @operator], pid)
 
-    assert_receive {:queue_item, revision_action_id, revision_item}, 1_000
+    receive_barrier({:queue_item, revision_action_id, revision_item})
     assert revision_action_id == revision.action_id
     _revision_queued = wait_for(pid, decision.decision_id, &(&1.revision_result == :dispatched))
     assert {:ok, :accepted} = DecisionStore.record_delivery(revision_item, pid)
@@ -276,18 +277,14 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     )
   end
 
-  defp wait_for(pid, decision_id, predicate, attempts \\ 100)
-
-  defp wait_for(_pid, _decision_id, _predicate, 0), do: flunk("decision did not reach expected state")
-
-  defp wait_for(pid, decision_id, predicate, attempts) do
+  defp wait_for(pid, decision_id, predicate) do
     {:ok, decision} = DecisionStore.get(decision_id, pid)
 
     if predicate.(decision) do
       decision
     else
-      assert_receive {:decision_changed, ^decision_id, _version}, 2_000
-      wait_for(pid, decision_id, predicate, attempts - 1)
+      receive_barrier({:decision_changed, ^decision_id, _version})
+      wait_for(pid, decision_id, predicate)
     end
   end
 end
