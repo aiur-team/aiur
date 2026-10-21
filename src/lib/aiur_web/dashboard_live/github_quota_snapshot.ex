@@ -21,6 +21,8 @@ defmodule AiurWeb.DashboardLive.GitHubQuotaSnapshot do
   defp stale(snapshot, age_ms, observed_at_ms) do
     observed_at = DateTime.from_unix!(observed_at_ms, :millisecond)
 
-    %{snapshot | windows: Map.new(snapshot.windows, fn {resource, window} -> {resource, Map.put(window, :snapshot_stale?, true) |> Map.put(:observed_at, observed_at)} end), snapshot_age_ms: age_ms}
+    snapshot
+    |> Map.put(:windows, Map.new(snapshot.windows, fn {resource, window} -> {resource, Map.put(window, :snapshot_stale?, true) |> Map.put(:observed_at, observed_at)} end))
+    |> Map.put(:snapshot_age_ms, age_ms)
   end
 end
