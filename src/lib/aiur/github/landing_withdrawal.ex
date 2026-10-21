@@ -11,6 +11,27 @@ defmodule Aiur.GitHub.LandingWithdrawal do
 
   @type action :: :dequeued | :auto_merge_disabled
 
+  @spec approved_auto_merge_head(integer(), keyword()) :: {:ok, %{head_sha: String.t(), approved_head_sha: String.t()}} | {:error, term()}
+  def approved_auto_merge_head(pr_number, opts \\ []) when is_integer(pr_number) do
+    query =
+      "query AiurStaleApprovedHead($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { state headRefOid reviewDecision autoMergeRequest { enabledAt } reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } } } }"
+
+    with {:ok, token} <- Transport.require_token(opts),
+         {:ok, {owner, name}} <- Transport.parse_repo(),
+         {:ok, body} <-
+           Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
+             caller: "stale_approved_head"
+           ),
+         %{"state" => "OPEN", "headRefOid" => head, "reviewDecision" => "APPROVED", "autoMergeRequest" => %{}, "reviews" => %{"nodes" => [%{"commit" => %{"oid" => approved}}]}} <-
+           get_in(body, ["data", "repository", "pullRequest"]),
+         true <- is_binary(head) and is_binary(approved) and head != approved do
+      {:ok, %{head_sha: head, approved_head_sha: approved}}
+    else
+      {:error, _reason} = error -> error
+      _other -> {:error, :approval_or_auto_merge_unconfirmed}
+    end
+  end
+
   @spec withdraw(integer(), keyword()) :: {:ok, [action()]} | {:error, term(), [action()]}
   def withdraw(pr_number, opts \\ []) when is_integer(pr_number) do
     withdraw(pr_number, opts, :queue_and_auto_merge)

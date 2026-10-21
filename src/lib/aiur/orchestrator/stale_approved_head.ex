@@ -3,12 +3,11 @@ defmodule Aiur.Orchestrator.StaleApprovedHead do
 
   alias Aiur.Alerts
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.GitHub.{LandingWithdrawal, Transport}
+  alias Aiur.GitHub.LandingWithdrawal
 
   @spec reconcile(String.t(), integer(), keyword()) :: :ok
   def reconcile(ticket, pr_number, opts \\ []) do
-    with {:ok, %{head_sha: head, approved_head_sha: approved, auto_merge?: true}} <- read_pr(pr_number, opts),
-         true <- is_binary(head) and is_binary(approved) and head != approved,
+    with {:ok, %{head_sha: head, approved_head_sha: approved}} <- LandingWithdrawal.approved_auto_merge_head(pr_number, opts),
          {:changed, %{reason: reason, hunks: hunks}} <- classify(approved, head, pr_number, opts) do
       withdraw(ticket, pr_number, approved, head, reason, hunks, opts)
     else
@@ -26,26 +25,6 @@ defmodule Aiur.Orchestrator.StaleApprovedHead do
   defp notify_if_disabled(ticket, pr_number, approved, head, reason, hunks, actions) do
     if :auto_merge_disabled in actions, do: emit_stale(ticket, pr_number, approved, head, reason, hunks)
     :ok
-  end
-
-  defp read_pr(pr_number, opts) do
-    query =
-      "query AiurStaleApprovedHead($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { state headRefOid reviewDecision autoMergeRequest { enabledAt } reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } } } }"
-
-    with {:ok, token} <- Transport.require_token(opts),
-         {:ok, {owner, name}} <- Transport.parse_repo(),
-         {:ok, body} <-
-           Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
-             caller: "stale_approved_head"
-           ),
-         %{"state" => "OPEN", "headRefOid" => head, "reviewDecision" => "APPROVED", "autoMergeRequest" => %{}, "reviews" => %{"nodes" => nodes}} <- get_in(body, ["data", "repository", "pullRequest"]),
-         [%{"commit" => %{"oid" => approved}}] <- nodes,
-         true <- is_binary(head) and is_binary(approved) do
-      {:ok, %{head_sha: head, approved_head_sha: approved, auto_merge?: true}}
-    else
-      {:error, _reason} = error -> error
-      _other -> {:error, :approval_or_auto_merge_unconfirmed}
-    end
   end
 
   defp classify(approved, head, pr_number, opts) do
