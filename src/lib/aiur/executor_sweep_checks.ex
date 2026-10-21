@@ -4,7 +4,7 @@ defmodule Aiur.ExecutorSweep.Checks do
   GitHub snapshot data. This module performs no I/O.
   """
 
-  alias Aiur.ExecutorSweep.{FailureCause, StateLabels, TriageBacklog}
+  alias Aiur.ExecutorSweep.{CacheFreshness, FailureCause, StateLabels, TriageBacklog}
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
 
@@ -27,7 +27,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       {"conflicting_waiting_prs", [:pull_requests, :tickets], fn -> conflicting_waiting_prs(snapshot) end},
       {"landing_rerun_backlog", [:landing_rerun_backlog], fn -> landing_rerun_backlog(snapshot, now) end},
       {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
-      {"stale_merge_groups", [:merge_groups], fn -> stale_merge_groups(snapshot, now, stale_minutes, github_freshness_ms) end},
+      {"stale_merge_groups", [:merge_groups], fn -> CacheFreshness.stale_merge_groups(snapshot, now, stale_minutes, github_freshness_ms) end},
       {"queue_sets", [:queue_sets, :idle_slots], fn -> queue_sets(snapshot) end},
       {"queue_order", [:queue_order, :feature_order], fn -> queue_order(snapshot) end},
       {"ticket_hygiene", [:tickets, :pull_requests], fn -> ticket_hygiene(snapshot, now) end},
@@ -234,38 +234,11 @@ defmodule Aiur.ExecutorSweep.Checks do
     end)
   end
 
-  defp stale_merge_groups(snapshot, now, stale_minutes, max_age_ms) do
-    snapshot
-    |> Map.get(:merge_groups, [])
-    |> Enum.flat_map(fn group ->
-      age = age_ms(date(value(group, :started_at, nil)), now)
-      cache_age_ms = cache_age(snapshot, :landing_merge_group_runs)
-
-      if value(group, :state, "") in ["queued", "in_progress"] and age >= stale_minutes * 60_000 and fresh_age?(cache_age_ms, max_age_ms) do
-        [
-          finding(
-            "stale_merge_group",
-            5,
-            age,
-            "Inspect the merge-group run and start a fresh required run if needed.",
-            "Merge group #{value(group, :name, "?")} is #{value(group, :state, "stale")} for #{duration(age)} (GitHub cache age: #{duration(cache_age_ms)}).",
-            merge_group: value(group, :name, nil),
-            cache_age_ms: cache_age_ms
-          )
-        ]
-      else
-        []
-      end
-    end)
-  end
-
   defp cache_age(snapshot, type), do: get_in(snapshot, [:github_cache_ages, type])
 
   defp fresh_github_finding?(finding, cache_age_ms, max_age_ms) do
     if finding.kind in ["approved_pr_red", "approved_pr_not_landing"], do: fresh_age?(cache_age_ms, max_age_ms), else: true
   end
-
-  defp fresh_age?(age, max_age_ms), do: is_integer(age) and age <= max_age_ms
 
   defp queue_sets(snapshot) do
     slots_idle = value(snapshot, :idle_slots, 0) > 0
