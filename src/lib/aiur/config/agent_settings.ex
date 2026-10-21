@@ -62,7 +62,7 @@ defmodule Aiur.Config.AgentSettings do
   def agent_kind do
     case agent_priority_backends() do
       [primary | _] -> primary
-      [] -> Aiur.Config.settings!().agent.kind || Aiur.CodingAgent.default_backend()
+      [] -> Aiur.Config.settings!().agent.kind || Aiur.Config.BackendCatalog.default_backend()
     end
   end
 
@@ -117,8 +117,12 @@ defmodule Aiur.Config.AgentSettings do
   @spec rate_limit_fallback_backend() :: String.t() | nil
   def rate_limit_fallback_backend do
     case agent_priority_backends() do
-      [_primary | rest] -> Enum.find(rest, &(&1 in Aiur.CodingAgent.rate_limit_fallback_targets()))
-      [] -> legacy_rate_limit_fallback()
+      [_primary | rest] ->
+        with {:ok, _catalog} <- Aiur.Config.BackendCatalog.impl(),
+             do: Enum.find(rest, &(&1 in Aiur.Config.BackendCatalog.rate_limit_fallback_targets()))
+
+      [] ->
+        legacy_rate_limit_fallback()
     end
   end
 
