@@ -12,7 +12,6 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
   alias Aiur.Conversation.History, as: ConversationHistory
-  alias Aiur.GitHub.Quota, as: GitHubQuota
   alias Aiur.ProviderMeterRefresh
   alias Aiur.TrackerIdentity
   alias Aiur.Usage.GroupedScopes
