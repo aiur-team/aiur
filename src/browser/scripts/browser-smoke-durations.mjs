@@ -6,6 +6,16 @@
 // run 39100789804 spent 80-120s per shard outside its suites.
 export const preflightSeconds = 120
 export const recordedSeconds = {
+  // Green PR #5016 CI run 39273221105, head 6ed6d40de039efe1efedc30e9948090ec98a0881.
+  // Whole-command wall times from completed shard logs, rounded up (not test-time sums).
+  // Job 118131038618 (shard 8/9): 0.5s.
+  'test:build-home-chains-unit': 1,
+  // Job 118131038618 (shard 8/9): 132.3s.
+  'test:build-home-chains': 133,
+  // Job 118131038704 (shard 7/9): 126.4s.
+  'test:build-home-chains-parity': 127,
+  // Job 118131038510 (shard 2/9): 28.7s.
+  'test:browser-suite -- build-home-chains-states': 29,
   // CI run 39590874795 (2026-10-21), full suite wall times including fixture startup:
   // shards 5/8/7 measured modal 30.9s, parity 122.8s, motion 25.6s; round each up.
   'test:build-modal': 31,
