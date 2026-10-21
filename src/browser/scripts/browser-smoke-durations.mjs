@@ -6,11 +6,23 @@
 // run 39100789804 spent 80-120s per shard outside its suites.
 export const preflightSeconds = 120
 export const recordedSeconds = {
-  // #3156 local harness (2026-10-20): functional 19.3s, parity 1.2m, motion 15.0s.
-  // Round up for fixture startup; refresh these provisional bounds from the first CI suite log.
-  'test:build-modal': 25,
-  'test:build-modal-parity': 90,
-  'test:build-modal-motion': 20,
+  // Green PR #5016 CI run 39273221105, head 6ed6d40de039efe1efedc30e9948090ec98a0881.
+  // Whole-command wall times from completed shard logs, rounded up (not test-time sums).
+  // Job 118131038618 (shard 8/9): 0.5s.
+  'test:build-home-chains-unit': 1,
+  // Job 118131038618 (shard 8/9): 132.3s.
+  'test:build-home-chains': 133,
+  // Job 118131038704 (shard 7/9): 126.4s.
+  'test:build-home-chains-parity': 127,
+  // Job 118131038510 (shard 2/9): 28.7s.
+  'test:browser-suite -- build-home-chains-states': 29,
+  // CI run 39590874795 (2026-10-21), full suite wall times including fixture startup:
+  // shards 5/8/7 measured modal 30.9s, parity 122.8s, motion 25.6s; round each up.
+  'test:build-modal': 31,
+  'test:build-modal-parity': 123,
+  'test:build-modal-motion': 26,
+  // Same run, shard 7/job 119192841077: all 14 conversation cases passed; 163.6s wall time.
+  'test:build-home-conversation': 165,
   // Governed core commands (2026-10-18): 31 cases in 518s; 32 cases on 2ed995a67 in 445s.
   // Keep the slower observed bound; wall timings include fixture startup and build-gate wait.
   'test:build-home-gantt': 518,
@@ -30,7 +42,8 @@ export const recordedSeconds = {
   'test:home-css-ci': 5,
   'test:admission': 1,
   'check:elk': 1,
-  'check:build-home-fixtures': 6,
+  // Same run, shard 3/job 119192840906: 26 exporter tests + 29 URL goldens; 29.2s wall time.
+  'check:build-home-fixtures': 30,
   'test:build-home-protocol': 1,
   'test:build-home-now-state': 1,
   'test:harness': 7,

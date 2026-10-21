@@ -1,5 +1,6 @@
 defmodule AiurWeb.Build.PayloadValidator do
   @moduledoc false
+  alias AiurWeb.Build.ConversationPayload
   alias AiurWeb.Build.PayloadSchema, as: Schema
 
   @spec validate(map()) :: :ok | {:error, [{String.t(), atom()}]}
@@ -34,6 +35,17 @@ defmodule AiurWeb.Build.PayloadValidator do
   defp check(value, :id, path) when is_binary(value), do: if(Regex.match?(~r/^(?:[1-9][0-9]*|pack:[a-z0-9][a-z0-9-]{0,63})$/, value), do: [], else: error(path, :id))
   defp check(value, :model, path) when is_binary(value), do: if(Regex.match?(~r/^[a-z0-9][a-z0-9._-]{0,31}$/, value), do: [], else: error(path, :model))
   defp check(value, :usage, path) when is_map(value), do: check(value, {:object, Schema.usage(value["state"]), []}, path)
+
+  defp check(value, :conversation_id, path) when is_binary(value),
+    do: if(Regex.match?(~r/\A[1-9][0-9]*\z/, value), do: [], else: error(path, :id))
+
+  defp check(value, :conversation_entry, path) when is_map(value) do
+    case ConversationPayload.entry(value["k"]) do
+      {fields, optional} -> check(value, {:object, fields, ["cursor" | optional]}, path)
+      nil -> error(path, :type)
+    end
+  end
+
   defp check(value, :row, path) when is_map(value), do: check(value, {:object, Schema.row(), []}, path) ++ row_rules(value, path)
   defp check(_value, _type, path), do: error(path, :type)
 

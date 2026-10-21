@@ -109,10 +109,22 @@ def is_ancestor(root, tested, head):
                           capture_output=True, check=False).returncode == 0
 
 
+def only_merges_after(root, tested, head):
+    """Require every commit on the tested-to-head ancestry path to be a merge."""
+    try:
+        commits = git(root, 'rev-list', '--reverse', '--ancestry-path', f'{tested}..{head}').splitlines()
+        return bool(commits) and all(
+            len(git(root, 'rev-list', '--parents', '-n', '1', commit).split()) == 3
+            for commit in commits
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+
+
 def identical_contribution(pr, tested, root):
-    """The #4710 approval-carry comparison: only base commits came in since the tested ancestor."""
+    """Accept tested evidence only across merge-only history with unchanged contribution."""
     head = pr['head']['sha']
-    if not is_ancestor(root, tested, head):
+    if not is_ancestor(root, tested, head) or not only_merges_after(root, tested, head):
         return False
     try:
         base = pr['base']['sha']
@@ -143,7 +155,7 @@ def evidence_head(pr, root):
     match = TESTED_HEAD.search(pr['body'] or '')
     tested = match and match.group(1).lower()
     if tested and tested != head.lower() and identical_contribution(pr, tested, root):
-        return tested, f'identical contribution since {tested}'
+        return tested, f'tested at {tested}; later commits are main merges only'
     return head, 'exact head'
 
 
