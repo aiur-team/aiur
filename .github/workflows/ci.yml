@@ -99,6 +99,8 @@ jobs:
         run: bash scripts/test-check-config-docs.sh && python3 scripts/test-generate-reference-tables.py && bash scripts/test-check-design-extract.sh
       - name: Check component docs links and test manifest guard
         run: python3 scripts/check-components.py --docs && bash scripts/test-check-components.sh
+      - name: Check test isolation ratchet
+        run: python3 scripts/check-test-isolation.py
       - name: Test env example drift guard
         run: bash scripts/test-check-env-example.sh
       - name: Test coverage-shard parity guard
@@ -160,7 +162,7 @@ jobs:
         run: make fmt-check
       - name: Credo + specs
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        run: make lint
+        run: make lint && python3 ../scripts/check-test-isolation.py
       - name: Config docs and Docker dependency guards
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
