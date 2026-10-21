@@ -18,9 +18,9 @@ defmodule Aiur.Orchestrator.StaleApprovedHeadTest do
     opts = opts(parent, {:changed, %{reason: :contribution_changed, hunks: [%{file: "lib/new.ex"}]}})
 
     assert :ok = StaleApprovedHead.reconcile(ticket, 77, opts)
-    assert_received {:graphql, "AiurStaleApprovedHead", _}
-    assert_received {:graphql, "AiurLandingWithdrawal", _}
-    assert_received {:graphql, "AiurDisableAutoMerge", _}
+    assert_received {:graphql, "AiurStaleApprovedHead", %{"number" => 77}}
+    assert_received {:graphql, "AiurLandingWithdrawal", %{"number" => 77}}
+    assert_received {:graphql, "AiurDisableAutoMerge", %{"id" => "PR_77"}}
     refute_received {:graphql, "AiurDequeuePullRequest", _}
     assert_received {:classifier_args, "approved-head", "new-head", 77}
 
