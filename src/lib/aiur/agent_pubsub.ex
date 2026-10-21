@@ -20,7 +20,9 @@ defmodule Aiur.AgentPubSub do
   def subscribe_agent(identifier) when is_binary(identifier) do
     topic = AgentEvents.agent_topic(identifier)
     result = Phoenix.PubSub.subscribe(@pubsub, topic)
+
     Logger.debug("AgentPubSub.subscribe_agent topic=#{topic} pid=#{inspect(self())} result=#{inspect(result)}")
+
     result
   end
 
@@ -60,7 +62,8 @@ defmodule Aiur.AgentPubSub do
   def latest_fleet_summaries, do: FleetRefresh.latest(self())
 
   @spec broadcast_fleet_refresh() :: :ok
-  def broadcast_fleet_refresh, do: do_broadcast(@fleet_refresh_topic, :fleet_changed, FleetRefresh)
+  def broadcast_fleet_refresh,
+    do: do_broadcast(@fleet_refresh_topic, :fleet_changed, FleetRefresh)
 
   @spec subscribe_status() :: :ok | {:error, term()}
   def subscribe_status, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic())
@@ -88,10 +91,19 @@ defmodule Aiur.AgentPubSub do
           max_concurrent_agents: integer() | nil
         }) :: :ok
   def broadcast_poll_state(%{checking?: _, next_poll_due_at_ms: _} = payload) do
-    do_broadcast(AgentEvents.poll_state_topic(), {:poll_state_changed, payload})
+    # The deadline is part of the state: a newly scheduled poll must refresh
+    # the agent-list countdown, while duplicate notifications within a state
+    # transition should not fan out again.
+    broadcast_if_changed(
+      :poll_state,
+      Map.take(payload, [:checking?, :next_poll_due_at_ms, :max_concurrent_agents]),
+      AgentEvents.poll_state_topic(),
+      {:poll_state_changed, payload}
+    )
   end
 
-  @spec broadcast_transcript(AgentEvents.agent_identifier(), AgentEvents.transcript_event()) :: :ok
+  @spec broadcast_transcript(AgentEvents.agent_identifier(), AgentEvents.transcript_event()) ::
+          :ok
   def broadcast_transcript(identifier, %{role: _, body: _, timestamp: _} = event)
       when is_binary(identifier) do
     do_broadcast(AgentEvents.agent_topic(identifier), {:transcript_event, event})
@@ -135,18 +147,30 @@ defmodule Aiur.AgentPubSub do
 
   @doc "Publishes a normalized, redacted per-unit control lifecycle projection."
   @spec broadcast_control_lifecycle(AgentEvents.agent_identifier(), map()) :: :ok
-  def broadcast_control_lifecycle(identifier, payload) when is_binary(identifier) and is_map(payload) do
+  def broadcast_control_lifecycle(identifier, payload)
+      when is_binary(identifier) and is_map(payload) do
     do_broadcast(AgentEvents.agent_topic(identifier), {:control_lifecycle, payload})
   end
 
   @spec broadcast_running_change([AgentEvents.agent_summary()]) :: :ok
   def broadcast_running_change(summaries) when is_list(summaries) do
-    do_broadcast(AgentEvents.running_topic(), {:running_changed, summaries}, FleetRefresh)
+    broadcast_if_changed(
+      :running,
+      summaries,
+      AgentEvents.running_topic(),
+      {:running_changed, summaries},
+      FleetRefresh
+    )
   end
 
   @spec broadcast_status_change(AgentEvents.agent_identifier(), atom()) :: :ok
-  def broadcast_status_change(identifier, status) when is_binary(identifier) and is_atom(status) do
-    do_broadcast(AgentEvents.status_topic(), {:status_changed, %{identifier: identifier, status: status}}, FleetRefresh)
+  def broadcast_status_change(identifier, status)
+      when is_binary(identifier) and is_atom(status) do
+    do_broadcast(
+      AgentEvents.status_topic(),
+      {:status_changed, %{identifier: identifier, status: status}},
+      FleetRefresh
+    )
   end
 
   @spec broadcast_turn_event(AgentEvents.agent_identifier(), atom(), map()) :: :ok
@@ -154,7 +178,10 @@ defmodule Aiur.AgentPubSub do
       when is_binary(identifier) and
              event_tag in [:turn_completed, :turn_failed, :turn_cancelled, :turn_input_required] and
              is_map(payload) do
-    do_broadcast(AgentEvents.agent_topic(identifier), {:turn_event, identifier, event_tag, payload})
+    do_broadcast(
+      AgentEvents.agent_topic(identifier),
+      {:turn_event, identifier, event_tag, payload}
+    )
   end
 
   @doc """
@@ -185,6 +212,19 @@ defmodule Aiur.AgentPubSub do
         # No PubSub registry — expected in CLI contexts (e.g. `aiur init`) that
         # don't start the full supervision tree. A broadcast with no subscribers
         # is a silent no-op; logging it just adds noise to command output.
+        :ok
+    end
+  end
+
+  defp broadcast_if_changed(key, signature, topic, message, dispatcher \\ Phoenix.PubSub) do
+    case Process.whereis(@pubsub) do
+      pid when is_pid(pid) ->
+        case FleetRefresh.publish_if_changed(self(), key, signature) do
+          :changed -> do_broadcast(topic, message, dispatcher)
+          :unchanged -> :ok
+        end
+
+      _ ->
         :ok
     end
   end
