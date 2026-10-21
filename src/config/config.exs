@@ -228,7 +228,7 @@ if config_env() == :test do
   test_log_root =
     Path.join(
       System.tmp_dir!(),
-      "aiur-test-logs-#{System.os_time(:millisecond)}-#{System.pid()}"
+      "aiur-test-logs-#{System.os_time(:millisecond)}-#{System.pid()}-#{System.unique_integer([:positive])}"
     )
 
   # mix starts the application before test_helper. Capture HOME before changing

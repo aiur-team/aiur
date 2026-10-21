@@ -19,6 +19,10 @@ defmodule Aiur.TestBootstrapConfigTest do
 
   test "test environment boots with a disposable copy of the workflow fixture" do
     config = Config.Reader.read!(@config_path, env: :test)
+    next_config = Config.Reader.read!(@config_path, env: :test)
+
+    assert config[:aiur][:test_state_root] != next_config[:aiur][:test_state_root]
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(next_config[:aiur][:test_state_root]) end)
 
     workflow_file_path = config[:aiur][:workflow_file_path]
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(config[:aiur][:test_state_root]) end)
