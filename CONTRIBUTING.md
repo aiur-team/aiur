@@ -429,6 +429,11 @@ Every root config section and scalar field, env schema name, and public
 owner in `owns.config`, `owns.env` or `owns.state`. Add the owner in the same PR
 as a new declaration; stale and duplicate ownership also fail lint. Explicit dotted
 `owns.config` fields override their section owner; `shared_with` records collaborators.
+For files persisted beneath a shared runtime directory, declare exact component-owned
+patterns in `owns.state` as `file: <runtime_state_dir>/name.json` or
+`file: <runtime_state_dir>/subdirectory/*.json`. The directory placeholder must name
+a public `_dir` accessor; this assigns the files without transferring ownership of the
+shared directory itself.
 
 RQ4: root sections stay literal `embeds_one` declarations: Ecto composes the
 struct at compile time and `check-config-docs.py` reads those lines. Ownership

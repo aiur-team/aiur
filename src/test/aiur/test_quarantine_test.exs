@@ -15,7 +15,7 @@ defmodule Aiur.TestQuarantineTest do
     assert {:error, {:invalid_quarantine_entry, 2}} = TestQuarantine.parse("# valid comment\nnot a valid row\n")
   end
 
-  test "the checked-in quarantine list parses and excludes its exact entries" do
+  test "the checked-in quarantine list parses with sorted rows and ticket provenance" do
     test_root = Path.join(File.cwd!(), "test")
     path = Path.join(test_root, "quarantine.txt")
     assert {:ok, entries} = TestQuarantine.read(path)
@@ -28,33 +28,38 @@ defmodule Aiur.TestQuarantineTest do
     test_modules = test_root |> Path.join("**/*_test.exs") |> Path.wildcard() |> test_module_names()
 
     assert Enum.all?(entries, &MapSet.member?(test_modules, &1.module))
+  end
 
-    assert {:excluded, "due to test filter"} =
-             ExUnit.Filters.eval(
-               [],
-               TestQuarantine.filters(entries),
-               %{test: :"test create freezes the baseline and reports its window, count and coverage"},
-               :test
-             )
+  test "filters exclude synthetic plain, described, and special-character test names" do
+    entries = [
+      %{module: "Aiur.ExampleTest", name: "plain synthetic test", ticket: "#1"},
+      %{module: "Aiur.ExampleTest", name: "synthetic describe described test", ticket: "#2"},
+      %{module: "Aiur.ExampleTest", name: ~s(synthetic handles [brackets] and "quotes"), ticket: "#3"},
+      %{module: "Aiur.ExampleWildcardTest", name: "*", ticket: "#4"}
+    ]
+
+    filters = TestQuarantine.filters(entries)
+
+    for name <- [
+          "test plain synthetic test",
+          "test synthetic describe described test",
+          ~s(test synthetic handles [brackets] and "quotes")
+        ] do
+      assert {:excluded, "due to test filter"} =
+               ExUnit.Filters.eval([], filters, %{module: Aiur.ExampleTest, test: String.to_atom(name)}, :test)
+    end
 
     assert {:excluded, "due to module filter"} =
-             ExUnit.Filters.eval([], TestQuarantine.filters(entries), %{module: :"Aiur.Core.AgentRunnerCheckpointQueueTest"}, :test)
+             ExUnit.Filters.eval([], filters, %{module: Aiur.ExampleWildcardTest, test: :"test any name"}, :test)
   end
 
-  test "a listed describe-block test is excluded by the name ExUnit gives it" do
-    assert {:ok, entries} = TestQuarantine.read(Path.join([File.cwd!(), "test", "quarantine.txt"]))
+  test "test helper wires parsed quarantine rows into ExUnit exclusions" do
+    path = Path.join([File.cwd!(), "test", "quarantine.txt"])
+    assert {:ok, entries} = TestQuarantine.read(path)
+    configured_exclusions = ExUnit.configuration()[:exclude]
 
-    tags = %{
-      module: Aiur.DecisionStore.EnrichmentTest,
-      describe: "supervisor enrichment",
-      test: :"test supervisor enrichment exact replay is duplicate while changed reuse conflicts without append or notification"
-    }
-
-    assert {:excluded, "due to test filter"} = ExUnit.Filters.eval([], TestQuarantine.filters(entries), tags, :test)
-  end
-
-  test "the blocking ExUnit run config excludes a listed test by its exact name" do
-    assert {:test, :"test create freezes the baseline and reports its window, count and coverage"} in ExUnit.configuration()[:exclude]
+    assert Enum.all?(TestQuarantine.filters(entries), &(&1 in configured_exclusions))
+    assert TestQuarantine.filters([]) == []
   end
 
   defp test_module_names(files) do

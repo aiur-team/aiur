@@ -244,7 +244,13 @@ test('copy success, fallback and failure reflect the actual clipboard outcome', 
 
 test('applied diffs refresh metadata and retire removed rows without rerendering the body', async ({ page }) => {
   await open(page); const t = await row(page); await display(page, t)
-  await page.locator('[data-a="link"]').focus()
+  // Opening the modal schedules its initial title focus on the next frame.
+  // Let that settle before focusing the action whose focus must survive a diff.
+  await expect(page.locator('#bm-title')).toBeFocused()
+  const copy = page.locator('[data-a="link"]')
+  await copy.focus()
+  await expect(copy).toBeFocused()
+  await page.evaluate(() => { window.copyButtonBeforeDiff = document.querySelector('[data-a="link"]') })
   await page.evaluate(async t => {
     const { ctx } = await import('/build-home/state.js'), { receive } = await import('/build-home/hook.js')
     receive({ v: 1, kind: 'diff', epoch: ctx.proto.epoch, generation: ctx.proto.generation + 1, now: ctx.snap.now,
@@ -252,7 +258,11 @@ test('applied diffs refresh metadata and retire removed rows without rerendering
   }, t)
   await expect(page.locator('#bm-pct')).toHaveText('61%')
   expect(await page.locator('.bm-st').evaluate(el => el.style.getPropertyValue('--ph'))).toBe('105')
-  await expect(page.locator('[data-a="link"]')).toBeFocused()
+  await expect.poll(() => page.evaluate(() => ({
+    sameNode: window.copyButtonBeforeDiff === document.querySelector('[data-a="link"]'),
+    activeAction: document.activeElement?.dataset?.a ?? null,
+  }))).toEqual({ sameNode: false, activeAction: 'link' })
+  await expect(copy).toBeFocused()
   await page.evaluate(async id => {
     const { ctx } = await import('/build-home/state.js'), { receive } = await import('/build-home/hook.js')
     receive({ v: 1, kind: 'diff', epoch: ctx.proto.epoch, generation: ctx.proto.generation + 1, now: ctx.snap.now, upsert: [], remove: [id], set: {} })
