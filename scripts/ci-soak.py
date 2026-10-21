@@ -24,6 +24,7 @@ BROWSER_RUN_TIMEOUT_SECONDS = 20 * 60
 BUDGET_SECONDS = int(os.environ.get('AIUR_SOAK_BUDGET_SECONDS', str(12 * 60)))
 BROWSER_ROOT = Path(os.environ.get('AIUR_SOAK_BROWSER_ROOT', Path(__file__).resolve().parent.parent / 'src/browser'))
 DURATION_SOURCE = Path(__file__).resolve().parent.parent / 'src/browser/scripts/browser-smoke-durations.mjs'
+RUN_TIMED_OUT = object()
 
 
 def notice(message, level='notice'):
@@ -135,7 +136,7 @@ def run(command, cwd=None, timeout=RUN_TIMEOUT_SECONDS):
         return subprocess.run(command, cwd=cwd, timeout=timeout).returncode
     except subprocess.TimeoutExpired:
         notice(f'soak run exceeded {timeout:.0f}s', 'error')
-        return 124
+        return RUN_TIMED_OUT
 
 
 def plan_runs(kind, count, full, reduced, full_limit, max_files):
@@ -211,7 +212,7 @@ def soak_browser():
             # 20 minutes, leaving setup/cleanup time inside the 25-minute job.
             status = run(command, cwd=BROWSER_ROOT, timeout=max(1, BROWSER_RUN_TIMEOUT_SECONDS - elapsed))
             print('::endgroup::', flush=True)
-            if status == 124:
+            if status is RUN_TIMED_OUT:
                 notice(f'Playwright soak stopped at its runtime bound after {completed} passing repeats')
                 return 0
             if status != 0:

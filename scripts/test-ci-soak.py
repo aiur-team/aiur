@@ -216,7 +216,7 @@ class SoakTest(unittest.TestCase):
         command = ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs']
         with patch.object(module.subprocess, 'run', side_effect=subprocess.TimeoutExpired(command, 1200)), \
                 patch.object(module, 'notice') as notices:
-            self.assertEqual(module.run(command, timeout=1200), 124)
+            self.assertIs(module.run(command, timeout=1200), module.RUN_TIMED_OUT)
         notices.assert_called_once_with('soak run exceeded 1200s', 'error')
 
     def test_browser_budget_timeout_stops_successfully_after_completed_repeats(self):
@@ -231,13 +231,26 @@ class SoakTest(unittest.TestCase):
         with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs"]'}), \
                 patch.object(module, 'BROWSER_ROOT', self.browser), \
                 patch.object(module, 'DURATION_SOURCE', self.durations), \
-                patch.object(module, 'run', return_value=124) as runner, \
+                patch.object(module, 'run', return_value=module.RUN_TIMED_OUT) as runner, \
                 patch.object(module, 'BUDGET_SECONDS', 720), \
                 patch.object(module, 'notice') as notices:
             result = module.soak_browser()
         self.assertEqual(result, 0)
         self.assertEqual(runner.call_count, 1)
         notices.assert_any_call('Playwright soak stopped at its runtime bound after 0 passing repeats')
+
+    def test_browser_process_exit_124_still_fails(self):
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs"]'}), \
+                patch.object(module, 'BROWSER_ROOT', self.browser), \
+                patch.object(module, 'DURATION_SOURCE', self.durations), \
+                patch.object(module, 'run', return_value=124), \
+                patch.object(module, 'notice') as notices:
+            self.assertEqual(module.soak_browser(), 1)
+        notices.assert_any_call('Playwright soak failed for tests/a.spec.mjs. Reproduce: cd src/browser && '
+                                'node scripts/run-browser-tests.mjs tests/a.spec.mjs --repeat-each=5', 'error')
 
     def test_browser_duration_orders_small_specs_first_and_skips_oversized_spec(self):
         (self.browser / 'package.json').write_text(json.dumps({'scripts': {
