@@ -4,6 +4,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   alias Aiur.{AlertFeed, Alerts, Config}
   alias Aiur.CI.{FailureDigest, TransientNetworkFailure}
   alias Aiur.Events.GithubCIPoller.BaseCause
+  alias Aiur.Events.GithubCIPoller.RecoverySafety, as: Safety
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
 
@@ -57,8 +58,14 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp recover_cancelled_entry(issue, result, entry, sha, opts) do
     case digest(sha, opts) do
-      {:ok, digest} -> recover_failure(issue, Map.put(result, :ci_failure_digest, digest), entry, opts)
-      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts, "transient")
+      {:ok, digest} ->
+        case Safety.cancelled_checks(digest, sha, entry) do
+          [] -> result
+          checks -> recover_failure(issue, Map.merge(result, %{ci_failure_digest: digest, failures: checks}), entry, opts)
+        end
+
+      {:error, reason} ->
+        attention(issue, result, "evidence_unavailable", reason, opts, "transient")
     end
   end
 
@@ -178,24 +185,10 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   defp infrastructure_failure?(_result), do: false
 
   defp choose_recovery(issue, result, entry, pr, opts) do
-    cond do
-      pr["state"] != "OPEN" or pr["headRefOid"] != result.head_sha ->
-        held(result, "head_changed")
-
-      pr["isDraft"] != false ->
-        if pr["isDraft"] == true, do: attention(issue, result, "rerun_skipped", "draft_pr", opts), else: held(result, "pr_observation_unavailable")
-
-      pr["reviewDecision"] == "CHANGES_REQUESTED" ->
-        attention(issue, result, "rerun_skipped", "changes_requested", opts)
-
-      not Map.has_key?(pr, "mergeQueueEntry") ->
-        held(result, "queue_observation_unavailable")
-
-      pr["mergeQueueEntry"] != nil ->
-        held(result, "merge_queue")
-
-      true ->
-        rerun(issue, result, entry, opts)
+    case Safety.recovery_gate(result, pr) do
+      {:held, reason} -> held(result, reason)
+      {:skipped, reason} -> attention(issue, result, "rerun_skipped", reason, opts)
+      :ready -> rerun(issue, result, entry, opts)
     end
   end
 
@@ -238,13 +231,21 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp start_rerun(issue, result, opts) do
-    case failing_runs(result.ci_failure_digest.checks, result.head_sha, opts) do
+    case Safety.failing_runs(result.ci_failure_digest.checks, result.head_sha, opts) do
       {:ok, runs} -> prepare_reruns(issue, result, runs, opts)
       {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
     end
   end
 
   defp prepare_reruns(issue, result, runs, opts) do
+    if runs == [] do
+      result
+    else
+      reserve_and_request(issue, result, runs, opts)
+    end
+  end
+
+  defp reserve_and_request(issue, result, runs, opts) do
     case Store.reserve_reruns(
            Keyword.get(opts, :ci_recovery_poll_id, :standalone),
            length(runs),
@@ -295,35 +296,6 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       {:error, reason} -> {:halt, {:error, reason}}
     end
   end
-
-  defp failing_runs(checks, sha, opts) do
-    ids = checks |> Enum.map(&run_id(&1.url)) |> Enum.uniq()
-
-    if ids == [] or nil in ids do
-      {:error, :missing_actions_run_identity}
-    else
-      Enum.reduce_while(ids, {:ok, []}, &read_run(&1, &2, sha, opts))
-    end
-  end
-
-  defp read_run(id, {:ok, runs}, sha, opts) do
-    case CIRecovery.read("/actions/runs/#{id}", opts) do
-      {:ok, %{"head_sha" => ^sha, "run_attempt" => attempt, "status" => "completed", "conclusion" => conclusion}} when is_integer(attempt) and conclusion in ["failure", "timed_out", "cancelled"] ->
-        {:cont, {:ok, runs ++ [%{"id" => id, "attempt" => attempt, "conclusion" => conclusion}]}}
-
-      other ->
-        {:halt, {:error, {:invalid_actions_run, id, other}}}
-    end
-  end
-
-  defp run_id(url) when is_binary(url) do
-    case Regex.run(~r{/actions/runs/(\d+)(?:/|$)}, url) do
-      [_, id] -> String.to_integer(id)
-      _ -> nil
-    end
-  end
-
-  defp run_id(_), do: nil
 
   defp observe_rerun(issue, result, runs, attempt, opts) do
     observations = Enum.map(runs, &CIRecovery.read("/actions/runs/#{&1["id"]}", opts))

@@ -3,6 +3,7 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
 
   alias Aiur.CI.FailureDigest
   alias Aiur.Events.GithubCIPoller.Recovery
+  alias Aiur.GitHub.CIRecoveryStore
   alias Aiur.Issue
 
   @run_url "https://github.com/owner/repo/actions/runs/99/job/1"
@@ -115,6 +116,52 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
     refute_received {:rerun, _}
   end
 
+  test "an Aiur-initiated cancellation is skipped", ctx do
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+    assert :ok = CIRecoveryStore.record_cancelled_run("3864", 42, "head", 99, ctx.opts)
+
+    assert %{decision: :pending} = Recovery.recover(ctx.issue, result, ctx.opts)
+    refute_received {:rerun, _}
+  end
+
+  test "a newer run for the same workflow suppresses a stale cancelled run retry", ctx do
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+    parent = self()
+
+    request = fn req ->
+      cond do
+        req.method == :get and String.contains?(req.url, "/actions/runs?head_sha=") ->
+          ok(%{"workflow_runs" => [%{"id" => 100, "head_sha" => "head", "name" => "ci"}]})
+
+        req.method == :get ->
+          ok(%{"id" => 99, "head_sha" => "head", "name" => "ci", "run_attempt" => 1, "status" => "completed", "conclusion" => "cancelled"})
+
+        true ->
+          send(parent, {:rerun, req.url})
+          {:ok, %{status: 202, body: %{}, headers: []}}
+      end
+    end
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: :disabled,
+        request_fun: request,
+        ci_recovery_observation: {:ok, %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "mergeQueueEntry" => nil, "autoMergeRequest" => nil}}
+      )
+
+    assert %{decision: :pending} = Recovery.recover(ctx.issue, result, opts)
+    refute_received {:rerun, _}
+  end
+
+  test "an approved auto-merge PR is not retried", ctx do
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+    observation = %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "reviewDecision" => "APPROVED", "mergeQueueEntry" => nil, "autoMergeRequest" => %{"enabledAt" => "now"}}
+    opts = Keyword.put(ctx.opts, :ci_recovery_observation, {:ok, observation})
+
+    assert %{decision: :pending} = Recovery.recover(ctx.issue, result, opts)
+    refute_received {:rerun, _}
+  end
+
   test "a required startup failure gets one automatic rerun for the current head", ctx do
     result = Map.put(ctx.result, :failures, [%{name: "test", result: "startup_failure", url: @run_url}])
 
@@ -175,8 +222,12 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
         send(parent, {:rerun, url})
         {:ok, %{status: post_status, body: %{}, headers: []}}
 
-      %{method: :get} ->
-        ok(%{"head_sha" => "head", "run_attempt" => 1, "status" => "completed", "conclusion" => "failure"})
+      %{method: :get, url: url} ->
+        if String.contains?(url, "/actions/runs?head_sha=") do
+          ok(%{"workflow_runs" => [%{"id" => 99, "head_sha" => "head", "name" => "ci"}]})
+        else
+          ok(%{"id" => 99, "head_sha" => "head", "name" => "ci", "run_attempt" => 1, "status" => "completed", "conclusion" => "failure"})
+        end
     end
   end
 
