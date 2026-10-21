@@ -150,16 +150,23 @@ test('tall fleet, paging and scrollbar drag suppress snapping', async ({ page })
   }
 })
 test('destroy cancels band frames, settle locks and clock ticks; remount resets scrolling', async ({ page }) => {
+  await openFixture(page)
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000)
   await page.addInitScript(() => {
-    window.bandTimerCalls = { registered: 0, cancelled: 0, active: new Set() }
+    window.bandTimerCalls = { registered: 0, cancelled: 0, afterDestroy: 0, active: new Set() }
     const isBandCallback = () => /\/build-home\/(?:band|band-scroll)\.js/.test(new Error().stack)
     for (const [schedule, cancel] of [['setTimeout', 'clearTimeout'], ['requestAnimationFrame', 'cancelAnimationFrame']]) {
       const nativeSchedule = window[schedule].bind(window), nativeCancel = window[cancel].bind(window)
       window[schedule] = (fn, ...args) => {
         const band = isBandCallback()
         let id
-        id = nativeSchedule((...values) => { if (band) bandTimerCalls.active.delete(id); return fn(...values) }, ...args)
+        id = nativeSchedule((...values) => {
+          if (band) {
+            bandTimerCalls.active.delete(id)
+            if (window.bandDestroyed) bandTimerCalls.afterDestroy++
+          }
+          return fn(...values)
+        }, ...args)
         if (band) { bandTimerCalls.registered++; bandTimerCalls.active.add(id) }
         return id
       }
@@ -169,7 +176,6 @@ test('destroy cancels band frames, settle locks and clock ticks; remount resets 
       }
     }
   })
-  await openFixture(page)
   await open(page); await settle(page)
   await page.evaluate(() => {
     m.fx.scrollVP(300, true); m.fx.markScrolling()
@@ -185,6 +191,11 @@ test('destroy cancels band frames, settle locks and clock ticks; remount resets 
   await page.evaluate(() => { window.bandDestroyed = true })
   expect(await page.evaluate(() => bandTimerCalls.active.size)).toBe(0)
   expect(await page.evaluate(() => bandTimerCalls.registered)).toBeGreaterThan(0)
+  // The build hook is gone; keep LiveView's separate reconnect watchdog out of this long fake-time window.
+  await page.evaluate(() => liveSocket.disconnect())
+  await page.clock.runFor(65000)
+  expect(await page.evaluate(() => bandTimerCalls.afterDestroy)).toBe(0)
+  expect(await page.evaluate(() => bandTimerCalls.active.size)).toBe(0)
   expect(await page.evaluate(() => bandTimerCalls.cancelled)).toBeGreaterThan(0)
   expect(await page.evaluate(() => ({ writes: old.writes, text: old.time.textContent, disposed: m.ctx.life.disposed }))).toEqual(stopped)
   await open(page); await expect(page.locator('.bd-now-h > b')).toHaveText('Live')
