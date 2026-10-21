@@ -51,5 +51,11 @@ defmodule Aiur.BuildOrder.IndexEstimatesTest do
     assert Payload.validate(put_in(data, ["capacity", "max"], nil)) == :ok
     assert {:error, errors} = Payload.validate(update_in(data, ["sources"], &Map.delete(&1, "estimates")))
     assert {"sources.estimates", :missing} in errors
+
+    for name <- ~w(counts-unknown queue-unavailable agents-stale agents-unavailable) do
+      diff = path |> Path.dirname() |> Path.join("diffs/#{name}.json") |> File.read!() |> Jason.decode!()
+      changes = if name == "queue-unavailable", do: %{now: data["now"], upsert: [], remove: [], set: diff}, else: diff
+      assert Payload.validate(Payload.diff(changes, "fixture", 1, nil)) == :ok
+    end
   end
 end
