@@ -54,8 +54,8 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
   end
 
   setup do
-    {:ok, pool} =
-      AttachPool.start_link(name: :"AttachPool_#{System.unique_integer([:positive])}")
+    name = :"AttachPool_#{System.unique_integer([:positive])}"
+    pool = start_supervised!({AttachPool, name: name})
 
     {:ok, pool: pool}
   end
