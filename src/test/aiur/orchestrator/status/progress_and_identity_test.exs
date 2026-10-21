@@ -355,11 +355,14 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     parent = self()
 
     store_pid =
-      spawn(fn ->
-        Process.register(self(), store_name)
-        send(parent, :decision_store_ready)
-        receive do: (:stop -> :ok)
-      end)
+      start_supervised!(
+        {Task,
+         fn ->
+           Process.register(self(), store_name)
+           send(parent, :decision_store_ready)
+           receive do: (:stop -> :ok)
+         end}
+      )
 
     assert_receive :decision_store_ready, 1_000
     on_exit(fn -> send(store_pid, :stop) end)
