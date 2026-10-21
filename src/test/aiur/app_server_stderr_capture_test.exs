@@ -73,11 +73,13 @@ defmodule Aiur.AppServerStderrCaptureTest do
         test_pid = self()
 
         on_message = fn message ->
-          if message.event == :turn_completed, do: send(test_pid, :turn_completed)
+          if message.event == :turn_completed do
+            assert_received {:captured_app_server_log, :warning, "Codex turn stream output: warning: this is stderr noise"}
+            send(test_pid, :turn_completed)
+          end
         end
 
         assert {:ok, _result} = AppServer.run(workspace, "Capture stderr log", issue, on_message: on_message)
-        assert_received {:captured_app_server_log, :warning, "Codex turn stream output: warning: this is stderr noise"}
         assert_received :turn_completed
       after
         :logger.remove_handler(handler_id)
