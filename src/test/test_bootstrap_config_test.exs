@@ -21,6 +21,7 @@ defmodule Aiur.TestBootstrapConfigTest do
     config = Config.Reader.read!(@config_path, env: :test)
     next_config = Config.Reader.read!(@config_path, env: :test)
 
+    assert Regex.match?(~r/^aiur-test-logs-\d+-#{System.pid()}-\d+$/, Path.basename(config[:aiur][:test_state_root]))
     assert config[:aiur][:test_state_root] != next_config[:aiur][:test_state_root]
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(next_config[:aiur][:test_state_root]) end)
 
