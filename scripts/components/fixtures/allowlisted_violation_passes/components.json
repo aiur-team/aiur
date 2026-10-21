@@ -9,9 +9,13 @@
       "paths": [
         "src/lib/a.ex"
       ],
-      "facades": [],
+      "facades": [
+        "A"
+      ],
       "facade_pending": null,
-      "requires": [],
+      "requires": [
+        "b"
+      ],
       "optional": [],
       "owns": {
         "config": [],
@@ -29,9 +33,11 @@
       "paths": [
         "src/lib/b.ex"
       ],
-      "facades": ["B"],
+      "facades": [
+        "B"
+      ],
       "facade_pending": null,
-      "requires": ["a"],
+      "requires": [],
       "optional": [],
       "owns": {
         "config": [],
