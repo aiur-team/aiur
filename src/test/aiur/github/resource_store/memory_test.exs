@@ -202,12 +202,19 @@ defmodule Aiur.GitHub.ResourceStore.MemoryTest do
     test "status opens attention when held bodies reach the cap" do
       test_pid = self()
       original = Application.get_env(:aiur, :signal, [])
+      original_cap = Application.fetch_env(:aiur, :github_resource_store_max_body_bytes)
 
       Application.put_env(:aiur, :signal, alert_sink: CaptureAlertSink)
       Process.put(:memory_test_pid, test_pid)
 
       on_exit(fn ->
         Application.put_env(:aiur, :signal, original)
+
+        case original_cap do
+          {:ok, cap} -> Application.put_env(:aiur, :github_resource_store_max_body_bytes, cap)
+          :error -> Application.delete_env(:aiur, :github_resource_store_max_body_bytes)
+        end
+
         :persistent_term.erase({Memory, :cap_attention_firing})
       end)
 
