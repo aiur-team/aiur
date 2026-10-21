@@ -1,5 +1,6 @@
 defmodule Aiur.CI.TransientNetworkFailure do
   @moduledoc "Recognizes explicit transient network errors in failed GitHub Actions job logs."
+  alias Aiur.GitHub.CIRecovery
 
   @signatures [
     "failed to connect to github.com",
@@ -30,7 +31,7 @@ defmodule Aiur.CI.TransientNetworkFailure do
   @spec run_has_network_only_failed_jobs?(binary(), keyword()) :: boolean()
   def run_has_network_only_failed_jobs?(url, opts) when is_binary(url) do
     with [run_id] <- Regex.run(~r{/actions/runs/(\d+)(?:/|$)}, url, capture: :all_but_first),
-         {:ok, jobs} <- Aiur.GitHub.CIRecovery.jobs(String.to_integer(run_id), opts),
+         {:ok, jobs} <- CIRecovery.jobs(String.to_integer(run_id), opts),
          failed when failed != [] <- Enum.filter(jobs, &(&1["conclusion"] in ["failure", "timed_out", "startup_failure"])),
          {:ok, logs} <- Enum.reduce_while(failed, {:ok, []}, &read_job_log(&1, &2, opts)) do
       Enum.all?(logs, &match?/1)
@@ -53,7 +54,7 @@ defmodule Aiur.CI.TransientNetworkFailure do
   defp read_job_log(_, _acc, _opts), do: {:halt, {:error, :invalid_job}}
 
   defp fetch_job_log(id, opts) do
-    case Aiur.GitHub.CIRecovery.read("/actions/jobs/#{id}/logs", opts) do
+    case CIRecovery.read("/actions/jobs/#{id}/logs", opts) do
       {:ok, log} when is_binary(log) -> {:ok, log}
       {:error, _} = error -> error
       _ -> {:error, :invalid_actions_job_log}
