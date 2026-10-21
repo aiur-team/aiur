@@ -6,11 +6,13 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, DispatchCandidates, Dispatcher, DispatchPolicy, PauseResume, QueueSetSlots, Slots, State, StatusReport, TrackerTasks}
 
   setup do
+    test_pid = self()
     path = Workflow.workflow_file_path()
     original = File.read!(path)
     configure()
     :ets.new(Hints.table_name(), [:named_table, :set])
     on_exit(fn -> File.write!(path, original) end)
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
     :ok
   end
 
