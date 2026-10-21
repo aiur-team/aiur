@@ -504,10 +504,10 @@ class SoakTest(unittest.TestCase):
         module = importlib.util.module_from_spec(loader)
         loader.loader.exec_module(module)
         cases = (
-            (['--grep', 'product interactions.*columns[.]'], 'prefix product interactions show columns.cell update'),
-            (['--grep=product interactions.*columns[.]'], 'prefix product interactions show columns.cell update'),
-            (['--grep', '^prefix product interactions[.]'], 'prefix product interactions. show columns.cell update'),
-            (['--grep=^prefix product interactions[.]'], 'prefix product interactions. show columns.cell update'),
+            (['--grep', 'columns[.]'], 'prefix product interactions show columns.cell update'),
+            (['--grep=columns[.]'], 'prefix product interactions show columns.cell update'),
+            (['--grep', '^prefix'], 'prefix product interactions. show columns.cell update'),
+            (['--grep=^prefix'], 'prefix product interactions. show columns.cell update'),
         )
         for grep_args, title in cases:
             command = ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs']
