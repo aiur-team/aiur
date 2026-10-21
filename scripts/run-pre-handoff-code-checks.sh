@@ -41,10 +41,6 @@ tests_file="$scratch/tests"
 evidence="$scratch/evidence"
 : > "$tests_file"
 : > "$evidence"
-# Same cap as scripts/run-ci-affected-tests.py: larger or full-suite selections
-# are left to the merge-queue full suite instead of holding the worker handback.
-selection_cap=300
-
 tested_head="$head"
 if [[ -n "$pr_json" ]]; then
   tested_head="$(python3 - "$pr_json" "$head" <<'PY'
@@ -68,7 +64,7 @@ print_evidence() {
     printf 'Tested head: %s\n' "$tested_head"
     printf 'Base: %s @ %s\n' "${AIUR_BASE_BRANCH:-main}" \
       "$(git -C "$repo_root" rev-parse "$base")"
-    echo 'Selection: `mix aiur.affected_tests` xref/module-caller selector plus pinned child-order tests for explicit child-list paths.'
+    printf 'Selection: `mix aiur.affected_tests` selected %s test files using xref/module callers and shared-support consumers, plus pinned child-order tests for explicit child-list paths.\n' "${selected_count:-0}"
     cat "$evidence"
   } > "$block"
   cat "$block"
@@ -91,6 +87,7 @@ run_check() {
 }
 
 deferred=false
+partition_fallback=false
 defer_selection() {
   local notice="$1; deferred to the merge-queue full suite"
   echo "run-pre-handoff-code-checks: $notice"
@@ -119,16 +116,14 @@ PY
       ;;
     "cd src && mise exec -- make ci"*)
       reason="$(sed -n 's/^# full suite recommended: //p' "$scratch/selection" | head -n 1)"
-      defer_selection "full suite recommended (${reason:-unknown reason})"
+      partition_fallback=true
+      selected_count="$(find "$repo_root/src/test" -name '*_test.exs' -type f | wc -l | tr -d ' ')"
+      echo "run-pre-handoff-code-checks: full selection (${reason:-unsafe change}); running all 4 CI coverage partitions"
+      record_result 'affected tests' "full selection (${selected_count} test files); ran all 4 CI coverage partitions"
       break
       ;;
   esac
 done < "$scratch/selection"
-
-selected_count="$(grep -c . "$tests_file" || true)"
-if (( selected_count > selection_cap )); then
-  defer_selection "selection $selected_count files > $selection_cap"
-fi
 
 run_order_tests=false
 order_sensitive_paths=(
@@ -154,14 +149,52 @@ if [[ "$run_order_tests" == true ]]; then
     test/aiur/application_child_order_test.exs >> "$tests_file"
 fi
 
-if [[ -s "$tests_file" ]]; then
+if [[ "$partition_fallback" != true ]]; then
+  selected_count="$(grep -c . "$tests_file" || true)"
+fi
+
+if [[ "$partition_fallback" == true ]]; then
+  tests=()
+elif [[ -s "$tests_file" ]]; then
   sort -u "$tests_file" -o "$tests_file"
   mapfile -t tests < "$tests_file"
+  selected_count="${#tests[@]}"
+  if [[ ${#tests[@]} -gt 400 ]]; then
+    partition_fallback=true
+  fi
+fi
+
+if [[ "$partition_fallback" == true ]]; then
+  if [[ "$selected_count" -gt 400 ]]; then
+    echo "run-pre-handoff-code-checks: $selected_count affected files exceed the 400-file worker limit; running all 4 CI coverage partitions"
+    record_result 'affected tests' "$selected_count selected files; ran all 4 CI coverage partitions"
+  fi
+  partition_failed=false
+  for partition in 1 2 3 4; do
+    if MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION="$partition" TEST_PARTITIONS=4 \
+      nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C "$repo_root/src" coverage-partition \
+      > "$scratch/partition-$partition.log" 2>&1; then
+      record_result "MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION=$partition TEST_PARTITIONS=4 nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C src coverage-partition" passed
+    else
+      status=$?
+      record_result "MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION=$partition TEST_PARTITIONS=4 nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C src coverage-partition" "failed (exit $status)"
+      partition_failed=true
+    fi
+    cat "$scratch/partition-$partition.log"
+  done
+  if [[ "$partition_failed" == true ]]; then print_evidence; exit 1; fi
+elif [[ -s "$tests_file" ]]; then
   test_args=(mix test --max-cases 4 "${tests[@]}")
-  command="$(selected_command timeout --signal=TERM --kill-after=60s 20m mise exec -- "${test_args[@]}")"
+  command="$(selected_command nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- "${test_args[@]}")"
   echo "run-pre-handoff-code-checks: running selected tests (${#tests[@]} files)"
-  run_check "$command" timeout --signal=TERM --kill-after=60s 20m mise exec -- "${test_args[@]}"
+  run_check "$command" nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- "${test_args[@]}"
 elif [[ "$deferred" == false ]]; then
+  if grep -Eq '^src/test/support/|^src/test/test_helper\.exs$' "$scratch/changed"; then
+    echo "run-pre-handoff-code-checks: shared test-support change selected no tests; refusing handoff" >&2
+    record_result 'affected tests' 'failed: shared-support changes selected no tests'
+    print_evidence
+    exit 1
+  fi
   echo "run-pre-handoff-code-checks: no affected tests selected"
   record_result 'mix aiur.affected_tests' 'no affected test files selected'
 fi

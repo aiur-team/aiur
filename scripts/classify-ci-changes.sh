@@ -42,6 +42,8 @@ if [[ "${EVENT_NAME}" == pull_request ]] && grep -qx 'full_ci=false' "$scratch/c
     printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification"
     selection=full
   fi
+  # Mix prints compile output before the selector's one result line on a cold _build.
+  selection="${selection##*$'\n'}"
   case "$selection" in
     full) printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification" ;;
     scoped:*)
