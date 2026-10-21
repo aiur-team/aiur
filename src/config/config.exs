@@ -83,6 +83,8 @@ config :aiur, :project_identity_source, Aiur.Tracker
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
 
 # Exclusive order preserves the legacy cond, including GitHub taking precedence over Claude.
+config :aiur, :backend_catalog, Aiur.CodingAgent.ConfigCatalog
+
 config :aiur, :config_semantic_checks,
   exclusive: [
     Aiur.Tracker.SemanticCheck.MissingKind,

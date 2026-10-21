@@ -21,16 +21,21 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
         {:error, {reason, message}}
 
       {:allow, findings} ->
-        state = ApprovedHandoff.target_state(issue, state, opts)
+        target = ApprovedHandoff.target_state(issue, state, opts)
 
-        case writer.(issue_id, state) do
-          :ok -> {:ok, report_checklist(issue, findings, opts, %{state: state, issue: issue_id})}
-          {:ok, result} -> {:ok, report_checklist(issue, findings, opts, result)}
+        case writer.(issue_id, target) do
+          :ok -> {:ok, report_checklist(issue, findings, opts, handoff_result(%{state: target, issue: issue_id}, state, target))}
+          {:ok, result} -> {:ok, report_checklist(issue, findings, opts, handoff_result(result, state, target))}
           {:error, reason} -> {:error, reason}
           other -> {:error, other}
         end
     end
   end
+
+  defp handoff_result(result, state, state), do: result
+
+  defp handoff_result(result, requested, _target),
+    do: Map.merge(result, %{requested_state: requested, reason: :approval_carries_to_pr_head})
 
   defp blockers(issue, state, workspace, opts) do
     with :allow <- rework_blockers(issue, state, opts),
