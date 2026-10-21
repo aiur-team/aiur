@@ -260,7 +260,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ "Peak concurrency"
-    assert html =~ ~r/\d+ at run end \/ unknown cap · of \d+ cores</
+    assert html =~ ~r/\d+ at run end \/ unknown cap/
     assert html =~ "Wasted capacity"
     assert html =~ "Provider spend"
     assert html =~ "Per-unit CPU"
@@ -317,7 +317,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     # The effective cap leads. The session ceiling is the figure `aiur status`
     # prints as `AGENTS n/8`, so omitting it is what let the two surfaces
     # contradict each other; the configured value is what #2241 saw alone.
-    assert html =~ ~r/\d+ at run end \/ 3 cap \(binding: AIMD envelope, session 8, configured 16\) · of 4 cores/
+    assert html =~ ~r/\d+ at run end \/ 3 cap \(binding: AIMD envelope, session 8, configured 16\)/
     refute html =~ ~r/\d+ at run end \/ 16 cap/
     refute html =~ ~r/\d+ at run end \/ 8 cap/
   end
@@ -417,7 +417,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ ~s(data-source-kind="live")
     assert html =~ "live boot"
     # A live boot is the only source that may speak in the present tense.
-    assert html =~ ~r/an-kpi-sub">no fleet-capacity or agent samples in this window; occupancy unavailable \/.*cap · of \d+ cores/
+    assert html =~ ~r/an-kpi-sub">no fleet-capacity or agent samples in this window; occupancy unavailable \/.*cap/
     assert html =~ ~r/an-kpi-sub">this run</
   end
 

@@ -41,7 +41,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverage do
 
       reason ->
         val = if unknown?(model, scope), do: "unknown", else: peak
-        %{val: val, sub: "#{reason}; #{sub}"}
+        cores = if reason == "no fleet-capacity or agent samples in this window", do: core_suffix(model), else: ""
+        %{val: val, sub: "#{reason}; #{sub}#{cores}"}
     end
   end
 
@@ -57,6 +58,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverage do
         %{val: if(unknown?(model, scope), do: "unknown", else: "#{pct}%"), sub: "#{reason}#{suffix}"}
     end
   end
+
+  defp core_suffix(%{cores: cores}) when is_integer(cores), do: "; of #{cores} cores"
+  defp core_suffix(_model), do: ""
 
   @doc """
   Sets `conc` to nil for every bucket where the daemon reports occupied slots

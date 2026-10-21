@@ -469,7 +469,7 @@ defmodule AiurWeb.AnalyticsLive do
     [
       Map.merge(
         %{label: "Peak concurrency", tone: nil},
-        ConcurrencyCoverage.tile(model, scope, "#{LiveConcurrency.label(model, present?, scope)} / #{Presenter.cap_label(model)} · of #{model.cores} cores")
+        ConcurrencyCoverage.tile(model, scope, "#{LiveConcurrency.label(model, present?, scope)} / #{Presenter.cap_label(model)}")
       ),
       Map.merge(%{label: "Mean utilization", tone: nil}, ConcurrencyCoverage.utilization(model, scope, "of #{model.cores} cores")),
       %{
