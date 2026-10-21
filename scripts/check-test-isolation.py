@@ -51,6 +51,14 @@ def scan():
     return {path.relative_to(ROOT).as_posix(): counts(path) for path in sorted(TEST_ROOT.rglob("*_test.exs"))}
 
 
+def compact(current):
+    return {
+        file: {rule: count for rule, count in rules.items() if count}
+        for file, rules in current.items()
+        if any(rules.values())
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--write-baseline", action="store_true")
@@ -64,7 +72,7 @@ def main():
                     if current.get(file, {}).get(rule, 0) > count:
                         print(f"{file}: {rule} count would rise from {count} to {current[file][rule]}; baseline not updated", file=sys.stderr)
                         return 1
-        BASELINE.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n")
+        BASELINE.write_text(json.dumps(compact(current), separators=(",", ":"), sort_keys=True) + "\n")
         return 0
     baseline = json.loads(BASELINE.read_text())
     failures = []

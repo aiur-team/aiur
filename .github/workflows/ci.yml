@@ -186,14 +186,10 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/check-env-example.py
-      - name: Coverage-shard rule agrees across implementations
+      - name: Test isolation ratchet and coverage-shard rule
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
-        run: python3 scripts/check-test-shard-parity.py
-      - name: Test isolation ratchet
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: .
-        run: python3 scripts/test-check-test-isolation.py && python3 scripts/check-test-isolation.py
+        run: python3 scripts/test-check-test-isolation.py && python3 scripts/check-test-isolation.py && python3 scripts/check-test-shard-parity.py
       - name: Platform publish/pin drift check
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
