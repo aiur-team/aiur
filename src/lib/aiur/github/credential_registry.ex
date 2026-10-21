@@ -20,8 +20,8 @@ defmodule Aiur.GitHub.CredentialRegistry do
   availability.
   """
 
-  alias Aiur.GitHub.AppCredentials
   alias Aiur.GitHub.Access.{Settings, Token}
+  alias Aiur.GitHub.AppCredentials
   alias Aiur.GitHub.Credential
 
   require Logger

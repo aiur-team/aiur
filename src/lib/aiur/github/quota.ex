@@ -33,8 +33,8 @@ defmodule Aiur.GitHub.Quota do
 
   use GenServer
 
-  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Access.Token
+  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Credential
   alias Aiur.GitHub.CredentialRegistry
   alias Aiur.GitHub.{HoldSweep, RequestLog, RequestOrigin, Transport}

@@ -3,16 +3,19 @@ defmodule Aiur.GitHub.AccessSettings do
   @behaviour Aiur.GitHub.Access.SettingsProvider
 
   alias Aiur.Config
+  alias Aiur.Config.Schema.Agent
   alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Credential
+  alias Aiur.RepoBase
+  alias Aiur.Workspace.Layout
 
   @impl true
   def settings do
     config = safely(fn -> Config.settings!() end, nil)
     github = if config, do: config.tracker.github, else: %{}
     repo = safely(&GitHubConfig.repo/0, nil)
-    quota_dir = if is_binary(repo) and repo != "", do: Path.join(Aiur.RepoBase.repo_path(repo), "github-quota")
+    quota_dir = if is_binary(repo) and repo != "", do: Path.join(RepoBase.repo_path(repo), "github-quota")
 
     %Settings{
       state_root: decision_root(),
@@ -26,7 +29,7 @@ defmodule Aiur.GitHub.AccessSettings do
       quota_dir: quota_dir,
       request_log_dir: if(Application.get_env(:aiur, :env) != :test, do: quota_dir),
       resource_store_path: resource_store_path(),
-      probe_dir: safely(fn -> Config.workspace_root() |> Path.expand() |> Aiur.Workspace.Layout.issue_workspace_path("__github_quota_probe__") end, nil),
+      probe_dir: safely(fn -> Config.workspace_root() |> Path.expand() |> Layout.issue_workspace_path("__github_quota_probe__") end, nil),
       cache: %{
         ttls: Application.get_env(:aiur, :github_read_cache_ttls, %{}),
         max_body_bytes: Application.get_env(:aiur, :github_resource_store_max_body_bytes)
@@ -44,12 +47,15 @@ defmodule Aiur.GitHub.AccessSettings do
         end
 
       _ ->
-        case Application.get_env(:aiur, :github_budget_dir) do
-          path when is_binary(path) -> if String.trim(path) != "", do: Path.expand(path), else: Path.join(System.user_home!(), ".aiur/github-budget")
-          _ -> Path.join(System.user_home!(), ".aiur/github-budget")
-        end
+        default_budget_dir(Application.get_env(:aiur, :github_budget_dir))
     end
   end
+
+  defp default_budget_dir(path) when is_binary(path) do
+    if String.trim(path) != "", do: Path.expand(path), else: default_budget_dir(nil)
+  end
+
+  defp default_budget_dir(_path), do: Path.join(System.user_home!(), ".aiur/github-budget")
 
   defp decision_root do
     case Config.Paths.decision_state_dir() do
@@ -66,7 +72,7 @@ defmodule Aiur.GitHub.AccessSettings do
   end
 
   defp broker_timeout(config) do
-    defaults = %Aiur.Config.Schema.Agent{}
+    defaults = %Agent{}
 
     Map.new(Map.keys(%Settings{state_root: nil}.broker_timeout), fn field ->
       value = if config, do: Map.get(config.agent, field)

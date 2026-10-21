@@ -15,8 +15,8 @@ defmodule Aiur.GitHub.Credential do
   repository already depends on.
   """
 
-  alias Aiur.GitHub.{AppCredentials, AppTokenRefresher, Budget}
   alias Aiur.GitHub.Access.Token
+  alias Aiur.GitHub.{AppCredentials, AppTokenRefresher, Budget}
 
   @enforce_keys [:id, :kind]
   defstruct [:id, :kind, :identity, :token_env, source: :env, writes?: false, primary?: false]

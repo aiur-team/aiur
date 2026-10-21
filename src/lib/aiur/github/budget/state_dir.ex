@@ -1,18 +1,19 @@
 defmodule Aiur.GitHub.Budget.StateDir do
   @moduledoc false
 
+  alias Aiur.GitHub.Access.Settings
   @spec resolve(keyword()) :: Path.t()
   def resolve(opts) do
     case Keyword.get(opts, :state_dir) do
       path when is_binary(path) and path != "" -> explicit_dir(path)
-      _ -> Aiur.GitHub.Access.Settings.current().budget_dir
+      _ -> Settings.current().budget_dir
     end
   end
 
   # Sandbox scope must override an explicit caller directory as before.
   defp explicit_dir(path) do
     if is_binary(System.get_env("AIUR_DEV_TEST_TICKET_IDS")),
-      do: Aiur.GitHub.Access.Settings.current().budget_dir,
+      do: Settings.current().budget_dir,
       else: Path.expand(path)
   end
 

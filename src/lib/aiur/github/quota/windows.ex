@@ -1,8 +1,8 @@
 defmodule Aiur.GitHub.Quota.Windows do
   @moduledoc false
 
-  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Access.Settings
+  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.{EndpointPolicy, GraphQLCost, GraphQLErrors, Transport}
 
   @primary_resources ~w(core graphql)

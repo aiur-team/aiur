@@ -59,8 +59,8 @@ defmodule Aiur.GitHub.RequestLog do
   GitHub access. `append/4` (path-based) is kept for direct callers and tests.
   """
 
-  alias Aiur.GitHub.{Budget, GraphQLCost}
   alias Aiur.GitHub.Access.Settings
+  alias Aiur.GitHub.{Budget, GraphQLCost}
 
   @max_bytes 1_048_576
   @generations 2

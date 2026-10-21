@@ -1,9 +1,11 @@
 defmodule Aiur.GitHub.AccessSettingsTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{Budget, CredentialRegistry, RequestLog}
+  alias Aiur.GitHub.{AccessSettings, Budget, CredentialRegistry, RequestLog}
   alias Aiur.GitHub.Quota.{ShellObservations, Windows}
   alias Aiur.GitHub.ResourceStore.Persistence
+  alias Aiur.TestSupport.WorkflowFiles
+  alias Aiur.{Workflow, WorkflowStore}
 
   @tag :tmp_dir
   test "characterizes existing paths and settings for future refactors", %{tmp_dir: root} do
@@ -21,7 +23,7 @@ defmodule Aiur.GitHub.AccessSettingsTest do
     Application.put_env(:aiur, :repo_base_root, Path.join(root, "repo"))
     Application.put_env(:aiur, :decision_state_dir, Path.join(root, "decisions"))
     Application.put_env(:aiur, :github_budget_dir, Path.join(root, "budget"))
-    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "o/r", workspace_root: Path.join(root, "workspaces"))
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "o/r", workspace_root: Path.join(root, "workspaces"))
 
     assert Budget.state_dir() == Path.join(root, "budget")
     assert Budget.database_path() == Path.join(root, "budget/budget.sqlite3")
@@ -43,7 +45,7 @@ defmodule Aiur.GitHub.AccessSettingsTest do
   end
 
   test "configured credential order and scalar fields cross the provider boundary" do
-    path = Aiur.Workflow.workflow_file_path()
+    path = Workflow.workflow_file_path()
     write_workflow_file!(path, tracker_kind: "github", tracker_repo: "o/r", tracker_bot_account: "agent")
 
     credentials = """
@@ -62,32 +64,32 @@ defmodule Aiur.GitHub.AccessSettingsTest do
     """
 
     yaml = File.read!(path) |> String.replace("    planning_root_limit:", credentials <> "    planning_root_limit:")
-    Aiur.TestSupport.WorkflowFiles.write_workflow_file_atomic!(path, yaml)
-    assert :ok = Aiur.WorkflowStore.force_reload()
+    WorkflowFiles.write_workflow_file_atomic!(path, yaml)
+    assert :ok = WorkflowStore.force_reload()
     assert [primary, first, second] = CredentialRegistry.configured()
     assert {primary.id, primary.identity, primary.primary?} == {"primary", "agent", true}
     assert {first.id, first.kind, first.writes?, first.token_env} == {"first", :machine_user, true, "FIRST_TOKEN"}
     assert {second.id, second.kind, second.writes?, second.token_env} == {"second", :human, false, "SECOND_TOKEN"}
-    settings = Aiur.GitHub.AccessSettings.settings()
+    settings = AccessSettings.settings()
     assert settings.repo == "o/r"
     refute is_struct(settings.budget)
     assert settings.budget.daemon_core_limit_per_hour == 3000
   end
 
   test "the next budget call sees a reloaded workflow limit" do
-    path = Aiur.Workflow.workflow_file_path()
+    path = Workflow.workflow_file_path()
     original = File.read!(path)
 
     on_exit(fn ->
       File.write!(path, original)
-      Aiur.WorkflowStore.force_reload()
+      WorkflowStore.force_reload()
     end)
 
     for limit <- [17, 23] do
       write_workflow_file!(path, tracker_kind: "github", tracker_repo: "o/r")
       yaml = File.read!(path) |> String.replace("    planning_root_limit:", "    daemon_core_limit_per_hour: #{limit}\n    planning_root_limit:")
-      Aiur.TestSupport.WorkflowFiles.write_workflow_file_atomic!(path, yaml)
-      assert :ok = Aiur.WorkflowStore.force_reload()
+      WorkflowFiles.write_workflow_file_atomic!(path, yaml)
+      assert :ok = WorkflowStore.force_reload()
       assert Budget.guard_settings().daemon_core_limit_per_hour == limit
     end
   end

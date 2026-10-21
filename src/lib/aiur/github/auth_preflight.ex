@@ -51,6 +51,7 @@ defmodule Aiur.GitHub.AuthPreflight do
   # directly: that function already answers `:github_app` when the App is
   # configured, and also distinguishes `:env` from `:keyring`, which the plain
   # `AppCredentials.configured?/0` split could not.
+  alias Aiur.GitHub.Access.Token
   alias Aiur.GitHub.{Errors, HostCommand, LocalHold, Transport}
 
   require Logger
@@ -332,7 +333,7 @@ defmodule Aiur.GitHub.AuthPreflight do
   # `gh auth login`. Reporting "GITHUB_TOKEN" when the credential came from the
   # keyring sent a developer who never set that variable to refresh or unset it.
   defp token_source do
-    case Aiur.GitHub.Access.Token.token_source() do
+    case Token.token_source() do
       :github_app -> "GITHUB_APP"
       :env -> "GITHUB_TOKEN"
       :keyring -> "gh keyring"

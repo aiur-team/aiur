@@ -1,6 +1,7 @@
 defmodule Aiur.GitHub.Access.Token do
   @moduledoc "Resolves GitHub credentials and their daemon identity."
   require Logger
+  alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, Transport}
 
   @spec token() :: String.t() | nil
@@ -116,10 +117,10 @@ defmodule Aiur.GitHub.Access.Token do
   defp nonblank_token?(_value), do: false
 
   @spec app_account() :: String.t() | nil
-  def app_account, do: normalize_account(Aiur.GitHub.Access.Settings.current().app_account)
+  def app_account, do: normalize_account(Settings.current().app_account)
 
   @spec daemon_account() :: String.t() | nil
-  def daemon_account, do: app_account() || normalize_account(Aiur.GitHub.Access.Settings.current().bot_account)
+  def daemon_account, do: app_account() || normalize_account(Settings.current().bot_account)
 
   @spec app_identity_issue() :: nil | :bot_account_missing | {:bot_account_not_app_bot, String.t()}
   def app_identity_issue do

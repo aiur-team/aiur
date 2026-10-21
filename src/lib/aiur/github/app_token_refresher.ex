@@ -28,6 +28,7 @@ defmodule Aiur.GitHub.AppTokenRefresher do
 
   require Logger
 
+  alias Aiur.GitHub.Access.Token
   alias Aiur.GitHub.{AppCredentials, AppToken, Transport}
 
   @token_key {__MODULE__, :installation_token}
@@ -279,7 +280,7 @@ defmodule Aiur.GitHub.AppTokenRefresher do
   # available the identity check simply does not run, rather than taking the
   # token refresher down with it.
   defp identity_issue do
-    Aiur.GitHub.Access.Token.app_identity_issue()
+    Token.app_identity_issue()
   rescue
     error -> skipped_identity_check(error)
   catch

@@ -12,8 +12,9 @@ defmodule Aiur.GitHub.ResourceStore.Persistence do
   """
 
   require Logger
-  alias Aiur.JsonStore
+  alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.ResourceStore.{Checkpoint, Types}
+  alias Aiur.JsonStore
   import Aiur.GitHub.ResourceStore.Body, only: [json_round_trips?: 1]
   import Aiur.GitHub.ResourceStore.Retention, only: [entry_expired?: 2, body_expired?: 2, drop_body: 1]
   import Aiur.GitHub.ResourceStore.Storage, only: [now_ms: 0]
@@ -254,7 +255,7 @@ defmodule Aiur.GitHub.ResourceStore.Persistence do
         path
 
       :error ->
-        Aiur.GitHub.Access.Settings.current().resource_store_path
+        Settings.current().resource_store_path
     end
   end
 end
