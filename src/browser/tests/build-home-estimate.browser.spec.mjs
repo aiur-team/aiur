@@ -24,7 +24,7 @@ test('hostile override reasons stay escaped in cards and modal', async ({ page }
   await expect(card.locator('.bd-status')).toContainText('≈1h')
   await card.click()
   await expect(page.locator('.bm-facts')).toContainText('Estimate≈1h')
-  await expect(page.locator('.bm-cue').filter({ hasText: /onmouseover/ })).toBeVisible()
+  await expect(page.locator('.bm-cue').filter({ hasText: /onmouseover/ }).last()).toBeVisible()
   expect(await page.evaluate(() => window.__xss)).toBeUndefined()
   expect(await page.locator('[onmouseover]').count()).toBe(0)
 })
