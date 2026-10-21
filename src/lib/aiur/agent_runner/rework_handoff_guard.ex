@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   @moduledoc false
 
   alias Aiur.AgentRunner.{ApprovedHandoff, ReworkFindings}
-  alias Aiur.{Alerts, Issue, LocalTestEvidence, PrBodyLint, Tracker}
+  alias Aiur.{Alerts, Events.GithubCIPoller, Issue, LocalTestEvidence, PrBodyLint, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.ReworkGate
 
@@ -55,7 +55,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
     with {:ok, pr} <- ReworkGate.open_pr(issue.identifier, opts),
          head when is_binary(head) <- ReworkGate.head_sha(pr),
          body when is_binary(body) <- pr["body"],
-         {:error, reason} <- evidence_error(body, head, workspace, pr) do
+         {:error, reason} <- evidence_error(body, head, workspace, pr, opts) do
       {:refused, :stale_pr_body_evidence, evidence_refusal(issue, state, pr, head, reason)}
     else
       _ -> :allow
@@ -72,22 +72,22 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
     "Cannot hand ticket #{issue.identifier} to #{state}: PR ##{pr["number"]} body fails the PR body check (#{reason}). Fix the body. Run `aiur pre-pr` again after `gh pr create` so it writes `Tested head: #{head}` and `Base:`, then hand off."
   end
 
-  defp evidence_error(body, head, workspace, pr) do
+  defp evidence_error(body, head, workspace, pr, opts) do
     case LocalTestEvidence.parse(body) do
       {:ok, %{tested_head: tested_head}} ->
-        validate_tested_head(body, tested_head, head, workspace, get_in(pr, ["base", "sha"]))
+        validate_tested_head(body, tested_head, head, workspace, get_in(pr, ["base", "sha"]), pr, opts)
 
       _ ->
         lint_evidence_error(body, head, workspace)
     end
   end
 
-  defp validate_tested_head(body, tested_head, head, workspace, base_sha) do
+  defp validate_tested_head(body, tested_head, head, workspace, base_sha, pr, opts) do
     cond do
       String.downcase(tested_head) == String.downcase(head) ->
         lint_evidence_error(body, head, workspace)
 
-      merge_only_base_advance?(workspace, tested_head, head, base_sha) ->
+      identical_contribution_after_base_advance?(workspace, tested_head, head, base_sha, pr, opts) ->
         lint_evidence_error(body, tested_head, workspace)
 
       true ->
@@ -95,33 +95,19 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
     end
   end
 
-  defp merge_only_base_advance?(workspace, tested_head, head, base_sha)
+  defp identical_contribution_after_base_advance?(workspace, tested_head, head, base_sha, pr, opts)
        when is_binary(workspace) and is_binary(tested_head) and is_binary(head) and is_binary(base_sha) do
-    with true <- File.dir?(workspace),
-         true <- valid_sha?(tested_head) and valid_sha?(head) and valid_sha?(base_sha),
-         {_, 0} <- System.cmd("git", ["-C", workspace, "merge-base", "--is-ancestor", tested_head, head], stderr_to_stdout: true),
-         {output, 0} <- System.cmd("git", ["-C", workspace, "rev-list", "--first-parent", "--reverse", "--parents", "#{tested_head}..#{head}"], stderr_to_stdout: true),
-         [_ | _] = commits <- String.split(output, "\n", trim: true),
-         true <- Enum.all?(commits, &base_merge_commit?(&1, workspace, base_sha)) do
-      true
-    else
-      _unavailable_or_non_merge -> false
-    end
+    classifier = Keyword.get(opts, :approval_carry_classifier)
+    classify_approval_carry(classifier, tested_head, head, pr["number"], opts) == :identical
   end
 
-  defp merge_only_base_advance?(_workspace, _tested_head, _head, _base_sha), do: false
+  defp identical_contribution_after_base_advance?(_workspace, _tested_head, _head, _base_sha, _pr, _opts), do: false
 
-  defp base_merge_commit?(line, workspace, base_sha) do
-    case String.split(line) do
-      [_commit, _first_parent, second_parent] ->
-        match?({_, 0}, System.cmd("git", ["-C", workspace, "merge-base", "--is-ancestor", second_parent, base_sha], stderr_to_stdout: true))
+  defp classify_approval_carry(nil, tested_head, head, number, opts),
+    do: GithubCIPoller.classify_contribution(tested_head, head, number, opts)
 
-      _not_a_merge_commit ->
-        false
-    end
-  end
-
-  defp valid_sha?(sha), do: Regex.match?(~r/\A[0-9a-fA-F]{40}\z/, sha)
+  defp classify_approval_carry(classifier, tested_head, head, number, opts) when is_function(classifier, 4),
+    do: classifier.(tested_head, head, number, opts)
 
   defp lint_evidence_error(body, head, workspace) do
     case pr_template(workspace) do
@@ -195,7 +181,9 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   defp no_review_comment_blocker(issue, state, workspace, head, number, opts) do
     case ReworkFindings.latest_feedback_comment(number, nil, opts) do
       {:ok, comment} when is_map(comment) ->
-        comment_handoff_blocker(issue, state, workspace, head, comment_body(comment), comment_timestamp(comment))
+        if ReworkFindings.change_request_comment?(comment_body(comment)),
+          do: comment_handoff_blocker(issue, state, workspace, head, comment_body(comment), comment_timestamp(comment)),
+          else: {:allow, []}
 
       {:ok, nil} ->
         {:allow, []}
@@ -210,8 +198,12 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
 
     case ReworkFindings.latest_feedback_comment(review.number, review.review_at, opts) do
       {:ok, comment} when is_map(comment) ->
-        comment_handoff_blocker(issue, state, workspace, head, comment_body(comment), comment_timestamp(comment))
-        |> continue_review_validation(context)
+        result =
+          if ReworkFindings.change_request_comment?(comment_body(comment)),
+            do: comment_handoff_blocker(issue, state, workspace, head, comment_body(comment), comment_timestamp(comment)),
+            else: {:allow, []}
+
+        continue_review_validation(result, context)
 
       {:ok, nil} ->
         validate_review_findings(context)

@@ -183,19 +183,49 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
     merged_head = git!(git_bin, repo, ["rev-parse", "HEAD"])
     body = "## Local tests\n\nPolicy: partial\nTested head: #{tested_head}\nBase: main @ #{base_head}\nSelection: focused\n- `mix test` -> pass\n"
     issue = %Issue{id: "gid-merge-evidence", identifier: "5408", state: "in-progress"}
-    opts = [open_pr_fetcher: fn _ -> {:ok, %{"number" => 5408, "body" => body, "head" => %{"sha" => merged_head}, "base" => %{"sha" => base_head}}} end]
+
+    opts = [
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 5408, "body" => body, "head" => %{"sha" => merged_head}, "base" => %{"sha" => base_head}}} end,
+      approval_carry_classifier: fn ^tested_head, ^merged_head, 5408, _opts -> :identical end
+    ]
 
     assert :allow = ReworkHandoffGuard.evidence_blockers(issue, "ci-wait", repo, opts)
 
     File.write!(Path.join(repo, "feature.txt"), "feature changed\n")
     git!(git_bin, repo, ["commit", "--quiet", "-am", "feature follow-up"])
     changed_head = git!(git_bin, repo, ["rev-parse", "HEAD"])
-    opts = [open_pr_fetcher: fn _ -> {:ok, %{"number" => 5408, "body" => body, "head" => %{"sha" => changed_head}, "base" => %{"sha" => base_head}}} end]
+
+    opts = [
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 5408, "body" => body, "head" => %{"sha" => changed_head}, "base" => %{"sha" => base_head}}} end,
+      approval_carry_classifier: fn ^tested_head, ^changed_head, 5408, _opts -> {:changed, %{reason: :contribution_changed, hunks: []}} end
+    ]
 
     assert {:refused, :stale_pr_body_evidence, message} =
              ReworkHandoffGuard.evidence_blockers(issue, "ci-wait", repo, opts)
 
     assert message =~ "does not match PR head #{changed_head}"
+
+    git!(git_bin, repo, ["checkout", "main"])
+    File.write!(Path.join(repo, "feature.txt"), "base edit\n")
+    git!(git_bin, repo, ["add", "feature.txt"])
+    git!(git_bin, repo, ["commit", "--quiet", "-m", "base conflicts with contribution"])
+    new_base_head = git!(git_bin, repo, ["rev-parse", "HEAD"])
+    git!(git_bin, repo, ["checkout", "feature"])
+    {_, 1} = System.cmd(git_bin, ["-C", repo, "merge", "--no-ff", "main", "-m", "merge with conflict"], stderr_to_stdout: true)
+    File.write!(Path.join(repo, "feature.txt"), "resolved contribution\n")
+    git!(git_bin, repo, ["add", "feature.txt"])
+    git!(git_bin, repo, ["commit", "--quiet", "-m", "resolve contribution conflict"])
+    conflict_merge_head = git!(git_bin, repo, ["rev-parse", "HEAD"])
+
+    conflict_opts = [
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 5408, "body" => body, "head" => %{"sha" => conflict_merge_head}, "base" => %{"sha" => new_base_head}}} end,
+      approval_carry_classifier: fn ^tested_head, ^conflict_merge_head, 5408, _opts -> {:changed, %{reason: :contribution_changed, hunks: []}} end
+    ]
+
+    assert {:refused, :stale_pr_body_evidence, conflict_message} =
+             ReworkHandoffGuard.evidence_blockers(issue, "ci-wait", repo, conflict_opts)
+
+    assert conflict_message =~ "does not match PR head #{conflict_merge_head}"
   end
 
   @tag :tmp_dir

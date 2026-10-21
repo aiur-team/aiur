@@ -90,7 +90,7 @@ defmodule Aiur.AgentRunner.ReworkFindings do
     end
   end
 
-  @doc "Returns the newest trusted PR conversation comment newer than the formal review when it asks for changes."
+  @doc "Returns the newest trusted PR conversation comment newer than the formal review."
   @spec latest_feedback_comment(term(), String.t() | nil, keyword()) :: {:ok, map() | nil} | {:error, term()}
   def latest_feedback_comment(number, review_at, opts \\ []) do
     fetch_comments = Keyword.get(opts, :pr_issue_comments_fetcher, &default_pr_issue_comments/1)
@@ -99,7 +99,7 @@ defmodule Aiur.AgentRunner.ReworkFindings do
       {:ok, comments} when is_list(comments) ->
         latest =
           comments
-          |> Enum.filter(fn comment -> trusted_comment?(comment, review_at) and change_request_comment?(field(comment, "body")) end)
+          |> Enum.filter(&trusted_comment?(&1, review_at))
           |> Enum.max_by(&comment_timestamp/1, fn -> nil end)
 
         {:ok, latest}
@@ -134,7 +134,9 @@ defmodule Aiur.AgentRunner.ReworkFindings do
 
   defp trusted_comment?(_comment, _review_at), do: false
 
-  defp change_request_comment?(body) do
+  @doc "Whether a trusted PR conversation comment asks for a change."
+  @spec change_request_comment?(term()) :: boolean()
+  def change_request_comment?(body) do
     blocking_comment?(body) or
       (is_binary(body) and String.match?(body, ~r/\b(?:failing|failed) tests?\b|\btests? (?:are )?(?:failing|failed)\b/i))
   end
