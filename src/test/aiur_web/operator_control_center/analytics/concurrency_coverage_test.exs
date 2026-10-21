@@ -10,14 +10,26 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverageTest do
              %{val: "unknown", sub: "partial: 7 of 7 occupied slots not seen as active; 0 now / 10"}
   end
 
+  test "no capacity or agent samples are unknown while a sampled idle fleet remains zero" do
+    assert ConcurrencyCoverage.tile(model(0, nil), :session, "of 8 cores") ==
+             %{val: "unknown", sub: "no fleet-capacity or agent samples in this window; of 8 cores"}
+
+    assert ConcurrencyCoverage.utilization(model(0, nil), :session, "of 8 cores") ==
+             %{val: "unknown", sub: "no fleet-capacity or agent samples in this window; of 8 cores"}
+
+    idle = model(0, 0)
+    assert ConcurrencyCoverage.tile(idle, :session, "of 8 cores") == %{val: 0, sub: "of 8 cores"}
+    assert ConcurrencyCoverage.utilization(idle, :session, "of 8 cores") == %{val: "0%", sub: "of 8 cores"}
+  end
+
   test "a partly sampled fleet keeps the measured peak and names the gap" do
     assert ConcurrencyCoverage.tile(model(5, 7), :session, "5 now / 10") ==
              %{val: 5, sub: "partial: 2 of 7 occupied slots not seen as active; 5 now / 10"}
   end
 
-  test "a fully sampled fleet, missing occupancy, or a Build Order scope keeps the plain tile" do
+  test "a fully sampled fleet, sampled idle fleet, or Build Order scope keeps the plain tile" do
     assert ConcurrencyCoverage.tile(model(7, 7), :session, "7 now / 10") == %{val: 7, sub: "7 now / 10"}
-    assert ConcurrencyCoverage.tile(model(0, nil), :session, "0 now / 10") == %{val: 0, sub: "0 now / 10"}
+    assert ConcurrencyCoverage.tile(model(0, 0), :session, "0 now / 10") == %{val: 0, sub: "0 now / 10"}
     assert ConcurrencyCoverage.tile(model(2, 7), %{kind: :build_order}, "of 10") == %{val: 2, sub: "of 10"}
   end
 
@@ -66,6 +78,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ConcurrencyCoverageTest do
     assert ConcurrencyCoverage.utilization(model(7, 7, 30), :session, "of 8 cores") == %{val: "30%", sub: "of 8 cores"}
     assert ConcurrencyCoverage.utilization(model(0, 7), %{kind: :build_order}, "of 8 cores") == %{val: "0%", sub: "of 8 cores"}
     refute ConcurrencyCoverage.unknown?(model(0, 7), %{kind: :build_order})
-    refute ConcurrencyCoverage.unknown?(model(0, nil), :session)
+    assert ConcurrencyCoverage.unknown?(model(0, nil), :session)
   end
 end
