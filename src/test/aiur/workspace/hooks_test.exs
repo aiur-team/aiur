@@ -252,7 +252,9 @@ defmodule Aiur.Workspace.HooksTest do
 
     command = Hooks.remote_hook_command("git checkout \"$AIUR_TICKET_BRANCH\"", workspace, issue_context)
 
-    assert command =~ "export AIUR_TICKET_BRANCH='aiur/123-add-new-test-cases';"
+    assert command =~
+             "export AIUR_TICKET_BRANCH='aiur/123-add-new-test-cases' AIUR_HOOK_TICKET_ID='1' AIUR_HOOK_TICKET_IDENTIFIER='123' AIUR_HOOK_RUNNER_PID='#{inspect(self())}';"
+
     assert command =~ "cd '#{workspace}' && unset "
     assert command =~ "git checkout \"$AIUR_TICKET_BRANCH\""
   end
