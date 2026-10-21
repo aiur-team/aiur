@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: { contents: read, pull-requests: read }
-    outputs: {docs_only: "${{ steps.classify.outputs.docs_only }}", full_ci: "${{ steps.classify.outputs.full_ci }}", dialyzer: "${{ steps.classify.outputs.dialyzer }}", affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"}
+    outputs: {docs_only: "${{ steps.classify.outputs.docs_only }}", full_ci: "${{ steps.classify.outputs.full_ci }}", browser_smoke: "${{ steps.classify.outputs.browser_smoke }}", dialyzer: "${{ steps.classify.outputs.dialyzer }}", affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -435,7 +435,7 @@ jobs:
   browser:
     name: browser smoke (${{ matrix.shard }}/8)
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
+    if: ${{ !cancelled() && ((github.event_name != 'pull_request' && needs.changes.outputs.full_ci == 'true') || (github.event_name == 'pull_request' && needs.changes.outputs.browser_smoke == 'true')) }}
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
