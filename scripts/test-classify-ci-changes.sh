@@ -4,8 +4,6 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 test_dir="$(mktemp -d "${TMPDIR:-/tmp}/aiur-classify-ci.XXXXXX")"
 trap 'rm -rf "$test_dir"' EXIT
 mkdir -p "$test_dir/bin" "$test_dir/workspace/src"
-cp "$root/scripts/ci-test-selection.exs" "$test_dir/workspace/scripts/ci-test-selection.exs"
-cp -R "$root/src" "$test_dir/workspace/src-project-source" >/dev/null 2>&1 || true
 cat > "$test_dir/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
