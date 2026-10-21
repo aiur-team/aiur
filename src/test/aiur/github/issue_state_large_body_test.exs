@@ -6,15 +6,15 @@ defmodule Aiur.GitHub.IssueStateLargeBodyTest do
 
   setup do
     previous = System.get_env("GITHUB_TOKEN")
-    cached = :persistent_term.get({Aiur.GitHub.Config, :resolved_token}, :unset)
-    :persistent_term.erase({Aiur.GitHub.Config, :resolved_token})
+    cached = :persistent_term.get({Aiur.GitHub.Access.Token, :resolved_token}, :unset)
+    :persistent_term.erase({Aiur.GitHub.Access.Token, :resolved_token})
     System.put_env("GITHUB_TOKEN", "test-gh-token")
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", tracker_label_prefix: "sym")
     ResourceStore.reset()
 
     on_exit(fn ->
       restore_env("GITHUB_TOKEN", previous)
-      if cached == :unset, do: :persistent_term.erase({Aiur.GitHub.Config, :resolved_token}), else: :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, cached)
+      if cached == :unset, do: :persistent_term.erase({Aiur.GitHub.Access.Token, :resolved_token}), else: :persistent_term.put({Aiur.GitHub.Access.Token, :resolved_token}, cached)
       ResourceStore.reset()
     end)
 

@@ -1,10 +1,9 @@
 defmodule Aiur.GitHub.Quota.Windows do
   @moduledoc false
 
+  alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.Budget
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.{EndpointPolicy, GraphQLCost, GraphQLErrors, Transport}
-  alias Aiur.RepoBase
 
   @primary_resources ~w(core graphql)
   @rate_limit_body_resources ~w(core)
@@ -364,15 +363,7 @@ defmodule Aiur.GitHub.Quota.Windows do
 
   @spec default_hold_dir() :: String.t() | nil
   def default_hold_dir do
-    case GitHubConfig.repo() do
-      repo when is_binary(repo) and repo != "" ->
-        repo
-        |> RepoBase.repo_path()
-        |> Path.join("github-quota")
-
-      _unconfigured ->
-        nil
-    end
+    Settings.path(:quota_dir)
   rescue
     _unavailable -> nil
   end
