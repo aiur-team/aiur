@@ -211,11 +211,13 @@ aiur_build_gate_wait_for_phase_start_pid() {
 aiur_build_gate_publish_owner_v2() {
   local gate_dir=$1 owner_path=$2 token=$3 phase=$4 owner_pid=$5 owner_pgid=$6
   local holder_pid=$7 command_pgid=$8 command_pid_namespace=$9
-  local owner_candidate started_at summary command_name argument_count
+  local owner_candidate started_at summary command_name file_count
   shift 9
-  command_name=${1##*/}
-  argument_count=$(($# - 1))
-  summary=$(aiur_build_gate_command_summary "$command_name" "$argument_count" "$@") || return 125
+  command_name=$1
+  shift
+  summary=$(aiur_build_gate_command_summary "$command_name" "$@") || return 125
+  file_count=${summary#*, }
+  file_count=${file_count%% files,*}
 
   started_at=$(aiur_build_gate_started_at)
 
@@ -225,9 +227,9 @@ aiur_build_gate_publish_owner_v2() {
   }
 
   if ! printf \
-    'version=2\ntoken=%s\npid=%s\npgid=%s\nholder_pid=%s\ncommand_pgid=%s\ncommand_pid_namespace=%s\nphase=%s\ncommand=%s\ncommand_hash=%s\ncommand_arg_count=%s\nstarted_at=%s\n' \
+    'version=2\ntoken=%s\npid=%s\npgid=%s\nholder_pid=%s\ncommand_pgid=%s\ncommand_pid_namespace=%s\nphase=%s\ncommand=%s\ncommand_hash=%s\ncommand_file_count=%s\nstarted_at=%s\n' \
     "$token" "$owner_pid" "$owner_pgid" "$holder_pid" "$command_pgid" "$command_pid_namespace" "$phase" "$summary" \
-    "${summary##*sha256=}" "$argument_count" "$started_at" \
+    "${summary##*sha256=}" "$file_count" "$started_at" \
     >"$owner_candidate"; then
     rm -f "$owner_candidate" 2>/dev/null || true
     aiur_build_gate_fail "owner_write_failed" "$owner_path"
@@ -239,15 +241,21 @@ aiur_build_gate_publish_owner_v2() {
 }
 
 aiur_build_gate_command_summary() {
-  local digest command_name=$1 argument_count=$2
-  shift 2
+  local digest command_name=$1 file_count=0 argument
+  shift
+
+  for argument in "$@"; do
+    if [[ $argument != -* && ( $argument == */* || $argument == *.exs || $argument == *.ex ) ]]; then
+      file_count=$((file_count + 1))
+    fi
+  done
 
   if command -v sha256sum >/dev/null 2>&1; then
     digest=$(printf '%s\0' "$@" | sha256sum | awk '{print $1}') || return 1
   else
     digest=$(printf '%s\0' "$@" | shasum -a 256 | awk '{print $1}') || return 1
   fi
-  printf '%s, %s files, sha256=%s' "$command_name" "$argument_count" "$digest"
+  printf '%s, %s files, sha256=%s' "$command_name" "$file_count" "$digest"
 }
 
 aiur_build_gate_release_linux_owner() {

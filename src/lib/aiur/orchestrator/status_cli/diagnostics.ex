@@ -202,8 +202,10 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
   defp print_build_gate_line(kind, identifiers, holder, duration_label, annotation) do
     with pid when is_integer(pid) <- Map.get(holder, :pid),
          command when is_binary(command) <- Map.get(holder, :command) do
+      phase = if is_binary(Map.get(holder, :phase)), do: " phase=#{Map.get(holder, :phase)}", else: ""
+
       IO.puts(
-        "BUILD GATE #{kind} #{Enum.join(identifiers, " ")} command=#{inspect(command)} " <>
+        "BUILD GATE #{kind} #{Enum.join(identifiers, " ")}#{phase} command=#{inspect(command)} " <>
           "#{duration_label}=#{format_gate_hold(Map.get(holder, :held_for_seconds))}#{annotation}"
       )
     else
