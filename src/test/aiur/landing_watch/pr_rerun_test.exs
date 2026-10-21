@@ -2,7 +2,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
   use ExUnit.Case, async: true
 
   alias Aiur.LandingWatch
-  alias Aiur.LandingWatch.{Journal, PrRerun}
+  alias Aiur.LandingWatch.{Journal, PrRerun, PrRerunClassifier}
 
   @started "2026-10-14T10:00:00Z"
   @started_ms 1_791_972_000_000
@@ -87,7 +87,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
       %{completed_at: @started_ms + 60_000, checks: [%{name: "ci gate", conclusion: "failure"}]}
     ]
 
-    refute Aiur.LandingWatch.PrRerunClassifier.stale_merge_ref?(failed_gate(), main_history_fun: fn -> history end)
+    refute PrRerunClassifier.stale_merge_ref?(failed_gate(), main_history_fun: fn -> history end)
   end
 
   test "main recovery reruns only approved auto-merge failures started during the red interval" do
@@ -288,10 +288,10 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     ]
 
     opts = [main_history_fun: fn -> history end]
-    refute Aiur.LandingWatch.PrRerunClassifier.stale_merge_ref?(failed_gate(), opts)
+    refute PrRerunClassifier.stale_merge_ref?(failed_gate(), opts)
 
     fixed = List.update_at(history, 1, &%{&1 | checks: [%{name: "ci gate", conclusion: "success"}]})
-    assert Aiur.LandingWatch.PrRerunClassifier.stale_merge_ref?(failed_gate(), main_history_fun: fn -> fixed end)
+    assert PrRerunClassifier.stale_merge_ref?(failed_gate(), main_history_fun: fn -> fixed end)
   end
 
   test "a cancelled-only run set still alerts the person cancel and reruns nothing" do
