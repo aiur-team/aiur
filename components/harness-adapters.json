@@ -37,6 +37,7 @@
     "Aiur.CodingAgent.HeadroomDispatch",
     "Aiur.CodingAgent.Models",
     "Aiur.CodingAgent.RouteFailure",
+    "Aiur.Harness.Capabilities",
     "Aiur.ModelAvailability",
     "Aiur.ModelCatalog",
     "Aiur.ModelDiscovery",
