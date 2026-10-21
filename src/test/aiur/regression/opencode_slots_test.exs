@@ -175,17 +175,20 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
   end
 
   describe "warmth lifecycle events (4-state marker inputs)" do
-    test "first attach flips :slot_fully_warmed exactly once; losing the last attach drops warmth" do
+    test "first attach flips :slot_fully_warmed exactly once; losing the last attach drops warmth",
+         %{pool: pool} do
       Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_added, 1, "issue-1"})
       assert_receive {:slot_fully_warmed, 1}, 2000
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_added, 1, "issue-2"})
-      refute_receive {:slot_fully_warmed, 1}, 1000
+      sync(pool)
+      refute_receive {:slot_fully_warmed, 1}, 0
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_removed, 1, "issue-1"})
-      refute_receive {:slot_warmth_dropped, 1}, 1000
+      sync(pool)
+      refute_receive {:slot_warmth_dropped, 1}, 0
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_removed, 1, "issue-2"})
       assert_receive {:slot_warmth_dropped, 1}, 2000
