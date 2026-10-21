@@ -385,8 +385,8 @@ that each add a seam then touch different files and merge without conflict.
 Every root config section and scalar field, env schema name, and public
 `Aiur.Config.Paths` function ending in `_dir` or `_path` must have exactly one
 owner in `owns.config`, `owns.env` or `owns.state`. Add the owner in the same PR
-as a new declaration; stale and duplicate ownership also fail lint.
-`shared_with` records collaborating components without assigning another owner.
+as a new declaration; stale and duplicate ownership also fail lint. Explicit dotted
+`owns.config` fields override their section owner; `shared_with` records collaborators.
 
 RQ4: root sections stay literal `embeds_one` declarations: Ecto composes the
 struct at compile time and `check-config-docs.py` reads those lines. Ownership

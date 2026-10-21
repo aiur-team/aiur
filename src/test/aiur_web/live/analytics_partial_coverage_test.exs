@@ -54,6 +54,43 @@ defmodule AiurWeb.AnalyticsPartialCoverageTest do
     refute chart =~ "<svg"
   end
 
+  test "no capacity or agent samples show unknown on both cards and the chart" do
+    Application.put_env(:aiur, :analytics_telemetry_file, empty_window_fixture!(RunTelemetry.boot_id()))
+
+    {:ok, view, _html} = live(build_conn(), "/analytics")
+    LiveViewAsync.render_when_complete(view)
+
+    utilization = view |> element(".an-kpi", "Mean utilization") |> render()
+    peak = view |> element(".an-kpi", "Peak concurrency") |> render()
+
+    assert utilization =~ ~s(<span class="an-kpi-val">unknown</span>)
+    assert peak =~ ~s(<span class="an-kpi-val">unknown</span>)
+    refute utilization =~ ~s(<span class="an-kpi-val">0%)
+    refute peak =~ ~s(<span class="an-kpi-val">0</span>)
+    assert utilization =~ "no fleet-capacity or agent samples in this window"
+    assert peak =~ "no fleet-capacity or agent samples in this window"
+    assert utilization =~ "of 4 cores"
+    assert peak =~ "of 4 cores"
+
+    assert view |> element("#analytics-concurrency-chart") |> render() =~
+             "Concurrency unknown: no fleet-capacity or agent samples in this window."
+  end
+
+  defp empty_window_fixture!(boot_id) do
+    root = Path.join(System.tmp_dir!(), "aiur-analytics-empty-window-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    path = Path.join(root, "telemetry.ndjson")
+
+    records = [
+      record(boot_id, 1, "restart", ~U[2026-07-11 00:01:00Z], %{"event" => "restart", "boundary" => "point"}),
+      record(boot_id, 2, "lifecycle", ~U[2026-07-11 00:01:02Z], %{"event" => "dispatch", "boundary" => "point", "ticket" => "941"})
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root, unset: [:analytics_telemetry_file]) end)
+    path
+  end
+
   defp occupied_fixture!(boot_id, occupied) do
     root = Path.join(System.tmp_dir!(), "aiur-analytics-coverage-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
