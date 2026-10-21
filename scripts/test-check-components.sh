@@ -486,14 +486,14 @@ else:
             assert result.returncode == 2 and 'Elixir missing; install via mise' in result.stderr, result.stderr
             print('PASS: missing_elixir_exits_2')
 
-from components.docs_fixtures import run as docs_fixtures
-ran.update(docs_fixtures(repo, selected)); ran.add('component_debt_reports_both_directions') if with_elixir and (not selected or 'component_debt_reports_both_directions' in selected) else None
+from components.docs_fixtures import run as docs_fixtures; ran.update(docs_fixtures(repo, selected))
+if with_elixir and (not selected or 'component_debt_reports_both_directions' in selected): subprocess.run([sys.executable, str(repo / 'scripts/test-component-promotion-report.py')], check=True); ran.add('component_debt_reports_both_directions')
 assert not selected - ran, f'unknown/unexecuted cases: {selected - ran}'
 PY
 
 python3 "$repo_root/scripts/test-components-seam-merge.py"
 if [[ " $* " == *" --with-elixir "* ]]; then
-  python3 "$repo_root/scripts/test-components-seams.py" && python3 "$repo_root/scripts/test-component-promotion-report.py"
+  python3 "$repo_root/scripts/test-components-seams.py"
   python3 "$repo_root/scripts/test-pr-lifecycle-components.py"
   python3 "$repo_root/scripts/test-github-components.py"
 fi

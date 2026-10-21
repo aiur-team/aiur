@@ -9,14 +9,14 @@ def validate_options(parser, args):
         parser.error('--report cannot be combined with docs, format, prune, baseline, or growth options')
 
 
-def report(component, module_owners, violations, allowed, stale):
+def report(component, module_owners, violations, allowed):
     """Print live and stale exemption keys touching a component in either direction."""
     rows = []
     for rule, source, target in allowed:
         direction = 'outbound' if source == component else 'inbound'
         if source == component or module_owners.get(target) == component:
             rows.append((direction, rule, source, target,
-                         'stale' if (rule, source, target) in stale else 'live'))
+                         'live' if (rule, source, target) in violations else 'stale'))
     print(f'components: promotion debt for {component}:')
     print('direction\trule\tsource component\ttarget module\tstatus')
     for row in sorted(set(rows)):
@@ -35,5 +35,4 @@ def run(root, manifest, component, rules, source_files, ownership, module_violat
     violations, _, modules = module_violations(root, manifest, owners, include_modules=True)
     violations = {key: value for key, value in violations.items() if key[0] in rules}
     allowed = read_allowlist(root, manifest)
-    stale = {key for key in allowed - violations.keys() if key[0] in rules}
-    report(component, modules, violations, allowed, stale)
+    report(component, modules, violations, allowed)

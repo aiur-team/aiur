@@ -423,7 +423,7 @@ def main():
     parser.add_argument('--prune', action='store_true', help='remove only stale allowlist entries')
     parser.add_argument('--growth-base', help='require ticket reasons for allowlist additions since this SHA')
     parser.add_argument('--component', help='scope a promotion-debt report to one component')
-    parser.add_argument('--report', action='store_true', help='report live and stale component boundary debt')
+    parser.add_argument('--report', action='store_true', help='report live/stale debt; deleted targets are attributed to their source component')
     args = parser.parse_args()
     rules = RULES if args.rules in ('all', 'elixir', 'ownership') else tuple('R-' + rule for rule in args.rules.split(','))
     if not rules or any(rule not in RULES for rule in rules) or len(rules) != len(set(rules)):
