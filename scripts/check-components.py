@@ -260,7 +260,7 @@ def ownership(manifest, files):
     return problems, counts, file_owners
 
 
-def module_violations(root, manifest, file_owners):
+def module_violations(root, manifest, file_owners, include_modules=False):
     walker = Path(__file__).parent / 'components/module_references.exs'
     files = sorted(path for path in file_owners if path.startswith('src/lib/') and path.endswith('.ex'))
     started = time.monotonic()
@@ -320,7 +320,7 @@ def module_violations(root, manifest, file_owners):
     print(f'components: Elixir: {len(modules)} modules, {len(references)} references; '
           f'{len(unresolved)} unresolved internal targets; {time.monotonic() - started:.3f} s')
     largest_scc = report_cycles(graph)
-    return violations, largest_scc
+    return (violations, largest_scc, modules) if include_modules else (violations, largest_scc)
 
 
 def read_allowlist(root, manifest):
@@ -374,6 +374,43 @@ def check_references(root, manifest, file_owners, baseline, rules, prune=False, 
     return bool(violations.keys() - allowed or stale or growth_failed)
 
 
+def report_component_debt(component, module_owners, violations, allowed, stale):
+    """Print live and stale exemption keys touching a component in either direction."""
+    keys = allowed
+    rows = []
+    for rule, source, target in keys:
+        if (rule, source, target) not in allowed:
+            continue
+        if source == component:
+            direction = 'outbound'
+        else:
+            direction = 'inbound'
+        if source == component or module_owners.get(target) == component:
+            rows.append((direction, rule, source, target,
+                         'stale' if (rule, source, target) in stale else 'live'))
+    print(f'components: promotion debt for {component}:')
+    print('direction\trule\tsource component\ttarget module\tstatus')
+    for row in sorted(set(rows)):
+        print('\t'.join(row))
+
+
+def component_debt_report(root, manifest, component, rules):
+    files = source_files(root)
+    problems, _, owners = ownership(manifest, files)
+    if problems:
+        raise ValueError('cannot report component debt with invalid ownership')
+    violations, _, module_owners = module_violations(root, manifest, owners, include_modules=True)
+    violations = {key: value for key, value in violations.items() if key[0] in rules + STRICT_RULES}
+    allowed = read_allowlist(root, manifest)
+    stale = {key for key in allowed - violations.keys() if key[0] in rules}
+    components = {entry['id'] for entry in manifest['components']}
+    if component not in components:
+        raise ValueError(f'unknown component {component}')
+    # Stale allowlist keys no longer appear in violations, so retain their
+    # destination ownership from the manifest's current module declarations.
+    report_component_debt(component, module_owners, violations, allowed, stale)
+
+
 def declaration_ownership(root, manifest):
     # Keep these literal matchers aligned with check-config-docs.py.
     config = (root / 'src/lib/aiur/config/schema.ex').read_text()
@@ -421,6 +458,8 @@ def main():
     parser.add_argument('--format', action='store_true')
     parser.add_argument('--prune', action='store_true', help='remove only stale allowlist entries')
     parser.add_argument('--growth-base', help='require ticket reasons for allowlist additions since this SHA')
+    parser.add_argument('--component', help='scope a promotion-debt report to one component')
+    parser.add_argument('--report', action='store_true', help='report live and stale component boundary debt')
     args = parser.parse_args()
     rules = RULES if args.rules in ('all', 'elixir', 'ownership') else tuple('R-' + rule for rule in args.rules.split(','))
     if not rules or any(rule not in RULES for rule in rules) or len(rules) != len(set(rules)):
@@ -431,9 +470,16 @@ def main():
         parser.error('--prune cannot be combined with --write-baseline')
     if args.rules == 'ownership' and (args.prune or args.growth_base):
         parser.error('--prune/--growth-base require reference checks')
+    if args.report != bool(args.component):
+        parser.error('--report and --component must be used together')
+    if args.report and (args.docs or args.format or args.prune or args.write_baseline or args.growth_base):
+        parser.error('--report cannot be combined with docs, format, prune, baseline, or growth options')
     root = Path(os.environ.get('AIUR_COMPONENTS_ROOT', Path(__file__).resolve().parent.parent)).resolve()
     try:
         manifest = load_manifest(root)
+        if args.report:
+            component_debt_report(root, manifest, args.component, rules)
+            return 0
         if args.docs or (args.rules == 'all' and not args.format):
             docs_problems = check_docs(root, manifest)
             for message in docs_problems:

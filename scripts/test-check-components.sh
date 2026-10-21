@@ -317,6 +317,25 @@ else:
     reference_check('alias_resolution_counts', 'alias_resolution_counts', 1, ('R-private a -> B.Internal',))
     reference_check('doc_mentions_ignored', 'doc_mentions_ignored', messages=('R-private: 0',))
     reference_check('allowlisted_violation_passes', 'allowlisted_violation_passes', messages=('R-private: 1',))
+    if not selected or 'component_debt_reports_both_directions' in selected:
+        ran.add('component_debt_reports_both_directions')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(repo / 'scripts/components/fixtures/allowlisted_violation_passes', root,
+                            dirs_exist_ok=True)
+            shutil.copyfile(repo / 'components.schema.json', root / 'components.schema.json')
+            complete_fixture(root)
+            result = subprocess.run([sys.executable, str(checker), '--rules', 'elixir',
+                                     '--component', 'a', '--report'],
+                                    env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(root)),
+                                    capture_output=True, text=True)
+            output = result.stdout + result.stderr
+            assert result.returncode == 0, output
+            for row in ('outbound\tR-private\ta\tB.Internal\tlive',
+                        'inbound\tR-private\tb\tA\tlive',
+                        'outbound\tR-declared\ta\tB.Gone\tstale'):
+                assert row in output, f'missing {row!r}: {output}'
+            print('PASS: component_debt_reports_both_directions')
     reference_check('new_violation_beside_allowlist_fails', 'new_violation_beside_allowlist_fails', 1,
                     ('R-private a -> B.Other',))
     reference_check('composition_root_exempt', 'composition_root_exempt', messages=('R-private: 0', 'R-declared: 0'))
