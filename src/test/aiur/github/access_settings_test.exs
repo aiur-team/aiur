@@ -6,6 +6,7 @@ defmodule Aiur.GitHub.AccessSettingsTest do
   alias Aiur.GitHub.Quota.{ShellObservations, Windows}
   alias Aiur.GitHub.ReadCache.Policy, as: CachePolicy
   alias Aiur.GitHub.ResourceStore.Persistence
+  alias Aiur.TestSupport.Isolation
   alias Aiur.TestSupport.WorkflowFiles
   alias Aiur.{Workflow, WorkflowStore}
 
@@ -103,21 +104,23 @@ defmodule Aiur.GitHub.AccessSettingsTest do
     :erlang.trace_pattern(paths_call, true, [:local])
 
     worker =
-      spawn(fn ->
-        receive do
-          :read ->
-            CachePolicy.ttl_ms(:issue)
-            send(parent, {:read_done, self(), Budget.guard_settings()})
+      Isolation.start_owned!(
+        {Task,
+         fn ->
+           receive do
+             :read ->
+               CachePolicy.ttl_ms(:issue)
+               send(parent, {:read_done, self(), Budget.guard_settings()})
 
-            receive do
-              :stop -> :ok
-            end
-        end
-      end)
+               receive do
+                 :stop -> :ok
+               end
+           end
+         end}
+      )
 
     on_exit(fn ->
       :erlang.trace_pattern(paths_call, false, [:local])
-      if Process.alive?(worker), do: Process.exit(worker, :kill)
     end)
 
     :erlang.trace(worker, true, [:call, {:tracer, self()}])
