@@ -35,28 +35,26 @@ defmodule Aiur.LandingWatch.UnlinkedPrTest do
 
     {[:aiur, :landing_watch, :poll, :stop], _measurements, %{result: :ok}} =
       Isolation.await_telemetry!([:aiur, :landing_watch, :poll, :stop], fn ->
-        Process.put(
-          :landing_watch_start_result,
-          LandingWatch.start_link(
-            name: server,
-            interval_ms: 60_000,
-            subscribe: false,
-            observe_fun: fn _ -> {:ok, [unlinked, linked]} end,
-            journal_prune_fun: fn _, _ -> :ok end,
-            process_fun: fn observation, _ ->
-              send(parent, {:watcher_processed, observation.number})
-              :ok
-            end,
-            queue_reconcile_fun: fn _, _ -> :ok end
-          )
+        start_supervised!(
+          {LandingWatch,
+           [
+             name: server,
+             interval_ms: 60_000,
+             subscribe: false,
+             observe_fun: fn _ -> {:ok, [unlinked, linked]} end,
+             journal_prune_fun: fn _, _ -> :ok end,
+             process_fun: fn observation, _ ->
+               send(parent, {:watcher_processed, observation.number})
+               :ok
+             end,
+             queue_reconcile_fun: fn _, _ -> :ok end
+           ]}
         )
       end)
 
-    assert {:ok, pid} = Process.delete(:landing_watch_start_result)
     assert_received {:watcher_processed, 17}
     assert is_integer(LandingWatch.state(server).last_poll_at_ms)
     assert LandingWatch.state(server).watcher == :running
-    GenServer.stop(pid, :normal)
   end
 
   test "unlinked PRs still get infra reruns" do
