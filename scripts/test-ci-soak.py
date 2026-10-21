@@ -506,8 +506,8 @@ class SoakTest(unittest.TestCase):
         cases = (
             (['--grep', 'product interactions.*columns[.]'], 'prefix product interactions show columns.cell update'),
             (['--grep=product interactions.*columns[.]'], 'prefix product interactions show columns.cell update'),
-            (['--grep', 'product interactions[.]'], 'prefix product interactions. show columns.cell update'),
-            (['--grep=product interactions[.]'], 'prefix product interactions. show columns.cell update'),
+            (['--grep', '^prefix product interactions[.]'], 'prefix product interactions. show columns.cell update'),
+            (['--grep=^prefix product interactions[.]'], 'prefix product interactions. show columns.cell update'),
         )
         for grep_args, title in cases:
             command = ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs']
