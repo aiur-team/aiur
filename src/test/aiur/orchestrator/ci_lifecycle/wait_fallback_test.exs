@@ -277,8 +277,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitFallbackTest do
     # to block both exits from `ci-wait` forever — and `ci-wait` is a
     # no-agent-work state, so dispatch and `aiurdev resume` both refuse it.
     test "the fallback rewake recovers a ci-wait entry fenced after its agent exited" do
-      test_pid = self()
-      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+      runner_tasks_before = Aiur.TestSupport.capture_runner_tasks()
+      on_exit(fn -> Aiur.TestSupport.stop_runner_tasks_started_since(runner_tasks_before) end)
 
       identifier = unique_identifier("ci-wait-fenced-exited")
       recorder = start_recorder()
