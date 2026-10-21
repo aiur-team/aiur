@@ -1,5 +1,5 @@
 defmodule Aiur.Config.BackendCatalogTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
 
   alias Aiur.Config
   alias Aiur.Config.BackendCatalog
@@ -36,6 +36,8 @@ defmodule Aiur.Config.BackendCatalogTest do
       assert BackendCatalog.impl() == {:error, :backend_catalog_unavailable}
       assert BackendCatalog.default_backend() == {:error, :backend_catalog_unavailable}
       assert BackendCatalog.known_backends() == {:error, :backend_catalog_unavailable}
+      assert Config.agent_kind() == {:error, :backend_catalog_unavailable}
+      assert Config.rate_limit_fallback_backend() == {:error, :backend_catalog_unavailable}
       assert Config.settings_from({:ok, %{config: %{}}}) == {:error, :backend_catalog_unavailable}
 
       changeset = Agent.changeset(%Agent{}, %{"priority" => ["codex"], "routing" => %{"1" => "codex"}})
@@ -43,6 +45,18 @@ defmodule Aiur.Config.BackendCatalogTest do
       assert {"backend_catalog_unavailable", metadata} = Keyword.fetch!(changeset.errors, :backend_configs)
       assert metadata[:reason] == :backend_catalog_unavailable
     end
+  end
+
+  test "memoized settings do not hide a removed backend catalog" do
+    ensure_workflow_store_running()
+    write_workflow_file!(Workflow.workflow_file_path(), agent_kind: "codex")
+    assert {:ok, %{agent: %{kind: "codex"}}} = Config.settings()
+
+    Application.put_env(:aiur, :backend_catalog, nil)
+    assert Config.settings() == {:error, :backend_catalog_unavailable}
+
+    Application.put_env(:aiur, :backend_catalog, Aiur.CodingAgent.ConfigCatalog)
+    assert {:ok, %{agent: %{kind: "codex"}}} = Config.settings()
   end
 
   test "config preparation and changeset validation read the registered catalog at call time" do

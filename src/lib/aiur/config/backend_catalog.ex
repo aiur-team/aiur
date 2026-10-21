@@ -11,7 +11,7 @@ defmodule Aiur.Config.BackendCatalog do
   @callback dispatchable_backends(map()) :: [String.t()]
   @callback config_validator(String.t()) :: (map() -> :ok | {:error, term()}) | nil
   @callback models(String.t()) :: [String.t()]
-  @callback ambiguous_model_alias?(String.t(), String.t()) :: boolean()
+  @callback ambiguous_model_alias?(String.t(), String.t() | nil) :: boolean()
   @callback complexity_level(map()) :: pos_integer() | nil
   @callback remote_control?(String.t()) :: boolean()
   @callback model_required?(String.t()) :: boolean()
@@ -26,32 +26,32 @@ defmodule Aiur.Config.BackendCatalog do
   end
 
   @spec known_backends() :: [String.t()] | unavailable()
-  def known_backends() do
+  def known_backends do
     with {:ok, module} <- impl(), do: module.known_backends()
   end
 
   @spec default_backend() :: String.t() | unavailable()
-  def default_backend() do
+  def default_backend do
     with {:ok, module} <- impl(), do: module.default_backend()
   end
 
   @spec default_config_backend() :: String.t() | unavailable()
-  def default_config_backend() do
+  def default_config_backend do
     with {:ok, module} <- impl(), do: module.default_config_backend()
   end
 
   @spec default_rate_limit_fallback() :: String.t() | unavailable()
-  def default_rate_limit_fallback() do
+  def default_rate_limit_fallback do
     with {:ok, module} <- impl(), do: module.default_rate_limit_fallback()
   end
 
   @spec rate_limit_fallback_targets() :: [String.t()] | unavailable()
-  def rate_limit_fallback_targets() do
+  def rate_limit_fallback_targets do
     with {:ok, module} <- impl(), do: module.rate_limit_fallback_targets()
   end
 
   @spec configurable_backends() :: [String.t()] | unavailable()
-  def configurable_backends() do
+  def configurable_backends do
     with {:ok, module} <- impl(), do: module.configurable_backends()
   end
 
@@ -70,7 +70,7 @@ defmodule Aiur.Config.BackendCatalog do
     with {:ok, module} <- impl(), do: module.models(backend)
   end
 
-  @spec ambiguous_model_alias?(String.t(), String.t()) :: boolean() | unavailable()
+  @spec ambiguous_model_alias?(String.t(), String.t() | nil) :: boolean() | unavailable()
   def ambiguous_model_alias?(backend, model) do
     with {:ok, module} <- impl(), do: module.ambiguous_model_alias?(backend, model)
   end

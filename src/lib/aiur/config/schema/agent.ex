@@ -47,6 +47,7 @@ defmodule Aiur.Config.Schema.Agent do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Aiur.Config.CatalogValidation
   alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, GitIdentity, PricingPolicy, Rtk}
 
   @default_backend "codex"
@@ -451,7 +452,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:budget_broker_degraded_retry_threshold, greater_than: 0)
     |> validate_number(:budget_broker_degraded_alert_after_seconds, greater_than: 0)
     |> validate_number(:dispatch_hold_attention_threshold, greater_than: 0)
-    |> Aiur.Config.CatalogValidation.validate()
+    |> CatalogValidation.validate()
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
     |> update_change(:max_turns_by_complexity, &AgentValidation.normalize_max_turns_by_complexity/1)
