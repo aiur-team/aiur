@@ -30,9 +30,10 @@ defmodule Aiur.Muse.Turn do
     frame_opts = if is_binary(session[:effort]), do: Keyword.put(frame_opts, :reasoning_effort, session.effort), else: frame_opts
     frame = Protocol.turn_start_frame(request_id, session_id, prompt, frame_opts)
     timeout = Keyword.get(opts, :turn_timeout_ms, Aiur.Config.agent_turn_timeout_ms())
+    turn_start_timeout = max(timeout, 30_000)
     on_notification = fn notification -> send(self(), {:muse_prestart, notification}) end
 
-    with {:ok, result} <- Transport.request(port, frame, max(timeout, 30_000), on_notification),
+    with {:ok, result} <- Transport.request(port, frame, turn_start_timeout, on_notification),
          {:accepted, receipt} <- Protocol.turn_start_result(result, command_id) do
       turn_id = receipt["turnId"]
       deadline = System.monotonic_time(:millisecond) + timeout
