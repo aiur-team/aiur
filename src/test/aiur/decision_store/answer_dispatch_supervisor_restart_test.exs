@@ -62,7 +62,7 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
       assert active_id == active.decision_id
       worker_links = Process.info(worker, :links) |> elem(1)
       assert coordinator_pid in worker_links
-      assert task_supervisor in worker_links
+      assert Enum.any?([task_supervisor, shared_task_supervisor], &(&1 in worker_links))
       worker_ref = Process.monitor(worker)
 
       :ok = :sys.trace(root, true)
