@@ -23,8 +23,8 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
   def prepare(_, _), do: {:error, :invalid_id}
 
   defp prepare_valid(ref, opts) do
-    with :ok <- repository(ref),
-         {:ok, running, fleet, unknown?} <- running(ref.id, opts) do
+    with :ok <- repository(ref) do
+      {:ok, running, fleet, unknown?} = running(ref.id, opts)
       workspace = if running, do: running[:workspace_path], else: nil
       workspace = workspace || Layout.issue_workspace_path(Aiur.Config.settings!().workspace.root, ref.id)
       remote? = running != nil and is_binary(running[:worker_host])
@@ -215,8 +215,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
     Enum.find_value(paths, fn path ->
       case Layout.validate_workspace_path(path, nil) do
         :ok -> nil
-        {:error, reason} when is_tuple(reason) -> elem(reason, 0)
-        _ -> :unknown
+        {:error, {reason, _, _}} -> reason
       end
     end)
   end
