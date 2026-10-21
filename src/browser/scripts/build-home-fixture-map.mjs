@@ -34,7 +34,9 @@ export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = 
     dep_states: Object.fromEntries(t.deps.map(dep => [id(dep), state(byId[dep])])), deps_missing: 0, wave: optional(t, 'wave'), qpos: optional(t, 'qpos'),
     cue: t.cue ? { held: optional(t.cue, 'held'), promoted: t.cue.promoted ? meta.now - duration(t.cue.promoted) : null,
       wait: optional(t.cue, 'wait'), waitAny: t.cue.waitAny ?? false, failed: optional(t.cue, 'failed'), blockedChain: t.cue.blockedChain ?? false } : null,
-    pr: null });
+    // fixture only: the design's mock PR rule
+    pr: t.agent && t.start && (t.sec === 'hist' || Math.max(.12, t.pct / 100) >= .55)
+      ? { num: 200 + t.num % 300, state: t.sec === 'hist' ? (t.status === 'failed' ? 'closed' : 'merged') : 'open' } : null });
   return { v: 1, kind: 'snapshot', epoch: 'fixture', generation: 0, now: meta.now, writable: true,
     repo: { url: 'https://github.com/example/aiur-fixture/' }, epics: data.epics,
     features: Object.fromEntries(Object.entries(data.features).map(([k, f]) => [k, { ...f, from: time(f, 'from'), to: Number.isFinite(f.to) ? Math.trunc(f.to) : null, stats: stats(featureStats[k]) }])),

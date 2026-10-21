@@ -231,7 +231,7 @@ defmodule Aiur.Config.AgentSettingsTest do
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
     assert settings.agent.budget_broker_rate_window_seconds == 300
     assert settings.agent.budget_broker_degraded_retry_threshold == 5
-    assert settings.agent.budget_broker_degraded_alert_after_seconds == 600
+    assert settings.agent.budget_broker_degraded_alert_after_seconds == 60
 
     assert {:ok, settings} =
              Schema.parse(%{

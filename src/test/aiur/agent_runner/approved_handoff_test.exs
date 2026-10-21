@@ -24,6 +24,7 @@ defmodule Aiur.AgentRunner.ApprovedHandoffTest do
         ticket_state_writer: fn _issue_id, state -> send(test_pid, {:state_write, state}) && :ok end,
         open_pr_fetcher: fn _ -> {:ok, %{"number" => 77, "head" => %{"sha" => "merged-head"}}} end,
         reviews_fetcher: fn _ -> {:ok, reviews} end,
+        pr_issue_comments_fetcher: fn _ -> {:ok, []} end,
         pull_request_approval_fetcher: fn 77 -> approval end,
         approval_carry_classifier: classifier
       )

@@ -331,12 +331,12 @@ defmodule Aiur.Config.Schema.Agent do
     # How long the degraded retry rate must persist before the single
     # `system.github.budget_broker_degraded` alert raises (#2434/#2449 dwell):
     # a momentary blip that clears within this bound produces nothing, a
-    # sustained degradation raises exactly once. Kept longer than the rate
-    # window so a burst that stops ages out of the window before the dwell
-    # completes — the dwell then filters exactly the momentary cases.
+    # sustained degradation raises exactly once. Kept shorter than the rate
+    # window so an active timeout pattern can satisfy the dwell before its
+    # earliest event ages out.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.budget_broker_degraded_alert_after_seconds | integer | 600 | How long the degraded budget-broker retry rate must persist before the single `system.github.budget_broker_degraded` alert raises (the dwell): a momentary blip that clears within this bound produces nothing, a sustained degradation raises exactly once. |
-    field(:budget_broker_degraded_alert_after_seconds, :integer, default: 600)
+    # @config-reference config-configuration-agent-00 agent.budget_broker_degraded_alert_after_seconds | integer | 60 | How long the budget-broker timeout rate must persist before the single `system.github.budget_broker_degraded` alert raises (the dwell): a momentary blip that clears within this bound produces nothing, a sustained outage raises once with its duration. |
+    field(:budget_broker_degraded_alert_after_seconds, :integer, default: 60)
     # A dispatch declined by a local GitHub budget hold is a retry. It raises an
     # Executor attention only once the same ticket has been declined this many
     # times in a row (#4067).

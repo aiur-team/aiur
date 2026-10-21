@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.ReworkHandoff do
   @moduledoc false
 
-  alias Aiur.AgentRunner.{ReworkFindings, TurnAlerts, TurnLoop}
+  alias Aiur.AgentRunner.{ReworkFindings, ReworkHandoffGuard, TurnAlerts, TurnLoop}
   alias Aiur.CodeHost
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
@@ -40,6 +40,19 @@ defmodule Aiur.AgentRunner.ReworkHandoff do
   end
 
   defp write_handoff(issue, turn_context, state) do
+    case ReworkHandoffGuard.evidence_blockers(issue, state, turn_context[:workspace], turn_context.opts) do
+      {:refused, reason, message} ->
+        {:error, {:rework_handoff_evidence_refused, reason, message}}
+
+      :allow ->
+        case ReworkHandoffGuard.findings_blockers(issue, state, turn_context[:workspace], turn_context.opts) do
+          {:refused, reason, message} -> {:error, {:rework_handoff_evidence_refused, reason, message}}
+          {:allow, _findings} -> write_state(issue, turn_context, state)
+        end
+    end
+  end
+
+  defp write_state(issue, turn_context, state) do
     case TicketTransition.write_state(issue.identifier, state, writer: :turn_loop) do
       :ok ->
         TurnAlerts.emit_rework_handoff_alert(issue, turn_context.workspace, turn_context.worker_host, state)

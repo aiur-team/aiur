@@ -66,6 +66,16 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
     end)
   end
 
+  @impl true
+  def ticket(id, opts) do
+    with {:ok, data} <- full(opts) do
+      case data["sections"] |> Map.values() |> List.flatten() |> Enum.find(&(&1["id"] == id)) do
+        nil -> {:error, :not_found}
+        row -> {:ok, row}
+      end
+    end
+  end
+
   def full(opts), do: load(dataset(opts), Keyword.get(opts, :dir, @dir))
   defp dataset(opts), do: Keyword.get(opts, :dataset, Application.get_env(:aiur, :build_fixture_dataset, "live"))
   defp load("unavailable", _dir), do: {:error, :fixture_unavailable}

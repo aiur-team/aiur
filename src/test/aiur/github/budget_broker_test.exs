@@ -20,6 +20,12 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
     assert :ok = Budget.release(lease, opts)
     assert %{admissions: [_], inflight: %{}} = Budget.snapshot("daemon-token", opts)
     assert :sys.get_state(server).port == port
+
+    samples = :sys.get_state(server).stats
+    assert Enum.any?(samples, fn {_outcome, measurements} -> measurements.command_type == :acquire end)
+    assert Enum.any?(samples, fn {_outcome, measurements} -> is_number(measurements.sqlite_command_ms) end)
+    assert Enum.any?(samples, fn {_outcome, measurements} -> is_number(measurements.sqlite_commit_ms) end)
+    assert checkpoint_observed?(server, opts, 20)
   end
 
   # #4791: bulk polling that fills every slot must not hold the main watcher.
@@ -272,9 +278,12 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
         print(json.dumps({"id": request["id"], "output": "ok", "status": 0}), flush=True)
     """)
 
-    assert {:ok, "ok", 0} = command(server, broker, [])
+    assert {:ok, "ok", 0} = command(server, broker, ["snapshot"])
 
-    assert_receive {[:aiur, :github, :budget_broker, :command], %{duration_ms: duration, mailbox_wait_ms: mailbox_wait, pending: pending, mailbox: mailbox}, %{outcome: :completed}}, 1_000
+    assert_receive {[:aiur, :github, :budget_broker, :command], %{duration_ms: duration, mailbox_wait_ms: mailbox_wait, pending: pending, mailbox: mailbox},
+                    %{outcome: :completed, command_type: :snapshot}},
+                   1_000
+
     assert is_integer(duration) and duration >= 0
     assert is_integer(mailbox_wait) and mailbox_wait >= 0
     assert pending == 0
@@ -399,9 +408,33 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
   test "one-minute broker summary reports latency percentiles and timeout counts" do
     summary =
       BudgetBroker.summarize_stats([
-        {:completed, %{duration_ms: 10, mailbox_wait_ms: 1, mailbox: 2, pending: 1, python_queue_wait_ms: 3, python_queue_depth: 4, sqlite_lock_wait_ms: 5, sqlite_transaction_ms: 6}},
-        {:timeout, %{duration_ms: 100, mailbox_wait_ms: 20, mailbox: 8, pending: 3, python_queue_wait_ms: 30, python_queue_depth: 12, sqlite_lock_wait_ms: 40, sqlite_transaction_ms: 50}},
-        {:late_response, %{late_duration_ms: 120, python_queue_wait_ms: 35, sqlite_lock_wait_ms: 45}}
+        {:completed,
+         %{
+           command_type: :acquire,
+           duration_ms: 10,
+           mailbox_wait_ms: 1,
+           mailbox: 2,
+           pending: 1,
+           python_queue_wait_ms: 3,
+           python_queue_depth: 4,
+           sqlite_lock_wait_ms: 5,
+           sqlite_transaction_ms: 6,
+           sqlite_command_ms: 4,
+           sqlite_commit_ms: 2
+         }},
+        {:timeout,
+         %{
+           command_type: :acquire,
+           duration_ms: 100,
+           mailbox_wait_ms: 20,
+           mailbox: 8,
+           pending: 3,
+           python_queue_wait_ms: 30,
+           python_queue_depth: 12,
+           sqlite_lock_wait_ms: 40,
+           sqlite_transaction_ms: 50
+         }},
+        {:late_response, %{command_type: :snapshot, late_duration_ms: 120, python_queue_wait_ms: 35, sqlite_lock_wait_ms: 45}}
       ])
 
     assert summary.commands == 2
@@ -414,9 +447,25 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
     assert summary.python_queue_depth_max == 12
     assert summary.sqlite_lock_wait_p99_ms == 45
     assert summary.sqlite_transaction_p99_ms == 50
+    assert summary.by_command_type.acquire.timeouts == 1
+    assert summary.by_command_type.acquire.sqlite_commit_p99_ms == 2
   end
 
   defp command(server, broker, args), do: BudgetBroker.command(server, broker, args, System.monotonic_time(:millisecond) + 5_000)
+
+  defp checkpoint_observed?(_server, _opts, 0), do: false
+
+  defp checkpoint_observed?(server, opts, attempts) do
+    Budget.snapshot("daemon-token", opts)
+
+    if Enum.any?(:sys.get_state(server).stats, fn {_outcome, measurements} -> is_number(measurements.sqlite_checkpoint_ms) end) do
+      true
+    else
+      Process.sleep(10)
+      checkpoint_observed?(server, opts, attempts - 1)
+    end
+  end
+
   defp common(root), do: ["--db", Path.join(root, "budget.sqlite3"), "--token-key", "shared-key"]
 
   defp acquire_args(root) do

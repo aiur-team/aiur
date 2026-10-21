@@ -77,7 +77,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     {"/build-orders/2073", "build-order-page"}
   ]
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @repository {"owner", "repo"}
 
   setup context do
