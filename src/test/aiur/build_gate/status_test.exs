@@ -119,6 +119,11 @@ defmodule Aiur.BuildGate.StatusTest do
     assert summary =~ "sha256="
     assert age >= 44
 
+    File.write!(owner_path, "token=large\nphase=test\ncommand=#{command}\n")
+
+    assert %{active: 1, degraded?: true, holders: [], issues: [%{reason: :metadata_unreadable}]} =
+             BuildGate.status(gate_dir: context.gate_dir, lock_dir: context.lock_dir, capacity: 1)
+
     File.touch!(release_path)
     assert_receive {^holder, {:exit_status, 0}}, 2_000
   end

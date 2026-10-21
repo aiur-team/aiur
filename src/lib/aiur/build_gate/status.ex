@@ -152,6 +152,7 @@ defmodule Aiur.BuildGate.Status do
   defp inspected_metadata(%{"contents" => encoded}, %{kind: kind, slot: slot, metadata_path: path})
        when kind in [:slot, :queue] do
     with {:ok, contents} <- Base.decode64(encoded),
+         true <- String.starts_with?(contents, "version=2\n"),
          {:ok, fields} <- OwnerMetadata.parse_v2_record(contents) do
       holder = holder_from_fields(fields, kind, slot)
       {Map.put(holder, :lease_alive?, true), []}
@@ -186,7 +187,7 @@ defmodule Aiur.BuildGate.Status do
 
   defp scan_error_detail(result), do: result
 
-  defp inspect_metadata_contents("version=2\n" <> _rest = contents, path, kind, slot) when byte_size(contents) <= 4096 do
+  defp inspect_metadata_contents("version=2\n" <> _rest = contents, path, kind, slot) do
     case OwnerMetadata.parse_v2_record(contents) do
       {:ok, fields} ->
         holder = holder_from_fields(fields, kind, slot)
@@ -197,16 +198,8 @@ defmodule Aiur.BuildGate.Status do
     end
   end
 
-  defp inspect_metadata_contents(contents, path, kind, slot) do
-    case OwnerMetadata.parse_v2_record(contents) do
-      {:ok, fields} ->
-        holder = holder_from_fields(fields, kind, slot)
-        {Map.put(holder, :command, CommandSummary.summarize(fields, holder.command)), []}
-
-      :error ->
-        {nil, [status_issue(:metadata_unreadable, path, :invalid_owner_metadata)]}
-    end
-  end
+  defp inspect_metadata_contents(_contents, path, _kind, _slot),
+    do: {nil, [status_issue(:metadata_unreadable, path, :invalid_owner_metadata)]}
 
   defp prepend_issues(issues, new_issues), do: Enum.reverse(new_issues, issues)
   defp prepend_holder(holders, nil), do: holders

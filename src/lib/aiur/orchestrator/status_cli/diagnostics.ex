@@ -141,7 +141,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
   end
 
   defp print_active_build_gate(capacity, active, queued, holders, retain_seconds, status) do
-    leaked = Enum.count(holders, &(&1.kind == :slot and &1.lease_alive? != true and &1.command_alive? == false))
+    leaked = Enum.count(holders, &(&1.kind == :slot and &1.command_alive? == false))
     retain_suffix = if is_integer(retain_seconds), do: ", retain_seconds=#{retain_seconds}", else: ""
 
     line =
@@ -176,6 +176,9 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
   end
 
   defp print_build_gate_holder(_holder), do: :ok
+
+  defp holder_liveness_annotation(%{lease_alive?: true, command_alive?: false}),
+    do: " (command gone; lease locked)"
 
   defp holder_liveness_annotation(%{lease_alive?: true}), do: " (lease locked)"
   defp holder_liveness_annotation(%{lease_alive?: false}), do: " (lease unlocked)"
