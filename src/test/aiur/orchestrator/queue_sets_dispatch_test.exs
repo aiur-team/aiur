@@ -36,6 +36,8 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   end
 
   test "CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks" do
+    test_pid = self()
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
     {document, issues, _} = fixture()
     start_supervised!({Agent, fn -> document end}, id: :rank_store) |> Process.register(QueueBoundary)
     owner = self()
