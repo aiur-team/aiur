@@ -153,14 +153,20 @@ test('destroy cancels band frames, settle locks and clock ticks; remount resets 
   await openFixture(page)
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000)
   await page.addInitScript(() => {
-    window.bandTimerCalls = { registered: 0, cancelled: 0, active: new Set() }
+    window.bandTimerCalls = { registered: 0, cancelled: 0, afterDestroy: 0, active: new Set() }
     const isBandCallback = () => /\/build-home\/(?:band|band-scroll)\.js/.test(new Error().stack)
     for (const [schedule, cancel] of [['setTimeout', 'clearTimeout'], ['requestAnimationFrame', 'cancelAnimationFrame']]) {
       const nativeSchedule = window[schedule].bind(window), nativeCancel = window[cancel].bind(window)
       window[schedule] = (fn, ...args) => {
         const band = isBandCallback()
         let id
-        id = nativeSchedule((...values) => { if (band) bandTimerCalls.active.delete(id); return fn(...values) }, ...args)
+        id = nativeSchedule((...values) => {
+          if (band) {
+            bandTimerCalls.active.delete(id)
+            if (window.bandDestroyed) bandTimerCalls.afterDestroy++
+          }
+          return fn(...values)
+        }, ...args)
         if (band) { bandTimerCalls.registered++; bandTimerCalls.active.add(id) }
         return id
       }
