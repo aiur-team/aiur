@@ -216,7 +216,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
       case Layout.validate_workspace_path(path, nil) do
         :ok -> nil
         {:error, reason} when is_tuple(reason) -> elem(reason, 0)
-        _ -> :workspace_path_unreadable
+        _ -> :unknown
       end
     end)
   end

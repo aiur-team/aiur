@@ -22,8 +22,11 @@ defmodule AiurWeb.Build.ConversationSource.Entries do
   end
 
   defp entry(message, row, last_prompt?) do
-    id = if message[:action_id], do: "answer:#{message.action_id}", else: Map.get(message, :id, "")
-    Map.merge(%{id: text(id), at: timestamp(Map.get(message, :timestamp))}, content(message, row, last_prompt?))
+    answer? = message[:role] == "user" and message[:title] == "Executor" and is_binary(message[:action_id])
+    id = if answer?, do: "answer:#{message.action_id}", else: Map.get(message, :id, "")
+    base = %{id: text(id), at: timestamp(Map.get(message, :timestamp))}
+    base = if answer?, do: Map.put(base, :cursor, message.id), else: base
+    Map.merge(base, content(message, row, last_prompt?))
   end
 
   defp content(%{role: "assistant", body: body}, _, _), do: %{k: "say", text: text(body)}

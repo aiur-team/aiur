@@ -19,12 +19,13 @@ async function scenario(page, name, opts = {}) {
   await page.evaluate(async ({ fixture, opts }) => {
     const { ctx } = await import('/build-home/state.js'), { openModal } = await import('/build-home/modal/frame.js')
     const original = ctx.push
-    window.conversationCalls = []; window.olderFailures = opts.failures || 0
+    window.conversationCalls = []; window.olderFailures = opts.failures || 0; window.olderHolds = opts.hold || 0
     const entries = fixture.entries
     ctx.push = async (event, payload) => {
       window.conversationCalls.push({ event, payload })
       if (event !== 'conversation-page') return original(event, payload)
       const before = payload.before
+      if (before != null && window.olderHolds-- > 0) await new Promise(resolve => { window.releaseOlder = resolve })
       if (before != null && opts.delay) await new Promise(resolve => setTimeout(resolve, opts.delay))
       if (before != null && window.olderFailures-- > 0) return { v: 1, kind: 'error', reason: 'unavailable' }
       const end = before == null ? entries.length : Number(before.split(':')[1]), start = Math.max(0, end - 100)
@@ -113,11 +114,13 @@ test('state cues, retained-history handoff and unknown dates render explicitly',
 })
 
 test('older loading, retry without a loop, anchor preservation, cap and tail recovery', async ({ page }) => {
-  await scenario(page, 'paged', { delay: 500, failures: 1 })
+  await scenario(page, 'paged', { delay: 500, failures: 1, hold: 1 })
   await expect(messageCount(page)).toHaveCount(100)
   await top(page)
   await expect(page.locator('#cv-log > :first-child')).toHaveText('Loading earlier…')
   await proof(page, 'conversation-loading-earlier')
+  await expect(page.locator('#cv-log > :first-child')).toHaveText('Loading earlier…')
+  await page.evaluate(() => window.releaseOlder())
   await expect(page.locator('#cv-log > :first-child')).toContainText('Could not load earlier entries')
   expect(await page.evaluate(() => window.conversationCalls.filter(c => c.event === 'conversation-page').length)).toBe(2)
   await top(page)
@@ -158,11 +161,13 @@ test('mounted hook routes appends and states; ids replace in place and append tr
   expect(await page.evaluate(() => window.receivedConversation.gap)).toBe(true)
   await page.evaluate(async () => {
     const { fx } = await import('/build-home/state.js'), { MS } = await import('/build-home/modal/frame.js')
-    fx.appendEntries(Array.from({ length: 510 }, (_, n) => ({ id: 'many:' + n, k: 'say', text: 'Row ' + n, at: null })))
+    fx.appendEntries(Array.from({ length: 510 }, (_, n) => ({ id: n === 10 ? 'answer:act' : 'many:' + n, cursor: n === 10 ? 'ab:40' : 'many:' + n, k: 'say', text: 'Row ' + n, at: null })))
     window.synchronousRows = document.querySelectorAll('#cv-log [data-k]').length
     window.dispatchEvent(new CustomEvent('phx:build-conversation', { detail: { v: 1, kind: 'conversation-state', id: MS.t.id, state: 'restart_unknown', live: false, observed_at: null } }))
   })
   expect(await page.evaluate(() => window.synchronousRows)).toBe(500)
+  await top(page)
+  await expect.poll(() => page.evaluate(() => window.conversationCalls.at(-1)?.payload.before)).toBe('ab:40')
   await expect(page.locator('#cv-footer')).toHaveText('Live state unknown after a restart')
 })
 

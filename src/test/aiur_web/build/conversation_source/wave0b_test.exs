@@ -95,7 +95,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bTest do
       %{id: "2", role: "user", title: "Executor", body: "go", timestamp: "2026-10-21T10:00:00Z", action_id: "action"},
       %{id: "3", role: "user", title: "Issue prompt", body: "SECRET_PROMPT"},
       %{id: "4", role: "user", title: "Issue prompt", body: "SECRET_PROMPT"},
-      %{id: "5", role: "system", title: "Coordination event", body: "SECRET_JSON"},
+      %{id: "5", role: "system", title: "Coordination event", body: "SECRET_JSON", action_id: "action"},
       %{id: "6", role: "tool", title: "Command failed", body: "$ first\nsecond\nexit 2\n\nTOKEN=abc"},
       %{id: "7", role: "tool", title: "Command output", body: "$ auth\nexit 0\n\ntoken is invalid"},
       %{id: "8", role: "alert", title: "attention", body: "SECRET_JSON"},
@@ -120,6 +120,9 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bTest do
            ]
 
     assert Enum.at(mapped, 1).id == "answer:action"
+    assert Enum.at(mapped, 1).cursor == "2"
+    assert Enum.at(mapped, 4).id == "5"
+    refute Map.has_key?(Enum.at(mapped, 4), :cursor)
     assert Enum.at(mapped, 1).at == DateTime.to_unix(~U[2026-10-21 10:00:00Z], :millisecond)
     assert hd(mapped).at == nil
     assert Enum.at(mapped, 5) == %{id: "6", at: nil, k: "tool", name: "bash", arg: "first …", res: "✗ exit 2", bad: true}

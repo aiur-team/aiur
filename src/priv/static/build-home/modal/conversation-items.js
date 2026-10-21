@@ -22,7 +22,7 @@ export function itemEl(o, model) {
   else if (o.k === 'diff') h = diffHTML(o);
   else return null;
   const w = document.createElement('div'); w.innerHTML = h; const el = w.firstChild;
-  el.dataset.k = o.k; el.dataset.eid = o.id;
+  el.dataset.k = o.k; el.dataset.eid = o.id; el.dataset.cursor = o.cursor || o.id;
   if (o.at == null && ['sys', 'op'].includes(o.k)) el.title = 'Time unknown';
   if (o.k === 'ev') { el.dataset.label = o.label; el.dataset.at = o.at == null ? '—' : fmtT(o.at); el.dataset.ev = o.ev; }
   return el;

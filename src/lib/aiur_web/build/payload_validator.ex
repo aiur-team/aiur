@@ -41,7 +41,7 @@ defmodule AiurWeb.Build.PayloadValidator do
 
   defp check(value, :conversation_entry, path) when is_map(value) do
     case ConversationPayload.entry(value["k"]) do
-      {fields, optional} -> check(value, {:object, fields, optional}, path)
+      {fields, optional} -> check(value, {:object, fields, ["cursor" | optional]}, path)
       nil -> error(path, :type)
     end
   end

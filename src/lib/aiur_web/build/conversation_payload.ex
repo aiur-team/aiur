@@ -80,5 +80,5 @@ defmodule AiurWeb.Build.ConversationPayload do
   def millis(_time), do: nil
 
   defp base(kind), do: %{"v" => {:literal, 1}, "kind" => {:literal, kind}, "id" => :conversation_id}
-  defp entry_base(kind), do: %{"id" => {:short_string, 256}, "k" => {:literal, kind}, "at" => {:nullable, :integer}}
+  defp entry_base(kind), do: %{"id" => {:short_string, 256}, "k" => {:literal, kind}, "at" => {:nullable, :integer}, "cursor" => {:short_string, 256}}
 end

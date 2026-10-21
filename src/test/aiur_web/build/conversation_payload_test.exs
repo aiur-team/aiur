@@ -41,7 +41,7 @@ defmodule AiurWeb.Build.ConversationPayloadTest do
     entries = [
       %{id: "d:0", k: "ev", at: 12, ev: "commit", label: "Committed", sub: "fix", go: "12"},
       %{id: "d:1", k: "diff", at: 13, file: "file.ex", lines: [["+", "hello"]], add: 1, del: 0},
-      %{id: "d:2", k: "tool", at: nil, name: "bash", arg: "false", res: "exit 1", bad: true}
+      %{id: "d:2", cursor: "ab:42", k: "tool", at: nil, name: "bash", arg: "false", res: "exit 1", bad: true}
     ]
 
     message = %{v: 1, kind: "conversation-append", id: "12", entries: entries, gap: false}
