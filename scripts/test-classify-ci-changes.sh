@@ -4,6 +4,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 test_dir="$(mktemp -d "${TMPDIR:-/tmp}/aiur-classify-ci.XXXXXX")"
 trap 'rm -rf "$test_dir"' EXIT
 mkdir -p "$test_dir/bin" "$test_dir/workspace/src"
+cp "$root/scripts/ci-test-selection.exs" "$test_dir/workspace/scripts/ci-test-selection.exs"
+cp -R "$root/src" "$test_dir/workspace/src-project-source" >/dev/null 2>&1 || true
 cat > "$test_dir/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
@@ -37,13 +39,21 @@ YAML
 STUB
 mkdir "$test_dir/failbin"
 printf '#!/bin/sh\nexit 1\n' > "$test_dir/failbin/mix"
+cat > "$test_dir/failbin/mix" <<'STUB'
+#!/usr/bin/env bash
+echo 'fixture selector diagnostic' >&2
+exit 1
+STUB
 chmod +x "$test_dir/bin/gh" "$test_dir/bin/git" "$test_dir/failbin/mix"
 cat > "$test_dir/bin/mix" <<'STUB'
 #!/usr/bin/env bash
 [[ "$PWD" == */src ]] || { echo "selection ran from unexpected directory: $PWD" >&2; exit 3; }
 [[ "$1 $2 $3" == 'run --no-start ../scripts/ci-test-selection.exs' ]] || { echo "unexpected Mix arguments: $*" >&2; exit 4; }
+if [[ "${TEST_FAIL_SELECTOR:-false}" == true ]]; then
+  echo 'fixture selector diagnostic' >&2
+  exit 1
+fi
 if [[ -n "${TEST_SELECTOR:-}" ]]; then
-  [[ "$TEST_SELECTOR" != fail ]] || exit 1
   echo "$TEST_SELECTOR" >> "$GITHUB_STEP_SUMMARY"
   echo "$TEST_SELECTOR"
 else
@@ -55,7 +65,7 @@ classify() {
   : > "$test_dir/out"
   : > "$test_dir/summary"
   EVENT_NAME="$1" TEST_DRAFT="$2" TEST_FILES="$3" TEST_LABELS="${4:-[]}" \
-    TEST_SELECTOR="${5:-scoped:1}" TEST_OVERSIZED_PATHS="${6:-false}" \
+    TEST_SELECTOR="${5:-scoped:1}" TEST_OVERSIZED_PATHS="${6:-false}" TEST_FAIL_SELECTOR="${7:-false}" \
     REPO=o/r PR_NUMBER=7 \
     GITHUB_WORKSPACE="$test_dir/workspace" \
     GITHUB_OUTPUT="$test_dir/out" GITHUB_STEP_SUMMARY="$test_dir/summary" MIX_BIN="$test_dir/bin/mix" \
@@ -110,8 +120,9 @@ grep -Fxq 'scoped:1' "$test_dir/summary"
 classify pull_request false '[{"filename":"src/test/aiur/config_test.exs"},{"filename":"src/lib/aiur/config.ex"}]' >/dev/null
 expected_paths="$(printf '["src/lib/aiur/config.ex","src/test/aiur/config_test.exs"]' | base64 -w0)"
 grep -Fxq "affected_paths_b64=$expected_paths" "$test_dir/out"
-PATH="$test_dir/failbin:$PATH" expect 'docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' fail
-grep -Fq 'affected test selection failed; forcing full CI' "$test_dir/summary"
+classify pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scoped:1 false true >/dev/null
+grep -Fq 'fixture selector diagnostic' "$test_dir/summary"
+grep -Fq '```text' "$test_dir/summary"
 grep -Fq '### Affected-test selection warning' "$test_dir/summary"
 workflow="$root/.github/workflows/ci.yml"
 ! grep -q 'outputs.draft\|pull_request.draft' "$workflow"
