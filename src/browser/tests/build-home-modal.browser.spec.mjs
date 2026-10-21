@@ -86,6 +86,53 @@ test('focused cards open once with Enter and Space through the mounted hook', as
   ]).flat())
 })
 
+test('B17: closing a deep-linked ticket returns focus to timeline navigation', async ({ page }) => {
+  await open(page)
+  const t = await row(page)
+  await open(page, 'live', '?ticket=' + t.id)
+  await expect(page.locator('#bm-title')).toHaveText('#' + t.num + t.title)
+  await expect(page.locator('#bm-title')).toBeFocused()
+  await page.locator('#bd-tk-close').click()
+  await expect(page.locator('#tk-backdrop')).not.toHaveClass(/\bshow\b/)
+  await expect(page).not.toHaveURL(/ticket=/)
+  await expect(page.locator('#bd-tk-close')).not.toBeFocused()
+})
+
+test('mounted hook owns card click and restores its origin after close', async ({ page }) => {
+  await open(page); await installSpy(page)
+  const t = await row(page), card = page.locator('.bd-card[data-id="' + t.id + '"]').first()
+  await card.scrollIntoViewIfNeeded(); await card.click()
+  await expect(page.locator('#bm-title')).toHaveText('#' + t.num + t.title)
+  expect(await calls(page)).toEqual([{ event: 'open-ticket', payload: { id: t.id, loaded: true } }])
+  await page.locator('#bd-tk-close').click()
+  await expect(card).toBeFocused()
+  expect(await calls(page)).toEqual([
+    { event: 'open-ticket', payload: { id: t.id, loaded: true } },
+    { event: 'close-ticket', payload: {} },
+  ])
+})
+
+test('mounted hook owns keyboard card open and close', async ({ page }) => {
+  await open(page); await installSpy(page)
+  const t = await row(page), card = page.locator('.bd-card[data-id="' + t.id + '"]').first()
+  await card.focus(); await page.keyboard.press('Enter')
+  await expect(page.locator('#bm-title')).toHaveText('#' + t.num + t.title)
+  await expect(page.locator('#bm-title')).toBeFocused()
+  expect(await calls(page)).toEqual([{ event: 'open-ticket', payload: { id: t.id, loaded: true } }])
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#tk-backdrop')).not.toHaveClass(/\bshow\b/)
+  await expect(card).toBeFocused()
+})
+
+test('mounted hook owns deep-link open and close without direct frame calls', async ({ page }) => {
+  await open(page, 'live', '?ticket=1'); await installSpy(page)
+  await expect(page.locator('#tk-backdrop')).toHaveClass(/\bshow\b/)
+  await page.locator('#bd-tk-close').click()
+  await expect(page.locator('#tk-backdrop')).not.toHaveClass(/\bshow\b/)
+  await expect(page).not.toHaveURL(/ticket=/)
+  expect(await calls(page)).toEqual([{ event: 'close-ticket', payload: {} }])
+})
+
 test('deep links open loaded and older history rows; unknown and malformed links stay distinct', async ({ page }) => {
   await open(page)
   const t = await row(page)
