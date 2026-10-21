@@ -54,10 +54,15 @@ class RelayTest(unittest.TestCase):
         completed = subprocess.run([sys.executable, str(SCRIPT), "--directory", str(self.directory),
                                     "--spec", str(path)], capture_output=True, timeout=5)
         self.assertEqual(completed.returncode, 0, completed.stderr.decode())
-        self.wait(lambda: (self.directory / "ctl.sock").exists())
+        self.wait(lambda: self.socket_mode() == 0o600)
         self.assertFalse(path.exists())
         self.assertEqual((self.directory.stat().st_mode & 0o777), 0o700)
-        self.assertEqual(((self.directory / "ctl.sock").stat().st_mode & 0o777), 0o600)
+
+    def socket_mode(self):
+        try:
+            return (self.directory / "ctl.sock").stat().st_mode & 0o777
+        except FileNotFoundError:
+            return None
 
     def connect(self, generation=None, offset=0):
         client = socket.socket(socket.AF_UNIX)
