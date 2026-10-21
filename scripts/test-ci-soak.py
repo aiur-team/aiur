@@ -510,8 +510,8 @@ class SoakTest(unittest.TestCase):
             sampled = module.sample_grep(command, ('product interactions', 'columns.cell'))
             pattern = sampled[sampled.index('--grep') + 1] if '--grep' in sampled else next(
                 arg.removeprefix('--grep=') for arg in sampled if arg.startswith('--grep='))
-            self.assertRegex('prefix product interactions show columns.cell update', pattern)
-            self.assertNotRegex('prefix product interactions show rows.cell update', pattern)
+            self.assertRegex('prefix product interactions. show columns.cell update', pattern)
+            self.assertNotRegex('prefix product interactions. show rows.cell update', pattern)
 
 if __name__ == '__main__':
     unittest.main()
