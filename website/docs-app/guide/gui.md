@@ -229,7 +229,7 @@ Retained Analytics charts use at most 180 evenly spaced resource observations pe
 
 Full log combines newest runs that fit its bounded projection with current telemetry. Latest-run fallback and Full log decode at most 45 MiB per cold load. The source line reports included runs and omissions, and names skipped newer runs in Latest-run. Analytics is unavailable if none fit; without materialized history, raw files over 1 MiB are unavailable.
 
-The Build page usage strip shows API budgets and provider windows or credits. Hover or focus a usage line for account details, observation age, and budget holds.
+The Build page usage strip shows API budgets and provider windows or credits. Hover or focus a usage line for account details, observation age, GitHub snapshot age, and budget holds.
 
 Unknown readings stay marked as unobserved; expired windows and stale readings are identified explicitly. Reset labels refresh every 30 seconds while the tab is visible. Locked sessions show an authentication message without financial values.
 

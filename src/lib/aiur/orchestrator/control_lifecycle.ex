@@ -73,7 +73,8 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
             records: %{},
             history_ids: %{},
             pending: %{},
-            daemon_events: []
+            daemon_events: [],
+            max_agents: nil
 
   @type daemon_event :: %{
           kind: :start | :stop,
@@ -92,7 +93,8 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
           records: %{optional(String.t() | pos_integer()) => request()},
           history_ids: %{optional(term()) => [String.t() | pos_integer()]},
           pending: %{optional(term()) => String.t() | pos_integer()},
-          daemon_events: [daemon_event()]
+          daemon_events: [daemon_event()],
+          max_agents: pos_integer() | nil
         }
 
   @doc "Creates an empty, bounded lifecycle projection."
@@ -365,7 +367,12 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   end
 
   @doc "Returns a redacted, JSON-safe projection for the durable audit journal."
-  @spec dump(t()) :: %{version: pos_integer(), records: [map()], daemon_events: [map()]}
+  @spec dump(t()) :: %{
+          version: pos_integer(),
+          records: [map()],
+          daemon_events: [map()],
+          max_agents: pos_integer() | nil
+        }
   def dump(%__MODULE__{} = lifecycle) do
     records =
       lifecycle.history_ids
@@ -378,7 +385,8 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
     %{
       version: @protocol_version,
       records: records,
-      daemon_events: Enum.map(lifecycle.daemon_events, &Restore.daemon_event_payload/1)
+      daemon_events: Enum.map(lifecycle.daemon_events, &Restore.daemon_event_payload/1),
+      max_agents: lifecycle.max_agents
     }
   end
 

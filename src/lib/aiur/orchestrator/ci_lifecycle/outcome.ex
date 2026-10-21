@@ -84,6 +84,41 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
   defp apply_ci_poll_result(state, _issue, _result), do: state
 
+  @doc false
+  @spec route_conflicting_pr(State.t(), Issue.t(), map(), keyword()) :: State.t()
+  def route_conflicting_pr(state, issue, result, opts) do
+    issue_key = issue.id || issue.identifier
+    base_branch = Aiur.Config.base_branch()
+
+    case ReworkGate.verify_rework_attempt(state, to_string(issue_key), result[:head_sha]) do
+      {:ok, state} ->
+        transition_conflicting_pr(state, issue, result, opts, issue_key, base_branch)
+
+      {:skip, _reason, state} ->
+        state
+    end
+  end
+
+  defp transition_conflicting_pr(state, issue, result, opts, issue_key, base_branch) do
+    Transition.transition_ci_ticket(state, issue, "rework", fn transitioned ->
+      create = Keyword.get(opts, :ci_failure_commenter, &Aiur.Tracker.create_comment/2)
+      target = to_string(issue.identifier || issue.id)
+
+      body =
+        "GitHub reports PR ##{result[:pr_number]} head `#{result[:head_sha]}` as `mergeable: CONFLICTING` with #{base_branch}. " <>
+          "This ticket moved to rework; merge #{base_branch} into the PR branch, resolve the conflicts, and push the result."
+
+      case create.(target, body) do
+        :ok -> :ok
+        other -> Logger.warning("Conflict rework comment not posted: issue=#{target} reason=#{inspect(other)}")
+      end
+
+      transitioned
+      |> State.bump_rework_attempt(issue_key, result[:head_sha])
+      |> Reconciler.refresh_running_issue_state(%{issue | state: "rework"})
+    end)
+  end
+
   # The CI batch carries these exact-head fields already. Reuse them here so a
   # failed CI poll does not add another GitHub request (#4631).
   defp approved_landing_pr?(
@@ -145,32 +180,21 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     result = Map.put(result, :ci_recovery_opts, opts)
 
     # Unapproved conflicts only: changes-requested belongs to HeadVerdictRouter (#4822),
-    # approved conflicts to LandingWatch (#4883).
+    # while confirmed mergeability conflicts route independently of review status.
     if Transition.effective_ci_state(issue) in [@ci_wait_state, @human_review_state] and
-         result[:mergeable] == "CONFLICTING" and not approved_at_head?(result) do
-      route_rework(state, issue, result)
+         result[:mergeable] == "CONFLICTING" and result[:conflict_confirmed?] == true do
+      route_conflicting_pr(state, issue, result, opts)
     else
-      recover_ci_poll_result_after_rework(state, issue, result, opts)
+      do_recover_ci_poll_result(state, issue, result, opts)
     end
   end
 
-  defp approved_at_head?(result),
-    do: result[:review_decision] == "APPROVED" and result[:approved_review_head_sha] == result[:head_sha]
-
-  # A head routed back unchanged (e.g. a handback that left the conflict in
-  # place) hits the #2422 per-head bound, which raises one attention instead of looping.
-  defp route_rework(state, issue, result) do
-    issue_key = to_string(issue.id || issue.identifier)
-    head_sha = result[:head_sha]
-
-    case ReworkGate.verify_rework_attempt(state, issue_key, head_sha) do
-      {:ok, state} -> Transition.transition_ci_ticket(state, issue, "rework", &State.bump_rework_attempt(&1, issue_key, head_sha))
-      {:skip, _reason, state} -> state
-    end
-  end
-
-  defp recover_ci_poll_result_after_rework(state, issue, result, opts) do
+  defp do_recover_ci_poll_result(state, issue, result, opts) do
     cond do
+      Transition.effective_ci_state(issue) in [@ci_wait_state, @human_review_state] and
+          result[:mergeable] == "CONFLICTING" ->
+        state
+
       stale_approved_head?(issue, result) ->
         state = ApprovalCarryAlert.handle(state, issue, result, opts)
 

@@ -11,7 +11,27 @@ budget_sleep_ms() {
   budget_delay=$1
   case "$budget_delay" in ''|0|*[!0-9]*) return 1 ;; esac
   budget_seconds=$(awk "BEGIN { printf \"%.3f\", $budget_delay / 1000 }")
-  sleep "$budget_seconds"
+  interruptible_sleep "$budget_seconds"
+}
+
+# A foreground sleep can defer a shell's TERM trap until the child exits. Keep
+# its pid so the trap can stop an in-flight wait and `wait` itself is
+# interruptible by a trapped signal.
+interruptible_sleep() {
+  sleep "$1" >/dev/null 2>&1 &
+  interruptible_sleep_pid=$!
+  wait "$interruptible_sleep_pid"
+  interruptible_sleep_status=$?
+  interruptible_sleep_pid=
+  return "$interruptible_sleep_status"
+}
+
+stop_interruptible_sleep() {
+  if [ -n "${interruptible_sleep_pid:-}" ]; then
+    kill "$interruptible_sleep_pid" 2>/dev/null || true
+    wait "$interruptible_sleep_pid" 2>/dev/null || true
+    interruptible_sleep_pid=
+  fi
 }
 
 # The broker's captured stdout+stderr, folded into one bounded line fit for an

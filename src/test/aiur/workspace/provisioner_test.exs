@@ -62,11 +62,28 @@ defmodule Aiur.Workspace.ProvisionerTest do
     bin_dir = Path.join(test_root, "bin")
     active_path = Path.join(test_root, "active")
     max_path = Path.join(test_root, "max")
+    previous_build_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
+    previous_lease_path = System.get_env("AIUR_BUILD_GATE_LEASE_PATH")
+    previous_lease_token = System.get_env("AIUR_BUILD_GATE_LEASE_TOKEN")
+    Application.put_env(:aiur, :build_gate_dir_override, Path.join(test_root, "build-gate"))
+    assert Aiur.BuildGate.gate_dir() == Path.join(test_root, "build-gate")
+    System.delete_env("AIUR_BUILD_GATE_LEASE_PATH")
+    System.delete_env("AIUR_BUILD_GATE_LEASE_TOKEN")
     # `File.rm_rf/1`, not the bang: this test deliberately leaves external child
     # builds running under `test_root`, and one still writing when teardown
     # walks the tree makes `rm_rf!` raise `:eexist` and fail the test on its
     # cleanup rather than on its subject — likelier the busier the box (#2548).
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
+    on_exit(fn ->
+      case previous_build_gate_dir do
+        nil -> Application.delete_env(:aiur, :build_gate_dir_override)
+        path -> Application.put_env(:aiur, :build_gate_dir_override, path)
+      end
+
+      restore_env("AIUR_BUILD_GATE_LEASE_PATH", previous_lease_path)
+      restore_env("AIUR_BUILD_GATE_LEASE_TOKEN", previous_lease_token)
+
+      Aiur.TestCleanup.rm_rf!(test_root)
+    end)
 
     File.mkdir_p!(bin_dir)
     File.write!(active_path, "0\n")
@@ -472,7 +489,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   defp git!(args) do
-    {out, 0} = System.cmd("git", args, stderr_to_stdout: true)
+    {out, 0} = Aiur.TestGit.cmd(args)
     out
   end
 end

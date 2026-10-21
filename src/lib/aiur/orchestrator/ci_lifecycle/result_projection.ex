@@ -96,6 +96,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
       recovery: if(result[:decision] == :pending and result[:head_sha] == get_in(previous, [:head_sha]), do: projection_value(result, previous, :recovery, nil), else: result[:recovery]),
       failures: Map.get(result, :failures, [])
     }
+    |> Map.merge(Map.take(previous || %{}, [:conflicting_head_sha, :conflicting_polls]))
     |> DraftAlertLifecycle.keep_pending_reason(result)
   end
 

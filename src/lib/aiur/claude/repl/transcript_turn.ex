@@ -202,7 +202,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
       System.monotonic_time(:millisecond) >= deadline ->
         {:error, :turn_timeout}
 
-      not Reaper.pane_alive?(session) ->
+      Reaper.pane_liveness(session) == :gone ->
         {:error, :repl_gone}
 
       true ->

@@ -13,9 +13,12 @@ defmodule Aiur.Webhooks.ModeTable do
   exists to be shorter, not to wait on a mailbox that may be servicing a
   sweep.
 
-  This table is where `ModeRegistry` publishes the current mode of every repo
-  it knows, and where the policy reads it back. Writes land in ETS from the
-  registry's own process; reads land in ETS from the request's process, exactly
+  The delivery mode and config-event coverage live in two ETS tables. The
+  registry publishes mode changes, and the verified receiver records each
+  event family it has observed. Repository-config reads get the long TTL only
+  after both `branch_protection_rule` and `repository_ruleset` have arrived;
+  when a repo returns to polling, that evidence is cleared. The policy reads
+  both tables without a process hop. Reads run in the request process, exactly
   like `ReadCache`'s own tables.
 
   ## Failing safe
@@ -31,6 +34,9 @@ defmodule Aiur.Webhooks.ModeTable do
   alias Aiur.Webhooks.DeliveryMode
 
   @table :aiur_webhook_delivery_modes
+  @config_events_table :aiur_webhook_repo_config_events
+  @config_events ~w(push branch_protection_rule repository_ruleset repository)
+  @config_ttl_events ~w(branch_protection_rule repository_ruleset)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -39,7 +45,20 @@ defmodule Aiur.Webhooks.ModeTable do
 
   @impl true
   def init(opts) do
-    :ets.new(Keyword.get(opts, :table, @table), [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
+    table = Keyword.get(opts, :table, @table)
+
+    :ets.new(table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
+
+    if table == @table do
+      :ets.new(@config_events_table, [
+        :named_table,
+        :public,
+        :set,
+        read_concurrency: true,
+        write_concurrency: true
+      ])
+    end
+
     {:ok, %{}}
   end
 
@@ -55,7 +74,60 @@ defmodule Aiur.Webhooks.ModeTable do
   """
   @spec put(String.t(), DeliveryMode.t()) :: :ok
   def put(repo, %DeliveryMode{} = mode) do
-    with_table(:ok, fn table -> :ets.insert(table, {normalize(repo), mode}) end)
+    with_table(:ok, fn table ->
+      normalized_repo = normalize(repo)
+      :ets.insert(table, {normalized_repo, mode})
+
+      if DeliveryMode.transport(mode) == :polling do
+        delete_config_events(repo)
+      end
+    end)
+  end
+
+  @doc "Records a verified delivery family that can retire repository configuration."
+  @spec record_config_event(String.t(), String.t()) :: :ok
+  def record_config_event(repo, event) when event in @config_events do
+    with_table(
+      :ok,
+      fn table -> :ets.insert(table, {{normalize(repo), event}, true}) end,
+      @config_events_table
+    )
+  end
+
+  def record_config_event(_repo, _event), do: :ok
+
+  @doc "Whether both required repository-config rule event families were observed."
+  @spec config_events?(String.t()) :: boolean()
+  def config_events?(repo) do
+    with_table(
+      false,
+      fn table ->
+        normalized_repo = normalize(repo)
+        Enum.all?(@config_ttl_events, &:ets.member(table, {normalized_repo, &1}))
+      end,
+      @config_events_table
+    )
+  end
+
+  @doc "The effective webhook transport for repository configuration reads."
+  @spec repo_config_transport(String.t(), DeliveryMode.transport()) :: DeliveryMode.transport()
+  def repo_config_transport(repo, :webhook) do
+    if config_events?(repo), do: :webhook, else: :polling
+  end
+
+  def repo_config_transport(_repo, transport), do: transport
+
+  @doc "Removes observed config-event coverage for `repo`. Test seam."
+  @spec delete_config_events(String.t()) :: :ok
+  def delete_config_events(repo) do
+    with_table(
+      :ok,
+      fn table ->
+        normalized_repo = normalize(repo)
+        Enum.each(@config_events, &:ets.delete(table, {normalized_repo, &1}))
+      end,
+      @config_events_table
+    )
   end
 
   @doc """
@@ -96,8 +168,8 @@ defmodule Aiur.Webhooks.ModeTable do
   defp normalize(repo) when is_binary(repo), do: repo |> String.trim() |> String.downcase()
   defp normalize(_repo), do: ""
 
-  defp with_table(fallback, fun) do
-    case :ets.whereis(@table) do
+  defp with_table(fallback, fun, table_name \\ @table) do
+    case :ets.whereis(table_name) do
       :undefined -> fallback
       table -> fun.(table)
     end

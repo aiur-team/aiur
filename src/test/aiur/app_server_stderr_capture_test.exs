@@ -1,8 +1,10 @@
 defmodule Aiur.AppServerStderrCaptureTest.LogHandler do
   @moduledoc false
 
-  def log(%{level: level, msg: message}, %{config: %{owner: owner}}) do
-    send(owner, {:captured_app_server_log, level, render(message)})
+  def log(%{level: level, msg: message}, %{config: %{owner: owner} = config}) do
+    rendered = render(message)
+    send(owner, {:captured_app_server_log, level, rendered})
+    if rendered == "Codex turn stream output: warning: this is stderr noise", do: File.write!(config.release_fifo, "continue\\n")
     :ok
   end
 
@@ -26,7 +28,9 @@ defmodule Aiur.AppServerStderrCaptureTest do
       workspace_root = Path.join(test_root, "workspaces")
       workspace = Path.join(workspace_root, "MT-92")
       codex_binary = Path.join(test_root, "fake-codex")
+      release_fifo = Path.join(test_root, "release")
       File.mkdir_p!(workspace)
+      assert {"", 0} = System.cmd("mkfifo", [release_fifo], stderr_to_stdout: true)
 
       File.write!(codex_binary, """
       #!/bin/sh
@@ -40,6 +44,7 @@ defmodule Aiur.AppServerStderrCaptureTest do
           3) printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-92"}}}' ;;
           4)
             printf '%s\\n' 'warning: this is stderr noise' >&2
+            IFS= read -r release < "#{release_fifo}"
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
             ;;
@@ -50,10 +55,7 @@ defmodule Aiur.AppServerStderrCaptureTest do
 
       File.chmod!(codex_binary, 0o755)
 
-      write_workflow_file!(Workflow.workflow_file_path(),
-        workspace_root: workspace_root,
-        command: "#{codex_binary} app-server"
-      )
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root, command: "#{codex_binary} app-server", agent_relay: false)
 
       issue = %Issue{
         id: "issue-stderr",
@@ -65,14 +67,20 @@ defmodule Aiur.AppServerStderrCaptureTest do
         labels: ["backend"]
       }
 
-      assert :ok = :logger.add_handler(handler_id, LogHandler, %{config: %{owner: self()}})
+      assert :ok = :logger.add_handler(handler_id, LogHandler, %{config: %{owner: self(), release_fifo: release_fifo}})
 
       try do
-        assert {:ok, _result} = AppServer.run(workspace, "Capture stderr log", issue)
-        assert :ok = Logger.flush()
+        test_pid = self()
 
-        assert_receive {:captured_app_server_log, :warning, "Codex turn stream output: warning: this is stderr noise"},
-                       1_000
+        on_message = fn message ->
+          if message.event == :turn_completed do
+            assert_received {:captured_app_server_log, :warning, "Codex turn stream output: warning: this is stderr noise"}
+            send(test_pid, :turn_completed)
+          end
+        end
+
+        assert {:ok, _result} = AppServer.run(workspace, "Capture stderr log", issue, on_message: on_message)
+        assert_received :turn_completed
       after
         :logger.remove_handler(handler_id)
       end

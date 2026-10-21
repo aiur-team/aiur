@@ -65,7 +65,7 @@ defmodule Aiur.OrchestratorStatusCliBuildGateTest do
     # only ever passed by inheriting an earlier test's state.
     :sys.replace_state(pid, fn state ->
       issue = %Issue{id: "issue-idle", identifier: "repo#idle", state: "In Progress", title: "Idle"}
-      %{state | last_polled_issues: %{"issue-idle" => issue}, max_concurrent_agents: 10}
+      %{state | last_polled_issues: %{"issue-idle" => issue}, max_concurrent_agents: 10, effective_concurrent_agents: 2}
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)

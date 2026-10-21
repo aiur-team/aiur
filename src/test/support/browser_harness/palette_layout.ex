@@ -18,7 +18,6 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
           main > *, nav, .controls { min-width: 0; }
           nav:not(.sidenav-nav), .controls { display: flex; flex-wrap: wrap; gap: .5rem; }
           nav button, .controls button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-          button:focus-visible, [tabindex="0"]:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
           #graph-viewport { border: 1px solid currentColor; min-width: 0; min-height: 8rem; overflow: auto; padding: 1rem; }
           #graph-content { min-width: 36rem; }
           @media (prefers-reduced-motion: no-preference) { #graph-content { transition: transform 120ms ease; } }
@@ -38,6 +37,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/build-home/loader.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/aiur-style/tokens.css" />
+        <link rel="stylesheet" href="/aiur-style/css/focus.css" />
+        <link rel="stylesheet" href="/aiur-style/css/button.css" />
+        <link rel="stylesheet" href="/aiur-style/css/dashboard-button.css" />
+        <link rel="stylesheet" href="/aiur-style/css/dashboard-shell.css" />
         <link rel="stylesheet" href="/dashboard.css" />
         <link rel="stylesheet" href="/build-home/home.css" />
         <script>
@@ -49,6 +52,13 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
                 this.media = window.matchMedia("(min-width: 961px)");
                 this.onMedia = () => this.mirror();
                 this.media.addEventListener("change", this.onMedia);
+                this.nav = document.getElementById("ax-nav");
+                this.onNavFocus = (e) => {
+                  if (!this.media.matches && e.target.matches("a.snav")) {
+                    e.target.scrollIntoView({block: "nearest", inline: "nearest"});
+                  }
+                };
+                this.nav?.addEventListener("focusin", this.onNavFocus);
                 this.onKey = (e) => {
                   if (!["Enter", " ", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
                   e.preventDefault();
@@ -117,6 +127,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
                 this.cleanDrag();
                 clearTimeout(this.resizeTimer);
                 this.media.removeEventListener("change", this.onMedia);
+                this.nav?.removeEventListener("focusin", this.onNavFocus);
                 this.el.removeEventListener("keydown", this.onKey);
                 this.el.removeEventListener("pointerdown", this.onDown);
                 this.el.removeEventListener("pointermove", this.onMove);
@@ -129,6 +140,22 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
               mounted: function () {
                 this.cog = this.el.querySelector("#ax-cog");
                 this.menu = this.el.querySelector("#ax-menu");
+                this.fitMenu = () => {
+                  if (window.innerWidth <= 480) {
+                    var available = Math.max(0, window.innerWidth - 32), minimum = Math.min(210, available);
+                    this.menu.style.minWidth = minimum + "px";
+                    this.menu.style.maxWidth = available + "px";
+                    var rect = this.menu.getBoundingClientRect();
+                    if (getComputedStyle(this.menu).position === "absolute") {
+                      var left = Math.max(16, Math.min(rect.left, window.innerWidth - 16 - rect.width));
+                      this.menu.style.left = left - this.el.getBoundingClientRect().left + "px";
+                    }
+                  } else ["min-width", "max-width", "left"].forEach(key => this.menu.style.removeProperty(key));
+                };
+                this.fitMenu(); this.onResize = () => this.fitMenu();
+                window.addEventListener("resize", this.onResize);
+                this.brandObserver = new ResizeObserver(this.fitMenu);
+                this.brandObserver.observe(this.el.closest(".ax-brand"));
                 this.onClick = (e) => {
                   if (this.cog.contains(e.target)) this.setOpen(!this.el.classList.contains("open"));
                   else if (!this.el.contains(e.target)) this.setOpen(false);
@@ -161,6 +188,8 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
               destroyed: function () {
                 document.removeEventListener("click", this.onClick);
                 document.removeEventListener("keydown", this.onKey);
+                window.removeEventListener("resize", this.onResize);
+                this.brandObserver.disconnect();
               }
             };
 
@@ -258,11 +287,17 @@ defmodule Aiur.BrowserHarness.PaletteProbeLive do
       end
 
     counts = if is_integer(awaiting), do: %{awaiting: awaiting, awaiting_blocking: 0}, else: %{}
-    {:ok, socket |> NavState.assign_nav() |> assign(paused: paused, writable: params["writable"] == "true", counts: counts, patch: 0)}
+
+    {:ok,
+     socket
+     |> NavState.assign_nav()
+     |> assign(paused: paused, writable: params["writable"] == "true", counts: counts, patch: 0)}
   end
 
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
-  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
+
+  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
+    do: {:noreply, NavState.restore(socket, collapsed)}
 
   def handle_event("toggle-global-pause", _params, socket) do
     if socket.assigns.writable and is_boolean(socket.assigns.paused) do
@@ -272,7 +307,8 @@ defmodule Aiur.BrowserHarness.PaletteProbeLive do
     end
   end
 
-  def handle_event("patch-shell", _params, socket), do: {:noreply, update(socket, :patch, &(&1 + 1))}
+  def handle_event("patch-shell", _params, socket),
+    do: {:noreply, update(socket, :patch, &(&1 + 1))}
 
   def render(assigns) do
     ~H"""

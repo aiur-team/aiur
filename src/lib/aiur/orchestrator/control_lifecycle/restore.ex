@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle.Restore do
     records
     |> restore_records(opts)
     |> put_restored_daemon_events(persisted)
+    |> put_restored_max_agents(persisted)
   end
 
   @spec merge(ControlLifecycle.t(), ControlLifecycle.t()) :: ControlLifecycle.t()
@@ -31,6 +32,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle.Restore do
       |> trim_restored_history()
 
     ControlLifecycle.merge_daemon_events(merged, %{lifecycle | daemon_events: lifecycle.daemon_events ++ other.daemon_events})
+    |> Map.put(:max_agents, other.max_agents || lifecycle.max_agents)
   end
 
   defp request_history_key(request) do
@@ -163,6 +165,13 @@ defmodule Aiur.Orchestrator.ControlLifecycle.Restore do
     %{lifecycle | daemon_events: Enum.take(events, -ControlLifecycle.allowed_values(:daemon_event_limit))}
   rescue
     _ -> lifecycle
+  end
+
+  defp put_restored_max_agents(lifecycle, persisted) do
+    case persisted_value(persisted, :max_agents) do
+      value when is_integer(value) and value > 0 -> %{lifecycle | max_agents: value}
+      _ -> lifecycle
+    end
   end
 
   defp restore_daemon_event(raw) when is_map(raw) do

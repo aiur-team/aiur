@@ -56,7 +56,7 @@ defmodule Aiur.CurrentRunMembership.StoreRecoveryTest do
     assert_receive {:current_run_membership_health_changed, payload}, 1000
 
     for public_surface <- [snapshot, Store.health(recovered), payload] do
-      refute inspect(public_surface) =~ sentinel
+      Aiur.TestSupport.refute_leak(public_surface, sentinel)
     end
   end
 
@@ -77,7 +77,7 @@ defmodule Aiur.CurrentRunMembership.StoreRecoveryTest do
     assert_receive {:current_run_membership_health_changed, payload}, 1000
 
     for public_surface <- [snapshot, Store.health(recovered), payload] do
-      refute inspect(public_surface) =~ sentinel
+      Aiur.TestSupport.refute_leak(public_surface, sentinel)
     end
   end
 
@@ -233,7 +233,7 @@ defmodule Aiur.CurrentRunMembership.StoreRecoveryTest do
     snapshot = Store.snapshot(server: recovered)
 
     assert snapshot.health == {:unavailable, :terminal_verification_marker_too_large}
-    refute inspect(snapshot) =~ sentinel
+    Aiur.TestSupport.refute_leak(snapshot, sentinel)
   end
 
   test "append failure leaves membership read-only until recovery validates the journal", %{dir: dir} do

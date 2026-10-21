@@ -30,7 +30,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LiveConcurrency do
   @spec label(map(), boolean()) :: String.t()
   @spec label(map(), boolean(), map()) :: String.t()
   def label(model, present?, %{kind: :build_order}),
-    do: "#{model.kpis.conc_now} #{if(present?, do: "now", else: "at run end")}"
+    do: "#{known_or_unknown(model.kpis.conc_now)} #{if(present?, do: "now", else: "at run end")}"
 
   def label(model, present?, scope), do: label(model, present? and scope == :session)
 
@@ -42,7 +42,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LiveConcurrency do
     end
   end
 
-  def label(model, false), do: "#{model.kpis.conc_now} at run end"
+  def label(model, false), do: "#{known_or_unknown(model.kpis.conc_now)} at run end"
+
+  defp known_or_unknown(nil), do: "unknown"
+  defp known_or_unknown(count), do: to_string(count)
 
   defp occupied_label(occupied, count) when is_integer(occupied) and occupied != count, do: " (#{occupied} slots occupied)"
   defp occupied_label(_occupied, _count), do: ""

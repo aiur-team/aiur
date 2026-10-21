@@ -8,6 +8,20 @@ defmodule Aiur.BuildQueue.ServerTest do
   alias Aiur.Orchestrator.{Dispatcher, State, TrackerTasks}
   alias Aiur.Workflow
 
+  defmodule SlowRead do
+    use GenServer
+    def start_link(owner), do: GenServer.start_link(__MODULE__, owner)
+    def init(owner), do: {:ok, owner}
+
+    def handle_call(:read_model, _from, owner) do
+      send(owner, :read_started)
+
+      receive do
+        :release -> {:reply, %{status: :running}, owner}
+      end
+    end
+  end
+
   defmodule Boundary do
     alias Aiur.GitHub.Tracker
 
@@ -46,6 +60,13 @@ defmodule Aiur.BuildQueue.ServerTest do
     assert :ets.whereis(Hints.table_name()) == :undefined
     assert :ok = GenServer.call(pid, :reconcile_now)
     refute_received {:scheduled, ^pid, _, _}
+  end
+
+  test "read model timeout returns an unavailable model without killing the caller" do
+    pid = start_supervised!({SlowRead, self()})
+    assert %{status: :store_unavailable} = Aiur.BuildQueue.show(pid)
+    assert_received :read_started
+    send(pid, :release)
   end
 
   test "disabled server remains inert" do

@@ -136,18 +136,15 @@ every request a determined agent could make.
 
 Human-review state writes compare the open PR with the configured base; stale heads also read fresh `mergeable` data for the exact PR head. State-label swaps add the target, revalidate current labels, then remove other state labels. Writes retry short local GitHub budget holds within the bounded wait policy.
 
-Comparisons pin the configured `tracker.base_branch` and exact PR head to SHAs for the assessment; GitHub's lagging PR `baseRefOid` is not used as a freshness pin. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check changes in both directions; rename checks include old and new paths.
+The state writer compares the configured `tracker.base_branch` and exact PR head; GitHub's lagging PR `baseRefOid` is not used as a pin. A compare read establishes whether the base moved. If it did, a pinned GraphQL mergeability read decides whether the exact head conflicts.
 
-A stale head approved at its current commit is refused only for a `CONFLICTING` verdict. Overlap alone does not require a push that dismisses approval. Queued or auto-merge-armed heads skip file comparisons because the queue tests the merge. Comments do not move queued PRs to rework (one GraphQL read, `rework_gate_merge_queue`); blocking reviews still do.
+A stale head approved at its current commit is refused only for a `CONFLICTING` verdict. Overlap alone does not require a push that dismisses approval. Queued or auto-merge-armed heads are accepted because the queue tests the merge. Comments do not move queued PRs to rework (one GraphQL read, `rework_gate_merge_queue`); blocking reviews still do.
 
-An unapproved stale head passes only with no conflicts or changed-file overlap since the merge base. Otherwise it returns `stale_review_base`. GitHub can lag its base SHA or report `UNKNOWN` while recalculating mergeability; those observations permit disjoint paths. A matching head's `CONFLICTING` verdict blocks the write.
+An unapproved stale head passes when the pinned GitHub mergeability read does not report `CONFLICTING`. File overlap alone does not block handoff because the merge queue tests the PR on current base.
 
-Mismatched heads or base branches, malformed observations,
-unreadable comparisons or a PR's own file list reaching GitHub's 300-file cap also block. A capped upstream or base comparison is not read as complete; the PR's paths are checked directly instead.
+A matching head's `CONFLICTING` verdict returns `stale_review_base`. GitHub `UNKNOWN` is accepted as no conflict evidence after the PR head and base branch are pinned; malformed or mismatched observations fail closed.
 
-When a comparison is capped, one GraphQL read compares each PR path's object id at the merge base and the base tip, also attributed to `human_review_base_ancestry`. A malformed or failed answer blocks.
-
-Comparison reads are attributed to `human_review_base_ancestry` and always contact GitHub because base movement can change verdicts. Orphan recovery reads `orphan_claim_mergeability` only after REST reports `mergeable: false`, and `orphan_claim_approval_state` after a stale-base write fails. No quota savings are claimed.
+Mismatched heads or base branches, malformed observations, and unreadable compare or mergeability responses fail closed. Orphan recovery reads `orphan_claim_mergeability` only after REST reports `mergeable: false`. No quota savings are claimed.
 
 A head pushed after approval is classified once per approved/new head pair by the CI poller: one `pulls/{n}` read and up to three compare reads, attributed to `approval_carry`.
 

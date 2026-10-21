@@ -13,6 +13,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defdelegate retryable_error?(reason), to: Aiur.GitHub.Errors, as: :retryable_github_error?
 
   alias Aiur.{Config, Workflow}
+  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.CiReadiness.{Assessment, RepositoryReads, WorkflowRules}
   alias Aiur.GitHub.Transport
 
@@ -47,6 +48,7 @@ defmodule Aiur.GitHub.CiReadiness do
       request_fun =
         opts
         |> Keyword.get(:request_fun, &Transport.default_request_fun/1)
+        |> tag_request_credential(Keyword.get(opts, :request_credential_id))
         |> bounded_request_fun(deadline_at_ms(opts))
 
       inspect_repository(request_fun, token, owner, repo, base_branch, opts)
@@ -85,7 +87,7 @@ defmodule Aiur.GitHub.CiReadiness do
   def dispatch_check(opts) do
     case operator_token() do
       token when is_binary(token) ->
-        opts |> Keyword.put(:token, token) |> check()
+        opts |> Keyword.put(:token, token) |> Keyword.put(:request_credential_id, "ci_readiness") |> check()
 
       nil ->
         {:ok, unavailable(Config.base_branch(opts), :ci_readiness_operator_token_required)}
@@ -98,6 +100,18 @@ defmodule Aiur.GitHub.CiReadiness do
       _ -> nil
     end
   end
+
+  defp tag_request_credential(request_fun, credential_id) when is_binary(credential_id) do
+    fn request -> request_fun.(request |> Map.put_new(:credential_id, credential_id) |> put_operator_credential_key()) end
+  end
+
+  defp tag_request_credential(request_fun, _credential_id), do: request_fun
+
+  defp put_operator_credential_key(%{token: token} = request) when is_binary(token) and token != "" do
+    Map.put_new(request, :credential_key, Budget.token_key(token))
+  end
+
+  defp put_operator_credential_key(request), do: request
 
   @doc false
   @impl true

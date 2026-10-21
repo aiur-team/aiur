@@ -10,7 +10,7 @@ defmodule Aiur.GitHub.Quota.ShellAndSecondaryTest do
   @now ~U[2026-08-09 21:00:00Z]
   @reset ~U[2026-08-09 22:00:00Z]
 
-  test "hydrates all primary resources from the rate-limit endpoint body" do
+  test "hydrates the core window from the rate-limit endpoint body" do
     quota = start_quota()
 
     body = %{
@@ -24,9 +24,9 @@ defmodule Aiur.GitHub.Quota.ShellAndSecondaryTest do
     Quota.observe(quota, request(:get, "/rate_limit"), {:ok, %{status: 200, headers: [], body: body}})
 
     snapshot = Quota.snapshot(quota)
-    assert Map.keys(snapshot.windows) |> Enum.sort() == ["core", "graphql"]
+    assert Map.keys(snapshot.windows) == ["core"]
     assert snapshot.windows["core"].remaining == 4200
-    assert snapshot.windows["graphql"].remaining == 3900
+    refute Map.has_key?(snapshot.windows, "graphql")
     assert snapshot.attribution == []
   end
 

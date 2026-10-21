@@ -83,6 +83,12 @@ defmodule Aiur.LocalTestEvidenceTest do
     assert {:ok, %{commands: [_, _]}} = LocalTestEvidence.parse(String.replace(@body, "direct callers\n", "direct callers\n\n"))
   end
 
+  test "accepts a post-deploy check after command evidence" do
+    body = String.replace(@body, "\n## Next section", "\n- Post-deploy check: run the browser smoke on a physical Stream Deck.\n\n## Next section")
+
+    assert {:ok, %{commands: [_, _]}} = LocalTestEvidence.parse(body)
+  end
+
   test "rejects duplicate sections and fields" do
     assert {:error, "Duplicate Local tests sections"} = LocalTestEvidence.parse(@body <> @body)
     assert {:error, _reason} = LocalTestEvidence.parse(String.replace(@body, "Policy: partial", "Policy: partial\nPolicy: none"))

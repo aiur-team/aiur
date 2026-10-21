@@ -305,6 +305,26 @@ defmodule Aiur.AgentGitHubGuard.InstallAndTokenTest do
     refute File.exists?(context.calls)
   end
 
+  test "refuses gh pr update-branch during post-handoff states but permits it in progress", context do
+    assert {output, 77} =
+             run_guard(context, ["pr", "update-branch", "42", "--repo", "owner/other"],
+               FAKE_GH_FORMAT_OUTPUT: "priority:2 agent:human-review\\n",
+               FAKE_GH_FORMAT_ARGS: context.calls
+             )
+
+    assert output =~ "ticket #1670 is handed off"
+    assert output =~ "if GitHub reports the PR CONFLICTING or a reviewer asked for integration"
+    assert File.read!(context.calls) =~ "repos/aiur-team/aiur/issues/1670"
+
+    File.rm!(context.calls)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["pr", "update-branch", "42"],
+               FAKE_GH_FORMAT_OUTPUT: "priority:2 agent:in-progress\\n",
+               FAKE_GH_FORMAT_ARGS: context.calls
+             )
+  end
+
   # Disarming the gate is as good as passing it: an agent that can delete branch
   # protection, rewrite a ruleset, or dispatch a workflow that merges with
   # `GITHUB_TOKEN` has removed the control every other denial here relies on.

@@ -137,8 +137,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
           "evidence#capability=private",
           secret
         ] do
-      refute inspect(detail) =~ private_value
-      refute inspect(row) =~ private_value
+      Aiur.TestSupport.refute_leak(detail, private_value)
+      Aiur.TestSupport.refute_leak(row, private_value)
     end
   end
 
@@ -210,8 +210,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
             "session-private",
             unsafe_agent_id
           ] do
-        refute inspect(detail) =~ private_value
-        refute inspect(row) =~ private_value
+        Aiur.TestSupport.refute_leak(detail, private_value)
+        Aiur.TestSupport.refute_leak(row, private_value)
       end
     end
   end

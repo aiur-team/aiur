@@ -158,7 +158,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
       <div :if={@view[:zero_result?]} class="units-state empty-state filtered-empty">
         <p>No units match this valid scope and condition selection.</p>
-        <button type="button" class="btn ghost units-reset" phx-click="reset-units-filters">Reset Units filters</button>
+        <button type="button" class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost units-reset" phx-click="reset-units-filters">Reset Units filters</button>
       </div>
 
       <div :if={no_units?(@status, @rows, @view)} class="units-state empty-state">{empty_sentence(@status, @message)}</div>

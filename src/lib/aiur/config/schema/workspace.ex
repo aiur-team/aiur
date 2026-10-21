@@ -18,7 +18,9 @@ defmodule Aiur.Config.Schema.Workspace do
   embedded_schema do
     # @config-reference config-configuration-05 workspace.root
     # @config-detail workspace.root | string path | tmp `aiur_workspaces` | Root for agent workspaces. |
-    field(:root, :string, default: Path.join(System.tmp_dir!(), "aiur_workspaces"))
+    # Resolve the default in Schema.finalize_settings/1 so a runtime TMPDIR
+    # change is not shadowed by the value captured when this module compiled.
+    field(:root, :string)
     # @config-reference config-configuration-05 workspace.bootstrap_image
     # @config-detail workspace.bootstrap_image | string | nil | Docker image for warm build-cache seeding. |
     field(:bootstrap_image, :string)

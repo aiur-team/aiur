@@ -38,6 +38,14 @@ defmodule Aiur.Orchestrator.OptimisticGuardTest do
     actions = decide(record(), Map.merge(closed(), %{issue_open?: false, state_reason: "completed"}))
     refute park?(actions)
     assert {:resolve, :optimistic_blocker_failed, "11"} in actions
+
+    removed_after_complete = Map.merge(healthy(), %{edges: %{"11" => MapSet.new()}, issue_open?: false, state_reason: "completed"})
+    refute park?(decide(record(), removed_after_complete))
+
+    removed_after_merge = Map.merge(healthy(), %{edges: %{"11" => MapSet.new()}, pr_merged: true, pr_state: "closed"})
+    actions = decide(record(), removed_after_merge)
+    refute park?(actions)
+    assert {:merged_notice, "11", "10"} in actions
   end
 
   test "nonterminal trouble waits, informs without parking, and recovery resolves" do
@@ -55,7 +63,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardTest do
   test "merged confirmation and sparse closures cannot park" do
     actions = decide(record(), Map.put(closed(), :pr_merged, true))
     refute park?(actions)
-    assert {:resolve, :optimistic_blocker_failed, "11"} in actions
+    assert {:merged_notice, "11", "10"} in actions
     actions = decide(record(), Map.put(closed(), :pr_merged, nil))
     refute park?(actions)
     refute Enum.any?(actions, &match?({:resolve, _, _}, &1))
@@ -92,11 +100,47 @@ defmodule Aiur.Orchestrator.OptimisticGuardTest do
 
   test "churn informs at threshold without parking, zero disables" do
     row = put_in(record(), ["counters", "integrations_conflict"], 3)
-    actions = decide(row, healthy())
+    actions = OptimisticGuard.decide([row], %{"10" => healthy()}, @now, grace_ms: 0)
     assert {:attention, :optimistic_blocker_failed, "11", %{blocker: "10", cause: :churn, action: :none, severity: "info"}} in actions
     refute park?(actions)
     refute attention?(decide(row, healthy(), churn_threshold: 0))
     refute attention?(decide(row, healthy(), churn_threshold: 4))
+  end
+
+  test "resolved conflicts do not emit churn after the blocker recovers" do
+    row = put_in(record(%{"merged_at_ms" => @now}), ["counters", "integrations_conflict"], 3)
+    actions = decide(row, Map.put(healthy(), :pr_state, :merged))
+    refute Enum.any?(actions, &match?({:attention, :optimistic_blocker_failed, _, _}, &1))
+    assert {:merged_notice, "11", "10"} in actions
+  end
+
+  test "approval on a mergeable head clears conflicts already resolved" do
+    row = Map.put(record(), "integration_reports", conflict_reports(3))
+    observation = Map.merge(healthy(), %{pr_approved?: true, pr_mergeable?: true, pr_head_sha: "approved-head", pr_approval_checked_conflicts: 3})
+
+    first = OptimisticGuard.decide([row], %{"10" => observation}, @now, grace_ms: 0)
+    row = apply_updates(row, first)
+
+    {actions, _row} =
+      Enum.reduce(1..2, {first, row}, fn _, {_, current} ->
+        actions = OptimisticGuard.decide([current], %{"10" => observation}, @now, grace_ms: 0)
+        {actions, apply_updates(current, actions)}
+      end)
+
+    assert {:update_blocker, "11", "10", facts} = hd(first)
+    assert facts.approval_head_sha == "approved-head"
+    assert facts.conflicts_at_approval == 3
+    refute Enum.any?(actions, &match?({:attention, :optimistic_blocker_failed, "11", %{cause: :churn}}, &1))
+  end
+
+  test "conflicts after approval on the same head still raise churn" do
+    row = record(%{"approval_head_sha" => "approved-head", "approval_active" => true, "conflicts_at_approval" => 3})
+    row = Map.put(row, "integration_reports", conflict_reports(6))
+    observation = Map.merge(healthy(), %{pr_approved?: true, pr_mergeable?: false, pr_head_sha: "approved-head", pr_approval_checked_conflicts: 3})
+
+    actions = OptimisticGuard.decide([row], %{"10" => observation}, @now, grace_ms: 0)
+
+    assert Enum.any?(actions, &match?({:attention, :optimistic_blocker_failed, "11", %{blocker: "10", cause: :churn}}, &1))
   end
 
   test "edge membership is dependent-specific and an unknown edge cannot park" do
@@ -138,6 +182,18 @@ defmodule Aiur.Orchestrator.OptimisticGuardTest do
   end
 
   defp park?(actions), do: Enum.any?(actions, &match?({:park, _, _, _}, &1))
+  defp conflict_reports(count), do: for(n <- 1..count, do: %{"blocker" => "10", "conflict" => true, "sha" => String.pad_leading(Integer.to_string(n), 40, "0")})
+
+  defp apply_updates(row, actions) do
+    Enum.reduce(actions, row, &apply_update/2)
+  end
+
+  defp apply_update({:update_blocker, _, id, facts}, current), do: Map.update!(current, "blockers", &Enum.map(&1, fn blocker -> merge_update(blocker, id, facts) end))
+  defp apply_update(_, current), do: current
+  defp merge_update(%{"id" => id} = blocker, id, facts), do: Map.merge(blocker, stringify(facts))
+  defp merge_update(blocker, _id, _facts), do: blocker
+  defp stringify(facts), do: Map.new(facts, fn {key, value} -> {to_string(key), value} end)
+
   defp attention?(actions), do: Enum.any?(actions, &match?({:attention, _, _, _}, &1))
   defp decide(row, observation, opts \\ []), do: OptimisticGuard.decide([row], %{"10" => observation}, @now, opts)
   defp record(facts \\ %{}), do: %{"ticket" => "11", "status" => "running", "blockers" => [Map.merge(%{"id" => "10"}, facts)], "counters" => %{"integrations_conflict" => 0}}

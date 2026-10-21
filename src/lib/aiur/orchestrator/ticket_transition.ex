@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.TicketTransition do
   """
 
   require Logger
+  alias Aiur.LandingWatch.Journal
   alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, Effect, HumanReview, PauseResume, RetryEngine, State}
   alias Aiur.Tracker
 
@@ -53,7 +54,31 @@ defmodule Aiur.Orchestrator.TicketTransition do
     true = is_atom(writer) and not is_nil(writer)
     tracker = Keyword.get(opts, :tracker, Tracker)
     result = with_writer(writer, fn -> if action == :add, do: tracker.add_label(issue_id, label), else: tracker.remove_label(issue_id, label) end)
+    maybe_record_pause_writer(issue_id, action, label, writer, result, opts)
     record(issue_id, action, label, writer, opts, result)
+    result
+  end
+
+  defp maybe_record_pause_writer(issue_id, action, label, :approval_pause, :ok, opts)
+       when is_binary(issue_id) and is_binary(label) do
+    if String.ends_with?(label, ":paused") do
+      recorded_writer = if action == :add, do: :approval_pause, else: nil
+
+      case Journal.record_pause_writer(issue_id, recorded_writer, Keyword.get(opts, :landing_watch_journal_opts, [])) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("ticket pause provenance could not be recorded: issue_id=#{issue_id} reason=#{inspect(reason)}")
+      end
+    end
+  end
+
+  defp maybe_record_pause_writer(_issue_id, _action, _label, _writer, _result, _opts), do: :ok
+
+  @spec write_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def write_comment(issue_id, body, opts) do
+    writer = Keyword.fetch!(opts, :writer)
+    tracker = Keyword.get(opts, :tracker, Tracker)
+    result = with_writer(writer, fn -> tracker.create_comment(issue_id, body) end)
+    record(issue_id, :comment, body, writer, opts, result)
     result
   end
 

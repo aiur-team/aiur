@@ -378,7 +378,7 @@ defmodule Aiur.LiveConversationBoundsTest do
     assert Enum.all?(public_ids, &(String.starts_with?(&1, "message:") and byte_size(&1) <= 64))
 
     Enum.each(raw_ids, fn raw_id ->
-      refute inspect(snapshot) =~ raw_id
+      Aiur.TestSupport.refute_leak(snapshot, raw_id)
     end)
   end
 end

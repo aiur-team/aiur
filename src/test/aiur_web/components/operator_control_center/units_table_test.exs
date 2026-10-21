@@ -207,7 +207,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute empty =~ "No units observed"
     assert filtered =~ "No units match this valid scope"
     assert filtered =~ ~s(phx-click="reset-units-filters")
-    assert filtered =~ ~s(class="btn ghost units-reset")
+    assert filtered =~ ~s(class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost units-reset")
     # A stale catalog no longer prints a dedicated banner; the last-known-good
     # rows render directly without the noisy "Stale Units catalog" notice.
     refute stale =~ "Stale Units catalog"

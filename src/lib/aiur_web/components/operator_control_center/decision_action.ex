@@ -113,7 +113,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
           <div class="decision-action-buttons">
             <button
               :if={@deferrable?}
-              class="btn ghost"
+              class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost"
               type="button"
               phx-click="defer-decision"
               phx-value-decision-id={@decision.decision_id}
@@ -122,7 +122,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
             >{if @decision.decision_status == :deferred, do: "Notify Executor again", else: "Defer to Executor"}</button>
             <button
               :if={@dismissible?}
-              class="btn ghost icon-only decision-dismiss"
+              class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost icon-only decision-dismiss"
               type="button"
               phx-click="dismiss-decision"
               phx-value-decision-id={@decision.decision_id}
@@ -133,14 +133,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
             >×</button>
             <button
               :if={@acknowledgeable?}
-              class="btn ghost"
+              class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost"
               type="button"
               phx-click="dismiss-decision"
               phx-value-decision-id={@decision.decision_id}
               phx-disable-with="Acknowledging…"
               disabled={!@live_connected}
             >Acknowledge</button>
-            <button class="btn" type="submit" disabled={!@live_connected} phx-disable-with="Recording…">{if @decision.decision_status in [:dismissed, :deferred], do: "Change choice", else: "Decision"}</button>
+            <button class="aiur-button aiur-button--dashboard btn" type="submit" disabled={!@live_connected} phx-disable-with="Recording…">{if @decision.decision_status in [:dismissed, :deferred], do: "Change choice", else: "Decision"}</button>
           </div>
         </footer>
       </form>
@@ -165,7 +165,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
         <button
           :if={@writable and @decision.retryable}
           type="button"
-          class="btn danger"
+          class="aiur-button aiur-button--dashboard aiur-button--danger btn danger"
           phx-click="retry-decision"
           phx-value-decision-id={@decision.decision_id}
           phx-value-action-id={@decision.answer.action_id}

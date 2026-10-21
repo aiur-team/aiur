@@ -151,13 +151,6 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
-button:focus-visible,
-a:focus-visible,
-textarea:focus-visible,
-[tabindex]:focus-visible {
-  outline: 3px solid var(--accent-line);
-  outline-offset: 3px;
-}
 
 .mono,
 .ticket-id,
@@ -207,3 +200,20 @@ textarea:focus-visible,
   box-shadow: var(--shadow-sm);
 }
 
+
+/* Preserve dashboard palettes while adopting the shared button variants. */
+.aiur-button {
+  --aiur-dashboard-accent-strong: var(--accent-strong);
+  --aiur-dashboard-on-accent: var(--on-accent);
+  --aiur-dashboard-accent-soft: var(--accent-soft);
+  --aiur-dashboard-line: var(--line);
+  --aiur-dashboard-muted: var(--muted);
+  --aiur-dashboard-blocking: var(--blocking);
+  --aiur-dashboard-on-blocking: var(--on-blocking);
+  --aiur-dashboard-fg: var(--fg);
+  --aiur-dashboard-line-strong: var(--line-strong);
+  --aiur-dashboard-surface-2: var(--surface-2);
+  --aiur-dashboard-pill-bg: var(--pill-bg);
+}
+/* Let package buttons override the unlayered native button font reset. */
+button.aiur-button, button.aiur-shell__menu-item { font: revert-layer; }

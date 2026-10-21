@@ -83,7 +83,9 @@
     "github-listeners"
   ],
   "owns": {
-    "config": [],
+    "config": [
+      "events.codeowners_refresh_seconds"
+    ],
     "env": [],
     "state": [],
     "capabilities": []

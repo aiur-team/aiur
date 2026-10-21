@@ -120,26 +120,39 @@ defmodule Aiur.CoordinationTasksAdmissionTest do
     {:ok, attempts} = Agent.start_link(fn -> 0 end)
 
     task_starter = fn _entry ->
-      Agent.update(attempts, &(&1 + 1))
-      send(test_pid, :task_start_attempted)
+      attempt = Agent.get_and_update(attempts, fn count -> {count + 1, count + 1} end)
+      send(test_pid, {:task_start_attempted, attempt})
       exit(:task_supervisor_unavailable)
     end
 
-    start_supervised!({CoordinationTasks, name: name, task_starter: task_starter, task_start_retry_ms: 2_000, task_start_retry_max_ms: 2_000})
+    send_after_fun = fn pid, message, delay ->
+      send(test_pid, {:retry_scheduled, pid, message, delay})
+      make_ref()
+    end
+
+    name_pid = start_supervised!({CoordinationTasks, name: name, task_starter: task_starter, task_start_retry_ms: 2_000, task_start_retry_max_ms: 2_000, send_after_fun: send_after_fun})
 
     log =
       capture_log(fn ->
         assert :pending = CoordinationTasks.enqueue(:first, fn -> :ok end, name)
-        assert_receive :task_start_attempted, 2_000
+        assert_receive {:task_start_attempted, 1}, 2_000
+        assert_receive {:retry_scheduled, ^name_pid, :retry_dispatch, 2_000}, 2_000
 
         for key <- 2..20 do
           assert :pending = CoordinationTasks.enqueue(key, fn -> :ok end, name)
         end
 
+        state = :sys.get_state(name)
+        assert state.pending == 20
         assert Agent.get(attempts, & &1) == 1
+
+        send(name_pid, :retry_dispatch)
+        assert_receive {:task_start_attempted, 2}, 2_000
+        assert_receive {:retry_scheduled, ^name_pid, :retry_dispatch, 2_000}, 2_000
+        assert Agent.get(attempts, & &1) == 2
       end)
 
-    assert length(String.split(log, "coordination task start failed")) == 2
+    assert length(String.split(log, "coordination task start failed")) == 3
   end
 
   test "absence and restart loss return coordination unavailable" do

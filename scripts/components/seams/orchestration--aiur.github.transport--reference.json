@@ -12,6 +12,7 @@
     "src/lib/aiur/landing_watch/merge_group_requeue.ex",
     "src/lib/aiur/landing_watch/merge_group_run_fetcher.ex",
     "src/lib/aiur/landing_watch/merge_groups.ex",
+    "src/lib/aiur/landing_watch/merge_queue_watchdog.ex",
     "src/lib/aiur/landing_watch/observer.ex",
     "src/lib/aiur/landing_watch/quarantine_lifter.ex",
     "src/lib/aiur/landing_watch/quarantine_pr.ex",

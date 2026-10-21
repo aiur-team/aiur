@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.Status.SnapshotProjectionTest do
   import Aiur.OrchestratorStatusSupport
 
   alias Aiur.AgentQueueStore
+  alias Aiur.Issue
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.State
@@ -30,6 +31,14 @@ defmodule Aiur.Orchestrator.Status.SnapshotProjectionTest do
     assert %{status_observed_at: %DateTime{}} = snapshot_input = StatusReport.snapshot_input(state)
 
     assert %{snapshot_input | status_observed_at: nil} == %State{}
+  end
+
+  test "dashboard source state drops issue descriptions while retaining row facts" do
+    issue = %Issue{id: "issue-large", identifier: "MT-44", title: "Large spec", description: String.duplicate("spec", 50_000), state: "todo"}
+    input = StatusReport.snapshot_input(%State{last_polled_issues: %{issue.id => issue}})
+
+    assert %Issue{description: nil, identifier: "MT-44", title: "Large spec", state: "todo"} = input.last_polled_issues[issue.id]
+    assert [%{identifier: "MT-44", title: "Large spec"}] = StatusReport.snapshot_payload(input).idle
   end
 
   test "dashboard projection retains queue facts for rendered issues" do

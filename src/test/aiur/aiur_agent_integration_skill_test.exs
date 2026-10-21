@@ -4,7 +4,9 @@ defmodule Aiur.AiurAgentIntegrationSkillTest do
   @repo_root Path.expand("../../..", __DIR__)
 
   test "agent PR guidance uses and verifies the configured integration branch" do
-    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
+    dev_loop =
+      one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
+
     repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
 
     for source <- [dev_loop, repo_prompt] do
@@ -21,20 +23,21 @@ defmodule Aiur.AiurAgentIntegrationSkillTest do
     assert repo_prompt =~ "leave a correct base unchanged"
   end
 
-  test "base integration allows three attempts without blocking decisions" do
+  test "review and CI handoffs integrate only for conflicts or reviewer requests" do
     for path <- ~w(SKILL.md dev-loop.md turn-workflow.md) do
       content = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/#{path}")))
-      assert content =~ "up to 3 integrations per handoff without asking"
-      assert content =~ "non-blocking Executor alert"
-      assert content =~ "keep going if the base is safe"
       assert content =~ "Never open a blocking decision for base integration"
-      refute content =~ "at most once"
-      refute content =~ "one-integration limit"
+      assert content =~ "only when GitHub reports the exact PR head as `CONFLICTING`"
+      assert content =~ "or a reviewer asks"
+      refute content =~ "up to 3 integrations"
+      refute content =~ "three-integration"
+      refute content =~ "No shared changed paths"
     end
 
-    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
-    assert dev_loop =~ "After each integration, run relevant local tests and the format, size, components gates"
-    assert dev_loop =~ "attempt count in the workpad across restarts"
+    dev_loop =
+      one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
+
+    assert dev_loop =~ "A non-`CONFLICTING` head permits handoff without a base merge"
   end
 
   defp one_line(content), do: String.replace(content, ~r/\s+/, " ")

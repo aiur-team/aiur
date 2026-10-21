@@ -3,7 +3,7 @@ defmodule Aiur.RunTelemetry.LedgerRetentionTest do
   alias Aiur.RunTelemetry.{Ledger, LedgerRetention, Summaries}
 
   setup do
-    root = Aiur.TestSupport.tmp_root!("ledger-retention")
+    root = Path.join(Application.fetch_env!(:aiur, :test_run_root), "ledger-retention-#{System.pid()}-#{System.unique_integer([:positive])}")
     prior = for key <- [:repo_base_root, :analytics_repo, :log_file], do: {key, Application.fetch_env(:aiur, key)}
     enabled_key = {Aiur.RunTelemetry, :telemetry_enabled}
     enabled = :persistent_term.get(enabled_key, :unset)

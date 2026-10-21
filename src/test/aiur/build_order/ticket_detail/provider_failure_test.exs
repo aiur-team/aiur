@@ -71,7 +71,7 @@ defmodule Aiur.BuildOrder.TicketDetailProviderFailureTest do
     end)
 
     Req.Test.stub({__MODULE__, :oversized}, fn conn ->
-      body = issue(42, "I42") |> Map.put("body", String.duplicate("x", 70_000)) |> Jason.encode!()
+      body = issue(42, "I42") |> Map.put("unexpected_metadata", String.duplicate("x", 550_000)) |> Jason.encode!()
 
       conn
       |> Plug.Conn.put_resp_content_type("application/json")

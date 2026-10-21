@@ -28,14 +28,20 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   @doc "Best-effort durable write after each lifecycle transition."
   @spec save(ControlLifecycle.t()) :: :ok
   def save(%ControlLifecycle{} = lifecycle) do
-    persist(&ControlLifecycle.merge(lifecycle, &1), [])
+    _ = persist(&ControlLifecycle.merge(lifecycle, &1), [])
+    :ok
   end
 
   @doc false
   @spec update((ControlLifecycle.t() -> ControlLifecycle.t()), keyword()) :: :ok
   def update(fun, opts \\ []) when is_function(fun, 1) do
-    persist(fun, opts)
+    _ = persist(fun, opts)
+    :ok
   end
+
+  @doc false
+  @spec update_checked((ControlLifecycle.t() -> ControlLifecycle.t()), keyword()) :: :ok | {:error, term()}
+  def update_checked(fun, opts \\ []) when is_function(fun, 1), do: persist(fun, opts)
 
   @doc "Converts any persisted unresolved request to `:expired` during daemon recovery."
   @spec expire_unresolved_on_recovery(ControlLifecycle.t(), keyword()) :: ControlLifecycle.t()
@@ -72,15 +78,17 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
            lock_timeout_ms,
            lock_retry_ms
          ) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("Control lifecycle journal lock failed at #{path}: #{inspect(reason)}")
-    end
+      :ok ->
+        :ok
 
-    :ok
+      {:error, reason} ->
+        Logger.warning("Control lifecycle journal lock failed at #{path}: #{inspect(reason)}")
+        {:error, reason}
+    end
   rescue
     error ->
       Logger.warning("Control lifecycle journal could not be persisted at #{path_for()}: #{Exception.message(error)}")
-      :ok
+      {:error, :persistence_failed}
   end
 
   defp with_lock(path, fun, lock_timeout_ms, lock_retry_ms) do

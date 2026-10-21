@@ -170,8 +170,8 @@ defmodule Aiur.LiveConversationHealthTest do
 
     assert snapshot.messages == []
     assert snapshot.diagnostic_counts == %{unknown_kind: length(records)}
-    refute inspect(snapshot) =~ sentinel
-    refute inspect(:sys.get_state(server)) =~ sentinel
+    Aiur.TestSupport.refute_leak(snapshot, sentinel)
+    Aiur.TestSupport.refute_leak(:sys.get_state(server), sentinel)
     assert byte_size(Jason.encode!(snapshot)) <= 64_000
   end
 
@@ -185,7 +185,7 @@ defmodule Aiur.LiveConversationHealthTest do
 
     assert {:ok, resolved} = LiveConversation.resolve(handle, server: server)
     assert resolved.generation_handle == handle
-    refute inspect(resolved) =~ provider_session
+    Aiur.TestSupport.refute_leak(resolved, provider_session)
 
     assert {:ok, _snapshot} =
              LiveConversation.observe(

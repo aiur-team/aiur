@@ -25,10 +25,10 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
             <h2 id="agent-log-title">{@modal.issue_identifier}</h2>
           </div>
           <div class="modal-actions">
-            <button type="button" class="tool-btn live-button" data-agent-log-live data-live="true" aria-pressed="true">
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn live-button" data-agent-log-live data-live="true" aria-pressed="true">
               <span class="status-badge-dot"></span>Live
             </button>
-            <button type="button" class="tool-btn" phx-click="close-agent-log">Close</button>
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn" phx-click="close-agent-log">Close</button>
           </div>
         </header>
 
@@ -52,8 +52,8 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
             enterkeyhint="send"
           >{@drafts[@modal.target_key] || ""}</textarea>
           <div class="agent-chat-actions">
-            <button class="btn danger" type="button" phx-click="pause-agent">Pause</button>
-            <button class="btn" type="submit">Send</button>
+            <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="button" phx-click="pause-agent">Pause</button>
+            <button class="aiur-button aiur-button--dashboard btn" type="submit">Send</button>
           </div>
         </form>
 

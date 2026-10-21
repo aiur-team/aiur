@@ -93,7 +93,9 @@ defmodule Aiur.DecisionStore.Boot do
         projecting_revision_follow_ups: MapSet.new(),
         resolving_revision_follow_ups: MapSet.new(),
         append_retry_counts: %{},
-        lifecycle_append_failures: MapSet.new()
+        lifecycle_append_failures: MapSet.new(),
+        failure_attention_reprojection_pending?: false,
+        failure_attention_reprojection_waiters: []
       })
 
     Dispatch.monitor_decision_dispatch_tasks(state)
@@ -101,18 +103,23 @@ defmodule Aiur.DecisionStore.Boot do
 
   @spec handle_continue(term(), term()) :: term()
   def handle_continue(:schedule_reconciliation, state) do
-    if state.writable? and state.health == :writable do
-      Requests.reconcile_requested_executor_notifications(state)
-      Requests.reconcile_deferred_executor_notifications(state)
-      FailureAttention.schedule_failure_attention_reprojection(state)
-      schedule_closed_expired_blocker_mooting(state)
+    state =
+      if state.writable? and state.health == :writable do
+        Requests.reconcile_requested_executor_notifications(state)
+        Requests.reconcile_deferred_executor_notifications(state)
+        state = FailureAttention.schedule_failure_attention_reprojection(state)
+        schedule_closed_expired_blocker_mooting(state)
 
-      Dispatch.schedule_dispatch_work(
-        state,
-        {:reconcile_dispatches, Dispatch.dispatch_fences(state)},
-        state.reconcile_delay_ms
-      )
-    end
+        Dispatch.schedule_dispatch_work(
+          state,
+          {:reconcile_dispatches, Dispatch.dispatch_fences(state)},
+          state.reconcile_delay_ms
+        )
+
+        state
+      else
+        state
+      end
 
     {:noreply, state}
   end
@@ -282,7 +289,9 @@ defmodule Aiur.DecisionStore.Boot do
       pending_notifications: [],
       last_event_id: nil,
       projection_retry: nil,
-      projection: :healthy
+      projection: :healthy,
+      failure_attention_reprojection_pending?: false,
+      failure_attention_reprojection_waiters: []
     }
   end
 end

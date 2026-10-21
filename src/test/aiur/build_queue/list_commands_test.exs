@@ -73,20 +73,21 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
 
   test "facade adds and removes through durable membership and real marker writer" do
     server()
+    assert :ok = Aiur.BuildQueue.add(["9"], "paseo")
     assert :ok = Aiur.BuildQueue.add(["1", "2"], "paseo", after: "9")
-    assert Enum.map(document().items, & &1.issue_id) == ["1", "2"]
+    assert Enum.map(document().items, & &1.issue_id) == ["9", "1", "2"]
     assert Enum.map(document().edges, &{&1.prerequisite, &1.dependent}) == [{"9", "1"}, {"9", "2"}]
     calls = Agent.get(Boundary, & &1.calls)
-    assert Enum.map(calls, &elem(&1, 0)) == [{:ensure, ["agent:queued"]}, {:mark, "1", "agent:queued"}, {:mark, "2", "agent:queued"}]
-    {_, before_mark} = Enum.at(calls, 1)
-    assert Enum.map(before_mark.items, & &1.issue_id) == ["1", "2"]
+    assert Enum.map(calls, &elem(&1, 0)) == [{:ensure, ["agent:queued"]}, {:mark, "9", "agent:queued"}, {:mark, "1", "agent:queued"}, {:mark, "2", "agent:queued"}]
+    {_, before_mark} = Enum.at(calls, 2)
+    assert Enum.map(before_mark.items, & &1.issue_id) == ["9", "1", "2"]
     assert Enum.any?(before_mark.intents, &(&1.issue_id == "1" and &1.action == :mark and &1.outcome == nil))
     assert :ok = Aiur.BuildQueue.reorder("2", 0)
-    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"2", 0}, {"1", 1}]
+    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"2", 0}, {"9", 1}, {"1", 2}]
     assert :ok = Aiur.BuildQueue.add_edge("3", "2")
     assert Enum.any?(document().edges, &(&1.prerequisite == "3" and &1.dependent == "2" and &1.source == :list))
     assert :ok = Aiur.BuildQueue.remove("1")
-    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"2", 0}]
+    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"2", 0}, {"9", 1}]
     assert {{:unmark, "1", "agent:queued"}, before_unmark} = List.last(Agent.get(Boundary, & &1.calls))
     refute Enum.any?(before_unmark.items, &(&1.issue_id == "1"))
     assert ListCommands.pending(document()) == []
@@ -137,7 +138,8 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
   end
 
   test "paced markers survive restart and are retried without repeating successful marks" do
-    pid = server(2)
+    pid = server(3)
+    assert :ok = Aiur.BuildQueue.add(["9"], "paseo")
     assert {:error, {:marker_write_failed, [{:mark, "2", {:error, :paced}}]}} = Aiur.BuildQueue.add(["1", "2"], "paseo", after: "9")
     assert ListCommands.pending(document()) == [{:mark, "2"}]
     assert :ok = stop_supervised(Server)

@@ -113,8 +113,8 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     assert context.history.state == :unavailable
     assert context.logs.entries == []
     assert context.capabilities == []
-    refute inspect(context) =~ "retry_after"
-    refute inspect(context) =~ "example.test/raw"
+    Aiur.TestSupport.refute_leak(context, "retry_after")
+    Aiur.TestSupport.refute_leak(context, "example.test/raw")
   end
 
   test "does not render arbitrary Log labels or details from a normalized-history lookalike" do
@@ -142,8 +142,8 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
              }
            ] = context.logs.entries
 
-    refute inspect(context) =~ "/home/private"
-    refute inspect(context) =~ "agent.ndjson"
+    Aiur.TestSupport.refute_leak(context, "/home/private")
+    Aiur.TestSupport.refute_leak(context, "agent.ndjson")
   end
 
   test "does not retain unsafe evidence or provenance from a malformed cached snapshot" do
@@ -161,7 +161,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
 
     assert context.progress.provenance == %{}
     assert context.latest_evidence.source == nil
-    refute inspect(context) =~ "/home/private"
+    Aiur.TestSupport.refute_leak(context, "/home/private")
   end
 
   test "previews oversized descriptions and makes unsafe or incomplete CTAs unavailable" do
@@ -200,8 +200,8 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     refute context.title =~ "raw-title-secret"
     refute context.description =~ "/home/private"
     refute context.description =~ "raw-description-secret"
-    refute inspect(context) =~ "raw-title-secret"
-    refute inspect(context) =~ "raw-description-secret"
+    Aiur.TestSupport.refute_leak(context, "raw-title-secret")
+    Aiur.TestSupport.refute_leak(context, "raw-description-secret")
   end
 
   test "fails closed before joining an unbounded typed tracker identity" do
@@ -229,7 +229,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     assert normalized.repository == "Configured repository"
     assert normalized.identifier == nil
     assert normalized.title == "Ticket context unavailable"
-    refute inspect(normalized) =~ unbounded_identifier
+    Aiur.TestSupport.refute_leak(normalized, unbounded_identifier)
   end
 
   test "only keeps GitHub destinations for the configured repository and destination type" do

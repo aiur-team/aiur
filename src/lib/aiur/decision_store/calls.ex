@@ -18,6 +18,12 @@ defmodule Aiur.DecisionStore.Calls do
   alias Aiur.DecisionStore.Withdrawals
 
   @spec handle_call(term(), term(), term()) :: term()
+  def handle_call(:await_failure_attention_reprojection, from, %{failure_attention_reprojection_pending?: true} = state) do
+    {:noreply, %{state | failure_attention_reprojection_waiters: [from | state.failure_attention_reprojection_waiters]}}
+  end
+
+  def handle_call(:await_failure_attention_reprojection, _from, state), do: {:reply, :ok, state}
+
   def handle_call({:request, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end

@@ -97,6 +97,16 @@ defmodule Aiur.BuildQueue.OptimisticAttentionTest do
     assert opts[:message] =~ "#11 keeps running"
   end
 
+  test "merged blocker notice asks for a default branch rebase without replacement language" do
+    payload = %{blocker: "10", cause: :merged, action: :none, severity: "info"}
+    assert :ok = Attention.open({:optimistic_blocker_failed, :merged}, "11", payload)
+    assert_received {:attention, "ticket.11.queue.attention.optimistic_blocker_failed", opts}
+    assert opts[:severity] == "info"
+    assert opts[:message] =~ "Blocker #10 merged"
+    assert opts[:message] =~ "Rebase #11 on the default branch"
+    refute opts[:message] =~ "replacement blocker"
+  end
+
   test "invalid action and missing failure facts cannot publish" do
     for payload <- [%{blocker: "10", cause: :not_planned, action: :bogus}, %{blocker: "10", action: :parked}, %{}] do
       assert {:error, :invalid_attention} = Attention.open(:optimistic_blocker_failed, "11", payload)

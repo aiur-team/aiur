@@ -79,7 +79,6 @@ R-optional	Aiur.EventHumanizerHelpers	MP-R1-C9-T14 moved CLI adapter retains the
 R-optional	Aiur.Events.BranchRefStore	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.GithubCIPoller	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.GithubKeys	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.Events.PrCommandScanner	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.Sanitizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Executor.StatePaths	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorAttention.CLI	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
@@ -118,5 +117,8 @@ R-optional	Aiur.Tmux	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
 R-optional	Aiur.Webhooks	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Webhooks.IntervalPolicy	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-private	Aiur.Claude.RemoteControl	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
+R-private	Aiur.Claude.ReplAgent	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
+R-private	Aiur.Codex.EventHumanizer	#3474 preserve the shared agents-table humanizer output required by DESIGN-R7
 R-private	Aiur.PRLifecycle.PostAgentRouting	#5063 Shared verdict routing is consumed by each orchestrator handoff path.
 R-private	Aiur.PRLifecycle.ReviewFindings	#5063 Shared body-only review blocking predicate is owned by PR lifecycle.

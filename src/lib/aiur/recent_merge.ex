@@ -41,6 +41,7 @@ defmodule Aiur.RecentMerge do
           observed_run_id: String.t() | nil,
           first_observed_at: DateTime.t(),
           last_observed_at: DateTime.t(),
+          reconciled_ticket_ids: [String.t()],
           content_hash: String.t()
         }
 
@@ -68,7 +69,8 @@ defmodule Aiur.RecentMerge do
                 ticket_id: nil,
                 merged_by: nil,
                 source_event_id: nil,
-                observed_run_id: nil
+                observed_run_id: nil,
+                reconciled_ticket_ids: []
               ]
 
   @doc "Normalizes one merged PullRequestEvent, or returns `:not_merge`."
@@ -142,6 +144,12 @@ defmodule Aiur.RecentMerge do
     ClosingReferences.identifiers_in_body(body, repository)
   end
 
+  @doc "Returns same-repository ticket ids explicitly referenced by `Refs #N` lines."
+  @spec referenced_issue_identifiers_in_body(String.t() | nil, String.t() | nil) :: [String.t()]
+  def referenced_issue_identifiers_in_body(body, repository \\ nil) do
+    ClosingReferences.referenced_identifiers_in_body(body, repository)
+  end
+
   defp normalize_github_merge(event, pull, opts) do
     live? = Keyword.get(opts, :live?, false) == true
     now = Keyword.get(opts, :now, DateTime.utc_now())
@@ -151,7 +159,7 @@ defmodule Aiur.RecentMerge do
          {:ok, number} <- positive_integer(Map.get(pull, "number"), :number),
          {:ok, url} <- normalize_url(Map.get(pull, "html_url"), repository, number),
          {:ok, title} <- optional_text(Map.get(pull, "title"), @title_max, :title),
-         {:ok, summary} <- normalized_summary(Map.get(pull, "body")),
+         {:ok, summary} <- normalized_summary(Map.get(pull, "body"), repository),
          {:ok, head_ref} <- optional_text(get_in(pull, ["head", "ref"]), @ref_max, :head_ref),
          {:ok, head_sha} <- optional_text(get_in(pull, ["head", "sha"]), @identity_max, :head_sha),
          {:ok, merge_sha} <-
@@ -244,6 +252,7 @@ defmodule Aiur.RecentMerge do
       "observed_run_id" => merge.observed_run_id,
       "first_observed_at" => DateTime.to_iso8601(merge.first_observed_at),
       "last_observed_at" => DateTime.to_iso8601(merge.last_observed_at),
+      "reconciled_ticket_ids" => merge.reconciled_ticket_ids,
       "content_hash" => merge.content_hash
     }
   end
@@ -276,6 +285,7 @@ defmodule Aiur.RecentMerge do
            replay_run_id(live_observed?, Map.get(raw, "observed_run_id")),
          {:ok, first_observed_at} <- timestamp(Map.get(raw, "first_observed_at"), :first_observed_at),
          {:ok, last_observed_at} <- timestamp(Map.get(raw, "last_observed_at"), :last_observed_at),
+         {:ok, reconciled_ticket_ids} <- optional_ticket_ids(Map.get(raw, "reconciled_ticket_ids", [])),
          :ok <- ordered_observations(first_observed_at, last_observed_at),
          {:ok, content_hash} <- required_text(Map.get(raw, "content_hash"), @identity_max, :content_hash) do
       merge = %__MODULE__{
@@ -298,6 +308,7 @@ defmodule Aiur.RecentMerge do
         observed_run_id: observed_run_id,
         first_observed_at: first_observed_at,
         last_observed_at: last_observed_at,
+        reconciled_ticket_ids: reconciled_ticket_ids,
         content_hash: content_hash
       }
 
@@ -315,7 +326,7 @@ defmodule Aiur.RecentMerge do
     hash =
       merge
       |> Map.from_struct()
-      |> Map.delete(:content_hash)
+      |> Map.drop([:content_hash, :reconciled_ticket_ids])
       |> :erlang.term_to_binary([:deterministic])
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
@@ -326,8 +337,14 @@ defmodule Aiur.RecentMerge do
   defp comparable(merge) do
     merge
     |> Map.from_struct()
-    |> Map.drop([:last_observed_at, :content_hash])
+    |> Map.drop([:last_observed_at, :content_hash, :reconciled_ticket_ids])
   end
+
+  defp optional_ticket_ids(ids) when is_list(ids) do
+    if Enum.all?(ids, &(is_binary(&1) and &1 != "")), do: {:ok, Enum.uniq(ids)}, else: {:error, :reconciled_ticket_ids}
+  end
+
+  defp optional_ticket_ids(_ids), do: {:error, :reconciled_ticket_ids}
 
   defp prefer(nil, fallback), do: fallback
   defp prefer(value, _fallback), do: value
@@ -381,9 +398,10 @@ defmodule Aiur.RecentMerge do
 
   defp optional_text(_value, _max, field), do: {:error, {field, :invalid_type}}
 
-  defp normalized_summary(body) do
+  defp normalized_summary(body, repository) do
     with {:ok, summary} <- optional_text(body, @summary_max, :summary) do
-      {:ok, ClosingReferences.preserve(summary, ClosingReferences.references(body), @summary_max)}
+      summary = ClosingReferences.preserve(summary, ClosingReferences.references(body), @summary_max)
+      {:ok, ClosingReferences.preserve_references(summary, body, repository, @summary_max)}
     end
   end
 

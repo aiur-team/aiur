@@ -8,10 +8,11 @@ import re
 import subprocess
 import sys
 import time
-from components.reference_rules import RULES, STRICT_RULES, edge_rules, report_cycles, seam_rules
+from components.reference_rules import RULES, STRICT_RULES, edge_rules, namespace_private, report_cycles, seam_rules
 from components.ratchet import growth_errors, stale_entries, write_summary
 from components.manifest import read_manifest, write_manifest
 from components.docs_rules import check_docs
+from components.config_ownership import nested_config_keys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'components'))
 from import_rules import client_imports, reverse_resources
@@ -293,6 +294,10 @@ def module_violations(root, manifest, file_owners):
                                   'reference' if kind in ('alias', 'literal') else kind, path)
         for rule in strict:
             violations.setdefault((rule, source, target), f'{path}:{line} ({source_module})')
+        # Namespace privacy also covers aliases/literals and composition-root wiring.
+        destination = modules.get(target)
+        if destination is not None and source != destination and namespace_private(components[destination], target):
+            violations.setdefault(('R-private', source, target), f'{path}:{line} ({source_module})')
         # Preserve the structural graph's exclusion of declarations and literals.
         if kind in ('alias', 'literal'):
             continue
@@ -379,7 +384,10 @@ def declaration_ownership(root, manifest):
     state_sources = [root / path for path in ('src/lib/aiur/config/paths.ex', 'src/lib/aiur/repo_base.ex')]
     state = [name for path in state_sources if path.exists()
              for name in re.findall(r'^\s*def\s+([a-z][a-z0-9_]*(?:_dir|_path))\b', path.read_text(), re.MULTILINE)]
-    inventories = {'config': sections + fields, 'env': env, 'state': state}
+    # Root owners cover their sections; explicit nested fields override that default.
+    nested = {key for c in manifest['components'] for key in c['owns']['config'] if '.' in key}
+    known_nested = nested_config_keys(root) if nested else set()
+    inventories = {'config': sections + fields + sorted(nested & known_nested), 'env': env, 'state': state}
     for kind, names in inventories.items():
         if not names or (kind == 'config' and not sections):
             raise InvalidManifest(f'O-{kind}: matcher is broken, not the schema (zero matches)')

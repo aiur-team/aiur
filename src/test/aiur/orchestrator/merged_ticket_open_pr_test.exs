@@ -1,13 +1,87 @@
+defmodule Aiur.Orchestrator.MergedTicketOpenPRTest.Tracker do
+  def start(id, labels, park? \\ false) do
+    {:ok, pid} = Agent.start_link(fn -> %{labels: labels, park?: park?, result: nil} end)
+    :persistent_term.put({__MODULE__, id}, pid)
+    pid
+  end
+
+  def stop(id, pid) do
+    :persistent_term.erase({__MODULE__, id})
+    if Process.alive?(pid), do: Agent.stop(pid)
+  end
+
+  def labels(id), do: Agent.get(fetch(id), & &1.labels)
+  def result(id), do: Agent.get(fetch(id), & &1.result)
+
+  def update_issue_state(id, target, opts) do
+    Agent.get_and_update(fetch(id), fn state ->
+      labels = if state.park?, do: ["needs-triage"], else: state.labels
+      refused = Enum.map(Keyword.get(opts, :refuse_labels, []), &String.downcase/1)
+
+      if Enum.any?(labels, &(String.downcase(&1) in refused)) do
+        result = {:error, {:operator_hold, "needs-triage"}}
+        {result, %{state | labels: labels, result: result}}
+      else
+        next_labels = ["agent:#{target}" | Enum.reject(labels, &String.starts_with?(&1, "agent:"))]
+        {:ok, %{state | labels: next_labels, park?: false, result: :ok}}
+      end
+    end)
+  end
+
+  def update_issue_state(_id, _target), do: {:error, :expected_state_unsupported}
+
+  defp fetch(id), do: :persistent_term.get({__MODULE__, id})
+end
+
 defmodule Aiur.Orchestrator.MergedTicketOpenPRTest do
   use ExUnit.Case, async: true
 
   import ExUnit.CaptureLog
 
   alias Aiur.{Issue, RecentMerge}
+  alias Aiur.Orchestrator.MergedTicketOpenPRTest.Tracker
   alias Aiur.Orchestrator.{MergedTicketReconciler, State}
 
   @merged_at ~U[2026-08-10 00:00:00Z]
   @now ~U[2026-08-10 01:00:00Z]
+
+  test "the reconciler preserves an operator park added before the human-review write" do
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    tracker = Tracker.start("1570", ["agent:in-progress"], true)
+    on_exit(fn -> Tracker.stop("1570", tracker) end)
+
+    {_state, [^issue]} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        tracker: Tracker,
+        open_pull_requests_fun: fn _ ->
+          {:ok, [%{"number" => 1571, "head" => %{"ref" => "aiur/1570-other"}}]}
+        end,
+        unresolved_threads_fetcher: fn _ -> {:ok, []} end
+      )
+
+    assert Tracker.result("1570") == {:error, {:operator_hold, "needs-triage"}}
+    assert Tracker.labels("1570") == ["needs-triage"]
+  end
+
+  test "a reference-only merge refuses an existing operator park before adding its marker" do
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    tracker = Tracker.start("1570", ["agent:in-progress"], true)
+    on_exit(fn -> Tracker.stop("1570", tracker) end)
+
+    {_state, [^issue]} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [%{merged_pr("Refs #1570") | ticket_id: "1570"}] end,
+        now_fun: fn -> @now end,
+        tracker: Tracker,
+        add_label_fun: fn _identifier, _label -> flunk("a parked ticket must not receive a merge marker") end,
+        emit_alert_fun: fn _topic, _opts -> :ok end
+      )
+
+    assert Tracker.result("1570") == {:error, {:operator_hold, "needs-triage"}}
+    assert Tracker.labels("1570") == ["needs-triage"]
+  end
 
   test "a merged PR routes a ticket to rework when its remaining open PR has unresolved review threads" do
     # The acceptance regression: ticket #2307 had two open PRs; the first merged

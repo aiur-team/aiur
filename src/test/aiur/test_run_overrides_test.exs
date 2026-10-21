@@ -9,18 +9,22 @@ defmodule Aiur.TestRunOverridesTest do
   alias Aiur.HttpServer
 
   setup do
-    previous = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
     previous_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint)
 
     on_exit(fn ->
-      if previous, do: System.put_env("AIUR_DEV_TEST_TICKET_IDS", previous), else: System.delete_env("AIUR_DEV_TEST_TICKET_IDS")
-      if previous_endpoint, do: Application.put_env(:aiur, AiurWeb.Endpoint, previous_endpoint), else: Application.delete_env(:aiur, AiurWeb.Endpoint)
+      if previous_endpoint,
+        do: Application.put_env(:aiur, AiurWeb.Endpoint, previous_endpoint),
+        else: Application.delete_env(:aiur, AiurWeb.Endpoint)
     end)
   end
 
   defp parsed do
     Schema.parse(%{
-      "agent" => %{"max_concurrent_agents" => 16, "max_cpu_pressure" => 20.0, "max_load_average" => 1.5}
+      "agent" => %{
+        "max_concurrent_agents" => 16,
+        "max_cpu_pressure" => 20.0,
+        "max_load_average" => 1.5
+      }
     })
   end
 
@@ -34,14 +38,21 @@ defmodule Aiur.TestRunOverridesTest do
   end
 
   test "a sandbox run caps at its pinned tickets and drops host load gates" do
-    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "2897")
+    Aiur.TestScopeGuard.put_ticket_scope!("2897")
     {:ok, %{agent: agent}} = TestRunOverrides.apply(parsed())
 
     assert agent.max_concurrent_agents == 1
     assert agent.max_concurrent_agents_by_state == %{}
-    assert [nil, nil, nil, nil, nil] == [agent.max_cpu_pressure, agent.target_cpu_pressure, agent.max_load_average, agent.target_load_average, agent.run_queue_threshold]
 
-    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "2897,2898,2899")
+    assert [nil, nil, nil, nil, nil] == [
+             agent.max_cpu_pressure,
+             agent.target_cpu_pressure,
+             agent.max_load_average,
+             agent.target_load_average,
+             agent.run_queue_threshold
+           ]
+
+    Aiur.TestScopeGuard.put_ticket_scope!("2897,2898,2899")
     assert {:ok, %{agent: %{max_concurrent_agents: 3}}} = TestRunOverrides.apply(parsed())
   end
 
@@ -62,14 +73,19 @@ defmodule Aiur.TestRunOverridesTest do
 
       log =
         capture_log(fn ->
-          assert HttpServer.start_link(host: "127.0.0.1", port: 4000, dashboard_writable: false, endpoint_start_fun: start_fun) == :ignore
+          assert HttpServer.start_link(
+                   host: "127.0.0.1",
+                   port: 4000,
+                   dashboard_writable: false,
+                   endpoint_start_fun: start_fun
+                 ) == :ignore
         end)
 
       {Agent.get(calls, & &1), log}
     end
 
     test "a sandbox run retries on a free port" do
-      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "2897")
+      Aiur.TestScopeGuard.put_ticket_scope!("2897")
       {calls, log} = start_with_busy_port()
 
       assert calls == 2

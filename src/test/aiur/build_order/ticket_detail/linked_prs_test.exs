@@ -63,7 +63,7 @@ defmodule Aiur.BuildOrder.TicketDetailLinkedPrsTest do
 
     request_fun = fn
       %{method: :get, url: "https://api.github.com/repos/owner/repo/issues/42"} = request ->
-        assert request.max_response_bytes == 65_536
+        assert request.max_response_bytes == 524_288
         {:ok, %{status: 200, body: issue(42, "I42")}}
 
       %{

@@ -89,7 +89,10 @@ defmodule Aiur.Orchestrator.Deactivate.NoReactivationTest do
 
         File.mkdir_p!(test_root)
         Application.put_env(:aiur, :memory_tracker_recipient, self())
-        Application.put_env(:aiur, :memory_tracker_issues, [])
+
+        Application.put_env(:aiur, :memory_tracker_issues, [
+          %Issue{id: issue_id, identifier: issue_identifier, state: "human-review", title: "Merged ticket"}
+        ])
 
         state = %Orchestrator.State{
           running: %{

@@ -112,8 +112,8 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
     assert Enum.all?(comments, &(&1.author_trusted? == true))
     assert Enum.all?(comments, &(not Map.has_key?(&1.comment, "body")))
     assert Enum.find(comments, &(&1.comment["id"] == 104)).comment["updated_at"] == "2026-07-11T13:30:00Z"
-    refute inspect(result) =~ "please revise"
-    refute inspect(result) =~ "review passed"
+    Aiur.TestSupport.refute_leak(result, "please revise")
+    Aiur.TestSupport.refute_leak(result, "review passed")
   end
 
   test "invalid repositories and request failures become sanitized warnings" do
@@ -128,7 +128,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
 
     assert result.events == []
     assert [%{type: :github_enrichment_failed, endpoint: :pull_requests, reason: "transport_failed"}] = result.warnings
-    refute inspect(result) =~ "secret-token"
+    Aiur.TestSupport.refute_leak(result, "secret-token")
   end
 
   test "pagination and malformed response failures remain sanitized" do

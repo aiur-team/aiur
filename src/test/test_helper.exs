@@ -21,6 +21,8 @@ for var <- contaminating_env_vars do
   System.delete_env(var)
 end
 
+run_orchestrator_guard_probes = System.get_env("AIUR_RUN_ORCHESTRATOR_GUARD_PROBES") == "1"
+
 # Dashboard routes fail closed when credentials are absent. Keep the broad
 # integration-test fixture authenticated by default; tests that exercise the
 # missing-configuration path delete these variables explicitly.
@@ -76,8 +78,14 @@ quarantine_filters =
     else: Aiur.TestQuarantine.filters(quarantine_entries)
 
 ExUnit.start(
+  formatters:
+    if(System.get_env("AIUR_TEST_PROGRESS") == "1",
+      do: [ExUnit.CLIFormatter, Aiur.TestSupport.ProgressFormatter],
+      else: [ExUnit.CLIFormatter]
+    ),
   exclude:
-    [:external, :perf_regression, :quarantine, :orchestrator_guard_probe] ++
+    [:external, :perf_regression, :quarantine] ++
+      if(run_orchestrator_guard_probes, do: [], else: [:orchestrator_guard_probe]) ++
       real_proc_exclude ++
       manual_sandbox_reset_exclude ++ quarantine_filters
 )
@@ -117,15 +125,19 @@ Code.require_file("support/test_support/workflow_yaml.exs", __DIR__)
 Code.require_file("support/test_support/orchestrator_child.exs", __DIR__)
 Code.require_file("support/test_support/runtime_children.exs", __DIR__)
 Code.require_file("support/test_support/orchestrator_guard.exs", __DIR__)
+Code.require_file("support/test_cleanup.ex", __DIR__)
+Code.require_file("support/test_support/runner_tasks.exs", __DIR__)
 ExUnit.configure(formatters: ExUnit.configuration()[:formatters] ++ [Aiur.TestSupport.OrchestratorGuard])
+ExUnit.after_suite(fn _result -> Aiur.TestSupport.RunnerTasks.verify_suite!() end)
 ExUnit.after_suite(fn _result -> Aiur.TestSupport.OrchestratorGuard.verify_suite!() end)
+
 Code.require_file("support/test_support/endpoint_stubs.exs", __DIR__)
 Code.require_file("support/test_support/processes.exs", __DIR__)
-Code.require_file("support/test_support/runner_tasks.exs", __DIR__)
 Code.require_file("support/test_support/workflow_files.exs", __DIR__)
-Code.require_file("support/test_scope_guard.exs", __DIR__)
-Code.require_file("support/test_support.exs", __DIR__)
 Code.require_file("support/test_cleanup.ex", __DIR__)
+Code.require_file("support/test_scope_guard.exs", __DIR__)
+Code.require_file("support/test_support/lifecycle_leak_guard.ex", __DIR__)
+Code.require_file("support/test_support.exs", __DIR__)
 Code.require_file("support/test_reset_support.ex", __DIR__)
 Code.require_file("support/orchestrator_status_support.ex", __DIR__)
 Code.require_file("support/agent_control_cli_todo.ex", __DIR__)
@@ -154,6 +166,7 @@ end
 Code.put_compiler_option(:no_warn_undefined, [])
 
 Aiur.TestSupport.EndpointStubs.init!()
+Aiur.TestSupport.LifecycleLeakGuard.start!()
 
 # Keep plain ExUnit.Case modules and between-case application timers from
 # publishing Orchestrator poll state or alerts into the suite-wide ledger.

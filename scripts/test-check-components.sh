@@ -19,7 +19,6 @@ with_elixir = '--with-elixir' in sys.argv[2:]
 selected = set(sys.argv[2:]) - {'--with-node', '--with-elixir'}
 checker = repo / 'scripts/check-components.py'
 ran = set()
-
 def check(name, components, files, code=0, messages=(), change=None, git=False, format=False, declarations=None, rules='ownership', links=None):
     if selected and name not in selected:
         return
@@ -71,7 +70,6 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
             verify_format(root, args, manifest, components, name)
         print(f'PASS: {name}')
 
-
 check('owned_once_passes', [component('a', ['src/lib/a/**']), component('b', ['packages/b/**'])],
       ['src/lib/a/a.ex', 'src/lib/a/nested/b.ex', 'packages/b/package.json'],
       messages=('all 6 source files owned', 'a: 5 files', 'b: 1 files'))
@@ -121,6 +119,8 @@ check('duplicate_paths_fail', [component('a', ['src/lib/a.ex', 'src/lib/a.ex'])]
       ('/components/0/paths: duplicate items',))
 from components.public_fixtures import run as public_checks
 public_checks(component, check)
+from components.config_ownership_fixtures import run as config_checks
+config_checks(component, check)
 
 if with_node:
     def imports(name, source, code=0, messages=(), dependencies=None, extra=None, links=None):
@@ -230,7 +230,7 @@ check('repo_state_path_without_owner_fails', [repo_owner], [], 1, ("'experiments
       change=lambda m: m['components'][0]['owns']['state'].remove('experiments_path'), declarations=repo_declarations)
 check('unknown_shared_component_fails', [dict(owner, shared_with=['absent'])], [], 2,
       ('unknown component absent',), declarations=declarations)
-for kind, name in [('config', 'bad.section'), ('env', 'lowercase'), ('state', 'repo_name')]:
+for kind, name in [('config', 'bad..section'), ('env', 'lowercase'), ('state', 'repo_name')]:
     check(f'invalid_{kind}_format_fails', [owner], [], 2, ('invalid string',),
           change=lambda m, k=kind, n=name: m['components'][0]['owns'][k].append(n), declarations=declarations)
 if not selected or 'real_tree_passes' in selected:
@@ -256,6 +256,7 @@ if with_node and (not selected or 'missing_typescript_exits_2' in selected):
         root = Path(directory)
         shutil.copyfile(checker, root / 'check-components.py')
         shutil.copyfile(repo / 'scripts/check-env-example.py', root / 'check-env-example.py')
+        shutil.copyfile(repo / 'scripts/check-config-docs.py', root / 'check-config-docs.py')
         shutil.copytree(repo / 'scripts/components', root / 'components', ignore=shutil.ignore_patterns('node_modules'))
         result = subprocess.run([sys.executable, str(root / 'check-components.py')],
                                 env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(repo)), capture_output=True, text=True)
@@ -268,8 +269,6 @@ if with_elixir and not shutil.which('elixir'):
 if not with_elixir:
     print('SKIP: Elixir reference fixtures (use --with-elixir in lint)')
 else:
-    import os
-
     def reference_check(name, fixture, code=0, messages=(), source=None, change=None, args=(), verify=None):
         if selected and name not in selected:
             return
@@ -312,6 +311,7 @@ else:
     reference_check('component_route_shell_fails', 'component_routes', 1,
                     ('R-down commands -> AiurWeb.Router',),
                     source='defmodule AiurWeb.Routes.Decisions do\n  require AiurWeb.Router\nend\n')
+    from components.harness_fixtures import run as harness_checks; harness_checks(reference_check, repo)
     reference_check('private_module_fails', 'private_module_fails', 1, ('R-private a -> B.Internal',))
     reference_check('facade_star_allows_any', 'facade_star_allows_any')
     reference_check('alias_resolution_counts', 'alias_resolution_counts', 1, ('R-private a -> B.Internal',))

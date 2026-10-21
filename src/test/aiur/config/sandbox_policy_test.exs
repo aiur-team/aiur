@@ -78,7 +78,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
-             "excludeSlashTmp" => false
+             "excludeSlashTmp" => true
            }
 
     assert Schema.resolve_turn_sandbox_policy(
@@ -93,7 +93,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
-             "excludeSlashTmp" => false
+             "excludeSlashTmp" => true
            }
 
     assert Schema.resolve_turn_sandbox_policy(%Schema{
@@ -129,7 +129,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
-             "excludeSlashTmp" => false
+             "excludeSlashTmp" => true
            }
 
     assert {:ok, remote_policy} =
@@ -146,7 +146,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
-             "excludeSlashTmp" => false
+             "excludeSlashTmp" => true
            }
   end
 

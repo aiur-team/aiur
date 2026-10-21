@@ -14,7 +14,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.RunTelemetry.{Dataset, SummaryMerge, Timeline}
-  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, LiveConcurrency, Optimistic, ProjectedSeries, TicketRow, WastedCapacity}
+  alias AiurWeb.OperatorControlCenter.Analytics.{ConcurrencyCoverage, LatestRun, LiveConcurrency, Optimistic, ProjectedSeries, TicketRow, WastedCapacity}
 
   @default_buckets 180
   @max_series_actors 8
@@ -217,7 +217,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       |> Map.get(:samples, [])
       |> bucket_pressure(timeline, axis0, bw, buckets)
 
-    series = build_series(bucketed, pressure_buckets, display, display_keys, axis0, bw, buckets)
+    series = build_series(bucketed, pressure_buckets, display, display_keys, axis0, bw, buckets) |> ConcurrencyCoverage.mark_unknown(bucketed, opts)
 
     kpis =
       compute_kpis(
@@ -659,8 +659,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp compute_kpis(series, tickets, ctx, opts) do
     ceiling = ctx.cores * 100
     concs = Enum.map(series, & &1.conc)
-    peak_conc = Enum.max([0 | concs])
-    conc_now = List.last(concs) || 0
+    peak_conc = Enum.max([0 | Enum.filter(concs, &is_integer/1)])
+    conc_now = if concs == [], do: 0, else: List.last(concs)
     mean_cpu = mean(Enum.sum(Enum.map(series, & &1.total_cpu)), length(series))
     mem_now = (List.last(series) || %{}) |> Map.get(:total_mem, 0)
     bucket_hours = ctx.bw / 1000 / 3600

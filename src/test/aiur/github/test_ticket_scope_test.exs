@@ -8,29 +8,14 @@ defmodule Aiur.GitHub.TestTicketScopeTest do
   alias Aiur.Orchestrator.TicketTransition
 
   setup do
-    previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-    previous_state = System.get_env("AIUR_DEV_TEST_STATE_DIR")
-    previous_instance = System.get_env("AIUR_INSTANCE_KEY")
-    previous_budget = System.get_env("AIUR_GITHUB_BUDGET_DIR")
     previous_app_budget = Application.get_env(:aiur, :github_budget_dir)
     previous_req_options = Application.get_env(:aiur, :github_transport_test_options)
-    sandbox_budget = Path.join(System.tmp_dir!(), "aiur-test-budget-test-#{System.unique_integer([:positive])}")
-    sandbox_state = Path.join(System.tmp_dir!(), "aiur-test-state-test-#{System.unique_integer([:positive])}")
-    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99,100,101")
-    System.put_env("AIUR_DEV_TEST_STATE_DIR", sandbox_state)
-    System.put_env("AIUR_INSTANCE_KEY", "test-#{System.unique_integer([:positive])}")
-    System.put_env("AIUR_GITHUB_BUDGET_DIR", sandbox_budget)
+    Aiur.TestScopeGuard.put_ticket_scope!("99,100,101")
     Application.put_env(:aiur, :github_transport_test_options, plug: {Req.Test, __MODULE__})
 
     on_exit(fn ->
-      restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope)
-      restore_env("AIUR_DEV_TEST_STATE_DIR", previous_state)
-      restore_env("AIUR_INSTANCE_KEY", previous_instance)
-      restore_env("AIUR_GITHUB_BUDGET_DIR", previous_budget)
       restore_application_env(:github_budget_dir, previous_app_budget)
       restore_application_env(:github_transport_test_options, previous_req_options)
-      Aiur.TestCleanup.rm_rf!(sandbox_budget)
-      Aiur.TestCleanup.rm_rf!(sandbox_state)
     end)
 
     :ok

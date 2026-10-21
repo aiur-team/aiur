@@ -1,4 +1,9 @@
 defmodule Aiur.TestSupport do
+  require ExUnit.Assertions
+  alias Phoenix.HTML.Safe, as: HTMLSafe
+  alias Phoenix.LiveView.Socket, as: LiveViewSocket
+  alias Phoenix.LiveViewTest.View, as: LiveViewTestView
+
   alias Aiur.Events.Publisher, as: EventsPublisher
   alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
   alias Aiur.GitHub.AuthPreflight, as: GitHubAuthPreflight
@@ -8,6 +13,28 @@ defmodule Aiur.TestSupport do
   alias Aiur.TestSupport.OrchestratorGuard
 
   @github_repository {"its-everdred", "aiur"}
+
+  @doc false
+  @spec refute_leak(term(), term()) :: :ok
+  def refute_leak(term, secret) do
+    ExUnit.Assertions.refute(contains_secret?(inspect(term, limit: :infinity, printable_limit: :infinity), secret))
+
+    rendered = rendered_live_view(term)
+    if rendered, do: ExUnit.Assertions.refute(contains_secret?(rendered, secret))
+
+    :ok
+  end
+
+  defp contains_secret?(content, %Regex{} = secret), do: Regex.match?(secret, content)
+  defp contains_secret?(content, secret), do: String.contains?(content, secret)
+
+  defp rendered_live_view(%LiveViewSocket{view: view, assigns: assigns})
+       when is_atom(view) and not is_nil(view) do
+    view.render(assigns) |> HTMLSafe.to_iodata() |> IO.iodata_to_binary()
+  end
+
+  defp rendered_live_view(%LiveViewTestView{} = view), do: Phoenix.LiveViewTest.render(view)
+  defp rendered_live_view(_term), do: nil
 
   @doc "The synthetic GitHub repository used by fixture tests."
   @spec github_repository() :: String.t()
@@ -243,6 +270,7 @@ defmodule Aiur.TestSupport do
       alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
       alias Aiur.GitHub.ResourceStore, as: GitHubResourceStore
       alias Aiur.Linear.Config, as: LinearConfig
+      alias Aiur.TestSupport.{LifecycleLeakGuard, LifecycleTeardown}
 
       import Aiur.TestSupport,
         only: [
@@ -259,6 +287,7 @@ defmodule Aiur.TestSupport do
         ]
 
       setup context do
+        lifecycle_test_pid = LifecycleLeakGuard.track(context)
         workflow_base = Application.fetch_env!(:aiur, :test_run_root)
         previous_test_scope_state = Aiur.TestScopeGuard.capture()
 
@@ -266,11 +295,7 @@ defmodule Aiur.TestSupport do
         # two `mix test` runs on one host pick the same `workflow-<integer>` name
         # routinely and then write each other's `.aiur/config`, so a case reads a
         # sibling VM's tracker settings. See `Aiur.TestSupport.tmp_root!/1`.
-        workflow_root =
-          Path.join(
-            workflow_base,
-            "workflow-#{System.pid()}-#{System.unique_integer([:positive])}"
-          )
+        workflow_root = Path.join(workflow_base, "workflow-#{System.pid()}-#{System.unique_integer([:positive])}")
 
         test_state_dir = Path.join(workflow_root, "test-state")
 
@@ -348,36 +373,18 @@ defmodule Aiur.TestSupport do
         Aiur.TestSupport.quiesce_live_orchestrator()
         Aiur.TestSupport.reset_global_state!()
         stop_default_http_server()
+        OrchestratorGuard.capture_codeowners_baseline!()
 
         on_exit(fn ->
-          scope_state_violation = Aiur.TestScopeGuard.violation(expected_test_scope_state)
-
-          Aiur.TestSupport.quiesce_live_orchestrator()
-          Aiur.TestSupport.restore_app_env(previous_app_env)
-          Application.delete_env(:aiur, :server_port_override)
-          Application.delete_env(:aiur, :memory_tracker_issues)
-          Application.delete_env(:aiur, :memory_tracker_recipient)
-          EventsPublisher.set_tracked_fn(fn _ -> true end)
-          EventsSubscriptionStore.set_enqueue_fn(nil)
-          Aiur.TestSupport.rm_workflow_root!(workflow_root, runner_tasks_before)
-          Aiur.TestScopeGuard.restore(previous_test_scope_state)
-
-          # Reload the store onto the restored baseline so the next test never
-          # observes the now-deleted `workflow_root` config, and recover the
-          # app if a sibling test's child terminate/restart toppled it while
-          # the config was transiently bad (the #589 cascade safety net).
-          if Process.whereis(Aiur.WorkflowStore) do
-            try do
-              Aiur.WorkflowStore.force_reload()
-            catch
-              :exit, _ -> :ok
-            end
-          end
-
-          unless Process.whereis(Aiur.Supervisor), do: Application.ensure_all_started(:aiur)
-          Aiur.TestSupport.verify_restored_shared_state!(previous_app_env, Map.fetch!(previous_test_scope_state.env, "AIUR_INSTANCE_KEY"), context)
-
-          if scope_state_violation, do: raise(scope_state_violation)
+          LifecycleTeardown.teardown_test_scope!(
+            workflow_root,
+            runner_tasks_before,
+            lifecycle_test_pid,
+            expected_test_scope_state,
+            previous_app_env,
+            previous_test_scope_state,
+            context
+          )
         end)
 
         :ok
@@ -390,7 +397,9 @@ defmodule Aiur.TestSupport do
   defdelegate pgrep_skip_reason(), to: Aiur.TestSupport.Processes
   defdelegate stop_default_http_server(), to: Aiur.TestSupport.Processes
   defdelegate safe_stop(server), to: Aiur.TestSupport.Processes
+  defdelegate stop_test_runners(test_pid), to: Aiur.TestSupport.LifecycleLeakGuard, as: :stop_owned_runners
   defdelegate capture_runner_tasks(), to: Aiur.TestSupport.RunnerTasks, as: :capture
+  defdelegate stop_runner_tasks_started_since(before), to: Aiur.TestSupport.RunnerTasks, as: :stop_started_since
   defdelegate rm_workflow_root!(root, runner_tasks_before), to: Aiur.TestSupport.RunnerTasks, as: :stop_started_since_and_rm_rf!
   defdelegate start_owned_endpoint!(), to: Aiur.TestSupport.Processes
   defdelegate await_process_down(process, timeout \\ 2_000), to: Aiur.TestSupport.Processes
@@ -425,18 +434,22 @@ defmodule Aiur.TestSupport do
   def freeze_live_orchestrator do
     case Process.whereis(Aiur.Orchestrator) do
       pid when is_pid(pid) ->
-        :sys.replace_state(pid, fn state ->
-          if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+        try do
+          :sys.replace_state(pid, fn state ->
+            if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
 
-          %{
-            state
-            | tick_timer_ref: nil,
-              tick_token: make_ref(),
-              next_poll_due_at_ms: nil,
-              poll_check_in_progress: false,
-              poll_frozen: true
-          }
-        end)
+            %{
+              state
+              | tick_timer_ref: nil,
+                tick_token: make_ref(),
+                next_poll_due_at_ms: nil,
+                poll_check_in_progress: false,
+                poll_frozen: true
+            }
+          end)
+        catch
+          :exit, _reason -> :ok
+        end
 
       nil ->
         :ok

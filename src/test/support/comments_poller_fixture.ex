@@ -50,6 +50,7 @@ defmodule Aiur.TestSupport.CommentsPollerFixture do
       pid when is_pid(pid) ->
         previous_allowlist = CodeOwners.snapshot(pid)
         :sys.replace_state(pid, &%{&1 | allowlist: MapSet.new(["its-everdred"])})
+        ExUnit.Callbacks.on_exit(fn -> restore_allowlist(pid, previous_allowlist) end)
 
         %{pid: pid, path: nil, owned?: false, previous_allowlist: previous_allowlist}
 
@@ -78,11 +79,13 @@ defmodule Aiur.TestSupport.CommentsPollerFixture do
         end)
 
         :ok = CodeOwners.refresh(pid)
+        ExUnit.Callbacks.on_exit(fn -> restore_state(pid, previous_state) end)
 
         %{pid: pid, path: path, owned?: false, previous_state: previous_state}
 
       nil ->
         {:ok, pid} = CodeOwners.start_link(path: path, refresh_seconds: 3600)
+
         %{pid: pid, path: path, owned?: true}
     end
   end
@@ -104,16 +107,21 @@ defmodule Aiur.TestSupport.CommentsPollerFixture do
   end
 
   def stop_codeowners(%{pid: pid, path: path, owned?: false, previous_state: previous_state}) do
-    if Process.alive?(pid) do
-      :sys.replace_state(pid, fn _state -> previous_state end)
-    end
-
+    if Process.alive?(pid), do: :sys.replace_state(pid, fn _state -> previous_state end)
     File.rm(path)
   end
 
   def stop_codeowners(%{pid: pid, path: path, owned?: true}) do
     Aiur.TestSupport.safe_stop(pid)
     File.rm(path)
+  end
+
+  defp restore_allowlist(pid, allowlist) do
+    if Process.alive?(pid), do: :sys.replace_state(pid, &%{&1 | allowlist: MapSet.new(allowlist)})
+  end
+
+  defp restore_state(pid, state) do
+    if Process.alive?(pid), do: :sys.replace_state(pid, fn _current -> state end)
   end
 
   def empty_review_threads_response, do: review_threads_response([])

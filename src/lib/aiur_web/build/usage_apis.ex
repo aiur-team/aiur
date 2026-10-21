@@ -5,9 +5,10 @@ defmodule AiurWeb.Build.UsageAPIs do
   @labels %{"core" => {"core", "Requests left"}, "graphql" => {"gql", "Points left"}}
 
   @spec rows(term(), map(), integer()) :: [map()]
-  def rows(github, elevenlabs, now), do: [github_row(github, now) | elevenlabs_rows(elevenlabs, now)]
+  @spec rows(term(), map(), integer(), integer() | nil) :: [map()]
+  def rows(github, elevenlabs, now, github_snapshot_observed_at \\ nil), do: [github_row(github, now, github_snapshot_observed_at) | elevenlabs_rows(elevenlabs, now)]
 
-  defp github_row(input, now) do
+  defp github_row(input, now, snapshot_observed_at) do
     snapshot =
       case input do
         {:ok, snapshot} -> snapshot
@@ -16,7 +17,15 @@ defmodule AiurWeb.Build.UsageAPIs do
 
     lines = Enum.map(~w(core graphql), &github_line(snapshot, &1, now))
     observations = snapshot.windows |> Map.values() |> Enum.map(&SourceFreshness.ms(Map.get(&1, :observed_at))) |> Enum.reject(&is_nil/1)
-    %{Usage.row("GitHub") | icon: "github", lines: lines, observed_at: Enum.max(observations, fn -> nil end), stale: Enum.any?(lines, &ended?(&1.reset_at, now))}
+
+    %{
+      Usage.row("GitHub")
+      | icon: "github",
+        lines: lines,
+        observed_at: Enum.max(observations, fn -> nil end),
+        snapshot_observed_at: snapshot_observed_at,
+        stale: Enum.any?(lines, &ended?(&1.reset_at, now))
+    }
   end
 
   defp github_line(snapshot, resource, now) do

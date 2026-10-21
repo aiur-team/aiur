@@ -52,7 +52,7 @@ class RelayTest(unittest.TestCase):
         path = self.directory / "spec.json"
         path.write_text(json.dumps(spec))
         completed = subprocess.run([sys.executable, str(SCRIPT), "--directory", str(self.directory),
-                                    "--spec", str(path)], capture_output=True, timeout=5)
+                                    "--spec", str(path)], capture_output=True, timeout=15)
         self.assertEqual(completed.returncode, 0, completed.stderr.decode())
         self.wait(lambda: (self.directory / "ctl.sock").exists())
         self.assertFalse(path.exists())

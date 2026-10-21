@@ -10,7 +10,6 @@ defmodule Aiur.GitHub.Issues do
     BoundedBlockedBy,
     CycleFetchCache,
     DependenciesApi,
-    DispatchAuthorization,
     Errors,
     Labels,
     OpenIssueListing,
@@ -19,9 +18,10 @@ defmodule Aiur.GitHub.Issues do
     Transport
   }
 
+  alias Aiur.GitHub.Issues.DispatchAuthorization
   alias Aiur.Orchestrator.DispatchPolicy
-
-  @max_issue_response_bytes 65_536
+  # Worst-case JSON escaping is 6 bytes per character: 65,536 × 6 + 128 KiB metadata.
+  @max_issue_response_bytes 524_288
   # The open-issue list (`issues?state=open&per_page=100`) can be an order of
   # magnitude larger than any single issue: 44+ open issues plus their labels,
   # assignees, and bodies measured ~390 KiB (#2140), and a backlog whose ticket
@@ -640,6 +640,7 @@ defmodule Aiur.GitHub.Issues do
         owner: owner,
         repo: repo,
         prefix: GitHub.Config.label_prefix(),
+        authorization_opts: Keyword.take(opts, [:allowed_users]),
         caller: "issue_by_id_conditional"
       }
 
@@ -778,7 +779,14 @@ defmodule Aiur.GitHub.Issues do
         issue =
           body
           |> normalize_issue(ctx.owner, ctx.repo, ctx.prefix, retained_etag)
-          |> authorize_issue(ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix)
+          |> DispatchAuthorization.authorize(
+            ctx.request_fun,
+            ctx.token,
+            ctx.owner,
+            ctx.repo,
+            ctx.prefix,
+            ctx.authorization_opts
+          )
 
         entry = %{etag: retained_etag, issue: issue}
         {:cont, {:ok, [issue | issues], Map.put(cache, issue_id, entry)}}
@@ -809,13 +817,14 @@ defmodule Aiur.GitHub.Issues do
     case materialized_issue(ctx, issue_id, cached_entry, sent_etag, retained_etag) do
       %Issue{} = issue ->
         issue =
-          authorize_issue(
+          DispatchAuthorization.authorize(
             issue,
             ctx.request_fun,
             ctx.token,
             ctx.owner,
             ctx.repo,
-            ctx.prefix
+            ctx.prefix,
+            ctx.authorization_opts
           )
 
         entry = %{etag: retained_etag, issue: issue}
@@ -902,24 +911,6 @@ defmodule Aiur.GitHub.Issues do
   # A 200 without a body key never reached the list-page match before either;
   # keep routing it to the generic status path rather than raising here.
   defp conditional_ok_response(response, _etag, _max_response_bytes), do: {:http_error, response}
-
-  defp authorize_issue(%Issue{} = issue, request_fun, token, owner, repo, prefix) do
-    # Dispatch-time revalidation can observe a ticket that closed after the
-    # open-candidate snapshot. Reject that terminal state before provenance
-    # authorization buys a timeline read and raises an ambiguity alert.
-    if DispatchPolicy.terminal_issue_state?(issue.state, DispatchPolicy.terminal_state_set()) do
-      issue
-    else
-      DispatchAuthorization.authorize(
-        issue,
-        owner,
-        repo,
-        prefix,
-        request_fun: request_fun,
-        token: token
-      )
-    end
-  end
 
   # GitHub's issues collection includes pull requests in the shared number
   # space. Drop them while the raw discriminator is still available so they
@@ -1200,7 +1191,7 @@ defmodule Aiur.GitHub.Issues do
     issues
     |> TestTicketScope.filter_issues()
     |> Enum.map(fn issue ->
-      authorize_issue(issue, request_fun, token, owner, repo, prefix)
+      DispatchAuthorization.authorize(issue, request_fun, token, owner, repo, prefix)
     end)
   end
 

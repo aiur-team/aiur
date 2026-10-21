@@ -68,6 +68,23 @@ defmodule Aiur.Events.BusBoundaryTest do
     assert "events/journal.ex" in members()
   end
 
+  test "manifest event paths match boundary members and the trust classifier port" do
+    manifest =
+      @lib
+      |> Path.join("../../../components/event-bus.json")
+      |> File.read!()
+      |> Jason.decode!()
+
+    event_paths =
+      manifest["paths"]
+      |> Enum.filter(&String.starts_with?(&1, "src/lib/aiur/events/"))
+      |> Enum.map(&String.replace_prefix(&1, "src/lib/aiur/", ""))
+
+    # This callback-only port has no references for the boundary scanner to inspect.
+    expected = Enum.filter(members(), &String.starts_with?(&1, "events/"))
+    assert Enum.sort(event_paths) == Enum.sort(["events/trust_classifier.ex" | expected])
+  end
+
   test "a boundary-member marker discovers a newly added event module" do
     lib = Path.join(System.tmp_dir!(), "aiur-boundary-#{System.unique_integer([:positive])}")
     events = Path.join(lib, "events")

@@ -1,6 +1,7 @@
 defmodule Aiur.TestSupport.OrchestratorGuardTest do
   use Aiur.TestSupport
 
+  alias Aiur.GitHub.CodeOwners
   alias Aiur.TestSupport.OrchestratorGuard
 
   setup do
@@ -18,11 +19,39 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
     assert is_pid(Process.whereis(Aiur.Orchestrator))
   end
 
+  test "verify_restored! catches CodeOwners state left changed by a test", context do
+    previous = CodeOwners.snapshot()
+    baseline = OrchestratorGuard.capture_shared_state().codeowners
+    on_exit(fn -> :sys.replace_state(CodeOwners, &%{&1 | allowlist: MapSet.new(previous)}) end)
+    :sys.replace_state(CodeOwners, &%{&1 | allowlist: MapSet.new(["leaked-owner"])})
+
+    assert_raise RuntimeError, ~r/left shared test state changed .*Aiur.GitHub.CodeOwners changed/, fn ->
+      expected = OrchestratorGuard.capture_shared_state()
+      expected = %{expected | codeowners: baseline}
+      OrchestratorGuard.verify_restored!(Map.put(context, :aiur_expected_shared_state, expected))
+    end
+
+    assert CodeOwners.snapshot() == baseline.allowlist
+    assert CodeOwners.codeowners_snapshot() == baseline.codeowners
+  end
+
   test "verify_restored! skips async tests", context do
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
 
     assert :ok = OrchestratorGuard.verify_restored!(%{context | async: true})
     refute Process.whereis(Aiur.Orchestrator)
+  end
+
+  test "verify_restored! names and restores a missing ActiveTurns owner", context do
+    assert is_pid(Process.whereis(Aiur.Opencode.ActiveTurns))
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Opencode.ActiveTurns)
+
+    assert_raise RuntimeError, ~r/left Aiur\.Opencode\.ActiveTurns down/, fn ->
+      OrchestratorGuard.verify_restored!(context)
+    end
+
+    assert is_pid(Process.whereis(Aiur.Opencode.ActiveTurns))
+    assert Process.whereis(Aiur.Opencode.ActiveTurns) == :ets.info(Aiur.Opencode.ActiveTurns, :owner)
   end
 
   test "verify_restored! names and restores a leaked decision state directory", context do
@@ -116,24 +145,27 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
     {output, status} =
       System.cmd(mix, ["test", "--seed", "0", "--include", "orchestrator_guard_probe", "test/fixtures/orchestrator_guard"],
         cd: src_dir,
-        stderr_to_stdout: true
+        stderr_to_stdout: true,
+        env: [{"AIUR_RUN_ORCHESTRATOR_GUARD_PROBES", "1"}]
       )
 
     assert status != 0
+    assert output =~ "16 tests, 3 failures"
     assert output =~ "Aiur.Orchestrator was down before Aiur.BTestSupportWiringNeighbourTest"
     assert output =~ "last finished test: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down"
     assert output =~ "last finished test: Aiur.DPlainCaseUnnamedProbeTest: test leaves the supervised orchestrator unnamed"
-    assert output =~ "Aiur.ZTestSupportWiringProbeTest: test leaves orchestrator down left Aiur.Orchestrator down (restore: :ok)"
-    assert output =~ ~r/YTestSupportStandInProbeTest: test leaves a stand-in holding the name left Aiur.Orchestrator held by a stand-in #PID<[\d.]+> \(restore: :ok\)/
-    # Each plain leak is caught by the next sync setup, the last one by the after_suite check.
-    assert output =~
-             "plain ExUnit tests broke Aiur.Orchestrator: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down (down), " <>
-               "Aiur.DPlainCaseUnnamedProbeTest: test leaves the supervised orchestrator unnamed (down), " <>
-               "Aiur.ZZPlainCaseLastProbeTest: test leaves orchestrator down at suite end (down)\n"
 
+    assert output =~ "Aiur.ZTestSupportWiringProbeTest: test leaves orchestrator down left Aiur.Orchestrator down (restore: :ok)"
+
+    assert output =~
+             "plain ExUnit tests broke Aiur.Orchestrator: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down (down), Aiur.DPlainCaseUnnamedProbeTest: test leaves the supervised orchestrator unnamed (down), Aiur.ZZPlainCaseLastProbeTest: test leaves orchestrator down at suite end (down)"
+
+    assert output =~
+             "plain ExUnit tests left shared runtime children down: Aiur.FPlainCasePubSubLeakProbeTest: test leaves the PubSub registry table down (Aiur.PubSub unregistered)"
+
+    assert output =~ ~r/YTestSupportStandInProbeTest: test leaves a stand-in holding the name left Aiur.Orchestrator held by a stand-in #PID<[\d.]+> \(restore: :ok\)/
     # Borrowing the name in setup and giving it back is not a leak.
     refute output =~ "AAUnregisterRestoreProbeTest"
-    assert output =~ "13 tests, 2 failures"
   end
 
   defp restore_app_env(key, :error), do: Application.delete_env(:aiur, key)

@@ -76,17 +76,6 @@ defmodule Aiur.GitHub.Issues.ConditionalTest do
     end
 
     test "re-authorizes a cached issue against the current allowlist after a 304" do
-      codeowners = Aiur.GitHub.CodeOwners
-      previous_state = :sys.get_state(codeowners)
-
-      on_exit(fn ->
-        if Process.whereis(codeowners), do: :sys.replace_state(codeowners, fn _ -> previous_state end)
-      end)
-
-      :sys.replace_state(codeowners, fn state ->
-        %{state | codeowners: MapSet.new(["trusted-labeler"])}
-      end)
-
       {:ok, issue_request_count} = Agent.start_link(fn -> 0 end)
 
       gh_issue = %{
@@ -129,14 +118,16 @@ defmodule Aiur.GitHub.Issues.ConditionalTest do
       end
 
       assert {:ok, [%Aiur.Issue{dispatch_authorized?: true}], first_cache} =
-               Issues.fetch_issue_states_by_ids_conditional(["142"], %{}, request_fun: request_fun)
-
-      :sys.replace_state(codeowners, fn state ->
-        %{state | codeowners: MapSet.new(["replacement-owner"])}
-      end)
+               Issues.fetch_issue_states_by_ids_conditional(["142"], %{},
+                 request_fun: request_fun,
+                 allowed_users: ["trusted-labeler"]
+               )
 
       assert {:ok, [%Aiur.Issue{dispatch_authorized?: false}], second_cache} =
-               Issues.fetch_issue_states_by_ids_conditional(["142"], first_cache, request_fun: request_fun)
+               Issues.fetch_issue_states_by_ids_conditional(["142"], first_cache,
+                 request_fun: request_fun,
+                 allowed_users: ["replacement-owner"]
+               )
 
       assert second_cache["142"].etag == ~s("issue-142-v1")
       refute second_cache["142"].issue.dispatch_authorized?

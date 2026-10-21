@@ -11,7 +11,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineFlowTest do
 
   setup do
     journal = Path.join(System.tmp_dir!(), "quarantine-flow-#{System.unique_integer([:positive])}.json")
-    on_exit(fn -> File.rm(journal) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(journal) end)
     %{journal: journal}
   end
 
@@ -31,6 +31,27 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineFlowTest do
     assert_received {:quarantine_pr, 5200, candidate}
     assert candidate.identity == @reaper
     assert candidate.observations |> Enum.map(& &1.pr) |> Enum.sort() == [4995, 5108]
+  end
+
+  test "one shard attempt failing in two modules records one cascade ticket and opens no quarantine", %{journal: journal} do
+    parent = self()
+
+    opts =
+      journal
+      |> opts(parent)
+      |> Keyword.put(:annotations_fun, fn _id, _opts ->
+        {:ok,
+         [
+           %{"title" => "aiur-test-failure", "path" => "src/test/first_test.exs", "message" => "new-failure :: Aiur.FirstTest :: first failure"},
+           %{"title" => "aiur-test-failure", "path" => "src/test/first_test.exs", "message" => "new-failure :: Aiur.FirstTest :: second failure"},
+           %{"title" => "aiur-test-failure", "path" => "src/test/second_test.exs", "message" => "new-failure :: Aiur.SecondTest :: collateral failure"}
+         ]}
+      end)
+
+    assert :ok = MergeGroupQuarantine.process_completed([group_run(39_140_000_001, "pr-5328-cascade", 5)], [], "main", opts)
+    assert_received {:flake_ticket, "Aiur.FirstTest :: first failure", 39_140_000_001, ["Aiur.SecondTest"]}
+    refute_received {:flake_ticket, _, _}
+    refute_received {:quarantine_pr, _, _}
   end
 
   test "a base-branch failure whose rerun passes is quarantined", %{journal: journal} do
@@ -152,8 +173,13 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineFlowTest do
          ]}
       end,
       flake_recorder: fn failure, run, [], recorder_opts ->
-        send(parent, {:flake_ticket, "#{failure.module} :: #{failure.name}", run["id"]})
-        recorder_opts[:issue_recorded_fun].(5200)
+        ticket = {"#{failure.module} :: #{failure.name}", run["id"]}
+
+        if Map.has_key?(failure, :cascade_modules),
+          do: send(parent, {:flake_ticket, elem(ticket, 0), elem(ticket, 1), failure.cascade_modules}),
+          else: send(parent, {:flake_ticket, elem(ticket, 0), elem(ticket, 1)})
+
+        if is_function(recorder_opts[:issue_recorded_fun], 1), do: recorder_opts[:issue_recorded_fun].(5200), else: :ok
       end,
       quarantine_pr_fun: fn candidate, ticket, _opts ->
         send(parent, {:quarantine_pr, ticket, candidate})

@@ -248,6 +248,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   @spec units_count_label(map()) :: String.t()
   def units_count_label(view) do
     case Map.get(view, :count_status, :unavailable) do
+      :loading -> "loading units…"
       :unavailable -> "units unavailable"
       :partial -> "at least #{unit_phrase(view)}"
       _exact -> unit_phrase(view)

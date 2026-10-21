@@ -212,6 +212,7 @@ guard_checkout_target() {
 
 . "$script_dir/lib/aiurdev-toolchain.sh"
 . "$script_dir/lib/layout-assets.sh"
+. "$script_dir/lib/aiurdev-release.sh"
 
 # True only when repo_root is itself the root of a git work tree. `git -C` walks
 # UP to the nearest enclosing repository, so a repo_root that merely sits inside
@@ -246,50 +247,6 @@ read_stamp_field() {
   local field="$1" file="$2"
   [ -r "$file" ] || return 1
   sed -n "s/^$field=//p" "$file" | head -n 1
-}
-
-# A release is otherwise opaque: file mtimes say when it was assembled but not
-# which checkout or which commit produced it, which is why the debug playbook
-# tells operators to report a release SHA of "unknown". Stamping it makes the
-# provenance readable — and makes `restart` able to prove what it is booting.
-# Takes the SHA the build STARTED from. A release assembly runs for minutes, and
-# a commit or branch switch landing inside that window would otherwise stamp a
-# commit the release demonstrably was not built from — provenance that reads as
-# current forever after.
-write_release_stamp() {
-  local source_sha="$1" dirty="unknown"
-
-  if repo_is_git_root; then
-    if [ -n "$(git -C "$repo_root" status --porcelain 2>/dev/null)" ]; then
-      dirty="yes"
-    else
-      dirty="no"
-    fi
-  fi
-
-  printf 'repo_root=%s\nsource_sha=%s\ndirty=%s\nbuilt_at=%s\n' \
-    "$repo_root" "$source_sha" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    >"$release_stamp"
-}
-
-release_ready() {
-  [ -x "$elixir_dir/bin/aiur" ] || return 1
-  [ -x "$release_dir/bin/aiur" ] || return 1
-  [ -r "$release_dir/releases/start_erl.data" ] || return 1
-
-  local release_vsn
-  release_vsn="$(cut -d' ' -f2 "$release_dir/releases/start_erl.data" 2>/dev/null || true)"
-  [ -n "$release_vsn" ] || return 1
-  [ -x "$release_dir/releases/$release_vsn/elixir" ] || return 1
-  [ -r "$release_dir/releases/$release_vsn/start_clean.boot" ] || return 1
-  [ -r "$release_dir/releases/$release_vsn/vm.args" ] || return 1
-  [ -r "$release_dir/releases/$release_vsn/sys.config" ] || return 1
-
-  local epmd epmd_found=0
-  for epmd in "$release_dir"/erts-*/bin/epmd; do
-    [ -x "$epmd" ] && epmd_found=1 && break
-  done
-  [ "$epmd_found" -eq 1 ] || return 1
 }
 
 # Tracks whether THIS process acquired the lock, so the crash-net trap can only
@@ -336,39 +293,6 @@ release_build_lock() {
   build_lock_held=0
 }
 
-build_aiur() {
-  local log_file status=0 source_sha
-
-  require_mise || return 64
-  # Read before the compile, not after — see write_release_stamp.
-  source_sha="$(repo_head_sha)"
-  echo "🔨 rebuilding bin/aiur (compile + release)" >&2
-  log_file="$(mktemp "${TMPDIR:-/tmp}/aiurdev-release.XXXXXX")"
-
-  if (build_layout_assets "$repo_root" "$mise_bin" exec -- && cd "$elixir_dir" && "$mise_bin" exec -- mix compile --force && "$mise_bin" exec -- mix release --overwrite) >"$log_file" 2>&1; then
-    status=0
-  else
-    status=$?
-  fi
-
-  grep -v -E "^(\* assembling|\* skipping runtime|Generated aiur app|Release created at|    _build|    # |Once the release is running:|To list all commands:|$)" "$log_file" >&2 || true
-  rm -f "$log_file"
-
-  if [ "$status" -ne 0 ]; then
-    echo "❌ aiur release rebuild failed; removing incomplete release" >&2
-    rm -rf "$release_dir"
-    return "$status"
-  fi
-
-  if ! release_ready; then
-    echo "❌ aiur release rebuild did not produce a complete release; removing incomplete release" >&2
-    rm -rf "$release_dir"
-    return 1
-  fi
-
-  write_release_stamp "$source_sha"
-}
-
 # A release built from a commit other than the one checked out now is stale even
 # when no source file is newer than it: `git switch` and `git reset --hard` both
 # leave a tree whose mtimes lose to a release assembled afterwards. The mtime
@@ -406,6 +330,11 @@ ensure_built_locked() {
   fi
 
   if ! release_matches_head; then
+    build_aiur
+    return
+  fi
+
+  if ! release_matches_deps_lock; then
     build_aiur
     return
   fi

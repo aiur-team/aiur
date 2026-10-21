@@ -19,10 +19,10 @@ defmodule Aiur.BuildOrder.TicketHistory.NormalizerTest do
     assert entry.kind == :pull_request
     assert entry.label == "Pull request updated"
     assert entry.details == %{}
-    refute inspect(entry) =~ secret
-    refute inspect(entry) =~ "/home/private"
-    refute inspect(entry) =~ "agent.ndjson"
-    refute inspect(entry) =~ "terminal output"
+    Aiur.TestSupport.refute_leak(entry, secret)
+    Aiur.TestSupport.refute_leak(entry, "/home/private")
+    Aiur.TestSupport.refute_leak(entry, "agent.ndjson")
+    Aiur.TestSupport.refute_leak(entry, "terminal output")
     refute Map.has_key?(Map.from_struct(entry), :summary)
   end
 
@@ -59,8 +59,8 @@ defmodule Aiur.BuildOrder.TicketHistory.NormalizerTest do
     assert entry.kind == :progress
     assert entry.details == %{percent: 70}
     assert entry.provenance == %{run_id: "run-1", attempt: 3, session_id: "session-2", source_event_id: 9}
-    refute inspect(entry) =~ "/home/private"
-    refute inspect(entry) =~ "private"
+    Aiur.TestSupport.refute_leak(entry, "/home/private")
+    Aiur.TestSupport.refute_leak(entry, "private")
   end
 
   test "deduplicates by event id, prefers typed Exchange evidence, and retains newest deterministically" do

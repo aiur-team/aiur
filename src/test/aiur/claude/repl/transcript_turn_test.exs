@@ -9,7 +9,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     name = Module.concat(__MODULE__, :"Inst#{System.unique_integer([:positive])}")
 
     {:ok, _pid} =
-      start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
+      start_supervised({Tmux, [transport: {:mock, test_pid, :infinity}, name: name, session: "test"]})
 
     %{tmux: name}
   end
@@ -165,6 +165,31 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     assert is_binary(result.session_id)
     assert is_binary(result.thread_id)
     assert is_binary(result.turn_id)
+  end
+
+  test "transient pane liveness failure does not report repl gone", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+
+    task =
+      Task.async(fn ->
+        TranscriptTurn.run(session, "do work", poll_interval_ms: 10, turn_timeout_ms: 1_000)
+      end)
+
+    expect_prompt_submit(tmux)
+
+    # The first liveness request gets a transient error; the retry succeeds,
+    # and a later probe confirms the pane remains alive until completion.
+    assert_receive {:tmux_mock_out, "display-message -p -t %50 " <> _}, 1_000
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\ncontrol temporarily unavailable\n%error 1 1 0\n"})
+    assert_receive {:tmux_mock_out, "display-message -p -t %50 " <> _}, 1_500
+    respond(tmux, "4242\n")
+    assert_receive {:tmux_mock_out, "display-message -p -t %50 " <> _}, 1_500
+    respond(tmux, "4242\n")
+
+    File.write!(path, completion_record(), [:append])
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
   end
 
   test "acknowledges provider delivery when the submitted prompt reaches the transcript", %{

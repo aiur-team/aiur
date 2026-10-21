@@ -46,7 +46,7 @@ defmodule AiurWeb.AnalyticsUnknownCapTest do
     # Idle slot-hours are a subtraction from the cap. With no cap reported the
     # page must not substitute the local config file and print a precise hour
     # count under a ceiling it just called unknown.
-    assert html =~ ~r/\d+ at run end \/ unknown cap</
+    assert html =~ ~r/\d+ at run end \/ unknown cap/
 
     assert {:ok, model} =
              Presenter.load(

@@ -16,9 +16,18 @@ defmodule Aiur.TestQuarantineTest do
   end
 
   test "the checked-in quarantine list parses and excludes its exact entries" do
-    path = Path.join([File.cwd!(), "test", "quarantine.txt"])
+    test_root = Path.join(File.cwd!(), "test")
+    path = Path.join(test_root, "quarantine.txt")
     assert {:ok, entries} = TestQuarantine.read(path)
-    assert length(entries) == 18
+
+    identities = Enum.map(entries, &{&1.module, &1.name})
+    assert identities == Enum.sort(identities)
+    assert length(identities) == length(Enum.uniq(identities))
+    assert Enum.all?(entries, &(&1.ticket =~ ~r/^#?[1-9][0-9]*$/))
+
+    test_modules = test_root |> Path.join("**/*_test.exs") |> Path.wildcard() |> test_module_names()
+
+    assert Enum.all?(entries, &MapSet.member?(test_modules, &1.module))
 
     assert {:excluded, "due to test filter"} =
              ExUnit.Filters.eval(
@@ -46,6 +55,17 @@ defmodule Aiur.TestQuarantineTest do
 
   test "the blocking ExUnit run config excludes a listed test by its exact name" do
     assert {:test, :"test create freezes the baseline and reports its window, count and coverage"} in ExUnit.configuration()[:exclude]
+  end
+
+  defp test_module_names(files) do
+    files
+    |> Enum.flat_map(fn file ->
+      file
+      |> File.read!()
+      |> then(&Regex.scan(~r/defmodule\s+([A-Z][A-Za-z0-9_.]*)\s+do/, &1, capture: :all_but_first))
+      |> Enum.map(&List.first/1)
+    end)
+    |> MapSet.new()
   end
 
   test "repeated failures in two unrelated pull requests within a day qualify" do

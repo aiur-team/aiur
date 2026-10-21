@@ -27,8 +27,7 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       tick_token: nil,
       initial_dispatch_cycle: false,
       github_connectivity: %{},
-      github_poll_delays: %{},
-      github_command_scan_since: nil
+      github_poll_delays: %{}
     }
   end
 

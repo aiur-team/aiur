@@ -23,8 +23,7 @@ defmodule Aiur.Orchestrator.CommentReworkLiveWorkerTest do
       retry_attempts: %{},
       last_polled_issues: %{},
       github_connectivity: %{},
-      github_poll_delays: %{},
-      github_command_scan_since: nil
+      github_poll_delays: %{}
     }
   end
 

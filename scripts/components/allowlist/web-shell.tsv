@@ -3,3 +3,4 @@ R-declared	Aiur.AgentChat	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Claude.HookEvents	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.PaneManager	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-private	Aiur.Claude.HookEvents	MP-R1-C6-T01 register the Claude lifecycle-hook route with its owning component

@@ -3,6 +3,7 @@ defmodule Aiur.GitHub.QuotaTestSupport do
 
   import ExUnit.Callbacks
 
+  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Quota
 
   @now ~U[2026-08-09 21:00:00Z]
@@ -32,16 +33,22 @@ defmodule Aiur.GitHub.QuotaTestSupport do
   end
 
   def request(method, path) do
-    %{method: method, url: "https://api.github.com#{path}", token: "secret"}
+    primary_request(%{method: method, url: "https://api.github.com#{path}", token: "secret"})
   end
 
   def graphql_request(query, variables) do
-    %{
+    primary_request(%{
       method: :post,
       url: "https://api.github.com/graphql",
       token: "secret",
       body: %{"query" => query, "variables" => variables}
-    }
+    })
+  end
+
+  defp primary_request(request) do
+    request
+    |> Map.put(:credential_id, "primary")
+    |> Map.put(:credential_key, Budget.token_key("secret"))
   end
 
   # GitHub answers a secondary/abuse limit with a 403 whose body carries the

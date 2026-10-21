@@ -174,19 +174,19 @@ defmodule Aiur.Orchestrator.OptimisticDispatchTest do
 
   test "dependent merge route closes the ledger record", %{path: path} do
     start(path)
-    issue = candidate()
+    issue = %{candidate() | identifier: "1570"}
     OptimisticLedger.record_start(issue.identifier, %{attempt_id: "merge", start_trigger: :pr_opened, started_at_ms: 100, blockers: [%{"id" => "12"}]})
-    EventTopics.route(%State{}, %{topic: "ticket.#{issue.identifier}.pr.merged", pr: %{"body" => "Refs #10", "merged_by" => %{"login" => "someone"}}})
+    EventTopics.route(%State{}, %{topic: "ticket.#{issue.identifier}.pr.merged", pr: %{"body" => "Closes #1570", "merged_by" => %{"login" => "someone"}}})
     assert record(issue.identifier)["outcome"] == "merged"
     assert record(issue.identifier)["status"] == "closed"
   end
 
   test "poll-confirmed merge uses the same ledger closure as the event route", %{path: path} do
     start(path)
-    issue = candidate()
+    issue = %{candidate() | identifier: "1570"}
     OptimisticLedger.record_start(issue.identifier, %{attempt_id: "merge", start_trigger: :pr_opened, started_at_ms: 100, blockers: [%{"id" => "12"}]})
     OptimisticLedger.bump(issue.identifier, :parks, 1)
-    CommentWake.mark_pr_merged_issue_done(%State{}, issue.identifier, pr_body: "Refs #10", merged_by_login: "someone")
+    CommentWake.mark_pr_merged_issue_done(%State{}, issue.identifier, pr_body: "Closes #1570", merged_by_login: "someone")
     assert record(issue.identifier)["outcome"] == "merged_after_redo"
   end
 

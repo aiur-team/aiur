@@ -29,7 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
             UnitsPolicy.selected?(@selection, condition) && "is-selected"
           ]}
           aria-pressed={to_string(UnitsPolicy.selected?(@selection, condition))}
-          disabled={@count_status == :unavailable}
+          disabled={@count_status in [:unavailable, :loading]}
           phx-click="toggle-units-condition"
           phx-value-condition={condition}
         >
@@ -44,7 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
           type="button"
           class={["units-filter", "scope", @selection.scope == scope && "is-selected"]}
           aria-pressed={to_string(@selection.scope == scope)}
-          disabled={@count_status == :unavailable}
+          disabled={@count_status in [:unavailable, :loading]}
           phx-click="select-units-scope"
           phx-value-scope={scope}
         >
@@ -55,7 +55,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
           type="button"
           class="units-filter scope bulk"
           aria-label="Select all preceding filters"
-          disabled={@count_status == :unavailable}
+          disabled={@count_status in [:unavailable, :loading]}
           phx-click="select-all-units-filters"
         >
           All
@@ -64,7 +64,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
           type="button"
           class="units-filter scope bulk"
           aria-label="Select no filters"
-          disabled={@count_status == :unavailable}
+          disabled={@count_status in [:unavailable, :loading]}
           phx-click="select-no-units-filters"
         >
           None
@@ -84,11 +84,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
   defp condition_class(:finished), do: "is-cond-finished"
   defp condition_class(_condition), do: "is-cond-generic"
 
-  defp count_label(_counts, _condition, :unavailable), do: "—"
+  defp count_label(_counts, _condition, status) when status in [:unavailable, :loading], do: "—"
   defp count_label(counts, condition, :partial), do: "#{Map.get(counts, condition, 0)}+"
   defp count_label(counts, condition, _status), do: Map.get(counts, condition, 0)
 
   defp count_aria_label(_counts, _condition, :unavailable), do: "Count unavailable"
+  defp count_aria_label(_counts, _condition, :loading), do: "Count loading"
 
   defp count_aria_label(counts, condition, :partial),
     do: "At least #{Map.get(counts, condition, 0)}"

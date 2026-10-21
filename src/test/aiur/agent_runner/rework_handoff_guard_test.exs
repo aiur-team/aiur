@@ -112,7 +112,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
     issue = %Issue{id: "gid-evidence", identifier: "4611", state: "in-progress"}
     test_pid = self()
 
-    # The first `aiur pre-pr` ran before `gh pr create`, so the body still holds a placeholder head.
+    # The body still holds a placeholder head; the handback must not rewrite that test claim.
     stale = "## Local tests\n\nPolicy: partial\nTested head: #{String.duplicate("a", 40)}\nBase: main @ #{base}\nSelection: focused\n- `mix test` -> pass\n"
     fresh = String.replace(stale, "Tested head: " <> String.duplicate("a", 40), "Tested head: " <> head)
 
@@ -132,7 +132,10 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
       refute response["success"]
       error = Jason.decode!(response["output"])["error"]
       assert error["reason"] == "stale_pr_body_evidence"
-      assert error["message"] =~ "Run `aiur pre-pr` again after `gh pr create`"
+      assert error["message"] =~ "Tested head #{String.duplicate("a", 40)}"
+      assert error["message"] =~ "PR head #{head}"
+      assert error["message"] =~ "Rerun the touched tests"
+      refute error["message"] =~ "aiur pre-pr"
       refute_received {:state_write, _, _}
     end
 
@@ -175,7 +178,11 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
 
     stale = handoff.("#### Summary\n\n- Fix.\n\n" <> evidence.(String.duplicate("a", 40)))
     refute stale["success"]
-    assert Jason.decode!(stale["output"])["error"]["message"] =~ "Tested head does not match PR head"
+    message = Jason.decode!(stale["output"])["error"]["message"]
+    assert message =~ "Tested head #{String.duplicate("a", 40)}"
+    assert message =~ "PR head #{head}"
+    assert message =~ "Rerun the touched tests"
+    refute message =~ "aiur pre-pr"
     refute_received {:state_write, _, _}
 
     assert handoff.("#### Summary\n\n- Fix.\n\n" <> evidence.(head))["success"]

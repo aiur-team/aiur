@@ -38,6 +38,18 @@ defmodule Aiur.AppServer.RelayPortTest do
     assert Path.wildcard(Path.join([root, "agent-relays", "*.#{Paths.sanitize(Path.basename(workspace))}.*"])) == []
   end
 
+  test "future guard: assert_stopped fails while the process is still running" do
+    port = Port.open({:spawn_executable, System.find_executable("sleep")}, [:binary, args: ["5"]])
+    pid = Port.info(port, :os_pid) |> elem(1)
+
+    try do
+      error = assert_raise ExUnit.AssertionError, fn -> assert_stopped(pid, 1) end
+      assert error.message =~ "process #{pid} still running"
+    after
+      Port.close(port)
+    end
+  end
+
   test "relay preserves oversized lines and non-UTF8 provider bytes" do
     command = ~S|python3 -c 'import sys; sys.stdout.buffer.write(b"x" * 1048583 + b"\n\xff\n"); sys.stdout.flush()'|
     {:ok, relay} = Adapter.start_port(File.cwd!(), command)
@@ -88,6 +100,9 @@ defmodule Aiur.AppServer.RelayPortTest do
         end
 
       {:error, :enoent} ->
+        :ok
+
+      {:error, :esrch} ->
         :ok
     end
   end

@@ -53,7 +53,7 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
 
   for {name, mergeable, graph_mergeability, threads, reviews, target} <- [
         {"conflict", false, "CONFLICTING", [], [], "rework"},
-        {"unresolved finding", true, nil, [%{body: "fix this"}], [], "rework"},
+        {"unresolved finding", true, nil, [%{body: "fix this"}], [%{:authoritative => true, "state" => "CHANGES_REQUESTED", "commit_id" => "head"}], "rework"},
         {"current trusted body review", true, nil, [], [%{:authoritative => true, "state" => "CHANGES_REQUESTED", "commit_id" => "head"}], "rework"},
         {"current blocking comment", true, nil, [], [%{:authoritative => true, "state" => "COMMENTED", "commit_id" => "head", "body" => "Blocking: fix the race"}], "rework"},
         {"old resolved verdict", true, nil, [], [%{:authoritative => true, "state" => "CHANGES_REQUESTED", "commit_id" => "old"}], "human-review"},

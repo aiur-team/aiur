@@ -259,9 +259,10 @@ defmodule AiurWeb.AnalyticsLive do
               <div>
                 <h3 class="an-card-title">Concurrency vs cap</h3>
                 <p class="an-card-sub">Active units against the cap. The shaded band above the line is wasted capacity.</p>
+                <p :if={ConcurrencyCoverage.partial_reason(@model, @analytics_scope)} id="analytics-concurrency-coverage" class="an-card-sub" role="status">{ConcurrencyCoverage.partial_reason(@model, @analytics_scope)}</p>
               </div>
             </div>
-            <div id="analytics-concurrency-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.concurrency(@chart_model))}</div>
+            <div id="analytics-concurrency-chart" class="an-chart" phx-hook="TimeBrush">{if ConcurrencyCoverage.unknown?(@model, @analytics_scope), do: ConcurrencyCoverage.chart_unknown_label(@model, @analytics_scope), else: Phoenix.HTML.raw(Charts.concurrency(@chart_model))}</div>
           </section>
 
           <section class="an-card wide">
@@ -470,12 +471,7 @@ defmodule AiurWeb.AnalyticsLive do
         %{label: "Peak concurrency", tone: nil},
         ConcurrencyCoverage.tile(model, scope, "#{LiveConcurrency.label(model, present?, scope)} / #{Presenter.cap_label(model)}")
       ),
-      %{
-        label: "Mean utilization",
-        val: "#{k.mean_util_pct}%",
-        sub: "of #{model.cores} cores",
-        tone: nil
-      },
+      Map.merge(%{label: "Mean utilization", tone: nil}, ConcurrencyCoverage.utilization(model, scope, "of #{model.cores} cores")),
       %{
         label: "Memory headroom",
         val: "#{k.mem_headroom_pct}%",

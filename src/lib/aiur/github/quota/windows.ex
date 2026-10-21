@@ -1,18 +1,27 @@
 defmodule Aiur.GitHub.Quota.Windows do
   @moduledoc false
 
+  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.{EndpointPolicy, GraphQLCost, GraphQLErrors, Transport}
   alias Aiur.RepoBase
 
   @primary_resources ~w(core graphql)
+  @rate_limit_body_resources ~w(core)
   # Anonymous reads bill the 60/hr unauthenticated IP allowance, not the
   # authenticated core budget. They get their own window so an exhausted
   # anonymous allowance stays visible without gating fleet dispatch, and so a
   # `limit: 60` response can never overwrite the authenticated `core` window.
   @anonymous_resource "core:anonymous"
-  @metered_resources [@anonymous_resource | @primary_resources]
+  @route_core_resources ~w(core:issue_dependencies core:sub_issues)
+  @metered_resources [@anonymous_resource | @primary_resources ++ @route_core_resources]
+  @issue_dependencies_path ~r{/issues/\d+/dependencies/blocked_by/?$}
+  @sub_issues_path ~r{/issues/\d+/sub_issues/?$}
   @low_water_percent 10.0
+
+  # Top-level `core`/`graphql` windows remain the primary credential meter used
+  # by existing surfaces and dispatch. Every credential also gets a keyed
+  # window under `credential_windows` for diagnostics and separate display.
 
   # GitHub does not always say how long a secondary limit lasts. Its own
   # guidance is to wait at least a minute, and the ceiling keeps a hostile or
@@ -21,10 +30,10 @@ defmodule Aiur.GitHub.Quota.Windows do
   @max_secondary_backoff_seconds 60 * 60
 
   @spec observe_response(map(), map(), term(), DateTime.t()) :: map()
-  def observe_response(state, _request, {:ok, %{body: %{"resources" => resources}}}, now) when is_map(resources) do
-    Enum.reduce(@primary_resources, state, fn resource, acc ->
+  def observe_response(state, request, {:ok, %{body: %{"resources" => resources}}}, now) when is_map(resources) do
+    Enum.reduce(@rate_limit_body_resources, state, fn resource, acc ->
       case Map.get(resources, resource) do
-        %{} = values -> put_window_from_values(acc, resource, values, now)
+        %{} = values -> put_credential_window(acc, request, resource, values, now)
         _missing -> acc
       end
     end)
@@ -39,7 +48,7 @@ defmodule Aiur.GitHub.Quota.Windows do
       state
     else
       case graphql_rate_limit_values(request, response) do
-        %{} = values -> put_window_from_values(state, "graphql", values, now)
+        %{} = values -> put_credential_window(state, request, "graphql", values, now)
         nil -> observe_response_headers(state, request, response, now)
       end
     end
@@ -70,6 +79,8 @@ defmodule Aiur.GitHub.Quota.Windows do
         _authenticated -> Transport.header(headers, "x-ratelimit-resource")
       end
 
+    resource = route_specific_resource(resource, request)
+
     if resource in @metered_resources do
       values = %{
         "limit" => Transport.header(headers, "x-ratelimit-limit"),
@@ -77,34 +88,104 @@ defmodule Aiur.GitHub.Quota.Windows do
         "reset" => Transport.header(headers, "x-ratelimit-reset")
       }
 
+      put_credential_window(state, request, resource, values, now)
+    else
+      state
+    end
+  end
+
+  defp route_specific_resource("core", %{url: url}) when is_binary(url) do
+    path = URI.parse(url).path || ""
+
+    cond do
+      Regex.match?(@issue_dependencies_path, path) -> "core:issue_dependencies"
+      Regex.match?(@sub_issues_path, path) -> "core:sub_issues"
+      true -> "core"
+    end
+  end
+
+  defp route_specific_resource(resource, _request), do: resource
+
+  defp put_credential_window(state, request, resource, values, now) do
+    state = prune_credential_windows(state, now)
+    credential_id = Map.get(request, :credential_id, "unregistered")
+    key = credential_key(request)
+
+    case {request_resource(request), credential_id, key, parse_window(resource, values, now)} do
+      {@anonymous_resource, _credential_id, _key, _window} ->
+        put_window_from_values(state, resource, values, now)
+
+      {_request_resource, "primary", nil, _window} ->
+        put_window_from_values(state, resource, values, now)
+
+      {_request_resource, "primary", key, %{} = window} when is_binary(key) ->
+        put_primary_credential_window(state, resource, key, window, values, now)
+
+      {_request_resource, credential_id, key, %{} = window} when is_binary(credential_id) and is_binary(key) ->
+        put_secondary_credential_window(state, resource, key, window)
+
+      {_request_resource, _credential_id, _key, _window} ->
+        state
+    end
+  end
+
+  defp put_primary_credential_window(state, resource, key, window, values, now) do
+    state = put_secondary_credential_window(state, resource, key, window)
+
+    if resource in @primary_resources do
       put_window_from_values(state, resource, values, now)
     else
       state
     end
   end
 
+  defp put_secondary_credential_window(state, resource, key, window) do
+    windows = Map.put(state.credential_windows, {key, resource}, window)
+    %{state | credential_windows: windows}
+  end
+
+  defp prune_credential_windows(state, now) do
+    windows =
+      state.credential_windows
+      |> Enum.reject(fn {_key, window} -> DateTime.compare(window.reset_at, now) != :gt end)
+      |> Map.new()
+
+    %{state | credential_windows: windows}
+  end
+
+  defp credential_key(%{credential_key: key}) when is_binary(key) and key != "", do: key
+
+  defp credential_key(%{credential_id: credential_id}) when is_binary(credential_id) and credential_id != "" do
+    Budget.identity_key("github-credential:" <> credential_id)
+  end
+
+  defp credential_key(%{credential_id: _credential_id}), do: nil
+
+  defp credential_key(%{token: token}) when is_binary(token) and token != "", do: Budget.token_key(token)
+  defp credential_key(_request), do: nil
+
   defp put_window_from_values(state, resource, values, now) do
+    case parse_window(resource, values, now) do
+      %{} = window ->
+        state
+        |> Map.put(:windows, Map.put(state.windows, resource, window))
+        |> reconcile_resource_alerts(resource, window)
+        |> sync_hold_file(resource, window)
+
+      nil ->
+        state
+    end
+  end
+
+  defp parse_window(resource, values, now) do
     with {:ok, limit} <- integer_value(Map.get(values, "limit")),
          true <- limit > 0,
          {:ok, remaining} <- integer_value(Map.get(values, "remaining")),
          {:ok, reset_unix} <- integer_value(Map.get(values, "reset")),
          {:ok, reset_at} <- DateTime.from_unix(reset_unix) do
-      remaining = remaining |> max(0) |> min(limit)
-
-      window = %{
-        resource: resource,
-        limit: limit,
-        remaining: remaining,
-        reset_at: reset_at,
-        observed_at: now
-      }
-
-      state
-      |> Map.put(:windows, Map.put(state.windows, resource, window))
-      |> reconcile_resource_alerts(resource, window)
-      |> sync_hold_file(resource, window)
+      %{resource: resource, limit: limit, remaining: remaining |> max(0) |> min(limit), reset_at: reset_at, observed_at: now}
     else
-      _invalid -> state
+      _invalid -> nil
     end
   end
 

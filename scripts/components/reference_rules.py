@@ -25,11 +25,17 @@ def seam_rules(manifest, component, target, kind, path):
     return rules, bool(matching)
 
 
+def namespace_private(provider, target):
+    """Namespace restrictions also cover aliases and literals, unless explicitly public."""
+    return (any((module_matches(prefix, target) if prefix.endswith('.*') else target.startswith(prefix)) for prefix in provider.get('private_namespaces', []))
+            and target not in provider['facades'])
+
+
 def edge_rules(component, provider, target):
     rules = []
     if provider['id'] not in component['requires'] + component['optional']:
         rules.append('R-declared')
-    if provider['facades'] != ['*'] and target not in provider['facades']:
+    if namespace_private(provider, target) or (provider['facades'] != ['*'] and target not in provider['facades']):
         rules.append('R-private')
     if provider['layer'] > component['layer']:
         rules.append('R-down')

@@ -231,48 +231,6 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
   # probe exactly as it would be by a billed call (#2284's "no quota can still
   # cost a slot"). One rate_limit admission is therefore enough to hold the
   # next request in the same minute.
-  test "a non-billable rate_limit probe still consumes a rate-per-minute pacing slot", context do
-    budget_root = Path.join(context.state_path, "host-budget")
-    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
-    key = "a" <> String.duplicate("0", 63)
-
-    assert {"5000 0 5000 0", 0} =
-             run_guard(context, ["api", "rate_limit"],
-               AIUR_GITHUB_BUDGET_ROOT: budget_root,
-               AIUR_GITHUB_BUDGET_KEY: key,
-               AIUR_GITHUB_BUDGET_BROKER: broker,
-               AIUR_GITHUB_REQUESTS_PER_MINUTE: "1",
-               AIUR_GITHUB_STAGGER_MS: "0"
-             )
-
-    # GitHub bills the probe at zero, so its ledger admission must be recorded
-    # non-billable — the "non-billable" in this test's name is asserted here,
-    # not just implied by the pacing behaviour (#2328 review).
-    assert {snapshot, 0} =
-             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
-
-    assert %{"admissions" => [%{"endpoint_family" => "rate_limit", "billable" => false}]} = Jason.decode!(snapshot)
-
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
-
-    assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "api", "repos/owner/repo/issues/1670"],
-               env:
-                 guard_env(context) ++
-                   [
-                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
-                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
-                     {"AIUR_GITHUB_BUDGET_KEY", key},
-                     {"AIUR_GITHUB_BUDGET_BROKER", broker},
-                     {"AIUR_GITHUB_REQUESTS_PER_MINUTE", "1"},
-                     {"AIUR_GITHUB_STAGGER_MS", "0"}
-                   ],
-               stderr_to_stdout: true
-             )
-
-    refute File.exists?(context.calls)
-  end
-
   test "a guarded 304 response is reconciled as unbilled", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)

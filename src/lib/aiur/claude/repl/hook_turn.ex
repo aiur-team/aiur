@@ -121,7 +121,7 @@ defmodule Aiur.Claude.Repl.HookTurn do
   # response/session in `acc`), `{:paused, _}`, or `{:error, reason}`.
   defp await_hook_turn(loop, deadline, acc) do
     cond do
-      not Reaper.pane_alive?(loop.session) ->
+      Reaper.pane_liveness(loop.session) == :gone ->
         {:error, :repl_gone}
 
       System.monotonic_time(:millisecond) >= deadline ->

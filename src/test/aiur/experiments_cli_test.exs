@@ -37,10 +37,13 @@ defmodule Aiur.ExperimentsCLITest do
       if previous_packs, do: Application.put_env(:aiur, :experiment_metric_packs, previous_packs), else: Application.delete_env(:aiur, :experiment_metric_packs)
     end)
 
-    root = Path.join(System.tmp_dir!(), "experiments-cli-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("experiments-cli")
     previous = Application.get_env(:aiur, :experiments_dir)
     previous_base = Application.get_env(:aiur, :repo_base_root)
-    Application.put_env(:aiur, :repo_base_root, Path.join(root, "repo"))
+    # Keep repository state in the suite root, which lives until after_suite;
+    # a late writer must not race deletion of a per-test state root.
+    state_root = Path.join(Application.fetch_env!(:aiur, :test_run_root), "experiments-cli-#{System.pid()}-#{System.unique_integer([:positive])}")
+    Application.put_env(:aiur, :repo_base_root, state_root)
     Application.put_env(:aiur, :experiments_dir, root)
 
     on_exit(fn ->

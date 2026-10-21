@@ -187,8 +187,8 @@ defmodule Aiur.CurrentRunProjections.ConcurrencyTest do
 
     refute state_text =~ sentinel
     refute checkpoint_text =~ sentinel
-    refute inspect(CurrentRunSummary.snapshot(server: owner), limit: :infinity) =~ sentinel
-    refute inspect(CurrentRunOutcomeSnapshot.snapshot(server: owner), limit: :infinity) =~ sentinel
+    Aiur.TestSupport.refute_leak(CurrentRunSummary.snapshot(server: owner), sentinel)
+    Aiur.TestSupport.refute_leak(CurrentRunOutcomeSnapshot.snapshot(server: owner), sentinel)
     assert Process.alive?(source)
   end
 

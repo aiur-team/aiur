@@ -17,9 +17,10 @@ defmodule Aiur.BuildQueue do
   @doc "Returns the version 1 public read model from held projections; no upstream requests or label writes."
   @spec show(GenServer.server()) :: map()
   def show(server \\ Server) do
-    GenServer.call(server, :read_model)
+    GenServer.call(server, :read_model, 1_000)
   catch
     :exit, {:noproc, _} -> ReadModel.unavailable(absent_status())
+    :exit, {:timeout, _} -> ReadModel.unavailable(:store_unavailable)
   end
 
   @spec reconcile_now() :: :ok | {:error, status()}

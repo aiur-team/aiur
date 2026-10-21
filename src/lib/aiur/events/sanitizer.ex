@@ -152,7 +152,7 @@ defmodule Aiur.Events.Sanitizer do
   characters — so by the time `Aiur.Events.Publisher` asks "did Aiur write
   this?", the marker it would look for has been erased by Aiur's own safety
   pass. Without this, an agent's own `/aiur` comment arrives unmarked on the
-  `Aiur.Orchestrator.CommandScan` path, reads as human, and republishes with
+  `Aiur.GitHub.Listeners.CommandScan.Scan` path, reads as human, and republishes with
   `bypass_contamination: true` — the self-loop the marker exists to prevent.
 
   The flag is an atom key, so it cannot arrive from GitHub: every externally

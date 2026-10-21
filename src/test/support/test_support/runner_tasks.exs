@@ -24,6 +24,15 @@ defmodule Aiur.TestSupport.RunnerTasks do
     :ok
   end
 
+  @doc "Fails the suite if a runner task outlives the test support fixture."
+  @spec verify_suite!() :: :ok
+  def verify_suite! do
+    case runner_tasks() do
+      [] -> :ok
+      pids -> raise "test suite found runner tasks still alive after fixture teardown: #{inspect(pids)}"
+    end
+  end
+
   @doc "Stops the runner tasks started since `before`, then removes `root`."
   @spec stop_started_since_and_rm_rf!(Path.t(), MapSet.t(pid())) :: :ok
   def stop_started_since_and_rm_rf!(root, before) do

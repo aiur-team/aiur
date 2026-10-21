@@ -96,6 +96,47 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     assert Agent.get(Boundary, & &1.closure_reads) == ["9"]
   end
 
+  test "same-command anchor add gets the same first-observation verdict in either order", %{server: pid} do
+    # Regression guard: the CLI must send either order through the server's mutation gate.
+    state = :sys.get_state(pid)
+    :sys.replace_state(pid, &%{&1 | phase: :awaiting_first_observation})
+
+    verdicts =
+      for ids <- [["1", "2"], ["2", "1"]] do
+        assert {:ok, results} = MutationCLI.execute(verb: :add, ids: ids, queue: "e2e", after: "9", server: pid)
+        Enum.map(results, &elem(&1, 1))
+      end
+
+    assert verdicts == List.duplicate([{:error, :awaiting_first_observation}, {:error, :awaiting_first_observation}], 2)
+
+    assert document() == @empty
+    :sys.replace_state(pid, fn current -> %{current | phase: state.phase} end)
+  end
+
+  test "after anchor must be a member of the target queue unless added in this command", %{server: pid} do
+    assert {:ok, [{"#2", {:error, :anchor_not_in_queue}}]} = MutationCLI.execute(verb: :add, ids: ["2"], queue: "e2e", after: "1", server: pid)
+    assert document() == @empty
+
+    assert {:ok, _} = MutationCLI.execute(verb: :add, ids: ["1", "2"], queue: "e2e", after: "1", server: pid)
+    assert Enum.map(document().edges, &{&1.prerequisite, &1.dependent}) == [{"1", "2"}]
+  end
+
+  test "a batch crossing an already queued ID retains independent additions", %{server: pid} do
+    run(pid, :add, ids: ["1"], queue: "paseo")
+    output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["1", "2"], queue: "other", server: pid) == 1 end)
+    assert output =~ "#1: already in queue paseo"
+    assert output =~ "#2: ok"
+    assert Enum.map(document().items, & &1.issue_id) == ["1", "2"]
+  end
+
+  test "same-command batch reports only the queued ID as the cause of atomic refusal", %{server: pid} do
+    run(pid, :add, ids: ["1"], queue: "paseo")
+    output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["1", "2"], queue: "other", after: "1", server: pid) == 1 end)
+    assert output =~ "#1: already in queue paseo"
+    assert output =~ "#2: not applied because another ID in this all-or-nothing batch was refused"
+    assert Enum.map(document().items, & &1.issue_id) == ["1"]
+  end
+
   test "add reports an unobserved but closed issue closed and does not queue it", %{server: pid} do
     Agent.update(Boundary, &Map.merge(&1, %{observation_labels: Map.delete(&1.labels, "9"), closures: %{"9" => {:ok, %{open?: false, state_reason: "completed"}}}}))
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["2", "9"], queue: "paseo", server: pid) == 1 end)
@@ -134,12 +175,11 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   end
 
   test "positions edges reorder and remove traverse real persisted commands", %{server: pid} do
-    run(pid, :add, ids: ["1", "2"], after: "3")
-    run(pid, :add, ids: ["3"], at: 1)
-    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"1", 0}, {"3", 1}, {"2", 2}]
+    run(pid, :add, ids: ["3", "1", "2"], after: "3")
+    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"3", 0}, {"1", 1}, {"2", 2}]
     assert Enum.map(document().edges, &{&1.prerequisite, &1.dependent}) == [{"3", "1"}, {"3", "2"}]
     run(pid, :reorder, ids: ["2"], to: 0)
-    assert Enum.map(document().items, & &1.issue_id) == ["2", "1", "3"]
+    assert Enum.map(document().items, & &1.issue_id) == ["2", "3", "1"]
     run(pid, :remove, ids: ["1", "3"])
     assert [%Model.Item{issue_id: "2", position: 0}] = document().items
   end
@@ -253,19 +293,21 @@ defmodule Aiur.BuildQueue.MutationCLITest do
 
   test "optimistic add promotes through real reconciliation", %{server: pid} do
     Agent.update(Boundary, &%{&1 | labels: Map.put(&1.labels, "2", %{labels: ["agent:ci-wait"]})})
+    run(pid, :add, ids: ["2"], start_on: "pr_opened")
     run(pid, :add, ids: ["1"], after: "2", start_on: "pr_opened")
     reconcile(pid)
     assert "agent:todo" in labels("1")
-    assert hd(document().items).promoted_at != nil
-    assert hd(hd(Aiur.BuildQueue.show(pid).queues).items).state == :ready
+    assert Enum.find(document().items, &(&1.issue_id == "1")).promoted_at != nil
+    assert Enum.find(hd(Aiur.BuildQueue.show(pid).queues).items, &(&1.number == 1)).state == :ready
   end
 
   test "a merged local prerequisite cannot bypass another native blocker", %{server: pid} do
     Agent.update(Boundary, &Map.merge(&1, %{dependencies: %{"1" => ["3"]}, prs: %{"2" => %{merged?: true, state: :closed}}}))
+    run(pid, :add, ids: ["2"])
     run(pid, :add, ids: ["1"], after: "2")
     reconcile(pid)
     refute "agent:todo" in labels("1")
-    item = hd(hd(Aiur.BuildQueue.show(pid).queues).items)
+    item = Enum.find(hd(Aiur.BuildQueue.show(pid).queues).items, &(&1.number == 1))
     assert item.state == :waiting
     assert Enum.any?(:sys.get_state(pid).planned_edges, &(&1.prerequisite == "3" and &1.dependent == "1"))
   end
@@ -273,6 +315,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   test "a merge arriving during reconciliation cannot change unchecked native eligibility", %{server: pid} do
     merged = %{merged?: true, state: :closed}
     Agent.update(Boundary, &Map.merge(&1, %{dependencies: %{"1" => ["3"]}, prs: %{"2" => [nil, merged, merged]}}))
+    run(pid, :add, ids: ["2"])
     run(pid, :add, ids: ["1"], after: "2")
     reconcile(pid)
     refute "agent:todo" in labels("1")
@@ -281,7 +324,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     assert :ok = GenServer.call(pid, :reconcile_now)
     reconcile(pid)
     refute "agent:todo" in labels("1")
-    assert hd(:sys.get_state(pid).projections).verdict == :waiting
+    assert Enum.find(:sys.get_state(pid).projections, &(&1.issue_id == "1")).verdict == :waiting
     assert Enum.any?(:sys.get_state(pid).planned_edges, &(&1.prerequisite == "3" and &1.dependent == "1"))
   end
 
@@ -303,6 +346,13 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   end
 
   defp labels(id), do: Agent.get(Boundary, & &1.labels[id].labels)
-  defp run(pid, verb, opts), do: capture_io(fn -> assert Aiur.BuildQueueCLI.run(Keyword.merge(opts, verb: verb, server: pid)) == 0 end)
+
+  defp run(pid, verb, opts) do
+    output = capture_io(fn -> send(self(), {:run_result, Aiur.BuildQueueCLI.run(Keyword.merge(opts, verb: verb, server: pid))}) end)
+    assert_received {:run_result, result}
+    assert result == 0, output
+    output
+  end
+
   defp document, do: Agent.get(Boundary, & &1.document)
 end

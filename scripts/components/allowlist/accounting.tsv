@@ -18,3 +18,7 @@ R-down	Aiur.ControlCLI.Protocol	MP-R1-C9-T14 moved CLI adapter retains the exist
 R-down	Aiur.EventHumanizerHelpers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Init.Dotenv	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Orchestrator	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-private	Aiur.Claude.RemoteControl	MP-R1-C11-T03 separate accounting and experiment usage reads from harness implementation details
+R-private	Aiur.Claude.Telemetry.UsageAdapter.Relationship	MP-R1-C11-T03 separate accounting and experiment usage reads from harness implementation details
+R-private	Aiur.Claude.UsageApi	MP-R1-C11-T03 separate accounting and experiment usage reads from harness implementation details
+R-private	Aiur.Muse.Usage	MP-R1-C11-T03 separate accounting and experiment usage reads from harness implementation details

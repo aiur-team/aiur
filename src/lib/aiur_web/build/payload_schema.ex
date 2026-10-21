@@ -82,7 +82,7 @@ defmodule AiurWeb.Build.PayloadSchema do
     do: %{
       "v" => {:literal, 1},
       "kind" => {:literal, "error"},
-      "reason" => enum(~w(invalid_params unavailable invalid_data read_only not_found throttled timeout index_not_running read_failed epic_config_unavailable))
+      "reason" => enum(~w(invalid_params unavailable invalid_data read_only not_found throttled timeout index_not_running read_failed epic_config_unavailable settings_loading))
     }
 
   def message(_kind), do: nil
@@ -95,8 +95,8 @@ defmodule AiurWeb.Build.PayloadSchema do
     do: %{
       "state" => {:literal, "authorized"},
       "observed_at" => nullable(:integer),
-      "apis" => list(object(provider(), ~w(lines icon stale observed_at note))),
-      "providers" => list(object(provider(), ~w(lines icon stale observed_at note)))
+      "apis" => list(object(provider(), ~w(lines icon stale observed_at snapshot_observed_at note))),
+      "providers" => list(object(provider(), ~w(lines icon stale observed_at snapshot_observed_at note)))
     }
 
   def usage(_state), do: nil
@@ -133,6 +133,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "icon" => nullable(enum(~w(github bars))),
       "stale" => :boolean,
       "observed_at" => nullable(:integer),
+      "snapshot_observed_at" => nullable(:integer),
       "note" => nullable(:string)
     }
   end

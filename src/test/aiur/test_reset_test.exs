@@ -100,8 +100,7 @@ defmodule Aiur.TestResetTest do
 
   describe "guards" do
     test "ABORT: tickets file missing", %{tmp_dir: tmp_dir} do
-      assert {:error, :tickets_file_missing} =
-               TestReset.run(%{repo_root: tmp_dir, confirm: false})
+      assert {:error, :tickets_file_missing} = TestReset.run(%{repo_root: tmp_dir, confirm: false})
     end
 
     test "ABORT: tickets file with empty tickets list", %{tmp_dir: tmp_dir} do
@@ -110,8 +109,7 @@ defmodule Aiur.TestResetTest do
         ~s({"tickets": [], "expected_remote": "x"})
       )
 
-      assert {:error, :no_tickets_pinned} =
-               TestReset.run(%{repo_root: tmp_dir, confirm: false})
+      assert {:error, :no_tickets_pinned} = TestReset.run(%{repo_root: tmp_dir, confirm: false})
     end
 
     test "ABORT: non-integer ticket ids", %{tmp_dir: tmp_dir} do
@@ -120,13 +118,12 @@ defmodule Aiur.TestResetTest do
         ~s({"tickets": ["../etc/passwd"], "expected_remote": "x"})
       )
 
-      assert {:error, {:invalid_ticket_ids, _}} =
-               TestReset.run(%{repo_root: tmp_dir, confirm: false})
+      assert {:error, {:invalid_ticket_ids, _}} = TestReset.run(%{repo_root: tmp_dir, confirm: false})
     end
 
     test "ABORT: dirty working tree without --force" do
       # Use a temp git repo with uncommitted changes
-      tmp = Aiur.TestSupport.tmp_root!("aiur_test_repo")
+      tmp = reset_tmp_root!("aiur_test_repo")
       File.mkdir_p!(tmp)
 
       {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)
@@ -151,7 +148,7 @@ defmodule Aiur.TestResetTest do
         assert {:error, :dirty_working_tree} = TestReset.run(%{repo_root: tmp, confirm: false})
       after
         File.cd!(original_cwd)
-        File.rm_rf!(tmp)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end
     end
 
@@ -185,13 +182,7 @@ defmodule Aiur.TestResetTest do
     end
 
     test "ABORT: direct reset from aiur-workspaces repo path remains blocked" do
-      tmp =
-        Path.join([
-          System.tmp_dir!(),
-          "aiur-workspaces",
-          "repo",
-          Aiur.TestSupport.tmp_root!("direct-reset")
-        ])
+      tmp = Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", Path.basename(reset_tmp_root!("direct-reset"))])
 
       File.mkdir_p!(tmp)
       write_reset_fixture!(tmp)
@@ -208,7 +199,7 @@ defmodule Aiur.TestResetTest do
           end
         )
       after
-        File.rm_rf!(Path.join(System.tmp_dir!(), "aiur-workspaces"))
+        Aiur.TestCleanup.rm_rf!(tmp)
       end
     end
   end
@@ -217,7 +208,7 @@ defmodule Aiur.TestResetTest do
     test "dry-run with valid tickets returns :ok, no side effects" do
       # Synthesize a fully-baked repo: git-init, commit sandbox baselines,
       # write tickets file, then run dry-run.
-      tmp = Aiur.TestSupport.tmp_root!("aiur_dry")
+      tmp = reset_tmp_root!("aiur_dry")
       File.mkdir_p!(Path.join(tmp, "src/lib/aiur/sandbox"))
 
       {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)
@@ -249,12 +240,12 @@ defmodule Aiur.TestResetTest do
                    allow_remote: true
                  })
       after
-        File.rm_rf!(tmp)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end
     end
 
     test "single dry-run returns :ok and resets only the first ticket, no side effects" do
-      tmp = Aiur.TestSupport.tmp_root!("aiur_single")
+      tmp = reset_tmp_root!("aiur_single")
       File.mkdir_p!(Path.join(tmp, "src/lib/aiur/sandbox"))
 
       {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)
@@ -293,7 +284,7 @@ defmodule Aiur.TestResetTest do
         refute output =~ "- 100"
         refute output =~ "- 101"
       after
-        File.rm_rf!(tmp)
+        Aiur.TestCleanup.rm_rf!(tmp)
       end
     end
   end

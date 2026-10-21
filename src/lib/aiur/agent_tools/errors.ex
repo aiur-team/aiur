@@ -3,22 +3,68 @@ defmodule Aiur.AgentTools.Errors do
   Error payload catalog for dynamic tool failures.
   """
 
+  alias Aiur.AgentTools.AgentLifecycleErrors
   alias Aiur.AgentTools.Response
-  alias Aiur.AgentTools.TicketState
 
   @spec payload(term()) :: map()
-  def payload(:invalid_epic_arguments), do: %{"error" => %{"message" => "Invalid epic arguments; choose an epic or clear, without actor or source fields."}}
-  def payload({:unknown_epic, epic, known}), do: %{"error" => %{"message" => "Unknown general epic #{inspect(epic)}", "epic" => epic, "known" => known}}
-  def payload(:epic_overrides_unavailable), do: %{"error" => %{"message" => "Epic overrides unavailable; no assignments were changed."}}
-  def payload(:epic_overrides_outcome_unknown), do: %{"error" => %{"message" => "Epic write outcome is unknown. Retry the identical set to observe changed or unchanged."}}
-  def payload(:epic_config_unavailable), do: %{"error" => %{"message" => "Epic config unavailable; no default catalog is assumed."}}
+  def payload(:invalid_epic_arguments),
+    do: %{
+      "error" => %{
+        "message" => "Invalid epic arguments; choose an epic or clear, without actor or source fields."
+      }
+    }
 
-  def payload(:feature_writer_unavailable), do: feature_error("feature_writer_unavailable", "Feature writer unavailable; use the daemon-bound agent tool.")
-  def payload(:feature_tool_needs_github_issue), do: feature_error("feature_tool_needs_github_issue", "Feature tools require a bound numeric GitHub issue identifier.")
-  def payload(:invalid_feature_arguments), do: feature_error("invalid_feature_arguments", "Invalid feature arguments; actor and source cannot be supplied.")
-  def payload({:invalid_feature_arguments, message}), do: feature_error("invalid_feature_arguments", message)
-  def payload({:agent_cannot_use_feature_op, op}), do: feature_error("agent_cannot_use_feature_op", "Feature #{op} is operator-only.")
-  def payload({:backfill_cannot_use_feature_op, op}), do: feature_error("backfill_cannot_use_feature_op", "Backfill cannot use feature #{op}.")
+  def payload({:unknown_epic, epic, known}),
+    do: %{
+      "error" => %{
+        "message" => "Unknown general epic #{inspect(epic)}",
+        "epic" => epic,
+        "known" => known
+      }
+    }
+
+  def payload(:epic_overrides_unavailable),
+    do: %{"error" => %{"message" => "Epic overrides unavailable; no assignments were changed."}}
+
+  def payload(:epic_overrides_outcome_unknown),
+    do: %{
+      "error" => %{
+        "message" => "Epic write outcome is unknown. Retry the identical set to observe changed or unchanged."
+      }
+    }
+
+  def payload(:epic_config_unavailable),
+    do: %{"error" => %{"message" => "Epic config unavailable; no default catalog is assumed."}}
+
+  def payload(:feature_writer_unavailable),
+    do:
+      feature_error(
+        "feature_writer_unavailable",
+        "Feature writer unavailable; use the daemon-bound agent tool."
+      )
+
+  def payload(:feature_tool_needs_github_issue),
+    do:
+      feature_error(
+        "feature_tool_needs_github_issue",
+        "Feature tools require a bound numeric GitHub issue identifier."
+      )
+
+  def payload(:invalid_feature_arguments),
+    do:
+      feature_error(
+        "invalid_feature_arguments",
+        "Invalid feature arguments; actor and source cannot be supplied."
+      )
+
+  def payload({:invalid_feature_arguments, message}),
+    do: feature_error("invalid_feature_arguments", message)
+
+  def payload({:agent_cannot_use_feature_op, op}),
+    do: feature_error("agent_cannot_use_feature_op", "Feature #{op} is operator-only.")
+
+  def payload({:backfill_cannot_use_feature_op, op}),
+    do: feature_error("backfill_cannot_use_feature_op", "Backfill cannot use feature #{op}.")
 
   def payload(:missing_query) do
     %{
@@ -193,14 +239,7 @@ defmodule Aiur.AgentTools.Errors do
     }
   end
 
-  def payload(:no_issue_identifier) do
-    %{
-      "error" => %{
-        "message" => "Decision requests require a ticket identifier.",
-        "reason" => "no_issue_identifier"
-      }
-    }
-  end
+  def payload(:no_issue_identifier), do: AgentLifecycleErrors.payload(:no_issue_identifier)
 
   def payload(:invalid_event_arguments) do
     %{
@@ -269,64 +308,24 @@ defmodule Aiur.AgentTools.Errors do
     do: %{"error" => %{"message" => "`issue_number` must be a positive integer."}}
 
   def payload(:blocker_declarer_unavailable),
-    do: %{
-      "error" => %{
-        "message" => "`aiur_declare_blocker` is unavailable in the current runtime context."
-      }
-    }
+    do: AgentLifecycleErrors.payload(:blocker_declarer_unavailable)
 
   def payload({:stale_review_base, detail}),
-    do: %{
-      "error" => %{
-        "message" =>
-          "Human-review refused: PR ##{detail.pr_number} conflicts with or overlaps changes in current origin/#{detail.base_branch}. " <>
-            "Integrate the configured base at most once per handoff, resolve conflicts, validate and push. " <>
-            "Keep the PR ready before returning to ci-wait; wait for CI on the new head before requesting human-review. " <>
-            "If another unsafe base change appears after that integration, alert the Executor instead of repeating the merge/CI cycle. " <>
-            "Never dequeue a pull request from the merge queue, or ask the Executor to, in order to update its branch.",
-        "reason" => "stale_review_base",
-        "detail" => Response.jsonable(detail)
-      }
-    }
+    do: AgentLifecycleErrors.payload({:stale_review_base, detail})
 
   def payload(:ticket_state_setter_unavailable),
-    do: %{
-      "error" => %{
-        "message" => "`aiur_set_ticket_state` is unavailable in the current runtime context."
-      }
-    }
+    do: AgentLifecycleErrors.payload(:ticket_state_setter_unavailable)
 
   def payload({:draft_pr_cannot_enter_state, state, number}),
-    do: %{
-      "error" => %{
-        "reason" => "draft_pr_cannot_enter_state",
-        "state" => state,
-        "pull_request" => number,
-        "message" => "Mark the draft pull request ready before moving this ticket to #{state}."
-      }
-    }
+    do: AgentLifecycleErrors.payload({:draft_pr_cannot_enter_state, state, number})
 
-  def payload(:missing_ticket_state),
-    do: %{"error" => %{"message" => "`state` is required."}}
-
-  def payload(:invalid_ticket_state),
-    do: %{"error" => %{"message" => "`state` must be a string."}}
+  def payload(:missing_ticket_state), do: AgentLifecycleErrors.payload(:missing_ticket_state)
+  def payload(:invalid_ticket_state), do: AgentLifecycleErrors.payload(:invalid_ticket_state)
 
   def payload({:unsettable_ticket_state, state}),
-    do: %{
-      "error" => %{
-        "message" =>
-          "`state` must be one of: " <>
-            Enum.join(TicketState.agent_settable_states(), ", ") <>
-            ". `todo` is owned by dispatch, and `merging`/`cancelled` are Executor dispositions an agent must not claim.",
-        "state" => state
-      }
-    }
+    do: AgentLifecycleErrors.payload({:unsettable_ticket_state, state})
 
-  def payload(:unblocker_unavailable),
-    do: %{
-      "error" => %{"message" => "`aiur_unblock` is unavailable in the current runtime context."}
-    }
+  def payload(:unblocker_unavailable), do: AgentLifecycleErrors.payload(:unblocker_unavailable)
 
   def payload(:cycle_detected),
     do: %{
@@ -452,7 +451,12 @@ defmodule Aiur.AgentTools.Errors do
   end
 
   def payload({reason, message})
-      when reason in [:no_op_rework, :stale_pr_body_evidence, :rework_findings_unaddressed, :pull_request_conflicting] and is_binary(message) do
+      when reason in [
+             :no_op_rework,
+             :stale_pr_body_evidence,
+             :rework_findings_unaddressed,
+             :pull_request_conflicting
+           ] and is_binary(message) do
     %{"error" => %{"message" => message, "reason" => Atom.to_string(reason)}}
   end
 
@@ -467,7 +471,10 @@ defmodule Aiur.AgentTools.Errors do
 
   defp coordination_payload(message, reason, detail \\ nil) do
     error = %{"message" => message, "reason" => Atom.to_string(reason)}
-    %{"error" => if(is_nil(detail), do: error, else: Map.put(error, "detail", Response.jsonable(detail)))}
+
+    %{
+      "error" => if(is_nil(detail), do: error, else: Map.put(error, "detail", Response.jsonable(detail)))
+    }
   end
 
   defp feature_error(code, message), do: %{"error" => %{"code" => code, "message" => message}}

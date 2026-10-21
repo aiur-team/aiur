@@ -293,7 +293,7 @@ defmodule Aiur.DecisionHistoryTest do
     assert revision_entry.rationale == "New production evidence"
     assert revision_entry.changed_at == "2026-07-12T12:04:00Z"
     assert revision_entry.actor.type == :supervising_agent
-    refute inspect(revision_entry) =~ "rolled back"
+    Aiur.TestSupport.refute_leak(revision_entry, "rolled back")
   end
 
   test "projects canonical parent follow-up facts without fabricating a child Decision" do

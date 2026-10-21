@@ -57,14 +57,12 @@ shared [dictated-input note](dictated-input.md).
   has the page map.
 - Every PR description starts with `Closes #<issue>`. Commit messages are short
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
-- Integration safety is your responsibility. Before CI or human-review
-  handoff, assess the exact PR head against its configured base. Harmless
-  staleness passes; an approved exact head needs integration only for a real
-  conflict, while other conflicts or changed-file overlap require integration,
-  up to 3 integrations per handoff without asking, each followed by relevant
-  local tests and format, size, components gates. After the third, emit a
-  non-blocking Executor alert; keep going if the base is safe. Never open a
-  blocking decision for base integration. Record attempts in `dev-loop.md`.
+- Integration safety is your responsibility. During `human-review` or
+  `ci-wait`, integrate the configured base only when GitHub reports the exact
+  PR head as `CONFLICTING` or a reviewer asks. File overlap and base movement
+  alone do not require a push; the merge queue tests the PR on current base.
+  Never open a blocking decision for base integration. Record any required
+  conflict resolution in `dev-loop.md`.
   A PR already in the merge queue is left alone: never dequeue it, or ask the
   Executor to, in order to update its branch.
 - **Events:** `emit_event(name, message, payload?)` publishes to

@@ -12,6 +12,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
 
   describe "CI lifecycle coordination" do
     test "a deactivated+ci-wait entry is woken by the CI terminal event" do
+      test_pid = self()
+      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+
       identifier = unique_identifier("deactivated-terminal-wake")
       recorder = start_recorder()
       issue = issue(identifier, "ci-wait")

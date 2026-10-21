@@ -175,9 +175,14 @@ cmd_github_usage() {
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
   local args="" arg
+  if [ "${1:-}" = "ack" ] && env | grep -Eq '^(AIUR_AGENT_|CODEX_THREAD_ID=|CLAUDECODE=|OPENCODE_SESSION_ID=)'; then
+    echo "aiur: alerts ack is operator-only; agent sessions cannot acknowledge their own attentions" >&2
+    exit 64
+  fi
+
   for arg in "$@"; do
     case "$arg" in
-      '' | *[!a-z0-9-]*) echo "aiur: alerts accepts --needs-attention, --limit <n>, --all" >&2; exit 64 ;;
+      '' | *[!a-z0-9.-]*) echo "aiur: alerts accepts --needs-attention, --limit <n>, --all, ack ticket.<id>.agent.attention.duplicate-dispatch --executor-id <id>" >&2; exit 64 ;;
     esac
     args="${args}\"$arg\", "
   done

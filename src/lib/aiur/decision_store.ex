@@ -311,6 +311,12 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:get, decision_id})
   end
 
+  @doc false
+  @spec await_failure_attention_reprojection(GenServer.server()) :: :ok
+  def await_failure_attention_reprojection(server \\ __MODULE__) do
+    GenServer.call(server, :await_failure_attention_reprojection, @request_timeout)
+  end
+
   @spec list(GenServer.server()) :: [Decision.t()]
   def list(server \\ __MODULE__) do
     GenServer.call(server, :list)

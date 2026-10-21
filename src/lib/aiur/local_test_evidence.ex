@@ -55,7 +55,13 @@ defmodule Aiur.LocalTestEvidence do
 
   defp commands(section) do
     lines = String.split(section, "\n")
-    indexes = for {line, index} <- Enum.with_index(lines), String.starts_with?(line, "- "), do: index
+
+    indexes =
+      for {line, index} <- Enum.with_index(lines),
+          String.starts_with?(line, "- "),
+          not post_deploy_check?(line),
+          do: index
+
     parsed = Enum.map(indexes, &Regex.run(~r/^- `(\S[^`]*)` -> (\S.*)$/, Enum.at(lines, &1)))
 
     bad = Enum.find_index(parsed, &is_nil/1)
@@ -83,6 +89,8 @@ defmodule Aiur.LocalTestEvidence do
     previous = lines |> Enum.take(first) |> Enum.reject(&(String.trim(&1) == "")) |> List.last("")
     List.last(indexes) - first + 1 == length(indexes) and Regex.match?(~r/^(Policy|Tested head|Base|Selection):/, previous)
   end
+
+  defp post_deploy_check?(line), do: Regex.match?(~r/^\s*-\s+Post-deploy check:\s+\S/i, line)
 
   defp rank(mode), do: Enum.find_index(@modes, &(&1 == mode))
 end

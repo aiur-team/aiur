@@ -36,6 +36,12 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   genuine application call through the same seam and asserts the counter fires,
   so the zeros above it mean something. If that control ever fails, treat every
   other assertion in this file as unproven rather than passing.
+
+  To exclude unrelated egress, the test suspends MainWatch, LandingWatch,
+  HealthScanner, HeadVerdictRouter, and ReworkRequeue after draining in-flight
+  work. They wake from timers or `pr.merged`, `branch.push`, and
+  `main.ci.failed.resolved` events; `aiur_web` cannot call or message them, so
+  suspension cannot hide a page-opened request.
   """
 
   use Aiur.TestSupport
@@ -49,6 +55,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
   alias Aiur.RunTelemetry.FactsCapture
   alias Aiur.TestSupport.EndpointStubs
+  alias Aiur.TestSupport.ZeroFetchPageOpenWatchers
   alias Aiur.TrackerIdentity
   alias AiurWeb.ControlCenterCache
 
@@ -75,6 +82,10 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
   setup context do
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
+
+    ZeroFetchPageOpenWatchers.suspend(fn pid ->
+      on_exit(fn -> ZeroFetchPageOpenWatchers.resume(pid) end)
+    end)
 
     # Clear prior comment work and finish startup cleanup before counting.
     on_exit(fn -> assert :ok = Aiur.TestSupport.ensure_orchestrator_running() end)
@@ -368,6 +379,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
     test "an issue already held costs no request at all", %{counter: counter} do
       {owner, repo} = @repository
+
       ResourceStore.put_resource(ResourceStore.key(:issue, owner, repo, "2073"), held_issue(2073), source: :webhook, version: "2026-08-17T10:00:00Z")
 
       assert {:ok, detail} =
@@ -435,11 +447,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     fetcher = fn ["33189"] ->
       send(test_pid, {:inherited_tracker_task, self()})
       receive_barrier(:continue)
+
       Issues.fetch_issue_raw_conditional(33_189, repository: {"aiur-team", "aiur"}, token: "test-token")
+
       {:ok, []}
     end
 
     send(Aiur.Orchestrator, {:event, %{topic: "ticket.33189.issue.commented", issue_state_fetcher: fetcher}})
+
     receive_barrier({:inherited_tracker_task, pid})
     pid
   end

@@ -180,6 +180,7 @@ defmodule Aiur.Orchestrator.ReworkDispatchClaimTest do
           {:ok, %{"number" => 4336, "mergeable" => true, "head" => %{"sha" => "abc123"}}}
         end,
         unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "review-thread"}]} end,
+        reviews_fetcher: fn 4336 -> {:ok, [%{"state" => "CHANGES_REQUESTED", "commit_id" => "abc123", authoritative: true}]} end,
         queued_approval_fetcher: fn _pr -> {:ok, false} end,
         create_comment_fun: fn _identifier, _body -> :ok end,
         emit_alert_fun: fn _topic, _opts -> :ok end

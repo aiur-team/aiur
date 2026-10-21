@@ -104,9 +104,11 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
     assert dashboard_css =~ ":root {"
     refute dashboard_css =~ ".status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
-    assert dashboard_css =~ "html.nav-collapsed .snav-label"
-    # The collapsed rail retains its drag handle and route icons.
-    assert dashboard_css =~ "html.nav-collapsed .sidenav"
+    shell_css = response(get(build_conn(), "/aiur-style/css/dashboard-shell.css"), 200)
+    assert html =~ "/aiur-style/css/dashboard-shell.css"
+    assert shell_css =~ "html.nav-collapsed .aiur-shell--dashboard .aiur-shell__label"
+    # The collapsed rail retains its drag handle and route icons in the package.
+    assert shell_css =~ "html.nav-collapsed .aiur-shell--dashboard .aiur-shell__sidebar"
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 

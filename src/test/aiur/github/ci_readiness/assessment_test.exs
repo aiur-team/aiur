@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.CiReadiness
+  alias Aiur.GitHub.{Budget, CiReadiness}
 
   @workflow """
   name: CI
@@ -149,8 +149,8 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
 
     parent = self()
 
-    request_fun = fn %{url: url} ->
-      send(parent, {:readiness_request, url})
+    request_fun = fn %{url: url} = request ->
+      send(parent, {:readiness_request, url, Map.get(request, :credential_id), Map.get(request, :credential_key)})
 
       cond do
         url =~ "/rules/branches/develop" ->
@@ -186,7 +186,8 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     end
 
     assert {:ok, ^readiness} = CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, request_fun))
-    assert_received {:readiness_request, "workflow-content?ref=develop"}
+    assert_received {:readiness_request, "workflow-content?ref=develop", "ci_readiness", key}
+    assert key == Budget.token_key("operator-test-token")
   end
 
   test "dispatch reports the operator token required instead of accepting a persisted ready result" do

@@ -213,7 +213,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     assert revised.choice == "Hold the rollout"
     assert revised.rationale == "New production evidence"
     assert revised.ticket.identifier == "985"
-    refute inspect(revised) =~ ~r/rolled back|reverted|undone/i
+    Aiur.TestSupport.refute_leak(revised, ~r/rolled back|reverted|undone/i)
 
     assert {:ok, %{status: :duplicate, action: replayed}} =
              DecisionStore.revise(decision.decision_id, revision_payload, [actor: @operator], pid)

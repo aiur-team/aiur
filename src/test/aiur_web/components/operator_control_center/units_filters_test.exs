@@ -58,6 +58,22 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFiltersTest do
     refute unavailable =~ ~r/units-filter-count num[^>]*>0</
   end
 
+  test "renders unknown counts while the Units catalog is loading" do
+    loading =
+      render_component(&UnitsFilters.units_filters/1, %{
+        selection: %{scope: :all, conditions: []},
+        counts: %{scope: 0, active: 0, alert: 0, paused: 0, stuck: 0, queued: 0, finished: 0},
+        count_status: :loading
+      })
+
+    assert loading =~ ~s(aria-label="Count loading")
+    assert loading =~ "disabled"
+    assert loading =~ ~r/aria-label="Count loading">\s*—\s*<\/span>/
+    refute loading =~ ~r/aria-label="Count loading">\s*0\s*<\/span>/
+    refute loading =~ "0+"
+    refute loading =~ ~r/units-filter-count num[^>]*>0</
+  end
+
   defp position(html, needle) do
     {position, _length} = :binary.match(html, needle)
     position

@@ -22,15 +22,22 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec close_active_chat_streams(String.t(), term()) :: :ok
   def close_active_chat_streams(identifier, reason) when is_binary(identifier) do
-    for aiur_turn_id <- ActiveTurns.active_turn_ids(identifier) do
+    active_turn_ids(identifier)
+    |> Enum.each(fn aiur_turn_id ->
       AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
       ActiveTurns.mark_closed(identifier, aiur_turn_id, reason)
-    end
+    end)
 
     :ok
   end
 
   def close_active_chat_streams(_identifier, _reason), do: :ok
+
+  defp active_turn_ids(identifier) do
+    ActiveTurns.active_turn_ids(identifier)
+  rescue
+    ArgumentError -> []
+  end
 
   defp terminate_reason(true), do: :terminal
   defp terminate_reason(false), do: :replaced

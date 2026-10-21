@@ -10,7 +10,8 @@ defmodule AiurEngineCommandsTest do
         []
       )
 
-    assert out =~ "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
   end
 
   test "units routes page-visible filters through the control rpc" do
@@ -209,7 +210,14 @@ defmodule AiurEngineCommandsTest do
 
     {escalate, _code} =
       run_engine_real(
-        ["executor-escalate", "decision:42", "--expected-version", "3", "--reason", "Irreversible"],
+        [
+          "executor-escalate",
+          "decision:42",
+          "--expected-version",
+          "3",
+          "--reason",
+          "Irreversible"
+        ],
         env
       )
 
@@ -225,7 +233,8 @@ defmodule AiurEngineCommandsTest do
         []
       )
 
-    assert out =~ "RPC:Aiur.AgentControlCLI.build_orders([json: true, root: Base.decode64!(\"MTM2Mw==\")])"
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.build_orders([json: true, root: Base.decode64!(\"MTM2Mw==\")])"
   end
 
   test "build-orders rejects multiple roots" do
@@ -309,6 +318,17 @@ defmodule AiurEngineCommandsTest do
       {out, 64} = run_sourced_engine("cmd_github_usage #{argv}", [])
       assert out =~ message
     end
+  end
+
+  test "alerts ack refuses agent sessions before contacting the daemon" do
+    {out, 64} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_alerts ack ticket.42.agent.attention.duplicate-dispatch --executor-id executor|,
+        [{"AIUR_AGENT_WORKSPACE", "/tmp/agent-workspace"}]
+      )
+
+    assert out =~ "operator-only"
+    refute out =~ "RPC:"
   end
 
   test "analytics rejects malformed launcher arguments before an RPC" do

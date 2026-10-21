@@ -6,6 +6,12 @@ defmodule Aiur.Regression.OrchestratorLifecycle.CommentWakeTest do
   alias Aiur.OrchestratorLifecycleSupport.HermeticReworkGitHubClient
   require Logger
 
+  setup do
+    test_pid = self()
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+    :ok
+  end
+
   describe "comment wake/rework transitions" do
     setup do
       previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
@@ -223,7 +229,7 @@ defmodule Aiur.Regression.OrchestratorLifecycle.CommentWakeTest do
     test "pr.merged terminalizes the ticket to done and tears down the running entry" do
       issue_id = "7416"
       identifier = "7416"
-      memory_tracker!([])
+      memory_tracker!([%Issue{id: issue_id, identifier: identifier, state: "rework", title: "Merged ticket"}])
       entry = Map.put(running_entry(issue_id, identifier, :working), :pid, worker_pid())
       state = base_state(running: %{issue_id => entry}, claimed: MapSet.new([issue_id]))
 

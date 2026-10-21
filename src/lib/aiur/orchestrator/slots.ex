@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Slots do
   """
 
   alias Aiur.{CodingAgent, Config, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
@@ -65,7 +65,18 @@ defmodule Aiur.Orchestrator.Slots do
 
   def apply_session_max_concurrent_agents(%State{} = state, next) when is_integer(next) do
     previous = max_concurrent_agent_limit(state)
-    state = Map.put(state, :session_max_concurrent_agents, next)
+
+    case ControlLifecycleStore.update_checked(&%{&1 | max_agents: next}) do
+      :ok ->
+        state = Map.put(state, :session_max_concurrent_agents, next)
+        apply_session_max_concurrent_agents_after_persist(state, previous, next)
+
+      {:error, reason} ->
+        {:reply, {:error, {:persistence_failed, reason}}, state}
+    end
+  end
+
+  defp apply_session_max_concurrent_agents_after_persist(state, previous, next) do
     # Reschedule only; never run the tracker poll inline in this control call (#2137).
     state = if next > previous, do: Lifecycle.wake_tick(state), else: state
 

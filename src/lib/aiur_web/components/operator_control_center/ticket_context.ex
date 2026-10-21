@@ -115,7 +115,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
       <div :if={available_capabilities(@capabilities) != []} class="ticket-context-ctas">
         <a
           :for={capability <- available_capabilities(@capabilities)}
-          class="btn sm ticket-context-cta"
+          class="aiur-button aiur-button--dashboard btn sm ticket-context-cta"
           href={capability.href}
           target={if(capability.external?, do: "_blank")}
           rel={if(capability.external?, do: "noopener noreferrer")}

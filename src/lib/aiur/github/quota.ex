@@ -33,16 +33,20 @@ defmodule Aiur.GitHub.Quota do
 
   use GenServer
 
+  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.Credential
+  alias Aiur.GitHub.CredentialRegistry
   alias Aiur.GitHub.{HoldSweep, RequestLog, RequestOrigin, Transport}
 
-  alias Aiur.GitHub.Quota.{Attribution, Coverage, ShellObservations, Windows}
+  alias Aiur.GitHub.Quota.{Attribution, Coverage, ShellObservations, SnapshotCache, Windows}
   alias Aiur.Signal
 
   @empty_coverage %{resources: %{}, estimated?: false}
   @unknown_snapshot %{
     state: :unknown,
     windows: %{},
+    credential_windows: %{},
     attribution: [],
     callers: [],
     coverage: @empty_coverage,
@@ -91,6 +95,26 @@ defmodule Aiur.GitHub.Quota do
   @spec snapshot!(GenServer.server(), timeout()) :: map()
   def snapshot!(server \\ __MODULE__, timeout \\ 5_000), do: GenServer.call(server, :snapshot, timeout)
 
+  @doc """
+  Returns a recently published snapshot without contacting the quota process.
+
+  The live snapshot path also refreshes this cache. Consumers on latency-sensitive
+  paths can use it first, then choose their own bounded live-read fallback on a miss.
+  """
+  @spec cached_snapshot(GenServer.server(), non_neg_integer()) :: {:ok, map(), non_neg_integer(), integer()} | :miss
+  def cached_snapshot(server \\ __MODULE__, max_age_ms \\ 60_000),
+    do: cached_snapshot_at(server, max_age_ms, System.monotonic_time(:millisecond))
+
+  @doc false
+  @spec cached_snapshot_at(GenServer.server(), non_neg_integer(), integer()) :: {:ok, map(), non_neg_integer(), integer()} | :miss
+  def cached_snapshot_at(server, max_age_ms, now_ms) do
+    server_pid = if is_pid(server), do: server, else: GenServer.whereis(server)
+
+    if server_pid, do: SnapshotCache.get(server_pid, max_age_ms, now_ms), else: :miss
+  catch
+    :exit, _reason -> :miss
+  end
+
   @spec preflight(GenServer.server(), request()) :: :ok | {:hold, hold()}
   def preflight(server \\ __MODULE__, request) do
     GenServer.call(server, {:preflight, request})
@@ -118,6 +142,8 @@ defmodule Aiur.GitHub.Quota do
 
   @impl true
   def init(opts) do
+    SnapshotCache.ensure_table()
+
     refresh? = Keyword.get(opts, :refresh?, Application.get_env(:aiur, :github_quota_refresh?, true))
 
     # Resolved once at boot: every observe appends to the same durable file,
@@ -133,6 +159,7 @@ defmodule Aiur.GitHub.Quota do
 
     state = %{
       windows: %{},
+      credential_windows: %{},
       backoffs: %{},
       observations: [],
       shell_observations: [],
@@ -221,6 +248,13 @@ defmodule Aiur.GitHub.Quota do
         Map.new(state.windows, fn {resource, window} ->
           {resource, window |> Windows.present_window() |> Map.put(:started_at, Attribution.window_start(state.windows, resource, now))}
         end),
+      credential_windows:
+        state.credential_windows
+        |> Enum.filter(fn {{_key, _resource}, window} -> DateTime.compare(now, window.reset_at) == :lt end)
+        |> Enum.reduce(%{}, fn {{key, resource}, window}, acc ->
+          visible = window |> Windows.present_window() |> Map.put(:started_at, DateTime.add(window.reset_at, -3600, :second))
+          Map.update(acc, key, %{resource => visible}, &Map.put(&1, resource, visible))
+        end),
       observing_since: Attribution.observing_since(state, now),
       attribution: Attribution.summarize_attribution(in_window),
       callers: Attribution.summarize_callers(in_window, state.windows, now),
@@ -229,6 +263,7 @@ defmodule Aiur.GitHub.Quota do
       backoffs: Windows.present_backoffs(state, now)
     }
 
+    SnapshotCache.put(self(), snapshot, System.monotonic_time(:millisecond), System.system_time(:millisecond))
     {:reply, snapshot, state}
   end
 
@@ -295,6 +330,7 @@ defmodule Aiur.GitHub.Quota do
 
   @impl true
   def terminate(_reason, state) do
+    SnapshotCache.delete(self())
     # Flush and close the request log's delayed-write io_device so the last
     # buffered rows are not lost on shutdown.
     if state.request_log_io, do: :file.close(state.request_log_io)
@@ -319,10 +355,16 @@ defmodule Aiur.GitHub.Quota do
 
   defp refresh_from_github do
     with token when is_binary(token) and token != "" <- GitHubConfig.token() do
+      credential = CredentialRegistry.credentials() |> Enum.find(&(&1.primary? and Credential.token(&1) == token))
+      credential_key = if credential, do: Credential.identity_key(credential), else: Budget.token_key(token)
+
       Transport.default_request_fun(%{
         method: :get,
         url: "https://api.github.com/rate_limit",
         token: token,
+        credential_id: "primary",
+        credential_pinned?: true,
+        credential_key: credential_key,
         timeout_ms: 10_000
       })
     end

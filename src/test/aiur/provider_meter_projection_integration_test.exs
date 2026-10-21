@@ -21,13 +21,16 @@ defmodule Aiur.ProviderMeterProjectionIntegrationTest do
 
     projection_name = :"projection_int_#{System.unique_integer([:positive])}"
 
-    {:ok, _projection} =
-      ProviderMeterProjection.start_link(
-        name: projection_name,
-        clock: fn -> DateTime.add(@now, 90, :second) end
-      )
+    projection =
+      start_supervised!({ProviderMeterProjection, name: projection_name, clock: fn -> DateTime.add(@now, 90, :second) end})
 
-    %{owner: owner, store: store, projection: projection_name}
+    %{owner: owner, store: store, projection: projection_name, projection_pid: projection}
+  end
+
+  test "the projection is not linked to the test process", ctx do
+    {:links, links} = Process.info(self(), :links)
+
+    refute ctx.projection_pid in links
   end
 
   test "a binding-scoped ingest becomes readable without a binding", ctx do
@@ -52,8 +55,7 @@ defmodule Aiur.ProviderMeterProjectionIntegrationTest do
 
     view = await_observed(ctx.projection, :codex)
 
-    refute view |> inspect(limit: :infinity) |> String.contains?(generation),
-           "the account generation leaked into the consumer projection"
+    Aiur.TestSupport.refute_leak(view, generation)
   end
 
   defp await_observed(projection, provider, attempts \\ 50) do

@@ -211,11 +211,11 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
 
     assert {:ok, snapshot} = TicketHistoryProvider.request(server, identity())
     assert_receive {:queried, %{identifier: "42"}}, 1000
-    refute inspect(snapshot) =~ secret
-    refute inspect(snapshot) =~ "/home/private"
-    refute inspect(snapshot) =~ "agent.ndjson"
-    refute inspect(snapshot) =~ "terminal output"
-    refute inspect(snapshot) =~ "raw model output"
+    Aiur.TestSupport.refute_leak(snapshot, secret)
+    Aiur.TestSupport.refute_leak(snapshot, "/home/private")
+    Aiur.TestSupport.refute_leak(snapshot, "agent.ndjson")
+    Aiur.TestSupport.refute_leak(snapshot, "terminal output")
+    Aiur.TestSupport.refute_leak(snapshot, "raw model output")
   end
 
   test "publishes immutable per-ticket updates and tolerates subscriber churn" do

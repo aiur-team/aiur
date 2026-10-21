@@ -156,7 +156,11 @@ test count in each PR body. Tagged tests also run in normal partitioned CI.
   `shard-flake-evidence-<shard>-<attempt>` artifact, including `attempt.json`
   and `flakes.ndjson`. On a successful rerun of the same workflow run and SHA,
   the ledger records each previously failing ExUnit test with its shard, run
-  ID, failed/passed attempts, and seeds (null when the log has no seed).
+  ID, failed/passed attempts, and seeds (null when the log has no seed). The
+  landing watcher groups failures from one merge-group attempt by test module:
+  it files one ticket for the module with the most failed tests (first module
+  wins ties), lists other modules as likely cascades, and does not quarantine
+  tests based only on that mixed-module attempt.
   The job summary shows the count and test names. Download these artifacts to
   count recurrence; they use GitHub's repository artifact retention policy.
   Ledger and artifact errors are non-blocking so they cannot fail a passing shard.
@@ -339,6 +343,11 @@ and `R-optional` (required code must not depend on optional code). Failures name
 source component, target module and the reference location. Fix the boundary or
 manifest first; an exemption is temporary debt, not permission to add more.
 
+A component may declare `private_namespaces` (trailing-dot prefixes). These
+restrict outside references, including aliases and module literals, in addition
+to the existing facade rule. Exact `facades` override namespace privacy. Harness adapters use this rule; registry values inside the
+component are legal. Dynamic module construction is outside the static scan.
+
 Allowlist TSVs in `scripts/components/allowlist/` match exact
 `(rule, source component, target module)` keys. A removed violation leaves a
 stale entry that fails lint: delete it in the same PR, or run
@@ -376,8 +385,8 @@ that each add a seam then touch different files and merge without conflict.
 Every root config section and scalar field, env schema name, and public
 `Aiur.Config.Paths` function ending in `_dir` or `_path` must have exactly one
 owner in `owns.config`, `owns.env` or `owns.state`. Add the owner in the same PR
-as a new declaration; stale and duplicate ownership also fail lint.
-`shared_with` records collaborating components without assigning another owner.
+as a new declaration; stale and duplicate ownership also fail lint. Explicit dotted
+`owns.config` fields override their section owner; `shared_with` records collaborators.
 
 RQ4: root sections stay literal `embeds_one` declarations: Ecto composes the
 struct at compile time and `check-config-docs.py` reads those lines. Ownership

@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
   use Aiur.TestSupport
   import ExUnit.CaptureLog
   alias Aiur.{Issue, TicketMarkers, Tracker, Workflow}
+  alias Aiur.LandingWatch.Journal
   alias Aiur.Orchestrator.{PauseResume, TicketTransition}
   alias Aiur.PRLifecycle.ReworkRequeue
 
@@ -124,6 +125,25 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
     Process.put(:transition_result, {:error, {:github, :timeout, %{reason: :timeout}}})
     assert {:error, {:github, :timeout, %{reason: :timeout}}} = TicketMarkers.write("7", :add, "agent:paused", writer: :pause_resume)
     assert_received {[:aiur, :ticket_transition], _, %{action: :add, outcome: :unknown}}
+  end
+
+  test "approval pause writes retain their writer in the landing journal" do
+    path = Path.join(System.tmp_dir!(), "ticket-transition-pause-#{System.unique_integer([:positive])}.json")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
+
+    assert :ok =
+             TicketTransition.write_marker("7", :add, "agent:paused",
+               writer: :approval_pause,
+               landing_watch_journal_opts: [journal_path: path]
+             )
+
+    assert {:ok, "approval_pause"} = Journal.pause_writer("7", journal_path: path)
+  end
+
+  test "write_comment attributes the comment to its lifecycle writer" do
+    assert :ok = TicketTransition.write_comment("7", "triage note", writer: :merged_ticket_reconciler, identifier: "T-7")
+    assert_received {:memory_tracker_comment, "7", "triage note"}
+    assert_received {[:aiur, :ticket_transition], %{}, %{issue_id: "7", identifier: "T-7", action: :comment, to: "triage note", writer: :merged_ticket_reconciler, outcome: :ok}}
   end
 
   test "writer is required before adapter IO" do

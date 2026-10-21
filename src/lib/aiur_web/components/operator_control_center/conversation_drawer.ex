@@ -70,7 +70,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
             <button
               :if={@close_event}
               type="button"
-              class="tool-btn conversation-drawer-close"
+              class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn conversation-drawer-close"
               phx-click={@close_event}
               data-conversation-focus="close"
             >Close</button>
@@ -163,7 +163,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
               </ol>
             </section>
           </div>
-          <button type="button" class="btn conversation-drawer-jump" data-conversation-jump hidden>
+          <button type="button" class="aiur-button aiur-button--dashboard btn conversation-drawer-jump" data-conversation-jump hidden>
             Jump to latest
           </button>
         </div>
@@ -193,7 +193,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
             <div class="agent-voice-tools">
               <div class="agent-voice-controls">
                 <button
-                  class="tool-btn agent-voice-button"
+                  class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn agent-voice-button"
                   type="button"
                   aria-label="Dictate message"
                   aria-pressed="false"
@@ -207,7 +207,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
                   </svg>
                 </button>
                 <button
-                  class="tool-btn agent-voice-button"
+                  class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn agent-voice-button"
                   type="button"
                   aria-label="Start interactive voice chat"
                   aria-pressed="false"
@@ -240,8 +240,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
               </p>
             </div>
             <div class="agent-chat-actions">
-              <button class="btn danger" type="button" phx-click="pause-agent">Pause</button>
-              <button class="btn" type="submit" data-voice-send>Send</button>
+              <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="button" phx-click="pause-agent">Pause</button>
+              <button class="aiur-button aiur-button--dashboard btn" type="submit" data-voice-send>Send</button>
             </div>
           </form>
           <p :if={!@writable} class="agent-chat-readonly">Read-only dashboard — use the TUI to message or pause this agent.</p>

@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
   `{:memory_tracker_state_update, issue_id, "rework"}` message instead of
   inferred from a log line. Sync (Aiur.TestSupport), because configuring the
   tracker adapter is a VM-global side effect that must not leak into the async
-  `comment_wake_test.exs`.
+  `comment_wake/open_pr_and_attempts_test.exs`.
   """
 
   use Aiur.TestSupport
@@ -48,8 +48,7 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
       tick_token: nil,
       initial_dispatch_cycle: false,
       github_connectivity: %{},
-      github_poll_delays: %{},
-      github_command_scan_since: nil
+      github_poll_delays: %{}
     }
   end
 

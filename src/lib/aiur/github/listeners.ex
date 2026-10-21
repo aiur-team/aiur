@@ -2,16 +2,16 @@ defmodule Aiur.GitHub.Listeners do
   @moduledoc "Supervisor and public facade for GitHub poll-source listeners."
   use Supervisor
 
-  alias Aiur.GitHub.Listeners.{Comments, Firehose}
+  alias Aiur.GitHub.Listeners.{CommandScan, Comments, Firehose}
 
   @type outcome :: %{connectivity: [{atom(), :ok | {:error, term()}}], poll_interval: pos_integer() | nil}
 
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
 
-  # Each listener restarts alone; the orchestrator only casts to it by name, so nothing above needs to restart.
+  # Each listener restarts alone; the orchestrator addresses it by name, so nothing above needs to restart.
   @impl true
-  def init(_opts), do: Supervisor.init([{Firehose, name: Firehose}, {Comments, name: Comments}], strategy: :one_for_one)
+  def init(_opts), do: Supervisor.init([{Firehose, name: Firehose}, {Comments, name: Comments}, {CommandScan, name: CommandScan}], strategy: :one_for_one)
 
   @spec poll_firehose(keyword()) :: outcome() | {:error, :firehose_reset | {:tracker_task_exit, term()}}
   def poll_firehose(opts \\ []), do: GenServer.call(Keyword.get(opts, :server, Firehose), {:poll, opts}, :infinity)
@@ -32,6 +32,9 @@ defmodule Aiur.GitHub.Listeners do
 
   @spec update_backoff(non_neg_integer() | nil, keyword()) :: :ok
   def update_backoff(delay, opts \\ []), do: GenServer.cast(Keyword.get(opts, :server, Comments), {:backoff, delay, Keyword.get(opts, :completion), Keyword.get(opts, :poll_opts)})
+
+  @spec scan_commands(keyword()) :: :ok | {:error, term()}
+  def scan_commands(opts \\ []), do: GenServer.call(Keyword.get(opts, :server, CommandScan), {:poll, opts}, :infinity)
 
   @spec reset() :: :ok
   def reset do

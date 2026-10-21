@@ -59,6 +59,33 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
   end
 
   describe "set_max_concurrent_agents/2 (runtime absolute set)" do
+    test "restores an operator cap after an orchestrator restart" do
+      path = Aiur.TestSupport.tmp_root!("aiur-max-agents-restart") <> ".json"
+      previous_path = Application.get_env(:aiur, :control_lifecycle_store_path)
+      previous_override = Application.get_env(:aiur, :max_concurrent_agents_override)
+      Application.put_env(:aiur, :control_lifecycle_store_path, path)
+      Application.delete_env(:aiur, :max_concurrent_agents_override)
+
+      on_exit(fn ->
+        restore_test_env(:control_lifecycle_store_path, previous_path)
+        restore_test_env(:max_concurrent_agents_override, previous_override)
+        Aiur.TestCleanup.rm_rf!(path)
+        Aiur.TestCleanup.rm_rf!(path <> ".lock")
+      end)
+
+      name = Module.concat(__MODULE__, :RestartedCap)
+      {:ok, first} = Orchestrator.start_link(name: name, initial_poll?: false)
+      Process.unlink(first)
+      assert {:ok, %{max: 4}} = Orchestrator.set_max_concurrent_agents(name, 4)
+      GenServer.stop(first)
+
+      {:ok, second} = Orchestrator.start_link(name: name, initial_poll?: false)
+      Process.unlink(second)
+      on_exit(fn -> if Process.alive?(second), do: GenServer.stop(second) end)
+
+      assert %{max: 4, session_override?: true} = Orchestrator.max_concurrent_agents(name)
+    end
+
     test "applies the cap without forcing an immediate full poll" do
       state = %State{
         max_concurrent_agents: 10,
@@ -220,4 +247,7 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
                Orchestrator.set_max_concurrent_agents(:nonexistent_orchestrator_xyz, 4)
     end
   end
+
+  defp restore_test_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_test_env(key, value), do: Application.put_env(:aiur, key, value)
 end

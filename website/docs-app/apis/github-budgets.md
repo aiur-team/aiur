@@ -32,11 +32,20 @@ Sustained broker retry pressure still appears as
 | GraphQL | Query points | The Units meter, `aiur units`, or `aiur github-cost`. |
 | Anonymous core | REST requests made without a token | A `core:anonymous` row, present only once an anonymous read has been observed. |
 | Secondary limit | Temporary abuse-control backoff | A separate Units row while the backoff is active. |
+| Issue dependencies / sub-issues | Route-specific REST windows | Separate `core:issue_dependencies` and `core:sub_issues` observations in the quota snapshot; excluded from primary Core and dispatch. |
 
 Anonymous reads — a public `CODEOWNERS` fetch when no token is configured, for
 instance — bill GitHub's 60/hour unauthenticated per-IP allowance rather than
 the authenticated core budget, so they are metered in their own window. An
 exhausted anonymous allowance holds further anonymous reads but never gates agent dispatch.
+
+GitHub can return a separate `core` window on issue dependency and sub-issue
+endpoints. Aiur retains those headers under route-specific resource names so
+they cannot replace the primary Core window used by Units and dispatch.
+
+The REST `/rate_limit` refresh updates Core from its `resources.core` value.
+The GraphQL window comes from GraphQL response headers or `rateLimit` data; the
+REST response's `resources.graphql` value does not update it.
 
 ### Where the budget went
 
@@ -131,6 +140,15 @@ windows, so REST core sitting near-idle is not headroom a GraphQL query can spen
 
 Headroom comes from the `x-ratelimit-*` headers of calls the daemon was already
 making, so selection costs no budget of its own.
+
+The dashboard's primary GitHub window follows the daemon's primary credential.
+Readiness checks that use the operator-only `AIUR_CI_READINESS_TOKEN` do not
+replace it; other credential windows remain available in `aiur github-usage`.
+
+Readiness requests carry an explicit non-primary identity. Requests without a
+resolved credential identity are retained under their token fingerprint and
+never update the primary window. The primary meter changes only for requests
+identified as the primary credential.
 
 A credential with no observation this window is treated as probably full rather
 than as empty, and ties resolve to the primary credential.

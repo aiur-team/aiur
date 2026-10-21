@@ -10,6 +10,12 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.SnapshotFenceSupport
 
+  setup do
+    test_pid = self()
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+    :ok
+  end
+
   test "tracker rework after completed CI wait honors effective capacity" do
     issue = completed_rework_issue("tracker-effective-cap")
     configure_completed_revalidation!([issue], max_concurrent_agents: 3)
@@ -247,7 +253,7 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
 
     on_exit(fn ->
       File.touch(release_file)
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
 
       Enum.each(completed, fn {_issue_id, {_identifier, worker, _ref, _entry}} ->
         if Process.alive?(worker), do: Process.exit(worker, :kill)
@@ -320,7 +326,7 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
     freeze_poll_cycle(pid)
 
-    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
 
     # The initial tick schedules a one-shot `:run_poll_cycle` (~20ms render
     # delay) that is not token-fenced; the freeze must make it (and any

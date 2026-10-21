@@ -7,7 +7,7 @@ defmodule AiurWeb.DashboardLive.Controls do
   alias Aiur.{AgentChat, AgentPubSub}
   alias Aiur.Orchestrator.{GlobalPause, Slots}
   alias AiurWeb.{DashboardLive, EndpointConfig}
-  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{PauseState, UnitsControlPolicy, UnitsPresenter}
 
   @doc false
   @spec toggle_global_pause(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -33,8 +33,15 @@ defmodule AiurWeb.DashboardLive.Controls do
   end
 
   @doc false
-  @spec global_pause_state(map()) :: boolean() | nil
-  def global_pause_state(%{fleet: %{error: _error}}), do: nil
+  @spec global_pause_state(map()) :: boolean() | :loading | nil
+  def global_pause_state(%{fleet: %{error: _error}}) do
+    PauseState.pause_state(capacity_orchestrator())
+  rescue
+    _endpoint_unavailable -> nil
+  catch
+    :exit, _reason -> nil
+  end
+
   def global_pause_state(%{fleet: %{globally_paused: paused}}) when is_boolean(paused), do: paused
   def global_pause_state(_payload), do: nil
 

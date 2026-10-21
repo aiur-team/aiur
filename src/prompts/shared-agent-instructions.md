@@ -124,15 +124,16 @@ queued only for a real merge conflict.
 
 ### Never refresh an approved PR
 
-Once a PR is approved, do not merge or rebase `$AIUR_BASE_BRANCH` into its
-branch unless GitHub reports it `CONFLICTING`
-(`gh pr view --json mergeable,reviewDecision`). The merge queue tests the
-merge, so branch freshness buys nothing, while every push cancels the
-in-flight CI run and can dismiss the approval. A red, cancelled, or missing
-check is never a reason to merge the base: a base merge can restart CI but
-cannot fix it. When the PR is `CONFLICTING`, integrate once and say why in a PR
-comment. The agent `git` guard refuses a push to a PR that is in the merge
-queue unless it is conflicting or has changes requested.
+When a ticket is in `agent:human-review` or `agent:ci-wait`, do not merge or
+rebase `$AIUR_BASE_BRANCH` into its PR branch just because the base moved, files
+overlap, CI is red/cancelled/missing, or a freshness check says it is behind.
+The merge queue tests each PR on the current base. Integrate the base in these
+states only when GitHub reports the PR `CONFLICTING`
+(`gh pr view --json mergeable,reviewDecision`) or a reviewer explicitly asks
+for it; explain a conflict-driven integration in a PR comment. In `rework`,
+follow the reviewer’s request, including “merge current origin/main” when asked.
+The agent `git` guard refuses a push to a PR that is in the merge queue unless
+it is conflicting or has changes requested.
 
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 

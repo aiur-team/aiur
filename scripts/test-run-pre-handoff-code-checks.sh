@@ -74,6 +74,9 @@ cat > "$tmp/bin/timeout" <<'TIMEOUT'
 #!/usr/bin/env bash
 printf 'timeout:%s\n' "$*" >> "$COMMAND_LOG"
 [[ "$1" == --signal=TERM && "$2" == --kill-after=60s ]] || exit 94
+if [[ -n "${TIMEOUT_EXIT:-}" ]]; then
+  exit "$TIMEOUT_EXIT"
+fi
 shift 3
 exec "$@"
 TIMEOUT
@@ -82,11 +85,11 @@ chmod +x "$tmp/bin/git" "$tmp/bin/mix" "$tmp/bin/mise" "$tmp/bin/make" "$tmp/bin
 base="$(printf 'a%.0s' {1..40})"
 head="$(printf 'b%.0s' {1..40})"
 run_check() {
-  local name="$1" changed="$2" fail_test="$3" fail_dialyzer="$4" pr_json="${5:-}" fail_full_ci="${6:-false}"
+  local name="$1" changed="$2" fail_test="$3" fail_dialyzer="$4" pr_json="${5:-}" fail_full_ci="${6:-false}" timeout_exit="${7:-}"
   : > "$tmp/$name.commands"
   if env BASH_ENV=/dev/null PATH="$tmp/bin:$PATH" TMPDIR="$tmp" COMMAND_LOG="$tmp/$name.commands" \
       CHANGED_PATHS="$changed" HEAD_SHA="$head" BASE_SHA="$base" \
-      FAIL_TEST="$fail_test" FAIL_DIALYZER="$fail_dialyzer" FAIL_FULL_CI="$fail_full_ci" \
+      FAIL_TEST="$fail_test" FAIL_DIALYZER="$fail_dialyzer" FAIL_FULL_CI="$fail_full_ci" TIMEOUT_EXIT="$timeout_exit" \
       bash "$fixture/scripts/run-pre-handoff-code-checks.sh" "$base" ${pr_json:+"$pr_json"} > "$tmp/$name.log" 2>&1; then
     return 0
   else
@@ -119,6 +122,12 @@ if run_check failing_dialyzer src/lib/aiur/foo.ex false true; then
 fi
 grep -F 'dialyzer' "$tmp/failing_dialyzer.commands" >/dev/null
 grep -Fx 'timeout:--signal=TERM --kill-after=60s 15m mise exec -- mix dialyzer' "$tmp/failing_dialyzer.commands" >/dev/null
+
+if run_check interrupted_test src/lib/aiur/github/foo.ex false false "" false 124; then
+  echo 'test-run-pre-handoff-code-checks: timed out tests must refuse handoff' >&2
+  exit 1
+fi
+grep -F 'failed (exit 124)' "$tmp/interrupted_test.log" >/dev/null
 
 if ! run_check child_order src/lib/aiur/application/children.ex false false; then
   cat "$tmp/child_order.log" >&2

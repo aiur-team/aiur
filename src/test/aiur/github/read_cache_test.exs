@@ -69,10 +69,9 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:no_cache, :unsafe_kind} = Policy.classify(graphql("some_new_caller", ci_document()))
     end
 
-    test "live CI required-check policy is fetched again rather than cached" do
+    test "required-check configuration is cacheable" do
       request = rest("https://api.github.com/repos/aiur-team/aiur/branches/main/protection") |> Map.put(:caller, "ci_required_checks")
-      assert 2 = counted_fetches(request)
-      assert %{refused: %{unsafe_kind: 2}} = Metrics.snapshot()
+      assert {:cache, :repo_config, 300_000} = Policy.classify(request)
     end
 
     test "does not cache review state or merge gating" do
@@ -1143,9 +1142,6 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       assert {:cache, :comments, 3_600_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/comments?per_page=100"))
-
-      assert {:cache, :repo_config, 3_600_000} =
-               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/actions/workflows?per_page=100"))
 
       assert {:cache, :issue_timeline, 3_600_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/timeline?per_page=100"))
