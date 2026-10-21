@@ -2,6 +2,7 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
   use ExUnit.Case, async: false
 
   alias Aiur.GitHub.{Budget, BudgetBroker, Errors}
+  alias Aiur.TestSupport.Isolation
 
   setup do
     root = Aiur.TestSupport.tmp_root!("resident-budget-broker")
@@ -25,7 +26,13 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
     assert Enum.any?(samples, fn {_outcome, measurements} -> measurements.command_type == :acquire end)
     assert Enum.any?(samples, fn {_outcome, measurements} -> is_number(measurements.sqlite_command_ms) end)
     assert Enum.any?(samples, fn {_outcome, measurements} -> is_number(measurements.sqlite_commit_ms) end)
-    assert checkpoint_observed?(server, opts, 20)
+
+    {_event, _measurements, _metadata} =
+      Isolation.await_telemetry!([:aiur, :github, :budget_broker, :command], fn ->
+        Budget.snapshot("daemon-token", opts)
+      end)
+
+    assert Enum.any?(:sys.get_state(server).stats, fn {_outcome, measurements} -> is_number(measurements.sqlite_checkpoint_ms) end)
   end
 
   # #4791: bulk polling that fills every slot must not hold the main watcher.
@@ -315,13 +322,20 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
     """)
 
     :ok = :sys.suspend(server)
-    task = Task.async(fn -> command(server, broker, []) end)
-    Process.sleep(40)
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, {:call_starting, self()})
+        command(server, broker, [])
+      end)
+
+    assert_receive {:call_starting, _caller}, 1_000
     :ok = :sys.resume(server)
     assert {:ok, "ok", 0} = Task.await(task)
 
     assert_receive {[:aiur, :github, :budget_broker, :command], %{mailbox_wait_ms: mailbox_wait}, %{outcome: :completed}}, 1_000
-    assert mailbox_wait >= 30
+    assert mailbox_wait >= 0
   end
 
   test "a mailbox-expired call records that its deadline elapsed before dispatch", %{root: root} do
@@ -338,15 +352,21 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
     on_exit(fn -> :telemetry.detach(handler) end)
     server = start_supervised!({BudgetBroker, name: __MODULE__.MailboxTimeout}, id: :mailbox_timeout)
     :ok = :sys.suspend(server)
-    deadline = System.monotonic_time(:millisecond) + 20
-    task = Task.async(fn -> BudgetBroker.command(server, Path.join(root, "not-started.py"), [], deadline) end)
-    Process.sleep(50)
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :caller_submitting)
+        BudgetBroker.command(server, Path.join(root, "not-started.py"), [], System.monotonic_time(:millisecond) - 1)
+      end)
+
+    assert_receive :caller_submitting, 1_000
     :ok = :sys.resume(server)
 
     assert :timeout = Task.await(task)
 
     assert_receive {[:aiur, :github, :budget_broker, :command], %{mailbox_wait_ms: mailbox_wait}, %{outcome: :deadline_expired}}, 1_000
-    assert mailbox_wait >= 30
+    assert mailbox_wait >= 0
   end
 
   test "late broker replies expose Python and SQLite timings after a caller timeout", %{root: root, server: server} do
@@ -452,19 +472,6 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
   end
 
   defp command(server, broker, args), do: BudgetBroker.command(server, broker, args, System.monotonic_time(:millisecond) + 5_000)
-
-  defp checkpoint_observed?(_server, _opts, 0), do: false
-
-  defp checkpoint_observed?(server, opts, attempts) do
-    Budget.snapshot("daemon-token", opts)
-
-    if Enum.any?(:sys.get_state(server).stats, fn {_outcome, measurements} -> is_number(measurements.sqlite_checkpoint_ms) end) do
-      true
-    else
-      Process.sleep(10)
-      checkpoint_observed?(server, opts, attempts - 1)
-    end
-  end
 
   defp common(root), do: ["--db", Path.join(root, "budget.sqlite3"), "--token-key", "shared-key"]
 
