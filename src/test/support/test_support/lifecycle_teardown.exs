@@ -26,36 +26,34 @@ defmodule Aiur.TestSupport.LifecycleTeardown do
     scope_state_violation = Aiur.TestScopeGuard.violation(expected_test_scope_state)
     runner_leaks = capture_and_stop_test_runners(lifecycle_test_pid, runner_tasks_before)
 
-    Aiur.TestSupport.quiesce_live_orchestrator()
-    Aiur.TestSupport.restore_app_env(previous_app_env)
-    Application.delete_env(:aiur, :server_port_override)
-    Application.delete_env(:aiur, :memory_tracker_issues)
-    Application.delete_env(:aiur, :memory_tracker_recipient)
-    EventsPublisher.set_tracked_fn(fn _ -> true end)
-    EventsSubscriptionStore.set_enqueue_fn(nil)
-    Aiur.TestCleanup.rm_rf!(workflow_root)
-    Aiur.TestScopeGuard.restore(previous_test_scope_state)
-    OrchestratorGuard.restore_codeowners_baseline!()
+    errors =
+      run_cleanup_steps([
+        fn -> Aiur.TestSupport.quiesce_live_orchestrator() end,
+        fn -> Aiur.TestSupport.restore_app_env(previous_app_env) end,
+        fn -> Application.delete_env(:aiur, :server_port_override) end,
+        fn -> Application.delete_env(:aiur, :memory_tracker_issues) end,
+        fn -> Application.delete_env(:aiur, :memory_tracker_recipient) end,
+        fn -> EventsPublisher.set_tracked_fn(fn _ -> true end) end,
+        fn -> EventsSubscriptionStore.set_enqueue_fn(nil) end,
+        fn -> Aiur.TestCleanup.rm_rf!(workflow_root) end,
+        fn -> Aiur.TestScopeGuard.restore(previous_test_scope_state) end,
+        fn -> OrchestratorGuard.restore_codeowners_baseline!() end,
+        fn -> reload_workflow_store() end,
+        fn -> unless Process.whereis(Aiur.Supervisor), do: Application.ensure_all_started(:aiur) end,
+        fn ->
+          Aiur.TestSupport.verify_restored_shared_state!(
+            previous_app_env,
+            Map.fetch!(previous_test_scope_state.env, "AIUR_INSTANCE_KEY"),
+            context
+          )
+        end,
+        fn -> LifecycleLeakGuard.finish!(lifecycle_test_pid, scope_state_violation, runner_leaks) end
+      ])
 
-    # Reload onto the restored config and recover the app after a sibling test
-    # toppled it while this case's config was transiently active.
-    if Process.whereis(Aiur.WorkflowStore) do
-      try do
-        Aiur.WorkflowStore.force_reload()
-      catch
-        :exit, _ -> :ok
-      end
+    case errors do
+      [] -> :ok
+      errors -> raise "test scope teardown failed: #{Enum.join(errors, "; ")}"
     end
-
-    unless Process.whereis(Aiur.Supervisor), do: Application.ensure_all_started(:aiur)
-
-    Aiur.TestSupport.verify_restored_shared_state!(
-      previous_app_env,
-      Map.fetch!(previous_test_scope_state.env, "AIUR_INSTANCE_KEY"),
-      context
-    )
-
-    LifecycleLeakGuard.finish!(lifecycle_test_pid, scope_state_violation, runner_leaks)
   end
 
   @doc false
@@ -64,5 +62,24 @@ defmodule Aiur.TestSupport.LifecycleTeardown do
     runner_leaks = LifecycleLeakGuard.live_runners(test_pid)
     RunnerTasks.stop_started_since(runner_tasks_before)
     runner_leaks
+  end
+
+  defp run_cleanup_steps(steps) do
+    Enum.flat_map(steps, fn step ->
+      try do
+        step.()
+        []
+      rescue
+        error -> [Exception.format(:error, error, __STACKTRACE__)]
+      catch
+        kind, reason -> [Exception.format(kind, reason, __STACKTRACE__)]
+      end
+    end)
+  end
+
+  defp reload_workflow_store do
+    if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
+  catch
+    :exit, _ -> :ok
   end
 end
