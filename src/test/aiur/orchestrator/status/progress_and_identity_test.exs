@@ -315,7 +315,7 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     identifier = "MT-ATTENTION-#{System.unique_integer([:positive])}"
     issue_id = "issue-attention-#{System.unique_integer([:positive])}"
     orchestrator_name = Module.concat(__MODULE__, :NonblockingFleetStateOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       SubscriptionStore.stop(identifier)
@@ -354,18 +354,16 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     store_name = Module.concat(__MODULE__, :UnresponsiveDecisionStore)
     parent = self()
 
-    store_pid =
-      start_supervised!(
-        {Task,
-         fn ->
-           Process.register(self(), store_name)
-           send(parent, :decision_store_ready)
-           receive do: (:stop -> :ok)
-         end}
-      )
+    start_supervised!(
+      {Task,
+       fn ->
+         Process.register(self(), store_name)
+         send(parent, :decision_store_ready)
+         receive do: (:stop -> :ok)
+       end}
+    )
 
     assert_receive :decision_store_ready, 1_000
-    on_exit(fn -> send(store_pid, :stop) end)
 
     assert {0, :unavailable} = RowFacts.open_decision_count("MT-TEST", store_name)
   end
