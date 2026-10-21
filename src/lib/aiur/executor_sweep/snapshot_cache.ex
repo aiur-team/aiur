@@ -37,22 +37,66 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   @doc false
   @spec github_cache_ages(String.t(), String.t(), integer()) :: map()
   def github_cache_ages(owner, repo, now_ms \\ System.system_time(:millisecond)) do
-    [:pull_request, :pull_request_reviews, :landing_merge_group_runs]
-    |> Map.new(fn type ->
-      ages =
-        ResourceStore.list(type, owner, repo)
-        |> Enum.flat_map(&entry_age(&1, now_ms))
+    pull_requests = subject_ages(:pull_request, owner, repo, now_ms)
+    reviews = subject_ages(:pull_request_reviews, owner, repo, now_ms)
 
-      {type, if(ages == [], do: nil, else: Enum.max(ages))}
+    %{
+      pull_requests: Map.merge(pull_requests, reviews, fn _number, pr_age, review_age -> max(pr_age, review_age) end),
+      merge_group_runs: merge_group_ages(owner, repo, now_ms)
+    }
+  end
+
+  defp subject_ages(type, owner, repo, now_ms) do
+    ResourceStore.list(type, owner, repo)
+    |> Enum.reduce(%{}, fn {{^type, _owner, _repo, id}, entry}, ages ->
+      with {number, ""} <- Integer.parse(to_string(id)),
+           age when is_integer(age) <- entry_age(entry, now_ms) do
+        Map.update(ages, number, age, &min(&1, age))
+      else
+        _ -> ages
+      end
     end)
   end
 
-  defp entry_age({_key, entry}, now_ms) do
-    case Map.get(entry, :fetched_at_ms) do
-      at when is_integer(at) and at <= now_ms -> [now_ms - at]
-      _ -> []
+  defp merge_group_ages(owner, repo, now_ms) do
+    ResourceStore.list(:landing_merge_group_runs, owner, repo)
+    |> Enum.reduce(%{}, &merge_group_page_ages(&1, &2, now_ms))
+  end
+
+  defp merge_group_page_ages({_key, entry}, ages, now_ms) do
+    case {entry_age(entry, now_ms), Map.get(entry, :data)} do
+      {age, runs} when is_integer(age) and is_list(runs) ->
+        Enum.reduce(runs, ages, &merge_group_run_age(&1, &2, age))
+
+      _ ->
+        ages
     end
   end
+
+  defp merge_group_run_age(run, ages, age) do
+    case integer_value(value(run, "id", nil)) do
+      id when is_integer(id) -> Map.update(ages, id, age, &min(&1, age))
+      _ -> ages
+    end
+  end
+
+  defp entry_age(entry, now_ms) do
+    case Map.get(entry, :fetched_at_ms) do
+      at when is_integer(at) and at <= now_ms -> now_ms - at
+      _ -> nil
+    end
+  end
+
+  defp integer_value(value) when is_integer(value), do: value
+
+  defp integer_value(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {number, ""} -> number
+      _ -> nil
+    end
+  end
+
+  defp integer_value(_), do: nil
 
   # The store keeps label rows for closed issues and merged PRs, so ticket checks
   # read the open-ticket projection, which excludes both. Before a full listing
@@ -99,7 +143,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       queue_order_declared?: declared_order?,
       merge_groups:
         Enum.map(value(main_watch, :merge_groups, []), fn run ->
-          %{name: "run #{value(run, :id, "?")}", state: value(run, :status, "unknown"), started_at: value(run, :started_at, nil)}
+          %{id: value(run, :id, nil), name: "run #{value(run, :id, "?")}", state: value(run, :status, "unknown"), started_at: value(run, :started_at, nil)}
         end),
       # Main's per-commit check results; a PR red is caused_by_pr only if its base passed (#5119).
       base_checks:

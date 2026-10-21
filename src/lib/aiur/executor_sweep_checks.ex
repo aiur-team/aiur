@@ -101,8 +101,10 @@ defmodule Aiur.ExecutorSweep.Checks do
   defp approved_prs(snapshot, max_age_ms) do
     snapshot
     |> Map.get(:pull_requests, [])
-    |> Enum.flat_map(&approved_pr_findings(&1, Map.get(snapshot, :base_checks, []), cache_age(snapshot, :pull_request)))
-    |> Enum.filter(&fresh_github_finding?(&1, cache_age(snapshot, :pull_request), max_age_ms))
+    |> Enum.flat_map(fn pr ->
+      age = cache_age(snapshot, :pull_requests, value(pr, :number, nil))
+      approved_pr_findings(pr, Map.get(snapshot, :base_checks, []), age, max_age_ms)
+    end)
   end
 
   defp conflicting_waiting_prs(snapshot) do
@@ -140,12 +142,12 @@ defmodule Aiur.ExecutorSweep.Checks do
     end)
   end
 
-  defp approved_pr_findings(pr, base_checks, cache_age_ms) do
+  defp approved_pr_findings(pr, base_checks, cache_age_ms, max_age_ms) do
     failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
 
     # A cached row can keep "open" after the merge; merged_at is the landing proof (#5119).
     if approved_pr_current_and_open?(pr) and (failures != [] or approved_pr_not_landing?(pr)) do
-      [approved_pr_finding(pr, failures, base_checks, cache_age_ms)]
+      [approved_pr_finding(pr, failures, base_checks, cache_age_ms, max_age_ms)]
     else
       []
     end
@@ -169,18 +171,23 @@ defmodule Aiur.ExecutorSweep.Checks do
       (is_nil(value(pr, :head_sha, nil)) or value(pr, :approved_head_sha, nil) == value(pr, :head_sha, nil))
   end
 
-  defp approved_pr_finding(pr, failures, base_checks, cache_age_ms) do
+  defp approved_pr_finding(pr, failures, base_checks, cache_age_ms, max_age_ms) do
     red = failures != []
     kind = if red, do: "approved_pr_red", else: "approved_pr_not_landing"
     classifications = Enum.map(failures, &FailureCause.classify(&1, value(pr, :base_sha, nil), base_checks))
     cause = classifications |> Enum.map(& &1.class) |> Enum.uniq() |> single_or_mixed()
     problem = if red, do: "has a red required check (#{cause})", else: "is not queued or auto-merging"
 
-    finding(kind, 3, 0, "Inspect the check cause or restore merge queue/auto-merge progress.", "Approved PR ##{value(pr, :number, "?")} #{problem} (GitHub cache age: #{duration(cache_age_ms)}).",
+    stale? = not fresh_github_age?(cache_age_ms, max_age_ms)
+    verification = if stale?, do: "unverified", else: "verified"
+    action = if stale?, do: "Verify the PR and its checks in GitHub before taking action.", else: "Inspect the check cause or restore merge queue/auto-merge progress."
+
+    finding(kind, 3, 0, action, "Approved PR ##{value(pr, :number, "?")} #{problem}; #{verification} (GitHub cache age: #{cache_age(cache_age_ms)}).",
       pull_request: value(pr, :number, nil),
       failure_class: cause,
       failed_checks: classifications,
-      cache_age_ms: cache_age_ms
+      cache_age_ms: cache_age_ms,
+      verification: verification
     )
   end
 
@@ -234,11 +241,10 @@ defmodule Aiur.ExecutorSweep.Checks do
     end)
   end
 
-  defp cache_age(snapshot, type), do: get_in(snapshot, [:github_cache_ages, type])
-
-  defp fresh_github_finding?(finding, cache_age_ms, max_age_ms) do
-    if finding.kind in ["approved_pr_red", "approved_pr_not_landing"], do: is_integer(cache_age_ms) and cache_age_ms <= max_age_ms, else: true
-  end
+  defp cache_age(snapshot, type, subject), do: get_in(snapshot, [:github_cache_ages, type, subject])
+  defp fresh_github_age?(age, max_age_ms), do: is_integer(age) and age <= max_age_ms
+  defp cache_age(age) when is_integer(age), do: duration(age)
+  defp cache_age(_), do: "unknown"
 
   defp queue_sets(snapshot) do
     slots_idle = value(snapshot, :idle_slots, 0) > 0
