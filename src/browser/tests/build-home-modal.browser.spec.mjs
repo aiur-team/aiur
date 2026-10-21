@@ -86,7 +86,7 @@ test('focused cards open once with Enter and Space through the mounted hook', as
   ]).flat())
 })
 
-test('B17: closing a deep-linked ticket returns focus to timeline navigation', async ({ page }) => {
+test('B17: closing a deep-linked ticket focuses timeline navigation', async ({ page }) => {
   await open(page)
   const t = await row(page)
   await open(page, 'live', '?ticket=' + t.id)
@@ -95,7 +95,7 @@ test('B17: closing a deep-linked ticket returns focus to timeline navigation', a
   await page.locator('#bd-tk-close').click()
   await expect(page.locator('#tk-backdrop')).not.toHaveClass(/\bshow\b/)
   await expect(page).not.toHaveURL(/ticket=/)
-  await expect(page.locator('#bd-tk-close')).not.toBeFocused()
+  await expect(page.locator('#bd-tools-l [data-v="graph"]')).toBeFocused()
 })
 
 test('mounted hook owns card click and restores its origin after close', async ({ page }) => {
@@ -125,12 +125,30 @@ test('mounted hook owns keyboard card open and close', async ({ page }) => {
 })
 
 test('mounted hook owns deep-link open and close without direct frame calls', async ({ page }) => {
-  await open(page, 'live', '?ticket=1'); await installSpy(page)
+  await page.addInitScript(() => {
+    window.modalCalls = []
+    const observe = () => {
+      const hook = window.liveSocket?.main?.getHook(document.querySelector('#build-root'))
+      if (!hook || hook.__modalCallsObserved) return false
+      const pushEvent = hook.pushEvent.bind(hook)
+      hook.pushEvent = (event, payload) => {
+        if (event === 'open-ticket' || event === 'close-ticket') window.modalCalls.push({ event, payload })
+        return pushEvent(event, payload)
+      }
+      hook.__modalCallsObserved = true
+      return true
+    }
+    const timer = setInterval(() => { if (observe()) clearInterval(timer) }, 0)
+  })
+  await open(page, 'live', '?ticket=1')
   await expect(page.locator('#tk-backdrop')).toHaveClass(/\bshow\b/)
   await page.locator('#bd-tk-close').click()
   await expect(page.locator('#tk-backdrop')).not.toHaveClass(/\bshow\b/)
   await expect(page).not.toHaveURL(/ticket=/)
-  expect(await calls(page)).toEqual([{ event: 'close-ticket', payload: {} }])
+  expect(await calls(page)).toEqual([
+    { event: 'open-ticket', payload: { id: '1' } },
+    { event: 'close-ticket', payload: {} },
+  ])
 })
 
 test('deep links open loaded and older history rows; unknown and malformed links stay distinct', async ({ page }) => {
