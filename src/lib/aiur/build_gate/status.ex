@@ -2,9 +2,10 @@ defmodule Aiur.BuildGate.Status do
   @moduledoc false
 
   alias Aiur.BuildGate
+  alias Aiur.BuildGate.CommandSummary
 
   @scan_output_budget_bytes 256 * 1024
-  @recovery "repair the configured build-gate directory and retry, or fully disable build admission with " <>
+  @recovery "check the build-gate holder metadata and retry; disable build admission only if the gate cannot be repaired, using " <>
               "agent.max_concurrent_builds: 0, agent.build_start_stagger_seconds: 0, and " <>
               "agent.min_free_memory_mb omitted"
 
@@ -147,6 +148,17 @@ defmodule Aiur.BuildGate.Status do
   defp inspected_metadata(%{"metadata_error" => reason}, candidate),
     do: {nil, [status_issue(:metadata_unreadable, candidate.metadata_path, reason)]}
 
+  defp inspected_metadata(%{"contents" => encoded}, %{kind: kind, slot: slot, metadata_path: path})
+       when kind in [:slot, :queue] do
+    with {:ok, contents} <- Base.decode64(encoded),
+         {:ok, fields} <- parse_v2_record(contents) do
+      holder = holder_from_fields(fields, kind, slot)
+      {Map.put(holder, :lease_alive?, true), []}
+    else
+      _error -> {nil, [status_issue(:metadata_unreadable, path, :invalid_owner_metadata)]}
+    end
+  end
+
   defp inspected_metadata(%{"contents" => encoded}, %{kind: :phase, metadata_path: path}) do
     with {:ok, contents} <- Base.decode64(encoded),
          {:ok, _fields} <- parse_v2_record(contents) do
@@ -173,15 +185,27 @@ defmodule Aiur.BuildGate.Status do
 
   defp scan_error_detail(result), do: result
 
-  defp inspect_metadata_contents("version=2\n" <> _rest = contents, path, kind, slot) do
+  defp inspect_metadata_contents("version=2\n" <> _rest = contents, path, kind, slot) when byte_size(contents) <= 4096 do
     case parse_v2_record(contents) do
-      {:ok, fields} -> {holder_from_fields(fields, kind, slot), []}
-      :error -> {nil, [status_issue(:metadata_unreadable, path, {:reader_status, 0})]}
+      {:ok, fields} ->
+        holder = holder_from_fields(fields, kind, slot)
+        {Map.put(holder, :command, CommandSummary.summarize(fields, holder.command)), []}
+
+      :error ->
+        {nil, [status_issue(:metadata_unreadable, path, {:reader_status, 0})]}
     end
   end
 
-  defp inspect_metadata_contents(_contents, path, _kind, _slot),
-    do: {nil, [status_issue(:metadata_unreadable, path, {:reader_status, 0})]}
+  defp inspect_metadata_contents(contents, path, kind, slot) do
+    case parse_v2_record(contents) do
+      {:ok, fields} ->
+        holder = holder_from_fields(fields, kind, slot)
+        {Map.put(holder, :command, CommandSummary.summarize(fields, holder.command)), []}
+
+      :error ->
+        {nil, [status_issue(:metadata_unreadable, path, :invalid_owner_metadata)]}
+    end
+  end
 
   defp prepend_issues(issues, new_issues), do: Enum.reverse(new_issues, issues)
   defp prepend_holder(holders, nil), do: holders
@@ -255,7 +279,7 @@ defmodule Aiur.BuildGate.Status do
       # (#2349). nil means the record cannot tell, including a missing namespace identity.
       command_alive?: command_alive?(command_pgid, Map.get(fields, "command_pid_namespace")),
       phase: Map.get(fields, "phase"),
-      command: Map.get(fields, "command"),
+      command: CommandSummary.display(fields, Map.get(fields, "command")),
       started_at: started_at,
       held_for_seconds: held_for_seconds
     }

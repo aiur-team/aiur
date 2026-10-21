@@ -103,6 +103,6 @@ defmodule Aiur.OrchestratorStatusCliBuildGateTest do
     output = capture_io(fn -> AgentControlCLI.status() end)
     assert output =~ "BUILD GATE DEGRADED 0/#{Config.max_concurrent_builds()} active, 0 queued"
     assert output =~ "reason=legacy_state path=#{legacy_path}"
-    assert output =~ "recovery=repair the configured build-gate directory"
+    assert output =~ "recovery=check the build-gate holder metadata"
   end
 end
