@@ -227,6 +227,19 @@ New features create collections, never roots. Only explicit exclusion parks file
 `needs-triage`/`human:todo` and a reason. Preserve finite scope and deferred findings.
 Act on authorized reversible fixes and report; escalate irreversible actions, spend, external publication and product direction.
 
+### Goal text you recommend
+
+Whenever you write goal text for the operator to set (a `/goal`, a suggested
+objective, the goal line in a handoff), include an instruction to use this
+skill, for example: "Operate as the Aiur Executor under the aiur-run skill
+(`.claude/skills/aiur-run/SKILL.md`); re-read it, the latest
+`executor/handoff.md`, and memory after any context compaction or in a new
+session before acting." A goal outlives the context that wrote it: a compacted
+or brand-new session receives only the goal text, and without that line it
+resumes the work without the run rules, merge policy, or authority boundaries
+this skill holds. Keep the operator's own wording intact and add the line; do
+not paraphrase their goal to make room.
+
 ### Build queue
 
 Audit `"$AIUR_CMD" queue show` in preflight and periodically: status, source ages, prerequisites, holds and attentions.
