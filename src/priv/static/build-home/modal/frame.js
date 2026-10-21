@@ -5,7 +5,12 @@ import { trap, restore } from './focus.js';
 import { bodyKind, headerHTML, errorHTML } from './header.js';
 
 export const MS = { t: null, req: 0, origin: null, state: null };
-const closers = new Set();
+const closers = new Set(), bodies = new Map();
+export function registerBody(kind, fn) {
+  const key = kind === 'conversation' ? 'renderConversation' : 'renderDocBody';
+  bodies.set(kind, fn); fx[key] = fn; return () => bodies.delete(kind);
+}
+export const bodyRenderer = kind => bodies.get(kind);
 let id = null, originId = null, pendingTimer = null;
 export const onModalClose = fn => { closers.add(fn); return () => closers.delete(fn); };
 const shown = () => $('#tk-backdrop')?.classList.contains('show');
