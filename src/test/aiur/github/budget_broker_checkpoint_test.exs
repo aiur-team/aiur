@@ -13,7 +13,10 @@ defmodule Aiur.GitHub.BudgetBrokerCheckpointTest do
     assert {:ok, lease} = Budget.acquire(request, opts)
     assert :ok = Budget.release(lease, opts)
 
+    # The command reports the checkpoint requested by an earlier command. A
+    # second broker command is the causal barrier that observes that result.
     Isolation.await_telemetry!([:aiur, :github, :budget_broker, :command], fn ->
+      Budget.snapshot("daemon-token", opts)
       Budget.snapshot("daemon-token", opts)
     end)
 
