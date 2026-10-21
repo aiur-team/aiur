@@ -42,6 +42,8 @@ class SoakTest(unittest.TestCase):
             'test:p': 'node scripts/run-browser-tests.mjs tests/p.spec.mjs --config playwright.design-parity.config.mjs',
         }}))
         self.calls = self.root / 'calls'
+        self.durations = self.root / 'durations.mjs'
+        self.durations.write_text("export const recordedSeconds = {\n  'test:a': 10,\n  'test:p': 20,\n  'test:core': 10,\n  'test:columns': 10,\n  'test:motion': 20,\n}\n")
         self.env = dict(os.environ, PATH=f'{bin_dir}:{os.environ["PATH"]}', CALLS=str(self.calls),
                         AIUR_SOAK_BROWSER_ROOT=str(self.browser), GITHUB_STEP_SUMMARY=str(self.root / 'summary'))
 
@@ -184,15 +186,16 @@ class SoakTest(unittest.TestCase):
         loader.loader.exec_module(module)
         with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs", "tests/p.spec.mjs"]'}), \
                 patch.object(module, 'BROWSER_ROOT', self.browser), \
+                patch.object(module, 'DURATION_SOURCE', self.durations), \
                 patch.object(module, 'BUDGET_SECONDS', 720), \
-                patch.object(module.time, 'monotonic', side_effect=[0, 0, 721]), \
+                patch.object(module.time, 'monotonic', side_effect=[0, 0, 0, 721]), \
                 patch.object(module, 'run', return_value=0) as runner, \
                 patch.object(module, 'notice') as notices:
             self.assertEqual(module.soak_browser(), 0)
         runner.assert_called_once_with(
             ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs', '--repeat-each=5'],
             cwd=self.browser, timeout=1200)
-        notices.assert_called_once_with('Playwright soak stopped at its 720s budget before tests/p.spec.mjs')
+        notices.assert_any_call('Playwright soak stopped at its 720s budget before tests/p.spec.mjs after 5 passing repeats')
 
     def test_later_invocation_cannot_exceed_the_browser_job_runtime_bound(self):
         loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
@@ -200,10 +203,11 @@ class SoakTest(unittest.TestCase):
         loader.loader.exec_module(module)
         with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs", "tests/p.spec.mjs"]'}), \
                 patch.object(module, 'BROWSER_ROOT', self.browser), \
-                patch.object(module.time, 'monotonic', side_effect=[0, 0, 700]), \
+                patch.object(module, 'DURATION_SOURCE', self.durations), \
+                patch.object(module.time, 'monotonic', side_effect=[0, 0, 0, 700]), \
                 patch.object(module, 'run', return_value=0) as runner:
             self.assertEqual(module.soak_browser(), 0)
-        self.assertEqual([call.kwargs['timeout'] for call in runner.call_args_list], [1200, 500])
+        self.assertEqual([call.kwargs['timeout'] for call in runner.call_args_list], [1200])
 
     def test_browser_timeout_fails_instead_of_claiming_a_pass(self):
         loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
@@ -214,6 +218,47 @@ class SoakTest(unittest.TestCase):
                 patch.object(module, 'notice') as notices:
             self.assertEqual(module.run(command, timeout=1200), 124)
         notices.assert_called_once_with('soak run exceeded 1200s', 'error')
+
+    def test_browser_budget_timeout_stops_successfully_after_completed_repeats(self):
+        result, calls = self.soak('browser', SOAK_SPECS='["tests/a.spec.mjs"]', AIUR_SOAK_BUDGET_SECONDS='0')
+        self.assertEqual((result.returncode, calls), (0, []))
+        self.assertIn('Playwright soak stopped at its 0s budget before tests/a.spec.mjs after 0 passing repeats', result.stdout)
+
+    def test_browser_timeout_is_a_successful_budget_stop(self):
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/a.spec.mjs"]'}), \
+                patch.object(module, 'BROWSER_ROOT', self.browser), \
+                patch.object(module, 'DURATION_SOURCE', self.durations), \
+                patch.object(module, 'run', return_value=124) as runner, \
+                patch.object(module, 'BUDGET_SECONDS', 720), \
+                patch.object(module, 'notice') as notices:
+            result = module.soak_browser()
+        self.assertEqual(result, 0)
+        self.assertEqual(runner.call_count, 1)
+        notices.assert_any_call('Playwright soak stopped at its runtime bound after 0 passing repeats')
+
+    def test_browser_duration_orders_small_specs_first_and_skips_oversized_spec(self):
+        (self.browser / 'package.json').write_text(json.dumps({'scripts': {
+            'test:core': 'npm run test:a && npm run test:p',
+            'test:a': 'node scripts/run-browser-tests.mjs tests/a.spec.mjs',
+            'test:p': 'node scripts/run-browser-tests.mjs tests/p.spec.mjs',
+        }}))
+        loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
+        module = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(module)
+        times = iter([0, 0, 0, 0, 25, 25, 25, 40, 40, 40])
+        with patch.dict(os.environ, self.env | {'SOAK_SPECS': '["tests/p.spec.mjs", "tests/a.spec.mjs"]'}), \
+                patch.object(module, 'BROWSER_ROOT', self.browser), \
+                patch.object(module, 'DURATION_SOURCE', self.durations), \
+                patch.object(module, 'BUDGET_SECONDS', 60), \
+                patch.object(module.time, 'monotonic', side_effect=lambda: next(times)), \
+                patch.object(module, 'run', return_value=0) as runner, \
+                patch.object(module, 'notice') as notices:
+            self.assertEqual(module.soak_browser(), 0)
+        self.assertEqual([call.args[0][2] for call in runner.call_args_list], ['tests/a.spec.mjs'])
+        notices.assert_any_call('Playwright soak skipped tests/p.spec.mjs: estimated 100s exceeds 60s remaining budget')
 
     def test_browser_failure_fails_with_a_reproduce_command(self):
         result, calls = self.soak('browser', SOAK_SPECS='["tests/a.spec.mjs", "tests/p.spec.mjs"]', FAIL_ON='tests/a.spec.mjs')
