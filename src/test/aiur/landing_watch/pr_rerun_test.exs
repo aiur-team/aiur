@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
 
   @started "2026-10-14T10:00:00Z"
   @started_ms 1_791_972_000_000
-  @flaky_log "mix test --partitions 4\n  test/aiur/flaky_test.exs:12\n1 test, 1 failure"
+  @flaky_log "mix test --partitions 4\n\n  1) test flakes intermittently (Aiur.FlakyTest)\n     test/aiur/flaky_test.exs:12\n\n1 test, 1 failure"
 
   test "a known flake in a test the PR does not touch reruns with its reason" do
     path = journal_path()
@@ -24,7 +24,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
 
   test "a failure in a test the PR changed routes to rework, and the verdict is cached" do
     path = journal_path()
-    changed = [changed_paths_fun: fn 17, _ -> {:ok, ["test/aiur/flaky_test.exs"]} end, known_failure_patterns: ["test/aiur/flaky_test.exs"]]
+    changed = [changed_paths_fun: fn 17, _ -> {:ok, ["src/test/aiur/flaky_test.exs"]} end, known_failure_patterns: ["test/aiur/flaky_test.exs"]]
 
     assert :ok = LandingWatch.process(observation(), opts(path, changed))
     assert_received {:rework, [%{name: "ci gate"}]}
