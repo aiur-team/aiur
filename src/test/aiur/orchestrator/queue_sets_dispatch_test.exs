@@ -6,11 +6,13 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, DispatchCandidates, Dispatcher, DispatchPolicy, PauseResume, QueueSetSlots, Slots, State, StatusReport, TrackerTasks}
 
   setup do
+    test_pid = self()
     path = Workflow.workflow_file_path()
     original = File.read!(path)
     configure()
     :ets.new(Hints.table_name(), [:named_table, :set])
     on_exit(fn -> File.write!(path, original) end)
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
     :ok
   end
 
@@ -36,8 +38,6 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   end
 
   test "CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks" do
-    test_pid = self()
-    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
     {document, issues, _} = fixture()
     start_supervised!({Agent, fn -> document end}, id: :rank_store) |> Process.register(QueueBoundary)
     owner = self()
