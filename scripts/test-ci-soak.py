@@ -503,15 +503,20 @@ class SoakTest(unittest.TestCase):
         loader = importlib.util.spec_from_file_location('ci_soak', SCRIPT)
         module = importlib.util.module_from_spec(loader)
         loader.loader.exec_module(module)
-        for original in ('--grep', '--grep='):
+        cases = (
+            (['--grep', 'product interactions.*columns[.]'], 'prefix product interactions show columns.cell update'),
+            (['--grep=product interactions.*columns[.]'], 'prefix product interactions show columns.cell update'),
+            (['--grep', 'product interactions[.]'], 'prefix product interactions. show columns.cell update'),
+            (['--grep=product interactions[.]'], 'prefix product interactions. show columns.cell update'),
+        )
+        for grep_args, title in cases:
             command = ['node', 'scripts/run-browser-tests.mjs', 'tests/a.spec.mjs']
-            command.extend([original, 'product interactions.*columns[.]'] if original == '--grep'
-                            else ['--grep=product interactions.*columns[.]'])
+            command.extend(grep_args)
             sampled = module.sample_grep(command, ('product interactions', 'columns.cell'))
             pattern = sampled[sampled.index('--grep') + 1] if '--grep' in sampled else next(
                 arg.removeprefix('--grep=') for arg in sampled if arg.startswith('--grep='))
-            self.assertRegex('prefix product interactions. show columns.cell update', pattern)
-            self.assertNotRegex('prefix product interactions. show rows.cell update', pattern)
+            self.assertRegex(title, pattern)
+            self.assertNotRegex(title.replace('columns.cell', 'rows.cell'), pattern)
 
 if __name__ == '__main__':
     unittest.main()
