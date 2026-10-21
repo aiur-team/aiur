@@ -6,7 +6,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   import Aiur.TrackerIoPollBarrier, only: [await_owned_poll: 2, await_poll_finished: 1]
 
   alias Aiur.{AgentQueueStore, DispatchBudgetStore, Issue, Orchestrator}
-  alias Aiur.GitHub.{Config, DispatchAuthorization, ReadCache, Transport}
+  alias Aiur.GitHub.{DispatchAuthorization, ReadCache, Transport}
   alias Aiur.Orchestrator.{Dispatcher, GlobalPause, OperatorMessages, PauseResume, PriorityControl, RetryEngine, SnapshotStore, StatusReport, TrackerTasks}
 
   # Production control budget tolerates local fsyncs under load; held tracker barriers still expose blocked handlers.

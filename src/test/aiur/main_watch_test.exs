@@ -2,7 +2,6 @@ defmodule Aiur.MainWatchTest do
   use Aiur.TestSupport
   alias Aiur.CI.FailureDigest
   alias Aiur.Events.Exchange
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.MainWatch
   alias Aiur.MainWatch.GitHub, as: MainWatchGitHub
   alias Aiur.MainWatch.{Persistence, State}
