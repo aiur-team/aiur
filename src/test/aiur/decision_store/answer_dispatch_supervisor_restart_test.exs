@@ -104,7 +104,7 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
       assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
     end
 
-    test "real root restart leaves a private dispatch worker alive", %{dir: dir} do
+    test "real root restart leaves a private dispatch worker alive", _context do
       parent = self()
       coordinator = unique_coordinator_name("RootRestart")
       task_supervisor = start_supervised!({Task.Supervisor, name: unique_coordinator_name("RootRestartTasks")})
@@ -129,15 +129,20 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
           id: coordinator
         )
 
-      dispatcher = fn _decision, _opts ->
+      operation = fn ->
         send(parent, {:root_restart_worker_started, self()})
         receive do: (:never -> :ok)
       end
 
-      store = start_store!(dir, decision_dispatch_tasks: coordinator, dispatcher: dispatcher, dispatch_delay_ms: 0)
-      assert {:ok, %{decision: decision}} = request(store, answerable_request("root-restart-worker"))
-      payload = %{"idempotency_key" => "root-restart-worker", "expected_version" => 1, "option_id" => "ship"}
-      assert {:ok, _result} = answer(store, decision.decision_id, payload)
+      assert :pending =
+               DecisionDispatchTasks.enqueue(
+                 "ticket.5146",
+                 :root_restart,
+                 operation,
+                 fn correlation, result -> send(parent, {:dispatch_result, correlation, result}) end,
+                 coordinator
+               )
+
       assert_receive {:root_restart_worker_started, worker}, 1_000
 
       worker_links = Process.info(worker, :links) |> elem(1)
@@ -176,6 +181,9 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
       assert Process.alive?(root)
       refute_receive {:DOWN, ^root_ref, :process, ^root, _reason}, 0
       assert worker_exit == :alive
+
+      Process.exit(coordinator_pid, :kill)
+      assert_receive {:DOWN, ^worker_ref, :process, ^worker, :killed}, 1_000
     end
   end
 end
