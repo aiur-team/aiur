@@ -31,9 +31,9 @@ defmodule Aiur.GitHub.WriteThrough.BodiesThreadsAndDepositTest do
   alias Aiur.GitHub.PollSnapshots
   alias Aiur.GitHub.PullRequests
   alias Aiur.GitHub.ResourceStore
-  alias Aiur.GitHub.WriteThrough
   alias Aiur.GitHub.ReviewThreads.Reply
   alias Aiur.GitHub.ReviewThreads.Resolution
+  alias Aiur.GitHub.WriteThrough
 
   @repo "owner/repo"
   @author "its-everdred"
