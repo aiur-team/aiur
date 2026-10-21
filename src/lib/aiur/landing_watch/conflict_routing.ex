@@ -11,6 +11,7 @@ defmodule Aiur.LandingWatch.ConflictRouting do
 
   alias Aiur.{CodeHost, Config, Tracker}
   alias Aiur.LandingWatch.Journal
+  alias Aiur.LandingWatch.Observer
   alias Aiur.Orchestrator.TicketTransition
 
   @failure %{name: "Merge conflict with base"}
@@ -39,10 +40,16 @@ defmodule Aiur.LandingWatch.ConflictRouting do
   end
 
   def persistent_queue_conflict?(%{number: number, head: head}, opts) when is_integer(number) and is_binary(head) do
-    Journal.update(opts, fn state ->
-      rows = Map.get(state, "unmergeable_conflict_entries", %{})
-      {:ok, Map.put(state, "unmergeable_conflict_entries", Map.delete(rows, "#{number}:#{head}"))}
-    end)
+    key = "#{number}:#{head}"
+
+    with {:ok, state} <- Journal.state(opts),
+         rows when is_map(rows) <- Map.get(state, "unmergeable_conflict_entries", %{}),
+         true <- Map.has_key?(rows, key) do
+      Journal.update(opts, fn current ->
+        current_rows = Map.get(current, "unmergeable_conflict_entries", %{})
+        {:ok, Map.put(current, "unmergeable_conflict_entries", Map.delete(current_rows, key))}
+      end)
+    end
 
     false
   end
@@ -53,7 +60,7 @@ defmodule Aiur.LandingWatch.ConflictRouting do
   @spec queue_prs_ahead(map(), keyword()) :: [pos_integer()]
   def queue_prs_ahead(%{number: number, merge_queue_entry: %{"position" => position}} = observation, opts)
       when is_integer(number) and is_integer(position) and position > 1 do
-    case Keyword.get(opts, :queue_prs_ahead_fun, &Aiur.LandingWatch.Observer.prs_ahead/2).(observation, opts) do
+    case Keyword.get(opts, :queue_prs_ahead_fun, &Observer.prs_ahead/2).(observation, opts) do
       {:ok, numbers} when is_list(numbers) -> Enum.filter(numbers, &is_integer/1)
       _ -> []
     end
@@ -210,7 +217,7 @@ defmodule Aiur.LandingWatch.ConflictRouting do
     queue_context = queue_conflict_context(observation)
 
     """
-    **Rebase only.** Approved PR ##{observation.number} conflicts with `#{base}#{queue_context}`, so the landing watcher took it out of the merge queue and moved this ticket to rework.
+    **Rebase only.** Approved PR ##{observation.number} conflicts with `#{base}`#{queue_context}, so the landing watcher took it out of the merge queue and moved this ticket to rework.
 
     Integrate `#{base}`, resolve the conflicts, and push. Make no other change. The approval at `#{observation.head}` stays on record so re-review can compare the contribution diff.
     """
@@ -221,7 +228,7 @@ defmodule Aiur.LandingWatch.ConflictRouting do
 
     case Enum.filter(ahead, &is_integer/1) do
       [] -> " (its merge-queue entry stayed UNMERGEABLE for five minutes)"
-      numbers -> " in the merge queue with PRs ahead: " <> Enum.map_join(numbers, ", ", &"##{&1}")
+      numbers -> " (queued behind PRs " <> Enum.map_join(numbers, ", ", &"##{&1}") <> ")"
     end
   end
 

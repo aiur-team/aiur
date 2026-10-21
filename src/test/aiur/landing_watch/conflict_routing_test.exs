@@ -45,7 +45,7 @@ defmodule Aiur.LandingWatch.ConflictRoutingTest do
     assert_received {:withdraw, 17}
     assert_received {:transition, "17", "rework", _}
     assert_received {:comment, "17", body}
-    assert body =~ "PRs ahead: #5009, #5414, #5007"
+    assert body =~ "queued behind PRs #5009, #5414, #5007"
   end
 
   test "a transient unmergeable queue entry that clears is not routed" do
