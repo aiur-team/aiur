@@ -209,7 +209,7 @@ coverage (2/4)\tTest coverage partition\t2026-10-22T01:00:01Z  1 test, 1 failure
             subprocess.run(["env", "AIUR_AGENT_WORKSPACE=", "git", "-c", "protocol.file.allow=always", "-C", str(seed), "push", "origin", "HEAD:feature"], check=True,
                            stdout=subprocess.DEVNULL)
             subprocess.run([
-                "git", "-c", "protocol.file.allow=always", "clone", "--depth=2", "--branch", "feature",
+                "git", "-c", "protocol.file.allow=always", "clone", "--depth=1", "--branch", "feature",
                 f"file://{origin}", str(workspace),
             ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             shallow = subprocess.check_output(
@@ -294,7 +294,7 @@ coverage (2/4)\tTest coverage partition\t2026-10-22T01:00:01Z  1 test, 1 failure
         self.assertIn('plan.update({"outcome": outcome', retry_script)
         self.assertIn("steps.retry-known-flakes.outcome != 'success'", partition)
         self.assertIn("Retried known flakes: all selected tests passed", retry_script)
-        self.assertIn('git -C "$workspace" fetch --no-tags --depth=1 origin "$BASE_SHA"', prepare)
+        self.assertIn('git -C "$workspace" fetch --no-tags --unshallow origin "$BASE_SHA"', prepare)
         self.assertIn('git -C "$workspace" diff --name-only "$BASE_SHA...HEAD"', prepare)
         self.assertIn("--partition-status", prepare)
         self.assertIn("status_file=", partition_script)

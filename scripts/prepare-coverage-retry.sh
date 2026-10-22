@@ -8,7 +8,7 @@ workspace="${GITHUB_WORKSPACE:?GITHUB_WORKSPACE must be set}"
 changed="$RUNNER_TEMP/pr-changed-paths.txt"
 mkdir -p "$RUNNER_TEMP/shard-evidence"
 
-git -C "$workspace" fetch --no-tags --depth=1 origin "$BASE_SHA"
+git -C "$workspace" fetch --no-tags --unshallow origin "$BASE_SHA"
 git -C "$workspace" diff --name-only "$BASE_SHA...HEAD" > "$changed"
 git -C "$workspace" show "$BASE_SHA:.github/known-flaky-tests.txt" > "$RUNNER_TEMP/base-known-flaky-tests.txt"
 git -C "$workspace" show "$BASE_SHA:src/test/quarantine.txt" > "$RUNNER_TEMP/base-test-quarantine.txt"
