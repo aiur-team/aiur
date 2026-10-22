@@ -194,21 +194,26 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
     if Enum.any?([approved, current, main], &unreadable?/1) or renamed_differently?(approved, current) do
       [%{file: path, side: :current, header: "(no readable patch or renamed differently)", lines: []}]
     else
-      approved_lines = changed_lines(approved)
-      current_lines = changed_lines(current)
-
-      if approved_lines == current_lines do
-        []
-      else
-        {approved_only, current_only} = unmatched_hunks(hunks_of(approved), hunks_of(current))
-
-        case {approved_only, current_only} do
-          {[], []} -> contribution_hunks(path, :approved, approved) ++ contribution_hunks(path, :current, current)
-          _ -> contribution_hunks(path, :approved, %{hunks: approved_only}) ++ contribution_hunks(path, :current, %{hunks: current_only})
-        end
-      end
+      compare_changed_lines(path, approved, current)
     end
   end
+
+  defp compare_changed_lines(path, approved, current) do
+    if changed_lines(approved) == changed_lines(current) do
+      []
+    else
+      {approved_only, current_only} = unmatched_hunks(hunks_of(approved), hunks_of(current))
+      changed_contribution_hunks(path, approved, current, approved_only, current_only)
+    end
+  end
+
+  defp changed_contribution_hunks(path, approved, current, [], []),
+    do: contribution_hunks(path, :approved, approved) ++ contribution_hunks(path, :current, current)
+
+  defp changed_contribution_hunks(path, _approved, _current, approved_only, current_only),
+    do:
+      contribution_hunks(path, :approved, %{hunks: approved_only}) ++
+        contribution_hunks(path, :current, %{hunks: current_only})
 
   defp renamed_differently?(%{meta: {previous, _sha}}, %{meta: {current_previous, _current_sha}}), do: previous != current_previous
   defp renamed_differently?(_approved, _current), do: false
