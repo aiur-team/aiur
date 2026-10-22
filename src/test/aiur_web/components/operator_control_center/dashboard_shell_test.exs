@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, Overview, RouteRegistry}
 
   defp shell(opts \\ []) do
-    action = Keyword.get(opts, :action, :index)
+    action = Keyword.get(opts, :action, :build)
     assigns = %{route: RouteRegistry.current_route(action), routes: RouteRegistry.routes(%{}), tracker_kind: "github", agent_kind: "codex", inner_block: []}
 
     render_component(&DashboardShell.dashboard_shell/1, Map.merge(assigns, Map.new(Keyword.delete(opts, :action))))
@@ -17,7 +17,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
     doc = shell()
     assert length(Floki.find(doc, "header.ax-top .ax-brand #ax-set #ax-menu[role=menu][inert]")) == 1
     assert Floki.find(doc, "#ax-menu > button") |> Floki.attribute("id") == ["ax-pause", "theme-toggle", "ax-palette"]
-    assert Floki.find(doc, "#route-title[role=heading][aria-level='1']") |> Floki.text() == "Units"
+    assert Floki.find(doc, "#route-title[role=heading][aria-level='1']") |> Floki.text() == "Build"
     assert length(Floki.find(doc, "section.dashboard-shell[aria-labelledby=route-title]")) == 1
     assert length(Floki.find(doc, "nav.sidenav-nav")) == 1
     assert Floki.find(doc, ".shell-nav-mobile, #nav-toggle, .route-context") == []
@@ -50,7 +50,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
   end
 
   test "known zero and absent navigation counts remain distinct" do
-    assert shell(nav_counts: %{units: 0}) |> Floki.find("a[href='/'] .snav-c") |> Floki.text() == "0"
+    assert shell(nav_counts: %{build: 0}) |> Floki.find("a[href='/'] .snav-c") |> Floki.text() == "0"
     assert shell() |> Floki.find(".snav-c") == []
     assert shell(nav_counts: %{commands: 0}) |> Floki.find("a[href='/commands'] .snav-c") == []
     doc = shell(nav_counts: %{commands: 3})

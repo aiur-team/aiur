@@ -48,4 +48,22 @@ defmodule Aiur.Events do
 
   @spec set_tracked_fn((String.t() | integer() | nil -> boolean())) :: :ok
   defdelegate set_tracked_fn(fun), to: Publisher
+
+  @doc false
+  @spec publisher_available?() :: boolean()
+  def publisher_available?, do: Process.whereis(Publisher) != nil
+
+  @doc false
+  @spec exchange_server() :: GenServer.server()
+  def exchange_server, do: Exchange
+
+  @doc false
+  @spec any_subscriber_matches?(String.t()) :: boolean()
+  def any_subscriber_matches?(topic) do
+    Aiur.Events.SubscriptionStoreRegistry
+    |> Registry.select([{{:"$1", :"$2", :_}, [], [:"$2"]}])
+    |> Enum.any?(fn pid -> Enum.any?(bindings_for(pid), &matches?(&1, topic)) end)
+  rescue
+    ArgumentError -> false
+  end
 end
