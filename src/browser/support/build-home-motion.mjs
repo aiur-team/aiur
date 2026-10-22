@@ -1,3 +1,4 @@
+import { hoverTreeCard, treeTab, treeHoverClear } from './build-home-tree-motion.mjs'
 import { columnSequence, alignColumnPolls } from './build-home-columns-motion.mjs'
 import { spanState } from './build-home-span-state.mjs'
 import { historySequence } from './build-home-history-motion.mjs'
@@ -351,11 +352,8 @@ async function modal(page, ctx, close = false, fromUrl = false) {
 }
 
 async function tree(page, ctx) {
-  await page.clock.runFor(704)
-  const cards = page.locator('.bd-card:not(.now)')
-  if (!await cards.count()) throw new Error('unreachable tree card')
-  await cards.first().evaluate(el => el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-  await click(page, '[data-lt="lock"]')
+  await hoverTreeCard(page)
+  await page.locator('[data-lt="lock"]').click({ force: true })
   if (!await page.locator('.bd-lt.show.locked').count()) throw new Error('unreachable locked tree control')
   const animation = await cssMotion(page, '#bd-tree', ctx, '[data-lt="tree"]')
   if (await page.locator('#bd-tree').evaluate(el => el.hidden)) throw new Error('unreachable open tree overlay')
@@ -488,6 +486,7 @@ export const SEQUENCES = {
   'modal.url': (page, ctx) => modal(page, ctx, false, true), 'modal.open': modal, 'modal.close': (page, ctx) => modal(page, ctx, true), 'modal.reduce': modal,
   'minimap.drag': (page, ctx) => minimap(page, ctx, false), 'minimap.jump': (page, ctx) => minimap(page, ctx, true),
   'tree.overlay': tree, 'tree.reduce': tree,
+  'tree.tab': (page, ctx) => treeTab(page, ctx, { cssMotion }), 'tree.hover-clear': treeHoverClear,
   'loading.spin': (page, ctx) => inventory(page, { ...ctx, selector: '.bd-loading' }),
   'grain.static': grain, 'inventory': inventory,
   'reduce.live-toggle': async (page, ctx) => {
