@@ -23,6 +23,7 @@ defmodule AiurWeb.Build.NowRows do
   Source freshness comes from this same catalog, never a separate clock or probe.
   """
   alias Aiur.BuildOrder.ProgressRenderer
+  alias Aiur.Orchestrator.State
   alias Aiur.Projections.UnitsPolicy
   alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
@@ -148,11 +149,10 @@ defmodule AiurWeb.Build.NowRows do
   defp pause_state(false, _pause), do: nil
   defp pause_state(true, :usage_limit_exhausted), do: "usage_limited"
   defp pause_state(true, :ci_wait), do: "ci_wait"
-  defp pause_state(true, :blocker_dependency), do: "parked"
-  defp pause_state(true, :optimistic_blocker_failed), do: "parked"
-  defp pause_state(true, :max_agent_duration), do: "parked"
-  defp pause_state(true, :github_budget_hold), do: "parked"
-  defp pause_state(true, _pause), do: "paused"
+
+  defp pause_state(true, pause) do
+    if State.non_reserving_pause_reason?(pause) or pause == :github_budget_hold, do: "parked", else: "paused"
+  end
 
   defp resume_at(row) do
     if get_in(row, [:reasons, :pause]) == :usage_limit_exhausted do
