@@ -207,7 +207,7 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
         end
       )
 
-    assert %{decision: :failed, approved_landing_withdrawn?: true} = Recovery.recover(ctx.issue, result, opts)
+    assert %{decision: :failed, recovery: nil, approved_landing_withdrawn?: true} = Recovery.recover(ctx.issue, result, opts)
     assert_received :withdrawn
   end
 

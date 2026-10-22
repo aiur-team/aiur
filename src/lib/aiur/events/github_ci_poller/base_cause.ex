@@ -36,15 +36,12 @@ defmodule Aiur.Events.GithubCIPoller.BaseCause do
 
   defp classify_checks_against(failures, base, history) do
     Enum.map(failures, fn failure ->
-      class =
-        case base do
-          nil -> if(never_ran?(failure.name, history), do: :caused_by_pr, else: :unknown)
-          %{checks: checks} -> if(caused?(failure.name, checks), do: :caused_by_pr, else: :inherited)
-        end
-
-      %{name: failure.name, class: class}
+      %{name: failure.name, class: classify_check(failure.name, base, history)}
     end)
   end
+
+  defp classify_check(name, nil, history), do: if(never_ran?(name, history), do: :caused_by_pr, else: :unknown)
+  defp classify_check(name, %{checks: checks}, _history), do: if(caused?(name, checks), do: :caused_by_pr, else: :inherited)
 
   defp never_ran?(name, history), do: not Enum.any?(history, fn entry -> Enum.any?(entry.checks, &(&1.name == name)) end)
 

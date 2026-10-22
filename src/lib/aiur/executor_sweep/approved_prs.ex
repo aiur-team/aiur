@@ -49,12 +49,7 @@ defmodule Aiur.ExecutorSweep.ApprovedPrs do
     red = failures != []
     kind = if red, do: "approved_pr_red", else: "approved_pr_not_landing"
 
-    classifications =
-      if is_integer(observed_age_ms) and observed_age_ms <= max_age_ms do
-        Enum.map(failures, &FailureCause.classify(&1, value(pr, :base_sha, nil), base_checks))
-      else
-        Enum.map(failures, &FailureCause.classify(&1, nil, []))
-      end
+    classifications = classify_failures(pr, failures, base_checks, observed_age_ms, max_age_ms)
 
     cause = classifications |> Enum.map(& &1.class) |> Enum.uniq() |> single_or_mixed()
     checks = Enum.map_join(classifications, ", ", &"#{&1.name} (#{display_failure_class(&1.class)})")
@@ -64,12 +59,7 @@ defmodule Aiur.ExecutorSweep.ApprovedPrs do
     verification = if stale?, do: "unverified", else: "verified"
     age_source = if red, do: "CI observation age", else: "GitHub cache age"
 
-    action =
-      cond do
-        stale? -> "Verify the PR and its checks in GitHub before taking action."
-        cause == "caused_by_pr" -> "Inspect the PR-caused failure or restore merge queue/auto-merge progress."
-        true -> "Inspect the check cause or restore merge queue/auto-merge progress."
-      end
+    action = finding_action(stale?, cause)
 
     finding(kind, action, "Approved PR ##{value(pr, :number, "?")} #{problem}; #{verification} (#{age_source}: #{age(observed_age_ms)}).",
       pull_request: value(pr, :number, nil),
@@ -79,6 +69,15 @@ defmodule Aiur.ExecutorSweep.ApprovedPrs do
       verification: verification
     )
   end
+
+  defp classify_failures(pr, failures, base_checks, observed_age_ms, max_age_ms) do
+    {base_sha, base_checks} = if fresh_age?(observed_age_ms, max_age_ms), do: {value(pr, :base_sha, nil), base_checks}, else: {nil, []}
+    Enum.map(failures, &FailureCause.classify(&1, base_sha, base_checks))
+  end
+
+  defp finding_action(true, _cause), do: "Verify the PR and its checks in GitHub before taking action."
+  defp finding_action(false, "caused_by_pr"), do: "Inspect the PR-caused failure or restore merge queue/auto-merge progress."
+  defp finding_action(false, _cause), do: "Inspect the check cause or restore merge queue/auto-merge progress."
 
   defp finding(kind, action, message, extra) do
     Map.merge(%{kind: kind, priority: 3, age_ms: 0, action: action, message: message}, Map.new(extra))

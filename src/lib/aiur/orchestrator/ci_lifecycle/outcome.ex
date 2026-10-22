@@ -63,7 +63,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
   defp apply_ci_poll_result(state, issue, %{decision: :failed} = result) do
     cond do
-      approved_landing_pr?(issue, result) ->
+      approved_landing_pr?(issue, result) and not Map.get(result, :approved_landing_withdrawn?, false) and not Map.get(result, :approved_landing_live_not_landing?, false) ->
         Logger.info("CI failure did not reopen approved landing PR: #{State.issue_context(issue)}")
         state
 
