@@ -3,7 +3,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
 
   alias Aiur.BuildOrder.Component
 
-  @config_keys [:build_history_backfill_enabled?, :build_order_adhoc_poll?, :build_order_pack_status_poll?, :build_order_root_import_enabled?, :orchestrator_initial_poll?]
+  @config_keys [:build_history_backfill_enabled?, :build_order_adhoc_poll?, :build_order_pack_status_poll?, :build_order_root_import_enabled?, :orchestrator_initial_poll?, :analytics_prewarm?]
   @metrics_path Path.join(System.tmp_dir!(), "aiur-3319-component-metrics.ndjson")
   @opts [interactive_cli?: true, headless?: false, dashboard?: true, tailscale_funnel?: false, recording?: true, executor_mode?: false, ls_remote_ticker?: true, build_index?: true]
 
@@ -146,7 +146,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Experiments.AnalystTrigger,
     Aiur.LandingWatch.QuarantineLifter,
     Aiur.RunTelemetry.RetainedCache,
-    AiurWeb.OperatorControlCenter.Analytics.Prewarmer,
+    {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
     AiurWeb.Build.IndexSupervisor
   ]
 
@@ -174,7 +174,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
         &(&1 in [
             AiurWeb.ControlCenterCache,
             Aiur.RunTelemetry.RetainedCache,
-            AiurWeb.OperatorControlCenter.Analytics.Prewarmer,
+            {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
             AiurWeb.FinancialData.Supervisor,
             AiurWeb.Build.IndexSupervisor,
             {Aiur.HttpServer, dashboard_pages?: true}
