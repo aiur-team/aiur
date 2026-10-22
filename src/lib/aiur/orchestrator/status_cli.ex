@@ -188,7 +188,11 @@ defmodule Aiur.Orchestrator.StatusCLI do
       case fleet_view(opts, timeout_ms) do
         {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
           Aiur.AgentControlCLIFreshness.print(freshness, Map.get(snapshot, :global_pause))
-          AgentsTable.print_agents_table(running ++ Map.get(snapshot, :retrying, []) ++ Map.get(snapshot, :idle, []))
+          retrying = Map.get(snapshot, :retrying, [])
+          idle = Map.get(snapshot, :idle, [])
+          visible_idle = if Keyword.get(opts, :all, false), do: idle, else: Enum.filter(idle, &AgentsTable.idle_attention_row?/1)
+          AgentsTable.print_agents_table(running ++ retrying ++ visible_idle)
+          AgentsTable.print_idle_count(length(idle) - length(visible_idle))
           exit_marker(0)
 
         {:ok, _snapshot, _freshness} ->
