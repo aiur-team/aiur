@@ -279,6 +279,34 @@ defmodule Aiur.TestSupport.Processes do
     end
   end
 
+  @doc false
+  @spec await_supervised_restart_unbounded(atom(), pid()) :: {:ok, pid()}
+  def await_supervised_restart_unbounded(name, prior) when is_atom(name) and is_pid(prior) do
+    monitor = Process.monitor(prior)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^prior, _reason} -> :ok
+    end
+
+    await_registered_replacement_unbounded(name, prior)
+  end
+
+  defp await_registered_replacement_unbounded(name, prior) do
+    case Process.whereis(name) do
+      pid when is_pid(pid) and pid != prior ->
+        # The call waits behind the supervisor's restart callback, including
+        # every later child in a rest_for_one cascade.
+        _children = GenServer.call(Process.whereis(Aiur.Supervisor), :which_children, :infinity)
+        {:ok, pid}
+
+      _not_restarted ->
+        receive do
+        after
+          10 -> await_registered_replacement_unbounded(name, prior)
+        end
+    end
+  end
+
   defp await_registered_replacement(name, prior, deadline) do
     # A floor on the call bound: at the deadline, a live supervisor must still
     # answer, so the failure reads as `:not_restarted`, not as unresponsive.

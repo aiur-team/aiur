@@ -2,6 +2,19 @@ defmodule Aiur.GitHub.Access.SettingsTest do
   use ExUnit.Case, async: false
 
   alias Aiur.GitHub.Access.{Settings, StaticSettings}
+  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.ReadCache.Policy
+  alias Aiur.GitHub.ResourceStore.Memory
+  alias Aiur.GitHub.Transport
+
+  defmodule CountingProvider do
+    def settings do
+      count = Process.get({__MODULE__, :calls}, 0) + 1
+      Process.put({__MODULE__, :calls}, count)
+      send(Process.get({__MODULE__, :test_pid}), {:settings_call, count})
+      %Aiur.GitHub.Access.Settings{state_root: "/tmp/settings-#{count}", repo: "owner/repo-#{count}"}
+    end
+  end
 
   setup do
     for key <- [:github_access_settings_provider, :github_access_settings] do
@@ -31,6 +44,30 @@ defmodule Aiur.GitHub.Access.SettingsTest do
   test "an unregistered provider names the missing configuration" do
     Application.delete_env(:aiur, :github_access_settings_provider)
     assert_raise ArgumentError, ~r/github_access_settings_provider/, fn -> Settings.current() end
+  end
+
+  test "a request reuses one provider snapshot and restores the outer context" do
+    test_pid = self()
+
+    Process.put({CountingProvider, :test_pid}, test_pid)
+    Application.put_env(:aiur, :github_access_settings_provider, CountingProvider)
+
+    assert :result =
+             Settings.with_request(fn ->
+               assert Settings.current().repo == "owner/repo-1"
+               assert Transport.base_url() == "https://api.github.com"
+               assert Transport.parse_repo() == {:ok, {"owner", "repo-1"}}
+               assert Budget.enabled?()
+               assert Policy.ttl_ms(:issue) == 30_000
+               assert Memory.max_body_bytes() == 128 * 1024 * 1024
+               assert Settings.current().repo == "owner/repo-1"
+               :result
+             end)
+
+    assert_received {:settings_call, 1}
+    refute_received {:settings_call, 2}
+    assert Settings.current().repo == "owner/repo-2"
+    assert_received {:settings_call, 2}
   end
 
   @tag :tmp_dir

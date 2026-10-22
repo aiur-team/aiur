@@ -6,6 +6,7 @@ defmodule Aiur.GitHub.Transport.GraphQL do
   and raw response contracts, including held, unknown and partial outcomes.
   """
 
+  alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.{Errors, GraphQLCost, Transport}
 
   require Logger
@@ -67,14 +68,16 @@ defmodule Aiur.GitHub.Transport.GraphQL do
   end
 
   defp send_graphql(request_fun, token, query, variables, opts) do
-    body = %{"query" => GraphQLCost.instrument(query), "variables" => variables}
+    Settings.with_request(fn ->
+      body = %{"query" => GraphQLCost.instrument(query), "variables" => variables}
 
-    request =
-      %{method: :post, url: Transport.graphql_url(), token: token, body: body}
-      |> maybe_put_max_response_bytes(opts)
-      |> maybe_put_caller(opts)
+      request =
+        %{method: :post, url: Transport.graphql_url(), token: token, body: body}
+        |> maybe_put_max_response_bytes(opts)
+        |> maybe_put_caller(opts)
 
-    validate_graphql_response(request_fun.(request))
+      validate_graphql_response(request_fun.(request))
+    end)
   end
 
   # The budget is the reason the call is refused, so the refusal has to be

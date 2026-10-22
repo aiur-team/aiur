@@ -7,7 +7,7 @@ defmodule Aiur.LandingWatch.TicketLookup do
 
   @ticket_states ["rework", "in-progress", "todo", "human-review", "ci-wait", "merging"]
 
-  @spec fetch(map(), keyword()) :: {:ok, String.t(), String.t(), boolean()} | {:error, term()}
+  @spec fetch(map(), keyword()) :: {:ok, String.t(), String.t(), boolean(), boolean()} | {:error, term()}
   def fetch(observation, opts) do
     case TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"])) do
       nil ->
@@ -15,8 +15,9 @@ defmodule Aiur.LandingWatch.TicketLookup do
 
       issue ->
         case LocalRead.run(Keyword.get(opts, :ticket_state_fun, &fetch_state/2), [issue, opts], opts) do
-          {:ok, %{state: state, paused?: paused?}} -> {:ok, issue, state, paused?}
-          {:ok, state} -> {:ok, issue, state, false}
+          {:ok, %{state: state, paused?: paused?, held?: held?}} -> {:ok, issue, state, paused?, held?}
+          {:ok, %{state: state, paused?: paused?}} -> {:ok, issue, state, paused?, false}
+          {:ok, state} -> {:ok, issue, state, false, false}
           {:error, _} = error -> error
           _ -> {:error, :ticket_state_unavailable}
         end
@@ -30,7 +31,8 @@ defmodule Aiur.LandingWatch.TicketLookup do
       {:ok,
        %{
          state: Enum.find(@ticket_states, "other", &("agent:#{&1}" in names)),
-         paused?: "#{prefix()}:paused" in names
+         paused?: "#{prefix()}:paused" in names,
+         held?: "#{prefix()}:parked" in names or Enum.any?(names, &String.starts_with?(&1, "#{prefix()}:executor:"))
        }}
     end
   end

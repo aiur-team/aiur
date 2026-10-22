@@ -2,7 +2,7 @@ defmodule VoiceConverse.Config do
   @moduledoc "Validated configuration for one VoiceConverse instance. The core reads no application env."
 
   @required [:transcript_root, :credentials, :briefing_source]
-  @ports [:credentials, :briefing_source, :agent_channel, :command_source]
+  @ports [:credentials, :briefing_source, :agent_channel, :command_source, :token_issuer]
 
   @default_limits %{
     max_session_seconds: 1_800,
@@ -21,6 +21,7 @@ defmodule VoiceConverse.Config do
             briefing_source: nil,
             agent_channel: nil,
             command_source: nil,
+            token_issuer: nil,
             transcript_root: nil,
             redactor: &VoiceConverse.Redact.redact/1,
             roles: [],
