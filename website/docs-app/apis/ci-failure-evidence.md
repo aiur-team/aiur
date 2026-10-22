@@ -16,4 +16,4 @@ With `merge_policy.main_watch.enabled`, a red head routes only when the PR cause
 
 Otherwise it holds with one `base_inherited` or `base_unknown` attention, re-checked every poll. A `base_unknown` hold routes the red after one hour, because MainWatch may never record that base.
 
-The [cancelled-run policy](https://github.com/aiur-team/aiur/pull/4212) handles a separate trigger. A head can receive two reruns from distinct triggers: a failed-job rerun here and a cancelled-run rerun there.
+The [cancelled-run policy](https://github.com/aiur-team/aiur/pull/4212) handles the separate landing-watcher trigger. The CI poller also permits one journaled exact-head rerun for a cancelled required run or a classified infrastructure failure; rerun limits and the repair handoff still apply.
