@@ -194,6 +194,20 @@ alerts:
 #   sweep:
 #     unreviewed_pr_minutes: 10
 {{ELEVENLABS_SECTION}}
+# === Voice conversation (optional; read only when a voice session starts) ===
+# llm and cloud_disclosure_accepted have no default: a session refuses to start until both are set.
+# voice:
+#   conversation:
+#     llm: <model id>                  # required; the model the assistant reasons with
+#     cloud_disclosure_accepted: true  # required; true = accept that audio and text go to the cloud voice provider
+#     agent_id: <agent id>             # ElevenLabs Agents agent; an account-visible id, not a secret
+#     roles_dir: voice/roles           # role pre-context files; a relative path resolves next to this config
+#     max_session_seconds: 1800        # 60..3600
+#     idle_timeout_seconds: 120        # 15..900
+#     daily_minutes_cap: 60            # proposed default; 0 disables sessions, null removes the cap
+#     count_crashed_sessions: true     # minutes from crashed sessions count toward the daily cap
+#     context_token_budget: 4000       # 1000..32000
+
 # === Repo-wide PR comment watching (opt-in; OFF by default) ===
 # Let aiur act on comments across the whole repo, not just its own aiur/<id> PRs.
 # Requires github.bot_account (reply identity) and CODEOWNERS / github.trusted_accounts (who may direct the agent).
