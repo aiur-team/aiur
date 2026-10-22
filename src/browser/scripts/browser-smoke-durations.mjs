@@ -6,6 +6,9 @@
 // run 39100789804 spent 80-120s per shard outside its suites.
 export const preflightSeconds = 120
 export const recordedSeconds = {
+  // Governed local run (2026-10-21): all 13 nav cells passed in 151.44s;
+  // conservative measured 200s wrapper wall bound includes gate wait/startup.
+  'test:cutover-nav-parity': 200,
   // Green PR #5016 CI run 39273221105, head 6ed6d40de039efe1efedc30e9948090ec98a0881.
   // Whole-command wall times from completed shard logs, rounded up (not test-time sums).
   // Job 118131038618 (shard 8/9): 0.5s.

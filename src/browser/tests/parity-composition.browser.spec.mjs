@@ -33,11 +33,11 @@ for (const { label, width, isMobile } of composedViewports) {
       // dashboard_basic_auth, so the composed walk carries HTTP credentials too.
       await page.context().setHTTPCredentials(dashboardCredentials)
 
-      // Shell: Units is the default route; live navigation to Commands and Build
-      // Order stays URL-backed with a persistent, accessible navigation region.
-      await page.goto('/')
-      await expect(page.locator('#route-title')).toHaveText('Units')
-      await expect(page.getByRole('link', { name: 'Build Order' })).toHaveAttribute('href', '/build-orders')
+      // Shared shell navigation remains URL-backed; Build Order stays reachable
+      // by its direct URL after leaving the navigation.
+      await page.goto('/route-shell')
+      await expect(page.locator('#route-title')).toHaveText('Build')
+      await expect(page.getByRole('link', { name: 'Build Order' })).toHaveCount(0)
       await assertNoDocumentOverflow(page)
 
       const commands = page.getByRole('link', { name: 'Commands' })
@@ -51,19 +51,19 @@ for (const { label, width, isMobile } of composedViewports) {
       await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
       await assertNoDocumentOverflow(page)
 
-      await page.getByRole('link', { name: 'Build Order' }).click()
+      await page.goto('/build-orders')
       await expect(page).toHaveURL(/\/build-orders$/)
       await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
       await assertNoDocumentOverflow(page)
 
-      await page.getByRole('link', { name: 'Units' }).click()
+      await page.getByRole('link', { name: 'Build' }).click()
       await expect(page).toHaveURL(/\/$/)
-      await expect(page.locator('#route-title')).toHaveText('Units')
+      await expect(page.locator('#route-title')).toHaveText('Build')
 
       // Standalone region fixtures are not linked from the shell nav; visit each
       // directly within the same authenticated session and assert its landmark
       // plus its accessible live-status region survives.
-      await page.goto('/units')
+      await page.goto('/units-fixture')
       await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
       await expect(page.locator('#units-status')).toHaveAttribute('aria-atomic', 'true')
       await assertNoDocumentOverflow(page)
@@ -101,8 +101,8 @@ test('a locked financial region degrades content-free without crashing composed 
 
   // The bounded lock degrades only its own region: the rest of the composed
   // shell stays navigable and safe nonfinancial facts remain visible.
-  await page.goto('/')
-  await expect(page.locator('#route-title')).toHaveText('Units')
+  await page.goto('/route-shell')
+  await expect(page.locator('#route-title')).toHaveText('Build')
   await assertNoDocumentOverflow(page)
 
   const accessibility = await new AxeBuilder({ page }).analyze()
@@ -113,7 +113,7 @@ test('composed shell rejects unauthenticated access and survives a LiveView reco
   await assertFixtureAccessDenied(page)
 
   await openFixture(page, 'read_only')
-  await page.goto('/')
+  await page.goto('/route-shell')
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 
   await page.evaluate(() => window.liveSocket.disconnect())
@@ -121,7 +121,7 @@ test('composed shell rejects unauthenticated access and survives a LiveView reco
   await page.evaluate(() => window.liveSocket.connect())
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 
-  await expect(page.locator('#route-title')).toHaveText('Units')
+  await expect(page.locator('#route-title')).toHaveText('Build')
   await expect(page.getByRole('link', { name: 'Commands' })).toBeVisible()
   await assertNoDocumentOverflow(page)
 })

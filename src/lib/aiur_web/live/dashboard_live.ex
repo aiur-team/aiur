@@ -163,7 +163,7 @@ defmodule AiurWeb.DashboardLive do
 
     {:noreply,
      socket
-     |> assign(:decision_filter, filter)
+     |> assign(%{units_base_path: if(conversation_route?, do: "/units", else: URI.parse(uri).path), decision_filter: filter})
      |> assign(:table_sort, UnitsPanel.normalize_table_sort(params["sort"]))
      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
      |> assign(:conversation_from_route?, conversation_route?)
@@ -771,7 +771,7 @@ defmodule AiurWeb.DashboardLive do
       routes={RouteRegistry.routes(@payload.analytics)}
       tracker_kind={tracker_kind()}
       agent_kind={agent_kind()}
-      nav_counts={UnitsPanel.nav_counts(@units_view, @retained_counts)}
+      nav_counts={AiurWeb.OperatorControlCenter.AwaitingCommands.nav_counts(@retained_counts || %{})}
       nav_collapsed={@nav_collapsed}
       globally_paused={Controls.global_pause_state(@payload)}
       writable={@writable}

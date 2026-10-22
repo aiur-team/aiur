@@ -59,7 +59,8 @@ defmodule Aiur.TestSupport.LifecycleTeardown do
   @doc false
   @spec capture_and_stop_test_runners(pid(), MapSet.t(pid())) :: [{pid(), String.t()}]
   def capture_and_stop_test_runners(test_pid, runner_tasks_before) do
-    runner_leaks = LifecycleLeakGuard.live_runners(test_pid)
+    runner_leaks = LifecycleLeakGuard.live_owned_processes(test_pid)
+    LifecycleLeakGuard.stop_owned_processes(runner_leaks)
     RunnerTasks.stop_started_since(runner_tasks_before)
     runner_leaks
   end
