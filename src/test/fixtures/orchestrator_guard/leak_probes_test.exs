@@ -128,6 +128,9 @@ end
 defmodule Aiur.HTestSupportPubSubTerminationProbeTest do
   use Aiur.TestSupport, async: false
 
+  alias Aiur.TestSupport.OrchestratorGuard
+  alias Aiur.TestSupport.RuntimeChildren
+
   @moduletag :orchestrator_guard_probe
 
   setup_all do
@@ -137,8 +140,8 @@ defmodule Aiur.HTestSupportPubSubTerminationProbeTest do
     # contaminating later probe modules or the nested suite's final check.
     on_exit(fn ->
       assert :ok = Aiur.TestSupport.ensure_runtime_children_running()
-      assert :ok = Aiur.TestSupport.RuntimeChildren.ensure_financial_data_running()
-      Aiur.TestSupport.OrchestratorGuard.restore_codeowners_baseline!()
+      assert :ok = RuntimeChildren.ensure_financial_data_running()
+      OrchestratorGuard.restore_codeowners_baseline!()
     end)
 
     :ok
