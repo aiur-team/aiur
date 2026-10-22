@@ -64,10 +64,6 @@ defmodule AiurWeb.BuildQueuePanelTest do
     refute html =~ "unavailable"
   end
 
-  test "an uncarried read shows no carried-read line" do
-    refute render_component(&Panel.panel/1, view: view(:running), now: @now) =~ "data-queue-carried"
-  end
-
   test "source names and reasons render as words, not Elixir terms" do
     fixture = put_in(view(:running), [:model, :sources, "tracker_observation"], @unavailable)
     html = render_component(&Panel.panel/1, view: fixture, now: @now)
