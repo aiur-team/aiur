@@ -15,20 +15,24 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRoutingTest do
     failed = group_run(406, "failure", "pr-17-a")
     main = %{"id" => 405, "event" => "push", "status" => "completed", "conclusion" => "failure"}
 
-    request = fn %{method: :get, url: url} ->
-      runs =
-        cond do
-          String.contains?(url, "branch=main") ->
-            [main]
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/gh-readonly-queue/main/pr-17-a"}]}}
 
-          String.contains?(url, "event=merge_group") and String.contains?(url, "status=completed") ->
-            [failed]
+      %{method: :get, url: url} ->
+        runs =
+          cond do
+            String.contains?(url, "branch=main") ->
+              [main]
 
-          true ->
-            []
-        end
+            String.contains?(url, "event=merge_group") and String.contains?(url, "status=completed") ->
+              [failed]
 
-      {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+            true ->
+              []
+          end
+
+        {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
     end
 
     pr = %{
@@ -84,9 +88,13 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRoutingTest do
 
     run = group_run(305, "failure", "pr-17-a")
 
-    request = fn %{method: :get, url: url} ->
-      runs = if String.contains?(url, "status=completed"), do: [run], else: []
-      {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/gh-readonly-queue/main/pr-17-a"}]}}
+
+      %{method: :get, url: url} ->
+        runs = if String.contains?(url, "status=completed"), do: [run], else: []
+        {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
     end
 
     pr = %{
