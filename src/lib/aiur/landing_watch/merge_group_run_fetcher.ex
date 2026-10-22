@@ -44,6 +44,26 @@ defmodule Aiur.LandingWatch.MergeGroupRunFetcher do
          do: {:ok, Enum.filter(runs, &(&1["event"] == "merge_group"))}
   end
 
+  @spec queue_group_refs(String.t(), String.t(), String.t(), String.t(), keyword()) :: {:ok, MapSet.t()} | {:error, term()}
+  def queue_group_refs(owner, repo, base, token, opts) do
+    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/git/matching-refs/heads/gh-readonly-queue/#{base}/"
+    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+
+    case request.(%{method: :get, url: url, token: token, caller: "landing_watch_merge_group_refs"}) do
+      {:ok, %{status: 200, body: refs}} when is_list(refs) ->
+        {:ok, MapSet.new(refs, &get_in(&1, ["ref"]))}
+
+      {:ok, %{status: 200}} ->
+        {:error, :invalid_merge_group_refs}
+
+      {:ok, %{status: _} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
   # GitHub lists runs newest first, so the first pages hold every run a live queue
   # entry or a recent failure can own. The completed history grows without bound;
   # past the cap, keep what was read instead of failing the whole poll (#4556).

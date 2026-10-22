@@ -71,8 +71,9 @@ defmodule Aiur.OrchestratorStatusCliBuildGateTest do
     output = capture_io(fn -> AgentControlCLI.status() end)
     assert output =~ ~r/AGENTS 0\/10 \(binding: awaiting dispatch; ceiling: AIMD envelope \d+\)/
     assert output =~ "BUILD GATE 1/#{Config.max_concurrent_builds()} active, 1 queued"
-    assert output =~ "BUILD GATE HOLDER slot=1 pid=2 command=\"test\" held="
-    assert output =~ "BUILD GATE QUEUED pid=2 command=\"test\" waiting="
+    assert output =~ "BUILD GATE HOLDER slot=1 pid=2 phase=test command=\"test\" held="
+    assert output =~ "(lease locked)"
+    assert output =~ "BUILD GATE QUEUED pid=2 phase=test command=\"test\" waiting="
     File.touch!(release_path)
     assert_receive {^holder, {:exit_status, 0}}, 2_000
   end
@@ -103,6 +104,6 @@ defmodule Aiur.OrchestratorStatusCliBuildGateTest do
     output = capture_io(fn -> AgentControlCLI.status() end)
     assert output =~ "BUILD GATE DEGRADED 0/#{Config.max_concurrent_builds()} active, 0 queued"
     assert output =~ "reason=legacy_state path=#{legacy_path}"
-    assert output =~ "recovery=repair the configured build-gate directory"
+    assert output =~ "recovery=check the build-gate holder metadata"
   end
 end
