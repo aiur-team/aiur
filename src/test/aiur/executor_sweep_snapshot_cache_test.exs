@@ -1,4 +1,5 @@
 defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
+  # The store-backed and pure join cases exercise the same SnapshotCache projection.
   use Aiur.TestSupport
 
   alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
