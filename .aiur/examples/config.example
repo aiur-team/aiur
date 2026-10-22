@@ -204,8 +204,7 @@ alerts:
 #     roles_dir: voice/roles           # role pre-context files; a relative path resolves next to this config
 #     max_session_seconds: 1800        # 60..3600
 #     idle_timeout_seconds: 120        # 15..900
-#     daily_minutes_cap: 60            # proposed default; 0 disables sessions, null removes the cap
-#     count_crashed_sessions: true     # minutes from crashed sessions count toward the daily cap
+#     daily_minutes_cap: 60            # proposed default; crashed sessions always count; 0 disables, null removes the cap
 #     context_token_budget: 4000       # 1000..32000
 
 # === Repo-wide PR comment watching (opt-in; OFF by default) ===

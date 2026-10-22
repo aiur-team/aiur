@@ -169,6 +169,12 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc "The `voice.conversation` settings, with a relative `roles_dir` resolved against the config file."
+  @spec voice_conversation() :: Schema.VoiceConversation.t()
+  def voice_conversation do
+    Schema.VoiceConversation.resolve_roles_dir(settings!().voice.conversation, Workflow.workflow_file_path())
+  end
+
   defdelegate tracker_kind(), to: Aiur.Config.TrackerSettings
   defdelegate base_branch(source \\ settings(), context \\ []), to: Aiur.Config.TrackerSettings
   defdelegate active_states(), to: Aiur.Config.TrackerSettings
@@ -190,13 +196,6 @@ defmodule Aiur.Config do
   defdelegate elevenlabs_api_key(), to: Aiur.Config.ObservabilitySettings
   defdelegate elevenlabs_language_code(), to: Aiur.Config.ObservabilitySettings
   defdelegate elevenlabs_voice_id(), to: Aiur.Config.ObservabilitySettings
-
-  @doc "The `voice.conversation` settings, with a relative `roles_dir` resolved against the config file."
-  @spec voice_conversation() :: Schema.VoiceConversation.t()
-  def voice_conversation do
-    Schema.VoiceConversation.resolve_roles_dir(settings!().voice.conversation, Workflow.workflow_file_path())
-  end
-
   defdelegate workflow_prompt(), to: Aiur.Config.ObservabilitySettings
   defdelegate server_port(), to: Aiur.Config.ObservabilitySettings
   defdelegate server_host(), to: Aiur.Config.ObservabilitySettings

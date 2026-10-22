@@ -13,7 +13,6 @@ defmodule Aiur.Config.Schema.VoiceConversation do
     :max_session_seconds,
     :idle_timeout_seconds,
     :daily_minutes_cap,
-    :count_crashed_sessions,
     :context_token_budget
   ]
 
@@ -46,13 +45,8 @@ defmodule Aiur.Config.Schema.VoiceConversation do
     # Proposed default pending the owner decision (E6-OQ6); operators may change it.
     # @config-reference config-configuration-22 voice.conversation.daily_minutes_cap
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail voice.conversation.daily_minutes_cap | integer or nil | 60 | Voice minutes allowed per day. `0` disables sessions; an explicit `null` removes the cap. |
+    # @config-detail voice.conversation.daily_minutes_cap | integer or nil | 60 | Voice minutes allowed per day. Minutes from crashed sessions always count. `0` disables sessions; an explicit `null` removes the cap. |
     field(:daily_minutes_cap, :integer, default: 60)
-    # Proposed default pending the owner decision (E6-OQ6); operators may change it.
-    # @config-reference config-configuration-22 voice.conversation.count_crashed_sessions
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail voice.conversation.count_crashed_sessions | boolean | true | Whether minutes from a session that ended in a crash count toward `voice.conversation.daily_minutes_cap`. |
-    field(:count_crashed_sessions, :boolean, default: true)
     # @config-reference config-configuration-22 voice.conversation.context_token_budget
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-detail voice.conversation.context_token_budget | integer | 4000 | Token budget for the context handed to the assistant, 1000 to 32000. |

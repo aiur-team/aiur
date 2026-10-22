@@ -14,15 +14,12 @@ defmodule Aiur.Config.Schema.VoiceConversationTest do
 
   # Phase D, M8: the cap protects the operator's bill, so an omitted key must stay capped.
   test "an omitted daily_minutes_cap loads as the capped default, not nil" do
-    assert {:ok, %{voice: %{conversation: %{daily_minutes_cap: 60, count_crashed_sessions: true}}}} = parse(%{})
+    assert {:ok, %{voice: %{conversation: %{daily_minutes_cap: 60}}}} = parse(%{})
   end
 
-  test "the operator may change or remove the cap and stop counting crashed sessions" do
+  test "the operator may change or remove the cap" do
     assert {:ok, %{voice: %{conversation: %{daily_minutes_cap: 15}}}} = parse(%{"daily_minutes_cap" => 15})
     assert {:ok, %{voice: %{conversation: %{daily_minutes_cap: nil}}}} = parse(%{"daily_minutes_cap" => nil})
-
-    assert {:ok, %{voice: %{conversation: %{count_crashed_sessions: false}}}} =
-             parse(%{"count_crashed_sessions" => false})
   end
 
   # aiur and the core must not disagree about a default; the core is the source of truth.
@@ -30,7 +27,7 @@ defmodule Aiur.Config.Schema.VoiceConversationTest do
     {:ok, %{voice: %{conversation: conversation}}} = parse(%{})
     core = VoiceConverse.Config.default_limits()
 
-    for key <- [:max_session_seconds, :idle_timeout_seconds, :daily_minutes_cap, :count_crashed_sessions, :context_token_budget] do
+    for key <- [:max_session_seconds, :idle_timeout_seconds, :daily_minutes_cap, :context_token_budget] do
       assert Map.fetch!(conversation, key) == Map.fetch!(core, key), "#{key} default drifted from the core"
     end
   end

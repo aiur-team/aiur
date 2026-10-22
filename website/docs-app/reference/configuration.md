@@ -334,15 +334,14 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 
 Optional settings for the conversational voice assistant. An absent `voice:` block changes nothing; Aiur reads these keys only when a voice session starts.
 
-`voice.conversation.llm` and `voice.conversation.cloud_disclosure_accepted` have no default. Aiur loads a config without them, but refuses to start a voice session until both are set, and the error names the missing key. The daily cap default and the crashed-session rule are proposed defaults you may change.
+`voice.conversation.llm` and `voice.conversation.cloud_disclosure_accepted` have no default. Aiur loads a config without them, but refuses to start a voice session until both are set, and the error names the missing field. The daily cap default is a proposed default you may change; minutes from crashed sessions always count toward the cap.
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-22 -->
 | --- | --- | --- | --- |
 | `voice.conversation.agent_id` | string or nil | nil | ElevenLabs Agents agent the assistant talks through. An account-visible id, not a secret. |
 | `voice.conversation.cloud_disclosure_accepted` | boolean or nil | nil (required) | Set `true` to accept that conversation audio and text go to the cloud voice provider. A session refuses to start until it is `true`. |
 | `voice.conversation.context_token_budget` | integer | 4000 | Token budget for the context handed to the assistant, 1000 to 32000. |
-| `voice.conversation.count_crashed_sessions` | boolean | true | Whether minutes from a session that ended in a crash count toward `voice.conversation.daily_minutes_cap`. |
-| `voice.conversation.daily_minutes_cap` | integer or nil | 60 | Voice minutes allowed per day. `0` disables sessions; an explicit `null` removes the cap. |
+| `voice.conversation.daily_minutes_cap` | integer or nil | 60 | Voice minutes allowed per day. Minutes from crashed sessions always count. `0` disables sessions; an explicit `null` removes the cap. |
 | `voice.conversation.idle_timeout_seconds` | integer | 120 | Silence after which a session ends, 15 to 900 seconds. |
 | `voice.conversation.llm` | string or nil | nil (required) | Model the assistant reasons with. No default: a voice session refuses to start until it is set. |
 | `voice.conversation.max_session_seconds` | integer | 1800 | Longest one voice session may run, 60 to 3600 seconds. |
