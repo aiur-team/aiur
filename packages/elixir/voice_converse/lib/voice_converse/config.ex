@@ -7,8 +7,7 @@ defmodule VoiceConverse.Config do
   `check_session_start/1` refuses a session until both are set.
 
   `limits.daily_minutes_cap` is an integer number of minutes (0 disables sessions) or `nil` for
-  no cap. `limits.count_crashed_sessions` decides whether minutes from a session that ended in a
-  crash count toward that cap.
+  no cap. Minutes from a session that ended in a crash always count toward the cap.
   """
 
   @required [:transcript_root, :credentials, :briefing_source]
@@ -18,7 +17,6 @@ defmodule VoiceConverse.Config do
     max_session_seconds: 1_800,
     idle_timeout_seconds: 120,
     daily_minutes_cap: 60,
-    count_crashed_sessions: true,
     context_token_budget: 4_000,
     briefing_token_budget: 1_500,
     max_sessions: 1,
@@ -84,15 +82,18 @@ defmodule VoiceConverse.Config do
   `cloud_disclosure_accepted`. The error names the missing field.
   """
   @spec check_session_start(t()) :: :ok | {:error, %{field: atom(), reason: atom()}}
-  def check_session_start(%__MODULE__{llm: llm}) when llm in [nil, ""],
-    do: {:error, %{field: :llm, reason: :missing}}
+  def check_session_start(%__MODULE__{llm: llm} = config) do
+    if is_nil(llm) or String.trim(llm) == "",
+      do: {:error, %{field: :llm, reason: :missing}},
+      else: check_disclosure(config)
+  end
 
-  def check_session_start(%__MODULE__{cloud_disclosure_accepted: nil}),
+  defp check_disclosure(%__MODULE__{cloud_disclosure_accepted: nil}),
     do: {:error, %{field: :cloud_disclosure_accepted, reason: :missing}}
 
-  def check_session_start(%__MODULE__{cloud_disclosure_accepted: true}), do: :ok
+  defp check_disclosure(%__MODULE__{cloud_disclosure_accepted: true}), do: :ok
 
-  def check_session_start(%__MODULE__{}),
+  defp check_disclosure(%__MODULE__{}),
     do: {:error, %{field: :cloud_disclosure_accepted, reason: :not_accepted}}
 
   defp check_known(opts) do
@@ -140,6 +141,5 @@ defmodule VoiceConverse.Config do
 
   defp valid_limit?(:daily_minutes_cap, nil), do: true
   defp valid_limit?(:daily_minutes_cap, value), do: is_integer(value) and value >= 0
-  defp valid_limit?(:count_crashed_sessions, value), do: is_boolean(value)
   defp valid_limit?(_key, value), do: is_integer(value) and value > 0
 end

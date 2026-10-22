@@ -20,6 +20,13 @@ defmodule VoiceConverse.ConfigTest do
       assert {:unavailable, {:not_configured, :llm}} = VoiceConverse.availability(config)
     end
 
+    test "a blank or whitespace-only llm counts as missing, not as a choice" do
+      for blank <- ["", "   "] do
+        {:ok, config} = Config.new(Keyword.put(@ready, :llm, blank))
+        assert {:error, %{field: :llm, reason: :missing}} = Config.check_session_start(config)
+      end
+    end
+
     test "an unanswered disclosure is refused and named" do
       {:ok, config} = Config.new(Keyword.delete(@ready, :cloud_disclosure_accepted))
       assert {:error, %{field: :cloud_disclosure_accepted, reason: :missing}} = Config.check_session_start(config)
@@ -43,29 +50,24 @@ defmodule VoiceConverse.ConfigTest do
     end
   end
 
-  # Proposed E6-OQ6 defaults: capped at 60 minutes a day, crashed sessions count. Both are
-  # operator-changeable values, not fixed rules.
+  # Proposed E6-OQ6 default: capped at 60 minutes a day, operator-changeable. Crashed sessions
+  # always count toward the cap; that rule is not a setting.
   describe "daily cap" do
-    test "defaults to 60 minutes with crashed sessions counted" do
+    test "defaults to 60 minutes, with no setting to stop counting crashed sessions" do
       {:ok, config} = Config.new(@base)
-      assert %{daily_minutes_cap: 60, count_crashed_sessions: true} = config.limits
+      assert %{daily_minutes_cap: 60} = config.limits
+      refute Map.has_key?(config.limits, :count_crashed_sessions)
     end
 
-    test "the operator may change, remove or zero the cap and stop counting crashes" do
+    test "the operator may change, remove or zero the cap" do
       for cap <- [30, nil, 0] do
         assert {:ok, %{limits: %{daily_minutes_cap: ^cap}}} = Config.new(@base ++ [limits: %{daily_minutes_cap: cap}])
       end
-
-      assert {:ok, %{limits: %{count_crashed_sessions: false}}} =
-               Config.new(@base ++ [limits: %{count_crashed_sessions: false}])
     end
 
-    test "a negative cap or a non-boolean crash rule is rejected with the limit key" do
+    test "a negative cap is rejected with the limit key" do
       assert {:error, %{field: :limits, key: :daily_minutes_cap}} =
                Config.new(@base ++ [limits: %{daily_minutes_cap: -1}])
-
-      assert {:error, %{field: :limits, key: :count_crashed_sessions}} =
-               Config.new(@base ++ [limits: %{count_crashed_sessions: "yes"}])
     end
   end
 end
