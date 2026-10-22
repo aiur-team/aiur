@@ -23,7 +23,8 @@
     "projections",
     "signal",
     "web-kit",
-    "web-shell"
+    "web-shell",
+    "workspace"
   ],
   "optional": [
     "accounting",

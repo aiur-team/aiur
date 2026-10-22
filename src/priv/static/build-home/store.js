@@ -3,7 +3,7 @@ import { intake } from './protocol.js';
 import { setNow } from './clock.js';
 
 function commit(snap, clock = true) {
-  const D = { ...intake(snap), sources: snap.sources, capacity: snap.capacity };
+  const D = { ...intake(snap), sources: snap.sources, capacity: snap.capacity, repo: snap.repo };
   ctx.snap = snap; ctx.D = D;
   ctx.proto.epoch = snap.epoch; ctx.proto.generation = snap.generation;
   if (clock) setNow(snap.now);

@@ -4,7 +4,7 @@ defmodule AiurWeb.Build.FixtureSourceTest do
   alias AiurWeb.Build.{DataSource, Payload}
 
   test "every dataset serves its initial window with the frozen now" do
-    for dataset <- ~w(live dense newrepo noqueue offline odd-edges unknowns hostile list-edges) do
+    for dataset <- ~w(live dense newrepo noqueue offline odd-edges unknowns hostile chains list-edges) do
       assert {:ok, json} = FixtureSource.snapshot(dataset: dataset)
       assert json["now"] == 1_791_408_000_000
       path = Path.expand("../../fixtures/build_home/#{dataset}.json", __DIR__)
@@ -35,7 +35,7 @@ defmodule AiurWeb.Build.FixtureSourceTest do
   end
 
   test "unknown, non-dataset, missing and invalid fixtures are errors" do
-    assert FixtureSource.datasets() == ~w(live dense newrepo noqueue offline odd-edges unknowns hostile list-edges now0 now24 degraded unavailable hold)
+    assert FixtureSource.datasets() == ~w(live dense newrepo noqueue offline odd-edges unknowns hostile chains list-edges now0 now24 degraded unavailable hold)
     for dataset <- ~w(nope manifest usage-sets ../live), do: assert(FixtureSource.snapshot(dataset: dataset) == {:error, :unknown_dataset})
     assert FixtureSource.snapshot(dataset: "unavailable") == {:error, :fixture_unavailable}
     dir = Aiur.TestSupport.tmp_root!("build-home-missing")

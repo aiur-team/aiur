@@ -151,9 +151,16 @@ defmodule Aiur.Orchestrator.StatusReport do
       :ok = publish_snapshot(state)
     end
 
-    state
-    |> running_summaries()
-    |> AgentPubSub.broadcast_running_change()
+    summaries = running_summaries(state)
+
+    # Live conversation status is consumed by running-topic subscribers but is
+    # intentionally not part of the compact agent-list summary payload.
+    runtime_signature =
+      Map.new(state.running, fn {issue_id, entry} ->
+        {issue_id, Map.get(entry, :live_conversation)}
+      end)
+
+    :ok = AgentPubSub.broadcast_running_projection_change(summaries, {summaries, runtime_signature})
 
     AgentPubSub.broadcast_poll_state(%{
       checking?: state.poll_check_in_progress == true,
@@ -224,6 +231,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :waiting_for_human_episodes
     ])
     |> then(&struct!(State, &1))
+    |> SnapshotStore.without_issue_descriptions()
     |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state))
     |> Map.put(:control_lifecycle, snapshot_control_lifecycle(state))
     |> Map.put(:queue_store, snapshot_queue_store(state))

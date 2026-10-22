@@ -29,7 +29,10 @@ def check():
     assert owners['src/lib/aiur/github/queue_cost.ex'] == 'github'
     assert owners['src/lib/aiur/github/read_cache/policy.ex'] == 'github-access'
     assert owners['src/lib/aiur/github/resource_store/memory.ex'] == 'github-access'
-    assert owners['src/lib/aiur/github/budget/sandbox_roots.ex'] == 'github-access'
+    assert owners['src/lib/aiur/github/config/budget_sandbox_roots.ex'] == 'github'
+    assert owners['src/lib/aiur/github/access_settings.ex'] == 'github'
+    assert owners['src/lib/aiur/github/access/settings.ex'] == 'github-access'
+    assert owners['src/lib/aiur/github/access/token.ex'] == 'github-access'
     # Future split files inherit the same owner without a manifest amendment.
     for stem in ('transport', 'quota', 'budget', 'credential', 'resource_store'):
         probes = [f'src/lib/aiur/github/{stem}_split.ex', f'src/lib/aiur/github/{stem}/split.ex']

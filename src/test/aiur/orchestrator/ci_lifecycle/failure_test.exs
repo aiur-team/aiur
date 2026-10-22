@@ -172,13 +172,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       start_recorder()
       ResourceStore.reset()
       on_exit(&ResourceStore.reset/0)
-      previous_token = :persistent_term.get({Aiur.GitHub.Config, :resolved_token}, :unset)
-      :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, "test-token")
+      previous_token = :persistent_term.get({Aiur.GitHub.Access.Token, :resolved_token}, :unset)
+      :persistent_term.put({Aiur.GitHub.Access.Token, :resolved_token}, "test-token")
 
       on_exit(fn ->
         if previous_token == :unset,
-          do: :persistent_term.erase({Aiur.GitHub.Config, :resolved_token}),
-          else: :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, previous_token)
+          do: :persistent_term.erase({Aiur.GitHub.Access.Token, :resolved_token}),
+          else: :persistent_term.put({Aiur.GitHub.Access.Token, :resolved_token}, previous_token)
       end)
 
       labels = :ets.new(:ci_labels, [:set, :private])

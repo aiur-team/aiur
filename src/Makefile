@@ -59,7 +59,7 @@ coverage-partition:
 	echo "coverage-partition: shard $$shard/$(TEST_PARTITIONS) -> $$(wc -l < "$$list") test files"; \
 	MIX_ENV=test $(MIX) aiur.test_shard --shards $(TEST_PARTITIONS) --counts \
 	  | while IFS="$$(printf '\t')" read -r s n; do echo "coverage-partition: shard $$s holds $$n files"; done; \
-	AIUR_TEST_PROGRESS=1 $(MIX) test --cover --export-coverage "$$shard" $$(cat "$$list")
+	AIUR_TEST_PROGRESS=1 $(MIX) test $(MIX_TEST_ARGS) --cover --export-coverage "$$shard" $$(cat "$$list")
 
 test:
 	$(MIX) test

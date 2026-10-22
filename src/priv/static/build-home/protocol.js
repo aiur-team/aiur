@@ -19,6 +19,10 @@ export function intake(snapshot) {
   const byId = Object.fromEntries(all.map(row => [row.id, row]));
   const children = {};
   for (const row of all) for (const dep of row.deps) (children[dep] ??= []).push(row.id);
+  // The index also names children whose history rows have not been paged in.
+  for (const row of all) for (const child of new Set(row.children || [])) {
+    if (!byId[child]) (children[row.id] ??= []).push(child);
+  }
   const features = Object.fromEntries(Object.entries(snapshot.features).map(([key, feature]) => [key, { ...feature, to: feature.to === null ? Infinity : feature.to }]));
   return { epics: snapshot.epics, features, order: snapshot.order, counts: snapshot.counts, ...sections, all, byId, children };
 }

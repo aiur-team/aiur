@@ -3,7 +3,7 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
-  alias Aiur.Config.{Schema, SemanticChecks, TestRunOverrides}
+  alias Aiur.Config.{BackendCatalog, Schema, SemanticChecks, TestRunOverrides}
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
@@ -62,7 +62,7 @@ defmodule Aiur.Config do
   # reused, without copying the full config term on this hot path. See
   # `env_epoch/2` for why that is not the whole environment.
   defp cached_settings(workflow, cache_identity) do
-    key = {cache_identity, env_epoch(workflow, cache_identity)}
+    key = {cache_identity, {env_epoch(workflow, cache_identity), BackendCatalog.impl()}}
 
     case WorkflowStoreCache.fetch_settings(key) do
       {:ok, settings} ->
@@ -151,8 +151,10 @@ defmodule Aiur.Config do
 
   @doc false
   @spec settings_from({:ok, map()} | {:error, term()}) :: {:ok, Schema.t()} | {:error, term()}
-  def settings_from({:ok, %{config: config}}) when is_map(config),
-    do: config |> prepare_config() |> Schema.parse() |> TestRunOverrides.apply()
+  def settings_from({:ok, %{config: config}}) when is_map(config) do
+    with {:ok, _catalog} <- BackendCatalog.impl(),
+         do: config |> prepare_config() |> Schema.parse() |> TestRunOverrides.apply()
+  end
 
   def settings_from({:error, reason}), do: {:error, reason}
 
@@ -336,15 +338,15 @@ defmodule Aiur.Config do
   defp inferred_agent_kind(config) do
     agent = map_section(config, "agent")
 
-    Enum.find(Aiur.CodingAgent.configurable_backends(), fn backend ->
+    Enum.find(BackendCatalog.configurable_backends(), fn backend ->
       has_section?(config, backend) or Map.has_key?(backend_config_sections(config, agent), backend)
-    end) || Aiur.CodingAgent.default_config_backend()
+    end) || BackendCatalog.default_config_backend()
   end
 
   defp backend_config_sections(config, agent) do
     explicit = map_section(agent, "backend_configs")
 
-    Aiur.CodingAgent.known_backends()
+    BackendCatalog.known_backends()
     |> Enum.reduce(explicit, fn backend, sections ->
       section =
         config

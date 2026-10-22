@@ -25,8 +25,8 @@ const ciSource = readFileSync(new URL('ci.yml', dir), 'utf8');
 assert.ok(ciSource.includes('node scripts/test-workflow-check-names.mjs'),
   'workflow security must execute this test');
 const securityJob = ciSource.split(/^  workflow-security:\n/m)[1].split(/^  build:\n/m)[0];
-assert.ok(securityJob.includes('timeout-minutes: 5'),
-  'workflow security keeps its original bounded job budget');
+assert.ok(securityJob.includes('timeout-minutes: 15'),
+  'workflow security has enough bounded time for a cold Hex registry and dependency fetch');
 assert.ok(!securityJob.includes('pull-requests:'),
   'workflow security does not receive PR access');
 const preHandoffJob = ciSource.split(/^  pre-handoff:\n/m)[1].split(/^  workflow-security:\n/m)[0];

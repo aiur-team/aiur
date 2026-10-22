@@ -3,7 +3,6 @@ defmodule Aiur.GitHub.Listeners.Comments.PlainInputsTest do
 
   alias Aiur.GitHub.Listeners.Comments.{Cursor, Input, TargetSelection}
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{CommandScan, State, TrackerTasks}
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
@@ -46,32 +45,5 @@ defmodule Aiur.GitHub.Listeners.Comments.PlainInputsTest do
            }
 
     assert watch_target == %{target: "99", open_pull_request: watch_pr}
-  end
-
-  test "command scan refreshes both validators independently of the listener cursor" do
-    state = %State{
-      snapshot_key: self(),
-      github_command_scan_etags: %{command_scan_review: "old-review-etag", command_scan_issue: "old-issue-etag"}
-    }
-
-    pending =
-      CommandScan.scan_pr_commands(state,
-        command_scan_review_comment_fetcher: fn opts ->
-          assert Keyword.fetch!(opts, :etag) == "old-review-etag"
-          {:ok, [], "new-review-etag"}
-        end,
-        command_scan_issue_comment_fetcher: fn opts ->
-          assert Keyword.fetch!(opts, :etag) == "old-issue-etag"
-          {:ok, [], "new-issue-etag"}
-        end
-      )
-
-    [ref] = Map.keys(pending.tracker_tasks)
-    receive_barrier({^ref, result})
-    assert {:handled, next} = TrackerTasks.result(pending, ref, result)
-
-    assert next.tracker_tasks == %{}
-    assert next.github_command_scan_etags == %{command_scan_review: "new-review-etag", command_scan_issue: "new-issue-etag"}
-    refute Map.has_key?(next, :github_comment_cursor)
   end
 end

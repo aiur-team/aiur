@@ -37,3 +37,5 @@ R-optional	AiurWeb.OperatorControlCenter.DecisionProvider	baseline 22b2fa407c5d4
 R-optional	AiurWeb.OperatorControlCenter.PayloadLoader	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.UnitsPresentation	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.UnitsPresenter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-private	Aiur.Claude.RemoteControl	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
+R-private	Aiur.Claude.Repl.Reaper	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut

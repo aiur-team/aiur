@@ -14,6 +14,24 @@ defmodule Aiur.LandingWatch.Journal do
     end
   end
 
+  @doc "Persists who last wrote a ticket's pause override so conflict routing can preserve operator holds."
+  @spec record_pause_writer(String.t(), atom() | String.t() | nil, keyword()) :: :ok | {:error, term()}
+  def record_pause_writer(issue, writer, opts \\ []) when is_binary(issue) and issue != "" do
+    update(opts, fn state ->
+      writers = Map.get(state, "pause_writers", %{})
+      writers = if is_nil(writer), do: Map.delete(writers, issue), else: Map.put(writers, issue, to_string(writer))
+      {:ok, Map.put(state, "pause_writers", writers)}
+    end)
+  end
+
+  @doc "Returns the recorded writer for a ticket's current pause override, if known."
+  @spec pause_writer(String.t(), keyword()) :: {:ok, String.t() | nil} | {:error, term()}
+  def pause_writer(issue, opts \\ []) when is_binary(issue) do
+    with {:ok, state} <- state(opts) do
+      {:ok, get_in(state, ["pause_writers", issue])}
+    end
+  end
+
   @spec reserve_rerun(pos_integer(), String.t(), integer(), keyword()) :: :ok | {:error, term()}
   def reserve_rerun(pr, head, now, opts \\ [])
 
@@ -190,6 +208,24 @@ defmodule Aiur.LandingWatch.Journal do
       retained = [row | unique] |> Enum.sort_by(& &1["at_ms"], :desc) |> Enum.take(2_000)
       {:ok, Map.put(state, "failure_observations", retained)}
     end)
+  end
+
+  @doc "Counts innocent merge-group failures for one PR head and returns its new attempt number."
+  @spec record_merge_group_blame_attempt(pos_integer(), String.t(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
+  def record_merge_group_blame_attempt(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+    update(opts, fn state ->
+      attempts = Map.get(state, "merge_group_blame_attempts", %{})
+      identity = key(pr, head)
+      count = Map.get(attempts, identity, 0) + 1
+      {:ok, Map.put(state, "merge_group_blame_attempts", Map.put(attempts, identity, count)), count}
+    end)
+  end
+
+  @spec merge_group_blame_attempts(pos_integer(), String.t(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def merge_group_blame_attempts(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+    with {:ok, state} <- state(opts) do
+      {:ok, get_in(state, ["merge_group_blame_attempts", key(pr, head)]) || 0}
+    end
   end
 
   @spec failure_observations(keyword()) :: {:ok, [map()]} | {:error, term()}

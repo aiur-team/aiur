@@ -53,7 +53,7 @@ defmodule AiurWeb.Build.IndexSource do
   @impl true
   def earlier(before, zone, opts), do: call({:earlier, before, zone, Keyword.get(opts, :days, 1)}, opts)
 
-  @spec ticket(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @impl true
   def ticket(id, opts), do: call({:ticket, id}, opts)
 
   defp call(message, opts), do: guard(fn -> GenServer.call(server(opts), message, timeout(opts)) end)

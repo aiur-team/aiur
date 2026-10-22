@@ -32,6 +32,8 @@ defmodule Aiur.Events.GithubCIPoller do
   defdelegate attention_hold?(result), to: Recovery
   @spec classify_approval_carry(String.t(), String.t(), integer(), keyword()) :: ApprovalCarry.verdict()
   defdelegate classify_approval_carry(approved_head, head, pr_number, opts), to: ApprovalCarry, as: :classify
+  @spec classify_contribution(String.t(), String.t(), integer(), keyword()) :: :identical | {:changed, map()}
+  defdelegate classify_contribution(approved_head, head, pr_number, opts), to: ApprovalCarry
 
   @spec poll([target()], keyword()) :: {:ok, %{results: [map()], errors: [{String.t(), term()}]}}
   def poll(targets, opts \\ []) when is_list(targets) do

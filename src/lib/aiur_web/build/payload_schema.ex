@@ -1,5 +1,6 @@
 defmodule AiurWeb.Build.PayloadSchema do
   @moduledoc false
+  alias AiurWeb.Build.ConversationPayload
   # Cohesive schema definitions: required keys are literal; only epic flags are optional.
   @spec row() :: map()
   def row do
@@ -78,14 +79,16 @@ defmodule AiurWeb.Build.PayloadSchema do
   def message("diff"), do: Map.merge(envelope(), %{"upsert" => list(:row), "remove" => list(:id), "set" => object(blocks(), Map.keys(blocks()))})
   def message("earlier"), do: Map.merge(Map.delete(envelope(), "now"), %{"rows" => list(:row), "history" => object(history())})
 
+  def message("ticket"), do: Map.put(Map.delete(envelope(), "now"), "row", :row)
+
   def message("error"),
     do: %{
       "v" => {:literal, 1},
       "kind" => {:literal, "error"},
-      "reason" => enum(~w(invalid_params unavailable invalid_data read_only not_found throttled timeout index_not_running read_failed epic_config_unavailable))
+      "reason" => enum(~w(invalid_params unavailable invalid_data read_only not_found throttled timeout index_not_running read_failed epic_config_unavailable settings_loading))
     }
 
-  def message(_kind), do: nil
+  def message(kind), do: ConversationPayload.message(kind)
 
   @spec usage(String.t()) :: map() | nil
   def usage("locked"), do: %{"state" => {:literal, "locked"}, "accessible_name" => :string, "authentication_path" => :string, "reason" => :string}
@@ -140,7 +143,7 @@ defmodule AiurWeb.Build.PayloadSchema do
 
   defp window, do: %{"acc" => list(nullable({:range, 0, 100})), "reset_at" => nullable(:integer), "win" => nullable(:string)}
   defp line, do: Map.merge(window(), %{"tag" => :string, "tip" => list({:pair, :string}), "hold_until" => nullable(:integer)})
-  defp envelope, do: %{"v" => {:literal, 1}, "kind" => enum(~w(snapshot diff earlier)), "epoch" => :string, "generation" => :nonnegative, "now" => :integer}
+  defp envelope, do: %{"v" => {:literal, 1}, "kind" => enum(~w(snapshot diff earlier ticket)), "epoch" => :string, "generation" => :nonnegative, "now" => :integer}
 
   defp epic,
     do: %{

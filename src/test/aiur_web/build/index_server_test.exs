@@ -254,6 +254,21 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert {:ok, %{rows: %{7 => _}, health: %{state: :stale, failure: :timeout}}} = :sys.get_state(pid).parts.history
   end
 
+  test "an unlocated failure preserves the last agent rows as stale", %{pid: pid} do
+    initial = parts() |> put_in([:now, :rows], %{"12" => now_row(12)}) |> put_in([:now, :source, :observed_at], nil)
+    flush_with(pid, initial)
+    send(pid, {:running_changed, %{}})
+    :sys.get_state(pid)
+    send(pid, :flush)
+    receive_barrier({:read_started, worker, _dirty})
+    send(worker, :crash)
+    receive_barrier({:trace, ^pid, :receive, {:DOWN, _ref, :process, ^worker, :killed_read}})
+
+    assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
+    assert Enum.map(snapshot.sections.now, & &1.id) == ["12"]
+    assert snapshot.sources.agents == %{state: "stale", observed_at: nil, reason: "unknown"}
+  end
+
   test "an open part timeout preserves rows from the other parts and names the degraded source" do
     open_server = start_supervised!({BlockingOpenServer, self()})
     seed = parts([row(7)]) |> put_in([:now, :rows], %{"8" => now_row(8)})

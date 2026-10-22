@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
   use Aiur.TestSupport
 
   alias Aiur.GitHub.IssueState
-  alias Aiur.Orchestrator.{CommentWake, MergeTransition, State}
+  alias Aiur.Orchestrator.{CommentWake, MergeStateWriter, MergeTransition, State}
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -35,6 +35,16 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
     assert_received :terminated
     refute log =~ "merge_terminal_write_failed"
     refute log =~ "private issue body"
+  end
+
+  test "operator hold labels follow the configured agent prefix" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "sym"
+    )
+
+    assert MergeStateWriter.operator_hold_labels() == ["needs-triage", "human:todo", "sym:paused", "sym:parked"]
   end
 
   test "a closed ticket with an active label is repaired to done" do

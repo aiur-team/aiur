@@ -111,7 +111,7 @@ test('long-task budgets cover measured windows and use CI p95 without weakening 
   expect(() => assertMeasurementBudget({ samples: [{ longTasks: [] }, { longTasks: [51] }] }, { maxLongTaskMs: 50 })).toThrow(/long task 51ms exceeded 50ms/)
 })
 
-test('browser failures are not retried and have an explicit timeout', () => {
+test('browser failures are not retried and keep the global timeout at 30 seconds', () => {
   expect(playwrightConfig.retries).toBe(0)
   expect(playwrightConfig.timeout).toBe(30_000)
 })

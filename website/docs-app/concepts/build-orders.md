@@ -249,7 +249,11 @@ A closed-unmerged blocker PR has a replacement grace of `build_queue.optimistic_
 
 This works without an adopted queue. Reopening or replacing the blocker within the grace updates the ledger without parking. Recovery after parking never auto-resumes work: the Executor chooses to wait for a replacement, re-base on the default branch and resume, or close the dependent.
 
-Agent error, pause, parking, or a reset to todo keeps optimistic dependents running; persistent trouble past the grace raises an informational attention. `build_queue.optimistic_churn_attention_threshold` (default 3, 0 disables) raises info after repeated conflicting integrations.
+Agent error, pause, parking, or a reset to todo keeps optimistic dependents running; persistent trouble past the grace raises an informational attention.
+
+Approval on the current mergeable blocker head clears earlier conflict churn; later conflicts can raise the attention again. If a blocker merges, Aiur tells its dependents to rebase on the default branch and resume.
+
+`build_queue.optimistic_churn_attention_threshold` (default 3, 0 disables) raises info after repeated conflicting integrations since that approval.
 
 `prerequisite_failed` lists ledgered dependents as already started; `dependency_changed_after_start` is suppressed for ledgered optimistic starts. The guard owns the new attention, so queue readiness alone cannot clear a terminal park.
 

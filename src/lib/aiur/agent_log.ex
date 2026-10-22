@@ -110,6 +110,19 @@ defmodule Aiur.AgentLog do
     |> Enum.reject(&is_nil/1)
   end
 
+  @doc false
+  @spec structured_entry(String.t()) :: map() | nil
+  def structured_entry(line) do
+    with %{} = message <- parse_structured_line(line),
+         {:ok, record} <- Jsonl.decode_line(line) do
+      {payload, _raw} = display_payload(record, line)
+      action_id = record["action_id"] || payload["action_id"] || get_in(payload, ["params", "action_id"])
+      if is_binary(action_id), do: Map.put(message, :action_id, action_id), else: message
+    else
+      _ -> nil
+    end
+  end
+
   defp parse_structured_line(line) do
     case Jsonl.decode_line(line) do
       {:ok, record} ->

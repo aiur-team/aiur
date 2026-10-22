@@ -102,7 +102,6 @@ defmodule AiurWeb.Layouts do
                 this.liveButton.setAttribute("aria-pressed", live ? "true" : "false");
               }
             };
-
             Hooks.NavToggle = {
               mounted: function () {
                 this.root = document.documentElement;
@@ -145,12 +144,15 @@ defmodule AiurWeb.Layouts do
                 this.el.addEventListener("pointerup", this.onUp);
                 this.el.addEventListener("pointercancel", this.onCancel);
                 this.el.addEventListener("lostpointercapture", this.onCancel);
-                var stored;
-                try { stored = window.localStorage.getItem("aiur-nav-collapsed"); } catch (_error) {}
-                if ((stored === "true" || stored === "false") && (stored === "true") !== this.collapsed()) {
-                  this.pending = stored === "true";
-                  this.pushEvent("restore-nav", {collapsed: this.pending}, () => {});
-                } else this.mirror();
+                import("/aiur-style/js/storage.js").then((storage) => {
+                  if (!this.el.isConnected) return;
+                  this.navStorage = storage;
+                  const stored = storage.readStorage("aiur-nav-collapsed");
+                  if ((stored === "true" || stored === "false") && (stored === "true") !== this.collapsed()) {
+                    this.pending = stored === "true";
+                    this.pushEvent("restore-nav", {collapsed: this.pending}, () => {});
+                  } else this.mirror();
+                });
               },
               reconnected: function () { this.mirror(); },
               collapsed: function () { return this.el.dataset.navCollapsed === "true"; },
@@ -161,7 +163,7 @@ defmodule AiurWeb.Layouts do
                 if (this.pending !== undefined && this.collapsed() !== this.pending) return;
                 this.pending = undefined;
                 this.mirror();
-                try { window.localStorage.setItem("aiur-nav-collapsed", String(this.collapsed())); } catch (_error) {}
+                this.navStorage?.writeStorage("aiur-nav-collapsed", String(this.collapsed()));
               },
               commit: function (collapsed) {
                 this.root.classList.toggle("nav-collapsed", this.media.matches && collapsed);
@@ -274,7 +276,6 @@ defmodule AiurWeb.Layouts do
                 window.removeEventListener("blur", this.onBlur);
               }
             };
-
             Hooks.ThemeToggle = {
               mounted: function () {
                 this.onClick = () => {
@@ -288,7 +289,6 @@ defmodule AiurWeb.Layouts do
                 this.el.removeEventListener("click", this.onClick);
               }
             };
-
             Hooks.PaletteToggle = {
               mounted: function () {
                 this.sync();
@@ -420,7 +420,6 @@ defmodule AiurWeb.Layouts do
                 };
               }
             }
-
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,
               localStorage: availableStorage("localStorage"),
@@ -436,19 +435,20 @@ defmodule AiurWeb.Layouts do
                 })()
               }
             });
-
             var socketStatus = document.documentElement;
             var socket = liveSocket.getSocket();
             socket.onOpen(() => socketStatus.classList.add("live-socket-connected"));
             var markSocketDown = () => socketStatus.classList.remove("live-socket-connected");
             socket.onClose(markSocketDown);
             socket.onError(markSocketDown);
-
             liveSocket.connect();
             window.liveSocket = liveSocket;
           });
         </script>
-        <link rel="stylesheet" href="/aiur-style/tokens.css" />
+        <link rel="stylesheet" href="/aiur-style/tokens.css" /><link rel="stylesheet" href="/aiur-style/css/focus.css" />
+        <link rel="stylesheet" href="/aiur-style/css/button.css" />
+        <link rel="stylesheet" href="/aiur-style/css/dashboard-button.css" />
+        <link rel="stylesheet" href="/aiur-style/css/dashboard-shell.css" />
         <link rel="stylesheet" href="/dashboard.css" />
         <link rel="stylesheet" href="/build-home/home.css" />
       </head>

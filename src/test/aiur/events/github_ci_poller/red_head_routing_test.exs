@@ -59,6 +59,54 @@ defmodule Aiur.Events.GithubCIPoller.RedHeadRoutingTest do
     refute_received {:rerun, _}
   end
 
+  test "a known network failure in the Actions job log gets one per-head rerun", ctx do
+    digest = %FailureDigest{checks: [%{id: 1, name: "checkout", url: @run_url}]}
+
+    opts =
+      ctx.opts
+      |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end)
+      |> Keyword.put(:ci_job_log, fn 100, _ -> {:ok, "fatal: Failed to connect to github.com port 443"} end)
+      |> Keyword.put(:request_fun, github(1))
+
+    assert %{decision: :pending, recovery: "rerun_requested"} = Recovery.recover(ctx.issue, ctx.result, opts)
+    assert_received {:rerun, rerun_url}
+    assert rerun_url =~ "/actions/runs/99/rerun-failed-jobs"
+
+    refute_received {:rerun, _}
+    assert %{decision: :pending, recovery: "rerun_pending"} = Recovery.recover(ctx.issue, ctx.result, opts)
+    refute_received {:rerun, _}
+  end
+
+  test "a network-looking log with an ExUnit failure is not rerun", ctx do
+    digest = %FailureDigest{checks: [%{id: 1, name: "test", url: @run_url}]}
+
+    opts =
+      ctx.opts
+      |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end)
+      |> Keyword.put(:ci_job_log, fn 100, _ -> {:ok, "Failed to connect to github.com\nExUnit: assertion failed"} end)
+
+    assert %{decision: :failed} = Recovery.recover(ctx.issue, ctx.result, opts)
+    refute_received {:rerun, _}
+  end
+
+  test "a failed run containing a network and an ordinary failed job is not rerun", ctx do
+    digest = %FailureDigest{checks: [%{id: 1, name: "checkout", url: @run_url}]}
+
+    opts =
+      ctx.opts
+      |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end)
+      |> Keyword.put(:ci_job_log, fn id, _ ->
+        send(self(), {:job_log, id})
+        if id == 100, do: {:ok, "Failed to connect to github.com"}, else: {:ok, "Assertion with == failed"}
+      end)
+      |> Keyword.put(:request_fun, github(1, [%{"id" => 100, "conclusion" => "failure"}, %{"id" => 101, "conclusion" => "failure"}]))
+
+    assert %{decision: :failed} = Recovery.recover(ctx.issue, ctx.result, opts)
+    assert_received {:job_log, 100}
+    assert_received {:job_log, 101}
+    refute_received {:rerun, _}
+  end
+
   test "a red head whose rerun cannot start raises its attention once, retries after ten minutes, then routes", ctx do
     opts = Keyword.put(ctx.opts, :ci_failure_digest, fn _, _ -> {:error, :digest_unavailable} end)
     issue = %Issue{id: "5051", identifier: "5051"}
@@ -117,7 +165,7 @@ defmodule Aiur.Events.GithubCIPoller.RedHeadRoutingTest do
   end
 
   # An open, ready PR whose Actions run 99 is on `attempt`; any other POST is a rerun request.
-  defp github(attempt) do
+  defp github(attempt, jobs \\ [%{"id" => 100, "conclusion" => "failure"}]) do
     parent = self()
 
     fn
@@ -128,9 +176,20 @@ defmodule Aiur.Events.GithubCIPoller.RedHeadRoutingTest do
         send(parent, {:rerun, url})
         ok(%{})
 
-      %{method: :get, url: url} ->
-        assert String.ends_with?(url, "/actions/runs/99")
-        ok(%{"head_sha" => "head", "run_attempt" => attempt, "status" => "completed", "conclusion" => "failure"})
+      %{method: :get, url: url} when is_binary(url) ->
+        cond do
+          String.ends_with?(url, "/actions/runs/99/jobs?per_page=100") ->
+            ok(%{"jobs" => jobs})
+
+          String.ends_with?(url, "/actions/jobs/100/logs") ->
+            ok("ordinary failure")
+
+          String.ends_with?(url, "/actions/runs/99") ->
+            ok(%{"head_sha" => "head", "run_attempt" => attempt, "status" => "completed", "conclusion" => "failure"})
+
+          true ->
+            flunk("unexpected GET #{url}")
+        end
     end
   end
 

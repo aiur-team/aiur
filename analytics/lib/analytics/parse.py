@@ -10,6 +10,7 @@ from . import sources
 
 
 SUPPORTED_KINDS = ("restart", "run_context", "lifecycle", "resource", "warning")
+IGNORED_KINDS = frozenset(("firehose_poll", "capacity_hold", "capacity_resumed"))
 _RECORD_REQUIRED = ("kind", "timestamp", "boot_id", "sequence", "record_id", "attributes")
 
 
@@ -60,7 +61,10 @@ def parse_line(raw: str, path: str, line_number: int) -> tuple[dict | None, dict
     if missing:
         return None, {"type": "missing_fields", "path": path, "line": line_number, "fields": missing}
 
-    kind = decoded["kind"]
+    kind = decoded.get("kind")
+    if isinstance(kind, str) and kind in IGNORED_KINDS:
+        return None, {"type": "ignored_kind", "kind": kind}
+
     if not isinstance(kind, str) or kind not in SUPPORTED_KINDS:
         return None, {"type": "unknown_kind", "path": path, "line": line_number, "kind": kind}
 

@@ -25,10 +25,10 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
             <h2 id="agent-log-title">{@modal.issue_identifier}</h2>
           </div>
           <div class="modal-actions">
-            <button type="button" class="tool-btn live-button" data-agent-log-live data-live="true" aria-pressed="true">
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn live-button" data-agent-log-live data-live="true" aria-pressed="true">
               <span class="status-badge-dot"></span>Live
             </button>
-            <button type="button" class="tool-btn" phx-click="close-agent-log">Close</button>
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn" phx-click="close-agent-log">Close</button>
           </div>
         </header>
 
@@ -52,8 +52,8 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
             enterkeyhint="send"
           >{@drafts[@modal.target_key] || ""}</textarea>
           <div class="agent-chat-actions">
-            <button class="btn danger" type="button" phx-click="pause-agent">Pause</button>
-            <button class="btn" type="submit">Send</button>
+            <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="button" phx-click="pause-agent">Pause</button>
+            <button class="aiur-button aiur-button--dashboard btn" type="submit">Send</button>
           </div>
         </form>
 
@@ -97,16 +97,18 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   end
 
   def build(entry, payload) do
-    %{path: path, messages: messages} = read_agent_log(entry)
+    Map.merge(composer(entry, payload), read_agent_log(entry))
+  end
+
+  @spec composer(map(), map() | nil) :: map()
+  def composer(entry, payload) do
     identity = Map.get(entry, :tracker_identity)
 
     %{
       issue_identifier: entry.issue_identifier,
       tracker_identity: identity,
       target_key: target_key(identity, entry.issue_identifier),
-      writable_target?: unique_identifier?(payload, entry.issue_identifier),
-      path: path,
-      messages: messages
+      writable_target?: unique_identifier?(payload, entry.issue_identifier)
     }
   end
 
