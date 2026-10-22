@@ -119,9 +119,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp hold_landing(issue, result, opts, cause) do
-    hold = %{"sha" => result.head_sha, "reason" => "approved_landing_pr", "cause" => Atom.to_string(cause), "failed" => true}
-
-    case update(issue, result, &(&1 |> Map.put("landing_hold", result.head_sha) |> Map.put("hold", hold)), opts) do
+    case update(issue, result, &(&1 |> Map.put("landing_hold", result.head_sha) |> Map.put("landing_hold_cause", Atom.to_string(cause)) |> Map.delete("hold")), opts) do
       {:ok, _entry} -> :ok
       {:error, error} -> Logger.warning("CI recovery journal unavailable: #{inspect(error)}")
     end

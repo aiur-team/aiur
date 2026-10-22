@@ -211,7 +211,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
           state
         end
 
-      approved_landing_pr?(issue, result) ->
+      approved_landing_pr?(issue, result) and not ci_recovery_required?(state, issue, result) ->
         Logger.info("CI failure did not reopen approved landing PR: #{State.issue_context(issue)}")
         state
 

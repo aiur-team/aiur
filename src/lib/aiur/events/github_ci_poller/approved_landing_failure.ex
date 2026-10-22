@@ -42,7 +42,12 @@ defmodule Aiur.Events.GithubCIPoller.ApprovedLandingFailure do
       {:ok, _actions} ->
         result = Map.merge(result, %{approved_landing_withdrawn?: true, ci_recovery_opts: opts})
 
-        case CIRecoveryStore.update(to_string(issue.identifier || issue.id), result.pr_number, &(&1 |> Map.put("landing_hold", result.head_sha) |> Map.delete("hold")), opts) do
+        case CIRecoveryStore.update(
+               to_string(issue.identifier || issue.id),
+               result.pr_number,
+               &(&1 |> Map.put("landing_hold", result.head_sha) |> Map.delete("landing_hold_cause") |> Map.delete("hold")),
+               opts
+             ) do
           {:ok, _} -> {:routed, Map.merge(result, %{decision: :failed, recovery: nil})}
           {:error, reason} -> {:attention, :journal_failed, reason, :default}
         end
