@@ -152,7 +152,8 @@ defmodule AiurWeb.Build.Conversation do
         {view, socket} = ConversationEventFeed.place(socket, ref, view, :first)
         validated_reply(pin(socket, ref, view), ConversationPayload.view(ref.id, view, true))
 
-      _ -> reply_error(socket, :unavailable)
+      _ ->
+        reply_error(socket, :unavailable)
     end
   end
 
@@ -235,7 +236,8 @@ defmodule AiurWeb.Build.Conversation do
             {view, socket} = ConversationEventFeed.place(socket, ref, view, :first)
             push(pin(socket, ref, view), ConversationPayload.view(ref.id, view, true))
 
-          _ -> push_unavailable(socket)
+          _ ->
+            push_unavailable(socket)
         end
 
       _ ->

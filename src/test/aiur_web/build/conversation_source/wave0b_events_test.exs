@@ -41,6 +41,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bEventsTest do
     write_log(id, [
       "2026-10-07T21:13:20Z [event:consumed] id=1 ticket.99.agent.progress: theirs",
       "2026-10-07T21:13:21Z [event:self] id=2 ticket.99.agent.blocked: theirs too",
+      "2026-10-07T21:13:21Z [event:consumed] id=4 ticket.#{id}.agent.blocked: delivered copy",
       "2026-10-07T21:13:22Z [event:self] id=3 ticket.#{id}.agent.blocked: ours"
     ])
 

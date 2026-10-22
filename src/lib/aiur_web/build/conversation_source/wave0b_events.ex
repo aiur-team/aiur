@@ -6,8 +6,8 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bEvents do
   unavailable instead of empty.
   """
 
-  alias Aiur.{DecisionStore, IssueLog, RecentMergeStore, TrackerIdentity}
   alias Aiur.BuildOrder.TicketHistoryProvider
+  alias Aiur.{DecisionStore, IssueLog, RecentMergeStore, TrackerIdentity}
   alias Aiur.IssueLog.EventHistory
   alias AiurWeb.Build.ConversationEvents
   alias AiurWeb.EndpointConfig

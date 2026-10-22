@@ -9,7 +9,7 @@ const EVK = { dep: [190, 'link'], commit: [255, 'commit'], prog: [null, 'prog'],
 const AT = 1791407600000
 test.use({ httpCredentials: dashboardCredentials, viewport: { width: 1440, height: 900 }, timezoneId: 'America/Los_Angeles' })
 test.beforeEach(async ({ page }, info) => {
-  const errors = []; page.on('pageerror', error => errors.push(error)); info.errors = errors
+  page.on('pageerror', error => { throw error })
   const root = info.project.metadata.agentAssets
   if (root) await page.route('**/build-home/**/*.js', async route => {
     const relative = new URL(route.request().url()).pathname.replace('/build-home/', '')
@@ -19,7 +19,6 @@ test.beforeEach(async ({ page }, info) => {
   await page.goto('/build-fixture/live')
   await expect.poll(() => page.evaluate(async () => !!(await import('/build-home/state.js')).ctx.D?.now.length)).toBe(true)
 })
-test.afterEach(async ({}, info) => { expect(info.errors).toEqual([]) })
 
 async function show(page, entries) {
   await page.evaluate(async entries => {
