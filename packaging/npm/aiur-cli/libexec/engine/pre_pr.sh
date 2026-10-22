@@ -42,10 +42,12 @@ cmd_pre_pr() {
   )
   interrupted_report() {
     local signal="$1"
-    [[ "$interrupted" == 0 ]] || return 0
+    [[ "$interrupted" == 0 ]] || return
     interrupted=1
     results+=("INTERRUPTED pre-pr command received $signal")
-    pre_pr_report "unknown" FAIL
+    pre_pr_report "${base_sha:-unknown}" FAIL
+    trap - INT TERM
+    if [[ "$signal" == INT ]]; then exit 130; else exit 143; fi
   }
   trap 'interrupted_report INT' INT
   trap 'interrupted_report TERM' TERM

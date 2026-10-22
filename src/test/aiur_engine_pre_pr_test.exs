@@ -330,6 +330,26 @@ defmodule AiurEnginePrePrTest do
     assert output =~ "Not run: Credo and specs (make lint), dialyzer, full CI suite"
   end
 
+  test "pre-pr interrupted by TERM emits its partial result and exits with signal status" do
+    fixture = fixture("term-interruption")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+
+    File.write!(
+      Path.join(fixture, "bin/mise"),
+      "#!/usr/bin/env bash\nif [[ ! -e \"#{fixture}/term-sent\" ]]; then touch \"#{fixture}/term-sent\"; kill -TERM \"$PPID\"; fi\nexit 0\n"
+    )
+
+    File.chmod!(Path.join(fixture, "bin/mise"), 0o755)
+
+    {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
+
+    assert status == 143, output
+    assert output =~ "INTERRUPTED pre-pr command received TERM"
+    assert output =~ "Result: FAIL"
+    assert String.ends_with?(output, "--- end aiur pre-pr result ---\n")
+  end
+
   # The dev shim marks pre-pr as a retryable control command; its tests must not inherit that.
   test "pre-pr through the dev shim keeps control retry flags out of tests" do
     fixture = fixture("dev-shim")
