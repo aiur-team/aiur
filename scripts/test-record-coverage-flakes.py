@@ -33,7 +33,8 @@ class CoverageFlakesTest(unittest.TestCase):
                            "1 test, 1 failure\nRandomized with seed 42\n")
             self.assertEqual(run(1, "failure", root / "previous/attempt-1"), [])
             log.write_text("Running ExUnit with seed: 99, max_cases: 4\n1 test, 0 failures\n")
-            expected = [{"test": "Aiur.CoreTest :: deferred checkpoint", "run_id": "123",
+            expected = [{"kind": "same_run_sha_rerun",
+                         "test": "Aiur.CoreTest :: deferred checkpoint", "run_id": "123",
                          "sha": "abc", "shard": "4", "seed": 42, "failed_attempt": 1,
                          "passed_attempt": 2, "passed_seed": 99}]
             self.assertEqual(run(2, "success", root / "passed"), expected)
@@ -53,11 +54,47 @@ class CoverageFlakesTest(unittest.TestCase):
             log.write_text("Compilation stopped before ExUnit ran\n")
             self.assertEqual(run(2, "success", root / "incomplete"), [])
 
+    def test_in_job_retry_is_counted_in_the_shard_ledger(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "evidence"
+            output.mkdir()
+            (output / "retry-plan.json").write_text(json.dumps({
+                "partition": "2",
+                "tests": [{"test": "Aiur.CoreTest :: deferred checkpoint",
+                           "path": "test/aiur/core_test.exs", "line": 45}],
+                "outcome": "success",
+                "exit_status": 0,
+            }))
+            log = root / "failed.log"
+            log.write_text("Running ExUnit with seed: 42\n1 test, 1 failure\n")
+            summary = root / "summary.md"
+            env = dict(os.environ, GITHUB_RUN_ID="123", GITHUB_SHA="abc",
+                       MIX_TEST_PARTITION="2", GITHUB_RUN_ATTEMPT="1",
+                       RETRY_OUTCOME="success")
+            subprocess.run([
+                "python3", str(ROOT / "scripts/record-coverage-flakes.py"),
+                str(log), "failure", str(root / "previous"), str(output), str(summary),
+            ], env=env, check=True)
+            attempt = json.loads((output / "attempt.json").read_text())
+            rows = [json.loads(line) for line in (output / "flakes.ndjson").read_text().splitlines()]
+            self.assertEqual(attempt["retry"], {
+                "attempted": True,
+                "outcome": "success",
+                "exit_status": 0,
+                "tests": ["Aiur.CoreTest :: deferred checkpoint"],
+            })
+            self.assertEqual(rows[0]["kind"], "in_job_retry")
+            self.assertEqual(rows[0]["outcome"], "success")
+            self.assertEqual(rows[0]["path"], "test/aiur/core_test.exs")
+            self.assertIn("1 in-job retry observations", summary.read_text())
+
     def test_workflow_preserves_evidence_on_failure_and_rerun(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         shard = workflow.split("  coverage-partition:\n")[1].split("\n  test:\n")[0]
         self.assertIn("id: partition-tests", shard)
         self.assertIn("PARTITION_OUTCOME: ${{ steps.partition-tests.outcome }}", shard)
+        self.assertIn("RETRY_OUTCOME: ${{ steps.retry-known-flakes.outcome }}", shard)
         self.assertIn("pattern: shard-flake-evidence-${{ matrix.partition }}-*", shard)
         self.assertIn("name: shard-flake-evidence-${{ matrix.partition }}-${{ github.run_attempt }}", shard)
         for name in ("Download previous shard attempts", "Record coverage flake ledger", "Upload coverage flake evidence"):
