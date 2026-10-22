@@ -67,6 +67,8 @@ defmodule AiurWeb.VoiceTargets do
       {:ok, decision} -> command_state(decision, expected_version)
       {:error, :not_found} -> {:error, :target_not_found}
     end
+  rescue
+    _error -> {:error, :unknown}
   catch
     # The store's state is unknowable here; never report the Command as gone.
     :exit, _reason -> {:error, :unknown}

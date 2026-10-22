@@ -35,6 +35,32 @@ defmodule AiurWeb.VoiceReasonCodeTest do
     assert VoiceReasonCode.tts(:unavailable) == "provider_error"
   end
 
+  # Clients ship translations keyed on these strings: renaming or dropping one breaks them.
+  test "the closed set is exactly the contract §8 daemon codes" do
+    assert Enum.sort(VoiceReasonCode.codes()) ==
+             Enum.sort(~w(unconfigured not_installed read_only auth_changed capacity target_not_found
+                          target_not_writable target_stale provider_auth provider_quota provider_unavailable
+                          chunk_too_large session_limit transport_lost privacy_preflight_failed
+                          unsupported_target invalid_payload cost_cap ticket_used provider_error unknown))
+  end
+
+  # Event names, payload keys and legacy reason text are the only other
+  # snake_case literals in the channel; any new one must be a contract code.
+  @not_codes ~w(audio_done audio_error reason_code invalid_topic)
+
+  test "every literal code the voice channel sends is in the closed set" do
+    source = File.read!(Path.expand("../../lib/aiur_web/voice_channel.ex", __DIR__))
+
+    for code <- ~w(read_only capacity auth_changed invalid_payload session_limit chunk_too_large not_installed
+                   unconfigured provider_unavailable) do
+      assert source =~ ~s("#{code}"), "voice_channel.ex no longer sends #{code}"
+      assert code in VoiceReasonCode.codes()
+    end
+
+    snake_literals = for [_match, literal] <- Regex.scan(~r/"([a-z]+(?:_[a-z]+)+)"/, source), uniq: true, do: literal
+    assert Enum.reject(snake_literals, &(&1 in @not_codes or &1 in VoiceReasonCode.codes())) == []
+  end
+
   test "the daemon never sends a client-only code" do
     refute "permission_denied" in VoiceReasonCode.codes()
     refute "no_device" in VoiceReasonCode.codes()

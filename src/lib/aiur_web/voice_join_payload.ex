@@ -9,6 +9,8 @@ defmodule AiurWeb.VoiceJoinPayload do
   client bug cannot slip an unvalidated field past the daemon.
   """
 
+  # Every contract surface parses; `VoiceTargets` refuses `command_revision`
+  # and `conversation_panel` until the tickets that own them land.
   @surfaces ~w(agent_composer executor_composer command_response command_revision conversation_panel)
   @client_kinds ~w(dashboard phone watch streamdeck)
   @session_id ~r/\A[A-Za-z0-9_-]{1,64}\z/

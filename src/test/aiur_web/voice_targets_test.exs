@@ -98,6 +98,20 @@ defmodule AiurWeb.VoiceTargetsTest do
     end
   end
 
+  # A malformed store reply must still refuse with a code, not crash the join.
+  test "a store reply that raises is unknown" do
+    store(%{"d1" => :not_a_decision})
+    assert {:error, %{reason_code: "unknown"}} = VoiceTargets.validate(command("d1", nil), "command_response")
+  end
+
+  test "surfaces whose tickets have not landed are refused" do
+    running(["ENG-7"])
+
+    for surface <- ["command_revision", "conversation_panel"] do
+      assert {:error, %{reason_code: "invalid_payload"}} = VoiceTargets.validate(@worker, surface)
+    end
+  end
+
   test "an executor target is unsupported in this build" do
     assert {:error, %{reason_code: "unsupported_target"}} =
              VoiceTargets.validate(%{kind: :executor, instance_id: nil}, "executor_composer")
