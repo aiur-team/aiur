@@ -16,7 +16,7 @@ Any other recovery stop raises its attention and routes a red head to rework. A 
 
 With `merge_policy.main_watch.enabled`, a red head routes only when the PR caused it: a failing check passed on the base commit in MainWatch history, or never ran there. If the base is unrecorded, a check absent from all history still routes.
 
-Executor sweep red-check findings name each failed check and its cause class: PR-caused, inherited, infra, or unknown. They require a CI poll observation for the exact PR head that is less than five minutes old; missing or stale observations produce no red-check finding. PR attribution requires evidence for the exact base SHA; missing base history stays unknown.
+Executor sweep names failed checks and their cause: PR-caused, inherited, infra, or unknown. It reports red checks only from an exact-head CI observation less than five minutes old. Missing or stale reads are omitted. PR attribution needs evidence for the exact base SHA; otherwise it stays unknown.
 
 Otherwise it holds with one `base_inherited` or `base_unknown` attention, re-checked every poll. A `base_unknown` hold routes the red after one hour, because MainWatch may never record that base.
 
