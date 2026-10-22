@@ -88,6 +88,21 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     assert Enum.map(ordered, & &1.id) == Enum.map(issues, & &1.id)
   end
 
+  test "an unprioritized flake ticket waits behind every startable build-order list member" do
+    {document, issues, projections} = fixture()
+    queues = Enum.with_index(document.queues) |> Enum.map(fn {queue, rank} -> %{queue | kind: :build_order, root: 1600 + rank} end)
+    items = Enum.map(document.items, &%{&1 | position: nil})
+    document = %{document | queues: queues, items: items}
+    publish(document, projections)
+    flake = %Issue{id: "flake", identifier: "repo#flake", title: "Flaky test: example", state: "todo", priority: nil, blocked_by: []}
+
+    ordered = DispatchCandidates.order(issues ++ [flake], DispatchPolicy.terminal_state_set())
+
+    # Future regression guard: unlisted/default-priority tickets remain after all ranked queue members.
+    assert MapSet.new(Enum.map(Enum.take(ordered, length(issues)), & &1.id)) == MapSet.new(Enum.map(issues, & &1.id))
+    assert List.last(ordered).id == "flake"
+  end
+
   test "max one active set starts only A and reports B waiting with four slots free" do
     configure(max_active_sets: 1)
     {document, issues, projections} = fixture()
