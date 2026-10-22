@@ -38,7 +38,7 @@ defmodule AiurEnginePrePrInterruptionTest do
 
     File.write!(
       Path.join(fixture, "bin/mise"),
-      "#!/usr/bin/env bash\nif [[ ! -e \"#{fixture}/term-sent\" ]]; then touch \"#{fixture}/term-sent\"; target=\"$(ps -o ppid= -p \"$PPID\" | tr -d ' ')\"; kill -TERM \"$target\"; fi\nexit 0\n"
+      "#!/usr/bin/env bash\nif [[ ! -e \"#{fixture}/term-sent\" ]]; then touch \"#{fixture}/term-sent\"; target=\"$PPID\"; for _ in 1 2; do target=\"$(ps -o ppid= -p \"$target\" | tr -d ' ')\"; done; kill -TERM \"$target\"; fi\nexit 0\n"
     )
 
     File.chmod!(Path.join(fixture, "bin/mise"), 0o755)
