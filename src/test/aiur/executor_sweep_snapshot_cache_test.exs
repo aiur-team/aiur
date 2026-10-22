@@ -1,5 +1,4 @@
 defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
-  # The store-backed and pure join cases exercise the same SnapshotCache projection.
   use Aiur.TestSupport
 
   alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
@@ -8,12 +7,8 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
   alias Aiur.TestSupport.Isolation
 
   setup context do
-    [owner, repo] = String.split("aiur-test/#{Isolation.unique_name(context, :repo)}", "/", parts: 2)
-
-    Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(),
-      tracker_kind: "github",
-      tracker_repo: "#{owner}/#{repo}"
-    )
+    [owner, repo] = ["aiur-test", "#{Isolation.unique_name(context, :repo)}"]
+    Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "#{owner}/#{repo}")
 
     on_exit(fn -> ResourceStore.clear(:issue, owner, repo) end)
     {:ok, resource_owner: owner, resource_repo: repo}
