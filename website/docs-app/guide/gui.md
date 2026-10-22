@@ -125,7 +125,7 @@ forward, so measuring the gate never perturbs a real build acquisition.
 
 | Writable control | Where | Action |
 | --- | --- | --- |
-| Fleet | Settings cog on every page | Pause or resume new agent starts. |
+| Fleet | Settings cog on Build, Units, Commands, Build Order, Analytics and Streamdeck | Pause or resume new agent starts. |
 | Unit | `/units` | Pause or resume one agent, or send it a message. |
 | Fleet capacity | `/units` | Adjust capacity. |
 | Ticket | `/units` Tickets panel | Apply routing labels. |

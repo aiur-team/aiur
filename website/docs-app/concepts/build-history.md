@@ -9,8 +9,8 @@ features; new features do not need another root.
 ## The Build page
 
 The dashboard home `/` (also served at `/build`) shows this build as one board.
-Its navigation item is **Build**; the badge counts active agents, independent of
-filters, and an unknown count is omitted.
+Its navigation item is **Build**; the badge counts running agents, independent
+of filters, and an unknown count is omitted.
 
 <img src="/images/dashboard/build-dark.png" alt="Desktop Build page with the usage strip, the Live band and synthetic planned tickets">
 
@@ -57,7 +57,7 @@ edges, plus **Planned estimate** in Gantt.
 
 In Gantt, history card height represents elapsed run time; idle gaps over three
 hours fold into hatched bands. Hatched, dashed planned cards show estimates. A
-“start unknown” card has minimum height and ends at its recorded end time.
+“Start unknown” card has minimum height and ends at its recorded end time.
 
 List (`?view=list`) shows Live, Planned, Not queued and newest-first History as
 table rows. Ticket rows support keyboard focus. Use **Load earlier day** to fetch
@@ -141,7 +141,7 @@ An unknown value is never shown as `0` or as a plausible default.
 | Stale or partial read | The section header names the state and the read age. |
 | Disabled source | The section keeps its reason. |
 | Meter with no reading | **not observed**. |
-| Gantt card with no start | “start unknown”, at minimum height. |
+| Gantt card with no start | “Start unknown”, at minimum height. |
 
 The build timeline labels daemon state separately from socket reachability. An
 offline or stale snapshot shows its last heartbeat age and local time; a missing

@@ -9,6 +9,31 @@ Code.require_file("executor_control_center_docs_fleet.exs", __DIR__)
 for file <- ~w(earlier_control fixture_source fixture_conversation_source),
     do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
 
+defmodule Aiur.Docs.ControlCenterFixture.BuildSource do
+  @moduledoc """
+  The frozen `live` design dataset, with agent states limited to ones the daemon
+  emits. The design's "retries" card has no server path, so the docs show it as
+  an error instead of documenting a state operators never see.
+  """
+  @behaviour AiurWeb.Build.DataSource
+  alias Aiur.TestSupport.BuildHome.FixtureSource
+
+  @impl true
+  def subscribe(opts), do: FixtureSource.subscribe(opts)
+
+  @impl true
+  def snapshot(opts), do: with({:ok, data} <- FixtureSource.snapshot(opts), do: {:ok, update_in(data, ["sections", "now"], &Enum.map(&1, fn row -> emitted(row) end))})
+
+  @impl true
+  def earlier(before, zone, opts), do: FixtureSource.earlier(before, zone, opts)
+
+  @impl true
+  def ticket(id, opts), do: with({:ok, row} <- FixtureSource.ticket(id, opts), do: {:ok, emitted(row)})
+
+  defp emitted(%{"agent" => %{"state" => "retries"}} = row), do: put_in(row, ["agent", "state"], "error")
+  defp emitted(row), do: row
+end
+
 defmodule Aiur.Docs.ControlCenterFixture do
   alias Aiur.Docs.ControlCenterFixture.MeterSource
   import Aiur.Docs.ControlCenterFixture.Data
@@ -165,7 +190,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
   end
 
   defp configure_build_home do
-    Application.put_env(:aiur, :build_data_source, Aiur.TestSupport.BuildHome.FixtureSource)
+    Application.put_env(:aiur, :build_data_source, Aiur.Docs.ControlCenterFixture.BuildSource)
     Application.put_env(:aiur, :build_fixture_dataset, "live")
     Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)
     Aiur.TestSupport.BuildHome.FixtureSource.configure_usage(:ok)

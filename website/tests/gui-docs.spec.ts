@@ -184,6 +184,8 @@ test('capture inputs and checked-in assets stay example-only', async () => {
   // The Build home page renders the frozen design dataset, never the History store.
   expect(fixture).toContain('build_data_source')
   expect(fixture).toContain('FixtureSource')
+  // The design data has a "retries" agent state the daemon never emits; the docs image must not show it.
+  expect(fixture).toContain('defp emitted(%{"agent" => %{"state" => "retries"}}')
   expect(captureScript).toContain('assertSyntheticUsage')
   expect(captureScript).toContain('readySelector')
 
