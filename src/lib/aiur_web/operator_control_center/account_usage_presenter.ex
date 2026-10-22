@@ -1,13 +1,13 @@
 defmodule AiurWeb.OperatorControlCenter.AccountUsagePresenter do
   @moduledoc "Named weekly account readings with an explicit worst-account summary."
 
-  alias Aiur.CodingAgent.HeadroomDispatch
+  alias Aiur.Accounts.UsageReadings
 
   @spec present(map()) :: map() | nil
   def present(readings) when map_size(readings) == 0, do: nil
 
   def present(readings) do
-    max_age = HeadroomDispatch.max_reading_age_seconds()
+    now = DateTime.utc_now()
 
     accounts =
       readings
@@ -15,7 +15,7 @@ defmodule AiurWeb.OperatorControlCenter.AccountUsagePresenter do
       |> Enum.with_index()
       |> Enum.map(fn {{name, reading}, index} ->
         percent = weekly_percent(reading)
-        age_seconds = age_seconds(observed_at(reading))
+        age_seconds = age_seconds(UsageReadings.observed_at(reading))
         resets_at = weekly_reset(reading)
         last_error = Map.get(reading, :reason)
 
@@ -23,7 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.AccountUsagePresenter do
           name: name,
           index: index,
           percent: percent,
-          freshness: freshness(reading, age_seconds, max_age),
+          freshness: UsageReadings.freshness(reading, now),
           age_seconds: age_seconds,
           resets_at: resets_at,
           last_error: last_error
@@ -36,17 +36,6 @@ defmodule AiurWeb.OperatorControlCenter.AccountUsagePresenter do
 
     %{count: length(accounts), total_percent: total, title: title, accounts: accounts}
   end
-
-  # A failing probe keeps no reading; its age is that of the last real
-  # observation, not of the failed attempt (#5747).
-  defp observed_at(%{reading: nil, last_observed_at: %DateTime{} = last}), do: last
-  defp observed_at(reading), do: reading.observed_at
-
-  # Past the headroom max age dispatch scores a reading as unknown, so it is not
-  # current here either, whatever it was when recorded.
-  defp freshness(%{reading: nil, last_observed_at: %DateTime{}}, _age, _max_age), do: :stale
-  defp freshness(_reading, age, max_age) when is_integer(age) and age > max_age, do: :stale
-  defp freshness(reading, _age, _max_age), do: reading.freshness
 
   defp weekly_percent(%{reading: %{windows: windows}}) when is_list(windows) do
     case Enum.find(windows, &(&1.window == "seven_day")) do

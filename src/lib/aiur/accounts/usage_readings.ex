@@ -1,7 +1,40 @@
 defmodule Aiur.Accounts.UsageReadings do
   @moduledoc "Small read model for per-account provider usage observations."
 
+  alias Aiur.CodingAgent.HeadroomDispatch
+
   @key {__MODULE__, :readings}
+
+  @doc """
+  Whether an observation is too old to treat as current.
+
+  The one cutoff for every usage surface: `agent.headroom_reading_max_age_seconds`,
+  past which dispatch already scores a reading as unknown (#5747). `aiur
+  accounts` and the Models panel's account and window lines all use it.
+  """
+  @spec stale?(DateTime.t() | nil, DateTime.t()) :: boolean()
+  def stale?(observed_at, now \\ DateTime.utc_now())
+  def stale?(%DateTime{} = observed_at, %DateTime{} = now), do: DateTime.diff(now, observed_at, :second) > HeadroomDispatch.max_reading_age_seconds()
+  def stale?(_observed_at, _now), do: false
+
+  @doc """
+  The freshness every surface shows for an entry: `:stale` past the cutoff or
+  while failing after an earlier good reading, otherwise the recorded
+  freshness (`:fresh`, `:cached`, or `:unavailable` with no reading yet).
+  """
+  @spec freshness(map(), DateTime.t()) :: :fresh | :cached | :stale | :unavailable
+  def freshness(entry, now \\ DateTime.utc_now())
+  def freshness(%{reading: nil, last_observed_at: %DateTime{}}, _now), do: :stale
+  def freshness(%{reading: nil}, _now), do: :unavailable
+
+  def freshness(%{observed_at: observed_at, freshness: freshness}, now) do
+    if stale?(observed_at, now), do: :stale, else: freshness
+  end
+
+  @doc "When the entry's numbers were actually observed: a failing entry keeps its last good observation time."
+  @spec observed_at(map()) :: DateTime.t() | nil
+  def observed_at(%{reading: nil} = entry), do: Map.get(entry, :last_observed_at)
+  def observed_at(entry), do: Map.get(entry, :observed_at)
 
   @spec snapshot() :: %{{String.t(), String.t()} => map()}
   def snapshot, do: :persistent_term.get(@key, %{})

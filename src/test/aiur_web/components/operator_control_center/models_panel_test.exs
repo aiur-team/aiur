@@ -116,19 +116,33 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanelTest do
     refute html =~ ~s(<span class="rs-pc">0%</span>)
   end
 
-  # #5747: the session window read 81% for 3.6 hours with no mark. The
-  # projection already flags an old window stale; the line must show it, or an
-  # operator plans against a number that stopped moving.
-  test "a stale window carries the stale mark, a current one does not" do
-    windows = [
-      window("claude:five_hour", "Session (5 hour)", 81, 3_600, %{freshness: :stale}),
-      window("claude:seven_day", "Weekly (all models)", 40, 86_400, %{freshness: :fresh})
-    ]
+  # #5747: the session window read 81% for 3.6 hours with no mark. Account
+  # and window lines on one card share one cutoff
+  # (`agent.headroom_reading_max_age_seconds`, 1800 s by default), so a
+  # reading never shows current on one line and stale on the line below.
+  test "account and window lines on one card share the stale cutoff" do
+    for {age, stale?} <- [{1_200, false}, {13_000, true}] do
+      observed_at = DateTime.add(@now, -age, :second)
+      freshness = if stale?, do: :stale, else: :fresh
+      account = Map.merge(account("default", 40, 86_400), %{freshness: freshness, age_seconds: age})
+      session = window("claude:five_hour", "Session (5 hour)", 81, 3_600, %{observed_at: observed_at})
 
-    html = render([card(:claude, windows)])
+      html = render([card(:claude, [session], %{account_usage: %{count: 1, accounts: [account]}})])
 
-    assert [_stale] = Regex.scan(~r/class="rs-ln[^"]*is-stale"[^>]*title="Session \(5 hour\)/, html)
-    refute html =~ ~r/class="rs-ln[^"]*is-stale"[^>]*title="Weekly/
+      marks = Regex.scan(~r/class="rs-ln[^"]*is-stale"/, html)
+      assert length(marks) == if(stale?, do: 2, else: 0), "age #{age}s"
+    end
+  end
+
+  # A cached re-serve under the cutoff is what `aiur accounts` calls
+  # `cached`, not `stale`; the panel must not dim it either.
+  test "a cached account line under the cutoff is not dimmed" do
+    cached = Map.merge(account("default", 40, 86_400), %{freshness: :cached, last_error: :rate_limited})
+
+    html = render([card(:claude, [], %{account_usage: %{count: 1, accounts: [cached]}})])
+
+    refute html =~ "is-stale"
+    assert html =~ "cached, 15s old · last error rate_limited"
   end
 
   test "a failing account line is stale and names the last probe error" do

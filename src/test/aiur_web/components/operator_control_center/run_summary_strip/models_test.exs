@@ -370,12 +370,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
         # DeepSeek is a real, fresh zero-consumed reading.
         assert html =~ ~s(<span class="rs-pc">0%</span>)
 
-        # Claude's window renders its percentage without a stale text label,
-        # but the line carries the stale mark (#5747): an old number with no
-        # mark reads as current.
+        # Claude's window renders its percentage without a stale text label.
+        # The stale mark follows the reading's age, not this stamp (#5747).
         assert html =~ ~s(<span class="rs-pc">62%</span>)
         refute html =~ ~r/>[^<]*stale/i
-        assert html =~ "is-stale"
 
         # Kimi reported nothing at all, which is neither healthy nor a zero; its
         # status label was deleted (operator directive) so the row is just the
@@ -436,7 +434,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
               state: :stale,
               status_label: "Retained",
               auth_mode: %{value: :session},
-              windows: [Map.put(scoped_window("codex:primary", 40), :freshness, :stale)]
+              windows: [Map.merge(scoped_window("codex:primary", 40), %{freshness: :stale, observed_at: DateTime.add(@now, -13_000, :second)})]
             }
           ]
         },
