@@ -4,13 +4,13 @@ defmodule AiurEngineTicketUsageTest do
   import Aiur.TestSupport.EngineCase
 
   test "ticket-usage routes the ticket and --json through the control rpc" do
-    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_ticket_usage 5692 --json|, [])
-    assert out =~ ~s|RPC:Aiur.TicketUsageCLI.run("5692", [json: true])|
+    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\nsource \"$engine_dir/engine/ticket_usage.sh\"\ncmd_ticket_usage 5692 --json|, [])
+    assert out =~ ~s|RPC:Aiur.TicketUsageCLI.rpc("5692", [json: true])|
   end
 
   test "ticket-usage defaults to the plain report" do
-    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_ticket_usage 5692|, [])
-    assert out =~ ~s|RPC:Aiur.TicketUsageCLI.run("5692", [])|
+    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\nsource \"$engine_dir/engine/ticket_usage.sh\"\ncmd_ticket_usage 5692|, [])
+    assert out =~ ~s|RPC:Aiur.TicketUsageCLI.rpc("5692", [])|
   end
 
   # The ticket is interpolated into an Elixir expression, so anything but
@@ -23,7 +23,7 @@ defmodule AiurEngineTicketUsageTest do
           {"1 2", "ticket-usage accepts one ticket"},
           {"--unknown", "ticket-usage received an unknown option"}
         ] do
-      {out, 64} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_ticket_usage #{argv}|, [])
+      {out, 64} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\nsource \"$engine_dir/engine/ticket_usage.sh\"\ncmd_ticket_usage #{argv}|, [])
       assert out =~ message
       refute out =~ "RPC:"
     end

@@ -40,8 +40,22 @@ defmodule Aiur.TicketUsageCLITest do
   end
 
   test "an unknown ticket exits 1 with a reason on stderr" do
-    stderr = capture_io(:stderr, fn -> assert TicketUsageCLI.run("4242", usage_opts: usage_opts()) == 1 end)
+    stdout = capture_io(fn -> send(self(), {:stderr, capture_io(:stderr, fn -> assert TicketUsageCLI.run("4242", usage_opts: usage_opts()) == 1 end)}) end)
+    assert_received {:stderr, stderr}
     assert stderr =~ "ticket-usage found no usage recorded for ticket 4242"
+    assert stdout =~ "__AIUR_CONTROL_ERROR__:aiur: ticket-usage found no usage recorded for ticket 4242"
+  end
+
+  # The launcher reads only stdout markers, so a status or message the CLI
+  # prints any other way never reaches the caller of `aiur ticket-usage`.
+  test "rpc emits the exit marker, and the error marker on failure" do
+    output = capture_io(fn -> TicketUsageCLI.rpc("5692", json: true, usage_opts: usage_opts()) end)
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    refute output =~ "__AIUR_CONTROL_ERROR__:"
+
+    output = capture_io(fn -> capture_io(:stderr, fn -> TicketUsageCLI.rpc("4242", usage_opts: usage_opts()) end) end)
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: ticket-usage found no usage recorded for ticket 4242"
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 
   test "renders a routed provider and a missing price" do

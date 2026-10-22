@@ -5,13 +5,24 @@ defmodule Aiur.TicketUsageCLI do
   `GET /api/v1/:issue_identifier/usage`.
   """
 
+  alias Aiur.ControlCLI.Protocol
   alias AiurWeb.Api.Usage.TicketUsage
 
   @messages %{
     invalid_identifier: "expects a GitHub issue number",
     usage_not_found: "found no usage recorded for ticket",
+    usage_unresolvable: "found no retained usage records (older records may have been compacted) for ticket",
     usage_unavailable: "could not read the usage ledger"
   }
+
+  @doc """
+  Control-RPC entry point: runs the report and emits the launcher's exit and
+  error markers, which are the only way a status or message reaches the caller.
+  """
+  @spec rpc(String.t(), keyword()) :: :ok
+  def rpc(identifier, opts \\ []) do
+    Protocol.guarded("ticket-usage", fn -> identifier |> run(opts) |> Protocol.exit_marker() end)
+  end
 
   @spec run(String.t(), keyword()) :: 0 | 1
   def run(identifier, opts \\ []) do
@@ -21,7 +32,7 @@ defmodule Aiur.TicketUsageCLI do
         0
 
       {:error, reason} ->
-        IO.puts(:stderr, "aiur: ticket-usage #{Map.fetch!(@messages, reason)} #{identifier}")
+        Protocol.control_error("aiur: ticket-usage #{Map.fetch!(@messages, reason)} #{identifier}")
         1
     end
   end

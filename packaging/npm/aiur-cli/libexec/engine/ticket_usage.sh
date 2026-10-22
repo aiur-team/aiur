@@ -19,5 +19,5 @@ cmd_ticket_usage() {
 
   local opts=""
   [ "$json" -eq 1 ] && opts="json: true"
-  run_control_rpc "Aiur.TicketUsageCLI.run(\"$ticket\", [$opts])"
+  run_control_rpc "Aiur.TicketUsageCLI.rpc(\"$ticket\", [$opts])"
 }
