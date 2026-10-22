@@ -167,7 +167,10 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
       Process.exit(earlier_sibling_pid, :kill)
 
       assert_receive {:DOWN, ^shared_task_supervisor_ref, :process, ^shared_task_supervisor, task_supervisor_exit}, 1_000
-      restarted_shared_task_supervisor = wait_for_named_process(Aiur.TaskSupervisor, shared_task_supervisor)
+      # The root replies only after restarting every later sibling, so this
+      # outlasts a slow restart and the next test never meets a half-built tree.
+      _children = Supervisor.which_children(root)
+      restarted_shared_task_supervisor = Process.whereis(Aiur.TaskSupervisor)
       :ok = :sys.trace(root, false)
       assert task_supervisor_exit == :shutdown
       assert restarted_shared_task_supervisor != shared_task_supervisor
@@ -191,10 +194,6 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
 
       Process.exit(coordinator_pid, :kill)
       assert_receive {:DOWN, ^worker_ref, :process, ^worker, :killed}, 1_000
-
-      # The root replies only after restarting every later sibling, so the
-      # next test never meets a half-restarted tree.
-      _children = Supervisor.which_children(root)
     end
   end
 end
