@@ -1214,6 +1214,14 @@ rework claim, not the relabels; #4646.) Verify the ticket left
 alert, run `aiur executor-sweep` (#4620) and grep the daemon log for `Rework
 dispatch claim failed` or `writer=comment_wake` before you touch a label.
 
+When you do relabel by hand, read the current labels first and remove every
+other `agent:*` state label in the same `gh issue edit`. A
+`ticket.*.agent.handoff.human_review` wake says the agent handed off, not that
+the ticket is still there: when CI is pending the daemon moves it to
+`agent:ci-wait` within minutes. Swapping only `agent:human-review` for
+`agent:rework` from that wake leaves `agent:rework` + `agent:ci-wait`, and
+dispatch authorization refuses the pair (#5796).
+
 ### Merge mechanics
 
 Branch protection measures the identity of the **pusher**, not the commit
