@@ -2,7 +2,6 @@ defmodule Aiur.GitHub.BudgetBrokerCheckpointTest do
   use ExUnit.Case, async: false
 
   alias Aiur.GitHub.{Budget, BudgetBroker}
-  alias Aiur.TestSupport.Isolation
 
   test "checkpoint timings are retained after a broker command", %{test: test} do
     root = Aiur.TestSupport.tmp_root!("budget-broker-checkpoint")
@@ -13,12 +12,14 @@ defmodule Aiur.GitHub.BudgetBrokerCheckpointTest do
     assert {:ok, lease} = Budget.acquire(request, opts)
     assert :ok = Budget.release(lease, opts)
 
-    Isolation.await_telemetry!([:aiur, :github, :budget_broker, :command], fn ->
-      Budget.snapshot("daemon-token", opts)
-    end)
+    # The checkpoint runs on a background Python thread, and a command reply
+    # carries its timing only once that thread has finished; retry until one does.
+    assert Enum.any?(1..50, fn _ ->
+             Budget.snapshot("daemon-token", opts)
 
-    assert Enum.any?(:sys.get_state(server).stats, fn {_outcome, measurements} ->
-             is_number(measurements.sqlite_checkpoint_ms)
+             Enum.any?(:sys.get_state(server).stats, fn {_outcome, measurements} ->
+               is_number(measurements[:sqlite_checkpoint_ms])
+             end)
            end)
   end
 end

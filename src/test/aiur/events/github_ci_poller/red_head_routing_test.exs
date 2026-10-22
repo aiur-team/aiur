@@ -178,6 +178,9 @@ defmodule Aiur.Events.GithubCIPoller.RedHeadRoutingTest do
 
       %{method: :get, url: url} when is_binary(url) ->
         cond do
+          String.contains?(url, "/actions/runs?head_sha=") ->
+            ok(%{"workflow_runs" => [%{"id" => 99, "name" => "CI", "head_sha" => "head", "run_attempt" => attempt}]})
+
           String.ends_with?(url, "/actions/runs/99/jobs?per_page=100") ->
             ok(%{"jobs" => jobs})
 
@@ -185,7 +188,7 @@ defmodule Aiur.Events.GithubCIPoller.RedHeadRoutingTest do
             ok("ordinary failure")
 
           String.ends_with?(url, "/actions/runs/99") ->
-            ok(%{"head_sha" => "head", "run_attempt" => attempt, "status" => "completed", "conclusion" => "failure"})
+            ok(%{"head_sha" => "head", "run_attempt" => attempt, "name" => "CI", "status" => "completed", "conclusion" => "failure"})
 
           true ->
             flunk("unexpected GET #{url}")
