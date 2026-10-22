@@ -1,8 +1,6 @@
 # Module, full ExUnit test name (describe prefix included, as failures print it), and tracking ticket. Tabs delimit fields.
 Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the real gh command	#4463
-Aiur.AgentGitHubGuard.InstallAndTokenTest	refuses gh aliases and any command name the guard cannot recognise	#4463
 Aiur.AgentRunner.ToolExecutor.PublicationFailuresTest	*	#5674
-Aiur.Core.AgentRunnerStartupFailureTest	agent runner pauses on before_run failure and resumes after operator intervention	#4463
 Aiur.GitHub.MonotonicDepositTest	*	#5605
 Aiur.LandingWatch.MainRecoveryRerunTest	*	#5605
 Aiur.LandingWatch.MergeGroupFailureRequeueTest	the fifth group requeue in fifteen minutes is not enqueued	#5633
