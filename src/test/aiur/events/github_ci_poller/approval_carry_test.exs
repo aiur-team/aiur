@@ -36,19 +36,21 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
     assert {:changed, %{reason: {:unavailable, :comparison_incomplete}}} = ApprovalCarry.classify_diffs(approved, approved, main, @body, @head)
   end
 
-  test "a moved hunk header with identical changed lines carries the Tested head" do
+  test "base deletions from the hunk context do not invalidate the Tested head" do
     approved =
       comparison([
-        {"src/test/quarantine.txt", "a1", "@@ -3,7 +3,6 @@\n context\n context\n-row\n context\n context\n context\n context"}
+        {"src/test/quarantine.txt", "a1", "@@ -3,5 +3,4 @@\n row-a\n row-b\n row-x\n-row\n row-y"}
       ])
 
     current =
       comparison([
-        {"src/test/quarantine.txt", "a2", "@@ -1,7 +1,6 @@\n context\n context\n-row\n context\n context\n context\n context"}
+        {"src/test/quarantine.txt", "a2", "@@ -1,3 +1,2 @@\n row-x\n-row\n row-y"}
       ])
 
-    assert :identical = ApprovalCarry.classify_contribution_diffs(approved, current, comparison([]))
-    assert :carried = ApprovalCarry.classify_diffs(approved, current, comparison([]), @body, @head)
+    main = comparison([{"src/test/quarantine.txt", "m1", "@@ -1,2 +0,0 @@\n-row-a\n-row-b"}])
+
+    assert :identical = ApprovalCarry.classify_contribution_diffs(approved, current, main)
+    assert :carried = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
   end
 
   test "a moved hunk header does not hide a changed removed line" do
@@ -70,12 +72,12 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
     assert Enum.any?(hunks, &(&1.lines == ["-old-row"]))
   end
 
-  test "changed lines keep their order when hunks move or split" do
+  test "changed lines keep their order and hunk context when hunks move or split" do
     approved = comparison([{"src/test/quarantine.txt", "a1", "@@ -3,2 +3,0 @@\n-a\n-b"}])
     moved_and_split = comparison([{"src/test/quarantine.txt", "a2", "@@ -20,1 +20,0 @@\n-a\n@@ -2,1 +2,0 @@\n-b"}])
     reordered = comparison([{"src/test/quarantine.txt", "a3", "@@ -20,1 +20,0 @@\n-b\n@@ -2,1 +2,0 @@\n-a"}])
 
-    assert :identical = ApprovalCarry.classify_contribution_diffs(approved, moved_and_split, comparison([]))
+    assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_contribution_diffs(approved, moved_and_split, comparison([]))
     assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_contribution_diffs(approved, reordered, comparison([]))
   end
 
@@ -229,10 +231,18 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
     assert Enum.any?(hunks, &(&1.side == :current and "-  authorize!(user)" in &1.lines))
   end
 
-  test "a hunk with changed context and same added and removed lines is carried" do
+  test "a hunk moved into different surviving context does not carry approval" do
     approved = comparison([{"src/lib/a.ex", "a1", @approved_patch}])
     current = comparison([{"src/lib/a.ex", "a2", "@@ -7,7 +7,7 @@\n l7\n l8\n unless admin?, do: l9\n-old\n+feature\n l11\n l12\n l13"}])
 
-    assert :carried = ApprovalCarry.classify_diffs(approved, current, comparison([]), @body, @head)
+    assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_diffs(approved, current, comparison([]), @body, @head)
+  end
+
+  test "moving a changed line across a function boundary does not carry approval" do
+    approved = comparison([{"src/lib/a.ex", "a1", "@@ -3,3 +3,4 @@\n def run(conn) do\n+  authorize!(conn)\n   do_delete(conn)\n end"}])
+    current = comparison([{"src/lib/a.ex", "a2", "@@ -3,3 +3,4 @@\n def run(conn) do\n   do_delete(conn)\n+  authorize!(conn)\n end"}])
+
+    assert {:changed, %{reason: :contribution_changed}} =
+             ApprovalCarry.classify_contribution_diffs(approved, current, comparison([]))
   end
 end

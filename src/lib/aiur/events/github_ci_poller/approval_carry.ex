@@ -3,9 +3,10 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   Classifies a push made after a PR was approved (#4668).
 
   The PR's contribution diff at the approved head (`merge-base(approved, base)..approved`)
-  is compared with the one at the new head. The approval carries only when both
-  have the same ordered added and removed lines in each file. Hunk headers,
-  context, and line numbers are location metadata, not contribution content.
+  is compared with the one at the new head. The approval carries only when each
+  changed hunk has the same changed lines and surviving context in both
+  comparisons. Hunk line numbers may move when the base changes; context lines
+  changed by the base are ignored.
   Any other difference, conflict resolution included, does not carry.
 
   A carried approval also needs the PR body `Tested head` to name the new head.
@@ -194,15 +195,17 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
     if Enum.any?([approved, current, main], &unreadable?/1) or renamed_differently?(approved, current) do
       [%{file: path, side: :current, header: "(no readable patch or renamed differently)", lines: []}]
     else
-      compare_changed_lines(path, approved, current)
+      compare_changed_lines(path, approved, current, main)
     end
   end
 
-  defp compare_changed_lines(path, approved, current) do
-    if changed_lines(approved) == changed_lines(current) do
+  defp compare_changed_lines(path, approved, current, main) do
+    base_edits = changed_content(main)
+
+    if same_hunks?(hunks_of(approved), hunks_of(current), base_edits) do
       []
     else
-      {approved_only, current_only} = unmatched_hunks(hunks_of(approved), hunks_of(current))
+      {approved_only, current_only} = unmatched_hunks(hunks_of(approved), hunks_of(current), base_edits)
       changed_contribution_hunks(path, approved, current, approved_only, current_only)
     end
   end
@@ -224,19 +227,64 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   defp hunks_of(nil), do: []
   defp hunks_of(%{hunks: hunks}), do: hunks
 
-  # Contribution identity is the ordered changed-line sequence for the file;
-  # hunk headers, context, and boundaries only describe where Git found it.
-  defp changed_lines(nil), do: []
-  defp changed_lines(%{hunks: hunks}), do: Enum.flat_map(hunks, & &1.lines)
+  # Context edits from the base can shift or shorten a hunk without changing
+  # where the PR contribution sits relative to the surviving source.
+  defp changed_content(nil), do: %{removed: %{}, added: %{}}
 
-  defp unmatched_hunks(approved, current) do
+  defp changed_content(%{hunks: hunks}) do
+    Enum.reduce(hunks, %{removed: %{}, added: %{}}, &add_hunk_edits/2)
+  end
+
+  defp add_hunk_edits(hunk, edits) do
+    Enum.reduce(hunk.lines, edits, fn
+      <<"-", content::binary>>, acc -> update_in(acc.removed, &Map.update(&1, content, 1, fn count -> count + 1 end))
+      <<"+", content::binary>>, acc -> update_in(acc.added, &Map.update(&1, content, 1, fn count -> count + 1 end))
+    end)
+  end
+
+  defp same_hunks?(approved, current, base_edits) do
+    {approved_only, current_only} = unmatched_hunks(approved, current, base_edits)
+    approved_only == [] and current_only == []
+  end
+
+  defp unmatched_hunks(approved, current, base_edits) do
     Enum.reduce(current, {approved, []}, fn hunk, {remaining, extra} ->
-      case Enum.find_index(remaining, &(&1.lines == hunk.lines)) do
+      signature = hunk_signature(hunk, base_edits.added)
+
+      case Enum.find_index(remaining, &(hunk_signature(&1, base_edits.removed) == signature)) do
         nil -> {remaining, [hunk | extra]}
         index -> {List.delete_at(remaining, index), extra}
       end
     end)
     |> then(fn {approved_only, current_only} -> {approved_only, Enum.reverse(current_only)} end)
+  end
+
+  defp hunk_signature(hunk, base_edits) do
+    body = remove_base_context(hunk.body, base_edits)
+
+    {hunk.lines, body}
+  end
+
+  defp remove_base_context(context, base_edits) do
+    {remaining, _counts} =
+      Enum.reduce(context, {[], base_edits}, fn line, {kept, counts} ->
+        if String.starts_with?(line, " ") do
+          remove_base_context_line(line, kept, counts)
+        else
+          {[line | kept], counts}
+        end
+      end)
+
+    Enum.reverse(remaining)
+  end
+
+  defp remove_base_context_line(line, kept, counts) do
+    content = String.slice(line, 1..-1//1)
+
+    case Map.get(counts, content, 0) do
+      0 -> {[line | kept], counts}
+      count -> {kept, Map.put(counts, content, count - 1)}
+    end
   end
 
   defp contribution_hunks(path, side, file) do
