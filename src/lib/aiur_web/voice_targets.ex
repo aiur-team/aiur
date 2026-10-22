@@ -48,13 +48,20 @@ defmodule AiurWeb.VoiceTargets do
   defp check(%{kind: :command, decision_id: decision_id, expected_version: version}),
     do: resolve(fn resolver -> resolver.command(decision_id, version) end)
 
-  # The target's state is unknowable when the resolver fails; never report it as gone.
+  @resolver_refusals [:target_not_found, :target_not_writable, :target_stale, :unsupported_target, :unknown]
+
+  # The target's state is unknowable when the resolver fails or answers outside
+  # its contract; never report it as gone.
   defp resolve(fun) do
-    fun.(VoiceTargetResolver.impl())
+    case fun.(VoiceTargetResolver.impl()) do
+      :ok -> :ok
+      {:error, code} when code in @resolver_refusals -> {:error, code}
+      _other -> {:error, :unknown}
+    end
   rescue
     _error -> {:error, :unknown}
   catch
-    :exit, _reason -> {:error, :unknown}
+    _kind, _reason -> {:error, :unknown}
   end
 
   defp reason(:target_not_found, :worker), do: "Agent is no longer running."

@@ -6,13 +6,22 @@ defmodule AiurWeb.VoiceTargetsTest do
   alias AiurWeb.OperatorControlCenter.VoiceTargetResolver, as: DashboardResolver
   alias AiurWeb.{VoiceTargetResolver, VoiceTargets}
 
+  defmodule OddResolver do
+    @moduledoc false
+    @behaviour AiurWeb.VoiceTargetResolver
+    @impl true
+    def worker(_ticket), do: :maybe
+    @impl true
+    def command(_decision_id, _expected_version), do: {:error, :target_exploded}
+  end
+
   defmodule RaisingResolver do
     @moduledoc false
     @behaviour AiurWeb.VoiceTargetResolver
     @impl true
     def worker(_ticket), do: raise("resolver bug")
     @impl true
-    def command(_decision_id, _expected_version), do: exit(:timeout)
+    def command(_decision_id, _expected_version), do: throw(:resolver_bug)
   end
 
   defmodule FakeDecisionStore do
@@ -109,10 +118,8 @@ defmodule AiurWeb.VoiceTargetsTest do
 
     # The store's state is unknowable: reporting the Command as gone would be a guess.
     test "a store exit is unknown, not target_not_found" do
-      {:ok, dead} = Task.start(fn -> :ok end)
-      ref = Process.monitor(dead)
-      assert_receive {:DOWN, ^ref, :process, ^dead, _reason}, 1_000
-      EndpointStubs.put(decision_store: dead)
+      # No process holds this name, so every call to the store exits.
+      EndpointStubs.put(decision_store: :voice_targets_test_missing_store)
 
       assert {:error, %{reason_code: "unknown"}} = VoiceTargets.validate(command("d1", nil), "command_response")
     end
@@ -130,6 +137,12 @@ defmodule AiurWeb.VoiceTargetsTest do
     for surface <- ["command_revision", "conversation_panel"] do
       assert {:error, %{reason_code: "invalid_payload"}} = VoiceTargets.validate(@worker, surface)
     end
+  end
+
+  test "a resolver answer outside the contract is unknown" do
+    Application.put_env(:aiur, :voice_target_resolver, OddResolver)
+    assert {:error, %{reason_code: "unknown"}} = VoiceTargets.validate(@worker, "agent_composer")
+    assert {:error, %{reason_code: "unknown"}} = VoiceTargets.validate(command("d1", nil), "command_response")
   end
 
   test "a resolver that raises or exits is unknown, never a missing target" do
