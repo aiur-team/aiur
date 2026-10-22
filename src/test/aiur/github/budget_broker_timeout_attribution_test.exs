@@ -35,32 +35,20 @@ defmodule Aiur.GitHub.BudgetBrokerTimeoutAttributionTest do
     Port.command(lock, "\n")
 
     assert_receive {^lock, {:data, "released\n"}}, 1_000
-    assert timeout_has_python_metrics?(server, 20)
     assert {:ok, snapshot, 0} = command(server, Budget.broker_path(), ["snapshot" | common(root)])
     assert %{"inflight" => %{}, "admissions" => [_]} = Jason.decode!(snapshot)
+
+    assert Enum.any?(:sys.get_state(server).stats, fn
+             {:timeout, %{command_type: :acquire, python_queue_wait_ms: python_wait, sqlite_lock_wait_ms: lock_wait}}
+             when is_number(python_wait) and is_number(lock_wait) ->
+               true
+
+             _sample ->
+               false
+           end)
+
     assert {:ok, "granted " <> _, 0} = command(server, Budget.broker_path(), args)
     assert :sys.get_state(server).port == port
-  end
-
-  defp timeout_has_python_metrics?(_server, 0), do: false
-
-  defp timeout_has_python_metrics?(server, attempts) do
-    observed? =
-      Enum.any?(:sys.get_state(server).stats, fn
-        {:timeout, %{command_type: :acquire, python_queue_wait_ms: python_wait, sqlite_lock_wait_ms: lock_wait}}
-        when is_number(python_wait) and is_number(lock_wait) ->
-          true
-
-        _sample ->
-          false
-      end)
-
-    if observed? do
-      true
-    else
-      Process.sleep(10)
-      timeout_has_python_metrics?(server, attempts - 1)
-    end
   end
 
   defp command(server, broker, args), do: BudgetBroker.command(server, broker, args, System.monotonic_time(:millisecond) + 5_000)
