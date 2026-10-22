@@ -31,8 +31,7 @@ defmodule AiurWeb.Api.UsageProgressTest do
       progress(ticket, "progress.checkin", 55, 3, ~U[2026-07-15 12:00:20Z])
     ])
 
-    # The live identity resolves its own repository's log, the one the writer uses.
-    write_bus_log(ticket, ["2026-07-15T12:00:20Z [event:self] id=3 ticket.#{ticket.identifier}.agent.progress.checkin: 55%"])
+    write_bus_log(ticket.identifier, ["2026-07-15T12:00:20Z [event:self] id=3 ticket.#{ticket.identifier}.agent.progress.checkin: 55%"])
 
     assert {:ok, payload} = UsageProgress.payload(ticket.identifier, seams(server))
 
@@ -55,7 +54,7 @@ defmodule AiurWeb.Api.UsageProgressTest do
            }
 
     assert [%{"id" => 3, "type" => "checkin", "summary" => "55%"}] = payload["events"]
-    assert payload["sources"] == %{"activity" => "available", "history" => "available"}
+    assert payload["sources"] == %{"activity" => "available"}
   end
 
   test "progress events come back oldest first and only for this ticket", %{server: server, ticket: ticket} do
@@ -79,7 +78,6 @@ defmodule AiurWeb.Api.UsageProgressTest do
     assert Enum.map(payload["events"], & &1["type"]) == ["phase", "progress", "phase", "checkin"]
     assert [%{"phase" => "plan", "transition" => "start"}, _, %{"phase" => "plan", "transition" => "end"}, last] = payload["events"]
     assert last == %{"id" => 6, "type" => "checkin", "topic" => "agent.progress.checkin", "label" => "Progress check-in", "summary" => "40% tests green", "at" => "2026-07-15T12:00:05Z"}
-    assert payload["sources"]["history"] == "available"
   end
 
   test "the limit keeps the newest events, still in order", %{server: server, ticket: ticket} do
@@ -97,7 +95,7 @@ defmodule AiurWeb.Api.UsageProgressTest do
     assert payload["progress"] == %{"status" => "unknown"}
     assert payload["events"] == []
     assert payload["repository"] == nil
-    assert payload["sources"] == %{"activity" => "available", "history" => "available"}
+    assert payload["sources"] == %{"activity" => "available"}
   end
 
   test "a finished phase is known with no value, not unknown", %{server: server, ticket: ticket} do
@@ -155,10 +153,18 @@ defmodule AiurWeb.Api.UsageProgressTest do
     assert {:ok, %{"progress" => %{"status" => "unknown"}}} = UsageProgress.payload(ticket.identifier, only_other)
   end
 
-  test "an unreadable event log says unavailable instead of an empty history", %{server: server, ticket: ticket} do
-    opts = Keyword.put(seams(server), :history_fun, fn _source, _opts -> {:error, {:unavailable, :eacces}} end)
+  test "an out-of-range reading is unknown, never clamped to a percent", %{ticket: ticket} do
+    retained = %{key: %{identity: ticket, progress: %{percent: 150, source: :phase, observed_at: ~U[2026-07-15 11:00:00Z]}}}
+    opts = [activity_fun: fn -> %{entries: []} end, retention_fun: fn -> retained end, now: @now]
 
-    assert {:ok, %{"events" => [], "sources" => %{"history" => "unavailable"}}} = UsageProgress.payload(ticket.identifier, opts)
+    assert {:ok, %{"progress" => %{"status" => "unknown"}}} = UsageProgress.payload(ticket.identifier, opts)
+  end
+
+  test "a fractional reading is rendered as a whole percent", %{ticket: ticket} do
+    retained = %{key: %{identity: ticket, progress: %{percent: 70.6, source: :checkin, observed_at: ~U[2026-07-15 11:00:00Z]}}}
+    opts = [activity_fun: fn -> %{entries: []} end, retention_fun: fn -> retained end, now: @now]
+
+    assert {:ok, %{"progress" => %{"percent" => 71}}} = UsageProgress.payload(ticket.identifier, opts)
   end
 
   test "identifiers that are not ticket-shaped are rejected" do
@@ -221,8 +227,8 @@ defmodule AiurWeb.Api.UsageProgressTest do
     }
   end
 
-  defp write_bus_log(identifier_or_identity, lines) do
-    path = IssueLog.event_log_path(identifier_or_identity)
+  defp write_bus_log(identifier, lines) do
+    path = IssueLog.event_log_path(identifier)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, Enum.join(lines, "\n") <> "\n")
   end

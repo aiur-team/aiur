@@ -24,7 +24,7 @@ defmodule AiurWeb.Api.UsageProgressControllerTest do
     EndpointStubs.put(
       usage_progress_activity_fun: fn -> %{entries: [entry()]} end,
       usage_progress_retention_fun: fn -> %{} end,
-      usage_progress_history_fun: fn _source, _opts -> {:ok, [row()]} end
+      usage_progress_history_fun: fn _identifier, _opts -> [row()] end
     )
   end
 
@@ -90,5 +90,6 @@ defmodule AiurWeb.Api.UsageProgressControllerTest do
     }
   end
 
-  defp row, do: %{id: 7, kind: "self", topic: "ticket.5694.agent.progress", ts: "2026-07-15T12:00:00Z", summary: "80%"}
+  defp row,
+    do: %{type: "event", id: 7, kind: "self", topic: "ticket.5694.agent.progress", label: "Progress", body: "80%", timestamp: "2026-07-15T12:00:00Z"}
 end
