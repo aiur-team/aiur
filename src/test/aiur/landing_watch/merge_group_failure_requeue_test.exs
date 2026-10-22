@@ -6,11 +6,8 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
   test "a recorded known non-PR failure re-enqueues the dropped approved PR once" do
     parent = self()
 
-    journal =
-      Path.join(
-        System.tmp_dir!(),
-        "landing-watch-flake-#{System.unique_integer([:positive])}.json"
-      )
+    journal = journal_path("flake")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(journal) end)
 
     failed = group_run(201, "failure", "pr-17-a")
     passed = group_run(202, "success", "pr-17-b")
@@ -70,19 +67,16 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
     assert_received {:enqueue, "PR_17", "current"}
     assert :ok = MergeGroups.cancel_stale([], options)
     refute_received {:enqueue, _, _}
-    File.rm(journal)
   end
 
   test "the fifth group requeue in fifteen minutes is not enqueued" do
     parent = self()
 
-    journal =
-      Path.join(
-        System.tmp_dir!(),
-        "landing-watch-rate-cap-#{System.unique_integer([:positive])}.json"
-      )
+    journal = journal_path("rate-cap")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(journal) end)
 
     run = group_run(401, "failure", "pr-17-a-pr-18-b-pr-19-c-pr-20-d-pr-21-e")
+    now_ms = System.system_time(:millisecond)
 
     prs =
       for number <- 17..21,
@@ -108,7 +102,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
       token: "test-gh-token",
       request_fun: request,
       journal_path: journal,
-      now_ms: 2_000_000,
+      now_ms: now_ms,
       live_observations_fun: fn _, _ -> {:ok, prs} end,
       job_log_fun: fn _, _ -> {:ok, "runner lost before job setup"} end,
       jobs_fun: fn _, _ ->
@@ -135,8 +129,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
     assert length(enqueued) == 4
     assert :ok = MergeGroups.cancel_stale([], options)
     refute_received {:enqueue, _, _}
-    assert {:ok, %{"1970-01-01T00:00:00Z" => 4}} = journal_counts(journal)
-    File.rm(journal)
+    hour = div(now_ms, 3_600_000) * 3_600_000
+    hour_key = DateTime.from_unix!(hour, :millisecond) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    assert {:ok, %{^hour_key => 4}} = journal_counts(journal)
   end
 
   defp group_run(id, conclusion, prs) do
@@ -152,5 +147,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
   defp journal_counts(path) do
     alias Aiur.LandingWatch.Journal
     Journal.merge_group_requeues_by_hour(journal_path: path)
+  end
+
+  defp journal_path(name) do
+    Path.join(System.tmp_dir!(), "landing-watch-#{name}-#{System.unique_integer([:positive])}.json")
   end
 end
