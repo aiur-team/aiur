@@ -27,6 +27,7 @@
     "config": [
       "compaction",
       "executor",
+      "instance",
       "merge_policy",
       "prompt_file"
     ],
