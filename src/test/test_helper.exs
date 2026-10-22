@@ -1,25 +1,5 @@
-contaminating_env_vars = [
-  "TMUX",
-  "TMUX_PANE",
-  "ERL_AFLAGS",
-  "AIUR_DASHBOARD_USERNAME",
-  "AIUR_DASHBOARD_PASSWORD",
-  "AIUR_DEV_TEST_TICKET_IDS",
-  "AIUR_DEV_TEST_STATE_DIR",
-  "AIUR_DEBUG",
-  "AIUR_SUPERVISOR_TOKEN",
-  "AIUR_NODE",
-  "AIUR_ERLANG_COOKIE",
-  "AIUR_TMUX_CONF",
-  "AIUR_TMUX_SESSION",
-  "AIUR_TMUX_SOCKET",
-  "AIUR_AGENT_TMUX_SOCKET",
-  "AIUR_LOGS_ROOT"
-]
-
-for var <- contaminating_env_vars do
-  System.delete_env(var)
-end
+Code.require_file("support/test_environment.ex", __DIR__)
+Aiur.TestEnvironment.clear_inherited!()
 
 run_orchestrator_guard_probes = System.get_env("AIUR_RUN_ORCHESTRATOR_GUARD_PROBES") == "1"
 

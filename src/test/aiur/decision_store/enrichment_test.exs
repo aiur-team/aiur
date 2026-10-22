@@ -81,19 +81,26 @@ defmodule Aiur.DecisionStore.EnrichmentTest do
 
     test "exact replay is duplicate while changed reuse conflicts without append or notification", %{dir: dir} do
       pid = start_store!(dir)
+      :ok = Exchange.subscribe("ticket.979.agent.decision.requested")
+      :ok = DecisionPubSub.subscribe()
+      source_id = "supervisor-replay-#{System.unique_integer([:positive])}"
 
       assert {:ok, %{decision: v1}} =
                request(pid, %{
                  "question" => "Which architecture?",
                  "blocking" => true,
-                 "source_id" => "supervisor-replay"
+                 "source_id" => source_id
                })
 
-      patch = %{"context" => %{"short_summary" => "Canonical"}}
-      assert {:ok, %{status: :accepted, decision: accepted}} = enrich(pid, v1.decision_id, patch, 1)
+      decision_id = v1.decision_id
+      assert_receive {:event, %{"decision_id" => ^decision_id, topic: "ticket.979.agent.decision.requested"}}, 500
+      assert_receive {:decision_changed, ^decision_id, 1}, 500
 
+      patch = %{"context" => %{"short_summary" => "Canonical"}}
       :ok = Exchange.subscribe("ticket.979.agent.decision.enriched")
-      :ok = DecisionPubSub.subscribe()
+      assert {:ok, %{status: :accepted, decision: accepted}} = enrich(pid, v1.decision_id, patch, 1)
+      assert_receive {:event, %{"decision_id" => ^decision_id, topic: "ticket.979.agent.decision.enriched"}}, 500
+      assert_receive {:decision_changed, ^decision_id, 2}, 500
 
       assert {:ok, %{status: :duplicate, decision: duplicate}} = enrich(pid, v1.decision_id, patch, 1)
       assert duplicate.version == accepted.version
