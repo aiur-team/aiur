@@ -3,10 +3,11 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   Classifies a push made after a PR was approved (#4668).
 
   The PR's contribution diff at the approved head (`merge-base(approved, base)..approved`)
-  is compared with the one at the new head. The approval carries only when both
-  are identical: the same files and the same hunks, context included, each at the
-  same place once the base's own edits above it are allowed for. Any other
-  difference, conflict resolution included, does not carry.
+  is compared with the one at the new head. The approval carries only when each
+  changed hunk has the same changed lines and surviving context in both
+  comparisons. Hunk line numbers may move when the base changes; context lines
+  changed by the base are ignored.
+  Any other difference, conflict resolution included, does not carry.
 
   A carried approval also needs the PR body `Tested head` to name the new head.
   Anything unreadable or truncated fails closed to `:changed`.
@@ -194,12 +195,28 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
     if Enum.any?([approved, current, main], &unreadable?/1) or renamed_differently?(approved, current) do
       [%{file: path, side: :current, header: "(no readable patch or renamed differently)", lines: []}]
     else
-      {approved_only, current_only} = unmatched(hunks_of(approved), hunks_of(current), hunks_of(main))
-
-      Enum.map(approved_only, &%{file: path, side: :approved, header: &1.header, lines: &1.lines}) ++
-        Enum.map(current_only, &%{file: path, side: :current, header: &1.header, lines: &1.lines})
+      compare_changed_lines(path, approved, current, main)
     end
   end
+
+  defp compare_changed_lines(path, approved, current, main) do
+    base_edits = changed_positions(main)
+
+    if same_hunks?(hunks_of(approved), hunks_of(current), base_edits) do
+      []
+    else
+      {approved_only, current_only} = unmatched_hunks(hunks_of(approved), hunks_of(current), base_edits)
+      changed_contribution_hunks(path, approved, current, approved_only, current_only)
+    end
+  end
+
+  defp changed_contribution_hunks(path, approved, current, [], []),
+    do: contribution_hunks(path, :approved, approved) ++ contribution_hunks(path, :current, current)
+
+  defp changed_contribution_hunks(path, _approved, _current, approved_only, current_only),
+    do:
+      contribution_hunks(path, :approved, %{hunks: approved_only}) ++
+        contribution_hunks(path, :current, %{hunks: current_only})
 
   defp renamed_differently?(%{meta: {previous, _sha}}, %{meta: {current_previous, _current_sha}}), do: previous != current_previous
   defp renamed_differently?(_approved, _current), do: false
@@ -210,11 +227,39 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   defp hunks_of(nil), do: []
   defp hunks_of(%{hunks: hunks}), do: hunks
 
-  # Each current hunk consumes at most one approved hunk with the same lines and context at the same
-  # place, once the base's own edits above it are allowed for.
-  defp unmatched(approved, current, main_hunks) do
+  # Context edits from the base can shift or shorten a hunk without changing
+  # where the PR contribution sits relative to the surviving source.
+  defp changed_positions(nil), do: %{removed: MapSet.new(), added: MapSet.new()}
+
+  defp changed_positions(%{hunks: hunks}) do
+    Enum.reduce(hunks, %{removed: MapSet.new(), added: MapSet.new()}, &add_hunk_positions/2)
+  end
+
+  defp add_hunk_positions(hunk, edits) do
+    {old_start, _old_count} = hunk.old
+    {new_start, _new_count} = hunk.new
+
+    {_old, _new, edits} =
+      Enum.reduce(hunk.body, {old_start, new_start, edits}, fn
+        <<" ", _::binary>>, {old, new, acc} -> {old + 1, new + 1, acc}
+        <<"-", _::binary>>, {old, new, acc} -> {old + 1, new, update_in(acc.removed, &MapSet.put(&1, old))}
+        <<"+", _::binary>>, {old, new, acc} -> {old, new + 1, update_in(acc.added, &MapSet.put(&1, new))}
+        _marker, positions -> positions
+      end)
+
+    edits
+  end
+
+  defp same_hunks?(approved, current, base_edits) do
+    {approved_only, current_only} = unmatched_hunks(approved, current, base_edits)
+    approved_only == [] and current_only == []
+  end
+
+  defp unmatched_hunks(approved, current, base_edits) do
     Enum.reduce(current, {approved, []}, fn hunk, {remaining, extra} ->
-      case Enum.find_index(remaining, &(&1.body == hunk.body and shifted(&1.old, main_hunks) == elem(hunk.old, 0))) do
+      signature = hunk_signature(hunk, base_edits.added, :current)
+
+      case Enum.find_index(remaining, &(hunk_signature(&1, base_edits.removed, :approved) == signature)) do
         nil -> {remaining, [hunk | extra]}
         index -> {List.delete_at(remaining, index), extra}
       end
@@ -222,14 +267,37 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
     |> then(fn {approved_only, current_only} -> {approved_only, Enum.reverse(current_only)} end)
   end
 
-  # Where an old-base hunk starts in the new base; a hunk the base touched has no single position.
-  defp shifted({start, length}, main_hunks) do
-    Enum.reduce_while(main_hunks, start, fn %{old: {main_start, main_length}, new: {_new_start, new_length}}, position ->
-      cond do
-        main_start + max(main_length, 1) <= start -> {:cont, position + new_length - main_length}
-        start + max(length, 1) <= main_start -> {:cont, position}
-        true -> {:halt, :conflict}
-      end
-    end)
+  defp hunk_signature(hunk, changed_positions, side) do
+    {old_start, _old_count} = hunk.old
+    {new_start, _new_count} = hunk.new
+
+    {body, _old, _new} =
+      Enum.reduce(hunk.body, {[], old_start, new_start}, fn line, {kept, old, new} ->
+        keep? = not base_context_line?(line, side, old, new, changed_positions)
+
+        {if(keep?, do: [line | kept], else: kept), old_position(line, old), new_position(line, new)}
+      end)
+
+    {hunk.lines, Enum.reverse(body)}
+  end
+
+  defp base_context_line?(<<" ", _::binary>>, :approved, old, _new, changed_positions),
+    do: MapSet.member?(changed_positions, old)
+
+  defp base_context_line?(<<" ", _::binary>>, :current, old, _new, changed_positions),
+    do: MapSet.member?(changed_positions, old)
+
+  defp base_context_line?(_line, _side, _old, _new, _changed_positions), do: false
+
+  defp old_position(<<sign, _::binary>>, old) when sign in [?-, ?\s], do: old + 1
+  defp old_position(_line, old), do: old
+
+  defp new_position(<<sign, _::binary>>, new) when sign in [?+, ?\s], do: new + 1
+  defp new_position(_line, new), do: new
+
+  defp contribution_hunks(path, side, file) do
+    file
+    |> hunks_of()
+    |> Enum.map(&%{file: path, side: side, header: &1.header, lines: &1.lines})
   end
 end
