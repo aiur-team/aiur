@@ -1,8 +1,8 @@
 defmodule Aiur.LandingWatch.ReworkEnqueueGateTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.LandingWatch
   alias Aiur.Issue
+  alias Aiur.LandingWatch
   alias Aiur.Orchestrator.{StartupClaimReconciler.Observation, State}
 
   @green %{"id" => 60, "name" => "ci gate", "status" => "completed", "conclusion" => "success", "check_suite" => %{"id" => 101}}
