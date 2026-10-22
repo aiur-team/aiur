@@ -17,6 +17,11 @@ defmodule Aiur.ProviderMeterRefresh do
     ranks accounts by these readings at every claim, so the policy keeps
     polling with no surface open (#4127). With no agents running it polls
     Claude only.
+  - **A running fleet is a watcher of Claude.** Agents spend the Claude
+    allowance whether or not a surface is open, and no agent event carries a
+    consumed fraction, so under any selection mode the Claude reading is
+    polled while agents run (#5747). Codex is left to the ledger its own
+    sessions write.
   - **One baseline shortly after boot**, so the first surface to open shows real
     values rather than "not observed".
   - **Codex only while agents run.** Observing Codex means opening an app-server
@@ -122,6 +127,7 @@ defmodule Aiur.ProviderMeterRefresh do
       cond do
         watched?(state) -> observe(state, refresh_target(state))
         state.headroom?.() -> observe(state, headroom_target(state))
+        state.agents_running?.() -> observe(state, :claude)
         true -> state
       end
 
