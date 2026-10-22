@@ -147,6 +147,7 @@ Code.put_compiler_option(:no_warn_undefined, [])
 
 Aiur.TestSupport.EndpointStubs.init!()
 Aiur.TestSupport.LifecycleLeakGuard.start!()
+Aiur.TestSupport.LifecycleLeakGuard.install_late_log_handler!()
 
 # Keep plain ExUnit.Case modules and between-case application timers from
 # publishing Orchestrator poll state or alerts into the suite-wide ledger.

@@ -4,6 +4,6 @@ defmodule VoiceConverse.Ports.Credentials do
   in process state or logs.
   """
 
-  @callback fetch(provider :: atom(), purpose :: :connect | :provision | :delete) ::
+  @callback fetch(provider :: atom(), purpose :: :connect | :provision | :delete | :render) ::
               {:ok, String.t()} | {:error, :missing}
 end
