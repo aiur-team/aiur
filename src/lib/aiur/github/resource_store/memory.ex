@@ -37,6 +37,8 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
 
   @table Aiur.GitHub.ResourceStore.Table
   @max_entries 100_000
+  @cap_attention_topic "system.github.resource_store.cap"
+  @cap_attention_latch {__MODULE__, :cap_attention_firing}
 
   # Three times what the busiest observed daemon holds (43.9 MB across 6,768
   # entries, ~10 agents and ~130 open tickets, 2026-10-10), so it does not bind
@@ -140,15 +142,48 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
   def print_status(table \\ @table) do
     case stats(table) do
       :unavailable ->
+        resolve_cap_attention()
         IO.puts("GITHUB RESOURCES unavailable (resource store is not running)")
 
       stats ->
+        update_cap_attention(stats)
+
         IO.puts(
           "GITHUB RESOURCES entries=#{stats.entries} bodies=#{stats.bodies} " <>
             "body_bytes=#{mib(stats.body_bytes)}/#{mib(stats.max_body_bytes)} process=#{mib(stats.process_bytes)}"
         )
     end
   end
+
+  defp update_cap_attention(%{body_bytes: bytes, max_body_bytes: cap}) when bytes >= cap do
+    unless :persistent_term.get(@cap_attention_latch, false) do
+      if emit_cap_attention(cap) == :ok, do: :persistent_term.put(@cap_attention_latch, true)
+    end
+
+    :ok
+  end
+
+  defp update_cap_attention(_stats) do
+    if :persistent_term.get(@cap_attention_latch, false) and resolve_cap_attention() == :ok, do: :persistent_term.put(@cap_attention_latch, false)
+    :ok
+  end
+
+  defp emit_cap_attention(cap) do
+    message = "GitHub read cache is at its #{mib(cap)} body cap; least recently written bodies will be shed on the next store sweep."
+
+    Aiur.Signal.agent_alert(@cap_attention_topic, message, reason: message, severity: "warning", needs_attention: true)
+    |> normalize_alert_result()
+  end
+
+  defp resolve_cap_attention do
+    message = "GitHub read cache is below its body cap."
+
+    Aiur.Signal.agent_alert(@cap_attention_topic <> ".resolved", message, reason: message)
+    |> normalize_alert_result()
+  end
+
+  defp normalize_alert_result(:ok), do: :ok
+  defp normalize_alert_result(_error), do: :error
 
   # One `{recorded_at_ms, key, body_bytes}` row per entry. `foldl/3` copies one
   # entry at a time, so the bodies are never all in this process at once.
