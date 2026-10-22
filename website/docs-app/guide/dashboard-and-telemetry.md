@@ -118,9 +118,9 @@ the same dashboard Basic auth as `/api/v1/state`, and sends
 | --- | --- |
 | `phase` | `{status: "known", value, observed_at}`, where `value` is `brainstorm`, `plan`, `work` or `review`, or `null` once the last phase ended. `{status: "unknown"}` when no phase was ever observed. |
 | `progress` | `{status: "known", percent, source, freshness, occurred_at, observed_at}`. `source` is `checkin` or `phase`; `freshness` is `fresh` or `stale` (a stale reading keeps its real percent). `{status: "unknown"}` when nothing was reported. |
-| `events` | The ticket's own progress, check-in and phase start/end events, oldest first; the newest `limit` (1–50, default 20). Each has `id`, `type` (`progress`, `checkin`, `phase_progress`, `phase`), `topic`, `label`, `summary`, `at`, and `phase`/`transition` for phase events. Events consumed from other tickets are excluded. |
+| `events` | The ticket's own progress, check-in and phase start/end events, oldest first; the newest `limit` (1–50, default 20) taken from the latest 2,000 event-log markers. Each has `id`, `type` (`progress`, `checkin`, `phase_progress`, `phase`), `topic`, `label`, `summary`, `at`, and `phase`/`transition` for phase events. Events consumed from other tickets are excluded. |
 | `repository` | `owner/repo` of the answering ticket, or `null` when unknown. |
-| `sources` | `activity` is `available` or `unavailable`; `history` is `available` (including a ticket with no events yet) or `unavailable` when the event log could not be read. |
+| `sources` | `activity` is `available` or `unavailable`; `history` is `available` (including a ticket with no events yet) or `unavailable` when the event log could not be read. `unavailable` is reported only once the ticket's repository identity is known; for a ticket with no live or retained reading an unreadable log reads as no events. |
 
 An unknown or inactive ticket answers `200` with `unknown` fields and an empty
 `events` list; it is never reported as idle or 0%. A malformed identifier or

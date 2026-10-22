@@ -36,12 +36,24 @@ defmodule AiurWeb.Api.UsageProgressTest do
 
     assert {:ok, payload} = UsageProgress.payload(ticket.identifier, seams(server))
 
+    # The documented field set exactly: a leaked internal field fails here.
+    assert payload |> Map.keys() |> Enum.sort() ==
+             ~w(contract contract_version events generated_at issue_identifier phase progress repository sources)
+
     assert payload["contract"] == "aiur.ticket_progress"
     assert payload["contract_version"] == 1
     assert payload["repository"] == "owner/repo"
     assert payload["phase"] == %{"status" => "known", "value" => "work", "observed_at" => "2026-07-15T12:00:00Z"}
     # The newest reading wins, and it is reported as a check-in, not a phase estimate.
-    assert %{"status" => "known", "percent" => 55, "source" => "checkin", "freshness" => "fresh"} = payload["progress"]
+    assert payload["progress"] == %{
+             "status" => "known",
+             "percent" => 55,
+             "source" => "checkin",
+             "freshness" => "fresh",
+             "occurred_at" => "2026-07-15T12:00:20Z",
+             "observed_at" => "2026-07-15T12:00:20Z"
+           }
+
     assert [%{"id" => 3, "type" => "checkin", "summary" => "55%"}] = payload["events"]
     assert payload["sources"] == %{"activity" => "available", "history" => "available"}
   end
@@ -121,6 +133,26 @@ defmodule AiurWeb.Api.UsageProgressTest do
     assert {:ok, payload} = UsageProgress.payload(ticket.identifier, opts)
     assert payload["sources"]["activity"] == "unavailable"
     assert payload["progress"] == %{"status" => "unknown"}
+  end
+
+  test "a retained reading from another repository's same-numbered ticket is not mixed in", %{server: server, ticket: ticket} do
+    apply_observations(server, [phase(ticket, "work", :start, 1, ~U[2026-07-15 12:00:00Z])])
+    other_repo = %{ticket | owner: "other", repository: "fork", provider_id: "I-other"}
+
+    retained = %{
+      same: %{identity: ticket, progress: %{percent: 20, source: :phase, observed_at: ~U[2026-07-15 10:00:00Z]}},
+      # Newer, so a bare-identifier pick would choose it.
+      other: %{identity: other_repo, progress: %{percent: 90, source: :checkin, observed_at: ~U[2026-07-15 11:00:00Z]}}
+    }
+
+    opts = Keyword.put(seams(server), :retention_fun, fn -> retained end)
+    assert {:ok, payload} = UsageProgress.payload(ticket.identifier, opts)
+
+    assert payload["repository"] == "owner/repo"
+    assert %{"percent" => 20, "freshness" => "stale"} = payload["progress"]
+
+    only_other = Keyword.put(seams(server), :retention_fun, fn -> Map.delete(retained, :same) end)
+    assert {:ok, %{"progress" => %{"status" => "unknown"}}} = UsageProgress.payload(ticket.identifier, only_other)
   end
 
   test "an unreadable event log says unavailable instead of an empty history", %{server: server, ticket: ticket} do
