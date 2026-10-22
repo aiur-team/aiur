@@ -12,15 +12,12 @@ defmodule Aiur.GitHub.Config do
 
   @origin_cache_key {__MODULE__, :resolved_origin_repo}
 
-  @doc """
-  The `owner/name` this daemon operates on.
-
-  `tracker.github.repo` when it carries a value, otherwise the current
-  checkout's `origin` remote — the auto-detect path a general global
-  `~/.aiur/config` that names no repo of its own relies on.
-  """
+  @doc "The `owner/name` this daemon operates on, from config or the checkout's origin remote."
   @spec repo() :: String.t() | nil
   def repo, do: repo([])
+
+  @spec repo(Aiur.Config.Schema.t()) :: String.t() | nil
+  def repo(%Aiur.Config.Schema{} = config), do: explicit_repo(config) || origin_repo([])
 
   @doc """
   `repo/0` with the same injectable `:origin_fun` seam `configured_repo/1` takes.
@@ -134,14 +131,17 @@ defmodule Aiur.GitHub.Config do
   # key is absent, blank, or not a string. Blank is treated exactly like absent
   # so a config reset to its annotated template (`repo:` with nothing after it)
   # takes the same auto-detect path as one that omits the key.
-  defp explicit_repo do
-    with value when is_binary(value) <- section_value("repo"),
+  defp explicit_repo(config \\ nil) do
+    with value when is_binary(value) <- github_map(config) |> Map.get(:repo),
          trimmed when trimmed != "" <- String.trim(value) do
       trimmed
     else
       _ -> nil
     end
   end
+
+  defp github_map(%Aiur.Config.Schema{} = config), do: Map.from_struct(config.tracker.github)
+  defp github_map(_config), do: Aiur.Config.settings!().tracker.github |> Map.from_struct()
 
   defp origin_configured_repo(value) when is_binary(value), do: parse_configured_repo(value)
   defp origin_configured_repo(_value), do: {:error, :missing_configured_repository}

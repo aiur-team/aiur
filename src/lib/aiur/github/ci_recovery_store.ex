@@ -18,7 +18,7 @@ defmodule Aiur.GitHub.CIRecoveryStore do
   end
 
   defp normalize(%{"pr" => pr, "cycles" => cycles, "heads" => heads} = entry, pr) when is_integer(cycles) and cycles >= 0 and is_map(heads) do
-    if Enum.all?(heads, fn {sha, attempt} -> is_binary(sha) and valid_attempt?(attempt) end) and valid_hold?(entry["hold"]) and
+    if Enum.all?(heads, fn {sha, attempt} -> is_binary(sha) and valid_attempt?(attempt) end) and valid_cancelled_runs?(entry["cancelled_runs"]) and valid_hold?(entry["hold"]) and
          valid_limit_hold?(entry["limit_hold"]) and is_list(Map.get(entry, "attentions", [])),
        do: {:ok, entry},
        else: {:error, :invalid_ci_recovery_entry}
@@ -43,6 +43,45 @@ defmodule Aiur.GitHub.CIRecoveryStore do
   defp valid_time?(_), do: false
   defp valid_run?(%{"id" => id, "attempt" => attempt}), do: is_integer(id) and id > 0 and is_integer(attempt) and attempt > 0
   defp valid_run?(_), do: false
+
+  defp valid_cancelled_runs?(nil), do: true
+  defp valid_cancelled_runs?(runs) when is_list(runs), do: Enum.all?(runs, &valid_cancelled_run?/1)
+  defp valid_cancelled_runs?(_), do: false
+  defp valid_cancelled_run?(%{"id" => id, "sha" => sha}) when is_integer(id) and id > 0 and is_binary(sha), do: true
+  defp valid_cancelled_run?(_), do: false
+
+  @doc "Records Actions runs cancelled by Aiur so CI recovery will not restart them."
+  @spec record_cancelled_run(String.t(), integer(), String.t(), integer(), keyword()) :: :ok | {:error, term()}
+  def record_cancelled_run(target, pr, sha, run_id, opts) do
+    case update(
+           target,
+           pr,
+           fn entry ->
+             runs = Enum.reject(entry["cancelled_runs"] || [], &(&1["id"] == run_id))
+             Map.put(entry, "cancelled_runs", [%{"id" => run_id, "sha" => sha} | runs] |> Enum.take(100))
+           end,
+           opts
+         ) do
+      {:ok, _} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  @spec forget_cancelled_run(String.t(), integer(), integer(), keyword()) :: :ok | {:error, term()}
+  def forget_cancelled_run(target, pr, run_id, opts) do
+    case update(
+           target,
+           pr,
+           fn entry ->
+             runs = Enum.reject(entry["cancelled_runs"] || [], &(&1["id"] == run_id))
+             Map.put(entry, "cancelled_runs", runs)
+           end,
+           opts
+         ) do
+      {:ok, _} -> :ok
+      {:error, _} = error -> error
+    end
+  end
 
   @spec update(String.t(), integer(), (map() -> map()), keyword()) :: {:ok, map()} | {:error, term()}
   def update(target, pr, fun, opts) do
