@@ -838,7 +838,7 @@ Alerts persist across daemon restarts and tokens (full-history scan, #1231), so
 the `ACTIONABLE` list keeps naming long-merged tickets. Check timestamps before
 acting and trust the top state table over the alert list.
 
-Run `aiur executor-sweep` on every observation and handle its findings first. It checks decisions, approved PR/CI, merge queue, capacity/order, ticket hygiene, blockers, handbacks, and watcher/dispatcher health. Unreviewed human-review PRs rank first using `executor.sweep.unreviewed_pr_minutes`; the daemon repeats every five minutes and wakes on new findings. Continue below for actions it cannot perform:
+Run `aiur executor-sweep` on every observation and handle its findings first. It checks decisions, approved PR/CI, merge queue, capacity/order, ticket hygiene, blockers, handbacks, and watcher/dispatcher health. Ready PRs unreviewed at their head rank first using `executor.sweep.unreviewed_pr_minutes`, whatever the ticket state (the finding names it, so a ready PR on an `agent:in-progress` ticket reads as a missed handoff); the daemon repeats every five minutes and wakes on new findings. Continue below for actions it cannot perform:
 
 - act on the `ACTIONABLE` section before routine scheduling;
 - continuously push toward the maximum **useful** concurrency across workers,

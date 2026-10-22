@@ -16,10 +16,25 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     }
 
     assert [finding] = Checks.unreviewed_prs(snapshot, now, 10)
-    assert finding.kind == "unreviewed_human_review_pr"
+    assert finding.kind == "unreviewed_pr"
     assert finding.priority == 1
     assert finding.age_ms == 23 * 60 * 60 * 1_000 + 12 * 60 * 1_000
     assert finding.message =~ "23h 12m"
+  end
+
+  test "reports a ready PR whose ticket is still in progress and names that state" do
+    now = ~U[2026-10-22 17:05:00Z]
+    pr = %{number: 5750, issue_number: 5749, state: "open", draft: false, head_sha: "abc", reviewed_head_sha: nil, ready_at: ~U[2026-10-22 08:17:00Z]}
+
+    snapshot = %{tickets: [%{number: 5749, labels: ["agent:in-progress", "priority:2"]}], pull_requests: [pr]}
+
+    assert [finding] = Checks.unreviewed_prs(snapshot, now, 10)
+    assert finding.ticket_state == "in-progress"
+    assert finding.message == "PR #5750 (ticket #5749, agent:in-progress) has waited 8h 48m for review at its current head."
+    assert finding.action =~ "agent:in-progress ticket hand off"
+
+    assert [%{ticket_state: "unknown"}] = Checks.unreviewed_prs(%{snapshot | tickets: []}, now, 10)
+    assert [%{ticket_state: "human-review"}] = Checks.unreviewed_prs(%{snapshot | tickets: [%{number: 5749, labels: ["agent:human-review"]}]}, now, 10)
   end
 
   test "requires a review on the current head and a strict threshold exceedance" do
@@ -366,7 +381,7 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     kinds = Checks.all(snapshot, now) |> Enum.map(& &1.kind)
     findings = Checks.all(snapshot, now)
 
-    assert hd(kinds) == "unreviewed_human_review_pr"
+    assert hd(kinds) == "unreviewed_pr"
 
     for kind <- [
           "unanswered_blocking_decision",
