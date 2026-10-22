@@ -368,3 +368,51 @@ test('Units interactive voice chat recovers after a silent turn', async ({ page 
   expect(state.socketDisconnected).toBe(true)
 })
 
+
+// The voice socket decodes PCM16 little-endian: a byte-order slip would turn
+// every dictation into noise without any error on either side.
+test('voice capture module encodes 16 kHz PCM16 little-endian base64', async ({ page }) => {
+  await openUnits(page)
+
+  const encoded = await page.evaluate(() => {
+    const capture = window.AiurVoiceCapture
+    return capture.encodePcm16Base64(capture.downsample(new Float32Array([0, 1, -1]), 16000, 16000))
+  })
+
+  // 0 -> 00 00, 1 -> ff 7f, -1 -> 00 80
+  expect(encoded).toBe('AAD/fwCA')
+})
+
+// Dictation and conversation are distinct server channels; joining the wrong
+// topic (or without the CSRF token) would silently route speech to the wrong mode.
+test('voice transport joins the requested topic with the CSRF param', async ({ page }) => {
+  await openUnits(page)
+
+  const joined = await page.evaluate(async () => {
+    const record = {}
+    window.AiurVoiceSocket = class {
+      constructor(path, options) { Object.assign(record, { path, options }) }
+      connect() {}
+      channel(topic, payload) {
+        Object.assign(record, { topic, payload })
+        return {
+          on() {},
+          onError() {},
+          onClose() {},
+          join() {
+            const push = { receive(status, callback) { if (status === 'ok') queueMicrotask(() => callback({})); return push } }
+            return push
+          }
+        }
+      }
+    }
+
+    await window.AiurVoiceTransport.open({ topic: 'voice:conversation' }).joined
+    return { ...record, csrf: document.querySelector("meta[name='csrf-token']")?.getAttribute('content') }
+  })
+
+  expect(joined.path).toBe('/voice')
+  expect(joined.topic).toBe('voice:conversation')
+  expect(joined.csrf).toBeTruthy()
+  expect(joined.options.params._csrf_token).toBe(joined.csrf)
+})
