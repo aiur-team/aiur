@@ -70,11 +70,17 @@ defmodule VoiceConverse.Config do
   end
 
   defp check_required(config) do
-    case Enum.find(required_fields(config), &(Map.fetch!(config, &1) in [nil, ""])) do
-      nil -> :ok
-      field -> {:error, %{field: field, reason: :missing}}
+    with :ok <- check_transcript_mode(config) do
+      case Enum.find(required_fields(config), &(Map.fetch!(config, &1) in [nil, ""])) do
+        nil -> :ok
+        field -> {:error, %{field: field, reason: :missing}}
+      end
     end
   end
+
+  # Checked first so a typo reports `transcript` itself, and refused rather than read as either mode.
+  defp check_transcript_mode(%{transcript: mode}) when mode in [:file, :none], do: :ok
+  defp check_transcript_mode(_config), do: {:error, %{field: :transcript, reason: :invalid}}
 
   # `transcript: :none` stores no transcript, so it needs no root.
   defp required_fields(%{transcript: :none}), do: @required -- [:transcript_root]
@@ -90,11 +96,12 @@ defmodule VoiceConverse.Config do
   defp valid_port?(nil), do: true
   defp valid_port?(mod), do: is_atom(mod)
 
-  # An unknown mode is refused rather than read as either mode.
-  defp check_transcript_root(%{transcript: mode}) when mode not in [:file, :none],
-    do: {:error, %{field: :transcript, reason: :invalid}}
-
+  # A no-transcript config carries no root, so nothing downstream has a place to write.
   defp check_transcript_root(%{transcript: :none, transcript_root: nil}), do: :ok
+
+  defp check_transcript_root(%{transcript: :none}),
+    do: {:error, %{field: :transcript_root, reason: :not_allowed}}
+
   defp check_transcript_root(%{transcript_root: root}) when is_binary(root), do: :ok
   defp check_transcript_root(_), do: {:error, %{field: :transcript_root, reason: :invalid}}
 

@@ -23,8 +23,10 @@ defmodule VoiceConverse.TranscriptStore do
   applies `Config.redactor` before the store).
 
   Sessions start their transcript with `start/4`, which honours `Config.transcript`. With
-  `transcript: :none` it returns the `:none` store: nothing is created under any root, `append/2`
-  and `close/1` accept and drop everything, and `mode/1` reports `:none` for the session state.
+  `transcript: :none` it returns the `:none` store: nothing is created under any root (a `:none`
+  config has no root), `append/2` validates each record exactly as in file mode and then drops it,
+  `close/1` is a no-op, and `mode/1` reports `:none` for the session state. `open/4` and
+  `reopen/3` are the file-mode internals behind `start/4`; session code must not call them directly.
 
   The raw fd belongs to the process that called `open/4` or `reopen/3`; only that process may
   `append/2`.
@@ -62,8 +64,8 @@ defmodule VoiceConverse.TranscriptStore do
   def mode(%__MODULE__{}), do: :file
 
   @doc """
-  Creates the conversation file under `root` and appends `session_started`. Fails with `:exists`
-  if the conversation already has a transcript.
+  File-mode internal of `start/4`. Creates the conversation file under `root` and appends
+  `session_started`. Fails with `:exists` if the conversation already has a transcript.
 
   Options (for tests): `:datasync` (`fd -> :ok | {:error, _}`, default `:file.datasync/1`) and
   `:sync_fs` (`-> :ok | {:error, _}`, the creation barrier, default `sync(1)`).
@@ -93,8 +95,9 @@ defmodule VoiceConverse.TranscriptStore do
   end
 
   @doc """
-  Opens an existing transcript for appending. If the file does not end in a newline (a torn
-  final line), writes and syncs `"\n"` first. Takes the `:datasync` option of `open/4`.
+  File-mode internal (boot reconciliation). Opens an existing transcript for appending. If the
+  file does not end in a newline (a torn final line), writes and syncs `"\n"` first. Takes the
+  `:datasync` option of `open/4`.
   """
   @spec reopen(Path.t(), String.t(), keyword()) :: {:ok, t()} | {:error, term()}
   def reopen(root, conversation_id, opts \\ []) do
@@ -118,7 +121,9 @@ defmodule VoiceConverse.TranscriptStore do
 
   @doc "Appends one record and returns only after it is synced to disk. Nothing is written on a refusal."
   @spec append(session_store(), record()) :: :ok | {:error, term()}
-  def append(:none, record) when is_map(record), do: :ok
+  def append(:none, record) when is_map(record) do
+    with {:ok, _line} <- encode(record), do: :ok
+  end
 
   def append(%__MODULE__{} = store, record) when is_map(record) do
     with {:ok, line} <- encode(record), do: write_line(store, line)
