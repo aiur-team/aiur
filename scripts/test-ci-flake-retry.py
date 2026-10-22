@@ -67,7 +67,7 @@ class RetryGateTest(unittest.TestCase):
         self.assertEqual(self.plan(log=log), [])
 
     def test_invalid_exunit_tests_are_not_retryable(self):
-        log = LOG.replace("2 tests, 2 failures", "2 tests, 1 failure, 1 invalid")
+        log = LOG.split("  2) test")[0] + "2 tests, 1 failure, 1 invalid\n"
         self.assertEqual(self.plan(log=log), [])
 
     def test_setup_all_crash_is_not_retryable(self):
@@ -131,7 +131,7 @@ coverage (2/4)\tTest coverage partition\t2026-10-22T01:00:01Z  1 test, 1 failure
         runs = [
             {"databaseId": 1, "createdAt": (now - timedelta(hours=23)).isoformat(), "conclusion": "failure"},
             {"databaseId": 2, "createdAt": (now - timedelta(hours=25)).isoformat(), "conclusion": "failure"},
-            {"databaseId": 3, "createdAt": (now - timedelta(hours=1)).isoformat(), "conclusion": "success"},
+            {"databaseId": 3, "createdAt": (now - timedelta(hours=1)).isoformat(), "conclusion": "failure"},
         ]
 
         viewed = []
@@ -202,14 +202,20 @@ coverage (2/4)\tTest coverage partition\t2026-10-22T01:00:01Z  1 test, 1 failure
             subprocess.run(["git", "-C", str(seed), "remote", "add", "origin", str(origin)], check=True)
             subprocess.run(["env", "AIUR_AGENT_WORKSPACE=", "git", "-c", "protocol.file.allow=always", "-C", str(seed), "push", "origin", "main"], check=True,
                            stdout=subprocess.DEVNULL)
+            subprocess.run(["git", "-C", str(seed), "checkout", "-b", "feature"], check=True,
+                           stdout=subprocess.DEVNULL)
             (seed / "README.md").write_text("PR-only change\n")
             subprocess.run(["git", "-C", str(seed), "add", "README.md"], check=True)
             subprocess.run(["git", "-C", str(seed), "commit", "-m", "PR change"], check=True,
                            stdout=subprocess.DEVNULL)
-            subprocess.run(["env", "AIUR_AGENT_WORKSPACE=", "git", "-c", "protocol.file.allow=always", "-C", str(seed), "push", "origin", "HEAD:feature"], check=True,
+            subprocess.run(["git", "-C", str(seed), "checkout", "main"], check=True,
+                           stdout=subprocess.DEVNULL)
+            subprocess.run(["git", "-C", str(seed), "merge", "--no-ff", "feature", "-m", "Merge PR"],
+                           check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["env", "AIUR_AGENT_WORKSPACE=", "git", "-c", "protocol.file.allow=always", "-C", str(seed), "push", "origin", "HEAD:merge"], check=True,
                            stdout=subprocess.DEVNULL)
             subprocess.run([
-                "git", "-c", "protocol.file.allow=always", "clone", "--depth=1", "--branch", "feature",
+                "git", "-c", "protocol.file.allow=always", "clone", "--depth=1", "--branch", "merge",
                 f"file://{origin}", str(workspace),
             ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             shallow = subprocess.check_output(
@@ -294,8 +300,8 @@ coverage (2/4)\tTest coverage partition\t2026-10-22T01:00:01Z  1 test, 1 failure
         self.assertIn('plan.update({"outcome": outcome', retry_script)
         self.assertIn("steps.retry-known-flakes.outcome != 'success'", partition)
         self.assertIn("Retried known flakes: all selected tests passed", retry_script)
-        self.assertIn('git -C "$workspace" fetch --no-tags --unshallow origin "$BASE_SHA"', prepare)
-        self.assertIn('git -C "$workspace" diff --name-only "$BASE_SHA...HEAD"', prepare)
+        self.assertIn('git -C "$workspace" fetch --no-tags --depth=1 origin "$BASE_SHA"', prepare)
+        self.assertIn('git -C "$workspace" diff --name-only "$BASE_SHA" HEAD', prepare)
         self.assertIn("--partition-status", prepare)
         self.assertIn("status_file=", partition_script)
         self.assertIn('printf \'%s\\n\' "$status" > "$status_file"', partition_script)
