@@ -47,10 +47,8 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
         {"src/test/quarantine.txt", "a2", "@@ -1,7 +1,6 @@\n context\n context\n-row\n context\n context\n context\n context"}
       ])
 
-    main = comparison([{"src/test/quarantine.txt", "m1", "@@ -1,2 +1,0 @@\n-old\n-older"}])
-
-    assert :identical = ApprovalCarry.classify_contribution_diffs(approved, current, main)
-    assert :carried = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
+    assert :identical = ApprovalCarry.classify_contribution_diffs(approved, current, comparison([]))
+    assert :carried = ApprovalCarry.classify_diffs(approved, current, comparison([]), @body, @head)
   end
 
   test "a moved hunk header does not hide a changed removed line" do
@@ -70,6 +68,15 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
              ApprovalCarry.classify_contribution_diffs(approved, current, main)
 
     assert Enum.any?(hunks, &(&1.lines == ["-old-row"]))
+  end
+
+  test "changed lines keep their order when hunks move or split" do
+    approved = comparison([{"src/test/quarantine.txt", "a1", "@@ -3,2 +3,0 @@\n-a\n-b"}])
+    moved_and_split = comparison([{"src/test/quarantine.txt", "a2", "@@ -20,1 +20,0 @@\n-a\n@@ -2,1 +2,0 @@\n-b"}])
+    reordered = comparison([{"src/test/quarantine.txt", "a3", "@@ -20,1 +20,0 @@\n-b\n@@ -2,1 +2,0 @@\n-a"}])
+
+    assert :identical = ApprovalCarry.classify_contribution_diffs(approved, moved_and_split, comparison([]))
+    assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_contribution_diffs(approved, reordered, comparison([]))
   end
 
   test "a push editing a PR-owned line is not carried and reports the hunk" do
@@ -139,15 +146,13 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
     assert {:changed, %{reason: :contribution_changed}} = resolved("src/lib/a.ex", ["upstream", "feature"])
   end
 
-  test "an approved hunk moved elsewhere in the file is not carried" do
+  test "an approved hunk at different line numbers has the same contribution" do
     approved = comparison([{"src/lib/a.ex", "a1", @approved_patch}])
     moved = comparison([{"src/lib/a.ex", "a2", "@@ -40,7 +40,7 @@\n l7\n l8\n l9\n-old\n+feature\n l11\n l12\n l13"}])
     main = comparison([{"src/lib/a.ex", "m1", "@@ -1,3 +1,4 @@\n+header\n l1\n l2\n l3"}])
 
-    assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_diffs(approved, moved, comparison([]), @body, @head)
-    assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_diffs(approved, moved, main, @body, @head)
-    # Unmoved, but the base shifted the file: the same coordinates now point one line too high.
-    assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_diffs(approved, approved, main, @body, @head)
+    assert :carried = ApprovalCarry.classify_diffs(approved, moved, comparison([]), @body, @head)
+    assert :carried = ApprovalCarry.classify_diffs(approved, moved, main, @body, @head)
   end
 
   test "under docs/ a resolution overlapping base changes is not carried" do
@@ -224,10 +229,10 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
     assert Enum.any?(hunks, &(&1.side == :current and "-  authorize!(user)" in &1.lines))
   end
 
-  test "a hunk whose context the merge changed is not carried" do
+  test "a hunk with changed context and same added and removed lines is carried" do
     approved = comparison([{"src/lib/a.ex", "a1", @approved_patch}])
     current = comparison([{"src/lib/a.ex", "a2", "@@ -7,7 +7,7 @@\n l7\n l8\n unless admin?, do: l9\n-old\n+feature\n l11\n l12\n l13"}])
 
-    assert {:changed, %{reason: :contribution_changed}} = ApprovalCarry.classify_diffs(approved, current, comparison([]), @body, @head)
+    assert :carried = ApprovalCarry.classify_diffs(approved, current, comparison([]), @body, @head)
   end
 end

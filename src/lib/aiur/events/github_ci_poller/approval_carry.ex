@@ -4,8 +4,8 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
 
   The PR's contribution diff at the approved head (`merge-base(approved, base)..approved`)
   is compared with the one at the new head. The approval carries only when both
-  have the same changed lines and context, and the base's own edits above them
-  are allowed for. Hunk headers are location metadata, not contribution content.
+  have the same ordered added and removed lines in each file. Hunk headers,
+  context, and line numbers are location metadata, not contribution content.
   Any other difference, conflict resolution included, does not carry.
 
   A carried approval also needs the PR body `Tested head` to name the new head.
@@ -194,10 +194,19 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
     if Enum.any?([approved, current, main], &unreadable?/1) or renamed_differently?(approved, current) do
       [%{file: path, side: :current, header: "(no readable patch or renamed differently)", lines: []}]
     else
-      {approved_only, current_only} = unmatched(hunks_of(approved), hunks_of(current), hunks_of(main))
+      approved_lines = changed_lines(approved)
+      current_lines = changed_lines(current)
 
-      Enum.map(approved_only, &%{file: path, side: :approved, header: &1.header, lines: &1.lines}) ++
-        Enum.map(current_only, &%{file: path, side: :current, header: &1.header, lines: &1.lines})
+      if approved_lines == current_lines do
+        []
+      else
+        {approved_only, current_only} = unmatched_hunks(hunks_of(approved), hunks_of(current))
+
+        case {approved_only, current_only} do
+          {[], []} -> contribution_hunks(path, :approved, approved) ++ contribution_hunks(path, :current, current)
+          _ -> contribution_hunks(path, :approved, %{hunks: approved_only}) ++ contribution_hunks(path, :current, %{hunks: current_only})
+        end
+      end
     end
   end
 
@@ -210,11 +219,14 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   defp hunks_of(nil), do: []
   defp hunks_of(%{hunks: hunks}), do: hunks
 
-  # Each current hunk consumes at most one approved hunk with the same lines and context at the same
-  # place, once the base's own edits above it are allowed for.
-  defp unmatched(approved, current, main_hunks) do
+  # Contribution identity is the ordered changed-line sequence for the file;
+  # hunk headers, context, and boundaries only describe where Git found it.
+  defp changed_lines(nil), do: []
+  defp changed_lines(%{hunks: hunks}), do: Enum.flat_map(hunks, & &1.lines)
+
+  defp unmatched_hunks(approved, current) do
     Enum.reduce(current, {approved, []}, fn hunk, {remaining, extra} ->
-      case Enum.find_index(remaining, &same_contribution?(&1, hunk, main_hunks)) do
+      case Enum.find_index(remaining, &(&1.lines == hunk.lines)) do
         nil -> {remaining, [hunk | extra]}
         index -> {List.delete_at(remaining, index), extra}
       end
@@ -222,46 +234,9 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
     |> then(fn {approved_only, current_only} -> {approved_only, Enum.reverse(current_only)} end)
   end
 
-  defp same_contribution?(approved, current, main_hunks) do
-    approved.lines == current.lines and approved.body == current.body and
-      (shifted(approved.old, main_hunks) == elem(current.old, 0) or
-         moved_header_only?(approved, current, main_hunks))
-  end
-
-  # A removed base row can make GitHub report a different header start even
-  # when the changed lines and surrounding context are byte-for-byte identical.
-  # Permit that coordinate drift only when base deletions account for the
-  # difference and no base edit intersects the approved hunk.
-  defp moved_header_only?(approved, current, main_hunks) do
-    {start, length} = approved.old
-    current_start = elem(current.old, 0)
-    expected_delta = current_start - start
-
-    deletions =
-      Enum.filter(main_hunks, fn main ->
-        {main_start, main_length} = main.old
-        {_new_start, new_length} = main.new
-        main_length > new_length and main_start + max(main_length, 1) <= start
-      end)
-
-    clean_base_changes =
-      Enum.all?(main_hunks, fn main ->
-        {main_start, main_length} = main.old
-        start + max(length, 1) <= main_start or main_start + max(main_length, 1) <= start
-      end)
-
-    elem(approved.old, 1) == elem(current.old, 1) and expected_delta < 0 and clean_base_changes and
-      Enum.sum(Enum.map(deletions, fn main -> elem(main.old, 1) - elem(main.new, 1) end)) == -expected_delta
-  end
-
-  # Where an old-base hunk starts in the new base; a hunk the base touched has no single position.
-  defp shifted({start, length}, main_hunks) do
-    Enum.reduce_while(main_hunks, start, fn %{old: {main_start, main_length}, new: {_new_start, new_length}}, position ->
-      cond do
-        main_start + max(main_length, 1) <= start -> {:cont, position + new_length - main_length}
-        start + max(length, 1) <= main_start -> {:cont, position}
-        true -> {:halt, :conflict}
-      end
-    end)
+  defp contribution_hunks(path, side, file) do
+    file
+    |> hunks_of()
+    |> Enum.map(&%{file: path, side: side, header: &1.header, lines: &1.lines})
   end
 end
