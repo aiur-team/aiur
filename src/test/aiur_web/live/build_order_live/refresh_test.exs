@@ -55,6 +55,7 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
     empty = install_source(catalog: catalog_snapshot([], 2, :healthy))
     assert {:ok, _view, empty_html} = live_settled("/build-orders")
     assert empty_html =~ ~s(data-build-order-catalog-state="empty")
+    assert empty_html =~ "Build Order catalog"
     assert empty_html =~ "No Build Orders for this repository"
     assert Process.alive?(empty)
   end
@@ -76,6 +77,7 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
     html = render(view)
 
     assert html =~ ~s(data-build-order-catalog-state="late")
+    assert html =~ "Build Order catalog"
     assert html =~ "Build Order catalog is taking longer than expected"
     assert html =~ "No Build Order list has arrived after 6 seconds"
   end
