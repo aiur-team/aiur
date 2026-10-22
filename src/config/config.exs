@@ -124,6 +124,10 @@ config :aiur, AiurWeb.Endpoint,
 # commands component never references orchestration itself.
 config :aiur, :commands_delivery_target, Aiur.Orchestrator.CommandDeliveryTarget
 
+# Composition: the dashboard implements the voice target port, so voice input
+# never references the dashboard or Commands itself.
+config :aiur, :voice_target_resolver, AiurWeb.OperatorControlCenter.VoiceTargetResolver
+
 # Demo / pre-ticket planning mode: render a Build Order in the spatial dashboard
 # straight from a local planning pack (no GitHub issues). Enable at build time
 # with AIUR_BUILD_ORDER_DEMO=1. Remove this block + priv/build_orders to delete.

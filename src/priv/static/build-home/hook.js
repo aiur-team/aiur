@@ -22,6 +22,7 @@ import './list.js';
 import './modal/frame.js';
 import './modal/conversation.js';
 import { applyDoc, applyQueueAdd, reconnectDoc } from './modal/doc.js';
+import './modal/composer.js';
 
 export function writeOwnData() {
   if (ctx.bdTrees != null) ctx.root.dataset.bdTrees = ctx.bdTrees;
@@ -108,6 +109,7 @@ export function createBuildHomeHook() {
       writeOwnData();
       this.handleEvent('build-conversation', msg => fx.receiveConversation(msg));
       this.handleEvent('build-ticket-doc', applyDoc); this.handleEvent('build-queue-add', applyQueueAdd);
+      this.handleEvent('send-status', msg => fx.sendStatus(msg));
       this.handleEvent('build-diff', receive); this.handleEvent('build:url', onServerURL);
       showServerState(this.el.dataset); resync();
     },

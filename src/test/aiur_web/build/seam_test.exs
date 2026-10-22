@@ -35,7 +35,8 @@ defmodule AiurWeb.Build.SeamTest do
     # Build and Stream Deck share the same pure window classification.
     "AiurWeb.ProviderMeterWindows"
   ]
-  @shell ~w(AgentLogModal UnitsRow UnitsControlPolicy UnitsPresentation DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry)
+  # MP-E8-C11-T06 sends through the drawer's shared operator-message helper (AgentChat underneath).
+  @shell ~w(AgentLogModal UnitsRow UnitsControlPolicy UnitsPresentation DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry OperatorSend)
 
   test "web side references only the seam (future regression guard)" do
     files = [Path.join(@root, "lib/aiur_web/live/build_live.ex")] ++ Path.wildcard(Path.join(@root, "lib/aiur_web/build/**/*.ex"))

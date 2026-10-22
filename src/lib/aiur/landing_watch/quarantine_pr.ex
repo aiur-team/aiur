@@ -44,6 +44,19 @@ defmodule Aiur.LandingWatch.QuarantinePR do
 
   def open(_, _, _), do: {:error, :invalid_quarantine_candidate}
 
+  @spec already_quarantined?(String.t(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def already_quarantined?(identity, opts) when is_binary(identity) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts),
+         base <- Keyword.get_lazy(opts, :base_branch, &TrackerSettings.base_branch/0),
+         ctx <- %{owner: owner, repo: repo, token: token, base: base, path: list_path(identity), opts: opts},
+         {:ok, contents} <- list_contents(ctx) do
+      {:ok, listed?(contents, identity)}
+    end
+  end
+
+  def already_quarantined?(_, _), do: {:error, :invalid_quarantine_identity}
+
   defp entry(identity, ticket, contents) do
     case String.split(identity, " :: ", parts: 2) do
       [module, name] ->

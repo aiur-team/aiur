@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildLive do
 
   require Logger
 
-  alias AiurWeb.Build.{Conversation, DataSource, Protocol, QueueAdd, Read, Ticket, TicketDoc, URLState, UsageUpdates}
+  alias AiurWeb.Build.{Composer, Conversation, DataSource, Protocol, QueueAdd, Read, Ticket, TicketDoc, URLState, UsageUpdates}
   alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, RouteRegistry}
   alias AiurWeb.Presenter
@@ -23,6 +23,7 @@ defmodule AiurWeb.BuildLive do
       |> Conversation.init()
       |> TicketDoc.init(connected)
       |> QueueAdd.init()
+      |> Composer.init()
       |> DashboardShell.mount()
       |> UsageUpdates.init(connected)
       |> AwaitingCommands.mount(connected)
@@ -95,6 +96,7 @@ defmodule AiurWeb.BuildLive do
   def handle_async({:queue_add, id}, result, socket), do: {:noreply, QueueAdd.result(socket, id, result)}
 
   def handle_async(:build_snapshot, _result, socket), do: {:noreply, socket}
+  def handle_async({:send_status, _id, _request_id, _n} = name, result, socket), do: {:noreply, Composer.status(socket, name, result)}
 
   @impl true
   def handle_info(:build_snapshot_timeout, %{assigns: %{build_state: :loading}} = socket),
@@ -109,6 +111,7 @@ defmodule AiurWeb.BuildLive do
 
   def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, AwaitingCommands.refresh(socket)}
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
+  def handle_info({:send_status_poll, id, request_id, n}, socket), do: {:noreply, Composer.poll(socket, id, request_id, n)}
   def handle_info({:build_conversation_poll, _token} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:live_conversation_changed, _snapshot} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:live_conversation_restarted, _epoch, _now} = message, socket), do: {:noreply, Conversation.info(socket, message)}
@@ -128,6 +131,7 @@ defmodule AiurWeb.BuildLive do
   def handle_event("queue-add", params, socket), do: QueueAdd.open(socket, params)
   def handle_event("conversation-page", params, socket), do: Conversation.page(socket, params)
   def handle_event("conversation-close", params, socket), do: Conversation.close(socket, params)
+  def handle_event("send", params, socket), do: Composer.send(socket, params)
   def handle_event("load-earlier", params, socket), do: Protocol.earlier(socket, params, source_opts(socket))
   def handle_event("usage-watch-start", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :start)}
   def handle_event("usage-watch-stop", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :stop)}
