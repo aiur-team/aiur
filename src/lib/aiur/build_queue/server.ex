@@ -13,6 +13,7 @@ defmodule Aiur.BuildQueue.Server do
     Clear,
     Events,
     Hints,
+    LastRead,
     ListCommands,
     Measurement,
     Progress,
@@ -86,7 +87,12 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   @impl true
-  def handle_call(:read_model, _from, state), do: {:reply, ReadModel.build(state), state}
+  def handle_call(:read_model, _from, state) do
+    model = ReadModel.build(state)
+    LastRead.put(model)
+    {:reply, model, state}
+  end
+
   def handle_call(:status, _from, state), do: {:reply, state.status, state}
 
   def handle_call({:optimistic_attention, action, id, payload}, _from, state) when action in [:open, :resolve] do
