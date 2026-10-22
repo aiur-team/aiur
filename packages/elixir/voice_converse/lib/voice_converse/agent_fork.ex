@@ -11,7 +11,11 @@ defmodule VoiceConverse.AgentFork do
       one call to the host's `:replay_model` with the briefing and the question.
 
   Read-only is the invariant of every mode: the fork never sends input to, resumes, or writes
-  the parent session, and its tools cannot write the parent's worktree.
+  the parent session, its tools cannot write the parent's worktree, and the user's and the
+  project's hooks do not run in it.
+
+  The answer text is the agent's own words, unredacted: the caller redacts it before it reaches
+  a voice provider.
 
   The answer arrives as a message to `:reply_to` (default the caller):
 
@@ -26,7 +30,7 @@ defmodule VoiceConverse.AgentFork do
     * `:lock_key` - default `{harness, session_id}`; the voice session id is a good key.
     * `:env_drop` - extra variable names removed from the child env, such as every key the
       host loaded from `.env`. `GITHUB_TOKEN`, `GH_TOKEN` and the parent session ids are always
-      removed. Without this an `ANTHROPIC_API_KEY` from `.env` would bill the API key instead
+      removed (and the variables that tie a shell to its parent session). Without this an `ANTHROPIC_API_KEY` from `.env` would bill the API key instead
       of the user's own login.
     * `:max_turns` - default 6. `:timeout_ms` - default 60 000.
     * `:replay_model` - `(prompt -> {:ok, text} | {:ok, text, usage} | {:error, term})`.
@@ -88,7 +92,7 @@ defmodule VoiceConverse.AgentFork do
   @doc false
   @spec child_env(keyword(), [{String.t(), String.t()}]) :: [{charlist(), charlist() | false}]
   def child_env(opts, set) do
-    dropped = Enum.uniq(@always_dropped ++ Handle.session_env_names() ++ Keyword.get(opts, :env_drop, []))
+    dropped = Enum.uniq(@always_dropped ++ Handle.parent_env_names() ++ Keyword.get(opts, :env_drop, []))
     set_names = Enum.map(set, &elem(&1, 0))
 
     Enum.map(dropped -- set_names, &{String.to_charlist(&1), false}) ++
@@ -146,6 +150,8 @@ defmodule VoiceConverse.AgentFork do
     module.run(handle, question, ctx)
   rescue
     error -> {:error, {:crashed, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:crashed, {kind, reason}}}
   end
 
   defp reply(_reply_to, _ref, _mode, {:error, :caller_down}), do: :ok

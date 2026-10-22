@@ -14,13 +14,18 @@ defmodule VoiceConverse.AgentFork.ClaudeCode do
   @behaviour VoiceConverse.AgentFork
 
   alias VoiceConverse.AgentFork
-  alias VoiceConverse.AgentFork.OsProcess
+  alias VoiceConverse.AgentFork.{Handle, OsProcess}
 
-  # The flags that keep the fork read-only and unpersisted. `--max-turns` is a cost limit and is
-  # left out: the CLI accepts it but does not list it in `--help`.
+  # The flags that keep the fork read-only, hook-free and unpersisted. `--max-turns` is a cost
+  # limit and is left out: the CLI accepts it but does not list it in `--help`.
   @required_flags ~w(--resume --fork-session --no-session-persistence --permission-mode --tools
-                     --disallowedTools --strict-mcp-config --permission-prompts --input-format
+                     --disallowedTools --strict-mcp-config --settings --permission-prompts --input-format
                      --output-format --include-partial-messages --verbose)
+
+  # Hooks are arbitrary shell commands with write and network access; none may run in the fork.
+  # (`--bare` also skips hooks, but it ignores the user's OAuth login.)
+  @no_hooks ~s({"disableAllHooks":true})
+  @probe_timeout_ms 5_000
 
   @impl true
   def mode, do: :native
@@ -30,14 +35,23 @@ defmodule VoiceConverse.AgentFork.ClaudeCode do
   def argv(session_id, max_turns) do
     ["-p", "--resume", session_id, "--fork-session", "--no-session-persistence"] ++
       ["--permission-mode", "plan", "--tools", "Read,Grep,Glob", "--disallowedTools", "mcp__*"] ++
-      ["--strict-mcp-config", "--permission-prompts", "none", "--max-turns", Integer.to_string(max_turns)] ++
+      [
+        "--strict-mcp-config",
+        "--settings",
+        @no_hooks,
+        "--permission-prompts",
+        "none",
+        "--max-turns",
+        Integer.to_string(max_turns)
+      ] ++
       ["--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
   end
 
   @impl true
-  def preflight(%{session_id: id, cwd: cwd} = handle, opts) when is_binary(id) and id != "" and is_binary(cwd) do
-    with {:ok, exe} <- executable(opts) do
-      probe(exe, env(handle, opts))
+  def preflight(%{session_id: id, cwd: cwd} = handle, opts) when is_binary(cwd) do
+    with true <- Handle.valid_session_id?(:claude_code, id) || {:error, :invalid_handle},
+         {:ok, exe} <- executable(opts) do
+      probe(exe, env(handle, opts), cwd)
     end
   end
 
@@ -102,26 +116,23 @@ defmodule VoiceConverse.AgentFork.ClaudeCode do
     end
   end
 
-  defp probe(exe, env) do
+  # Only a passing probe is cached: a failed one (a CLI mid-update, say) is retried next time.
+  defp probe(exe, env, cwd) do
     key = {__MODULE__, :probe, exe}
 
-    case :persistent_term.get(key, nil) do
-      nil ->
-        result = probe_help(exe, env)
-        :persistent_term.put(key, result)
-        result
-
-      result ->
-        result
+    if :persistent_term.get(key, false) do
+      :ok
+    else
+      with :ok <- probe_help(exe, env, cwd), do: :persistent_term.put(key, true)
     end
   end
 
-  defp probe_help(exe, env) do
-    env = Enum.map(env, fn {name, value} -> {List.to_string(name), if(value, do: List.to_string(value))} end)
-
-    case System.cmd(exe, ["--help"], env: env, stderr_to_stdout: true) do
-      {help, 0} -> if Enum.all?(@required_flags, &String.contains?(help, &1)), do: :ok, else: {:error, :unsafe_cli}
+  defp probe_help(exe, env, cwd) do
+    case OsProcess.run(exe, ["--help"], env, cwd, @probe_timeout_ms) do
+      {:ok, help, 0} -> if Enum.all?(@required_flags, &flag_listed?(help, &1)), do: :ok, else: {:error, :unsafe_cli}
       _ -> {:error, :unsafe_cli}
     end
   end
+
+  defp flag_listed?(help, flag), do: Regex.match?(~r/(?<![\w-])#{Regex.escape(flag)}(?![\w-])/, help)
 end

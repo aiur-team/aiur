@@ -10,6 +10,8 @@ defmodule VoiceConverse.AgentFork.Codex do
   with an interruption marker and leaves the parent alone. The turn only ever targets the fork's
   thread id; a fork that comes back with the parent's id is refused.
 
+  The server starts with hooks disabled and no `notify` program.
+
   The shared app-server daemon (needed for `experimentalPredictionMode`) and the
   `codex exec fork` CLI fallback are not used: neither is verified read-only yet.
   """
@@ -17,7 +19,10 @@ defmodule VoiceConverse.AgentFork.Codex do
   @behaviour VoiceConverse.AgentFork
 
   alias VoiceConverse.AgentFork
-  alias VoiceConverse.AgentFork.OsProcess
+  alias VoiceConverse.AgentFork.{Handle, OsProcess}
+
+  # The user's hooks and `notify` program are arbitrary shell commands; none may run in the fork.
+  @server_args ["app-server", "--disable", "hooks", "-c", "notify=[]"]
 
   @initialize_id 1
   @fork_id 2
@@ -47,8 +52,10 @@ defmodule VoiceConverse.AgentFork.Codex do
   end
 
   @impl true
-  def preflight(%{session_id: id, cwd: cwd}, opts) when is_binary(id) and id != "" and is_binary(cwd) do
-    with {:ok, _exe} <- executable(opts), do: :ok
+  def preflight(%{session_id: id, cwd: cwd}, opts) when is_binary(cwd) do
+    with true <- Handle.valid_session_id?(:codex, id) || {:error, :invalid_handle},
+         {:ok, _exe} <- executable(opts),
+         do: :ok
   end
 
   def preflight(_handle, _opts), do: {:error, :invalid_handle}
@@ -57,7 +64,7 @@ defmodule VoiceConverse.AgentFork.Codex do
   def run(handle, question, ctx) do
     {:ok, exe} = executable(ctx.opts)
     started = System.monotonic_time(:millisecond)
-    {port, os_pid} = OsProcess.open(exe, ["app-server"], env(handle, ctx.opts), handle.cwd)
+    {port, os_pid} = OsProcess.open(exe, @server_args, env(handle, ctx.opts), handle.cwd)
 
     acc = %{
       port: port,

@@ -6,13 +6,14 @@ defmodule VoiceConverse.AgentForkTest do
   alias VoiceConverse.AgentFork.{ClaudeCode, Handle}
 
   @fixtures Path.expand("../fixtures/agent_fork", __DIR__)
-  @parent_id "parent-session-0001"
+  @parent_id "0d6b2a9c-7e11-4c55-9e1f-3f2c1d7e8a4b"
   @fork_thread "fork-thread-0001"
 
   @claude_help """
   Usage: claude [options]
     -p, --print  --resume <id>  --fork-session  --no-session-persistence  --permission-mode <mode>
-    --tools <tools...>  --disallowedTools <tools...>  --strict-mcp-config  --permission-prompts <target>
+    --tools <tools...>  --disallowedTools <tools...>  --strict-mcp-config  --settings <file-or-json>
+    --permission-prompts <target>
     --max-turns <n>  --input-format <format>  --output-format <format>  --include-partial-messages  --verbose
   """
 
@@ -69,6 +70,8 @@ defmodule VoiceConverse.AgentForkTest do
                "--disallowedTools",
                "mcp__*",
                "--strict-mcp-config",
+               "--settings",
+               ~s({"disableAllHooks":true}),
                "--permission-prompts",
                "none",
                "--max-turns",
@@ -94,7 +97,16 @@ defmodule VoiceConverse.AgentForkTest do
       exe = claude_stub(ctx.root, parent, :answer)
 
       with_env(
-        %{"GITHUB_TOKEN" => "ghp_x", "GH_TOKEN" => "gho_x", "ANTHROPIC_API_KEY" => "sk-dotenv", "SHELL_KEPT" => "1"},
+        %{
+          "GITHUB_TOKEN" => "ghp_x",
+          "GH_TOKEN" => "gho_x",
+          "ANTHROPIC_API_KEY" => "sk-dotenv",
+          "CLAUDECODE" => "1",
+          "CLAUDE_CODE_ENTRYPOINT" => "cli",
+          "CLAUDE_CODE_SESSION_ID" => @parent_id,
+          "CODEX_THREAD_ID" => "019a4f2e-6c1d",
+          "SHELL_KEPT" => "1"
+        },
         fn ->
           {:ok, ref} =
             AgentFork.fork(claude_handle(parent), "q", claude_executable: exe, env_drop: ["ANTHROPIC_API_KEY"])
@@ -108,6 +120,10 @@ defmodule VoiceConverse.AgentForkTest do
       refute Map.has_key?(env, "GH_TOKEN")
       # A leaked API key would make claude bill it instead of the user's own login.
       refute Map.has_key?(env, "ANTHROPIC_API_KEY")
+      # A nested claude that sees these takes itself for part of the parent session.
+      for name <- ~w(CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID CODEX_THREAD_ID),
+          do: refute(Map.has_key?(env, name), name)
+
       assert env["SHELL_KEPT"] == "1"
       assert env["CLAUDE_CONFIG_DIR"] == parent.config_dir
     end
@@ -130,6 +146,28 @@ defmodule VoiceConverse.AgentForkTest do
 
       assert {:error, :unsafe_cli} = AgentFork.fork(claude_handle(parent), "q", claude_executable: exe)
       refute File.exists?(Path.join(ctx.root, "argv"))
+    end
+
+    test "a session id that could parse as a flag is refused before anything runs", ctx do
+      parent = claude_parent(ctx.root)
+      exe = claude_stub(ctx.root, parent, :answer)
+
+      for id <- ["--dangerously-skip-permissions", "", nil, "not-a-uuid"] do
+        handle = %{claude_handle(parent) | session_id: id}
+        assert {:error, :invalid_handle} = AgentFork.fork(handle, "q", claude_executable: exe)
+      end
+
+      codex = %{harness: :codex, session_id: "--config=x", cwd: parent.repo, config_dir: nil}
+      assert {:error, :invalid_handle} = AgentFork.fork(codex, "q", codex_executable: exe)
+      assert {:error, :invalid_handle} = Handle.discover(%{"CLAUDE_CODE_SESSION_ID" => "--resume"}, "/work")
+      refute File.exists?(Path.join(ctx.root, "argv"))
+    end
+
+    test "a CLI whose --help hangs is refused within the probe deadline", ctx do
+      parent = claude_parent(ctx.root)
+      exe = write_exe(Path.join(ctx.root, "claude"), "#!/bin/sh\nsleep 300\n")
+
+      assert {:error, :unsafe_cli} = AgentFork.fork(claude_handle(parent), "q", claude_executable: exe)
     end
 
     test "a second concurrent fork is busy, and the key frees once the first answers", ctx do
@@ -178,6 +216,8 @@ defmodule VoiceConverse.AgentForkTest do
       assert_receive {:fork_answer, ^ref, "It covers the retry.", :native, usage}, 5_000
       assert is_integer(usage.first_token_ms)
       assert usage.tokens["total"]["totalTokens"] == 42
+
+      assert recorded(ctx.root, "argv") == ["app-server", "--disable", "hooks", "-c", "notify=[]"]
 
       rpc = ctx.root |> recorded("rpc") |> Enum.map(&Jason.decode!/1)
       # Nothing else (no thread/resume, no turn on the parent) is ever sent.
@@ -320,7 +360,8 @@ defmodule VoiceConverse.AgentForkTest do
 
   # A stub `claude` that records argv, env, cwd and stdin. It misbehaves the way the real CLI
   # would without each read-only flag: without --fork-session it appends to the parent, without
-  # --no-session-persistence it writes a session file, without plan mode it edits the worktree.
+  # --no-session-persistence it writes a session file, without plan mode or with hooks enabled it
+  # edits the worktree (a SessionStart hook is arbitrary shell).
   defp claude_stub(dir, parent, behaviour, help \\ @claude_help) do
     File.mkdir_p!(dir)
 
@@ -361,6 +402,7 @@ defmodule VoiceConverse.AgentForkTest do
     case "$ARGS" in *" --fork-session "*) ;; *) echo '{"type":"user"}' >> '#{parent.transcript}' ;; esac
     case "$ARGS" in *" --no-session-persistence "*) ;; *) echo '{}' > '#{parent.project_dir}/fork-session.jsonl' ;; esac
     case "$ARGS" in *" --permission-mode plan "*) ;; *) echo edit > lib.ex ;; esac
+    case "$ARGS" in *'"disableAllHooks":true'*) ;; *) echo hook > lib.ex ;; esac
     #{body}
     """)
   end
@@ -379,12 +421,16 @@ defmodule VoiceConverse.AgentForkTest do
 
   # A stub `codex app-server` that records every JSON-RPC line. It misbehaves like the real
   # server would without each guard: a non-ephemeral fork writes a rollout file, a turn on the
-  # parent appends to the parent's rollout, a turn without the read-only sandbox edits the worktree.
+  # parent appends to the parent's rollout, a turn without the read-only sandbox, or a server with
+  # hooks or `notify` enabled, edits the worktree.
   defp codex_stub(dir, parent, fork_thread) do
     write_exe(Path.join(dir, "codex"), """
     #!/bin/sh
     LOG='#{dir}'
     [ "$1" = "app-server" ] || exit 2
+    printf '%s\\n' "$@" > "$LOG/argv"
+    case " $* " in *" --disable hooks "*) ;; *) echo hook > lib.ex ;; esac
+    case " $* " in *" notify=[] "*) ;; *) echo notify > lib.ex ;; esac
     WRITES=no
     while IFS= read -r line; do
       printf '%s\\n' "$line" >> "$LOG/rpc"
@@ -437,7 +483,7 @@ defmodule VoiceConverse.AgentForkTest do
 
   # SIGKILL is delivered asynchronously and an exited child stays a zombie until reaped,
   # so poll a bounded number of times.
-  defp gone?(pid, tries \\ 100) do
+  defp gone?(pid, tries \\ 250) do
     dead =
       case System.cmd("ps", ["-o", "stat=", "-p", pid], stderr_to_stdout: true) do
         {_, status} when status != 0 -> true
