@@ -15,10 +15,14 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
       failed_run(502, "pr-43-c-pr-44-d", "https://github.com/test-org/test-repo/actions/runs/502", minutes_ago(10))
     ]
 
-    request = fn %{method: :get, url: url} ->
-      if String.contains?(url, "status=completed"),
-        do: {:ok, %{status: 200, body: %{"workflow_runs" => runs}}},
-        else: {:ok, %{status: 200, body: %{"workflow_runs" => []}}}
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: Enum.map(runs, &%{"ref" => "refs/heads/#{&1["head_branch"]}"})}}
+
+      %{method: :get, url: url} ->
+        if String.contains?(url, "status=completed"),
+          do: {:ok, %{status: 200, body: %{"workflow_runs" => runs}}},
+          else: {:ok, %{status: 200, body: %{"workflow_runs" => []}}}
     end
 
     opts = [
