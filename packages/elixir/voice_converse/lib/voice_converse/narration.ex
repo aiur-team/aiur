@@ -9,7 +9,12 @@ defmodule VoiceConverse.Narration do
     * `:credentials` (required) — `{credentials_module, provider_id}`; the adapter fetches the
       secret during the call (purpose `:render`) and nothing here holds it
     * `:format` — `:pcm_16000 | :pcm_24000 | :pcm_44100` (default `:pcm_24000`)
-    * `:voice_id` — provider voice; any other option is passed to the adapter unchanged
+    * `:voice_id` — provider voice
+    * `:max_chars` — longest text accepted (default 5000)
+    * `:timeout_ms` — deadline for the provider call (default 60000); past it the render is
+      killed and the result is a `:provider_unavailable` error
+
+  Any other option is passed to the adapter unchanged.
 
   Errors: `{:error, :unsupported}` when the provider has no batch render;
   `{:error, %{field: atom(), reason: atom()}}` for a bad option; `{:error, %Events.Error{}}`
@@ -20,15 +25,17 @@ defmodule VoiceConverse.Narration do
 
   @formats [:pcm_16000, :pcm_24000, :pcm_44100]
 
+  @default_max_chars 5_000
+  @default_timeout_ms 60_000
+
   @type error :: :unsupported | %{field: atom(), reason: atom()} | Events.Error.t()
 
   @doc "Renders `text` and returns the raw PCM audio and its alignment."
   @spec render(String.t(), keyword()) :: {:ok, Provider.render_result()} | {:error, error()}
   def render(text, opts) do
-    with {:ok, provider, spec} <- build(text, opts),
-         :ok <- supported(provider),
-         {:ok, result} <- provider.render_speech(spec) do
-      check_result(result)
+    with {:ok, provider, spec, timeout_ms} <- build(text, opts),
+         :ok <- supported(provider) do
+      provider |> call_with_deadline(spec, timeout_ms) |> check_return()
     end
   end
 
@@ -56,14 +63,19 @@ defmodule VoiceConverse.Narration do
   defp build(text, opts) do
     opts = Map.new(opts)
     {provider, spec} = Map.pop(opts, :provider)
+    {max_chars, spec} = Map.pop(spec, :max_chars, @default_max_chars)
+    {timeout_ms, spec} = Map.pop(spec, :timeout_ms, @default_timeout_ms)
     spec = spec |> Map.put_new(:format, :pcm_24000) |> Map.put(:text, text)
 
     cond do
       not is_binary(text) or String.trim(text) == "" -> {:error, %{field: :text, reason: :empty}}
+      not is_integer(max_chars) or max_chars < 1 -> {:error, %{field: :max_chars, reason: :invalid}}
+      String.length(text) > max_chars -> {:error, %{field: :text, reason: :too_long}}
+      not is_integer(timeout_ms) or timeout_ms < 1 -> {:error, %{field: :timeout_ms, reason: :invalid}}
       not is_atom(provider) or is_nil(provider) -> {:error, %{field: :provider, reason: :missing}}
       not match?({m, id} when is_atom(m) and is_atom(id), spec[:credentials]) -> credentials_error(spec)
       spec.format not in @formats -> {:error, %{field: :format, reason: :unsupported}}
-      true -> {:ok, provider, spec}
+      true -> {:ok, provider, spec, timeout_ms}
     end
   end
 
@@ -76,10 +88,25 @@ defmodule VoiceConverse.Narration do
       else: {:error, :unsupported}
   end
 
-  # The adapter boundary: a malformed result becomes a provider error, never a crash later.
+  # A hung provider must not hang the host: past the deadline the call is killed.
+  defp call_with_deadline(provider, spec, timeout_ms) do
+    task = Task.async(fn -> provider.render_speech(spec) end)
+
+    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, reply} -> reply
+      _ -> {:error, Events.Error.new(:provider_unavailable, "render timed out")}
+    end
+  end
+
+  # The adapter boundary: anything but a well-formed result or an Events.Error becomes a provider
+  # error, so raw provider data never reaches the host.
+  defp check_return({:ok, result}), do: check_result(result)
+  defp check_return({:error, %Events.Error{}} = error), do: error
+  defp check_return(_), do: invalid_result()
+
   defp check_result(%{audio: audio, format: format, alignment: alignment} = result)
        when is_binary(audio) and rem(byte_size(audio), 2) == 0 and format in @formats and is_list(alignment) do
-    if Enum.all?(alignment, &segment?/1),
+    if Enum.all?(alignment, &segment?/1) and ordered?(alignment),
       do: {:ok, Map.take(result, [:audio, :format, :alignment])},
       else: invalid_result()
   end
@@ -91,6 +118,10 @@ defmodule VoiceConverse.Narration do
        do: true
 
   defp segment?(_), do: false
+
+  defp ordered?(alignment) do
+    alignment |> Enum.map(& &1.start_ms) |> Enum.chunk_every(2, 1, :discard) |> Enum.all?(fn [a, b] -> a <= b end)
+  end
 
   defp invalid_result, do: {:error, Events.Error.new(:provider_error, "provider returned an invalid render result")}
 

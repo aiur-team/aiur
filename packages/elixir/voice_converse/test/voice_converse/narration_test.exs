@@ -11,6 +11,11 @@ defmodule VoiceConverse.NarrationTest do
     def open(_spec), do: raise("a batch render must never open a session")
   end
 
+  # Returns a raw provider term instead of an Events.Error.
+  defmodule RawErrorProvider do
+    def render_speech(_spec), do: {:error, "raw provider frame"}
+  end
+
   setup do
     StaticCredentials.put(%{fake: @secret})
     on_exit(fn -> StaticCredentials.put(%{}) end)
@@ -80,9 +85,41 @@ defmodule VoiceConverse.NarrationTest do
             %{@scripted | audio: <<1, 2, 3>>},
             %{@scripted | format: :opus},
             %{@scripted | alignment: [%{text: "x", start_ms: 50, end_ms: 10}]},
+            %{
+              @scripted
+              | alignment: [%{text: "b", start_ms: 200, end_ms: 300}, %{text: "a", start_ms: 0, end_ms: 100}]
+            },
             %{"audio" => "raw provider frame"}
           ] do
         assert {:error, %Events.Error{code: :provider_error}} = Narration.render("hi", opts(fake: [render: bad]))
+      end
+
+      assert {:error, %Events.Error{code: :provider_error}} = Narration.render("hi", opts(provider: RawErrorProvider))
+    end
+
+    test "text over the character bound is refused before the provider is called" do
+      long = String.duplicate("a", 5_001)
+      assert {:error, %{field: :text, reason: :too_long}} = Narration.render(long, opts(provider: SessionOnlyProvider))
+      assert {:error, %{field: :text, reason: :too_long}} = Narration.render("hello there", opts(max_chars: 5))
+      assert {:ok, _} = Narration.render(String.duplicate("a", 5_000), opts())
+    end
+
+    test "a provider that does not answer by the deadline is killed and reported unavailable" do
+      assert {:error, %Events.Error{code: :provider_unavailable, message: "render timed out"}} =
+               Narration.render("hi", opts(timeout_ms: 20, fake: [render_delay: 5_000]))
+
+      # The killed render leaves nothing behind for the caller.
+      refute_received _
+    end
+
+    test "a non-Error render_error in the fake is a test bug, raised clearly" do
+      assert_raise ArgumentError, ~r/render_error must be an Events.Error/, fn ->
+        FakeProvider.render_speech(%{
+          text: "hi",
+          format: :pcm_16000,
+          credentials: {StaticCredentials, :fake},
+          fake: [render_error: "boom"]
+        })
       end
     end
   end
@@ -127,6 +164,15 @@ defmodule VoiceConverse.NarrationTest do
       assert {:ok, _} = Narration.render_to_file("Build green", path, opts(fake: [render: @scripted]))
       assert <<"RIFF", _::binary>> = File.read!(path)
       assert File.ls!(dir) == ["narration.wav"]
+    end
+
+    test "a destination that is a directory is a write error and leaves no temp file", %{tmp_dir: dir} do
+      path = Path.join(dir, "narration.wav")
+      File.mkdir_p!(path)
+
+      assert {:error, {:write_failed, _}} = Narration.render_to_file("hi", path, opts())
+      assert File.ls!(dir) == ["narration.wav"]
+      assert File.ls!(path) == []
     end
 
     test "an unwritable destination is a write error and leaves nothing behind", %{tmp_dir: dir} do

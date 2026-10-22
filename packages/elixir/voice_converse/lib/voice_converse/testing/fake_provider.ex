@@ -11,6 +11,7 @@ defmodule VoiceConverse.Testing.FakeProvider do
     * `render: %{audio:, format:, alignment:}` — what `render_speech/1` returns (default: silence
       with one 250 ms segment per word of the text)
     * `render_error: %Events.Error{}` — `render_speech/1` fails with it
+    * `render_delay: ms` — `render_speech/1` sleeps this long first (for deadline tests)
 
   `render_speech/1` fetches its credential like a real adapter: without one it returns a
   `:provider_auth` error before rendering anything.
@@ -81,11 +82,21 @@ defmodule VoiceConverse.Testing.FakeProvider do
 
   @impl true
   def render_speech(%{credentials: {credentials, provider_id}} = spec) do
+    if delay = fake_opt(spec, :render_delay), do: Process.sleep(delay)
+
     with {:ok, _secret} <- fetch_secret(credentials, provider_id) do
       case {fake_opt(spec, :render_error), fake_opt(spec, :render)} do
-        {%Events.Error{} = error, _} -> {:error, error}
-        {nil, nil} -> {:ok, silence(spec)}
-        {nil, result} -> {:ok, result}
+        {%Events.Error{} = error, _} ->
+          {:error, error}
+
+        {error, _} when not is_nil(error) ->
+          raise ArgumentError, "render_error must be an Events.Error: #{inspect(error)}"
+
+        {nil, nil} ->
+          {:ok, silence(spec)}
+
+        {nil, result} ->
+          {:ok, result}
       end
     end
   end
