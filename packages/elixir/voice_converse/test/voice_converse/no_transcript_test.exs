@@ -42,25 +42,41 @@ defmodule VoiceConverse.NoTranscriptTest do
       assert {:error, %{field: :transcript, reason: :invalid}} =
                Config.new([transcript: mode, transcript_root: "/tmp/vc"] ++ @ports)
     end
+
+    # Reported as the mode, not as a missing root, so the operator sees the real mistake.
+    assert {:error, %{field: :transcript, reason: :invalid}} = Config.new([transcript: :off] ++ @ports)
   end
 
-  test "a no-transcript session writes nothing, even when a root is configured", %{root: root} do
-    {:ok, config} = Config.new([transcript: :none, transcript_root: root] ++ @ports)
-
-    store = run_session(config)
-
-    assert TranscriptStore.mode(store) == :none
-    assert File.ls!(root) == []
-    assert {:error, :not_found} = TranscriptStore.read(root, @id)
+  # A root on a :none config is a place some later caller could write to; refuse it outright.
+  test "a no-transcript config with a root fails validation", %{root: root} do
+    assert {:error, %{field: :transcript_root, reason: :not_allowed}} =
+             Config.new([transcript: :none, transcript_root: root] ++ @ports)
   end
 
-  test "a no-transcript session without a root creates no directory anywhere", %{root: root} do
+  test "a no-transcript session writes nothing under any root", %{root: root} do
     {:ok, config} = Config.new([transcript: :none] ++ @ports)
     cwd_before = File.ls!(File.cwd!())
+    tmp_before = File.ls!(System.tmp_dir!()) -- [Path.basename(root)]
 
     assert TranscriptStore.mode(run_session(config)) == :none
-    assert File.ls!(File.cwd!()) == cwd_before
+
     assert File.ls!(root) == []
+    assert File.ls!(File.cwd!()) == cwd_before
+    refute Enum.any?(File.ls!(System.tmp_dir!()) -- tmp_before, &String.contains?(&1, @id))
+  end
+
+  # Turning storage off must not turn the record contract off: a record that file mode refuses
+  # (audio bytes, keys) is refused in :none too, so a host bug surfaces before it ships.
+  test "no-transcript appends still refuse records that break the contract" do
+    {:ok, config} = Config.new([transcript: :none] ++ @ports)
+    {:ok, store} = TranscriptStore.start(config, @id, @started)
+
+    assert {:error, {:forbidden_field, "audio"}} = TranscriptStore.append(store, %{type: "context", audio: <<0, 1>>})
+
+    assert {:error, {:forbidden_field, "api_key"}} =
+             TranscriptStore.append(store, %{type: "tool_call", params: %{api_key: "k"}})
+
+    assert {:error, {:unknown_type, "summary"}} = TranscriptStore.append(store, %{type: "summary", text: "x"})
   end
 
   test "the default mode writes the session to its root", %{root: root} do
