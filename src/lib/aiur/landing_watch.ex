@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, Journal, LocalRead, MergeGroups, MergeQueueWatchdog, Observer, PrRerun}
+  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, HeldApproval, Journal, LocalRead, MergeGroups, MergeQueueWatchdog, Observer, PrRerun}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.LandingWatch.TicketLookup
   alias Aiur.Orchestrator.TicketTransition
@@ -89,12 +89,14 @@ defmodule Aiur.LandingWatch do
     case result do
       :ok ->
         next = %{state | task: nil, watcher: :running, last_poll_at_ms: now, last_error: nil, active_recovery_window: nil, active_recovery_attempt: 0}
+        :telemetry.execute([:aiur, :landing_watch, :poll, :stop], %{}, %{result: :ok})
         if next.pending_recovery_window, do: send(self(), RecoveryRuntime.message(next.pending_recovery_window))
         {:noreply, %{next | pending_recovery_window: nil}}
 
       {:error, reason} ->
         Logger.warning("landing watcher poll unavailable: #{inspect(reason)}")
         next = %{state | task: nil, watcher: :unavailable, last_poll_at_ms: now, last_error: inspect(reason)}
+        :telemetry.execute([:aiur, :landing_watch, :poll, :stop], %{}, %{result: :error})
         {:noreply, RecoveryRuntime.retry_or_drain(next)}
     end
   end
@@ -102,6 +104,7 @@ defmodule Aiur.LandingWatch do
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref}} = state) do
     Logger.warning("landing watcher poll crashed: #{inspect(reason)}")
     next = %{state | task: nil, watcher: :unavailable, last_error: inspect(reason)}
+    :telemetry.execute([:aiur, :landing_watch, :poll, :stop], %{}, %{result: :error})
     {:noreply, RecoveryRuntime.retry_or_drain(next)}
   end
 
@@ -361,8 +364,9 @@ defmodule Aiur.LandingWatch do
   # A ticket back in rework or with a running agent owns its PR; an Executor dequeue must stick (#4772).
   defp land_unless_ticket_active(observation, opts) do
     case TicketLookup.fetch(observation, opts) do
-      {:ok, _issue, state, _paused?} when state in ["rework", "in-progress", "todo"] -> :ok
-      {:ok, _issue, _state, _paused?} -> revalidate_attribution_and_enqueue(observation, opts)
+      {:ok, issue, _state, _paused?, true} -> HeldApproval.attention(observation, issue, opts)
+      {:ok, _issue, state, _paused?, _held?} when state in ["rework", "in-progress", "todo"] -> :ok
+      {:ok, _issue, _state, _paused?, _held?} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, :pull_request_not_linked_to_ticket_branch} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, _} = error -> error
     end
@@ -444,7 +448,7 @@ defmodule Aiur.LandingWatch do
 
   defp transition_rework(observation, failures, opts) do
     case TicketLookup.fetch(observation, opts) do
-      {:ok, issue, state, paused?} when state in ["human-review", "ci-wait", "merging"] ->
+      {:ok, issue, state, paused?, _held?} when state in ["human-review", "ci-wait", "merging"] ->
         transition = Keyword.get(opts, :transition_fun, fn identifier, target, options -> TicketTransition.write_state(identifier, target, options) end)
 
         case transition.(issue, "rework", writer: :landing_watch, expected_state: state) do
@@ -459,14 +463,14 @@ defmodule Aiur.LandingWatch do
             {:error, :ticket_rework_transition_unconfirmed}
         end
 
-      {:ok, issue, "rework", paused?} ->
+      {:ok, issue, "rework", paused?, _held?} ->
         if Keyword.get(opts, :conflict_rework_claim) == :new do
           :conflict_already_rework
         else
           Keyword.get(opts, :after_rework, fn _issue, _paused? -> :ok end).(issue, paused?)
         end
 
-      {:ok, _issue, _state, _paused?} ->
+      {:ok, _issue, _state, _paused?, _held?} ->
         not_routed(opts)
 
       {:error, reason} ->

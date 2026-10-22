@@ -93,3 +93,14 @@ test('hostile text stays raw until escaping, including apostrophes', () => {
   assert.equal(title, `<img src=x onerror="window.__xss=1">'"&`);
   assert.equal(esc(title), '&lt;img src=x onerror=&quot;window.__xss=1&quot;&gt;&#39;&quot;&amp;');
 });
+
+test('intake retains index child links outside the loaded history window', () => {
+  const snapshot = fixture('live'), root = snapshot.sections.hist[0];
+  root.children = ['older-child', 'older-child'];
+  const D = intake(snapshot);
+  assert.equal(D.children[root.id].filter(id => id === 'older-child').length, 1);
+  assert.equal(D.byId['older-child'], undefined);
+  // Loaded dependents still follow their actual deps, without duplicate links.
+  const loaded = D.all.filter(row => row.deps.includes(root.id)).map(row => row.id);
+  assert.deepEqual(D.children[root.id].filter(id => D.byId[id]), loaded);
+});

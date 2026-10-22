@@ -34,6 +34,19 @@ defmodule Aiur.LandingWatch.JournalTest do
     assert Map.has_key?(state, "flakes")
   end
 
+  test "metric evidence is retained separately and a touched row removes only its quarantine candidate" do
+    path = Path.join(System.tmp_dir!(), "landing-metric-evidence-#{System.unique_integer([:positive])}.json")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
+    opts = [journal_path: path]
+    row = %{"identity" => "Test :: failure", "pr" => 42, "run_url" => "run-1", "job" => "test", "at_ms" => 1}
+
+    assert :ok = Journal.record_failure_observation(row, opts)
+    assert :ok = Journal.record_failure_metric_evidence(Map.put(row, "touched", true), opts)
+    assert :ok = Journal.forget_failure_observation(row, opts)
+
+    assert {:ok, %{"failure_observations" => [], "failure_metric_evidence" => [%{"touched" => true}]}} = Journal.state(opts)
+  end
+
   test "merge-group run claims dedupe completed runs and can be released after an error" do
     path = Path.join(System.tmp_dir!(), "landing-run-journal-#{System.unique_integer([:positive])}.json")
     on_exit(fn -> File.rm(path) end)
@@ -47,7 +60,7 @@ defmodule Aiur.LandingWatch.JournalTest do
     assert {:ok, :new} = Journal.claim_merge_group_run(42, opts)
   end
 
-  test "merge-group auto-requeues stop at three in a rolling fifteen-minute window" do
+  test "merge-group auto-requeues stop at four in a rolling fifteen-minute window" do
     path = Path.join(System.tmp_dir!(), "landing-merge-requeue-#{System.unique_integer([:positive])}.json")
     on_exit(fn -> File.rm(path) end)
     opts = [journal_path: path]
@@ -55,8 +68,9 @@ defmodule Aiur.LandingWatch.JournalTest do
     assert :ok = Journal.reserve_merge_group_requeue(1_000_000, opts)
     assert :ok = Journal.reserve_merge_group_requeue(1_001_000, opts)
     assert :ok = Journal.reserve_merge_group_requeue(1_002_000, opts)
-    assert {:error, :merge_group_requeue_limit_reached} = Journal.reserve_merge_group_requeue(1_003_000, opts)
-    assert {:ok, %{"1970-01-01T00:00:00Z" => 3}} = Journal.merge_group_requeues_by_hour(opts)
+    assert :ok = Journal.reserve_merge_group_requeue(1_003_000, opts)
+    assert {:error, :merge_group_requeue_limit_reached} = Journal.reserve_merge_group_requeue(1_004_000, opts)
+    assert {:ok, %{"1970-01-01T00:00:00Z" => 4}} = Journal.merge_group_requeues_by_hour(opts)
     assert :ok = Journal.reserve_merge_group_requeue(1_900_000, opts)
   end
 
@@ -69,12 +83,13 @@ defmodule Aiur.LandingWatch.JournalTest do
     assert :ok = Journal.reserve_merge_group_requeue(1_000_000, first_boot_opts)
     assert :ok = Journal.reserve_merge_group_requeue(1_001_000, first_boot_opts)
     assert :ok = Journal.reserve_merge_group_requeue(1_002_000, first_boot_opts)
+    assert :ok = Journal.reserve_merge_group_requeue(1_003_000, first_boot_opts)
 
     second_boot_opts = [journal_path: path]
 
-    assert {:ok, %{"merge_group_requeues" => [1_002_000, 1_001_000, 1_000_000]}} =
+    assert {:ok, %{"merge_group_requeues" => [1_003_000, 1_002_000, 1_001_000, 1_000_000]}} =
              Journal.state(second_boot_opts)
 
-    assert {:error, :merge_group_requeue_limit_reached} = Journal.reserve_merge_group_requeue(1_003_000, second_boot_opts)
+    assert {:error, :merge_group_requeue_limit_reached} = Journal.reserve_merge_group_requeue(1_004_000, second_boot_opts)
   end
 end

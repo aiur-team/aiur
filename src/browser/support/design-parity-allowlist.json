@@ -149,7 +149,7 @@
     "kind": "copy",
     "selector": "#bd-vp",
     "cells": {},
-    "reason": "earlier days could not load · scroll up to retry",
+    "reason": "earlier days could not load \u00b7 scroll up to retry",
     "approval": {
       "status": "pending-sign-off",
       "by": null,
@@ -162,7 +162,7 @@
     "kind": "copy",
     "selector": "#bd-vp",
     "cells": {},
-    "reason": "loaded · total unknown",
+    "reason": "loaded \u00b7 total unknown",
     "approval": {
       "status": "pending-sign-off",
       "by": null,
@@ -319,6 +319,45 @@
     }
   },
   {
+    "id": "tree-unloaded-links",
+    "kind": "copy",
+    "selector": "#bd-tree",
+    "cells": {},
+    "reason": "not on the board",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "MP-E8 DESIGN-E8 S-34; MP-E8-C9-T11"
+    }
+  },
+  {
+    "id": "tree-unknown-links",
+    "kind": "copy",
+    "selector": "#bd-tree",
+    "cells": {},
+    "reason": "links not yet known",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "MP-E8 DESIGN-E8 S-34; MP-E8-C9-T11"
+    }
+  },
+  {
+    "id": "tree-unknown-values",
+    "kind": "copy",
+    "selector": "#bd-tree",
+    "cells": {},
+    "reason": "State unknown \u00b7 \u2014; Q?; W?; Merged \u00b7 date unknown; Not planned; Closed",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "MP-E8 DESIGN-E8 S-34; MP-E8-C9-T11"
+    }
+  },
+  {
     "id": "now-band-eta-pending",
     "kind": "copy",
     "selector": "#bd-vp",
@@ -355,6 +394,21 @@
       "by": null,
       "date": null,
       "ref": "MP-E8-C9-T09 Pixel parity / DESIGN-E8 S-5"
+    }
+  },
+  {
+    "id": "chain-fit-settled",
+    "spec": "build-home-chains-parity.browser.spec.mjs",
+    "kind": "property",
+    "selector": ".bd-lt",
+    "property": "left and dependency edge paths",
+    "cells": {},
+    "reason": "After Fit, arrows follow settled cards. At 1440 the lock tab also follows the settled card right edge. P3 desktop captures omit arrow paint and normalize only the 1440 tab x; all other pixels stay compared. Kevin approved this combined exception on 2026-10-21 for #3152.",
+    "approval": {
+      "status": "approved",
+      "by": "Kevin",
+      "date": "2026-10-21",
+      "ref": "https://github.com/aiur-team/aiur/issues/3152#issuecomment-6308707152"
     }
   },
   {

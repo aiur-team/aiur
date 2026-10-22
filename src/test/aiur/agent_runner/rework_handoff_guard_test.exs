@@ -229,6 +229,49 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
   end
 
   @tag :tmp_dir
+  test "a code commit after Tested head cannot use the base-advance exception", %{tmp_dir: tmp_dir} do
+    repo = Path.join(tmp_dir, "repo")
+    git_bin = Path.join(tmp_dir, "git")
+    File.write!(git_bin, "#!/bin/sh\nexec /usr/bin/git \"$@\"\n")
+    File.chmod!(git_bin, 0o755)
+    File.mkdir_p!(repo)
+    git!(git_bin, repo, ["init", "--quiet", "-b", "main"])
+    git!(git_bin, repo, ["config", "user.name", "Test"])
+    git!(git_bin, repo, ["config", "user.email", "test@example.com"])
+    File.write!(Path.join(repo, "base.txt"), "base\n")
+    git!(git_bin, repo, ["add", "."])
+    git!(git_bin, repo, ["commit", "--quiet", "-m", "base"])
+    git!(git_bin, repo, ["checkout", "-b", "feature"])
+    File.write!(Path.join(repo, "feature.txt"), "contribution\n")
+    git!(git_bin, repo, ["add", "."])
+    git!(git_bin, repo, ["commit", "--quiet", "-m", "contribution"])
+    tested_head = git!(git_bin, repo, ["rev-parse", "HEAD"])
+
+    git!(git_bin, repo, ["checkout", "main"])
+    File.write!(Path.join(repo, "base.txt"), "base advanced\n")
+    git!(git_bin, repo, ["commit", "--quiet", "-am", "advance base"])
+    base_head = git!(git_bin, repo, ["rev-parse", "HEAD"])
+    git!(git_bin, repo, ["checkout", "feature"])
+    git!(git_bin, repo, ["merge", "--quiet", "--no-ff", "main", "-m", "merge base"])
+    File.write!(Path.join(repo, "coverage.txt"), "preserve coverage\n")
+    git!(git_bin, repo, ["add", "."])
+    git!(git_bin, repo, ["commit", "--quiet", "-m", "preserve coverage"])
+    head = git!(git_bin, repo, ["rev-parse", "HEAD"])
+    body = "## Local tests\n\nPolicy: partial\nTested head: #{tested_head}\nBase: main @ #{base_head}\nSelection: focused\n- `mix test` -> passed\n"
+    issue = %Issue{id: "gid-stale-code-commit", identifier: "5496", state: "in-progress"}
+
+    opts = [
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 5525, "body" => body, "head" => %{"sha" => head}, "base" => %{"sha" => base_head}}} end,
+      approval_carry_classifier: fn ^tested_head, ^head, 5525, _opts -> :identical end
+    ]
+
+    assert {:refused, :stale_pr_body_evidence, message} =
+             ReworkHandoffGuard.evidence_blockers(issue, "human-review", repo, opts)
+
+    assert message =~ "Tested head #{tested_head} does not match PR head #{head}"
+  end
+
+  @tag :tmp_dir
   test "with the worker's checkout, handoffs run the full PR body check against the live head", %{tmp_dir: workspace} do
     head = String.duplicate("c", 40)
     issue = %Issue{id: "gid-body", identifier: "4937", state: "in-progress"}

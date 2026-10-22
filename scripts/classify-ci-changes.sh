@@ -42,8 +42,16 @@ if [[ "${EVENT_NAME}" == pull_request ]] && grep -qx 'full_ci=false' "$scratch/c
     printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification"
     selection=full
   fi
-  # Mix prints compile output before the selector's one result line on a cold _build.
-  selection="${selection##*$'\n'}"
+  # Keep only selector result lines; Mix output may appear before or after them.
+  result_lines="$(grep -E '^(full|scoped:[0-9]+)$' <<< "$selection" || true)"
+  if [[ -z "$result_lines" ]]; then
+    echo '::warning::affected test selector produced no valid result; forcing full CI' >&2
+    printf '\n### Affected-test selection warning\n\nAffected-test selection produced no valid result; full CI is enabled.\n' >> "$GITHUB_STEP_SUMMARY"
+    printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification"
+    selection=full
+  else
+    selection="$(tail -n 1 <<< "$result_lines")"
+  fi
   case "$selection" in
     full) printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification" ;;
     scoped:*)

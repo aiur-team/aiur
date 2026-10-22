@@ -12,7 +12,7 @@ concurrency:
 jobs:
   parity:
     name: ${{ matrix.suite.name }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
     timeout-minutes: 60
@@ -34,10 +34,12 @@ jobs:
           - { name: design matrix, run: npm run parity:matrix }
           - { name: composition, run: npm run test:parity }
           - { name: ticket modal, run: npm run test:build-modal-parity }
+          - { name: ticket conversation, run: npm run test:build-home-conversation }
           - { name: shell, run: npm run test:shell-parity }
           - { name: home css, run: npm run test:home-css }
           - { name: loading, run: npm run test:build-home-loading }
           - { name: render, run: npm run test:build-home-render }
+          - { name: chains, run: npm run test:build-home-chains-parity }
           - { name: columns, run: npm run test:build-home-columns }
           - { name: edges, run: npm run test:build-home-edges-parity }
           - { name: span, run: npm run test:build-home-span-parity }
@@ -78,7 +80,7 @@ jobs:
           retention-days: 14
   motion:
     name: motion full matrix (${{ matrix.part }}/32)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
     timeout-minutes: 60

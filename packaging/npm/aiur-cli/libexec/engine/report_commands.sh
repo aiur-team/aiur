@@ -175,7 +175,7 @@ cmd_github_usage() {
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
   local args="" arg
-  if [ "${1:-}" = "ack" ] && env | grep -Eq '^(AIUR_AGENT_|CODEX_THREAD_ID=|CLAUDECODE=|OPENCODE_SESSION_ID=)'; then
+  if [ "${1:-}" = "ack" ] && env | grep -E '^(AIUR_AGENT_|CODEX_THREAD_ID=|CLAUDECODE=|OPENCODE_SESSION_ID=)' >/dev/null; then
     echo "aiur: alerts ack is operator-only; agent sessions cannot acknowledge their own attentions" >&2
     exit 64
   fi
