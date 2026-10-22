@@ -1,22 +1,36 @@
-defmodule VoiceConverse.Testing.HmacTokenIssuer do
+defmodule VoiceConverse.TokenIssuer.Hmac do
   @moduledoc """
-  Default `TokenIssuer`: HMAC-SHA256 signed tokens, `vct1.<payload>.<mac>` (base64url).
+  Shipped default `VoiceConverse.Ports.TokenIssuer`: HMAC-SHA256 signed tokens,
+  `vct1.<payload>.<mac>` (base64url).
 
-  The secret comes from `opts[:secret]` or, when absent, from `put_secret/1`
-  (`:persistent_term`). It must be at least 32 bytes. TTLs are capped at 3,600 s so a
-  token stays short-lived; the default is 300 s.
+  The host installs the secret once per instance with `put_secret/2`, as a binary of at least
+  32 bytes or a zero-arity function returning one (read at the moment of use). The secret never
+  travels in call arguments, so a crash report cannot print it. Callbacks pick the instance with
+  `opts[:instance]` (default `VoiceConverse`, the default `Config.name`).
+
+  TTLs default to 300 s and are capped at 3,600 s so a token stays short-lived. Verifying with no
+  secret installed fails closed (`:invalid`) and logs a warning naming the instance, never the
+  token.
   """
   @behaviour VoiceConverse.Ports.TokenIssuer
 
-  @key {__MODULE__, :secret}
+  require Logger
+
   @prefix "vct1"
   @mac_bytes 32
   @min_secret_bytes 32
   @default_ttl_s 300
   @max_ttl_s 3_600
 
-  @spec put_secret(binary()) :: :ok
-  def put_secret(secret) when is_binary(secret), do: :persistent_term.put(@key, secret)
+  @doc "Installs the signing secret for `instance`."
+  @spec put_secret(term(), binary() | (-> binary())) :: :ok | {:error, :weak_secret}
+  def put_secret(instance, secret) when is_function(secret, 0), do: store(instance, secret)
+
+  def put_secret(instance, secret) when is_binary(secret) do
+    if byte_size(secret) >= @min_secret_bytes,
+      do: store(instance, secret),
+      else: {:error, :weak_secret}
+  end
 
   @impl true
   def issue(scope, opts \\ []) when is_binary(scope) do
@@ -48,7 +62,12 @@ defmodule VoiceConverse.Testing.HmacTokenIssuer do
          {:ok, payload} <- decode_payload(body) do
       check_claims(payload, scope, now(opts))
     else
-      _ -> {:error, :invalid}
+      {:error, reason} when reason in [:no_secret, :weak_secret] ->
+        Logger.warning("voice token issuer: #{reason} for instance #{inspect(instance(opts))}")
+        {:error, :invalid}
+
+      _ ->
+        {:error, :invalid}
     end
   end
 
@@ -79,17 +98,26 @@ defmodule VoiceConverse.Testing.HmacTokenIssuer do
     end
   end
 
+  defp store(instance, secret), do: :persistent_term.put(key(instance), secret)
+
   defp secret(opts) do
-    case Keyword.get(opts, :secret) || :persistent_term.get(@key, nil) do
-      secret when is_binary(secret) and byte_size(secret) >= @min_secret_bytes -> {:ok, secret}
+    case :persistent_term.get(key(instance(opts)), nil) do
       nil -> {:error, :no_secret}
-      _ -> {:error, :weak_secret}
+      fun when is_function(fun, 0) -> check_secret(fun.())
+      secret -> check_secret(secret)
     end
   end
+
+  defp check_secret(secret) when is_binary(secret) and byte_size(secret) >= @min_secret_bytes,
+    do: {:ok, secret}
+
+  defp check_secret(_), do: {:error, :weak_secret}
 
   defp check_ttl(ttl_s) when is_integer(ttl_s) and ttl_s > 0 and ttl_s <= @max_ttl_s, do: :ok
   defp check_ttl(_), do: {:error, :invalid_ttl}
 
+  defp key(instance), do: {__MODULE__, :secret, instance}
+  defp instance(opts), do: Keyword.get(opts, :instance, VoiceConverse)
   defp now(opts), do: Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
   defp mac(secret, body), do: :crypto.mac(:hmac, :sha256, secret, body)
   defp encode(bin), do: Base.url_encode64(bin, padding: false)

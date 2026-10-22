@@ -13,18 +13,20 @@ defmodule VoiceConverse.Ports.TokenIssuer do
 
   Implementations compare MACs in constant time and never log or keep token values. Calls go
   through `VoiceConverse.Ports.call_port/4` with the `:token` deadline. Both callbacks take
-  `:now` (a `DateTime`) in `opts` so expiry is checked against an injected clock.
+  `:instance` (the `Config.name`) and `:now` (a `DateTime`, so expiry is checked against an
+  injected clock) in `opts`. Secrets never travel in `opts`. `VoiceConverse.TokenIssuer.Hmac` is
+  the shipped default.
   """
 
   @type scope :: String.t()
   @type claims :: %{scope: scope(), subject: String.t() | nil, expires_at: DateTime.t()}
   @type verify_error :: :expired | :wrong_scope | :invalid
 
-  @doc "Mints a token for `scope`. Options: `:ttl_s`, `:subject`, `:now`."
+  @doc "Mints a token for `scope`. Options: `:ttl_s`, `:subject`, `:instance`, `:now`."
   @callback issue(scope(), opts :: keyword()) ::
               {:ok, token :: String.t(), expires_at :: DateTime.t()} | {:error, term()}
 
-  @doc "Checks `token` against the scope the caller expects. Options: `:now`."
+  @doc "Checks `token` against the scope the caller expects. Options: `:instance`, `:now`."
   @callback verify(token :: String.t(), scope(), opts :: keyword()) ::
               {:ok, claims()} | {:error, verify_error()}
 end
