@@ -63,7 +63,7 @@ jobs:
   gate:
     name: nightly change gate
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       proceed: ${{ steps.gate.outputs.proceed }}
       previous: ${{ steps.gate.outputs.previous }}
@@ -106,7 +106,7 @@ jobs:
   cleanup-legacy-main:
     name: clean legacy Stream Deck nightlies
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -126,7 +126,7 @@ jobs:
     # `!cancelled()` keeps this job eligible when the gate job was skipped
     # (pull_request and release events never run it).
     if: ${{ !cancelled() && (github.event_name == 'pull_request' || (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')) || needs.gate.outputs.proceed == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: packages/streamdeck
@@ -202,7 +202,7 @@ jobs:
   publish-nightly:
     if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish)) }}
     needs: [gate, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -279,7 +279,7 @@ jobs:
     # release events, which would otherwise skip this job too.
     if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') }}
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
