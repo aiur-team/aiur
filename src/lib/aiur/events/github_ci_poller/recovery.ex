@@ -136,29 +136,6 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     end
   end
 
-  defp recover_held_entry(issue, result, entry, hold, sha, opts) do
-    cond do
-      result[:decision] == :failed and not failed_hold?(entry, sha) ->
-        recover_entry(issue, result, Map.delete(entry, "hold"), opts)
-
-      hold["mode"] == "transient" and now(opts) >= hold["retry_at"] ->
-        retry_transient(issue, result, opts)
-
-      true ->
-        hold_result(result, hold)
-    end
-  end
-
-  defp revoked_landing_hold?(hold, result),
-    do: hold["mode"] == "landing" and result[:review_decision] != "APPROVED"
-
-  defp clear_landing_hold(issue, result, opts) do
-    case update(issue, result, &Map.delete(&1, "hold"), opts) do
-      {:ok, updated} -> recover_entry(issue, result, updated, opts)
-      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
-    end
-  end
-
   defp recover_entry(issue, %{head_sha: sha} = result, %{"limit_hold" => %{"sha" => held_sha, "retry_at" => retry_at}}, opts) do
     if sha == held_sha and now(opts) < retry_at do
       held(result, "rerun_limit")
@@ -183,6 +160,29 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
           {:ok, digest} -> recover_failure(issue, Map.put(result, :ci_failure_digest, digest), entry, opts)
           {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts, "transient")
         end
+    end
+  end
+
+  defp recover_held_entry(issue, result, entry, hold, sha, opts) do
+    cond do
+      result[:decision] == :failed and not failed_hold?(entry, sha) ->
+        recover_entry(issue, result, Map.delete(entry, "hold"), opts)
+
+      hold["mode"] == "transient" and now(opts) >= hold["retry_at"] ->
+        retry_transient(issue, result, opts)
+
+      true ->
+        hold_result(result, hold)
+    end
+  end
+
+  defp revoked_landing_hold?(hold, result),
+    do: hold["mode"] == "landing" and result[:review_decision] != "APPROVED"
+
+  defp clear_landing_hold(issue, result, opts) do
+    case update(issue, result, &Map.delete(&1, "hold"), opts) do
+      {:ok, updated} -> recover_entry(issue, result, updated, opts)
+      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
     end
   end
 
