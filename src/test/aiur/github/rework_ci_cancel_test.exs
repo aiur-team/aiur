@@ -1,6 +1,7 @@
 defmodule Aiur.GitHub.ReworkCICancelTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.GitHub.CIRecoveryStore
   alias Aiur.GitHub.ReworkCICancel
   alias Aiur.Issue
   alias Aiur.Orchestrator.{IssueSync, State}
@@ -11,6 +12,9 @@ defmodule Aiur.GitHub.ReworkCICancelTest do
 
   test "cancels only the PR head's active ci and pr body runs" do
     test = self()
+    root = Aiur.TestSupport.tmp_root!("rework_ci_cancel_journal")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    journal = Path.join(root, "recovery.json")
 
     request = fn %{method: :get, url: url} ->
       send(test, {:listed, url})
@@ -39,6 +43,7 @@ defmodule Aiur.GitHub.ReworkCICancelTest do
     assert {:ok, [1, 2]} =
              ReworkCICancel.cancel("17",
                token: "test-gh-token",
+               ci_recovery_path: journal,
                request_fun: request,
                cancel_fun: cancel,
                open_pr_fun: fn "17" -> {:ok, %{"number" => 42, "head" => %{"sha" => "head"}}} end
@@ -50,6 +55,7 @@ defmodule Aiur.GitHub.ReworkCICancelTest do
     assert_received {:cancelled, 2}
     assert_received {:cancelled, 6}
     refute_received {:cancelled, _}
+    assert {:ok, %{"cancelled_runs" => [%{"id" => 2, "sha" => "head"}, %{"id" => 1, "sha" => "head"}]}} = CIRecoveryStore.read("17", 42, ci_recovery_path: journal)
   end
 
   test "a ticket without an open PR cancels nothing and errors pass through" do
@@ -83,7 +89,7 @@ defmodule Aiur.GitHub.ReworkCICancelTest do
       if req.method == :get, do: {:ok, %{status: 200, body: %{"workflow_runs" => [run(1, "ci", "queued")]}}}, else: {:ok, %{status: 202, body: %{}}}
     end
 
-    assert {:ok, [1]} = ReworkCICancel.cancel("17", token: "test-gh-token", request_fun: request, open_pr_fun: fn _ -> {:ok, %{"head" => %{"sha" => "head"}}} end)
+    assert {:ok, [1]} = ReworkCICancel.cancel("17", token: "test-gh-token", request_fun: request, open_pr_fun: fn _ -> {:ok, %{"number" => 42, "head" => %{"sha" => "head"}}} end)
     assert_received {:caller, :get, "rework_ci_cancel"}
     assert_received {:caller, :post, "rework_ci_cancel"}
   end
