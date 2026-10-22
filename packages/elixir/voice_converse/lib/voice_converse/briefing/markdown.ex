@@ -26,6 +26,7 @@ defmodule VoiceConverse.Briefing.Markdown do
   @list_fields [:next_steps, :questions]
 
   @heading ~r/^\s{0,3}\#{1,6}\s+(.*?)\s*#*\s*$/
+  @fence ~r/^\s{0,3}(```|~~~)/
   @bullet ~r/^\s*(?:[-*+]|\d+[.)])\s+/
 
   @spec aliases() :: %{atom() => [String.t()]}
@@ -50,17 +51,23 @@ defmodule VoiceConverse.Briefing.Markdown do
   end
 
   # Returns [{heading, [body lines]}] in document order; text before the first heading is ignored.
+  # A `#` line inside a fenced code block is body text, not a heading.
   defp sections(markdown) do
     markdown
     |> String.split(~r/\r?\n/)
-    |> Enum.reduce([], fn line, acc ->
-      case Regex.run(@heading, line) do
-        [_, title] -> [{title, []} | acc]
-        nil -> append(acc, line)
-      end
-    end)
+    |> Enum.reduce({false, []}, &section_line/2)
+    |> elem(1)
     |> Enum.map(fn {title, body} -> {title, Enum.reverse(body)} end)
     |> Enum.reverse()
+  end
+
+  defp section_line(line, {in_fence?, acc}) do
+    cond do
+      Regex.match?(@fence, line) -> {not in_fence?, append(acc, line)}
+      in_fence? -> {true, append(acc, line)}
+      match = Regex.run(@heading, line) -> {false, [{Enum.at(match, 1), []} | acc]}
+      true -> {false, append(acc, line)}
+    end
   end
 
   defp append([], _line), do: []
