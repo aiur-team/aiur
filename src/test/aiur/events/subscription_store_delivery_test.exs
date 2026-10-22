@@ -11,11 +11,14 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
     Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))
     original_runtime_state_dir = Application.get_env(:aiur, :runtime_state_dir)
     Application.put_env(:aiur, :runtime_state_dir, Path.join(tmp_dir, "runtime-state"))
+    original_enqueue_fn = :persistent_term.get({SubscriptionStore, :enqueue_fn}, nil)
+    SubscriptionStore.set_enqueue_fn(nil)
 
     identifier = "test-issue-#{System.unique_integer([:positive])}"
 
     on_exit(fn ->
       SubscriptionStore.stop(identifier)
+      SubscriptionStore.set_enqueue_fn(original_enqueue_fn)
 
       if original do
         Application.put_env(:aiur, :log_file, original)
@@ -195,7 +198,6 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
 
     test "buffered events survive repeated stall retries and are not dropped", %{identifier: id} do
       test_pid = self()
-      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
 
       {:ok, counter} = Agent.start(fn -> 0 end)
       on_exit(fn -> Agent.stop(counter) end)
@@ -226,12 +228,21 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
 
       # Retry 1 fails again (n=2); retry 2 succeeds → both events delivered
       # in order, and neither is lost.
-      send(pid, {:retry_stalled})
-      send(pid, {:retry_stalled})
+      queue_retry(pid)
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
+      queue_retry(pid)
       assert_receive {:enqueued, %{id: 100}}, 500
       assert_receive {:enqueued, %{id: 101}}, 500
-      _ = SubscriptionStore.snapshot(id)
-      assert SubscriptionStore.snapshot(id).last_seen_event_id == 101
+      assert %{last_seen_event_id: cursor} = SubscriptionStore.snapshot(id)
+      assert cursor == 101
+    end
+
+    defp queue_retry(pid) do
+      :ok = :sys.suspend(pid)
+      send(pid, {:retry_stalled})
+      task = Task.async(fn -> :sys.get_state(pid) end)
+      :ok = :sys.resume(pid)
+      Task.await(task)
     end
   end
 
