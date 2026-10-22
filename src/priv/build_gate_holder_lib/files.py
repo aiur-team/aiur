@@ -13,7 +13,8 @@ import time
 SCAN_CANDIDATE_LIMIT = 512
 SCAN_DETAIL_LIMIT = 64
 SCAN_ISSUE_LIMIT = 32
-SCAN_METADATA_BUDGET = 64 * 1024
+SCAN_METADATA_BUDGET = 4 * 1024 * 1024
+OWNER_METADATA_LIMIT = 256 * 1024
 SCAN_MANIFEST_LIMIT = 16 * 1024
 # Bound on the *post-command* retain (#2381). Once the wrapped command exits,
 # the holder keeps the slot only as a courtesy to descendants that are still
@@ -105,6 +106,8 @@ def scan_locks_manifest(manifest_path: str) -> int:
                 budget_reasons.add("metadata_budget")
             else:
                 metadata_bytes += encoded_bytes
+                if kind in ("slot", "queue"):
+                    result["lease_locked"] = True
                 scan["details"].append(
                     {
                         "kind": kind,
@@ -170,13 +173,16 @@ def probe_lock(lock_path: str, cleanup_path: str) -> dict:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             result = {"state": "locked"}
+            result["lease_locked"] = True
             try:
-                contents = read_regular_bytes(cleanup_path)
+                contents = read_diagnostic_owner(cleanup_path)
                 result["contents"] = base64.b64encode(contents).decode("ascii")
             except FileNotFoundError:
                 pass
             except OSError as error:
                 result["metadata_error"] = "not_regular" if error.errno in (errno.ELOOP, errno.EINVAL) else str(error.errno)
+            except Exception as error:
+                result["metadata_error"] = str(error)
             return result
 
         try:
@@ -215,11 +221,22 @@ def open_regular(path: str, flags: int) -> int:
     return descriptor
 
 
-def read_regular_bytes(path: str) -> bytes:
+def read_diagnostic_owner(path: str) -> bytes:
     descriptor = open_regular(path, os.O_RDONLY)
     try:
-        contents = os.read(descriptor, 4096)
-        if len(contents) == 4096:
+        contents = os.read(descriptor, OWNER_METADATA_LIMIT + 1)
+        if len(contents) > OWNER_METADATA_LIMIT:
+            raise OSError(errno.EFBIG, "build-gate owner metadata is too large")
+        return contents
+    finally:
+        os.close(descriptor)
+
+
+def read_regular_bytes(path: str, limit: int = 4096) -> bytes:
+    descriptor = open_regular(path, os.O_RDONLY)
+    try:
+        contents = os.read(descriptor, limit + 1)
+        if len(contents) > limit:
             raise OSError(errno.EFBIG, "build-gate metadata is too large")
         return contents
     finally:

@@ -2,7 +2,7 @@ defmodule VoiceConverse.Config do
   @moduledoc "Validated configuration for one VoiceConverse instance. The core reads no application env."
 
   @required [:transcript_root, :credentials, :briefing_source]
-  @ports [:credentials, :briefing_source, :agent_channel, :command_source]
+  @ports [:credentials, :briefing_source, :agent_channel, :command_source, :token_issuer]
 
   @default_limits %{
     max_session_seconds: 1_800,
@@ -21,7 +21,9 @@ defmodule VoiceConverse.Config do
             briefing_source: nil,
             agent_channel: nil,
             command_source: nil,
+            token_issuer: nil,
             transcript_root: nil,
+            transcript: :file,
             redactor: &VoiceConverse.Redact.redact/1,
             roles: [],
             roles_dir: nil,
@@ -55,7 +57,8 @@ defmodule VoiceConverse.Config do
     with :ok <- check_required(config),
          :ok <- check_ports(config),
          :ok <- check_transcript_root(config),
-         :ok <- check_limits(config) do
+         :ok <- check_limits(config),
+         :ok <- VoiceConverse.ProviderPolicy.validate(config.privacy) do
       {:ok, config}
     end
   end
@@ -68,11 +71,21 @@ defmodule VoiceConverse.Config do
   end
 
   defp check_required(config) do
-    case Enum.find(@required, &(Map.fetch!(config, &1) in [nil, ""])) do
-      nil -> :ok
-      field -> {:error, %{field: field, reason: :missing}}
+    with :ok <- check_transcript_mode(config) do
+      case Enum.find(required_fields(config), &(Map.fetch!(config, &1) in [nil, ""])) do
+        nil -> :ok
+        field -> {:error, %{field: field, reason: :missing}}
+      end
     end
   end
+
+  # Checked first so a typo reports `transcript` itself, and refused rather than read as either mode.
+  defp check_transcript_mode(%{transcript: mode}) when mode in [:file, :none], do: :ok
+  defp check_transcript_mode(_config), do: {:error, %{field: :transcript, reason: :invalid}}
+
+  # `transcript: :none` stores no transcript, so it needs no root.
+  defp required_fields(%{transcript: :none}), do: @required -- [:transcript_root]
+  defp required_fields(_config), do: @required
 
   defp check_ports(config) do
     case Enum.find(@ports, &(not valid_port?(Map.fetch!(config, &1)))) do
@@ -83,6 +96,12 @@ defmodule VoiceConverse.Config do
 
   defp valid_port?(nil), do: true
   defp valid_port?(mod), do: is_atom(mod)
+
+  # A no-transcript config carries no root, so nothing downstream has a place to write.
+  defp check_transcript_root(%{transcript: :none, transcript_root: nil}), do: :ok
+
+  defp check_transcript_root(%{transcript: :none}),
+    do: {:error, %{field: :transcript_root, reason: :not_allowed}}
 
   defp check_transcript_root(%{transcript_root: root}) when is_binary(root), do: :ok
   defp check_transcript_root(_), do: {:error, %{field: :transcript_root, reason: :invalid}}
