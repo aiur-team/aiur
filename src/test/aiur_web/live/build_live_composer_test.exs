@@ -164,8 +164,8 @@ defmodule AiurWeb.BuildLiveComposerTest do
     for text <- ["d", "e"] do
       reply = send_text(view, %{"id" => id, "text" => text})
       assert %{"reason" => "error", "message" => "Send failed. Check the log before you send again."} = reply
-      refute inspect(reply) =~ "/tmp/x"
-      refute inspect(reply) =~ "message_id_conflict"
+      Aiur.TestSupport.refute_leak(reply, "/tmp/x")
+      Aiur.TestSupport.refute_leak(reply, "message_id_conflict")
     end
   end
 
