@@ -56,7 +56,8 @@ defmodule VoiceConverse.Config do
     with :ok <- check_required(config),
          :ok <- check_ports(config),
          :ok <- check_transcript_root(config),
-         :ok <- check_limits(config) do
+         :ok <- check_limits(config),
+         :ok <- VoiceConverse.ProviderPolicy.validate(config.privacy) do
       {:ok, config}
     end
   end
