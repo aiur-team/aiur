@@ -1,7 +1,8 @@
 defmodule AiurWeb.EndpointStubGuardTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.TestSupport.EndpointStubs
+  alias Aiur.TestSupport.Processes
   alias AiurWeb.EndpointConfig
 
   # A function or process in the global `AiurWeb.Endpoint` config is called by
@@ -48,6 +49,18 @@ defmodule AiurWeb.EndpointStubGuardTest do
 
     foreign = spawn_link_and_get(:open_tickets_fun)
     refute foreign == stub
+  end
+
+  test "a configured listener binds an ephemeral test port" do
+    previous = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+    config = Keyword.merge(previous, server: true, http: [ip: {127, 0, 0, 1}, port: 4000])
+    Application.put_env(:aiur, AiurWeb.Endpoint, config)
+    on_exit(fn -> Application.put_env(:aiur, AiurWeb.Endpoint, previous) end)
+
+    Processes.start_owned_endpoint!()
+
+    assert Processes.endpoint_test_options(server: false) == []
+    assert AiurWeb.Endpoint.config(:http)[:port] == 0
   end
 
   defp spawn_link_and_get(key) do

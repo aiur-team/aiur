@@ -190,7 +190,7 @@ defmodule Aiur.TestSupport.Processes do
   def start_owned_endpoint! do
     refuse_global_endpoint_stubs!()
 
-    case ExUnit.Callbacks.start_supervised({AiurWeb.Endpoint, []}) do
+    case ExUnit.Callbacks.start_supervised({AiurWeb.Endpoint, endpoint_test_options()}) do
       {:ok, pid} ->
         pid
 
@@ -199,6 +199,27 @@ defmodule Aiur.TestSupport.Processes do
 
       {:error, reason} ->
         raise "failed to start AiurWeb.Endpoint under the test supervisor: #{inspect(reason)}"
+    end
+  end
+
+  # In-process Plug/LiveView tests do not need a listening socket. If a local
+  # developer config enables the server, bind an ephemeral port so another
+  # local service (or a parallel test VM) cannot make setup fail with
+  # :eaddrinuse. `server: false` remains false when configured.
+  defp endpoint_test_options do
+    config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+
+    endpoint_test_options(config)
+  end
+
+  @doc false
+  @spec endpoint_test_options(keyword()) :: keyword()
+  def endpoint_test_options(config) do
+    if Keyword.get(config, :server, false) do
+      http = Keyword.get(config, :http, [])
+      [http: Keyword.put(http, :port, 0)]
+    else
+      []
     end
   end
 

@@ -348,7 +348,7 @@ defmodule ScriptsAiurdevCheckoutTest do
         run_shim(
           ["--bg"],
           [
-            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_REPO_ROOT", checkout_a},
             {"AIUR_SKIP_BUILD", "1"},
             {"AIUR_MISE_BIN", mise},
             {"TMUX", nil}
@@ -403,7 +403,7 @@ defmodule ScriptsAiurdevCheckoutTest do
         run_shim(
           ["--bg"],
           [
-            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_REPO_ROOT", checkout_a},
             {"AIUR_SKIP_BUILD", "1"},
             {"AIUR_MISE_BIN", mise},
             {"TMUX", nil}

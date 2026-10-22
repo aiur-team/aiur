@@ -5,14 +5,22 @@ defmodule Aiur.TestSupport.AiurdevCase do
   import ExUnit.Callbacks, only: [on_exit: 1]
 
   @script Path.expand("../../../scripts/aiurdev", __DIR__)
+  @isolated_tmp_root Path.join("/tmp", "aiur-test-tmp-#{System.pid()}")
   def script, do: @script
+
+  # Shell fixtures in this module model ordinary machines where the temporary
+  # directory is outside the agent workspace. The live workspace may set
+  # TMPDIR beneath `aiur-workspaces`, which intentionally activates shim safety
+  # behavior and changes those fixture semantics.
+  def isolated_tmp_root, do: @isolated_tmp_root
 
   # The shim sources scripts/lib/aiurdev-*.sh next to itself, so copies need them.
   def copy_shim_libs!(dir), do: File.cp_r!(Path.join(Path.dirname(@script), "lib"), Path.join(dir, "lib"))
 
   # A fake repo root whose engine just echoes how the shim invoked it, so we can
   # assert on AIUR_RELEASE_DIR + forwarded args without building a real release.
-  def fake_repo(root \\ Aiur.TestSupport.tmp_root!("aiurdev-shim")) do
+  def fake_repo(root \\ Path.join(@isolated_tmp_root, "aiurdev-shim-#{System.unique_integer([:positive])}")) do
+    File.mkdir_p!(@isolated_tmp_root)
     libexec = Path.join([root, "packaging", "npm", "aiur-cli", "libexec"])
     File.mkdir_p!(libexec)
     # `--test` resets the sandbox from $repo_root/src; the dir must exist to cd into.
@@ -94,7 +102,7 @@ defmodule Aiur.TestSupport.AiurdevCase do
   def fake_agent_repo(issue) do
     root =
       Path.join([
-        System.tmp_dir!(),
+        @isolated_tmp_root,
         "aiur-workspaces",
         "repo",
         to_string(issue),
@@ -274,7 +282,7 @@ defmodule Aiur.TestSupport.AiurdevCase do
 
   # Throwaway HOME keeps log-clearing tests away from real run evidence.
   def sandbox_home do
-    home = Aiur.TestSupport.tmp_root!("aiurdev-home")
+    home = Path.join(@isolated_tmp_root, "aiurdev-home-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join([home, ".aiur", "logs", "old-session"]))
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
     home
@@ -289,11 +297,24 @@ defmodule Aiur.TestSupport.AiurdevCase do
       {"AIUR_OPENCODE_BRIDGE_PORT", nil}
     ]
 
-    System.cmd("bash", [Keyword.get(opts, :script, @script) | args],
-      env: base_env ++ env,
-      cd: Keyword.get(opts, :cd, System.tmp_dir!()),
+    cwd = Keyword.get(opts, :cd, isolated_cwd())
+    File.mkdir_p!(cwd)
+
+    script = Keyword.get(opts, :script, @script)
+
+    System.cmd("bash", ["-c", "cd -P -- \"$1\" && shift && exec bash \"$@\"", "aiurdev-test", cwd, script | args],
+      env: base_env ++ env ++ [{"PWD", cwd}],
       stderr_to_stdout: true
     )
+  end
+
+  # Agent workspaces commonly live under /.../aiur-workspaces/..., which the
+  # dev shim intentionally recognizes as an agent workspace even when its
+  # marker is cleared. Keep tests for ordinary temporary directories outside
+  # that host path; tests for workspace detection pass their own explicit cwd.
+  defp isolated_cwd do
+    File.mkdir_p!(@isolated_tmp_root)
+    @isolated_tmp_root
   end
 
   # A fake root that also looks like a CHECKOUT from the outside — the three
