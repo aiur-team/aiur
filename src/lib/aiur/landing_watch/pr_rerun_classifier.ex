@@ -163,10 +163,17 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
 
     Enum.reduce_while(jobs, {:ok, []}, fn job, {:ok, reasons} ->
       case MergeFailureClassifier.classify(run, [job], [], classifier_opts) do
-        {:ok, {:infra, _}} -> {:cont, {:ok, ["infrastructure failure" | reasons]}}
-        {:ok, {:known_non_pr, _}} -> {:cont, {:ok, ["known flake" | reasons]}}
-        {:ok, _} -> {:halt, {:ok, nil}}
-        {:error, _} = error -> {:halt, error}
+        {:ok, {:infra, %{job: _job, log: _log, blame_complete: _complete}}} ->
+          {:cont, {:ok, ["infrastructure failure" | reasons]}}
+
+        {:ok, {:known_non_pr, %{job: _job, log: _log, blame_complete: _complete}}} ->
+          {:cont, {:ok, ["known flake" | reasons]}}
+
+        {:ok, _} ->
+          {:halt, {:ok, nil}}
+
+        {:error, _} = error ->
+          {:halt, error}
       end
     end)
     |> case do

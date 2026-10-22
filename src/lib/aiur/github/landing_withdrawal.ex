@@ -11,24 +11,73 @@ defmodule Aiur.GitHub.LandingWithdrawal do
 
   @type action :: :dequeued | :auto_merge_disabled
 
+  @spec approved_auto_merge_head(integer(), keyword()) ::
+          {:ok, %{head_sha: String.t(), approved_head_sha: String.t()}} | :not_applicable | {:error, term()}
+  def approved_auto_merge_head(pr_number, opts \\ []) when is_integer(pr_number) do
+    query =
+      "query AiurStaleApprovedHead($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { state headRefOid reviewDecision autoMergeRequest { enabledAt } reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } } } }"
+
+    with {:ok, token} <- Transport.require_token(opts),
+         {:ok, {owner, name}} <- Transport.parse_repo(),
+         {:ok, body} <-
+           Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
+             caller: "stale_approved_head"
+           ) do
+      approved_auto_merge_heads(get_in(body, ["data", "repository", "pullRequest"]))
+    else
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp approved_auto_merge_heads(nil), do: :not_applicable
+
+  defp approved_auto_merge_heads(%{"state" => state}) when state != "OPEN", do: :not_applicable
+  defp approved_auto_merge_heads(%{"state" => "OPEN", "autoMergeRequest" => nil}), do: :not_applicable
+
+  defp approved_auto_merge_heads(%{"state" => "OPEN", "reviewDecision" => decision}) when decision != "APPROVED",
+    do: :not_applicable
+
+  defp approved_auto_merge_heads(%{
+         "state" => "OPEN",
+         "headRefOid" => head,
+         "reviewDecision" => "APPROVED",
+         "autoMergeRequest" => %{},
+         "reviews" => %{"nodes" => [%{"commit" => %{"oid" => approved}}]}
+       })
+       when is_binary(head) and is_binary(approved) do
+    if head == approved, do: :not_applicable, else: {:ok, %{head_sha: head, approved_head_sha: approved}}
+  end
+
+  defp approved_auto_merge_heads(_incomplete), do: {:error, :approval_or_auto_merge_unconfirmed}
+
   @spec withdraw(integer(), keyword()) :: {:ok, [action()]} | {:error, term(), [action()]}
   def withdraw(pr_number, opts \\ []) when is_integer(pr_number) do
+    withdraw(pr_number, opts, :queue_and_auto_merge)
+  end
+
+  @spec disable_auto_merge(integer(), keyword()) :: {:ok, [action()]} | {:error, term(), [action()]}
+  def disable_auto_merge(pr_number, opts \\ []) when is_integer(pr_number) do
+    withdraw(pr_number, opts, :auto_merge_only)
+  end
+
+  defp withdraw(pr_number, opts, mode) do
     with {:ok, token} <- Transport.require_token(opts),
          {:ok, {owner, name}} <- Transport.parse_repo() do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      graphql = fn query, variables -> Transport.github_graphql(request_fun, token, query, variables, caller: "landing_withdrawal") end
-      withdraw_read(graphql, fn -> read(graphql, owner, name, pr_number) end)
+      caller = Keyword.get(opts, :caller, "landing_withdrawal")
+      graphql = fn query, variables -> Transport.github_graphql(request_fun, token, query, variables, caller: caller) end
+      withdraw_read(graphql, fn -> read(graphql, owner, name, pr_number) end, mode)
     else
       {:error, reason} -> {:error, reason, []}
     end
   end
 
-  defp withdraw_read(graphql, read) do
+  defp withdraw_read(graphql, read, mode) do
     with {:ok, pr} <- read.(),
-         {:ok, dequeued} <- dequeue(graphql, pr) do
+         {:ok, dequeued} <- if(mode == :auto_merge_only, do: {:ok, []}, else: dequeue(graphql, pr)) do
       # Dequeuing can clear the auto-merge request itself, so re-read before disabling it.
       with {:ok, pr} <- reread(dequeued, pr, read),
-           {:ok, disabled} <- disable_auto_merge(graphql, pr) do
+           {:ok, disabled} <- disable_auto_merge_request(graphql, pr) do
         {:ok, dequeued ++ disabled}
       else
         {:error, reason} -> {:error, reason, dequeued}
@@ -67,7 +116,7 @@ defmodule Aiur.GitHub.LandingWithdrawal do
 
   defp dequeue(_graphql, _pr), do: {:ok, []}
 
-  defp disable_auto_merge(graphql, %{"id" => id, "autoMergeRequest" => %{}}) do
+  defp disable_auto_merge_request(graphql, %{"id" => id, "autoMergeRequest" => %{}}) do
     query = "mutation AiurDisableAutoMerge($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { pullRequest { id } } }"
 
     case graphql.(query, %{"id" => id}) do
@@ -77,5 +126,5 @@ defmodule Aiur.GitHub.LandingWithdrawal do
     end
   end
 
-  defp disable_auto_merge(_graphql, _pr), do: {:ok, []}
+  defp disable_auto_merge_request(_graphql, _pr), do: {:ok, []}
 end

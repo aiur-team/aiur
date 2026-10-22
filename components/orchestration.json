@@ -39,6 +39,7 @@
     "commands",
     "config",
     "event-bus",
+    "github",
     "harness-adapters",
     "identity",
     "kernel",

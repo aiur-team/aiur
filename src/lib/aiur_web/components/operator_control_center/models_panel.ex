@@ -2,10 +2,10 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
   @moduledoc """
   The MODELS pane of the Units provider strip, drawn to the Claude design
   (`ax-usage` / `ax-ln`): one row per provider, a logo column, then one line per
-  meter that reads `[tag] percent bar reset↻`.
+  meter with a full-width bar beneath its label, percentage and reset.
 
-  Every line is a fixed grid, so a tag, a percentage, a bar and a reset each own
-  one track and can never overlap. A provider with several accounts keeps one
+  Every line is a fixed grid, so a tag, percentage and reset cannot overlap and
+  every bar uses the same full content width. A provider with several accounts keeps one
   named line per account (operator directive, #3751) instead of the design's
   split bar. Reset times show the recycle icon and the time; window age,
   freshness and scope live in the line's tooltip, not in repeated text.
@@ -66,6 +66,14 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
         >
           <span :if={line.tag} class="rs-tg">{line.tag}</span>
           <span class={classes(["rs-pc", tone(line.percent)])}>{percent_text(line.percent)}</span>
+          <span class="rs-rs">
+            <span :if={line.reset}>{line.reset}<em :if={line.window}>/{line.window}</em></span>
+            <svg :if={line.reset} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 11a8 8 0 0 0-14.8-3.5M4 13a8 8 0 0 0 14.8 3.5" /><path d="M4 3.5V8h4.5M20 20.5V16h-4.5" />
+            </svg>
+            <b :if={line.amount} class="rs-usd">{line.amount}</b>
+            <span :if={line.note} class="rs-no">{line.note}</span>
+          </span>
           <span
             class={classes(["rs-meter", is_nil(line.percent) && "is-unknown"])}
             role="progressbar"
@@ -75,14 +83,6 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
             aria-valuenow={line.percent}
           >
             <i :if={is_number(line.percent) and line.percent > 0} class={meter_class(line.percent, 80, 90)} style={"width:#{bar_width(line.percent)}%"}></i>
-          </span>
-          <span class="rs-rs">
-            <span :if={line.reset}>{line.reset}<em :if={line.window}>/{line.window}</em></span>
-            <svg :if={line.reset} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20 11a8 8 0 0 0-14.8-3.5M4 13a8 8 0 0 0 14.8 3.5" /><path d="M4 3.5V8h4.5M20 20.5V16h-4.5" />
-            </svg>
-            <b :if={line.amount} class="rs-usd">{line.amount}</b>
-            <span :if={line.note} class="rs-no">{line.note}</span>
           </span>
         </div>
       </div>
