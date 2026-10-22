@@ -283,9 +283,13 @@ defmodule Aiur.Application.Children do
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
         quarantine_lifter_children(primary_instance?, github_tracker?) ++
-        List.wrap(if(dashboard?, do: [Aiur.RunTelemetry.RetainedCache, {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}])) ++
+        dashboard_cache_children(dashboard?) ++
         List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
     )
+  end
+
+  defp dashboard_cache_children(dashboard?) do
+    List.wrap(if(dashboard?, do: [Aiur.RunTelemetry.RetainedCache, {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}]))
   end
 
   defp landing_watch_children(true, true), do: [Aiur.LandingWatch]
