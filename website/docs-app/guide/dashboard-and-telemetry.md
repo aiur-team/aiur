@@ -108,9 +108,19 @@ See the [OCC-7 supervisor Decision API contract](https://github.com/aiur-team/ai
 
 ### Per-ticket usage API
 
-`GET /api/v1/<ticket>/usage` returns one ticket's model usage as a versioned JSON read (`schema_version: 1`), behind the same dashboard Basic Auth as `/api/v1/state` and with `Cache-Control: no-store`. `<ticket>` is the GitHub issue number in the configured repository. The usage ledger resolves it to the ticket's tracker identity, and the numbers come from the same usage aggregate the dashboard and `mix aiur.cost_report` read.
+`GET /api/v1/<ticket>/usage` returns one ticket's model usage as versioned JSON (`schema_version: 1`). It uses the dashboard Basic Auth of `/api/v1/state` and sends `Cache-Control: no-store`.
 
-The payload carries `ticket`, `currency`, `state`, `authority`, `freshness`, `totals`, `by_model`, `by_provider`, and `sessions`. Each session is one Aiur run (`run_id`) with its own `by_model` and `by_provider` rows. Every row has `tokens` by dimension, `provider_reported` cost, and `api_equivalent` cost with its pricing `coverage`. Money is an exact decimal string per currency, and an unpriced dimension shows as coverage, never as `0`.
+`<ticket>` is a GitHub issue number in the configured repository. The usage ledger resolves it to the ticket's tracker identity.
+
+The numbers come from the usage aggregate that the dashboard and `mix aiur.cost_report` read.
+
+The payload has `totals`, `by_model`, `by_provider`, and `sessions`, plus `ticket`, `state`, `authority`, and `freshness`.
+
+Each session is one Aiur run (`run_id`) with its own `by_model` and `by_provider` rows.
+
+Rows carry `tokens`, `provider_reported` cost, and `api_equivalent` cost with pricing `coverage`. Money is an exact decimal string.
+
+Errors use the `{"error":{"code":…,"message":…}}` shape.
 
 | Status | `error.code` | Meaning |
 | --- | --- | --- |
@@ -118,7 +128,7 @@ The payload carries `ticket`, `currency`, `state`, `authority`, `freshness`, `to
 | `422` | `invalid_identifier` | The identifier is not a GitHub issue number. |
 | `503` | `usage_unavailable` | The ledger, aggregate, or configured repository cannot be read. |
 
-Errors use the `{"error":{"code":…,"message":…}}` shape of the other `/api/v1` reads. `aiur ticket-usage <ticket> --json` prints the same payload.
+`aiur ticket-usage <ticket> --json` prints the same payload.
 
 ## Run telemetry
 
