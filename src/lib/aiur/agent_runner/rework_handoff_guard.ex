@@ -104,7 +104,9 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   defp identical_contribution_after_base_advance?(workspace, tested_head, head, base_sha, pr, opts)
        when is_binary(workspace) and is_binary(tested_head) and is_binary(head) and is_binary(base_sha) do
     classifier = Keyword.get(opts, :approval_carry_classifier)
-    classify_approval_carry(classifier, tested_head, head, pr["number"], opts) == :identical
+
+    merge_only_advance?(workspace, tested_head, head) and
+      classify_approval_carry(classifier, tested_head, head, pr["number"], opts) == :identical
   end
 
   defp identical_contribution_after_base_advance?(_workspace, _tested_head, _head, _base_sha, _pr, _opts), do: false
@@ -114,6 +116,19 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
 
   defp classify_approval_carry(classifier, tested_head, head, number, opts) when is_function(classifier, 4),
     do: classifier.(tested_head, head, number, opts)
+
+  defp merge_only_advance?(workspace, tested_head, head) do
+    case System.cmd("git", ["-C", workspace, "rev-list", "--first-parent", "--no-merges", "#{tested_head}..#{head}"], stderr_to_stdout: true) do
+      {"", 0} ->
+        case System.cmd("git", ["-C", workspace, "merge-base", "--is-ancestor", tested_head, head], stderr_to_stdout: true) do
+          {_, 0} -> true
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  end
 
   defp lint_evidence_error(body, head, workspace) do
     case pr_template(workspace) do

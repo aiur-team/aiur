@@ -21,6 +21,7 @@ defmodule Aiur.Events.GithubWebhook.ReconcileHints do
            kind: :ci,
            ticket: ticket,
            head_sha: get_in(pr, ["head", "sha"]),
+           pr_number: Map.get(pr, "number"),
            source: event_type,
            action: action
          }}
