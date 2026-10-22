@@ -282,7 +282,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     |> assign(:tickets_panel_view, TicketsPresenter.search(socket.assigns.tickets_view, query))
   end
 
-  defp units_path(selection), do: "/units?" <> UnitsURL.encode(selection)
+  defp units_path(selection), do: "/units-fixture?" <> UnitsURL.encode(selection)
 
   defp same_identity?(%TrackerIdentity{} = left, %TrackerIdentity{} = right),
     do: TrackerIdentity.github_key(left) == TrackerIdentity.github_key(right)

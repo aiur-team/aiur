@@ -302,7 +302,17 @@ npx playwright install chromium # one-time local browser download
 npm test
 ```
 
-`npm test` runs all suites; CI splits core and home CSS into separate jobs. The
+`npm test` runs the gated suites; CI splits core and home CSS into separate jobs.
+At cutover, `test:cutover-nav-parity` enforces sidebar/navigation parity across
+viewport, theme, palette and reduced-motion cells. Its 390px cells are narrow-touch
+CSS viewports (DPR 3, touch enabled, mobile auto-scaling off and an overlay-scrollbar
+environment on both sides); real
+phone/WebView acceptance remains MP-E8-C12-T04. The operator-approved
+`cutover_nav_gate` scope keeps strict `npm run parity:matrix` as a whole-page
+report while [#3153](https://github.com/aiur-team/aiur/issues/3153) owns the missing
+filter controls. After #3153 lands and the whole-page matrix passes, restore that
+matrix to the default gate. Both commands share the same frozen source data,
+clock and navigation normalization; the full-page report keeps strict pixels. The
 fixture requires a synthetic, HttpOnly session path for read-only or writable
 access; it never accepts or exposes production credentials. Failures retain
 sanitized Playwright traces and screenshots beneath `src/browser/.artifacts-run-*`;

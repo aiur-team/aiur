@@ -162,12 +162,15 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
   end
 
   test "a first attempt cut off by the admission deadline stays a broker timeout", %{root: root} do
-    fake_python = Path.join(root, "stalled-broker")
-    File.write!(fake_python, "#!/bin/sh\nsleep 10\n")
-    File.chmod!(fake_python, 0o755)
+    deadline_at = System.monotonic_time(:millisecond) - 1
 
     assert {:error, :github_budget_broker_timeout} =
-             Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), state_dir: root, enabled?: true, python: fake_python, timeout_ms: 500)
+             Budget.acquire(
+               request("shared-token", "/repos/owner/repo/issues/1"),
+               state_dir: root,
+               enabled?: true,
+               deadline_at: deadline_at
+             )
   end
 
   test "a typed shared hold preserves resource and absolute reset", %{root: root} do
