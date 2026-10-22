@@ -138,7 +138,7 @@ defmodule Aiur.AccountsCLI do
     identity = identity(harness, dir)
 
     case snapshot_for(harness, name, snapshots, daemon_available?) do
-      {:ok, reading, observed_at, freshness} ->
+      {:ok, reading, observed_at, freshness, last_error} ->
         age_ms = max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
 
         %{
@@ -155,13 +155,31 @@ defmodule Aiur.AccountsCLI do
           # it is not "fresh" here either (#4127).
           freshness: if(age_ms > HeadroomDispatch.max_reading_age_seconds() * 1000, do: "stale", else: Atom.to_string(freshness)),
           observed_at: DateTime.to_iso8601(observed_at),
-          age_ms: age_ms
+          age_ms: age_ms,
+          last_error: last_error
         }
+
+      # The probe is failing but the account was observed before: stale, with
+      # the age of that observation and why it has not moved since (#5747).
+      {:error, reason, %DateTime{} = last_observed_at} ->
+        name
+        |> usage_unavailable_row(harness, identity, "stale")
+        |> Map.merge(%{
+          observed_at: DateTime.to_iso8601(last_observed_at),
+          age_ms: max(DateTime.diff(DateTime.utc_now(), last_observed_at, :millisecond), 0),
+          last_error: freshness(reason)
+        })
+
+      {:error, reason, nil} ->
+        usage_unavailable_row(name, harness, identity, freshness(reason))
 
       {:error, reason} ->
         usage_unavailable_row(name, harness, identity, freshness(reason))
     end
   end
+
+  defp last_error(nil), do: nil
+  defp last_error(reason), do: freshness(reason)
 
   defp identity("claude", dir), do: Claude.identity(dir)
   defp identity("codex", dir), do: Codex.identity(dir)
@@ -169,11 +187,11 @@ defmodule Aiur.AccountsCLI do
 
   defp snapshot_for("claude", name, snapshots, daemon_available?) do
     case snapshots do
-      %{^name => %{reading: reading, observed_at: observed_at, freshness: freshness}} when is_map(reading) ->
-        {:ok, reading, observed_at, freshness}
+      %{^name => %{reading: reading, observed_at: observed_at, freshness: freshness} = entry} when is_map(reading) ->
+        {:ok, reading, observed_at, freshness, last_error(Map.get(entry, :reason))}
 
-      %{^name => %{freshness: :unavailable, reason: reason}} ->
-        {:error, reason}
+      %{^name => %{freshness: :unavailable, reason: reason} = entry} ->
+        {:error, reason, Map.get(entry, :last_observed_at)}
 
       _missing ->
         {:error, if(daemon_available?, do: :usage_not_observed, else: :daemon_not_running)}
@@ -196,7 +214,8 @@ defmodule Aiur.AccountsCLI do
       remaining_percent: nil,
       freshness: freshness,
       observed_at: nil,
-      age_ms: nil
+      age_ms: nil,
+      last_error: nil
     }
   end
 
@@ -247,7 +266,7 @@ defmodule Aiur.AccountsCLI do
     fields =
       if Map.get(row, :identity) == nil,
         do: [:name, :harness, :usage, :remaining_percent],
-        else: [:name, :harness, :email, :org, :seat_tier, :remaining_percent, :weekly_percent, :five_hour_percent, :freshness, :age_ms]
+        else: [:name, :harness, :email, :org, :seat_tier, :remaining_percent, :weekly_percent, :five_hour_percent, :freshness, :age_ms, :last_error]
 
     IO.puts(Enum.map_join(fields, "  ", fn key -> "#{key}=#{inspect(Map.get(row, key))}" end))
   end
