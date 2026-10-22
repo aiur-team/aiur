@@ -26,7 +26,7 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
     end
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, capabilities_report_fun: report_fun)
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/units")
     assert voice_capabilities(view) == %{"voice.stt" => unconfigured, "voice.tts" => unconfigured}
 
     Agent.update(reports, fn _ -> %{state: :available} end)
@@ -41,7 +41,7 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, capabilities_report_fun: fn -> raise "registry unavailable" end)
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/units")
     assert voice_capabilities(view) == %{}
   end
 
