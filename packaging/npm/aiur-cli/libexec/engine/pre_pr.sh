@@ -69,6 +69,7 @@ cmd_pre_pr() {
   run_gate() {
     name="$1"; shift
     gate_log="$temp_dir/gate-${#results[@]}.log"
+    printf 'aiur pre-pr gate started: %s\n' "$name"
     if "$@" >"$gate_log" 2>&1; then
       results+=("PASS $name")
       printf 'aiur pre-pr gate complete: PASS %s\n' "$name"
