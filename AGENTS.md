@@ -54,7 +54,7 @@ the change falsifies before writing anything new.
 
 | Change | Page |
 |--------|------|
-| Config key | `website/docs-app/reference/configuration.md`, `configuration-agent.md` or `configuration-build-order.md` (one entry per key, on exactly one of the three, defaults included) |
+| Config key | `website/docs-app/reference/configuration.md`, `configuration-agent.md`, `configuration-build-order.md` or `configuration-voice.md` (one entry per key, on exactly one of them, defaults included) |
 | CLI command or flag | `website/docs-app/reference/cli.md` |
 | Dashboard, TUI, Stream Deck, quick start | `website/docs-app/guide/` |
 | Model or behavior explanation | `website/docs-app/concepts/` |
