@@ -152,7 +152,7 @@ def replace_tables(text: str, tables: dict[str, list[str]], page: str) -> tuple[
     for start, end, replacement in reversed(replacements):
         updated = updated[:start] + replacement + updated[end:]
     missing = set(tables) - seen
-    if missing and page in {"website/docs-app/reference/configuration.md", "website/docs-app/reference/configuration-agent.md", "website/docs-app/reference/configuration-build-order.md", "website/docs-app/reference/merge-policy.md", "website/docs-app/reference/cli.md", "website/docs-app/reference/cli-options.md"}:
+    if missing and page in {"website/docs-app/reference/configuration.md", "website/docs-app/reference/configuration-agent.md", "website/docs-app/reference/configuration-build-order.md", "website/docs-app/reference/configuration-voice.md", "website/docs-app/reference/merge-policy.md", "website/docs-app/reference/cli.md", "website/docs-app/reference/cli-options.md"}:
         # Each table has a single owning page; other pages intentionally have no marker.
         page_tables = {name for name in tables if name.startswith(page.rsplit("/", 1)[-1].replace(".md", "") + "-")}
         absent = page_tables - seen
@@ -171,6 +171,7 @@ def main() -> int:
         "website/docs-app/reference/configuration.md",
         "website/docs-app/reference/configuration-agent.md",
         "website/docs-app/reference/configuration-build-order.md",
+        "website/docs-app/reference/configuration-voice.md",
         "website/docs-app/reference/merge-policy.md",
         "website/docs-app/reference/cli.md",
         "website/docs-app/reference/cli-options.md",
@@ -180,6 +181,7 @@ def main() -> int:
         "configuration.md": "config-configuration-",
         "configuration-agent.md": "config-configuration-agent-",
         "configuration-build-order.md": "config-configuration-build-order-",
+        "configuration-voice.md": "config-configuration-voice-",
         "merge-policy.md": "config-merge-policy-",
     }
     for relative in pages:

@@ -18,10 +18,10 @@ async function equalStyle(pair, selector, keys = properties, pseudo = null) {
 }
 
 async function compareNavRegion(pair, name, selector) {
-  // The allowed route subset changes phone positions and flex widths.
+  // The Khala omission and Experiments replacement change phone flex widths.
   const allowedPhoneWidth = pair.cell.viewport.width <= 960
     && pair.allowlist.some(entry => entry.id === 'experiments-nav')
-    && await pair.product.locator('.sidenav-nav .snav').count() === 6
+    && [4, 5].includes(await pair.product.locator('.sidenav-nav .snav').count())
     && await pair.design.locator('.sidenav-nav .snav').count() === 5
   await equalStyle(pair, selector, allowedPhoneWidth ? properties.filter(key => key !== 'width') : properties)
   const originals = []
