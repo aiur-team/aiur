@@ -3,7 +3,6 @@ defmodule Aiur.AccountsCLI do
 
   alias Aiur.Accounts
   alias Aiur.Accounts.Shims.{Claude, Codex}
-  alias Aiur.Accounts.UsageReadings
   alias Aiur.CodingAgent.HeadroomDispatch
 
   @spec accounts(boolean(), String.t() | nil) :: :ok | {:error, term()}
@@ -156,13 +155,13 @@ defmodule Aiur.AccountsCLI do
     end
   end
 
-  # Freshness and the stale cutoff come from `UsageReadings`, the rule the
+  # Freshness and the stale cutoff come from `Aiur.Accounts.UsageReadings`, the rule the
   # Models panel uses too. Only Claude rows carry `last_error` (#5747).
   defp claude_row(name, harness, identity, %{reading: reading} = entry) when is_map(reading) do
     observed_at = entry.observed_at
 
     name
-    |> usage_unavailable_row(harness, identity, Atom.to_string(UsageReadings.freshness(entry)))
+    |> usage_unavailable_row(harness, identity, Atom.to_string(Accounts.usage_freshness(entry)))
     |> Map.merge(%{
       weekly_percent: percent(reading.windows, "seven_day"),
       five_hour_percent: percent(reading.windows, "five_hour"),
@@ -179,7 +178,7 @@ defmodule Aiur.AccountsCLI do
   defp claude_row(name, harness, identity, entry) do
     reason = Map.get(entry, :reason)
 
-    case UsageReadings.observed_at(entry) do
+    case Accounts.usage_observed_at(entry) do
       %DateTime{} = last_observed_at ->
         name
         |> usage_unavailable_row(harness, identity, "stale")

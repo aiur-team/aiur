@@ -77,6 +77,14 @@ defmodule Aiur.Accounts do
     end
   end
 
+  @doc "The freshness `aiur accounts` and the Models panel show for a polled usage entry (`Aiur.Accounts.UsageReadings.freshness/2`)."
+  @spec usage_freshness(map()) :: :fresh | :cached | :stale | :unavailable
+  defdelegate usage_freshness(entry), to: Aiur.Accounts.UsageReadings, as: :freshness
+
+  @doc "When a polled usage entry's numbers were last actually observed (`Aiur.Accounts.UsageReadings.observed_at/1`)."
+  @spec usage_observed_at(map()) :: DateTime.t() | nil
+  defdelegate usage_observed_at(entry), to: Aiur.Accounts.UsageReadings, as: :observed_at
+
   @spec configured_names(String.t() | nil) :: [String.t()]
   def configured_names(harness \\ nil) do
     case Aiur.Config.settings() do

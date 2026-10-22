@@ -1,9 +1,8 @@
 defmodule Aiur.Accounts.UsageReadings do
   @moduledoc "Small read model for per-account provider usage observations."
 
-  alias Aiur.CodingAgent.HeadroomDispatch
-
   @key {__MODULE__, :readings}
+  @default_max_reading_age_seconds 1800
 
   @doc """
   Whether an observation is too old to treat as current.
@@ -14,8 +13,19 @@ defmodule Aiur.Accounts.UsageReadings do
   """
   @spec stale?(DateTime.t() | nil, DateTime.t()) :: boolean()
   def stale?(observed_at, now \\ DateTime.utc_now())
-  def stale?(%DateTime{} = observed_at, %DateTime{} = now), do: DateTime.diff(now, observed_at, :second) > HeadroomDispatch.max_reading_age_seconds()
+  def stale?(%DateTime{} = observed_at, %DateTime{} = now), do: DateTime.diff(now, observed_at, :second) > max_reading_age_seconds()
   def stale?(_observed_at, _now), do: false
+
+  @doc "`agent.headroom_reading_max_age_seconds`, the one usage stale cutoff; headroom dispatch reads it here too."
+  @spec max_reading_age_seconds() :: pos_integer()
+  def max_reading_age_seconds do
+    case Aiur.Config.settings() do
+      {:ok, %{agent: %{headroom_reading_max_age_seconds: seconds}}} when is_integer(seconds) and seconds > 0 -> seconds
+      _unavailable -> @default_max_reading_age_seconds
+    end
+  rescue
+    _error -> @default_max_reading_age_seconds
+  end
 
   @doc """
   The freshness every surface shows for an entry: `:stale` past the cutoff or

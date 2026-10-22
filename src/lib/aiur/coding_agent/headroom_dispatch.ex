@@ -386,11 +386,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     _ -> nil
   end
 
-  defp configured_max_age do
-    Config.settings!().agent.headroom_reading_max_age_seconds || 1800
-  rescue
-    _ -> 1800
-  end
+  defp configured_max_age, do: UsageReadings.max_reading_age_seconds()
 
   defp configured_accounts do
     Config.settings!().agent.accounts || %{}
