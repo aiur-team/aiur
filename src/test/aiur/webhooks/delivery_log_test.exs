@@ -105,21 +105,23 @@ defmodule Aiur.Webhooks.DeliveryLogTest do
   end
 
   test "the memory ceiling evicts the oldest entries and alerts once", context do
-    log = start_log(context, :first, max_entries: 3)
+    log = start_log(context, :first, max_entries: 10, eviction_low_watermark: 0.8)
 
-    Enum.each(1..3, fn index ->
+    Enum.each(1..10, fn index ->
       assert :new == DeliveryLog.claim(:delivery, "c-#{index}", log)
-      advance_clock(context, 1000)
     end)
 
-    assert :new == DeliveryLog.claim(:delivery, "c-4", log)
+    assert :new == DeliveryLog.claim(:delivery, "c-11", log)
+    # Crossing the ceiling drops to 9; one more claim stays below the ceiling.
+    assert :new == DeliveryLog.claim(:delivery, "c-12", log)
+    assert DeliveryLog.size(log) == 9
 
     assert_receive {:alert, "webhook_delivery_log.ceiling_exceeded", ceiling_message, _meta}, 1000
     assert ceiling_message =~ "duplicate protection is degraded"
 
     # The oldest entry was evicted before its window expired; the newest survived.
     assert :new == DeliveryLog.claim(:delivery, "c-1", log)
-    assert {:duplicate, _at} = DeliveryLog.claim(:delivery, "c-4", log)
+    assert {:duplicate, _at} = DeliveryLog.claim(:delivery, "c-12", log)
 
     refute_receive {:alert, "webhook_delivery_log.ceiling_exceeded", _message, _meta}, 50
   end

@@ -68,6 +68,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
   @retention_ms 72 * 60 * 60 * 1000
   @sweep_interval_ms 5 * 60 * 1000
   @max_entries 200_000
+  @eviction_low_watermark 0.9
   @compaction_floor 1_000
   @call_timeout 30_000
   @max_key_bytes 512
@@ -192,6 +193,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
       retention_ms: positive(opts, :retention_ms, @retention_ms),
       sweep_interval_ms: positive(opts, :sweep_interval_ms, @sweep_interval_ms),
       max_entries: positive(opts, :max_entries, @max_entries),
+      eviction_low_watermark: eviction_low_watermark(opts),
       compaction_floor: positive(opts, :compaction_floor, @compaction_floor)
     }
   end
@@ -200,6 +202,13 @@ defmodule Aiur.Webhooks.DeliveryLog do
     case Keyword.get(opts, key, default) do
       value when is_integer(value) and value > 0 -> value
       _other -> default
+    end
+  end
+
+  defp eviction_low_watermark(opts) do
+    case Keyword.get(opts, :eviction_low_watermark, @eviction_low_watermark) do
+      value when is_float(value) and value > 0 and value < 1 -> value
+      _other -> @eviction_low_watermark
     end
   end
 
@@ -403,14 +412,16 @@ defmodule Aiur.Webhooks.DeliveryLog do
   end
 
   defp enforce_ceiling(state, now) do
-    overflow = map_size(state.entries) - state.max_entries
+    overflow = map_size(state.entries) - eviction_target(state)
 
-    if overflow > 0 do
+    if map_size(state.entries) > state.max_entries do
       state |> drop_oldest(overflow) |> alert_overflow(now)
     else
       state
     end
   end
+
+  defp eviction_target(state), do: max(1, trunc(state.max_entries * state.eviction_low_watermark))
 
   defp drop_oldest(state, overflow) do
     dropped =
