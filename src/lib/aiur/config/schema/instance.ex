@@ -6,7 +6,7 @@ defmodule Aiur.Config.Schema.Instance do
   @primary_key false
   embedded_schema do
     # @config-reference config-configuration-00 instance.role
-    # @config-detail instance.role | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and CI handling. |
+    # @config-detail instance.role | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
     field(:role, :string, default: "primary")
   end
 
