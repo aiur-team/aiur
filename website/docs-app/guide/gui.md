@@ -22,7 +22,7 @@ Dashboard: http://127.0.0.1:4000 (bind host=0.0.0.0, port=4000)
 
 ## Build timeline cards
 
-The temporary `/build` preview renders tickets as full, line, mini or bar cards as
+The Build home page at `/` (also available at `/build`) renders tickets as full, line, mini or bar cards as
 space changes. Full cards show complexity, section status and queue cues. Unknown
 progress, points and estimates read `—`; unknown progress has no progress bar.
 Closed tickets distinguish merged, failed, not planned and other closed outcomes.
@@ -34,7 +34,7 @@ stale or unavailable live state is labeled separately from the transcript.
 
 ## Build timeline freshness
 
-The build timeline at `/build` labels daemon state separately from socket reachability. An offline or stale snapshot shows its last heartbeat age and local time; a missing heartbeat reads “no heartbeat recorded”. Socket loss lasting at least 500 ms shows “Daemon unreachable” and stops the live glows.
+The build timeline at `/` labels daemon state separately from socket reachability. An offline or stale snapshot shows its last heartbeat age and local time; a missing heartbeat reads “no heartbeat recorded”. Socket loss lasting at least 500 ms shows “Daemon unreachable” and stops the live glows.
 
 While the socket is open but the fleet snapshot is unread, such as during startup, the footer reads “Daemon up · unread” with the age of the last good reading. A source that a GitHub budget hold delays is named in the footer with the age of its last read, for example “history held 2m”. Hover the footer for the full sentence.
 
@@ -50,15 +50,19 @@ Use the browser when you need interactive detail; use the paired command when te
 
 | GUI label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
-| **Units** | `/` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
+| **Build** | `/` is the continuous build timeline; `/build` is a live alias. Its navigation badge counts active agents, independent of filters; an unknown count is omitted. | none |
+| **Units** (rollback) | `/units` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
-| **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail. | `aiur build-orders` |
+| **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail, reachable by URL without a navigation item. | `aiur build-orders` |
 | **Build queue** | `/build-orders` includes the read-only queue panel on the catalog page: item states, waiting prerequisites, start-order ranks, progress, source freshness and observation age, and open or recently resolved attentions. Manage queues with the CLI. | `aiur queue show` |
 | **Analytics** | `/analytics` is latest-run telemetry with durable restart fallback and an optional Build Order scope. The page opens with a loading message while telemetry is analyzed in the background; concurrent cold loads share one retained-summary scan. A source line labels the data as the live boot or a retained prior run and shows how long ago it was observed. A notice identifies periods with analytics capture disabled. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
 | Route change | Behavior |
 | --- | --- |
+| `/units` | Hidden Units rollback page, retained for one release. |
+| `/chat/:owner/:repository/:identifier` | Redirects same-repository ticket links to `/?ticket=identifier`, opening the Build ticket modal. |
+| `/?v=1&scope=…&conditions=…` | Opens Build with the matching legacy Units filter. |
 | `/commands` and `/commands/:decision_id` | Current Commands inbox and detail URLs. |
 | `/decisions` and `/decisions/:decision_id` | Redirect permanently to the `/commands` equivalents. |
 | `/api/v1/decisions`, `decision_id`, event topics | Keep the **decision** vocabulary for compatibility. |
@@ -99,7 +103,7 @@ A degraded CODEOWNERS trust banner shows the lookup cause and elapsed age (`age 
 
 The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs. Paginated and progressively revealed tables sort the displayed rows, then reapply that order when more rows appear.
 
-The temporary, unlinked `/build` route reads the repository timeline from local stores.
+The Build home page at `/` reads the repository timeline from local stores.
 It requires dashboard authentication and loads history by active day in the browser’s time zone.
 Live changes are coalesced; snapshots distinguish unavailable sources from empty sections.
 
@@ -130,7 +134,7 @@ Its links retain view, span, feature focus, filters and ticket selection in
 `live`, `trees` and `ticket`. Invalid values are removed.
 
 Legacy Units
-parameters (`v`, `scope`, `conditions`) at this preview route become agent-state
+parameters (`v`, `scope`, `conditions`) on the home page become agent-state
 or ticket-state presets. The hook bridge replaces the current history entry.
 
 ## The pages
@@ -139,7 +143,7 @@ Each page renders a durable concept whose detail lives in Concepts.
 
 | Page | Concept detail |
 | --- | --- |
-| Units | [Fleet, tickets, and meters](/concepts/units). |
+| Units (`/units`, rollback) | [Fleet, tickets, and meters](/concepts/units). |
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
