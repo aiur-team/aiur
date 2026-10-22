@@ -10,13 +10,13 @@ Signatures exclude proven flakes. ResourceStore caches completed evidence by SHA
 
 Failed-job recovery requires Actions read/write. It is bounded to one rerun per head and three failed handoffs per PR, without a fleet or hourly cap. A run GET returning 403/404 or a denied rerun POST raises one attention and permits normal rework.
 
-For an approved PR with auto-merge or a merge-queue entry, a live current-head CI failure routes to rework only when every failed check is PR-caused. Aiur disables auto-merge or removes the queue entry first, then posts the failing job names in the rework handoff. Inherited or unknown failures remain held. Cancelled and infrastructure failures keep their bounded rerun path.
+For an approved PR with auto-merge or a merge-queue entry, current-head failures route to rework only when every failed check is PR-caused. Aiur first disables auto-merge or removes the queue entry, then names the failed jobs in the handoff. Inherited or unknown failures stay held. Cancelled and infrastructure failures keep their bounded rerun path.
 
 Any other recovery stop raises its attention and routes a red head to rework. A rerun in flight, or an approved head with an unreadable landing state, holds instead. A transient GitHub error holds ten minutes, then retries once before routing; an Actions 403 or 404 routes at once. A hold recorded before the head went red does not mask a later failure.
 
 With `merge_policy.main_watch.enabled`, a red head routes only when the PR caused it: a failing check passed on the base commit in MainWatch history, or never ran there. If the base is unrecorded, a check absent from all history still routes.
 
-Executor sweep findings name each failed required check and its cause class: PR-caused, inherited, infra, or unknown. Check names and outcomes come from the CI poll observation for that exact PR head; the finding shows that observation's age and marks observations older than five minutes unverified. A cause is attributed to the PR only from evidence for that PR's exact base SHA; missing base history stays unknown.
+Executor sweep findings name each failed required check and its cause class: PR-caused, inherited, infra, or unknown. Names and outcomes come from the CI poll for that exact PR head. Findings show the observation age and mark reads older than five minutes unverified. PR attribution requires evidence for the exact base SHA; missing base history stays unknown.
 
 Otherwise it holds with one `base_inherited` or `base_unknown` attention, re-checked every poll. A `base_unknown` hold routes the red after one hour, because MainWatch may never record that base.
 
