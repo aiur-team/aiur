@@ -124,6 +124,11 @@ defmodule VoiceConverse.BriefingTest do
       assert text =~ "Questions for you: none"
       assert text =~ "Gaps: no note yet"
     end
+
+    test "a field whose value is nil is not reported, not a crash or a blank" do
+      {text, _} = Briefing.render(card(waiting_on: f(nil, max_age_s: 60)), now: @now)
+      assert text =~ "Waiting on: not reported\n"
+    end
   end
 
   describe "diff/2" do
@@ -140,6 +145,15 @@ defmodule VoiceConverse.BriefingTest do
       old = card(waiting_on: f("CI", at: @now, max_age_s: 60))
       new = %{card(waiting_on: f("CI", at: DateTime.add(@now, 3_600), max_age_s: 60)) | version: 9}
       assert Briefing.diff(old, new) == []
+    end
+
+    # Hosts may send several extras with one title (two "PR" lines); a refresh must stay silent.
+    test "equal briefings with duplicate extra titles diff empty and render both texts" do
+      extra = for t <- ["#1 green", "#2 red"], do: %{title: "PR", text: t, observed_at: @now}
+      assert Briefing.diff(card(extra: extra), card(extra: extra)) == []
+      assert elem(Briefing.render(card(extra: extra), now: @now), 0) =~ "PR: #1 green; #2 red"
+      md = Briefing.from_markdown("## Notes\na\n## Notes\nb\n", @now)
+      assert Briefing.diff(md, md) == []
     end
 
     test "a field that became empty or was removed says none now" do
@@ -184,6 +198,13 @@ defmodule VoiceConverse.BriefingTest do
       assert b.waiting_on == nil
       assert b.gaps == [~s(no "Waiting on" section)]
       assert elem(Briefing.render(b, now: @now), 0) =~ "Waiting on: not reported"
+    end
+
+    test "a # line inside a fenced code block stays in its section" do
+      b = Briefing.from_markdown(String.replace(@md, "CI\n", "CI\n```bash\n# rerun CI\ngh run rerun\n```\n"), @now)
+      assert b.waiting_on.value =~ "# rerun CI"
+      assert b.questions == f(["Should retries cap at 5?"])
+      assert b.extra == []
     end
 
     test "an unknown heading goes to extra" do
