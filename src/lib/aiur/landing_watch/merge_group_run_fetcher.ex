@@ -44,6 +44,26 @@ defmodule Aiur.LandingWatch.MergeGroupRunFetcher do
          do: {:ok, Enum.filter(runs, &(&1["event"] == "merge_group"))}
   end
 
+  @spec queue_group_refs(String.t(), String.t(), String.t(), String.t(), keyword()) :: {:ok, MapSet.t()} | {:error, term()}
+  def queue_group_refs(owner, repo, base, token, opts) do
+    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/git/matching-refs/heads/gh-readonly-queue/#{base}/"
+    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+
+    case request.(%{method: :get, url: url, token: token, caller: "landing_watch_merge_group_refs"}) do
+      {:ok, %{status: 200, body: refs}} when is_list(refs) ->
+        {:ok, MapSet.new(refs, &get_in(&1, ["ref"]))}
+
+      {:ok, %{status: 200}} ->
+        {:error, :invalid_merge_group_refs}
+
+      {:ok, %{status: _} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
   # GitHub lists runs newest first, so the first pages hold every run a live queue
   # entry or a recent failure can own. The completed history grows without bound;
   # past the cap, keep what was read instead of failing the whole poll (#4556).
@@ -54,12 +74,40 @@ defmodule Aiur.LandingWatch.MergeGroupRunFetcher do
     key = ResourceStore.key(:landing_merge_group_runs, context.owner, context.repo, "#{context.base}:#{context.status}:#{page}")
     fetcher = fn fetch_opts -> fetch_run_page(context.request, context.token, url, fetch_opts) end
 
-    with {:ok, %{"workflow_runs" => runs, "next" => next}, _meta} <-
+    with {:ok, %{"workflow_runs" => runs, "next" => next}, meta} <-
            ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "landing merge-group runs") do
+      persist_age_index(key, runs, meta)
+
       case next do
         nil -> {:ok, acc ++ runs}
         next_url -> read_pages(context, next_url, acc ++ runs, page + 1)
       end
+    end
+  end
+
+  defp persist_age_index(page_key, runs, meta) do
+    case ResourceStore.fetch(page_key) do
+      {:ok, %{fetched_at_ms: fetched_at_ms}} when fetched_at_ms == meta.fetched_at_ms -> :ok
+      _ -> persist_uncached_page_age_index(page_key, runs)
+    end
+  end
+
+  defp persist_uncached_page_age_index({:landing_merge_group_runs, owner, repo, page_id}, runs) do
+    age_key = ResourceStore.key(:landing_merge_group_runs, owner, repo, "#{page_id}:age-index")
+
+    ids =
+      runs
+      |> Enum.flat_map(fn run ->
+        case Map.get(run, "id") do
+          id when is_integer(id) -> [%{"id" => id}]
+          id when is_binary(id) -> [%{"id" => id}]
+          _ -> []
+        end
+      end)
+
+    case ResourceStore.fetch(age_key) do
+      {:ok, %{data: ^ids, etag: etag}} -> ResourceStore.revalidate(age_key, ids, etag)
+      _ -> ResourceStore.put_resource(age_key, ids, source: :fetch)
     end
   end
 
