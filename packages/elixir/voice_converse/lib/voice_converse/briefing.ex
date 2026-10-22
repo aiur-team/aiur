@@ -39,7 +39,8 @@ defmodule VoiceConverse.Briefing do
             extra: [],
             gaps: []
 
-  # Same default as `Config` `limits.briefing_token_budget`.
+  # Matches the `Config` default for `limits.briefing_token_budget`; callers holding a config
+  # pass `budget: config.limits.briefing_token_budget`.
   @default_budget 1_500
   @drop_order [:extra, :links, :next_steps]
   @kept_next_steps 3
@@ -47,7 +48,8 @@ defmodule VoiceConverse.Briefing do
   @doc """
   Renders the briefing as text within a token budget.
 
-  Options: `:budget` (tokens, default #{@default_budget}) and `:now` (default
+  Options: `:budget` (tokens, default #{@default_budget}; pass
+  `Config.limits.briefing_token_budget` to follow a configured limit) and `:now` (default
   `DateTime.utc_now/0`; inject it for deterministic ages). Tokens are estimated as
   `div(byte_size(text), 4)`. Over budget, it drops `extra`, then `links`, then `next_steps`
   beyond #{@kept_next_steps}, stopping as soon as the text fits. `summary`, `current_task`,
@@ -76,8 +78,9 @@ defmodule VoiceConverse.Briefing do
   Lines that changed from `old` to `new`, one per field, without age text.
 
   `version`, `observed_at` and the passing of time never produce a line, so a periodic refresh
-  with the same content sends nothing. A field that became empty or absent yields
-  `"<Field>: none now"`.
+  with the same content sends nothing. A field whose value became empty, and a links, gaps or
+  extra line that disappeared, yields `"<Field>: none now"`; a field that became `nil` yields its
+  rendered `"<Field>: not reported"` line.
   """
   @spec diff(t(), t()) :: [String.t()]
   def diff(%__MODULE__{} = old, %__MODULE__{} = new) do

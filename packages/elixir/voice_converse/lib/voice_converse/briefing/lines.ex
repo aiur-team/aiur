@@ -26,7 +26,7 @@ defmodule VoiceConverse.Briefing.Lines do
   @spec build(VoiceConverse.Briefing.t()) :: [line()]
   def build(briefing) do
     field_lines = for {key, label} <- @fields, do: field_line(key, label, Map.fetch!(briefing, key))
-    extra_lines = for %{title: title, text: text} <- briefing.extra, do: line({:extra, title}, title, text)
+    extra_lines = for {title, texts} <- extra_by_title(briefing.extra), do: line({:extra, title}, title, texts)
 
     field_lines ++
       extra_lines ++
@@ -38,9 +38,17 @@ defmodule VoiceConverse.Briefing.Lines do
   def to_text(lines, now), do: Enum.map_join(lines, "\n", &(&1.text <> age_suffix(&1, now)))
 
   defp field_line(key, label, nil), do: line(key, label, "not reported")
+  defp field_line(key, label, %{value: nil}), do: line(key, label, "not reported")
 
   defp field_line(key, label, %{value: value} = field) do
     %{line(key, label, value) | observed_at: field[:observed_at], max_age_s: field[:max_age_s]}
+  end
+
+  # Extras sharing a title become one line, so each diff key is unique and stable.
+  defp extra_by_title(extra) do
+    titles = extra |> Enum.map(& &1.title) |> Enum.uniq()
+    groups = Enum.group_by(extra, & &1.title, & &1.text)
+    for title <- titles, do: {title, groups[title]}
   end
 
   defp list_line(_key, _label, []), do: []
