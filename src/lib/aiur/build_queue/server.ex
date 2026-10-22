@@ -28,7 +28,7 @@ defmodule Aiur.BuildQueue.Server do
   }
 
   alias Aiur.BuildQueue.Sources.BuildOrder, as: BuildOrderSource
-  alias Aiur.Events.Exchange
+  alias Aiur.Events, as: EventBus
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
   @debounce_ms 2_000
@@ -51,7 +51,7 @@ defmodule Aiur.BuildQueue.Server do
       claim_probe: Keyword.get(opts, :claim_probe, ClaimProbe),
       clock: Keyword.get(opts, :clock, fn -> System.system_time(:millisecond) end),
       schedule: Keyword.get(opts, :schedule, &Process.send_after/3),
-      exchange: Keyword.get(opts, :exchange, Exchange),
+      exchange: Keyword.get(opts, :exchange, EventBus.exchange_server()),
       open_issues_topic: Keyword.get(opts, :open_issues_topic, "tracker:open_issues"),
       exchange_pid: nil,
       pending: nil,

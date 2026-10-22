@@ -76,7 +76,7 @@ test('other pages are unchanged', async ({ page }) => {
   test.setTimeout(120_000)
   let buttons = 0
   let anchors = 0
-  for (const route of ['/', '/commands', '/units', '/ticket-context', '/provider-meters', '/meter-row', '/quota-panel', '/fixture']) {
+  for (const route of ['/route-shell', '/commands', '/units-fixture', '/ticket-context', '/provider-meters', '/meter-row', '/quota-panel', '/fixture']) {
     const snapshots = []
     for (const empty of [true, false]) {
       if (empty) await page.route('**/build-home/home.css', r => r.fulfill({ contentType: 'text/css', body: '' }))
@@ -86,7 +86,7 @@ test('other pages are unchanged', async ({ page }) => {
       await page.addInitScript(() => { localStorage.setItem('aiur-theme', 'dark'); localStorage.setItem('aiur-palette', 'gruvbox') })
       await page.goto(route)
       await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
-      if (route === '/units') {
+      if (route === '/units-fixture') {
         await page.getByRole('button', { name: 'Select no filters' }).click()
         await expect(page.getByRole('button', { name: 'Reset Units filters' })).toBeVisible()
       }
