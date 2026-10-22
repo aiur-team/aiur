@@ -1,5 +1,15 @@
 defmodule VoiceConverse.Config do
-  @moduledoc "Validated configuration for one VoiceConverse instance. The core reads no application env."
+  @moduledoc """
+  Validated configuration for one VoiceConverse instance. The core reads no application env.
+
+  `llm` and `cloud_disclosure_accepted` have no default: the operator must choose the model and
+  accept that audio and text go to a cloud provider. An instance still boots without them, but
+  `check_session_start/1` refuses a session until both are set.
+
+  `limits.daily_minutes_cap` is an integer number of minutes (0 disables sessions) or `nil` for
+  no cap. `limits.count_crashed_sessions` decides whether minutes from a session that ended in a
+  crash count toward that cap.
+  """
 
   @required [:transcript_root, :credentials, :briefing_source]
   @ports [:credentials, :briefing_source, :agent_channel, :command_source, :token_issuer]
@@ -8,6 +18,7 @@ defmodule VoiceConverse.Config do
     max_session_seconds: 1_800,
     idle_timeout_seconds: 120,
     daily_minutes_cap: 60,
+    count_crashed_sessions: true,
     context_token_budget: 4_000,
     briefing_token_budget: 1_500,
     max_sessions: 1,
@@ -17,6 +28,8 @@ defmodule VoiceConverse.Config do
 
   defstruct name: VoiceConverse,
             provider: nil,
+            llm: nil,
+            cloud_disclosure_accepted: nil,
             credentials: nil,
             briefing_source: nil,
             agent_channel: nil,
@@ -32,6 +45,10 @@ defmodule VoiceConverse.Config do
             privacy: %{}
 
   @type t :: %__MODULE__{}
+
+  @doc "Default `limits`, for hosts that map their own settings onto them."
+  @spec default_limits() :: map()
+  def default_limits, do: @default_limits
 
   @doc "Builds and validates a config from a keyword list or map."
   @spec new(keyword() | map() | t()) :: {:ok, t()} | {:error, %{field: atom(), reason: atom()}}
@@ -56,10 +73,27 @@ defmodule VoiceConverse.Config do
     with :ok <- check_required(config),
          :ok <- check_ports(config),
          :ok <- check_transcript_root(config),
+         :ok <- check_session_settings(config),
          :ok <- check_limits(config) do
       {:ok, config}
     end
   end
+
+  @doc """
+  Checks the settings a session needs before it may start: an `llm` and an explicit `true` for
+  `cloud_disclosure_accepted`. The error names the missing field.
+  """
+  @spec check_session_start(t()) :: :ok | {:error, %{field: atom(), reason: atom()}}
+  def check_session_start(%__MODULE__{llm: llm}) when llm in [nil, ""],
+    do: {:error, %{field: :llm, reason: :missing}}
+
+  def check_session_start(%__MODULE__{cloud_disclosure_accepted: nil}),
+    do: {:error, %{field: :cloud_disclosure_accepted, reason: :missing}}
+
+  def check_session_start(%__MODULE__{cloud_disclosure_accepted: true}), do: :ok
+
+  def check_session_start(%__MODULE__{}),
+    do: {:error, %{field: :cloud_disclosure_accepted, reason: :not_accepted}}
 
   defp check_known(opts) do
     case Enum.find(Map.keys(opts), &(not Map.has_key?(%__MODULE__{}, &1))) do
@@ -88,10 +122,24 @@ defmodule VoiceConverse.Config do
   defp check_transcript_root(%{transcript_root: root}) when is_binary(root), do: :ok
   defp check_transcript_root(_), do: {:error, %{field: :transcript_root, reason: :invalid}}
 
+  defp check_session_settings(%{llm: llm}) when not (is_nil(llm) or is_binary(llm)),
+    do: {:error, %{field: :llm, reason: :invalid}}
+
+  defp check_session_settings(%{cloud_disclosure_accepted: accepted})
+       when not (is_nil(accepted) or is_boolean(accepted)),
+       do: {:error, %{field: :cloud_disclosure_accepted, reason: :invalid}}
+
+  defp check_session_settings(_config), do: :ok
+
   defp check_limits(%{limits: limits}) do
-    case Enum.find(limits, fn {_k, v} -> not (is_integer(v) and v > 0) end) do
+    case Enum.find(limits, fn {key, value} -> not valid_limit?(key, value) end) do
       nil -> :ok
       {key, _} -> {:error, %{field: :limits, reason: :invalid, key: key}}
     end
   end
+
+  defp valid_limit?(:daily_minutes_cap, nil), do: true
+  defp valid_limit?(:daily_minutes_cap, value), do: is_integer(value) and value >= 0
+  defp valid_limit?(:count_crashed_sessions, value), do: is_boolean(value)
+  defp valid_limit?(_key, value), do: is_integer(value) and value > 0
 end
