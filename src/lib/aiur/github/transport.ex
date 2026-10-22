@@ -43,6 +43,8 @@ defmodule Aiur.GitHub.Transport do
   @deadline_margin_ms 5_000
   @orchestrator_request_deadline_ms 10_000
   @budget_admission_timeout_ms 5_000
+  @budget_command_timeout_ms 3_000
+  @orchestrator_budget_admission_timeout_ms 1_500
 
   @spec base_url() :: String.t()
   def base_url, do: Settings.current().api_base_url
@@ -106,7 +108,7 @@ defmodule Aiur.GitHub.Transport do
   members had different visibility would need the credential in the cache key.
   """
   @spec default_request_fun(map()) :: {:ok, map()} | {:error, term()}
-  def default_request_fun(req), do: TestScope.run(req, &do_request/1)
+  def default_request_fun(req), do: Settings.with_request(fn -> TestScope.run(req, &do_request/1) end)
 
   defp do_request(%{method: :get, url: url, token: token} = req) do
     headers =
@@ -167,9 +169,9 @@ defmodule Aiur.GitHub.Transport do
   end
 
   defp budget_request(quota, request, request_fun, deadline_ms) do
-    admission_ms = min(deadline_ms, if(orchestrator_process?(), do: 1_500, else: @budget_admission_timeout_ms))
+    admission_ms = min(deadline_ms, if(orchestrator_process?(), do: @orchestrator_budget_admission_timeout_ms, else: @budget_admission_timeout_ms))
 
-    case Budget.acquire(request, timeout_ms: admission_ms, command_timeout_ms: 1_500, lease_timeout_ms: deadline_ms) do
+    case Budget.acquire(request, timeout_ms: admission_ms, command_timeout_ms: @budget_command_timeout_ms, lease_timeout_ms: deadline_ms) do
       {:ok, lease} ->
         deadline_at_ms = System.monotonic_time(:millisecond) + deadline_ms
 
