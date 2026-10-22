@@ -268,6 +268,34 @@ emit_event(name: "progress", payload: %{
 
 Two emits this turn; cap respected.
 
+### Status note (`progress.status`)
+
+Keep a short status note current so the Executor (and the voice assistant)
+can see what you are doing and why without stopping you. It is the short,
+machine-readable head of your Agent Workpad, not a replacement for it.
+
+```
+emit_event(name: "progress.status", message: "<one line>", payload: %{
+  doing: "<what you are doing right now>",
+  why: "<the reason, or the plan step it serves>",
+  next: "<the next 1-3 steps>",
+  waiting_on: "<CI, review, a Command, or empty>",
+  asks: "<what you want from the operator, or empty>",
+  risks: "<what may go wrong or what you are unsure of, or empty>",
+  pr: "<PR number, or empty>",
+  updated_reason: "phase" | "long_step" | "command" | "turn_end" | "refresh"
+})
+```
+
+Write or update it: (a) at each phase boundary, paired with the `progress`
+emit; (b) before a step you expect to take more than about 3 minutes (a long
+test run, a big refactor); (c) when you open a Command; (d) at the end of each
+turn; (e) when Aiur asks for a refresh (`status.refresh`). `doing` is
+required. Limits: `message` one line, 200 bytes; `doing`, `why`, `next`,
+`asks` 200 bytes each; `waiting_on` 120; `risks` 160; `pr` 16; the whole
+payload 1,280 bytes; 6 notes per turn.
+Keep it true, short, and in plain words. Never paste logs.
+
 ### Executor check-ins (`operator.progress_request`)
 
 Every five minutes, Aiur publishes `operator.progress_request` to each active agent's event subscription. You see it as one event line in the digest the next time your turn boundary drains — exactly like a firehose comment, never mid-tool-call.

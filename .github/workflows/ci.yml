@@ -231,7 +231,7 @@ jobs:
           # /tmp; df free space does not reflect EDQUOT limits.
           TMPDIR: ${{ runner.temp }}
         # Keep the step timeout and file-backed log so failure evidence survives runner loss.
-        run: bash ../scripts/run-coverage-partition.sh "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" "$RUNNER_TEMP/shard-evidence/coverage-file-times.tsv" "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.status"
+        run: AIUR_LIFECYCLE_LEAK_GUARD_MODE=report AIUR_LIFECYCLE_LEAK_REPORT="$RUNNER_TEMP/lifecycle-leaks-${{ matrix.partition }}.txt" bash ../scripts/run-coverage-partition.sh "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" "$RUNNER_TEMP/shard-evidence/coverage-file-times.tsv" "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.status"
       - name: Report shard composition
         if: ${{ (always()) && needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
@@ -278,7 +278,7 @@ jobs:
           PARTITION_OUTCOME: ${{ steps.partition-tests.outcome }}
           RETRY_OUTCOME: ${{ steps.retry-known-flakes.outcome }}
         run: >-
-          python3 scripts/record-coverage-flakes.py
+          AIUR_LIFECYCLE_LEAK_REPORT="$RUNNER_TEMP/lifecycle-leaks-${{ matrix.partition }}.txt" python3 scripts/record-coverage-flakes.py
           "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
           "$PARTITION_OUTCOME" "$RUNNER_TEMP/previous-shard-attempts"
           "$RUNNER_TEMP/shard-evidence" "$GITHUB_STEP_SUMMARY"
