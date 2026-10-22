@@ -14,12 +14,15 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.Orchestrator.StatusCLI.AgentsTable
   alias Aiur.Orchestrator.StatusCLI.Capacity
   alias Aiur.Orchestrator.StatusCLI.Diagnostics
+  alias Aiur.Orchestrator.StatusCLI.Sections
   alias Aiur.Orchestrator.StatusCLI.StatusTable
   alias Aiur.Orchestrator.StatusCLI.Watch
 
   @status_timeout_ms 5_000
   # Leave room to render the daemon timeout before the 10-second watchdog edge (#1684).
   @agents_timeout_ms 6_000
+  # One shared bound for the daemon-read sections, so `status` stays under 3s.
+  @section_timeout_ms 1_500
 
   @spec status(keyword()) :: :ok
   def status(opts \\ []) do
@@ -96,13 +99,13 @@ defmodule Aiur.Orchestrator.StatusCLI do
   end
 
   defp print_status_report(statuses, snapshot, opts) do
-    Diagnostics.print_executor_listener_status()
-    ExecutorAttention.CLI.print_wake_status()
-    Commands.print_projection_status()
-    Diagnostics.print_codeowners_trust()
-    ReloadRejection.print_status()
-    Aiur.Handoff.CLI.print_latest()
-    Aiur.MergePolicyCLI.print()
+    bound_ms = control_query_timeout(opts, :section_timeout_ms, @section_timeout_ms)
+    deadline_ms = System.monotonic_time(:millisecond) + bound_ms
+    # Start every daemon read now so they overlap the table rendering (#5817).
+    header = Sections.start(header_sections())
+    footer = Sections.start(footer_sections(opts))
+    header_outcomes = Sections.await(header, deadline_ms, bound_ms)
+
     tracker_states = StatusTable.tracker_state_sets()
     # Count printed rows so hidden releases cannot inflate the headline (#1475).
     visible_statuses = Enum.filter(statuses, &StatusTable.visible_status_row?(&1, tracker_states))
@@ -123,13 +126,43 @@ defmodule Aiur.Orchestrator.StatusCLI do
     SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
     Capacity.print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
     print_polling_status(Map.get(snapshot, :polling))
-    supervision_exit_code = Diagnostics.print_supervision_health()
-    Diagnostics.print_ci_readiness()
-    Diagnostics.print_build_gate_status()
-    if Config.tracker_kind() == "github", do: HoldPressure.print_status()
-    Diagnostics.print_prewarm_status()
-    Watch.print_blocking_asks(opts)
-    exit_marker(supervision_exit_code)
+    footer_outcomes = Sections.await(footer, deadline_ms, bound_ms)
+    exit_marker(status_exit_code(header_outcomes ++ footer_outcomes))
+  end
+
+  defp header_sections do
+    [
+      listener: &Diagnostics.print_executor_listener_status/0,
+      wakes: &ExecutorAttention.CLI.print_wake_status/0,
+      commands: &Commands.print_projection_status/0,
+      comment_trust: &Diagnostics.print_codeowners_trust/0,
+      reload: &ReloadRejection.print_status/0,
+      handoff: &Aiur.Handoff.CLI.print_latest/0,
+      merge_policy: &Aiur.MergePolicyCLI.print/0
+    ]
+  end
+
+  defp footer_sections(opts) do
+    [
+      supervision: &Diagnostics.print_supervision_health/0,
+      ci_readiness: &Diagnostics.print_ci_readiness/0,
+      build_gate: &Diagnostics.print_build_gate_status/0,
+      hold_pressure: fn -> if Config.tracker_kind() == "github", do: HoldPressure.print_status() end,
+      prewarm: &Diagnostics.print_prewarm_status/0,
+      operator_asks: fn -> Watch.print_blocking_asks(opts) end
+    ]
+  end
+
+  # Supervision health owns the exit code; a section that could not be read at
+  # all is a failed read, not a healthy one, so it fails the command too.
+  defp status_exit_code(outcomes) do
+    supervision =
+      case Keyword.fetch!(outcomes, :supervision) do
+        {fresh_or_stale, code} when fresh_or_stale in [:ok, :stale] and is_integer(code) -> code
+        _unread -> 1
+      end
+
+    if Enum.any?(outcomes, &match?({_name, :unavailable}, &1)), do: max(supervision, 1), else: supervision
   end
 
   defp print_polling_status(polling) do
