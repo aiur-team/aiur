@@ -60,7 +60,7 @@ test('browser shards have bounded timeouts and home matrix keeps an independent 
     { shard: 2, visual_regression: 'first' },
     { shard: 5, visual_regression: 'second' },
     ...Object.entries(shards).filter(([id, commands]) => Number(id) !== 1 &&
-      commands.some(command => ['test:build-home-usage', 'test:build-home-edges-parity', 'test:build-home-gantt'].includes(command)))
+      commands.some(command => ['test:build-home-usage', 'test:build-home-edges-parity', 'test:build-home-gantt', 'test:build-home-chains'].includes(command)))
       .map(([id]) => ({ shard: Number(id), upload_evidence: true })),
   ])
   assert.equal(browser.steps[2].with.visual_regression, "${{ matrix.visual_regression || 'none' }}")

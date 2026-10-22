@@ -1,5 +1,6 @@
 import { test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 
 const nonempty = value => typeof value === 'string' && value.trim().length > 0
 const kinds = ['design-removal', 'pixel-mask', 'design-style', 'property', 'motion', 'axe', 'copy']
@@ -12,6 +13,7 @@ export async function loadAllowlist(source = new URL('./design-parity-allowlist.
     const a = entry.approval
     const valid = nonempty(entry.id) && !ids.has(entry.id) && kinds.includes(entry.kind) && nonempty(entry.selector) && nonempty(entry.reason)
       && !Object.hasOwn(entry, 'approved') && a && nonempty(a.ref)
+      && (entry.spec == null || (nonempty(entry.spec) && /^[a-z0-9-]+\.browser\.spec\.mjs$/.test(entry.spec)))
       && (a.status === 'pending-sign-off' || (a.status === 'approved' && a.by === 'Kevin' && /^\d{4}-\d{2}-\d{2}$/.test(a.date) && !Number.isNaN(Date.parse(a.date)) && new Date(a.date).toISOString().slice(0, 10) === a.date))
       && Object.entries({ css: 'design-style', property: 'property', rule: 'axe', path: 'motion' }).every(([field, kind]) => entry.kind === kind ? nonempty(entry[field]) : entry[field] == null)
       && (entry.kind !== 'motion' || !/[?{}]/.test(entry.path))
@@ -36,6 +38,7 @@ export async function applyAllowlist(pair, cell, entries) {
   entries ??= pair.allowlist ?? await loadAllowlist()
   const masks = { designMask: [], productMask: [] }
   for (const entry of entries) {
+    if (entry.spec && entry.spec !== basename(test.info().file)) continue
     if (entry.kind === 'motion') continue
     if (!Object.entries(entry.cells ?? {}).every(([key, value]) => (key === 'viewport' ? `${cell.viewport.width}x${cell.viewport.height}` : cell[key]) === value)) continue
     // Motion paths have their own stale-difference check.

@@ -57,6 +57,13 @@ test('empty fleet is 86px, unavailable source has separate copy and no presets',
   await expect(page.locator('.bd-now-empty')).toHaveText('Agent states unavailable')
   await expect(page.locator('.bd-now-st button, .bd-now-sum')).toHaveCount(0)
 })
+test('unavailable band rows without a rendered card element are skipped during relayout', async ({ page }) => {
+  await open(page, 'now0')
+  await page.evaluate(async () => {
+    const { place } = await import('/build-home/render.js')
+    place(undefined, { sec: 'now', key: 'b0', y: 0, h: 20 })
+  })
+})
 test('clock ticks on payload minute boundaries without new diffs and preserves cached timestamps', async ({ page }) => {
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000); await open(page)
   await expect(page.locator('.bd-now-h time')).toHaveText('14:20')
