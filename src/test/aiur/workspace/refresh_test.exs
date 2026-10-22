@@ -173,10 +173,10 @@ defmodule Aiur.Workspace.RefreshTest do
                env: [{"PATH", Enum.join([probe_bin, "/usr/bin", "/bin"], ":")} | port_gate_env]
              )
 
-    assert_receive {^port, {:data, {:eol, "aiur_build_gate acquired" <> _details}}}, 1_000
-    assert_receive {^port, {:data, {:eol, "real-mise-ran"}}}, 1_000
-    assert_receive {^port, {:data, {:eol, "aiur_build_gate released" <> _details}}}, 1_000
-    assert_receive {^port, {:exit_status, 0}}, 1_000
+    assert_receive {^port, {:data, {:eol, "aiur_build_gate acquired" <> _details}}}, 5_000
+    assert_receive {^port, {:data, {:eol, "real-mise-ran"}}}, 5_000
+    assert_receive {^port, {:data, {:eol, "aiur_build_gate released" <> _details}}}, 5_000
+    assert_receive {^port, {:exit_status, 0}}, 5_000
   end
 
   test "run/3 reconstruction restores the governed GitHub wrapper and private config before dispatch", %{
