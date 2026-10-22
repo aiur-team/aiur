@@ -59,6 +59,8 @@ defmodule AiurWeb.BuildLiveCutoverTest do
 
   test "unknown pause stays unknown and rejects a forged toggle on home and Units" do
     Phoenix.Config.put(AiurWeb.Endpoint, :orchestrator, :cutover_missing_orchestrator)
+    # An adopted endpoint can carry another test's read-only mode, which refuses before the unknown check.
+    Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, true)
 
     for path <- ["/", "/units"] do
       {:ok, view, _} = live(build_conn(), path)
