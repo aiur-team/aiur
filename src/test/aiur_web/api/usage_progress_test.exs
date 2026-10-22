@@ -55,6 +55,8 @@ defmodule AiurWeb.Api.UsageProgressTest do
       "2026-07-15T12:00:02Z [event:emit] id=3 ticket.#{id}.pr.opened: PR #9",
       # A dependency's progress delivered to this agent is not this ticket's progress.
       "2026-07-15T12:00:03Z [event:consumed] id=4 ticket.999.agent.progress: 90%",
+      # Not a workflow phase, so not phase history.
+      "2026-07-15T12:00:03Z [event:emit_alert] id=7 ticket.#{id}.agent.phase.deploy.start: deploy",
       "2026-07-15T12:00:04Z [event:emit_alert] id=5 ticket.#{id}.agent.phase.plan.end: plan",
       "2026-07-15T12:00:05Z [event:self] id=6 ticket.#{id}.agent.progress.checkin: 40% tests green"
     ])
@@ -111,6 +113,14 @@ defmodule AiurWeb.Api.UsageProgressTest do
     assert payload["phase"] == %{"status" => "unknown"}
     assert payload["repository"] == "owner/repo"
     assert payload["sources"]["activity"] == "unavailable"
+  end
+
+  test "a projection answering an unexpected shape is unavailable, not an empty ticket", %{ticket: ticket} do
+    opts = [activity_fun: fn -> {:error, :booting} end, retention_fun: fn -> :not_a_map end, now: @now]
+
+    assert {:ok, payload} = UsageProgress.payload(ticket.identifier, opts)
+    assert payload["sources"]["activity"] == "unavailable"
+    assert payload["progress"] == %{"status" => "unknown"}
   end
 
   test "an unreadable event log says unavailable instead of an empty history", %{server: server, ticket: ticket} do
