@@ -116,6 +116,8 @@ The numbers come from the usage aggregate that the dashboard and `mix aiur.cost_
 
 The payload has `totals`, `by_model`, `by_provider`, and `sessions`, plus `ticket`, `state`, `authority`, and `freshness`.
 
+`state` is `ok`, `partial` (some pricing or attribution unknown), `stale`, or `known_empty` (ticket known, nothing projected yet).
+
 Each session is one Aiur run (`run_id`) with its own `by_model` and `by_provider` rows.
 
 Rows carry `tokens`, `provider_reported` cost, and `api_equivalent` cost with pricing `coverage`. Money is an exact decimal string.
@@ -124,7 +126,8 @@ Errors use the `{"error":{"code":…,"message":…}}` shape.
 
 | Status | `error.code` | Meaning |
 | --- | --- | --- |
-| `404` | `usage_not_found` | The retained ledger has no usage for that ticket. A ticket whose raw records were all compacted away also reads as not found. |
+| `404` | `usage_not_found` | The ledger has no usage for that ticket and has retired no records. |
+| `404` | `usage_unresolvable` | No retained record names the ticket, but compaction retired older records, so it may have spent there. |
 | `422` | `invalid_identifier` | The identifier is not a GitHub issue number. |
 | `503` | `usage_unavailable` | The ledger, aggregate, or configured repository cannot be read. |
 
