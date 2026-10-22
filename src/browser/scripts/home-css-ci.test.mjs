@@ -114,7 +114,7 @@ test('browser shards execute every core suite exactly once', () => {
     assert.deepEqual(selected, expected)
     assert.equal(selected.length, new Set(selected).size, 'each core suite runs exactly once across shards')
     const runner = readFileSync(fileURLToPath(new URL('./run-browser-smoke-shard.mjs', import.meta.url)), 'utf8')
-    assert.match(runner, /export const budgetMs = 21 \* 60_000/)
+    assert.match(runner, /export const budgetMs = 33 \* 60_000/)
     assert.match(runner, /slowest completed suites/)
   } finally { rmSync(scratch, { recursive: true, force: true }) }
 })
