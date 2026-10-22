@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorSweep.Checks do
   @moduledoc "Builds prioritized Executor sweep findings from observed daemon and GitHub snapshot data."
 
-  alias Aiur.ExecutorSweep.{CacheFreshness, FailureCause, StaleCiWait, StateLabels, TriageBacklog}
+  alias Aiur.ExecutorSweep.{CacheFreshness, FailureCause, LatestChecks, StaleCiWait, StateLabels, TriageBacklog}
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
 
@@ -146,7 +146,7 @@ defmodule Aiur.ExecutorSweep.Checks do
     failures =
       pr
       |> value(:required_checks, [])
-      |> latest_checks_per_name()
+      |> LatestChecks.per_name()
       |> Enum.filter(&red_check?/1)
 
     # A cached row can keep "open" after the merge; merged_at is the landing proof (#5119).
@@ -169,28 +169,6 @@ defmodule Aiur.ExecutorSweep.Checks do
   end
 
   defp red_check?(check), do: value(check, :conclusion, nil) in ["failure", "cancelled", "timed_out", "startup_failure"]
-
-  defp latest_checks_per_name(checks) do
-    checks
-    |> Enum.with_index()
-    |> Enum.reduce(%{}, &keep_latest_check/2)
-    |> Map.values()
-    |> Enum.sort_by(&elem(&1, 1))
-    |> Enum.map(&elem(&1, 2))
-  end
-
-  defp check_recency(check) do
-    value(check, :started_at, nil) || value(check, :completed_at, nil) || value(check, :id, 0)
-  end
-
-  defp keep_latest_check({check, index}, latest) do
-    name = value(check, :name, "required check")
-    candidate = {check_recency(check), index, check}
-
-    Map.update(latest, name, candidate, &newer_check(candidate, &1))
-  end
-
-  defp newer_check(candidate, current), do: if(candidate > current, do: candidate, else: current)
 
   defp approved_current_head?(pr) do
     value(pr, :review_decision, "") == "APPROVED" and
