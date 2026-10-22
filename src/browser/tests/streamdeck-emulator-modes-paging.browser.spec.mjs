@@ -394,7 +394,7 @@ test('emulator and Units stay in sync after a live fleet-size change', async ({ 
   // assertions below fail even though the emulator never desynced. Loading the
   // selection from the URL keeps the scope deterministic.
   const allConditions = encodeURIComponent('active,alert,paused,queued,finished')
-  await openUnits(units, `/units?v=1&scope=unfinished&conditions=${allConditions}`)
+  await openUnits(units, `/units-fixture?v=1&scope=unfinished&conditions=${allConditions}`)
 
   const rows = units.locator('#units-rows tr.units-row')
   // The fixture exposes 7 units, of which 6 are unfinished. Confirming the
