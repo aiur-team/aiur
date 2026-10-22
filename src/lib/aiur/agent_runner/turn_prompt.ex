@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.TurnPrompt do
   @moduledoc false
 
-  alias Aiur.AgentRunner.{OptimisticPrompt, ReworkFindings}
+  alias Aiur.AgentRunner.{OptimisticPrompt, ReworkFindings, StoppedSessionPrompt}
   alias Aiur.{Issue, PromptBuilder}
 
   defp turn_of(nil), do: ""
@@ -20,7 +20,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
         :cold -> PromptBuilder.build_prompt(issue, prompt_opts)
       end
 
-    prompt <> conflict_guidance(workspace)
+    prompt <> conflict_guidance(workspace) <> stopped_session_guidance(issue, prompt_opts, workspace)
   end
 
   def build_turn_prompt(issue, opts, turn_number, max_turns) do
@@ -54,6 +54,14 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   end
 
   defp conflict_guidance(_workspace), do: ""
+
+  defp stopped_session_guidance(issue, opts, workspace) do
+    if (Keyword.get(opts, :prior_work, false) or rework_state?(issue.state)) and not Keyword.get(opts, :resumed, false) do
+      StoppedSessionPrompt.render(workspace, issue.identifier)
+    else
+      ""
+    end
+  end
 
   defp render_conflict_guidance(note) do
     case String.split(note, "## Conflicting files\n", parts: 2) do

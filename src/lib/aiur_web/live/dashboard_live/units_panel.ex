@@ -22,22 +22,8 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   @spec units_path(Phoenix.LiveView.Socket.t(), map()) :: String.t()
   def units_path(socket, selection) do
     params = UnitsURL.params(selection) |> maybe_put_table_sort(socket.assigns[:table_sort])
-    "/?" <> URI.encode_query(params)
+    Map.get(socket.assigns, :units_base_path, "/units") <> "?" <> URI.encode_query(params)
   end
-
-  # Emit only positive known counts; this producer cannot distinguish zero from unknown.
-  @doc false
-  @spec nav_counts(map(), map() | nil) :: map()
-  def nav_counts(units_view, retained_counts) do
-    %{}
-    |> put_nav_count(:units, get_in(units_view, [:counts, :active]))
-    |> put_nav_count(:commands, Map.get(retained_counts || %{}, :awaiting))
-  end
-
-  defp put_nav_count(counts, key, value) when is_integer(value) and value > 0,
-    do: Map.put(counts, key, value)
-
-  defp put_nav_count(counts, _key, _value), do: counts
 
   @doc false
   @spec assign_units_selection(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()

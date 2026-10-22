@@ -3,7 +3,8 @@ defmodule Aiur.Events.BranchRewriteClassifier do
 
   require Logger
 
-  alias Aiur.Events.{BranchRefStore, Exchange}
+  alias Aiur.Events
+  alias Aiur.Events.BranchRefStore
   alias Aiur.GitHub.Transport
 
   @spec maybe_publish(String.t(), map(), function(), keyword()) :: term()
@@ -28,11 +29,7 @@ defmodule Aiur.Events.BranchRewriteClassifier do
 
   # Fleet observers bind ticket.*.#; only dependent stores justify a compare.
   defp subscribed?(topic) do
-    Aiur.Events.SubscriptionStoreRegistry
-    |> Registry.select([{{:"$1", :"$2", :_}, [], [:"$2"]}])
-    |> Enum.any?(fn pid -> Enum.any?(Exchange.bindings_for(pid), &Exchange.matches?(&1, topic)) end)
-  rescue
-    ArgumentError -> false
+    Events.any_subscriber_matches?(topic)
   end
 
   defp classify_and_publish(id, topic, payload, publisher, opts) do
