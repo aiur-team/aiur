@@ -115,14 +115,12 @@ defmodule Aiur.Instance do
   defp labels_for(labels, _number) when is_list(labels), do: labels
   defp labels_for(_labels, nil), do: []
 
-  # ponytail: labels come from the open-ticket snapshot when a caller has only an id; a closed or unlisted ticket matches by id only.
+  # ponytail: labels come from the open-ticket snapshot (registered at boot, since config sits below github) when a
+  # caller has only an id; a closed or unlisted ticket matches by id only.
   defp labels_for(_labels, number) do
-    case Aiur.OpenTicketSource.snapshot_for_index(Aiur.OpenTicketSource, 200) do
-      %{tickets: tickets} ->
-        Enum.find_value(tickets, [], fn ticket -> if number(ticket.identifier) == number, do: ticket.labels end)
-
-      _ ->
-        []
+    case Application.get_env(:aiur, :instance_ticket_labels_fun) do
+      lookup when is_function(lookup, 1) -> lookup.(number)
+      _ -> []
     end
   end
 

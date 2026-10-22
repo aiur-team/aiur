@@ -81,6 +81,15 @@ defmodule Aiur.OpenTicketSource do
     :exit, _reason -> {:error, :unavailable}
   end
 
+  @doc "Labels of open ticket `number` from the current snapshot; `[]` when unlisted or unavailable."
+  @spec ticket_labels(integer()) :: [String.t()]
+  def ticket_labels(number) do
+    case snapshot_for_index(__MODULE__, 200) do
+      %Snapshot{tickets: tickets} -> Enum.find_value(tickets, [], &(&1.identifier == Integer.to_string(number) && &1.labels))
+      _ -> []
+    end
+  end
+
   @doc "Subscribes the caller to open-ticket change broadcasts."
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)

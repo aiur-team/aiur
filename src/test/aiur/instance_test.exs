@@ -3,6 +3,7 @@ defmodule Aiur.InstanceTest do
 
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.Instance.Ignore
+  alias Aiur.ExecutorSweep.Checks
   alias Aiur.Instance
 
   test "instance.ignore parses the three lists and defaults them empty" do
@@ -40,7 +41,7 @@ defmodule Aiur.InstanceTest do
       merge_groups: [group.(4447), group.(4448)]
     }
 
-    findings = Aiur.ExecutorSweep.Checks.all(snapshot, now)
+    findings = Checks.all(snapshot, now)
     assert for(%{kind: "unreviewed_human_review_pr", pull_request: n} <- findings, do: n) == [4447]
     assert for(%{kind: "stale_merge_group", merge_group: name} <- findings, do: name) == ["gh-readonly-queue/main/pr-4447-abc"]
   end

@@ -2,6 +2,7 @@ defmodule Aiur.ExecutorSweep.Checks do
   @moduledoc "Builds prioritized Executor sweep findings from observed daemon and GitHub snapshot data."
 
   alias Aiur.ExecutorSweep.{CacheFreshness, FailureCause, StaleCiWait, StateLabels, TriageBacklog}
+  alias Aiur.Instance.SweepFilter
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
 
@@ -16,7 +17,7 @@ defmodule Aiur.ExecutorSweep.Checks do
     unreviewed_minutes = Keyword.get(opts, :unreviewed_pr_minutes, 10)
     stale_minutes = Keyword.get(opts, :merge_group_stale_minutes, 15)
     github_freshness_ms = Keyword.get(opts, :github_freshness_ms, 5 * 60_000)
-    snapshot = Aiur.Instance.SweepFilter.own(snapshot)
+    snapshot = SweepFilter.own(snapshot)
 
     [
       {"unreviewed_prs", [:pull_requests, :tickets], fn -> unreviewed_prs(snapshot, now, unreviewed_minutes) end},

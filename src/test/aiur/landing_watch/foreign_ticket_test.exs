@@ -57,6 +57,32 @@ defmodule Aiur.LandingWatch.ForeignTicketTest do
     refute_received {:transition, _, _}
   end
 
+  test "a conflicting queued PR is withdrawn for a native ticket and left alone for an ignored one" do
+    parent = self()
+
+    opts =
+      parent
+      |> landing_opts(journal_path())
+      |> Keyword.merge(
+        observe_fun: fn _ -> {:ok, [%{approved_observation("conflict-head") | merge_queue_entry: %{"id" => "MQE_1"}} |> Map.merge(%{base: "main", mergeable: "CONFLICTING", merge_state_status: "DIRTY"})]} end,
+        journal_prune_fun: fn _, _ -> :ok end,
+        queue_reconcile_fun: fn _, _ -> :ok end,
+        withdraw_fun: fn number -> send(parent, {:withdraw, number}) && {:ok, [:dequeued]} end,
+        transition_fun: fn id, target, _ -> send(parent, {:transition, id, target}) && :ok end,
+        comment_fun: fn _id, _body -> :ok end,
+        write_marker_fun: fn _id, _op, _label, _opts -> :ok end
+      )
+
+    assert :ok = LandingWatch.poll(opts)
+    assert_received {:withdraw, 17}
+    assert_received {:ticket_state_read, "17"}
+
+    ignore!("    tickets: [17]\n")
+    assert :ok = LandingWatch.poll(Keyword.put(opts, :journal_path, journal_path()))
+    refute_received {:withdraw, _}
+    refute_received {:ticket_state_read, _}
+  end
+
   defp ignore!(rules) do
     path = Workflow.workflow_file_path()
     write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n" <> rules)

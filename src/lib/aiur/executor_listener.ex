@@ -221,10 +221,15 @@ defmodule Aiur.ExecutorListener do
       wake_blocking_decision(event, inbox)
     else
       case ExecutorWakeProjection.project(event) do
-        {:ok, record} -> unless Aiur.Instance.skip?(record["ticket"], nil, :executor_wake), do: ExecutorWakeInbox.enqueue(record, inbox), else: :ok
+        {:ok, record} -> enqueue_wake(record, inbox)
         :ignore -> :ok
       end
     end
+  end
+
+  # Another instance's ticket wakes that instance's Executor, not this one (#5803).
+  defp enqueue_wake(record, inbox) do
+    if Aiur.Instance.skip?(record["ticket"], nil, :executor_wake), do: :ok, else: ExecutorWakeInbox.enqueue(record, inbox)
   end
 
   # A structured Decision reaches the Executor only as `executor.decision.requested`,

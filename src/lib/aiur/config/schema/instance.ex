@@ -22,6 +22,8 @@ defmodule Aiur.Config.Schema.Instance do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Aiur.Config.Schema.Instance.Ignore
+
   @primary_key false
   embedded_schema do
     # @config-reference config-configuration-00 instance.role
@@ -35,6 +37,6 @@ defmodule Aiur.Config.Schema.Instance do
     schema
     |> cast(attrs, [:role], empty_values: [])
     |> validate_inclusion(:role, ["primary", "secondary"])
-    |> cast_embed(:ignore, with: &Aiur.Config.Schema.Instance.Ignore.changeset/2)
+    |> cast_embed(:ignore, with: &Ignore.changeset/2)
   end
 end
