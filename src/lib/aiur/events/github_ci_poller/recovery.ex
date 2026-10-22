@@ -4,6 +4,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   alias Aiur.{AlertFeed, Alerts, Config}
   alias Aiur.CI.{FailureDigest, TransientNetworkFailure}
   alias Aiur.Events.GithubCIPoller.BaseCause
+  alias Aiur.Events.GithubCIPoller.RecoverySafety, as: Safety
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
 
@@ -24,13 +25,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   def recover(issue, %{pending_reason: :ci_cancelled, pr_number: number, head_sha: sha} = result, opts)
       when is_integer(number) and is_binary(sha) do
-    target = to_string(issue.identifier || issue.id)
-
-    case Store.read(target, number, opts) do
-      {:ok, %{"hold" => %{"sha" => ^sha} = hold}} -> hold_result(result, hold)
-      {:ok, _entry} -> attention(issue, result, "rerun_skipped", "cancelled_run", opts)
-      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
-    end
+    if recovery_enabled?(opts), do: recover_cancelled(issue, result, number, sha, opts), else: result
   end
 
   def recover(issue, %{pr_number: number, head_sha: sha} = result, opts) when is_integer(number) and is_binary(sha) do
@@ -43,6 +38,36 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   def recover(_issue, result, _opts), do: result
+
+  defp recovery_enabled?(opts), do: Keyword.get_lazy(opts, :ci_recovery_enabled, &Config.ci_recovery_enabled?/0)
+
+  defp recover_cancelled(issue, result, number, sha, opts) do
+    target = to_string(issue.identifier || issue.id)
+
+    case Store.read(target, number, opts) do
+      {:ok, %{"hold" => %{"sha" => ^sha} = hold}} ->
+        hold_result(result, hold)
+
+      {:ok, entry} ->
+        recover_cancelled_entry(issue, result, entry, sha, opts)
+
+      {:error, reason} ->
+        attention(issue, result, "evidence_unavailable", reason, opts)
+    end
+  end
+
+  defp recover_cancelled_entry(issue, result, entry, sha, opts) do
+    case digest(sha, opts) do
+      {:ok, digest} ->
+        case Safety.cancelled_checks(digest, sha, entry) do
+          [] -> attention(issue, result, "rerun_skipped", "cancelled_run", opts)
+          checks -> recover_failure(issue, Map.merge(result, %{ci_failure_digest: digest, failures: checks}), entry, opts)
+        end
+
+      {:error, reason} ->
+        attention(issue, result, "evidence_unavailable", reason, opts, "transient")
+    end
+  end
 
   # The batch snapshot can predate an auto-merge re-enable (#4672), so an
   # approved failure it reports as not landing is confirmed live before rework.
@@ -139,7 +164,8 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   defp digest(sha, opts), do: Keyword.get(opts, :ci_failure_digest, &FailureDigest.build/2).(sha, opts)
 
   defp recover_failure(issue, result, entry, opts) do
-    if get_in(entry, ["heads", result.head_sha]) != nil or retryable?(result.ci_failure_digest, result.pr_number, opts) do
+    if result[:pending_reason] == :ci_cancelled or infrastructure_failure?(result) or get_in(entry, ["heads", result.head_sha]) != nil or
+         retryable?(result.ci_failure_digest, result.pr_number, opts) do
       case Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(result.pr_number, opts) do
         {:ok, pr} -> choose_recovery(issue, result, entry, pr, opts)
         {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts, "transient")
@@ -149,25 +175,20 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     end
   end
 
+  defp infrastructure_failure?(%{failures: [_ | _] = failures}) do
+    Enum.all?(failures, fn failure ->
+      failure[:result] in ["cancelled", "timed_out", "startup_failure"] or
+        (is_binary(failure[:excerpt]) and String.match?(failure[:excerpt], ~r/(?:ECONNRESET|runner.*lost|artifact.*upload.*(?:error|failed))/i))
+    end)
+  end
+
+  defp infrastructure_failure?(_result), do: false
+
   defp choose_recovery(issue, result, entry, pr, opts) do
-    cond do
-      pr["state"] != "OPEN" or pr["headRefOid"] != result.head_sha ->
-        held(result, "head_changed")
-
-      pr["isDraft"] != false ->
-        if pr["isDraft"] == true, do: attention(issue, result, "rerun_skipped", "draft_pr", opts), else: held(result, "pr_observation_unavailable")
-
-      pr["reviewDecision"] == "CHANGES_REQUESTED" ->
-        attention(issue, result, "rerun_skipped", "changes_requested", opts)
-
-      not Map.has_key?(pr, "mergeQueueEntry") ->
-        held(result, "queue_observation_unavailable")
-
-      pr["mergeQueueEntry"] != nil ->
-        held(result, "merge_queue")
-
-      true ->
-        rerun(issue, result, entry, opts)
+    case Safety.recovery_gate(result, pr) do
+      {:held, reason} -> held(result, reason)
+      {:skipped, reason} -> attention(issue, result, "rerun_skipped", reason, opts)
+      :ready -> rerun(issue, result, entry, opts)
     end
   end
 
@@ -203,36 +224,49 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp rerun(issue, result, entry, opts) do
     case get_in(entry, ["heads", result.head_sha]) do
-      nil -> start_rerun(issue, result, opts)
+      nil -> start_rerun(issue, result, entry, opts)
       %{"error" => error} -> attention(issue, result, "rerun_failed", error, opts)
       %{"runs" => runs} = attempt -> observe_rerun(issue, result, runs, attempt, opts)
     end
   end
 
-  defp start_rerun(issue, result, opts) do
-    case failing_runs(result.ci_failure_digest.checks, result.head_sha, opts) do
-      {:ok, runs} -> prepare_reruns(issue, result, runs, opts)
-      {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
+  defp start_rerun(issue, result, entry, opts) do
+    checks = Safety.cancelled_checks(result.ci_failure_digest, result.head_sha, entry)
+
+    if checks == [] and result.ci_failure_digest.checks != [] do
+      attention(issue, result, "rerun_skipped", "cancelled_run", opts)
+    else
+      digest = %{result.ci_failure_digest | checks: checks}
+      result = %{result | ci_failure_digest: digest}
+
+      case Safety.failing_runs(checks, result.head_sha, opts) do
+        {:ok, runs} -> prepare_reruns(issue, result, runs, opts)
+        {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
+      end
     end
   end
 
   defp prepare_reruns(issue, result, runs, opts) do
-    if Enum.any?(runs, &(&1["conclusion"] == "cancelled")) do
-      attention(issue, result, "rerun_skipped", "cancelled_run", opts)
+    if runs == [] do
+      result
     else
-      case Store.reserve_reruns(
-             Keyword.get(opts, :ci_recovery_poll_id, :standalone),
-             length(runs),
-             Config.ci_recovery_max_per_poll(),
-             Config.ci_recovery_max_per_hour(),
-             opts
-           ) do
-        :ok -> persist_and_request(issue, result, runs, opts)
-        {:error, :poll_limit_reached} -> held(result, "rerun_limit")
-        {:error, {:hour_limit_reached, retry_at}} -> defer_reruns(issue, result, retry_at, opts)
-        {:error, :ticket_exceeds_rerun_limit} -> attention(issue, result, "rerun_skipped", "ticket_exceeds_limit", opts)
-        {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
-      end
+      reserve_and_request(issue, result, runs, opts)
+    end
+  end
+
+  defp reserve_and_request(issue, result, runs, opts) do
+    case Store.reserve_reruns(
+           Keyword.get(opts, :ci_recovery_poll_id, :standalone),
+           length(runs),
+           Config.ci_recovery_max_per_poll(),
+           Config.ci_recovery_max_per_hour(),
+           opts
+         ) do
+      :ok -> persist_and_request(issue, result, runs, opts)
+      {:error, :poll_limit_reached} -> held(result, "rerun_limit")
+      {:error, {:hour_limit_reached, retry_at}} -> defer_reruns(issue, result, retry_at, opts)
+      {:error, :ticket_exceeds_rerun_limit} -> attention(issue, result, "rerun_skipped", "ticket_exceeds_limit", opts)
+      {:error, reason} -> rerun_error(issue, result, "rerun_unavailable", reason, opts)
     end
   end
 
@@ -271,35 +305,6 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       {:error, reason} -> {:halt, {:error, reason}}
     end
   end
-
-  defp failing_runs(checks, sha, opts) do
-    ids = checks |> Enum.map(&run_id(&1.url)) |> Enum.uniq()
-
-    if ids == [] or nil in ids do
-      {:error, :missing_actions_run_identity}
-    else
-      Enum.reduce_while(ids, {:ok, []}, &read_run(&1, &2, sha, opts))
-    end
-  end
-
-  defp read_run(id, {:ok, runs}, sha, opts) do
-    case CIRecovery.read("/actions/runs/#{id}", opts) do
-      {:ok, %{"head_sha" => ^sha, "run_attempt" => attempt, "status" => "completed", "conclusion" => conclusion}} when is_integer(attempt) and conclusion in ["failure", "timed_out", "cancelled"] ->
-        {:cont, {:ok, runs ++ [%{"id" => id, "attempt" => attempt, "conclusion" => conclusion}]}}
-
-      other ->
-        {:halt, {:error, {:invalid_actions_run, id, other}}}
-    end
-  end
-
-  defp run_id(url) when is_binary(url) do
-    case Regex.run(~r{/actions/runs/(\d+)(?:/|$)}, url) do
-      [_, id] -> String.to_integer(id)
-      _ -> nil
-    end
-  end
-
-  defp run_id(_), do: nil
 
   defp observe_rerun(issue, result, runs, attempt, opts) do
     observations = Enum.map(runs, &CIRecovery.read("/actions/runs/#{&1["id"]}", opts))
@@ -420,9 +425,6 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     end
   end
 
-  # Besides a rerun in flight, a transient error or an approved head whose
-  # landing state is unreadable holds red; other stops raise their attention
-  # and still route the failure, subject to the base gate (#5133).
   defp hold_result(result, %{"tests" => tests, "mode" => mode} = hold) do
     result = Map.put(result, :ci_recovery_tests, tests)
 
@@ -431,8 +433,6 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
       else: held(result, hold["reason"])
   end
 
-  # A red head reaches rework only when the PR caused it; a check also red on
-  # the base, or with no base evidence, holds with one attention (#5133).
   defp base_gate(%{decision: :failed, head_sha: sha} = result, issue, entry, opts) do
     case BaseCause.classify(result, opts) do
       :caused_by_pr ->

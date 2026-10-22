@@ -95,7 +95,7 @@ defmodule Aiur.GitHub.RequestLog do
   @doc false
   @spec default_path() :: String.t() | nil
   def default_path do
-    case Settings.path(:request_log_dir) do
+    case Settings.path(Settings.current(), :request_log_dir) do
       nil -> nil
       dir -> Path.join(dir, "daemon-requests.tsv")
     end
