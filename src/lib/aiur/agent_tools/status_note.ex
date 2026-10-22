@@ -5,14 +5,18 @@ defmodule Aiur.AgentTools.StatusNote do
   for why the note exists and where it is kept).
 
   An unknown field, a non-string value, an over-long field or a payload over
-  1,200 bytes is rejected with an error that names the limit, so the agent can
+  1,280 bytes, or a `message` over 200 bytes or on more than one line, is rejected with an error that names the limit, so the agent can
   fix it. Every accepted string goes through `Aiur.SecretRedactor`, so a token
   never reaches the bus or the store.
   """
 
   alias Aiur.SecretRedactor
 
-  @max_payload_bytes 1_200
+  # Every field at its own cap, plus keys and the longest `updated_reason`,
+  # encodes to about 1,201 bytes, so the whole-payload cap leaves headroom for
+  # that instead of rejecting a note whose fields are each within limits.
+  @max_payload_bytes 1_280
+  @max_message_bytes 200
   @field_limits [
     {"doing", 200},
     {"why", 200},
@@ -39,11 +43,20 @@ defmodule Aiur.AgentTools.StatusNote do
   def validate(message, payload) when is_binary(message) and is_map(payload) do
     payload = Map.new(payload, fn {key, value} -> {to_string(key), value} end)
 
-    with :ok <- check_payload_size(payload),
+    with :ok <- check_message(message),
+         :ok <- check_payload_size(payload),
          :ok <- check_known_fields(payload),
          {:ok, fields} <- check_fields(payload),
          {:ok, reason} <- check_updated_reason(payload) do
       {:ok, SecretRedactor.redact(message), Map.put(fields, "updated_reason", reason)}
+    end
+  end
+
+  defp check_message(message) do
+    cond do
+      String.contains?(message, ["\n", "\r"]) -> invalid("status note `message` must be one line.")
+      byte_size(message) > @max_message_bytes -> invalid("status note `message` is #{byte_size(message)} bytes; the limit is #{@max_message_bytes} bytes.")
+      true -> :ok
     end
   end
 

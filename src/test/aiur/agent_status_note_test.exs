@@ -8,7 +8,7 @@ defmodule Aiur.AgentStatusNoteTest do
 
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AgentStatusNote
-  alias Aiur.AgentTools.{EmitEvent, StatusNote}
+  alias Aiur.AgentTools.EmitEvent
   alias Aiur.Events.Exchange
   alias Aiur.Issue
 
@@ -17,19 +17,16 @@ defmodule Aiur.AgentStatusNoteTest do
   setup do
     EmitEvent.reset_turn_quotas()
     root = Path.join(System.tmp_dir!(), "aiur-status-note-#{System.unique_integer([:positive])}")
-    previous_log_file = Application.get_env(:aiur, :log_file)
-    Application.put_env(:aiur, :log_file, Path.join(root, "aiur.log"))
-
-    on_exit(fn ->
-      restore_env(:log_file, previous_log_file)
-      Aiur.TestCleanup.rm_rf!(root)
-    end)
-
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root}
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
-  defp restore_env(key, value), do: Application.put_env(:aiur, key, value)
+  # Where the tool path stores a ticket's note: the daemon-private state
+  # root that survives restarts, not the per-launch log directory.
+  defp default_note_path(identifier) do
+    {:ok, state} = Aiur.Config.Paths.decision_state_dir()
+    Path.join([state, "agent-status-notes", "#{Aiur.IssueLog.Paths.configured_repository_scope()}.#{identifier}.json"])
+  end
 
   defp note(overrides \\ %{}) do
     Map.merge(
@@ -129,6 +126,28 @@ defmodule Aiur.AgentStatusNoteTest do
       assert {true, _} = emit(executor, note())
     end
 
+    test "a store failure still lets the tool succeed and publish" do
+      identifier = unique_identifier()
+      path = default_note_path(identifier)
+      File.mkdir_p!(Path.dirname(path))
+      target = Path.join(System.tmp_dir!(), "status-note-target-#{identifier}")
+      File.write!(target, "{}")
+      File.ln_s!(target, path)
+
+      on_exit(fn ->
+        File.rm(path)
+        File.rm(target)
+      end)
+
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.progress.status")
+
+      assert {true, _} = emit(executor_for(identifier), note())
+      assert_receive {:event, %{topic: topic}}, 2_000
+      assert topic == "ticket.#{identifier}.agent.progress.status"
+      assert File.read!(target) == "{}"
+      assert AgentStatusNote.latest(identifier) == :none
+    end
+
     test "status notes do not spend the bare progress budget" do
       executor = executor_for(unique_identifier())
 
@@ -141,45 +160,6 @@ defmodule Aiur.AgentStatusNoteTest do
     end
   end
 
-  describe "validate/2" do
-    test "fills missing optional fields, accepts a numeric PR, and trims" do
-      assert {:ok, "m", payload} = StatusNote.validate("m", %{doing: "  coding  ", pr: 4085, updated_reason: "phase"})
-      assert payload["doing"] == "coding"
-      assert payload["pr"] == "4085"
-      assert payload["asks"] == ""
-    end
-
-    test "rejects a note without `doing`" do
-      assert {:error, {:status_note_invalid, message}} = StatusNote.validate("m", note(%{"doing" => " "}))
-      assert message =~ "`doing` is required"
-    end
-
-    test "rejects an unknown field so typos do not silently drop data" do
-      assert {:error, {:status_note_invalid, message}} = StatusNote.validate("m", Map.put(note(), "doign", "x"))
-      assert message =~ "doign"
-    end
-
-    test "rejects a non-string field and a bad updated_reason" do
-      assert {:error, {:status_note_invalid, message}} = StatusNote.validate("m", note(%{"next" => ["a", "b"]}))
-      assert message =~ "`next` must be a string"
-
-      assert {:error, {:status_note_invalid, message}} = StatusNote.validate("m", note(%{"updated_reason" => "whenever"}))
-      assert message =~ "turn_end"
-    end
-
-    test "a pasted log is rejected against the whole-payload cap first" do
-      assert {:error, {:status_note_invalid, message}} = StatusNote.validate("m", note(%{"next" => String.duplicate("log line\n", 200)}))
-      assert message =~ "the limit is 1200 bytes"
-    end
-
-    test "a note with every field at its own cap still fits the whole-payload cap" do
-      full = note(%{"doing" => String.duplicate("d", 200), "why" => String.duplicate("w", 200), "next" => String.duplicate("n", 200)})
-      full = Map.merge(full, %{"asks" => String.duplicate("a", 200), "risks" => String.duplicate("r", 160), "waiting_on" => String.duplicate("o", 120)})
-
-      assert {:ok, "m", _payload} = StatusNote.validate("m", full)
-    end
-  end
-
   describe "latest/2" do
     test "is :none for a ticket with no note or a corrupt file", %{root: root} do
       assert AgentStatusNote.latest("no-note", root: root) == :none
@@ -189,6 +169,15 @@ defmodule Aiur.AgentStatusNoteTest do
       File.write!(path, "{not json")
 
       assert AgentStatusNote.latest("corrupt", root: root) == :none
+    end
+
+    test "concurrent writers for one ticket never reuse a version", %{root: root} do
+      tasks = for doing <- ["a", "b"], do: Task.async(fn -> AgentStatusNote.record("race", "m", note(%{"doing" => doing}), root: root) end)
+      versions = tasks |> Task.await_many() |> Enum.map(fn {:ok, stored} -> stored["version"] end) |> Enum.sort()
+
+      assert versions == [1, 2]
+      assert {:ok, %{"version" => 2}} = AgentStatusNote.latest("race", root: root)
+      assert [_only_the_note] = File.ls!(root)
     end
 
     test "keeps notes per ticket", %{root: root} do

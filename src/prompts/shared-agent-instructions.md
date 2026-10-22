@@ -291,8 +291,9 @@ Write or update it: (a) at each phase boundary, paired with the `progress`
 emit; (b) before a step you expect to take more than about 3 minutes (a long
 test run, a big refactor); (c) when you open a Command; (d) at the end of each
 turn; (e) when Aiur asks for a refresh (`status.refresh`). `doing` is
-required. Limits: `doing`, `why`, `next`, `asks` 200 bytes each; `waiting_on`
-120; `risks` 160; `pr` 16; the whole payload 1,200 bytes; 6 notes per turn.
+required. Limits: `message` one line, 200 bytes; `doing`, `why`, `next`,
+`asks` 200 bytes each; `waiting_on` 120; `risks` 160; `pr` 16; the whole
+payload 1,280 bytes; 6 notes per turn.
 Keep it true, short, and in plain words. Never paste logs.
 
 ### Executor check-ins (`operator.progress_request`)

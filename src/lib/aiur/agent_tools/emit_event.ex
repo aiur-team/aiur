@@ -45,7 +45,7 @@ defmodule Aiur.AgentTools.EmitEvent do
       "name" => %{
         "type" => "string",
         "description" =>
-          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.status (status note; payload %{doing, why, next, waiting_on, asks, risks, pr, updated_reason}, ≤1,200 bytes, 6 per turn), progress.<slug>, decision.<slug> (decision.acknowledged/resolved require durable correlation payloads), blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, optimistic.integrated"
+          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.status (status note; payload %{doing, why, next, waiting_on, asks, risks, pr, updated_reason}, one-line message ≤200 bytes, payload ≤1,280 bytes, 6 per turn), progress.<slug>, decision.<slug> (decision.acknowledged/resolved require durable correlation payloads), blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, optimistic.integrated"
       },
       "message" => %{"type" => "string", "description" => "Short human-readable summary."},
       "payload" => %{
