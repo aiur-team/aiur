@@ -126,7 +126,7 @@ defmodule Aiur.Events.GithubWebhookReconcileTest do
         "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/#{ticket}-slug", "sha" => "newsha"}}
       }
 
-      assert {:reconcile, %{kind: :ci, ticket: ^ticket, head_sha: "newsha", action: "synchronize"}} =
+      assert {:reconcile, %{kind: :ci, ticket: ^ticket, pr_number: 901, head_sha: "newsha", action: "synchronize"}} =
                Normalizer.normalize("pull_request", delivery, repo: @repo)
     end
 

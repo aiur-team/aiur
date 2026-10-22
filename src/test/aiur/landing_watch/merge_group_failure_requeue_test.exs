@@ -39,7 +39,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
       journal_path: journal,
       live_observations_fun: fn _, _ -> {:ok, [pr]} end,
       job_log_fun: fn _, _ ->
-        {:ok, "mix test src/test/aiur/example_test.exs:12 test issue signature failed"}
+        {:ok, "  1) test issue signature (Aiur.ExampleTest)\n     test/aiur/example_test.exs:12"}
       end,
       annotations_fun: fn _, _ -> {:ok, []} end,
       jobs_fun: fn id, _ ->

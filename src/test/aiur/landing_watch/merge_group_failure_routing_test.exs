@@ -54,7 +54,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRoutingTest do
         {:ok, [%{"id" => id, "name" => "test", "conclusion" => "failure"}]}
       end,
       job_log_fun: fn _, _ ->
-        {:ok, "mix test src/test/aiur/example_test.exs:12 test base failure"}
+        {:ok, "  1) test base failure (Aiur.ExampleTest)\n     test/aiur/example_test.exs:12"}
       end,
       changed_paths_fun: fn _, _ -> {:ok, ["src/lib/changed.ex"]} end,
       known_failure_patterns: [],
@@ -107,7 +107,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRoutingTest do
       request_fun: request,
       journal_path: journal,
       live_observations_fun: fn _, _ -> {:ok, [pr]} end,
-      job_log_fun: fn _, _ -> {:ok, "mix test src/test/aiur/changed_test.exs:12 failed"} end,
+      job_log_fun: fn _, _ -> {:ok, "  1) test failed (Aiur.ChangedTest)\n     test/aiur/changed_test.exs:12"} end,
       jobs_fun: fn _, _ ->
         {:ok, [%{"id" => 901, "name" => "test", "conclusion" => "failure"}]}
       end,
