@@ -1214,13 +1214,16 @@ rework claim, not the relabels; #4646.) Verify the ticket left
 alert, run `aiur executor-sweep` (#4620) and grep the daemon log for `Rework
 dispatch claim failed` or `writer=comment_wake` before you touch a label.
 
-When you do relabel by hand, read the current labels first and remove every
-other `agent:*` state label in the same `gh issue edit`. A
+Before relabeling on a wake, read the issue's current labels and skip the
+relabel if the ticket has already moved on. A
 `ticket.*.agent.handoff.human_review` wake says the agent handed off, not that
 the ticket is still there: when CI is pending the daemon moves it to
-`agent:ci-wait` within minutes. Swapping only `agent:human-review` for
-`agent:rework` from that wake leaves `agent:rework` + `agent:ci-wait`, and
-dispatch authorization refuses the pair (#5796).
+`agent:ci-wait` within minutes. Swapping `agent:human-review` for
+`agent:rework` from that stale wake leaves `agent:rework` + `agent:ci-wait`,
+and dispatch authorization refuses the pair (#5796). When you do relabel, make
+two sequential calls: add the new state label first, then remove the old one.
+`gh issue edit --add-label X --remove-label Y` runs both mutations concurrently
+and is not atomic, so do not combine them.
 
 ### Merge mechanics
 
