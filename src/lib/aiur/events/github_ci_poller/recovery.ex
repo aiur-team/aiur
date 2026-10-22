@@ -129,13 +129,15 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   # Recheck a red head despite an earlier hold so known flakes get one rerun (#5133).
   defp recover_entry(issue, %{head_sha: sha} = result, %{"hold" => %{"sha" => sha} = hold} = entry, opts) do
-    cond do
-      hold["mode"] == "landing" and result[:review_decision] != "APPROVED" ->
-        case update(issue, result, &Map.delete(&1, "hold"), opts) do
-          {:ok, updated} -> recover_entry(issue, result, updated, opts)
-          {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
-        end
+    if revoked_landing_hold?(hold, result) do
+      clear_landing_hold(issue, result, opts)
+    else
+      recover_held_entry(issue, result, entry, hold, sha, opts)
+    end
+  end
 
+  defp recover_held_entry(issue, result, entry, hold, sha, opts) do
+    cond do
       result[:decision] == :failed and not failed_hold?(entry, sha) ->
         recover_entry(issue, result, Map.delete(entry, "hold"), opts)
 
@@ -144,6 +146,16 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
       true ->
         hold_result(result, hold)
+    end
+  end
+
+  defp revoked_landing_hold?(hold, result),
+    do: hold["mode"] == "landing" and result[:review_decision] != "APPROVED"
+
+  defp clear_landing_hold(issue, result, opts) do
+    case update(issue, result, &Map.delete(&1, "hold"), opts) do
+      {:ok, updated} -> recover_entry(issue, result, updated, opts)
+      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
     end
   end
 
