@@ -154,10 +154,11 @@
         }
         const capture = new window.AiurVoiceCapture.Capture(stream, (samples) => this.handleSamples(samples));
         this.capture = capture;
+        const live = () => this.current(generation) && this.capture === capture;
         await this.openChannel(generation, mode);
-        if (!this.current(generation)) return;
-        await capture.start(() => this.current(generation) && this.capture === capture);
-        if (!this.current(generation)) return;
+        if (!live()) return;
+        await capture.start(live);
+        if (!live()) return;
 
         this.recording = true;
         this.baseText = mode === "conversation" ? "" : (this.input?.value || "").trim();

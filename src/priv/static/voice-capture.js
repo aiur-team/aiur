@@ -85,6 +85,7 @@
     }
 
     async start(isCurrent = () => true) {
+      if (this.stopped) return;
       const context = new window.AudioContext();
       this.context = context;
       await context.resume();
@@ -109,6 +110,7 @@
     }
 
     stop() {
+      this.stopped = true;
       this.worklet?.disconnect();
       this.source?.disconnect();
       this.mute?.disconnect();

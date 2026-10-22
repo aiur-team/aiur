@@ -416,3 +416,84 @@ test('voice transport joins the requested topic with the CSRF param', async ({ p
   expect(joined.csrf).toBeTruthy()
   expect(joined.options.params._csrf_token).toBe(joined.csrf)
 })
+
+// A connection lost while the AudioWorklet loads must end the attempt: the
+// drawer may not claim it is listening with no capture behind it, and the
+// microphone must stay usable for a retry.
+test('Units dictation recovers when the voice connection closes while capture starts', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__voiceTrackStops = 0
+    window.__openAudioContexts = 0
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        enumerateDevices: async () => [],
+        getUserMedia: async () => ({ getTracks: () => [{ stop() { window.__voiceTrackStops += 1 } }] })
+      }
+    })
+  })
+
+  await openUnits(page)
+  await page.evaluate(() => {
+    class FakePush {
+      receive(status, callback) {
+        if (status === 'ok') queueMicrotask(() => callback({}))
+        return this
+      }
+    }
+
+    window.AiurVoiceSocket = class {
+      connect() {}
+      disconnect() {}
+      channel() {
+        window.__voiceChannel = {
+          on() {},
+          onError() {},
+          onClose(callback) { this.closeHandler = callback },
+          join: () => new FakePush(),
+          leave() {},
+          push() { return new FakePush() }
+        }
+        return window.__voiceChannel
+      }
+    }
+
+    window.AudioContext = class {
+      constructor() {
+        window.__openAudioContexts += 1
+        this.destination = {}
+        this.audioWorklet = {
+          addModule: () => new Promise((resolve) => { window.__finishWorkletLoad = resolve })
+        }
+      }
+      createMediaStreamSource() { return { connect: (target) => target, disconnect() {} } }
+      createGain() { return { gain: { value: 1 }, connect: (target) => target, disconnect() {} } }
+      async resume() {}
+      close() { window.__openAudioContexts -= 1 }
+    }
+
+    window.AudioWorkletNode = class {
+      constructor() { this.port = {} }
+      connect(target) { return target }
+      disconnect() {}
+    }
+  })
+
+  await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
+  const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
+  await drawer.getByRole('button', { name: 'Dictate message' }).click()
+  await expect.poll(() => page.evaluate(() => typeof window.__finishWorkletLoad)).toBe('function')
+
+  await page.evaluate(() => window.__voiceChannel.closeHandler())
+  await page.evaluate(() => window.__finishWorkletLoad())
+
+  await expect(drawer.locator('[data-voice-status]')).toContainText(
+    'Speech-to-text connection closed. Try dictation again.'
+  )
+  const mic = drawer.getByRole('button', { name: 'Dictate message' })
+  await expect(mic).toHaveAttribute('aria-pressed', 'false')
+  await expect(mic).toBeEnabled()
+  await expect(drawer.getByLabel('Message agent')).not.toHaveAttribute('readonly', '')
+  expect(await page.evaluate(() => window.__voiceTrackStops)).toBe(1)
+  expect(await page.evaluate(() => window.__openAudioContexts)).toBe(0)
+})
