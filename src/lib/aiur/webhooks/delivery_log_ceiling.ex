@@ -13,4 +13,42 @@ defmodule Aiur.Webhooks.DeliveryLogCeiling do
 
   @spec target(pos_integer(), float()) :: pos_integer()
   def target(max_entries, low_watermark), do: max(1, trunc(max_entries * low_watermark))
+
+  @spec enforce(map(), integer()) :: map()
+  def enforce(state, now) do
+    if map_size(state.entries) > state.max_entries do
+      overflow = map_size(state.entries) - target(state.max_entries, state.eviction_low_watermark)
+      entries = drop_oldest(state.entries, overflow)
+      alert_overflow(%{state | entries: entries}, now)
+    else
+      state
+    end
+  end
+
+  defp drop_oldest(entries, count) do
+    dropped =
+      entries
+      |> Enum.sort_by(fn {_key, %{recorded_at: recorded_at}} -> recorded_at end)
+      |> Enum.take(count)
+      |> Enum.map(fn {key, _entry} -> key end)
+
+    Map.drop(entries, dropped)
+  end
+
+  defp alert_overflow(%{overflowed?: true} = state, _now), do: state
+
+  defp alert_overflow(state, _now) do
+    message =
+      "Webhook delivery dedupe log exceeded #{state.max_entries} live entries; the oldest entries were evicted before their retention window expired and duplicate protection is degraded."
+
+    state.alert_fun.(
+      "webhook_delivery_log.ceiling_exceeded",
+      message,
+      needs_attention: true,
+      severity: "warning",
+      reason: message
+    )
+
+    %{state | overflowed?: true}
+  end
 end

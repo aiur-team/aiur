@@ -405,39 +405,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
   end
 
   defp enforce_ceiling(state, now) do
-    overflow = map_size(state.entries) - eviction_target(state)
-
-    if map_size(state.entries) > state.max_entries do
-      state |> drop_oldest(overflow) |> alert_overflow(now)
-    else
-      state
-    end
-  end
-
-  defp eviction_target(state), do: DeliveryLogCeiling.target(state.max_entries, state.eviction_low_watermark)
-
-  defp drop_oldest(state, overflow) do
-    dropped =
-      state.entries
-      |> Enum.sort_by(fn {_key, %{recorded_at: recorded_at}} -> recorded_at end)
-      |> Enum.take(overflow)
-      |> Enum.map(fn {key, _entry} -> key end)
-
-    %{state | entries: Map.drop(state.entries, dropped)}
-  end
-
-  defp alert_overflow(%{overflowed?: true} = state, _now), do: state
-
-  defp alert_overflow(state, _now) do
-    Logger.error("aiur_webhook_delivery_log phase=ceiling_exceeded max_entries=#{state.max_entries}")
-
-    emit_alert(
-      state,
-      "webhook_delivery_log.ceiling_exceeded",
-      "Webhook delivery dedupe log exceeded #{state.max_entries} live entries; the oldest entries were evicted before their retention window expired and duplicate protection is degraded."
-    )
-
-    %{state | overflowed?: true}
+    DeliveryLogCeiling.enforce(state, now)
   end
 
   # The stream is append-only, so expired and superseded records accumulate.

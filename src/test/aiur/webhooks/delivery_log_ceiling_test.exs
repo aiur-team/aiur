@@ -33,7 +33,7 @@ defmodule Aiur.Webhooks.DeliveryLogCeilingTest do
     assert :new == DeliveryLog.claim(:delivery, "c-12", log)
     assert DeliveryLog.size(log) == 9
 
-    assert_receive {:alert, "webhook_delivery_log.ceiling_exceeded", message, _meta}
+    assert_receive {:alert, "webhook_delivery_log.ceiling_exceeded", message, _meta}, 1000
     assert message =~ "duplicate protection is degraded"
     assert :new == DeliveryLog.claim(:delivery, "c-1", log)
     assert {:duplicate, _at} = DeliveryLog.claim(:delivery, "c-12", log)
