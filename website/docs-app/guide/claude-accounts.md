@@ -47,7 +47,12 @@ aiur accounts
 aiur accounts codex --json
 ```
 
-Usage percentages and freshness come from the daemon's last poll. If Aiur is
+Usage percentages and freshness come from the daemon's last poll. The daemon
+polls Claude usage every `polling.usage_interval_seconds` while agents run or a
+dashboard is in focus, whatever the `account_selection` mode. A reading older
+than `agent.headroom_reading_max_age_seconds` shows as `stale` with its age.
+When polls fail, the account shows `stale`, the age of its last good reading,
+and `last_error`; three failures in a row also log a warning. If Aiur is
 not running, the command still shows account identity and reports usage as
 unavailable; it does not make a separate usage request.
 
