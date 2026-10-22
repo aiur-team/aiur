@@ -14,15 +14,11 @@ defmodule Aiur.GitHub.ReadCache do
 
   ## Why here
 
-  `Aiur.GitHub.GraphQLCost` puts pricing at this same chokepoint, on the
-  argument that "injecting at the transport chokepoint means a query cannot be
-  added without being priced". Caching is placed the same way, so a read cannot
-  be added without consulting the cache. Not without *being cached* — see
-  `Aiur.GitHub.ReadCache.Policy`, which defaults to refusing — but without being
-  classified, counted, and made visible.
+  `Aiur.GitHub.GraphQLCost` prices every query at this chokepoint. Caching is
+  placed the same way, so each read consults the cache. `Aiur.GitHub.ReadCache.Policy`
+  defaults to refusing; reads still get classified, counted, and made visible.
 
-  This is deliberately not the design `Aiur.GitHub.CycleFetchCache` uses. That
-  one is a per-process, per-cycle memoizer with no TTL, opted into at each call
+  `Aiur.GitHub.CycleFetchCache` is a per-process, per-cycle memoizer with no TTL, opted into at each call
   site; it removes duplicate reads *inside* one poll cycle and cannot remove the
   same read on the next one. This removes reads across cycles and across
   processes, and no call site opts in.
@@ -74,6 +70,7 @@ defmodule Aiur.GitHub.ReadCache do
 
   use GenServer
 
+  alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.ReadCache.{Identity, Metrics, Policy, StoreEntries}
 
@@ -114,13 +111,15 @@ defmodule Aiur.GitHub.ReadCache do
   """
   @spec through(map(), (-> term())) :: term()
   def through(request, fetch) when is_function(fetch, 0) do
-    caller = declared_caller(request)
+    Settings.with_request(fn ->
+      caller = declared_caller(request)
 
-    case Policy.classify(request) do
-      {:cache, class, ttl_ms} -> read_through(request, fetch, class, ttl_ms, caller)
-      {:no_cache, :write} -> StoreEntries.write_through(request, fetch, caller)
-      {:no_cache, reason} -> refuse(fetch, reason, caller)
-    end
+      case Policy.classify(request) do
+        {:cache, class, ttl_ms} -> read_through(request, fetch, class, ttl_ms, caller)
+        {:no_cache, :write} -> StoreEntries.write_through(request, fetch, caller)
+        {:no_cache, reason} -> refuse(fetch, reason, caller)
+      end
+    end)
   end
 
   @doc """
