@@ -185,6 +185,7 @@
   },
   {
     "id": "experiments-nav",
+    "productWhen": "a.snav[href=\"/experiments\"]",
     "kind": "pixel-mask",
     "selector": ".sidenav-nav .snav:nth-child(n+5)",
     "cells": {},

@@ -264,8 +264,11 @@ test('stale allowlist entry', async ({ browser }) => {
   const pair = await designPair(browser)
   await expect(applyAllowlist(pair, cell, [{ ...entry, selector: '.missing' }])).rejects.toThrow('stale allowlist entry demo')
 })
-test('allowlist checks scoped targets only in their owning spec', async ({ browser }) => {
+test('allowlist scopes capabilities and specs without hiding stale targets', async ({ browser }) => {
   const pair = await designPair(browser)
+  const conditional = { ...entry, selector: '.missing', productWhen: '.missing' }
+  await expect(applyAllowlist(pair, cell, [conditional])).resolves.toEqual({ designMask: [], productMask: [] })
+  await expect(applyAllowlist(pair, cell, [{ ...conditional, productWhen: 'html' }])).rejects.toThrow('stale allowlist entry demo')
   const scoped = { ...entry, selector: '.missing', spec: 'build-home-chains-parity.browser.spec.mjs' }
   await expect(applyAllowlist(pair, cell, [scoped])).resolves.toEqual({ designMask: [], productMask: [] })
   await expect(applyAllowlist(pair, cell, [{ ...scoped, spec: 'design-parity-harness.browser.spec.mjs' }]))

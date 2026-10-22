@@ -10,7 +10,7 @@ Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
       route_shell_live graph_live ticket_context_live units_live_data units_live
-      support voice_provider build_order_source meters_live optimistic_control experiments index_live
+      support voice_provider build_order_source meters_live optimistic_control experiments index_live base_navigation
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
 end
@@ -75,12 +75,12 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
 
     live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
     live("/ticket-context", Aiur.BrowserHarness.TicketContextLive, :index)
-    live("/units", Aiur.BrowserHarness.UnitsLive, :index)
+    live("/units-fixture", Aiur.BrowserHarness.UnitsLive, :index)
     live("/provider-meters", Aiur.BrowserHarness.ProviderMetersLive, :index)
     live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
     live("/models-panel", Aiur.BrowserHarness.ModelsPanelLive, :index)
     live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
-    live("/", Aiur.BrowserHarness.RouteShellLive, :index)
+    live("/route-shell", Aiur.BrowserHarness.RouteShellLive, :build)
     live("/commands", Aiur.BrowserHarness.RouteShellLive, :decisions)
     live("/commands/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
   end
@@ -152,8 +152,9 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint}
+  alias Aiur.BrowserHarness.{BaseNavigation, ExperimentsFixture, FixtureEndpoint}
   alias Aiur.BrowserHarness.FixtureEndpointStart
+  alias Aiur.Experiments
   alias Aiur.IssueLog
   alias Aiur.TestSupport.BuildHome.FixtureSource
 
@@ -163,7 +164,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
-    Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
+    Application.put_env(:aiur, :workflow_file_path, BaseNavigation.workflow_path(Path.expand("../fixtures/test.yaml", __DIR__)))
     Application.put_env(:aiur, :build_data_source, FixtureSource)
     Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
@@ -184,9 +185,8 @@ defmodule Aiur.BrowserHarness.FixtureServer do
           {Registry, keys: :duplicate, name: FixtureSource.Streams},
           {AiurWeb.Endpoint, []},
           AiurWeb.FinancialDataAccess.Generation,
-          AiurWeb.VoiceSessionLimiter,
-          Aiur.Experiments.Store
-        ],
+          AiurWeb.VoiceSessionLimiter
+        ] ++ List.wrap(Experiments.child(true)),
         strategy: :one_for_one
       )
 

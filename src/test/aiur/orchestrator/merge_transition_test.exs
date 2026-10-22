@@ -86,10 +86,8 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
   end
 
   test "transient terminal label failure retries and completes the merged ticket" do
-    {:ok, attempts} = Agent.start_link(fn -> 0 end)
-    {:ok, labels} = Agent.start_link(fn -> ["agent:in-progress"] end)
-    on_exit(fn -> if Process.alive?(attempts), do: Agent.stop(attempts) end)
-    on_exit(fn -> if Process.alive?(labels), do: Agent.stop(labels) end)
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :attempts)
+    labels = start_supervised!({Agent, fn -> ["agent:in-progress"] end}, id: :labels)
     parent = self()
 
     request_fun = fn request ->
@@ -170,7 +168,7 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
           {:github, :local_hold, %{reset_at: 123}},
           {:github, :rate_limited, %{retry_after: 1}}
         ] do
-      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+      attempts = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
 
       updater = fn _id, _target ->
         Agent.update(attempts, &(&1 + 1))
@@ -186,15 +184,12 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
 
       assert result == {:error, reason}
       assert Agent.get(attempts, & &1) == 1
-      Agent.stop(attempts)
     end
   end
 
   test "a no-body duplicate merge wake preserves done after the first closing wake fails" do
-    {:ok, attempts} = Agent.start_link(fn -> 0 end)
-    {:ok, labels} = Agent.start_link(fn -> ["agent:in-progress"] end)
-    on_exit(fn -> if Process.alive?(attempts), do: Agent.stop(attempts) end)
-    on_exit(fn -> if Process.alive?(labels), do: Agent.stop(labels) end)
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :attempts)
+    labels = start_supervised!({Agent, fn -> ["agent:in-progress"] end}, id: :labels)
 
     request_fun = fn request ->
       case request.method do
@@ -265,14 +260,12 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
     )
 
     assert_receive {:merge_write_attempt, 2, _result}, 1_000
-
     assert Agent.get(labels, & &1) == ["agent:done"]
     assert Agent.get(attempts, & &1) == 2
   end
 
   test "transient non-terminal merge target failure is retried" do
-    {:ok, attempts} = Agent.start_link(fn -> 0 end)
-    on_exit(fn -> if Process.alive?(attempts), do: Agent.stop(attempts) end)
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :attempts)
     parent = self()
 
     updater = fn "3778", "human-review" ->
@@ -316,8 +309,7 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
   end
 
   test "transient terminal write retries stop at the configured attempt limit" do
-    {:ok, attempts} = Agent.start_link(fn -> 0 end)
-    on_exit(fn -> if Process.alive?(attempts), do: Agent.stop(attempts) end)
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :attempts)
     parent = self()
 
     updater = fn _id, _target ->

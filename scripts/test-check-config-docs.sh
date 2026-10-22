@@ -25,7 +25,7 @@ scaffold() {
   rm -rf "$root"
   mkdir -p "$root/scripts" "$root/src/lib/aiur/config/schema" "$root/website/docs-app/reference"
   cp "$checker" "$root/scripts/check-config-docs.py"
-  for page in configuration-agent configuration-build-order merge-policy; do : >"$root/website/docs-app/reference/$page.md"; done
+  for page in configuration-agent configuration-build-order configuration-voice merge-policy; do : >"$root/website/docs-app/reference/$page.md"; done
 
   cat >"$root/src/lib/aiur/config/schema.ex" <<'EOF'
 defmodule Aiur.Config.Schema do

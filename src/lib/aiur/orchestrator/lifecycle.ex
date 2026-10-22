@@ -6,7 +6,6 @@ defmodule Aiur.Orchestrator.Lifecycle do
   """
 
   alias Aiur.{AgentPubSub, CIApprovalStore, Config, Events, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
-  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.Listeners
   alias Aiur.Handoff.Adopter
   alias Aiur.Handoff.Protection
@@ -403,7 +402,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   end
 
   defp install_event_tracked_fn(tracked_issue?) do
-    if Process.whereis(Publisher) do
+    if Events.publisher_available?() do
       Events.set_tracked_fn(tracked_issue?)
     end
 
@@ -414,7 +413,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # must be installed after startup cleanup and tracked-set initialization but
   # before the first tick is seeded.
   defp subscribe_to_orchestrator_topics(opts) do
-    if Process.whereis(Exchange) do
+    if Process.whereis(Events.exchange_server()) do
       Enum.each(@orchestrator_topics -- skipped_comment_topics(opts), &Events.subscribe/1)
     end
 
