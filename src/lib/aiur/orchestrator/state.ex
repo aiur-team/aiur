@@ -239,6 +239,7 @@ defmodule Aiur.Orchestrator.State do
       passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
+      ci_observed_at_ms: %{},
       poll_cache: %{},
       rewakes: %{},
       parked_ready_alerts: nil,
