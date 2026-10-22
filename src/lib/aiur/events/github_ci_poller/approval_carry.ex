@@ -4,9 +4,9 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
 
   The PR's contribution diff at the approved head (`merge-base(approved, base)..approved`)
   is compared with the one at the new head. The approval carries only when both
-  are identical: the same files and the same hunks, context included, each at the
-  same place once the base's own edits above it are allowed for. Any other
-  difference, conflict resolution included, does not carry.
+  have the same changed lines and context, and the base's own edits above them
+  are allowed for. Hunk headers are location metadata, not contribution content.
+  Any other difference, conflict resolution included, does not carry.
 
   A carried approval also needs the PR body `Tested head` to name the new head.
   Anything unreadable or truncated fails closed to `:changed`.
@@ -214,12 +214,44 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   # place, once the base's own edits above it are allowed for.
   defp unmatched(approved, current, main_hunks) do
     Enum.reduce(current, {approved, []}, fn hunk, {remaining, extra} ->
-      case Enum.find_index(remaining, &(&1.body == hunk.body and shifted(&1.old, main_hunks) == elem(hunk.old, 0))) do
+      case Enum.find_index(remaining, &same_contribution?(&1, hunk, main_hunks)) do
         nil -> {remaining, [hunk | extra]}
         index -> {List.delete_at(remaining, index), extra}
       end
     end)
     |> then(fn {approved_only, current_only} -> {approved_only, Enum.reverse(current_only)} end)
+  end
+
+  defp same_contribution?(approved, current, main_hunks) do
+    approved.lines == current.lines and approved.body == current.body and
+      (shifted(approved.old, main_hunks) == elem(current.old, 0) or
+         moved_header_only?(approved, current, main_hunks))
+  end
+
+  # A removed base row can make GitHub report a different header start even
+  # when the changed lines and surrounding context are byte-for-byte identical.
+  # Permit that coordinate drift only when base deletions account for the
+  # difference and no base edit intersects the approved hunk.
+  defp moved_header_only?(approved, current, main_hunks) do
+    {start, length} = approved.old
+    current_start = elem(current.old, 0)
+    expected_delta = current_start - start
+
+    deletions =
+      Enum.filter(main_hunks, fn main ->
+        {main_start, main_length} = main.old
+        {_new_start, new_length} = main.new
+        main_length > new_length and main_start + max(main_length, 1) <= start
+      end)
+
+    clean_base_changes =
+      Enum.all?(main_hunks, fn main ->
+        {main_start, main_length} = main.old
+        start + max(length, 1) <= main_start or main_start + max(main_length, 1) <= start
+      end)
+
+    elem(approved.old, 1) == elem(current.old, 1) and expected_delta < 0 and clean_base_changes and
+      Enum.sum(Enum.map(deletions, fn main -> elem(main.old, 1) - elem(main.new, 1) end)) == -expected_delta
   end
 
   # Where an old-base hunk starts in the new base; a hunk the base touched has no single position.

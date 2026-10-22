@@ -36,6 +36,42 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
     assert {:changed, %{reason: {:unavailable, :comparison_incomplete}}} = ApprovalCarry.classify_diffs(approved, approved, main, @body, @head)
   end
 
+  test "a moved hunk header with identical changed lines carries the Tested head" do
+    approved =
+      comparison([
+        {"src/test/quarantine.txt", "a1", "@@ -3,7 +3,6 @@\n context\n context\n-row\n context\n context\n context\n context"}
+      ])
+
+    current =
+      comparison([
+        {"src/test/quarantine.txt", "a2", "@@ -1,7 +1,6 @@\n context\n context\n-row\n context\n context\n context\n context"}
+      ])
+
+    main = comparison([{"src/test/quarantine.txt", "m1", "@@ -1,2 +1,0 @@\n-old\n-older"}])
+
+    assert :identical = ApprovalCarry.classify_contribution_diffs(approved, current, main)
+    assert :carried = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
+  end
+
+  test "a moved hunk header does not hide a changed removed line" do
+    approved =
+      comparison([
+        {"src/test/quarantine.txt", "a1", "@@ -3,7 +3,6 @@\n context\n context\n-row\n context\n context\n context\n context"}
+      ])
+
+    current =
+      comparison([
+        {"src/test/quarantine.txt", "a2", "@@ -1,7 +1,6 @@\n context\n context\n-old-row\n context\n context\n context\n context"}
+      ])
+
+    main = comparison([{"src/test/quarantine.txt", "m1", "@@ -1,2 +1,0 @@\n-old\n-older"}])
+
+    assert {:changed, %{reason: :contribution_changed, hunks: hunks}} =
+             ApprovalCarry.classify_contribution_diffs(approved, current, main)
+
+    assert Enum.any?(hunks, &(&1.lines == ["-old-row"]))
+  end
+
   test "a push editing a PR-owned line is not carried and reports the hunk" do
     approved = comparison([{"src/lib/a.ex", "a1", @approved_patch}])
     main = comparison([{"src/lib/b.ex", "m2", "@@ -1,1 +1,1 @@\n-x\n+y"}])
