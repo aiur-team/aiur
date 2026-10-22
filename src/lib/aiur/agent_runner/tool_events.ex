@@ -3,6 +3,7 @@ defmodule Aiur.AgentRunner.ToolEvents do
 
   require Logger
   alias Aiur.AgentRunner.{DecisionAttention, ToolCoordination, ToolExecutor}
+  alias Aiur.AgentStatusNote
   alias Aiur.AgentTools.EmitEvent
   alias Aiur.Issue
   alias Aiur.Protocol.MapAccess
@@ -62,7 +63,26 @@ defmodule Aiur.AgentRunner.ToolEvents do
     DecisionAttention.record_decision_lifecycle(issue, app_session, handlers.decision_lifecycle_recorder, name, message, payload)
   end
 
-  def emit_agent_event(event_context, name, message, payload) do
+  def emit_agent_event(event_context, "progress.status" = name, message, payload) do
+    with {:ok, result} <- publish_agent_event(event_context, name, message, payload) do
+      identifier = ToolCoordination.issue_identifier(event_context.issue)
+      record_status_note(identifier, message, payload)
+      {:ok, result}
+    end
+  end
+
+  def emit_agent_event(event_context, name, message, payload), do: publish_agent_event(event_context, name, message, payload)
+
+  defp record_status_note(identifier, message, payload) when is_binary(identifier) and identifier != "" do
+    case AgentStatusNote.record(identifier, message, payload) do
+      {:ok, _note} -> :ok
+      {:error, reason} -> Logger.warning("status note store failed identifier=#{identifier} reason=#{inspect(reason)}")
+    end
+  end
+
+  defp record_status_note(_identifier, _message, _payload), do: :ok
+
+  defp publish_agent_event(event_context, name, message, payload) do
     %{issue: issue} = event_context
     identifier = ToolCoordination.issue_identifier(issue)
 
