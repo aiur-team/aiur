@@ -13,7 +13,21 @@ touch "$fixture/src/test/aiur/foo_test.exs" "$fixture/src/test/aiur/github/subsy
 cat > "$tmp/bin/git" <<'GIT'
 #!/usr/bin/env bash
 case "$*" in
-  *"diff --name-only"*) printf '%s\n' "$CHANGED_PATHS" ;;
+  *"diff --name-only"*)
+    if [[ -n "${START_MARKER:-}" ]]; then
+      [[ -f "$FAKE_GIT_DIR/aiur-pre-handoff/evidence.md" ]] || {
+        echo 'initial evidence file missing before test selection' >&2
+        exit 89
+      }
+      grep -F 'Status: INCOMPLETE (pid ' "$FAKE_GIT_DIR/aiur-pre-handoff/evidence.md" >/dev/null || {
+        echo 'initial evidence does not show INCOMPLETE before test selection' >&2
+        exit 88
+      }
+      cp "$FAKE_GIT_DIR/aiur-pre-handoff/evidence.md" "$START_MARKER.snapshot"
+      touch "$START_MARKER"
+    fi
+    printf '%s\n' "$CHANGED_PATHS"
+    ;;
   *"rev-parse HEAD"*) printf '%s\n' "$HEAD_SHA" ;;
   *"rev-parse --absolute-git-dir"*) printf '%s\n' "$FAKE_GIT_DIR" ;;
   *"rev-parse $BASE_SHA"*) printf '%s\n' "$BASE_SHA" ;;
@@ -254,6 +268,22 @@ if ! run_check evidence src/lib/aiur/foo.ex false false "$pr_json"; then
   echo 'test-run-pre-handoff-code-checks: evidence output failed' >&2
   exit 1
 fi
+
+# The first durable snapshot must exist before the runner starts test selection.
+initial_git="$tmp/bin/git"
+: > "$tmp/initial.commands"
+env BASH_ENV=/dev/null PATH="$tmp/bin:$PATH" TMPDIR="$tmp" COMMAND_LOG="$tmp/initial.commands" \
+  FAKE_GIT_DIR="$tmp/initial.git" CHANGED_PATHS=src/lib/aiur/foo.ex HEAD_SHA="$head" BASE_SHA="$base" \
+  START_MARKER="$tmp/selection.started" \
+  bash "$fixture/scripts/run-pre-handoff-code-checks.sh" "$base" > "$tmp/initial.log" 2>&1 || {
+    cat "$tmp/initial.log" >&2
+    echo 'test-run-pre-handoff-code-checks: initial evidence snapshot was not written' >&2
+    exit 1
+  }
+grep -F 'Status: FINISHED (exit 0)' "$tmp/initial.git/aiur-pre-handoff/evidence.md" >/dev/null
+grep -F '## Local tests evidence (paste into the PR body)' "$tmp/initial.git/aiur-pre-handoff/evidence.md" >/dev/null
+[[ -f "$tmp/selection.started" ]]
+grep -F 'Status: INCOMPLETE (pid ' "$tmp/selection.started.snapshot" >/dev/null
 python3 - "$pr_json" "$head" <<'PY'
 import json, sys
 pr = json.load(open(sys.argv[1], encoding="utf-8"))

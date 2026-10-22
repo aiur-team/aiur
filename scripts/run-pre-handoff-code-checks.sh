@@ -18,11 +18,24 @@ echo "run-pre-handoff-code-checks: evidence file: $result_file"
 
 # Atomic replace; an INCOMPLETE file outliving its pid means the run died without a trappable signal.
 persist_evidence() {
-  { mkdir -p "${result_file%/*}" && {
+  local temp_file="$result_file.tmp.$$"
+  if ! { mkdir -p "${result_file%/*}" && {
       printf 'Status: %s\n' "$1"
       render_evidence
-    } > "$result_file.tmp.$$" && mv -f "$result_file.tmp.$$" "$result_file"; } 2>/dev/null ||
+    } > "$temp_file" && mv -f "$temp_file" "$result_file"; } 2>/dev/null; then
+    rm -f "$temp_file"
     echo "run-pre-handoff-code-checks: could not write evidence file $result_file" >&2
+  fi
+}
+
+render_evidence() {
+  echo '## Local tests evidence (paste into the PR body)'
+  echo 'Policy: partial'
+  printf 'Tested head: %s\n' "${tested_head:-$head}"
+  printf 'Base: %s @ %s\n' "${AIUR_BASE_BRANCH:-main}" \
+    "$(git -C "$repo_root" rev-parse "$base")"
+  printf 'Selection: `mix aiur.affected_tests` selected %s test files using xref/module callers and shared-support consumers, plus pinned child-order tests for explicit child-list paths.\n' "${selected_count:-0}"
+  cat "$evidence"
 }
 
 on_exit() {
@@ -111,16 +124,6 @@ fi
 record_result() {
   printf -- '- `%s` -> %s\n' "$1" "$2" >> "$evidence"
   persist_evidence "INCOMPLETE (pid $$ still running or ended without a result)"
-}
-
-render_evidence() {
-  echo '## Local tests evidence (paste into the PR body)'
-  echo 'Policy: partial'
-  printf 'Tested head: %s\n' "${tested_head:-$head}"
-  printf 'Base: %s @ %s\n' "${AIUR_BASE_BRANCH:-main}" \
-    "$(git -C "$repo_root" rev-parse "$base")"
-  printf 'Selection: `mix aiur.affected_tests` selected %s test files using xref/module callers and shared-support consumers, plus pinned child-order tests for explicit child-list paths.\n' "${selected_count:-0}"
-  cat "$evidence"
 }
 
 print_evidence() {
