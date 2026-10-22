@@ -29,6 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   attr(:usage_snapshot, :map, default: nil)
   attr(:usage_error, :atom, default: nil)
   attr(:context_occupancy, :map, default: nil)
+  attr(:voice_capabilities, :map, default: %{})
 
   @spec conversation_drawer(map()) :: Phoenix.LiveView.Rendered.t()
   def conversation_drawer(%{view: nil} = assigns), do: ~H""
@@ -44,6 +45,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
       |> assign(:heading_id, "#{assigns.id}-title")
       |> assign(:composer_writable, composer_writable?(assigns.composer) and assigns.writable)
       |> assign(:composer_key, composer_key(assigns.composer))
+      |> assign(:voice_stt, Map.get(assigns.voice_capabilities, "voice.stt", %{}))
 
     ~H"""
     <div class="modal-backdrop conversation-drawer-backdrop">
@@ -179,6 +181,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
             phx-change="composer-change"
             phx-submit="send-operator-message"
             data-voice-composer
+            data-voice-stt-state={@voice_stt[:state]}
+            data-voice-stt-reason={@voice_stt[:reason]}
           >
             <p :if={error = @errors[@composer_key]} class="agent-chat-error">{error}</p>
             <textarea

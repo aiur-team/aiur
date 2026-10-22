@@ -847,6 +847,32 @@ defmodule AiurWeb.DashboardLiveTest do
     assert eventually(fn -> not String.contains?(render(view), "while the fleet snapshot is unavailable") end, 100)
   end
 
+  # Voice availability comes from the same registry `/api/v1/capabilities`
+  # serves, and a key added mid-session is picked up on the 60 s voice tick
+  # rather than only after a failed microphone join.
+  test "assigns voice capabilities from the registry at mount and refreshes them on the voice tick" do
+    orchestrator_name = Module.concat(__MODULE__, :VoiceCapabilitiesOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
+
+    unconfigured = %{state: :unavailable, reason: :not_configured}
+    {:ok, reports} = Agent.start_link(fn -> unconfigured end)
+
+    report_fun = fn ->
+      stt = Agent.get(reports, & &1)
+      %{capabilities: %{"voice.stt" => stt, "voice.tts" => stt, "streamdeck" => %{state: :available}}}
+    end
+
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false, capabilities_report_fun: report_fun)
+    {:ok, view, _html} = live(build_conn(), "/")
+    assert :sys.get_state(view.pid).socket.assigns.voice_capabilities == %{"voice.stt" => unconfigured, "voice.tts" => unconfigured}
+
+    Agent.update(reports, fn _ -> %{state: :available} end)
+    send(view.pid, :elevenlabs_quota_tick)
+    _rendered = render(view)
+    assert :sys.get_state(view.pid).socket.assigns.voice_capabilities == %{"voice.stt" => %{state: :available}, "voice.tts" => %{state: :available}}
+  end
+
   test "an unpublished snapshot raises no notice while an unreachable orchestrator does" do
     # The post-restart moment before the first snapshot is expected, and the
     # Units catalog underneath already reports the missing fleet view, so the
