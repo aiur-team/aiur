@@ -1,9 +1,9 @@
 defmodule Aiur.TestTicketScopePartialCheckTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   # A test that puts AIUR_DEV_TEST_TICKET_IDS without the rest of the launcher's
   # scope leaves Ownership.Store unable to restart after any child crash (#4736).
-  @partial_scope ~r/put_env\(\s*(?:"AIUR_DEV_TEST_TICKET_IDS"|\[\s*\{"AIUR_DEV_TEST_TICKET_IDS")/
+  @partial_scope ~r/put_env\(\s*(?:"AIUR_DEV_TEST_TICKET_IDS"|\[\s*\{"AIUR_DEV_TEST_TICKET_IDS"|%\{\s*"AIUR_DEV_TEST_TICKET_IDS"\s*=>)/
   @helper "test/support/test_scope_guard.exs"
 
   test "tests set the ticket scope only through Aiur.TestScopeGuard.put_ticket_scope!/1" do
@@ -21,20 +21,20 @@ defmodule Aiur.TestTicketScopePartialCheckTest do
   test "the pattern catches a direct scope put" do
     assert Regex.match?(@partial_scope, ~S|System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")|)
     assert Regex.match?(@partial_scope, ~S|System.put_env([{"AIUR_DEV_TEST_TICKET_IDS", "99"}])|)
+    assert Regex.match?(@partial_scope, ~S|System.put_env(%{"AIUR_DEV_TEST_TICKET_IDS" => "99"})|)
     refute Regex.match?(@partial_scope, ~S|System.delete_env("AIUR_DEV_TEST_TICKET_IDS")|)
   end
 
-  test "the test helper rejects a leaked ticket scope" do
-    helper_path = Path.expand("test/test_helper.exs")
-    helper = File.read!(helper_path)
+  test "test startup cleanup removes a leaked ticket scope" do
+    previous = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+    on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous) end)
 
-    env_list = Regex.run(~r/contaminating_env_vars\s*=\s*\[(.*?)\]/s, helper, capture: :all_but_first)
-    assert [env_list] = env_list
-    vars = Regex.scan(~r/"([A-Z0-9_]+)"/, env_list, capture: :all_but_first) |> List.flatten()
+    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
 
-    assert "AIUR_DEV_TEST_TICKET_IDS" in vars,
-           "the suite must clear a leaked test ticket scope before starting"
-
-    assert helper =~ "System.delete_env(var)", "the suite must delete each inherited test-only variable"
+    assert :ok = Aiur.TestEnvironment.clear_inherited!(["AIUR_DEV_TEST_TICKET_IDS"])
+    assert System.get_env("AIUR_DEV_TEST_TICKET_IDS") == nil
   end
+
+  defp restore_env(name, nil), do: System.delete_env(name)
+  defp restore_env(name, value), do: System.put_env(name, value)
 end
