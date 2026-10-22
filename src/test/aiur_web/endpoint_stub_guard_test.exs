@@ -57,6 +57,7 @@ defmodule AiurWeb.EndpointStubGuardTest do
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
     on_exit(fn -> Application.put_env(:aiur, AiurWeb.Endpoint, previous) end)
 
+    assert Processes.endpoint_test_options(config) == [http: [port: 0, ip: {127, 0, 0, 1}]]
     Processes.start_owned_endpoint!()
 
     assert Processes.endpoint_test_options(server: false) == []

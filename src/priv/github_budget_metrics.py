@@ -121,7 +121,7 @@ def begin_batch(conn, requests, replies, now_ms, commit_margin_ms):
         active = [(request, args) for request, args in requests if request["deadline_ms"] - commit_margin_ms > now_ms()]
         for request, _args in requests:
             if request["deadline_ms"] - commit_margin_ms <= now_ms():
-                replies.append({"id": request["id"], "status": 2, "output": "broker deadline expired waiting for SQLite", "python_queue_wait_ms": request.get("_python_queue_wait_ms", 0), "python_queue_depth": request.get("_python_queue_depth", 0)})
+                replies.append({"id": request["id"], "status": 2, "output": "broker deadline expired waiting for SQLite", "python_queue_wait_ms": request.get("_python_queue_wait_ms", 0), "python_queue_depth": request.get("_python_queue_depth", 0), "command_type": request.get("_command_type", "unknown")})
         requests[:] = active
         if not requests:
             lock_wait_ms = (time.monotonic_ns() - started_ns) / 1_000_000
