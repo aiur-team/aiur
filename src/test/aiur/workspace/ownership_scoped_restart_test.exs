@@ -7,12 +7,18 @@ defmodule Aiur.Workspace.OwnershipScopedRestartTest do
   # decision-state path, the supervisor gives up, and later tests see
   # `unknown registry: Aiur.Workspace.Ownership.Registry`.
   test "a child crash under the test ticket scope restarts the ownership registry" do
+    supervisor = Process.whereis(Aiur.Supervisor)
+    assert is_pid(supervisor)
+
     # Registered first so it runs after the scope env is restored but before
     # TestSupport removes workflow_root, moving the Store off the scoped path.
     on_exit(fn ->
       prior = Process.whereis(Ownership.Store)
+      assert is_pid(prior)
       Process.exit(prior, :kill)
-      {:ok, _store} = Aiur.TestSupport.await_supervised_restart(Ownership.Store, prior)
+      assert {:ok, store} = Aiur.TestSupport.await_supervised_restart_unbounded(Ownership.Store, prior)
+      assert is_pid(store)
+      assert Process.whereis(Aiur.Supervisor) == supervisor
     end)
 
     Aiur.TestScopeGuard.put_ticket_scope!("99")
@@ -21,7 +27,10 @@ defmodule Aiur.Workspace.OwnershipScopedRestartTest do
 
     Process.exit(prior, :kill)
 
-    assert {:ok, _store} = Aiur.TestSupport.await_supervised_restart(Ownership.Store, prior)
+    assert {:ok, store} = Aiur.TestSupport.await_supervised_restart_unbounded(Ownership.Store, prior)
+    assert is_pid(store)
+    assert store != prior
+    assert Process.whereis(Aiur.Supervisor) == supervisor
     assert Registry.lookup(Ownership.Registry, "99") == []
   end
 

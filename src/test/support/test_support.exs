@@ -404,6 +404,7 @@ defmodule Aiur.TestSupport do
   defdelegate start_owned_endpoint!(), to: Aiur.TestSupport.Processes
   defdelegate await_process_down(process, timeout \\ 2_000), to: Aiur.TestSupport.Processes
   defdelegate await_supervised_restart(name, prior, timeout \\ 5_000), to: Aiur.TestSupport.Processes
+  defdelegate await_supervised_restart_unbounded(name, prior), to: Aiur.TestSupport.Processes
   defdelegate ensure_runtime_children_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_orchestrator_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_orchestrator_running(context), to: Aiur.TestSupport.OrchestratorGuard, as: :ensure_running
