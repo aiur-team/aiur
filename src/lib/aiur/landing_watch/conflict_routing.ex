@@ -11,12 +11,62 @@ defmodule Aiur.LandingWatch.ConflictRouting do
 
   alias Aiur.{CodeHost, Config, Tracker}
   alias Aiur.LandingWatch.Journal
+  alias Aiur.LandingWatch.Observer
   alias Aiur.Orchestrator.TicketTransition
 
   @failure %{name: "Merge conflict with base"}
 
   @spec conflicting?(map()) :: boolean()
-  def conflicting?(observation), do: Map.get(observation, :mergeable) == "CONFLICTING"
+  def conflicting?(observation) do
+    Map.get(observation, :mergeable) == "CONFLICTING" or
+      Map.get(observation, :conflict_queue_persistent?, false)
+  end
+
+  @doc false
+  @spec persistent_queue_conflict?(map(), keyword()) :: boolean()
+  def persistent_queue_conflict?(%{merge_queue_entry: %{"state" => "UNMERGEABLE"}, mergeable: mergeable, number: number, head: head}, opts)
+      when mergeable in ["MERGEABLE", "UNKNOWN"] and is_integer(number) and is_binary(head) do
+    now = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
+    key = "#{number}:#{head}"
+
+    case Journal.update(opts, fn state ->
+           rows = Map.get(state, "unmergeable_conflict_entries", %{})
+           since = Map.get(rows, key) || now
+           {:ok, Map.put(state, "unmergeable_conflict_entries", Map.put(rows, key, since)), since}
+         end) do
+      {:ok, since} -> now - since >= 5 * 60_000
+      _ -> false
+    end
+  end
+
+  def persistent_queue_conflict?(%{number: number, head: head}, opts) when is_integer(number) and is_binary(head) do
+    key = "#{number}:#{head}"
+
+    with {:ok, state} <- Journal.state(opts),
+         rows when is_map(rows) <- Map.get(state, "unmergeable_conflict_entries", %{}),
+         true <- Map.has_key?(rows, key) do
+      Journal.update(opts, fn current ->
+        current_rows = Map.get(current, "unmergeable_conflict_entries", %{})
+        {:ok, Map.put(current, "unmergeable_conflict_entries", Map.delete(current_rows, key))}
+      end)
+    end
+
+    false
+  end
+
+  def persistent_queue_conflict?(_, _), do: false
+
+  @doc false
+  @spec queue_prs_ahead(map(), keyword()) :: [pos_integer()]
+  def queue_prs_ahead(%{number: number, merge_queue_entry: %{"position" => position}} = observation, opts)
+      when is_integer(number) and is_integer(position) and position > 1 do
+    case Keyword.get(opts, :queue_prs_ahead_fun, &Observer.prs_ahead/2).(observation, opts) do
+      {:ok, numbers} when is_list(numbers) -> Enum.filter(numbers, &is_integer/1)
+      _ -> []
+    end
+  end
+
+  def queue_prs_ahead(_, _), do: []
 
   @doc "Takes the PR out of the queue, then routes it through `rework` with a rebase-only follow-up."
   @spec route(map(), (map(), [map()], keyword() -> :ok | {:error, term()}), keyword()) :: :ok | {:error, term()}
@@ -164,13 +214,25 @@ defmodule Aiur.LandingWatch.ConflictRouting do
   @spec comment_body(map()) :: String.t()
   def comment_body(observation) do
     base = Map.get(observation, :base) || "the base branch"
+    queue_context = queue_conflict_context(observation)
 
     """
-    **Rebase only.** Approved PR ##{observation.number} conflicts with `#{base}`, so the landing watcher took it out of the merge queue and moved this ticket to rework.
+    **Rebase only.** Approved PR ##{observation.number} conflicts with `#{base}`#{queue_context}, so the landing watcher took it out of the merge queue and moved this ticket to rework.
 
     Integrate `#{base}`, resolve the conflicts, and push. Make no other change. The approval at `#{observation.head}` stays on record so re-review can compare the contribution diff.
     """
   end
+
+  defp queue_conflict_context(%{conflict_queue_persistent?: true} = observation) do
+    ahead = Map.get(observation, :conflicting_queue_prs, [])
+
+    case Enum.filter(ahead, &is_integer/1) do
+      [] -> " (its merge-queue entry stayed UNMERGEABLE for five minutes)"
+      numbers -> " (queued behind PRs " <> Enum.map_join(numbers, ", ", &"##{&1}") <> ")"
+    end
+  end
+
+  defp queue_conflict_context(_), do: ""
 
   defp pause_label, do: "#{Config.settings!().tracker.github.label_prefix}:paused"
 end

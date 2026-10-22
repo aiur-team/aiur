@@ -47,13 +47,16 @@ defmodule Aiur.Config.Schema.Agent do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Aiur.Config.CatalogValidation
   alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, GitIdentity, PricingPolicy, Rtk}
 
+  @default_backend "codex"
+  @default_rate_limit_fallback "claude"
   @primary_key false
   embedded_schema do
     # Deprecated: `priority` wins when present; read the effective value via `Aiur.Config.agent_kind/0`.
     # @config-reference config-configuration-agent-00 agent.kind | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
-    field(:kind, :string, default: Aiur.CodingAgent.default_backend())
+    field(:kind, :string, default: @default_backend)
 
     # Ordered dispatch preference. Presence enables a backend, the first available entry is the default, and the array is the fallback order when a backend hits a token or usage limit.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
@@ -228,10 +231,10 @@ defmodule Aiur.Config.Schema.Agent do
     # fallback disables it.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.rate_limit_primary | string | default backend | Deprecated primary backend watched for automatic rate-limit recovery; derived from `agent.priority` when set. |
-    field(:rate_limit_primary, :string, default: Aiur.CodingAgent.default_backend())
+    field(:rate_limit_primary, :string, default: @default_backend)
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.rate_limit_fallback | string | `claude` | Deprecated automatic recovery backend for an already-running agent; derived from the first eligible `agent.priority` entry after the primary when set; `""` disables it. |
-    field(:rate_limit_fallback, :string, default: Aiur.CodingAgent.default_rate_limit_fallback())
+    field(:rate_limit_fallback, :string, default: @default_rate_limit_fallback)
     # @config-reference config-configuration-agent-00 agent.complexity_prompts | map | `%{}` | Adds prompt guidance by complexity level. |
     field(:complexity_prompts, :map, default: %{})
     # @config-reference config-configuration-agent-00 agent.max_turns_by_complexity | map | `%{}` | Per-complexity turn caps. |
@@ -328,12 +331,12 @@ defmodule Aiur.Config.Schema.Agent do
     # How long the degraded retry rate must persist before the single
     # `system.github.budget_broker_degraded` alert raises (#2434/#2449 dwell):
     # a momentary blip that clears within this bound produces nothing, a
-    # sustained degradation raises exactly once. Kept longer than the rate
-    # window so a burst that stops ages out of the window before the dwell
-    # completes — the dwell then filters exactly the momentary cases.
+    # sustained degradation raises exactly once. Kept shorter than the rate
+    # window so an active timeout pattern can satisfy the dwell before its
+    # earliest event ages out.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.budget_broker_degraded_alert_after_seconds | integer | 600 | How long the degraded budget-broker retry rate must persist before the single `system.github.budget_broker_degraded` alert raises (the dwell): a momentary blip that clears within this bound produces nothing, a sustained degradation raises exactly once. |
-    field(:budget_broker_degraded_alert_after_seconds, :integer, default: 600)
+    # @config-reference config-configuration-agent-00 agent.budget_broker_degraded_alert_after_seconds | integer | 60 | How long the budget-broker timeout rate must persist before the single `system.github.budget_broker_degraded` alert raises (the dwell): a momentary blip that clears within this bound produces nothing, a sustained outage raises once with its duration. |
+    field(:budget_broker_degraded_alert_after_seconds, :integer, default: 60)
     # A dispatch declined by a local GitHub budget hold is a retry. It raises an
     # Executor attention only once the same ticket has been declined this many
     # times in a row (#4067).
@@ -449,31 +452,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:budget_broker_degraded_retry_threshold, greater_than: 0)
     |> validate_number(:budget_broker_degraded_alert_after_seconds, greater_than: 0)
     |> validate_number(:dispatch_hold_attention_threshold, greater_than: 0)
-    |> AgentValidation.validate_backend_configs()
-    |> update_change(:max_concurrent_agents_by_state, &AgentValidation.normalize_state_limits/1)
-    |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
-    |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
-    |> AgentValidation.validate_agent_routing(:routing)
-    |> AgentValidation.split_routing_candidates()
-    |> AgentValidation.validate_dispatch_selections()
-    |> AgentValidation.validate_agent_priority(:priority)
-    |> validate_change(:switch_model_on_ratelimit, fn :switch_model_on_ratelimit, backends ->
-      known = Aiur.CodingAgent.known_backends()
-
-      cond do
-        backends != Enum.uniq(backends) -> [switch_model_on_ratelimit: "must not contain duplicate backends"]
-        Enum.all?(backends, &(&1 in known)) -> []
-        true -> [switch_model_on_ratelimit: "contains an unknown backend; known backends: #{inspect(known)}"]
-      end
-    end)
-    |> validate_change(:rate_limit_primary, fn :rate_limit_primary, backend ->
-      known = Aiur.CodingAgent.known_backends()
-
-      if backend in known,
-        do: [],
-        else: [rate_limit_primary: "must be a registered backend; known backends: #{inspect(known)}"]
-    end)
-    |> AgentValidation.validate_rate_limit_fallback()
+    |> CatalogValidation.validate()
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
     |> update_change(:max_turns_by_complexity, &AgentValidation.normalize_max_turns_by_complexity/1)

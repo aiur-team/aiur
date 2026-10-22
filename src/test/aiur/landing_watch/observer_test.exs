@@ -130,4 +130,38 @@ defmodule Aiur.LandingWatch.ObserverTest do
     assert query =~ "pullRequest(number: 17)"
     refute query =~ "pullRequest(number: 18)"
   end
+
+  test "queue position lookup returns only pull requests ahead of the observed entry" do
+    request = fn graphql_request ->
+      query = graphql_request[:body]["query"]
+      assert query =~ "mergeQueue{entries(first:$limit)"
+      assert graphql_request[:body]["variables"][:limit] == 3
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "pullRequest" => %{
+                 "mergeQueue" => %{
+                   "entries" => %{
+                     "nodes" => [
+                       %{"position" => 1, "pullRequest" => %{"number" => 5009}},
+                       %{"position" => 2, "pullRequest" => %{"number" => 5414}},
+                       %{"position" => 3, "pullRequest" => %{"number" => 5007}},
+                       %{"position" => 4, "pullRequest" => %{"number" => 4999}}
+                     ]
+                   }
+                 }
+               }
+             }
+           }
+         }
+       }}
+    end
+
+    observation = %{number: 4999, merge_queue_entry: %{"position" => 4}}
+    assert {:ok, [5009, 5414, 5007]} = Observer.prs_ahead(observation, token: "test-gh-token", request_fun: request)
+  end
 end

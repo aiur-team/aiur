@@ -5,8 +5,6 @@ defmodule Aiur.AgentRunner.Handoff do
   alias Aiur.AgentRunner.{SessionLifecycle, TurnLoop}
   alias Aiur.AppServer.ProviderTurnLedger
   alias Aiur.AppServer.RelayPort
-  alias Aiur.Claude.Repl.Adoption, as: ReplAdoption
-  alias Aiur.Claude.Repl.HookTurn
   alias Aiur.Workspace.Ownership.Adoption
   alias Aiur.Workspace.WipPreservation
 
@@ -182,7 +180,7 @@ defmodule Aiur.AgentRunner.Handoff do
     {%{
        "kind" => "repl",
        "pane_id" => pane,
-       "socket" => ReplAdoption.socket_name(session),
+       "socket" => Aiur.CodingAgent.adapter("claude-repl").handoff_socket_name(session),
        "hook_spool_offset" => cursor["offset"],
        "os_pid" => session[:os_pid],
        "process_group_id" => session[:process_group_id]
@@ -288,7 +286,7 @@ defmodule Aiur.AgentRunner.Handoff do
   def attach(%{"transport" => %{"kind" => "repl", "socket" => socket}} = record, _generation) do
     session = decode(record["session_state"])
 
-    with {:ok, session} <- ReplAdoption.rebind(session, socket, actor_meta(record)) do
+    with {:ok, session} <- Aiur.CodingAgent.adapter("claude-repl").restore_handoff_transport(session, socket, actor_meta(record)) do
       Enum.each(decode(record["queued_frames"]), &send(self(), {:claude_hook, session.identifier, &1}))
       {:ok, session}
     end
@@ -321,7 +319,7 @@ defmodule Aiur.AgentRunner.Handoff do
   defp resume_active_turn(session, nil, _record, prompt, issue, opts), do: Aiur.CodingAgent.run_turn(session, prompt, issue, opts)
 
   defp resume_active_turn(%{backend: "claude-repl"} = session, state, record, _prompt, _issue, opts) do
-    HookTurn.adopt(session, state, record["transport"]["hook_spool_offset"], opts)
+    Aiur.CodingAgent.adapter("claude-repl").adopt_handoff_turn(session, state, record["transport"]["hook_spool_offset"], opts)
   end
 
   defp resume_active_turn(session, state, _record, _prompt, _issue, opts) do

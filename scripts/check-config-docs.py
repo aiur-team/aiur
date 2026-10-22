@@ -90,14 +90,16 @@ def module_name(short: str) -> str:
     return f"{ROOT_MODULE}.{short}"
 
 
-def load_modules() -> dict[str, str]:
+def load_modules(root: Path | None = None) -> dict[str, str]:
     """Map fully-qualified module name -> that module's source slice.
 
     A single file may define several schema modules (`agent.ex` defines the
     Agent section alongside Claude and Codex), so slice the file at each
     top-level `defmodule` rather than assuming one module per file.
     """
-    paths = [ROOT_SCHEMA, *sorted(SCHEMA_DIR.glob("*.ex"))]
+    root_schema = root / "src/lib/aiur/config/schema.ex" if root else ROOT_SCHEMA
+    schema_dir = root_schema.with_suffix("")
+    paths = [root_schema, *sorted(schema_dir.glob("*.ex"))]
     modules: dict[str, str] = {}
 
     for path in paths:

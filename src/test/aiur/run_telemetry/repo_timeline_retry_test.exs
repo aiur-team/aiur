@@ -48,7 +48,7 @@ defmodule Aiur.RunTelemetry.RepoTimelineRetryTest do
 
   test "non-GitHub trackers and missing tokens disable the production gate", %{root: root} do
     prior_path = Application.get_env(:aiur, :workflow_file_path)
-    token_key = {Aiur.GitHub.Config, :resolved_token}
+    token_key = {Aiur.GitHub.Access.Token, :resolved_token}
     prior_token = :persistent_term.get(token_key, :unset)
     :persistent_term.put(token_key, nil)
 

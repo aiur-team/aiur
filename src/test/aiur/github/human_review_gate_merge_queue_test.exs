@@ -12,7 +12,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.ReworkGate
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @shared [%{"filename" => "shared.ex"}]
   @queued %{"id" => "MQE_1"}
   @approved_queued %{

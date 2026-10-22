@@ -1,6 +1,7 @@
 import { alignBoard, alignEtaMask, primeBoardPaint } from '../support/build-home-band-canvas.mjs'
 import { installScrollPaint, flushScrollPaint } from '../support/build-home-scroll-paint.mjs'
 import { normalizeColumnCapture } from '../support/build-home-columns-motion.mjs'
+import { prepareTreeMotion, prepareTreeFrame } from '../support/build-home-tree-motion.mjs'
 // One spec keeps the required mutations, sequence contracts, and sign-off gate collected together.
 import { openVisualRoute } from '../support/visual.mjs'
 import { test, expect } from '@playwright/test'
@@ -138,7 +139,6 @@ test('harness self-check: missing input and measurement fail', async ({ page }) 
   await expect(pausedAnimations(page, '.missing')).rejects.toThrow('unreachable measurement: .missing')
 })
 
-
 test('harness self-check: scroll frames advance timers and measure each position', async ({ page }) => {
   await page.clock.install({ time: FIXTURE_META.now - 1000 })
   await page.clock.pauseAt(FIXTURE_META.now)
@@ -254,7 +254,7 @@ function collectAllowlist(design, product, entries) {
   for (const entry of entries.filter(e => e.kind === 'motion')) {
     if (raw.some(diff => motionPathMatches(entry.path, diff.path))) matchedAllowlist.add(entry.id)
   }
-  expect(compareRecords(design, product, entries)).toEqual([])
+  expect(compareRecords(design, product, entries), JSON.stringify({ design: design.reason, product: product.reason })).toEqual([])
 }
 
 // Barrier keeps both pages on each chosen frame while the shared screenshot helper runs.
@@ -283,7 +283,8 @@ function frameBarrier(pair, name, reduce) {
       }
       if (name === 'snap.scroll-curve') await Promise.all([pair.design, pair.product].map(flushScrollPaint))
       if (name.startsWith('snap.')) await primeBoardPaint(pair)
-      await expectDesignParity(pair, { name: [name, pair.cell.dataset, pair.cell.viewport.width, pair.cell.theme, pair.cell.palette, pair.cell.reducedMotion, fraction].join("-"), region, preserveAnimations: true })
+      const captureRegion = name.startsWith('tree.') ? await prepareTreeFrame(pair, region) : region
+      await expectDesignParity(pair, { name: [name, pair.cell.dataset, pair.cell.viewport.width, pair.cell.theme, pair.cell.palette, pair.cell.reducedMotion, fraction].join("-"), region: captureRegion, preserveAnimations: true })
     }
     catch (error) { errors.push(error) }
     finally {
@@ -298,7 +299,7 @@ for (const selectedCell of interactionCells) test.describe(`product interactions
   for (const name of Object.keys(SEQUENCES).filter(n => !['inventory', 'grain.static'].includes(n))) test(name, async ({ browser }) => {
     test.setTimeout(120_000)
     const owner = ownerFor(name), reduce = selectedCell.reducedMotion === 'reduce'
-    const pair = await openParityPair(browser, selectedCell, { ...await sequenceOptions(name, selectedCell), productAnchor: name.startsWith('columns.') || name.startsWith('snap.') ? undefined : owner.anchor, productPending: owner.pending })
+    const pair = await openParityPair(browser, selectedCell, { ...await sequenceOptions(name, selectedCell), productAnchor: name.startsWith('columns.') || name.startsWith('snap.') || name.startsWith('tree.') ? undefined : owner.anchor, productPending: owner.pending })
     try {
       const absent = owner.pending || (owner.anchor && !await pair.product.locator(owner.anchor).count() && !(name.startsWith('columns.') && await pair.product.locator('#bd-content.flow').count())) || (name === 'snap.scroll-curve' && !await pair.product.locator('.bd-cal [data-span="7"]').count())
       if (absent) missingPorts.add(`${name}: ${owner.owners.join(', ')}`)
@@ -321,6 +322,7 @@ for (const selectedCell of interactionCells) test.describe(`product interactions
         }))
       }
       if (name.startsWith('snap.')) { await alignBoard(pair); await alignEtaMask(pair); pair.allowlist = pair.allowlist.map(e => e.id === 'now-band-eta-pending' ? { ...e, kind: 'pixel-mask', selector: '.bd-now-eta' } : e) }
+      if (name.startsWith('tree.')) await prepareTreeMotion(pair)
       if (name === 'snap.list-view') pair.allowlist = pair.allowlist.filter(e => e.id !== 'now-band-eta-pending')
       const entries = scopedEntries(pair.allowlist, selectedCell), barrier = frameBarrier(pair, name, reduce)
       const [design, product] = await Promise.all([runOn(pair.design, name, { reduce, onFrame: barrier.frame }).finally(barrier.abort), runOn(pair.product, name, { reduce, onFrame: barrier.frame, ids: FIXTURE_META.ids }).finally(barrier.abort)])
@@ -389,7 +391,6 @@ test('harness self-check: full matrix flag reaches the Playwright child', async 
   expect(child.GITHUB_TOKEN).toBeUndefined()
 })
 
-
 test('harness self-check: pixel frames retain paused CSS animation time', async ({ browser }) => {
   const context = await browser.newContext({ viewport: cell.viewport })
   try {
@@ -429,7 +430,6 @@ test('harness self-check: screenshot allowlists ignore motion paths', async ({ b
     expect(await applyAllowlist(pair, cell, [{ ...motionEntry, selector: '.missing' }])).toEqual({ designMask: [], productMask: [] })
   } finally { await context.close() }
 })
-
 
 test('harness self-check: composed animations share each sampled fraction', async ({ page }) => {
   await page.setContent('<style>@keyframes probeLeft {from {left:0} to {left:100px}} @keyframes probeWidth {from {width:100px} to {width:200px}} #probe {position:relative;height:20px} .on {animation:probeLeft 1s linear both,probeWidth 1s linear both}</style><button onclick="document.querySelector(\'#probe\').classList.add(\'on\')">start</button><div id="probe"></div>')
@@ -478,7 +478,6 @@ test('harness self-check: scroll curve requests three visual frames', async ({ b
   expect(record.samples.length, record.reason).toBeGreaterThan(0)
   expect(frames).toEqual([[0, '#bd-vp'], [.5, '#bd-vp'], [1, '#bd-vp']])
 })
-
 
 test('harness self-check: minimap waits for its stable target despite unrelated scrollend', async ({ page }) => {
   await page.setContent('<div id="cv-log" style="height:100px;overflow:auto"><div style="height:1000px"></div></div>')

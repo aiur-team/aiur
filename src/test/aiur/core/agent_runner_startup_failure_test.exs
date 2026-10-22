@@ -1,6 +1,8 @@
 defmodule Aiur.Core.AgentRunnerStartupFailureTest do
   use Aiur.TestSupport
 
+  alias Aiur.Workspace.Layout
+
   test "agent runner surfaces ssh startup failures instead of silently hopping hosts" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-single-host")
 
@@ -118,7 +120,7 @@ defmodule Aiur.Core.AgentRunnerStartupFailureTest do
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
         hook_before_run: """
-        printf 'before_run\\n' >> #{before_run_trace}
+        printf '%s\\t%s\\t%s\\t%s\\n' "$AIUR_HOOK_TICKET_ID" "$AIUR_HOOK_TICKET_IDENTIFIER" "$AIUR_HOOK_RUNNER_PID" "$PWD" >> #{before_run_trace}
         if [ ! -f #{resume_marker} ]; then
           printf '%s\\n' 'dependency fetch failed' >&2
           exit 74
@@ -127,6 +129,9 @@ defmodule Aiur.Core.AgentRunnerStartupFailureTest do
         codex_command: "#{codex_binary} app-server",
         max_turns: 1
       )
+
+      {:ok, test_workspace} =
+        Layout.workspace_path_for_issue(Layout.safe_identifier(identifier), nil)
 
       issue = %Issue{
         id: "issue-before-run-pause",
@@ -169,7 +174,22 @@ defmodule Aiur.Core.AgentRunnerStartupFailureTest do
 
       assert {:ok, :ok} = Task.yield(task, 15_000)
 
-      assert before_run_trace |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+      trace_lines = before_run_trace |> File.read!() |> String.split("\n", trim: true)
+
+      all_owned_by_test? =
+        Enum.all?(trace_lines, fn line ->
+          case String.split(line, "\t", parts: 4) do
+            [ticket_id, ticket_identifier, runner_pid, workspace] ->
+              ticket_id == issue.id and ticket_identifier == issue.identifier and
+                runner_pid == inspect(task.pid) and workspace == test_workspace
+
+            _ ->
+              false
+          end
+        end)
+
+      assert length(trace_lines) == 2 and all_owned_by_test?,
+             "expected exactly two before_run entries from this test runner; got #{inspect(trace_lines)}"
     after
       File.rm_rf(test_root)
     end

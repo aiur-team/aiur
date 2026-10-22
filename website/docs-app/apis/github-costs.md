@@ -30,7 +30,13 @@ Attempts are journaled before writes; queued PRs are left alone. Recovery does n
 
 Three failed CI/rework handoffs per PR raise one attention naming tests and hold further rework/fallback wakes. The Executor fixes or reruns the current head until all required checks pass, releasing the hold and resetting the cycle count. Acknowledging the alert alone does not release it.
 
+Rework handbacks also read classified PR conversation comments once to catch trusted change requests newer than the last formal review. Automatic end-of-turn handbacks use the same current-head evidence and feedback checks as tool-requested handbacks.
+
 A rerun not observed within ten minutes raises attention. Journaled attention holds avoid repeated recovery reads; normal CI polling continues. No saving is claimed.
+
+A rework handback with no commit since the blocking review reads the PR body's GraphQL `lastEditedAt` once, attributed to `rework_body_edit`, so a body-only fix can pass the [rework guard](/concepts/ticket-lifecycle).
+
+The read costs one GraphQL point per handback attempt and never runs on a poll. Handbacks with a new commit skip it; a failed read counts as no edit.
 
 Orphan-claim recovery reads mergeability/reviews before guarded add-before-remove state writes. It posts a reason comment and wakes the Executor ([Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Successful writes retain GitHub's returned state.
 

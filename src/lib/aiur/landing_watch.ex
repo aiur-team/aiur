@@ -89,12 +89,14 @@ defmodule Aiur.LandingWatch do
     case result do
       :ok ->
         next = %{state | task: nil, watcher: :running, last_poll_at_ms: now, last_error: nil, active_recovery_window: nil, active_recovery_attempt: 0}
+        :telemetry.execute([:aiur, :landing_watch, :poll, :stop], %{}, %{result: :ok})
         if next.pending_recovery_window, do: send(self(), RecoveryRuntime.message(next.pending_recovery_window))
         {:noreply, %{next | pending_recovery_window: nil}}
 
       {:error, reason} ->
         Logger.warning("landing watcher poll unavailable: #{inspect(reason)}")
         next = %{state | task: nil, watcher: :unavailable, last_poll_at_ms: now, last_error: inspect(reason)}
+        :telemetry.execute([:aiur, :landing_watch, :poll, :stop], %{}, %{result: :error})
         {:noreply, RecoveryRuntime.retry_or_drain(next)}
     end
   end
@@ -102,6 +104,7 @@ defmodule Aiur.LandingWatch do
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref}} = state) do
     Logger.warning("landing watcher poll crashed: #{inspect(reason)}")
     next = %{state | task: nil, watcher: :unavailable, last_error: inspect(reason)}
+    :telemetry.execute([:aiur, :landing_watch, :poll, :stop], %{}, %{result: :error})
     {:noreply, RecoveryRuntime.retry_or_drain(next)}
   end
 
@@ -174,6 +177,10 @@ defmodule Aiur.LandingWatch do
     ci_status = Keyword.get(opts, :ci_status_fun, &Client.fetch_commit_ci_status/2)
     required_result = Keyword.get(opts, :required_checks_snapshot, :not_fetched)
     required_result = if required_result == :not_fetched, do: LocalRead.run(required_checks, [opts], opts), else: required_result
+
+    conflict_queue_persistent? = ConflictRouting.persistent_queue_conflict?(observation, opts)
+    observation = Map.put(observation, :conflict_queue_persistent?, conflict_queue_persistent?)
+    observation = if conflict_queue_persistent?, do: Map.put(observation, :conflicting_queue_prs, ConflictRouting.queue_prs_ahead(observation, opts)), else: observation
 
     with true <- Classifier.approved_at_head?(raw),
          {:ok, true} <- LocalRead.run(current_approval, [number, opts], opts),

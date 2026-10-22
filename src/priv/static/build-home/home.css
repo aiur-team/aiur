@@ -46,3 +46,6 @@ span.ax-cnt:hover { color: var(--muted); background: none; }
 
 /* #5175: Live retrying group, which the design lacks */
 .bd-now-st button.queued i, .bd-now-sum .queued { background: var(--attn); }
+
+.bm-agent .ax-mono { display: inline-grid; width: 16px; height: 16px; border-radius: 50%; font-size: .6rem; }
+.bm-tt h3:focus { outline: none; }

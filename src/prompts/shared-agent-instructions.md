@@ -132,6 +132,9 @@ states only when GitHub reports the PR `CONFLICTING`
 (`gh pr view --json mergeable,reviewDecision`) or a reviewer explicitly asks
 for it; explain a conflict-driven integration in a PR comment. In `rework`,
 follow the reviewer’s request, including “merge current origin/main” when asked.
+This applies while any open PR waits for CI, review, or the merge queue: a
+mergeable head gets no base-only merge commits. If a newer base commit fixes a
+failing check, name that commit before refreshing the branch.
 The agent `git` guard refuses a push to a PR that is in the merge queue unless
 it is conflicting or has changes requested.
 

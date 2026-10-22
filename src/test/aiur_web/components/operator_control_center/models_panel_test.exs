@@ -58,6 +58,23 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanelTest do
     refute html =~ "s old</span>"
   end
 
+  test "each window has its own full-width meter track" do
+    html =
+      render([
+        card(:claude, [
+          window("claude:five_hour", "Session (5 hour)", 7, 2 * 3_600, %{duration_minutes: 300}),
+          window("claude:seven_day", "Weekly (7 day)", 67, 86_400, %{duration_minutes: 10_080})
+        ])
+      ])
+
+    assert length(Regex.scan(~r/class="rs-ln"/u, html)) == 2
+    assert length(Regex.scan(~r/class="rs-meter"/u, html)) == 2
+    assert html =~ "7%"
+    assert html =~ "67%"
+    assert html =~ "2h 0m<em>/5h</em>"
+    assert html =~ "1d 0h<em>/7d</em>"
+  end
+
   test "prepaid credits show the spend percentage and the balance" do
     credits = %{kind: :credit, name: "Credits", used_percent: 2.3, credits: %{amount: 10.4, status: :available}}
     html = render([card(:deepseek, [credits])])
