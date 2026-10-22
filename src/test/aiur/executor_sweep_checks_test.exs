@@ -175,6 +175,54 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     refute Enum.any?(findings, &(&1.kind == "approved_pr_not_landing"))
   end
 
+  test "finds ci-wait tickets older than two hours when required checks are terminal" do
+    now = ~U[2026-10-21 18:00:00Z]
+
+    snapshot = %{
+      tickets: [%{number: 5579, labels: ["agent:ci-wait"], updated_at: ~U[2026-10-21 15:59:59Z]}],
+      pull_requests: [%{number: 6000, issue_number: 5579, state: "open", head_sha: "head", ci_head_sha: "head", ci_decision: :passed, required_checks: [%{name: "test", conclusion: "success"}]}]
+    }
+
+    assert [%{kind: "stale_ci_wait_without_pending_checks", issue_number: 5579, pull_request: 6000, age_ms: 7_201_000}] =
+             Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_ci_wait_without_pending_checks"))
+
+    snapshot = update_in(snapshot.tickets, &[Map.put(hd(&1), :updated_at, ~U[2026-10-21 16:00:00Z])])
+    assert [] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_ci_wait_without_pending_checks"))
+
+    snapshot = put_in(snapshot.pull_requests, [%{hd(snapshot.pull_requests) | required_checks: [%{name: "test", conclusion: "in_progress"}]}])
+    assert [] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_ci_wait_without_pending_checks"))
+  end
+
+  test "stale ci-wait sweep ignores a pending current-head CI observation" do
+    now = DateTime.utc_now()
+    started = DateTime.add(now, -3 * 60 * 60, :second)
+
+    snapshot = %{
+      tickets: [%{number: 5579, labels: ["ci-wait"], ci_wait_since: started}],
+      pull_requests: [%{number: 6000, issue_number: 5579, state: "open", head_sha: "head", ci_head_sha: "head", ci_decision: :pending, required_checks: []}]
+    }
+
+    assert [] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_ci_wait_without_pending_checks"))
+  end
+
+  test "snapshot tracks the latest ci-wait label time from the issue timeline" do
+    ticket =
+      SnapshotCache.build(
+        [],
+        [],
+        [{5579, ["agent:ci-wait"]}],
+        %{5579 => %{"updated_at" => "2026-10-21T17:59:00Z"}},
+        %{},
+        [],
+        %{5579 => %{"events" => [%{"event" => "labeled", "label" => %{"name" => "agent:ci-wait"}, "created_at" => "2026-10-21T15:30:00Z"}]}},
+        %{status: :available, tickets: [], truncated?: false}
+      )
+      |> Map.fetch!(:tickets)
+      |> hd()
+
+    assert ticket.ci_wait_since == "2026-10-21T15:30:00Z"
+  end
+
   test "does not treat an old-head approval as current approval" do
     snapshot = %{pull_requests: [%{number: 10, state: "open", head_sha: "new", approved_head_sha: "old", review_decision: "APPROVED", in_merge_queue: false, auto_merge: false, required_checks: []}]}
 
