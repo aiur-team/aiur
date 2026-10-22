@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   require Logger
 
   alias Aiur.{Alerts, Config, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, PauseResume, RetryEngine, State}
+  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, PauseResume, RetryEngine, State}
 
   @interrupted_turn_grace_ms 30_000
 
@@ -245,6 +245,11 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   @spec restart_stalled_issue(State.t(), term(), map(), DateTime.t(), non_neg_integer()) :: State.t()
   def restart_stalled_issue(state, issue_id, running_entry, now, timeout_ms) do
     cond do
+      # CI-wait is an intentional handoff: the worker is waiting for CI and
+      # should not consume a retry even if its last activity is old.
+      ci_wait_issue?(running_entry) ->
+        state
+
       # Runaway safety net: a duration-capped pause asked the worker to
       # park cooperatively at its next turn boundary, but a truly wedged
       # agent (single never-ending codex turn) never reaches one, so it
@@ -279,6 +284,9 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
         maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms)
     end
   end
+
+  defp ci_wait_issue?(%{issue: issue}), do: CiLifecycle.ci_wait_state?(Map.get(issue, :state))
+  defp ci_wait_issue?(_running_entry), do: false
 
   # True when a duration-capped paused entry is WEDGED rather than parked:
   # it kept streaming codex after the cooperative `{:pause_agent}` was sent
