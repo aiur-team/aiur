@@ -20,7 +20,8 @@ function rows() { return Array.from($('#cv-log')?.children || []).filter(el => e
 function trim(from) {
   const items = rows();
   while (items.length > MAX_DOM) (from === 'top' ? items.shift() : items.pop()).remove();
-  if (from === 'top' && items.length) { open.before = items[0].dataset.cursor; open.more = true; }
+  const first = items.find(el => el.dataset.cursor);
+  if (from === 'top' && first) { open.before = first.dataset.cursor; open.more = true; }
 }
 function find(id) { return rows().find(el => el.dataset.eid === id); }
 export function appendEntries(entries) {

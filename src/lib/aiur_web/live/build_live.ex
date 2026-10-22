@@ -96,7 +96,7 @@ defmodule AiurWeb.BuildLive do
   def handle_info(:build_snapshot_timeout, %{assigns: %{build_state: :loading}} = socket),
     do: {:noreply, socket |> cancel_async(:build_snapshot) |> unavailable("timeout")}
 
-  def handle_info({:build_changes, changes}, socket), do: {:noreply, Protocol.changes(socket, changes, source_opts(socket))}
+  def handle_info({:build_changes, changes} = message, socket), do: {:noreply, socket |> Protocol.changes(changes, source_opts(socket)) |> Conversation.info(message)}
 
   def handle_info(:fleet_changed, socket), do: {:noreply, socket |> DashboardShell.refresh_pause() |> Conversation.info(:fleet_changed)}
   def handle_info({AiurWeb.FinancialData, :updated, _} = message, socket), do: {:noreply, UsageUpdates.queue(socket, message)}
@@ -108,6 +108,7 @@ defmodule AiurWeb.BuildLive do
   def handle_info({:build_conversation_poll, _token} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:live_conversation_changed, _snapshot} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:live_conversation_restarted, _epoch, _now} = message, socket), do: {:noreply, Conversation.info(socket, message)}
+  def handle_info({tag, _} = message, socket) when tag in [:conversation_events_refresh, :ticket_history_updated], do: {:noreply, Conversation.info(socket, message)}
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
