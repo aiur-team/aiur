@@ -90,8 +90,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.PrLessReview do
 
   defp put_mark(state, target, mark) do
     marks = Map.get(state.ci_lifecycle, :pr_less_review, %{})
-    marks = if mark, do: Map.put(marks, target, mark), else: Map.delete(marks, target)
-    %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :pr_less_review, marks)}
+    updated = if mark, do: Map.put(marks, target, mark), else: Map.delete(marks, target)
+
+    if updated == marks,
+      do: state,
+      else: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :pr_less_review, updated)}
   end
 
   defp log_error(state, target, reason) do
