@@ -314,6 +314,23 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     Map.merge(pr, %{ci_head_sha: pr.head_sha, ci_observed_at_ms: DateTime.to_unix(now, :millisecond) - age_ms})
   end
 
+  defp approved_failure(number, issue, conclusion, failure) do
+    pr = %{
+      number: number,
+      issue_number: issue,
+      state: "open",
+      review_decision: "APPROVED",
+      head_sha: "head-#{number}",
+      approved_head_sha: "head-#{number}",
+      auto_merge: failure == "pr",
+      in_merge_queue: false,
+      required_checks: [%{conclusion: conclusion}],
+      failure_class: failure
+    }
+
+    live_ci(pr, 0, ~U[2026-10-15 18:20:00Z])
+  end
+
   test "summarizes invalid labels and excludes parked tickets" do
     tickets = [
       %{number: 1767, labels: [], created_at: "2026-02-01T00:00:00Z"},
@@ -357,38 +374,8 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
       github_cache_ages: %{pull_requests: %{99 => 0}, merge_group_runs: %{}},
       pull_requests: [
         %{number: 4447, issue_number: 4429, state: "open", draft: false, head_sha: "current", reviewed_head_sha: nil, ready_at: ~U[2026-10-14 19:08:00Z]},
-        live_ci(
-          %{
-            number: 9,
-            issue_number: 3,
-            state: "open",
-            review_decision: "APPROVED",
-            head_sha: "head-9",
-            approved_head_sha: "head-9",
-            auto_merge: false,
-            in_merge_queue: false,
-            required_checks: [%{conclusion: "startup_failure"}],
-            failure_class: "infra"
-          },
-          0,
-          now
-        ),
-        live_ci(
-          %{
-            number: 10,
-            issue_number: 4,
-            state: "open",
-            review_decision: "APPROVED",
-            head_sha: "head-10",
-            approved_head_sha: "head-10",
-            auto_merge: true,
-            in_merge_queue: false,
-            required_checks: [%{conclusion: "failure"}],
-            failure_class: "pr"
-          },
-          0,
-          now
-        ),
+        approved_failure(9, 3, "startup_failure", "infra"),
+        approved_failure(10, 4, "failure", "pr"),
         %{number: 11, issue_number: 8, state: "open", review_decision: "APPROVED", auto_merge: false, in_merge_queue: false, required_checks: []}
       ],
       merge_queue: [%{number: 9, mergeable: "UNMERGEABLE"}],
