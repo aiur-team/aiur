@@ -282,7 +282,9 @@ defmodule Aiur.Application.Children do
         landing_watch_children(primary_instance?, github_tracker?) ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        quarantine_lifter_children(primary_instance?, github_tracker?) ++ List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
+        quarantine_lifter_children(primary_instance?, github_tracker?) ++
+        List.wrap(if(dashboard?, do: [Aiur.RunTelemetry.RetainedCache, {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}])) ++
+        List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
     )
   end
 
