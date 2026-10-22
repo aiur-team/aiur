@@ -13,7 +13,7 @@ jobs:
     name: rerequest cancelled ci
     # An ejected PR needs a green head again before auto-merge can re-enqueue it.
     if: ${{ github.event.action == 'dequeued' && github.event.pull_request.state == 'open' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: { actions: write, pull-requests: read }
     steps:

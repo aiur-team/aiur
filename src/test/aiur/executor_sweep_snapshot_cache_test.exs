@@ -2,22 +2,21 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
   use Aiur.TestSupport
 
   alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
-  alias Aiur.GitHub.{Config, ResourceStore}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.OpenTicketSource.Snapshot
+  alias Aiur.TestSupport.Isolation
 
-  setup_all do
-    if Process.whereis(ResourceStore) == nil, do: Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
-    :ok
+  setup context do
+    [owner, repo] = ["aiur-test", "#{Isolation.unique_name(context, :repo)}"]
+    Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "#{owner}/#{repo}")
+
+    on_exit(fn -> ResourceStore.clear(:issue, owner, repo) end)
+    {:ok, resource_owner: owner, resource_repo: repo}
   end
 
-  setup do
-    ResourceStore.reset()
-    on_exit(fn -> ResourceStore.reset() end)
-    :ok
-  end
-
-  test "skips a metadata-only ResourceStore entry while reading cached resources" do
-    [owner, repo] = String.split(Config.repo(), "/", parts: 2)
+  test "skips a metadata-only ResourceStore entry while reading cached resources", ctx do
+    owner = ctx.resource_owner
+    repo = ctx.resource_repo
     key = ResourceStore.key(:issue, owner, repo, 3787)
     neighboring_key = ResourceStore.key(:issue, owner, repo, 3788)
     assert :ok = ResourceStore.put_resource(key, %{"number" => 3787, "created_at" => "2026-10-15T13:25:40Z"}, source: :mutation, version: "2026-10-15T13:25:40Z")

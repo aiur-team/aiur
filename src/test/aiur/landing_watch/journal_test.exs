@@ -34,6 +34,19 @@ defmodule Aiur.LandingWatch.JournalTest do
     assert Map.has_key?(state, "flakes")
   end
 
+  test "metric evidence is retained separately and a touched row removes only its quarantine candidate" do
+    path = Path.join(System.tmp_dir!(), "landing-metric-evidence-#{System.unique_integer([:positive])}.json")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
+    opts = [journal_path: path]
+    row = %{"identity" => "Test :: failure", "pr" => 42, "run_url" => "run-1", "job" => "test", "at_ms" => 1}
+
+    assert :ok = Journal.record_failure_observation(row, opts)
+    assert :ok = Journal.record_failure_metric_evidence(Map.put(row, "touched", true), opts)
+    assert :ok = Journal.forget_failure_observation(row, opts)
+
+    assert {:ok, %{"failure_observations" => [], "failure_metric_evidence" => [%{"touched" => true}]}} = Journal.state(opts)
+  end
+
   test "merge-group run claims dedupe completed runs and can be released after an error" do
     path = Path.join(System.tmp_dir!(), "landing-run-journal-#{System.unique_integer([:positive])}.json")
     on_exit(fn -> File.rm(path) end)
