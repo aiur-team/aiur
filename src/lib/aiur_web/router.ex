@@ -86,6 +86,14 @@ defmodule AiurWeb.Router do
   Streamdeck.session()
   Capabilities.reads()
   UsageProgressRoutes.reads()
+
+  # Account and rate-limit snapshot (#5697).
+  scope "/" do
+    pipe_through(:dashboard_auth)
+    get("/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :show)
+    match(:*, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :method_not_allowed)
+  end
+
   # Generic issue reads and the catch-all stay last.
   Api.reads_and_catch_all()
 

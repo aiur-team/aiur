@@ -8,6 +8,7 @@ defmodule Aiur.AgentTools.EmitEvent do
   alias Aiur.AgentTools.Args
   alias Aiur.AgentTools.Errors
   alias Aiur.AgentTools.Response
+  alias Aiur.AgentTools.StatusNote
 
   @emit_event_description """
   Emit a cross-ticket Aiur event. Routes onto the `Aiur.Events.Exchange`
@@ -44,7 +45,7 @@ defmodule Aiur.AgentTools.EmitEvent do
       "name" => %{
         "type" => "string",
         "description" =>
-          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug> (decision.acknowledged/resolved require durable correlation payloads), blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, optimistic.integrated"
+          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.status (status note; payload %{doing, why, next, waiting_on, asks, risks, pr, updated_reason}, one-line message ≤200 bytes, payload ≤1,280 bytes, 6 per turn), progress.<slug>, decision.<slug> (decision.acknowledged/resolved require durable correlation payloads), blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, optimistic.integrated"
       },
       "message" => %{"type" => "string", "description" => "Short human-readable summary."},
       "payload" => %{
@@ -66,6 +67,8 @@ defmodule Aiur.AgentTools.EmitEvent do
 
   @progress_emits_per_turn_max 2
   @progress_quota_key {Aiur.AgentTools.Dispatch, :progress_emit_count}
+  @status_notes_per_turn_max 6
+  @status_note_quota_key {Aiur.AgentTools.Dispatch, :status_note_emit_count}
 
   @impl true
   @spec tools() :: [String.t()]
@@ -90,6 +93,7 @@ defmodule Aiur.AgentTools.EmitEvent do
 
     with {:ok, name, message, payload} <- normalize_emit_event_arguments(arguments),
          :ok <- validate_emit_event_name(name),
+         {:ok, message, payload} <- validate_payload(name, message, payload),
          :ok <- enforce_per_turn_quota(name),
          true <- is_function(event_publisher, 3) || {:error, :event_publisher_unavailable},
          {:ok, result} <- event_publisher.(name, message, payload) do
@@ -154,15 +158,30 @@ defmodule Aiur.AgentTools.EmitEvent do
     end
   end
 
+  def enforce_per_turn_quota("progress.status") do
+    count = Process.get(@status_note_quota_key, 0)
+
+    if count >= @status_notes_per_turn_max do
+      {:error, :status_note_cap_exceeded}
+    else
+      Process.put(@status_note_quota_key, count + 1)
+      :ok
+    end
+  end
+
   def enforce_per_turn_quota(_name), do: :ok
 
+  defp validate_payload("progress.status", message, payload), do: StatusNote.validate(message, payload)
+  defp validate_payload(_name, message, payload), do: {:ok, message, payload}
+
   @doc """
-  Reset per-turn vocabulary quotas (currently the `progress` cap). Call this
+  Reset per-turn vocabulary quotas (the `progress` and `progress.status` caps). Call this
   at every codex turn boundary so the next turn starts with a fresh budget.
   """
   @spec reset_turn_quotas() :: :ok
   def reset_turn_quotas do
     Process.delete(@progress_quota_key)
+    Process.delete(@status_note_quota_key)
     :ok
   end
 end
