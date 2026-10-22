@@ -954,7 +954,7 @@ def run_batch(requests, command_parser, queue_depth=0):
         active = []
         for request, args in group:
             if request["deadline_ms"] <= now_ms():
-                yield {"id": request["id"], "status": 2, "output": "broker deadline expired before admission", "python_queue_wait_ms": request["_python_queue_wait_ms"], "python_queue_depth": queue_depth}
+                yield {"id": request["id"], "status": 2, "output": "broker deadline expired before admission", "python_queue_wait_ms": request["_python_queue_wait_ms"], "python_queue_depth": queue_depth, "command_type": request.get("_command_type", "unknown")}
             else:
                 active.append((request, args))
         if active:
