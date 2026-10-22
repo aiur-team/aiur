@@ -113,11 +113,11 @@ chmod +x "$tmp/bin/git" "$tmp/bin/mix" "$tmp/bin/mise" "$tmp/bin/make" "$tmp/bin
 base="$(printf 'a%.0s' {1..40})"
 head="$(printf 'b%.0s' {1..40})"
 run_check() {
-  local name="$1" changed="$2" fail_test="$3" fail_dialyzer="$4" pr_json="${5:-}" fail_full_ci="${6:-false}" timeout_exit="${7:-}"
+  local name="$1" changed="$2" fail_test="$3" fail_dialyzer="$4" pr_json="${5:-}" fail_full_ci="${6:-false}" timeout_exit="${7:-}" fail_partition="${8:-}"
   : > "$tmp/$name.commands"
   if env BASH_ENV=/dev/null PATH="$tmp/bin:$PATH" TMPDIR="$tmp" COMMAND_LOG="$tmp/$name.commands" \
       CHANGED_PATHS="$changed" HEAD_SHA="$head" BASE_SHA="$base" \
-      FAIL_TEST="$fail_test" FAIL_DIALYZER="$fail_dialyzer" FAIL_FULL_CI="$fail_full_ci" TIMEOUT_EXIT="$timeout_exit" \
+      FAIL_TEST="$fail_test" FAIL_DIALYZER="$fail_dialyzer" FAIL_FULL_CI="$fail_full_ci" TIMEOUT_EXIT="$timeout_exit" FAIL_PARTITION="$fail_partition" \
       bash "$fixture/scripts/run-pre-handoff-code-checks.sh" "$base" ${pr_json:+"$pr_json"} > "$tmp/$name.log" 2>&1; then
     return 0
   else
@@ -184,6 +184,14 @@ grep -F 'all 4 CI coverage partitions' "$tmp/full_suite.log" >/dev/null
 [[ "$(grep -c 'coverage partition [1-4]/4 complete (passed)' "$tmp/full_suite.log")" == 4 ]]
 [[ "$(grep -c '^makeargs:--max-cases 4$' "$tmp/full_suite.commands")" == 4 ]]
 
+if run_check failed_partition src/test/support/factory.ex false false "" false "" 2; then
+  echo 'test-run-pre-handoff-code-checks: failed partition must make the fallback fail' >&2
+  exit 1
+fi
+grep -F 'coverage partition 2/4 complete (failed, exit 23)' "$tmp/failed_partition.log" >/dev/null
+grep -F -- 'MIX_TEST_PARTITION=2 TEST_PARTITIONS=4' "$tmp/failed_partition.log" >/dev/null
+[[ "$(grep -c '^partition:' "$tmp/failed_partition.commands")" == 4 ]]
+
 if ! run_check unknown_full src/examples/workflows/demo.yaml false false; then
   cat "$tmp/unknown_full.log" >&2
   echo 'test-run-pre-handoff-code-checks: unsafe non-support full selection did not run partitions' >&2
@@ -246,16 +254,5 @@ grep -F '## Local tests evidence (paste into the PR body)' "$tmp/evidence.log" >
 grep -F "Tested head: $head" "$tmp/evidence.log" >/dev/null
 grep -F 'mix aiur.affected_tests' "$tmp/evidence.log" >/dev/null
 grep -F -- '- `timeout --signal=TERM --kill-after=60s 15m mise exec -- mix dialyzer` -> passed' "$tmp/evidence.log" >/dev/null
-
-# A runner interruption must leave its governing signal and any completed selection evidence.
-if env BASH_ENV=/dev/null PATH="$tmp/bin:$PATH" TMPDIR="$tmp" COMMAND_LOG="$tmp/interrupted.commands" \
-    CHANGED_PATHS='src/test/support/factory.ex' HEAD_SHA="$head" BASE_SHA="$base" \
-    FAIL_PARTITION=2 bash "$fixture/scripts/run-pre-handoff-code-checks.sh" "$base" \
-    > "$tmp/interrupted-signal.log" 2>&1; then
-  echo 'test-run-pre-handoff-code-checks: expected TERM to stop the wrapper' >&2
-  exit 1
-fi
-grep -F 'coverage partition 2/4 complete (failed, exit 23)' "$tmp/interrupted-signal.log" >/dev/null
-[[ "$(grep -c '^partition:' "$tmp/interrupted.commands")" == 4 ]]
 
 echo 'test-run-pre-handoff-code-checks: selected test and Dialyzer failures refuse handoff'
