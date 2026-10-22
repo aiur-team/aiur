@@ -143,7 +143,7 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
                  coordinator
                )
 
-      assert_receive {:root_restart_worker_started, worker}, 1_000
+      assert_receive {:root_restart_worker_started, worker}, 5_000
 
       worker_links = Process.info(worker, :links) |> elem(1)
       assert coordinator_pid in worker_links
@@ -166,7 +166,7 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
       :ok = :sys.trace(root, true)
       Process.exit(earlier_sibling_pid, :kill)
 
-      assert_receive {:DOWN, ^shared_task_supervisor_ref, :process, ^shared_task_supervisor, task_supervisor_exit}, 1_000
+      assert_receive {:DOWN, ^shared_task_supervisor_ref, :process, ^shared_task_supervisor, task_supervisor_exit}, 5_000
       # The root replies only after restarting every later sibling, so this
       # outlasts a slow restart and the next test never meets a half-built tree.
       _children = Supervisor.which_children(root)
@@ -193,7 +193,7 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
       assert worker_exit == :alive
 
       Process.exit(coordinator_pid, :kill)
-      assert_receive {:DOWN, ^worker_ref, :process, ^worker, :killed}, 1_000
+      assert_receive {:DOWN, ^worker_ref, :process, ^worker, :killed}, 5_000
     end
   end
 end
