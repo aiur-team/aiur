@@ -22,7 +22,7 @@ defmodule AiurWeb.Experiments.Report do
             Results may be newer than this report (report time unknown, results <.timestamp value={@report.results_at} />)
           <% end %>
         </p>
-        <div :if={@report.markdown} class="ticket-context-markdown">{Markdown.render(@report.markdown, heading_offset: 2)}</div>
+        <div :if={@report.markdown} class="ticket-context-markdown exp-report-markdown">{Markdown.render(@report.markdown, heading_offset: 2)}</div>
         <p :if={is_nil(@report.markdown)} class="exp-notice">The analyst report could not be displayed.</p>
       </div>
     </section>
