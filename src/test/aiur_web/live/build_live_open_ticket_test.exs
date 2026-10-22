@@ -100,4 +100,11 @@ defmodule AiurWeb.BuildLiveOpenTicketTest do
     render_hook(view, "open-ticket", %{id: row["id"]})
     assert_reply(view, %{"row" => ^row, "kind" => "ticket"})
   end
+
+  test "each Build data source implements the by-id ticket read" do
+    for source <- [AiurWeb.Build.DataSource, AiurWeb.Build.IndexSource, FixtureSource] do
+      assert Code.ensure_loaded?(source)
+      assert function_exported?(source, :ticket, 2), "#{inspect(source)} must implement ticket/2"
+    end
+  end
 end
