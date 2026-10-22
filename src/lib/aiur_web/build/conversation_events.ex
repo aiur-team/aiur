@@ -47,16 +47,13 @@ defmodule AiurWeb.Build.ConversationEvents do
   defp log_kind("pause.request", _), do: {"you", "Agent asked to pause", nil}
   defp log_kind(_topic, _), do: nil
 
-  @doc "Percent per event id, only from an available history snapshot; a percent is never borrowed from another event."
+  @doc """
+  Percent per event id, from an available history snapshot's progress entries;
+  a percent is never borrowed from another event.
+  """
   @spec progress_index(term()) :: %{optional(pos_integer()) => 0..100}
-  def progress_index({:ok, %{health: :available} = snapshot}) do
-    from_entries =
-      for %{kind: :progress, event_id: id, details: %{percent: pct}} <- Map.get(snapshot, :entries, []), is_integer(id), pct in 0..100, into: %{}, do: {id, pct}
-
-    case Map.get(snapshot, :progress) do
-      %{event_id: id, percent: pct} when is_integer(id) and pct in 0..100 -> Map.put(from_entries, id, pct)
-      _ -> from_entries
-    end
+  def progress_index({:ok, %{health: :available, entries: entries}}) when is_list(entries) do
+    for %{kind: :progress, event_id: id, details: %{percent: pct}} <- entries, is_integer(id), pct in 0..100, into: %{}, do: {id, pct}
   end
 
   def progress_index(_snapshot), do: %{}

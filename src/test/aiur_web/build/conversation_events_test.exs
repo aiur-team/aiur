@@ -50,9 +50,9 @@ defmodule AiurWeb.Build.ConversationEventsTest do
       assert Events.progress_index({:error, %{kind: :configuration}}) == %{}
     end
 
-    test "progress index reads only an available snapshot, from entries and current progress" do
-      snapshot = %{health: :available, entries: [%{kind: :progress, event_id: 40, details: %{percent: 75}}, %{kind: :phase, event_id: 39, details: %{}}], progress: %{event_id: 41, percent: 50}}
-      assert Events.progress_index({:ok, snapshot}) == %{40 => 75, 41 => 50}
+    test "progress index reads only an available snapshot's progress entries" do
+      snapshot = %{health: :available, entries: [%{kind: :progress, event_id: 40, details: %{percent: 75}}, %{kind: :phase, event_id: 39, details: %{}}]}
+      assert Events.progress_index({:ok, snapshot}) == %{40 => 75}
       assert Events.progress_index({:ok, %{snapshot | health: :stale}}) == %{}
     end
 
