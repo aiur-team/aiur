@@ -107,33 +107,36 @@ defmodule Aiur.ExecutorSweep.Checks do
 
     snapshot
     |> Map.get(:pull_requests, [])
-    |> Enum.flat_map(fn pr ->
-      issue_number = value(pr, :issue_number, nil)
+    |> Enum.flat_map(&conflicting_waiting_pr_finding(&1, waiting, base_branch, max_age_ms, snapshot))
+  end
 
-      if issue_number in waiting and value(pr, :state, "") == "open" and value(pr, :mergeable, nil) == "CONFLICTING" do
-        age = cache_age(snapshot, :pull_requests, value(pr, :number, nil))
-        fresh? = fresh_github_age?(age, max_age_ms)
-        verification = if fresh?, do: "verified", else: "unverified"
-        action = if fresh?, do: "Merge #{base_branch} into the PR branch and resolve the conflicts.", else: "Verify the PR mergeability in GitHub before taking action."
+  defp conflicting_waiting_pr_finding(pr, waiting, base_branch, max_age_ms, snapshot) do
+    issue_number = value(pr, :issue_number, nil)
 
-        [
-          finding(
-            "conflicting_waiting_pr",
-            2,
-            0,
-            action,
-            "Ticket ##{issue_number} is waiting while PR ##{value(pr, :number, "?")} has cached mergeable=CONFLICTING with #{base_branch}; #{verification} (cache age #{cache_age(age)}).",
-            pull_request: value(pr, :number, nil),
-            ticket: issue_number,
-            cached_field: "mergeable",
-            cache_age_ms: age,
-            verification: verification
-          )
-        ]
-      else
-        []
-      end
-    end)
+    with true <- issue_number in waiting,
+         "open" <- value(pr, :state, ""),
+         "CONFLICTING" <- value(pr, :mergeable, nil) do
+      age = cache_age(snapshot, :pull_requests, value(pr, :number, nil))
+      fresh? = fresh_github_age?(age, max_age_ms)
+      verification = if fresh?, do: "verified", else: "unverified"
+      action = if fresh?, do: "Merge #{base_branch} into the PR branch and resolve the conflicts.", else: "Verify the PR mergeability in GitHub before taking action."
+
+      [
+        finding(
+          "conflicting_waiting_pr",
+          2,
+          0,
+          action,
+          "Ticket ##{issue_number} is waiting while PR ##{value(pr, :number, "?")} has cached mergeable=CONFLICTING with #{base_branch}; #{verification} (cache age #{cache_age(age)}).",
+          pull_request: value(pr, :number, nil),
+          ticket: issue_number,
+          cached_field: "mergeable",
+          cache_age_ms: age,
+          verification: verification
+        )]
+    else
+      _not_a_conflicting_waiting_pr -> []
+    end
   end
 
   defp stale_ci_wait_prs(snapshot, now), do: StaleCiWait.findings(snapshot, now)
