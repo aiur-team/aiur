@@ -45,6 +45,14 @@ Only required checks decide a failure: a red check that nothing requires does no
 
 Canceled runs get one exact-head rerun through the recovery journal. Landing watcher requeues approved PRs for infrastructure, inherited-base, or known non-PR failures. It requeues tests linked to an open flake issue or base failure in 24h; other failures route to rework with job details. It checks attribution and cancels stale groups.
 
+An approved, clean PR whose queue head remains `UNMERGEABLE` for 20 minutes, or whose second failed merge-group run is at least 20 minutes old, is considered for one recovery.
+
+The watcher accepts an observed `mergeable: UNKNOWN` while it gathers evidence, but the live queue read must still confirm a clean, mergeable PR and the same `UNMERGEABLE` entry before dequeueing.
+
+Recovery requires evidence that the failure is infrastructure, inherited, or known non-PR; a failure selected by the PR diff is left for rework. Per-head verdicts are cached by workflow run ID: the first classification reads that run's jobs, failed-job logs, and PR changed paths; later polls reuse its stored verdict.
+
+The recovery attention names failing tests and counts completed group rebuild runs for PRs that were behind the stuck head during the observed window.
+
 The landing watcher quarantines a flaky test within 24 hours (caller `landing_watch_flake_gate` for the age check):
 
 - **Qualifies:** a failure in two merge groups whose PRs did not touch the test, or a base-branch failure whose rerun of the same commit then passes. A later green commit is not evidence; it may be the fix of a regression.

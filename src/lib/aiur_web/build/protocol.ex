@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.Protocol do
   @moduledoc false
   import Phoenix.Component, only: [assign: 2]
-  alias AiurWeb.Build.{DataSource, Payload, Read}
+  alias AiurWeb.Build.{DataSource, NavCount, Payload, Read}
   require Logger
 
   @resync_interval_ms 2_000
@@ -15,6 +15,7 @@ defmodule AiurWeb.Build.Protocol do
       end
 
     assign(socket,
+      build_nav_count: NavCount.unknown(),
       build_epoch: Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false),
       build_generation: 0,
       build_resynced: false,
@@ -30,6 +31,7 @@ defmodule AiurWeb.Build.Protocol do
   @spec store(Phoenix.LiveView.Socket.t(), map(), keyword() | nil) :: Phoenix.LiveView.Socket.t()
   def store(socket, data, opts \\ nil) do
     data = data |> Payload.scrub() |> access(opts || Read.source_opts(socket))
+    socket = NavCount.put(socket, NavCount.from_snapshot(data))
     assign(socket, build_snapshot: data, build_history: data["history"], build_index_generation: data["index_generation"], build_usage_last: data["usage"])
   end
 
@@ -114,6 +116,7 @@ defmodule AiurWeb.Build.Protocol do
 
     if validate(message) == :ok do
       socket
+      |> NavCount.put(NavCount.apply(socket.assigns.build_nav_count, changes))
       |> assign(
         build_generation: generation,
         build_history: Map.get(message["set"], "history", socket.assigns.build_history),
@@ -129,7 +132,7 @@ defmodule AiurWeb.Build.Protocol do
   defp restart(socket) do
     generation = socket.assigns.build_generation + 2
     message = Payload.diff(%{now: System.system_time(:millisecond), upsert: [], remove: [], set: %{}}, socket.assigns.build_epoch, generation, socket.assigns.build_history)
-    socket |> assign(build_generation: generation, build_index_generation: nil) |> Phoenix.LiveView.push_event("build-diff", message)
+    socket |> NavCount.put(NavCount.unknown()) |> assign(build_generation: generation, build_index_generation: nil) |> Phoenix.LiveView.push_event("build-diff", message)
   end
 
   defp access(data, opts) do

@@ -4,7 +4,7 @@ A Unit is one agent run working one ticket while it is active, paused, or waitin
 
 ## What the Units page shows
 
-The Units page is dashboard `/` and CLI `aiur units`.
+The Units page is the hidden dashboard rollback route `/units`, retained for one release, and CLI `aiur units`. The dashboard home `/` is now Build.
 
 <img src="/images/dashboard/units-dark.png" alt="Desktop Units fleet table with synthetic active, blocked, retrying, and review tickets">
 

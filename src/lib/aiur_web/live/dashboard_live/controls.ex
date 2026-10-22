@@ -5,31 +5,17 @@ defmodule AiurWeb.DashboardLive.Controls do
   import Phoenix.LiveView, only: [connected?: 1]
 
   alias Aiur.{AgentChat, AgentPubSub}
-  alias Aiur.Orchestrator.{GlobalPause, Slots}
+  alias Aiur.Orchestrator.Slots
   alias AiurWeb.{DashboardLive, EndpointConfig}
   alias AiurWeb.OperatorControlCenter.{PauseState, UnitsControlPolicy, UnitsPresenter}
 
   @doc false
   @spec toggle_global_pause(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def toggle_global_pause(socket) do
-    target = not global_paused?(socket.assigns.payload)
-
-    case GlobalPause.set_global_pause(capacity_orchestrator(), target, "dashboard") do
-      {:ok, _status} ->
-        socket
-        |> assign(:global_pause_error, nil)
-        |> DashboardLive.reload_after_action()
-
-      {:error, {:global_pause_persistence_failed, _reason}} ->
-        assign(
-          socket,
-          :global_pause_error,
-          "Global pause was not changed because its state could not be persisted. The daemon remains in its previous state; check the daemon log and retry."
-        )
-
-      {:error, reason} ->
-        assign(socket, :global_pause_error, "Global pause could not be changed: #{inspect(reason)}")
-    end
+    socket
+    |> assign(:globally_paused, global_pause_state(socket.assigns.payload))
+    |> PauseState.toggle()
+    |> DashboardLive.reload_after_action()
   end
 
   @doc false
@@ -44,12 +30,6 @@ defmodule AiurWeb.DashboardLive.Controls do
 
   def global_pause_state(%{fleet: %{globally_paused: paused}}) when is_boolean(paused), do: paused
   def global_pause_state(_payload), do: nil
-
-  defp global_paused?(payload) when is_map(payload) do
-    payload |> Map.get(:fleet, %{}) |> Map.get(:globally_paused, false) == true
-  end
-
-  defp global_paused?(_payload), do: false
 
   @doc false
   @spec adjust_capacity(Phoenix.LiveView.Socket.t(), integer()) :: Phoenix.LiveView.Socket.t()
