@@ -33,12 +33,13 @@ defmodule AiurWeb.Routes.DashboardPages do
       scope "/" do
         pipe_through([:dashboard_auth, :dashboard_pages, :browser])
 
+        get("/chat/:owner/:repository/:identifier", AiurWeb.ChatRedirectController, :show)
         get("/decisions", AiurWeb.CommandsRedirectController, :legacy)
         get("/decisions/:decision_id", AiurWeb.CommandsRedirectController, :legacy)
 
         live_session :dashboard, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
-          live("/", AiurWeb.DashboardLive, :index)
-          live("/chat/:owner/:repository/:identifier", AiurWeb.DashboardLive, :index)
+          live("/", AiurWeb.BuildLive, :build)
+          live("/units", AiurWeb.DashboardLive, :index)
           live("/commands", AiurWeb.DashboardLive, :decisions)
           live("/commands/:decision_id", AiurWeb.DashboardLive, :decision)
           live("/build-orders", AiurWeb.BuildOrderLive, :build_orders)

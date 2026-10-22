@@ -288,6 +288,7 @@ defmodule Aiur.TestSupport do
 
       setup context do
         lifecycle_test_pid = LifecycleLeakGuard.track(context)
+        Process.put(:aiur_test_process_pid, lifecycle_test_pid)
         workflow_base = Application.fetch_env!(:aiur, :test_run_root)
         previous_test_scope_state = Aiur.TestScopeGuard.capture()
 

@@ -88,6 +88,8 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
     assert_error_sent(400, fn -> get(build_conn(), "/build-home/..%2Fdashboard.css") end)
 
     assert html =~ "/ticket-context-dialog-hook.js"
+    assert html =~ "/voice-capture.js"
+    assert html =~ "/voice-transport.js"
     assert html =~ "/conversation-voice-controller.js"
     assert html =~ "/conversation-drawer-hook.js"
     assert html =~ "/time-brush-hook.js"
@@ -138,6 +140,12 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
     conversation_voice_conn = get(build_conn(), "/conversation-voice-controller.js")
     assert response(conversation_voice_conn, 200) =~ "AiurConversationVoiceController"
     assert Plug.Conn.get_resp_header(conversation_voice_conn, "content-type") == ["text/javascript"]
+
+    for {voice_asset, global} <- [{"voice-capture.js", "AiurVoiceCapture"}, {"voice-transport.js", "AiurVoiceTransport"}] do
+      voice_asset_conn = get(build_conn(), "/#{voice_asset}")
+      assert response(voice_asset_conn, 200) =~ global
+      assert Plug.Conn.get_resp_header(voice_asset_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+    end
 
     time_brush_hook_conn = get(build_conn(), "/time-brush-hook.js")
     assert response(time_brush_hook_conn, 200) =~ "AiurTimeBrushHook"
