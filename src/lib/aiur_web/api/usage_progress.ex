@@ -9,16 +9,20 @@ defmodule AiurWeb.Api.UsageProgress do
       workflow phase and latest progress reading;
     * `Aiur.ProgressRetention` — the durable last progress reading, used when
       the live projection has none (restart, pruned entry, slow projection);
-    * the ticket's IssueLog event markers — the ordered progress, check-in and
-      phase-transition events behind those values.
+    * the ticket's shared-event-bus history (`Aiur.AgentEventFeed`) — the
+      ordered progress, check-in and phase-transition events behind those values.
 
   Every field says whether it is known. A ticket nothing has been observed for
   answers `status: "unknown"` fields and an empty event list; it is never
-  reported as idle or at 0%. `sources` separates "nothing observed" from "could
-  not read": a source that failed is `unavailable`, not empty.
+  reported as idle or at 0%. `sources.activity` separates "nothing observed"
+  from "could not read": a projection that failed is `unavailable`, not empty.
+
+  Percentages go through `Aiur.BuildOrder.ProgressRenderer.json/1`, the shared
+  progress presentation boundary, so this surface never formats a raw reading.
   """
 
   alias Aiur.{JSONSafe, ProgressRetention, TicketActivity, TrackerIdentity}
+  alias Aiur.BuildOrder.ProgressRenderer
   alias AiurWeb.Api.UsageProgress.History
 
   @contract "aiur.ticket_progress"
@@ -33,7 +37,7 @@ defmodule AiurWeb.Api.UsageProgress do
   Options (test seams; production uses the defaults):
     * `:activity_fun` — 0-arity, returns `TicketActivity.snapshots/1` output
     * `:retention_fun` — 0-arity, returns `ProgressRetention.all/0` output
-    * `:history_fun` — `IssueLog.event_history/2`-shaped reader
+    * `:history_fun` — `AgentEventFeed.bus_events/2`-shaped reader
     * `:limit` — newest events to return (1..50, default 20)
     * `:now` — the `generated_at` timestamp
   """
@@ -50,7 +54,6 @@ defmodule AiurWeb.Api.UsageProgress do
     {activity_source, entry} = live_entry(identifier, Keyword.get(opts, :activity_fun, &live_snapshots/0))
     retained = retained_entry(identifier, entry, Keyword.get(opts, :retention_fun, &ProgressRetention.all/0))
     identity = entry_identity(entry) || entry_identity(retained)
-    {history_source, events} = History.read(identifier, identity, opts)
 
     JSONSafe.normalize(%{
       contract: @contract,
@@ -59,8 +62,8 @@ defmodule AiurWeb.Api.UsageProgress do
       repository: repository(identity),
       phase: phase(entry),
       progress: progress(entry, retained),
-      events: events,
-      sources: %{activity: activity_source, history: history_source},
+      events: History.read(identifier, opts),
+      sources: %{activity: activity_source},
       generated_at: Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
     })
   end
@@ -136,9 +139,23 @@ defmodule AiurWeb.Api.UsageProgress do
   defp progress(_entry, _retained), do: %{status: :unknown}
 
   defp reading(progress, freshness) do
+    case rendered_percent(progress.percent) do
+      nil -> %{status: :unknown}
+      percent -> known_reading(progress, percent, freshness)
+    end
+  end
+
+  # The reading becomes the RootSummary progress contract and is rendered by
+  # ProgressRenderer; an out-of-range reading stays unknown, never clamped.
+  defp rendered_percent(value) when value >= 0 and value <= 100,
+    do: %{progress: round(value), progress_resolution: :resolved} |> ProgressRenderer.json() |> Map.fetch!("progress")
+
+  defp rendered_percent(_value), do: nil
+
+  defp known_reading(progress, percent, freshness) do
     %{
       status: :known,
-      percent: progress.percent,
+      percent: percent,
       source: progress[:source],
       freshness: freshness,
       occurred_at: progress[:occurred_at],

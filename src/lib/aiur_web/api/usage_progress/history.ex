@@ -2,20 +2,22 @@ defmodule AiurWeb.Api.UsageProgress.History do
   @moduledoc """
   Ordered progress, check-in and phase-transition events for one ticket.
 
-  Reads the ticket's IssueLog event markers through `Aiur.IssueLog.event_history/2`
-  and keeps only the ticket's own progress and phase topics, oldest first.
-  Events the ticket consumed from other tickets are excluded: a dependency's
-  progress is not this ticket's progress.
+  Reads the ticket's shared-event-bus history through
+  `Aiur.AgentEventFeed.bus_events/2` and keeps only the ticket's own progress
+  and phase topics, oldest first. Events the ticket consumed from other tickets
+  are excluded: a dependency's progress is not this ticket's progress.
+
+  `bus_events/2` reads the configured repository's log and treats a missing or
+  unreadable log as no events, so this read has no separate failure state.
   """
 
-  alias Aiur.{AgentEventFeed, IssueLog, TrackerIdentity}
+  alias Aiur.AgentEventFeed
 
   # Progress topics are a small share of a ticket's markers, so the scan reads
   # well past the returned window before filtering.
   @scan_limit 2_000
   @default_limit 20
   @max_limit 50
-  @kinds [:emit, :emit_alert, :self]
   @progress_topics %{
     "agent.progress" => :progress,
     "agent.progress.checkin" => :checkin,
@@ -30,33 +32,17 @@ defmodule AiurWeb.Api.UsageProgress.History do
   @spec max_limit() :: pos_integer()
   def max_limit, do: @max_limit
 
-  @spec read(String.t(), TrackerIdentity.t() | nil, keyword()) ::
-          {:available | :unavailable, [map()]}
-  def read(identifier, identity, opts) do
-    reader = Keyword.get(opts, :history_fun, &IssueLog.event_history/2)
-    limit = Keyword.get(opts, :limit, @default_limit)
+  @spec read(String.t(), keyword()) :: [map()]
+  def read(identifier, opts) do
+    reader = Keyword.get(opts, :history_fun, &AgentEventFeed.bus_events/2)
 
-    case rows(reader.(source(identifier, identity), kinds: @kinds, limit: @scan_limit)) do
-      {:ok, rows} -> {:available, rows |> Enum.flat_map(&entry(&1, identifier)) |> Enum.take(-limit)}
-      :unavailable -> {:unavailable, []}
-    end
+    identifier
+    |> reader.(limit: @scan_limit)
+    |> Enum.flat_map(&entry(&1, identifier))
+    |> Enum.take(-Keyword.get(opts, :limit, @default_limit))
   end
 
-  # A joinable identity resolves the exact repository's log; a bare display
-  # identifier falls back to the configured repository's log. Only the
-  # identity read reports failures: the bare-identifier read degrades an
-  # unreadable log to [], so `:unavailable` requires a joinable identity.
-  defp source(identifier, identity) do
-    if TrackerIdentity.joinable?(identity), do: identity, else: identifier
-  end
-
-  defp rows(rows) when is_list(rows), do: {:ok, rows}
-  defp rows({:ok, rows}) when is_list(rows), do: {:ok, rows}
-  # No log yet is an ordinary state: the ticket has published nothing.
-  defp rows({:error, :missing_source}), do: {:ok, []}
-  defp rows(_error), do: :unavailable
-
-  defp entry(%{topic: topic} = row, identifier) when is_binary(topic) do
+  defp entry(%{kind: kind, topic: topic} = row, identifier) when kind != "consumed" and is_binary(topic) do
     with {:ok, suffix} <- own_suffix(topic, identifier),
          {:ok, fields} <- classify(suffix) do
       [Map.merge(base(row, suffix), fields)]
@@ -88,12 +74,6 @@ defmodule AiurWeb.Api.UsageProgress.History do
   defp classify(_suffix), do: :ignore
 
   defp base(row, suffix) do
-    %{
-      id: Map.get(row, :id),
-      topic: suffix,
-      label: AgentEventFeed.topic_label(row.topic),
-      summary: row |> Map.get(:summary, "") |> to_string() |> AgentEventFeed.scrub() |> String.trim(),
-      at: Map.get(row, :ts)
-    }
+    %{id: Map.get(row, :id), topic: suffix, label: Map.get(row, :label), summary: Map.get(row, :body, ""), at: Map.get(row, :timestamp)}
   end
 end
