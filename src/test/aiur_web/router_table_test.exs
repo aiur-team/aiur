@@ -83,6 +83,8 @@ defmodule AiurWeb.RouterTableTest do
     {:post, "/api/v1/streamdeck/token", AiurWeb.StreamdeckSessionController, :create, [:dashboard_auth_required], :debug},
     {:get, "/api/v1/capabilities", AiurWeb.CapabilitiesController, :show, [:dashboard_auth], :debug},
     {:*, "/api/v1/capabilities", AiurWeb.CapabilitiesController, :method_not_allowed, [:dashboard_auth], :debug},
+    {:get, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :show, [:dashboard_auth], :debug},
+    {:*, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :method_not_allowed, [:dashboard_auth], :debug},
     {:get, "/api/v1/state", AiurWeb.ObservabilityApiController, :state, [:dashboard_auth], :debug},
     {:get, "/api/v1/streamdeck/grid", AiurWeb.ObservabilityApiController, :streamdeck_grid, [:dashboard_auth], :debug},
     {:get, "/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :events, [:dashboard_auth], :debug},
