@@ -18,7 +18,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
   alias AiurWeb.BuildOrder.TicketContextPresenter
-  alias AiurWeb.DashboardLive.{Controls, GitHubQuotaSnapshot, Summaries, UnitsPanel}
+  alias AiurWeb.DashboardLive.{Controls, GitHubQuotaSnapshot, Summaries, UnitsPanel, Voice}
   alias AiurWeb.EndpointConfig
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
@@ -92,8 +92,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:now, DateTime.utc_now())
       |> assign(:time_zone, browser_time_zone(socket))
       |> assign(:github_quota, github_quota_snapshot())
-      |> assign(:elevenlabs_quota, elevenlabs_quota_snapshot())
-      |> assign(:voice_capabilities, voice_capabilities())
+      |> Voice.assign_voice()
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:pending_message_ids, %{})
@@ -217,7 +216,7 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info(:elevenlabs_quota_tick, socket) do
     schedule_elevenlabs_quota_tick()
-    {:noreply, socket |> assign(:elevenlabs_quota, elevenlabs_quota_snapshot()) |> assign(:voice_capabilities, voice_capabilities())}
+    {:noreply, Voice.assign_voice(socket)}
   end
 
   @impl true
@@ -2195,19 +2194,6 @@ defmodule AiurWeb.DashboardLive do
   defp schedule_elevenlabs_quota_tick, do: Process.send_after(self(), :elevenlabs_quota_tick, @elevenlabs_quota_tick_ms)
 
   defp github_quota_snapshot, do: GitHubQuotaSnapshot.read()
-
-  defp elevenlabs_quota_snapshot, do: Aiur.Voice.quota_snapshot()
-
-  # The same registry entries `/api/v1/capabilities` serves, so the drawer can
-  # tell "not configured" from "failed" before the microphone is pressed.
-  defp voice_capabilities do
-    report = (EndpointConfig.get(:capabilities_report_fun) || (&Aiur.Capabilities.report/0)).()
-    report |> Map.get(:capabilities, %{}) |> Map.take(~w(voice.stt voice.tts))
-  rescue
-    _error -> %{}
-  catch
-    _kind, _reason -> %{}
-  end
 
   defp clear_chat_state(socket, identifier) do
     socket
