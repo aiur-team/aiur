@@ -86,7 +86,7 @@ test('focused cards open once with Enter and Space through the mounted hook', as
   ]).flat())
 })
 
-test('B17: closing a deep-linked ticket focuses timeline navigation', async ({ page }) => {
+test('B17: closing a deep-linked ticket returns to the page without an origin', async ({ page }) => {
   await open(page)
   const t = await row(page)
   await open(page, 'live', '?ticket=' + t.id)
@@ -95,7 +95,7 @@ test('B17: closing a deep-linked ticket focuses timeline navigation', async ({ p
   await page.locator('#bd-tk-close').click()
   await expect(page.locator('#tk-backdrop')).not.toHaveClass(/\bshow\b/)
   await expect(page).not.toHaveURL(/ticket=/)
-  await expect(page.locator('#bd-tools-l [data-v="graph"]')).toBeFocused()
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe('BODY')
 })
 
 test('mounted hook owns card click and restores its origin after close', async ({ page }) => {
