@@ -76,6 +76,7 @@ defmodule Aiur.Orchestrator.State do
             passed_heads: map(),
             test_failure_heads: map(),
             base_repair_invalidations: map(),
+            ci_observed_at_ms: map(),
             poll_cache: map(),
             rewakes: map(),
             parked_ready_alerts: MapSet.t() | nil
