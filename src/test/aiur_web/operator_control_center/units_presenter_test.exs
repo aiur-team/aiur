@@ -75,7 +75,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     refute_received :activity_read
   end
 
-  test "Units rows preserve internal attempt and context measurements from status snapshots" do
+  test "Units rows preserve internal attempt, context, and usage reset measurements" do
     identity = identity("NODE-usage", "41")
 
     catalog =
@@ -89,6 +89,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
                 tracker_identity: identity,
                 bucket: :running,
                 telemetry_attempt_id: "attempt-current",
+                usage_limit_reset_at: "2026-07-17T13:00:00Z",
                 turn_count: 3,
                 turn_count_observed?: true,
                 context_usage: %{
@@ -112,6 +113,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
 
     assert [row] = catalog.snapshot.rows
     assert row.telemetry_attempt_id == "attempt-current"
+    assert row.runtime.usage_limit_reset_at == "2026-07-17T13:00:00Z"
     assert row.context_usage == %{used_tokens: 1200, window_tokens: 4000, used_percent: 30.0}
     refute Map.has_key?(row.context_usage, :session_id)
     assert row.turn_count == 3
