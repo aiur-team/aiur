@@ -1,6 +1,7 @@
 defmodule Aiur.ExecutorSweep.SnapshotCache do
   @moduledoc "Reads the current repository's already-cached GitHub resources."
 
+  alias Aiur.ExecutorSweep.CacheAges
   alias Aiur.GitHub.{Config, ResourceStore}
 
   @spec read((-> Aiur.OpenTicketSource.Snapshot.t())) :: map()
@@ -28,10 +29,15 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       snapshot
       |> Map.put(:pull_requests, pull_requests)
       |> Map.put(:merge_queue, merge_queue_entries(pull_requests))
+      |> Map.put(:github_cache_ages, github_cache_ages(owner, name))
     else
       _ -> Map.merge(%{pull_requests: [], tickets: []}, local_snapshot())
     end
   end
+
+  @doc false
+  @spec github_cache_ages(String.t(), String.t(), integer()) :: map()
+  def github_cache_ages(owner, repo, now_ms \\ System.system_time(:millisecond)), do: CacheAges.for_repo(owner, repo, now_ms)
 
   # The store keeps label rows for closed issues and merged PRs, so ticket checks
   # read the open-ticket projection, which excludes both. Before a full listing
@@ -78,7 +84,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       queue_order_declared?: declared_order?,
       merge_groups:
         Enum.map(value(main_watch, :merge_groups, []), fn run ->
-          %{name: "run #{value(run, :id, "?")}", state: value(run, :status, "unknown"), started_at: value(run, :started_at, nil)}
+          %{id: value(run, :id, nil), name: "run #{value(run, :id, "?")}", state: value(run, :status, "unknown"), started_at: value(run, :started_at, nil)}
         end),
       # Main's per-commit check results; a PR red is caused_by_pr only if its base passed (#5119).
       base_checks:

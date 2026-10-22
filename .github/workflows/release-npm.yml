@@ -47,7 +47,7 @@ jobs:
   # Every downstream job reads these outputs; nothing recomputes a version.
   setup:
     name: setup
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       channel: ${{ steps.resolve.outputs.channel }}
       version: ${{ steps.resolve.outputs.version }}
@@ -377,7 +377,7 @@ jobs:
   smoke-bun:
     name: smoke-bun linux-x64
     needs: [setup, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -418,7 +418,7 @@ jobs:
   publish:
     name: publish (${{ needs.setup.outputs.channel }})
     needs: [setup, build, smoke, smoke-bun]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       # Required for the OIDC token npm exchanges for a short-lived credential.
       id-token: write
