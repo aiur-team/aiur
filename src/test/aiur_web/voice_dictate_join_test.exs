@@ -12,12 +12,15 @@ defmodule AiurWeb.VoiceDictateJoinTest do
     previous_fake = Application.fetch_env(:aiur, FakeVoiceProvider)
     Application.put_env(:aiur, :voice_provider, FakeVoiceProvider)
     Application.put_env(:aiur, FakeVoiceProvider, observer: self())
+    previous_resolver = Application.fetch_env(:aiur, :voice_target_resolver)
+    Application.put_env(:aiur, :voice_target_resolver, AiurWeb.OperatorControlCenter.VoiceTargetResolver)
     put_endpoint_config(dashboard_writable: true)
     if is_nil(Process.whereis(VoiceSessionLimiter)), do: start_supervised!(VoiceSessionLimiter)
 
     on_exit(fn ->
       restore_app_env(:voice_provider, previous)
       restore_app_env(FakeVoiceProvider, previous_fake)
+      restore_app_env(:voice_target_resolver, previous_resolver)
     end)
   end
 

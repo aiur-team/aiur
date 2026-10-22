@@ -4,23 +4,19 @@ defmodule AiurWeb.VoiceTargets do
 
   A dictation aimed at an agent that has stopped, or at a Command that was
   already resolved, is refused before recording starts instead of failing only
-  when the operator presses Send. The rules are the ones the Send paths already
-  use, so voice never accepts a target the composer would refuse:
-
-    * worker — exactly one running entry with that issue identifier (the
-      agent drawer's rule, `AgentLogModal`).
-    * command — the Command still takes an answer (`DecisionAction`), at the
-      version the client saw when one is given.
-    * executor — not addressable yet (`unsupported_target`).
+  when the operator presses Send. This module owns the voice-side rules
+  (surface per target kind, instance match, refusal text); whether a worker
+  or Command can still take text is asked through `AiurWeb.VoiceTargetResolver`,
+  bound to the same rules the Send paths use. Executor targets are not
+  addressable yet (`unsupported_target`).
 
   Delivery stays with the surface's own Send; this check only refuses early.
   """
 
   require Logger
 
-  alias Aiur.{DecisionStore, Identity}
-  alias AiurWeb.EndpointConfig
-  alias AiurWeb.OperatorControlCenter.{AgentLogModal, DecisionAction, PayloadLoader}
+  alias Aiur.Identity
+  alias AiurWeb.VoiceTargetResolver
 
   @surfaces %{worker: "agent_composer", command: "command_response", executor: "executor_composer"}
 
@@ -47,44 +43,23 @@ defmodule AiurWeb.VoiceTargets do
   end
 
   defp check(%{kind: :executor}), do: {:error, :unsupported_target}
+  defp check(%{kind: :worker, ticket: ticket}), do: resolve(fn resolver -> resolver.worker(ticket) end)
 
-  defp check(%{kind: :worker, ticket: ticket}) do
-    payload = payload_fun().()
+  defp check(%{kind: :command, decision_id: decision_id, expected_version: version}),
+    do: resolve(fn resolver -> resolver.command(decision_id, version) end)
 
-    cond do
-      is_nil(AgentLogModal.find_running_entry(payload, ticket)) -> {:error, :target_not_found}
-      AgentLogModal.unique_running_target?(payload, ticket) -> :ok
-      true -> {:error, :target_not_writable}
-    end
+  # The target's state is unknowable when the resolver fails; never report it as gone.
+  defp resolve(fun) do
+    fun.(VoiceTargetResolver.impl())
   rescue
     _error -> {:error, :unknown}
   catch
     :exit, _reason -> {:error, :unknown}
   end
 
-  defp check(%{kind: :command, decision_id: decision_id, expected_version: expected_version}) do
-    case DecisionStore.get(decision_id, decision_store()) do
-      {:ok, decision} -> command_state(decision, expected_version)
-      {:error, :not_found} -> {:error, :target_not_found}
-    end
-  rescue
-    _error -> {:error, :unknown}
-  catch
-    # The store's state is unknowable here; never report the Command as gone.
-    :exit, _reason -> {:error, :unknown}
-  end
-
-  defp command_state(decision, expected_version) do
-    cond do
-      not DecisionAction.answerable?(decision) -> {:error, :target_stale}
-      expected_version not in [nil, decision.version] -> {:error, :target_stale}
-      true -> :ok
-    end
-  end
-
-  defp reason(:target_not_found, :worker), do: AgentLogModal.format_error(:no_running_agent)
+  defp reason(:target_not_found, :worker), do: "Agent is no longer running."
   defp reason(:target_not_found, _kind), do: "This Command no longer exists."
-  defp reason(:target_not_writable, _kind), do: AgentLogModal.format_error(:ambiguous_identifier)
+  defp reason(:target_not_writable, _kind), do: "Agent actions require a unique typed target."
   defp reason(:target_stale, _kind), do: "This Command has changed. Reload it before dictating an answer."
   defp reason(:unsupported_target, _kind), do: "Voice input can't address this target yet."
   defp reason(:invalid_payload, _kind), do: "Voice request is invalid."
@@ -100,7 +75,4 @@ defmodule AiurWeb.VoiceTargets do
       own -> own == instance_id
     end
   end
-
-  defp payload_fun, do: EndpointConfig.get(:voice_target_payload_fun) || fn -> PayloadLoader.load(:cached) end
-  defp decision_store, do: EndpointConfig.get(:decision_store) || Aiur.Commands.default_store()
 end
