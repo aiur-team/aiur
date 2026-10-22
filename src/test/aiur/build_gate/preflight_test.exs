@@ -221,10 +221,15 @@ defmodule Aiur.BuildGate.PreflightTest do
       command_pgid=[1-9][0-9]*\n
       command_pid_namespace=pid:\[[0-9]+\]\n
       phase=test\n
-      command=test\n
+      command=.+\n
+      command_hash=[0-9a-f]{64}\n
+      command_file_count=0\n
       started_at=[0-9]+\n$/x
 
-    assert File.read!(owner_path) =~ owner_pattern
+    owner = File.read!(owner_path)
+    assert owner =~ owner_pattern
+    assert [_, command_hash] = Regex.run(~r/^command=test, 0 files, sha256=([0-9a-f]{64})$/m, owner)
+    assert owner =~ "command_hash=#{command_hash}\n"
 
     assert {_output, 0} = Task.await(command, 5_000)
     assert File.exists?(slot_path)
