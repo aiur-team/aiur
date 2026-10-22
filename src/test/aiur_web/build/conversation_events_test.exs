@@ -61,12 +61,9 @@ defmodule AiurWeb.Build.ConversationEventsTest do
       assert Events.from_log([line(1, "blocked", "", ts: "2026-13-99T99:00:00Z")], "12", %{}) == []
     end
 
-    test "E15 secrets are redacted and markup stays raw text" do
-      token = "ghp_" <> String.duplicate("a", 36)
-      [entry] = Events.from_log([line(1, "blocked", "token #{token} & <b>x</b>")], "12", %{})
-      refute entry.sub =~ token
-      assert entry.sub =~ "& <b>x</b>"
-      refute entry.sub =~ "&amp;"
+    test "E15 markup stays raw text (the client escapes it)" do
+      [entry] = Events.from_log([line(1, "blocked", "a & <b>x</b>")], "12", %{})
+      assert entry.sub == "a & <b>x</b>"
     end
 
     test "an empty summary leaves sub out" do

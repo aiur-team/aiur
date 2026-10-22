@@ -9,8 +9,6 @@ defmodule AiurWeb.Build.ConversationEvents do
   newest one, as the design's conversation does.
   """
 
-  alias Aiur.{AgentEventFeed, SecretRedactor}
-
   @log_limit 500
   @progress ~w(progress progress.checkin progress.phase)
   @dep_states %{"failed" => "failed", "not_planned" => "not planned", "closed" => "closed", "done" => "closed", "queued" => "queued", "open" => "open"}
@@ -208,7 +206,8 @@ defmodule AiurWeb.Build.ConversationEvents do
     |> then(&if(is_integer(opts[:pct]), do: Map.put(&1, :pct, opts[:pct]), else: &1))
   end
 
-  defp clean(text), do: text |> AgentEventFeed.scrub() |> SecretRedactor.redact() |> String.slice(0, 8_000)
+  # Raw text (C3-T02): never HTML-escaped here; the adapter has already redacted agent-written summaries.
+  defp clean(text), do: text |> String.replace_invalid("") |> String.slice(0, 8_000)
 
   @spec millis(term()) :: {:ok, integer()} | :error
   def millis(ts) when is_binary(ts) do

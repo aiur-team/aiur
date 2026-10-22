@@ -48,6 +48,15 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bEventsTest do
     assert [%{id: "ev:log:3", label: "Blocked", sub: "ours"}] = rows(id)
   end
 
+  test "E15 an agent-written summary is redacted before any row is built" do
+    id = "#{System.unique_integer([:positive])}"
+    token = "ghp_" <> String.duplicate("a", 36)
+    write_log(id, ["2026-10-07T21:13:20Z [event:self] id=1 ticket.#{id}.agent.blocked: token #{token} & <b>x</b>"])
+    [%{sub: sub}] = rows(id)
+    refute sub =~ token
+    assert sub =~ "& <b>x</b>"
+  end
+
   test "E8 a missing log is empty, an unreadable log is reported" do
     id = "#{System.unique_integer([:positive])}"
     assert {:ok, %{log: {:error, :missing_source}}} = Wave0bEvents.read(%{id: id}, [])

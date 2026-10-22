@@ -6,7 +6,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bEvents do
   unavailable instead of empty.
   """
 
-  alias Aiur.{AgentEventFeed, Commands, RecentMergeStore, TrackerIdentity}
+  alias Aiur.{AgentEventFeed, Commands, RecentMergeStore, SecretRedactor, TrackerIdentity}
   alias Aiur.BuildOrder.TicketHistoryProvider
   alias AiurWeb.Build.ConversationEvents
   alias AiurWeb.EndpointConfig
@@ -20,7 +20,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bEvents do
     {:ok,
      %{
        identity: identity,
-       log: safe(fn -> (EndpointConfig.get(:build_events_log_fun) || (&log/2)).(id, identity) end),
+       log: safe(fn -> (EndpointConfig.get(:build_events_log_fun) || (&log/2)).(id, identity) end) |> redacted(),
        history: if(identity, do: safe(fn -> (EndpointConfig.get(:build_events_history_fun) || (&TicketHistoryProvider.request/1)).(identity) end), else: {:error, :no_identity}),
        merges: merges(),
        decisions: decisions(id),
@@ -36,6 +36,22 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bEvents do
     opts = [kinds: @kinds, limit: ConversationEvents.log_limit()]
     AgentEventFeed.ticket_events(id, identity, opts)
   end
+
+  @doc "Subscribes the caller to the ticket's history updates; returns the topic to release later."
+  @spec subscribe(TrackerIdentity.t()) :: {:ok, String.t()} | {:error, term()}
+  def subscribe(identity) do
+    topic = TicketHistoryProvider.topic(identity)
+    with :ok <- Phoenix.PubSub.subscribe(Aiur.PubSub, topic), do: {:ok, topic}
+  end
+
+  @spec unsubscribe(String.t()) :: :ok
+  def unsubscribe(topic), do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, topic)
+
+  # Summaries are agent-written: valid UTF-8, secrets redacted, before any row is built from them.
+  defp redacted({:ok, rows}), do: {:ok, Enum.map(rows, fn row -> Map.update(row, :summary, nil, &clean_summary/1) end)}
+  defp redacted(result), do: result
+  defp clean_summary(text) when is_binary(text), do: text |> AgentEventFeed.scrub() |> SecretRedactor.redact()
+  defp clean_summary(other), do: other
 
   defp identity(ref) do
     identity = get_in(ref, [:running, :tracker_identity]) || ref[:identity]

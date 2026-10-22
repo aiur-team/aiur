@@ -61,6 +61,12 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
   def events(ref, opts), do: Wave0bEvents.read(ref, opts)
 
   @impl true
+  def events_subscribe(identity, _opts), do: Wave0bEvents.subscribe(identity)
+
+  @impl true
+  def events_unsubscribe(topic, _opts), do: Wave0bEvents.unsubscribe(topic)
+
+  @impl true
   def subscribe(ref, _opts), do: subscription(ref, :build_conversation_subscribe_fun, &History.live_subscribe/1)
 
   @impl true

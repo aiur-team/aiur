@@ -8,7 +8,6 @@ defmodule AiurWeb.Build.ConversationEventFeed do
   import Phoenix.Component, only: [assign: 2]
   import Phoenix.LiveView, only: [push_event: 3]
 
-  alias Aiur.BuildOrder.TicketHistoryProvider
   alias AiurWeb.Build.{ConversationEvents, ConversationSource, DataSource, Payload, Read}
   alias AiurWeb.EndpointConfig
 
@@ -28,7 +27,7 @@ defmodule AiurWeb.Build.ConversationEventFeed do
 
   @spec clear(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def clear(socket) do
-    if topic = socket.assigns[:conversation_events_topic], do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, topic)
+    if topic = socket.assigns[:conversation_events_topic], do: ConversationSource.call(socket.assigns.conversation_source, :events_unsubscribe, [topic])
     if timer = socket.assigns[:conversation_events_timer], do: cancel(timer)
     init(socket)
   end
@@ -56,8 +55,10 @@ defmodule AiurWeb.Build.ConversationEventFeed do
   @doc "Subscribes to the pinned ticket's history updates, once, after its conversation opened."
   @spec subscribe(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def subscribe(%{assigns: %{conversation_events_topic: nil, conversation_events_identity: identity}} = socket) when not is_nil(identity) do
-    topic = TicketHistoryProvider.topic(identity)
-    if Phoenix.PubSub.subscribe(Aiur.PubSub, topic) == :ok, do: assign(socket, conversation_events_topic: topic), else: socket
+    case ConversationSource.call(socket.assigns.conversation_source, :events_subscribe, [identity]) do
+      {:ok, topic} when is_binary(topic) -> assign(socket, conversation_events_topic: topic)
+      _ -> socket
+    end
   end
 
   def subscribe(socket), do: socket

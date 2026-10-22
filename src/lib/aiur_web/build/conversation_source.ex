@@ -9,7 +9,9 @@ defmodule AiurWeb.Build.ConversationSource do
   @callback subscribe(ref(), keyword()) :: :ok | {:error, term()}
   @callback unsubscribe(ref(), keyword()) :: :ok | {:error, term()}
   @callback events(ref(), keyword()) :: {:ok, map()} | {:error, term()}
-  @optional_callbacks prepare: 2, events: 2
+  @callback events_subscribe(term(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  @callback events_unsubscribe(String.t(), keyword()) :: :ok
+  @optional_callbacks prepare: 2, events: 2, events_subscribe: 2, events_unsubscribe: 2
 
   @spec source() :: module() | {module(), keyword()}
   def source, do: Application.get_env(:aiur, :build_conversation_source, AiurWeb.Build.ConversationSource.Wave0b)
