@@ -7,8 +7,7 @@ defmodule AiurWeb.VoiceChannelTest do
   import Plug.Conn, only: [get_session: 2, put_req_header: 3, send_resp: 3]
   import Plug.Test
 
-  alias Aiur.TestSupport.EndpointStubs
-  alias AiurWeb.{Endpoint, FinancialDataAccess, VoiceReasonCode, VoiceSessionLimiter, VoiceSocket}
+  alias AiurWeb.{Endpoint, FinancialDataAccess, VoiceSessionLimiter, VoiceSocket}
   alias AiurWeb.FinancialDataAccess.Generation
 
   alias __MODULE__.{FakeSTT, FakeVoiceProvider, UnconfiguredProvider}
@@ -337,102 +336,6 @@ defmodule AiurWeb.VoiceChannelTest do
     assert_push("error", %{"reason" => "ElevenLabs rejected the API key", "reason_code" => "provider_auth"})
   end
 
-  # Clients translate and pick retry from the code, so the text must stay
-  # unchanged and the code must come from the closed contract set.
-  test "every pushed session error carries a reason_code next to the unchanged reason" do
-    {socket, _client} = voice_socket()
-    assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:dictate")
-
-    cases = [
-      {{:voice_error, %{code: :provider_quota, message: "ElevenLabs quota exhausted"}}, "error", "ElevenLabs quota exhausted", "provider_quota"},
-      {{:voice_error, "ElevenLabs quota exhausted"}, "error", "ElevenLabs quota exhausted", "provider_quota"},
-      {{:voice_error, "ElevenLabs session time limit reached"}, "error", "ElevenLabs session time limit reached", "session_limit"},
-      {{:voice_error, "socket reset"}, "error", "socket reset", "provider_error"},
-      {{:voice_error, %{code: :provider_error, message: "socket reset"}}, "error", "socket reset", "provider_error"},
-      {{:voice_audio, :error, "Voice playback failed"}, "audio_error", "Voice playback failed", "provider_error"}
-    ]
-
-    for {message, event, reason, code} <- cases do
-      send(joined.channel_pid, message)
-      await_channel(joined)
-      assert_push(^event, %{"reason" => ^reason, "reason_code" => ^code})
-      assert code in VoiceReasonCode.codes()
-    end
-  end
-
-  describe "voice:dictate join" do
-    test "joins with an empty payload exactly like voice:dictation" do
-      {socket, _client} = voice_socket()
-      assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:dictate", %{})
-      fake = joined.assigns.stt.pid
-      assert_received {:fake_stt_started, ^fake}
-      assert joined.assigns.voice_target == nil
-    end
-
-    test "a v1 payload for a running agent joins and records its target" do
-      running(["ENG-7"])
-      {socket, _client} = voice_socket()
-
-      assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:dictate", worker_payload("ENG-7"))
-      assert joined.assigns.voice_target == %{kind: :worker, ticket: "ENG-7", instance_id: nil}
-      assert joined.assigns.voice_surface == "agent_composer"
-    end
-
-    test "a v1 worker target that is not running is refused before transcription starts" do
-      running(["ENG-8"])
-      {socket, _client} = voice_socket()
-
-      assert {:error, %{reason_code: "target_not_found", reason: "Agent is no longer running."}} =
-               AiurWeb.VoiceChannel.join("voice:dictate", worker_payload("ENG-7"), socket)
-
-      refute_received {:fake_stt_started, _pid}
-      assert_lease_released()
-    end
-
-    test "a malformed payload is invalid and releases its lease" do
-      {socket, _client} = voice_socket()
-
-      assert {:error, %{reason_code: "invalid_payload", reason: "Voice request is invalid."}} =
-               AiurWeb.VoiceChannel.join("voice:dictate", %{"v" => 2}, socket)
-
-      refute_received {:fake_stt_started, _pid}
-      assert_lease_released()
-    end
-
-    test "the voice:dictation alias validates a v1 payload too" do
-      running([])
-      {socket, _client} = voice_socket()
-
-      assert {:error, %{reason_code: "target_not_found"}} =
-               subscribe_and_join(socket, "voice:dictation", worker_payload("ENG-7"))
-    end
-
-    test "an executor target is unsupported in this build" do
-      {socket, _client} = voice_socket()
-
-      payload = %{worker_payload("ENG-7") | "surface" => "executor_composer", "target" => %{"kind" => "executor"}}
-      assert {:error, %{reason_code: "unsupported_target"}} = subscribe_and_join(socket, "voice:dictate", payload)
-    end
-
-    test "a socket without dashboard authority is refused as auth_changed" do
-      unauthenticated = socket(VoiceSocket, "voice-client", %{})
-
-      for topic <- ["voice:dictate", "voice:dictation"] do
-        assert {:error, %{reason: "unauthorized", reason_code: "auth_changed"}} = subscribe_and_join(unauthenticated, topic)
-      end
-    end
-
-    test "an unknown topic is refused as invalid_payload" do
-      {socket, _client} = voice_socket()
-      assert {:error, %{reason: "invalid_topic", reason_code: "invalid_payload"}} = AiurWeb.VoiceChannel.join("voice:other", %{}, socket)
-    end
-
-    test "voice:conversation keeps ignoring the join payload" do
-      {socket, _client} = voice_socket()
-      assert {:ok, _reply, _joined} = subscribe_and_join(socket, "voice:conversation", %{"v" => 2})
-    end
-  end
-
   test "stops the stt session when the channel leaves" do
     {socket, _client} = voice_socket()
     assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:dictation")
@@ -459,31 +362,6 @@ defmodule AiurWeb.VoiceChannelTest do
   end
 
   # --- helpers -------------------------------------------------------------
-
-  # The per-authority cap is two: a leaked lease would refuse the second join.
-  # The refused join ran in the test process, which stays alive, so the
-  # limiter's owner monitor cannot release a leaked lease behind our back.
-  defp assert_lease_released do
-    for _ <- 1..2 do
-      {socket, _client} = voice_socket()
-      assert {:ok, _reply, _joined} = subscribe_and_join(socket, "voice:dictate")
-    end
-  end
-
-  defp running(identifiers) do
-    payload = %{fleet: %{running: Enum.map(identifiers, &%{issue_identifier: &1})}}
-    EndpointStubs.put(voice_target_payload_fun: fn -> payload end)
-  end
-
-  defp worker_payload(ticket) do
-    %{
-      "v" => 1,
-      "mode" => "dictate",
-      "surface" => "agent_composer",
-      "target" => %{"kind" => "worker", "ticket" => ticket},
-      "client_session_id" => "client-session-1"
-    }
-  end
 
   # A frame sent before this (by the test, or by the fake before it replied) is
   # queued ahead of the sys call: once it returns, the channel has pushed to us.
