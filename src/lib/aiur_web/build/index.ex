@@ -142,7 +142,7 @@ defmodule AiurWeb.Build.Index do
     )
 
     parts = record_read_staleness(state.parts, dirty, cause)
-    parts = mark_failed_part(parts, part, failure)
+    parts = parts |> mark_failed_part(part, failure) |> retain_failed_agents(state.parts, part, failure)
     dirty = MapSet.union(state.dirty, retry)
     {:noreply, finish(%{state | task: nil, dirty: dirty, failures: failures}, parts, dirty_set(state.task.dirty))}
   end
@@ -332,4 +332,16 @@ defmodule AiurWeb.Build.Index do
   defp mark_failed_part(parts, :open, reason), do: parts |> Map.put(:open, {:error, reason}) |> mark_open_degraded(reason)
   defp mark_failed_part(parts, :not_queued, reason), do: Map.put(parts, :not_queued, {:error, reason})
   defp mark_failed_part(parts, _part, _reason), do: parts
+
+  defp retain_failed_agents(parts, previous, part, failure) when part in [:now, nil, :unknown] do
+    case previous[:now] do
+      %{rows: rows, source: %{state: state} = source} when is_map(rows) and state in ["ok", "stale"] ->
+        Map.put(parts, :now, %{rows: rows, source: %{source | state: "stale", reason: Atom.to_string(failure)}})
+
+      _ ->
+        parts
+    end
+  end
+
+  defp retain_failed_agents(parts, _previous, _part, _failure), do: parts
 end

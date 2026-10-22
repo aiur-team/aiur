@@ -1,6 +1,8 @@
 defmodule Aiur.LandingWatch.MergeFailureClassifier do
   @moduledoc "Classifies failed merge-group runs from recorded Actions job logs."
 
+  alias Aiur.LandingWatch.MergeGroupFailureEvidence
+
   @type classification :: :infra | :known_non_pr | :inherited | :pr_caused
 
   @spec classify(map(), [map()], [map()], keyword()) :: {:ok, {classification(), map() | nil}} | {:error, term()}
@@ -9,9 +11,22 @@ defmodule Aiur.LandingWatch.MergeFailureClassifier do
     failed_jobs = Enum.filter(jobs, &(&1["conclusion"] in ["failure", "cancelled", "timed_out", "startup_failure"]))
 
     case logs_for_jobs(failed_jobs, log_fun, opts) do
-      {:ok, evidence} -> {:ok, {classification(evidence, run, observations, opts), List.first(evidence)}}
+      {:ok, evidence} -> {:ok, {classification(evidence, run, observations, opts), blame_evidence(evidence)}}
       {:error, _} = error -> error
     end
+  end
+
+  defp blame_evidence([]), do: nil
+
+  defp blame_evidence(evidence) do
+    relevant = Enum.reject(evidence, &(&1.job["name"] == "ci gate"))
+    logs = Enum.map(relevant, & &1.log)
+
+    %{
+      job: (List.first(relevant) || List.first(evidence)) && (List.first(relevant) || List.first(evidence)).job,
+      log: Enum.join(logs, "\n"),
+      blame_complete: relevant != [] and Enum.all?(logs, &(MergeGroupFailureEvidence.test_paths(&1) != []))
+    }
   end
 
   defp classification(evidence, run, observations, opts) do
@@ -98,13 +113,13 @@ defmodule Aiur.LandingWatch.MergeFailureClassifier do
       job["conclusion"] == "failure"
   end
 
-  defp test_run?(text), do: Enum.any?(["mix test", "test coverage partition", "failed test", "test failure"], &String.contains?(String.downcase(text), &1))
+  defp test_run?(text),
+    do:
+      MergeGroupFailureEvidence.test_paths(text) != [] or
+        Enum.any?(["mix test", "test coverage partition", "failed test", "test failure"], &String.contains?(String.downcase(text), &1))
 
   defp extract_path(text) do
-    case Regex.run(~r/(?:^|\s)([\w.\/-]+_test\.exs)(?::\d+)?/m, text, capture: :all_but_first) do
-      [path] -> path
-      _ -> nil
-    end
+    MergeGroupFailureEvidence.test_paths(text) |> List.first()
   end
 
   # PR-level runs name their pull request directly instead of through a queue branch.
