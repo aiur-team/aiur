@@ -164,8 +164,13 @@ test count in each PR body. Tagged tests also run in normal partitioned CI.
   behaviour and will pass on a trivially wrong implementation. (AGENTS.md
   "Tests must fail without the production change they guard" carries the same
   rule for agents; the `aiur-run` skill carries the reviewer-side check.)
-- **Flaky tests are fixed or deleted — never retried, never ignored.** Wall-clock
-  waits are not synchronization primitives: do not use finite `Process.sleep`
+- **Flaky tests are fixed or deleted, not routinely retried or ignored.** A
+  failed PR coverage partition may retry its failed tests once only when every
+  failure is quarantined, listed in `.github/known-flaky-tests.txt`, or failed
+  on the base branch in the prior 24 hours; the PR must not touch any failing
+  test file. The retry is recorded in that partition's flake evidence artifact.
+  Merge-group jobs never retry. Wall-clock waits are not synchronization
+  primitives: do not use finite `Process.sleep`
   calls or explicit timeouts on `assert_receive` / `refute_receive` to wait for
   concurrent work. Drive periodic work with explicit tick messages, then cross
   a causal barrier such as `:sys.get_state/1`, another synchronous call, or a
@@ -206,9 +211,11 @@ test count in each PR body. Tagged tests also run in normal partitioned CI.
   The job summary shows the count and test names. Download these artifacts to
   count recurrence; they use GitHub's repository artifact retention policy.
   Ledger and artifact errors are non-blocking so they cannot fail a passing shard.
-  This records observations without relaxing the coverage gate or automatically
-  quarantining tests. Runner loss before upload and failures without a parseable
-  ExUnit test name cannot be recorded.
+  A PR-only known-flake retry also stores its selected tests, result, and retry
+  log in that artifact. Only a green retry of an eligible failure relaxes that
+  partition's gate; the evidence does not automatically quarantine tests.
+  Runner loss before upload and failures without a parseable ExUnit test name
+  cannot be recorded or retried.
 - **Extracted modules are not coverage-exempt.** The coverage
   `ignore_modules` list in `src/mix.exs` only shrinks: every module split out
   of a giant ships tests for what it extracts, or CI fails the coverage gate

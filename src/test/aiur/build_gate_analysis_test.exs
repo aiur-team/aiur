@@ -89,7 +89,7 @@ defmodule Aiur.BuildGateAnalysisTest do
       assert %{active: 1, holders: [%{phase: "review", command: command}]} =
                BuildGate.status(gate_dir: root, capacity: 1, stagger_seconds: 0, min_free_memory_mb: 0, max_hold_seconds: 30, retain_seconds: 0)
 
-      assert command =~ "review-work"
+      assert command =~ ~r/^review, 0 files, sha256=[0-9a-f]{64}$/
     after
       IO.write(release, "release\n")
       File.close(release)
