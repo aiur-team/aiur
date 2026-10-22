@@ -18,7 +18,7 @@ defmodule VoiceConverse.ProviderPolicyTest do
     # with any options. Tightening is opt-in per host, never a silent global change.
     test "any provider with any options is allowed" do
       assert :ok = ProviderPolicy.check(%{}, %{id: :gemini_live})
-      assert :ok = ProviderPolicy.check(%{}, %{id: :openai_realtime, options: %{store: true}})
+      assert :ok = ProviderPolicy.check(%{}, %{id: :openai_realtime, privacy: %{store: true}})
     end
 
     test "a default Config carries no policy and validates" do
@@ -33,7 +33,7 @@ defmodule VoiceConverse.ProviderPolicyTest do
   describe "allowlist" do
     test "a provider not on the allowlist is refused, naming the provider and the allowed set" do
       assert {:error, %{reason: :provider_not_allowed, provider: :gemini_live, allowed: allowed}} =
-               ProviderPolicy.check(@restricted, %{id: :gemini_live, options: %{}})
+               ProviderPolicy.check(@restricted, %{id: :gemini_live, privacy: %{}})
 
       assert allowed == [:openai_realtime, :elevenlabs_agents]
     end
@@ -44,7 +44,7 @@ defmodule VoiceConverse.ProviderPolicyTest do
     end
 
     test "an allowed provider meeting its required options is allowed" do
-      assert :ok = ProviderPolicy.check(@restricted, %{id: :openai_realtime, options: %{store: false, voice: "x"}})
+      assert :ok = ProviderPolicy.check(@restricted, %{id: :openai_realtime, privacy: %{store: false, voice: "x"}})
     end
 
     test "an allowed provider with no required-options entry has none to meet" do
@@ -53,6 +53,27 @@ defmodule VoiceConverse.ProviderPolicyTest do
   end
 
   describe "required no-logging options" do
+    # Shaped like VoiceConverse.Provider.descriptor/0 (#4117): registry facts plus a :privacy map.
+    test "checks a full registry descriptor's :privacy facts" do
+      descriptor = %{
+        id: :openai_realtime,
+        family: :speech_to_speech,
+        label: "OpenAI Realtime",
+        modes: [:voice, :text],
+        needs: [:openai],
+        privacy: %{store: false, audio_stored_by_provider: false, deletable?: true}
+      }
+
+      assert :ok = ProviderPolicy.check(@restricted, descriptor)
+
+      assert {:error, %{reason: :required_option_unmet, option: :store, actual: :missing}} =
+               ProviderPolicy.check(@restricted, %{descriptor | privacy: %{audio_stored_by_provider: false}})
+
+      # Facts outside :privacy do not count: a top-level store: false is not the provider's privacy declaration.
+      assert {:error, %{actual: :missing}} =
+               ProviderPolicy.check(@restricted, descriptor |> Map.delete(:privacy) |> Map.put(:store, false))
+    end
+
     test "an allowed provider lacking its no-logging option is refused as missing" do
       assert {:error,
               %{
@@ -61,18 +82,18 @@ defmodule VoiceConverse.ProviderPolicyTest do
                 option: :record_voice,
                 expected: false,
                 actual: :missing
-              }} = ProviderPolicy.check(@restricted, %{id: :elevenlabs_agents, options: %{}})
+              }} = ProviderPolicy.check(@restricted, %{id: :elevenlabs_agents, privacy: %{}})
     end
 
     test "an allowed provider with logging turned on is refused with the actual value" do
       assert {:error, %{reason: :required_option_unmet, option: :store, expected: false, actual: {:ok, true}}} =
-               ProviderPolicy.check(@restricted, %{id: :openai_realtime, options: %{store: true}})
+               ProviderPolicy.check(@restricted, %{id: :openai_realtime, privacy: %{store: true}})
     end
 
     # A falsy-but-wrong value (nil) must not pass for `false`: "not set" is not "storage off".
     test "nil does not satisfy a required false" do
       assert {:error, %{actual: {:ok, nil}}} =
-               ProviderPolicy.check(@restricted, %{id: :openai_realtime, options: %{store: nil}})
+               ProviderPolicy.check(@restricted, %{id: :openai_realtime, privacy: %{store: nil}})
     end
 
     # Retention is often numeric; `0` days and `0.0` are different provider settings, and the
@@ -80,10 +101,10 @@ defmodule VoiceConverse.ProviderPolicyTest do
     test "a required value must match exactly, not just compare equal" do
       policy = %{required_provider_options: %{openai_realtime: %{retention_days: 0}}}
 
-      assert :ok = ProviderPolicy.check(policy, %{id: :openai_realtime, options: %{retention_days: 0}})
+      assert :ok = ProviderPolicy.check(policy, %{id: :openai_realtime, privacy: %{retention_days: 0}})
 
       assert {:error, %{option: :retention_days, actual: {:ok, +0.0}}} =
-               ProviderPolicy.check(policy, %{id: :openai_realtime, options: %{retention_days: +0.0}})
+               ProviderPolicy.check(policy, %{id: :openai_realtime, privacy: %{retention_days: +0.0}})
     end
 
     test "required options apply without an allowlist" do

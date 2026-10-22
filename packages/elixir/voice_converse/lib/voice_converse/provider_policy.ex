@@ -13,18 +13,22 @@ defmodule VoiceConverse.ProviderPolicy do
         }
       }
 
+  `check/2` takes the provider's registry descriptor (`VoiceConverse.Provider.descriptor/0`) and
+  matches `required_provider_options` against the descriptor's `:privacy` map, where an adapter
+  declares its storage and retention facts (`store: false`, `record_voice: false`, ...).
+
   Both keys only tighten. With neither set (the default, `privacy: %{}`) every provider is
-  allowed with whatever options it carries. An empty allowlist allows no provider. A provider
+  allowed whatever its privacy facts. An empty allowlist allows no provider. A provider
   with no `required_provider_options` entry has no required options.
 
   Validation is closed: an unknown `privacy` key (say, a misspelled `provider_allow_list`) is
   invalid rather than ignored, so a typo cannot silently allow every provider. With an allowlist
   set, a `required_provider_options` entry for a provider not on it is invalid too.
 
-  Required options are a flat map of option key to exact value, compared with `===` (`0` does not
-  satisfy `0.0`). A descriptor's `options` must therefore be flat: an adapter whose provider nests
-  the setting (ElevenLabs `platform_settings.privacy.record_voice`) flattens it to
-  `record_voice` when it builds its descriptor.
+  Required options are a flat map of key to exact value, compared with `===` (`0` does not
+  satisfy `0.0`). A descriptor's `:privacy` map must therefore be flat: an adapter whose provider
+  nests the setting (ElevenLabs `platform_settings.privacy.record_voice`) declares it as
+  `record_voice` in its descriptor.
 
   A session checks its provider with `check/2` before connecting and refuses to start on
   `{:error, reason}`.
@@ -33,7 +37,8 @@ defmodule VoiceConverse.ProviderPolicy do
   @known_keys [:provider_allowlist, :required_provider_options]
 
   @type provider_id :: atom()
-  @type descriptor :: %{required(:id) => provider_id(), optional(:options) => map()}
+  @typedoc "The subset of `VoiceConverse.Provider.descriptor/0` this module reads."
+  @type descriptor :: %{required(:id) => provider_id(), optional(:privacy) => map(), optional(atom()) => term()}
   @type reason ::
           %{reason: :provider_not_allowed, provider: provider_id(), allowed: [provider_id()]}
           | %{
@@ -71,7 +76,7 @@ defmodule VoiceConverse.ProviderPolicy do
   def check(privacy, %{id: id} = descriptor) when is_map(privacy) and is_atom(id) do
     with :ok <- check_allowed(Map.get(privacy, :provider_allowlist), id) do
       required = privacy |> Map.get(:required_provider_options, %{}) |> Map.get(id, %{})
-      check_options(required, id, Map.get(descriptor, :options, %{}))
+      check_options(required, id, Map.get(descriptor, :privacy, %{}))
     end
   end
 
@@ -83,11 +88,11 @@ defmodule VoiceConverse.ProviderPolicy do
       else: {:error, %{reason: :provider_not_allowed, provider: id, allowed: allowed}}
   end
 
-  defp check_options(required, id, options) do
+  defp check_options(required, id, facts) do
     required
     |> Enum.sort()
     |> Enum.find_value(:ok, fn {key, expected} ->
-      actual = Map.fetch(options, key)
+      actual = Map.fetch(facts, key)
 
       if actual !== {:ok, expected} do
         actual = if actual == :error, do: :missing, else: actual
