@@ -13,7 +13,9 @@ defmodule AiurWeb.Api.Usage.TicketUsage do
   `mix aiur.cost_report` report, never a second accounting.
 
   A ticket whose raw ledger records have all been retired by compaction can no
-  longer be resolved by number and reads as not found.
+  longer be resolved by number. When the ledger shows a retired prefix, that miss
+  is `:usage_unresolvable` rather than `:usage_not_found`, because the ticket may
+  have spent in the retired range.
   """
 
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -24,8 +26,10 @@ defmodule AiurWeb.Api.Usage.TicketUsage do
   @schema_version 1
   @currency "USD"
   @scan_page 10_000
+  @authority_keys [:schema_version, :aggregate_generation, :source_position, :source_generation, :price_table_revision]
+  @freshness_keys [:status, :projected_position, :ledger_position]
 
-  @type error :: :invalid_identifier | :usage_not_found | :usage_unavailable
+  @type error :: :invalid_identifier | :usage_not_found | :usage_unresolvable | :usage_unavailable
 
   @doc """
   Returns the JSON-safe usage payload for one GitHub issue number.
@@ -38,8 +42,8 @@ defmodule AiurWeb.Api.Usage.TicketUsage do
   def fetch(identifier, opts \\ []) do
     with {:ok, number} <- number(identifier),
          {:ok, repository} <- repository(opts),
-         {:ok, identities} <- identities(number, repository, opts),
-         {:ok, source} <- cells_snapshot(opts) do
+         {:ok, source} <- cells_snapshot(opts),
+         {:ok, identities} <- identities(number, repository, source, opts) do
       {:ok, scope} = Scope.explicit_ticket_set(identities)
       snapshot = GroupedScopes.project(source, scope, currency: @currency)
 
@@ -63,31 +67,41 @@ defmodule AiurWeb.Api.Usage.TicketUsage do
   end
 
   # Pages through the retained ledger by position; the store caps one page.
-  defp identities(number, repository, opts) do
+  defp identities(number, repository, source, opts) do
     scan = Keyword.get(opts, :scan_fun, &UsageLedger.scan/1)
     page = Keyword.get(opts, :scan_page, @scan_page)
 
-    case collect(scan, page, 0, ticket_matcher(number, repository), %{}) do
-      {:ok, found} when map_size(found) == 0 -> {:error, :usage_not_found}
-      {:ok, found} -> {:ok, Map.values(found)}
+    case collect(scan, page, 0, ticket_matcher(number, repository), %{found: %{}, first: nil}) do
+      {:ok, %{found: found} = acc} when map_size(found) == 0 -> {:error, miss(acc.first, source)}
+      {:ok, %{found: found}} -> {:ok, Map.values(found)}
       {:error, _reason} -> {:error, :usage_unavailable}
     end
   catch
     :exit, _reason -> {:error, :usage_unavailable}
   end
 
-  defp collect(scan, page, after_position, matcher, found) do
+  defp collect(scan, page, after_position, matcher, acc) do
     case scan.(after: after_position, limit: page) do
       {:ok, records} when is_list(records) ->
-        found = Enum.reduce(records, found, &remember(&1, matcher, &2))
+        acc = %{acc | first: acc.first || first_position(records), found: Enum.reduce(records, acc.found, &remember(&1, matcher, &2))}
 
         if length(records) < page,
-          do: {:ok, found},
-          else: collect(scan, page, List.last(records).position, matcher, found)
+          do: {:ok, acc},
+          else: collect(scan, page, List.last(records).position, matcher, acc)
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp first_position([%{position: position} | _rest]), do: position
+  defp first_position([]), do: nil
+
+  # Positions start at 1, so a retained head past 1 (or an empty ledger behind
+  # an aggregate that folded records) means compaction retired a prefix.
+  defp miss(first, %{metadata: metadata}) do
+    retired? = if first, do: first > 1, else: (Map.get(metadata, :source_position) || 0) > 0
+    if retired?, do: :usage_unresolvable, else: :usage_not_found
   end
 
   defp remember(%{envelope: %{attribution: %{tracker_identity: identity}}}, matcher, found) do
@@ -124,8 +138,8 @@ defmodule AiurWeb.Api.Usage.TicketUsage do
       ticket: %{owner: owner, repository: name, identifier: number},
       currency: snapshot.currency,
       state: snapshot.state,
-      authority: snapshot.authority,
-      freshness: snapshot.freshness,
+      authority: Map.take(snapshot.authority, @authority_keys),
+      freshness: Map.take(snapshot.freshness || %{}, @freshness_keys),
       totals: totals(snapshot),
       by_model: models(snapshot),
       by_provider: providers(snapshot),
@@ -139,7 +153,7 @@ defmodule AiurWeb.Api.Usage.TicketUsage do
       provider_reported: money(snapshot.provider_reported_estimate.by_currency),
       api_equivalent: %{
         amount: money(snapshot.api_equivalent_estimate.rollup),
-        coverage: snapshot.api_equivalent_estimate.coverage
+        coverage: coverage(snapshot.api_equivalent_estimate.coverage)
       }
     }
   end
@@ -174,9 +188,11 @@ defmodule AiurWeb.Api.Usage.TicketUsage do
     %{
       tokens: entry.tokens,
       provider_reported: money(entry.provider_reported),
-      api_equivalent: %{amount: money(entry.api_equivalent.amount), coverage: entry.api_equivalent.coverage}
+      api_equivalent: %{amount: money(entry.api_equivalent.amount), coverage: coverage(entry.api_equivalent.coverage)}
     }
   end
+
+  defp coverage(coverage), do: Map.take(coverage, [:status, :known, :unknown, :reasons])
 
   # Exact decimal strings: a float would round money a consumer must reconcile.
   defp money(amounts), do: Map.new(amounts, fn {currency, amount} -> {currency, Decimal.to_string(amount, :normal)} end)

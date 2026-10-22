@@ -30,6 +30,8 @@ defmodule AiurWeb.Api.Usage.TicketUsageTest do
     )
   end
 
+  defp keys(map), do: map |> Map.keys() |> Enum.sort()
+
   defp page(records, options) do
     records |> Enum.filter(&(&1.position > Keyword.fetch!(options, :after))) |> Enum.take(Keyword.fetch!(options, :limit))
   end
@@ -66,6 +68,37 @@ defmodule AiurWeb.Api.Usage.TicketUsageTest do
   test "resolves identities found on any ledger page" do
     assert {:ok, payload} = TicketUsage.fetch("5692", opts(records(), scan_page: 1))
     assert payload["totals"]["tokens"] == %{"input" => 150, "output" => 20}
+  end
+
+  # The payload is a versioned contract for an external client: every key is
+  # pinned so an upstream map growing a field cannot leak into schema 1.
+  test "pins the exact schema 1 keys at every level" do
+    assert {:ok, payload} = TicketUsage.fetch("5692", opts(records()))
+    measure = ~w(api_equivalent provider_reported tokens)
+
+    assert keys(payload) == ~w(authority by_model by_provider currency freshness schema_version sessions state ticket totals)
+    assert keys(payload["ticket"]) == ~w(identifier owner repository)
+    assert keys(payload["authority"]) == ~w(aggregate_generation price_table_revision schema_version source_generation source_position)
+    assert keys(payload["freshness"]) == ~w(ledger_position projected_position status)
+    assert keys(payload["totals"]) == measure
+    assert keys(payload["totals"]["api_equivalent"]) == ~w(amount coverage)
+    assert keys(payload["totals"]["api_equivalent"]["coverage"]) == ~w(known reasons status unknown)
+    assert keys(hd(payload["by_model"])) == Enum.sort(["model" | measure])
+    assert keys(hd(payload["by_provider"])) == Enum.sort(["provider", "upstream_provider" | measure])
+
+    session = hd(payload["sessions"])
+    assert keys(session) == Enum.sort(["by_model", "by_provider", "run_id" | measure])
+    assert keys(hd(session["by_model"])) == Enum.sort(["model" | measure])
+    assert keys(hd(session["by_provider"])) == Enum.sort(["provider", "upstream_provider" | measure])
+  end
+
+  # After compaction retires a prefix, a miss may be a ticket that spent in the
+  # retired range, so it must not claim "no usage recorded".
+  test "a miss behind a retired ledger prefix is unresolvable, not not-found" do
+    retained = Enum.drop(records(), 2)
+    assert TicketUsage.fetch("5692", opts(retained, cells_snapshot_fun: fn -> GS.source(records()) end)) == {:error, :usage_unresolvable}
+
+    assert TicketUsage.fetch("5692", opts([], cells_snapshot_fun: fn -> GS.source(records()) end)) == {:error, :usage_unresolvable}
   end
 
   test "a ticket with no retained ledger records is not found" do

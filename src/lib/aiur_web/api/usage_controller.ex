@@ -19,6 +19,9 @@ defmodule AiurWeb.Api.UsageController do
       {:error, :usage_not_found} ->
         error_response(conn, 404, "usage_not_found", "No usage recorded for issue")
 
+      {:error, :usage_unresolvable} ->
+        error_response(conn, 404, "usage_unresolvable", "No retained usage records for issue; older records may have been compacted")
+
       {:error, :usage_unavailable} ->
         error_response(conn, 503, "usage_unavailable", "Usage ledger is unavailable")
     end
