@@ -24,13 +24,20 @@ defmodule Aiur.Events.GithubCIPoller.ApprovedLandingRecoveryTest do
     %{issue: %Issue{id: "1", identifier: "1"}, result: result, opts: opts}
   end
 
-  test "an auto-merge observation holds the approved head and is cached for later polls", ctx do
-    opts = with_observation(ctx.opts, {:ok, live_pr(%{"autoMergeRequest" => %{"enabledAt" => "2026-10-16T07:54:08Z"}})})
+  test "an auto-merge failure withdraws landing and routes the PR-caused red", ctx do
+    parent = self()
 
-    assert %{decision: :pending, recovery: "approved_landing_pr"} = Recovery.recover(ctx.issue, ctx.result, opts)
+    opts =
+      ctx.opts
+      |> Keyword.put(:withdraw_landing, fn number ->
+        send(parent, {:withdrawn, number})
+        {:ok, [:auto_merge]}
+      end)
+      |> with_observation({:ok, live_pr(%{"autoMergeRequest" => %{"enabledAt" => "2026-10-16T07:54:08Z"}})})
+
+    assert %{decision: :failed, approved_landing_withdrawn?: true} = Recovery.recover(ctx.issue, ctx.result, opts)
+    assert_received {:withdrawn, 42}
     refute_received {:attention, _}
-
-    assert %{decision: :pending, recovery: "approved_landing_pr"} = Recovery.recover(ctx.issue, ctx.result, with_observation(ctx.opts, {:error, :should_not_read}))
   end
 
   test "a cancelled head run while queued does not create a recovery hold or attention", ctx do

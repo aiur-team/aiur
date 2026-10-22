@@ -130,9 +130,20 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   # Recheck a red head despite an earlier hold so known flakes get one rerun (#5133).
   defp recover_entry(issue, %{head_sha: sha} = result, %{"hold" => %{"sha" => sha} = hold} = entry, opts) do
     cond do
-      result[:decision] == :failed and not failed_hold?(entry, sha) -> recover_entry(issue, result, Map.delete(entry, "hold"), opts)
-      hold["mode"] == "transient" and now(opts) >= hold["retry_at"] -> retry_transient(issue, result, opts)
-      true -> hold_result(result, hold)
+      hold["mode"] == "landing" and result[:review_decision] != "APPROVED" ->
+        case update(issue, result, &Map.delete(&1, "hold"), opts) do
+          {:ok, updated} -> recover_entry(issue, result, updated, opts)
+          {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
+        end
+
+      result[:decision] == :failed and not failed_hold?(entry, sha) ->
+        recover_entry(issue, result, Map.delete(entry, "hold"), opts)
+
+      hold["mode"] == "transient" and now(opts) >= hold["retry_at"] ->
+        retry_transient(issue, result, opts)
+
+      true ->
+        hold_result(result, hold)
     end
   end
 
