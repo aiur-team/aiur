@@ -68,7 +68,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
   @filename "webhook_deliveries.ndjson"
   @retention_ms 72 * 60 * 60 * 1000
   @sweep_interval_ms 5 * 60 * 1000
-  @max_entries 200_000
+  @max_entries 300_000
   @compaction_floor 1_000
   @call_timeout 30_000
   @max_key_bytes 512
@@ -194,6 +194,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
       sweep_interval_ms: positive(opts, :sweep_interval_ms, @sweep_interval_ms),
       max_entries: positive(opts, :max_entries, @max_entries),
       eviction_low_watermark: DeliveryLogCeiling.low_watermark(opts),
+      eviction_sort_fun: Keyword.get(opts, :eviction_sort_fun, &DeliveryLogCeiling.sort_entries/1),
       compaction_floor: positive(opts, :compaction_floor, @compaction_floor)
     }
   end

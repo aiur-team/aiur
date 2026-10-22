@@ -14,21 +14,23 @@ defmodule Aiur.Webhooks.DeliveryLogCeiling do
   @spec target(pos_integer(), float()) :: pos_integer()
   def target(max_entries, low_watermark), do: max(1, trunc(max_entries * low_watermark))
 
+  @spec sort_entries(map()) :: list()
+  def sort_entries(entries), do: Enum.sort_by(entries, fn {_key, %{recorded_at: recorded_at}} -> recorded_at end)
+
   @spec enforce(map(), integer()) :: map()
   def enforce(state, now) do
     if map_size(state.entries) > state.max_entries do
       overflow = map_size(state.entries) - target(state.max_entries, state.eviction_low_watermark)
-      entries = drop_oldest(state.entries, overflow)
+      entries = drop_oldest(state.entries, overflow, state.eviction_sort_fun)
       alert_overflow(%{state | entries: entries}, now)
     else
       state
     end
   end
 
-  defp drop_oldest(entries, count) do
+  defp drop_oldest(entries, count, sort_fun) do
     dropped =
-      entries
-      |> Enum.sort_by(fn {_key, %{recorded_at: recorded_at}} -> recorded_at end)
+      sort_fun.(entries)
       |> Enum.take(count)
       |> Enum.map(fn {key, _entry} -> key end)
 
