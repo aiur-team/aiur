@@ -171,6 +171,18 @@ defmodule Aiur.LandingWatch.MergeGroupsGroupHeadTest do
     base = "refs-error"
     parent = self()
 
+    observation = %{
+      number: 3,
+      base: base,
+      head: "current-head",
+      head_committed_at: "2026-10-19T09:00:00Z",
+      merge_queue_entry: %{
+        "id" => "entry-3",
+        "headCommit" => %{"oid" => "dead", "committedDate" => "2026-10-19T11:00:00Z"},
+        "pullRequest" => %{"headRefOid" => "current-head"}
+      }
+    }
+
     request = fn
       %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
         {:error, :unavailable}
@@ -179,11 +191,12 @@ defmodule Aiur.LandingWatch.MergeGroupsGroupHeadTest do
         {:ok, %{status: 200, body: %{"workflow_runs" => [run(76, "dead", 3, "in_progress", base)]}}}
     end
 
-    assert {:error, _} =
+    assert :ok =
              MergeGroups.cancel_stale([],
                base_branch: base,
                token: "test-gh-token",
                request_fun: request,
+               live_observations_fun: fn _, _ -> {:ok, [observation]} end,
                cancel_fun: fn id, _ ->
                  send(parent, {:cancel, id})
                  :ok
