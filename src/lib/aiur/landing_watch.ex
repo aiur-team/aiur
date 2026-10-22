@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, Journal, LocalRead, MergeGroups, MergeQueueWatchdog, Observer, PrRerun}
+  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.LandingWatch.TicketLookup
   alias Aiur.Orchestrator.TicketTransition
@@ -149,10 +149,7 @@ defmodule Aiur.LandingWatch do
   end
 
   defp process_and_reconcile(observations, opts) do
-    opts = poll_required_checks(observations, opts)
-    result = process_all(observations, opts)
-    reconcile = Keyword.get(opts, :queue_reconcile_fun, &MergeGroups.cancel_stale/2).(observations, opts)
-    MergeQueueWatchdog.after_reconcile(result, reconcile, observations, opts)
+    LandingReconciliation.process(observations, opts, &process_all/2)
   end
 
   defp process_all(observations, opts) do
@@ -364,19 +361,11 @@ defmodule Aiur.LandingWatch do
   # A ticket back in rework or with a running agent owns its PR; an Executor dequeue must stick (#4772).
   defp land_unless_ticket_active(observation, opts) do
     case TicketLookup.fetch(observation, opts) do
-      {:ok, _issue, state, _paused?} when state in ["rework", "in-progress", "todo"] -> :ok
-      {:ok, _issue, _state, _paused?} -> revalidate_attribution_and_enqueue(observation, opts)
+      {:ok, issue, _state, _paused?, true} -> HeldApproval.attention(observation, issue, opts)
+      {:ok, _issue, state, _paused?, _held?} when state in ["rework", "in-progress", "todo"] -> :ok
+      {:ok, _issue, _state, _paused?, _held?} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, :pull_request_not_linked_to_ticket_branch} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, _} = error -> error
-    end
-  end
-
-  defp poll_required_checks(observations, opts) do
-    if Enum.any?(observations, fn observation -> Classifier.approved_at_head?(Map.get(observation, :raw, %{})) end) do
-      required_checks = Keyword.get(opts, :required_checks_fun, &CiReadiness.fetch_required_checks/1)
-      Keyword.put(opts, :required_checks_snapshot, LocalRead.run(required_checks, [opts], opts))
-    else
-      opts
     end
   end
 
@@ -447,7 +436,7 @@ defmodule Aiur.LandingWatch do
 
   defp transition_rework(observation, failures, opts) do
     case TicketLookup.fetch(observation, opts) do
-      {:ok, issue, state, paused?} when state in ["human-review", "ci-wait", "merging"] ->
+      {:ok, issue, state, paused?, _held?} when state in ["human-review", "ci-wait", "merging"] ->
         transition = Keyword.get(opts, :transition_fun, fn identifier, target, options -> TicketTransition.write_state(identifier, target, options) end)
 
         case transition.(issue, "rework", writer: :landing_watch, expected_state: state) do
@@ -462,14 +451,14 @@ defmodule Aiur.LandingWatch do
             {:error, :ticket_rework_transition_unconfirmed}
         end
 
-      {:ok, issue, "rework", paused?} ->
+      {:ok, issue, "rework", paused?, _held?} ->
         if Keyword.get(opts, :conflict_rework_claim) == :new do
           :conflict_already_rework
         else
           Keyword.get(opts, :after_rework, fn _issue, _paused? -> :ok end).(issue, paused?)
         end
 
-      {:ok, _issue, _state, _paused?} ->
+      {:ok, _issue, _state, _paused?, _held?} ->
         not_routed(opts)
 
       {:error, reason} ->
