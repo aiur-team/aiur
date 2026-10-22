@@ -70,6 +70,12 @@ Draft PRs remain pending even with green checks. Mark completed work ready befor
 
 Review polling keeps a per-ticket cursor seeded from its first cutoff; issue comments cannot advance it, and disabled or failed reads retain it. Polls in `agent:ci-wait` and `agent:human-review` route trusted `CHANGES_REQUESTED` and blocking `COMMENTED` reviews to `agent:rework`, including body-only reviews.
 
+On `pull_request:synchronize`, Aiur compares an approved PR's old and new contributions. A changed or unreadable diff disarms auto-merge and raises `stale_approved_pr_head`; an identical diff leaves it armed.
+
+Aiur retries a failed approval-state read twice, then raises `landing_withdrawal_failed` so an operator can inspect the PR and disable auto-merge if needed.
+
+Trusted `CHANGES_REQUESTED` reviews also disarm auto-merge.
+
 Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`, `Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or fix requested “before merge”. Clean summaries such as “No blockers; waiting on CI” or “All blockers resolved” do not route to rework.
 
 Failed CI in `agent:human-review` routes to rework when that head already passed CI or the head changed. An inherited failure on a dismissed head remains held; the existing test-only one-poll retry still applies.

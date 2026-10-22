@@ -352,7 +352,7 @@ defmodule Aiur.DecisionAttentionTest do
 
     log = Path.join(workspace, "logs/agent.ndjson") |> File.read!()
     assert log =~ "ticket.#{identifier}.agent.attention.scope-question"
-    assert log =~ "Executor decision required: Should this facade target change?"
+    assert log =~ "Executor decision required (Decision dec_test): Should this facade target change?"
     assert log =~ "\"needs_attention\":true"
   end
 
