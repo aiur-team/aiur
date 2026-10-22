@@ -21,9 +21,7 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 | `executor_takeover_continuous_alert_hours` | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
 | `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
-| `instance.ignore.label_prefixes` | list of strings | `[]` | Tickets with any `<prefix>:*` label (another instance's `tracker.github.label_prefix`) are owned by that instance, with the same effect as `instance.ignore.tickets`. Hot-reloadable. |
-| `instance.ignore.labels` | list of strings | `[]` | Tickets carrying any of these labels are owned by another instance, with the same effect as `instance.ignore.tickets`. Hot-reloadable. |
-| `instance.ignore.tickets` | list of integers | `[]` | Ticket numbers another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
+| `instance.ignore.tickets`, `instance.ignore.labels`, `instance.ignore.label_prefixes` | list of integers / strings | `[]` | Tickets another instance owns: listed numbers, tickets carrying a listed label, or tickets with a `<prefix>:*` label for a listed prefix (that instance's `tracker.github.label_prefix`). This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
 | `instance.role` | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |
@@ -128,8 +126,7 @@ Freshness thresholds follow this cadence. You do not set them separately.
   | `firehose` | repo events | Already self-regulating via GitHub's `X-Poll-Interval`; the class exists so status can show its configured cadence, not to change its loop. The firehose loop is **not gated** on a class cadence — it rides the dispatch tick — so no value is recommended: leave it unset to inherit `interval_seconds`. An entry would be a dead knob. |
 
 - The dashboard, the Units catalog and Build Order ticket history all judge
-  staleness against the effective interval of the class they mean: the
-  orchestrator snapshot readers derive from `dispatch`, Build Order catalog and
+  staleness against the effective interval of the class they mean: the orchestrator snapshot readers derive from `dispatch`, Build Order catalog and
   ticket history from `planning`.
 - Build Order's remaining `graph_catalog_refresh_ms` — the failure-backoff base
   for the catalog scope, the window after which the catalog snapshot is shown
