@@ -6,7 +6,7 @@ import { dashboardCredentials } from './layout-worker.mjs'
 // that opts into `writable` cannot leak into whichever test runs after it.
 export async function openStreamdeck(page, mode = 'read_only') {
   await page.goto('/auth/read_only')
-  await page.goto('/')
+  await page.goto('/route-shell')
   await page.context().setHTTPCredentials(dashboardCredentials)
   const control = await page.goto(`/streamdeck-control/${mode}`)
   expect(control.status()).toBe(200)
@@ -34,7 +34,7 @@ export async function anchor(locator) {
   })
 }
 
-export async function openUnits(page, path = '/units') {
+export async function openUnits(page, path = '/units-fixture') {
   await page.goto('/auth/read_only')
   await page.goto(path)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()

@@ -16,7 +16,7 @@ const CMD_COMMANDS_PAUSED = ['Play', 'Logs', 'Mic', 'Settings', 'Commands']
 
 async function openStreamdeck(page) {
   await page.goto('/auth/read_only')
-  await page.goto('/')
+  await page.goto('/route-shell')
   await page.context().setHTTPCredentials(dashboardCredentials)
   // Taking a real agent control needs a writable dashboard. This fixture server
   // belongs to this spec alone, so opting in here cannot leak into other specs.
