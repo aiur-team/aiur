@@ -152,7 +152,11 @@ A worker's `human-review` handback also reads the PR's approval (one GraphQL rea
 
 The approval carries only when the contribution diff (merge base to head) is identical, context included; hunk positions may shift with base edits above them. Any conflict resolution does not carry. The PR body `Tested head` must name the new head.
 
-A carried approval posts a PR comment and a `ticket.<id>.pr.approval_carried` info alert. Any other verdict raises `stale_approved_pr_head` with the differing hunks. Unreadable or truncated comparisons count as changed.
+A carried approval posts a PR comment and info alert. Other verdicts raise `stale_approved_pr_head`; unreadable comparisons count as changed.
+
+On a synchronize webhook, a changed approved contribution disarms auto-merge before the alert. Approve the new head to re-enable it.
+
+If Aiur cannot read the approval state after two retries, it raises `landing_withdrawal_failed` for operator inspection. Trusted `CHANGES_REQUESTED` reviews also disarm auto-merge.
 
 For the next 10 handoffs after rollout, record the tested PR head, observed base SHA and overlap/conflict verdict. Count unsafe handoffs reaching review separately from harmless stale heads; the earlier 3-of-8 stale-base count is context, not an equivalent baseline for this narrower measure.
 

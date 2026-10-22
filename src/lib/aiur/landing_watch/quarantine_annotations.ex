@@ -19,6 +19,16 @@ defmodule Aiur.LandingWatch.QuarantineAnnotations do
     |> from_checks(opts)
   end
 
+  @spec from_jobs_with_completeness([map()], keyword()) :: {:ok, found(), boolean()} | {:error, term()}
+  def from_jobs_with_completeness(jobs, opts) do
+    failed = Enum.filter(jobs, &(&1["conclusion"] == "failure"))
+    complete? = Enum.all?(failed, &is_integer(check_run_id(&1)))
+
+    with {:ok, found} <- from_jobs(jobs, opts) do
+      {:ok, found, complete?}
+    end
+  end
+
   @doc "Failures annotated on `{check_run_id, job_name}` pairs; nil ids are skipped."
   @spec from_checks([{integer() | nil, String.t()}], keyword()) :: {:ok, found()} | {:error, term()}
   def from_checks(checks, opts) do
@@ -50,7 +60,7 @@ defmodule Aiur.LandingWatch.QuarantineAnnotations do
     case String.split(message, " :: ", parts: 3) do
       [class, module, name] when class in ["known-flake", "new-failure"] and module != "" and name != "" ->
         excerpt = annotation["raw_details"] || annotation["description"] || message
-        [%{module: module, name: name, job: job, path: annotation["path"], excerpt: String.slice(String.trim(to_string(excerpt)), 0, 500)}]
+        [%{module: module, name: name, job: job, class: class, path: annotation["path"], excerpt: String.slice(String.trim(to_string(excerpt)), 0, 500)}]
 
       _ ->
         []
