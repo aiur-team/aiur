@@ -35,10 +35,33 @@ defmodule VoiceConverse.TranscriptStoreTest do
     assert {:error, :eio} = TranscriptStore.append(failing, %{type: "user_turn", text: "lost?"})
   end
 
-  test "open runs the filesystem barrier once so the new file entry survives a crash", %{root: root} do
+  test "open runs the filesystem barrier exactly once so the new file entry survives a crash", %{root: root} do
     test_pid = self()
-    open!(root, sync_fs: fn -> send(test_pid, :fs_synced) && :ok end)
+    store = open!(root, sync_fs: fn -> send(test_pid, :fs_synced) && :ok end)
+    :ok = TranscriptStore.append(store, %{type: "user_turn", text: "x"})
     assert_received :fs_synced
+    refute_received :fs_synced
+  end
+
+  test "a failed creation barrier removes the partial file so the id is not blocked", %{root: root} do
+    assert {:error, :nope} = TranscriptStore.open(root, @id, @started, sync_fs: fn -> {:error, :nope} end)
+    {:ok, path} = TranscriptStore.path(root, @id)
+    refute File.exists?(path)
+    assert {:ok, _} = TranscriptStore.open(root, @id, @started, sync_fs: fn -> :ok end)
+  end
+
+  test "records holding DateTimes (context observed_at) encode instead of crashing the session", %{root: root} do
+    at = ~U[2026-10-21 12:00:00Z]
+    {:ok, store} = TranscriptStore.open(root, @id, Map.put(@started, :started_at, at), sync_fs: fn -> :ok end)
+    :ok = TranscriptStore.append(store, %{type: "context", source: "briefing", observed_at: at, text: "ok"})
+
+    assert {:ok, [%{"started_at" => "2026-10-21T12:00:00Z"}, %{"observed_at" => "2026-10-21T12:00:00Z"}], _} =
+             TranscriptStore.read(root, @id)
+  end
+
+  test "session_started cannot override the real conversation id", %{root: root} do
+    {:ok, _} = TranscriptStore.open(root, @id, Map.put(@started, :conversation_id, "other"), sync_fs: fn -> :ok end)
+    assert {:ok, [%{"conversation_id" => @id}], _} = TranscriptStore.read(root, @id)
   end
 
   test "records round-trip in order with version, type and timestamp", %{root: root} do
@@ -76,13 +99,51 @@ defmodule VoiceConverse.TranscriptStoreTest do
     assert {:ok, [%{"type" => "session_started"}], %{torn_tail: true}} = TranscriptStore.read(root, @id)
   end
 
-  test "interior corruption fails the read instead of silently dropping a record", %{root: root} do
+  # Boot reconciliation appends session_ended to a crashed transcript; it must not glue onto the
+  # torn bytes and make the whole transcript unreadable.
+  test "reopen after a torn tail seals it, so later records stay readable", %{root: root} do
     store = open!(root)
+    :ok = TranscriptStore.append(store, %{type: "user_turn", text: "kept"})
     :ok = TranscriptStore.close(store)
     {:ok, path} = TranscriptStore.path(root, @id)
-    File.write!(path, "garbage\n{\"v\":1,\"type\":\"session_ended\"}\n", [:append])
+    File.write!(path, ~s({"v":1,"type":"assistant_turn","te), [:append])
 
-    assert {:error, {:corrupt, 2}} = TranscriptStore.read(root, @id)
+    {:ok, store} = TranscriptStore.reopen(root, @id)
+    :ok = TranscriptStore.append(store, %{type: "session_ended", reason: "daemon_restart"})
+    :ok = TranscriptStore.close(store)
+
+    assert {:ok, [_started, %{"text" => "kept"}, %{"type" => "session_ended"}], %{torn_tail: false, skipped_lines: [3]}} =
+             TranscriptStore.read(root, @id)
+
+    assert File.read!(path) =~ ~s("te\n)
+  end
+
+  test "reopen of a clean transcript adds no blank line", %{root: root} do
+    :ok = TranscriptStore.close(open!(root))
+    {:ok, store} = TranscriptStore.reopen(root, @id)
+    :ok = TranscriptStore.append(store, %{type: "session_ended", reason: "daemon_restart"})
+
+    assert {:ok, [_, %{"type" => "session_ended"}], %{torn_tail: false, skipped_lines: []}} =
+             TranscriptStore.read(root, @id)
+  end
+
+  test "reopen of a missing transcript is not_found", %{root: root} do
+    assert {:error, :not_found} = TranscriptStore.reopen(root, @id)
+  end
+
+  test "an existing root readable by others is refused, not chmodded", %{root: root} do
+    File.mkdir_p!(root)
+    File.chmod!(root, 0o755)
+    assert {:error, {:insecure_root, _}} = TranscriptStore.open(root, @id, @started, sync_fs: fn -> :ok end)
+    assert Bitwise.band(File.stat!(root).mode, 0o777) == 0o755
+  end
+
+  test "a symlinked root is refused", %{root: root} do
+    real = root <> "_real"
+    File.mkdir_p!(real)
+    File.chmod!(real, 0o700)
+    File.ln_s!(real, root)
+    assert {:error, {:symlink_rejected, _}} = TranscriptStore.open(root, @id, @started, sync_fs: fn -> :ok end)
   end
 
   test "path traversal ids are refused and nothing is created", %{root: root} do
@@ -116,8 +177,13 @@ defmodule VoiceConverse.TranscriptStoreTest do
       assert {:error, {:forbidden_field, _}} = TranscriptStore.append(store, record)
     end
 
+    # A nested `audio` is a name (e.g. a tool parameter), not audio bytes; it must not end a session.
+    assert :ok = TranscriptStore.append(store, %{type: "tool_call", params: %{audio: "muted"}})
+
     :ok = TranscriptStore.close(store)
-    assert {:ok, [%{"type" => "session_started"}], %{torn_tail: false}} = TranscriptStore.read(root, @id)
+
+    assert {:ok, [%{"type" => "session_started"}, %{"type" => "tool_call"}], %{torn_tail: false}} =
+             TranscriptStore.read(root, @id)
   end
 
   test "unknown record types are refused", %{root: root} do

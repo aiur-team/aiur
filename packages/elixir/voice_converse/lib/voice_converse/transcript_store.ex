@@ -5,27 +5,33 @@ defmodule VoiceConverse.TranscriptStore do
   Every record is one newline-terminated line `{"v":1,"type":…,"at":iso8601,…}` (voice-session
   contract §9). `append/2` writes through the raw fd held by the writer and datasyncs it before
   returning, so a caller that emits a client event after `:ok` never announces a record a crash
-  can lose ("persist before notify"). The root directory (0700) and the file (0600) are created at
-  `open/4`, followed by one filesystem barrier so the new directory entries survive a crash too.
+  can lose ("persist before notify"). `open/4` creates the file (0600), and the root (0700) if it
+  is missing, followed by one filesystem barrier so the new directory entries survive a crash too.
+  An existing root must already be owner-only and not a symlink; it is refused, never chmodded.
 
-  The append-then-sync barrier means a crash can only tear the final line. `read/2` reports and
-  skips such a tail (`torn_tail: true`) and leaves the file untouched: transcripts are review
-  material, so bytes are never deleted. An invalid line before the last one is interior
-  corruption and fails the read.
+  The append-then-sync barrier means a crash can only tear the line being written. `read/2`
+  reports and skips such a line and leaves the file untouched: transcripts are review material, so
+  bytes are never deleted. A torn final line is `torn_tail: true`. `reopen/3` (used to append
+  after a crash, e.g. a `session_ended` at boot) first terminates a torn final line with `"\n"`, so
+  later records start on their own line; the torn bytes then become an interior line, which
+  `read/2` skips and lists in `skipped_lines`.
 
   `conversation_id` must match `vc_` plus 22 URL-safe characters, which refuses traversal by
-  construction; the resolved path is also checked to stay under the root. Records that carry
-  audio, keys or signed URLs (fields `audio`, `data_b64`, `signed_url`, `api_key` at any depth)
-  are refused before anything is written.
+  construction; the resolved path is also checked to stay under the root. Records are refused
+  before anything is written if they carry a top-level `audio` field, or `data_b64`, `signed_url`
+  or `api_key` at any depth. Redacting text fields is the caller's job (plan §17.3: the session
+  applies `Config.redactor` before the store).
 
-  The raw fd belongs to the process that called `open/4`; only that process may `append/2`.
+  The raw fd belongs to the process that called `open/4` or `reopen/3`; only that process may
+  `append/2`.
   """
 
   @version 1
   @id_regex ~r/\Avc_[A-Za-z0-9_-]{22}\z/
   @types ~w(session_started context user_turn assistant_turn tool_call tool_result draft delivery
             provider_conversation session_ended)
-  @forbidden ~w(audio data_b64 signed_url api_key)
+  @forbidden_top ~w(audio data_b64 signed_url api_key)
+  @forbidden_deep ~w(data_b64 signed_url api_key)
 
   @enforce_keys [:conversation_id, :path, :fd, :datasync]
   defstruct @enforce_keys
@@ -44,7 +50,7 @@ defmodule VoiceConverse.TranscriptStore do
   def open(root, conversation_id, session_started, opts \\ []) when is_map(session_started) do
     datasync = Keyword.get(opts, :datasync, &:file.datasync/1)
     sync_fs = Keyword.get(opts, :sync_fs, &sync_filesystem/0)
-    record = Map.merge(session_started, %{"type" => "session_started", "conversation_id" => conversation_id})
+    record = Map.merge(stringify(session_started), %{"type" => "session_started", "conversation_id" => conversation_id})
 
     with {:ok, path} <- path(root, conversation_id),
          {:ok, line} <- encode(record),
@@ -55,6 +61,32 @@ defmodule VoiceConverse.TranscriptStore do
       with :ok <- sync_fs.(), :ok <- write_line(store, line) do
         {:ok, store}
       else
+        {:error, reason} ->
+          # Free the id: a file without its session_started line is not a transcript.
+          :file.close(fd)
+          File.rm(path)
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Opens an existing transcript for appending. If the file does not end in a newline (a torn
+  final line), writes and syncs `"\n"` first. Takes the `:datasync` option of `open/4`.
+  """
+  @spec reopen(Path.t(), String.t(), keyword()) :: {:ok, t()} | {:error, term()}
+  def reopen(root, conversation_id, opts \\ []) do
+    datasync = Keyword.get(opts, :datasync, &:file.datasync/1)
+
+    with {:ok, path} <- path(root, conversation_id),
+         {:ok, size} <- regular_file_size(path),
+         {:ok, fd} <- :file.open(path, [:read, :append, :binary, :raw]) do
+      store = %__MODULE__{conversation_id: conversation_id, path: path, fd: fd, datasync: datasync}
+
+      case seal_torn_tail(store, size) do
+        :ok ->
+          {:ok, store}
+
         {:error, reason} ->
           :file.close(fd)
           {:error, reason}
@@ -73,10 +105,12 @@ defmodule VoiceConverse.TranscriptStore do
 
   @doc """
   Reads every complete record (string keys, file order). A final line without a newline or with
-  invalid JSON is skipped and reported as `torn_tail: true`; the file is not modified.
+  invalid JSON is skipped and reported as `torn_tail: true`; an invalid earlier line (a torn line
+  sealed by `reopen/3`) is skipped and its 1-based number listed in `skipped_lines`. The file is
+  not modified.
   """
   @spec read(Path.t(), String.t()) ::
-          {:ok, [record()], %{torn_tail: boolean()}} | {:error, :not_found | {:corrupt, pos_integer()} | term()}
+          {:ok, [record()], %{torn_tail: boolean(), skipped_lines: [pos_integer()]}} | {:error, :not_found | term()}
   def read(root, conversation_id) do
     with {:ok, path} <- path(root, conversation_id),
          {:ok, content} <- read_file(path) do
@@ -100,8 +134,10 @@ defmodule VoiceConverse.TranscriptStore do
 
   def path(_root, _id), do: {:error, :invalid_conversation_id}
 
+  defp stringify(map), do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
+
   defp encode(record) do
-    record = Map.new(record, fn {k, v} -> {to_string(k), v} end)
+    record = stringify(record)
 
     cond do
       record["type"] not in @types -> {:error, {:unknown_type, record["type"]}}
@@ -117,12 +153,19 @@ defmodule VoiceConverse.TranscriptStore do
     end
   end
 
-  defp forbidden_field(map) when is_map(map) do
-    Enum.find_value(map, fn {k, v} -> if to_string(k) in @forbidden, do: to_string(k), else: forbidden_field(v) end)
+  defp forbidden_field(record) do
+    Enum.find(Map.keys(record), &(&1 in @forbidden_top)) || Enum.find_value(Map.values(record), &forbidden_deep/1)
   end
 
-  defp forbidden_field(list) when is_list(list), do: Enum.find_value(list, &forbidden_field/1)
-  defp forbidden_field(_), do: nil
+  # Structs (DateTime and friends) are values, not nested records.
+  defp forbidden_deep(%_{}), do: nil
+
+  defp forbidden_deep(map) when is_map(map) do
+    Enum.find_value(map, fn {k, v} -> if to_string(k) in @forbidden_deep, do: to_string(k), else: forbidden_deep(v) end)
+  end
+
+  defp forbidden_deep(list) when is_list(list), do: Enum.find_value(list, &forbidden_deep/1)
+  defp forbidden_deep(_), do: nil
 
   defp write_line(%__MODULE__{fd: fd, datasync: datasync}, line) do
     with :ok <- :file.write(fd, line), do: datasync.(fd)
@@ -130,18 +173,63 @@ defmodule VoiceConverse.TranscriptStore do
 
   defp ensure_root(root) do
     case File.lstat(root) do
-      {:ok, %File.Stat{type: :directory}} -> File.chmod(root, 0o700)
-      {:ok, %File.Stat{}} -> {:error, {:not_a_directory, root}}
-      {:error, :enoent} -> with :ok <- File.mkdir_p(root), do: File.chmod(root, 0o700)
-      {:error, reason} -> {:error, reason}
+      {:ok, %File.Stat{type: :directory, mode: mode}} when Bitwise.band(mode, 0o077) != 0 ->
+        {:error, {:insecure_root, mode}}
+
+      {:ok, %File.Stat{type: :directory}} ->
+        :ok
+
+      {:ok, %File.Stat{type: :symlink}} ->
+        {:error, {:symlink_rejected, root}}
+
+      {:ok, %File.Stat{}} ->
+        {:error, {:not_a_directory, root}}
+
+      {:error, :enoent} ->
+        with :ok <- File.mkdir_p(root), do: File.chmod(root, 0o700)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   # :exclusive refuses an existing path, including a planted symlink.
   defp create(path) do
     case :file.open(path, [:append, :binary, :raw, :exclusive]) do
-      {:ok, fd} -> with :ok <- File.chmod(path, 0o600), do: {:ok, fd}
+      {:ok, fd} -> chmod_new_file(path, fd)
       {:error, :eexist} -> {:error, :exists}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp chmod_new_file(path, fd) do
+    case File.chmod(path, 0o600) do
+      :ok ->
+        {:ok, fd}
+
+      {:error, reason} ->
+        :file.close(fd)
+        File.rm(path)
+        {:error, reason}
+    end
+  end
+
+  defp regular_file_size(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular, size: size}} -> {:ok, size}
+      {:ok, %File.Stat{type: :symlink}} -> {:error, {:symlink_rejected, path}}
+      {:ok, %File.Stat{}} -> {:error, {:not_a_file, path}}
+      {:error, :enoent} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp seal_torn_tail(_store, 0), do: :ok
+
+  defp seal_torn_tail(%__MODULE__{fd: fd} = store, size) do
+    case :file.pread(fd, size - 1, 1) do
+      {:ok, "\n"} -> :ok
+      {:ok, _} -> write_line(store, "\n")
       {:error, reason} -> {:error, reason}
     end
   end
@@ -162,19 +250,18 @@ defmodule VoiceConverse.TranscriptStore do
   defp decode_lines(lines, unterminated?) do
     last = length(lines)
 
-    lines
-    |> Enum.with_index(1)
-    |> Enum.reduce_while({[], unterminated?}, fn {line, n}, {acc, torn?} ->
-      case Jason.decode(line) do
-        {:ok, %{} = record} -> {:cont, {[record | acc], torn?}}
-        _ when n == last and not unterminated? -> {:cont, {acc, true}}
-        _ -> {:halt, {:corrupt, n}}
-      end
-    end)
-    |> case do
-      {:corrupt, n} -> {:error, {:corrupt, n}}
-      {records, torn?} -> {:ok, Enum.reverse(records), %{torn_tail: torn?}}
-    end
+    {records, skipped, torn?} =
+      lines
+      |> Enum.with_index(1)
+      |> Enum.reduce({[], [], unterminated?}, fn {line, n}, {acc, skipped, torn?} ->
+        case Jason.decode(line) do
+          {:ok, %{} = record} -> {[record | acc], skipped, torn?}
+          _ when n == last and not unterminated? -> {acc, skipped, true}
+          _ -> {acc, [n | skipped], torn?}
+        end
+      end)
+
+    {:ok, Enum.reverse(records), %{torn_tail: torn?, skipped_lines: Enum.reverse(skipped)}}
   end
 
   defp sync_filesystem do
