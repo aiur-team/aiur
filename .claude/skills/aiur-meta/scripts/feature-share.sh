@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Measure feature work among merged PRs in a time window.
+# Usage: feature-share.sh [hours] (default 24)
+#        feature-share.sh --self-test
+set -euo pipefail
+
+classify() {
+  case "$1" in
+    *build-lane:*|*feature:*|*build-order*) printf feature ;;
+    *) if printf '%s' "$1" | grep -qiE 'flak|test|quarantin|(^|[^a-z])ci([^a-z]|$)|merge.group|soak|coverage'; then printf test_ci; else printf other; fi ;;
+  esac
+}
+
+window_count() {
+  local prs=$1 cutoff=$2
+  jq --arg cutoff "$cutoff" '[.[] | select(.mergedAt >= $cutoff)] | length' <<<"$prs"
+}
+
+if [[ ${1:-} == --self-test ]]; then
+  cutoff=2026-10-22T00:00:00Z
+  fixture=$(jq -cn --arg cutoff "$cutoff" '[range(0;30) | {mergedAt:(if . < 20 then "2026-10-22T01:00:00Z" else "2026-10-21T23:59:59Z" end)}]')
+  inspected=$(window_count "$fixture" "$cutoff")
+  if [[ $inspected == 20 ]] && [[ $(classify 'build-lane:home') == feature ]] && [[ $(classify 'flake') == test_ci ]] && [[ $(classify 'docs') == other ]]; then
+    printf 'feature-share self-test: ok (30 merges, %s inspected)\n' "$inspected"
+    exit 0
+  fi
+  printf 'feature-share self-test: FAILED (inspected=%s)\n' "$inspected" >&2
+  exit 1
+fi
+
+hours=${1:-24}
+[[ $hours =~ ^[1-9][0-9]*$ ]] || { echo 'usage: feature-share.sh [positive-hours]' >&2; exit 2; }
+cutoff=$(date -u -d "$hours hours ago" +%Y-%m-%dT%H:%M:%SZ)
+gh_safe() { env -u GITHUB_TOKEN -u GH_TOKEN gh "$@"; }
+repo=$(gh_safe repo view --json nameWithOwner --jq .nameWithOwner)
+prs='[]'
+limit=100
+while :; do
+  prs=$(gh_safe pr list --repo "$repo" --state merged --limit "$limit" --json number,title,mergedAt,closingIssuesReferences,body,headRefName)
+  oldest=$(jq -r '[.[].mergedAt] | map(select(. != null)) | min // empty' <<<"$prs")
+  [[ -n $oldest && $oldest < $cutoff ]] && break
+  [[ $(jq length <<<"$prs") -lt $limit ]] && break
+  limit=$((limit + 100))
+done
+
+inspected=$(window_count "$prs" "$cutoff")
+feature=0 test_ci=0 other=0
+while IFS= read -r pr; do
+  issue=$(jq -r '(.closingIssuesReferences.nodes[0].number // (.body | capture("(?i)(closes|fixes|resolves) #(?<n>[0-9]+)").n | tonumber) // (.headRefName | capture("^aiur/(?<n>[0-9]+)").n | tonumber) // empty)' <<<"$pr" 2>/dev/null || true)
+  title=$(jq -r '.title // ""' <<<"$pr")
+  labels=''
+  if [[ -n $issue ]]; then
+    labels=$(gh_safe issue view "$issue" --repo "$repo" --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || true)
+  fi
+  case $(classify "$labels $title") in
+    feature) feature=$((feature + 1)) ;;
+    test_ci) test_ci=$((test_ci + 1)) ;;
+    *) other=$((other + 1)) ;;
+  esac
+done < <(jq -c --arg cutoff "$cutoff" '.[] | select(.mergedAt >= $cutoff)' <<<"$prs")
+
+if (( inspected == 0 )); then
+  printf 'window=%sh merges=0 inspected=0 feature_share=not_captured\n' "$hours"
+else
+  printf 'window=%sh merges=%d inspected=%d feature=%d test_ci=%d other=%d feature_share=%d%%\n' \
+    "$hours" "$inspected" "$inspected" "$feature" "$test_ci" "$other" "$((100 * feature / inspected))"
+fi
