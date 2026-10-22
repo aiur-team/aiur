@@ -32,6 +32,7 @@ defmodule Aiur.AccountsCLI do
   The rows `aiur accounts --json` prints, read inside the daemon from its polled
   usage observations. A missing observation keeps its reason in `freshness`.
   """
+  @spec rows(String.t() | nil, ([String.t()] -> map())) :: [map()]
   @spec rows(String.t() | nil, ([String.t()] -> map()), (String.t() -> map() | nil)) :: [map()]
   def rows(harness, snapshot_fun, ledger_fun \\ &ledger_reading/1) when is_function(snapshot_fun, 1) and is_function(ledger_fun, 1) do
     build_rows(harness, snapshot_fun, true, ledger_fun)

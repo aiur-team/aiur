@@ -13,10 +13,14 @@ defmodule AiurWeb.UsageAccountsApiController do
 
   @contract "aiur.usage.accounts"
   @contract_version 1
+  # Only these fields leave the daemon; a new row or shim field stays off the
+  # wire until it is added here.
+  @row_fields ~w(name harness email org seat_tier identity usage weekly_percent five_hour_percent remaining_percent freshness observed_at age_ms)a
+  @identity_fields ~w(email organization seatTier account_id)
 
   @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, params) do
-    accounts = AccountsCLI.rows(harness(params), &UsageReadings.snapshot("claude", &1))
+    accounts = params |> harness() |> AccountsCLI.rows(&UsageReadings.snapshot("claude", &1)) |> Enum.map(&public_row/1)
 
     conn
     |> Plug.Conn.put_resp_header("cache-control", "no-store")
@@ -35,6 +39,17 @@ defmodule AiurWeb.UsageAccountsApiController do
     |> put_status(:method_not_allowed)
     |> json(%{error: "method_not_allowed"})
   end
+
+  # API-key accounts have no usage meter; say so instead of omitting freshness.
+  defp public_row(row) do
+    row
+    |> Map.take(@row_fields)
+    |> Map.update(:identity, nil, &public_identity/1)
+    |> Map.put_new(:freshness, "usage_unavailable")
+  end
+
+  defp public_identity(identity) when is_map(identity), do: Map.take(identity, @identity_fields)
+  defp public_identity(_identity), do: nil
 
   defp harness(%{"harness" => harness}) when is_binary(harness) and harness != "", do: harness
   defp harness(_params), do: nil
