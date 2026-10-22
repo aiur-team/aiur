@@ -1,3 +1,9 @@
+instance:
+  role: primary                       # primary | secondary; one primary per repository
+
+instance:
+  role: primary                       # primary | secondary; one primary per repository
+
 tracker:
   kind: linear
   # github:

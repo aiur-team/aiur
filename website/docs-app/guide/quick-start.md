@@ -1,5 +1,12 @@
 # Quick start
 
+## Running two daemons against one repository
+
+Use one primary and distinct `tracker.github.label_prefix` values. Set
+`instance.role: secondary` on other daemons: they keep dispatching and handling
+ticket CI, while repository-wide watchers run only on primary. `aiur status`
+shows each role and disabled service.
+
 ## Install
 
 Install the npm package with Node.js (the hosted quick-start uses Node 20):

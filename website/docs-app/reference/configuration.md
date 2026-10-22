@@ -21,11 +21,11 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 | `executor_takeover_continuous_alert_hours` | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
 | `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
+| `instance.role` | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. |
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |
 | `pre_warmed_sessions` | integer | 3 | Number of opencode sessions booted early; 0 disables pre-warm. |
 | `prompt_file` | string | nil | Per-repository Liquid prompt template. |
-
 ## executor takeover alerts
 | `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait in `agent:human-review` without a review on its current head before the Executor sweep reports it. Must be positive. |
 ## executor

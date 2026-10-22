@@ -30,6 +30,9 @@ tracker:
   # CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
 
 # Merge policy defaults; currently validated and shown in status/capabilities.
+# For a second daemon on the same GitHub repository, set instance.role: secondary.
+instance:
+  role: primary                       # primary | secondary; one primary per repository
 # Merge enforcement, worker instructions and main watching ship separately.
 # merge_policy:
 #   ci: wait                       # wait

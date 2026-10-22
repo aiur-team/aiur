@@ -170,6 +170,8 @@ defmodule Aiur.Config do
   end
 
   defdelegate tracker_kind(), to: Aiur.Config.TrackerSettings
+  @spec instance_role() :: String.t()
+  def instance_role, do: settings!().instance.role
   defdelegate base_branch(source \\ settings(), context \\ []), to: Aiur.Config.TrackerSettings
   defdelegate active_states(), to: Aiur.Config.TrackerSettings
   defdelegate terminal_states(), to: Aiur.Config.TrackerSettings
