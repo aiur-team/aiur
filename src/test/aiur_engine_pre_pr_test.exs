@@ -40,7 +40,10 @@ defmodule AiurEnginePrePrTest do
         "\nBase: `main` @ `" <> sha <> "`\nSelection: focused\n- `mix test` -> pass\n"
 
     # Each refresh rewrites pr.json, so every run starts again from this seed.
-    File.write!(Path.join(fixture, "pr-seed.json"), Jason.encode!(%{"number" => 123, "body" => body}))
+    File.write!(
+      Path.join(fixture, "pr-seed.json"),
+      Jason.encode!(%{"number" => 123, "body" => body})
+    )
 
     File.write!(
       Path.join(fixture, "bin/gh"),
@@ -106,13 +109,25 @@ defmodule AiurEnginePrePrTest do
     assert File.read!(Path.join(fixture, "polls")) == "1\n", output
 
     # GitHub never reports the pushed head: fail after exactly the injected bound.
-    {output, never} = run_refresh(fixture, repo, [{"FAKE_HEAD_FROM_POLL", "1000"}, {"FAKE_MAX_POLLS", "3"}, {"AIUR_PRE_PR_REFRESH_ATTEMPTS", "3"}])
+    {output, never} =
+      run_refresh(fixture, repo, [
+        {"FAKE_HEAD_FROM_POLL", "1000"},
+        {"FAKE_MAX_POLLS", "3"},
+        {"AIUR_PRE_PR_REFRESH_ATTEMPTS", "3"}
+      ])
+
     assert never == 1
     assert output =~ "did not report pushed head #{sha}"
     assert File.read!(Path.join(fixture, "polls")) == "3\n"
 
     # GitHub reports the pushed head on poll 3: pass.
-    {output, late} = run_refresh(fixture, repo, [{"FAKE_HEAD_FROM_POLL", "3"}, {"FAKE_MAX_POLLS", "3"}, {"AIUR_PRE_PR_REFRESH_ATTEMPTS", "3"}])
+    {output, late} =
+      run_refresh(fixture, repo, [
+        {"FAKE_HEAD_FROM_POLL", "3"},
+        {"FAKE_MAX_POLLS", "3"},
+        {"AIUR_PRE_PR_REFRESH_ATTEMPTS", "3"}
+      ])
+
     assert late == 0, output
     assert File.read!(Path.join(fixture, "polls")) == "3\n"
   end
@@ -121,7 +136,11 @@ defmodule AiurEnginePrePrTest do
     fixture = fixture("unreadable-pr")
     repo = Path.join(fixture, "repo")
     git!(repo, ["switch", "-c", "feature"])
-    File.write!(Path.join(fixture, "bin/gh"), "#!/usr/bin/env bash\necho 'HTTP 502: Bad Gateway' >&2\nexit 1\n")
+
+    File.write!(
+      Path.join(fixture, "bin/gh"),
+      "#!/usr/bin/env bash\necho 'HTTP 502: Bad Gateway' >&2\nexit 1\n"
+    )
 
     {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
 
@@ -138,7 +157,9 @@ defmodule AiurEnginePrePrTest do
     {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
 
     assert status == 0
-    assert output =~ "SKIP refresh-pr-body-evidence (no PR yet; rerun aiur pre-pr after gh pr create)"
+
+    assert output =~
+             "SKIP refresh-pr-body-evidence (no PR yet; rerun aiur pre-pr after gh pr create)"
   end
 
   test "full-suite fallback is reported and matching reader tests run" do
@@ -167,7 +188,12 @@ defmodule AiurEnginePrePrTest do
     assert output =~
              "NOTE full selection (fixture requires full suite); running CI coverage partitions locally; full CI suite runs in merge queue"
 
-    assert length(Regex.scan(~r/aiur pre-pr gate complete: PASS coverage partition \([1-4]\/4\)/, output)) == 4
+    assert length(
+             Regex.scan(
+               ~r/aiur pre-pr gate complete: PASS coverage partition \([1-4]\/4\)/,
+               output
+             )
+           ) == 4
 
     assert File.read!(Path.join(fixture, "coverage-partitions")) ==
              "1:--max-cases 4\n2:--max-cases 4\n3:--max-cases 4\n4:--max-cases 4\n"
@@ -330,26 +356,6 @@ defmodule AiurEnginePrePrTest do
     assert output =~ "Not run: Credo and specs (make lint), dialyzer, full CI suite"
   end
 
-  test "pre-pr interrupted by TERM emits its partial result and exits with signal status" do
-    fixture = fixture("term-interruption")
-    repo = Path.join(fixture, "repo")
-    git!(repo, ["switch", "-c", "feature"])
-
-    File.write!(
-      Path.join(fixture, "bin/mise"),
-      "#!/usr/bin/env bash\nif [[ ! -e \"#{fixture}/term-sent\" ]]; then touch \"#{fixture}/term-sent\"; kill -TERM \"$PPID\"; fi\nexit 0\n"
-    )
-
-    File.chmod!(Path.join(fixture, "bin/mise"), 0o755)
-
-    {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
-
-    assert status == 143, output
-    assert output =~ "INTERRUPTED pre-pr command received TERM"
-    assert output =~ "Result: FAIL"
-    assert String.ends_with?(output, "--- end aiur pre-pr result ---\n")
-  end
-
   # The dev shim marks pre-pr as a retryable control command; its tests must not inherit that.
   test "pre-pr through the dev shim keeps control retry flags out of tests" do
     fixture = fixture("dev-shim")
@@ -378,7 +384,7 @@ defmodule AiurEnginePrePrTest do
     assert File.read!(Path.join(fixture, "test-env")) == "clean\n", output
   end
 
-  defp fixture(name) do
+  def fixture(name) do
     root = Aiur.TestSupport.tmp_root!("pre-pr-#{name}")
     repo = Path.join(root, "repo")
     bin = Path.join(root, "bin")
@@ -461,7 +467,7 @@ defmodule AiurEnginePrePrTest do
     end
   end
 
-  defp run_pre_pr(fixture, repo, opts \\ []) do
+  def run_pre_pr(fixture, repo, opts \\ []) do
     env = [
       {"AIUR_ENGINE", @engine},
       {"AIUR_AGENT_WORKSPACE", repo},
@@ -500,7 +506,7 @@ defmodule AiurEnginePrePrTest do
     )
   end
 
-  defp git!(repo, args) do
+  def git!(repo, args) do
     {output, status} =
       System.cmd("git", args,
         cd: repo,
