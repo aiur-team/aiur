@@ -80,6 +80,39 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
     assert html =~ "No Build Order list has arrived after 6 seconds"
   end
 
+  # Guards the invariant that a late timeout never outlives a catalog, including future regressions.
+  test "a catalog arriving after the loading deadline clears the delayed-load banner" do
+    observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
+    clock = start_supervised!({Agent, fn -> observed_at end})
+    Application.put_env(:aiur, :build_order_display_clock, fn -> Agent.get(clock, & &1) end)
+    test = self()
+
+    install_source(
+      catalog: fn ->
+        send(test, {:catalog_reading, self()})
+
+        receive do
+          {:release_catalog, catalog} -> catalog
+        end
+      end
+    )
+
+    assert {:ok, view, html} = live(build_conn(), "/build-orders")
+    assert html =~ ~s(data-build-order-catalog-state="loading")
+
+    Agent.update(clock, &DateTime.add(&1, 7, :second))
+    send(view.pid, :build_order_ui_tick)
+    assert render(view) =~ "No Build Order list has arrived after 7 seconds"
+
+    assert_receive {:catalog_reading, task}, 1_000
+    send(task, {:release_catalog, catalog_snapshot([root(identity(42, "NODE-42"), "Arrived root")], 1, :healthy)})
+    assert settle(view) =~ "Arrived root"
+    html = render(view)
+
+    assert html =~ ~s(data-build-order-catalog-state="ready")
+    refute html =~ "No Build Order list has arrived after"
+  end
+
   test "a catalog read that returns nothing is named as failed with its age, and refresh retries it", %{source: source} do
     observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
     clock = start_supervised!({Agent, fn -> observed_at end})
