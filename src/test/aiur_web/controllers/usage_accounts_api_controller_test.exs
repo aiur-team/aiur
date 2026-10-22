@@ -10,6 +10,7 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
   @path "/api/v1/usage/accounts"
   @access_token "sk-ant-oat01-never-in-the-snapshot"
   @api_key "sk-ant-api03-never-in-the-snapshot"
+  @deepseek_key "sk-deepseek-never-in-the-snapshot"
 
   setup do
     Aiur.TestSupport.start_owned_endpoint!()
@@ -27,6 +28,11 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
     )
 
     File.write!(Path.join(home, ".claude/.credentials.json"), Jason.encode!(%{"claudeAiOauth" => %{"accessToken" => @access_token, "refreshToken" => @access_token}}))
+
+    # An API-key account: the key stays in the env file, the registry holds its name.
+    File.mkdir_p!(Path.join(home, ".aiur"))
+    File.write!(Path.join(home, ".aiur/.env"), "DEEPSEEK_API_KEY__WORK=#{@deepseek_key}\n")
+    :ok = Accounts.register("deepseek", "work")
 
     on_exit(fn ->
       UsageReadings.reset()
@@ -89,13 +95,44 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
     assert response.status == 200
     refute response.resp_body =~ @access_token
     refute response.resp_body =~ @api_key
+    refute response.resp_body =~ @deepseek_key
     refute response.resp_body =~ home
     refute private_key?(Jason.decode!(response.resp_body))
+  end
+
+  # A field reaches HTTP only once it is listed here: a new shim or row field
+  # (a token, an account uuid) must fail this test, not ship silently.
+  test "rows and identities carry exactly the allowlisted fields" do
+    UsageReadings.record("claude", "default", {:ok, %{windows: [%{window: "seven_day", used_percent: 10}]}}, DateTime.utc_now())
+    metered = ~w(name harness email org seat_tier identity weekly_percent five_hour_percent remaining_percent freshness observed_at age_ms)
+
+    claude = account(get_json(@path <> "?harness=claude"), "claude", "default")
+    assert Enum.sort(Map.keys(claude)) == Enum.sort(metered)
+    assert Enum.sort(Map.keys(claude["identity"])) == ~w(email organization seatTier)
+
+    api_key = account(get_json(@path <> "?harness=deepseek"), "deepseek", "work")
+    assert Enum.sort(Map.keys(api_key)) == Enum.sort(~w(name harness identity usage remaining_percent freshness observed_at age_ms))
+    # A row with no numbers always says why.
+    assert %{"freshness" => "usage_unavailable", "identity" => nil, "remaining_percent" => nil} = api_key
+  end
+
+  # External clients get the same rows an operator sees in `aiur accounts --json`.
+  test "rows match aiur accounts --json for the same observations" do
+    UsageReadings.record("claude", "default", {:ok, %{windows: [%{window: "seven_day", used_percent: 36}, %{window: "five_hour", used_percent: 50}]}}, DateTime.utc_now())
+
+    # age_ms is measured at read time, so it differs between the two reads.
+    drop_age = fn rows -> Enum.map(rows, &Map.delete(&1, "age_ms")) end
+    assert drop_age.(get_json(@path <> "?harness=claude")["accounts"]) == drop_age.(cli_rows("claude"))
+
+    # The CLI omits freshness for an API-key row; HTTP names it.
+    cli = Enum.map(cli_rows("deepseek"), &Map.put_new(&1, "freshness", "usage_unavailable"))
+    assert get_json(@path <> "?harness=deepseek")["accounts"] == cli
   end
 
   test "is not shadowed by the issue route and forbids caching" do
     response = request(:get)
     assert response.status == 200
+    assert Jason.decode!(response.resp_body)["contract"] == "aiur.usage.accounts"
     assert get_resp_header(response, "cache-control") == ["no-store"]
   end
 
@@ -118,9 +155,15 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
   test "unconfigured auth fails closed with the same boundary as state" do
     for path <- [@path, "/api/v1/state"] do
       response = conn(:get, path) |> put_private(:aiur_dashboard_credentials, nil) |> Router.call(Router.init([]))
-      assert response.status in [401, 503]
+      # dashboard_auth is not `required?`, so unconfigured auth challenges.
+      assert response.status == 401
       assert response.halted
     end
+  end
+
+  defp cli_rows(harness) do
+    output = ExUnit.CaptureIO.capture_io(fn -> :ok = Aiur.AccountsCLI.accounts(true, harness, &UsageReadings.snapshot("claude", &1)) end)
+    output |> String.split("\n", trim: true) |> hd() |> Jason.decode!()
   end
 
   defp account(body, harness, name), do: Enum.find(body["accounts"], &(&1["harness"] == harness and &1["name"] == name))
