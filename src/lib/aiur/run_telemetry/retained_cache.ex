@@ -4,6 +4,24 @@ defmodule Aiur.RunTelemetry.RetainedCache do
 
   alias Aiur.RunTelemetry.Summaries
 
+  @identity_table Aiur.RunTelemetry.RetainedCache.Identity
+
+  @doc "Shares a cold load; failures are propagated to every waiter and never cached."
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    result = if is_nil(name), do: GenServer.start_link(__MODULE__, opts), else: GenServer.start_link(__MODULE__, opts, name: name)
+
+    case result do
+      {:ok, pid} ->
+        warm_identity_async()
+        {:ok, pid}
+
+      error ->
+        error
+    end
+  end
+
   @doc "Shares a cold load; failures are propagated to every waiter and never cached."
   @spec fetch(atom(), term(), (-> term()), keyword()) :: term()
   def fetch(table, key, loader, opts \\ []) do
@@ -15,10 +33,74 @@ defmodule Aiur.RunTelemetry.RetainedCache do
     end
   end
 
+  @doc false
+  @spec lookup(atom(), term()) :: term() | nil
+  def lookup(table, key) do
+    ensure_started()
+    GenServer.call(__MODULE__, {:lookup, table, key})
+  end
+
+  @doc false
+  @spec put(atom(), term(), term(), keyword()) :: :ok
+  def put(table, key, value, opts \\ []) do
+    ensure_started()
+    GenServer.call(__MODULE__, {:put, table, key, value, opts})
+  end
+
   @doc "Identity of retained summary files, excluding the current boot."
   @spec identity(String.t() | nil) :: term()
   def identity(current_boot) do
-    {Summaries.state_node(), current_boot, summaries_identity(current_boot)}
+    {Summaries.state_node(), current_boot, cached_identity(current_boot)}
+  end
+
+  @doc false
+  @spec invalidate_identity() :: :ok
+  def invalidate_identity do
+    ensure_started()
+    GenServer.call(__MODULE__, :invalidate_identity, :infinity)
+    :ok
+  end
+
+  @doc false
+  @spec invalidate_identity(pid()) :: :ok
+  def invalidate_identity(notify) when is_pid(notify) do
+    ensure_started()
+    GenServer.call(__MODULE__, {:invalidate_identity, notify}, :infinity)
+    :ok
+  end
+
+  @doc false
+  @spec warm_identity_async() :: :ok
+  def warm_identity_async do
+    Task.start(fn -> warm_identity() end)
+    :ok
+  end
+
+  @doc false
+  @spec warm_identity_async(pid()) :: :ok
+  def warm_identity_async(notify) when is_pid(notify) do
+    Task.start(fn ->
+      warm_identity()
+      send(notify, :retained_identity_warmed)
+    end)
+
+    :ok
+  end
+
+  @doc false
+  @spec warm_identity() :: term()
+  def warm_identity do
+    ensure_table(@identity_table)
+    current = Aiur.RunTelemetry.boot_id()
+    cached_identity(current)
+  rescue
+    _error -> :error
+  end
+
+  defp cached_identity(current_boot) do
+    key = {Summaries.state_node(), current_boot}
+    ensure_started()
+    GenServer.call(__MODULE__, {:identity, key, current_boot}, :infinity)
   end
 
   @doc false
@@ -38,6 +120,16 @@ defmodule Aiur.RunTelemetry.RetainedCache do
     end
   end
 
+  defp summary_directories_identity(current_boot) do
+    boots = Summaries.summary_boot_ids() |> Enum.reject(&(&1 == current_boot))
+
+    {boots,
+     Enum.map(boots, fn boot ->
+       path = Summaries.run_summary_path(boot) |> Path.dirname()
+       {boot, file_identity(path), file_identity(Summaries.run_summary_path(boot))}
+     end)}
+  end
+
   defp ensure_started do
     case GenServer.start(__MODULE__, nil, name: __MODULE__) do
       {:ok, _pid} -> :ok
@@ -46,7 +138,10 @@ defmodule Aiur.RunTelemetry.RetainedCache do
   end
 
   @impl true
-  def init(_arg), do: {:ok, %{active: nil, pending: %{}, queue: :queue.new()}}
+  def init(_arg) do
+    ensure_table(@identity_table)
+    {:ok, %{active: nil, pending: %{}, queue: :queue.new()}}
+  end
 
   @impl true
   def handle_call({:fetch, table, key, loader, opts}, from, state) do
@@ -64,6 +159,55 @@ defmodule Aiur.RunTelemetry.RetainedCache do
         queue = if existing, do: state.queue, else: :queue.in(id, state.queue)
         {:noreply, start_next(%{state | pending: pending, queue: queue})}
     end
+  end
+
+  def handle_call({:lookup, table, key}, _from, state) do
+    ensure_table(table)
+
+    value =
+      case :ets.lookup(table, key) do
+        [{^key, value}] -> value
+        [] -> nil
+      end
+
+    {:reply, value, state}
+  end
+
+  def handle_call({:put, table, key, value, opts}, _from, state) do
+    ensure_table(table)
+    cache_put(table, key, value, opts)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:identity, key, current_boot}, _from, state) do
+    directory_identity = summary_directories_identity(current_boot)
+
+    case :ets.lookup(@identity_table, key) do
+      [{^key, {^directory_identity, identity}}] ->
+        {:reply, identity, state}
+
+      [] ->
+        identity = summaries_identity(current_boot)
+        :ets.insert(@identity_table, {key, {directory_identity, identity}})
+        {:reply, identity, state}
+
+      [{^key, _stale}] ->
+        identity = summaries_identity(current_boot)
+        :ets.insert(@identity_table, {key, {directory_identity, identity}})
+        {:reply, identity, state}
+    end
+  end
+
+  def handle_call(:invalidate_identity, _from, state) do
+    :ets.delete_all_objects(@identity_table)
+    warm_identity_async()
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:invalidate_identity, notify}, _from, state) do
+    :ets.delete_all_objects(@identity_table)
+    warm_identity_async(notify)
+    {:reply, :ok, state}
   end
 
   @impl true

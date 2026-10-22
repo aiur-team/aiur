@@ -124,6 +124,10 @@ config :aiur, AiurWeb.Endpoint,
 # commands component never references orchestration itself.
 config :aiur, :commands_delivery_target, Aiur.Orchestrator.CommandDeliveryTarget
 
+# Composition: the dashboard implements the voice target port, so voice input
+# never references the dashboard or Commands itself.
+config :aiur, :voice_target_resolver, AiurWeb.OperatorControlCenter.VoiceTargetResolver
+
 # Demo / pre-ticket planning mode: render a Build Order in the spatial dashboard
 # straight from a local planning pack (no GitHub issues). Enable at build time
 # with AIUR_BUILD_ORDER_DEMO=1. Remove this block + priv/build_orders to delete.
@@ -190,6 +194,8 @@ if config_env() == :test do
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
   config :aiur, :build_order_adhoc_poll?, false
+  # The analytics prewarmer would run Presenter.load against the shared test node at boot.
+  config :aiur, :analytics_prewarm?, false
   config :aiur, :build_order_root_import_enabled?, false
   config :aiur, :build_history_backfill_enabled?, false
 
