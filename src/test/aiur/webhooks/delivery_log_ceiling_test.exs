@@ -23,11 +23,14 @@ defmodule Aiur.Webhooks.DeliveryLogCeilingTest do
          ]}
       )
 
-    %{log: log}
+    %{log: log, clock: clock}
   end
 
-  test "crossing the ceiling evicts a batch of oldest entries and alerts once", %{log: log} do
-    Enum.each(1..10, fn index -> assert :new == DeliveryLog.claim(:delivery, "c-#{index}", log) end)
+  test "crossing the ceiling evicts a batch of oldest entries and alerts once", %{log: log, clock: clock} do
+    Enum.each(1..10, fn index ->
+      assert :new == DeliveryLog.claim(:delivery, "c-#{index}", log)
+      :counters.add(clock, 1, 1000)
+    end)
 
     assert :new == DeliveryLog.claim(:delivery, "c-11", log)
     assert :new == DeliveryLog.claim(:delivery, "c-12", log)
@@ -36,6 +39,9 @@ defmodule Aiur.Webhooks.DeliveryLogCeilingTest do
     assert_receive {:alert, "webhook_delivery_log.ceiling_exceeded", message, _meta}, 1000
     assert message =~ "duplicate protection is degraded"
     assert :new == DeliveryLog.claim(:delivery, "c-1", log)
+    assert :new == DeliveryLog.claim(:delivery, "c-2", log)
+    assert :new == DeliveryLog.claim(:delivery, "c-3", log)
+    assert {:duplicate, _at} = DeliveryLog.claim(:delivery, "c-11", log)
     assert {:duplicate, _at} = DeliveryLog.claim(:delivery, "c-12", log)
     refute_received {:alert, "webhook_delivery_log.ceiling_exceeded", _message, _meta}
   end
