@@ -56,6 +56,7 @@ defmodule Aiur.RunTelemetry.RetainedCache do
   @doc false
   @spec invalidate_identity() :: :ok
   def invalidate_identity do
+    ensure_started()
     GenServer.call(__MODULE__, :invalidate_identity, :infinity)
     :ok
   end
@@ -63,6 +64,7 @@ defmodule Aiur.RunTelemetry.RetainedCache do
   @doc false
   @spec invalidate_identity(pid()) :: :ok
   def invalidate_identity(notify) when is_pid(notify) do
+    ensure_started()
     GenServer.call(__MODULE__, {:invalidate_identity, notify}, :infinity)
     :ok
   end
@@ -97,6 +99,7 @@ defmodule Aiur.RunTelemetry.RetainedCache do
 
   defp cached_identity(current_boot) do
     key = {Summaries.state_node(), current_boot}
+    ensure_started()
     GenServer.call(__MODULE__, {:identity, key, current_boot}, :infinity)
   end
 

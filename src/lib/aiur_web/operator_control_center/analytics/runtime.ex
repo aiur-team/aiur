@@ -7,7 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Runtime do
   alias Aiur.PollCadence
   alias Aiur.RunTelemetry.RetainedCache
   alias Aiur.RunTelemetry.Summaries
-  alias AiurWeb.OperatorControlCenter.Analytics.Presenter
+  alias AiurWeb.OperatorControlCenter.Analytics.{Presenter, SourceInfo}
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell}
 
   @cache_table AiurWeb.OperatorControlCenter.Analytics.Runtime.Cache
@@ -37,7 +37,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Runtime do
         time_domain: nil,
         provider_spend: if(cached, do: %{state: :unavailable}, else: %{state: :loading}),
         selected: if(cached, do: MapSet.new(cached.actors, & &1.key), else: MapSet.new()),
-        source: if(cached, do: source_info(cached), else: nil),
+        source: if(cached, do: SourceInfo.for_model(cached, DateTime.utc_now()), else: nil),
         unavailable: if(cached, do: nil, else: :loading),
         analytics_refreshing?: false,
         analytics_timed_out?: false,
@@ -63,15 +63,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Runtime do
     elapsed = div(System.monotonic_time(:millisecond) - socket.assigns.analytics_load_started_at, 1_000)
     Process.send_after(self(), {:analytics_load_tick, token}, @load_tick_ms)
     {:noreply, assign(socket, :analytics_load_elapsed_seconds, elapsed)}
-  end
-
-  def handle_info({:analytics_cached_refresh, token, opts, rtk_loader}, %{assigns: %{analytics_load_token: token}} = socket) do
-    Process.send_after(self(), {:analytics_refresh_started, token, opts, rtk_loader}, 10)
-    {:noreply, assign(socket, :analytics_refreshing?, true)}
-  end
-
-  def handle_info({:analytics_refresh_started, token, opts, rtk_loader}, %{assigns: %{analytics_load_token: token}} = socket) do
-    {:noreply, start_async(socket, :analytics_model, fn -> {Presenter.load(opts), rtk_loader.()} end)}
   end
 
   def handle_info({:analytics_load_timeout, token}, %{assigns: %{unavailable: :loading, analytics_load_token: token}} = socket) do
@@ -168,21 +159,4 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Runtime do
   end
 
   defp load_persisted_model(_key), do: nil
-
-  defp source_info(model) do
-    observed_at = parse_observed_at(model.source_observed_at)
-    %{kind: :retained, boot_id: model.source_boot_id, observed_at: observed_at, age_ms: freshness_age(observed_at), freshness: if(observed_at, do: :stale, else: :unknown)}
-  end
-
-  defp freshness_age(nil), do: nil
-  defp freshness_age(%DateTime{} = timestamp), do: max(DateTime.diff(DateTime.utc_now(), timestamp, :millisecond), 0)
-
-  defp parse_observed_at(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, timestamp, _offset} -> timestamp
-      _invalid -> nil
-    end
-  end
-
-  defp parse_observed_at(_value), do: nil
 end

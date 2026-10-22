@@ -133,6 +133,17 @@ defmodule AiurWeb.AnalyticsLoadingTest do
     refute rendered =~ "while refreshing"
   end
 
+  test "a served model from the current boot is labelled live, not retained" do
+    {:ok, dataset} = @summary |> File.read!() |> Summaries.decode_summary()
+    cached_model = %{Presenter.model(dataset) | source_boot_id: Aiur.RunTelemetry.boot_id()}
+    session = %{"parent" => self(), "identity" => make_ref(), "dataset" => dataset, "cached_model" => cached_model}
+    {:ok, _view, html} = live_isolated(build_conn(), SlowAnalyticsLive, session: session)
+    receive_barrier({:scan_started, worker})
+    assert html =~ ~s(data-source-kind="live")
+    assert html =~ "Source: <b>live boot</b>"
+    send(worker, :release)
+  end
+
   test "blocked analytics scan shows elapsed loading time then a named timeout" do
     previous = Application.fetch_env(:aiur, :analytics_load_timeout_ms)
     Application.put_env(:aiur, :analytics_load_timeout_ms, 1_500)

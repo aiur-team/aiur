@@ -126,7 +126,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
     Application.put_env(:aiur, :repo_base_root, root)
     Application.put_env(:aiur, :analytics_repo, "test/retained-identity-warm")
     File.mkdir_p!(Summaries.runs_dir())
-    start_supervised!({RetainedCache, name: nil})
 
     on_exit(fn ->
       Aiur.TestSupport.restore_app_env(previous)
@@ -141,6 +140,23 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
     RetainedCache.invalidate_identity(self())
     receive_barrier(:retained_identity_warmed)
     assert :ets.lookup(Aiur.RunTelemetry.RetainedCache.Identity, key) != []
+  end
+
+  test "identity and invalidation start the cache when no instance is supervised" do
+    # A --no-dashboard daemon has no supervised cache; callers must not exit :noproc.
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, RetainedCache)
+
+    try do
+      refute GenServer.whereis(RetainedCache)
+      assert RetainedCache.invalidate_identity() == :ok
+      GenServer.stop(RetainedCache)
+
+      {state_node, nil, _identity} = RetainedCache.identity(nil)
+      assert state_node == Summaries.state_node()
+    after
+      if pid = GenServer.whereis(RetainedCache), do: GenServer.stop(pid)
+      {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, RetainedCache)
+    end
   end
 
   test "latest-run decodes newest analyzable summary only" do

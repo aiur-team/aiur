@@ -11,8 +11,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Prewarmer do
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
   @impl true
-  def init(_opts) do
-    send(self(), :check_identity)
+  def init(opts) do
+    if Keyword.get(opts, :prewarm_on_start, true), do: send(self(), :check_identity)
     {:ok, %{identity: nil, refresh: nil, refresh_identity: nil}}
   end
 
