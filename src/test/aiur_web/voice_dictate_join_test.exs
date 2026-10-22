@@ -4,8 +4,8 @@ defmodule AiurWeb.VoiceDictateJoinTest do
   use AiurWeb.StreamdeckChannelCase
 
   alias Aiur.TestSupport.EndpointStubs
-  alias AiurWeb.VoiceChannelTest.FakeVoiceProvider
   alias AiurWeb.{VoiceChannel, VoiceReasonCode, VoiceSessionLimiter, VoiceSocket}
+  alias AiurWeb.VoiceChannelTest.FakeVoiceProvider
 
   setup do
     previous = Application.fetch_env(:aiur, :voice_provider)
