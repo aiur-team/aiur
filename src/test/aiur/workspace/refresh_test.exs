@@ -2,6 +2,7 @@ defmodule Aiur.Workspace.RefreshTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentGitHubGuard, AppServer.Adapter}
+  alias Aiur.TestSupport.IsolatedBuildGateEnv
   alias Aiur.Workflow
   alias Aiur.Workspace.{Context, Hooks, Ownership, Refresh}
 
@@ -155,13 +156,21 @@ defmodule Aiur.Workspace.RefreshTest do
     child = Path.join(workspace, "first-agent-build")
     File.write!(child, "#!/bin/sh\nexec mise exec -- mix compile\n")
     File.chmod!(child, 0o755)
+    gate_env = IsolatedBuildGateEnv.prepare(test_root)
+    assert IsolatedBuildGateEnv.isolated?(gate_env, test_root)
+
+    port_gate_env =
+      Enum.map(gate_env, fn
+        {name, nil} -> {name, false}
+        entry -> entry
+      end)
 
     assert {:ok, port} =
              Adapter.start_port(
                workspace,
                Aiur.Shell.escape(child),
                fn _port -> :ok end,
-               env: [{"PATH", Enum.join([probe_bin, "/usr/bin", "/bin"], ":")}]
+               env: [{"PATH", Enum.join([probe_bin, "/usr/bin", "/bin"], ":")} | port_gate_env]
              )
 
     assert_receive {^port, {:data, {:eol, "aiur_build_gate acquired" <> _details}}}, 1_000
