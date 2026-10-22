@@ -135,6 +135,13 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     :ok
   end
 
+  @doc false
+  @spec without_issue_descriptions(Aiur.Orchestrator.State.t()) :: Aiur.Orchestrator.State.t()
+  def without_issue_descriptions(%Aiur.Orchestrator.State{} = state) do
+    issues = Map.new(state.last_polled_issues, fn {id, issue} -> {id, %{issue | description: nil}} end)
+    %{state | last_polled_issues: issues}
+  end
+
   @doc """
   Reads the last published snapshot without sending a message to the
   Orchestrator. A cache is retained across Orchestrator restarts; its metadata
@@ -396,7 +403,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       :persistent_term.put(warning_key, metadata.observed_at)
 
       Logger.warning(
-        "Dashboard snapshot timed out; serving last-known-good snapshot " <>
+        "Dashboard snapshot projection is stale; serving last-known-good snapshot " <>
           "(orchestrator_mailbox_depth=#{metadata.orchestrator_mailbox_depth}, age_ms=#{metadata.age_ms})"
       )
     end
@@ -411,7 +418,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       :persistent_term.put(warning_key, :before_first_snapshot)
 
       Logger.warning(
-        "Dashboard snapshot timed out before the first snapshot was published " <>
+        "Dashboard snapshot has not been published yet; waiting for the initial projection " <>
           "(orchestrator_mailbox_depth=#{mailbox_depth})"
       )
     end

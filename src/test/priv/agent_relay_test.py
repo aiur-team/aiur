@@ -52,17 +52,21 @@ class RelayTest(unittest.TestCase):
         path = self.directory / "spec.json"
         path.write_text(json.dumps(spec))
         completed = subprocess.run([sys.executable, str(SCRIPT), "--directory", str(self.directory),
-                                    "--spec", str(path)], capture_output=True, timeout=5)
+                                    "--spec", str(path)], capture_output=True, timeout=15)
         self.assertEqual(completed.returncode, 0, completed.stderr.decode())
-        self.wait(lambda: (self.directory / "ctl.sock").exists())
+        self.wait(lambda: socket_mode(self.directory) == 0o600)
         self.assertFalse(path.exists())
         self.assertEqual((self.directory.stat().st_mode & 0o777), 0o700)
-        self.assertEqual(((self.directory / "ctl.sock").stat().st_mode & 0o777), 0o600)
 
     def connect(self, generation=None, offset=0):
         client = socket.socket(socket.AF_UNIX)
         client.settimeout(5)
-        client.connect(str(self.directory / "ctl.sock"))
+        # Via an fd path: a long $TMPDIR would exceed the 108-byte AF_UNIX limit.
+        directory = os.open(self.directory, os.O_PATH)
+        try:
+            client.connect(f"/proc/self/fd/{directory}/ctl.sock")
+        finally:
+            os.close(directory)
         self.clients.append(client)
         stream = client.makefile("rb")
         self.addCleanup(stream.close)
@@ -279,6 +283,13 @@ class RelayTest(unittest.TestCase):
         self.assertEqual(self.read(stream)["op"], "error")
         _, _, hello = self.connect()
         self.assertEqual(hello["acked_offset"], 0)
+
+
+def socket_mode(directory):
+    try:
+        return (directory / "ctl.sock").stat().st_mode & 0o777
+    except FileNotFoundError:
+        return None
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
 
   @config_keys [:build_history_backfill_enabled?, :build_order_adhoc_poll?, :build_order_pack_status_poll?, :build_order_root_import_enabled?, :orchestrator_initial_poll?]
   @metrics_path Path.join(System.tmp_dir!(), "aiur-3319-component-metrics.ndjson")
-  @opts [interactive_cli?: true, headless?: false, dashboard?: true, tailscale_funnel?: false, recording?: true, executor_mode?: false, ls_remote_ticker?: true]
+  @opts [interactive_cli?: true, headless?: false, dashboard?: true, tailscale_funnel?: false, recording?: true, executor_mode?: false, ls_remote_ticker?: true, build_index?: true]
 
   # Future regression guard: captured before extraction at d7fad40553019032df0a50354e1a9b559dd7540b, including options.
   @foreground [
@@ -95,6 +95,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.BuildOrder.PackStatus, [poll_on_start: true]},
     {Aiur.OpenTicketSource, [poll_on_start: true]},
     {Aiur.GitHub.ViewStateSweep, [sources: [Aiur.BuildOrder.PackStatus]]},
+    Aiur.GitHub.Listeners,
     {Aiur.Orchestrator, [name: Aiur.Orchestrator, initial_poll?: true]},
     Aiur.BuildQueue.Server,
     Aiur.DecisionExpiry,
@@ -130,17 +131,21 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.AgentList.Input,
     Aiur.LauncherWatchdog,
     Aiur.BackgroundCpu,
+    Aiur.PRLifecycle.HeadVerdictRouter,
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
     Aiur.Experiments.Checkpointer,
+    Aiur.Experiments.StatsRunner,
     {Aiur.Experiments.Auto, [recording?: true, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]]},
     Aiur.BuildOrder.Features.LabelProjection,
     Aiur.LandingWatch,
     Aiur.ExecutorSweep,
     Aiur.Experiments.Auto.Notifier,
     Aiur.Experiments.Auto.WindowManager,
+    Aiur.Experiments.Analyst,
+    Aiur.Experiments.AnalystTrigger,
     Aiur.LandingWatch.QuarantineLifter,
-    AiurWeb.Build.Index
+    AiurWeb.Build.IndexSupervisor
   ]
 
   setup do
@@ -163,7 +168,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
 
     without_dashboard =
       @foreground
-      |> Enum.reject(&(&1 in [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, AiurWeb.Build.Index, {Aiur.HttpServer, dashboard_pages?: true}]))
+      |> Enum.reject(&(&1 in [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, AiurWeb.Build.IndexSupervisor, {Aiur.HttpServer, dashboard_pages?: true}]))
       |> Enum.map(fn
         {Aiur.OpenTicketSource, _} -> {Aiur.OpenTicketSource, poll_on_start: false}
         spec -> spec

@@ -38,16 +38,24 @@ else:
     sys.exit(int(os.environ['TEST_STATUS']))
 ''')
             mix.chmod(0o755)
+            time_bombs = root / 'time_bombs.py'
+            time_bombs.write_text('import json, os, sys\n'
+                                  'open(os.environ["RECHECKS"], "a").write(json.dumps(sys.argv[1:]) + "\\n")\n')
             calls = root / 'calls'
+            rechecks = root / 'rechecks'
             summary = root / 'summary.md'
             result = subprocess.run(['python3', str(SCRIPT), 'base-sha'], capture_output=True,
                                     env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
                                              SELECTION=selection, CALLS=str(calls), TEST_STATUS=str(status),
                                              TEST_DELAY=str(test_delay),
-                                             GITHUB_STEP_SUMMARY=str(summary)))
+                                             AIUR_TIME_BOMB_CHECK=str(time_bombs), RECHECKS=str(rechecks),
+                                             GITHUB_STEP_SUMMARY=str(summary),
+                                             GITHUB_EVENT_NAME=''))
             self.last_stderr = result.stderr
             self.last_stdout = result.stdout
             self.last_summary = summary.read_text() if summary.exists() else ''
+            self.last_rechecks = ([json.loads(line) for line in rechecks.read_text().splitlines()]
+                                  if rechecks.exists() else [])
             self.assertNotIn(b"can't open file", result.stderr)
             self.assertIn(b'::notice::affected-tests selection duration:', result.stderr)
             if 'mix test' in selection and len(selection.split()) <= 305:
@@ -109,9 +117,37 @@ else:
         self.assertEqual(len(calls), 1)
         self.assertEqual(len(calls[0][3:]), 300)
 
+    def test_passing_selection_reruns_with_older_fixture_dates(self):
+        status, _calls, _output = self.run_selection('cd src && mise exec -- mix test --max-cases 4 test/a_test.exs')
+        self.assertEqual(status, 0)
+        self.assertEqual(self.last_rechecks, [['test/a_test.exs']])
+
+    def test_failing_selection_skips_the_date_rerun(self):
+        self.run_selection('cd src && mise exec -- mix test --max-cases 4 test/a_test.exs', 1)
+        self.assertEqual(self.last_rechecks, [])
+
     def test_no_tests_does_not_run_test_suite(self):
         self.assertEqual(self.run_selection('# no affected test files detected for the documentation-only change'),
                          (0, [], '# no affected test files detected for the documentation-only change\n\n'))
+
+    def test_merge_group_full_selection_limits_guard_to_changed_test_files(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
+            root = Path(scratch)
+            mix = root / 'mix'
+            mix.write_text('#!/usr/bin/env python3\nprint("cd src && mise exec -- make ci")\n')
+            mix.chmod(0o755)
+            git = root / 'git'
+            git.write_text('#!/usr/bin/env python3\nprint("src/test/changed_test.exs\\nsrc/test/support/helper.exs")\n')
+            git.chmod(0o755)
+            marker = root / 'time-bomb-ran'
+            guard = root / 'guard.py'
+            guard.write_text(f'import pathlib, sys\npathlib.Path({str(marker)!r}).write_text(" ".join(sys.argv[1:]))\n')
+            result = subprocess.run([sys.executable, str(SCRIPT), 'base-sha'], capture_output=True,
+                                    env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                                             GITHUB_EVENT_NAME='merge_group',
+                                             AIUR_TIME_BOMB_CHECK=str(guard)))
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(marker.read_text(), 'test/changed_test.exs')
 
     def test_failure_is_not_reported_as_success(self):
         self.assertNotEqual(self.run_selection('cd src && mise exec -- mix test --max-cases 4 test/a_test.exs', 1)[0], 0)

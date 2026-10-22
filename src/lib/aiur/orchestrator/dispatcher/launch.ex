@@ -10,7 +10,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.BuildOrder.History
   alias Aiur.CodingAgent
   alias Aiur.Commands
-  alias Aiur.GitHub.LocalHold
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher.Budgets
@@ -25,17 +24,23 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TelemetryCohort
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
   alias Aiur.Signal
+  alias Aiur.Tracker
 
   @doc false
   @spec recover_orphaned_claim(State.t(), Issue.t(), term(), term()) :: {State.t(), term()}
   def recover_orphaned_claim(state, issue, active_states, terminal_states) do
     case DispatchPolicy.dispatch_decision(issue, state, active_states, terminal_states) do
       {:skip, :claimed_without_runtime} ->
-        Logger.warning("Releasing orphaned dispatch claim: #{State.issue_context(issue)}")
-        recovered = %{state | claimed: MapSet.delete(state.claimed, issue.id)}
-        {recovered, DispatchPolicy.dispatch_decision(issue, recovered, active_states, terminal_states)}
+        if TrackerTasks.running?(state, {:rework_claim, issue.id}) do
+          {state, {:skip, :claimed_without_runtime}}
+        else
+          Logger.warning("Releasing orphaned dispatch claim: #{State.issue_context(issue)}")
+          recovered = %{state | claimed: MapSet.delete(state.claimed, issue.id)}
+          {recovered, DispatchPolicy.dispatch_decision(issue, recovered, active_states, terminal_states)}
+        end
 
       decision ->
         {state, decision}
@@ -162,10 +167,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
     # and retries the fetch; a hold beyond the ceiling or past the cap still
     # fails, so real starvation is not masked.
     result =
-      LocalHold.run(
-        fn -> issue_fetcher.([issue_id]) end,
-        LocalHold.caller_opts(opts)
-      )
+      Tracker.with_transient_retry(fn -> issue_fetcher.([issue_id]) end, opts)
 
     case result do
       {:ok, [%Issue{} = refreshed_issue | _]} ->

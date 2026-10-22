@@ -2,6 +2,7 @@ defmodule AiurEnginePrePrTest do
   use ExUnit.Case, async: false
 
   @engine Path.expand("../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
+  @shim Path.expand("../../scripts/aiurdev", __DIR__)
 
   test "conflicting origin main reports the file, aborts, and leaves the checkout clean" do
     fixture = fixture("conflict")
@@ -164,7 +165,12 @@ defmodule AiurEnginePrePrTest do
     assert output =~ "FAIL mix format --check-formatted"
 
     assert output =~
-             "NOTE full suite recommended (fixture requires full suite); runs in merge queue"
+             "NOTE full selection (fixture requires full suite); running CI coverage partitions locally; full CI suite runs in merge queue"
+
+    assert length(Regex.scan(~r/PASS coverage partition \([1-4]\/4\)/, output)) == 4
+
+    assert File.read!(Path.join(fixture, "coverage-partitions")) ==
+             "1:--max-cases 4\n2:--max-cases 4\n3:--max-cases 4\n4:--max-cases 4\n"
 
     assert output =~ "PASS reader tests"
     assert File.read!(Path.join(fixture, "reader-tests")) =~ "changed_reader_test.exs"
@@ -252,6 +258,23 @@ defmodule AiurEnginePrePrTest do
     assert status == 1
     assert output =~ "PASS affected tests"
     assert File.read!(Path.join(fixture, "test-command")) =~ "test/scoped_test.exs"
+    assert File.read!(Path.join(fixture, "nice-command")) =~ "-n 10"
+  end
+
+  test "shared support that selects no tests refuses pre-pr" do
+    fixture = fixture("empty-support-selection")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    File.mkdir_p!(Path.join(repo, "src/test/support"))
+    File.write!(Path.join(repo, "src/test/support/helper.exs"), "# shared support\n")
+    git!(repo, ["add", "."])
+    git!(repo, ["commit", "-m", "change test support"])
+
+    {output, status} = run_pre_pr(fixture, repo, selector_mode: "empty")
+
+    assert status == 1
+    assert output =~ "FAIL affected tests (shared support changed but no tests were selected)"
+    assert output =~ "Result: FAIL"
   end
 
   test "reader failures identify test files the branch did not edit" do
@@ -303,8 +326,36 @@ defmodule AiurEnginePrePrTest do
     {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
 
     assert status == 0
-    assert output =~ "Result: PASS (full suite not run)"
-    assert output =~ "Not run: Credo and specs (make lint), dialyzer, full suite"
+    assert output =~ "Result: PASS (full CI suite not run)"
+    assert output =~ "Not run: Credo and specs (make lint), dialyzer, full CI suite"
+  end
+
+  # The dev shim marks pre-pr as a retryable control command; its tests must not inherit that.
+  test "pre-pr through the dev shim keeps control retry flags out of tests" do
+    fixture = fixture("dev-shim")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    File.ln_s!(Path.expand("../../packaging", __DIR__), Path.join(repo, "packaging"))
+    File.write!(Path.join(repo, ".git/info/exclude"), "/packaging\n")
+
+    {output, _status} =
+      System.cmd("bash", [@shim, "pre-pr"],
+        cd: repo,
+        env: [
+          {"AIUR_REPO_ROOT", repo},
+          {"AIUR_SKIP_BUILD", "1"},
+          {"AIUR_AGENT_WORKSPACE", repo},
+          {"AIUR_BASE_BRANCH", "main"},
+          {"HOME", Path.join(fixture, "home")},
+          {"TMPDIR", fixture},
+          {"TMUX", nil},
+          {"PATH", Path.join(fixture, "bin") <> ":" <> System.get_env("PATH")}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert output =~ "--- aiur pre-pr result"
+    assert File.read!(Path.join(fixture, "test-env")) == "clean\n", output
   end
 
   defp fixture(name) do
@@ -343,7 +394,7 @@ defmodule AiurEnginePrePrTest do
     #!/usr/bin/env bash
     case "$*" in
       *"mix test"*)
-        if [ -n "${AIUR_AGENT_WORKSPACE+x}${AIUR_INSTANCE_KEY+x}${AIUR_PROJECT_ROOT+x}" ]; then echo leaked > "#{root}/test-env"; exit 79; fi
+        if [ -n "${AIUR_AGENT_WORKSPACE+x}${AIUR_INSTANCE_KEY+x}${AIUR_PROJECT_ROOT+x}${AIUR_CONTROL_RELEASE_RETRYABLE+x}${AIUR_CONTROL_RELEASE_RETRY_SIGNAL+x}" ]; then echo leaked > "#{root}/test-env"; exit 79; fi
         echo clean >> "#{root}/test-env"
         echo "$TMPDIR" >> "#{root}/test-tmpdirs"
         echo "$*" > "#{root}/test-command"
@@ -356,9 +407,13 @@ defmodule AiurEnginePrePrTest do
         case "${PRE_PR_SELECTOR_MODE:-full}" in
           failure) exit 42 ;;
           unknown) echo '{"status":"unexpected"}' ;;
+          empty) echo '{"status":"scoped","tests":[]}' ;;
           scoped) echo '{"status":"scoped","tests":["src/test/scoped_test.exs"]}' ;;
           *) echo '{"status":"full","reason":"fixture requires full suite"}' ;;
         esac
+        ;;
+      *"make -C "*" coverage-partition"*)
+        echo "$MIX_TEST_PARTITION:$MIX_TEST_ARGS" >> "#{root}/coverage-partitions"
         ;;
       *"make ci"*) echo yes > "#{root}/make-ci-ran"; exit 88 ;;
       *"mix format"*)
@@ -371,7 +426,15 @@ defmodule AiurEnginePrePrTest do
 
     gh = "#!/usr/bin/env bash\necho 'no pull requests found for branch \"feature\"' >&2\nexit 1\n"
 
-    for {name, contents} <- [{"mise", mise}, {"gh", gh}] do
+    nice = """
+    #!/usr/bin/env bash
+    [[ "$1 $2" == "-n 10" ]] || exit 91
+    echo "$*" >> "#{root}/nice-command"
+    shift 2
+    exec "$@"
+    """
+
+    for {name, contents} <- [{"mise", mise}, {"gh", gh}, {"nice", nice}] do
       path = Path.join(bin, name)
       File.write!(path, contents)
       File.chmod!(path, 0o755)

@@ -6,8 +6,8 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdict do
   merge, so it must not send the ticket to rework. A cancelled run with no
   newer run is missing CI, not failed CI.
 
-  A cancelled run stays pending for operator action; polling never reverses a
-  cancellation by starting the run again.
+  A cancelled run stays pending so the recovery layer can make one bounded
+  rerun attempt for the current head.
   """
 
   @spec settle(map(), [map()], String.t(), keyword()) :: map()
@@ -16,10 +16,10 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdict do
   end
 
   def settle(%{decision: :pending, pending_reason: :check_runs_incomplete, failures: failures} = result, runs, _head_sha, opts) do
-    if cancelled_only?(runs) and not required_failure?(failures, opts) do
-      %{result | pending_reason: :ci_cancelled, failures: []}
-    else
-      result
+    cond do
+      cancelled_only?(runs) and required_failure?(failures, opts) -> result |> Map.put(:decision, :failed) |> Map.delete(:pending_reason)
+      cancelled_only?(runs) -> %{result | pending_reason: :ci_cancelled, failures: []}
+      true -> result
     end
   end
 

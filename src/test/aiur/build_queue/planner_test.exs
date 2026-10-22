@@ -144,6 +144,8 @@ defmodule Aiur.BuildQueue.PlannerTest do
   test "marker removal, closure, claims and saved overrides take precedence" do
     input = F.input() |> F.waiting() |> F.promoted()
     assert {[%{state: :removed}], [{:dequeue, "1"}]} = input |> F.update_observation(labels: []) |> Planner.plan()
+    # A failed closure read carries no labels; it must not dequeue the member (#4819).
+    assert {[%{state: :unknown, reason: :observation_unavailable}], []} = input |> F.update_observation(open?: :unknown, labels: []) |> Planner.plan()
 
     for {reason, state} <- [{"completed", :completed}, {"not_planned", :cancelled}, {"duplicate", :unknown}] do
       expected = if state == :completed, do: [{:unmark, "1"}], else: []

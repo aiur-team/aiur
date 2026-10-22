@@ -6,15 +6,29 @@ Aiur's resident Python broker reuses one SQLite connection and batches commands 
 
 The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch retries these holds and escalates after `agent.dispatch_hold_attention_threshold` consecutive declines; `aiur status` reports their per-resource rate as `GITHUB HOLDS`.
 
-A broker deadline is a **local hold**: Aiur backs off, keeps the claim, and keeps attempt counters. `Errors.outcome/1` sorts results into `:complete`, `:held` (never sent), `:unknown` (may still apply) or `:failed`; an unknown review-thread reply is reconciled by reading the thread, never reposted.
+A broker admission waits up to five seconds (1.5 seconds on the Orchestrator process) for transient shared-lease saturation before returning a **local hold**: Aiur backs off, keeps the claim, and keeps attempt counters. The network request deadline starts after admission.
+
+Broker commands have a 1.5-second round-trip deadline; admission may wait up to 1.5 seconds in the Orchestrator and 5 seconds for other clients. These bounds keep an overloaded ledger from holding callers indefinitely; timeout handling preserves fresh cached dependency decisions.
+
+Main-watch polling, and the base-branch fixer it drives, may hold one lease above the in-flight caps. Cooldowns, hourly ceilings and pacing still apply to it.
+
+Startup claim reconciliation retries a release refused by a budget hold on every candidate poll without spending an attempt. It raises `startup_claim_reconciliation_failed` only if the hold lasts ten minutes.
+
+Landing-watch observation and per-PR reads, plus issue-provenance timeline reads, wait out bounded local holds before reporting an unavailable poll or deferred dispatch authorization. Landing-watch does not retry a whole poll after processing starts, so a late hold cannot repeat earlier journal or PR actions.
+
+`Errors.outcome/1` sorts results into `:complete`, `:held` (never sent), `:unknown` (may still apply) or `:failed`; an unknown review-thread reply is reconciled by reading the thread, never reposted.
 
 Resident broker exits also back off as local holds; the next call restarts the
 broker. Requests retain independent deadlines while sharing a transaction.
 Expired work is rolled back before commit, with 50 ms reserved for commit and
-reply delivery. A longer OS or disk stall can exceed this finite margin.
+reply delivery.
 
-Sustained broker retry pressure still appears as
-`system.github.budget_broker_degraded`; reduce host load or SQLite contention.
+The resident broker disables WAL auto-checkpointing on request connections. A
+background thread runs passive checkpoints outside the serialized request loop.
+One-minute measurements report latency by command type, Python queue wait,
+SQLite lock wait, execution, commit, and latest checkpoint duration and frames.
+
+Sustained timeouts raise one `system.github.budget_broker_degraded` attention with duration; its `.resolved` clears it on recovery.
 
 | Budget | Unit | Where to read it |
 | --- | --- | --- |
@@ -22,11 +36,30 @@ Sustained broker retry pressure still appears as
 | GraphQL | Query points | The Units meter, `aiur units`, or `aiur github-cost`. |
 | Anonymous core | REST requests made without a token | A `core:anonymous` row, present only once an anonymous read has been observed. |
 | Secondary limit | Temporary abuse-control backoff | A separate Units row while the backoff is active. |
+| Issue dependencies / sub-issues | Route-specific REST windows | Separate `core:issue_dependencies` and `core:sub_issues` observations in the quota snapshot; excluded from primary Core and dispatch. |
+
+Broker command summaries include mailbox, Python queue, SQLite open, lock-wait,
+SQL execution, and commit latency by request type so the slow stage can be
+identified. Checkpoint duration and frame counts are reported separately.
 
 Anonymous reads — a public `CODEOWNERS` fetch when no token is configured, for
 instance — bill GitHub's 60/hour unauthenticated per-IP allowance rather than
 the authenticated core budget, so they are metered in their own window. An
 exhausted anonymous allowance holds further anonymous reads but never gates agent dispatch.
+
+GitHub can return a separate `core` window on issue dependency and sub-issue
+endpoints. Aiur retains those headers under route-specific resource names so
+they cannot replace the primary Core window used by Units and dispatch.
+
+The REST `/rate_limit` refresh updates Core from its `resources.core` value.
+The GraphQL window comes from GraphQL response headers or `rateLimit` data; the
+REST response's `resources.graphql` value does not update it.
+
+The dashboard retains the last quota snapshot if a live read times out and
+labels those values with their sample time and age. The meter raises
+`system.github.quota.sample_stale` when it has gone over ten minutes without a
+quota sample; a new sample clears the condition so a later stale period alerts
+again.
 
 ### Where the budget went
 
@@ -121,6 +154,15 @@ windows, so REST core sitting near-idle is not headroom a GraphQL query can spen
 
 Headroom comes from the `x-ratelimit-*` headers of calls the daemon was already
 making, so selection costs no budget of its own.
+
+The dashboard's primary GitHub window follows the daemon's primary credential.
+Readiness checks that use the operator-only `AIUR_CI_READINESS_TOKEN` do not
+replace it; other credential windows remain available in `aiur github-usage`.
+
+Readiness requests carry an explicit non-primary identity. Requests without a
+resolved credential identity are retained under their token fingerprint and
+never update the primary window. The primary meter changes only for requests
+identified as the primary credential.
 
 A credential with no observation this window is treated as probably full rather
 than as empty, and ties resolve to the primary credential.

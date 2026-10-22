@@ -31,7 +31,7 @@ defmodule AiurWeb.BuildOrder.UsageRuntime do
   alias Aiur.TrackerIdentity
   alias Aiur.Usage.GroupedScopes
   alias AiurWeb.BuildOrder.{RouteState, UsageScope}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
   alias AiurWeb.OperatorControlCenter.UsageSummaryPresenter
@@ -339,7 +339,7 @@ defmodule AiurWeb.BuildOrder.UsageRuntime do
   defp refresh_message(message), do: message
 
   defp schedule_flush do
-    case Endpoint.config(:bo_usage_flush_timer) do
+    case EndpointConfig.get(:bo_usage_flush_timer) do
       timer when is_function(timer, 3) -> timer.(self(), :flush_bo_usage, @flush_ms)
       _other -> Process.send_after(self(), :flush_bo_usage, @flush_ms)
     end

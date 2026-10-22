@@ -20,6 +20,19 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawalTest do
     assert body =~ "removed it from the merge queue and turned auto-merge off"
   end
 
+  test "regression guard: trusted CHANGES_REQUESTED disables auto-merge when the PR is not queued" do
+    ReviewLandingWithdrawal.changes_requested(
+      %State{},
+      "42",
+      review_event("CHANGES_REQUESTED"),
+      opts(%{"mergeQueueEntry" => nil})
+    )
+
+    assert_received {:graphql, "AiurLandingWithdrawal", _variables}
+    refute_received {:graphql, "AiurDequeuePullRequest", _variables}
+    assert_received {:graphql, "AiurDisableAutoMerge", _variables}
+  end
+
   test "a COMMENTED review does not touch the queue" do
     ReviewLandingWithdrawal.changes_requested(%State{}, "42", review_event("COMMENTED"), opts())
 

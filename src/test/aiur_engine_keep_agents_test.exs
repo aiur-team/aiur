@@ -21,6 +21,33 @@ defmodule AiurEngineKeepAgentsTest do
     refute output =~ "START"
   end
 
+  test "a daemon without the handoff module gets one clear line and nothing stops" do
+    # A bare `elixir` node has no Aiur modules, like a build that predates #4529.
+    {output, status} =
+      run_sourced_engine(
+        """
+        resolve_release() { :; }
+        prepare_distribution() { :; }
+        resolve_control_identity_from_records() { :; }
+        run_release_rpc_with_timeout() {
+          AIUR_CONTROL_RPC_TIMED_OUT=0
+          AIUR_CONTROL_RPC_OUTPUT="$("$ELIXIR" -e "$1" 2>&1)"
+        }
+        cmd_stop() { echo STOP; }
+        dispatch_run() { echo START; }
+        cmd_restart --keep-agents --no-build
+        """,
+        [{"ELIXIR", System.find_executable("elixir")}]
+      )
+
+    assert status != 0
+    assert output =~ "predates keep-agents (#4529); use a plain restart once, then keep-agents works"
+    assert output =~ "restart --keep-agents aborted before stop"
+    refute output =~ "UndefinedFunctionError"
+    refute output =~ "STOP"
+    refute output =~ "START"
+  end
+
   test "restart preflights and prints the matching report" do
     {output, 0} =
       run_sourced_engine(

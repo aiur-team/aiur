@@ -10,6 +10,7 @@
     "src/lib/aiur_web/controllers/*api*.ex",
     "src/lib/aiur_web/controllers/observability*.ex",
     "src/lib/aiur_web/endpoint.ex",
+    "src/lib/aiur_web/endpoint_config.ex",
     "src/lib/aiur_web/financial_data_access.ex",
     "src/lib/aiur_web/router.ex",
     "src/lib/aiur_web/routes/api.ex",

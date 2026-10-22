@@ -1,4 +1,5 @@
 defmodule Aiur.TestSupport.Processes do
+  alias Aiur.TestSupport.EndpointStubs
   alias Aiur.TestSupport.RuntimeChildren
 
   @doc "Waits for tracked task completions until the orchestrator satisfies a state predicate."
@@ -187,6 +188,8 @@ defmodule Aiur.TestSupport.Processes do
   """
   @spec start_owned_endpoint!() :: pid()
   def start_owned_endpoint! do
+    refuse_global_endpoint_stubs!()
+
     case ExUnit.Callbacks.start_supervised({AiurWeb.Endpoint, []}) do
       {:ok, pid} ->
         pid
@@ -196,6 +199,15 @@ defmodule Aiur.TestSupport.Processes do
 
       {:error, reason} ->
         raise "failed to start AiurWeb.Endpoint under the test supervisor: #{inspect(reason)}"
+    end
+  end
+
+  # Every test that renders a dashboard reads the global env, so a stub there
+  # is called by foreign tests (#4908).
+  defp refuse_global_endpoint_stubs! do
+    case for({key, value} <- Application.get_env(:aiur, AiurWeb.Endpoint, []), EndpointStubs.stub?(value), do: key) do
+      [] -> :ok
+      keys -> raise "AiurWeb.Endpoint env holds test stubs #{inspect(keys)}; scope them with EndpointStubs.scope/1"
     end
   end
 
@@ -264,6 +276,34 @@ defmodule Aiur.TestSupport.Processes do
     case await_process_down(prior, remaining_ms(deadline)) do
       :ok -> await_registered_replacement(name, prior, deadline)
       :error -> {:error, {:prior_not_down, name}}
+    end
+  end
+
+  @doc false
+  @spec await_supervised_restart_unbounded(atom(), pid()) :: {:ok, pid()}
+  def await_supervised_restart_unbounded(name, prior) when is_atom(name) and is_pid(prior) do
+    monitor = Process.monitor(prior)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^prior, _reason} -> :ok
+    end
+
+    await_registered_replacement_unbounded(name, prior)
+  end
+
+  defp await_registered_replacement_unbounded(name, prior) do
+    case Process.whereis(name) do
+      pid when is_pid(pid) and pid != prior ->
+        # The call waits behind the supervisor's restart callback, including
+        # every later child in a rest_for_one cascade.
+        _children = GenServer.call(Process.whereis(Aiur.Supervisor), :which_children, :infinity)
+        {:ok, pid}
+
+      _not_restarted ->
+        receive do
+        after
+          10 -> await_registered_replacement_unbounded(name, prior)
+        end
     end
   end
 

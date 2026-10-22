@@ -1,0 +1,45 @@
+{
+  "v": 1,
+  "kind": "diff",
+  "epoch": "fixture",
+  "generation": 1,
+  "now": 1791408000000,
+  "upsert": [],
+  "remove": [],
+  "set": {
+    "counts": null,
+    "sources": {
+      "history": {
+        "state": "unavailable",
+        "observed_at": 1791408000000,
+        "reason": null
+      },
+      "features": {
+        "state": "ok",
+        "observed_at": 1791408000000,
+        "reason": null
+      },
+      "queue": {
+        "state": "ok",
+        "observed_at": 1791408000000,
+        "reason": null
+      },
+      "agents": {
+        "state": "ok",
+        "observed_at": 1791408000000,
+        "reason": null
+      },
+      "index": {
+        "state": "ok",
+        "observed_at": 1791408000000,
+        "reason": null
+      },
+      "open_tickets": {
+        "state": "ok",
+        "observed_at": 1791408000000,
+        "reason": null,
+        "truncated": false
+      }
+    }
+  }
+}

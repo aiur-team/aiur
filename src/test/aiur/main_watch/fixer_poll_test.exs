@@ -6,7 +6,6 @@ defmodule Aiur.MainWatch.FixerPollTest do
 
   test "background main-watch files a real red observation and retries write failures" do
     parent = self()
-    unless Process.whereis(Aiur.TaskSupervisor), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
     calls = start_supervised!({Agent, fn -> 0 end})
 
     red = %{
@@ -85,7 +84,6 @@ defmodule Aiur.MainWatch.FixerPollTest do
 
   test "compatibility guard: unavailable poll files nothing" do
     parent = self()
-    unless Process.whereis(Aiur.TaskSupervisor), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
 
     server =
       start_supervised!(
@@ -117,7 +115,6 @@ defmodule Aiur.MainWatch.FixerPollTest do
 
   test "merge-group-only main SHA does not dispatch a fixer" do
     parent = self()
-    unless Process.whereis(Aiur.TaskSupervisor), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
 
     server =
       start_supervised!(

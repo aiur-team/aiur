@@ -7,12 +7,11 @@ defmodule Aiur.Core.OrchestratorLifecycleTest do
     orchestrator_pid = Process.whereis(Aiur.Orchestrator)
 
     on_exit(fn ->
-      if is_nil(Process.whereis(Aiur.Orchestrator)) do
-        case Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _pid}} -> :ok
-        end
-      end
+      # A failed assertion can leave the unsupervised `Aiur.start_link/0`
+      # process holding the name, which blocks the supervised restart.
+      started = Process.whereis(Aiur.Orchestrator)
+      if started && started != orchestrator_pid, do: Aiur.TestSupport.safe_stop(started)
+      assert :ok = Aiur.TestSupport.ensure_orchestrator_running()
     end)
 
     if is_pid(orchestrator_pid) do

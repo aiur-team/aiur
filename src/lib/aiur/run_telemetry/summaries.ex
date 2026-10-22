@@ -29,6 +29,7 @@ defmodule Aiur.RunTelemetry.Summaries do
   alias Aiur.GitHub.Config
   alias Aiur.RepoBase
   alias Aiur.RunTelemetry
+  alias Aiur.RunTelemetry.AnalyticsTools
   alias Aiur.RunTelemetry.SummaryReader
 
   @reduce_tool "reduce"
@@ -198,20 +199,7 @@ defmodule Aiur.RunTelemetry.Summaries do
 
   @doc false
   @spec reduce_dir(term()) :: {:ok, Path.t()} | {:error, term()}
-  def reduce_dir(override) when is_binary(override), do: {:ok, Path.expand(override)}
-
-  def reduce_dir(_override) do
-    candidates =
-      [Path.join(RepoBase.base_path(repo_url()), "analytics"), Path.expand("analytics")]
-      |> Enum.reject(&is_nil/1)
-
-    case Enum.find(candidates, &File.dir?/1) do
-      nil -> {:error, :reduce_dir_not_found}
-      dir -> {:ok, dir}
-    end
-  rescue
-    _error -> {:error, :reduce_dir_not_found}
-  end
+  def reduce_dir(override), do: AnalyticsTools.resolve(override)
 
   ## ---- reading ----
 

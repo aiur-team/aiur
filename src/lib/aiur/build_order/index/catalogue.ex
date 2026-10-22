@@ -4,9 +4,12 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
   alias Aiur.BuildOrder.Index.Rows
   @statuses Map.new(~w(done failed not_planned closed running queued open)a, &{Atom.to_string(&1), &1})
 
-  @spec general(map()) :: {:ok, list()} | {:error, :epic_config_unavailable}
+  @spec general(map()) :: {:ok, list()} | {:error, :epic_config_unavailable | :settings_loading}
   def general(%{settings: {:ok, %{build_order: %{general_epics: general}}}}) when is_list(general), do: {:ok, general}
-  def general(_), do: {:error, :epic_config_unavailable}
+  def general(%{settings: {:error, :workflow_not_loaded}}), do: {:error, :settings_loading}
+  def general(%{settings: _read_result}), do: {:error, :epic_config_unavailable}
+  def general(%{read_stale: stale}) when is_map(stale), do: {:error, :settings_loading}
+  def general(_parts), do: {:error, :settings_loading}
 
   @spec registry(map()) :: map() | :unknown
   def registry(%{features: {:ok, registry}}), do: registry

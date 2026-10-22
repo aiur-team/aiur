@@ -129,6 +129,7 @@ outside the example
             path.write_text(body)
             return subprocess.run([
                 'elixir', '-r', str(root / 'src/lib/aiur/local_test_evidence.ex'),
+                '-r', str(root / 'src/lib/aiur/pr_body_lint.ex'),
                 '-r', str(root / 'src/lib/mix/tasks/pr_body.check.ex'),
                 '-e', 'Mix.start(); Mix.Tasks.PrBody.Check.run(System.argv())',
                 '--', '--file', str(path), '--policy', 'partial', '--head', head,
@@ -176,6 +177,47 @@ outside the example
             self.git(root, 'merge', '--no-ff', 'feature', '-m', 'land',
                      env=dict(os.environ, GIT_COMMITTER_DATE='2026-10-11T12:00:00Z'))
             self.assertEqual(gate.activation_time(root, 'main'), gate.timestamp('2026-10-11T12:00:00Z'))
+
+    def carry_pr(self, contribution_at_head):
+        tested, head = 'c' * 40, 'a' * 40
+        patch_at = lambda added: {'filename': 'src/lib/a.ex', 'sha': added, 'patch': f'@@ -1,1 +1,2 @@\n l1\n{added}'}
+        main = {'status': 'ahead', 'files': [{'filename': 'src/lib/b.ex', 'sha': 'm', 'patch': '@@ -1,1 +1,1 @@\n-x\n+y'}]}
+        comparisons = {
+            ('main', tested): {'merge_base_commit': {'sha': 'b1'}, 'files': [patch_at('+feature')]},
+            ('main', head): {'merge_base_commit': {'sha': 'b2'}, 'files': [patch_at(contribution_at_head)]},
+            ('b1', 'b2'): main,
+        }
+        pr = {'body': f'## Local tests\nTested head: {tested}\n', 'head': {'sha': head},
+              'base': {'sha': 'main'}}
+        root = Path(__file__).resolve().parent.parent
+        with patch.object(gate, 'is_ancestor', return_value=True), \
+             patch.object(gate, 'only_merges_after', return_value=True), \
+             patch.object(gate, 'compare', side_effect=lambda _root, base, ref: comparisons[(base, ref)]):
+            return gate.evidence_head(pr, root)
+
+    def test_merge_of_main_only_accepts_the_tested_ancestor(self):
+        self.assertEqual(self.carry_pr('+feature'), ('c' * 40, f'tested at {"c" * 40}; later commits are main merges only'))
+
+    def test_one_extra_contribution_line_requires_the_exact_head(self):
+        self.assertEqual(self.carry_pr('+feature\n+extra'), ('a' * 40, 'exact head'))
+
+    def test_non_ancestor_tested_head_requires_the_exact_head(self):
+        pr = {'body': f'Tested head: {"c" * 40}\n', 'head': {'sha': 'a' * 40}}
+        with patch.object(gate, 'is_ancestor', return_value=False), patch.object(gate, 'compare') as fetch:
+            self.assertEqual(gate.evidence_head(pr, Path.cwd()), ('a' * 40, 'exact head'))
+            fetch.assert_not_called()
+
+    def test_non_merge_commit_after_tested_head_requires_exact_head(self):
+        tested, head = 'c' * 40, 'a' * 40
+        pr = {'body': f'Tested head: {tested}\n', 'head': {'sha': head}, 'base': {'sha': 'main'}}
+        with patch.object(gate, 'is_ancestor', return_value=True), \
+             patch.object(gate, 'only_merges_after', return_value=False), \
+             patch.object(gate, 'compare') as compare:
+            self.assertEqual(gate.evidence_head(pr, Path.cwd()), (head, 'exact head'))
+            compare.assert_not_called()
+
+    def test_merge_with_changed_contribution_requires_exact_head(self):
+        self.assertEqual(self.carry_pr('+feature\n+extra'), ('a' * 40, 'exact head'))
 
     def test_passes_live_head_and_body_to_shared_checker_and_preserves_failure(self):
         pr = {'body': 'live body', 'head': {'sha': 'a' * 40}}

@@ -52,11 +52,13 @@ def normalize(snapshot, spec, annotations):
     alpha = number(spec.get("alpha", .05), "alpha")
     if not 0 < alpha < 1:
         raise ValueError("alpha must be between zero and one")
-    settings = {"alpha": alpha, "min_samples": positive_integer(spec.get("min_samples", 10), "min_samples"),
+    settings = {"alpha": alpha, "fdr_q": number(spec.get("fdr_q", alpha), "fdr_q"), "min_samples": positive_integer(spec.get("min_samples", 10), "min_samples"),
                 "power_target": number(spec.get("power_target", .8), "power_target"),
                 "bootstrap_primary": positive_integer(spec.get("bootstrap_primary", 10_000), "bootstrap_primary", 2),
                 "bootstrap_exploratory": positive_integer(spec.get("bootstrap_exploratory", 2_000), "bootstrap_exploratory", 2),
                 "permutation_resamples": positive_integer(spec.get("permutation_resamples", 20_000), "permutation_resamples")}
+    if not 0 < settings["fdr_q"] < 1:
+        raise ValueError("fdr_q must be between zero and one")
     if not 0 < settings["power_target"] < 1:
         raise ValueError("power_target must be between zero and one")
     strata_fields = declaration(spec)

@@ -52,8 +52,14 @@ required to ship the current task, do not silently fix it inside the same PR.
 Instead:
 
 1. Open a new GitHub issue describing the finding (clear title, evidence,
-   suggested fix if obvious) and apply `needs-triage` in that same creation
-   request so the user triages it before any agent picks it up.
+   suggested fix if obvious) and give it its disposition in that same creation
+   request:
+   - a defect with evidence — the command and its output, a CI run id, or a
+     file and line reference — gets `agent:todo` so dispatch can pick it up;
+   - only a finding that needs a human decision (scope, policy, or no
+     reproducible evidence yet) gets `needs-triage`, with that question in the
+     body. Nothing triages these automatically; the Executor sees them through
+     the `TRIAGE` line in `aiur status` and a wake after an hour.
 2. Reference the issue you're currently working on inside the new issue (e.g.,
    "surfaced while working on #N").
 3. Add a comment on your current issue with a link to the new issue (e.g.,
@@ -75,6 +81,14 @@ workspace-setup notes) and the manual-test-guard rule (in the shared
 instructions' "Manual CLI verification" section); follow those for anything mix-
 or `scripts/`-specific.
 
+## Temporary-path cleanup
+
+Never delete anything under `/tmp/.X11-unix`, `/tmp/.ICE-unix`, or a
+`/tmp/.X*-lock` path; these can belong to the live desktop session. Never
+sweep `/tmp` by age, owner, or glob, including `/tmp/*` and `/tmp/.*`. Delete
+only exact paths you created, by exact name. Use the workspace scratch helper
+(`$TMPDIR`, under `~/.aiur`) for temporary files.
+
 ## Synthetic load repros
 
 Never generate real CPU load to test or reproduce load-sensitive code: no `yes`,
@@ -83,5 +97,6 @@ the background. Inject the pressure through the code's test seam instead (the
 injectable load reader, clock, or sampler the code under test already takes),
 and reproduce flakes deterministically with seeded ordering, repeat-until-failure
 loops, and fault injection. Backgrounded generators outlive the command that
-started them and starve every other agent on the shared host; Aiur reports
-them to the Executor with your workspace named, and kills them where configured.
+started them and starve every other agent on the shared host. Aiur kills every
+process an agent command leaves behind when the turn ends, and reports load
+generators to the Executor with your workspace named.

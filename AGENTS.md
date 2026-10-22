@@ -54,7 +54,7 @@ the change falsifies before writing anything new.
 
 | Change | Page |
 |--------|------|
-| Config key | `website/docs-app/reference/configuration.md`, `configuration-agent.md` or `configuration-build-order.md` (one entry per key, on exactly one of the three, defaults included) |
+| Config key | `website/docs-app/reference/configuration.md`, `configuration-agent.md`, `configuration-build-order.md` or `configuration-voice.md` (one entry per key, on exactly one of them, defaults included) |
 | CLI command or flag | `website/docs-app/reference/cli.md` |
 | Dashboard, TUI, Stream Deck, quick start | `website/docs-app/guide/` |
 | Model or behavior explanation | `website/docs-app/concepts/` |
@@ -67,7 +67,7 @@ The config and CLI rows are machine-checked: `scripts/check-config-docs.py` reso
 config keys; missing entries fail `lint`. `scripts/test-check-config-docs.sh` guards
 that checker. The `lint` job runs `website/docs-app/scripts/check-cli-reference.sh`
 and its self-test, as does website guards for docs-only changes. Keep
-`reference/cli.md` at 500 lines or fewer; consolidate added rows in the same change.
+`reference/cli.md` at 500 lines or fewer; consolidate added rows in the same change. The file-size gate exempts skills and third-party vendored directories.
 Other rows remain enforced by review alone.
 
 ## Layout
@@ -331,6 +331,10 @@ The reviewer-side check lives in the `aiur-run` skill ("Mutation-testing
 discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
 author-side rule so the check happens before review, not for the first time in
 review.
+
+A fixed fixture date must never meet the real clock: inject `now`, or date the
+fixture relative to `DateTime.utc_now()`. CI's affected-tests job reruns dated
+tests with every date literal 35 days older (`scripts/check-test-time-bombs.py`).
 
 ## Computed ages and collapsed causes — author-side checks
 

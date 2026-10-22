@@ -2,6 +2,7 @@ defmodule AiurWeb.BuildQueueLiveTest do
   use Aiur.TestSupport
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
+  alias Aiur.TestSupport.LiveViewAsync
   alias AiurWeb.Endpoint
   @endpoint Endpoint
 
@@ -42,7 +43,7 @@ defmodule AiurWeb.BuildQueueLiveTest do
   test "panel is on the catalog, with no new route or mutation controls" do
     {:ok, view, _} = live(build_conn(), "/build-orders")
     assert_receive :queue_read, 2_000
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert has_element?(view, "#build-queue-panel [data-queue-item='1']")
     refute has_element?(view, "#build-queue-panel button")
     {:ok, selected, _} = live(build_conn(), "/build-orders/42")
@@ -53,12 +54,12 @@ defmodule AiurWeb.BuildQueueLiveTest do
     test "#{topic} subscription refreshes the panel and coalesces a burst", %{server: server} do
       {:ok, view, _} = live(build_conn(), "/build-orders")
       assert_receive :queue_read, 2_000
-      render_async(view)
+      LiveViewAsync.render_when_complete(view)
       assert has_element?(view, "[data-queue-item='1']")
       :ok = GenServer.call(server, {:put, model(2)})
       for _ <- 1..10, do: Phoenix.PubSub.broadcast(Aiur.PubSub, unquote(topic), {unquote(event), %{}})
       assert_receive :queue_read, 2_000
-      render_async(view)
+      LiveViewAsync.render_when_complete(view)
       assert has_element?(view, "[data-queue-item='2']")
       refute has_element?(view, "[data-queue-item='1']")
       refute_receive :queue_read, 600
@@ -68,7 +69,7 @@ defmodule AiurWeb.BuildQueueLiveTest do
   test "a timed-out read becomes unknown without dropping the page" do
     Application.put_env(:aiur, :build_queue_dashboard_reader, fn -> exit({:timeout, :read_model}) end)
     {:ok, view, _} = live(build_conn(), "/build-orders")
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert has_element?(view, "#build-queue-panel[data-queue-state='unknown']")
     assert render(view) =~ "Queue readiness unknown."
     refute has_element?(view, "[data-queue-progress]")

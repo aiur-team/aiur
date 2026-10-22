@@ -31,8 +31,13 @@ export async function openHomeState(page, cell) {
   if (cell.interaction === 'filter') await page.locator('.bd-fg').first().click()
   if (cell.interaction === 'usage') await page.locator('.ax-seg').first().click()
   if (cell.interaction === 'lock' || cell.interaction === 'tree') {
-    await page.locator('.bd-card.plan').first().hover({ force: true })
-    await page.locator('.bd-lt [data-lt="lock"]').click({ force: true })
+    const lockTab = page.locator('.bd-lt [data-lt="lock"]')
+    // This helper opens only the design mock; product receives this locked DOM via transplant.
+    await expect(async () => {
+      await page.locator('.bd-card.plan').first().hover({ force: true })
+      await lockTab.click({ force: true })
+      await expect(page.locator('.bd-lt')).toHaveClass(/locked/)
+    }).toPass()
     if (cell.interaction === 'tree') await page.locator('.bd-lt [data-lt="tree"]').click()
   }
   if (['modal', 'command', 'nq'].includes(cell.interaction)) await expect(page.locator('.tk-backdrop')).toHaveClass(/show/)
@@ -41,6 +46,11 @@ export async function openHomeState(page, cell) {
   if (cell.interaction === 'usage') await expect(page.locator('body > .ax-pop')).toBeVisible()
   if (cell.interaction === 'lock') await expect(page.locator('.bd-lt')).toHaveClass(/locked/)
   if (cell.interaction === 'tree') await expect(page.locator('#bd-tree')).toBeVisible()
-  await page.locator('.bd-fd').evaluateAll(nodes => nodes.forEach(e => e.remove()))
+  await page.evaluate(() => {
+    const strip = () => document.querySelectorAll('.bd-fd').forEach(e => e.remove())
+    strip()
+    // Mock timers re-render cards with .bd-fd; strip it after every render so no census sees it.
+    new MutationObserver(strip).observe(document.documentElement, { childList: true, subtree: true })
+  })
   await page.evaluate(() => { document.getAnimations().forEach(a => { a.pause(); a.currentTime = 0 }) })
 }

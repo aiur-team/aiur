@@ -20,7 +20,7 @@ defmodule AiurWeb.VoiceSocket do
   @impl true
   def connect(%{"_csrf_token" => csrf_token}, socket, %{session: session})
       when is_binary(csrf_token) and is_map(session) do
-    with true <- AiurWeb.Endpoint.config(:dashboard_writable),
+    with true <- AiurWeb.EndpointConfig.get(:dashboard_writable),
          true <- Plug.CSRFProtection.valid_state_and_csrf_token?(session["_csrf_token"], csrf_token),
          {:ok, context} <- FinancialDataAccess.context_from_session(session),
          :ok <- FinancialDataAccess.authorize(context) do

@@ -7,14 +7,17 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert
+  alias Aiur.Orchestrator.CiLifecycle.FailureComment
   alias Aiur.Orchestrator.CiLifecycle.Poll
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
+  alias Aiur.Orchestrator.CiLifecycle.ReviewHandoff
   alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.CiLifecycle.WaitRewake
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.LifecycleFence
   alias Aiur.Orchestrator.Reconciler
+  alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.StartTrigger.ProgressStore
@@ -50,7 +53,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
       |> clear_stale_ci_wait(issue)
       |> Reconciler.refresh_running_issue_state(Transition.effective_issue_state(issue))
     else
-      transition_ci_pass(state, issue, result)
+      if CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and ReviewHandoff.ready_unreviewed_head?(result) do
+        ReviewHandoff.transition(state, issue, result)
+      else
+        transition_ci_pass(state, issue, result)
+      end
     end
   end
 
@@ -82,19 +89,49 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
   defp apply_ci_poll_result(state, _issue, _result), do: state
 
+  @doc false
+  @spec route_conflicting_pr(State.t(), Issue.t(), map(), keyword()) :: State.t()
+  def route_conflicting_pr(state, issue, result, opts) do
+    issue_key = issue.id || issue.identifier
+    base_branch = Aiur.Config.base_branch()
+
+    case ReworkGate.verify_rework_attempt(state, to_string(issue_key), result[:head_sha]) do
+      {:ok, state} ->
+        transition_conflicting_pr(state, issue, result, opts, issue_key, base_branch)
+
+      {:skip, _reason, state} ->
+        state
+    end
+  end
+
+  defp transition_conflicting_pr(state, issue, result, opts, issue_key, base_branch) do
+    Transition.transition_ci_ticket(state, issue, "rework", fn transitioned ->
+      create = Keyword.get(opts, :ci_failure_commenter, &Aiur.Tracker.create_comment/2)
+      target = to_string(issue.identifier || issue.id)
+
+      body =
+        "GitHub reports PR ##{result[:pr_number]} head `#{result[:head_sha]}` as `mergeable: CONFLICTING` with #{base_branch}. " <>
+          "This ticket moved to rework; merge #{base_branch} into the PR branch, resolve the conflicts, and push the result."
+
+      case create.(target, body) do
+        :ok -> :ok
+        other -> Logger.warning("Conflict rework comment not posted: issue=#{target} reason=#{inspect(other)}")
+      end
+
+      transitioned
+      |> State.bump_rework_attempt(issue_key, result[:head_sha])
+      |> Reconciler.refresh_running_issue_state(%{issue | state: "rework"})
+    end)
+  end
+
   # The CI batch carries these exact-head fields already. Reuse them here so a
   # failed CI poll does not add another GitHub request (#4631).
   defp approved_landing_pr?(
          %Issue{},
-         %{
-           decision: :failed,
-           review_decision: "APPROVED",
-           auto_merge_request: auto_merge_request,
-           merge_queue_entry: merge_queue_entry
-         }
+         %{decision: :failed, review_decision: "APPROVED", auto_merge_request: auto_merge_request, merge_queue_entry: merge_queue_entry} = result
        )
        when is_map(auto_merge_request) or is_map(merge_queue_entry) do
-    true
+    Map.get(result, :pending_reason) != :merge_queue_dropped
   end
 
   defp approved_landing_pr?(_issue, _result), do: false
@@ -147,7 +184,22 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   def recover_ci_poll_result(state, issue, result, opts) do
     result = Map.put(result, :ci_recovery_opts, opts)
 
+    # Unapproved conflicts only: changes-requested belongs to HeadVerdictRouter (#4822),
+    # while confirmed mergeability conflicts route independently of review status.
+    if Transition.effective_ci_state(issue) in [@ci_wait_state, @human_review_state] and
+         result[:mergeable] == "CONFLICTING" and result[:conflict_confirmed?] == true do
+      route_conflicting_pr(state, issue, result, opts)
+    else
+      do_recover_ci_poll_result(state, issue, result, opts)
+    end
+  end
+
+  defp do_recover_ci_poll_result(state, issue, result, opts) do
     cond do
+      Transition.effective_ci_state(issue) in [@ci_wait_state, @human_review_state] and
+          result[:mergeable] == "CONFLICTING" ->
+        state
+
       stale_approved_head?(issue, result) ->
         state = ApprovalCarryAlert.handle(state, issue, result, opts)
 
@@ -170,7 +222,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   end
 
   defp ci_recovery_required?(state, issue, result) do
-    ci_failure_or_hold?(state, issue, result) and is_integer(result[:pr_number]) and
+    result[:pending_reason] != :merge_queue_dropped and ci_failure_or_hold?(state, issue, result) and is_integer(result[:pr_number]) and
       not Issue.paused?(issue) and not LifecycleFence.handoff_blocked?(state, issue)
   end
 
@@ -370,6 +422,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
       )
 
     if response == :ok and result[:ci_recovery_checked], do: GithubCIPoller.record_failure(issue, result, result[:ci_recovery_opts])
+    if response == :ok, do: FailureComment.post(issue, result, result[:ci_recovery_opts] || [])
     response
   end
 

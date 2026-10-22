@@ -112,6 +112,21 @@ defmodule Aiur.MainWatch.GitHubTest do
     assert Enum.sort(Enum.map(observation.checks, &{&1.name, &1.conclusion})) == [{"test", "failure"}, {"test", "success"}]
   end
 
+  test "a failed non-blocking quarantine job leaves main green without a failure event" do
+    # continue-on-error keeps the workflow run green while its check run fails.
+    runs = [run(15, "quarantine-red", "ci", "completed", "success")]
+    quarantine = Map.merge(check(2, 1, "failure"), %{"name" => "quarantined tests (non-blocking)"})
+    request = evidence_request(runs, [check(1, 1, "success"), quarantine])
+
+    assert {:ok, %{observations: [observation]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
+    assert observation.checks == [%{name: "test", conclusion: "success"}]
+    assert {%{status: :green}, []} = State.observe(State.new(), observation, observation.completed_at)
+
+    stale = %{observation | checks: [%{name: "quarantined tests (non-blocking)", conclusion: "failure"} | observation.checks]}
+    assert {:ok, %{observations: [rebuilt]}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false, history: [stale])
+    assert rebuilt.checks == observation.checks
+  end
+
   test "reports the failing caller and credential class on an unrecoverable 401" do
     request = fn _request -> {:ok, %{status: 401, body: %{"message" => "Bad credentials"}}} end
 

@@ -59,8 +59,8 @@ trap 'rm -f "$updates"' EXIT HUP INT TERM
 cat > "$updates"
 while read local_ref local_sha remote_ref remote_sha || [ -n "${local_sha:-}" ]; do
   [ "$local_sha" = "$zero" ] && continue
-  # A new ref skips commits already on a remote ref, so inherited base history is out of scope (#4623).
-  if [ "$remote_sha" = "$zero" ]; then range="$local_sha --not --remotes"; else range="$remote_sha..$local_sha"; fi
+  # Skip commits already on a remote ref, so inherited base history is out of scope (#4623, #4899).
+  if [ "$remote_sha" = "$zero" ]; then range="$local_sha --not --remotes"; else range="$remote_sha..$local_sha --not --remotes"; fi
   for commit in $(git rev-list $range 2>/dev/null); do
     if git show -s --format=%B "$commit" | awk '
       {

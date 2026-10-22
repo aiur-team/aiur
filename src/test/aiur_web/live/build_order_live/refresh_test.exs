@@ -12,7 +12,7 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
       |> put_in([Access.key(:health)], health(1, :healthy, observed_at: observed_at))
 
     source = install_source(catalog: catalog)
-    assert {:ok, view, _html} = live(build_conn(), "/build-orders")
+    assert {:ok, view, _html} = live_settled("/build-orders")
     render_async(view, 2_000)
 
     calls_before_tick = FakeDataSource.calls(source)
@@ -30,7 +30,8 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
   end
 
   test "distinguishes cold, unavailable, and stale-LKG catalog states" do
-    cold = install_source(catalog: nil)
+    release = make_ref()
+    cold = install_source(catalog: fn -> receive(do: (^release -> nil)) end)
     assert {:ok, cold_view, cold_html} = live(build_conn(), "/build-orders")
     assert cold_html =~ ~s(data-build-order-catalog-state="loading")
     assert cold_html =~ "Loading Build Orders"
@@ -38,7 +39,7 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
     assert Process.alive?(cold)
 
     unavailable = install_source(catalog: catalog_snapshot(nil, :unknown, :unavailable))
-    assert {:ok, unavailable_view, unavailable_html} = live(build_conn(), "/build-orders")
+    assert {:ok, unavailable_view, unavailable_html} = live_settled("/build-orders")
     assert unavailable_html =~ ~s(data-build-order-catalog-state="unavailable")
     assert unavailable_html =~ "No Build Order list"
     GenServer.stop(unavailable_view.pid)
@@ -46,23 +47,26 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
 
     identity = identity(42, "NODE-42")
     stale = install_source(catalog: catalog_snapshot([root(identity, "Stale root")], 1, :stale))
-    assert {:ok, _view, stale_html} = live(build_conn(), "/build-orders")
+    assert {:ok, _view, stale_html} = live_settled("/build-orders")
     assert stale_html =~ ~s(data-build-order-catalog-state="stale_lkg")
     assert stale_html =~ ~s(href="/build-orders/42")
     assert Process.alive?(stale)
 
     empty = install_source(catalog: catalog_snapshot([], 2, :healthy))
-    assert {:ok, _view, empty_html} = live(build_conn(), "/build-orders")
+    assert {:ok, _view, empty_html} = live_settled("/build-orders")
     assert empty_html =~ ~s(data-build-order-catalog-state="empty")
     assert empty_html =~ "No Build Orders for this repository"
     assert Process.alive?(empty)
   end
 
-  test "names a delayed first catalog read and renders its elapsed age" do
+  # #4841: a catalog read that never returns used to hold the connected mount,
+  # so the socket never joined and the page stayed on its static loading render.
+  test "a stuck catalog read still connects and names the delayed load with its age" do
     observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
     clock = start_supervised!({Agent, fn -> observed_at end})
     Application.put_env(:aiur, :build_order_display_clock, fn -> Agent.get(clock, & &1) end)
-    install_source(catalog: nil)
+    release = make_ref()
+    install_source(catalog: fn -> receive(do: (^release -> nil)) end)
 
     assert {:ok, view, html} = live(build_conn(), "/build-orders")
     assert html =~ ~s(data-build-order-catalog-state="loading")
@@ -76,12 +80,69 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
     assert html =~ "No Build Order list has arrived after 6 seconds"
   end
 
+  # Guards the invariant that a late timeout never outlives a catalog, including future regressions.
+  test "a catalog arriving after the loading deadline clears the delayed-load banner" do
+    observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
+    clock = start_supervised!({Agent, fn -> observed_at end})
+    Application.put_env(:aiur, :build_order_display_clock, fn -> Agent.get(clock, & &1) end)
+    test = self()
+
+    install_source(
+      catalog: fn ->
+        send(test, {:catalog_reading, self()})
+
+        receive do
+          {:release_catalog, catalog} -> catalog
+        end
+      end
+    )
+
+    assert {:ok, view, html} = live(build_conn(), "/build-orders")
+    assert html =~ ~s(data-build-order-catalog-state="loading")
+
+    Agent.update(clock, &DateTime.add(&1, 7, :second))
+    send(view.pid, :build_order_ui_tick)
+    assert render(view) =~ "No Build Order list has arrived after 7 seconds"
+
+    assert_receive {:catalog_reading, task}, 1_000
+    send(task, {:release_catalog, catalog_snapshot([root(identity(42, "NODE-42"), "Arrived root")], 1, :healthy)})
+    assert settle(view) =~ "Arrived root"
+    html = render(view)
+
+    assert html =~ ~s(data-build-order-catalog-state="ready")
+    refute html =~ "No Build Order list has arrived after"
+  end
+
+  test "a catalog read that returns nothing is named as failed with its age, and refresh retries it", %{source: source} do
+    observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
+    clock = start_supervised!({Agent, fn -> observed_at end})
+    Application.put_env(:aiur, :build_order_display_clock, fn -> Agent.get(clock, & &1) end)
+    :ok = FakeDataSource.put_catalog(source, nil)
+
+    assert {:ok, view, _html} = live_settled("/build-orders")
+    Agent.update(clock, &DateTime.add(&1, 3, :second))
+    send(view.pid, :build_order_ui_tick)
+    html = render(view)
+
+    assert html =~ ~s(data-build-order-catalog-state="read_failed")
+    assert html =~ "Build Order catalog read failed"
+    # The read failed at once; its age stays frozen at the failure (#4873).
+    assert html =~ "returned no Build Order list after 0 seconds"
+
+    :ok = FakeDataSource.put_catalog(source, catalog_snapshot([root(identity(42, "NODE-42"), "Recovered root")], 1, :healthy))
+    view |> element("#build-orders-refresh-catalog") |> render_click()
+    html = settle(view)
+
+    assert html =~ ~s(data-build-order-catalog-state="ready")
+    assert html =~ "Recovered root"
+  end
+
   test "an empty catalog names the directories it searched" do
     catalog = catalog_snapshot([], 1, :healthy)
     catalog = put_in(catalog.data.search_paths, [".aiur/build_orders", "/var/lib/aiur/builds"])
     _source = install_source(catalog: catalog)
 
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    assert {:ok, _view, html} = live_settled("/build-orders")
     assert html =~ "Searched:"
     assert html =~ ".aiur/build_orders"
     assert html =~ "/var/lib/aiur/builds"
@@ -91,7 +152,7 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
     source: source,
     first: first
   } do
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, _view, html} = live_settled("/build-orders/42")
 
     document = Floki.parse_document!(html)
 
@@ -126,7 +187,7 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
         selected: [selected_snapshot(first, nil, 1, :healthy)]
       )
 
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, _view, html} = live_settled("/build-orders/42")
     assert html =~ ~s(data-build-order-status="selected_loading")
 
     calls = FakeDataSource.calls(source)
@@ -142,14 +203,14 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
     source =
       install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy))
 
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders/99")
+    assert {:ok, _view, html} = live_settled("/build-orders/99")
     assert html =~ ~s(data-build-order-status="not_found")
     assert html =~ "Build Order not found"
     refute Enum.any?(FakeDataSource.calls(source), &match?({:demand, _}, &1))
   end
 
   test "malformed root parameters fail closed without a demand", %{source: source} do
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders/01")
+    assert {:ok, _view, html} = live_settled("/build-orders/01")
     document = Floki.parse_document!(html)
 
     assert html =~ ~s(data-build-order-status="invalid_parameter")

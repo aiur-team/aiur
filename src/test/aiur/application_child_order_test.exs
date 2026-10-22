@@ -115,13 +115,17 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.Opencode.PrewarmSupervisor,
     Aiur.AgentList.App,
     Aiur.AgentList.Input,
-    Aiur.LauncherWatchdog
+    Aiur.LauncherWatchdog,
+    Aiur.BackgroundCpu,
+    Aiur.PRLifecycle.HeadVerdictRouter
   ]
 
   # Add an ID => reason entry only when a new child must start before existing
   # children. Explain the startup dependency here; do not extend the baseline.
   # Feeder subscribes after History starts and before Backfill can publish completion.
   @early_start_exceptions %{
+    # The orchestrator resets listeners before its first dispatch.
+    Aiur.GitHub.Listeners => "Start poll-source owners before Orchestrator resets and polls them",
     Aiur.Opencode.ActiveTurns => "Create the turn table before agent tasks can start or be adopted",
     # Initial orchestrator dispatch must persist attempts before starting runners.
     Aiur.Orchestrator.OptimisticLedger => "Load durable attempts before Orchestrator starts its first dispatch",

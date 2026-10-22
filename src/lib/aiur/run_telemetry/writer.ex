@@ -24,7 +24,7 @@ defmodule Aiur.RunTelemetry.Writer do
 
   require Logger
 
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.{FactsCapture, LedgerRetention, Lifecycle, RunContext, Summaries}
   alias Aiur.RunTelemetry.Writer.Encoding
@@ -313,7 +313,7 @@ defmodule Aiur.RunTelemetry.Writer do
   end
 
   defp subscribe_external_events do
-    Enum.each(@external_event_patterns, &Exchange.subscribe/1)
+    Enum.each(@external_event_patterns, &Events.subscribe/1)
     :ok
   rescue
     _error -> :ok

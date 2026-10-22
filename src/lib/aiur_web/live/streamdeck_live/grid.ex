@@ -12,7 +12,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
   import AiurWeb.StreamdeckLive.Surface
 
   alias Aiur.{Conversation.History, Orchestrator, PollCadence}
-  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.{Endpoint, EndpointConfig, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias Phoenix.LiveView.Socket
 
   @spec refresh_grid(Socket.t()) :: Socket.t()
@@ -249,7 +249,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
   def focus_logs(socket, _previous_identifier, _identifier), do: socket
 
   defp transcript_flush_ms do
-    Endpoint.config(:streamdeck_transcript_flush_ms) ||
+    EndpointConfig.get(:streamdeck_transcript_flush_ms) ||
       Application.get_env(:aiur, Endpoint, []) |> Keyword.get(:streamdeck_transcript_flush_ms) || 250
   end
 end

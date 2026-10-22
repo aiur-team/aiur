@@ -29,7 +29,7 @@ defmodule AiurWeb.BuildQueue.Panel do
           {Copy.text(:age)}: {Copy.age(source.age_ms)} · {Copy.text(:freshness)}: {Copy.label(source.freshness)}
           <span :if={source.reasons != []}> · {Copy.reason(source.reasons)}</span>
         </p>
-        <.queue :for={queue <- @view.model.queues} queue={queue} dimmed={dimmed?(queue, @view.model.sources)} />
+        <.queue :for={queue <- @view.model.queues} queue={queue} dimmed={dimmed?(queue, @view.model.sources)} source={source(queue, @view.model.sources)} />
       <% end %>
       <section :if={not inactive?(@state)}>
       <h3 style={heading()}>{Copy.text(:attentions)}</h3>
@@ -52,13 +52,17 @@ defmodule AiurWeb.BuildQueue.Panel do
 
   attr(:queue, :map, required: true)
   attr(:dimmed, :boolean, required: true)
+  attr(:source, :map, default: nil)
 
   defp queue(assigns) do
     ~H"""
     <section data-queue-id={@queue.queue_id}>
       <h3 style={heading()}>{@queue.name} <span :if={@queue.held} class="badge">{Copy.text(:held_queue)}</span></h3>
       <p style={flat()} data-queue-progress={Copy.progress_state(@queue)}>{Copy.progress(@queue)}</p>
-      <div style="overflow-x: auto" tabindex="0" role="region" aria-label="Build queue items">
+      <p :if={Map.get(@queue, :progress_reasons, []) != []} style={muted()} data-queue-progress-reason>
+        {Copy.reason(@queue.progress_reasons)} · {Copy.text(:age)}: {Copy.age(@source && @source.age_ms)}
+      </p>
+      <div :if={@queue.items != []} style="overflow-x: auto" tabindex="0" role="region" aria-label="Build queue items">
         <table class="bo-catalog-table" style="min-width: 48rem">
           <thead><tr>
             <th :for={key <- [:position, :ticket, :state, :waiting_on, :rank, :attentions]} scope="col">{Copy.text(key)}</th>
@@ -90,6 +94,9 @@ defmodule AiurWeb.BuildQueue.Panel do
     do: not current?(sources["tracker_observation"]) or not current?(sources["build_order:#{root}"])
 
   defp dimmed?(_queue, sources), do: not current?(sources["tracker_observation"])
+  # The source whose read decides the lane's progress, so its age travels with the reason.
+  defp source(%{kind: :build_order, root: root}, sources), do: sources["build_order:#{root}"]
+  defp source(_queue, sources), do: sources["tracker_observation"]
   defp current?(source), do: match?(%{freshness: :current}, source)
 
   @spec state(map() | nil) :: atom()

@@ -6,7 +6,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
   import Phoenix.ChannelTest
 
   alias Aiur.{AgentEvents, DecisionValidation, IssueLog, StreamdeckFleetFixture}
-  alias Aiur.TestSupport.RuntimeChildren
+  alias Aiur.TestSupport.{EndpointStubs, RuntimeChildren}
   alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckSocket}
 
   @endpoint Endpoint
@@ -131,6 +131,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
         streamdeck_transcript_flush_ms: 20
       )
 
+    config = EndpointStubs.scope(config)
     Application.put_env(:aiur, Endpoint, config)
 
     Aiur.TestSupport.start_owned_endpoint!()
@@ -147,7 +148,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
 
   def put_endpoint_config(extra) do
     previous = Application.get_env(:aiur, Endpoint, [])
-    config = Keyword.merge(previous, extra)
+    config = previous |> Keyword.merge(extra) |> EndpointStubs.scope()
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, previous)

@@ -274,7 +274,7 @@ defmodule Aiur.WipPreservationFixtures do
   def trace_count(path), do: path |> File.read!() |> String.split("\n", trim: true) |> length()
 
   def git!(args) do
-    {output, 0} = System.cmd("git", args, stderr_to_stdout: true)
+    {output, 0} = Aiur.TestGit.cmd(args)
     output
   end
 

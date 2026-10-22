@@ -50,6 +50,38 @@ defmodule AiurWeb.Build.IndexDaemonTest do
     Agent.stop(block)
   end
 
+  test "an unread daemon reading keeps the last good heartbeat so the footer can age it" do
+    topic = "build-home:daemon-carry:#{System.unique_integer([:positive])}"
+    Phoenix.PubSub.subscribe(Aiur.PubSub, topic)
+    parent = self()
+    {:ok, block} = Agent.start_link(fn -> %{state: "live", heartbeat_at: 7, observed_at: 8} end)
+
+    pid =
+      start_supervised!(
+        {Index,
+         name: nil,
+         broadcast: fn changes -> Phoenix.PubSub.broadcast(Aiur.PubSub, topic, {:build_changes, changes}) end,
+         subscribe: fn -> :ok end,
+         read: fn _, _, _ -> parts() end,
+         daemon_read: fn _ -> Agent.get(block, & &1) end,
+         daemon_timer: fn pid, message, ms ->
+           send(parent, {:tick_scheduled, pid, message, ms})
+           make_ref()
+         end}
+      )
+
+    receive_barrier({:tick_scheduled, ^pid, :daemon_tick, 10_000})
+    assert {:ok, _} = Index.window(pid, "Etc/UTC")
+    drain()
+    Agent.update(block, fn _ -> %{state: "unknown", heartbeat_at: nil, observed_at: 9} end)
+    send(pid, :daemon_tick)
+    receive_barrier({:tick_scheduled, ^pid, :daemon_tick, 10_000})
+    :sys.get_state(pid)
+    assert_received {:build_changes, %{set: %{daemon: %{state: "unknown", heartbeat_at: 7, observed_at: 9}}}}
+    assert {:ok, %{daemon: %{state: "unknown", heartbeat_at: 7}}} = Index.window(pid, "Etc/UTC")
+    Agent.stop(block)
+  end
+
   defp drain do
     receive do
       {:build_changes, _} -> drain()

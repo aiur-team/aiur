@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.EventTopics do
     CommentWake,
     Dispatcher,
     Lifecycle,
+    MergedTicketReconciler.StrandedWork,
     MergeOrderAudit,
     OptimisticEvents,
     OptimisticGuardEffects,
@@ -17,6 +18,8 @@ defmodule Aiur.Orchestrator.EventTopics do
     ReviewLandingWithdrawal,
     State
   }
+
+  alias Aiur.Commands
 
   @spec route(State.t(), map(), keyword()) :: State.t()
   def route(state, event, opts \\ [])
@@ -39,7 +42,7 @@ defmodule Aiur.Orchestrator.EventTopics do
     do:
       state
       |> OptimisticEvents.merged(identifier, event)
-      |> CommentWake.mark_pr_merged_issue_done(identifier, pr_merged_opts(event))
+      |> StrandedWork.mark_merged(identifier, pr_merged_opts(event))
       |> RestackScheduler.merged(identifier, event)
       |> MergeOrderAudit.merged(identifier, event)
 
@@ -59,8 +62,13 @@ defmodule Aiur.Orchestrator.EventTopics do
   # Refresh the local gate for control calls, then wake the poll to reclaim a worker that
   # reconciliation stopped while the Command was open. The dispatch poll still
   # applies tracker, capacity, and other open-Command guards.
-  defp route_classified(state, {:decision_answered, _identifier}, _event, _opts),
-    do: state |> Dispatcher.refresh_blocked_ticket_ids() |> Lifecycle.wake_tick()
+  defp route_classified(state, {:decision_answered, _identifier}, _event, opts) do
+    decision_store = Keyword.get(opts, :decision_store, Commands.default_store())
+
+    state
+    |> Dispatcher.refresh_blocked_ticket_ids(decision_store)
+    |> Lifecycle.wake_tick()
+  end
 
   defp route_classified(
          state,
@@ -120,7 +128,9 @@ defmodule Aiur.Orchestrator.EventTopics do
 
     opts = [
       merged_by_login: get_in(pr, ["merged_by", "login"]),
-      pr_body: Map.get(pr, "body")
+      pr_body: Map.get(pr, "body"),
+      pr_url: Map.get(pr, "html_url"),
+      head_sha: get_in(pr, ["head", "sha"])
     ]
 
     if Map.has_key?(pr, "number"), do: Keyword.put(opts, :pr_number, pr["number"]), else: opts

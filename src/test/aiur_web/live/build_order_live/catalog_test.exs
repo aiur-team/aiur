@@ -4,7 +4,7 @@ defmodule AiurWeb.BuildOrderLive.CatalogTest do
   test "epic collapse removes cards and expand restores them", %{source: source, first: first} do
     selected = selected_snapshot(first, "Root forty-two", 1, :healthy, members: [member(7)])
     :ok = FakeDataSource.put_selected(source, selected)
-    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, _html} = live_settled("/build-orders/42")
     assert has_element?(view, "[data-bo-card]")
     view |> element("button[phx-value-lane='dashboard-ui']") |> render_click()
     refute has_element?(view, "[data-bo-card]")
@@ -17,13 +17,13 @@ defmodule AiurWeb.BuildOrderLive.CatalogTest do
     root = %{root(first, "Large root") | member_count: 501, github_member_count: 501, member_read_count: 100}
     :ok = FakeDataSource.put_catalog(source, catalog_snapshot([root], 1, :healthy))
     :ok = FakeDataSource.put_selected(source, selected_snapshot(first, nil, 1, :unavailable, failure: :member_overflow))
-    {:ok, view, html} = live(build_conn(), "/build-orders/42")
+    {:ok, view, html} = live_settled("/build-orders/42")
     assert html =~ "GitHub graph truncated: 100 of 501 members"
     refute has_element?(view, "[data-bo-card]")
   end
 
   test "mounts the catalog without demanding any selected root", %{source: source} do
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    assert {:ok, _view, html} = live_settled("/build-orders")
 
     document = Floki.parse_document!(html)
 
@@ -54,7 +54,7 @@ defmodule AiurWeb.BuildOrderLive.CatalogTest do
       sources_loader: fn -> sources_for_member(member.identity, :working, nil, 28) end
     )
 
-    {:ok, catalog_view, catalog_html} = live(build_conn(), "/build-orders")
+    {:ok, catalog_view, catalog_html} = live_settled("/build-orders")
     assert catalog_html =~ "Tickets completed"
     assert catalog_html |> Floki.parse_document!() |> progress_cell("Root forty-two") |> Floki.text() =~ "0%"
     refute catalog_html =~ "Estimated work progress"
@@ -72,7 +72,7 @@ defmodule AiurWeb.BuildOrderLive.CatalogTest do
   # what boot deposited, so an operator needs a control that buys the GitHub
   # re-converge — and a held button must not turn into a stream of them.
   test "the catalog page buys a re-converge, and a held button still buys only one", %{source: source} do
-    assert {:ok, view, html} = live(build_conn(), "/build-orders")
+    assert {:ok, view, html} = live_settled("/build-orders")
     assert html =~ ~s(id="build-orders-refresh-catalog")
     assert html =~ ~s(phx-click="refresh-catalog")
 
@@ -108,7 +108,7 @@ defmodule AiurWeb.BuildOrderLive.CatalogTest do
 
     :ok = FakeDataSource.put_catalog(source, catalog_snapshot(entries, 1, :healthy))
 
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    assert {:ok, _view, html} = live_settled("/build-orders")
     document = Floki.parse_document!(html)
 
     unresolved = progress_cell(document, "Pack that cannot resolve")
@@ -162,7 +162,7 @@ defmodule AiurWeb.BuildOrderLive.CatalogTest do
 
     :ok = FakeDataSource.put_catalog(source, %{snapshot | data: data})
 
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    assert {:ok, _view, html} = live_settled("/build-orders")
     document = Floki.parse_document!(html)
     counts = catalog_count_cells(document, "Pack held by budget")
 
@@ -193,7 +193,7 @@ defmodule AiurWeb.BuildOrderLive.CatalogTest do
     snapshot = catalog_snapshot(entries, 1, :healthy)
     :ok = FakeDataSource.put_catalog(source, snapshot)
 
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    assert {:ok, _view, html} = live_settled("/build-orders")
     document = Floki.parse_document!(html)
     counts = catalog_count_cells(document, "Pack with no ticket count")
 
@@ -239,7 +239,7 @@ defmodule AiurWeb.BuildOrderLive.CatalogTest do
         snapshot = %{snapshot | data: Catalog.put_count_resolution_failure(snapshot.data, failure)}
         :ok = FakeDataSource.put_catalog(source, snapshot)
 
-        assert {:ok, view, html} = live(build_conn(), "/build-orders")
+        assert {:ok, view, html} = live_settled("/build-orders")
         document = Floki.parse_document!(html)
         unresolved_counts = catalog_count_cells(document, "Pack with unfetched dimensions")
         empty_counts = catalog_count_cells(document, "Pack with no members")
@@ -270,7 +270,7 @@ defmodule AiurWeb.BuildOrderLive.CatalogTest do
 
     snapshot = catalog_snapshot(entries, 2, :healthy)
     :ok = FakeDataSource.put_catalog(source, snapshot)
-    assert {:ok, _view, generic_html} = live(build_conn(), "/build-orders")
+    assert {:ok, _view, generic_html} = live_settled("/build-orders")
     generic_document = Floki.parse_document!(generic_html)
     generic_counts = catalog_count_cells(generic_document, "Pack with unfetched dimensions")
 
@@ -295,7 +295,7 @@ defmodule AiurWeb.BuildOrderLive.CatalogTest do
 
     :ok = FakeDataSource.put_catalog(source, catalog_snapshot(entries, 1, :healthy))
 
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    assert {:ok, _view, html} = live_settled("/build-orders")
     document = Floki.parse_document!(html)
     counts = catalog_count_cells(document, "Pack with resolved dimensions")
 

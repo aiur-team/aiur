@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, QueueSetSlots}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, QueueSetSlots}
   alias Aiur.Workspace.Ownership.Retention
 
   @type t ::
@@ -311,8 +311,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
   @doc """
   Classifies a tracker-active row with no live running process.
   An open decision takes precedence, followed by `blocked_by_open?`, which is
-  only ever true for a `todo` issue with an unresolved dependency (see
-  `DispatchPolicy.todo_issue_held_by_dependency?/2`).
+  only ever true for a `todo` or `rework` issue with an unresolved dependency (see
+  `DispatchPolicy.issue_held_by_dependency?/2`).
 
   The fourth argument is a keyword list of idle-reason evidence so #1457 can
   render *why* a row is idle rather than a bare "idle":
@@ -414,20 +414,19 @@ defmodule Aiur.Orchestrator.WaitingReason do
     end
   end
 
-  # Mirrors `Aiur.Orchestrator.RuntimeWatchdog.restart_stalled_issue/5`'s
-  # actual exemption set: only `:paused` and `:deactivated` entries are
-  # skipped by the stall-restart check there, so a `:sleeping` entry is just
-  # as eligible for a stall-triggered kill+retry as a `:working` one — this
-  # must classify it the same way, or the dashboard would keep calling it
-  # merely "paused" right up to the restart.
-  defp unresponsive?(%{
-         work_state: work_state,
-         stale_for_seconds: stale,
-         stall_timeout_seconds: timeout
-       })
+  # Mirrors `RuntimeWatchdog.restart_stalled_issue/5`'s exemption set (ci-wait
+  # tickets, `:paused`, `:deactivated`): a `:sleeping` entry is as eligible for
+  # a stall kill+retry as a `:working` one, so it must classify the same way.
+  defp unresponsive?(
+         %{
+           work_state: work_state,
+           stale_for_seconds: stale,
+           stall_timeout_seconds: timeout
+         } = attrs
+       )
        when work_state in [:working, :sleeping] and is_integer(stale) and is_integer(timeout) and
               timeout > 0,
-       do: stale >= timeout
+       do: stale >= timeout and not CiLifecycle.ci_wait_state?(Map.get(attrs, :tracker_state))
 
   defp unresponsive?(_attrs), do: false
 

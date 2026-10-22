@@ -29,7 +29,7 @@ todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelle
 | `agent:rework` | CI or review requires another run. |
 | `agent:merging` | An accepted PR entering merge. Active for polling but **never dispatchable**. |
 | `agent:done` | Work complete. Terminal. |
-| `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. |
+| `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. With `pr_health.enabled`, an error ticket whose open, non-draft PR has a blocking `CHANGES_REQUESTED` review at its head moves to `agent:rework` once per review. |
 | `agent:cancelled` / `agent:canceled` | Terminal cancellation. **Both spellings exist**; both are real labels. |
 
 The terminal states are exactly `done | cancelled | canceled`
@@ -81,6 +81,12 @@ At the no-op bound, verified rework with no new PR head becomes `error`. Other
 no-op-bound tickets keep their state and receive an alert. A normal turn limit
 leaves the state unchanged when no PR head moved.
 
+When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
+daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
+merge-queue runs get those runners. The agent's next
+push starts fresh checks. A rework handback without a push leaves those runs
+cancelled, and CI recovery raises an attention for that head.
+
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
 that returns `{:error, {:stale_issue_state, ...}}` when the issue has moved
 underneath the writer (`issue_state.ex:162-174`), and a state write can never
@@ -99,6 +105,16 @@ staleness. Unapproved stale heads need no conflicts or changed-file overlap
 since the merge base, including both paths of renames. Incomplete evidence or
 genuine conflicts leave labels unchanged.
 
+A worker's `human-review` handback
+goes to `ci-wait` instead when the PR is approved and that approval carries to
+the head: approved at the head, or only merge drift since. A rework handback
+keeps `human-review`.
+
+The state tool reports the applied `state` and the
+`requested_state` separately. An approval redirect includes
+`result.reason: "approval_carries_to_pr_head"`; it does not mean CI is pending
+or that the worker must update its branch.
+
 A rework handback to `ci-wait` or `human-review` must answer the latest
 blocking review. Its numbered `file:line` items form the rework prompt's
 checklist. The agent passes one `review_findings` answer per item: `fixed`
@@ -109,7 +125,10 @@ commit is not a branch commit since the review, or if no such commit changed
 the item's file. Merge commits do not count.
 
 The write is also refused with no commit since the review, unless every item
-is disputed, and while GitHub reports the PR conflicting. The verified answers
+is disputed or the PR body was edited after the review. A body edit covers a
+body-only fix; a `fixed` item still needs its commit.
+
+The write is also refused while GitHub reports the PR conflicting. The verified answers
 are posted as a `## Rework checklist` ticket comment for the re-review.
 
 Harmless base movement needs no merge or CI rerun. Workers check before handoff
@@ -166,6 +185,8 @@ and never deletes ones a repository already has; those keep working as exact pin
 ## Build queue
 
 **Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI uses held edges and delivered PR facts (valid for 24 hours), independent of dispatch freshness. Missing facts or a merged/closed blocker restore `tracker.base_branch`. Retarget to integration before merge.
+
+**Rework waits on blockers.** An `agent:rework` dependent is held by open blockers the same way as `agent:todo`, so a stacked PR gets no rework turns it cannot act on.
 
 **Optimistic dependents.** An explicit Optimistic start prompt block tells a worker to integrate blocker pushes,
 rebase rewritten history, and keep its PR draft until every blocker merges. When its own work is done,

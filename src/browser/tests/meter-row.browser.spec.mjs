@@ -117,7 +117,7 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
         barHeight: line.querySelector('.rs-meter').getBoundingClientRect().height
       })))
       for (const line of modelLines) {
-        expect(line.height, `model line must keep the design's 11px height at ${width}px`).toBeCloseTo(11, 0)
+        expect(line.height, `model line must fit its label and full-width bar at ${width}px`).toBeCloseTo(17, 0)
         expect(line.barHeight, `model bar must be the design's 5px bar at ${width}px`).toBeCloseTo(5, 0)
       }
       const identityHeight = await page.locator('.rs-api .rs-head').first().evaluate((identity) => identity.getBoundingClientRect().height)

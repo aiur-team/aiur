@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildLive do
 
   require Logger
 
-  alias AiurWeb.Build.{DataSource, Protocol, Read, URLState, UsageUpdates}
+  alias AiurWeb.Build.{Conversation, DataSource, Protocol, Read, Ticket, URLState, UsageUpdates}
   alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, RouteRegistry}
   alias AiurWeb.Presenter
@@ -20,10 +20,20 @@ defmodule AiurWeb.BuildLive do
     socket =
       socket
       |> Protocol.init()
+      |> Conversation.init()
       |> DashboardShell.mount()
       |> UsageUpdates.init(connected)
       |> AwaitingCommands.mount(connected)
-      |> assign(build_state: :loading, build_snapshot: nil, route: @route, tracker_kind: Runtime.tracker_kind(), agent_kind: Runtime.agent_kind(), analytics: Presenter.analytics_navigation())
+      |> assign(
+        open_ticket: nil,
+        build_state: :loading,
+        build_snapshot: nil,
+        daemon_hint: nil,
+        route: @route,
+        tracker_kind: Runtime.tracker_kind(),
+        agent_kind: Runtime.agent_kind(),
+        analytics: Presenter.analytics_navigation()
+      )
 
     {:ok, if(connected, do: load_snapshot(socket), else: socket)}
   end
@@ -63,6 +73,8 @@ defmodule AiurWeb.BuildLive do
     end
 
     Process.send_after(self(), :build_snapshot_timeout, @snapshot_timeout_ms)
+    # The footer paints before the snapshot lands; seed it with the last daemon reading (#4915).
+    socket = assign(socket, :daemon_hint, %{daemon: DataSource.last_daemon(source, opts), now: System.system_time(:millisecond)})
     start_async(socket, :build_snapshot, fn -> DataSource.call(source, :snapshot, [opts]) end)
   end
 
@@ -86,13 +98,16 @@ defmodule AiurWeb.BuildLive do
 
   def handle_info({:build_changes, changes}, socket), do: {:noreply, Protocol.changes(socket, changes, source_opts(socket))}
 
-  def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
+  def handle_info(:fleet_changed, socket), do: {:noreply, socket |> DashboardShell.refresh_pause() |> Conversation.info(:fleet_changed)}
   def handle_info({AiurWeb.FinancialData, :updated, _} = message, socket), do: {:noreply, UsageUpdates.queue(socket, message)}
   def handle_info(:build_usage_flush, socket), do: {:noreply, UsageUpdates.flush(socket)}
   def handle_info(tick, socket) when tick in [:build_usage_github_tick, :build_usage_elevenlabs_tick], do: {:noreply, UsageUpdates.tick(socket, tick)}
 
   def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, AwaitingCommands.refresh(socket)}
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
+  def handle_info({:build_conversation_poll, _token} = message, socket), do: {:noreply, Conversation.info(socket, message)}
+  def handle_info({:live_conversation_changed, _snapshot} = message, socket), do: {:noreply, Conversation.info(socket, message)}
+  def handle_info({:live_conversation_restarted, _epoch, _now} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
@@ -100,6 +115,10 @@ defmodule AiurWeb.BuildLive do
 
   @impl true
   def handle_event("build-resync", _params, socket), do: Protocol.resync(socket, source_opts(socket))
+  def handle_event("open-ticket", params, socket), do: Ticket.open(socket, params)
+  def handle_event("close-ticket", _params, socket), do: {:noreply, socket |> Conversation.clear() |> assign(:open_ticket, nil)}
+  def handle_event("conversation-page", params, socket), do: Conversation.page(socket, params)
+  def handle_event("conversation-close", params, socket), do: Conversation.close(socket, params)
   def handle_event("load-earlier", params, socket), do: Protocol.earlier(socket, params, source_opts(socket))
   def handle_event("usage-watch-start", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :start)}
   def handle_event("usage-watch-stop", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :stop)}
@@ -129,6 +148,10 @@ defmodule AiurWeb.BuildLive do
 
   defp reason_tag(:not_wired), do: "not_wired"
   defp reason_tag(:timeout), do: "timeout"
+  defp reason_tag(:epic_config_unavailable), do: "epic_config_unavailable"
+  defp reason_tag(:settings_loading), do: "settings_loading"
+  defp reason_tag(:index_not_running), do: "index_not_running"
+  defp reason_tag(:read_failed), do: "read_failed"
   defp reason_tag(_reason), do: "unknown"
   defp state_name({:unavailable, _tag}), do: "unavailable"
   defp state_name(state), do: Atom.to_string(state)
@@ -143,13 +166,14 @@ defmodule AiurWeb.BuildLive do
       nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}
       pause_state={DashboardShell.pause_state(assigns)}>
       <div id="build-root" class="bd-root" phx-hook="BuildHome" phx-update="ignore"
-        data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}>
+        data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}
+        data-daemon={@daemon_hint && Jason.encode!(@daemon_hint)}>
         <div id="bd-usage"></div><div id="bd-offline"></div><div id="bd-fh"></div>
         <div class="bd-toolbar"><div class="bd-bar-l" id="bd-tools-l"></div><div class="bd-filters" id="bd-filters"></div><div class="bd-bar-r" id="bd-tools"></div></div>
         <div class="bd-vpw"><div class="bd-vp" id="bd-vp">
           <div class="bd-lanes"><div class="bd-skel-lanes"><i class="bd-skel-i" style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i></div></div>
           <div class="bd-skel"><i :for={_ <- 1..16}></i></div>
-          <div class="bd-loading"><span class="bd-spin"></span>Loading build timeline…</div>
+          <div class="bd-loading" role="status"><span class="bd-spin"></span>Loading build timeline…</div>
         </div><div class="bd-sb" id="bd-sb"><i></i></div><div class="bd-tree" id="bd-tree" hidden></div></div>
         <div class="bd-status" id="bd-status"></div>
       </div>

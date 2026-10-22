@@ -1,3 +1,7 @@
+import { alignBoard, alignEtaMask, primeBoardPaint } from '../support/build-home-band-canvas.mjs'
+import { installScrollPaint, flushScrollPaint } from '../support/build-home-scroll-paint.mjs'
+import { normalizeColumnCapture } from '../support/build-home-columns-motion.mjs'
+import { prepareTreeMotion, prepareTreeFrame } from '../support/build-home-tree-motion.mjs'
 // One spec keeps the required mutations, sequence contracts, and sign-off gate collected together.
 import { openVisualRoute } from '../support/visual.mjs'
 import { test, expect } from '@playwright/test'
@@ -54,6 +58,23 @@ import { motionPathMatches, compareRecords, domState, pausedAnimations, scrollFr
 
 const record = value => ({ name: 'probe', samples: [{ scrollTop: value }], dom: { nodes: [] } })
 const motionEntry = { id: 'probe-motion', kind: 'motion', path: 'probe.samples[*].scrollTop', approval: { status: 'pending-sign-off' } }
+
+test('harness self-check: scroll paint drains without advancing the animator', async ({ page }) => {
+  await page.clock.install({ time: FIXTURE_META.now - 1000 }); await page.clock.pauseAt(FIXTURE_META.now)
+  await page.setContent('<div id="bd-vp" style="height:100px;overflow:auto"><div style="height:1000px"></div></div>')
+  await page.evaluate(() => {
+    window.painted = 0; window.animated = false
+    const vp = document.querySelector('#bd-vp')
+    vp.addEventListener('scroll', () => requestAnimationFrame(() => { painted = vp.scrollTop }))
+    requestAnimationFrame(() => { animated = true })
+  })
+  await installScrollPaint(page)
+  await page.locator('#bd-vp').evaluate(vp => new Promise(resolve => {
+    vp.addEventListener('scroll', resolve, { once: true }); vp.scrollTop = 25
+  }))
+  expect(await flushScrollPaint(page)).toBe(1)
+  expect(await page.evaluate(() => ({ painted, animated }))).toEqual({ painted: 25, animated: false })
+})
 
 test('harness self-check: empty measurements are unreachable', () => {
   expect(compareRecords(record(10), { ...record(10), samples: [] })).toEqual([{ path: 'probe', reason: 'unreachable' }])
@@ -117,7 +138,6 @@ test('harness self-check: missing input and measurement fail', async ({ page }) 
   await expect(pausedAnimations(page, '#motion', { trigger: '.bd-zb' })).rejects.toThrow('unreachable input: .bd-zb')
   await expect(pausedAnimations(page, '.missing')).rejects.toThrow('unreachable measurement: .missing')
 })
-
 
 test('harness self-check: scroll frames advance timers and measure each position', async ({ page }) => {
   await page.clock.install({ time: FIXTURE_META.now - 1000 })
@@ -234,34 +254,84 @@ function collectAllowlist(design, product, entries) {
   for (const entry of entries.filter(e => e.kind === 'motion')) {
     if (raw.some(diff => motionPathMatches(entry.path, diff.path))) matchedAllowlist.add(entry.id)
   }
-  expect(compareRecords(design, product, entries)).toEqual([])
+  expect(compareRecords(design, product, entries), JSON.stringify({ design: design.reason, product: product.reason })).toEqual([])
 }
 
 // Barrier keeps both pages on each chosen frame while the shared screenshot helper runs.
 function frameBarrier(pair, name, reduce) {
   let count = 0, resolve, pending, aborted = false
+  const errors = []
   const frame = async (fraction, region) => {
     if (aborted) return
     if (reduce && ['modal.open', 'modal.reduce', 'modal.url', 'modal.close'].includes(name)) return // S-18 records the admitted tkin difference numerically.
     if (count++ % 2 === 0) { pending = new Promise(done => { resolve = done }); return pending }
-    try { await expectDesignParity(pair, { name: `${name}-${fraction}`, region, preserveAnimations: true }) }
-    finally { resolve() }
+    const chrome = []
+    try {
+      // Column application can cross different clock frames; numeric records retain that timing.
+      if (name.startsWith('columns.')) await Promise.all([pair.design, pair.product].map(page => page.clock.setSystemTime(FIXTURE_META.now)))
+      if (name.startsWith('snap.')) {
+        // The relocated board must not reveal external toolbar controls through its corners.
+        for (const page of [pair.design, pair.product]) chrome.push([page, await page.locator('#bd-tools').evaluate(el => {
+          const value = el.style.visibility; el.style.visibility = 'hidden'; return value
+        })])
+        // Span changes rebuild the header, replacing the pending ETA slot.
+        if (name !== 'snap.list-view') await alignEtaMask(pair)
+        // Tall fixed viewports must fit inside both screenshot documents.
+        for (const page of [pair.design, pair.product]) await page.locator('#bd-vp').evaluate(el => {
+          document.body.style.minHeight = Math.ceil(el.getBoundingClientRect().bottom + scrollY) + 'px'
+        })
+      }
+      if (name === 'snap.scroll-curve') await Promise.all([pair.design, pair.product].map(flushScrollPaint))
+      if (name.startsWith('snap.')) await primeBoardPaint(pair)
+      const captureRegion = name.startsWith('tree.') ? await prepareTreeFrame(pair, region) : region
+      await expectDesignParity(pair, { name: [name, pair.cell.dataset, pair.cell.viewport.width, pair.cell.theme, pair.cell.palette, pair.cell.reducedMotion, fraction].join("-"), region: captureRegion, preserveAnimations: true })
+    }
+    catch (error) { errors.push(error) }
+    finally {
+      try { for (const [page, visibility] of chrome) await page.locator('#bd-tools').evaluate((el, value) => { el.style.visibility = value }, visibility) }
+      finally { resolve() }
+    }
   }
-  return { frame, abort() { aborted = true; resolve?.() } }
+  return { frame, errors, abort() { aborted = true; resolve?.() } }
 }
 
 for (const selectedCell of interactionCells) test.describe(`product interactions ${selectedCell.dataset} ${selectedCell.viewport.width} ${selectedCell.theme} ${selectedCell.palette} ${selectedCell.reducedMotion}`, () => {
   for (const name of Object.keys(SEQUENCES).filter(n => !['inventory', 'grain.static'].includes(n))) test(name, async ({ browser }) => {
     test.setTimeout(120_000)
     const owner = ownerFor(name), reduce = selectedCell.reducedMotion === 'reduce'
-    const pair = await openParityPair(browser, selectedCell, { ...await sequenceOptions(name, selectedCell), productAnchor: owner.anchor, productPending: owner.pending })
+    const pair = await openParityPair(browser, selectedCell, { ...await sequenceOptions(name, selectedCell), productAnchor: name.startsWith('columns.') || name.startsWith('snap.') || name.startsWith('tree.') ? undefined : owner.anchor, productPending: owner.pending })
     try {
-      const absent = owner.pending || (owner.anchor && !await pair.product.locator(owner.anchor).count()) || ((name.startsWith('columns.') || name === 'snap.scroll-curve') && !await pair.product.locator('.bd-cal [data-span="7"]').count())
+      const absent = owner.pending || (owner.anchor && !await pair.product.locator(owner.anchor).count() && !(name.startsWith('columns.') && await pair.product.locator('#bd-content.flow').count())) || (name === 'snap.scroll-curve' && !await pair.product.locator('.bd-cal [data-span="7"]').count())
       if (absent) missingPorts.add(`${name}: ${owner.owners.join(', ')}`)
       test.fixme(absent, `awaiting ${owner.owners.join(', ')}`)
+      if (name.startsWith('columns.') || name === 'snap.scroll-curve') {
+        await Promise.all([pair.design, pair.product].map(async page => {
+          await page.addInitScript(() => {
+            const every = window.setInterval.bind(window)
+            window.columnPolls = []
+            window.setInterval = (fn, ms, ...args) => {
+              const id = every(fn, ms, ...args)
+              if (ms === 250) columnPolls.push({ id, fn, args })
+              return id
+            }
+          })
+          await page.reload(); await waitParityReady(page, 'board', page === pair.design ? 'design' : 'product', true)
+          await page.clock.setSystemTime(FIXTURE_META.now)
+          if (name === 'snap.scroll-curve') await installScrollPaint(page)
+          if (name.startsWith('columns.')) await normalizeColumnCapture(page)
+        }))
+      }
+      if (name.startsWith('snap.')) { await alignBoard(pair); await alignEtaMask(pair); pair.allowlist = pair.allowlist.map(e => e.id === 'now-band-eta-pending' ? { ...e, kind: 'pixel-mask', selector: '.bd-now-eta' } : e) }
+      if (name.startsWith('tree.')) await prepareTreeMotion(pair)
+      if (name === 'snap.list-view') pair.allowlist = pair.allowlist.filter(e => e.id !== 'now-band-eta-pending')
       const entries = scopedEntries(pair.allowlist, selectedCell), barrier = frameBarrier(pair, name, reduce)
       const [design, product] = await Promise.all([runOn(pair.design, name, { reduce, onFrame: barrier.frame }).finally(barrier.abort), runOn(pair.product, name, { reduce, onFrame: barrier.frame, ids: FIXTURE_META.ids }).finally(barrier.abort)])
+      if (name.startsWith('columns.') && (!design.samples.length || !product.samples.length))
+        throw new Error(JSON.stringify({ design: design.reason, product: product.reason }))
+      if (name === 'snap.list-view') await expect(pair.product.locator('.bd-list')).toHaveCount(1)
       collectAllowlist(design, product, entries)
+      if (name === 'snap.scroll-curve') console.log('Numeric scroll curve matched all 27 frames')
+      if (barrier.errors.length) throw barrier.errors[0]
     } finally { await pair.close() }
   })
 })
@@ -299,6 +369,7 @@ for (const selectedCell of colourCells) test.describe(`product inventory/grain $
     await openDesign(pair.design, selectedCell, { motion: true, phase })
     await openProduct(pair.product, selectedCell, { motion: true, phase })
     const reduce = selectedCell.reducedMotion === 'reduce'
+    if (selector === '.bd-now') { await alignBoard(pair); await alignEtaMask(pair); pair.allowlist = pair.allowlist.map(e => e.id === 'now-band-eta-pending' ? { ...e, kind: 'pixel-mask', selector: '.bd-now-eta' } : e) }
     const barrier = frameBarrier(pair, name, reduce)
     const [design, product] = await Promise.all([runOn(pair.design, name, { reduce, selector, onFrame: barrier.frame }).finally(barrier.abort), runOn(pair.product, name, { reduce, selector, onFrame: barrier.frame, ids: FIXTURE_META.ids }).finally(barrier.abort)])
     collectAllowlist(design, product, scopedEntries(pair.allowlist, selectedCell))
@@ -320,7 +391,6 @@ test('harness self-check: full matrix flag reaches the Playwright child', async 
   expect(child.GITHUB_TOKEN).toBeUndefined()
 })
 
-
 test('harness self-check: pixel frames retain paused CSS animation time', async ({ browser }) => {
   const context = await browser.newContext({ viewport: cell.viewport })
   try {
@@ -340,6 +410,17 @@ test('harness self-check: pixel frames retain paused CSS animation time', async 
   } finally { await context.close() }
 })
 
+test('harness self-check: ambient loops over a region do not defeat the settle guard', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: cell.viewport })
+  try {
+    const pages = await Promise.all([context.newPage(), context.newPage()])
+    // A loop outside the region's subtree paints across it, like the .bd-glow halo over .bd-lanes (#4851).
+    for (const page of pages) await page.setContent('<style>@keyframes spin { to { transform: rotate(360deg) } } #glow { position: absolute; top: 0; left: 0; width: 120px; height: 120px; background: conic-gradient(red, blue, red); animation: spin .3s linear infinite } #probe { position: relative; margin: 40px; width: 40px; height: 40px }</style><div id="glow"></div><div id="probe"></div>')
+    await compareParityPixels({ design: pages[0], product: pages[1], cell, allowlist: [] }, { name: 'ambient-loop', region: '#probe', preserveAnimations: true })
+    for (const page of pages) expect(await page.evaluate(() => document.getAnimations()[0].playState)).toBe('running')
+  } finally { await context.close() }
+})
+
 test('harness self-check: screenshot allowlists ignore motion paths', async ({ browser }) => {
   const context = await browser.newContext()
   try {
@@ -349,7 +430,6 @@ test('harness self-check: screenshot allowlists ignore motion paths', async ({ b
     expect(await applyAllowlist(pair, cell, [{ ...motionEntry, selector: '.missing' }])).toEqual({ designMask: [], productMask: [] })
   } finally { await context.close() }
 })
-
 
 test('harness self-check: composed animations share each sampled fraction', async ({ page }) => {
   await page.setContent('<style>@keyframes probeLeft {from {left:0} to {left:100px}} @keyframes probeWidth {from {width:100px} to {width:200px}} #probe {position:relative;height:20px} .on {animation:probeLeft 1s linear both,probeWidth 1s linear both}</style><button onclick="document.querySelector(\'#probe\').classList.add(\'on\')">start</button><div id="probe"></div>')
@@ -398,7 +478,6 @@ test('harness self-check: scroll curve requests three visual frames', async ({ b
   expect(record.samples.length, record.reason).toBeGreaterThan(0)
   expect(frames).toEqual([[0, '#bd-vp'], [.5, '#bd-vp'], [1, '#bd-vp']])
 })
-
 
 test('harness self-check: minimap waits for its stable target despite unrelated scrollend', async ({ page }) => {
   await page.setContent('<div id="cv-log" style="height:100px;overflow:auto"><div style="height:1000px"></div></div>')

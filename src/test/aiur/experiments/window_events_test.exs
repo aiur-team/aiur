@@ -14,8 +14,7 @@ defmodule Aiur.Experiments.WindowEventsTest do
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
-    if !Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    if !Process.whereis(Aiur.TaskSupervisor), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
+    :ok = Aiur.TestSupport.ensure_runtime_children_running()
     start_supervised!(Aiur.Experiments.Store)
     fixture = Jason.decode!(File.read!(Path.join(__DIR__, "fixtures/valid_line.json")))["spec"]
     {:ok, spec} = Spec.new(Map.put(fixture, "confounder_sources", %{"base_branch" => "main", "required_workflows" => ["CI"]}))

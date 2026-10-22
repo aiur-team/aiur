@@ -68,7 +68,7 @@ waits for GitHub to report the pushed head, then rewrites the body's
 the PR. Before the PR exists it skips that step, so the order at handoff is:
 push, `gh pr create`, run `aiur pre-pr` again to refresh the body, then hand
 off. `aiur_set_ticket_state` refuses `ci-wait` and `human-review` while the
-body's `Tested head` is not the PR head.
+body fails `mix pr_body.check` at the PR head, a stale `Tested head` included.
 
 Every PR body must follow `.github/pull_request_template.md`, including its
 `## Local tests` evidence. Before each handoff, run
@@ -124,15 +124,19 @@ queued only for a real merge conflict.
 
 ### Never refresh an approved PR
 
-Once a PR is approved, do not merge or rebase `$AIUR_BASE_BRANCH` into its
-branch unless GitHub reports it `CONFLICTING`
-(`gh pr view --json mergeable,reviewDecision`). The merge queue tests the
-merge, so branch freshness buys nothing, while every push cancels the
-in-flight CI run and can dismiss the approval. A red, cancelled, or missing
-check is never a reason to merge the base: a base merge can restart CI but
-cannot fix it. When the PR is `CONFLICTING`, integrate once and say why in a PR
-comment. The agent `git` guard refuses a push to a PR that is in the merge
-queue unless it is conflicting or has changes requested.
+When a ticket is in `agent:human-review` or `agent:ci-wait`, do not merge or
+rebase `$AIUR_BASE_BRANCH` into its PR branch just because the base moved, files
+overlap, CI is red/cancelled/missing, or a freshness check says it is behind.
+The merge queue tests each PR on the current base. Integrate the base in these
+states only when GitHub reports the PR `CONFLICTING`
+(`gh pr view --json mergeable,reviewDecision`) or a reviewer explicitly asks
+for it; explain a conflict-driven integration in a PR comment. In `rework`,
+follow the reviewer’s request, including “merge current origin/main” when asked.
+This applies while any open PR waits for CI, review, or the merge queue: a
+mergeable head gets no base-only merge commits. If a newer base commit fixes a
+failing check, name that commit before refreshing the branch.
+The agent `git` guard refuses a push to a PR that is in the merge queue unless
+it is conflicting or has changes requested.
 
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 
@@ -226,7 +230,7 @@ The Executor’s only at-a-glance signal for "how far is each agent" is the prog
 - `30`–`50`: implementation in flight
 - `60`–`80`: code typed, in self-review or CI
 - `90`: PR pushed, last fixes / final review pass
-- `100`: emit exactly **once**, right before you flip the issue label to `agent:human-review` — regardless of which CE phases ran this turn. This is the signal that turns the Executor’s bar green and tells Aiur to release your agent slot. Complexity:1 paths that skip `ce-brainstorm` / `ce-plan` / `ce-review` still emit the 100% sample at the label flip. Don't emit 100 before the label flip — a premature 100 lies about the state, and the bar greening before the PR is actually ready will confuse the Executor.
+- `100`: emit exactly **once**, right before you flip the issue label to `agent:human-review` — regardless of which CE phases ran this turn. It only turns the Executor’s bar green; it does not release your agent slot. The `agent:human-review` state move ends your turn, and that is what frees the slot. Complexity:1 paths that skip `ce-brainstorm` / `ce-plan` / `ce-review` still emit the 100% sample at the label flip. Don't emit 100 before the label flip — a premature 100 lies about the state, and the bar greening before the PR is actually ready will confuse the Executor.
 
 **The `label` field.** Names your cleanup-aware tail so the Executor can see what you budgeted. Keep it ≤ 80 chars. Format: `"<phase>: <what you're doing now>, <tail you're budgeting>"`.
 
@@ -364,3 +368,12 @@ constructing an alternate harness. Executor-root manual test runs are allowed
 only outside agent turns.
 
 A resumed dependent with `refs/aiur/restack/pending/<branch>` or `refs/aiur/restack/conflict/<branch>` must inspect that receipt and follow the restack recipe before ordinary base integration. The startup hook preserves local divergence and conflict receipts for you to reconcile.
+
+### Never generate real CPU load
+
+Never run `yes`, `stress`, or a shell busy loop such as
+`while :; do :; done` to reproduce a load-sensitive flake, and never start one
+per core. Inject the load through the code's test seam instead. Aiur reports
+such loops to the Executor as your ticket's attention, naming your workspace,
+and kills them where configured. The `aiur-agent` skill's `conventions.md` has
+the full rule.

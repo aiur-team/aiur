@@ -162,3 +162,34 @@ npm run test:visual:docker # Run visual tests in the pinned CI container
 ## License
 
 MIT
+
+## React
+
+React 18+ is an optional peer. Vanilla imports do not load React. Import CSS
+explicitly; these components render the same markup contracts as the vanilla gallery.
+
+```tsx
+import { AiurShell, PageFrame, ThemeToggle, Button } from 'aiur-style/react';
+import 'aiur-style/aiur-style.css';
+
+<AiurShell navItems={[{ href: '/channels', label: 'Channels', current: true }]}
+  brand="Aiur" controls={<ThemeToggle />}>
+  <PageFrame title="Channels" description="Choose a channel">
+    <Button as="a" href="/channels/new">New channel</Button>
+  </PageFrame>
+</AiurShell>
+```
+
+`collapsed` and `onCollapsedChange` provide controlled navigation; omit `collapsed`
+for stored state with an optional `defaultCollapsed`. `mode="hosted-content"`
+renders only `.aiur-shell-content-root`, with `data-theme` from the host's
+`theme` port or the vanilla theme controller. Khala's `navigation`, `actions`,
+`headerContent`, `sidebar`, `brandHref`, and PageFrame `model` props are accepted.
+`mobileControls` overrides the controls shown in the mobile pill.
+
+`Button` accepts `variant="primary|ghost|danger|tool"`, `size="sm|md|lg"`,
+`shape="pill|rounded|icon"`, native element props, and `as` (default `button`).
+`ThemeToggle` initializes and destroys the vanilla controller on mount/unmount.
+The package build bundles `gallery/react.tsx` with esbuild into the ignored
+`gallery/dist/`; `test/react.visual.spec.ts` compares it directly with the vanilla
+shell in both themes, at desktop/tablet/mobile sizes, with a 0.001 pixel ratio limit.

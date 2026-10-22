@@ -14,6 +14,12 @@ defmodule AiurWeb.Build.PayloadTest do
     assert Payload.validate(hostile["snapshot"]) == :ok
   end
 
+  test "read failures retain their cause in valid error envelopes" do
+    for reason <- [:timeout, :index_not_running, :read_failed, :epic_config_unavailable, :settings_loading, :invalid_data] do
+      assert Payload.validate(Payload.error(reason)) == :ok
+    end
+  end
+
   for {name, path, value, expected} <- [
         {"pct is numeric", ["sections", "now", 0, "pct"], "50", "sections.now.0.pct"},
         {"effort is an enum", ["sections", "now", 0, "agent", "effort"], "<b>", "sections.now.0.agent.effort"},
@@ -117,8 +123,8 @@ defmodule AiurWeb.Build.PayloadTest do
       end)
 
     IO.puts("build payload census mean_row_bytes=#{Float.round(bytes / rows, 2)} rows=#{rows}")
-    # Historic children, states and missing counts raise the measured census from 431.69 to 492.33 bytes.
-    assert bytes / rows <= 500
+    # Realistic PR chips raise the frozen census from 492.33 to 512.98 bytes per row.
+    assert bytes / rows <= 525
 
     for name <- ~w(live dense) do
       {:ok, data} = FixtureSource.snapshot(dataset: name)

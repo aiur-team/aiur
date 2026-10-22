@@ -1,9 +1,23 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
   use ExUnit.Case, async: true
 
+  alias AiurWeb.DashboardLive.UnitsPanel
   alias AiurWeb.OperatorControlCenter.{UnitsPresenter, UnitsURL}
 
   import AiurWeb.OperatorControlCenter.UnitsPresenterFixtures
+
+  test "unpublished daemon snapshot renders Units as loading without zero counts" do
+    catalog = UnitsPresenter.load(%{daemon_starting?: true}, membership_fun: fn -> raise "must not read yet" end)
+    view = UnitsPresenter.project(catalog, UnitsURL.default_selection())
+
+    assert view.status == :loading
+    assert view.message == "The daemon is starting."
+    assert view.total_count == nil
+    assert view.count_status == :loading
+    assert Enum.all?(Map.values(view.counts), &is_nil/1)
+    assert UnitsPanel.units_count_label(view) == "loading units…"
+    assert UnitsPresenter.announcement(view) =~ "Loading Units"
+  end
 
   test "loads typed provider snapshots once and keeps later projection pure" do
     test_pid = self()
@@ -75,6 +89,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
                 tracker_identity: identity,
                 bucket: :running,
                 telemetry_attempt_id: "attempt-current",
+                turn_count: 3,
+                turn_count_observed?: true,
                 context_usage: %{
                   used_tokens: 1200,
                   window_tokens: 4000,
@@ -98,6 +114,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert row.telemetry_attempt_id == "attempt-current"
     assert row.context_usage == %{used_tokens: 1200, window_tokens: 4000, used_percent: 30.0}
     refute Map.has_key?(row.context_usage, :session_id)
+    assert row.turn_count == 3
+    assert row.field_sources.turn_count == :status_report
   end
 
   test "current orchestrator rows prevent a healthy empty membership from reporting Active 0" do
@@ -154,6 +172,22 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert view.count_status == :partial
     assert view.counts.active == 1
     assert catalog.message == "Fleet data is unavailable."
+  end
+
+  test "an unpublished daemon view becomes unavailable after the startup deadline" do
+    catalog = UnitsPresenter.load(%{daemon_starting?: true, startup_elapsed_ms: 600_000})
+    view = UnitsPresenter.project(catalog, UnitsURL.default_selection())
+
+    assert catalog.status == :unavailable
+    assert view.count_status == :unavailable
+    assert is_nil(view.total_count)
+    assert catalog.message == "Fleet data is unavailable."
+  end
+
+  test "a fleet catalog with no successful view is marked loading during startup" do
+    payload = %{units: %{status: :stale, message: "Fleet data is unavailable.", snapshot: %{rows: []}}}
+
+    assert %{units: %{status: :loading, message: "The daemon is starting."}} = UnitsPresenter.starting_catalog(payload)
   end
 
   test "truncated membership qualifies every catalog count as a lower bound" do

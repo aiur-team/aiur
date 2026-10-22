@@ -19,7 +19,7 @@ defmodule Aiur.BuildOrder.TicketDetailProviderFailureTest do
   end
 
   @configured {"owner", "repo"}
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @transport_test_options_key :github_transport_test_options
 
   setup_all do
@@ -71,7 +71,7 @@ defmodule Aiur.BuildOrder.TicketDetailProviderFailureTest do
     end)
 
     Req.Test.stub({__MODULE__, :oversized}, fn conn ->
-      body = issue(42, "I42") |> Map.put("body", String.duplicate("x", 70_000)) |> Jason.encode!()
+      body = issue(42, "I42") |> Map.put("unexpected_metadata", String.duplicate("x", 550_000)) |> Jason.encode!()
 
       conn
       |> Plug.Conn.put_resp_content_type("application/json")

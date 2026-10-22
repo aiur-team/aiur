@@ -23,11 +23,12 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
       source_or_pending?(f) ->
         source_or_pending(f)
 
-      "#{f.prefix}:queued" not in f.labels or f.observation.open? == false ->
-        closed_or_removed(f)
-
+      # A failed closure read has no labels; it must not read as a removed queue marker.
       f.observation.open? == :unknown ->
         result(:unknown, :observation_unavailable)
+
+      "#{f.prefix}:queued" not in f.labels or f.observation.open? == false ->
+        closed_or_removed(f)
 
       claimed?(f) ->
         claimed(f)

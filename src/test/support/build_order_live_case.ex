@@ -5,13 +5,14 @@ defmodule AiurWeb.BuildOrderLiveCase do
   import ExUnit.Callbacks
 
   alias Aiur.{AgentPubSub, TrackerIdentity}
-  alias Aiur.TestSupport.{AwaitingCommands, LiveViewAsync}
+  alias Aiur.TestSupport.{AwaitingCommands, EndpointStubs, LiveViewAsync}
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
   alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.TicketDetail.Snapshot, as: DetailSnapshot
   alias AiurWeb.Endpoint
+  alias Phoenix.LiveView.Channel
 
   defmacro __using__(_opts) do
     quote do
@@ -56,7 +57,12 @@ defmodule AiurWeb.BuildOrderLiveCase do
     def unsubscribe_catalog(server, repository),
       do: invoke(server, :unsubscribe_catalog, [repository])
 
-    def catalog(server), do: invoke(server, :catalog, [])
+    def catalog(server) do
+      case invoke(server, :catalog, []) do
+        loader when is_function(loader, 0) -> loader.()
+        catalog -> catalog
+      end
+    end
 
     def subscribe_sources(server) do
       :ok = Aiur.AgentPubSub.subscribe_running()
@@ -193,7 +199,7 @@ defmodule AiurWeb.BuildOrderLiveCase do
       )
       |> Keyword.merge(awaiting_commands_config(context))
 
-    Application.put_env(:aiur, Endpoint, endpoint_config)
+    Application.put_env(:aiur, Endpoint, EndpointStubs.scope(endpoint_config))
     Aiur.TestSupport.start_owned_endpoint!()
 
     on_exit(fn ->
@@ -424,6 +430,21 @@ defmodule AiurWeb.BuildOrderLiveCase do
       "authorization",
       "Basic " <> Base.encode64("operator:test-dashboard-secret")
     )
+  end
+
+  # The connected mount reads the catalog asynchronously (#4841), and the
+  # catalog result starts the selected demand and source reload in turn.
+  defmacro live_settled(path) do
+    quote do
+      with {:ok, view, _html} <- live(build_conn(), unquote(path)),
+           do: {:ok, view, AiurWeb.BuildOrderLiveCase.settle(view)}
+    end
+  end
+
+  def settle(view, rounds \\ 5) do
+    html = LiveViewAsync.render_when_complete(view)
+    {:ok, pending} = Channel.async_pids(view.pid)
+    if pending == [] or rounds == 0, do: html, else: settle(view, rounds - 1)
   end
 
   # --- awaiting-Commands banner ---------------------------------------------

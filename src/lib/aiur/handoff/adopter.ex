@@ -7,7 +7,7 @@ defmodule Aiur.Handoff.Adopter do
   alias Aiur.Config.Paths
   alias Aiur.Handoff.{Compatibility, Record, Report}
   alias Aiur.Handoff.Fallback
-  alias Aiur.Orchestrator.{Slots, State}
+  alias Aiur.Orchestrator.{AdoptedBoot, Slots, State}
 
   @spec adopt(State.t(), keyword()) :: State.t()
   def adopt(state, opts \\ []) do
@@ -42,6 +42,7 @@ defmodule Aiur.Handoff.Adopter do
   defp finish_consumption(previous, next, agents, record, outcomes, opts) do
     case Record.consume(Enum.reverse(outcomes), opts) do
       :ok ->
+        next = AdoptedBoot.restore(next)
         for {_id, entry} <- next.running, entry[:adopted_from] == record["handoff_id"], do: send(entry.pid, :handoff_continue)
         Report.notify(opts)
         next

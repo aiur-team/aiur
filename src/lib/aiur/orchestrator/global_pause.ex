@@ -2,17 +2,19 @@ defmodule Aiur.Orchestrator.GlobalPause do
   @moduledoc """
   The single global pause switch: a daemon-wide halt distinct from per-agent pause.
 
-  Pausing holds every running agent that is not already individually paused and
-  stops all provisioning (`Slots.available_slots/1` returns 0 while paused, so no
-  agents spin up even with `agent:todo` tickets). Unpausing resumes only the
-  agents this switch held, never overriding an operator's per-agent pause.
+  Pausing stops provisioning (`Slots.available_slots/1` returns 0 while paused,
+  so no agents spin up even with `agent:todo` tickets) while existing agents
+  continue to be observed by the normal poll cycle.
 
   The switch also cold-starts from the `--pause` launch flag via
   `Aiur.Orchestrator.Slots.launch_globally_paused?/0`, seeded on orchestrator init.
   All state mutation runs inside the orchestrator GenServer process.
   """
 
-  alias Aiur.Orchestrator.{GlobalPauseStore, Lifecycle, PauseResume, SnapshotStore, State, StatusReport}
+  alias Aiur.Issue
+  alias Aiur.ModelAvailability
+  alias Aiur.Orchestrator.{DispatchPolicy, GlobalPauseStore, Lifecycle, SnapshotStore, State, StatusReport}
+  alias Aiur.Orchestrator.PauseResume.Resume
 
   @call_timeout 15_000
 
@@ -54,8 +56,8 @@ defmodule Aiur.Orchestrator.GlobalPause do
   end
 
   @doc """
-  Flip the global pause switch. `true` pauses the daemon and holds all running
-  agents; `false` unpauses and resumes only the globally held agents. Idempotent.
+  Flip the global pause switch. `true` stops provisioning while existing agents
+  continue to run and be observed; `false` re-enables provisioning. Idempotent.
   """
   @spec set_global_pause(boolean()) :: {:ok, map()} | {:error, term()}
   def set_global_pause(on?) when is_boolean(on?),
@@ -113,8 +115,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
       :ok ->
         state =
           next_state
-          |> apply_global_pause_transition(current, on?, opts)
-          |> maybe_wake_after_unpause(current, on?)
+          |> maybe_refresh_after_global_pause_change(current, on?, opts)
 
         publish_global_pause(state)
         StatusReport.notify_dashboard(state)
@@ -139,19 +140,44 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
   defp next_global_pause_state(state, _current, _on?, _source), do: state
 
-  defp apply_global_pause_transition(state, false, true, _opts),
-    do: PauseResume.pause_running_for_global(state)
-
-  defp apply_global_pause_transition(state, true, false, opts),
-    do: PauseResume.resume_running_from_global(state, opts)
-
-  defp apply_global_pause_transition(state, _current, _on?, _opts), do: state
-
   # An idle fleet may have a substantially widened timer. Unpausing is an
   # explicit admission request, so cancel that timer and reconcile fresh state
   # before any queued ticket can dispatch.
-  defp maybe_wake_after_unpause(state, true, false), do: state |> Lifecycle.request_refresh_state() |> elem(0)
-  defp maybe_wake_after_unpause(state, _current, _on?), do: state
+  defp maybe_refresh_after_global_pause_change(state, false, true, _opts),
+    do: state |> Lifecycle.request_refresh_state() |> elem(0)
+
+  defp maybe_refresh_after_global_pause_change(state, true, false, opts) do
+    backends = Keyword.get(opts, :backends, DispatchPolicy.read_provider_backends())
+    ModelAvailability.probe_stale_limits(backends, opts)
+
+    state
+    |> resume_legacy_global_pause_entries()
+    |> Lifecycle.request_refresh_state()
+    |> elem(0)
+  end
+
+  defp maybe_refresh_after_global_pause_change(state, _current, _on?, _opts), do: state
+
+  # Older releases parked running workers when global pause was enabled. Release
+  # only those legacy holds during unpause; new pauses leave workers untouched.
+  defp resume_legacy_global_pause_entries(%State{} = state) do
+    Enum.reduce(state.running, state, fn
+      {issue_id, %{paused_reason: :global_pause, issue: issue} = entry}, acc ->
+        resume_legacy_global_pause_entry(acc, issue_id, entry, issue)
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp resume_legacy_global_pause_entry(state, issue_id, entry, issue) do
+    if Issue.paused?(issue), do: state, else: resume_legacy_global_pause_entry(state, issue_id, entry)
+  end
+
+  defp resume_legacy_global_pause_entry(state, issue_id, entry) do
+    {_reply, next} = Resume.resume_running_issue(state, entry)
+    if Map.has_key?(next.running, issue_id), do: next, else: state
+  end
 
   defp publish_global_pause(%State{} = state) do
     SnapshotStore.publish_global_pause(

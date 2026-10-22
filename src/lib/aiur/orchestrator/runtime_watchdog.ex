@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   require Logger
 
   alias Aiur.{Alerts, Config, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, PauseResume, RetryEngine, State}
+  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, PauseResume, RetryEngine, State}
 
   @interrupted_turn_grace_ms 30_000
 
@@ -44,15 +44,11 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
     apply_runtime_health_check(state, DateTime.utc_now())
   end
 
-  # Safety check-in, not a kill: pause any agent that has been actively
-  # running longer than `agent.max_agent_duration_minutes` (paused/blocked
-  # time excluded via `running_seconds/2`). The duration cap is almost
-  # always "I want to check in," not "this work is done" — pausing keeps
-  # the agent in the list, retaining its session/turn context so the
-  # Executor can review and resume with one keystroke instead of
-  # restarting from scratch. The pause releases its fleet reservation
-  # (`@non_reserving_pause_reasons`), so a parked agent cannot pin a
-  # capacity slot indefinitely (#2329).
+  # Pause any agent that has been actively running longer than
+  # `agent.max_agent_duration_minutes` (paused/blocked time excluded via
+  # `running_seconds/2`). Once the worker confirms it parked,
+  # `DurationCapRelease` moves the ticket to rework or human-review and
+  # frees the runner so a fresh worker continues (#4849).
   @doc false
   @spec reconcile_overrunning_agents(State.t()) :: State.t()
   def reconcile_overrunning_agents(%State{} = state) do
@@ -261,6 +257,12 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       wedged_overcap_entry?(running_entry, now, timeout_ms) ->
         terminate_wedged_overcap_entry(state, issue_id, running_entry, now)
 
+      # CI-wait is an intentional handoff: the worker is waiting for CI and
+      # should not consume a retry even if its last activity is old. It sits
+      # below the wedged-overcap kill so a runaway still gets force-terminated.
+      ci_wait_issue?(running_entry) ->
+        state
+
       # Paused agents are INTENTIONALLY idle — the agent emitted
       # pause.request because it declared a blocker and has nothing to
       # do until the blocker emits. The stall watchdog must not
@@ -283,6 +285,9 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
         maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms)
     end
   end
+
+  defp ci_wait_issue?(%{issue: issue}), do: CiLifecycle.ci_wait_state?(Map.get(issue, :state))
+  defp ci_wait_issue?(_running_entry), do: false
 
   # True when a duration-capped paused entry is WEDGED rather than parked:
   # it kept streaming codex after the cooperative `{:pause_agent}` was sent

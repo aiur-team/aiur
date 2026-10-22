@@ -62,6 +62,8 @@ async function openUnits(page) {
   const conditions = encodeURIComponent('active,alert,paused,queued,finished')
   await page.goto(`/units?v=1&scope=unfinished&conditions=${conditions}`)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
+  // A row click before the view joins is dropped; see support/units-helpers.mjs.
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }
 
 function dial(page, index) {

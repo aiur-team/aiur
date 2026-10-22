@@ -22,7 +22,7 @@ defmodule AiurWeb.Build.Freshness do
   """
   alias Aiur.BuildOrder.SourceFreshness
   alias Aiur.{Orchestrator, PollCadence}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
 
   @spec daemon(term(), integer()) :: map()
   def daemon({status, _, md}, now_ms) when status in [:current, :stale] and is_map(md) do
@@ -36,9 +36,27 @@ defmodule AiurWeb.Build.Freshness do
 
   @spec read_daemon(keyword()) :: map()
   def read_daemon(opts \\ []) do
-    orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> Endpoint.config(:orchestrator) || Orchestrator end)
-    timeout = Keyword.get_lazy(opts, :timeout, fn -> PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000, class: :dispatch) end)
+    orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> EndpointConfig.get(:orchestrator) || Orchestrator end)
+    timeout = Keyword.get_lazy(opts, :timeout, fn -> PollCadence.snapshot_tolerance_ms(EndpointConfig.get(:snapshot_timeout_ms) || 15_000, class: :dispatch) end)
     daemon(Orchestrator.dashboard_snapshot(orchestrator, timeout), System.os_time(:millisecond))
+  end
+
+  @doc "Reads the current fleet rows through the nonblocking orchestrator read model."
+  @spec read_running_rows(keyword()) :: {:ok, %{statuses: [map()], running: [map()]}} | {:error, :timeout | :unavailable}
+  def read_running_rows(opts \\ []) do
+    orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> EndpointConfig.get(:orchestrator) || Orchestrator end)
+    timeout = Keyword.get(opts, :fleet_timeout, 1_000)
+
+    case Orchestrator.fleet_view(orchestrator, timeout, fleet_rows?: true) do
+      {:ok, %{statuses: statuses, running: running}, _freshness} when is_list(statuses) and is_list(running) ->
+        {:ok, %{statuses: statuses, running: running}}
+
+      {:error, reason} when reason in [:timeout, :unavailable] ->
+        {:error, reason}
+
+      _invalid ->
+        {:error, :unavailable}
+    end
   end
 
   @spec push_daemon?(term(), map()) :: boolean()

@@ -31,9 +31,9 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore, StatusReport}
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
-  alias Aiur.TestSupport.{LiveViewAsync, RefreshTrace}
+  alias Aiur.TestSupport.{EndpointStubs, LiveViewAsync, RefreshTrace}
   alias Aiur.Usage.Headless.Codex.ThreadUsage
-  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
+  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, EndpointConfig, ObservabilityPubSub, Presenter}
   alias AiurWeb.OperatorControlCenter.{AgentRoutingPreview, FleetFilters, Overview, PayloadLoader, UnitsPresenter}
 
   @endpoint AiurWeb.Endpoint
@@ -385,8 +385,7 @@ defmodule AiurWeb.DashboardLiveTest do
   defmodule QueueOrchestrator do
     use GenServer
 
-    alias Aiur.Orchestrator.OperatorMessages
-    alias Aiur.Orchestrator.StatusReport
+    alias Aiur.Orchestrator.{GlobalPause, OperatorMessages, StatusReport}
 
     def start_link(opts) do
       GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
@@ -397,6 +396,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     @impl true
     def handle_call(:snapshot, _from, state), do: StatusReport.snapshot(state)
+
+    def handle_call(:global_pause_status, _from, state), do: {:reply, {:ok, GlobalPause.global_pause_status(state)}, state}
 
     def handle_call({:send_correlated_operator_message, issue_identifier, payload}, _from, state) do
       OperatorMessages.send_correlated_operator_message_call(state, issue_identifier, payload)
@@ -622,9 +623,9 @@ defmodule AiurWeb.DashboardLiveTest do
       start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: true)
       {:ok, _view, html} = live(build_conn(), "/")
 
-      assert html =~ "ax-mi on"
+      assert html =~ "ax-mi aiur-shell__menu-item on"
       assert html =~ ~s(aria-checked="true")
-      assert html =~ "Resume all agents"
+      assert html =~ "Resume new starts"
       refute html =~ "global-pause-banner"
     end
 
@@ -656,17 +657,17 @@ defmodule AiurWeb.DashboardLiveTest do
       assert html =~ ~s(id="ax-pause")
       assert html =~ ~s(phx-click="toggle-global-pause")
       assert html =~ ~s(aria-checked="false")
-      assert html =~ "Pause all agents"
-      refute html =~ "ax-mi on"
-      refute html =~ ~s|aria-label="Resume all agents"|
+      assert html =~ "Pause new starts"
+      refute html =~ "ax-mi aiur-shell__menu-item on"
+      refute html =~ ~s|aria-label="Resume new starts"|
     end
 
     test "renders a resume affordance while the daemon is globally paused" do
       html = render_payload(global_pause_fleet(true), writable: true)
 
-      assert html =~ "ax-mi on"
+      assert html =~ "ax-mi aiur-shell__menu-item on"
       assert html =~ ~s(aria-checked="true")
-      assert html =~ "Resume all agents"
+      assert html =~ "Resume new starts"
       refute html =~ "global-pause-banner"
       refute html =~ "lift the global pause"
     end
@@ -740,12 +741,9 @@ defmodule AiurWeb.DashboardLiveTest do
       assert Floki.attribute(mobile_readonly, "aria-disabled") == ["true"]
     end
 
-    # `.global-pause-icon` shipped with no stylesheet rule, so the inline SVG —
-    # which carries no intrinsic dimensions — collapsed and the button rendered
-    # as an empty circle on every breakpoint. Guard the whole class of bug: any
-    # icon wrapper the shell renders must have its SVG sized in dashboard.css.
+    # SVG wrappers carry no intrinsic dimensions; guard their shared sizing rules.
     test "every icon wrapper in the shell has an svg sizing rule" do
-      {:ok, "text/css", css} = AiurWeb.StaticAssets.fetch("/dashboard.css")
+      css = File.read!(Application.app_dir(:aiur, "priv/static/aiur-style/css/dashboard-shell.css"))
 
       wrapper_classes =
         global_pause_fleet(false)
@@ -753,6 +751,8 @@ defmodule AiurWeb.DashboardLiveTest do
         |> Floki.parse_document!()
         |> Floki.find("#ax-frame .snav-ic, #ax-frame .toggle-icon")
         |> Enum.flat_map(&Floki.attribute([&1], "class"))
+        |> Enum.flat_map(&String.split/1)
+        |> Enum.filter(&String.starts_with?(&1, "aiur-"))
         |> Enum.uniq()
 
       assert wrapper_classes != [], "expected the shell to render icon wrappers"
@@ -834,12 +834,10 @@ defmodule AiurWeb.DashboardLiveTest do
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
     {:ok, view, initial_html} = live(build_conn(), "/")
-    # Before the first snapshot the fleet area degrades to its ordinary empty
-    # state, which names the missing fleet view rather than claiming the run is
-    # empty. No notice, no error card.
-    assert initial_html =~ "No live units. Fleet data is unavailable."
-    refute initial_html =~ "snapshot_unpublished"
-    refute initial_html =~ "No fleet data"
+    # Before the first fleet view is available, keep counts unknown and label
+    # the state as startup loading rather than empty or unavailable.
+    assert initial_html =~ "Loading Units…"
+    refute Enum.any?(["0+", "Pause state unknown", "snapshot_unpublished", "No fleet data"], &String.contains?(initial_html, &1))
 
     :ok = ObservabilityPubSub.subscribe()
     :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
@@ -969,7 +967,7 @@ defmodule AiurWeb.DashboardLiveTest do
         health: :ready,
         reconciliation: %{status: :complete, partial?: false}
       })
-      |> Map.put(:decisions, [decision])
+      |> Map.put(:decisions, [Map.put(decision, :open?, true)])
       |> Map.put(:overview, %{
         blocking_decisions: 1,
         running: 0,
@@ -1196,7 +1194,7 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, view, _html} = live(build_conn(), "/")
     {:ok, second_view, _html} = live(build_conn(), "/")
     views = [view, second_view]
-    cache = AiurWeb.Endpoint.config(:control_center_cache)
+    cache = EndpointConfig.get(:control_center_cache)
 
     assert_bounded_reload_burst(views, List.duplicate(:observability_updated, 25), cache, orchestrator_name)
 
@@ -1347,9 +1345,9 @@ defmodule AiurWeb.DashboardLiveTest do
         socket = :sys.get_state(view.pid).socket
         assert socket.assigns.financial_data_capability.state == :authorized
 
-        # Rotate credentials: the outstanding session marker is now stale, so
-        # the next mount sees no valid financial access and renders locked.
+        # Rotate credentials so the outstanding session marker becomes stale.
         System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-boundary-secret")
+        refute Map.has_key?(PayloadLoader.load(:fresh), :units_status_snapshot)
 
         {:ok, redirected, redirected_html} = live_redirect(view, to: "/commands")
         send(test_process, {:revoked_financial, redirected})
@@ -1362,7 +1360,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert socket.assigns.financial_data_capability.state == :locked
     assert socket.assigns.payload.fleet.agent_totals == %{seconds_running: 41}
     refute Map.has_key?(socket.assigns.payload.fleet, :rate_limits)
-    refute inspect(socket) =~ sentinel
+    Aiur.TestSupport.refute_leak(socket, sentinel)
     refute render(redirected) =~ sentinel
     refute log =~ sentinel
   end
@@ -1403,8 +1401,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert socket.assigns.financial_data_capability == %{state: :authorized, version: 1}
     assert %AiurWeb.FinancialDataAccess.Context{} = socket.private.aiur_financial_data_access
-    refute inspect(socket.private.aiur_financial_data_access) =~ "operator"
-    refute inspect(socket.private.aiur_financial_data_access) =~ "socket-bound-secret"
+    Aiur.TestSupport.refute_leak(socket.private.aiur_financial_data_access, "operator")
+    Aiur.TestSupport.refute_leak(socket.private.aiur_financial_data_access, "socket-bound-secret")
     assert socket.assigns.writable == false
   end
 
@@ -1498,7 +1496,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert :ok = DecisionMetrics.observe(request_event, new_metrics)
     assert_receive :decision_metrics_changed, 2_000
 
-    cache = AiurWeb.Endpoint.config(:control_center_cache)
+    cache = EndpointConfig.get(:control_center_cache)
     touch_cached_payloads(cache)
     assert map_size(:sys.get_state(cache).entries) == 1
     assert cached_payloads_fresh?(cache, 400)
@@ -3665,7 +3663,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    assert is_pid(AiurWeb.Endpoint.config(:control_center_cache))
+    assert is_pid(EndpointConfig.get(:control_center_cache))
 
     path = "/commands/#{decision.decision_id}"
     {:ok, view, initial_html} = live(build_conn(), path)
@@ -4511,13 +4509,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute wrong_repo_html =~ ~s(id="units-conversation-drawer")
     assert render(wrong_repo_view) =~ "Chat is unavailable for this ticket."
 
-    unknown_config =
-      Application.get_env(:aiur, AiurWeb.Endpoint, [])
-      |> Keyword.put(:live_conversation_resolve_fun, fn _resolved ->
-        {:ok, %{conversation_snapshot(handle) | state: :restart_unknown, messages: []}}
-      end)
-
-    :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, unknown_config}], [])
+    EndpointStubs.put(live_conversation_resolve_fun: fn _resolved -> {:ok, %{conversation_snapshot(handle) | state: :restart_unknown, messages: []}} end)
     {:ok, unknown_view, unknown_html} = live(build_conn(), path)
     refute unknown_html =~ ~s(id="units-conversation-drawer")
     assert render(unknown_view) =~ "Chat is unavailable for this ticket."
@@ -5194,7 +5186,7 @@ defmodule AiurWeb.DashboardLiveTest do
     view |> element(~s(#add-agent-modal form)) |> render_change(%{"complexity" => "3"})
     view |> element(~s(#add-agent-modal form)) |> render_submit(%{})
 
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
 
     # The active-state label is what makes the ticket dispatchable at all, and the
     # complexity tag it replaces is removed rather than left to outrank it. The
@@ -5275,7 +5267,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute has_element?(view, "#add-agent-modal")
     # The socket processed Close before the boundary was released.
     send(worker, :continue)
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert render(view) =~ "Waiting for an agent to start"
     assert_received {:add_label, "complexity:3"}
     assert_received {:add_label, "model:codex-terra"}
@@ -5310,7 +5302,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     refute has_element?(view, "#add-agent-modal")
     send(orchestrator, :release_queued_demand)
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert render(view) =~ "Waiting for an agent to start"
     assert_received {:dashboard_refresh_requested, ^orchestrator}
   end
@@ -5336,7 +5328,7 @@ defmodule AiurWeb.DashboardLiveTest do
       {:ok, view, _} = live(build_conn(), "/")
       view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
       view |> element("#add-agent-modal form") |> render_submit(%{})
-      render_async(view)
+      LiveViewAsync.render_when_complete(view)
       refute_received {:queued_demand_received, ^orchestrator, _}
       refute has_element?(view, "#add-agent-modal")
     end
@@ -5404,13 +5396,13 @@ defmodule AiurWeb.DashboardLiveTest do
     |> element("#add-agent-modal form")
     |> render_submit(%{"backend" => "codex", "complexity" => "3"})
 
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert has_element?(view, "#add-agent-modal")
     assert render(view) =~ "removed complexity:5"
     assert render(view) =~ "offline"
     assert_received {:remove_label, "complexity:5"}
     view |> element("#add-agent-modal form") |> render_submit(%{})
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     refute_received {:remove_label, "complexity:5"}
     refute has_element?(view, "#add-agent-modal")
     assert render(view) =~ "dispatch authorization declined"
@@ -5445,14 +5437,14 @@ defmodule AiurWeb.DashboardLiveTest do
     assert render(view) =~ "Check admission"
     refute has_element?(view, "#add-agent-modal button[type=submit][disabled]")
     view |> element("#add-agent-modal form") |> render_submit(%{})
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert_received :admission_checked
     assert render(view) =~ "No admission is confirmed"
     Agent.update(authorization, fn _ -> :unknown end)
     view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
     view |> element("#add-agent-modal form") |> render_change(%{"backend" => "codex"})
     view |> element("#add-agent-modal form") |> render_submit(%{})
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert render(view) =~ "Admission could not be confirmed"
     refute render(view) =~ "Waiting for an agent to start"
   end
@@ -6126,19 +6118,15 @@ defmodule AiurWeb.DashboardLiveTest do
         secret_key_base: String.duplicate("s", 64),
         dashboard_writable: false,
         dashboard_auth_required: false,
-        control_center_cache: cache
+        control_center_cache: cache,
+        # Without a stub the Tickets panel reads the app-global OpenTicketSource, which other test modules feed (#4862).
+        open_tickets_fun: fn -> open_ticket_snapshot([]) end
       )
       |> Keyword.merge(overrides)
 
-    Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
+    Application.put_env(:aiur, AiurWeb.Endpoint, EndpointStubs.scope(endpoint_config))
 
-    on_exit(fn ->
-      case previous do
-        nil -> Application.delete_env(:aiur, AiurWeb.Endpoint)
-        config -> Application.put_env(:aiur, AiurWeb.Endpoint, config)
-      end
-    end)
-
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, AiurWeb.Endpoint, previous), else: Application.delete_env(:aiur, AiurWeb.Endpoint) end)
     Aiur.TestSupport.start_owned_endpoint!()
   end
 

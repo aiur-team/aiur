@@ -1,35 +1,60 @@
 defmodule Aiur.ExecutorSweep.SnapshotCache do
   @moduledoc "Reads the current repository's already-cached GitHub resources."
 
+  alias Aiur.ExecutorSweep.{CacheAges, CiObservation}
   alias Aiur.GitHub.{Config, ResourceStore}
 
-  @spec read() :: map()
-  def read do
+  @spec read((-> Aiur.OpenTicketSource.Snapshot.t())) :: map()
+  def read(open_ticket_snapshot \\ &Aiur.OpenTicketSource.snapshot/0) do
     with repo when is_binary(repo) <- Config.repo(),
          [owner, name] <- String.split(repo, "/", parts: 2) do
       pull_requests = entries(:pull_request, owner, name)
       branch_pull_requests = entries(:branch_pull_request, owner, name)
       reviews = entries(:pull_request_reviews, owner, name)
-      tickets = entries(:issue_labels, owner, name)
+      ticket_snapshot = current_open_ticket_snapshot(open_ticket_snapshot)
+      tickets = open_tickets(fn -> ticket_snapshot end)
       issues = Map.new(entries(:issue, owner, name))
       blocked_by = Map.new(entries(:issue_blocked_by, owner, name))
       timelines = Map.new(entries(:issue_timeline, owner, name))
-      snapshot = build(pull_requests, reviews, tickets, issues, blocked_by, branch_pull_requests, timelines)
+      snapshot = build(pull_requests, reviews, tickets, issues, blocked_by, branch_pull_requests, timelines, ticket_snapshot)
       local = local_snapshot()
 
       snapshot =
         snapshot
         |> Map.merge(local)
-        |> Map.update!(:tickets, &attach_rework_attempts(&1, snapshot.pull_requests, local.rework_attempts))
+        |> Map.update!(:tickets, &(&1 && attach_rework_attempts(&1, snapshot.pull_requests, local.rework_attempts)))
 
       pull_requests = Enum.map(snapshot.pull_requests, &attach_ci(&1, local.ci_wait))
 
       snapshot
       |> Map.put(:pull_requests, pull_requests)
       |> Map.put(:merge_queue, merge_queue_entries(pull_requests))
+      |> Map.put(:github_cache_ages, github_cache_ages(owner, name))
     else
       _ -> Map.merge(%{pull_requests: [], tickets: []}, local_snapshot())
     end
+  end
+
+  @doc false
+  @spec github_cache_ages(String.t(), String.t(), integer()) :: map()
+  def github_cache_ages(owner, repo, now_ms \\ System.system_time(:millisecond)), do: CacheAges.for_repo(owner, repo, now_ms)
+
+  # The store keeps label rows for closed issues and merged PRs, so ticket checks
+  # read the open-ticket projection, which excludes both. Before a full listing
+  # the projection is partial, so tickets read as unknown (nil), not as none.
+  @doc false
+  @spec open_tickets((-> Aiur.OpenTicketSource.Snapshot.t())) :: [{integer(), [String.t()]}] | nil
+  def open_tickets(snapshot_fun \\ &Aiur.OpenTicketSource.snapshot/0) do
+    case current_open_ticket_snapshot(snapshot_fun) do
+      %{status: :available, tickets: tickets} -> for %{identifier: identifier, labels: labels} <- tickets, {number, ""} <- [Integer.parse(identifier)], do: {number, labels}
+      _not_listed -> nil
+    end
+  end
+
+  defp current_open_ticket_snapshot(snapshot_fun) do
+    snapshot_fun.()
+  catch
+    :exit, _reason -> nil
   end
 
   defp local_snapshot do
@@ -50,6 +75,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
 
     %{
       decisions: decisions,
+      open_tickets: Aiur.OpenTicketSource.snapshot(),
       queue_sets: Enum.map(queues, &%{id: &1.queue_id, held: &1.held}),
       idle_slots: idle_slots(fleet),
       focus_set: focus,
@@ -58,15 +84,28 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       queue_order_declared?: declared_order?,
       merge_groups:
         Enum.map(value(main_watch, :merge_groups, []), fn run ->
-          %{name: "run #{value(run, :id, "?")}", state: value(run, :status, "unknown"), started_at: value(run, :started_at, nil)}
+          %{id: value(run, :id, nil), name: "run #{value(run, :id, "?")}", state: value(run, :status, "unknown"), started_at: value(run, :started_at, nil)}
         end),
+      # Main's per-commit check results; a PR red is caused_by_pr only if its base passed (#5119).
+      base_checks:
+        for entry <- value(main_watch, :history, []), check <- value(entry, :checks, []) do
+          %{name: value(check, :name, nil), base_sha: value(entry, :sha, nil), conclusion: value(check, :conclusion, nil)}
+        end,
       ci_wait: Map.get(fleet, :ci_wait, []),
       rework_attempts: Map.get(fleet, :rework_attempts, []),
+      landing_rerun_backlog: landing_rerun_backlog(safe_state(&Aiur.LandingWatch.state/0)),
       services: watcher_services() ++ List.wrap(dispatcher_service)
     }
   rescue
     _ -> %{decisions: [], queue_sets: [], idle_slots: 0, focus_set: nil, ci_wait: [], rework_attempts: [], services: []}
   end
+
+  # A running watcher whose journal read failed is unknown (nil); no watcher has no backlog.
+  @doc false
+  @spec landing_rerun_backlog(map()) :: [map()] | nil
+  def landing_rerun_backlog(%{rerun_backlog: {:ok, rows}}), do: rows
+  def landing_rerun_backlog(%{rerun_backlog: {:error, _}}), do: nil
+  def landing_rerun_backlog(_state), do: []
 
   defp list_decisions do
     Aiur.Commands.list_decisions()
@@ -151,20 +190,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     }
   end
 
-  defp attach_ci(pr, ci_wait) do
-    case Enum.find(ci_wait, fn ci ->
-           (value(ci, :pr_number, nil) == pr.number or value(ci, :identifier, nil) == to_string(pr.issue_number)) and
-             value(ci, :head_sha, nil) == pr.head_sha
-         end) do
-      nil ->
-        pr
-
-      ci ->
-        failures = value(ci, :failures, [])
-        required = Enum.map(failures, &%{name: value(&1, :name, "required check"), conclusion: value(&1, :result, value(&1, :conclusion, nil))})
-        Map.merge(pr, %{required_checks: required, failure_class: to_string(value(ci, :failure_class, "unknown"))})
-    end
-  end
+  defp attach_ci(pr, ci_wait), do: CiObservation.attach(pr, ci_wait)
 
   defp merge_queue_entries(pull_requests) do
     pull_requests
@@ -173,10 +199,12 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   end
 
   @doc false
-  @spec build([{integer(), map()}], [{integer(), list()}], [{integer(), list()}], map(), map(), [{integer(), map()}], map()) :: map()
-  def build(pull_requests, reviews, tickets, issues \\ %{}, blocked_by \\ %{}, branch_pull_requests \\ [], timelines \\ %{}) do
+  @spec build([{integer(), map()}], [{integer(), list()}], [{integer(), list()}] | nil, map(), map(), [{integer(), map()}], map(), Aiur.OpenTicketSource.Snapshot.t() | nil) :: map()
+  def build(pull_requests, reviews, tickets, issues \\ %{}, blocked_by \\ %{}, branch_pull_requests \\ [], timelines \\ %{}, ticket_snapshot \\ nil) do
     reviews = Map.new(reviews)
     branch_prs = Map.new(branch_pull_requests)
+    {tracker_owner, tracker_repo} = tracker_repository()
+    open_ticket_numbers = open_ticket_numbers(ticket_snapshot)
     pull_requests = merge_pr_sources(pull_requests, branch_pull_requests)
 
     pull_requests =
@@ -186,23 +214,123 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     %{
       pull_requests: pull_requests,
       merge_queue: merge_queue_entries(pull_requests),
-      tickets: Enum.map(tickets, &normalize_ticket(&1, issues, blocked_by))
+      tickets:
+        tickets &&
+          Enum.map(tickets, &normalize_ticket(&1, issues, blocked_by, timelines, open_ticket_numbers, complete_open_ticket_snapshot?(ticket_snapshot), {tracker_owner, tracker_repo}))
     }
   end
 
-  defp normalize_ticket({number, labels}, issues, blocked_by) do
+  defp normalize_ticket({number, labels}, issues, blocked_by, timelines, open_ticket_numbers, complete_open_ticket_snapshot?, tracker_repository) do
     issue = Map.get(issues, number, %{})
     blockers = Map.get(blocked_by, number, [])
     blockers = if is_list(blockers), do: blockers, else: []
-    closed? = fn blocker -> value(Map.get(issues, value(blocker, "number", nil), %{}), "state", "") == "closed" end
+
+    blocker_state = &blocker_state(&1, issues, open_ticket_numbers, complete_open_ticket_snapshot?, tracker_repository)
 
     %{
       number: number,
       labels: labels,
       created_at: value(issue, "created_at", nil),
-      open_blocked_by: Enum.reject(blockers, closed?),
-      closed_blockers: blockers |> Enum.filter(closed?) |> Enum.map(&value(&1, "number", nil))
+      updated_at: value(issue, "updated_at", nil),
+      ci_wait_since: ci_wait_since(labels, Map.get(timelines, number), value(issue, "updated_at", nil)),
+      # Prefer complete open-ticket projection; issue/embedded edges are fallbacks.
+      open_blocked_by: Enum.filter(blockers, &(blocker_state.(&1) == "open")),
+      closed_blockers: blockers |> Enum.filter(&(blocker_state.(&1) == "closed")) |> Enum.map(&value(&1, "number", nil))
     }
+  end
+
+  defp ci_wait_since(labels, timeline, updated_at) do
+    if "agent:ci-wait" in labels or "ci-wait" in labels do
+      latest_ci_wait_label(timeline, updated_at)
+    end
+  end
+
+  defp latest_ci_wait_label(%{"events" => events}, updated_at) when is_list(events) do
+    events
+    |> Enum.filter(fn event ->
+      value(event, "event", nil) == "labeled" and value(value(event, "label", %{}), "name", nil) in ["agent:ci-wait", "ci-wait"]
+    end)
+    |> Enum.max_by(&value(&1, "created_at", ""), fn -> nil end)
+    |> case do
+      nil -> updated_at
+      event -> value(event, "created_at", updated_at)
+    end
+  end
+
+  defp latest_ci_wait_label(_timeline, updated_at), do: updated_at
+
+  defp blocker_state(blocker, issues, open_ticket_numbers, complete_snapshot?, tracker_repository) do
+    blocker_number = positive_number(value(blocker, "number", nil))
+
+    if blocker_repository(blocker, tracker_repository) == tracker_repository do
+      same_repository_blocker_state(blocker_number, blocker, issues, open_ticket_numbers, complete_snapshot?)
+    else
+      normalized_state(value(blocker, "state", nil))
+    end
+  end
+
+  defp same_repository_blocker_state(number, blocker, issues, open_ticket_numbers, complete_snapshot?) do
+    cond do
+      not is_nil(number) and Map.has_key?(open_ticket_numbers, number) -> "open"
+      not is_nil(number) and complete_snapshot? -> "closed"
+      state = normalized_state(value(Map.get(issues, number, %{}), "state", nil)) -> state
+      true -> normalized_state(value(blocker, "state", nil))
+    end
+  end
+
+  defp open_ticket_numbers(%Aiur.OpenTicketSource.Snapshot{status: :available, tickets: tickets}) do
+    tickets
+    |> Enum.flat_map(fn %{identifier: identifier} ->
+      case Integer.parse(identifier) do
+        {number, ""} when number > 0 -> [number]
+        _ -> []
+      end
+    end)
+    |> Map.new(&{&1, true})
+  end
+
+  defp open_ticket_numbers(_), do: %{}
+
+  defp tracker_repository do
+    case Config.repo() do
+      repo when is_binary(repo) ->
+        case String.split(repo, "/", parts: 2) do
+          [owner, name] -> {String.downcase(owner), String.downcase(name)}
+          _ -> {"", ""}
+        end
+
+      _ ->
+        {"", ""}
+    end
+  end
+
+  defp blocker_repository(blocker, {owner, repo}) do
+    case value(blocker, "repository_url", nil) do
+      url when is_binary(url) ->
+        case url |> URI.parse() |> Map.get(:path) |> to_string() |> String.split("/", trim: true) |> Enum.take(-3) do
+          ["repos", blocker_owner, blocker_repo] -> {String.downcase(blocker_owner), String.downcase(blocker_repo)}
+          _ -> {owner, repo}
+        end
+
+      _ ->
+        {owner, repo}
+    end
+  end
+
+  defp complete_open_ticket_snapshot?(%Aiur.OpenTicketSource.Snapshot{status: :available, truncated?: false}), do: true
+  defp complete_open_ticket_snapshot?(_), do: false
+
+  defp normalized_state(state) when is_binary(state), do: String.downcase(state)
+  defp normalized_state(_), do: nil
+
+  # A merge is terminal: a stale row from either source must not reopen it (#5119).
+  defp merge_pr_rows(direct, branch) do
+    merged = Map.merge(direct, branch)
+
+    case Enum.find_value([direct, branch], &value(&1, "merged_at", nil)) do
+      nil -> merged
+      merged_at -> Map.merge(merged, %{"state" => "closed", "merged_at" => merged_at})
+    end
   end
 
   defp merge_pr_sources(pull_requests, branch_pull_requests) do
@@ -211,7 +339,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     Enum.reduce(branch_pull_requests, direct, fn {_ticket, pr}, acc ->
       case positive_number(value(pr, "number", nil)) do
         nil -> acc
-        number -> Map.update(acc, number, pr, &Map.merge(&1, pr))
+        number -> Map.update(acc, number, pr, &merge_pr_rows(&1, pr))
       end
     end)
     |> Enum.to_list()
@@ -232,6 +360,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
 
   defp attach_branch_metadata(normalized, branch_pr, timeline) do
     metadata = normalize_branch_metadata(branch_pr) |> Enum.reject(fn {_key, value} -> is_nil(value) end) |> Map.new()
+    metadata = Map.put(metadata, :landing_state_known?, Map.has_key?(branch_pr, "mergeQueueEntry") or Map.has_key?(branch_pr, "autoMergeRequest"))
     normalized = Map.merge(normalized, metadata)
     Map.put(normalized, :ready_at, timeline_ready_at(timeline, normalized))
   end
@@ -248,18 +377,35 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   defp positive_number(_), do: nil
 
   defp normalize_branch_metadata(pr) do
-    merge_queue = value(pr, "mergeQueueEntry", nil)
-    auto_merge = value(pr, "autoMergeRequest", false)
+    %{}
+    |> maybe_put(pr, "review_decision", :review_decision)
+    |> maybe_put(pr, "approved_head_sha", :approved_head_sha)
+    |> maybe_put(pr, "reviewed_head_sha", :reviewed_head_sha)
+    |> maybe_put_non_nil(pr, "mergeQueueEntry", :in_merge_queue, &(!is_nil(&1)))
+    |> maybe_put(pr, "autoMergeRequest", :auto_merge, &(&1 not in [nil, false]))
+    |> maybe_put(pr, "mergeable", :mergeable)
+    |> maybe_put_ready_at(pr)
+  end
 
-    %{
-      review_decision: value(pr, "review_decision", nil),
-      approved_head_sha: value(pr, "approved_head_sha", nil),
-      reviewed_head_sha: value(pr, "reviewed_head_sha", nil),
-      in_merge_queue: not is_nil(merge_queue),
-      auto_merge: auto_merge not in [nil, false],
-      mergeable: value(pr, "mergeable", nil),
-      ready_at: timestamp(value(pr, "ready_for_review_at", nil)) || timestamp(value(pr, "created_at", nil))
-    }
+  defp maybe_put(acc, source, source_key, target_key, transform \\ &Function.identity/1) do
+    if Map.has_key?(source, source_key), do: Map.put(acc, target_key, transform.(Map.get(source, source_key))), else: acc
+  end
+
+  defp maybe_put_ready_at(acc, pr) do
+    if Map.has_key?(pr, "ready_for_review_at") or Map.has_key?(pr, "created_at") do
+      ready_at = timestamp(value(pr, "ready_for_review_at", nil)) || timestamp(value(pr, "created_at", nil))
+      Map.put(acc, :ready_at, ready_at)
+    else
+      acc
+    end
+  end
+
+  defp maybe_put_non_nil(acc, source, source_key, target_key, transform) do
+    case Map.fetch(source, source_key) do
+      {:ok, nil} -> acc
+      {:ok, value} -> Map.put(acc, target_key, transform.(value))
+      :error -> acc
+    end
   end
 
   defp timeline_ready_at(%{"events" => events}, pr) when is_list(events) do
@@ -278,11 +424,15 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   defp entries(type, owner, repo) do
     type
     |> ResourceStore.list(owner, repo)
-    |> Enum.flat_map(fn {{^type, _owner, _repo, id}, %{data: data}} ->
-      case Integer.parse(to_string(id)) do
-        {number, ""} when is_map(data) or is_list(data) -> [{number, data}]
-        _ -> []
-      end
+    |> Enum.flat_map(fn
+      {{^type, _owner, _repo, id}, %{} = entry} ->
+        case {Integer.parse(to_string(id)), Map.get(entry, :data)} do
+          {{number, ""}, data} when is_map(data) or is_list(data) -> [{number, data}]
+          _ -> []
+        end
+
+      _entry ->
+        []
     end)
   end
 
@@ -299,12 +449,15 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       number: number,
       issue_number: issue_number,
       state: value(pr, "state", "closed"),
+      merged_at: value(pr, "merged_at", value(pr, "mergedAt", nil)),
       draft: value(pr, "draft", false),
       head_sha: sha,
+      base_sha: value(value(pr, "base", %{}), "sha", nil),
       reviewed_head_sha: if(reviewed, do: sha),
       approved_head_sha: value(pr, "approved_head_sha", nil) || if(approved, do: sha),
       ready_at: timestamp(value(pr, "ready_for_review_at", nil)) || timestamp(value(pr, "created_at", nil)),
       review_decision: value(pr, "review_decision", nil) || if(approved, do: "APPROVED", else: ""),
+      landing_state_known?: false,
       in_merge_queue: not is_nil(value(pr, "mergeQueueEntry", value(pr, "merge_queue_entry", nil))),
       auto_merge: value(pr, "autoMergeRequest", value(pr, "auto_merge", false)) not in [nil, false],
       required_checks: value(pr, "required_checks", []),

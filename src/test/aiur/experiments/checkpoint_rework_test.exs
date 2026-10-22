@@ -25,7 +25,7 @@ defmodule Aiur.Experiments.CheckpointReworkTest do
     Application.put_env(:aiur, :experiments_dir, root)
     File.mkdir_p!(root)
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :experiments_dir, previous), else: Application.delete_env(:aiur, :experiments_dir)

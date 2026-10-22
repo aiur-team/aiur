@@ -10,7 +10,8 @@ defmodule AiurEngineCommandsTest do
         []
       )
 
-    assert out =~ "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
   end
 
   test "units routes page-visible filters through the control rpc" do
@@ -67,6 +68,38 @@ defmodule AiurEngineCommandsTest do
     assert out =~ "rationale: Base.decode64!(\"S25vd24gc3RhbGUgYnJhbmNo\")"
     assert out =~ "idempotency_key: Base.decode64!(\"ZXhlYzo0Mjp2Mw==\")"
     assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
+  end
+
+  test "operator answer refuses agent processes before contacting the daemon" do
+    {out, 64} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_operator_answer 'decision:42' --option build_content --operator|,
+        [{"AIUR_AGENT_WORKSPACE", "/tmp/agent-workspace"}]
+      )
+
+    assert out =~ "agents and Executors must not run it"
+    refute out =~ "RPC:"
+
+    {noninteractive, 64} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_operator_answer 'decision:42' --option build_content --operator|,
+        [
+          {"AIUR_AGENT_BIN", nil},
+          {"AIUR_AGENT_MIX_SCHEDULERS", nil},
+          {"AIUR_AGENT_QUOTA_STATE_PATH", nil},
+          {"AIUR_AGENT_TMPFILE", nil},
+          {"AIUR_AGENT_TMUX_SOCKET", nil},
+          {"AIUR_AGENT_WORKSPACE", nil},
+          {"CLAUDECODE", nil},
+          {"CODEX_THREAD_ID", nil}
+        ]
+      )
+
+    assert noninteractive =~ "requires an interactive terminal"
+    refute noninteractive =~ "RPC:"
+
+    {missing, 64} = run_sourced_engine("cmd_operator_answer decision:42 --option yes", [])
+    assert missing =~ "answer requires --operator"
   end
 
   test "executor-answer --supersede asks the store to replace an undelivered answer" do
@@ -177,7 +210,14 @@ defmodule AiurEngineCommandsTest do
 
     {escalate, _code} =
       run_engine_real(
-        ["executor-escalate", "decision:42", "--expected-version", "3", "--reason", "Irreversible"],
+        [
+          "executor-escalate",
+          "decision:42",
+          "--expected-version",
+          "3",
+          "--reason",
+          "Irreversible"
+        ],
         env
       )
 
@@ -193,7 +233,8 @@ defmodule AiurEngineCommandsTest do
         []
       )
 
-    assert out =~ "RPC:Aiur.AgentControlCLI.build_orders([json: true, root: Base.decode64!(\"MTM2Mw==\")])"
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.build_orders([json: true, root: Base.decode64!(\"MTM2Mw==\")])"
   end
 
   test "build-orders rejects multiple roots" do
@@ -277,6 +318,17 @@ defmodule AiurEngineCommandsTest do
       {out, 64} = run_sourced_engine("cmd_github_usage #{argv}", [])
       assert out =~ message
     end
+  end
+
+  test "alerts ack refuses agent sessions before contacting the daemon" do
+    {out, 64} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_alerts ack ticket.42.agent.attention.duplicate-dispatch --executor-id executor|,
+        [{"AIUR_AGENT_WORKSPACE", "/tmp/agent-workspace"}]
+      )
+
+    assert out =~ "operator-only"
+    refute out =~ "RPC:"
   end
 
   test "analytics rejects malformed launcher arguments before an RPC" do

@@ -1,9 +1,9 @@
 # Fragment of the assembled `gh` guard (Aiur.AgentGitHubGuard.Script); not a standalone script.
 budget_command() {
   if [ -n "$budget_identity_key" ]; then
-    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key" --identity-key "$budget_identity_key"
+    python3 -I "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key" --identity-key "$budget_identity_key"
   else
-    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
+    python3 -I "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
   fi
 }
 
@@ -11,7 +11,27 @@ budget_sleep_ms() {
   budget_delay=$1
   case "$budget_delay" in ''|0|*[!0-9]*) return 1 ;; esac
   budget_seconds=$(awk "BEGIN { printf \"%.3f\", $budget_delay / 1000 }")
-  sleep "$budget_seconds"
+  interruptible_sleep "$budget_seconds"
+}
+
+# A foreground sleep can defer a shell's TERM trap until the child exits. Keep
+# its pid so the trap can stop an in-flight wait and `wait` itself is
+# interruptible by a trapped signal.
+interruptible_sleep() {
+  sleep "$1" >/dev/null 2>&1 &
+  interruptible_sleep_pid=$!
+  wait "$interruptible_sleep_pid"
+  interruptible_sleep_status=$?
+  interruptible_sleep_pid=
+  return "$interruptible_sleep_status"
+}
+
+stop_interruptible_sleep() {
+  if [ -n "${interruptible_sleep_pid:-}" ]; then
+    kill "$interruptible_sleep_pid" 2>/dev/null || true
+    wait "$interruptible_sleep_pid" 2>/dev/null || true
+    interruptible_sleep_pid=
+  fi
 }
 
 # The broker's captured stdout+stderr, folded into one bounded line fit for an
@@ -52,7 +72,7 @@ valid_budget_lease() {
 valid_budget_hold_reset() {
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
 
-  python3 - "$1" <<'PY'
+  python3 -I - "$1" <<'PY'
 import sys
 import time
 
@@ -233,13 +253,17 @@ budget_acquire() {
 }
 
 budget_release() {
+  budget_stop_renewal
+  [ -n "$budget_lease" ] || return 0
+  budget_command release --lease-id "$budget_lease" >/dev/null 2>&1 || true
+  budget_lease=
+}
+
+budget_stop_renewal() {
   if [ -n "$budget_renewal_pid" ]; then
     kill "$budget_renewal_pid" 2>/dev/null || true
     budget_renewal_pid=
   fi
-  [ -n "$budget_lease" ] || return 0
-  budget_command release --lease-id "$budget_lease" >/dev/null 2>&1 || true
-  budget_lease=
 }
 
 # A stale-broker acquire abort: the ledger's schema trigger refused this

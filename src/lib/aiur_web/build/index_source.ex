@@ -3,7 +3,7 @@ defmodule AiurWeb.Build.IndexSource do
   @behaviour AiurWeb.Build.DataSource
   alias Aiur.BuildOrder.Index, as: Core
   alias AiurWeb.Build.{Freshness, Index, Usage}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
 
   @impl true
   def subscribe(opts) do
@@ -15,23 +15,45 @@ defmodule AiurWeb.Build.IndexSource do
 
   @impl true
   def snapshot(opts) do
-    with {:ok, data} <- guard(fn -> Index.window(server(opts), Keyword.get(opts, :time_zone, "Etc/UTC"), timeout(opts)) end) do
+    Process.delete(:build_read_steps)
+
+    with {:ok, data} <- step(:index_window, fn -> window(opts) end) do
       usage = Keyword.get(opts, :usage, Usage)
       freshness = Keyword.get(opts, :freshness, Freshness)
 
       {:ok,
        Map.merge(data, %{
-         usage: usage.read(Keyword.get(opts, :financial, :locked), opts),
-         daemon: data.daemon || freshness.read_daemon(opts),
-         writable: Endpoint.config(:dashboard_writable) == true
+         usage: step(:usage, fn -> usage.read(Keyword.get(opts, :financial, :locked), opts) end),
+         daemon: data.daemon || step(:daemon, fn -> freshness.read_daemon(opts) end),
+         writable: EndpointConfig.get(:dashboard_writable) == true
        })}
+    end
+  end
+
+  defp window(opts), do: guard(fn -> Index.window(server(opts), Keyword.get(opts, :time_zone, "Etc/UTC"), timeout(opts)) end)
+
+  # Read.safe_read reads these timings from the task's dictionary when it hits its cap.
+  defp step(name, fun) do
+    started = System.monotonic_time(:millisecond)
+    Process.put(:build_read_step, name)
+    result = fun.()
+    Process.put(:build_read_steps, [{name, System.monotonic_time(:millisecond) - started} | Process.get(:build_read_steps, [])])
+    result
+  end
+
+  @impl true
+  def daemon(opts) do
+    # ponytail: a mount waits on this call; 1 s caps it, and a busy index falls back to "unknown".
+    case guard(fn -> GenServer.call(server(opts), :daemon, 1_000) end) do
+      %{} = block -> block
+      _ -> nil
     end
   end
 
   @impl true
   def earlier(before, zone, opts), do: call({:earlier, before, zone, Keyword.get(opts, :days, 1)}, opts)
 
-  @spec ticket(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @impl true
   def ticket(id, opts), do: call({:ticket, id}, opts)
 
   defp call(message, opts), do: guard(fn -> GenServer.call(server(opts), message, timeout(opts)) end)

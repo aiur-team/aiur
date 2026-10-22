@@ -2,6 +2,7 @@ defmodule Aiur.LandingWatch.UnlinkedPrTest do
   use ExUnit.Case, async: true
 
   alias Aiur.LandingWatch
+  alias Aiur.TestSupport.Isolation
 
   test "unlinked approved PR is skipped while linked PRs route and the watcher stays running" do
     parent = self()
@@ -18,6 +19,7 @@ defmodule Aiur.LandingWatch.UnlinkedPrTest do
                jobs_fun: fn _, _ ->
                  {:ok, [%{"name" => "ci gate", "conclusion" => "failure", "steps" => [%{"conclusion" => "failure"}], "started_at" => "2026-10-14T00:00:00Z", "completed_at" => "2026-10-14T00:00:10Z"}]}
                end,
+               rerun_classifier_fun: fn _, _, _, _ -> {:ok, :rework} end,
                ticket_state_fun: fn "17", _ -> {:ok, "human-review"} end,
                transition_fun: fn issue, state, _ ->
                  send(parent, {:transition, issue, state})
@@ -31,23 +33,28 @@ defmodule Aiur.LandingWatch.UnlinkedPrTest do
 
     server = {:global, {__MODULE__, make_ref()}}
 
-    assert {:ok, pid} =
-             LandingWatch.start_link(
-               name: server,
-               interval_ms: 60_000,
-               observe_fun: fn _ -> {:ok, [unlinked, linked]} end,
-               journal_prune_fun: fn _, _ -> :ok end,
-               process_fun: fn observation, _ ->
-                 send(parent, {:watcher_processed, observation.number})
-                 :ok
-               end,
-               queue_reconcile_fun: fn _, _ -> :ok end
-             )
+    {[:aiur, :landing_watch, :poll, :stop], _measurements, %{result: :ok}} =
+      Isolation.await_telemetry!([:aiur, :landing_watch, :poll, :stop], fn ->
+        start_supervised!(
+          {LandingWatch,
+           [
+             name: server,
+             interval_ms: 60_000,
+             subscribe: false,
+             observe_fun: fn _ -> {:ok, [unlinked, linked]} end,
+             journal_prune_fun: fn _, _ -> :ok end,
+             process_fun: fn observation, _ ->
+               send(parent, {:watcher_processed, observation.number})
+               :ok
+             end,
+             queue_reconcile_fun: fn _, _ -> :ok end
+           ]}
+        )
+      end)
 
-    assert_receive {:watcher_processed, 17}, 1_000
-    assert eventually(fn -> not is_nil(LandingWatch.state(server).last_poll_at_ms) end)
+    assert_received {:watcher_processed, 17}
+    assert is_integer(LandingWatch.state(server).last_poll_at_ms)
     assert LandingWatch.state(server).watcher == :running
-    GenServer.stop(pid)
   end
 
   test "unlinked PRs still get infra reruns" do
@@ -66,6 +73,7 @@ defmodule Aiur.LandingWatch.UnlinkedPrTest do
                  send(parent, :rerun)
                  {:ok, %{}}
                end,
+               comment_fun: fn _, _, _ -> {:ok, %{}} end,
                journal_path: journal_path()
              )
 
@@ -107,18 +115,5 @@ defmodule Aiur.LandingWatch.UnlinkedPrTest do
     path = Path.join(System.tmp_dir!(), "landing-watch-unlinked-#{System.unique_integer([:positive])}.json")
     ExUnit.Callbacks.on_exit(fn -> File.rm(path) end)
     path
-  end
-
-  defp eventually(fun, attempts \\ 20)
-  defp eventually(fun, 0), do: fun.()
-
-  defp eventually(fun, attempts) do
-    if fun.(),
-      do: true,
-      else:
-        (
-          Process.sleep(10)
-          eventually(fun, attempts - 1)
-        )
   end
 end

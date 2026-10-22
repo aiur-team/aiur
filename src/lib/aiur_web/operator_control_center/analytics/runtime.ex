@@ -24,8 +24,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Runtime do
         range: socket.assigns.range,
         session: if(socket.assigns.range == :full, do: :cross, else: :current),
         telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file),
-        orchestrator: AiurWeb.Endpoint.config(:orchestrator) || Aiur.Orchestrator,
-        snapshot_timeout_ms: PollCadence.snapshot_tolerance_ms(AiurWeb.Endpoint.config(:snapshot_timeout_ms) || 15_000)
+        orchestrator: AiurWeb.EndpointConfig.get(:orchestrator) || Aiur.Orchestrator,
+        snapshot_timeout_ms: PollCadence.snapshot_tolerance_ms(AiurWeb.EndpointConfig.get(:snapshot_timeout_ms) || 15_000)
       ] ++ scope_opts
 
     socket

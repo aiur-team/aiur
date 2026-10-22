@@ -4,6 +4,7 @@ export function createLife() {
   const own = off => { offs.add(off); return () => { off(); offs.delete(off); }; };
   return {
     get disposed() { return disposed; },
+    cleanup(fn) { return own(fn); },
     on(target, type, fn, opts) {
       target.addEventListener(type, fn, opts);
       return own(() => target.removeEventListener(type, fn, opts));
@@ -15,7 +16,7 @@ export function createLife() {
     },
     frame(key, fn) {
       if (frames.has(key)) return;
-      frames.set(key, requestAnimationFrame(() => { frames.delete(key); fn(); }));
+      frames.set(key, requestAnimationFrame(now => { frames.delete(key); fn(now); }));
     },
     observe(el, fn) {
       const ro = new ResizeObserver(fn); ro.observe(el);

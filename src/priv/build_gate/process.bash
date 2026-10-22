@@ -90,35 +90,21 @@ aiur_build_gate_phase_clock_unavailable_log() {
 }
 
 aiur_build_gate_read_regular() {
-  local path=$1 contents python_binary helper result metadata_fd
+  local path=$1 contents="" metadata_fd
+  # Byte semantics for read -N and ${#contents}: the limit is 4096 bytes.
+  local LC_ALL=C
 
   if [[ ! -e $path && ! -L $path ]]; then
     return 1
   fi
 
-  python_binary=$(type -P python3)
-  helper="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/build_gate_holder.py"
-
-  if [[ -n $python_binary ]]; then
-    if contents=$("$python_binary" "$helper" --read-regular "$path" 2>/dev/null); then
-      printf '%s\n' "$contents"
-      return 0
-    else
-      result=$?
-    fi
-
-    if ((result == 1)); then
-      return 1
-    else
-      aiur_build_gate_fail "metadata_not_regular" "$path"
-      return 125
-    fi
-  fi
-
-  # The portable PID fallback must not acquire an undeclared Python runtime.
+  # Bash builtins only: wait loops poll this every 10 ms, and a process per
+  # read (once python3, #4792) costs whole cores when many gated commands run.
   # Opening read/write avoids FIFO open blocking; validating /dev/fd checks
   # the opened object rather than trusting a pathname lstat/open sequence.
-  if [[ -L $path ]] || ! exec {metadata_fd}<>"$path" 2>/dev/null; then
+  if [[ -L $path ]] || ! { exec {metadata_fd}<>"$path"; } 2>/dev/null; then
+    # A file removed between the two checks is absent, not invalid.
+    [[ -e $path || -L $path ]] || return 1
     aiur_build_gate_fail "metadata_not_regular" "$path"
     return 125
   fi
@@ -129,16 +115,17 @@ aiur_build_gate_read_regular() {
     return 125
   fi
 
-  contents=$(cat <&"$metadata_fd")
-  result=$?
+  # read exits 1 at EOF, which is the normal case for a short file.
+  IFS= read -r -N 4096 -u "$metadata_fd" contents
   exec {metadata_fd}>&-
 
-  if ((result != 0)) || ((${#contents} >= 4096)); then
+  if ((${#contents} >= 4096)); then
     aiur_build_gate_fail "metadata_not_regular" "$path"
     return 125
   fi
 
-  printf '%s\n' "$contents"
+  # Match command substitution: drop trailing newlines, then print one.
+  printf '%s\n' "${contents%"${contents##*[!$'\n']}"}"
 }
 
 aiur_build_gate_live_lease() {

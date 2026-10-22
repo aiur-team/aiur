@@ -8,6 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.TestSupport.EndpointStubs
   alias Aiur.TrackerIdentity
   alias AiurWeb.{ControlCenterCache, Endpoint}
   alias AiurWeb.OperatorControlCenter.{PayloadLoader, UnitsPresenter, UnitsTable}
@@ -19,7 +20,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
   defp start_endpoint(overrides, cache_opts \\ []) do
     previous = Application.fetch_env(:aiur, Endpoint)
     {:ok, clock} = Agent.start_link(fn -> 0 end)
-    cache = start_supervised!({ControlCenterCache, [name: nil, clock: fn -> Agent.get(clock, & &1) end] ++ cache_opts})
+    cache_opts = Keyword.merge([name: nil, clock: fn -> Agent.get(clock, & &1) end], cache_opts)
+    cache = start_supervised!({ControlCenterCache, cache_opts})
 
     config =
       Application.get_env(:aiur, Endpoint, [])
@@ -33,7 +35,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
       )
       |> Keyword.merge(overrides)
 
-    Application.put_env(:aiur, Endpoint, config)
+    Application.put_env(:aiur, Endpoint, EndpointStubs.scope(config))
     on_exit(fn -> Aiur.TestSupport.restore_app_env([{Endpoint, previous}]) end)
     Aiur.TestSupport.start_owned_endpoint!()
     clock
@@ -78,6 +80,77 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
     assert payload.provider_health.recent_outcomes == :unavailable
     assert [%{identity: ^identity, runtime: %{bucket: :running, work_state: :working}}] = payload.units.snapshot.rows
     refute Map.has_key?(payload.units, :retained_age_seconds)
+  end
+
+  test "an unpublished snapshot marks the loaded Units catalog as starting" do
+    :ok = SnapshotStore.forget(@orchestrator)
+    {:ok, orchestrator} = Agent.start_link(fn -> :starting end, name: @orchestrator)
+
+    on_exit(fn ->
+      if Process.alive?(orchestrator), do: Agent.stop(orchestrator)
+      SnapshotStore.forget(@orchestrator)
+    end)
+
+    start_endpoint(orchestrator: @orchestrator)
+    payload = PayloadLoader.load(:fresh)
+
+    assert payload.units.status == :loading
+    assert UnitsPresenter.project(payload.units, nil).count_status == :loading
+  end
+
+  test "the cache keeps an unobserved stale fleet loading only until the boot deadline" do
+    boot = :atomics.new(1, [])
+    cache_clock = :atomics.new(1, [])
+    :atomics.put(boot, 1, 0)
+    :atomics.put(cache_clock, 1, 0)
+
+    start_endpoint(
+      [units_fleet_fun: fn -> %{error: %{code: "snapshot_timeout", message: "Fleet snapshot timed out."}} end],
+      clock: fn -> :atomics.get(cache_clock, 1) end,
+      boot_elapsed_ms: fn -> :atomics.get(boot, 1) end,
+      startup_observation_timeout_ms: 100
+    )
+
+    pending = PayloadLoader.load(:fresh)
+    assert pending.units.status == :loading
+    assert pending.units.message == "The daemon is starting."
+    assert UnitsPresenter.project(pending.units, nil).count_status == :loading
+
+    :atomics.put(cache_clock, 1, 100_000)
+    assert PayloadLoader.load(:fresh).units.status == :loading
+
+    :atomics.put(boot, 1, 100)
+    unavailable = PayloadLoader.load(:fresh)
+
+    assert unavailable.units.status == :unavailable
+    assert unavailable.units.message == "No live units. Fleet data is unavailable."
+    assert UnitsPresenter.project(unavailable.units, nil).count_status == :unavailable
+  end
+
+  test "a timed out cold cache load keeps startup markers through payload conversion" do
+    boot = :atomics.new(1, [])
+    cache_clock = :atomics.new(1, [])
+    :atomics.put(boot, 1, 0)
+    :atomics.put(cache_clock, 1, 0)
+
+    start_endpoint(
+      [control_center_provider_budget_ms: 60_000, units_fleet_fun: fn -> Process.sleep(:infinity) end],
+      clock: fn -> :atomics.get(cache_clock, 1) end,
+      boot_elapsed_ms: fn -> :atomics.get(boot, 1) end,
+      startup_observation_timeout_ms: 100,
+      load_timeout_ms: 100
+    )
+
+    pending = PayloadLoader.load(:fresh)
+    assert pending.units.status == :loading
+
+    :atomics.put(cache_clock, 1, 100_000)
+    assert PayloadLoader.load(:fresh).units.status == :loading
+
+    :atomics.put(boot, 1, 100)
+    unavailable = PayloadLoader.load(:fresh)
+    assert unavailable.units.status == :unavailable
+    assert unavailable.units.message == "Fleet data is unavailable."
   end
 
   test "a failed load demotes the retained Units catalog to stale with its age" do

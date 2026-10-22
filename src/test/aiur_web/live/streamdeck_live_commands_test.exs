@@ -1,6 +1,8 @@
 defmodule AiurWeb.StreamdeckLiveCommandsTest do
   use AiurWeb.StreamdeckLiveCase
 
+  alias Aiur.TestSupport.EndpointStubs
+
   test "key presses request pause for running and resume for paused agents" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
@@ -138,42 +140,33 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
   end
 
   test "a failed command control call surfaces in the status region instead of being swallowed" do
-    endpoint_config = Application.get_env(:aiur, Endpoint)
+    EndpointStubs.put(
+      agent_chat_pause_fun: fn _identifier -> {:error, :tracker_unavailable} end,
+      agent_chat_resume_fun: fn _identifier -> raise "tracker exploded" end
+    )
 
-    failing_config =
-      Keyword.merge(endpoint_config,
-        agent_chat_pause_fun: fn _identifier -> {:error, :tracker_unavailable} end,
-        agent_chat_resume_fun: fn _identifier -> raise "tracker exploded" end
-      )
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    render_hook(view, "key-press", %{"identifier" => "1352"})
 
-    Endpoint.config_change(%{Endpoint => failing_config}, [])
+    html = render_hook(view, "command-press", %{"command" => "pause"})
 
-    try do
-      {:ok, view, _html} = live(build_conn(), "/streamdeck")
-      render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert html =~ "Pause failed: :tracker_unavailable"
+    # The failed call must not flip the key: the agent is still running.
+    assert command_key(html, "pause") =~ "Pause"
+    assert command_key(html, "pause") =~ ~s(data-command-state="running")
 
-      html = render_hook(view, "command-press", %{"command" => "pause"})
+    # The status banner (outside the device) carries the failure visibly, so
+    # the operator sees a swallowed control call rather than nothing.
+    assert html =~ ~s(id="sd-control-status" class="streamdeck-status")
 
-      assert html =~ "Pause failed: :tracker_unavailable"
-      # The failed call must not flip the key: the agent is still running.
-      assert command_key(html, "pause") =~ "Pause"
-      assert command_key(html, "pause") =~ ~s(data-command-state="running")
+    # A raise inside the control call is caught rather than taking the view
+    # down with it. 1345 is paused, so the same key resolves to resume.
+    render_hook(view, "key-press", %{"identifier" => "1345"})
+    html = render_hook(view, "command-press", %{"command" => "pause"})
 
-      # The status banner (outside the device) carries the failure visibly, so
-      # the operator sees a swallowed control call rather than nothing.
-      assert html =~ ~s(id="sd-control-status" class="streamdeck-status")
-
-      # A raise inside the control call is caught rather than taking the view
-      # down with it. 1345 is paused, so the same key resolves to resume.
-      render_hook(view, "key-press", %{"identifier" => "1345"})
-      html = render_hook(view, "command-press", %{"command" => "pause"})
-
-      assert html =~ "Resume failed:"
-      assert html =~ "tracker exploded"
-      assert command_key(html, "pause") =~ "Play"
-    after
-      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
-    end
+    assert html =~ "Resume failed:"
+    assert html =~ "tracker exploded"
+    assert command_key(html, "pause") =~ "Play"
   end
 
   test "cmd mode offers the design's five command keys, with Mic as press-and-hold" do
@@ -347,21 +340,12 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
   end
 
   test "an unavailable Commands store says so instead of an empty history" do
-    endpoint_config = Application.get_env(:aiur, Endpoint)
+    EndpointStubs.put(streamdeck_commands_fun: fn _, _ -> {:ok, %{"items" => [], "unavailable" => true}} end)
 
-    Endpoint.config_change(
-      %{Endpoint => Keyword.put(endpoint_config, :streamdeck_commands_fun, fn _, _ -> {:ok, %{"items" => [], "unavailable" => true}} end)},
-      []
-    )
-
-    try do
-      {:ok, view, _html} = live(build_conn(), "/streamdeck")
-      render_hook(view, "key-press", %{"identifier" => "1352"})
-      assert_receive {:streamdeck_pause, "1352"}, 1000
-      html = render_hook(view, "command-press", %{"command" => "commands"})
-      assert html =~ "UNAVAILABLE"
-    after
-      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
-    end
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}, 1000
+    html = render_hook(view, "command-press", %{"command" => "commands"})
+    assert html =~ "UNAVAILABLE"
   end
 end

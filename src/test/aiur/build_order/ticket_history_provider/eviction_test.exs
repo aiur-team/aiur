@@ -5,9 +5,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderEvictionTest do
   alias Aiur.TrackerIdentity
 
   setup do
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
 
     :ok
   end

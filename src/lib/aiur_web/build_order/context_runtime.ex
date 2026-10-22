@@ -7,7 +7,7 @@ defmodule AiurWeb.BuildOrder.ContextRuntime do
   alias Aiur.Conversation.History
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.{Runtime, TicketContextAdapter, TicketContextPresenter, TicketContextSelection}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias Phoenix.LiveView.Socket
 
   @spec initialize(Socket.t(), term()) :: Socket.t()
@@ -283,7 +283,7 @@ defmodule AiurWeb.BuildOrder.ContextRuntime do
   defp readable_snapshot?(_result), do: false
 
   defp safe_resolve(handle) do
-    resolver = Endpoint.config(:live_conversation_resolve_fun) || (&History.live_resolve/1)
+    resolver = EndpointConfig.get(:live_conversation_resolve_fun) || (&History.live_resolve/1)
     resolver.(handle)
   rescue
     _error -> :unavailable

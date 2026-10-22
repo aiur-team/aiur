@@ -6,6 +6,7 @@ python3 - "$repo_root" <<'PY'
 from pathlib import Path
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,9 @@ def write(repo, files):
         path = repo / name
         if data is None:
             path.unlink(missing_ok=True)
+        elif isinstance(data, tuple) and data[0] == 'symlink':
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.symlink_to(data[1])
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
@@ -68,6 +72,10 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     cases = [
         ('new 500', {}, {'file': lines(500)}, 0, 'notice: file: 500 lines'),
         ('new 501', {}, {'file': lines(501)}, 1, 'file: base 0 -> head 501 (limit 500)'),
+        ('600-line Claude skill exempt', {}, {'.claude/skills/x/SKILL.md': lines(600)}, 0, ''),
+        ('600-line vendored source exempt', {}, {'src/priv/static/vendor/x.js': lines(600)}, 0, ''),
+        ('600-line Stream Deck vendored asset exempt', {}, {'packages/streamdeck/assets/vendor/x.svg': lines(600)}, 0, ''),
+        ('600-line ordinary source still fails', {}, {'src/lib/x.ex': lines(600)}, 1, 'src/lib/x.ex: base 0 -> head 600 (limit 500)'),
         ('no final newline', {}, {'file': lines(499) + b'x'}, 0, 'file: 500 lines'),
         ('unchanged debt', {'file': lines(700)}, {'file': lines(700)}, 0, ''),
         ('crossing limit', {'file': lines(480)}, {'file': lines(520)}, 1, 'base 480 -> head 520'),
@@ -80,15 +88,33 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
         ('new binary', {}, {'file': lines(900) + b'\0'}, 0, ''),
         ('binary to oversized text', {'file': b'\0'}, {'file': lines(501)}, 1, 'base binary -> head 501'),
         ('cohesion notice', {}, {'file': lines(250)}, 0, 'notice: file: 250 lines; give a cohesion reason'),
+        ('skill skips cohesion notice', {}, {'.claude/skills/x/SKILL.md': lines(250)}, 0, ''),
+        ('vendor skips cohesion notice', {}, {'src/priv/static/vendor/x.js': lines(250)}, 0, ''),
         ('growing cohesion notice', {'file': lines(201)}, {'file': lines(250)}, 0, 'notice: file: 250 lines'),
         ('empty file', {}, {'file': b''}, 0, ''),
         ('empty count', {'file': b''}, {'file': lines(501)}, 1, 'base 0 -> head 501'),
         ('CRLF', {}, {'file': b'x\r\n' * 500}, 0, 'file: 500 lines'),
         ('unusual path', {}, {'tab\tline\nfile': lines(501)}, 1, 'tab\\tline\\nfile: base 0 -> head 501'),
+        ('new Claude skill source', {}, {'.claude/skills/aiur-agent/references/new.md': lines(1)}, 0, ''),
+        ('Claude skill source edit', {'.claude/skills/aiur-agent/SKILL.md': lines(1)}, {'.claude/skills/aiur-agent/SKILL.md': lines(2)}, 0, ''),
+        ('Claude skill symlink', {}, {'.claude/skills/aiur-agent': ('symlink', '../installed/aiur-agent')}, 1, 'tracked symlink under mounted skill path .claude/skills is rejected'),
+        ('Codex skill mount', {}, {'.codex/skills/new-skill': b'../.claude/skills/new-skill\n'}, 1, 'new tracked entry under mounted skill path .codex/skills is rejected'),
+        ('Codex skill canonical link', {}, {'.codex/skills/new-skill': ('symlink', '../../.claude/skills/new-skill')}, 0, ''),
+        ('Codex skill link wrong target', {}, {'.codex/skills/new-skill': ('symlink', '../../.claude/skills/other')}, 1, 'new tracked entry under mounted skill path .codex/skills is rejected'),
+        ('Codex skill directory', {}, {'.codex/skills/new-skill/SKILL.md': lines(1)}, 1, 'new tracked entry under mounted skill path .codex/skills is rejected'),
+        ('Muse skill mount', {}, {'.agents/skills/new-skill/SKILL.md': lines(1)}, 1, 'new tracked entry under mounted skill path .agents/skills is rejected'),
+        ('exact mount root', {}, {'.claude/skills': ('symlink', '../skills')}, 1, 'tracked symlink under mounted skill path .claude/skills is rejected'),
+        ('existing mounted skill edit', {'.codex/skills/aiur-agent': b'old target\n'}, {'.codex/skills/aiur-agent': lines(600)}, 0, ''),
+        ('existing mounted skill deletion', {'.agents/skills/old/SKILL.md': lines(1)}, {'.agents/skills/old/SKILL.md': None}, 0, ''),
+        ('rename out of Codex mount', {'.codex/skills/old.md': lines(1)}, {'.codex/skills/old.md': None, 'moved/old.md': lines(1)}, 0, ''),
     ]
     for title, before, after, expected, snippet in cases:
         for path in repo.iterdir():
-            if path.is_file() or path.is_symlink():
+            if path.name == '.git':
+                continue
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
                 path.unlink()
         write(repo, before)
         base = commit(repo)
@@ -250,3 +276,4 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     run(fixture, 2, '--json requires --census', '--json')
     print('PASS: census symlink exclusion, text transition and invalid arguments')
 PY
+python3 "$repo_root/scripts/test-prepare-skill-mount-merge.py"

@@ -7,6 +7,7 @@ defmodule Aiur.TestSupportTest do
   alias Aiur.Events.SubscriptionStoreRegistry
   alias Aiur.Events.SubscriptionStoreSupervisor
   alias Aiur.GitHub.ReadCache
+  alias Aiur.TestSupport.OrchestratorGuard
 
   test "receive_barrier selectively receives and exports bindings without a clock" do
     send(self(), :unrelated)
@@ -94,7 +95,12 @@ defmodule Aiur.TestSupportTest do
   # PubSub only topples the tree when dependants exhaust the restart budget
   # inside the wait, which made the old premise itself flaky.
   test "ensure_pubsub_running recovers the whole app after the supervision tree collapsed" do
-    on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
+    codeowners_baseline = OrchestratorGuard.capture_shared_state().codeowners
+
+    on_exit(fn ->
+      Aiur.TestSupport.ensure_runtime_children_running()
+      OrchestratorGuard.restore_codeowners_state!(codeowners_baseline)
+    end)
 
     collapsing = Enum.map([Aiur.Supervisor, Aiur.PubSub, ReadCache], &Process.whereis/1)
     assert Enum.all?(collapsing, &is_pid/1)
@@ -123,14 +129,19 @@ defmodule Aiur.TestSupportTest do
   # #4527: `terminate_child` on the live PubSub kills every linked subscriber
   # sibling; their restarts into a missing registry exhaust the root restart
   # budget, `Aiur.Supervisor` shuts down, and every later test in the shard
-  # fails. Crash an isolated tree instead (see SupervisionContractTest).
+  # fails. The excluded orchestrator-guard fixture is the sole exception: its
+  # integration test runs in a separate mix test VM to exercise the detector.
   test "no test terminates the shared PubSub child under the live application" do
+    isolated_fixture = "test/fixtures/orchestrator_guard/leak_probes_test.exs"
+
     offenders =
       for file <- Path.wildcard(Path.join(Path.expand("..", __DIR__), "**/*.{ex,exs}")),
+          Path.relative_to_cwd(file) != isolated_fixture,
           File.read!(file) =~ ~r/terminate_child\([^,()]+,\s*Phoenix\.PubSub\.Supervisor\)/,
           do: Path.relative_to_cwd(file)
 
     assert offenders == []
+    assert File.read!(Path.join(Path.expand("..", __DIR__), "fixtures/orchestrator_guard/leak_probes_test.exs")) =~ "@moduletag :orchestrator_guard_probe"
   end
 
   test "ensure_runtime_children_running restores shared event and provider stores" do
@@ -148,6 +159,17 @@ defmodule Aiur.TestSupportTest do
     assert is_pid(Process.whereis(Aiur.ProviderMeters.Store))
     assert {:ok, id} = IdGenerator.reserve_durable_id()
     assert is_integer(id)
+  end
+
+  test "ensure_orchestrator_running restarts a terminated shared orchestrator" do
+    on_exit(fn -> Aiur.TestSupport.ensure_orchestrator_running() end)
+
+    assert is_pid(Process.whereis(Aiur.Orchestrator))
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
+    refute Process.whereis(Aiur.Orchestrator)
+
+    assert :ok = Aiur.TestSupport.ensure_orchestrator_running()
+    assert is_pid(Process.whereis(Aiur.Orchestrator))
   end
 
   test "ensure_read_cache_running recovers a stopped read cache (contained to one child)" do

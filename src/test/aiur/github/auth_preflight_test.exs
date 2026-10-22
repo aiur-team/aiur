@@ -4,8 +4,8 @@ defmodule Aiur.GitHub.AuthPreflightTest do
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.ReadCache
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
-  @source_cache_key {Aiur.GitHub.Config, :resolved_token_source}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
+  @source_cache_key {Aiur.GitHub.Access.Token, :resolved_token_source}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -88,7 +88,7 @@ defmodule Aiur.GitHub.AuthPreflightTest do
     assert diagnostic.rate_limit_remaining == 0
     assert diagnostic.gh_keyring_status == :available
     assert diagnostic.message =~ "GITHUB_TOKEN"
-    refute inspect(diagnostic) =~ "preflight-token"
+    Aiur.TestSupport.refute_leak(diagnostic, "preflight-token")
   end
 
   test "a keyring-sourced credential is reported as the gh keyring, not GITHUB_TOKEN" do

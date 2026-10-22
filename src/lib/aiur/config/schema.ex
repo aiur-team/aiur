@@ -34,16 +34,19 @@ defmodule Aiur.Config.Schema do
     Server,
     Tracker,
     Upgrade,
+    Voice,
     Webhooks,
     Worker,
     Workspace
   }
 
-  # Embedded struct defaults must rebuild when the agent schema changes.
+  # Embedded struct defaults must rebuild when their nested schemas change.
   require Agent
   require Tracker
   require BuildQueue
   require Experiments
+  require Voice
+  require Workspace
 
   @primary_key false
 
@@ -91,6 +94,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:opencode, Opencode, on_replace: :update, defaults_to_struct: true)
     embeds_one(:experiments, Experiments, on_replace: :update, defaults_to_struct: true)
     embeds_one(:events, Events, on_replace: :update, defaults_to_struct: true)
+    # Keep new prewarm defaults present even when a config omits the whole block.
     embeds_one(:prewarm, Prewarm, on_replace: :update, defaults_to_struct: true)
     embeds_one(:alerts, Alerts, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pr_health, PrHealth, on_replace: :update, defaults_to_struct: true)
@@ -99,6 +103,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:build_order, BuildOrder, on_replace: :update, defaults_to_struct: true)
     embeds_one(:webhooks, Webhooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:elevenlabs, ElevenLabs, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:voice, Voice, on_replace: :update, defaults_to_struct: true)
     embeds_one(:upgrade, Upgrade, on_replace: :update, defaults_to_struct: true)
     # Keep the Executor sweep settings in the same parsed settings snapshot.
     embeds_one(:executor, Executor, on_replace: :update, defaults_to_struct: true)
@@ -236,6 +241,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:build_order, with: &BuildOrder.changeset/2)
     |> cast_embed(:webhooks, with: &Webhooks.changeset/2)
     |> cast_embed(:elevenlabs, with: &ElevenLabs.changeset/2)
+    |> cast_embed(:voice, with: &Voice.changeset/2)
     |> cast_embed(:upgrade, with: &Upgrade.changeset/2)
   end
 

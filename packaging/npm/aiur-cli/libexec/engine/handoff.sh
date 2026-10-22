@@ -1,7 +1,20 @@
 # Handoff restart helpers. Sourced by aiur-engine.sh.
+
+# Evaluated on the running node, which may predate #4529 and lack the handoff
+# module, so it may only use what every build has.
+AIUR_HANDOFF_PREPARE_EXPRESSION='m = Aiur.Handoff.CLI
+if Code.ensure_loaded?(m) and function_exported?(m, :prepare, 0) do
+  m.prepare()
+else
+  stamp = File.read(Path.join(to_string(:code.root_dir()), "AIUR_BUILD_STAMP"))
+  sha = with {:ok, text} <- stamp, [_, sha] <- Regex.run(~r/^source_sha=(\S+)/m, text), do: sha, else: (_ -> "unknown")
+  IO.puts("__AIUR_CONTROL_ERROR__:running daemon #{sha} predates keep-agents (#4529); use a plain restart once, then keep-agents works")
+  IO.puts("__AIUR_CONTROL_EXIT__:1")
+end'
+
 prepare_restart_handoff() {
   local output
-  output="$(AIUR_CONTROL_RPC_TIMEOUT_SECONDS=120 run_control_rpc 'Aiur.Handoff.CLI.prepare()')" || {
+  output="$(AIUR_CONTROL_RPC_TIMEOUT_SECONDS=120 run_control_rpc "$AIUR_HANDOFF_PREPARE_EXPRESSION")" || {
     [ -z "$output" ] || printf '%s\n' "$output" >&2
     die "restart --keep-agents aborted before stop: handoff preflight failed"
   }

@@ -1,0 +1,2 @@
+Run actions/checkout
+fatal: unable to access 'https://github.com/aiur-team/aiur/': Failed to connect to github.com port 443 after 134558 ms

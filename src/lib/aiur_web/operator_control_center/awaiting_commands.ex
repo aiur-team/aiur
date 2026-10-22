@@ -14,7 +14,7 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
   import Phoenix.Component, only: [assign: 3]
 
   alias Aiur.Commands
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.DecisionProvider
   alias Phoenix.LiveView.Socket
 
@@ -82,5 +82,5 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
     :exit, _reason -> @unavailable
   end
 
-  defp decision_store, do: Endpoint.config(:decision_store) || Commands.default_store()
+  defp decision_store, do: EndpointConfig.get(:decision_store) || Commands.default_store()
 end

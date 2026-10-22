@@ -214,7 +214,8 @@ defmodule Aiur.TestSupport.WorkflowYaml do
           opencode_model_prefix
         ),
         alerts_yaml(overrides),
-        pr_watch_yaml(overrides)
+        pr_watch_yaml(overrides),
+        pr_health_yaml(overrides)
       ]
       |> Enum.reject(&(&1 in [nil, ""]))
 

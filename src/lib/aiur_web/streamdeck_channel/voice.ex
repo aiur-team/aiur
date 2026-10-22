@@ -9,7 +9,7 @@ defmodule AiurWeb.StreamdeckChannel.Voice do
   import Phoenix.Socket, only: [assign: 3]
 
   alias Aiur.AgentChat
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
 
   @spec stop_child(term()) :: :ok
   def stop_child(pid) when is_pid(pid) do
@@ -87,7 +87,7 @@ defmodule AiurWeb.StreamdeckChannel.Voice do
   # can observe delivery without a live orchestrator.
   @spec send_agent_message(String.t(), String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
   def send_agent_message(identifier, message, message_id) do
-    case Endpoint.config(:agent_chat_send_fun) do
+    case EndpointConfig.get(:agent_chat_send_fun) do
       fun when is_function(fun, 3) -> fun.(identifier, message, message_id: message_id)
       fun when is_function(fun, 2) -> fun.(identifier, message)
       _fun -> AgentChat.send(identifier, message, message_id: message_id)

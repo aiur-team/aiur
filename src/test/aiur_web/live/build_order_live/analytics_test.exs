@@ -23,7 +23,7 @@ defmodule AiurWeb.BuildOrderLive.AnalyticsTest do
       selected: [selected]
     )
 
-    assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, view, html} = live_settled("/build-orders/42")
 
     assert html =~ ">Analytics<"
 
@@ -53,7 +53,7 @@ defmodule AiurWeb.BuildOrderLive.AnalyticsTest do
       selected: [selected]
     )
 
-    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, view, _html} = live_settled("/build-orders/42")
     html = LiveViewAsync.render_when_complete(view)
 
     assert html =~ "No telemetry for this Build Order yet"
@@ -85,7 +85,7 @@ defmodule AiurWeb.BuildOrderLive.AnalyticsTest do
       selected: [selected]
     )
 
-    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, view, _html} = live_settled("/build-orders/42")
     html = LiveViewAsync.render_when_complete(view)
 
     assert html =~ "Sessions"
@@ -124,7 +124,7 @@ defmodule AiurWeb.BuildOrderLive.AnalyticsTest do
       selected: [selected]
     )
 
-    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, view, _html} = live_settled("/build-orders/42")
     html = LiveViewAsync.render_when_complete(view)
     [_, start_ms] = Regex.run(~r/data-time-start="(\d+)"/, html)
     [_, end_ms] = Regex.run(~r/data-time-end="(\d+)"/, html)
@@ -179,7 +179,7 @@ defmodule AiurWeb.BuildOrderLive.AnalyticsTest do
       selected: [selected]
     )
 
-    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    assert {:ok, view, _html} = live_settled("/build-orders/42")
     html = LiveViewAsync.render_when_complete(view)
 
     assert html =~ "No telemetry for this Build Order yet"

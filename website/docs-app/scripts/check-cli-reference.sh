@@ -54,7 +54,7 @@ source_flags="$(
     # Experiments transports argv in the shell; its control client validates flags.
     sed -n '/^  @switches \[/,/^  \]/p' "$repo_root/src/lib/aiur/experiments_cli.ex" \
       | sed -n 's/^[[:space:]]*\([a-z_][a-z_]*\):.*/\1/p' \
-      | sed '/^spec_json$/d; s/^/--/; s/_/-/g'
+      | sed '/^\(spec_json\|contract_json\)$/d; s/^/--/; s/_/-/g'
 
     # The offline statistics CLI owns its arguments in argparse declarations.
     sed -n 's/.*add_argument("\(--[a-z][a-z-]*\)".*/\1/p' \

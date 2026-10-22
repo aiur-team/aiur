@@ -6,8 +6,8 @@ defmodule AiurWeb.DashboardLive.Controls do
 
   alias Aiur.{AgentChat, AgentPubSub}
   alias Aiur.Orchestrator.{GlobalPause, Slots}
-  alias AiurWeb.{DashboardLive, Endpoint}
-  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresenter}
+  alias AiurWeb.{DashboardLive, EndpointConfig}
+  alias AiurWeb.OperatorControlCenter.{PauseState, UnitsControlPolicy, UnitsPresenter}
 
   @doc false
   @spec toggle_global_pause(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -33,8 +33,15 @@ defmodule AiurWeb.DashboardLive.Controls do
   end
 
   @doc false
-  @spec global_pause_state(map()) :: boolean() | nil
-  def global_pause_state(%{fleet: %{error: _error}}), do: nil
+  @spec global_pause_state(map()) :: boolean() | :loading | nil
+  def global_pause_state(%{fleet: %{error: _error}}) do
+    PauseState.pause_state(capacity_orchestrator())
+  rescue
+    _endpoint_unavailable -> nil
+  catch
+    :exit, _reason -> nil
+  end
+
   def global_pause_state(%{fleet: %{globally_paused: paused}}) when is_boolean(paused), do: paused
   def global_pause_state(_payload), do: nil
 
@@ -105,14 +112,14 @@ defmodule AiurWeb.DashboardLive.Controls do
   end
 
   defp capacity_adjust(delta) do
-    case Endpoint.config(:capacity_adjust_fun) do
+    case EndpointConfig.get(:capacity_adjust_fun) do
       fun when is_function(fun, 1) -> fun.(delta)
       _other -> Slots.adjust_max_concurrent_agents(capacity_orchestrator(), delta)
     end
   end
 
   defp capacity_set(next) do
-    case Endpoint.config(:capacity_set_fun) do
+    case EndpointConfig.get(:capacity_set_fun) do
       fun when is_function(fun, 1) -> fun.(next)
       _other -> Slots.set_max_concurrent_agents(capacity_orchestrator(), next)
     end
@@ -120,12 +127,12 @@ defmodule AiurWeb.DashboardLive.Controls do
 
   @doc false
   @spec capacity_orchestrator() :: GenServer.server()
-  def capacity_orchestrator, do: Endpoint.config(:orchestrator) || Aiur.Orchestrator
+  def capacity_orchestrator, do: EndpointConfig.get(:orchestrator) || Aiur.Orchestrator
 
   @doc false
   @spec pause_agent(Aiur.TrackerIdentity.t() | String.t()) :: term()
   def pause_agent(target) do
-    case Endpoint.config(:agent_chat_pause_fun) do
+    case EndpointConfig.get(:agent_chat_pause_fun) do
       fun when is_function(fun, 1) -> fun.(target)
       _fun -> AgentChat.pause(target)
     end
@@ -227,14 +234,14 @@ defmodule AiurWeb.DashboardLive.Controls do
   end
 
   defp resume_agent(identifier) do
-    case Endpoint.config(:agent_chat_resume_fun) do
+    case EndpointConfig.get(:agent_chat_resume_fun) do
       fun when is_function(fun, 1) -> fun.(identifier)
       _fun -> AgentChat.resume(identifier)
     end
   end
 
   defp unit_capabilities(identifier) do
-    case Endpoint.config(:agent_chat_capabilities_fun) do
+    case EndpointConfig.get(:agent_chat_capabilities_fun) do
       fun when is_function(fun, 1) -> fun.(identifier)
       _fun -> AgentChat.capabilities(identifier)
     end

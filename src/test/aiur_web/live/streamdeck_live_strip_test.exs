@@ -1,6 +1,8 @@
 defmodule AiurWeb.StreamdeckLiveStripTest do
   use AiurWeb.StreamdeckLiveCase
 
+  alias Aiur.TestSupport.EndpointStubs
+
   test "pages the complete fleet and clamps the page at both ends" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
@@ -44,8 +46,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
       Agent.get(snapshot_agent, & &1)
     end
 
-    endpoint_config = Application.get_env(:aiur, Endpoint)
-    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :streamdeck_snapshot_fun, counting_snapshot_fun)}, [])
+    EndpointStubs.put(streamdeck_snapshot_fun: counting_snapshot_fun)
 
     try do
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
@@ -65,7 +66,6 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
       assert Agent.get(counter, & &1) == reads_before
     after
       Agent.stop(counter)
-      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
     end
   end
 

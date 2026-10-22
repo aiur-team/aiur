@@ -55,9 +55,17 @@ config or unknown file types. Use the target repository's test-selection tool
 (Aiur's Elixir core uses `mix aiur.affected_tests`).
 
 `mix pr_body.check --file <body.md>` validates the template and evidence shape.
-CI runs the same checker in the `pr body` check, which reads the current PR
-body and head SHA; stale `Tested head` values fail. Editing the body reruns
-`pr body`, and `ci gate` requires its newest run, so a body fix needs no push.
+CI reads the current PR body and head; stale `Tested head` values fail. Editing
+the body reruns `pr body`, and `ci gate` requires its newest run, so a body fix
+needs no push.
+
+The worker handback gate also refuses stale evidence and reports both the SHA
+in the body and the live PR head. Rerun the touched tests at that head before
+updating the evidence and handing the ticket back.
+
+An older `Tested head` still passes when it is an ancestor of the head and the
+PR's contribution diff is identical, as for approval carry. A merge of the base
+alone needs no body edit. The check logs which mode passed.
 
 PRs opened at or before rollout are grandfathered out of the CI body gate.
 The cutoff is the first-parent commit that adds `scripts/check-pr-body.py` to
@@ -80,4 +88,18 @@ Actions read permission is required to attribute checks to workflows. Failed or 
 
 Named workflows must run on every base push. For example, `[ci, "Publish Docker Image"]` works when both run on every push; a path-filtered workflow can leave status on an older SHA. Merge-queue commits without push runs are skipped. The first Actions page must reach back to the oldest commit in the 20-commit window.
 
-Status reports `watcher=running|unavailable|not_running` for base CI and `landing_watcher=...` separately. The landing watcher follows approved heads through CI and queue, retries infra failures, routes real failures to rework, and counts automatic merge-group requeues by hour. Starting base watching after boot requires a daemon restart.
+Status reports `watcher=running|unavailable|not_running` for base CI and `landing_watcher=...` separately. The landing watcher follows approved heads through CI and queue, reruns failures with a non-PR cause, routes real failures to rework, and counts automatic merge-group requeues by hour. Starting base watching after boot requires a daemon restart.
+
+PR reruns and base refreshes spend the per-head budget (two per head) and share the 4-per-15-minute cap with merge-group requeues; that cap survives restarts. Each action posts its reason on the PR. A PR waiting on the cap appears in `aiur executor-sweep` as `approved_pr_rerun_pending`.
+
+A PR whose failure needs a fresh merge ref (stale merge ref, newer CI change, superseded job) is not rerun. The watcher updates its branch from the base under the same budget and cap, and posts the reason. If the base changed the PR's own files, the ticket goes to rework instead so the worker retests the new head.
+
+A refresh waiting on the cap appears as `approved_pr_refresh_pending`. A head that spent its budget or is backing off is not reclassified.
+
+An armed auto-merge does not hold a failed approved PR, because auto-merge never enqueues a red head; the watcher reruns or refreshes it. A PR-caused failure there is still held, not sent to rework.
+
+A failed required check beside cancelled runs counts as failed; cancelled runs alone stay a person cancel.
+
+The landing watcher does not queue a PR whose ticket is in `agent:rework`, `agent:in-progress` or `agent:todo` (these win over a review label it still carries), so an Executor dequeue holds until the ticket returns to review.
+
+When an approved PR conflicts with its base, the watcher dequeues it, routes the ticket to `agent:rework`, and comments rebase-only. It removes `agent:paused` only when provenance identifies the approval-pause writer; otherwise it preserves the hold and raises attention. Approval remains for diff review.

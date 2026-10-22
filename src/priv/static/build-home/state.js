@@ -41,8 +41,8 @@ function defaultUnavailable(reason) {
   const loading = ctx.root?.querySelector('.bd-loading');
   if (!loading) return;
   const words = { not_wired: 'no data source', timeout: 'timed out', crashed: 'source crashed',
-    version: 'page out of date, reload', invalid: 'invalid data', unavailable: 'source unavailable' };
-  loading.textContent = 'Build timeline unavailable · ' + (Object.hasOwn(words, reason) ? words[reason] : 'unknown cause');
+    version: 'page out of date, reload', invalid: 'invalid data' };
+  loading.textContent = 'Build timeline unavailable · ' + (Object.hasOwn(words, reason) ? words[reason] : `unknown cause (${String(reason).slice(0, 80)})`);
 }
 export const fx = {
   viewport() {}, relayout() {}, update() {}, jumpNow() {}, liveGuard() {}, markScrolling() {},
@@ -52,9 +52,10 @@ export const fx = {
   daemonView: () => ({ dotOff: true, dotText: 'Daemon status unknown' }),
   renderLoading() {}, renderUnavailable: defaultUnavailable, dataChanged: defaultDataChanged,
   drawEdgesSoon() {}, tickCardAges() {}, openFromURL() {}, flushLive() {}, renderHeads() {},
-  makeCard: it => { const el = document.createElement('div'); el.className = 'bd-card'; el.dataset.id = it.t.id; el.tabIndex = -1; return el; },
-  visibleCols: () => S.flow ? Array.from({ length: S.K }, (_, i) => 's' + i) : [...new Set([...ctx.D.order, 'unsorted'])],
-  applyCols: keys => { ctx.content.style.width = ctx.vp.clientWidth + 'px'; ctx.cols = keys; const w = (ctx.content.offsetWidth - gutW() - 14) / Math.max(1, keys.length); ctx.colMap = Object.fromEntries(keys.map((key, i) => [key, { x: gutW() + i * w, w }])); },
+  makeCard: it => { const el = document.createElement('div'); el.className = 'bd-card'; el.dataset.id = it.t.id; el.tabIndex = -1; el._it = it; return el; },
+  visibleCols: () => [], applyCols() {}, scheduleCols() {},
+  initModal() {}, closeModal() {}, syncTicket() {}, modalSync() {}, renderDocBody() {}, renderConversation() {},
   drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
-  lockTree() {}, fitTree() {}, openTree() {}, filtersChanged() {},
+  lockTree() {}, fitTree() {}, openTree() {},
+  appendEntries() {}, appendItem() {}, claimLocalOp: () => null, scheduleMap() {}, wireLive() {}, onConversation() {}, reconnectConversation() {},
 };

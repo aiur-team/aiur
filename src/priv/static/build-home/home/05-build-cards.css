@@ -182,9 +182,11 @@
   gap: .4rem;
   font: 600 .68rem "JetBrains Mono", monospace;
   color: var(--muted);
+  white-space: normal;
 }
 
 /* C:160 */ .bd-daemon i {
+  flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;

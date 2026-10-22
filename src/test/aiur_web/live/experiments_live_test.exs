@@ -6,10 +6,21 @@ defmodule AiurWeb.ExperimentsLiveTest do
   @endpoint Endpoint
 
   defmodule Facade do
-    def metric_catalog, do: %{metrics: %{}}
-    def status, do: Application.fetch_env!(:aiur, :experiment_live_fixture).status
-    def list, do: Application.fetch_env!(:aiur, :experiment_live_fixture).list
-    def fetch(id), do: Map.get(Application.fetch_env!(:aiur, :experiment_live_fixture).details, id, {:error, :not_found})
+    def metric_catalog, do: fail(:metric_catalog) || %{metrics: %{}}
+    def status, do: fail(:status) || state().status
+    def list, do: fail(:list) || state().list
+    def fetch(id), do: fail(:fetch) || Map.get(state().details, id, {:error, :not_found})
+    def chart_detail(id, _opts), do: fetch(id)
+    defp state, do: Application.fetch_env!(:aiur, :experiment_live_fixture)
+
+    defp fail(read) do
+      case get_in(state(), [:fail, read]) do
+        nil -> nil
+        :noproc -> exit({:noproc, {GenServer, :call, [Aiur.Experiments.Store, read, 5_000]}})
+        error -> raise error
+      end
+    end
+
     def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, "experiment-live-test")
   end
 
@@ -25,6 +36,9 @@ defmodule AiurWeb.ExperimentsLiveTest do
 
   test "empty store names creation paths without chart frames" do
     {:ok, view, html} = live(build_conn(), "/experiments")
+    assert html =~ "Pause new starts"
+    refute html =~ "Pause state unknown"
+    assert has_element?(view, "#ax-pause[aria-checked=false]")
     assert has_element?(view, "[data-empty-reason=no_experiments]")
     assert html =~ "version bump or release"
     assert html =~ "tagged feature epic merge"
@@ -40,6 +54,34 @@ defmodule AiurWeb.ExperimentsLiveTest do
       assert html =~ copy
       refute html =~ "/private/store"
       refute has_element?(view, "#experiments-capture-off")
+    end
+  end
+
+  test "a first-request read that raises or exits renders the neutral read_failed state, not a 500" do
+    cold_ets = %ArgumentError{message: "the table identifier does not refer to an existing ETS table"}
+    unreadable = %File.Error{reason: :eacces, action: "read file", path: "result.json"}
+
+    for {fail, cause} <- [
+          {%{status: :noproc}, "no process"},
+          {%{metric_catalog: cold_ets}, "existing ETS table"},
+          {%{list: cold_ets}, "existing ETS table"},
+          {%{fetch: unreadable}, "permission denied"}
+        ] do
+      populated()
+      fixture(Map.put(Application.fetch_env!(:aiur, :experiment_live_fixture), :fail, fail))
+
+      log =
+        capture_log(fn ->
+          html = build_conn() |> get("/experiments") |> html_response(200)
+          assert html =~ ~s(data-empty-reason="read_failed")
+          {:ok, view, _html} = live(build_conn(), "/experiments")
+          assert has_element?(view, "[data-empty-reason=read_failed]", "could not be loaded")
+          refute has_element?(view, "[data-empty-reason=store_unreadable]")
+          refute has_element?(view, "#exp-detail")
+        end)
+
+      assert log =~ "experiments page"
+      assert log =~ cause
     end
   end
 
@@ -146,6 +188,83 @@ defmodule AiurWeb.ExperimentsLiveTest do
     assert has_element?(view, "[data-empty-reason=not_found]")
     refute has_element?(view, ".exp-index a")
     refute has_element?(view, "#exp-detail")
+  end
+
+  test "analyst report renders a table and sanitized content with attributed time" do
+    populated()
+    written_at = report_time(-86_400)
+
+    report(%{
+      markdown: "# Results\n\n| Metric | p |\n| --- | ---: |\n| latency | 0.01 |\n\n/home/alice/private/report.csv ghp_" <> String.duplicate("a", 36),
+      author: "Experiment analyst",
+      written_at: written_at,
+      results_at: written_at
+    })
+
+    {:ok, view, html} = live(build_conn(), "/experiments/first")
+    assert has_element?(view, "#exp-report h3", "Analyst report")
+    assert has_element?(view, "#exp-report h3", "Results")
+    assert has_element?(view, "#exp-report table td", "0.01")
+    assert has_element?(view, "#exp-report", "Experiment analyst")
+    assert has_element?(view, "#exp-report time[title='#{written_at}']", "1d ago")
+    refute has_element?(view, "#exp-report", "Superseded report")
+    refute has_element?(view, "#exp-report-stale")
+    refute html =~ "/home/alice"
+    refute html =~ "ghp_"
+    assert has_element?(view, "#exp-report", "[REDACTED")
+  end
+
+  test "pending report explains absence and updates on the facade notification" do
+    populated()
+    {:ok, view, _html} = live(build_conn(), "/experiments/first")
+    assert has_element?(view, "#exp-report", "The analyst has not written a report for this experiment yet.")
+    refute has_element?(view, "#exp-report time")
+    report(%{markdown: "Report arrived", author: "Analyst", written_at: report_time(-86_400), results_at: nil})
+    send(view.pid, {:experiments_changed, "first"})
+    assert has_element?(view, "#exp-report", "Report arrived")
+    refute has_element?(view, "#exp-report", "The analyst has not written")
+  end
+
+  test "results changed notice carries both report and result times" do
+    populated()
+    written_at = report_time(-172_800)
+    results_at = report_time(-86_400)
+    report(%{markdown: "Earlier report", author: "Analyst", written_at: written_at, results_at: results_at})
+    {:ok, view, _html} = live(build_conn(), "/experiments/first")
+    assert has_element?(view, "#exp-report-stale", "Results changed after this report was written")
+    assert has_element?(view, "#exp-report-stale time[datetime='#{written_at}'][title='#{written_at}']")
+    assert has_element?(view, "#exp-report-stale time[datetime='#{results_at}'][title='#{results_at}']")
+  end
+
+  test "unavailable report content and unknown metadata are explicit" do
+    populated()
+    report(%{markdown: String.duplicate("x", 128_001), author: nil, written_at: "invalid", results_at: nil})
+    {:ok, view, _html} = live(build_conn(), "/experiments/first")
+    assert has_element?(view, "#exp-report", "The analyst report could not be displayed.")
+    assert has_element?(view, "#exp-report", "Unknown analyst")
+    assert has_element?(view, "#exp-report", "Unknown time")
+    refute has_element?(view, "#exp-report .ticket-context-markdown")
+    refute has_element?(view, "#exp-report time")
+    refute has_element?(view, "#exp-report-stale")
+  end
+
+  defp report_time(offset), do: DateTime.utc_now() |> DateTime.add(offset, :second) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+  defp report(report) do
+    stored = "test/fixtures/experiments/report.valid.json" |> File.read!() |> Jason.decode!()
+    stored = stored |> Map.put("summary", report.markdown) |> put_in(["header", "generated_at"], report.written_at) |> put_in(["header", "analyst"], %{"agent" => report.author})
+    state = Application.fetch_env!(:aiur, :experiment_live_fixture)
+
+    state =
+      update_in(state, [:details, "first"], fn {:ok, detail} ->
+        {:ok,
+         Map.merge(detail, %{
+           report_records: %{"reports" => [Map.put(stored, "summary", "Superseded report"), stored]},
+           snapshots: [%{"computed_at" => report.results_at}, %{"computed_at" => report.written_at}]
+         })}
+      end)
+
+    Application.put_env(:aiur, :experiment_live_fixture, state)
   end
 
   defp fixture(opts \\ []) do

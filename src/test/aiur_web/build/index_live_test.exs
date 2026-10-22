@@ -1,6 +1,7 @@
 defmodule AiurWeb.Build.IndexLiveTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
   import Aiur.TestSupport.BuildHome.IndexParts
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.Build.{Index, IndexSource}
 
   defmodule UsageStub do
@@ -104,7 +105,7 @@ defmodule AiurWeb.Build.IndexLiveTest do
       assert gap["generation"] == generation + 2
       assert gap["upsert"] == [] and gap["remove"] == [] and gap["set"] == %{}
       # A gap carries no snapshot. The client requests it using the existing build-resync event.
-      Phoenix.Config.put(AiurWeb.Endpoint, :build_resync_clock, fn _ -> System.monotonic_time(:millisecond) + 3_000 end)
+      EndpointStubs.put(build_resync_clock: fn _ -> System.monotonic_time(:millisecond) + 3_000 end)
       render_hook(view, "build-resync", %{})
       assert_reply(view, snapshot)
       assert snapshot["kind"] == "snapshot"

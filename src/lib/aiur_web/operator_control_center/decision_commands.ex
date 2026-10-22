@@ -7,7 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   import Phoenix.Component, only: [assign: 3]
 
   alias Aiur.{Commands, ExecutorEvents, Issue}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias Phoenix.LiveView.Socket
 
   @type reload_fun :: (Socket.t() -> Socket.t())
@@ -107,10 +107,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   end
 
   defp selected_open_decision(
-         %{assigns: %{selected_decision: %{decision_id: decision_id, decision_status: status} = decision}},
+         %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},
          decision_id
        )
-       when status in [:open, :deferred],
+       when decision.open?,
        do: {:ok, decision}
 
   # Non-selected decisions fall through to the inbox page list, so opening one
@@ -123,13 +123,17 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
          decision_id
        )
        when is_list(decisions) and decision_id != selected_id do
-    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :deferred, :dismissed])) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id and answerable?(&1))) do
       nil -> :error
       decision -> {:ok, decision}
     end
   end
 
   defp selected_open_decision(_socket, _decision_id), do: :error
+
+  defp answerable?(%{decision_status: status}) when status in [:open, :deferred, :dismissed], do: true
+  defp answerable?(%{decision_status: :expired, blocking: true, answer: nil}), do: true
+  defp answerable?(_decision), do: false
 
   defp selected_decision(
          %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},
@@ -202,7 +206,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   # orchestrator's operator-message path already no-ops on a missing running
   # agent, so a single attempt covers both cases.
   defp notify_dismissed_agent(%{ticket: %{identifier: identifier}}) when is_binary(identifier) do
-    _ = Aiur.Orchestrator.send_operator_message(Endpoint.config(:orchestrator) || Aiur.Orchestrator, identifier, %{kind: :text, body: dismissal_text()})
+    _ = Aiur.Orchestrator.send_operator_message(EndpointConfig.get(:orchestrator) || Aiur.Orchestrator, identifier, %{kind: :text, body: dismissal_text()})
     :ok
   end
 
@@ -381,6 +385,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp command_error(:answer_missing), do: "No durable answer is available to retry."
   defp command_error(_reason), do: "The command was rejected. Canonical state was refreshed."
 
-  defp decision_store, do: Endpoint.config(:decision_store) || Commands.default_store()
-  defp decision_attention, do: Endpoint.config(:decision_attention) || Commands.default_attention()
+  defp decision_store, do: EndpointConfig.get(:decision_store) || Commands.default_store()
+  defp decision_attention, do: EndpointConfig.get(:decision_attention) || Commands.default_attention()
 end

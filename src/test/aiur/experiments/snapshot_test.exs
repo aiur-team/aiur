@@ -12,7 +12,7 @@ defmodule Aiur.Experiments.SnapshotTest do
     previous = Application.get_env(:aiur, :experiments_dir)
     Application.put_env(:aiur, :experiments_dir, Path.join(root, "state"))
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
     source = %{"kind" => "event_interval", "start" => "job.started", "end" => "job.finished", "unit_key" => "/id", "attrs" => %{"complexity" => "/complexity"}}
     metric = %{id: "latency", label: "Latency", unit: "ms", unit_of_analysis: "job", kind: "duration", better: "lower", default_direction: "decrease", group: "flow", requires: [], source: source}
     pack = %{schema_version: 1, id: "app", version: "1", metrics: [metric]}

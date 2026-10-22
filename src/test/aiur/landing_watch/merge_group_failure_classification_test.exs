@@ -109,7 +109,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
   end
 
   test "known failure in untouched file is non-PR while a touched-file failure stays PR-caused" do
-    log = "mix test src/test/aiur/example_test.exs:12 test issue signature failed"
+    log = "  1) test issue signature (Aiur.ExampleTest)\n     test/aiur/example_test.exs:12"
     run = group_run(304, "failure", "pr-17-a")
     jobs = [%{"name" => "test", "conclusion" => "failure"}]
 
@@ -134,6 +134,25 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
 
     assert {:ok, {:known_non_pr, _}} =
              MergeFailureClassifier.classify(run, jobs, [], main_failure_opts)
+  end
+
+  test "blame is incomplete when any failed non-gate job has no ExUnit failure location" do
+    jobs = [
+      %{"id" => 1, "name" => "test", "conclusion" => "failure"},
+      %{"id" => 2, "name" => "file size", "conclusion" => "failure"},
+      %{"id" => 3, "name" => "ci gate", "conclusion" => "failure"}
+    ]
+
+    assert {:ok, {:pr_caused, %{blame_complete: false, log: log}}} =
+             MergeFailureClassifier.classify(group_run(501, "failure", "pr-17-a"), jobs, [],
+               job_log_fun: fn
+                 %{"name" => "test"}, _ -> {:ok, "  1) test changed (Aiur.SampleTest)\n     test/aiur/sample_test.exs:12"}
+                 _, _ -> {:ok, "file size check rejected the diff"}
+               end
+             )
+
+    assert log =~ "sample_test.exs"
+    assert log =~ "file size check"
   end
 
   defp group_run(id, conclusion, prs) do

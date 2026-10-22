@@ -58,6 +58,23 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanelTest do
     refute html =~ "s old</span>"
   end
 
+  test "each window has its own full-width meter track" do
+    html =
+      render([
+        card(:claude, [
+          window("claude:five_hour", "Session (5 hour)", 7, 2 * 3_600, %{duration_minutes: 300}),
+          window("claude:seven_day", "Weekly (7 day)", 67, 86_400, %{duration_minutes: 10_080})
+        ])
+      ])
+
+    assert length(Regex.scan(~r/class="rs-ln"/u, html)) == 2
+    assert length(Regex.scan(~r/class="rs-meter"/u, html)) == 2
+    assert html =~ "7%"
+    assert html =~ "67%"
+    assert html =~ "2h 0m<em>/5h</em>"
+    assert html =~ "1d 0h<em>/7d</em>"
+  end
+
   test "prepaid credits show the spend percentage and the balance" do
     credits = %{kind: :credit, name: "Credits", used_percent: 2.3, credits: %{amount: 10.4, status: :available}}
     html = render([card(:deepseek, [credits])])
@@ -75,6 +92,28 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanelTest do
     refute html =~ "0%"
     refute html =~ "Limits"
     refute html =~ "Not observed"
+  end
+
+  test "Codex headroom uses the dispatch value and visibly includes its age" do
+    html = render([card(:codex, [], %{headroom: %{status: :observed, remaining_percent: 74, age_seconds: 75}})])
+
+    assert html =~ ~s(<span class="rs-pc">26%</span>)
+    assert html =~ "74% left · 75s old"
+    assert html =~ "74% remaining · observed 75s ago"
+    refute html =~ ~s(class="rs-no">unknown</span>)
+  end
+
+  test "stale Codex headroom stays unknown and displays the reason and age" do
+    html =
+      render([
+        card(:codex, [], %{
+          headroom: %{status: :stale, reason: "Last headroom reading is stale", age_seconds: 1900}
+        })
+      ])
+
+    assert html =~ "Last headroom reading is stale · 1900s old"
+    assert html =~ "rs-ln has-tag is-stale"
+    refute html =~ ~s(<span class="rs-pc">0%</span>)
   end
 
   test "a durable last-known standing renders its percentage with a red bar at 100%" do
