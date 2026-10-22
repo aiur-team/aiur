@@ -17,15 +17,16 @@ export async function alignEtaMask(pair) {
 // Force a fresh paint after relocating the fixture's sticky viewport. A warm
 // screenshot alone does not reconcile its glyph raster. Use between paused
 // JS-clock scroll samples; no pixels are masked or final styles changed.
-export async function primeBoardPaint(pair) {
+export async function primeBoardPaint(pair, region = '#bd-vp') {
   for (const page of [pair.design, pair.product]) {
-    const vp = page.locator('#bd-vp'), focused = await page.evaluateHandle(() => document.activeElement)
-    const original = await vp.evaluate(el => ({ value: el.style.visibility, priority: el.style.getPropertyPriority('visibility'), scroll: el.scrollTop }))
+    const vp = page.locator('#bd-vp'), target = page.locator(region), focused = await page.evaluateHandle(() => document.activeElement)
+    const original = await target.evaluate(el => ({ value: el.style.visibility, priority: el.style.getPropertyPriority('visibility') }))
+    original.scroll = await vp.evaluate(el => el.scrollTop)
     try {
-      await vp.evaluate(el => { el.style.visibility = 'hidden' })
+      await target.evaluate(el => { el.style.visibility = 'hidden' })
       await page.screenshot({ animations: 'allow' })
     } finally {
-      await vp.evaluate((el, old) => { el.style.setProperty('visibility', old.value, old.priority) }, original)
+      await target.evaluate((el, old) => { el.style.setProperty('visibility', old.value, old.priority) }, original)
       const sameFocus = await focused.evaluate(el => el === document.activeElement)
       await focused.dispose()
       if (!sameFocus || await vp.evaluate(el => el.scrollTop) !== original.scroll) throw new Error('Canvas repaint changed focus or scroll position')

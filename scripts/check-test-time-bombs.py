@@ -16,6 +16,7 @@ tree with sibling and support files present; only dated contents are shifted.
 """
 import argparse
 import datetime
+import os
 import pathlib
 import re
 import shutil
@@ -151,6 +152,9 @@ def main():
                 (temp_root / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
         shifted = copy_test_tree(args.days, temp_src / 'test')
         files = select(args.files, shifted)
+        count_file = os.environ.get('AIUR_TIME_BOMB_COUNT_FILE')
+        if count_file:
+            pathlib.Path(count_file).write_text(str(len(files)), encoding='utf-8')
         if not files:
             print('check-test-time-bombs: no dated test files to run')
             return 0

@@ -27,6 +27,11 @@ space changes. Full cards show complexity, section status and queue cues. Unknow
 progress, points and estimates read `—`; unknown progress has no progress bar.
 Closed tickets distinguish merged, failed, not planned and other closed outcomes.
 
+Open a ticket card to read its conversation. The modal starts with the newest
+entries; scroll to the top to load earlier ones. A missing past transcript reads
+“Conversation not retained”. Remote workers show only their retained live window;
+stale or unavailable live state is labeled separately from the transcript.
+
 ## Build timeline freshness
 
 The build timeline at `/build` labels daemon state separately from socket reachability. An offline or stale snapshot shows its last heartbeat age and local time; a missing heartbeat reads “no heartbeat recorded”. Socket loss lasting at least 500 ms shows “Daemon unreachable” and stops the live glows.

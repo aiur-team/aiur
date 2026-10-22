@@ -89,12 +89,14 @@ defmodule Aiur.LandingWatch do
     case result do
       :ok ->
         next = %{state | task: nil, watcher: :running, last_poll_at_ms: now, last_error: nil, active_recovery_window: nil, active_recovery_attempt: 0}
+        :telemetry.execute([:aiur, :landing_watch, :poll, :stop], %{}, %{result: :ok})
         if next.pending_recovery_window, do: send(self(), RecoveryRuntime.message(next.pending_recovery_window))
         {:noreply, %{next | pending_recovery_window: nil}}
 
       {:error, reason} ->
         Logger.warning("landing watcher poll unavailable: #{inspect(reason)}")
         next = %{state | task: nil, watcher: :unavailable, last_poll_at_ms: now, last_error: inspect(reason)}
+        :telemetry.execute([:aiur, :landing_watch, :poll, :stop], %{}, %{result: :error})
         {:noreply, RecoveryRuntime.retry_or_drain(next)}
     end
   end
@@ -102,6 +104,7 @@ defmodule Aiur.LandingWatch do
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %{ref: ref}} = state) do
     Logger.warning("landing watcher poll crashed: #{inspect(reason)}")
     next = %{state | task: nil, watcher: :unavailable, last_error: inspect(reason)}
+    :telemetry.execute([:aiur, :landing_watch, :poll, :stop], %{}, %{result: :error})
     {:noreply, RecoveryRuntime.retry_or_drain(next)}
   end
 

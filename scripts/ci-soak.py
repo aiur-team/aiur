@@ -4,6 +4,9 @@
   ci-soak.py select <base>   print GitHub outputs for the files changed between <base> and HEAD
   ci-soak.py exunit          run SOAK_TESTS (JSON list, relative to src/) N times, one seed each
   ci-soak.py browser         run SOAK_SPECS (JSON list, relative to src/browser/) with --repeat-each
+
+Keep selection, smoke discovery, and execution together because CI invokes this
+standalone script from separate ExUnit and browser working directories.
 """
 import json
 import os
@@ -11,6 +14,7 @@ from pathlib import Path
 import random
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import time
@@ -21,6 +25,8 @@ MAX_CASES = 8
 SPEC_REPEATS, SPEC_REDUCED_REPEATS, SPEC_FULL_LIMIT, SPEC_MAX_FILES = 5, 2, 3, 10
 RUN_TIMEOUT_SECONDS = 300
 BROWSER_RUN_TIMEOUT_SECONDS = 20 * 60
+MAX_BROWSER_TESTS_PER_SPEC = 200
+BROWSER_LIST_TIMEOUT_SECONDS = 60
 BUDGET_SECONDS = int(os.environ.get('AIUR_SOAK_BUDGET_SECONDS', str(12 * 60)))
 BROWSER_ROOT = Path(os.environ.get('AIUR_SOAK_BROWSER_ROOT', Path(__file__).resolve().parent.parent / 'src/browser'))
 DURATION_SOURCE = Path(__file__).resolve().parent.parent / 'src/browser/scripts/browser-smoke-durations.mjs'
@@ -52,7 +58,7 @@ def smoke_scripts(scripts):
             continue
         seen.add(name)
         command = scripts[name]
-        yield command
+        yield name, command
         for segment in command.split('&&'):
             tokens = shlex.split(segment)
             if 'npm' in tokens:
@@ -65,7 +71,7 @@ def browser_invocations(spec, scripts):
     """Keep every smoke registration's filters/options, rather than just its first config."""
     invocations = []
     registered = False
-    for command in smoke_scripts(scripts):
+    for _name, command in smoke_scripts(scripts):
         for segment in command.split('&&'):
             tokens = shlex.split(segment)
             runner = 'scripts/run-browser-tests.mjs'
@@ -93,19 +99,23 @@ def browser_invocations(spec, scripts):
     return []
 
 
-def browser_duration(spec, invocations, scripts, durations):
-    """Return the slowest recorded suite duration for a spec's smoke registrations."""
+def browser_duration(spec, invocation, scripts, durations):
+    """Return the recorded duration for this spec's matching smoke registration."""
     seconds = []
-    for command in smoke_scripts(scripts):
+    runner = 'scripts/run-browser-tests.mjs'
+    invocation_args = invocation[invocation.index(runner) + 1:]
+    for script_name, command in smoke_scripts(scripts):
         for segment in command.split('&&'):
             tokens = shlex.split(segment)
-            runner = 'scripts/run-browser-tests.mjs'
-            if runner in tokens and spec in tokens:
-                for script_name, script_command in scripts.items():
-                    if script_name in durations and runner in script_command and spec in shlex.split(script_command):
-                        seconds.append(durations[script_name])
-    # A changed smoke spec without a matching recorded command is least known; run it
-    # first so its result is not consistently lost behind measured, longer suites.
+            if runner not in tokens or spec not in tokens:
+                continue
+            args = tokens[tokens.index(runner) + 1:]
+            args = [token for token in args
+                    if not (token.startswith('tests/') and token.endswith('.spec.mjs') and token != spec)]
+            if args == invocation_args and script_name in durations:
+                seconds.append(durations[script_name])
+    # A changed smoke spec without a matching recorded command is least known;
+    # keep it first so its result is not consistently lost behind measured suites.
     return max(seconds, default=0)
 
 
@@ -175,7 +185,6 @@ def soak_browser():
     specs = load_list('SOAK_SPECS', 'tests/', '.spec.mjs')
     scripts = json.loads((BROWSER_ROOT / 'package.json').read_text())['scripts']
     duration_text = DURATION_SOURCE.read_text()
-    # Read the checked-in JS object without evaluating arbitrary source as Python.
     duration_block = duration_text.split('export const recordedSeconds = {', 1)[1].split('\n}', 1)[0]
     durations = {}
     for line in duration_block.splitlines():
@@ -187,41 +196,135 @@ def soak_browser():
         if not commands:
             notice(f'Playwright soak skipped {spec}: the browser smoke suite does not run it')
     runnable = [spec for spec, commands in invocations.items() if commands]
-    runnable.sort(key=lambda spec: browser_duration(spec, invocations[spec], scripts, durations))
+    runnable.sort(key=lambda spec: max(
+        (browser_duration(spec, invocation, scripts, durations) for invocation in invocations[spec]), default=0))
     n = plan_runs('Playwright', len(runnable), SPEC_REPEATS, SPEC_REDUCED_REPEATS, SPEC_FULL_LIMIT, SPEC_MAX_FILES)
     started = time.monotonic()
     completed = 0
     for spec in runnable if n else []:
-        estimated_seconds = browser_duration(spec, invocations[spec], scripts, durations) * n
-        remaining = BUDGET_SECONDS - (time.monotonic() - started)
-        if remaining <= 0:
-            notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec} after {completed} passing repeats')
-            return 0
-        if estimated_seconds > remaining:
-            notice(f'Playwright soak skipped {spec}: estimated {estimated_seconds:.0f}s exceeds {remaining:.0f}s remaining budget')
-            continue
         for invocation in invocations[spec]:
             elapsed = time.monotonic() - started
             if elapsed >= BUDGET_SECONDS:
-                notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec}')
+                notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec} after {completed} passing repeats')
                 return 0
-            command = [*invocation, f'--repeat-each={n}']
-            print(f'::group::Playwright soak: {shlex.join(command)}', flush=True)
-            # Apply the overall budget between invocations, as for ExUnit. Routine
-            # motion repetitions can exceed 300s. Keep total browser runtime within
-            # 20 minutes, leaving setup/cleanup time inside the 25-minute job.
-            status = run(command, cwd=BROWSER_ROOT, timeout=max(1, BROWSER_RUN_TIMEOUT_SECONDS - elapsed))
-            print('::endgroup::', flush=True)
-            if status is RUN_TIMED_OUT:
-                notice(f'Playwright soak stopped at its runtime bound after {completed} passing repeats')
+            listing_timeout = min(BROWSER_LIST_TIMEOUT_SECONDS, max(0.001, (BUDGET_SECONDS - elapsed) / 2))
+            listed = browser_test_list(invocation, timeout=listing_timeout)
+            elapsed = time.monotonic() - started
+            remaining = BUDGET_SECONDS - elapsed
+            if remaining <= 0:
+                notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec} after {completed} passing repeats')
                 return 0
-            if status != 0:
-                notice(f'Playwright soak failed for {spec}. Reproduce: cd src/browser && {shlex.join(command)}', 'error')
-                return 1
-            completed += n
+            if listed == []:
+                notice(f'Playwright soak skipped {spec}: registration lists no tests')
+                continue
+            sampled = listed is not None and len(listed) > MAX_BROWSER_TESTS_PER_SPEC
+            if listed is None:
+                notice(f'Playwright soak could not count tests for {spec}; running this registration unsampled')
+            estimated_seconds = browser_duration(spec, invocation, scripts, durations) * n
+            if listed is not None and not sampled and estimated_seconds > remaining:
+                notice(f'Playwright soak skipped {spec}: estimated {estimated_seconds:.0f}s exceeds {remaining:.0f}s remaining budget')
+                continue
+            commands = []
+            if sampled:
+                notice(f'Playwright soak sampled {spec}: {len(listed)} tests exceeds '
+                       f'{MAX_BROWSER_TESTS_PER_SPEC}; rotating one listed test per repeat')
+                sample_count = min(n, len(listed))
+                sampled_titles = random.SystemRandom().sample(listed, sample_count)
+                commands = [[*sample_grep(invocation, sampled_titles[index % sample_count]), '--repeat-each=1']
+                            for index in range(n)]
+            else:
+                commands = [[*invocation, f'--repeat-each={n}']]
+            for command in commands:
+                elapsed = time.monotonic() - started
+                if elapsed >= BUDGET_SECONDS:
+                    notice(f'Playwright soak stopped at its {BUDGET_SECONDS}s budget before {spec} after {completed} passing repeats')
+                    return 0
+                print(f'::group::Playwright soak: {shlex.join(command)}', flush=True)
+                timeout = max(1, BROWSER_RUN_TIMEOUT_SECONDS - elapsed)
+                status = run_browser(command, spec, timeout)
+                print('::endgroup::', flush=True)
+                if status is RUN_TIMED_OUT:
+                    notice(f'Playwright soak stopped at its runtime bound after {completed} passing repeats')
+                    return 0
+                if status != 0:
+                    notice(f'Playwright soak failed for {spec}. Reproduce: cd src/browser && {shlex.join(command)}', 'error')
+                    return 1
+                completed += 1 if sampled else n
     if completed:
         notice(f'Playwright soak: {completed} repeats passed for {len(runnable)} specs')
     return 0
+
+def browser_test_list(invocation, timeout=BROWSER_LIST_TIMEOUT_SECONDS):
+    """List one smoke registration's actual Playwright tests and preserve its filters."""
+    runner = invocation.index('scripts/run-browser-tests.mjs')
+    args = invocation[runner + 1:]
+    command = ['npx', 'playwright', 'test', *args, '--list', '--reporter=json']
+    environment = os.environ.copy()
+    if invocation[0] == 'env':
+        for assignment in invocation[1:runner - 1]:
+            key, value = assignment.split('=', 1)
+            environment[key] = value
+    with socket.socket() as port_socket:
+        port_socket.bind(('127.0.0.1', 0))
+        environment['AIUR_BROWSER_PORT'] = str(port_socket.getsockname()[1])
+        try:
+            result = subprocess.run(command, cwd=BROWSER_ROOT, capture_output=True, text=True,
+                                    timeout=timeout, env=environment)
+        except subprocess.TimeoutExpired:
+            notice(f'Playwright soak could not list {args[0]} within {timeout:g}s; '
+                   f'running this registration unsampled; command: {shlex.join(command)}')
+            return None
+    if result.returncode:
+        notice(f'Playwright soak could not list {args[0]}; running this registration unsampled; '
+               f'command: {shlex.join(command)}; {result.stderr.strip()}')
+        return None
+    try:
+        return playwright_titles(json.loads(result.stdout))
+    except (json.JSONDecodeError, TypeError, KeyError, AttributeError) as error:
+        notice(f'Playwright soak received invalid test listing for {args[0]}; '
+               f'running this registration unsampled; command: {shlex.join(command)} ({error})')
+        return None
+
+
+def playwright_titles(report):
+    titles = []
+
+    def visit(suite, parents=()):
+        title = suite.get('title', '')
+        parts = parents + ((title,) if title and not title.endswith('.spec.mjs') else ())
+        titles.extend((parts + (test['title'],)) for test in suite.get('specs', []))
+        for child in suite.get('suites', []):
+            visit(child, parts)
+
+    for suite in report.get('suites', []):
+        visit(suite)
+    return titles
+
+
+def sample_grep(command, title_parts):
+    """Add an escaped title filter while retaining a registration's existing grep."""
+    runner = command.index('scripts/run-browser-tests.mjs')
+    args = command[runner + 1:]
+    pattern = '.*' + '.*'.join(re.escape(part) for part in title_parts) + '.*'
+    for index, arg in enumerate(args):
+        if arg in ('--grep', '-g') and index + 1 < len(args):
+            args[index + 1] = f'(?=.*(?:{args[index + 1]}))(?=.*(?:{pattern})).*'
+            return command[:runner + 1] + args
+        if arg.startswith('--grep='):
+            original = arg.split('=', 1)[1]
+            args[index] = f'--grep=(?=.*(?:{original}))(?=.*(?:{pattern})).*'
+            return command[:runner + 1] + args
+    args.extend(['--grep', pattern])
+    return command[:runner + 1] + args
+
+
+def run_browser(command, spec, timeout):
+    try:
+        return subprocess.run(command, cwd=BROWSER_ROOT, timeout=timeout).returncode
+    except subprocess.TimeoutExpired:
+        notice(f'Playwright soak skipped: over budget: {spec}; command: {shlex.join(command)} '
+               f'(timed out after {timeout:g}s)')
+        return RUN_TIMED_OUT
 
 
 def main(argv):
