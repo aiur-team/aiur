@@ -7,6 +7,17 @@ defmodule Aiur.GitHub.ResourceStore.MemoryTest do
   alias Aiur.GitHub.ResourceStore
   alias Aiur.GitHub.ResourceStore.Memory
 
+  defmodule CaptureAlertSink do
+    def emit_custom(topic, message, opts),
+      do:
+        (
+          send(Process.get(:memory_test_pid), {:alert, topic, message, opts})
+          :ok
+        )
+
+    def emit_system(_topic, _opts), do: :ok
+  end
+
   @body_bytes 100 * 1024
 
   setup do
@@ -186,6 +197,37 @@ defmodule Aiur.GitHub.ResourceStore.MemoryTest do
 
       output = capture_io(fn -> Memory.print_status(:no_such_resource_store_table) end)
       assert output == "GITHUB RESOURCES unavailable (resource store is not running)\n"
+    end
+
+    test "status opens attention when held bodies reach the cap" do
+      test_pid = self()
+      original = Application.get_env(:aiur, :signal, [])
+      original_cap = Application.fetch_env(:aiur, :github_resource_store_max_body_bytes)
+
+      Application.put_env(:aiur, :signal, alert_sink: CaptureAlertSink)
+      Process.put(:memory_test_pid, test_pid)
+
+      on_exit(fn ->
+        Application.put_env(:aiur, :signal, original)
+
+        case original_cap do
+          {:ok, cap} -> Application.put_env(:aiur, :github_resource_store_max_body_bytes, cap)
+          :error -> Application.delete_env(:aiur, :github_resource_store_max_body_bytes)
+        end
+
+        :persistent_term.erase({Memory, :cap_attention_firing})
+      end)
+
+      Memory.print_status(:no_such_resource_store_table)
+      assert_received {:alert, "system.github.resource_store.cap.resolved", _, _}
+
+      cap = 1
+      Application.put_env(:aiur, :github_resource_store_max_body_bytes, cap)
+      :ok = ResourceStore.put_resource(ResourceStore.key(:issue, "owner", "repo", 1), body(1), source: :fetch)
+      Memory.print_status()
+      assert_received {:alert, "system.github.resource_store.cap", message, opts}
+      assert message =~ "will be shed on the next store sweep"
+      assert Keyword.fetch!(opts, :needs_attention)
     end
 
     test "aiur status prints the GITHUB RESOURCES line for the GitHub tracker only" do
