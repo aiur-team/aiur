@@ -1,7 +1,7 @@
 # Merge the integration branch, then report every cheap gate in one final block.
 cmd_pre_pr() {
   [ "$#" -eq 0 ] || { echo "aiur: pre-pr does not accept arguments" >&2; exit 64; }
-  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config test_path cleanup_command affected selection pr_json full_suite_recommended=0 required interrupted=0
+  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config test_path cleanup_command affected selection pr_json full_suite_recommended=0 required interrupted=0 active_gate_pid=
   local -a results=() failures=() test_files=() test_env=()
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "aiur pre-pr is for Aiur source checkouts; run it inside an Aiur repository." >&2; exit 64; }
   if [ ! -f "$root/src/mix.exs" ] || [ ! -f "$root/scripts/check-pr-structure.py" ]; then
@@ -44,6 +44,13 @@ cmd_pre_pr() {
     local signal="$1"
     [[ "$interrupted" == 0 ]] || return
     interrupted=1
+    if [[ -n "$active_gate_pid" ]]; then
+      kill -TERM -- "-$active_gate_pid" 2>/dev/null || kill -TERM "$active_gate_pid" 2>/dev/null || true
+      wait "$active_gate_pid" 2>/dev/null || true
+      results+=("INTERRUPTED gate $name received $signal")
+      failures+=("$gate_log")
+      active_gate_pid=
+    fi
     results+=("INTERRUPTED pre-pr command received $signal")
     pre_pr_report "${base_sha:-unknown}" FAIL
     trap - INT TERM
@@ -72,11 +79,15 @@ cmd_pre_pr() {
     name="$1"; shift
     gate_log="$temp_dir/gate-${#results[@]}.log"
     printf 'aiur pre-pr gate started: %s\n' "$name"
-    if "$@" >"$gate_log" 2>&1; then
+    setsid "$@" >"$gate_log" 2>&1 &
+    active_gate_pid=$!
+    if wait "$active_gate_pid"; then
+      active_gate_pid=
       results+=("PASS $name")
       printf 'aiur pre-pr gate complete: PASS %s\n' "$name"
     else
       local status=$?
+      active_gate_pid=
       results+=("FAIL $name")
       failures+=("$gate_log")
       result=1

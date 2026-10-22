@@ -6,13 +6,26 @@ base="${1:?base SHA required}"
 pr_json="${2:-}"
 head="$(git -C "$repo_root" rev-parse HEAD)"
 scratch="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pre-handoff-code-checks.XXXXXX")"
+evidence="$scratch/evidence"
+active_pid=
+active_command=
+active_log=
+: > "$evidence"
 trap 'rm -rf "$scratch"' EXIT
 
 handoff_interrupted() {
   local signal="$1" status
   status=$((128 + $(kill -l "$signal" 2>/dev/null || echo 1)))
   printf 'run-pre-handoff-code-checks: INTERRUPTED by %s (exit %s); completed evidence follows\n' "$signal" "$status" >&2
-  if [[ -f "${evidence:-}" ]]; then
+  if [[ -n "$active_pid" ]]; then
+    kill -TERM -- "-$active_pid" 2>/dev/null || kill -TERM "$active_pid" 2>/dev/null || true
+    wait "$active_pid" 2>/dev/null || true
+  fi
+  if [[ -n "$active_command" ]]; then
+    printf -- '- `%s` -> interrupted by %s (exit %s)\n' "$active_command" "$signal" "$status" >> "$evidence"
+  fi
+  if [[ -f "$active_log" ]]; then cat "$active_log" >&2; fi
+  if [[ -f "$evidence" ]]; then
     printf '%s\n' '--- Local tests evidence (partial; later checks not run) ---' >&2
     cat "$evidence" >&2
     printf '%s\n' '--- end Local tests evidence ---' >&2
@@ -52,9 +65,7 @@ else
 fi
 cat "$scratch/selection"
 tests_file="$scratch/tests"
-evidence="$scratch/evidence"
 : > "$tests_file"
-: > "$evidence"
 tested_head="$head"
 if [[ -n "$pr_json" ]]; then
   tested_head="$(python3 - "$pr_json" "$head" <<'PY'
@@ -90,10 +101,20 @@ in_src() { (cd "$repo_root/src" && "$@"); }
 run_check() {
   local command="$1"
   shift
-  if in_src "$@"; then
+  active_command="$command"
+  active_log="$scratch/active-check.log"
+  setsid bash -c 'cd "$1" || exit; shift; exec "$@"' _ "$repo_root/src" "$@" > "$active_log" 2>&1 &
+  active_pid=$!
+  if wait "$active_pid"; then
+    active_pid=
+    active_command=
+    cat "$active_log"
     record_result "$command" passed
   else
     local status=$?
+    active_pid=
+    active_command=
+    cat "$active_log"
     record_result "$command" "failed (exit $status)"
     print_evidence
     exit "$status"
@@ -185,18 +206,26 @@ if [[ "$partition_fallback" == true ]]; then
   fi
   partition_failed=false
   for partition in 1 2 3 4; do
-    if MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION="$partition" TEST_PARTITIONS=4 \
-      nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C "$repo_root/src" coverage-partition \
-      > "$scratch/partition-$partition.log" 2>&1; then
+    active_command="MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION=$partition TEST_PARTITIONS=4 nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C src coverage-partition"
+    active_log="$scratch/partition-$partition.log"
+    MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION="$partition" TEST_PARTITIONS=4 \
+      setsid nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C "$repo_root/src" coverage-partition \
+      > "$active_log" 2>&1 &
+    active_pid=$!
+    if wait "$active_pid"; then
+      active_pid=
+      active_command=
       record_result "MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION=$partition TEST_PARTITIONS=4 nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C src coverage-partition" passed
       echo "run-pre-handoff-code-checks: coverage partition $partition/4 complete (passed)"
     else
       status=$?
+      active_pid=
+      active_command=
       record_result "MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION=$partition TEST_PARTITIONS=4 nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C src coverage-partition" "failed (exit $status)"
       partition_failed=true
       echo "run-pre-handoff-code-checks: coverage partition $partition/4 complete (failed, exit $status)"
     fi
-    cat "$scratch/partition-$partition.log"
+    cat "$active_log"
   done
   if [[ "$partition_failed" == true ]]; then print_evidence; exit 1; fi
 elif [[ -s "$tests_file" ]]; then
