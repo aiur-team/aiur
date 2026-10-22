@@ -54,7 +54,7 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{kind: "stale_merge_group", age_ms: 8_400_000}] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_merge_group"))
   end
 
-  test "reports the live CI observation age and marks old observations unverified" do
+  test "reports red checks only from fresh live CI observations" do
     now = ~U[2026-10-15 18:20:00Z]
     old = ~U[2026-10-15 16:00:00Z]
     group = %{name: "run 44", state: "in_progress", started_at: old}
@@ -70,15 +70,14 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
 
     stale = %{fresh | pull_requests: [live_ci(pr, 300_001, now)], github_cache_ages: %{pull_requests: %{12 => 0}, merge_group_runs: %{44 => 300_001}}}
     stale_findings = Checks.all(stale, now)
-    assert [%{verification: "unverified", message: stale_pr_message}] = Enum.filter(stale_findings, &(&1.kind == "approved_pr_red"))
-    assert stale_pr_message =~ "unverified"
+    refute Enum.any?(stale_findings, &(&1.kind == "approved_pr_red"))
     assert [%{verification: "unverified", message: stale_group_message}] = Enum.filter(stale_findings, &(&1.kind == "stale_merge_group"))
     assert stale_group_message =~ "unverified"
 
     old_pr = pr |> Map.drop([:ci_head_sha, :ci_observed_at_ms]) |> Map.put(:number, 99)
     mixed = %{fresh | pull_requests: [pr, old_pr], github_cache_ages: %{pull_requests: %{12 => 120_000, 99 => 800_000}, merge_group_runs: %{44 => 240_000}}}
     pr_findings = Enum.filter(Checks.all(mixed, now), &(&1.kind == "approved_pr_red"))
-    assert [%{pull_request: 12, verification: "verified"}, %{pull_request: 99, verification: "unverified"}] = Enum.sort_by(pr_findings, & &1.pull_request)
+    assert [%{pull_request: 12, verification: "verified"}] = pr_findings
   end
 
   test "does not make GitHub run or check findings when source cache age is unavailable" do
@@ -91,7 +90,7 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     }
 
     findings = Checks.all(snapshot, now)
-    assert [%{verification: "unverified"}] = Enum.filter(findings, &(&1.kind == "approved_pr_red"))
+    refute Enum.any?(findings, &(&1.kind == "approved_pr_red"))
     assert [%{verification: "unverified"}] = Enum.filter(findings, &(&1.kind == "stale_merge_group"))
   end
 
@@ -358,17 +357,38 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
       github_cache_ages: %{pull_requests: %{99 => 0}, merge_group_runs: %{}},
       pull_requests: [
         %{number: 4447, issue_number: 4429, state: "open", draft: false, head_sha: "current", reviewed_head_sha: nil, ready_at: ~U[2026-10-14 19:08:00Z]},
-        %{
-          number: 9,
-          issue_number: 3,
-          state: "open",
-          review_decision: "APPROVED",
-          auto_merge: false,
-          in_merge_queue: false,
-          required_checks: [%{conclusion: "startup_failure"}],
-          failure_class: "infra"
-        },
-        %{number: 10, issue_number: 4, state: "open", review_decision: "APPROVED", auto_merge: true, in_merge_queue: false, required_checks: [%{conclusion: "failure"}], failure_class: "pr"},
+        live_ci(
+          %{
+            number: 9,
+            issue_number: 3,
+            state: "open",
+            review_decision: "APPROVED",
+            head_sha: "head-9",
+            approved_head_sha: "head-9",
+            auto_merge: false,
+            in_merge_queue: false,
+            required_checks: [%{conclusion: "startup_failure"}],
+            failure_class: "infra"
+          },
+          0,
+          now
+        ),
+        live_ci(
+          %{
+            number: 10,
+            issue_number: 4,
+            state: "open",
+            review_decision: "APPROVED",
+            head_sha: "head-10",
+            approved_head_sha: "head-10",
+            auto_merge: true,
+            in_merge_queue: false,
+            required_checks: [%{conclusion: "failure"}],
+            failure_class: "pr"
+          },
+          0,
+          now
+        ),
         %{number: 11, issue_number: 8, state: "open", review_decision: "APPROVED", auto_merge: false, in_merge_queue: false, required_checks: []}
       ],
       merge_queue: [%{number: 9, mergeable: "UNMERGEABLE"}],
