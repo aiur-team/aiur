@@ -9,7 +9,7 @@ defmodule Aiur.Accounts.UsageReadings do
   @spec reset() :: :ok
   def reset, do: :persistent_term.erase(@key) && :ok
 
-  @spec snapshot(String.t(), [String.t()]) :: %{{String.t(), String.t()} => map()}
+  @spec snapshot(String.t(), [String.t()]) :: %{String.t() => map()}
   def snapshot(harness, names) do
     names
     |> Enum.uniq()
