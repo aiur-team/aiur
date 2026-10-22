@@ -4,6 +4,7 @@
 import importlib.util
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 import tempfile
@@ -308,6 +309,21 @@ coverage (2/4)\tTest coverage partition\t2026-10-22T01:00:01Z  1 test, 1 failure
         self.assertIn("timeout --signal=TERM --kill-after=60s 20m", partition_script)
         self.assertIn("make coverage-partition", partition_script)
         self.assertIn("timeout --signal=TERM --kill-after=60s 10m", retry_script)
+
+    def test_coverage_job_budget_covers_partition_and_retry_bounds(self):
+        # A job timeout below both bounds cancels the evidence uploads (#2397/#2560).
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        partition = workflow.split("  coverage-partition:\n", 1)[1].split("\n  test:\n", 1)[0]
+        job_minutes = int(re.search(r"^    timeout-minutes: (\d+)$", partition, re.M).group(1))
+
+        def bound_minutes(script):
+            text = (ROOT / "scripts" / script).read_text()
+            kill, run = re.search(r"timeout --signal=TERM --kill-after=(\d+)s (\d+)m", text).groups()
+            return int(run) + int(kill) / 60
+
+        worst_case = bound_minutes("run-coverage-partition.sh") + bound_minutes("retry-coverage-tests.sh")
+        setup_and_uploads = 3
+        self.assertGreaterEqual(job_minutes, worst_case + setup_and_uploads)
 
 
 if __name__ == "__main__":
