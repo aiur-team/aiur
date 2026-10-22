@@ -83,6 +83,10 @@ defmodule AiurWeb.Router do
   Api.machine_writes()
   Streamdeck.session()
   Capabilities.reads()
+  # Per-ticket usage read (#5692).
+  alias AiurWeb.Routes.Usage
+  require Usage
+  Usage.reads()
   # Generic issue reads and the catch-all stay last.
   Api.reads_and_catch_all()
 
