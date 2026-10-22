@@ -38,7 +38,7 @@ defmodule AiurWeb.DashboardCodexHeadroomTest do
     Aiur.TestSupport.start_owned_endpoint!()
 
     conn = build_conn() |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:codex-headroom-secret"))
-    {:ok, view, _html} = live(conn, "/")
+    {:ok, view, _html} = live(conn, "/units")
 
     codex = view |> render() |> Floki.parse_document!() |> Floki.find(".rs-models [data-provider='codex']") |> Floki.text()
 
