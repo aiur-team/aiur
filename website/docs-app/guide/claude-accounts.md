@@ -51,6 +51,18 @@ Usage percentages and freshness come from the daemon's last poll. If Aiur is
 not running, the command still shows account identity and reports usage as
 unavailable; it does not make a separate usage request.
 
+A running daemon serves the same rows over HTTP, behind dashboard basic auth:
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/v1/usage/accounts` | `{contract: "aiur.usage.accounts", contract_version: 1, observed_at, accounts: [...]}`. Each row is one `aiur accounts --json` row: identity labels, `weekly_percent`, `five_hour_percent`, `remaining_percent`, `freshness`, `observed_at` and `age_ms`. |
+| `GET /api/v1/usage/accounts?harness=codex` | The same envelope, limited to one harness. |
+
+`freshness` says why a row has no numbers (`usage_not_observed`,
+`usage_not_polled`, `stale_ledger` or the failed poll's reason); a missing
+reading is `null`, never `0`. Responses are `Cache-Control: no-store` and
+never include credentials, API keys or profile paths.
+
 ## Enable accounts for dispatch
 
 Add account names to the repository's `.aiur/config`. Names in the list are
