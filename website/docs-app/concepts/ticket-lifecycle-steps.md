@@ -127,7 +127,8 @@ picks one of four, by precedence `resumed` > rework > `prior_work` > cold:
   `ce-brainstorm`/`ce-plan`, planning→work authorization, reconcile the
   workspace. Rework and prior_work differ only in three interpolated strings
   (`turn_prompt.ex:106-123`); notably the rework variant forbids a liveness
-  push that would dismiss a stale approval.
+  push that would dismiss a stale approval. A dirty kept workspace appends
+  "Resuming from a stopped session": its `git status --short` and last agent message.
 - `:resumed` (session reattached after an aiur restart) — a short nudge with no
   ticket context at all (`turn_prompt.ex:65-79`).
 - Turn N>1 — short continuation guidance (`turn_prompt.ex:19-34`).

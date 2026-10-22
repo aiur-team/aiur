@@ -51,6 +51,31 @@ Usage percentages and freshness come from the daemon's last poll. If Aiur is
 not running, the command still shows account identity and reports usage as
 unavailable; it does not make a separate usage request.
 
+A running daemon serves the same rows over HTTP, behind dashboard basic auth:
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/v1/usage/accounts` | `{contract: "aiur.usage.accounts", contract_version: 1, observed_at, accounts: [...]}`. Each row is the matching `aiur accounts --json` row, limited to an allowlist: identity labels, `weekly_percent`, `five_hour_percent`, `remaining_percent`, `freshness`, `observed_at` and `age_ms`. |
+| `GET /api/v1/usage/accounts?harness=codex` | The same envelope, limited to one harness. |
+
+Every row has a `freshness` value:
+
+| `freshness` | Numbers |
+| --- | --- |
+| `fresh`, `cached` | Current Claude meter reading. |
+| `stale` | Claude reading older than `agent.headroom_reading_max_age_seconds`; numbers are kept and `age_ms` shows how old they are. |
+| `ledger` | Read from the usage ledger (a backend with one account). |
+| `stale_ledger` | Ledger reading past the max age; numbers are `null`, `age_ms` is kept. |
+| `usage_not_observed` | Claude account the daemon has not polled yet. |
+| `usage_not_polled` | Backend without a per-account meter or a usable ledger reading. |
+| `usage_unavailable` | API-key account; no per-key meter. |
+| other | Reason the last poll failed, for example `no_oauth_token`. |
+
+A missing reading is `null`, never `0`. Each row carries only the listed
+fields, and `identity` carries only `email`, `organization`, `seatTier` and
+`account_id`. Responses are `Cache-Control: no-store` and never include
+credentials, API keys or profile paths.
+
 ## Enable accounts for dispatch
 
 Add account names to the repository's `.aiur/config`. Names in the list are

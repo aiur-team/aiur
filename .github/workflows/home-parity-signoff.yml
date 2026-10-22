@@ -36,6 +36,7 @@ jobs:
           - { name: ticket modal, run: npm run test:build-modal-parity }
           - { name: ticket conversation, run: npm run test:build-home-conversation }
           - { name: shell, run: npm run test:shell-parity }
+          - { name: cutover navigation, run: npm run test:cutover-nav-parity }
           - { name: home css, run: npm run test:home-css }
           - { name: loading, run: npm run test:build-home-loading }
           - { name: render, run: npm run test:build-home-render }

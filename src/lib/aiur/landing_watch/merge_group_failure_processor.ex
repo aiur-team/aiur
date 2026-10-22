@@ -28,6 +28,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
       end)
 
     opts = if has_observed_pr?, do: prepare_failure_evidence(opts, base), else: opts
+    store_watchdog_evidence(runs, observations, opts)
 
     # One failing run must not hold back later runs; report the first error after trying all.
     Enum.reduce(failures, :ok, fn run, first_error ->
@@ -40,12 +41,20 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     case MergeGroupFailureEvidence.recent_main_paths(base, opts) do
       {:ok, paths} ->
         opts
+        |> Keyword.put(:merge_group_failure_evidence_prepared, true)
         |> Keyword.put(:recent_main_failure_paths, paths)
         |> Keyword.put(:known_failure_patterns, MergeGroupFailureEvidence.known_patterns(opts))
 
       {:error, reason} ->
         Logger.warning("merge-group blame evidence unavailable; using legacy routing reason=#{inspect(reason)}")
         Keyword.put(opts, :blame_evidence_error, reason)
+    end
+  end
+
+  defp store_watchdog_evidence(runs, observations, opts) do
+    case Keyword.get(opts, :merge_group_evidence_fun) do
+      fun when is_function(fun, 3) -> fun.(runs, observations, opts)
+      _ -> :ok
     end
   end
 
@@ -176,7 +185,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     :ok
   end
 
-  defp classifier_options(run, prs, jobs, opts) do
+  @doc false
+  @spec classifier_options(map(), [integer()], [map()], keyword()) :: keyword()
+  def classifier_options(run, prs, jobs, opts) do
     MergeFailureOptions.build(run, prs, jobs, opts, &MergeGroupFailureEvidence.job_log/2)
   end
 
