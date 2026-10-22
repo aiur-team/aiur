@@ -106,6 +106,20 @@ decisions:
 
 See the [OCC-7 supervisor Decision API contract](https://github.com/aiur-team/aiur/blob/main/docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md) for routes, payloads, retry semantics, and audit guarantees.
 
+### Per-ticket usage API
+
+`GET /api/v1/<ticket>/usage` returns one ticket's model usage as a versioned JSON read (`schema_version: 1`), behind the same dashboard Basic Auth as `/api/v1/state` and with `Cache-Control: no-store`. `<ticket>` is the GitHub issue number in the configured repository. The usage ledger resolves it to the ticket's tracker identity, and the numbers come from the same usage aggregate the dashboard and `mix aiur.cost_report` read.
+
+The payload carries `ticket`, `currency`, `state`, `authority`, `freshness`, `totals`, `by_model`, `by_provider`, and `sessions`. Each session is one Aiur run (`run_id`) with its own `by_model` and `by_provider` rows. Every row has `tokens` by dimension, `provider_reported` cost, and `api_equivalent` cost with its pricing `coverage`. Money is an exact decimal string per currency, and an unpriced dimension shows as coverage, never as `0`.
+
+| Status | `error.code` | Meaning |
+| --- | --- | --- |
+| `404` | `usage_not_found` | The retained ledger has no usage for that ticket. A ticket whose raw records were all compacted away also reads as not found. |
+| `422` | `invalid_identifier` | The identifier is not a GitHub issue number. |
+| `503` | `usage_unavailable` | The ledger, aggregate, or configured repository cannot be read. |
+
+Errors use the `{"error":{"code":…,"message":…}}` shape of the other `/api/v1` reads. `aiur ticket-usage <ticket> --json` prints the same payload.
+
 ## Run telemetry
 
 Aiur records daemon-owned run telemetry by default. The daemon continuously records resource samples for itself, locally attributable ticket process trees, and the Executor process when it can be identified.
