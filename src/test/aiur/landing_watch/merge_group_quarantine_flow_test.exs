@@ -119,9 +119,13 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineFlowTest do
     second = group_run(39_139_000_001, "pr-43-bbb", 10, base)
     prs = [approved_pr(41, base), approved_pr(43, base)]
 
-    request = fn %{method: :get, url: url} ->
-      runs = if url =~ "event=merge_group" and url =~ "status=completed", do: [first, second], else: []
-      {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/#{first["head_branch"]}"}, %{"ref" => "refs/heads/#{second["head_branch"]}"}]}}
+
+      %{method: :get, url: url} ->
+        runs = if url =~ "event=merge_group" and url =~ "status=completed", do: [first, second], else: []
+        {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
     end
 
     opts =
@@ -168,12 +172,26 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineFlowTest do
       token: "test-gh-token",
       journal_path: journal,
       main_history_fun: fn -> [] end,
-      request_fun: fn %{method: :get, url: url} ->
-        cond do
-          url =~ "/commits?" -> {:ok, %{status: 200, body: [%{"sha" => "fixsha"}]}}
-          url =~ "/compare/" -> {:ok, %{status: 200, body: %{"status" => "behind"}}}
-          true -> flunk("unexpected request #{url}")
-        end
+      quarantine_list_fun: fn -> {:ok, ""} end,
+      recent_main_failure_paths_fun: fn _, _ -> {:ok, []} end,
+      job_log_fun: fn _, _ -> {:ok, ""} end,
+      request_fun: fn
+        %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{"ref" => "refs/heads/gh-readonly-queue/main/pr-4995-aaa"},
+               %{"ref" => "refs/heads/gh-readonly-queue/main/pr-5108-bbb"}
+             ]
+           }}
+
+        %{method: :get, url: url} ->
+          cond do
+            url =~ "/commits?" -> {:ok, %{status: 200, body: [%{"sha" => "fixsha"}]}}
+            url =~ "/compare/" -> {:ok, %{status: 200, body: %{"status" => "behind"}}}
+            true -> flunk("unexpected request #{url}")
+          end
       end,
       changed_paths_fun: fn _pr, _opts -> {:ok, ["src/lib/aiur/unrelated.ex"]} end,
       commit_paths_fun: fn _sha, _opts -> {:ok, ["src/lib/aiur/unrelated.ex"]} end,

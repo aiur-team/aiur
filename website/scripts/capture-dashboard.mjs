@@ -24,7 +24,7 @@ const surfaces = [
   // `clipHeight` keeps each image to the part of the surface worth documenting;
   // Units is the tall one because the page's point is the fleet table and the
   // Tickets backlog panel below it.
-  { name: "units", path: "/", selector: ".dashboard-shell", clipHeight: 1700, marker: "example/ex-142", modelMeters: true },
+  { name: "units", path: "/units", selector: ".dashboard-shell", clipHeight: 1700, marker: "example/ex-142", modelMeters: true },
   { name: "commands", path: "/commands", selector: ".dashboard-shell", clipHeight: 1250, marker: "dec-example-blocking", modelMeters: false },
   {
     name: "build-orders",

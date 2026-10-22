@@ -66,7 +66,7 @@ jobs:
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - uses: ./.github/actions/workflow-security
-      - run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py
+      - run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py && bash -n scripts/run-coverage-partition.sh scripts/prepare-coverage-retry.sh scripts/retry-coverage-tests.sh
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
       - name: Test human-only merge ruleset verifier
@@ -82,7 +82,7 @@ jobs:
       - name: Test known-flaky reporter
         run: bash scripts/test-report-known-flaky-tests.sh
       - name: Test coverage flake ledger
-        run: python3 scripts/test-record-coverage-flakes.py && python3 scripts/test-report-coverage-file-timings.py
+        run: python3 scripts/test-record-coverage-flakes.py && python3 scripts/test-ci-flake-retry.py && python3 scripts/test-report-coverage-file-timings.py
       - name: Test CI run-attempt disclosure
         run: bash scripts/test-report-ci-run-attempt.sh
       - name: Test CI change classifier
@@ -199,7 +199,8 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
+    permissions: { actions: read, contents: read }
     strategy:
       fail-fast: false
       matrix:
@@ -221,6 +222,7 @@ jobs:
         run: bash ../scripts/install-ci-zsh.sh
       - name: Test coverage partition
         id: partition-tests
+        continue-on-error: true
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
@@ -228,41 +230,38 @@ jobs:
           # Put per-test SQLite state in private runner temp, avoiding quota-mounted
           # /tmp; df free space does not reflect EDQUOT limits.
           TMPDIR: ${{ runner.temp }}
-        # Stream a file-backed log so orphan processes cannot hold a tee pipe
-        # open (#2397), and GitHub captures test output before a runner dies
-        # (#2560). Keep the timeout at step level: its ordinary failure lets
-        # the log and known-flaky reporting steps below run; a job timeout
-        # would cancel them. The private temp avoids quota-mounted /tmp.
-        run: |
-          log="$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
-          : > "$log"
-          tail -n +1 -F "$log" &
-          tail_pid=$!
-          status=0
-          AIUR_TEST_TIMINGS_PATH="$RUNNER_TEMP/shard-evidence/coverage-file-times.tsv" timeout --signal=TERM --kill-after=60s 20m \
-            make coverage-partition > "$log" 2>&1 || status=$?
-          sleep 2
-          kill "$tail_pid" 2>/dev/null || true
-          wait "$tail_pid" 2>/dev/null || true
-          if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
-            echo "::error::coverage partition ${{ matrix.partition }} exceeded its 20m bound and was terminated; partial log follows in the next step"
-          elif [ "$status" -ne 0 ]; then
-            echo "::error::coverage partition ${{ matrix.partition }} failed with status $status; full log follows in the next step"
-          fi
-          exit "$status"
+        # Keep the step timeout and file-backed log so failure evidence survives runner loss.
+        run: AIUR_LIFECYCLE_LEAK_GUARD_MODE=report AIUR_LIFECYCLE_LEAK_REPORT="$RUNNER_TEMP/lifecycle-leaks-${{ matrix.partition }}.txt" bash ../scripts/run-coverage-partition.sh "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" "$RUNNER_TEMP/shard-evidence/coverage-file-times.tsv" "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.status"
       - name: Report shard composition
         if: ${{ (always()) && needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/report-coverage-file-timings.py "${{ matrix.partition }}" "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" "$RUNNER_TEMP/shard-evidence/coverage-file-times.tsv" "$GITHUB_STEP_SUMMARY"
       - name: Print partition log
-        if: ${{ (failure()) && needs.changes.outputs.docs_only != 'true' }}
+        if: ${{ steps.partition-tests.outcome == 'failure' && needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: cat "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
       - name: Report known-flaky test names
-        if: ${{ (failure()) && needs.changes.outputs.docs_only != 'true' }}
+        if: ${{ steps.partition-tests.outcome == 'failure' && needs.changes.outputs.docs_only != 'true' }}
         shell: bash
         working-directory: .
         run: bash scripts/report-known-flaky-tests.sh "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" "$GITHUB_STEP_SUMMARY"
+      - name: Prepare one known-flake retry
+        id: retry-plan
+        if: ${{ steps.partition-tests.outcome == 'failure' && github.event_name == 'pull_request' && needs.changes.outputs.docs_only != 'true' }}
+        continue-on-error: true
+        env: { BASE_SHA: "${{ github.event.pull_request.base.sha }}", BASE_BRANCH: "${{ github.event.pull_request.base.ref }}", REPOSITORY: "${{ github.repository }}", GH_TOKEN: "${{ github.token }}" }
+        run: bash ../scripts/prepare-coverage-retry.sh "${{ matrix.partition }}" "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.status"
+      - name: Retry only known flakes once
+        id: retry-known-flakes
+        if: ${{ steps.retry-plan.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          MIX_TEST_PARTITION: ${{ matrix.partition }}
+          TMPDIR: ${{ runner.temp }}
+        run: bash ../scripts/retry-coverage-tests.sh "${{ matrix.partition }}" "$RUNNER_TEMP/shard-evidence"
+      - name: Preserve coverage partition failure
+        if: ${{ always() && steps.partition-tests.outcome == 'failure' && steps.retry-known-flakes.outcome != 'success' && needs.changes.outputs.docs_only != 'true' }}
+        run: exit 1
       - name: Download previous shard attempts
         continue-on-error: true
         if: ${{ always() && github.run_attempt > 1 && needs.changes.outputs.docs_only != 'true' }}
@@ -277,8 +276,9 @@ jobs:
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
           PARTITION_OUTCOME: ${{ steps.partition-tests.outcome }}
+          RETRY_OUTCOME: ${{ steps.retry-known-flakes.outcome }}
         run: >-
-          python3 scripts/record-coverage-flakes.py
+          AIUR_LIFECYCLE_LEAK_REPORT="$RUNNER_TEMP/lifecycle-leaks-${{ matrix.partition }}.txt" python3 scripts/record-coverage-flakes.py
           "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
           "$PARTITION_OUTCOME" "$RUNNER_TEMP/previous-shard-attempts"
           "$RUNNER_TEMP/shard-evidence" "$GITHUB_STEP_SUMMARY"
@@ -423,17 +423,17 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make dialyzer
   browser:
-    name: browser smoke (${{ matrix.shard }}/8)
+    name: browser smoke (${{ matrix.shard }}/9)
     needs: changes
     if: ${{ !cancelled() && ((github.event_name != 'pull_request' && needs.changes.outputs.full_ci == 'true') || (github.event_name == 'pull_request' && needs.changes.outputs.browser_smoke == 'true')) }}
     runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
-    timeout-minutes: 23
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9]
         include: [{ shard: 1, verify_fixtures: true, upload_evidence: true },
           { shard: 2, visual_regression: first },
           { shard: 5, visual_regression: second },

@@ -46,8 +46,19 @@ defmodule Aiur.LandingWatch.MergeGroupsGroupHeadTest do
     MergeGroups.cancel_stale(observations,
       base_branch: base,
       token: "test-gh-token",
-      request_fun: fn %{method: :get} ->
-        {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+      request_fun: fn
+        %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+          {:ok,
+           %{
+             status: 200,
+             body:
+               runs
+               |> Enum.reject(&(&1["id"] == 51))
+               |> Enum.map(&%{"ref" => "refs/heads/#{&1["head_branch"]}"})
+           }}
+
+        %{method: :get} ->
+          {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
       end,
       live_observations_fun: fn _, _ -> {:ok, observations} end,
       cancel_fun: cancel_fun
@@ -156,6 +167,45 @@ defmodule Aiur.LandingWatch.MergeGroupsGroupHeadTest do
              )
   end
 
+  test "a matching refs API failure cancels no runs" do
+    base = "refs-error"
+    parent = self()
+
+    observation = %{
+      number: 3,
+      base: base,
+      head: "current-head",
+      head_committed_at: "2026-10-19T09:00:00Z",
+      merge_queue_entry: %{
+        "id" => "entry-3",
+        "headCommit" => %{"oid" => "dead", "committedDate" => "2026-10-19T11:00:00Z"},
+        "pullRequest" => %{"headRefOid" => "current-head"}
+      }
+    }
+
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:error, :unavailable}
+
+      %{method: :get} ->
+        {:ok, %{status: 200, body: %{"workflow_runs" => [run(76, "dead", 3, "in_progress", base)]}}}
+    end
+
+    assert :ok =
+             MergeGroups.cancel_stale([],
+               base_branch: base,
+               token: "test-gh-token",
+               request_fun: request,
+               live_observations_fun: fn _, _ -> {:ok, [observation]} end,
+               cancel_fun: fn id, _ ->
+                 send(parent, {:cancel, id})
+                 :ok
+               end
+             )
+
+    refute_received {:cancel, 76}
+  end
+
   test "the live queue query reads each entry's group head through the default observer" do
     parent = self()
     base = "group-head-observer"
@@ -166,6 +216,9 @@ defmodule Aiur.LandingWatch.MergeGroupsGroupHeadTest do
     ]
 
     request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/gh-readonly-queue/#{base}/pr-5-base"}]}}
+
       %{method: :get} ->
         {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
 
