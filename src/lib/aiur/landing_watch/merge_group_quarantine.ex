@@ -12,6 +12,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
 
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.LandingWatch.{FlakeFilingGate, FlakeRecorder, Journal, MergeGroupRequeue, QuarantineAnnotations, QuarantineEvidence, QuarantinePR, QuarantineRetry}
+  alias Aiur.LandingWatch.MergeGroupQuarantine.JobEvidence
   alias Aiur.MainWatch
   alias Aiur.TestQuarantine.Detector
 
@@ -43,7 +44,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
 
         state
         |> Map.get("failure_observations", [])
-        |> Enum.filter(&(&1["source"] != "base" and Map.has_key?(done, quarantine_claim(&1["identity"]))))
+        |> Enum.filter(&(&1["source"] != "base" and &1["touched"] != true and Map.has_key?(done, quarantine_claim(&1["identity"]))))
         |> Enum.map(&run_id(&1["run_url"]))
         |> Enum.reject(&is_nil/1)
         |> Enum.uniq()
@@ -98,13 +99,12 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   defp process_run(run, base, opts) do
     with prs when prs != [] <- run_prs(run, base),
          {:ok, at_ms} <- run_time(run),
-         {:ok, jobs} <- Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2).(run["id"], opts),
-         {:ok, found} <- QuarantineAnnotations.from_jobs(jobs, opts),
+         {:ok, _jobs, found, evidence_complete?} <- JobEvidence.load(run["id"], opts),
          :ok <- record_guards(found.guards, run, opts) do
       tests = Enum.filter(found.tests, &is_binary(&1.path))
 
       case Enum.uniq_by(tests, & &1.module) do
-        [_] -> first_error(tests, &record_observations(&1, run, prs, at_ms, opts))
+        [_] -> first_error(tests, &record_observations(&1, run, prs, at_ms, evidence_complete?, opts))
         [] -> :ok
         _modules -> record_cascade(tests, run, prs, opts)
       end
@@ -166,23 +166,33 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
     guards |> Enum.uniq() |> first_error(&recorder.(&1, run, [], Keyword.delete(opts, :issue_recorded_fun)))
   end
 
-  defp record_observations(failure, run, prs, at_ms, opts) do
-    first_error(prs, &record_pr_observation(&1, failure, run, at_ms, prs, opts))
+  defp record_observations(failure, run, prs, at_ms, evidence_complete?, opts) do
+    first_error(prs, &record_pr_observation(&1, failure, run, at_ms, prs, evidence_complete?, opts))
   end
 
-  defp record_pr_observation(pr, failure, run, at_ms, prs, opts) do
+  defp record_pr_observation(pr, failure, run, at_ms, prs, evidence_complete?, opts) do
     changed_paths = Keyword.get(opts, :changed_paths_fun, &PullRequests.fetch_pull_request_changed_paths/2)
 
     case cached_changed_paths(pr, changed_paths, opts) do
       {:ok, paths} when is_list(paths) ->
-        if QuarantineEvidence.touched?(failure.path, paths), do: :ok, else: Journal.record_failure_observation(group_row(pr, failure, run, at_ms, prs, opts), opts)
+        row = group_row(pr, failure, run, at_ms, prs, opts, QuarantineEvidence.touched?(failure.path, paths), evidence_complete?)
+        record_metric_and_quarantine(row, opts)
 
       {:error, _} = error ->
         error
     end
   end
 
-  defp group_row(pr, failure, run, at_ms, prs, opts) do
+  defp record_metric_and_quarantine(row, opts) do
+    with :ok <- Journal.record_failure_metric_evidence(row, opts) do
+      quarantine_record(row, opts)
+    end
+  end
+
+  defp quarantine_record(%{"touched" => true} = row, opts), do: Journal.forget_failure_observation(row, opts)
+  defp quarantine_record(row, opts), do: Journal.record_failure_observation(row, opts)
+
+  defp group_row(pr, failure, run, at_ms, prs, opts, touched?, evidence_complete?) do
     identity = "#{failure.module} :: #{failure.name}"
 
     %{
@@ -192,6 +202,9 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
       "pr" => pr,
       "run_url" => run["html_url"],
       "head_sha" => run["head_sha"],
+      "job_failure_set_complete" => evidence_complete?,
+      "failure_class" => Map.get(failure, :class),
+      "touched" => touched?,
       "at_ms" => at_ms,
       "path" => failure.path,
       "job" => failure.job,
@@ -320,7 +333,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
 
   defp candidates(rows, history, now) do
     recent = Enum.filter(rows, &recent?(&1["at_ms"], now))
-    recent = Enum.reject(recent, &(&1["red_on_main"] == true))
+    recent = Enum.reject(recent, &(&1["red_on_main"] == true or &1["touched"] == true))
     main = recent |> Enum.filter(&(&1["source"] == "base" and &1["touched"] != true and QuarantineEvidence.passed_on_rerun?(history, &1))) |> Enum.map(& &1["identity"])
 
     repeated =
