@@ -2,6 +2,8 @@
 """Behavior tests for the coverage known-flake retry gate."""
 
 import importlib.util
+import json
+import os
 import subprocess
 from pathlib import Path
 import tempfile
@@ -64,6 +66,44 @@ class RetryGateTest(unittest.TestCase):
 """
         self.assertEqual(self.plan(log=log), [])
 
+    def test_invalid_exunit_tests_are_not_retryable(self):
+        log = LOG.replace("2 tests, 2 failures", "2 tests, 1 failure, 1 invalid")
+        self.assertEqual(self.plan(log=log), [])
+
+    def test_setup_all_crash_is_not_retryable(self):
+        log = LOG.replace("2 tests, 2 failures", "2 tests, 2 failures")
+        log += "** (ExUnit.CallbackError) setup_all callback failed\n"
+        self.assertEqual(self.plan(log=log), [])
+
+    def test_only_plain_exunit_failure_exit_status_is_retryable(self):
+        for status in (0, 1, 124, 137):
+            with self.subTest(status=status):
+                self.assertEqual(
+                    retry.retry_plan(LOG, set(), self.known, self.quarantine,
+                                     set(), True, partition_status=status),
+                    [],
+                )
+
+    def test_known_list_coverage_skips_base_history_lookup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "failed.log"
+            changed = root / "changed.txt"
+            evidence = root / "evidence/retry-plan.json"
+            summary = root / "summary.md"
+            log.write_text(LOG)
+            changed.write_text("README.md\n")
+            summary.write_text("")
+            with patch.object(retry, "recent_base_failures", side_effect=AssertionError("unexpected lookup")):
+                with patch("sys.argv", [
+                    "ci-flake-retry.py", str(log), str(changed), str(self.known),
+                    str(self.quarantine), str(evidence), str(summary),
+                    "--repo", "aiur-team/aiur", "--base-branch", "main",
+                    "--pull-request", "--partition", "2", "--partition-status", "2",
+                ]):
+                    self.assertEqual(retry.main(), 0)
+            self.assertEqual(len(json.loads(evidence.read_text())["tests"]), 2)
+
     def test_github_job_log_prefixes_do_not_hide_failure_names_or_locations(self):
         prefixed = """coverage (2/4)\tTest coverage partition\t2026-10-22T01:00:00Z  1) test flaky one (Aiur.RetryFixtureTest)
 coverage (2/4)\tTest coverage partition\t2026-10-22T01:00:00Z      test/aiur/retry_fixture_test.exs:10
@@ -105,18 +145,132 @@ coverage (2/4)\tTest coverage partition\t2026-10-22T01:00:01Z  1 test, 1 failure
                 return LOG
             raise AssertionError(f"unexpected GitHub CLI call: {command}")
 
-        with patch.object(retry.subprocess, "check_output", side_effect=gh_call):
-            observed = retry.recent_base_failures("aiur-team/aiur", "main", now)
+        timeouts = []
+
+        def bounded_call(command, **kwargs):
+            timeouts.append(kwargs["timeout"])
+            return gh_call(command, **kwargs)
+
+        with patch.object(retry.subprocess, "check_output", side_effect=bounded_call):
+            observed = retry.recent_base_failures(
+                "aiur-team/aiur", "main",
+                targets={"Aiur.RetryFixtureTest :: flaky one"}, now=now,
+            )
 
         self.assertEqual(observed, {
             "Aiur.RetryFixtureTest :: flaky one", "Aiur.RetryFixtureTest :: flaky two",
         })
         self.assertEqual(viewed, ["1"])
+        self.assertTrue(timeouts)
+        self.assertTrue(all(0 < timeout <= 5 for timeout in timeouts))
 
     def test_github_history_failure_disables_base_evidence(self):
         with patch.object(retry.subprocess, "check_output", side_effect=subprocess.CalledProcessError(1, "gh")):
             observed = retry.recent_base_failures("aiur-team/aiur", "main")
         self.assertEqual(observed, set())
+
+    def test_prepare_script_fetches_base_in_depth_one_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            origin = root / "origin.git"
+            seed = root / "seed"
+            workspace = root / "workspace"
+            runner_temp = root / "runner-temp"
+            runner_temp.mkdir()
+            subprocess.run(["git", "init", "--bare", str(origin)], check=True,
+                           stdout=subprocess.DEVNULL)
+            subprocess.run(["git", "init", str(seed)], check=True,
+                           stdout=subprocess.DEVNULL)
+            subprocess.run(["git", "-C", str(seed), "config", "user.name", "Retry Test"], check=True)
+            subprocess.run(["git", "-C", str(seed), "config", "user.email", "retry@example.test"], check=True)
+            (seed / ".github").mkdir()
+            (seed / "src/test").mkdir(parents=True)
+            (seed / "scripts").mkdir()
+            (seed / ".github/known-flaky-tests.txt").write_text(
+                "Aiur.RetryFixtureTest :: flaky one\n"
+            )
+            (seed / "src/test/quarantine.txt").write_text("")
+            for name in ("ci-flake-retry.py", "prepare-coverage-retry.sh"):
+                (seed / "scripts" / name).write_bytes((ROOT / "scripts" / name).read_bytes())
+            subprocess.run(["git", "-C", str(seed), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(seed), "commit", "-m", "Base"], check=True,
+                           stdout=subprocess.DEVNULL)
+            base_sha = subprocess.check_output(
+                ["git", "-C", str(seed), "rev-parse", "HEAD"], text=True
+            ).strip()
+            subprocess.run(["git", "-C", str(seed), "branch", "-M", "main"], check=True)
+            subprocess.run(["git", "-C", str(seed), "remote", "add", "origin", str(origin)], check=True)
+            subprocess.run(["env", "AIUR_AGENT_WORKSPACE=", "git", "-c", "protocol.file.allow=always", "-C", str(seed), "push", "origin", "main"], check=True,
+                           stdout=subprocess.DEVNULL)
+            (seed / "README.md").write_text("PR-only change\n")
+            subprocess.run(["git", "-C", str(seed), "add", "README.md"], check=True)
+            subprocess.run(["git", "-C", str(seed), "commit", "-m", "PR change"], check=True,
+                           stdout=subprocess.DEVNULL)
+            subprocess.run(["env", "AIUR_AGENT_WORKSPACE=", "git", "-c", "protocol.file.allow=always", "-C", str(seed), "push", "origin", "HEAD:feature"], check=True,
+                           stdout=subprocess.DEVNULL)
+            subprocess.run([
+                "git", "-c", "protocol.file.allow=always", "clone", "--depth=2", "--branch", "feature",
+                f"file://{origin}", str(workspace),
+            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            shallow = subprocess.check_output(
+                ["git", "-C", str(workspace), "rev-parse", "--is-shallow-repository"], text=True
+            ).strip()
+            self.assertEqual(shallow, "true")
+            failed_log = runner_temp / "failed.log"
+            failed_log.write_text(
+                "  1) test flaky one (Aiur.RetryFixtureTest)\n"
+                "     test/aiur/retry_fixture_test.exs:10\n"
+                "1 test, 1 failure\n"
+            )
+            status_file = runner_temp / "partition.status"
+            status_file.write_text("2\n")
+            summary = runner_temp / "summary.md"
+            summary.write_text("")
+            env = dict(os.environ, AIUR_REAL_GIT="/usr/bin/git", GITHUB_WORKSPACE=str(workspace),
+                       RUNNER_TEMP=str(runner_temp), GITHUB_STEP_SUMMARY=str(summary),
+                       BASE_SHA=base_sha, BASE_BRANCH="main", REPOSITORY="aiur-team/aiur")
+            completed = subprocess.run([
+                "bash", str(workspace / "scripts/prepare-coverage-retry.sh"),
+                "1", str(failed_log), str(status_file),
+            ], env=env, text=True, capture_output=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("test/aiur/retry_fixture_test.exs:10", (runner_temp / "shard-evidence/retry-tests.txt").read_text())
+            plan = json.loads((runner_temp / "shard-evidence/retry-plan.json").read_text())
+            self.assertEqual(plan["tests"][0]["test"], "Aiur.RetryFixtureTest :: flaky one")
+
+    def test_retry_script_enforces_timeout_and_records_green_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            evidence = root / "evidence"
+            evidence.mkdir()
+            (evidence / "retry-tests.txt").write_text("test/aiur/retry_fixture_test.exs:10\n")
+            (evidence / "retry-plan.json").write_text(json.dumps({"tests": [{"test": "flaky"}]}))
+            timeout_args = root / "timeout-args.txt"
+            timeout_script = bin_dir / "timeout"
+            timeout_script.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$@\" > \"$TIMEOUT_ARGS\"\n"
+                "shift 3\nexec \"$@\"\n"
+            )
+            timeout_script.chmod(0o755)
+            mix_script = bin_dir / "mix"
+            mix_script.write_text("#!/usr/bin/env bash\necho '1 test, 0 failures'\n")
+            mix_script.chmod(0o755)
+            summary = root / "summary.md"
+            completed = subprocess.run([
+                "bash", str(ROOT / "scripts/retry-coverage-tests.sh"), "2", str(evidence),
+            ], env=dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
+                        TIMEOUT_ARGS=str(timeout_args), GITHUB_STEP_SUMMARY=str(summary)),
+                text=True, capture_output=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(timeout_args.read_text().splitlines()[:3], [
+                "--signal=TERM", "--kill-after=60s", "10m",
+            ])
+            plan = json.loads((evidence / "retry-plan.json").read_text())
+            self.assertEqual(plan["outcome"], "success")
+            self.assertIn("Retried known flakes: all selected tests passed", summary.read_text())
 
     def test_merge_group_and_unparseable_failure_never_retry(self):
         found = retry.failures("Compilation failed before ExUnit started")
@@ -140,9 +294,14 @@ coverage (2/4)\tTest coverage partition\t2026-10-22T01:00:01Z  1 test, 1 failure
         self.assertIn('plan.update({"outcome": outcome', retry_script)
         self.assertIn("steps.retry-known-flakes.outcome != 'success'", partition)
         self.assertIn("Retried known flakes: all selected tests passed", retry_script)
+        self.assertIn('git -C "$workspace" fetch --no-tags --depth=1 origin "$BASE_SHA"', prepare)
         self.assertIn('git -C "$workspace" diff --name-only "$BASE_SHA...HEAD"', prepare)
+        self.assertIn("--partition-status", prepare)
+        self.assertIn("status_file=", partition_script)
+        self.assertIn('printf \'%s\\n\' "$status" > "$status_file"', partition_script)
         self.assertIn("timeout --signal=TERM --kill-after=60s 20m", partition_script)
         self.assertIn("make coverage-partition", partition_script)
+        self.assertIn("timeout --signal=TERM --kill-after=60s 10m", retry_script)
 
 
 if __name__ == "__main__":

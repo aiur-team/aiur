@@ -13,7 +13,8 @@ args=()
 for test in "${tests[@]}"; do args+=("$test"); done
 log="$evidence_dir/retry.log"
 status=0
-AIUR_TEST_PROGRESS=1 MIX_ENV=test mix test "${args[@]}" > "$log" 2>&1 || status=$?
+timeout --signal=TERM --kill-after=60s 10m \
+  env AIUR_TEST_PROGRESS=1 MIX_ENV=test mix test "${args[@]}" > "$log" 2>&1 || status=$?
 cat "$log"
 python3 - "$evidence_dir/retry-plan.json" "$status" <<'PY'
 import json, pathlib, sys
