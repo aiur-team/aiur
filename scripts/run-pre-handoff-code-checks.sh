@@ -10,20 +10,49 @@ evidence="$scratch/evidence"
 active_pid=
 active_command=
 active_log=
+interrupted=false
 : > "$evidence"
-trap 'rm -rf "$scratch"' EXIT
+# The terminal can vanish with the session; this file keeps the last known evidence.
+result_file="$(git -C "$repo_root" rev-parse --absolute-git-dir)/aiur-pre-handoff/evidence.md"
+echo "run-pre-handoff-code-checks: evidence file: $result_file"
+
+# Atomic replace; an INCOMPLETE file outliving its pid means the run died without a trappable signal.
+persist_evidence() {
+  { mkdir -p "${result_file%/*}" && {
+      printf 'Status: %s\n' "$1"
+      render_evidence
+    } > "$result_file.tmp.$$" && mv -f "$result_file.tmp.$$" "$result_file"; } 2>/dev/null ||
+    echo "run-pre-handoff-code-checks: could not write evidence file $result_file" >&2
+}
+
+on_exit() {
+  local status=$?
+  [[ "$interrupted" == true ]] || persist_evidence "FINISHED (exit $status)"
+  rm -rf "$scratch"
+}
+trap on_exit EXIT
+
+# Without setsid the checks share our session, so a dead PTY's HUP reaches them;
+# signal the whole tree for a TERM aimed at this pid alone.
+kill_tree() {
+  local child
+  for child in $(pgrep -P "$1" 2>/dev/null || true); do kill_tree "$child"; done
+  kill -TERM "$1" 2>/dev/null || true
+}
 
 handoff_interrupted() {
   local signal="$1" status
   status=$((128 + $(kill -l "$signal" 2>/dev/null || echo 1)))
-  printf 'run-pre-handoff-code-checks: INTERRUPTED by %s (exit %s); completed evidence follows\n' "$signal" "$status" >&2
+  interrupted=true
   if [[ -n "$active_pid" ]]; then
-    kill -TERM -- "-$active_pid" 2>/dev/null || kill -TERM "$active_pid" 2>/dev/null || true
+    kill_tree "$active_pid"
     wait "$active_pid" 2>/dev/null || true
   fi
   if [[ -n "$active_command" ]]; then
     printf -- '- `%s` -> interrupted by %s (exit %s)\n' "$active_command" "$signal" "$status" >> "$evidence"
   fi
+  persist_evidence "INTERRUPTED by $signal (exit $status)"
+  printf 'run-pre-handoff-code-checks: INTERRUPTED by %s (exit %s); completed evidence follows\n' "$signal" "$status" >&2
   if [[ -f "$active_log" ]]; then cat "$active_log" >&2; fi
   if [[ -f "$evidence" ]]; then
     printf '%s\n' '--- Local tests evidence (partial; later checks not run) ---' >&2
@@ -34,6 +63,8 @@ handoff_interrupted() {
 }
 trap 'handoff_interrupted INT' INT
 trap 'handoff_interrupted TERM' TERM
+trap 'handoff_interrupted HUP' HUP
+persist_evidence "INCOMPLETE (pid $$ still running or ended without a result)"
 
 git -C "$repo_root" diff --name-only "$base" "$head" -- > "$scratch/changed"
 if [[ ! -s "$scratch/changed" ]]; then
@@ -79,42 +110,41 @@ fi
 
 record_result() {
   printf -- '- `%s` -> %s\n' "$1" "$2" >> "$evidence"
+  persist_evidence "INCOMPLETE (pid $$ still running or ended without a result)"
+}
+
+render_evidence() {
+  echo '## Local tests evidence (paste into the PR body)'
+  echo 'Policy: partial'
+  printf 'Tested head: %s\n' "${tested_head:-$head}"
+  printf 'Base: %s @ %s\n' "${AIUR_BASE_BRANCH:-main}" \
+    "$(git -C "$repo_root" rev-parse "$base")"
+  printf 'Selection: `mix aiur.affected_tests` selected %s test files using xref/module callers and shared-support consumers, plus pinned child-order tests for explicit child-list paths.\n' "${selected_count:-0}"
+  cat "$evidence"
 }
 
 print_evidence() {
   local block="$scratch/evidence-block.md"
-  {
-    echo '## Local tests evidence (paste into the PR body)'
-    echo 'Policy: partial'
-    printf 'Tested head: %s\n' "$tested_head"
-    printf 'Base: %s @ %s\n' "${AIUR_BASE_BRANCH:-main}" \
-      "$(git -C "$repo_root" rev-parse "$base")"
-    printf 'Selection: `mix aiur.affected_tests` selected %s test files using xref/module callers and shared-support consumers, plus pinned child-order tests for explicit child-list paths.\n' "${selected_count:-0}"
-    cat "$evidence"
-  } > "$block"
+  render_evidence > "$block"
   cat "$block"
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then cat "$block" >> "$GITHUB_STEP_SUMMARY"; fi
 }
-
-in_src() { (cd "$repo_root/src" && "$@"); }
 
 run_check() {
   local command="$1"
   shift
   active_command="$command"
-  active_log="$scratch/active-check.log"
-  setsid bash -c 'cd "$1" || exit; shift; exec "$@"' _ "$repo_root/src" "$@" > "$active_log" 2>&1 &
+  active_log=
+  (cd "$repo_root/src" && exec "$@") &
   active_pid=$!
   if wait "$active_pid"; then
     active_pid=
     active_command=
-    cat "$active_log"
     record_result "$command" passed
   else
     local status=$?
     active_pid=
     active_command=
-    cat "$active_log"
     record_result "$command" "failed (exit $status)"
     print_evidence
     exit "$status"
@@ -209,7 +239,7 @@ if [[ "$partition_fallback" == true ]]; then
     active_command="MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION=$partition TEST_PARTITIONS=4 nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C src coverage-partition"
     active_log="$scratch/partition-$partition.log"
     MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION="$partition" TEST_PARTITIONS=4 \
-      setsid nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C "$repo_root/src" coverage-partition \
+      nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C "$repo_root/src" coverage-partition \
       > "$active_log" 2>&1 &
     active_pid=$!
     if wait "$active_pid"; then

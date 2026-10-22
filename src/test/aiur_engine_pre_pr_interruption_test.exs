@@ -30,6 +30,10 @@ defmodule AiurEnginePrePrInterruptionTest do
 
     assert output =~
              "SKIP refresh-pr-body-evidence (no PR yet; rerun aiur pre-pr after gh pr create)"
+
+    result_file = Path.join(repo, ".git/aiur-pre-pr/result.txt")
+    assert output =~ "aiur pre-pr result file: #{result_file}"
+    assert File.read!(result_file) =~ "Result: PASS (full CI suite not run)"
   end
 
   test "pre-pr interrupted by TERM emits its partial result and exits with signal status" do
@@ -48,8 +52,50 @@ defmodule AiurEnginePrePrInterruptionTest do
 
     assert status == 143, output
     assert output =~ "INTERRUPTED pre-pr command received TERM"
-    assert output =~ "Result: FAIL"
+    assert output =~ "Result: INTERRUPTED"
     assert output =~ "INTERRUPTED gate mix format --check-formatted received TERM"
     assert output =~ "--- end aiur pre-pr result ---\n--- failed gate output ---\n"
+
+    durable = File.read!(Path.join(repo, ".git/aiur-pre-pr/result.txt"))
+    assert durable =~ "Result: INTERRUPTED"
+    assert durable =~ "INTERRUPTED pre-pr command received TERM"
+  end
+
+  test "a closing PTY's HUP stops the gate tree and leaves an INTERRUPTED result on disk" do
+    fixture = fixture("hup-interruption")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    grandchild = Path.join(fixture, "grandchild.pid")
+
+    File.write!(
+      Path.join(fixture, "bin/mise"),
+      "#!/usr/bin/env bash\nsleep 30 &\necho $! > \"#{grandchild}\"\nkill -HUP \"$(cat \"#{fixture}/pre-pr.pid\")\"\nwait\n"
+    )
+
+    File.chmod!(Path.join(fixture, "bin/mise"), 0o755)
+
+    {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
+
+    assert status == 129, output
+    durable = File.read!(Path.join(repo, ".git/aiur-pre-pr/result.txt"))
+    assert durable =~ "Result: INTERRUPTED"
+    assert durable =~ "INTERRUPTED gate mix format --check-formatted received HUP"
+
+    # A just-killed process answers kill -0 until it is reaped; give it a moment.
+    pid = String.trim(File.read!(grandchild))
+
+    alive =
+      Enum.reduce_while(1..20, true, fn _, _ ->
+        case System.cmd("kill", ["-0", pid], stderr_to_stdout: true) do
+          {_, 0} ->
+            Process.sleep(100)
+            {:cont, true}
+
+          _ ->
+            {:halt, false}
+        end
+      end)
+
+    refute alive, "HUP left a gate descendant running"
   end
 end
