@@ -21,8 +21,8 @@ defmodule AiurWeb.Api.UsageProgress do
   progress presentation boundary, so this surface never formats a raw reading.
   """
 
-  alias Aiur.{JSONSafe, ProgressRetention, TicketActivity, TrackerIdentity}
   alias Aiur.BuildOrder.ProgressRenderer
+  alias Aiur.{JSONSafe, ProgressRetention, TicketActivity, TrackerIdentity}
   alias AiurWeb.Api.UsageProgress.History
 
   @contract "aiur.ticket_progress"
