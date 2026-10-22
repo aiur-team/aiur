@@ -330,6 +330,10 @@ The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` refer
 
 Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/concepts/units#api-meters) for what each figure does and does not measure.
 
+## voice
+
+Optional settings for the conversational voice assistant. The section is empty until its subsections ship; an absent `voice:` block changes nothing.
+
 ## compaction
 
 Optional Codex thread compaction runs synchronously at the `human-review` handoff via `thread/compact/start`; other providers are unsupported, and token thresholds use cumulative usage measured by Aiur at handoff.
