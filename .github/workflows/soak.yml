@@ -7,7 +7,7 @@ permissions:
 jobs:
   select:
     name: select changed tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs: {soak: "${{ steps.select.outputs.soak }}", soak_tests: "${{ steps.select.outputs.soak_tests }}", soak_browser: "${{ steps.select.outputs.soak_browser }}", soak_specs: "${{ steps.select.outputs.soak_specs }}"}
     steps:
@@ -25,7 +25,7 @@ jobs:
     name: soak changed tests
     needs: select
     if: ${{ needs.select.outputs.soak == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     defaults: { run: { working-directory: src } }
     steps:
@@ -51,7 +51,7 @@ jobs:
     name: soak changed browser specs
     needs: select
     if: ${{ needs.select.outputs.soak_browser == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
     timeout-minutes: 25
