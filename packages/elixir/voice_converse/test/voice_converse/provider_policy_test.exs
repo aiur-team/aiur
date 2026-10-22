@@ -75,6 +75,17 @@ defmodule VoiceConverse.ProviderPolicyTest do
                ProviderPolicy.check(@restricted, %{id: :openai_realtime, options: %{store: nil}})
     end
 
+    # Retention is often numeric; `0` days and `0.0` are different provider settings, and the
+    # policy states the exact value the host requires.
+    test "a required value must match exactly, not just compare equal" do
+      policy = %{required_provider_options: %{openai_realtime: %{retention_days: 0}}}
+
+      assert :ok = ProviderPolicy.check(policy, %{id: :openai_realtime, options: %{retention_days: 0}})
+
+      assert {:error, %{option: :retention_days, actual: {:ok, +0.0}}} =
+               ProviderPolicy.check(policy, %{id: :openai_realtime, options: %{retention_days: +0.0}})
+    end
+
     test "required options apply without an allowlist" do
       policy = %{required_provider_options: %{openai_realtime: %{store: false}}}
 
@@ -99,6 +110,23 @@ defmodule VoiceConverse.ProviderPolicyTest do
     test "malformed required options fail naming the key" do
       assert {:error, %{field: :privacy, key: :required_provider_options}} =
                Config.new(@base ++ [privacy: %{required_provider_options: %{openai_realtime: [store: false]}}])
+    end
+
+    # Fail closed: a misspelled key must not validate and then leave every provider allowed.
+    test "a misspelled policy key fails naming that key" do
+      assert {:error, %{field: :privacy, reason: :invalid, key: :provider_allow_list}} =
+               Config.new(@base ++ [privacy: %{provider_allow_list: [:openai_realtime]}])
+
+      assert {:error, %{field: :privacy, key: :required_options}} =
+               Config.new(@base ++ [privacy: %{required_options: %{openai_realtime: %{store: false}}}])
+    end
+
+    # A requirement for a provider the allowlist never admits is a misconfiguration (often a typo
+    # in the provider id), not a harmless no-op.
+    test "required options for a provider outside a set allowlist fail" do
+      policy = %{provider_allowlist: [:openai_realtime], required_provider_options: %{openai_realtme: %{store: false}}}
+
+      assert {:error, %{field: :privacy, key: :required_provider_options}} = Config.new(@base ++ [privacy: policy])
     end
 
     test "a non-map privacy value fails" do

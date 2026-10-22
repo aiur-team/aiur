@@ -17,9 +17,20 @@ defmodule VoiceConverse.ProviderPolicy do
   allowed with whatever options it carries. An empty allowlist allows no provider. A provider
   with no `required_provider_options` entry has no required options.
 
+  Validation is closed: an unknown `privacy` key (say, a misspelled `provider_allow_list`) is
+  invalid rather than ignored, so a typo cannot silently allow every provider. With an allowlist
+  set, a `required_provider_options` entry for a provider not on it is invalid too.
+
+  Required options are a flat map of option key to exact value, compared with `===` (`0` does not
+  satisfy `0.0`). A descriptor's `options` must therefore be flat: an adapter whose provider nests
+  the setting (ElevenLabs `platform_settings.privacy.record_voice`) flattens it to
+  `record_voice` when it builds its descriptor.
+
   A session checks its provider with `check/2` before connecting and refuses to start on
   `{:error, reason}`.
   """
+
+  @known_keys [:provider_allowlist, :required_provider_options]
 
   @type provider_id :: atom()
   @type descriptor :: %{required(:id) => provider_id(), optional(:options) => map()}
@@ -36,10 +47,20 @@ defmodule VoiceConverse.ProviderPolicy do
   @doc "Validates the policy keys of a `privacy` map."
   @spec validate(map()) :: :ok | {:error, %{field: :privacy, reason: :invalid, key: atom()}}
   def validate(privacy) when is_map(privacy) do
+    allowlist = Map.get(privacy, :provider_allowlist)
+
     cond do
-      not valid_allowlist?(Map.get(privacy, :provider_allowlist)) -> invalid(:provider_allowlist)
-      not valid_required?(Map.get(privacy, :required_provider_options, %{})) -> invalid(:required_provider_options)
-      true -> :ok
+      unknown = Enum.find(Map.keys(privacy), &(&1 not in @known_keys)) ->
+        invalid(unknown)
+
+      not valid_allowlist?(allowlist) ->
+        invalid(:provider_allowlist)
+
+      not valid_required?(Map.get(privacy, :required_provider_options, %{}), allowlist) ->
+        invalid(:required_provider_options)
+
+      true ->
+        :ok
     end
   end
 
@@ -68,7 +89,7 @@ defmodule VoiceConverse.ProviderPolicy do
     |> Enum.find_value(:ok, fn {key, expected} ->
       actual = Map.fetch(options, key)
 
-      if actual != {:ok, expected} do
+      if actual !== {:ok, expected} do
         actual = if actual == :error, do: :missing, else: actual
         {:error, %{reason: :required_option_unmet, provider: id, option: key, expected: expected, actual: actual}}
       end
@@ -78,13 +99,13 @@ defmodule VoiceConverse.ProviderPolicy do
   defp valid_allowlist?(nil), do: true
   defp valid_allowlist?(list), do: is_list(list) and Enum.all?(list, &is_atom/1)
 
-  defp valid_required?(required) when is_map(required) do
+  defp valid_required?(required, allowlist) when is_map(required) do
     Enum.all?(required, fn {id, opts} ->
-      is_atom(id) and is_map(opts) and Enum.all?(Map.keys(opts), &is_atom/1)
+      is_atom(id) and (allowlist == nil or id in allowlist) and is_map(opts) and Enum.all?(Map.keys(opts), &is_atom/1)
     end)
   end
 
-  defp valid_required?(_), do: false
+  defp valid_required?(_required, _allowlist), do: false
 
   defp invalid(key), do: {:error, %{field: :privacy, reason: :invalid, key: key}}
 end
