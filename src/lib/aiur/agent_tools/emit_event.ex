@@ -5,10 +5,10 @@ defmodule Aiur.AgentTools.EmitEvent do
 
   @behaviour Aiur.AgentTools.Handler
 
-  alias Aiur.AgentStatusNote
   alias Aiur.AgentTools.Args
   alias Aiur.AgentTools.Errors
   alias Aiur.AgentTools.Response
+  alias Aiur.AgentTools.StatusNote
 
   @emit_event_description """
   Emit a cross-ticket Aiur event. Routes onto the `Aiur.Events.Exchange`
@@ -171,7 +171,7 @@ defmodule Aiur.AgentTools.EmitEvent do
 
   def enforce_per_turn_quota(_name), do: :ok
 
-  defp validate_payload("progress.status", message, payload), do: AgentStatusNote.validate(message, payload)
+  defp validate_payload("progress.status", message, payload), do: StatusNote.validate(message, payload)
   defp validate_payload(_name, message, payload), do: {:ok, message, payload}
 
   @doc """

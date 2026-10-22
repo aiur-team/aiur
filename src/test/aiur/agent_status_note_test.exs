@@ -8,7 +8,7 @@ defmodule Aiur.AgentStatusNoteTest do
 
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AgentStatusNote
-  alias Aiur.AgentTools.EmitEvent
+  alias Aiur.AgentTools.{EmitEvent, StatusNote}
   alias Aiur.Events.Exchange
   alias Aiur.Issue
 
@@ -143,32 +143,32 @@ defmodule Aiur.AgentStatusNoteTest do
 
   describe "validate/2" do
     test "fills missing optional fields, accepts a numeric PR, and trims" do
-      assert {:ok, "m", payload} = AgentStatusNote.validate("m", %{doing: "  coding  ", pr: 4085, updated_reason: "phase"})
+      assert {:ok, "m", payload} = StatusNote.validate("m", %{doing: "  coding  ", pr: 4085, updated_reason: "phase"})
       assert payload["doing"] == "coding"
       assert payload["pr"] == "4085"
       assert payload["asks"] == ""
     end
 
     test "rejects a note without `doing`" do
-      assert {:error, {:status_note_invalid, message}} = AgentStatusNote.validate("m", note(%{"doing" => " "}))
+      assert {:error, {:status_note_invalid, message}} = StatusNote.validate("m", note(%{"doing" => " "}))
       assert message =~ "`doing` is required"
     end
 
     test "rejects an unknown field so typos do not silently drop data" do
-      assert {:error, {:status_note_invalid, message}} = AgentStatusNote.validate("m", Map.put(note(), "doign", "x"))
+      assert {:error, {:status_note_invalid, message}} = StatusNote.validate("m", Map.put(note(), "doign", "x"))
       assert message =~ "doign"
     end
 
     test "rejects a non-string field and a bad updated_reason" do
-      assert {:error, {:status_note_invalid, message}} = AgentStatusNote.validate("m", note(%{"next" => ["a", "b"]}))
+      assert {:error, {:status_note_invalid, message}} = StatusNote.validate("m", note(%{"next" => ["a", "b"]}))
       assert message =~ "`next` must be a string"
 
-      assert {:error, {:status_note_invalid, message}} = AgentStatusNote.validate("m", note(%{"updated_reason" => "whenever"}))
+      assert {:error, {:status_note_invalid, message}} = StatusNote.validate("m", note(%{"updated_reason" => "whenever"}))
       assert message =~ "turn_end"
     end
 
     test "a pasted log is rejected against the whole-payload cap first" do
-      assert {:error, {:status_note_invalid, message}} = AgentStatusNote.validate("m", note(%{"next" => String.duplicate("log line\n", 200)}))
+      assert {:error, {:status_note_invalid, message}} = StatusNote.validate("m", note(%{"next" => String.duplicate("log line\n", 200)}))
       assert message =~ "the limit is 1200 bytes"
     end
 
@@ -176,7 +176,7 @@ defmodule Aiur.AgentStatusNoteTest do
       full = note(%{"doing" => String.duplicate("d", 200), "why" => String.duplicate("w", 200), "next" => String.duplicate("n", 200)})
       full = Map.merge(full, %{"asks" => String.duplicate("a", 200), "risks" => String.duplicate("r", 160), "waiting_on" => String.duplicate("o", 120)})
 
-      assert {:ok, "m", _payload} = AgentStatusNote.validate("m", full)
+      assert {:ok, "m", _payload} = StatusNote.validate("m", full)
     end
   end
 
