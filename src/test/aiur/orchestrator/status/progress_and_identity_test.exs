@@ -262,7 +262,7 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
 
   test "orchestrator snapshot includes idle rows and explicit waiting reasons" do
     orchestrator_name = Module.concat(__MODULE__, :FleetStateOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
