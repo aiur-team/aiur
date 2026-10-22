@@ -7,6 +7,7 @@ Aiur.Events.GithubCIPoller.ApprovedLandingRecoveryTest	*	#5568
 Aiur.ExecutorSweep.SnapshotCacheTest	skips a metadata-only ResourceStore entry while reading cached resources	#5568
 Aiur.GitHub.MonotonicDepositTest	*	#5605
 Aiur.LandingWatch.MainRecoveryRerunTest	*	#5605
+Aiur.LandingWatch.MergeGroupFailureRequeueTest	the fifth group requeue in fifteen minutes is not enqueued	#5633
 Aiur.MainWatch.FixerTest	*	#5605
 Aiur.Orchestrator.Status.ProgressAndIdentityTest	orchestrator snapshot reads open decisions without calling the per-ticket store	#4463
 Aiur.PerClassCadenceTest	*	#5605
