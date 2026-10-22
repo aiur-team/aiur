@@ -6,13 +6,13 @@ defmodule Aiur.Config.Schema.Instance.Ignore do
   @primary_key false
   embedded_schema do
     # @config-reference config-configuration-00 instance.ignore.tickets
-    # @config-detail instance.ignore.tickets | list of integers | `[]` | Ticket numbers another instance owns; this daemon does not transition, withdraw, alert on, count, or wake its Executor for them. Hot-reloadable. |
+    # @config-detail instance.ignore.tickets | list of integers | `[]` | Ticket numbers another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
     field(:tickets, {:array, :integer}, default: [])
     # @config-reference config-configuration-00 instance.ignore.labels
-    # @config-detail instance.ignore.labels | list of strings | `[]` | Tickets carrying any of these labels are foreign, as above. Hot-reloadable. |
+    # @config-detail instance.ignore.labels | list of strings | `[]` | Tickets carrying any of these labels are owned by another instance, with the same effect as `instance.ignore.tickets`. Hot-reloadable. |
     field(:labels, {:array, :string}, default: [])
     # @config-reference config-configuration-00 instance.ignore.label_prefixes
-    # @config-detail instance.ignore.label_prefixes | list of strings | `[]` | Tickets with a label `<prefix>:*` (another instance's `label_prefix`) are foreign, as above. Hot-reloadable. |
+    # @config-detail instance.ignore.label_prefixes | list of strings | `[]` | Tickets with any `<prefix>:*` label (another instance's `tracker.github.label_prefix`) are owned by that instance, with the same effect as `instance.ignore.tickets`. Hot-reloadable. |
     field(:label_prefixes, {:array, :string}, default: [])
   end
 

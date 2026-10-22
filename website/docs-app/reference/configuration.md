@@ -21,6 +21,9 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 | `executor_takeover_continuous_alert_hours` | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
 | `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
+| `instance.ignore.label_prefixes` | list of strings | `[]` | Tickets with any `<prefix>:*` label (another instance's `tracker.github.label_prefix`) are owned by that instance, with the same effect as `instance.ignore.tickets`. Hot-reloadable. |
+| `instance.ignore.labels` | list of strings | `[]` | Tickets carrying any of these labels are owned by another instance, with the same effect as `instance.ignore.tickets`. Hot-reloadable. |
+| `instance.ignore.tickets` | list of integers | `[]` | Ticket numbers another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
 | `instance.role` | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |

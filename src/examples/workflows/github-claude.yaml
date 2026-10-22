@@ -54,6 +54,9 @@ tracker:
     agent_search_limit_per_hour: 600
 instance:
   role: primary                       # primary | secondary; one primary per repository
+  # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
+  #   label_prefixes: [nuc]           # its tracker.github.label_prefix
+  #   tickets: []                     # ids handed over mid-flight
 
 # Merge policy defaults; currently validated and shown in status/capabilities.
 # Merge enforcement, worker instructions and main watching ship separately.
