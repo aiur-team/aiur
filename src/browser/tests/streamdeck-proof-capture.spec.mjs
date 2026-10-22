@@ -44,7 +44,7 @@ function shot(page, name) {
 
 async function openStreamdeck(page) {
   await page.goto('/auth/read_only')
-  await page.goto('/')
+  await page.goto('/route-shell')
   await page.context().setHTTPCredentials(dashboardCredentials)
   // Steps 4 and 6 take a real agent control, so the proof run needs the
   // writable fixture rather than the read-only one.
@@ -60,7 +60,7 @@ async function openUnits(page) {
   // Show every condition so the Units rows are the whole fleet the emulator
   // grid pages through, not the default live-only scope.
   const conditions = encodeURIComponent('active,alert,paused,queued,finished')
-  await page.goto(`/units?v=1&scope=unfinished&conditions=${conditions}`)
+  await page.goto(`/units-fixture?v=1&scope=unfinished&conditions=${conditions}`)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   // A row click before the view joins is dropped; see support/units-helpers.mjs.
   await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
