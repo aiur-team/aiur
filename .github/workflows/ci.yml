@@ -14,7 +14,7 @@ concurrency:
 jobs:
   changes:
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: { contents: read, pull-requests: read }
     outputs: {docs_only: "${{ steps.classify.outputs.docs_only }}", full_ci: "${{ steps.classify.outputs.full_ci }}", browser_smoke: "${{ steps.classify.outputs.browser_smoke }}", dialyzer: "${{ steps.classify.outputs.dialyzer }}", affected_paths_b64: "${{ steps.classify.outputs.affected_paths_b64 }}"}
@@ -38,7 +38,7 @@ jobs:
         run: bash scripts/classify-ci-changes.sh
   pre-handoff:
     needs: changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions: { contents: read }
     steps:
@@ -53,7 +53,7 @@ jobs:
     needs: [changes, pre-handoff]
     if: ${{ !cancelled() && needs.changes.result == 'success' }}
     name: workflow security
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -82,13 +82,13 @@ jobs:
       - name: Test known-flaky reporter
         run: bash scripts/test-report-known-flaky-tests.sh
       - name: Test coverage flake ledger
-        run: python3 scripts/test-record-coverage-flakes.py
+        run: python3 scripts/test-record-coverage-flakes.py && python3 scripts/test-report-coverage-file-timings.py
       - name: Test CI run-attempt disclosure
         run: bash scripts/test-report-ci-run-attempt.sh
       - name: Test CI change classifier
         run: bash scripts/test-classify-ci-changes.sh && node --test scripts/test-build-home-band-runner.mjs scripts/test-home-parity-signoff.mjs
       - name: Test CI concurrency
-        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-ci-soak.py && python3 scripts/test-check-test-time-bombs.py
+        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-ci-soak.py && python3 scripts/test-ci-soak-browser.py && python3 scripts/test-check-test-time-bombs.py
       - name: Verify live merge rulesets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -118,7 +118,7 @@ jobs:
   build:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults: { run: { working-directory: src } }
     steps:
@@ -138,7 +138,7 @@ jobs:
   lint:
     needs: changes
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults: { run: { working-directory: src } }
     steps:
@@ -198,7 +198,7 @@ jobs:
     name: coverage (${{ matrix.partition }}/4)
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -239,7 +239,7 @@ jobs:
           tail -n +1 -F "$log" &
           tail_pid=$!
           status=0
-          timeout --signal=TERM --kill-after=60s 20m \
+          AIUR_TEST_TIMINGS_PATH="$RUNNER_TEMP/shard-evidence/coverage-file-times.tsv" timeout --signal=TERM --kill-after=60s 20m \
             make coverage-partition > "$log" 2>&1 || status=$?
           sleep 2
           kill "$tail_pid" 2>/dev/null || true
@@ -252,18 +252,8 @@ jobs:
           exit "$status"
       - name: Report shard composition
         if: ${{ (always()) && needs.changes.outputs.docs_only != 'true' }}
-        shell: bash
         working-directory: .
-        run: |
-          log="$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
-          [ -s "$log" ] || exit 0
-          {
-            echo "### coverage (${{ matrix.partition }}/4) shard composition"
-            echo
-            echo '```'
-            grep '^coverage-partition:' "$log" || echo "(no shard header; see the partition log)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: python3 scripts/report-coverage-file-timings.py "${{ matrix.partition }}" "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" "$RUNNER_TEMP/shard-evidence/coverage-file-times.tsv" "$GITHUB_STEP_SUMMARY"
       - name: Print partition log
         if: ${{ (failure()) && needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
@@ -310,7 +300,7 @@ jobs:
   test:
     needs: [coverage-partition, changes]
     if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       actions: read
@@ -362,7 +352,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
     continue-on-error: true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -371,7 +361,7 @@ jobs:
     container: {image: mcr.microsoft.com/playwright:v1.61.1-noble}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy: {fail-fast: false, matrix: {shard: [1, 2, 3, 4]}}
     steps:
@@ -389,7 +379,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.full_ci == 'true' }}
     name: analytics
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -406,7 +396,7 @@ jobs:
   dialyzer:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true' || needs.changes.outputs.dialyzer == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:
@@ -436,10 +426,10 @@ jobs:
     name: browser smoke (${{ matrix.shard }}/8)
     needs: changes
     if: ${{ !cancelled() && ((github.event_name != 'pull_request' && needs.changes.outputs.full_ci == 'true') || (github.event_name == 'pull_request' && needs.changes.outputs.browser_smoke == 'true')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
-    timeout-minutes: 22
+    timeout-minutes: 23
     strategy:
       fail-fast: false
       matrix:
@@ -466,7 +456,7 @@ jobs:
     name: streamdeck
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
       run:
@@ -502,7 +492,7 @@ jobs:
     name: layout release smoke
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full_ci == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -577,7 +567,7 @@ jobs:
     name: affected tests
     needs: changes
     if: ${{ !cancelled() && ((github.event_name == 'pull_request' && needs.changes.outputs.full_ci == 'false') || github.event_name == 'merge_group') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     defaults:
       run:
@@ -617,7 +607,7 @@ jobs:
     name: ci gate
     needs: [changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - name: Checkout

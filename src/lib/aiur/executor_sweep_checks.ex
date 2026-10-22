@@ -4,7 +4,7 @@ defmodule Aiur.ExecutorSweep.Checks do
   GitHub snapshot data. This module performs no I/O.
   """
 
-  alias Aiur.ExecutorSweep.{FailureCause, StateLabels, TriageBacklog}
+  alias Aiur.ExecutorSweep.{CacheFreshness, FailureCause, StateLabels, TriageBacklog}
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
 
@@ -18,15 +18,16 @@ defmodule Aiur.ExecutorSweep.Checks do
   def all(snapshot, %DateTime{} = now, opts \\ []) do
     unreviewed_minutes = Keyword.get(opts, :unreviewed_pr_minutes, 10)
     stale_minutes = Keyword.get(opts, :merge_group_stale_minutes, 15)
+    github_freshness_ms = Keyword.get(opts, :github_freshness_ms, 5 * 60_000)
 
     [
       {"unreviewed_prs", [:pull_requests, :tickets], fn -> unreviewed_prs(snapshot, now, unreviewed_minutes) end},
       {"old_decisions", [:decisions], fn -> old_decisions(snapshot, now) end},
-      {"approved_prs", [:pull_requests], fn -> approved_prs(snapshot) end},
+      {"approved_prs", [:pull_requests], fn -> approved_prs(snapshot, github_freshness_ms) end},
       {"conflicting_waiting_prs", [:pull_requests, :tickets], fn -> conflicting_waiting_prs(snapshot) end},
       {"landing_rerun_backlog", [:landing_rerun_backlog], fn -> landing_rerun_backlog(snapshot, now) end},
       {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
-      {"stale_merge_groups", [:merge_groups], fn -> stale_merge_groups(snapshot, now, stale_minutes) end},
+      {"stale_merge_groups", [:merge_groups], fn -> CacheFreshness.stale_merge_groups(snapshot, now, stale_minutes, github_freshness_ms) end},
       {"queue_sets", [:queue_sets, :idle_slots], fn -> queue_sets(snapshot) end},
       {"queue_order", [:queue_order, :feature_order], fn -> queue_order(snapshot) end},
       {"ticket_hygiene", [:tickets, :pull_requests], fn -> ticket_hygiene(snapshot, now) end},
@@ -97,10 +98,13 @@ defmodule Aiur.ExecutorSweep.Checks do
     end)
   end
 
-  defp approved_prs(snapshot) do
+  defp approved_prs(snapshot, max_age_ms) do
     snapshot
     |> Map.get(:pull_requests, [])
-    |> Enum.flat_map(&approved_pr_findings(&1, Map.get(snapshot, :base_checks, [])))
+    |> Enum.flat_map(fn pr ->
+      age = cache_age(snapshot, :pull_requests, value(pr, :number, nil))
+      approved_pr_findings(pr, Map.get(snapshot, :base_checks, []), age, max_age_ms)
+    end)
   end
 
   defp conflicting_waiting_prs(snapshot) do
@@ -138,12 +142,12 @@ defmodule Aiur.ExecutorSweep.Checks do
     end)
   end
 
-  defp approved_pr_findings(pr, base_checks) do
+  defp approved_pr_findings(pr, base_checks, cache_age_ms, max_age_ms) do
     failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
 
     # A cached row can keep "open" after the merge; merged_at is the landing proof (#5119).
     if approved_pr_current_and_open?(pr) and (failures != [] or approved_pr_not_landing?(pr)) do
-      [approved_pr_finding(pr, failures, base_checks)]
+      [approved_pr_finding(pr, failures, base_checks, cache_age_ms, max_age_ms)]
     else
       []
     end
@@ -167,21 +171,27 @@ defmodule Aiur.ExecutorSweep.Checks do
       (is_nil(value(pr, :head_sha, nil)) or value(pr, :approved_head_sha, nil) == value(pr, :head_sha, nil))
   end
 
-  defp approved_pr_finding(pr, failures, base_checks) do
+  defp approved_pr_finding(pr, failures, base_checks, cache_age_ms, max_age_ms) do
     red = failures != []
     kind = if red, do: "approved_pr_red", else: "approved_pr_not_landing"
     classifications = Enum.map(failures, &FailureCause.classify(&1, value(pr, :base_sha, nil), base_checks))
     cause = classifications |> Enum.map(& &1.class) |> Enum.uniq() |> single_or_mixed()
     problem = if red, do: "has a red required check (#{cause})", else: "is not queued or auto-merging"
 
-    finding(kind, 3, 0, "Inspect the check cause or restore merge queue/auto-merge progress.", "Approved PR ##{value(pr, :number, "?")} #{problem}.",
+    stale? = not fresh_github_age?(cache_age_ms, max_age_ms)
+    verification = if stale?, do: "unverified", else: "verified"
+    action = if stale?, do: "Verify the PR and its checks in GitHub before taking action.", else: "Inspect the check cause or restore merge queue/auto-merge progress."
+
+    finding(kind, 3, 0, action, "Approved PR ##{value(pr, :number, "?")} #{problem}; #{verification} (GitHub cache age: #{cache_age(cache_age_ms)}).",
       pull_request: value(pr, :number, nil),
       failure_class: cause,
-      failed_checks: classifications
+      failed_checks: classifications,
+      cache_age_ms: cache_age_ms,
+      verification: verification
     )
   end
 
-  # Approved heads whose automatic rerun waits behind the shared 3-per-15-minute cap, or that need a fresh merge ref.
+  # Approved heads whose automatic rerun waits behind the shared 4-per-15-minute cap, or that need a fresh merge ref.
   defp landing_rerun_backlog(snapshot, now) do
     snapshot
     |> Map.get(:landing_rerun_backlog, [])
@@ -231,28 +241,10 @@ defmodule Aiur.ExecutorSweep.Checks do
     end)
   end
 
-  defp stale_merge_groups(snapshot, now, stale_minutes) do
-    snapshot
-    |> Map.get(:merge_groups, [])
-    |> Enum.flat_map(fn group ->
-      age = age_ms(date(value(group, :started_at, nil)), now)
-
-      if value(group, :state, "") in ["queued", "in_progress"] and age >= stale_minutes * 60_000 do
-        [
-          finding(
-            "stale_merge_group",
-            5,
-            age,
-            "Inspect the merge-group run and start a fresh required run if needed.",
-            "Merge group #{value(group, :name, "?")} is #{value(group, :state, "stale")} for #{duration(age)}.",
-            merge_group: value(group, :name, nil)
-          )
-        ]
-      else
-        []
-      end
-    end)
-  end
+  defp cache_age(snapshot, type, subject), do: get_in(snapshot, [:github_cache_ages, type, subject])
+  defp fresh_github_age?(age, max_age_ms), do: is_integer(age) and age <= max_age_ms
+  defp cache_age(age) when is_integer(age), do: duration(age)
+  defp cache_age(_), do: "unknown"
 
   defp queue_sets(snapshot) do
     slots_idle = value(snapshot, :idle_slots, 0) > 0

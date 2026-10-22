@@ -7,6 +7,7 @@ import vm from 'node:vm';
 import { nowPatch } from './build-home-now-patch.mjs';
 import { oddEdges } from './build-home-odd-edges.mjs';
 import { mapRawToPayload } from './build-home-fixture-map.mjs';
+import { conversationStates, designConversations } from './build-home-conversation-fixtures.mjs';
 
 const TZ = 'America/Los_Angeles';
 const ETAG = '1791431544512943';
@@ -26,12 +27,15 @@ export const API_ROWS = [
 ];
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
-export function loadBuildJs({ designDir, expose, context = {}, prelude = '', dataset }) {
+const INJECTIONS = { convoFor: '(k, id) => { D = dataFor(k); return convo(D.byId[id]); }' };
+export function loadBuildJs({ designDir, expose, context = {}, prelude = '', dataset, inject = [] }) {
   const src = nowPatch(readFileSync(join(designDir, 'assets/build.js'), 'utf8'), dataset);
   const count = src.split(ANCHOR).length - 1;
   assert.equal(count, 1, `build.js anchor '${ANCHOR}' found ${count} times`);
   for (const name of expose) assert.match(name, /^[A-Za-z_$][\w$]*$/, `invalid expose name: ${name}`);
-  const patched = src.replace(ANCHOR, `  ${prelude}\n  window.__E8 = { ${expose.join(', ')} };\n${ANCHOR}`);
+  for (const key of inject) assert.ok(Object.hasOwn(INJECTIONS, key), `unknown injection: ${key}`);
+  const fields = [...expose, ...inject.map(key => `${key}: ${INJECTIONS[key]}`)];
+  const patched = src.replace(ANCHOR, `  ${prelude}\n  window.__E8 = { ${fields.join(', ')} };\n${ANCHOR}`);
   const ctx = { window: {}, document: {}, location: { search: '' }, history: {}, ...context };
   vm.runInContext(patched, vm.createContext(ctx), { filename: 'build.js', timeout: 10000 });
   return ctx.window.__E8;
@@ -76,12 +80,13 @@ export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (zone !== TZ) throw new Error(`export needs TZ=${TZ}, got ${zone}`);
   const prelude = 'const featStatsFor = (k) => { const prev = D; D = dataFor(k); try { return Object.fromEntries(Object.keys(D.features).map((f) => [f, featStats(f)])); } finally { D = prev; } };';
-  const { dataFor, NOW, PSETS, featStatsFor } = loadBuildJs({ designDir, expose: ['dataFor', 'NOW', 'PSETS', 'featStatsFor'], prelude });
+  const { dataFor, NOW, PSETS, featStatsFor, convoFor } = loadBuildJs({ designDir, expose: ['dataFor', 'NOW', 'PSETS', 'featStatsFor'], prelude, inject: ['convoFor'] });
   assert.equal(NOW, 1791408000000, `NOW moved: ${new Date(NOW).toISOString()}`);
   const files = {}, oracle = {};
   for (const dataset of DATASETS) {
     const kind = dataset === 'offline' ? 'live' : dataset;
     const data = dataFor(kind), featureStats = featStatsFor(kind);
+    files[`conversations/${dataset}.json`] = encode(designConversations(data, kind, convoFor));
     if (dataset !== 'offline') oracle[dataset] = statsOracle(data, featureStats, NOW);
     files[`${dataset}.json`] = encode(mapRawToPayload({
       meta: { dataset, now: NOW, tz: TZ, design_etag: ETAG },
@@ -113,6 +118,7 @@ export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}
     meta: { now: NOW, tz: TZ }, data: raw(dataFor('live')),
     usage: { models: PSETS[n], apis: API_ROWS }, daemon: JSON.parse(files['live.json']).daemon,
   }).usage);
+  files['conversations/states.json'] = encode(conversationStates(NOW));
   const offsets = new Set();
   for (const text of Object.values(files)) walk(decode(text), v => {
     if (Number.isFinite(v) && v >= 1.7e12 && v <= 1.9e12) offsets.add(-new Date(v).getTimezoneOffset());

@@ -35,7 +35,7 @@ defmodule AiurWeb.Build.SeamTest do
     # Build and Stream Deck share the same pure window classification.
     "AiurWeb.ProviderMeterWindows"
   ]
-  @shell ~w(UnitsRow UnitsControlPolicy UnitsPresentation DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry)
+  @shell ~w(AgentLogModal UnitsRow UnitsControlPolicy UnitsPresentation DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry)
 
   test "web side references only the seam (future regression guard)" do
     files = [Path.join(@root, "lib/aiur_web/live/build_live.ex")] ++ Path.wildcard(Path.join(@root, "lib/aiur_web/build/**/*.ex"))
@@ -44,7 +44,12 @@ defmodule AiurWeb.Build.SeamTest do
     # C8-T03 reads the existing nonblocking snapshot facade with cadence-aware tolerance.
     # Keep these reader dependencies confined to Freshness, not the rest of the web seam.
     freshness = Path.join(@root, "lib/aiur_web/build/freshness.ex")
-    assert offenders(files -- [freshness], &allowed?/1) == []
+    # MP-E8-C11-T03 confines workspace, snapshot and live-history reads to the
+    # replaceable wave-0b adapter; controllers still use ConversationSource.
+    conversation = Path.join(@root, "lib/aiur_web/build/conversation_source/wave0b.ex")
+    adapter_facades = ~w(Aiur.Conversation.History Aiur.Workspace.Layout Aiur.Config Aiur.Orchestrator Aiur.Tracker)
+    assert offenders(files -- [freshness, conversation], &allowed?/1) == []
+    assert offenders([conversation], &(allowed?(&1) or &1 in adapter_facades)) == []
     assert offenders([freshness], &(allowed?(&1) or &1 in ~w(Aiur.Orchestrator Aiur.PollCadence))) == []
   end
 

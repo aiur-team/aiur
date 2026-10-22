@@ -31,9 +31,20 @@ function collect(config, full, grep, selectedSpec = spec, extra = []) {
   return { titles: titles.sort(), qualified: qualified.sort(), config: report.config }
 }
 
+test('chain parity defaults to four routine cells and retains the tagged full matrix', () => {
+  const chains = 'tests/build-home-chains-parity.browser.spec.mjs'
+  const routine = collect('playwright.design-parity.config.mjs', false, undefined, chains).titles
+  assert.deepEqual(routine, ['dark aiur', 'dark gruvbox', 'light aiur', 'light gruvbox']
+    .map(cell => 'P1–P4 chain pixel parity 1440 ' + cell).sort())
+  const full = collect('playwright.design-parity.config.mjs', true, '@full-parity', chains).titles
+  assert.equal(full.length, 12)
+  for (const width of [1440, 1024, 390]) assert.equal(full.filter(title => title.includes(' ' + width + ' ')).length, 4)
+  assert.deepEqual(collect('playwright.design-parity.config.mjs', true, '@routine-parity', chains).titles, routine)
+})
+
 test('routine motion collects every determinism case; full mode preserves the original matrix', () => {
   const routine = collect('playwright.build-home-motion.config.mjs', false)
-  assert.equal(routine.titles.filter(title => title.startsWith('design determinism:')).length, 72)
+  assert.equal(routine.titles.filter(title => title.startsWith('design determinism:')).length, 76)
   assert.equal(routine.titles.filter(title => title.startsWith('clock probe:')).length, 2)
   assert.ok(routine.titles.every(title => /^(clock probe:|harness self-check:|design determinism:)/.test(title)))
   assert.equal(routine.config.workers, 2)

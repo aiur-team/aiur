@@ -248,6 +248,8 @@ const defects = {
   'unexpected css': e => { e.css = 'html {color:red}' },
   'wrong status spelling': e => { e.approval.status = 'pending-signoff' },
   'missing property': e => { e.kind = 'property' },
+  'empty spec': e => { e.spec = '' },
+  'wildcard spec': e => { e.spec = '*.browser.spec.mjs' },
   'missing rule': e => { e.kind = 'axe' },
   'missing path': e => { e.kind = 'motion' },
   'approved false': e => { e.approved = false }
@@ -261,6 +263,15 @@ for (const [name, mutate] of Object.entries(defects)) {
 test('stale allowlist entry', async ({ browser }) => {
   const pair = await designPair(browser)
   await expect(applyAllowlist(pair, cell, [{ ...entry, selector: '.missing' }])).rejects.toThrow('stale allowlist entry demo')
+})
+test('allowlist checks scoped targets only in their owning spec', async ({ browser }) => {
+  const pair = await designPair(browser)
+  const scoped = { ...entry, selector: '.missing', spec: 'build-home-chains-parity.browser.spec.mjs' }
+  await expect(applyAllowlist(pair, cell, [scoped])).resolves.toEqual({ designMask: [], productMask: [] })
+  await expect(applyAllowlist(pair, cell, [{ ...scoped, spec: 'design-parity-harness.browser.spec.mjs' }]))
+    .rejects.toThrow('stale allowlist entry demo')
+  await expect(applyAllowlist(pair, cell, [{ ...entry, selector: '.missing' }]))
+    .rejects.toThrow('stale allowlist entry demo')
 })
 test('allowlist removal applies', async ({ browser }) => {
   const pair = await designPair(browser)
@@ -357,4 +368,12 @@ test('visual route seeds the optional palette', async ({ page }) => {
   const { openVisualRoute } = await import('../support/visual.mjs')
   await openVisualRoute(page, { theme: 'dark', palette: 'aiur', route: '/build-orders' })
   expect(await page.evaluate(() => localStorage.getItem('aiur-palette'))).toBe('aiur')
+})
+
+// Explicit viewport captures must not scroll an offscreen region into view.
+test('viewport clipping preserves scroll without animation preservation', async ({ browser }) => {
+  const pair = { design: await pageFor(browser), product: await pageFor(browser), cell, allowlist: [] }
+  for (const page of [pair.design, pair.product]) await page.setContent('<style>body{margin:0;height:3000px}#region{position:absolute;top:2000px;left:50px;width:80px;height:80px;background:red}</style><div id="region"></div>')
+  await compareParityPixels(pair, { name: 'viewport-clip-scroll', region: '#region', viewportClip: true })
+  for (const page of [pair.design, pair.product]) expect(await page.evaluate(() => scrollY)).toBe(0)
 })

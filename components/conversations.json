@@ -6,6 +6,7 @@
   "paths": [
     "src/lib/aiur/agent_event_feed.ex",
     "src/lib/aiur/agent_log.ex",
+    "src/lib/aiur/agent_log/**",
     "src/lib/aiur/conversation/anchors.ex",
     "src/lib/aiur/conversation/history.ex"
   ],

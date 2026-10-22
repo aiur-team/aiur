@@ -210,6 +210,50 @@ defmodule Aiur.LandingWatch.Journal do
     end)
   end
 
+  @spec record_failure_metric_evidence(map(), keyword()) :: :ok | {:error, term()}
+  def record_failure_metric_evidence(row, opts \\ []) when is_map(row) do
+    update(opts, fn state ->
+      observations = Map.get(state, "failure_metric_evidence", [])
+      identity = row["identity"]
+      pr = row["pr"]
+      run_url = row["run_url"]
+      job = row["job"]
+      unique = Enum.reject(observations, &(&1["identity"] == identity and &1["pr"] == pr and &1["run_url"] == run_url and &1["job"] == job))
+      retained = [row | unique] |> Enum.sort_by(& &1["at_ms"], :desc) |> Enum.take(2_000)
+      {:ok, Map.put(state, "failure_metric_evidence", retained)}
+    end)
+  end
+
+  @spec forget_failure_observation(map(), keyword()) :: :ok | {:error, term()}
+  def forget_failure_observation(row, opts \\ []) when is_map(row) do
+    update(opts, fn state ->
+      observations = Map.get(state, "failure_observations", [])
+      identity = row["identity"]
+      pr = row["pr"]
+      run_url = row["run_url"]
+      retained = Enum.reject(observations, &(&1["identity"] == identity and &1["pr"] == pr and &1["run_url"] == run_url))
+      {:ok, Map.put(state, "failure_observations", retained)}
+    end)
+  end
+
+  @doc "Counts innocent merge-group failures for one PR head and returns its new attempt number."
+  @spec record_merge_group_blame_attempt(pos_integer(), String.t(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
+  def record_merge_group_blame_attempt(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+    update(opts, fn state ->
+      attempts = Map.get(state, "merge_group_blame_attempts", %{})
+      identity = key(pr, head)
+      count = Map.get(attempts, identity, 0) + 1
+      {:ok, Map.put(state, "merge_group_blame_attempts", Map.put(attempts, identity, count)), count}
+    end)
+  end
+
+  @spec merge_group_blame_attempts(pos_integer(), String.t(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def merge_group_blame_attempts(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+    with {:ok, state} <- state(opts) do
+      {:ok, get_in(state, ["merge_group_blame_attempts", key(pr, head)]) || 0}
+    end
+  end
+
   @spec failure_observations(keyword()) :: {:ok, [map()]} | {:error, term()}
   def failure_observations(opts \\ []) do
     with {:ok, state} <- state(opts), do: {:ok, Map.get(state, "failure_observations", [])}
