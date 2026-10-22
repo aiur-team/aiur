@@ -64,7 +64,9 @@ defmodule Aiur.LandingWatch.ForeignTicketTest do
       parent
       |> landing_opts(journal_path())
       |> Keyword.merge(
-        observe_fun: fn _ -> {:ok, [%{approved_observation("conflict-head") | merge_queue_entry: %{"id" => "MQE_1"}} |> Map.merge(%{base: "main", mergeable: "CONFLICTING", merge_state_status: "DIRTY"})]} end,
+        observe_fun: fn _ ->
+          {:ok, [%{approved_observation("conflict-head") | merge_queue_entry: %{"id" => "MQE_1"}} |> Map.merge(%{base: "main", mergeable: "CONFLICTING", merge_state_status: "DIRTY"})]}
+        end,
         journal_prune_fun: fn _, _ -> :ok end,
         queue_reconcile_fun: fn _, _ -> :ok end,
         withdraw_fun: fn number -> send(parent, {:withdraw, number}) && {:ok, [:dequeued]} end,
