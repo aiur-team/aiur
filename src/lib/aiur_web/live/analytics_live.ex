@@ -68,7 +68,7 @@ defmodule AiurWeb.AnalyticsLive do
 
   def handle_async(:analytics_model, _result, socket), do: {:noreply, socket}
 
-  defp chart_model(model, %{start_ms: start_ms, end_ms: end_ms}) when is_integer(start_ms) and is_integer(end_ms),
+  defp chart_model(model, {start_ms, end_ms}) when is_integer(start_ms) and is_integer(end_ms),
     do: Charts.with_exact_time_domain(model, {start_ms, end_ms}, boundary_samples: false)
 
   defp chart_model(model, _domain), do: model

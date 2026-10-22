@@ -280,8 +280,8 @@ defmodule Aiur.Application.Children do
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
         quarantine_lifter_children() ++
-        List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor)) ++
-        List.wrap(if(dashboard?, do: [Aiur.RunTelemetry.RetainedCache, AiurWeb.OperatorControlCenter.Analytics.Prewarmer]))
+        List.wrap(if(dashboard?, do: [Aiur.RunTelemetry.RetainedCache, AiurWeb.OperatorControlCenter.Analytics.Prewarmer])) ++
+        List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
     )
   end
 

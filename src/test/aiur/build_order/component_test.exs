@@ -145,9 +145,9 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Experiments.Analyst,
     Aiur.Experiments.AnalystTrigger,
     Aiur.LandingWatch.QuarantineLifter,
-    AiurWeb.Build.IndexSupervisor,
     Aiur.RunTelemetry.RetainedCache,
-    AiurWeb.OperatorControlCenter.Analytics.Prewarmer
+    AiurWeb.OperatorControlCenter.Analytics.Prewarmer,
+    AiurWeb.Build.IndexSupervisor
   ]
 
   setup do
