@@ -9,17 +9,19 @@ defmodule Aiur.ExecutorSweep.ApprovedPrs do
   def findings(snapshot, now, max_age_ms) do
     snapshot
     |> Map.get(:pull_requests, [])
-    |> Enum.flat_map(fn pr ->
-      red = Enum.any?(value(pr, :required_checks, []), &red_check?/1)
+    |> Enum.flat_map(&findings_for_pr(&1, snapshot, now, max_age_ms))
+  end
 
-      if red do
-        age = live_ci_age(pr, now)
-        if fresh_age?(age, max_age_ms), do: approved_pr_findings(pr, Map.get(snapshot, :base_checks, []), age, max_age_ms), else: []
-      else
-        age = cache_age(snapshot, value(pr, :number, nil))
-        approved_pr_findings(pr, Map.get(snapshot, :base_checks, []), age, max_age_ms)
-      end
-    end)
+  defp findings_for_pr(pr, snapshot, now, max_age_ms) do
+    base_checks = Map.get(snapshot, :base_checks, [])
+
+    if Enum.any?(value(pr, :required_checks, []), &red_check?/1) do
+      age = live_ci_age(pr, now)
+      if fresh_age?(age, max_age_ms), do: approved_pr_findings(pr, base_checks, age, max_age_ms), else: []
+    else
+      age = cache_age(snapshot, value(pr, :number, nil))
+      approved_pr_findings(pr, base_checks, age, max_age_ms)
+    end
   end
 
   defp approved_pr_findings(pr, base_checks, observed_age_ms, max_age_ms) do
