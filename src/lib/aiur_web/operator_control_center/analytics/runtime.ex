@@ -104,8 +104,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Runtime do
     {cached, key}
   end
 
+  # The state node scopes the in-memory model to the analytics root its persisted copy lives under.
   defp cache_key(opts) do
-    {Keyword.get(opts, :session, :current), Keyword.get(opts, :build_order), Keyword.get(opts, :tickets), Keyword.get(opts, :cache_identity)}
+    {Keyword.get(opts, :session, :current), Keyword.get(opts, :build_order), Keyword.get(opts, :tickets), Keyword.get(opts, :cache_identity), Summaries.state_node()}
   end
 
   defp analytics_opts(range, scope_opts) do
@@ -118,8 +119,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Runtime do
     ] ++ scope_opts
   end
 
-  defp persist_model({:current, nil, nil, nil}, model) do
-    path = Path.join(Summaries.analytics_dir(), @persistent_model_file)
+  defp persist_model({:current, nil, nil, nil, state_node}, model) do
+    path = Path.join([state_node, "analytics", @persistent_model_file])
     temporary = path <> ".#{System.unique_integer([:positive])}.tmp"
     binary = :erlang.term_to_binary(model, [:compressed])
 
@@ -143,8 +144,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Runtime do
     File.rm(temporary)
   end
 
-  defp load_persisted_model({:current, nil, nil, nil}) do
-    path = Path.join(Summaries.analytics_dir(), @persistent_model_file)
+  defp load_persisted_model({:current, nil, nil, nil, state_node}) do
+    path = Path.join([state_node, "analytics", @persistent_model_file])
 
     with {:ok, stat} when stat.size <= @persistent_model_limit <- File.stat(path),
          {:ok, binary} <- File.read(path) do

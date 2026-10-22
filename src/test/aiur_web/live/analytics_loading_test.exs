@@ -8,7 +8,7 @@ defmodule AiurWeb.AnalyticsLoadingTest do
   alias Aiur.RunTelemetry.Summaries
   alias Aiur.TestSupport.LiveViewAsync
   alias AiurWeb.Endpoint
-  alias AiurWeb.OperatorControlCenter.Analytics.Presenter
+  alias AiurWeb.OperatorControlCenter.Analytics.{Presenter, Runtime}
 
   @endpoint Endpoint
   @summary Path.expand("../../fixtures/analytics/runs/boot-a/run-summary.json", __DIR__)
@@ -34,7 +34,7 @@ defmodule AiurWeb.AnalyticsLoadingTest do
       end
 
       opts = [cache_identity: session["identity"], prior_loader: loader]
-      if session["cached_model"], do: Runtime.cache_result({:current, nil, nil, session["identity"]}, {:ok, session["cached_model"]})
+      if session["cached_model"], do: Runtime.cache_result({:current, nil, nil, session["identity"], Summaries.state_node()}, {:ok, session["cached_model"]})
       {:ok, Runtime.load(socket, opts, fn -> %{state: :absent, title: "Disabled", message: "Compression is disabled."} end)}
     end
 
@@ -78,7 +78,17 @@ defmodule AiurWeb.AnalyticsLoadingTest do
     {:ok, root: root}
   end
 
-  test "first HTTP response stays under five seconds and skips analysis" do
+  test "first HTTP response stays under five seconds and skips analysis", %{root: root} do
+    # A model computed under another analytics root must not answer this one (CI leaked one across test files).
+    other = Aiur.TestSupport.tmp_root!("analytics-loading-other")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(other) end)
+    Application.put_env(:aiur, :repo_base_root, other)
+    File.mkdir_p!(Path.dirname(Summaries.run_summary_path("boot-a")))
+    File.cp!(@summary, Summaries.run_summary_path("boot-a"))
+    Runtime.prewarm()
+    assert File.exists?(Path.join(Summaries.analytics_dir(), "latest-run-model.term"))
+    Application.put_env(:aiur, :repo_base_root, root)
+
     started = System.monotonic_time(:millisecond)
     conn = get(build_conn(), "/analytics")
     elapsed = System.monotonic_time(:millisecond) - started
