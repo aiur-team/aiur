@@ -167,7 +167,7 @@ defmodule AiurEnginePrePrTest do
     assert output =~
              "NOTE full selection (fixture requires full suite); running CI coverage partitions locally; full CI suite runs in merge queue"
 
-    assert length(Regex.scan(~r/PASS coverage partition \([1-4]\/4\)/, output)) == 4
+    assert length(Regex.scan(~r/aiur pre-pr gate complete: PASS coverage partition \([1-4]\/4\)/, output)) == 4
 
     assert File.read!(Path.join(fixture, "coverage-partitions")) ==
              "1:--max-cases 4\n2:--max-cases 4\n3:--max-cases 4\n4:--max-cases 4\n"

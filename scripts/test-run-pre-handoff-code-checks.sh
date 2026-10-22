@@ -85,7 +85,7 @@ elif [[ "$*" == "-C "*" coverage-partition" ]]; then
   [[ "$MIX_TEST_ARGS" == '--max-cases 4' ]] || exit 96
   printf 'makeargs:%s\n' "$MIX_TEST_ARGS" >> "$COMMAND_LOG"
   printf 'partition:%s/4\n' "$MIX_TEST_PARTITION" >> "$COMMAND_LOG"
-  [[ "${FAIL_PARTITION:-}" != "$MIX_TEST_PARTITION" ]]
+  [[ "${FAIL_PARTITION:-}" != "$MIX_TEST_PARTITION" ]] || exit 23
 else
   echo "unexpected make args: $*" >&2
   exit 93
@@ -181,6 +181,7 @@ fi
 [[ "$(grep -c '^partition:' "$tmp/full_suite.commands")" == 4 ]]
 grep -F 'full selection (shared test support changed)' "$tmp/full_suite.log" >/dev/null
 grep -F 'all 4 CI coverage partitions' "$tmp/full_suite.log" >/dev/null
+[[ "$(grep -c 'coverage partition [1-4]/4 complete (passed)' "$tmp/full_suite.log")" == 4 ]]
 [[ "$(grep -c '^makeargs:--max-cases 4$' "$tmp/full_suite.commands")" == 4 ]]
 
 if ! run_check unknown_full src/examples/workflows/demo.yaml false false; then
@@ -245,5 +246,16 @@ grep -F '## Local tests evidence (paste into the PR body)' "$tmp/evidence.log" >
 grep -F "Tested head: $head" "$tmp/evidence.log" >/dev/null
 grep -F 'mix aiur.affected_tests' "$tmp/evidence.log" >/dev/null
 grep -F -- '- `timeout --signal=TERM --kill-after=60s 15m mise exec -- mix dialyzer` -> passed' "$tmp/evidence.log" >/dev/null
+
+# A runner interruption must leave its governing signal and any completed selection evidence.
+if env BASH_ENV=/dev/null PATH="$tmp/bin:$PATH" TMPDIR="$tmp" COMMAND_LOG="$tmp/interrupted.commands" \
+    CHANGED_PATHS='src/test/support/factory.ex' HEAD_SHA="$head" BASE_SHA="$base" \
+    FAIL_PARTITION=2 bash "$fixture/scripts/run-pre-handoff-code-checks.sh" "$base" \
+    > "$tmp/interrupted-signal.log" 2>&1; then
+  echo 'test-run-pre-handoff-code-checks: expected TERM to stop the wrapper' >&2
+  exit 1
+fi
+grep -F 'coverage partition 2/4 complete (failed, exit 23)' "$tmp/interrupted-signal.log" >/dev/null
+[[ "$(grep -c '^partition:' "$tmp/interrupted.commands")" == 4 ]]
 
 echo 'test-run-pre-handoff-code-checks: selected test and Dialyzer failures refuse handoff'

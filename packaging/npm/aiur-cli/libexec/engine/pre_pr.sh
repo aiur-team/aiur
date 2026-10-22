@@ -1,7 +1,7 @@
 # Merge the integration branch, then report every cheap gate in one final block.
 cmd_pre_pr() {
   [ "$#" -eq 0 ] || { echo "aiur: pre-pr does not accept arguments" >&2; exit 64; }
-  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config test_path cleanup_command affected selection pr_json full_suite_recommended=0 required
+  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config test_path cleanup_command affected selection pr_json full_suite_recommended=0 required interrupted=0
   local -a results=() failures=() test_files=() test_env=()
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "aiur pre-pr is for Aiur source checkouts; run it inside an Aiur repository." >&2; exit 64; }
   if [ ! -f "$root/src/mix.exs" ] || [ ! -f "$root/scripts/check-pr-structure.py" ]; then
@@ -40,6 +40,15 @@ cmd_pre_pr() {
     "HOME=$test_home" "XDG_CONFIG_HOME=$test_config" "TMPDIR=$temp_dir"
     "PATH=$test_path"
   )
+  interrupted_report() {
+    local signal="$1"
+    [[ "$interrupted" == 0 ]] || return 0
+    interrupted=1
+    results+=("INTERRUPTED pre-pr command received $signal")
+    pre_pr_report "unknown" FAIL
+  }
+  trap 'interrupted_report INT' INT
+  trap 'interrupted_report TERM' TERM
   if ! git fetch origin "$base_ref" >"$temp_dir/fetch.log" 2>&1; then
     results+=("FAIL fetch origin/$base_ref")
     failures+=("$temp_dir/fetch.log")
@@ -62,10 +71,13 @@ cmd_pre_pr() {
     gate_log="$temp_dir/gate-${#results[@]}.log"
     if "$@" >"$gate_log" 2>&1; then
       results+=("PASS $name")
+      printf 'aiur pre-pr gate complete: PASS %s\n' "$name"
     else
+      local status=$?
       results+=("FAIL $name")
       failures+=("$gate_log")
       result=1
+      printf 'aiur pre-pr gate complete: FAIL %s (exit %s)\n' "$name" "$status"
     fi
   }
 
@@ -73,6 +85,7 @@ cmd_pre_pr() {
     local partition
     full_suite_recommended=1
     for partition in 1 2 3 4; do
+      printf 'aiur pre-pr coverage partition started: %s/4\n' "$partition"
       run_gate "coverage partition ($partition/4)" "${test_env[@]}" \
         "MIX_TEST_ARGS=--max-cases 4" "MIX_TEST_PARTITION=$partition" TEST_PARTITIONS=4 \
         nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- \

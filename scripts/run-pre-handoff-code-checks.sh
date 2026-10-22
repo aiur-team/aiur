@@ -8,6 +8,20 @@ head="$(git -C "$repo_root" rev-parse HEAD)"
 scratch="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pre-handoff-code-checks.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 
+handoff_interrupted() {
+  local signal="$1" status
+  status=$((128 + $(kill -l "$signal" 2>/dev/null || echo 1)))
+  printf 'run-pre-handoff-code-checks: INTERRUPTED by %s (exit %s); completed evidence follows\n' "$signal" "$status" >&2
+  if [[ -f "${evidence:-}" ]]; then
+    printf '%s\n' '--- Local tests evidence (partial; later checks not run) ---' >&2
+    cat "$evidence" >&2
+    printf '%s\n' '--- end Local tests evidence ---' >&2
+  fi
+  exit "$status"
+}
+trap 'handoff_interrupted INT' INT
+trap 'handoff_interrupted TERM' TERM
+
 git -C "$repo_root" diff --name-only "$base" "$head" -- > "$scratch/changed"
 if [[ ! -s "$scratch/changed" ]]; then
   echo "run-pre-handoff-code-checks: no changed files"
@@ -175,10 +189,12 @@ if [[ "$partition_fallback" == true ]]; then
       nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C "$repo_root/src" coverage-partition \
       > "$scratch/partition-$partition.log" 2>&1; then
       record_result "MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION=$partition TEST_PARTITIONS=4 nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C src coverage-partition" passed
+      echo "run-pre-handoff-code-checks: coverage partition $partition/4 complete (passed)"
     else
       status=$?
       record_result "MIX_TEST_ARGS='--max-cases 4' MIX_TEST_PARTITION=$partition TEST_PARTITIONS=4 nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- make -C src coverage-partition" "failed (exit $status)"
       partition_failed=true
+      echo "run-pre-handoff-code-checks: coverage partition $partition/4 complete (failed, exit $status)"
     fi
     cat "$scratch/partition-$partition.log"
   done
