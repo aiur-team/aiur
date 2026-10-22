@@ -19,7 +19,7 @@ jobs:
   # Light queue job: no Playwright container or visual suite, and a no-op unless the merge touches aiur-style.
   queue-dist:
     if: ${{ github.event_name == 'merge_group' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -50,7 +50,7 @@ jobs:
 
   build-and-test:
     if: ${{ github.event_name != 'merge_group' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     container: mcr.microsoft.com/playwright:v1.61.1-noble
 
