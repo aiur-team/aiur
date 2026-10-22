@@ -199,8 +199,6 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     }
 
     assert [finding] = Checks.all(snapshot, ~U[2026-10-19 12:00:00Z]) |> Enum.filter(&(&1.kind == "conflicting_waiting_pr"))
-    assert finding.verification == "unverified"
-    assert finding.cached_field == "mergeable"
     assert finding.cache_age_ms == 900_000
     assert finding.message =~ "cached mergeable=CONFLICTING"
     assert finding.message =~ "unverified (cache age 15m)"

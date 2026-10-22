@@ -119,21 +119,19 @@ defmodule Aiur.ExecutorSweep.Checks do
       age = cache_age(snapshot, :pull_requests, value(pr, :number, nil))
       fresh? = fresh_github_age?(age, max_age_ms)
       verification = if fresh?, do: "verified", else: "unverified"
-      action = if fresh?, do: "Merge #{base_branch} into the PR branch and resolve the conflicts.", else: "Verify the PR mergeability in GitHub before taking action."
 
       [
         finding(
           "conflicting_waiting_pr",
           2,
           0,
-          action,
+          if(fresh?, do: "Merge #{base_branch} into the PR branch and resolve the conflicts.", else: "Verify the PR mergeability in GitHub before taking action."),
           "Ticket ##{issue_number} is waiting while PR ##{value(pr, :number, "?")} has cached mergeable=CONFLICTING with #{base_branch}; #{verification} (cache age #{cache_age(age)}).",
           pull_request: value(pr, :number, nil),
           ticket: issue_number,
-          cached_field: "mergeable",
-          cache_age_ms: age,
-          verification: verification
-        )]
+          cache_age_ms: age
+        )
+      ]
     else
       _not_a_conflicting_waiting_pr -> []
     end
