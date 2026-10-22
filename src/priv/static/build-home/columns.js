@@ -1,33 +1,40 @@
 import { S, ctx, fx, LH, gutW } from './state.js';
 import { esc } from './dom.js';
-import { colKey } from './match.js';
 import { dayKey } from './util.js';
 import { I } from './icons.js';
 import { place } from './render.js';
 
-const epicOk = t => !S.f.epic.length || S.f.epic.includes(colKey(t));
 let leaveSeq = 0;
 
 export function visibleCols() {
   if (S.flow) return Array.from({ length: S.K }, (_, i) => "s" + i);
-  if (S.feature && ctx.D.features[S.feature]) {
-    const F = S.feature, set = new Set(ctx.D.features[F].epics);
-    ctx.D.all.forEach((t) => { if (t.feature === F || t.also.includes(F)) { set.add(colKey(t)); if (S.fmode === "compact") t.deps.forEach((d) => ctx.D.byId[d] && set.add(colKey(ctx.D.byId[d]))); } });
-    return ctx.D.order.filter((k) => set.has(k));
-  }
+  if (S.feature && ctx.D.features[S.feature]) return featureCols();
   /* history: columns change per whole visible day, not per card; forward (now + planned + not queued) is one fixed set */
   const st = ctx.vp.scrollTop, chh = ctx.vp.clientHeight, vis = new Set();
   const hs = ctx.L.secs.hist, htop = ctx.secs.hist.el.offsetTop, a = st - htop + LH, b = st - htop + chh;
   if (!ctx.L._dayCols) { ctx.L._dayCols = {}; hs.items.forEach((it) => { if (!it.t.end) return; const d = dayKey(it.t.end); (ctx.L._dayCols[d] = ctx.L._dayCols[d] || new Set()).add(it.key); }); }
   hs.items.forEach((it) => { if (it.t.end && it.y + it.h > a && it.y < b) ctx.L._dayCols[dayKey(it.t.end)].forEach((k) => vis.add(k)); });
-  if (st + chh > htop + hs.h + 40) { if (!ctx.D._fwd) ctx.D._fwd = new Set([...ctx.D.plan, ...ctx.D.nq].filter(epicOk).map(colKey)); ctx.D._fwd.forEach((k) => vis.add(k)); }
-  if (S.feature && ctx.D.features[S.feature]) ctx.D.features[S.feature].epics.forEach((k) => vis.add(k));
-  if (S.f.epic.length) S.f.epic.forEach((k) => { if (vis.size === 0) vis.add(k); });
+  if (st + chh > htop + hs.h + 40) {
+    for (const sec of ['plan', 'nq']) ctx.L.secs[sec].items.forEach(it => vis.add(it.key));
+  }
   return ctx.D.order.filter((k) => vis.has(k));
 }
+function featureCols() {
+  const F = S.feature, items = ['hist', 'plan', 'nq'].flatMap(sec => ctx.L.secs[sec].items), set = new Set();
+  const featureItems = items.filter(it => belongsToFeature(it.t, F));
+  featureItems.forEach(it => set.add(it.key));
+  if (S.fmode === 'compact') {
+    const featureIds = new Set(featureItems.map(it => it.t.id));
+    items.filter(it => it.t.deps.some(id => featureIds.has(id))).forEach(it => set.add(it.key));
+  }
+  return ctx.D.order.filter(k => set.has(k));
+}
+function belongsToFeature(t, feature) {
+  return t.feature === feature || t.also.includes(feature) || S.fmode === 'compact' && t.deps.some(id => {
+    const dep = ctx.D.byId[id]; return dep && (dep.feature === feature || dep.also.includes(feature));
+  });
+}
 export function applyCols(next, immediate) {
-  if (!next.length) next = ctx.cols.length ? ctx.cols : ctx.D.order.filter(k => ctx.D.epics[k]?.general);
-  if (!next.length) next = ["unsorted"];
   ctx.cols = next;
   const w = ctx.vp.clientWidth, g = gutW();
   const maxW = 520, gap = S.flow ? 10 : 16;
@@ -52,6 +59,7 @@ export function applyCols(next, immediate) {
   ctx.R.forEach((el) => place(el, el._it));
   ctx.L.band.items.forEach((it) => place(it.el, it));
   ctx.svg.classList.remove("hide");
+  ctx.lanesEl.querySelector('.bd-lane-g').textContent = ctx.cols.length ? (S.view === 'gantt' ? 'Time' : 'Order') : 'No visible tickets';
   fx.drawEdgesSoon(immediate ? 0 : 420);
 }
 function syncKeyed(map, host, cls, fill, pos) {
@@ -67,7 +75,7 @@ function syncKeyed(map, host, cls, fill, pos) {
 
 export function scheduleCols(force) {
   const next = visibleCols();
-  if (next.length && next.join('|') !== ctx.cols.join('|'))
+  if (next.join('|') !== ctx.cols.join('|'))
     ctx.life.later('cols', force ? 0 : 220, () => { applyCols(visibleCols()); fx.update(); });
 }
 Object.assign(fx, { visibleCols, applyCols, scheduleCols });

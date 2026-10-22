@@ -172,8 +172,8 @@ if [[ -z "$reporter_step" ]]; then
   exit 1
 fi
 
-if ! grep -Eq '^        if: .*failure\(\)' <<<"$reporter_step"; then
-  echo "the known-flaky reporter step must still be gated on failure()" >&2
+if ! grep -Fq "steps.partition-tests.outcome == 'failure'" <<<"$reporter_step"; then
+  echo "the known-flaky reporter step must still run for a failed partition" >&2
   exit 1
 fi
 

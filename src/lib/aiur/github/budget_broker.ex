@@ -85,7 +85,7 @@ defmodule Aiur.GitHub.BudgetBroker do
 
   def handle_info({:forget_late, id}, state) do
     case Map.get(state.pending, id) do
-      {nil, _timer, _submitted_at, _mailbox_wait_ms, _command_type} -> {:noreply, %{state | pending: Map.delete(state.pending, id)}}
+      {nil, _timer, _submitted_at, _mailbox_wait_ms, _command_type, _timeout_measurements} -> {:noreply, %{state | pending: Map.delete(state.pending, id)}}
       _active -> {:noreply, state}
     end
   end
@@ -145,8 +145,8 @@ defmodule Aiur.GitHub.BudgetBroker do
       {nil, _pending} ->
         state
 
-      {{nil, _timer, submitted_at, mailbox_wait_ms, command_type}, pending} ->
-        late_response(%{state | pending: pending}, result, submitted_at, mailbox_wait_ms, command_type)
+      {{nil, _timer, submitted_at, mailbox_wait_ms, command_type, timeout_measurements}, pending} ->
+        late_response(%{state | pending: pending}, result, submitted_at, mailbox_wait_ms, command_type, timeout_measurements)
 
       {{from, timer, submitted_at, mailbox_wait_ms, command_type}, pending} ->
         Process.cancel_timer(timer)
@@ -169,6 +169,7 @@ defmodule Aiur.GitHub.BudgetBroker do
           |> Map.put(:command_type, safe_command_type(python_metrics["command_type"]) |> prefer_command_type(command_type))
 
         observe_command(outcome, measurements)
+
         state |> Map.put(:pending, pending) |> add_sample(outcome, measurements)
     end
   end
@@ -189,16 +190,17 @@ defmodule Aiur.GitHub.BudgetBroker do
 
         observe_command(:timeout, measurements)
         cleanup = Process.send_after(self(), {:forget_late, id}, :timer.minutes(1))
-        state |> put_in([:pending, id], {nil, cleanup, submitted_at, mailbox_wait_ms, command_type}) |> add_sample(:timeout, measurements)
+        sample = Map.put(measurements, :sample_id, make_ref())
+        state |> put_in([:pending, id], {nil, cleanup, submitted_at, mailbox_wait_ms, command_type, sample}) |> add_sample(:timeout, sample)
 
       _already_expired_or_completed ->
         state
     end
   end
 
-  defp late_response(state, :timeout, _submitted_at, _mailbox_wait_ms, _command_type), do: state
+  defp late_response(state, :timeout, _submitted_at, _mailbox_wait_ms, _command_type, _timeout_measurements), do: state
 
-  defp late_response(state, result, submitted_at, mailbox_wait_ms, command_type) do
+  defp late_response(state, result, submitted_at, mailbox_wait_ms, command_type, timeout_measurements) do
     {_public_result, _outcome, python_metrics} = public_result(result)
 
     measurements =
@@ -217,7 +219,21 @@ defmodule Aiur.GitHub.BudgetBroker do
       |> Map.put(:command_type, safe_command_type(python_metrics["command_type"]) |> prefer_command_type(command_type))
 
     observe_command(:late_response, measurements)
+    state = update_timeout_sample(state, timeout_measurements, measurements)
     add_sample(state, :late_response, measurements)
+  end
+
+  defp update_timeout_sample(state, original, late) do
+    sample_id = original.sample_id
+
+    %{
+      state
+      | stats:
+          Enum.map(state.stats, fn
+            {:timeout, %{sample_id: ^sample_id} = sample} -> {:timeout, Map.merge(sample, Map.drop(late, [:late_duration_ms]))}
+            sample -> sample
+          end)
+    }
   end
 
   defp public_result(:timeout), do: {:timeout, :timeout, %{}}

@@ -84,7 +84,7 @@ cmd_operator_answer() {
     shift
   done
   [ "$operator" -eq 1 ] || { echo "aiur: answer requires --operator" >&2; exit 64; }
-  if env | grep -Eq '^(AIUR_AGENT_|CODEX_THREAD_ID=|CLAUDECODE=|OPENCODE_SESSION_ID=)'; then
+  if env | grep -E '^(AIUR_AGENT_|CODEX_THREAD_ID=|CLAUDECODE=|OPENCODE_SESSION_ID=)' >/dev/null; then
     echo "aiur: answer is for a human operator; agents and Executors must not run it" >&2
     exit 64
   fi

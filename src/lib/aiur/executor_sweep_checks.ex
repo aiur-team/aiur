@@ -1,10 +1,7 @@
 defmodule Aiur.ExecutorSweep.Checks do
-  @moduledoc """
-  Builds prioritized Executor sweep findings from already-observed daemon and
-  GitHub snapshot data. This module performs no I/O.
-  """
+  @moduledoc "Builds prioritized Executor sweep findings from observed daemon and GitHub snapshot data."
 
-  alias Aiur.ExecutorSweep.{CacheFreshness, FailureCause, StateLabels, TriageBacklog}
+  alias Aiur.ExecutorSweep.{CacheFreshness, FailureCause, StaleCiWait, StateLabels, TriageBacklog}
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
 
@@ -25,6 +22,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       {"old_decisions", [:decisions], fn -> old_decisions(snapshot, now) end},
       {"approved_prs", [:pull_requests], fn -> approved_prs(snapshot, github_freshness_ms) end},
       {"conflicting_waiting_prs", [:pull_requests, :tickets], fn -> conflicting_waiting_prs(snapshot) end},
+      {"stale_ci_wait_prs", [:pull_requests, :tickets], fn -> stale_ci_wait_prs(snapshot, now) end},
       {"landing_rerun_backlog", [:landing_rerun_backlog], fn -> landing_rerun_backlog(snapshot, now) end},
       {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
       {"stale_merge_groups", [:merge_groups], fn -> CacheFreshness.stale_merge_groups(snapshot, now, stale_minutes, github_freshness_ms) end},
@@ -141,6 +139,8 @@ defmodule Aiur.ExecutorSweep.Checks do
       end
     end)
   end
+
+  defp stale_ci_wait_prs(snapshot, now), do: StaleCiWait.findings(snapshot, now)
 
   defp approved_pr_findings(pr, base_checks, cache_age_ms, max_age_ms) do
     failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
@@ -480,7 +480,7 @@ defmodule Aiur.ExecutorSweep.Checks do
   defp date(_), do: nil
 
   defp age_ms(%DateTime{} = timestamp, %DateTime{} = now), do: max(DateTime.diff(now, timestamp, :millisecond), 0)
-  defp age_ms(_, _), do: 0
+  defp age_ms(_, _), do: nil
 
   defp duration(ms) do
     total_minutes = div(ms, 60_000)

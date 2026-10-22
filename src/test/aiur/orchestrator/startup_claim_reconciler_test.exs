@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{StartupClaimReconciler, State}
+  alias Aiur.Orchestrator.{StartupClaimReconciler, StartupClaimReconciler.Observation, State}
 
   test "releases an orphaned in-progress claim to todo with a guarded update" do
     issue = issue("2076", "in-progress")
