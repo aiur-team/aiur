@@ -143,7 +143,11 @@ defmodule Aiur.ExecutorSweep.Checks do
   defp stale_ci_wait_prs(snapshot, now), do: StaleCiWait.findings(snapshot, now)
 
   defp approved_pr_findings(pr, base_checks, cache_age_ms, max_age_ms) do
-    failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
+    failures =
+      pr
+      |> value(:required_checks, [])
+      |> latest_checks_per_name()
+      |> Enum.filter(&red_check?/1)
 
     # A cached row can keep "open" after the merge; merged_at is the landing proof (#5119).
     if approved_pr_current_and_open?(pr) and (failures != [] or approved_pr_not_landing?(pr)) do
@@ -166,6 +170,28 @@ defmodule Aiur.ExecutorSweep.Checks do
 
   defp red_check?(check), do: value(check, :conclusion, nil) in ["failure", "cancelled", "timed_out", "startup_failure"]
 
+  defp latest_checks_per_name(checks) do
+    checks
+    |> Enum.with_index()
+    |> Enum.reduce(%{}, &keep_latest_check/2)
+    |> Map.values()
+    |> Enum.sort_by(&elem(&1, 1))
+    |> Enum.map(&elem(&1, 2))
+  end
+
+  defp check_recency(check) do
+    value(check, :started_at, nil) || value(check, :completed_at, nil) || value(check, :id, 0)
+  end
+
+  defp keep_latest_check({check, index}, latest) do
+    name = value(check, :name, "required check")
+    candidate = {check_recency(check), index, check}
+
+    Map.update(latest, name, candidate, &newer_check(candidate, &1))
+  end
+
+  defp newer_check(candidate, current), do: if(candidate > current, do: candidate, else: current)
+
   defp approved_current_head?(pr) do
     value(pr, :review_decision, "") == "APPROVED" and
       (is_nil(value(pr, :head_sha, nil)) or value(pr, :approved_head_sha, nil) == value(pr, :head_sha, nil))
@@ -176,7 +202,9 @@ defmodule Aiur.ExecutorSweep.Checks do
     kind = if red, do: "approved_pr_red", else: "approved_pr_not_landing"
     classifications = Enum.map(failures, &FailureCause.classify(&1, value(pr, :base_sha, nil), base_checks))
     cause = classifications |> Enum.map(& &1.class) |> Enum.uniq() |> single_or_mixed()
-    problem = if red, do: "has a red required check (#{cause})", else: "is not queued or auto-merging"
+    run_ids = failures |> Enum.map(&value(&1, :id, value(&1, :run_id, nil))) |> Enum.reject(&is_nil/1)
+    run_suffix = if run_ids == [], do: "", else: "; check run(s): #{Enum.map_join(run_ids, ", ", &"##{&1}")}"
+    problem = if red, do: "has a red required check (#{cause})#{run_suffix}", else: "is not queued or auto-merging"
 
     stale? = not fresh_github_age?(cache_age_ms, max_age_ms)
     verification = if stale?, do: "unverified", else: "verified"
@@ -186,6 +214,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       pull_request: value(pr, :number, nil),
       failure_class: cause,
       failed_checks: classifications,
+      failed_check_run_ids: run_ids,
       cache_age_ms: cache_age_ms,
       verification: verification
     )
