@@ -61,8 +61,11 @@ class CoverageFileTimingsTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         shard = workflow.split("  coverage-partition:\n")[1].split("\n  test:\n")[0]
 
-        self.assertIn("--kill-after=60s 20m", shard)
-        self.assertIn("AIUR_TEST_TIMINGS_PATH=", shard)
+        partition_script = (ROOT / "scripts/run-coverage-partition.sh").read_text()
+
+        self.assertIn("scripts/run-coverage-partition.sh", shard)
+        self.assertIn("--kill-after=60s 20m", partition_script)
+        self.assertIn("AIUR_TEST_TIMINGS_PATH=", partition_script)
         self.assertIn("coverage-file-times.tsv", shard)
         self.assertIn("report-coverage-file-timings.py", shard)
         self.assertIn("path: ${{ runner.temp }}/shard-evidence/", shard)
