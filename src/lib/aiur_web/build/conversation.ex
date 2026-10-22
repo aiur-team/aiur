@@ -119,7 +119,7 @@ defmodule AiurWeb.Build.Conversation do
          message = ConversationPayload.view(ref.id, view),
          :ok <- Payload.validate(message),
          :ok <- call(socket, :subscribe, [ref]) do
-      socket = socket |> pin(ref, view) |> schedule()
+      socket = socket |> pin(ref, view) |> ConversationEventFeed.subscribe() |> schedule()
       {:reply, message, socket}
     else
       _ -> reply_error(socket, :unavailable)

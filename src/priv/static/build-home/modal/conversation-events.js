@@ -11,17 +11,17 @@ function sub(o) {
   if (o.sub) return o.sub;
   return o.ev === 'merge' && o.at != null ? fmtD(o.at) + ' ' + fmtT(o.at) : '';
 }
-export function eventEl(o) {
-  const kind = EVK[o.ev] || EVK.comment, s = sub(o);
+// The dependency's number, from its label ("Dependency #N …"), else its id.
+const depNum = o => (/#(\d+)/.exec(o.label || '') || [])[1] || o.go;
+export function eventHTML(o) {
+  const kind = EVK[o.ev] || EVK.comment, s = sub(o), at = o.at == null ? '—' : fmtT(o.at);
   const cls = ['fail', 'cmd'].includes(o.ev) ? ' bad' : o.ev === 'you' || !known(o) ? ' mute' : '';
-  const time = o.at == null ? '<time title="Time unknown">—</time>' : '<time datetime="' + new Date(o.at).toISOString() + '">' + fmtT(o.at) + '</time>';
-  const w = document.createElement('div');
-  w.innerHTML = '<div class="cv-ev' + cls + '"' + (EVK[o.ev] && known(o) ? ' style="--eh:' + evHue(o) + '"' : '') + '><span class="cv-evi">' + ic(kind[1]) + '</span><b>' + esc(o.label) + '</b>' +
+  const time = o.at == null ? '<time title="Time unknown">—</time>' : '<time datetime="' + new Date(o.at).toISOString() + '">' + at + '</time>';
+  const data = ' data-k="ev" data-eid="' + esc(o.id) + '" data-label="' + esc(o.label) + '" data-at="' + at + '" data-ev="' + esc(o.ev) + '"';
+  return '<div class="cv-ev' + cls + '"' + (EVK[o.ev] && known(o) ? ' style="--eh:' + evHue(o) + '"' : '') + data + '><span class="cv-evi">' + ic(kind[1]).replace('<svg ', '<svg aria-hidden="true" ') + '</span><b>' + esc(o.label) + '</b>' +
     (s ? '<span class="cv-evs">' + esc(s) + '</span>' : '') +
-    (o.go ? '<button type="button" class="cv-go" data-goto="' + esc(o.go) + '">Open</button>' : '') + time + '</div>';
-  const el = w.firstChild;
-  el.querySelector('.cv-evi svg')?.setAttribute('aria-hidden', 'true');
-  if (o.go) el.querySelector('.cv-go').setAttribute('aria-label', 'Open #' + o.go + (o.sub ? ' ' + o.sub : ''));
-  el.dataset.k = 'ev'; el.dataset.eid = o.id; el.dataset.label = o.label; el.dataset.at = o.at == null ? '—' : fmtT(o.at); el.dataset.ev = o.ev;
-  return el;
+    (o.go ? '<button type="button" class="cv-go" data-goto="' + esc(o.go) + '" aria-label="' + esc('Open #' + depNum(o) + (o.sub ? ' ' + o.sub : '')) + '">Open</button>' : '') + time + '</div>';
+}
+export function eventEl(o) {
+  const w = document.createElement('div'); w.innerHTML = eventHTML(o); return w.firstChild;
 }

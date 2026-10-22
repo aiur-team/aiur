@@ -6,9 +6,8 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bEvents do
   unavailable instead of empty.
   """
 
+  alias Aiur.{AgentEventFeed, Commands, RecentMergeStore, TrackerIdentity}
   alias Aiur.BuildOrder.TicketHistoryProvider
-  alias Aiur.{DecisionStore, IssueLog, RecentMergeStore, TrackerIdentity}
-  alias Aiur.IssueLog.EventHistory
   alias AiurWeb.Build.ConversationEvents
   alias AiurWeb.EndpointConfig
 
@@ -35,7 +34,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bEvents do
   @spec log(String.t(), TrackerIdentity.t() | nil) :: {:ok, [map()]} | {:error, term()}
   def log(id, identity) do
     opts = [kinds: @kinds, limit: ConversationEvents.log_limit()]
-    if identity, do: IssueLog.event_history(identity, opts), else: EventHistory.read_event_history(IssueLog.event_log_path(id), opts)
+    AgentEventFeed.ticket_events(id, identity, opts)
   end
 
   defp identity(ref) do
@@ -60,16 +59,19 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bEvents do
   end
 
   defp open_decisions(id) do
-    with {:ok, ids} <- DecisionStore.open_blocking_decision_ids([id]) do
+    with {:ok, ids} <- Commands.open_blocking_decision_ids([id]) do
       {:ok, Enum.flat_map(ids, &decision/1)}
     end
   end
 
-  # An answered question between the two calls is skipped; an exit here makes the whole read unavailable.
+  # A question answered or gone between the two calls is skipped; an unreadable store makes the whole read unavailable.
   defp decision(id) do
-    case DecisionStore.get(id) do
-      {:ok, decision} -> [decision]
-      {:error, :not_found} -> []
+    case Commands.get(id) do
+      {:ok, %{decision: %{decision_status: :open} = decision}} -> [decision]
+      {:ok, _closed} -> []
+      {:error, :store_unavailable} -> exit(:store_unavailable)
+      {:error, {:indeterminate, _health}} -> exit(:store_unavailable)
+      {:error, _missing} -> []
     end
   end
 

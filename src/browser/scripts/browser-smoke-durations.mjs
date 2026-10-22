@@ -23,6 +23,8 @@ export const recordedSeconds = {
   'test:build-modal-motion': 26,
   // Same run, shard 7/job 119192841077: all 14 conversation cases passed; 163.6s wall time.
   'test:build-home-conversation': 165,
+  // node --test, 7 cases in 0.4s locally (#3163); rounded up.
+  'test:build-home-conversation-events-unit': 1,
   // Governed core commands (2026-10-18): 31 cases in 518s; 32 cases on 2ed995a67 in 445s.
   // Keep the slower observed bound; wall timings include fixture startup and build-gate wait.
   'test:build-home-gantt': 518,

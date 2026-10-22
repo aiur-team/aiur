@@ -16,7 +16,15 @@ defmodule AiurWeb.Build.ConversationEventFeed do
   @silent ~w(not_retained unavailable)a
 
   @spec init(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
-  def init(socket), do: assign(socket, conversation_event_ids: MapSet.new(), conversation_events_upper: :infinity, conversation_events_timer: nil, conversation_events_topic: nil)
+  def init(socket),
+    do:
+      assign(socket,
+        conversation_event_ids: MapSet.new(),
+        conversation_events_upper: :infinity,
+        conversation_events_timer: nil,
+        conversation_events_topic: nil,
+        conversation_events_identity: nil
+      )
 
   @spec clear(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def clear(socket) do
@@ -39,11 +47,20 @@ defmodule AiurWeb.Build.ConversationEventFeed do
       entries = if first? and built.unreadable, do: [built.unreadable | entries], else: entries
       sent = entries |> Enum.filter(&event?/1) |> Enum.map(& &1.id) |> MapSet.new() |> MapSet.union(socket.assigns.conversation_event_ids)
       socket = assign(socket, conversation_event_ids: sent, conversation_events_upper: upper)
-      {%{view | entries: entries}, if(first?, do: subscribe(socket, built.identity), else: socket)}
+      {%{view | entries: entries}, if(first?, do: assign(socket, conversation_events_identity: built.identity), else: socket)}
     else
       _ -> {view, socket}
     end
   end
+
+  @doc "Subscribes to the pinned ticket's history updates, once, after its conversation opened."
+  @spec subscribe(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  def subscribe(%{assigns: %{conversation_events_topic: nil, conversation_events_identity: identity}} = socket) when not is_nil(identity) do
+    topic = TicketHistoryProvider.topic(identity)
+    if Phoenix.PubSub.subscribe(Aiur.PubSub, topic) == :ok, do: assign(socket, conversation_events_topic: topic), else: socket
+  end
+
+  def subscribe(socket), do: socket
 
   @spec info(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
   def info(socket, {:conversation_events_refresh, id}) do
@@ -54,13 +71,14 @@ defmodule AiurWeb.Build.ConversationEventFeed do
 
   def info(socket, {:build_changes, changes}) do
     ref = socket.assigns.conversation_ref
+    changes = Payload.scrub(changes)
 
-    case changes |> Payload.scrub() |> Map.get("upsert") |> List.wrap() |> Enum.find(&(is_map(&1) and &1["id"] == ref.id)) do
+    case changes |> Map.get("upsert") |> List.wrap() |> Enum.find(&(is_map(&1) and &1["id"] == ref.id)) do
       nil ->
         socket
 
       row ->
-        now = Payload.scrub(changes)["now"]
+        now = changes["now"]
         resumed = ConversationEvents.resumed(ConversationEvents.agent_state(ref.row || %{}), ConversationEvents.agent_state(row), now)
         socket = assign(socket, conversation_ref: %{ref | row: Map.merge(ref.row || %{}, row)})
         socket = if resumed, do: push_new(socket, [resumed]), else: socket
@@ -136,13 +154,6 @@ defmodule AiurWeb.Build.ConversationEventFeed do
       {:ok, row} when is_map(row) -> Payload.scrub(row)
       _ -> nil
     end
-  end
-
-  defp subscribe(socket, nil), do: socket
-
-  defp subscribe(socket, identity) do
-    topic = TicketHistoryProvider.topic(identity)
-    if Phoenix.PubSub.subscribe(Aiur.PubSub, topic) == :ok, do: assign(socket, conversation_events_topic: topic), else: socket
   end
 
   defp cancel(timer) when is_reference(timer), do: Process.cancel_timer(timer)

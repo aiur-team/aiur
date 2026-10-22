@@ -15,7 +15,7 @@ defmodule AiurWeb.BuildLiveConversationEventsTest do
       do: {:ok, %{state: :live, entries: [%{id: "t:" <> ref.id, k: "say", at: 1_791_407_600_000, text: "hi"}], before: "t:0", last: "t:0", more?: true, live?: true, observed_at: nil}}
 
     def page(_ref, _cursor, _opts), do: {:ok, %{entries: [], before: nil, more?: false}}
-    def subscribe(_ref, _opts), do: :ok
+    def subscribe(_ref, opts), do: if(Agent.get(opts[:control], & &1[:subscribe_fail]), do: {:error, :down}, else: :ok)
     def unsubscribe(_ref, _opts), do: :ok
     def events(ref, opts), do: {:ok, Agent.get(opts[:control], &Map.put(&1, :identity, identity(ref.id)))}
 
@@ -133,6 +133,15 @@ defmodule AiurWeb.BuildLiveConversationEventsTest do
     send(view.pid, {:conversation_events_refresh, aid})
     render(view)
     refute_push_event(view, "build-conversation", %{"kind" => "conversation-append"})
+  end
+
+  test "a conversation that fails to open leaves no history subscription behind", %{control: control} do
+    view = view()
+    id = hd(rows())["id"]
+    Agent.update(control, &Map.put(&1, :subscribe_fail, true))
+    assert %{"kind" => "error", "reason" => "unavailable"} = open(view, id)
+    refute view.pid in Enum.map(Registry.lookup(Aiur.PubSub, TicketHistoryProvider.topic(Source.identity(id))), &elem(&1, 0))
+    assert :sys.get_state(view.pid).socket.assigns.conversation_events_topic == nil
   end
 
   test "L4 closing releases the history subscription" do

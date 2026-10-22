@@ -7,6 +7,8 @@ import { modelInfo } from '../agents.js';
 function diffHTML(o) {
   return '<div class="cv-diff"><div class="cv-dh"><code>' + esc(o.file) + '</code><span><b class="a">+' + esc(o.add) + '</b> <b class="d">−' + esc(o.del) + '</b></span></div><pre>' + o.lines.map(l => '<span class="' + (l[0] === '+' ? 'a' : l[0] === '-' ? 'd' : '') + '">' + (['+', '-'].includes(l[0]) ? l[0] : ' ') + ' ' + esc(l[1]) + '</span>').join('') + '</pre></div>';
 }
+// Server event rows (`ev:` ids, including their sys rows) are never transcript page cursors.
+export const cursorOf = o => String(o.id).startsWith('ev:') ? null : o.cursor || o.id;
 export function itemEl(o, model) {
   const m = typeof model === 'string' ? modelInfo(model) : model || modelInfo(null);
   let h;
@@ -18,7 +20,8 @@ export function itemEl(o, model) {
   else if (o.k === 'diff') h = diffHTML(o);
   else return null;
   const w = document.createElement('div'); w.innerHTML = h; const el = w.firstChild;
-  el.dataset.k = o.k; el.dataset.eid = o.id; el.dataset.cursor = o.cursor || o.id;
+  el.dataset.k = o.k; el.dataset.eid = o.id;
+  const cursor = cursorOf(o); if (cursor) el.dataset.cursor = cursor;
   if (o.at == null && ['sys', 'op'].includes(o.k)) el.title = 'Time unknown';
   return el;
 }
