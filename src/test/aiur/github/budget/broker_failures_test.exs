@@ -162,12 +162,20 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
   end
 
   test "a first attempt cut off by the admission deadline stays a broker timeout", %{root: root} do
-    fake_python = Path.join(root, "stalled-broker")
-    File.write!(fake_python, "#!/bin/sh\nsleep 10\n")
-    File.chmod!(fake_python, 0o755)
+    server = start_supervised!({__MODULE__.AdmissionDeadlineBroker, test: self()})
+    deadline_at = System.monotonic_time(:millisecond) + 10_000
 
     assert {:error, :github_budget_broker_timeout} =
-             Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), state_dir: root, enabled?: true, python: fake_python, timeout_ms: 500)
+             Budget.acquire(
+               request("shared-token", "/repos/owner/repo/issues/1"),
+               state_dir: root,
+               enabled?: true,
+               broker_server: server,
+               deadline_at: deadline_at,
+               timeout_ms: 10_000
+             )
+
+    assert_receive :admission_deadline_expired, 1_000
   end
 
   test "a typed shared hold preserves resource and absolute reset", %{root: root} do
@@ -334,6 +342,21 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
     def handle_info({:reply_timeout, from}, state) do
       GenServer.reply(from, :timeout)
       {:noreply, state}
+    end
+  end
+
+  defmodule AdmissionDeadlineBroker do
+    use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+    @impl true
+    def init(opts), do: {:ok, opts[:test]}
+
+    @impl true
+    def handle_call({:command, _broker, _args, _deadline_at, _submitted_at}, _from, test) do
+      send(test, :admission_deadline_expired)
+      {:reply, :timeout, test}
     end
   end
 end
