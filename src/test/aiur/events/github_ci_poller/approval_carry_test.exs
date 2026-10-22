@@ -44,10 +44,19 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
 
     current =
       comparison([
-        {"src/test/quarantine.txt", "a2", "@@ -1,3 +1,2 @@\n row-x\n-row\n row-y"}
+        {"src/test/quarantine.txt", "a2", "@@ -3,3 +3,2 @@\n row-x\n-row\n row-y"}
       ])
 
-    main = comparison([{"src/test/quarantine.txt", "m1", "@@ -1,2 +0,0 @@\n-row-a\n-row-b"}])
+    main = comparison([{"src/test/quarantine.txt", "m1", "@@ -3,2 +3,0 @@\n-row-a\n-row-b"}])
+
+    assert :identical = ApprovalCarry.classify_contribution_diffs(approved, current, main)
+    assert :carried = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
+  end
+
+  test "base additions from the hunk context do not invalidate the Tested head" do
+    approved = comparison([{"src/test/quarantine.txt", "a1", "@@ -3,3 +3,2 @@\n row-x\n-row\n row-y"}])
+    current = comparison([{"src/test/quarantine.txt", "a2", "@@ -3,4 +3,3 @@\n row-a\n row-x\n-row\n row-y"}])
+    main = comparison([{"src/test/quarantine.txt", "m1", "@@ -3,0 +3,1 @@\n+row-a"}])
 
     assert :identical = ApprovalCarry.classify_contribution_diffs(approved, current, main)
     assert :carried = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)

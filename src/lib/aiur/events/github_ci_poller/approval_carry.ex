@@ -200,7 +200,7 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   end
 
   defp compare_changed_lines(path, approved, current, main) do
-    base_edits = changed_content(main)
+    base_edits = changed_positions(main)
 
     if same_hunks?(hunks_of(approved), hunks_of(current), base_edits) do
       []
@@ -229,17 +229,25 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
 
   # Context edits from the base can shift or shorten a hunk without changing
   # where the PR contribution sits relative to the surviving source.
-  defp changed_content(nil), do: %{removed: %{}, added: %{}}
+  defp changed_positions(nil), do: %{removed: MapSet.new(), added: MapSet.new()}
 
-  defp changed_content(%{hunks: hunks}) do
-    Enum.reduce(hunks, %{removed: %{}, added: %{}}, &add_hunk_edits/2)
+  defp changed_positions(%{hunks: hunks}) do
+    Enum.reduce(hunks, %{removed: MapSet.new(), added: MapSet.new()}, &add_hunk_positions/2)
   end
 
-  defp add_hunk_edits(hunk, edits) do
-    Enum.reduce(hunk.lines, edits, fn
-      <<"-", content::binary>>, acc -> update_in(acc.removed, &Map.update(&1, content, 1, fn count -> count + 1 end))
-      <<"+", content::binary>>, acc -> update_in(acc.added, &Map.update(&1, content, 1, fn count -> count + 1 end))
-    end)
+  defp add_hunk_positions(hunk, edits) do
+    {old_start, _old_count} = hunk.old
+    {new_start, _new_count} = hunk.new
+
+    {_old, _new, edits} =
+      Enum.reduce(hunk.body, {old_start, new_start, edits}, fn
+        <<" ", _::binary>>, {old, new, acc} -> {old + 1, new + 1, acc}
+        <<"-", _::binary>>, {old, new, acc} -> {old + 1, new, update_in(acc.removed, &MapSet.put(&1, old))}
+        <<"+", _::binary>>, {old, new, acc} -> {old, new + 1, update_in(acc.added, &MapSet.put(&1, new))}
+        _marker, positions -> positions
+      end)
+
+    edits
   end
 
   defp same_hunks?(approved, current, base_edits) do
@@ -249,9 +257,9 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
 
   defp unmatched_hunks(approved, current, base_edits) do
     Enum.reduce(current, {approved, []}, fn hunk, {remaining, extra} ->
-      signature = hunk_signature(hunk, base_edits.added)
+      signature = hunk_signature(hunk, base_edits.added, :current)
 
-      case Enum.find_index(remaining, &(hunk_signature(&1, base_edits.removed) == signature)) do
+      case Enum.find_index(remaining, &(hunk_signature(&1, base_edits.removed, :approved) == signature)) do
         nil -> {remaining, [hunk | extra]}
         index -> {List.delete_at(remaining, index), extra}
       end
@@ -259,33 +267,33 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
     |> then(fn {approved_only, current_only} -> {approved_only, Enum.reverse(current_only)} end)
   end
 
-  defp hunk_signature(hunk, base_edits) do
-    body = remove_base_context(hunk.body, base_edits)
+  defp hunk_signature(hunk, changed_positions, side) do
+    {old_start, _old_count} = hunk.old
+    {new_start, _new_count} = hunk.new
 
-    {hunk.lines, body}
-  end
+    {body, _old, _new} =
+      Enum.reduce(hunk.body, {[], old_start, new_start}, fn line, {kept, old, new} ->
+        keep? = not base_context_line?(line, side, old, new, changed_positions)
 
-  defp remove_base_context(context, base_edits) do
-    {remaining, _counts} =
-      Enum.reduce(context, {[], base_edits}, fn line, {kept, counts} ->
-        if String.starts_with?(line, " ") do
-          remove_base_context_line(line, kept, counts)
-        else
-          {[line | kept], counts}
-        end
+        {if(keep?, do: [line | kept], else: kept), old_position(line, old), new_position(line, new)}
       end)
 
-    Enum.reverse(remaining)
+    {hunk.lines, Enum.reverse(body)}
   end
 
-  defp remove_base_context_line(line, kept, counts) do
-    content = String.slice(line, 1..-1//1)
+  defp base_context_line?(<<" ", _::binary>>, :approved, old, _new, changed_positions),
+    do: MapSet.member?(changed_positions, old)
 
-    case Map.get(counts, content, 0) do
-      0 -> {[line | kept], counts}
-      count -> {kept, Map.put(counts, content, count - 1)}
-    end
-  end
+  defp base_context_line?(<<" ", _::binary>>, :current, old, _new, changed_positions),
+    do: MapSet.member?(changed_positions, old)
+
+  defp base_context_line?(_line, _side, _old, _new, _changed_positions), do: false
+
+  defp old_position(<<sign, _::binary>>, old) when sign in [?-, ?\s], do: old + 1
+  defp old_position(_line, old), do: old
+
+  defp new_position(<<sign, _::binary>>, new) when sign in [?+, ?\s], do: new + 1
+  defp new_position(_line, new), do: new
 
   defp contribution_hunks(path, side, file) do
     file
