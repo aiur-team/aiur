@@ -263,9 +263,10 @@ defmodule Aiur.ProviderMeterProbe do
 
   # One refused probe is routine against a rate-limited endpoint; a streak
   # means the reading has stopped moving, which nothing else would announce.
+  # Warned once per streak; `aiur accounts` keeps showing the error after.
   defp warn_if_failing(name) do
     case Accounts.UsageReadings.snapshot("claude", [name]) do
-      %{^name => %{consecutive_failures: failures, reason: reason} = entry} when failures >= @failure_warning_threshold ->
+      %{^name => %{consecutive_failures: failures, reason: reason} = entry} when failures == @failure_warning_threshold ->
         Logger.warning("claude usage probe failing account=#{name} failures=#{failures} reason=#{inspect(reason)} last_observed_at=#{inspect(entry[:last_observed_at])}")
 
       _ok ->

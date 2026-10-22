@@ -557,6 +557,64 @@ defmodule Aiur.AccountsTest do
     assert row["weekly_percent"] == 41
   end
 
+  # Failing since boot: there is no age to show, but the row must still say
+  # why there is no reading.
+  test "accounts json names the last error for an account that has never been read", %{home: home} do
+    File.mkdir_p!(Path.join(home, ".claude"))
+    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
+
+    output =
+      capture_io(fn ->
+        AccountsCLI.accounts(true, fn _names ->
+          %{"default" => %{reading: nil, observed_at: DateTime.utc_now(), freshness: :unavailable, reason: :unauthorized, consecutive_failures: 2, last_observed_at: nil}}
+        end)
+      end)
+
+    [row] = Jason.decode!(output) |> Enum.filter(&(&1["name"] == "default" and &1["harness"] == "claude"))
+    assert row["freshness"] == "unauthorized"
+    assert row["last_error"] == "unauthorized"
+    assert row["age_ms"] == nil
+  end
+
+  # A reading re-served from cache after a 429 is `cached`, not `stale`, while
+  # it is under the cutoff, the same call the Models panel makes, and it
+  # still names the refusal.
+  test "accounts json reports a cached reading under the cutoff as cached with its error", %{home: home} do
+    File.mkdir_p!(Path.join(home, ".claude"))
+    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
+
+    output =
+      capture_io(fn ->
+        AccountsCLI.accounts(true, fn _names ->
+          %{
+            "default" => %{
+              reading: %{windows: [%{window: "seven_day", used_percent: 41}]},
+              observed_at: DateTime.add(DateTime.utc_now(), -600, :second),
+              freshness: :cached,
+              reason: :rate_limited,
+              consecutive_failures: 1
+            }
+          }
+        end)
+      end)
+
+    [row] = Jason.decode!(output) |> Enum.filter(&(&1["name"] == "default" and &1["harness"] == "claude"))
+    assert row["freshness"] == "cached"
+    assert row["last_error"] == "rate_limited"
+  end
+
+  # `last_error` is a Claude probe field; other harnesses' rows keep their
+  # existing shape so their pinned output does not change.
+  test "accounts json leaves last_error off non-Claude rows", %{home: home} do
+    File.mkdir_p!(Path.join(home, ".claude"))
+    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
+
+    output = capture_io(fn -> AccountsCLI.accounts(true, fn _names -> %{} end) end)
+
+    rows = Jason.decode!(output)
+    refute Enum.any?(rows, &(&1["harness"] != "claude" and Map.has_key?(&1, "last_error")))
+  end
+
   test "usage readings are isolated by harness and account" do
     observed_at = DateTime.utc_now()
     UsageReadings.record("claude", "default", {:error, :no_oauth_token}, observed_at)

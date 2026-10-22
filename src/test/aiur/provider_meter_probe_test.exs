@@ -343,6 +343,10 @@ defmodule Aiur.ProviderMeterProbeTest do
       assert entry.reason == :rate_limited
       assert entry.consecutive_failures == 3
       assert entry.last_observed_at == good_at
+
+      # Once per streak: a long outage does not repeat the line every tick.
+      later = capture_log(fn -> ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: ScriptedUsageApi, claude_accounts: ["default"])) end)
+      refute later =~ "usage probe failing"
     end
 
     test "a fresh reading clears the failure streak", ctx do
