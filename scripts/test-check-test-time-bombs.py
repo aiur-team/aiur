@@ -54,11 +54,14 @@ class SelectTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             fake_mix = Path(scratch) / 'mix'
             marker = Path(scratch) / 'started'
+            count_file = Path(scratch) / 'count'
             fake_mix.write_text(f'#!/usr/bin/env python3\nfrom pathlib import Path\nimport os, time\nPath({str(marker)!r}).write_text(str(os.getpid()))\ntime.sleep(30)\n')
             fake_mix.chmod(0o755)
             process = subprocess.Popen([sys.executable, str(Path(__file__).with_name('check-test-time-bombs.py')),
                                         'test/aiur_engine_pre_pr_test.exs'],
-                                       env=dict(os.environ, PATH=f'{scratch}:{os.environ["PATH"]}', TMPDIR=scratch),
+                                       env=dict(os.environ, PATH=f'{scratch}:{os.environ["PATH"]}', TMPDIR=scratch,
+                                                AIUR_TIME_BOMB_COUNT_FILE=str(count_file)),
+                                       # The runner reports its filtered file count before invoking mix.
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             try:
                 deadline = time.monotonic() + 10
@@ -73,6 +76,7 @@ class SelectTest(unittest.TestCase):
                         break
                 else:
                     self.fail('guard did not enter the timed test command')
+                self.assertEqual(count_file.read_text(), '1')
                 process.kill()
                 process.wait(timeout=5)
                 os.kill(int(marker.read_text()), signal.SIGKILL)

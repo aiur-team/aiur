@@ -82,13 +82,13 @@ jobs:
       - name: Test known-flaky reporter
         run: bash scripts/test-report-known-flaky-tests.sh
       - name: Test coverage flake ledger
-        run: python3 scripts/test-record-coverage-flakes.py
+        run: python3 scripts/test-record-coverage-flakes.py && python3 scripts/test-report-coverage-file-timings.py
       - name: Test CI run-attempt disclosure
         run: bash scripts/test-report-ci-run-attempt.sh
       - name: Test CI change classifier
         run: bash scripts/test-classify-ci-changes.sh && node --test scripts/test-build-home-band-runner.mjs scripts/test-home-parity-signoff.mjs
       - name: Test CI concurrency
-        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-ci-soak.py && python3 scripts/test-check-test-time-bombs.py
+        run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-ci-soak.py && python3 scripts/test-ci-soak-browser.py && python3 scripts/test-check-test-time-bombs.py
       - name: Verify live merge rulesets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -239,7 +239,7 @@ jobs:
           tail -n +1 -F "$log" &
           tail_pid=$!
           status=0
-          timeout --signal=TERM --kill-after=60s 20m \
+          AIUR_TEST_TIMINGS_PATH="$RUNNER_TEMP/shard-evidence/coverage-file-times.tsv" timeout --signal=TERM --kill-after=60s 20m \
             make coverage-partition > "$log" 2>&1 || status=$?
           sleep 2
           kill "$tail_pid" 2>/dev/null || true
@@ -252,18 +252,8 @@ jobs:
           exit "$status"
       - name: Report shard composition
         if: ${{ (always()) && needs.changes.outputs.docs_only != 'true' }}
-        shell: bash
         working-directory: .
-        run: |
-          log="$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
-          [ -s "$log" ] || exit 0
-          {
-            echo "### coverage (${{ matrix.partition }}/4) shard composition"
-            echo
-            echo '```'
-            grep '^coverage-partition:' "$log" || echo "(no shard header; see the partition log)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: python3 scripts/report-coverage-file-timings.py "${{ matrix.partition }}" "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" "$RUNNER_TEMP/shard-evidence/coverage-file-times.tsv" "$GITHUB_STEP_SUMMARY"
       - name: Print partition log
         if: ${{ (failure()) && needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
@@ -439,7 +429,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
-    timeout-minutes: 22
+    timeout-minutes: 23
     strategy:
       fail-fast: false
       matrix:

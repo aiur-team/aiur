@@ -48,11 +48,21 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   @spec ensure_remote_control_trust_call(State.t(), String.t(), GenServer.from() | nil) :: {:reply, term(), State.t()} | {:noreply, State.t()}
   def ensure_remote_control_trust_call(%State{} = state, workspace, from \\ nil)
       when is_binary(workspace) do
+    ensure_remote_control_trust_call(state, workspace, from, &TrackerTasks.start/4)
+  end
+
+  @doc false
+  @spec ensure_remote_control_trust_call(State.t(), String.t(), GenServer.from() | nil, (State.t(), term(), (-> term()), (State.t(), term() -> State.t()) -> State.t())) ::
+          {:reply, term(), State.t()} | {:noreply, State.t()}
+  def ensure_remote_control_trust_call(state, workspace, from, start_task)
+      when is_binary(workspace) and is_function(start_task, 4) do
+    trust_opts = remote_control_trust_opts()
+
     if is_nil(from) do
-      {:reply, RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()), state}
+      {:reply, RemoteControl.ensure_workspace_trusted(workspace, trust_opts), state}
     else
       next =
-        TrackerTasks.start(state, {:rc_trust, workspace, make_ref()}, fn -> RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()) end, fn current, result ->
+        start_task.(state, {:rc_trust, workspace, make_ref()}, fn -> RemoteControl.ensure_workspace_trusted(workspace, trust_opts) end, fn current, result ->
           GenServer.reply(from, result)
           current
         end)

@@ -118,12 +118,14 @@ defmodule Aiur.Workspace.Hooks do
         Aiur.AgentEnvironment.system_shell_startup_env()
         |> Enum.reject(fn {name, _value} -> name == "BASH_ENV" and build_gate_env != [] end)
 
+      runner_pid = self()
+
       task =
         Task.async(fn ->
           System.cmd(shell, ["-c", scrubbed_command],
             cd: workspace,
             stderr_to_stdout: true,
-            env: startup_env ++ build_gate_env ++ hook_env(issue_context)
+            env: startup_env ++ build_gate_env ++ hook_env(issue_context, runner_pid: runner_pid)
           )
         end)
 
@@ -276,8 +278,15 @@ defmodule Aiur.Workspace.Hooks do
   # without a repo slug must still receive a usable value or the whole hook
   # aborts. Non-GitHub trackers get the same neutral state path that
   # `AgentEnvironment` hands agents, keeping hooks and agents consistent.
-  defp hook_env(issue_context, opts \\ []) do
+  defp hook_env(issue_context, opts) do
     remote? = Keyword.get(opts, :remote?, false)
+    runner_pid = Keyword.get(opts, :runner_pid, self())
+
+    hook_context_env = [
+      {"AIUR_HOOK_TICKET_ID", to_string(issue_context.issue_id || "")},
+      {"AIUR_HOOK_TICKET_IDENTIFIER", to_string(issue_context.issue_identifier || "")},
+      {"AIUR_HOOK_RUNNER_PID", inspect(runner_pid)}
+    ]
 
     repository_env =
       case Aiur.Tracker.clone_url() do
@@ -295,8 +304,11 @@ defmodule Aiur.Workspace.Hooks do
       end
 
     case Map.get(issue_context, :branch_name) do
-      branch_name when is_binary(branch_name) and branch_name != "" -> [{"AIUR_TICKET_BRANCH", branch_name} | repository_env]
-      _ -> repository_env
+      branch_name when is_binary(branch_name) and branch_name != "" ->
+        [{"AIUR_TICKET_BRANCH", branch_name} | hook_context_env ++ repository_env]
+
+      _ ->
+        hook_context_env ++ repository_env
     end
   end
 

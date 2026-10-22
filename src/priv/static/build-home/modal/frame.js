@@ -5,7 +5,12 @@ import { trap, restore } from './focus.js';
 import { bodyKind, headerHTML, errorHTML } from './header.js';
 
 export const MS = { t: null, req: 0, origin: null, state: null };
-const closers = new Set();
+const closers = new Set(), bodies = new Map();
+export function registerBody(kind, fn) {
+  const key = kind === 'conversation' ? 'renderConversation' : 'renderDocBody';
+  bodies.set(kind, fn); fx[key] = fn; return () => bodies.delete(kind);
+}
+export const bodyRenderer = kind => bodies.get(kind);
 let id = null, originId = null, pendingTimer = null;
 export const onModalClose = fn => { closers.add(fn); return () => closers.delete(fn); };
 const shown = () => $('#tk-backdrop')?.classList.contains('show');
@@ -22,11 +27,11 @@ function remember(nextId) {
   const ticket = /^[0-9]{1,10}$/.test(nextId) && Number(nextId) > 0 ? String(Number(nextId)) : '';
   if (S.ticket !== (ticket || null)) writeURL({ ticket });
 }
-function show() {
+function show({ focusTitle = true } = {}) {
   const modal = $('#tk-modal');
   modal.classList.add('bdm'); modal.removeAttribute('aria-label'); modal.setAttribute('aria-labelledby', 'bm-title');
   $('#tk-backdrop').classList.add('show'); document.body.style.overflow = 'hidden';
-  ctx.life.frame('modal-focus', () => { if (shown()) $('#bm-title')?.focus(); });
+  if (focusTitle) ctx.life.frame('modal-focus', () => { if (shown()) $('#bm-title')?.focus(); });
 }
 export function renderHead(t) {
   const active = document.activeElement, inside = $('#tk-head').contains(active);
@@ -34,14 +39,15 @@ export function renderHead(t) {
   $('#tk-head').innerHTML = headerHTML(t);
   if (key) {
     const candidate = $$('#tk-head [id], #tk-head [data-a]').find(el => key.id ? el.id === key.id : el.dataset.a === key.action);
-    (candidate || $('#bm-title')).focus();
+    if (candidate) candidate.focus(); else $('#bm-title').focus();
   }
 }
 function renderRow(t, opts) {
   MS.t = t; MS.state = 'row'; id = t.id;
+  const preserveHeaderFocus = shown() && $('#tk-head').contains(document.activeElement);
   renderHead(t);
   fx[bodyKind(t) === 'conversation' ? 'renderConversation' : 'renderDocBody'](t, $('#tk-body'), opts);
-  show(); remember(t.id);
+  show({ focusTitle: !preserveHeaderFocus }); remember(t.id);
 }
 function error(nextId, state, reason) {
   MS.t = null; MS.state = state; id = nextId;
