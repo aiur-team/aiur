@@ -116,7 +116,7 @@ test('Units URL history restores independent conditions and copied links', async
 
   // The bulk "All" button selects the unfinished scope plus every condition.
   await page.getByRole('button', { name: 'Select all preceding filters' }).click()
-  await expect(page).toHaveURL(/\/units\?v=1&scope=unfinished&conditions=active%2Calert%2Cpaused%2Cqueued%2Cfinished$/)
+  await expect(page).toHaveURL(/\/units-fixture\?v=1&scope=unfinished&conditions=active%2Calert%2Cpaused%2Cqueued%2Cfinished$/)
 
   // Toggle down to just the paused condition to isolate the paused follow-up Unit.
   await page.getByRole('button', { name: /Active/ }).click()
@@ -147,14 +147,14 @@ test('Units URL history restores independent conditions and copied links', async
 
   await page.goBack()
   // Back to the default live scope, which drops the queued/finished Units.
-  await expect(page).toHaveURL(/\/units$/)
+  await expect(page).toHaveURL(/\/units-fixture$/)
   await expect(page.getByText('Responsive Units interface')).toBeVisible()
 
   // "None" clears everything to an empty scope, which surfaces the reset affordance.
   await page.getByRole('button', { name: 'Select no filters' }).click()
   await expect(page.getByRole('button', { name: 'Reset Units filters' })).toBeVisible()
   await page.getByRole('button', { name: 'Reset Units filters' }).click()
-  await expect(page).toHaveURL(/\/units\?v=1$/)
+  await expect(page).toHaveURL(/\/units-fixture\?v=1$/)
   await expect(page.getByText('Responsive Units interface')).toBeVisible()
 })
 
@@ -219,7 +219,7 @@ test('Units tables sort stably, persist in the URL, and keep unknown progress fl
 })
 
 test('Units keeps its column headings at zero units and names the empty state in both themes', async ({ page }) => {
-  await openUnits(page, '/units?catalog=empty')
+  await openUnits(page, '/units-fixture?catalog=empty')
 
   // The table keeps its shape: a real thead with all five headings, over an
   // empty tbody rather than a table that vanished with its rows. Scoped to the

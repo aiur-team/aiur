@@ -1,7 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
-  alias Aiur.RunTelemetry.RetainedCache
+  alias Aiur.RunTelemetry.{RetainedCache, Summaries}
   alias AiurWeb.OperatorControlCenter.Analytics.LatestRun
 
   test "concurrent latest cold loads survive the first requester exiting" do
@@ -92,6 +92,71 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RetainedCacheTest do
     path = Path.join(runs, "boot-b")
     File.mkdir_p!(path)
     assert ["boot-a", "boot-b"] = RetainedCache.summaries_identity("current") |> Enum.map(&elem(&1, 0))
+  end
+
+  test "dashboard cache identity changes when a summary is rewritten in an existing boot" do
+    root = Aiur.TestSupport.tmp_root!("retained-directory-identity")
+    previous = for key <- [:repo_base_root, :analytics_repo], do: {key, Application.fetch_env(:aiur, key)}
+    Application.put_env(:aiur, :repo_base_root, root)
+    Application.put_env(:aiur, :analytics_repo, "test/retained-directory-identity")
+    runs = Summaries.runs_dir()
+    File.mkdir_p!(runs)
+
+    for boot <- 1..256 do
+      File.mkdir_p!(Path.join(runs, "boot-#{boot}"))
+      File.write!(Summaries.run_summary_path("boot-#{boot}"), "summary")
+    end
+
+    on_exit(fn ->
+      Aiur.TestSupport.restore_app_env(previous)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    identity = RetainedCache.identity(nil)
+
+    replacement = Path.join([runs, "boot-1", "run-summary.tmp"])
+    File.write!(replacement, "replacement-summary")
+    File.rename!(replacement, Summaries.run_summary_path("boot-1"))
+    refute identity == RetainedCache.identity(nil)
+  end
+
+  test "identity warming runs in the background and invalidation schedules another warm" do
+    root = Aiur.TestSupport.tmp_root!("retained-identity-warm")
+    previous = for key <- [:repo_base_root, :analytics_repo], do: {key, Application.fetch_env(:aiur, key)}
+    Application.put_env(:aiur, :repo_base_root, root)
+    Application.put_env(:aiur, :analytics_repo, "test/retained-identity-warm")
+    File.mkdir_p!(Summaries.runs_dir())
+
+    on_exit(fn ->
+      Aiur.TestSupport.restore_app_env(previous)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    key = {Summaries.state_node(), Aiur.RunTelemetry.boot_id()}
+    RetainedCache.warm_identity_async(self())
+    receive_barrier(:retained_identity_warmed)
+    assert :ets.lookup(Aiur.RunTelemetry.RetainedCache.Identity, key) != []
+
+    RetainedCache.invalidate_identity(self())
+    receive_barrier(:retained_identity_warmed)
+    assert :ets.lookup(Aiur.RunTelemetry.RetainedCache.Identity, key) != []
+  end
+
+  test "identity and invalidation start the cache when no instance is supervised" do
+    # A --no-dashboard daemon has no supervised cache; callers must not exit :noproc.
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, RetainedCache)
+
+    try do
+      refute GenServer.whereis(RetainedCache)
+      assert RetainedCache.invalidate_identity() == :ok
+      GenServer.stop(RetainedCache)
+
+      {state_node, nil, _identity} = RetainedCache.identity(nil)
+      assert state_node == Summaries.state_node()
+    after
+      if pid = GenServer.whereis(RetainedCache), do: GenServer.stop(pid)
+      {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, RetainedCache)
+    end
   end
 
   test "latest-run decodes newest analyzable summary only" do
