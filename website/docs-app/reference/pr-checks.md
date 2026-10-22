@@ -2,8 +2,7 @@
 
 Only the aggregate `ci gate` check is required; it fails when any job the event selects did not succeed.
 
-The approval check reads `reviewDecision` when the run starts. Approving a PR does not start a new run;
-the merge queue runs the full suite. Add `ci:full` to run it on the PR first.
+The approval check reads `reviewDecision` when the run starts; approval does not trigger another run, while the merge queue runs the full suite; add `ci:full` to run it on the PR first.
 
 | Event | Jobs |
 |-------|------|
