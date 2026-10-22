@@ -116,6 +116,30 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanelTest do
     refute html =~ ~s(<span class="rs-pc">0%</span>)
   end
 
+  # #5747: the session window read 81% for 3.6 hours with no mark. The
+  # projection already flags an old window stale; the line must show it, or an
+  # operator plans against a number that stopped moving.
+  test "a stale window carries the stale mark, a current one does not" do
+    windows = [
+      window("claude:five_hour", "Session (5 hour)", 81, 3_600, %{freshness: :stale}),
+      window("claude:seven_day", "Weekly (all models)", 40, 86_400, %{freshness: :fresh})
+    ]
+
+    html = render([card(:claude, windows)])
+
+    assert [_stale] = Regex.scan(~r/class="rs-ln[^"]*is-stale"[^>]*title="Session \(5 hour\)/, html)
+    refute html =~ ~r/class="rs-ln[^"]*is-stale"[^>]*title="Weekly/
+  end
+
+  test "a failing account line is stale and names the last probe error" do
+    failing = Map.merge(account("default", nil, nil), %{freshness: :stale, age_seconds: 13_000, last_error: :rate_limited})
+
+    html = render([card(:claude, [], %{account_usage: %{count: 1, accounts: [failing]}})])
+
+    assert html =~ ~r/class="rs-ln has-tag is-stale" data-account="default"/
+    assert html =~ "13000s old · last error rate_limited"
+  end
+
   test "a durable last-known standing renders its percentage with a red bar at 100%" do
     html = render([card(:codex, [], %{durable_observation: %{percent: 100}})])
 
