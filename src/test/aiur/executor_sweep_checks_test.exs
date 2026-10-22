@@ -54,28 +54,28 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{kind: "stale_merge_group", age_ms: 8_400_000}] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_merge_group"))
   end
 
-  test "reports cache age on fresh GitHub findings and suppresses findings older than five minutes" do
+  test "reports the live CI observation age and marks old observations unverified" do
     now = ~U[2026-10-15 18:20:00Z]
     old = ~U[2026-10-15 16:00:00Z]
     group = %{name: "run 44", state: "in_progress", started_at: old}
-    pr = %{number: 12, state: "open", review_decision: "APPROVED", head_sha: "head", approved_head_sha: "head", required_checks: [%{name: "ci", conclusion: "failure"}]}
+    pr = live_ci(%{number: 12, state: "open", review_decision: "APPROVED", head_sha: "head", approved_head_sha: "head", required_checks: [%{name: "ci", conclusion: "failure"}]}, 120_000, now)
     group = Map.put(group, :id, 44)
     fresh = %{pull_requests: [pr], merge_groups: [group], github_cache_ages: %{pull_requests: %{12 => 120_000}, merge_group_runs: %{44 => 240_000}}}
 
     findings = Checks.all(fresh, now)
     assert [%{kind: "approved_pr_red", cache_age_ms: 120_000, message: pr_message}] = Enum.filter(findings, &(&1.kind == "approved_pr_red"))
-    assert pr_message =~ "GitHub cache age: 2m"
+    assert pr_message =~ "CI observation age: 2m"
     assert [%{kind: "stale_merge_group", cache_age_ms: 240_000, message: group_message}] = Enum.filter(findings, &(&1.kind == "stale_merge_group"))
     assert group_message =~ "GitHub cache age: 4m"
 
-    stale = %{fresh | github_cache_ages: %{pull_requests: %{12 => 300_001}, merge_group_runs: %{44 => 300_001}}}
+    stale = %{fresh | pull_requests: [live_ci(pr, 300_001, now)], github_cache_ages: %{pull_requests: %{12 => 0}, merge_group_runs: %{44 => 300_001}}}
     stale_findings = Checks.all(stale, now)
     assert [%{verification: "unverified", message: stale_pr_message}] = Enum.filter(stale_findings, &(&1.kind == "approved_pr_red"))
     assert stale_pr_message =~ "unverified"
     assert [%{verification: "unverified", message: stale_group_message}] = Enum.filter(stale_findings, &(&1.kind == "stale_merge_group"))
     assert stale_group_message =~ "unverified"
 
-    old_pr = %{pr | number: 99}
+    old_pr = pr |> Map.drop([:ci_head_sha, :ci_observed_at_ms]) |> Map.put(:number, 99)
     mixed = %{fresh | pull_requests: [pr, old_pr], github_cache_ages: %{pull_requests: %{12 => 120_000, 99 => 800_000}, merge_group_runs: %{44 => 240_000}}}
     pr_findings = Enum.filter(Checks.all(mixed, now), &(&1.kind == "approved_pr_red"))
     assert [%{pull_request: 12, verification: "verified"}, %{pull_request: 99, verification: "unverified"}] = Enum.sort_by(pr_findings, & &1.pull_request)
@@ -257,17 +257,21 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
   end
 
   test "red required check cause is unknown unless the same check passes on base" do
-    pr = %{
-      number: 5018,
-      state: "open",
-      review_decision: "APPROVED",
-      head_sha: "head",
-      base_sha: "base-sha",
-      approved_head_sha: "head",
-      in_merge_queue: false,
-      auto_merge: false,
-      required_checks: [%{name: "test", conclusion: "failure"}]
-    }
+    pr =
+      live_ci(
+        %{
+          number: 5018,
+          state: "open",
+          review_decision: "APPROVED",
+          head_sha: "head",
+          base_sha: "base-sha",
+          approved_head_sha: "head",
+          in_merge_queue: false,
+          auto_merge: false,
+          required_checks: [%{name: "test", conclusion: "failure"}]
+        },
+        0
+      )
 
     assert [%{failure_class: "unknown"}] =
              Checks.all(%{pull_requests: [pr], github_cache_ages: %{pull_requests: %{5018 => 0}}}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "approved_pr_red"))
@@ -279,12 +283,36 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
              )
              |> Enum.filter(&(&1.kind == "approved_pr_red"))
 
-    assert [%{failure_class: "caused_by_pr"}] =
+    assert [%{failure_class: "caused_by_pr", message: pr_caused_message}] =
              Checks.all(
                %{pull_requests: [pr], base_checks: [%{name: "test", base_sha: "base-sha", conclusion: "success"}], github_cache_ages: %{pull_requests: %{5018 => 0}}},
                ~U[2026-10-18 14:00:00Z]
              )
              |> Enum.filter(&(&1.kind == "approved_pr_red"))
+
+    assert pr_caused_message =~ "test (PR-caused)"
+
+    assert [%{failure_class: "inherited", message: inherited_message}] =
+             Checks.all(
+               %{pull_requests: [pr], base_checks: [%{name: "test", base_sha: "base-sha", conclusion: "failure"}], github_cache_ages: %{pull_requests: %{5018 => 0}}},
+               ~U[2026-10-18 14:00:00Z]
+             )
+             |> Enum.filter(&(&1.kind == "approved_pr_red"))
+
+    assert inherited_message =~ "test (inherited)"
+
+    assert [%{failure_class: "infra", message: infra_message}] =
+             Checks.all(
+               %{pull_requests: [%{pr | required_checks: [%{name: "test", conclusion: "timed_out"}]}], base_checks: [], github_cache_ages: %{pull_requests: %{5018 => 0}}},
+               ~U[2026-10-18 14:00:00Z]
+             )
+             |> Enum.filter(&(&1.kind == "approved_pr_red"))
+
+    assert infra_message =~ "test (infra)"
+  end
+
+  defp live_ci(pr, age_ms, now \\ ~U[2026-10-18 14:00:00Z]) do
+    Map.merge(pr, %{ci_head_sha: pr.head_sha, ci_observed_at_ms: DateTime.to_unix(now, :millisecond) - age_ms})
   end
 
   test "summarizes invalid labels and excludes parked tickets" do
