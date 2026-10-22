@@ -9,6 +9,8 @@ defmodule AiurWeb.BuildLiveConversationEventsTest do
   alias Aiur.TrackerIdentity
 
   defmodule Source do
+    alias AiurWeb.Build.ConversationSource.Wave0bEvents
+
     def prepare(ref, _opts), do: {:ok, Map.merge(ref, %{handle: nil, path: nil, running: nil})}
 
     def tail(ref, _cursor, _opts),
@@ -17,8 +19,8 @@ defmodule AiurWeb.BuildLiveConversationEventsTest do
     def page(_ref, _cursor, _opts), do: {:ok, %{entries: [], before: nil, more?: false}}
     def subscribe(_ref, opts), do: if(Agent.get(opts[:control], & &1[:subscribe_fail]), do: {:error, :down}, else: :ok)
     def unsubscribe(_ref, _opts), do: :ok
-    def events_subscribe(identity, _opts), do: AiurWeb.Build.ConversationSource.Wave0bEvents.subscribe(identity)
-    def events_unsubscribe(topic, _opts), do: AiurWeb.Build.ConversationSource.Wave0bEvents.unsubscribe(topic)
+    def events_subscribe(identity, _opts), do: Wave0bEvents.subscribe(identity)
+    def events_unsubscribe(topic, _opts), do: Wave0bEvents.unsubscribe(topic)
     def events(ref, opts), do: {:ok, Agent.get(opts[:control], &Map.put(&1, :identity, identity(ref.id)))}
 
     def identity(id),
