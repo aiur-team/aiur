@@ -12,6 +12,8 @@ The dashboard home `/` (also served at `/build`) shows this build as one board.
 Its navigation item is **Build**; the badge counts active agents, independent of
 filters, and an unknown count is omitted.
 
+<img src="/images/dashboard/build-dark.png" alt="Desktop Build page with the usage strip, the Live band and synthetic planned tickets">
+
 The board has four sections.
 
 | Section | Contents |

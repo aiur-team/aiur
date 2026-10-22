@@ -20,6 +20,8 @@ Startup prints the URL and effective bind only when the listener runs:
 Dashboard: http://127.0.0.1:4000 (bind host=0.0.0.0, port=4000)
 ```
 
+<img src="/images/dashboard/build-dark.png" alt="Desktop Build page with the usage strip, the Live band and synthetic planned tickets">
+
 ## Find a surface
 
 Use the browser when you need interactive detail; use the paired command when terminal output is more useful.
@@ -118,8 +120,6 @@ build gate limits verification; they do not automatically change the agent cap.
 
 The build-gate scan runs on a reduced cadence and carries the last observation
 forward, so measuring the gate never perturbs a real build acquisition.
-
-<img src="/images/dashboard/units-dark.png" alt="Desktop Units fleet table with synthetic active, blocked, retrying, and review tickets">
 
 ## Writable controls
 

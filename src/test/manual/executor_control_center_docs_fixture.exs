@@ -4,6 +4,11 @@ Code.require_file("executor_control_center_docs_provider.exs", __DIR__)
 Code.require_file("executor_control_center_docs_data.exs", __DIR__)
 Code.require_file("executor_control_center_docs_fleet.exs", __DIR__)
 
+# The Build home page renders the frozen `live` dataset the design-parity harness
+# uses, so its capture reads no history store, tracker or provider meter.
+for file <- ~w(earlier_control fixture_source fixture_conversation_source),
+    do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+
 defmodule Aiur.Docs.ControlCenterFixture do
   alias Aiur.Docs.ControlCenterFixture.MeterSource
   import Aiur.Docs.ControlCenterFixture.Data
@@ -85,6 +90,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
     )
 
     configure_endpoint()
+    configure_build_home()
     {:ok, _} = AiurWeb.Endpoint.start_link()
 
     IO.puts("Operator Control Center docs fixture ready at http://127.0.0.1:#{@port}")
@@ -156,6 +162,13 @@ defmodule Aiur.Docs.ControlCenterFixture do
       |> Keyword.delete(:streamdeck_logs_fun)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
+  end
+
+  defp configure_build_home do
+    Application.put_env(:aiur, :build_data_source, Aiur.TestSupport.BuildHome.FixtureSource)
+    Application.put_env(:aiur, :build_fixture_dataset, "live")
+    Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)
+    Aiur.TestSupport.BuildHome.FixtureSource.configure_usage(:ok)
   end
 
   # --- GitHub quota ----------------------------------------------------------
