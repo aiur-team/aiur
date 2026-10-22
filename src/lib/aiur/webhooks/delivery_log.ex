@@ -32,10 +32,10 @@ defmodule Aiur.Webhooks.DeliveryLog do
 
   Eviction is **by age, not by count**. A burst of redeliveries appends many
   young entries and evicts nothing, so entries still inside the window survive
-  the burst. `@max_entries` exists only as a memory backstop far above real
-  volume; crossing it evicts the oldest entries *and* raises an alert, because
-  at that point duplicate protection is measurably degraded rather than
-  silently weakened.
+  the burst. `@max_entries` leaves headroom above typical three-day volume;
+  crossing it evicts the oldest entries *and* raises an alert, because at that
+  point duplicate protection is measurably degraded rather than silently
+  weakened.
 
   ## Surviving restart
 
