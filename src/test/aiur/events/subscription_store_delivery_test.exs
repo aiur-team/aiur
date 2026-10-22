@@ -198,6 +198,7 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
 
     test "buffered events survive repeated stall retries and are not dropped", %{identifier: id} do
       test_pid = self()
+      topic = "ticket.#{id}.branch.push"
 
       {:ok, counter} = Agent.start(fn -> 0 end)
       on_exit(fn -> Agent.stop(counter) end)
@@ -214,15 +215,26 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
       end)
 
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.add_subscription(id, "ticket.#{id}.#", "test")
       :ok = SubscriptionStore.advance_cursor(id, 99)
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
 
-      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      # A concurrent publisher for another ticket must not move this cursor.
+      # The event ID resembles the real microsecond IDs that exposed the shared
+      # `ticket.42.#` binding in the coverage partition.
+      _ =
+        Exchange.publish("ticket.42.branch.push", %{
+          id: System.system_time(:microsecond),
+          topic: "ticket.42.branch.push"
+        })
+
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
+
+      send(pid, {:event, %{id: 100, topic: topic}})
       _ = SubscriptionStore.snapshot(id)
 
       # 101 arrives while 100 is still stalled → buffered, not enqueued.
-      send(pid, {:event, %{id: 101, topic: "ticket.42.branch.push"}})
+      send(pid, {:event, %{id: 101, topic: topic}})
       _ = SubscriptionStore.snapshot(id)
       refute_receive {:enqueued, %{id: 101}}, 100
 
