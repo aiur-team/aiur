@@ -245,11 +245,6 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   @spec restart_stalled_issue(State.t(), term(), map(), DateTime.t(), non_neg_integer()) :: State.t()
   def restart_stalled_issue(state, issue_id, running_entry, now, timeout_ms) do
     cond do
-      # CI-wait is an intentional handoff: the worker is waiting for CI and
-      # should not consume a retry even if its last activity is old.
-      ci_wait_issue?(running_entry) ->
-        state
-
       # Runaway safety net: a duration-capped pause asked the worker to
       # park cooperatively at its next turn boundary, but a truly wedged
       # agent (single never-ending codex turn) never reaches one, so it
@@ -261,6 +256,12 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       # park stops the codex stream and is left alone.
       wedged_overcap_entry?(running_entry, now, timeout_ms) ->
         terminate_wedged_overcap_entry(state, issue_id, running_entry, now)
+
+      # CI-wait is an intentional handoff: the worker is waiting for CI and
+      # should not consume a retry even if its last activity is old. It sits
+      # below the wedged-overcap kill so a runaway still gets force-terminated.
+      ci_wait_issue?(running_entry) ->
+        state
 
       # Paused agents are INTENTIONALLY idle — the agent emitted
       # pause.request because it declared a blocker and has nothing to
