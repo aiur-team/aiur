@@ -39,6 +39,7 @@ jobs:
           - { name: home css, run: npm run test:home-css }
           - { name: loading, run: npm run test:build-home-loading }
           - { name: render, run: npm run test:build-home-render }
+          - { name: chains, run: npm run test:build-home-chains-parity }
           - { name: columns, run: npm run test:build-home-columns }
           - { name: edges, run: npm run test:build-home-edges-parity }
           - { name: span, run: npm run test:build-home-span-parity }
