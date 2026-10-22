@@ -161,7 +161,7 @@ defmodule Aiur.AccountsCLI do
     observed_at = entry.observed_at
 
     name
-    |> usage_unavailable_row(harness, identity, Atom.to_string(Accounts.usage_freshness(entry)))
+    |> usage_unavailable_row(harness, identity, Atom.to_string(HeadroomDispatch.usage_freshness(entry)))
     |> Map.merge(%{
       weekly_percent: percent(reading.windows, "seven_day"),
       five_hour_percent: percent(reading.windows, "five_hour"),
@@ -178,7 +178,7 @@ defmodule Aiur.AccountsCLI do
   defp claude_row(name, harness, identity, entry) do
     reason = Map.get(entry, :reason)
 
-    case Accounts.usage_observed_at(entry) do
+    case HeadroomDispatch.usage_observed_at(entry) do
       %DateTime{} = last_observed_at ->
         name
         |> usage_unavailable_row(harness, identity, "stale")
