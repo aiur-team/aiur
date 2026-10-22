@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AutoSubscriptions, BlockerPropagation, CiLifecycle, CommentPollingState, CommentWake, DispatchCycleLiveness, TicketTransition}
+  alias Aiur.Orchestrator.{AutoSubscriptions, BlockerPropagation, CiLifecycle, CommentPollingState, CommentWake, DispatchCycleLiveness, StaleApprovedHead, TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
@@ -51,6 +51,16 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:github_webhook_reconcile, %{kind: :review_thread} = hint}, %State{} = state),
     do: {:noreply, CommentPollingState.request_reconcile(state, hint)}
+
+  def handle_info({:github_pr_synchronize, ticket, pr_number}, %State{} = state)
+      when is_binary(ticket) and is_integer(pr_number) do
+    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> StaleApprovedHead.reconcile(ticket, pr_number) end) do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> StaleApprovedHead.task_start_failed(ticket, pr_number, reason)
+    end
+
+    {:noreply, state}
+  end
 
   def handle_info({:github_pr_ready_transition, t, n, sha}, state), do: {:noreply, ReadyForReviewTransitions.observe_webhook_transition(state, t, n, sha)}
 
