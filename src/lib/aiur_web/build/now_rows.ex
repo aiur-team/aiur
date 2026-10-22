@@ -12,7 +12,9 @@ defmodule AiurWeb.Build.NowRows do
   | Error work state or UnitsPolicy stuck | error |
   | Retry backoff | retrying |
   | Positive integer command count or waiting for human | command |
-  | Paused with a non-reserving reason or GitHub budget hold | parked |
+  | Provider usage limit pause | usage_limited |
+  | CI wait | ci_wait |
+  | Other paused non-reserving reason or GitHub budget hold | parked |
   | UnitsPolicy paused | paused |
   | Live and starting, allocated or working | active |
   | Anything else | nil |
@@ -21,7 +23,6 @@ defmodule AiurWeb.Build.NowRows do
   Source freshness comes from this same catalog, never a separate clock or probe.
   """
   alias Aiur.BuildOrder.ProgressRenderer
-  alias Aiur.Orchestrator.State
   alias Aiur.Projections.UnitsPolicy
   alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
@@ -35,7 +36,7 @@ defmodule AiurWeb.Build.NowRows do
           start: integer() | nil,
           start_src: String.t(),
           pct: 0..100 | nil,
-          agent: %{model: String.t() | nil, name: String.t() | nil, state: String.t() | nil, effort: String.t() | nil}
+          agent: %{model: String.t() | nil, name: String.t() | nil, state: String.t() | nil, pause: String.t() | nil, resume_at: integer() | nil, effort: String.t() | nil}
         }
   @type source_block :: %{state: String.t(), observed_at: integer() | nil, reason: String.t() | nil}
 
@@ -103,6 +104,8 @@ defmodule AiurWeb.Build.NowRows do
         model: model(family),
         name: UnitsPresentation.agent_label(family),
         state: agent_state(row),
+        pause: pause_state(row),
+        resume_at: resume_at(row),
         effort: effort(row[:effort])
       }
     }
@@ -128,10 +131,32 @@ defmodule AiurWeb.Build.NowRows do
     work_state = get_in(row, [:runtime, :work_state])
 
     cond do
-      parked?(paused?, pause) -> "parked"
-      paused? -> "paused"
+      pause_state(paused?, pause) -> pause_state(paused?, pause)
       UnitsPolicy.in_scope?(row, :live) and work_state in [:starting, :allocated, :working] -> "active"
       true -> nil
+    end
+  end
+
+  defp pause_state(row) do
+    case get_in(row, [:reasons, :pause]) do
+      :usage_limit_exhausted -> "usage_limit_exhausted"
+      :ci_wait -> "ci_wait"
+      _reason -> nil
+    end
+  end
+
+  defp pause_state(false, _pause), do: nil
+  defp pause_state(true, :usage_limit_exhausted), do: "usage_limited"
+  defp pause_state(true, :ci_wait), do: "ci_wait"
+  defp pause_state(true, :blocker_dependency), do: "parked"
+  defp pause_state(true, :optimistic_blocker_failed), do: "parked"
+  defp pause_state(true, :max_agent_duration), do: "parked"
+  defp pause_state(true, :github_budget_hold), do: "parked"
+  defp pause_state(true, _pause), do: "paused"
+
+  defp resume_at(row) do
+    if get_in(row, [:reasons, :pause]) == :usage_limit_exhausted do
+      timestamp(get_in(row, [:runtime, :usage_limit_reset_at]))
     end
   end
 
@@ -147,7 +172,6 @@ defmodule AiurWeb.Build.NowRows do
   end
 
   defp command?(count, waiting), do: (is_integer(count) and count > 0) or waiting == :waiting_for_human
-  defp parked?(paused?, pause), do: paused? and (State.non_reserving_pause_reason?(pause) or pause == :github_budget_hold)
 
   defp model(family) when is_atom(family) and not is_nil(family) do
     key = Atom.to_string(family)
