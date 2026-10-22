@@ -48,7 +48,7 @@ defmodule AiurWeb.Api.UsageProgress do
 
   defp build(identifier, opts) do
     {activity_source, entry} = live_entry(identifier, Keyword.get(opts, :activity_fun, &live_snapshots/0))
-    retained = retained_entry(identifier, Keyword.get(opts, :retention_fun, &ProgressRetention.all/0))
+    retained = retained_entry(identifier, entry, Keyword.get(opts, :retention_fun, &ProgressRetention.all/0))
     identity = entry_identity(entry) || entry_identity(retained)
     {history_source, events} = History.read(identifier, identity, opts)
 
@@ -78,12 +78,25 @@ defmodule AiurWeb.Api.UsageProgress do
     :exit, _reason -> {:unavailable, nil}
   end
 
-  defp retained_entry(identifier, retention_fun) do
+  defp retained_entry(identifier, entry, retention_fun) do
     case retention_fun.() do
-      retained when is_map(retained) -> retained |> Map.values() |> latest(identifier, &get_in(&1, [:progress, :observed_at]))
-      _other -> nil
+      retained when is_map(retained) ->
+        retained
+        |> Map.values()
+        |> Enum.filter(&same_ticket?(&1, entry))
+        |> latest(identifier, &get_in(&1, [:progress, :observed_at]))
+
+      _other ->
+        nil
     end
   end
+
+  # Once a live entry has chosen the repository, a retained reading from
+  # another repository's same-numbered ticket must not fill its progress.
+  defp same_ticket?(_retained, nil), do: true
+
+  defp same_ticket?(retained, entry),
+    do: TrackerIdentity.github_key(entry_identity(retained)) == TrackerIdentity.github_key(entry_identity(entry))
 
   # Several configured repositories can share a display number; the newest
   # observation wins and `repository` names which one answered.

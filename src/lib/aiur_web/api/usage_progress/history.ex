@@ -43,7 +43,9 @@ defmodule AiurWeb.Api.UsageProgress.History do
   end
 
   # A joinable identity resolves the exact repository's log; a bare display
-  # identifier falls back to the configured repository's log.
+  # identifier falls back to the configured repository's log. Only the
+  # identity read reports failures: the bare-identifier read degrades an
+  # unreadable log to [], so `:unavailable` requires a joinable identity.
   defp source(identifier, identity) do
     if TrackerIdentity.joinable?(identity), do: identity, else: identifier
   end
