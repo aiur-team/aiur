@@ -30,6 +30,17 @@ defmodule Aiur.Orchestrator.StaleApprovedHeadTest do
     assert reason =~ "lib/new.ex"
   end
 
+  test "a push to another instance's ticket is not read, withdrawn or alerted (#5803)" do
+    path = Workflow.workflow_file_path()
+    write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [4121]\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+    parent = self()
+
+    assert :ok = StaleApprovedHead.reconcile("4121", 77, opts(parent, {:changed, %{reason: :contribution_changed, hunks: [%{file: "lib/new.ex"}]}}))
+    refute_received {:graphql, _, _}
+    refute_received {:classifier_args, _, _, _}
+  end
+
   test "identical contribution does not withdraw auto-merge" do
     parent = self()
     assert :ok = StaleApprovedHead.reconcile("42", 77, opts(parent, :identical))

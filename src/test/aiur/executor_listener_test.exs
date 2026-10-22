@@ -240,6 +240,22 @@ defmodule Aiur.ExecutorListenerTest do
     assert watermark() == nil
   end
 
+  test "another instance's ticket events are not projected into this Executor's inbox (#5803)" do
+    [foreign, native] = for _ <- 1..2, do: System.unique_integer([:positive])
+    path = Workflow.workflow_file_path()
+    write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [#{foreign}]\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+    start_listener(inbox: @inbox_name, patterns: ["ticket.#{foreign}.pr.opened", "ticket.#{native}.pr.opened"], reconcile?: false)
+
+    for ticket <- [foreign, native], topic = "ticket.#{ticket}.pr.opened" do
+      Exchange.publish(topic, %{id: System.unique_integer([:positive]), topic: topic, action: "opened", pr: %{"number" => ticket, "draft" => false}})
+    end
+
+    assert {:ok, wakes} = ExecutorWakeInbox.wait(500, @inbox_name)
+    assert Enum.map(wakes, & &1["ticket"]) == ["#{native}"]
+  end
+
   test "system dispatch transitions become identifier-only wakes" do
     start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
     start_listener(inbox: @inbox_name, patterns: ["system.dispatch.capacity_starved"], reconcile?: false)

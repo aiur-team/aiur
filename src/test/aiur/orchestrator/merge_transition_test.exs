@@ -37,6 +37,20 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
     refute log =~ "private issue body"
   end
 
+  test "a merged PR for another instance's ticket writes nothing and raises no attention (#5803)" do
+    path = Workflow.workflow_file_path()
+    write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [3778]\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+    parent = self()
+    write = fn _identifier, target -> send(parent, {:write, target}) && :ok end
+
+    log = capture_log(fn -> merge(%{"state" => "open", "labels" => [], "body" => ""}, fn state, _ -> state end, update_issue_state_fun: write) end)
+
+    refute_received {:write, _}
+    refute_received :terminated
+    refute log =~ "merge_terminal_write_failed"
+  end
+
   test "operator hold labels follow the configured agent prefix" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",
