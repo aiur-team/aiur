@@ -48,6 +48,7 @@
     "Aiur.GitHub.IssueState",
     "Aiur.GitHub.Issues",
     "Aiur.GitHub.Labels",
+    "Aiur.GitHub.LandingWithdrawal",
     "Aiur.GitHub.MainFixer",
     "Aiur.GitHub.MergeQueue",
     "Aiur.GitHub.OpenIssueListing",
