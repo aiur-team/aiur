@@ -38,17 +38,13 @@ defmodule Aiur.Webhooks.DeliveryLogCeiling do
   defp alert_overflow(%{overflowed?: true} = state, _now), do: state
 
   defp alert_overflow(state, _now) do
-    message =
-      "Webhook delivery dedupe log exceeded #{state.max_entries} live entries; the oldest entries were evicted before their retention window expired and duplicate protection is degraded."
-
-    state.alert_fun.(
-      "webhook_delivery_log.ceiling_exceeded",
-      message,
-      needs_attention: true,
-      severity: "warning",
-      reason: message
-    )
-
+    message = "Webhook delivery dedupe log exceeded #{state.max_entries} live entries; the oldest entries were evicted before their retention window expired and duplicate protection is degraded."
+    metadata = [needs_attention: true, severity: "warning", reason: message]
+    state.alert_fun.("webhook_delivery_log.ceiling_exceeded", message, metadata)
     %{state | overflowed?: true}
+  rescue
+    _error -> %{state | overflowed?: true}
+  catch
+    _kind, _reason -> %{state | overflowed?: true}
   end
 end
