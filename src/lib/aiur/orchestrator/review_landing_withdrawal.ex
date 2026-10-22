@@ -15,7 +15,8 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawal do
   @spec changes_requested(State.t(), String.t(), map(), keyword()) :: State.t()
   def changes_requested(%State{} = state, identifier, event, opts \\ []) do
     # A stale or since-approved review must not pull an approved PR back out of the queue.
-    if changes_requested_review?(event) and CommentWake.trusted_comment_event?(event) and is_nil(ReviewFreshness.rework_skip_reason(event)) do
+    if changes_requested_review?(event) and CommentWake.trusted_comment_event?(event) and is_nil(ReviewFreshness.rework_skip_reason(event)) and
+         not Aiur.Instance.skip?(identifier, nil, :landing_withdrawal) do
       TrackerTasks.run(state, {:landing_withdrawal, identifier, make_ref()}, fn -> withdraw(to_string(identifier), opts) end, fn current, _result -> current end)
     else
       state

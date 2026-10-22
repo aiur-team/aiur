@@ -10,6 +10,10 @@ defmodule Aiur.Orchestrator.StaleApprovedHead do
 
   @spec reconcile(String.t(), integer(), keyword()) :: :ok
   def reconcile(ticket, pr_number, opts \\ []) do
+    if Aiur.Instance.skip?(ticket, nil, :stale_approved_head), do: :ok, else: check(ticket, pr_number, opts)
+  end
+
+  defp check(ticket, pr_number, opts) do
     case read_approved_head(pr_number, opts, @read_retries) do
       {:ok, %{head_sha: head, approved_head_sha: approved}} ->
         case classify(approved, head, pr_number, opts) do

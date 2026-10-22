@@ -106,6 +106,10 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp reconcile_issue(%State{} = state, %Issue{identifier: identifier} = issue, live_identifiers, opts)
        when is_binary(identifier) do
     cond do
+      # Another instance's claim is not an orphan of this daemon (#5803).
+      Aiur.Instance.skip?(identifier, issue.labels, :orphan_claim) ->
+        {:ok, state, issue}
+
       approved_armed_orphan?(state, issue, identifier, live_identifiers, opts) ->
         release_orphaned_claim(state, issue, Keyword.put(opts, :forced_target, "ci-wait"))
 

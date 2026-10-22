@@ -221,7 +221,7 @@ defmodule Aiur.ExecutorListener do
       wake_blocking_decision(event, inbox)
     else
       case ExecutorWakeProjection.project(event) do
-        {:ok, record} -> ExecutorWakeInbox.enqueue(record, inbox)
+        {:ok, record} -> unless Aiur.Instance.skip?(record["ticket"], nil, :executor_wake), do: ExecutorWakeInbox.enqueue(record, inbox), else: :ok
         :ignore -> :ok
       end
     end
