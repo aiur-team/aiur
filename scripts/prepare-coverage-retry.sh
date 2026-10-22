@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+partition="${1:?usage: prepare-coverage-retry.sh <partition> <failed-log>}"
+failed_log="${2:?usage: prepare-coverage-retry.sh <partition> <failed-log>}"
+workspace="${GITHUB_WORKSPACE:?GITHUB_WORKSPACE must be set}"
+changed="$RUNNER_TEMP/pr-changed-paths.txt"
+
+git -C "$workspace" diff --name-only "$BASE_SHA...HEAD" > "$changed"
+git -C "$workspace" show "$BASE_SHA:.github/known-flaky-tests.txt" > "$RUNNER_TEMP/base-known-flaky-tests.txt"
+git -C "$workspace" show "$BASE_SHA:src/test/quarantine.txt" > "$RUNNER_TEMP/base-test-quarantine.txt"
+python3 "$workspace/scripts/ci-flake-retry.py" \
+  "$failed_log" "$changed" "$RUNNER_TEMP/base-known-flaky-tests.txt" \
+  "$RUNNER_TEMP/base-test-quarantine.txt" \
+  "$RUNNER_TEMP/shard-evidence/retry-plan.json" "$GITHUB_STEP_SUMMARY" \
+  --repo "$REPOSITORY" --base-branch "$BASE_BRANCH" \
+  --pull-request --partition "$partition" \
+  > "$RUNNER_TEMP/shard-evidence/retry-tests.txt"
