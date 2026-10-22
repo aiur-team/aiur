@@ -52,6 +52,9 @@ defmodule Aiur.Events.GithubCIPoller.ApprovedLandingRecoveryTest do
     assert %{decision: :pending} = Recovery.recover(ctx.issue, ctx.result, opts)
 
     assert %{decision: :failed} = Recovery.recover(ctx.issue, %{ctx.result | review_decision: "CHANGES_REQUESTED"}, opts)
+
+    assert {:ok, entry} = Aiur.GitHub.CIRecoveryStore.read("1", 42, opts)
+    refute Map.has_key?(entry, "hold")
   end
 
   test "an approved PR observed not landing still routes its failure", ctx do
