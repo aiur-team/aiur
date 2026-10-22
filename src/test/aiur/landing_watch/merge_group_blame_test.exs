@@ -18,8 +18,12 @@ defmodule Aiur.LandingWatch.MergeGroupBlameTest do
     }
 
     request = fn %{url: url} ->
-      runs = if String.contains?(url, "status=completed"), do: [run], else: []
-      {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+      if String.contains?(url, "matching-refs") do
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/#{run["head_branch"]}"}]}}
+      else
+        runs = if String.contains?(url, "status=completed"), do: [run], else: []
+        {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+      end
     end
 
     prs =
@@ -94,7 +98,13 @@ defmodule Aiur.LandingWatch.MergeGroupBlameTest do
       }
     end
 
-    request = fn %{url: url} -> {:ok, %{status: 200, body: %{"workflow_runs" => if(String.contains?(url, "status=completed"), do: [run.()], else: [])}}} end
+    request = fn %{url: url} ->
+      if String.contains?(url, "matching-refs") do
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/#{run.()["head_branch"]}"}]}}
+      else
+        {:ok, %{status: 200, body: %{"workflow_runs" => if(String.contains?(url, "status=completed"), do: [run.()], else: [])}}}
+      end
+    end
 
     pr = %{
       number: 17,
@@ -168,7 +178,14 @@ defmodule Aiur.LandingWatch.MergeGroupBlameTest do
     parent = self()
     path = Path.join(System.tmp_dir!(), "merge-group-fallback-#{System.unique_integer([:positive])}.json")
     run = %{"id" => 940, "event" => "merge_group", "status" => "completed", "conclusion" => "failure", "head_branch" => "gh-readonly-queue/main/pr-17-a"}
-    request = fn %{url: url} -> {:ok, %{status: 200, body: %{"workflow_runs" => if(String.contains?(url, "status=completed"), do: [run], else: [])}}} end
+
+    request = fn %{url: url} ->
+      if String.contains?(url, "matching-refs") do
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/#{run["head_branch"]}"}]}}
+      else
+        {:ok, %{status: 200, body: %{"workflow_runs" => if(String.contains?(url, "status=completed"), do: [run], else: [])}}}
+      end
+    end
 
     pr = %{
       number: 17,

@@ -288,6 +288,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
 
   test "a cancelled verdict stays pending and raises one neutral skip attention", ctx do
     setup_lifecycle(ctx)
+    assert :ok = CiRecoveryStore.record_cancelled_run("3864", 42, "head-1", 99, ctx.opts)
     cancelled = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
     state = lifecycle_poll(empty_orchestrator_state(), %{ctx | result: cancelled}, ctx.issue)
     assert state.ci_lifecycle.poll_cache["3864"].recovery == "rerun_skipped"
@@ -452,6 +453,14 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
   end
 
   defp response(%{url: url}, state, _, _) do
+    if String.contains?(url, "/actions/runs?head_sha=") do
+      ok(%{"workflow_runs" => [%{"id" => 99, "name" => "CI", "head_sha" => state.head, "run_attempt" => state.attempt}]})
+    else
+      response_without_workflow_runs(url, state)
+    end
+  end
+
+  defp response_without_workflow_runs(url, state) do
     cond do
       String.contains?(url, "/check-runs?") ->
         ok(%{"check_runs" => [check_run(state)]})
@@ -472,7 +481,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
         ok(Enum.map(state.changed, &%{"filename" => &1, "status" => "modified"}))
 
       String.ends_with?(url, "/actions/runs/99") ->
-        {:ok, %{status: state.actions_get_status, body: %{"head_sha" => state.head, "run_attempt" => state.attempt, "status" => "completed", "conclusion" => "failure"}}}
+        {:ok, %{status: state.actions_get_status, body: %{"head_sha" => state.head, "run_attempt" => state.attempt, "name" => "CI", "status" => "completed", "conclusion" => "failure"}}}
     end
   end
 
