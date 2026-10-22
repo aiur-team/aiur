@@ -4,8 +4,8 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   alias Aiur.GitHub.{AgentMarker, Errors, Transport}
   alias Aiur.LandingWatch.Journal
 
-  # Priority 2: the quarantine PR unblocks the merge queue, so the fix need not preempt other work.
-  @labels ["bug", "agent:todo", "priority:2", "flake"]
+  # Leave fix work at default priority so build-order tickets remain ahead of it.
+  @labels ["bug", "agent:todo", "flake"]
 
   # Without the variable, a local run of a quarantined test or spec reports 0 tests and passes.
   @quarantine_note "Once this test is quarantined, blocking CI and local runs skip it. " <>
@@ -65,7 +65,13 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
 
   defp find_or_create(owner, repo, token, identity, evidence, opts) do
     request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-    query = URI.encode_query(%{"q" => "repo:#{owner}/#{repo} is:issue in:body \"#{marker_hash(identity)}\"", "per_page" => 100})
+
+    query =
+      URI.encode_query(%{
+        "q" => "repo:#{owner}/#{repo} is:issue is:open in:title,body \"#{identity}\"",
+        "per_page" => 100
+      })
+
     url = "#{Transport.base_url()}/search/issues?#{query}"
 
     case request.(%{method: :get, url: url, token: token, caller: "landing_watch_flake_search"}) do
@@ -82,9 +88,14 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
 
   defp resolve_issue(issues, identity, evidence, request, token, owner, repo) do
     case Enum.find(issues, &matching_issue?(&1, identity)) do
-      %{"number" => number} when is_integer(number) -> comment_existing(number, evidence, request, token, owner, repo)
-      nil -> create_issue(identity, evidence, request, token, owner, repo)
-      _ -> {:error, :invalid_flake_issue}
+      %{"number" => number} when is_integer(number) ->
+        comment_existing(number, evidence, request, token, owner, repo)
+
+      nil ->
+        create_issue(identity, evidence, request, token, owner, repo)
+
+      _ ->
+        {:error, :invalid_flake_issue}
     end
   end
 
@@ -98,7 +109,13 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   defp add_flake_label(number, request, token, owner, repo) do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{number}/labels"
 
-    case request.(%{method: :post, url: url, token: token, caller: "landing_watch_flake_label", body: %{"labels" => ["flake"]}}) do
+    case request.(%{
+           method: :post,
+           url: url,
+           token: token,
+           caller: "landing_watch_flake_label",
+           body: %{"labels" => ["flake"]}
+         }) do
       {:ok, %{status: status}} when status in [200, 201] -> :ok
       {:ok, response} -> {:error, Errors.github_status_error(response)}
       {:error, _} = error -> error
@@ -106,18 +123,36 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   end
 
   defp matching_issue?(%{"pull_request" => _}, _identity), do: false
-  defp matching_issue?(%{"body" => body}, identity) when is_binary(body), do: String.contains?(body, marker(identity))
-  defp matching_issue?(_, _), do: false
+
+  defp matching_issue?(issue, identity) do
+    title = Map.get(issue, "title", "")
+    body = Map.get(issue, "body", "")
+
+    title == "Flaky test: " <> identity or String.contains?(body, marker(identity)) or
+      String.contains?(body, "Failing test: " <> identity)
+  end
 
   defp create_issue(identity, evidence, request, token, owner, repo) do
     title = "Flaky test: " <> identity
     body = marker(identity) <> "\n\n" <> evidence <> "\n\n" <> @quarantine_note
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues"
 
-    case request.(%{method: :post, url: url, token: token, caller: "landing_watch_flake_issue", body: %{"title" => title, "body" => body, "labels" => @labels}}) do
-      {:ok, %{status: status, body: %{"number" => number}}} when status in [200, 201] and is_integer(number) -> {:ok, number}
-      {:ok, response} -> {:error, Errors.github_status_error(response)}
-      {:error, _} = error -> error
+    case request.(%{
+           method: :post,
+           url: url,
+           token: token,
+           caller: "landing_watch_flake_issue",
+           body: %{"title" => title, "body" => body, "labels" => @labels}
+         }) do
+      {:ok, %{status: status, body: %{"number" => number}}}
+      when status in [200, 201] and is_integer(number) ->
+        {:ok, number}
+
+      {:ok, response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -125,7 +160,13 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{number}/comments"
     body = AgentMarker.stamp(evidence)
 
-    case request.(%{method: :post, url: url, token: token, caller: "landing_watch_flake_comment", body: %{"body" => body}}) do
+    case request.(%{
+           method: :post,
+           url: url,
+           token: token,
+           caller: "landing_watch_flake_comment",
+           body: %{"body" => body}
+         }) do
       {:ok, %{status: status}} when status in [200, 201] -> :ok
       {:ok, response} -> {:error, Errors.github_status_error(response)}
       {:error, _} = error -> error

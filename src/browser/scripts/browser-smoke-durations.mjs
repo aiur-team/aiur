@@ -17,6 +17,7 @@ export const recordedSeconds = {
   'test:build-home-chains': 133,
   // Job 118131038704 (shard 7/9): 126.4s.
   'test:build-home-chains-parity': 127,
+  'test:browser-suite -- build-home-composer': 23.3,
   // Job 118131038510 (shard 2/9): 28.7s.
   'test:browser-suite -- build-home-chains-states': 29,
   // CI run 39590874795 (2026-10-21), full suite wall times including fixture startup:

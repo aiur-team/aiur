@@ -5,7 +5,6 @@ defmodule AiurWeb.DashboardLive do
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias Aiur.Agent.UsageSnapshotService
-  alias Aiur.AgentChat
 
   alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
   alias Aiur.BuildOrder.TicketDetailCoordinator
@@ -37,6 +36,7 @@ defmodule AiurWeb.DashboardLive do
     DecisionPath,
     History,
     NavState,
+    OperatorSend,
     Overview,
     PayloadLoader,
     ProviderMeterSource,
@@ -614,13 +614,7 @@ defmodule AiurWeb.DashboardLive do
       when is_map(modal) do
     handle_writable_event(socket, fn ->
       if Map.get(modal, :writable_target?) == true do
-        {:noreply,
-         send_operator_message(
-           socket,
-           agent_log_target(modal),
-           agent_log_key(modal),
-           String.trim(message)
-         )}
+        {:noreply, send_operator_message(socket, modal, String.trim(message))}
       else
         {:noreply, put_chat_error(socket, agent_log_key(modal), :ambiguous_identifier)}
       end
@@ -2206,51 +2200,30 @@ defmodule AiurWeb.DashboardLive do
     assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, AgentLogModal.format_error(reason)))
   end
 
-  defp send_operator_message(socket, _target, _key, ""), do: socket
+  defp send_operator_message(socket, _modal, ""), do: socket
 
-  # Each Send press is one user action with its own message id (#2717). When
-  # the daemon does not answer in time, the outcome is unknown: the id and the
-  # draft are kept, so pressing Send again with the same text retries this
-  # send and cannot queue a copy. Success clears both. A changed draft is a
-  # new message and gets a new id.
-  defp send_operator_message(socket, target, key, text) do
-    message_id = message_id_for_send(socket, key, text)
+  # OperatorSend owns the #2717 rule; the drawer keeps the draft only when the
+  # outcome is unknown, so a retry with the same text reuses the message id.
+  defp send_operator_message(socket, modal, text) do
+    key = agent_log_key(modal)
 
-    case send_agent_message(target, text, message_id) do
-      {:ok, _request_id} ->
-        clear_chat_state(socket, key)
+    case OperatorSend.send(modal, text, socket.assigns.pending_message_ids) do
+      {:ok, _request_id, _message_id, pending} ->
+        socket |> assign(:pending_message_ids, pending) |> clear_chat_state(key)
 
-      {:error, {:outcome_unknown, _info} = reason} ->
+      {:error, {:outcome_unknown, _info} = reason, _message_id, pending} ->
         socket
-        |> assign(:pending_message_ids, Map.put(socket.assigns.pending_message_ids, key, {message_id, text}))
+        |> assign(:pending_message_ids, pending)
         |> assign(:drafts, Map.put(socket.assigns.drafts, key, text))
         |> put_chat_error(key, reason)
 
-      {:error, reason} ->
+      {:error, reason, _message_id, pending} ->
         socket
-        |> assign(:pending_message_ids, Map.delete(socket.assigns.pending_message_ids, key))
+        |> assign(:pending_message_ids, pending)
         |> put_chat_error(key, reason)
     end
   end
 
-  defp message_id_for_send(socket, key, text) do
-    case Map.get(socket.assigns.pending_message_ids, key) do
-      {message_id, ^text} -> message_id
-      _new_action -> "dashboard-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
-    end
-  end
-
-  defp send_agent_message(target, text, message_id) do
-    case EndpointConfig.get(:agent_chat_send_fun) do
-      fun when is_function(fun, 3) -> fun.(target, text, message_id: message_id)
-      fun when is_function(fun, 2) -> fun.(target, text)
-      _fun -> AgentChat.send(target, text, message_id: message_id)
-    end
-  end
-
-  defp agent_log_target(%{tracker_identity: %TrackerIdentity{} = identity}), do: identity
-  defp agent_log_target(%{issue_identifier: identifier}), do: to_string(identifier)
-
-  defp agent_log_key(%{target_key: key}) when is_binary(key), do: key
-  defp agent_log_key(%{issue_identifier: identifier}), do: to_string(identifier)
+  defp agent_log_target(modal), do: OperatorSend.target(modal)
+  defp agent_log_key(modal), do: OperatorSend.key(modal)
 end
