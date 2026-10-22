@@ -7,6 +7,7 @@ defmodule Aiur.GitHub.AccessSettings do
   alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Credential
+  alias Aiur.GitHub.{HoldPressure, QueueCost}
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
 
@@ -39,7 +40,14 @@ defmodule Aiur.GitHub.AccessSettings do
         ttls: Application.get_env(:aiur, :github_read_cache_ttls, %{}),
         max_body_bytes: Application.get_env(:aiur, :github_resource_store_max_body_bytes)
       },
-      broker_timeout: if(config, do: broker_timeout(config), else: broker_timeout(nil))
+      broker_timeout: if(config, do: broker_timeout(config), else: broker_timeout(nil)),
+      freshness: Aiur.Webhooks.ModeTable,
+      request_taggers: [&QueueCost.tag/1],
+      hold_observer: &HoldPressure.record/1,
+      write_scope: &Aiur.TestTicketScope.with_write_scope/2,
+      poll_owner: Application.get_env(:aiur, :github_poll_owner),
+      recovery_target: Application.get_env(:aiur, :github_quota_recovery_target),
+      pubsub: Aiur.PubSub
     }
   end
 

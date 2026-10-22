@@ -1,9 +1,2 @@
 # rule	target_module	reason
 R-declared	Aiur.AgentGitHubGuard	MP-R1-GHA-5 (#3827): move host wrapper installation into access
-R-declared	Aiur.GitHub.HoldPressure	MP-R1-GHA-3 (#3825): inject hold observation hook
-R-declared	Aiur.GitHub.QueueCost	MP-R1-GHA-3 (#3825): inject caller attribution hook
-R-declared	Aiur.TestTicketScope	MP-R1-GHA-3 (#3825): inject transport sandbox scope policy
-R-declared	Aiur.Webhooks.DeliveryMode	MP-R1-GHA-3 (#3825): inject freshness port
-R-declared	Aiur.Webhooks.ModeTable	MP-R1-GHA-3 (#3825): inject freshness port
-R-down	Aiur.TestTicketScope	MP-R1-GHA-3 (#3825): inject transport sandbox scope policy
-R-private	Aiur.GitHub.QueueCost	MP-R1-GHA-3 (#3825): inject caller attribution hook
