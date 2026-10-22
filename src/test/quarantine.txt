@@ -4,8 +4,6 @@ Aiur.OpenAICompat.CommandRunnerBudgetTest	a direct system gh API path is interce
 Aiur.AgentRunner.ToolExecutor.PublicationFailuresTest	emit_agent_event via event_publisher closure operator-decision pause requests raise a durable attention	#5626
 Aiur.Core.AgentRunnerCheckpointQueueTest	*	#4463
 Aiur.DecisionStore.EnrichmentTest	supervisor enrichment exact replay is duplicate while changed reuse conflicts without append or notification	#4463
-Aiur.Events.GithubCIPoller.ApprovedLandingRecoveryTest	*	#5568
-Aiur.ExecutorSweep.SnapshotCacheTest	skips a metadata-only ResourceStore entry while reading cached resources	#5568
 Aiur.GitHub.MonotonicDepositTest	*	#5605
 Aiur.LandingWatch.MainRecoveryRerunTest	*	#5605
 Aiur.MainWatch.FixerTest	*	#5605
