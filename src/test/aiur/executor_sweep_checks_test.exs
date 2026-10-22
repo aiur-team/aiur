@@ -3,6 +3,7 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
 
   alias Aiur.ExecutorSweep.Checks
   alias Aiur.ExecutorSweep.SnapshotCache
+  alias Aiur.GitHub.ResourceStore
 
   test "puts the 23-hour unreviewed PR first and includes age" do
     now = ~U[2026-10-15 18:20:00Z]
@@ -48,14 +49,99 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
   test "flags a stale merge-group run reported by MainWatch in Unix milliseconds" do
     now = ~U[2026-10-15 18:20:00Z]
     started_at = DateTime.to_unix(~U[2026-10-15 16:00:00Z], :millisecond)
-    snapshot = %{merge_groups: [%{name: "run 44", state: "in_progress", started_at: started_at}]}
+    snapshot = %{merge_groups: [%{id: 44, name: "run 44", state: "in_progress", started_at: started_at}], github_cache_ages: %{merge_group_runs: %{44 => 0}}}
 
     assert [%{kind: "stale_merge_group", age_ms: 8_400_000}] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_merge_group"))
   end
 
+  test "reports cache age on fresh GitHub findings and suppresses findings older than five minutes" do
+    now = ~U[2026-10-15 18:20:00Z]
+    old = ~U[2026-10-15 16:00:00Z]
+    group = %{name: "run 44", state: "in_progress", started_at: old}
+    pr = %{number: 12, state: "open", review_decision: "APPROVED", head_sha: "head", approved_head_sha: "head", required_checks: [%{name: "ci", conclusion: "failure"}]}
+    group = Map.put(group, :id, 44)
+    fresh = %{pull_requests: [pr], merge_groups: [group], github_cache_ages: %{pull_requests: %{12 => 120_000}, merge_group_runs: %{44 => 240_000}}}
+
+    findings = Checks.all(fresh, now)
+    assert [%{kind: "approved_pr_red", cache_age_ms: 120_000, message: pr_message}] = Enum.filter(findings, &(&1.kind == "approved_pr_red"))
+    assert pr_message =~ "GitHub cache age: 2m"
+    assert [%{kind: "stale_merge_group", cache_age_ms: 240_000, message: group_message}] = Enum.filter(findings, &(&1.kind == "stale_merge_group"))
+    assert group_message =~ "GitHub cache age: 4m"
+
+    stale = %{fresh | github_cache_ages: %{pull_requests: %{12 => 300_001}, merge_group_runs: %{44 => 300_001}}}
+    stale_findings = Checks.all(stale, now)
+    assert [%{verification: "unverified", message: stale_pr_message}] = Enum.filter(stale_findings, &(&1.kind == "approved_pr_red"))
+    assert stale_pr_message =~ "unverified"
+    assert [%{verification: "unverified", message: stale_group_message}] = Enum.filter(stale_findings, &(&1.kind == "stale_merge_group"))
+    assert stale_group_message =~ "unverified"
+
+    old_pr = %{pr | number: 99}
+    mixed = %{fresh | pull_requests: [pr, old_pr], github_cache_ages: %{pull_requests: %{12 => 120_000, 99 => 800_000}, merge_group_runs: %{44 => 240_000}}}
+    pr_findings = Enum.filter(Checks.all(mixed, now), &(&1.kind == "approved_pr_red"))
+    assert [%{pull_request: 12, verification: "verified"}, %{pull_request: 99, verification: "unverified"}] = Enum.sort_by(pr_findings, & &1.pull_request)
+  end
+
+  test "does not make GitHub run or check findings when source cache age is unavailable" do
+    now = ~U[2026-10-15 18:20:00Z]
+
+    snapshot = %{
+      pull_requests: [%{number: 13, state: "open", review_decision: "APPROVED", head_sha: "head", approved_head_sha: "head", required_checks: [%{conclusion: "failure"}]}],
+      merge_groups: [%{id: 46, name: "run 46", state: "queued", started_at: ~U[2026-10-15 16:00:00Z]}],
+      github_cache_ages: %{pull_requests: %{13 => nil}, merge_group_runs: %{}}
+    }
+
+    findings = Checks.all(snapshot, now)
+    assert [%{verification: "unverified"}] = Enum.filter(findings, &(&1.kind == "approved_pr_red"))
+    assert [%{verification: "unverified"}] = Enum.filter(findings, &(&1.kind == "stale_merge_group"))
+  end
+
+  test "a snapshot read carries body fetch ages for GitHub-derived sources" do
+    now_ms = System.system_time(:millisecond)
+
+    pr_key = {:pull_request, "aiur-team", "aiur", "87"}
+    run_key = {:landing_merge_group_runs, "aiur-team", "aiur", "87"}
+    :ok = ResourceStore.put_resource(pr_key, %{"number" => 87}, source: :fetch)
+    :ok = ResourceStore.put_resource(run_key, [%{"id" => 87}], source: :fetch)
+    [{^pr_key, pr_entry}] = :ets.lookup(Aiur.GitHub.ResourceStore.Table, pr_key)
+    [{^run_key, run_entry}] = :ets.lookup(Aiur.GitHub.ResourceStore.Table, run_key)
+
+    :ets.insert(Aiur.GitHub.ResourceStore.Table, [
+      {pr_key, Map.put(pr_entry, :fetched_at_ms, now_ms - 90_000)},
+      {run_key, Map.put(run_entry, :fetched_at_ms, now_ms - 30_000)}
+    ])
+
+    assert %{pull_requests: %{87 => 90_000}, merge_group_runs: %{87 => 30_000}} =
+             SnapshotCache.github_cache_ages("aiur-team", "aiur", now_ms)
+  end
+
+  test "cache age uses the newest body among many entries of the same type" do
+    now_ms = System.system_time(:millisecond)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    repo = "aiur-sweep-#{suffix}"
+    old_key = {:pull_request, "aiur-team", repo, "88"}
+    fresh_key = {:pull_request, "aiur-team", repo, "89"}
+
+    :ok = ResourceStore.put_resource(old_key, %{"number" => 88}, source: :fetch)
+    :ok = ResourceStore.put_resource(fresh_key, %{"number" => 89}, source: :fetch)
+    [{^old_key, old_entry}] = :ets.lookup(Aiur.GitHub.ResourceStore.Table, old_key)
+    [{^fresh_key, fresh_entry}] = :ets.lookup(Aiur.GitHub.ResourceStore.Table, fresh_key)
+
+    :ets.insert(Aiur.GitHub.ResourceStore.Table, [
+      {old_key, Map.put(old_entry, :fetched_at_ms, now_ms - 900_000)},
+      {fresh_key, Map.put(fresh_entry, :fetched_at_ms, now_ms - 15_000)}
+    ])
+
+    assert %{pull_requests: %{88 => 900_000, 89 => 15_000}} = SnapshotCache.github_cache_ages("aiur-team", repo, now_ms)
+  end
+
   test "a mergeable queue entry and a fresh merge group produce no finding" do
     now = ~U[2026-10-15 18:20:00Z]
-    snapshot = %{merge_queue: [%{number: 9, mergeable: "MERGEABLE"}], merge_groups: [%{name: "run 45", state: "in_progress", started_at: now}]}
+
+    snapshot = %{
+      merge_queue: [%{number: 9, mergeable: "MERGEABLE"}],
+      merge_groups: [%{id: 45, name: "run 45", state: "in_progress", started_at: now}],
+      github_cache_ages: %{merge_group_runs: %{45 => 0}}
+    }
 
     assert [] = Checks.all(snapshot, now)
   end
@@ -135,13 +221,22 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
       required_checks: [%{name: "test", conclusion: "failure"}]
     }
 
-    assert [%{failure_class: "unknown"}] = Checks.all(%{pull_requests: [pr]}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "approved_pr_red"))
+    assert [%{failure_class: "unknown"}] =
+             Checks.all(%{pull_requests: [pr], github_cache_ages: %{pull_requests: %{5018 => 0}}}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "approved_pr_red"))
 
     assert [%{failure_class: "unknown"}] =
-             Checks.all(%{pull_requests: [pr], base_checks: [%{name: "test", base_sha: "other-base", conclusion: "success"}]}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "approved_pr_red"))
+             Checks.all(
+               %{pull_requests: [pr], base_checks: [%{name: "test", base_sha: "other-base", conclusion: "success"}], github_cache_ages: %{pull_requests: %{5018 => 0}}},
+               ~U[2026-10-18 14:00:00Z]
+             )
+             |> Enum.filter(&(&1.kind == "approved_pr_red"))
 
     assert [%{failure_class: "caused_by_pr"}] =
-             Checks.all(%{pull_requests: [pr], base_checks: [%{name: "test", base_sha: "base-sha", conclusion: "success"}]}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "approved_pr_red"))
+             Checks.all(
+               %{pull_requests: [pr], base_checks: [%{name: "test", base_sha: "base-sha", conclusion: "success"}], github_cache_ages: %{pull_requests: %{5018 => 0}}},
+               ~U[2026-10-18 14:00:00Z]
+             )
+             |> Enum.filter(&(&1.kind == "approved_pr_red"))
   end
 
   test "summarizes invalid labels and excludes parked tickets" do
@@ -184,6 +279,7 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
 
     snapshot = %{
       decisions: [%{id: "decision-1", blocking: true, status: "open", created_at: ~U[2026-10-15 18:00:00Z]}],
+      github_cache_ages: %{pull_requests: %{99 => 0}, merge_group_runs: %{}},
       pull_requests: [
         %{number: 4447, issue_number: 4429, state: "open", draft: false, head_sha: "current", reviewed_head_sha: nil, ready_at: ~U[2026-10-14 19:08:00Z]},
         %{
