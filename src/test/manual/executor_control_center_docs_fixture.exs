@@ -38,10 +38,11 @@ defmodule Aiur.Docs.ControlCenterFixture do
   alias Aiur.Docs.ControlCenterFixture.MeterSource
   import Aiur.Docs.ControlCenterFixture.Data
   import Aiur.Docs.ControlCenterFixture.Fleet
-  alias Aiur.Docs.ControlCenterFixture.{Data, Fleet}
+  alias Aiur.Docs.ControlCenterFixture.{BuildSource, Data, Fleet}
   alias Aiur.Docs.ControlCenterFixture.Provider
   alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.TestSupport.BuildHome.{FixtureConversationSource, FixtureSource}
   alias AiurWeb.FinancialDataAccess.Generation
 
   @port String.to_integer(System.get_env("AIUR_DOCS_PORT", "4099"))
@@ -190,10 +191,10 @@ defmodule Aiur.Docs.ControlCenterFixture do
   end
 
   defp configure_build_home do
-    Application.put_env(:aiur, :build_data_source, Aiur.Docs.ControlCenterFixture.BuildSource)
+    Application.put_env(:aiur, :build_data_source, BuildSource)
     Application.put_env(:aiur, :build_fixture_dataset, "live")
-    Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)
-    Aiur.TestSupport.BuildHome.FixtureSource.configure_usage(:ok)
+    Application.put_env(:aiur, :build_conversation_source, FixtureConversationSource)
+    FixtureSource.configure_usage(:ok)
   end
 
   # --- GitHub quota ----------------------------------------------------------
