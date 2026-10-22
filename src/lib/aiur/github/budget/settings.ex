@@ -98,7 +98,11 @@ defmodule Aiur.GitHub.Budget.Settings do
   end
 
   @spec deadline(keyword()) :: integer()
-  def deadline(opts), do: System.monotonic_time(:millisecond) + positive(Keyword.get(opts, :timeout_ms, @default_timeout_ms), @default_timeout_ms)
+  def deadline(opts) do
+    Keyword.get_lazy(opts, :deadline_at, fn ->
+      System.monotonic_time(:millisecond) + positive(Keyword.get(opts, :timeout_ms, @default_timeout_ms), @default_timeout_ms)
+    end)
+  end
 
   @spec command_deadline(keyword()) :: integer()
   def command_deadline(opts) do
