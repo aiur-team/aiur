@@ -27,7 +27,7 @@ defmodule AiurWeb.OperatorControlCenter.OperatorSendTest do
     pending = %{"42" => {"dashboard-old", "older text"}}
 
     assert {:ok, 7, "dashboard-" <> _, %{}} = OperatorSend.send(@composer, "hello", pending)
-    assert_receive {:sent, "42", "hello", _id}
+    assert_received {:sent, "42", "hello", _id}
   end
 
   # #2717: an unknown outcome keeps the id, so Send again with the same text
@@ -56,7 +56,7 @@ defmodule AiurWeb.OperatorControlCenter.OperatorSendTest do
   test "empty text is refused without calling the send path" do
     stub_send([])
     assert {:error, :empty_message, nil, %{}} = OperatorSend.send(@composer, "", %{})
-    refute_receive {:sent, _, _, _}
+    refute_received {:sent, _, _, _}
   end
 
   test "a typed identity is the target and the row token the key" do
@@ -87,6 +87,6 @@ defmodule AiurWeb.OperatorControlCenter.OperatorSendTest do
     )
 
     assert OperatorSend.delivery_status(7, 1_000) == {:ok, :delivered}
-    assert_receive {:status, 7, 1_000}
+    assert_received {:status, 7, 1_000}
   end
 end

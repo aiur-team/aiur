@@ -78,7 +78,7 @@ defmodule AiurWeb.BuildLiveComposerTest do
     {view, id, _} = open()
 
     reply = send_text(view, %{"id" => id, "text" => "  continue  "})
-    assert_receive {:sent, ^id, "continue", "dashboard-" <> _}
+    assert_received {:sent, ^id, "continue", "dashboard-" <> _}
     assert %{"ok" => true, "request_id" => 7, "text" => "continue", "id" => ^id} = reply
     assert reply["entry_id"] == OperatorSend.transcript_id(7)
   end
@@ -91,7 +91,7 @@ defmodule AiurWeb.BuildLiveComposerTest do
       assert %{"ok" => false, "reason" => "empty_message", "message" => "Message is empty."} = send_text(view, %{"id" => id, "text" => text})
     end
 
-    refute_receive {:sent, _, _, _}
+    refute_received {:sent, _, _, _}
   end
 
   test "a dashboard turned read-only after mount refuses the send" do
@@ -100,7 +100,7 @@ defmodule AiurWeb.BuildLiveComposerTest do
     EndpointStubs.put(dashboard_writable: false)
 
     assert send_text(view, %{"id" => id, "text" => "go"}) == %{"v" => 1, "kind" => "error", "reason" => "read_only"}
-    refute_receive {:sent, _, _, _}
+    refute_received {:sent, _, _, _}
   end
 
   # #2717 through the composer: same text after an unknown outcome reuses the id.
@@ -112,11 +112,11 @@ defmodule AiurWeb.BuildLiveComposerTest do
     reply = send_text(view, %{"id" => id, "text" => "go"})
     assert %{"ok" => false, "reason" => "outcome_unknown", "unknown" => true} = reply
     assert reply["message"] == AgentLogModal.format_error({:outcome_unknown, nil})
-    assert_receive {:sent, _, "go", first}
+    assert_received {:sent, _, "go", first}
     send_text(view, %{"id" => id, "text" => "go"})
-    assert_receive {:sent, _, "go", ^first}
+    assert_received {:sent, _, "go", ^first}
     send_text(view, %{"id" => id, "text" => "go on"})
-    assert_receive {:sent, _, "go on", edited}
+    assert_received {:sent, _, "go on", edited}
     refute edited == first
   end
 
@@ -132,7 +132,7 @@ defmodule AiurWeb.BuildLiveComposerTest do
     render_hook(view, "conversation-page", %{id: id})
     assert_reply(view, %{"composer" => "ambiguous"})
     assert %{"ok" => false, "reason" => "ambiguous_identifier"} = send_text(view, %{"id" => id, "text" => "go"})
-    refute_receive {:sent, _, _, _}
+    refute_received {:sent, _, _, _}
   end
 
   test "no running agent leaves no composer and sends nothing", %{control: control} do
@@ -141,7 +141,7 @@ defmodule AiurWeb.BuildLiveComposerTest do
     {view, id, conversation} = open()
     assert conversation["composer"] == nil
     assert %{"ok" => false, "reason" => "no_running_agent", "message" => "Agent is no longer running."} = send_text(view, %{"id" => id, "text" => "go"})
-    refute_receive {:sent, _, _, _}
+    refute_received {:sent, _, _, _}
   end
 
   test "known errors get fixed tags and copy; unmapped terms never reach the browser" do
@@ -238,8 +238,8 @@ defmodule AiurWeb.BuildLiveComposerTest do
     {second, ^id, _} = open()
     send_text(first, %{"id" => id, "text" => "same"})
     send_text(second, %{"id" => id, "text" => "same"})
-    assert_receive {:sent, _, "same", a}
-    assert_receive {:sent, _, "same", b}
+    assert_received {:sent, _, "same", a}
+    assert_received {:sent, _, "same", b}
     refute a == b
   end
 end
