@@ -74,8 +74,12 @@ defmodule Aiur.Application do
       # path wins rather than booting a half-built interactive tree.
       interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
 
+      instance_role = Aiur.Config.instance_role()
+      Application.put_env(:aiur, :booted_instance_role, instance_role)
+
       children =
         child_specs(
+          instance_role: instance_role,
           interactive_cli?: interactive_cli?,
           headless?: headless?,
           dashboard?: not no_dashboard?,

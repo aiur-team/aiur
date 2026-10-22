@@ -4,7 +4,7 @@ defmodule Aiur.MergePolicyCLI do
   @spec print() :: :ok
   def print do
     policy = Aiur.MergePolicy.current()
-    role = Aiur.Config.instance_role()
+    role = Aiur.Config.booted_instance_role()
     state = if role == "primary", do: Aiur.MainWatch.state(), else: %{watcher: :not_running}
     landing = if role == "primary", do: Aiur.LandingWatch.state(), else: %{watcher: :not_running}
     IO.puts(status_line(policy, role, state, landing))
