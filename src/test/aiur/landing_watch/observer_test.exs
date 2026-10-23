@@ -57,6 +57,10 @@ defmodule Aiur.LandingWatch.ObserverTest do
     assert pr.head == "head-17"
     assert pr.head_committed_at == "2026-10-14T00:00:00Z"
     assert pr.merge_queue_entry == %{"id" => "entry-17"}
+
+    assert {:ok, [all_open_pr]} = Observer.observe_all_open(token: "test-gh-token", request_fun: request)
+    assert all_open_pr.number == 17
+    assert all_open_pr.head == "head-17"
   end
 
   test "approval revalidation requires the exact current head" do
