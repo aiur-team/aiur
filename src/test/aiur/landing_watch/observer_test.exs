@@ -83,6 +83,21 @@ defmodule Aiur.LandingWatch.ObserverTest do
     assert {:error, :approval_or_head_changed} = Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: queued_request)
   end
 
+  test "deferability revalidation rejects changed, approved, auto-merge and queued PR state" do
+    for pr <- [
+          %{"state" => "OPEN", "headRefOid" => "new", "reviewDecision" => "REVIEW_REQUIRED", "autoMergeRequest" => nil, "mergeQueueEntry" => nil},
+          %{"state" => "OPEN", "headRefOid" => "head", "reviewDecision" => "APPROVED", "autoMergeRequest" => nil, "mergeQueueEntry" => nil},
+          %{"state" => "OPEN", "headRefOid" => "head", "reviewDecision" => "REVIEW_REQUIRED", "autoMergeRequest" => %{}, "mergeQueueEntry" => nil},
+          %{"state" => "OPEN", "headRefOid" => "head", "reviewDecision" => "REVIEW_REQUIRED", "autoMergeRequest" => nil, "mergeQueueEntry" => %{"id" => "entry"}}
+        ] do
+      request = fn _ ->
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"pullRequest" => pr}}}}}
+      end
+
+      assert {:error, :pull_request_not_deferable} = Observer.revalidate_deferable(17, "head", token: "test-gh-token", request_fun: request)
+    end
+  end
+
   test "queue refresh batches only approved or already queued PRs" do
     parent = self()
 

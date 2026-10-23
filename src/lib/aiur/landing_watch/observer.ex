@@ -77,6 +77,45 @@ defmodule Aiur.LandingWatch.Observer do
 
   def revalidate_approved_head(_, _, _), do: {:error, :invalid_approval_revalidation}
 
+  @doc false
+  @spec observe_all_open(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def observe_all_open(opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts),
+         {:ok, prs} <- Client.fetch_open_pull_requests(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      observe_chunks(prs, owner, repo, token, request_fun)
+    end
+  end
+
+  @doc false
+  @spec revalidate_deferable(pos_integer(), String.t(), keyword()) :: :ok | {:error, term()}
+  def revalidate_deferable(number, expected_head, opts)
+      when is_integer(number) and number > 0 and is_binary(expected_head) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts),
+         {:ok, %{"data" => %{"repository" => %{"pullRequest" => pr}}}} <-
+           Transport.github_graphql(
+             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+             token,
+             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){state headRefOid reviewDecision autoMergeRequest{enabledAt} mergeQueueEntry{id}}}}",
+             %{owner: owner, repo: repo, number: number},
+             caller: "landing_watch_runner_queue_eligibility"
+           ),
+         true <-
+           pr["state"] == "OPEN" and pr["headRefOid"] == expected_head and
+             pr["reviewDecision"] != "APPROVED" and is_nil(pr["autoMergeRequest"]) and
+             is_nil(pr["mergeQueueEntry"]) do
+      :ok
+    else
+      {:error, _} = error -> error
+      false -> {:error, :pull_request_not_deferable}
+      _ -> {:error, :invalid_deferability_observation}
+    end
+  end
+
+  def revalidate_deferable(_, _, _), do: {:error, :invalid_deferability_observation}
+
   defp observe_chunks(prs, owner, repo, token, request_fun) do
     prs
     |> Enum.chunk_every(25)
