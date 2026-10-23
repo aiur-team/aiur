@@ -3,6 +3,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
 
   alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
   alias Aiur.GitHub.ResourceStore
+  alias Aiur.MainWatch.Persistence
   alias Aiur.OpenTicketSource.Snapshot
   alias Aiur.TestSupport.Isolation
 
@@ -239,7 +240,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
     :ok = Aiur.WorkflowStore.force_reload()
 
     run = %{id: 44, head_branch: "gh-readonly-queue/main/pr-4448-abc", status: "in_progress", started_at: System.system_time(:millisecond)}
-    data = Map.put(Aiur.MainWatch.Persistence.empty(), :merge_groups, [run])
+    data = Map.put(Persistence.empty(), :merge_groups, [run])
     owner = self()
 
     poll_fun = fn _branch, _workflows, _opts ->

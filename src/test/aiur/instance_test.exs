@@ -5,6 +5,7 @@ defmodule Aiur.InstanceTest do
   alias Aiur.Config.Schema.Instance.Ignore
   alias Aiur.ExecutorSweep.Checks
   alias Aiur.Instance
+  alias Aiur.Instance.SweepFilter
 
   test "instance.ignore parses the three lists and defaults them empty" do
     assert {:ok, default} = Schema.parse(%{})
@@ -79,7 +80,7 @@ defmodule Aiur.InstanceTest do
     assert Instance.foreign_pr?([4125])
 
     snapshot = %{tickets: [%{number: 4125}], pull_requests: [%{number: 9}], merge_groups: [%{head_branch: "gh-readonly-queue/main/pr-9-abc"}]}
-    filtered = Aiur.Instance.SweepFilter.own(snapshot)
+    filtered = SweepFilter.own(snapshot)
     assert filtered.tickets == []
     assert filtered.pull_requests == []
     assert filtered.merge_groups == []
@@ -100,7 +101,7 @@ defmodule Aiur.InstanceTest do
     }
 
     findings = Checks.all(snapshot, now)
-    assert Enum.map(Aiur.Instance.SweepFilter.own(snapshot).decisions, & &1.ticket) == [4429]
+    assert Enum.map(SweepFilter.own(snapshot).decisions, & &1.ticket) == [4429]
     assert for(%{kind: "unreviewed_pr", ticket_state: "human-review", pull_request: n} <- findings, do: n) == [4447]
     assert for(%{kind: "stale_merge_group", merge_group: name} <- findings, do: name) == ["run 4447"]
   end
