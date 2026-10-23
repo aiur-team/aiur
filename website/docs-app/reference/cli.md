@@ -49,7 +49,7 @@ Background runs persist daemon Logger messages at `<logs-root>/log/aiur.log` wit
 
 `CI WAIT` lists tickets, PRs, recovery state (including `draft_pr`) and failing checks, including tickets without workers. `aiur capabilities` shows `ci=<mode> local_tests=<mode>` ([merge policy](/reference/merge-policy)).
 
-`aiur status` shows degraded CODEOWNERS trust with cause and age ([GitHub trust](/apis/github-auth#who-aiur-trusts)). With ready work and free slots, it names preflight holds, stale polling, `awaiting dispatch`, or empty-cycle reasons and age. Prewarm holds keep their cause; unexplained empty cycles report `unknown`.
+`aiur status` shows degraded CODEOWNERS trust, empty-cycle causes and ages, and prewarm holds. Its daemon-read sections run concurrently under one 1.5s bound. A slow section prints its last good output with a `STALE` age; without a saved result it prints `unavailable` and exits 1.
 
 The `POLL` line reports the age and freshness of the last dispatch poll attempt. A daemon that has not started a dispatch poll says so; unavailable age is never rendered as zero.
 
