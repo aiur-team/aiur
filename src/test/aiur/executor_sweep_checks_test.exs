@@ -205,6 +205,18 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert finding.action =~ "Verify the PR"
   end
 
+  test "conflict without a recorded cache age is unverified with unknown age" do
+    snapshot = %{
+      tickets: [%{number: 5267, labels: ["agent:ci-wait"]}],
+      pull_requests: [%{number: 5172, issue_number: 5267, state: "open", mergeable: "CONFLICTING"}]
+    }
+
+    assert [finding] = Checks.all(snapshot, ~U[2026-10-19 12:00:00Z]) |> Enum.filter(&(&1.kind == "conflicting_waiting_pr"))
+    assert finding.cache_age_ms == nil
+    assert finding.message =~ "unverified (cache age unknown)"
+    assert finding.action =~ "Verify the PR mergeability in GitHub"
+  end
+
   test "finds ci-wait tickets older than two hours when required checks are terminal" do
     now = ~U[2026-10-21 18:00:00Z]
 
