@@ -5,6 +5,12 @@
 // The shard runner runs `fixture:preflight` (mix compile) before its suites, inside the same deadline;
 // run 39100789804 spent 80-120s per shard outside its suites.
 export const preflightSeconds = 120
+// Job time outside the runner's deadline: check-browser-smoke-shards.mjs requires the browser job's
+// timeout-minutes to cover setupSeconds + budgetMs + tailSeconds. Run 39738103754, under runner saturation,
+// spent 576s in setup before shard 3/8's runner started (apt-get 163s, layout assets 301s); shard 5/8's
+// post-suite visual regression took 60s.
+export const setupSeconds = 600
+export const tailSeconds = 120
 export const recordedSeconds = {
   // CI run 39616972873 (2026-10-21), jobs 119280971812/119280971969:
   // document functional 43.8s and parity 150.5s suite wall time, rounded up.
@@ -31,12 +37,16 @@ export const recordedSeconds = {
   'test:build-modal-motion': 26,
   // Same run, shard 7/job 119192841077: all 14 conversation cases passed; 163.6s wall time.
   'test:build-home-conversation': 165,
+  // node --test, 7 cases in 0.4s locally (#3163); rounded up.
+  'test:build-home-conversation-events-unit': 1,
   // Governed core commands (2026-10-18): 31 cases in 518s; 32 cases on 2ed995a67 in 445s.
   // Keep the slower observed bound; wall timings include fixture startup and build-gate wait.
   'test:build-home-gantt': 518,
   // CI run39148293958 (d9ee8e071), job117736821220: actual suite wall seconds.
   'test:build-home-now-band': 44.7,
   'test:browser-suite -- build-home-live-button-parity': 52.7,
+  // CI run 39758422723, shard 5/8: duration read from its suite log.
+  'test:browser-suite -- build-home-live-top': 10,
   // Conservative CI-measured full-selection bounds from review5564161995 (#5124).
   // Routine commands select fewer cells; these are NOT routine measurements.
   // Refresh with routine suite-duration logs after the first new-head CI run.

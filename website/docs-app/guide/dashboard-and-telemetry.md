@@ -108,6 +108,33 @@ decisions:
 
 See the [OCC-7 supervisor Decision API contract](https://github.com/aiur-team/aiur/blob/main/docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md) for routes, payloads, retry semantics, and audit guarantees.
 
+### Per-ticket usage API
+
+`GET /api/v1/<ticket>/usage` returns one ticket's model usage as versioned JSON (`schema_version: 1`). It uses the dashboard Basic Auth of `/api/v1/state` and sends `Cache-Control: no-store`.
+
+`<ticket>` is a GitHub issue number in the configured repository. The usage ledger resolves it to the ticket's tracker identity.
+
+The numbers come from the usage aggregate that the dashboard and `mix aiur.cost_report` read.
+
+The payload has `totals`, `by_model`, `by_provider`, and `sessions`, plus `ticket`, `state`, `authority`, and `freshness`.
+
+`state` is `ok`, `partial` (some pricing or attribution unknown), `stale`, or `known_empty` (ticket known, nothing projected yet).
+
+Each session is one Aiur run (`run_id`) with its own `by_model` and `by_provider` rows.
+
+Rows carry `tokens`, `provider_reported` cost, and `api_equivalent` cost with pricing `coverage`. Money is an exact decimal string.
+
+Errors use the `{"error":{"code":…,"message":…}}` shape.
+
+| Status | `error.code` | Meaning |
+| --- | --- | --- |
+| `404` | `usage_not_found` | The ledger has no usage for that ticket and has retired no records. |
+| `404` | `usage_unresolvable` | No retained record names the ticket, but compaction retired older records, so it may have spent there. |
+| `422` | `invalid_identifier` | The identifier is not a GitHub issue number. |
+| `503` | `usage_unavailable` | The ledger, aggregate, or configured repository cannot be read. |
+
+`aiur ticket-usage <ticket> --json` prints the same payload.
+
 ### Ticket progress API
 
 `GET /api/v1/<issue_identifier>/progress[?limit=N]` returns one ticket's current
