@@ -2,20 +2,17 @@ defmodule Aiur.ExecutorSweep.Checks do
   @moduledoc "Builds prioritized Executor sweep findings from observed daemon and GitHub snapshot data."
 
   alias Aiur.ExecutorSweep.{CacheFreshness, FailureCause, StaleCiWait, StateLabels, TriageBacklog}
+  alias Aiur.Instance.SweepFilter
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
 
-  @doc """
-  Runs all pure checks against one local snapshot. A snapshot key present with
-  a nil value is unknown, so its checks report the source unavailable instead
-  of running. A check that raises reports itself failed without dropping the
-  other checks' findings.
-  """
+  @doc "Runs pure checks against one snapshot. Nil sources are unknown; a failing check doesn't drop other findings."
   @spec all(map(), DateTime.t(), keyword()) :: [finding()]
   def all(snapshot, %DateTime{} = now, opts \\ []) do
     unreviewed_minutes = Keyword.get(opts, :unreviewed_pr_minutes, 10)
     stale_minutes = Keyword.get(opts, :merge_group_stale_minutes, 15)
     github_freshness_ms = Keyword.get(opts, :github_freshness_ms, 5 * 60_000)
+    snapshot = SweepFilter.own(snapshot)
 
     [
       {"unreviewed_prs", [:pull_requests, :tickets], fn -> unreviewed_prs(snapshot, now, unreviewed_minutes) end},
@@ -68,7 +65,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       ]
   end
 
-  @doc "Returns unreviewed human-review PR findings, oldest first."
+  @doc "Returns findings for ready PRs unreviewed at their head, whatever their ticket state, oldest first."
   @spec unreviewed_prs(map(), DateTime.t(), pos_integer()) :: [finding()]
   def unreviewed_prs(snapshot, %DateTime{} = now, threshold_minutes) when is_integer(threshold_minutes) and threshold_minutes > 0 do
     snapshot
@@ -420,21 +417,23 @@ defmodule Aiur.ExecutorSweep.Checks do
     with false <- value(pr, :draft, false),
          "open" <- value(pr, :state, "open"),
          number when is_integer(number) <- value(pr, :issue_number, nil),
-         true <- human_review_ticket?(snapshot, number),
          sha when is_binary(sha) and sha != "" <- value(pr, :head_sha, nil),
          reviewed when reviewed != sha <- value(pr, :reviewed_head_sha, nil),
          %DateTime{} = ready_at <- value(pr, :ready_at, nil),
          age_ms when age_ms > threshold_minutes * 60_000 <- DateTime.diff(now, ready_at, :millisecond) do
+      state = ticket_state(snapshot, number)
+
       [
         %{
-          kind: "unreviewed_human_review_pr",
+          kind: "unreviewed_pr",
           priority: 1,
           pull_request: value(pr, :number, nil),
           issue_number: number,
+          ticket_state: state,
           head_sha: sha,
           age_ms: age_ms,
-          action: "Review the current PR head or move its ticket out of agent:human-review.",
-          message: "PR ##{value(pr, :number, "?")} has waited #{duration(age_ms)} for review at its current head."
+          action: unreviewed_pr_action(state),
+          message: "PR ##{value(pr, :number, "?")} (ticket ##{number}, agent:#{state}) has waited #{duration(age_ms)} for review at its current head."
         }
       ]
     else
@@ -444,11 +443,18 @@ defmodule Aiur.ExecutorSweep.Checks do
 
   defp unreviewed_pr_finding(_pr, _snapshot, _now, _threshold_minutes), do: []
 
-  defp human_review_ticket?(snapshot, number) do
+  defp unreviewed_pr_action("human-review"), do: "Review the current PR head or move its ticket out of agent:human-review."
+
+  defp unreviewed_pr_action(state),
+    do: "Review the current PR head, or have the agent:#{state} ticket hand off or return its PR to draft."
+
+  @ticket_states ~w(todo in-progress ci-wait human-review rework merging done cancelled canceled error)
+
+  defp ticket_state(snapshot, number) do
     snapshot
     |> Map.get(:tickets, [])
-    |> Enum.any?(fn ticket ->
-      value(ticket, :number, nil) == number and "human-review" in labels(ticket)
+    |> Enum.find_value("unknown", fn ticket ->
+      value(ticket, :number, nil) == number and Enum.find(labels(ticket), "unknown", &(&1 in @ticket_states))
     end)
   end
 

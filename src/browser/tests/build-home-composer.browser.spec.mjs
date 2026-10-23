@@ -20,6 +20,7 @@ async function open(page, opts = {}) {
     ctx.push = async (event, payload) => {
       window.calls.push({ event, payload })
       if (event === 'conversation-page') return { v: 1, kind: 'conversation', id: payload.id, reset: false, state: 'live', reason: null, live: true, observed_at: null, entries: [], before: null, more: false, note: null, evicted: 0, composer: opts.composer === undefined ? 'ready' : opts.composer }
+      if (event === 'voice-availability') return opts.voice || { state: 'unconfigured', reason: 'Dictation is unavailable in this fixture.' }
       if (event !== 'send') return { v: 1, kind: 'ok' }
       const reply = window.replies.shift() || { ok: true }
       if (reply.hang) return new Promise(() => {})
@@ -49,6 +50,87 @@ test('placeholder names the agent, the paused copy, an unknown key, and never "U
   await expect(box(page)).toHaveAttribute('placeholder', 'Message glm…')
   await open(page, { agent: { name: null, model: null, state: 'active' } })
   await expect(box(page)).toHaveAttribute('placeholder', 'Message the agent…')
+})
+
+test('dictation stays unavailable until the server confirms it, then transcribes and reports failure in the modal', async ({ page }) => {
+  await open(page, { voice: { state: 'unconfigured', reason: 'Dictation needs an ElevenLabs key.' } })
+  const mic = page.locator('#cv-in #cv-mic')
+  await expect(mic).toBeDisabled()
+  await expect(mic).toHaveAttribute('title', 'Dictation needs an ElevenLabs key.')
+  await expect(mic).toHaveAttribute('aria-label', 'Dictate (unavailable)')
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        enumerateDevices: async () => [],
+        getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] })
+      }
+    })
+
+    class FakePush {
+      receive(status, callback) {
+        if (status === 'ok') queueMicrotask(() => callback({}))
+        return this
+      }
+    }
+
+    class FakeChannel {
+      constructor() { this.handlers = {} }
+      on(event, callback) { this.handlers[event] = callback }
+      onError(callback) { this.errorHandler = callback }
+      onClose(callback) { this.closeHandler = callback }
+      join() { return new FakePush() }
+      leave() {}
+      push(event) {
+        if (event === 'audio') queueMicrotask(() => this.handlers.transcript?.({ kind: 'partial', text: 'hello' }))
+        if (event === 'stop') {
+          queueMicrotask(() => this.handlers.transcript?.({ kind: 'final', text: 'hello modal' }))
+          queueMicrotask(() => this.handlers.stopped?.({}))
+        }
+        return new FakePush()
+      }
+    }
+
+    window.AiurVoiceSocket = class {
+      connect() {}
+      disconnect() {}
+      channel() { window.__modalVoiceChannel = new FakeChannel(); return window.__modalVoiceChannel }
+    }
+    window.AudioContext = class {
+      constructor() { this.destination = {}; this.audioWorklet = { addModule: async () => {} } }
+      createMediaStreamSource() { return { connect: target => target, disconnect() {} } }
+      createGain() { return { gain: { value: 1 }, connect: target => target, disconnect() {} } }
+      async resume() {}
+      close() {}
+    }
+    window.AudioWorkletNode = class {
+      constructor() { this.port = {}; window.__modalVoiceWorklet = this }
+      connect(target) { return target }
+      disconnect() {}
+    }
+  })
+  await open(page, { voice: { state: 'available' } })
+  await expect(mic).toBeEnabled()
+  await expect(mic).toHaveAttribute('title', 'Dictate')
+  await mic.click()
+  await expect(mic).toHaveClass(/rec/)
+  await expect(mic).toHaveAttribute('aria-pressed', 'true')
+  await page.evaluate(() => window.__modalVoiceWorklet.port.onmessage({
+    data: { samples: new Float32Array(800).fill(0.5), sampleRate: 16_000 }
+  }))
+  await expect(box(page)).toHaveValue('hello')
+
+  await mic.click()
+  await expect(box(page)).toHaveValue('hello modal')
+  await expect(mic).not.toHaveClass(/rec/)
+
+  await mic.click()
+  await expect(mic).toHaveClass(/rec/)
+  await page.evaluate(() => window.__modalVoiceChannel.closeHandler())
+  await expect(line(page)).toHaveText('Speech-to-text connection closed. Try dictation again.')
+  await expect(line(page)).toHaveClass(/bad/)
+  await expect(mic).not.toHaveClass(/rec/)
 })
 
 test('whitespace is never sent; Enter sends trimmed text once, Shift+Enter and IME Enter do not', async ({ page }) => {

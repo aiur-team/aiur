@@ -225,6 +225,25 @@ critical path and its open blocking decisions before changing queue ranks or
 holds. A downstream ticket waiting on a real prerequisite is not a queue-rank
 problem.
 
+### 2a. Measure feature work, and find one way to raise it
+
+The run exists to ship features. A busy fleet can still deliver none when its
+merges are test, flake and CI fixes. Measure the feature-work share for the last
+24 hours and the last hour on each pass:
+
+```bash
+bash .claude/skills/aiur-meta/scripts/feature-share.sh 24
+bash .claude/skills/aiur-meta/scripts/feature-share.sh 1
+```
+
+The script pages through merged pull requests until it reaches the window start.
+Its `inspected` and `unclassified` counts make incomplete coverage visible.
+Record both shares, their trend against the previous log, and one concrete
+change that would raise the share. Look at quarantine-first handling, flake
+tickets ahead of features, innocent merge-queue ejections, capacity, and
+body-only rework. Act within the current mandate; if no change is possible,
+name what blocks it.
+
 **When the bottleneck is review, the remedy is parallel review, not fewer
 agents.** A queue that is growing with nothing approved is the Executor's own
 throughput ceiling, and it is the most common steady-state bottleneck once the
@@ -328,6 +347,8 @@ Write to `~/.aiur/repo/<owner>/<repo>/meta/<UTC timestamp>-<slug>.md`:
 
 - verdict per surface
 - the named bottleneck and what would shrink it
+- the feature-work share (24 h and last hour) with its trend, and the one change
+  made or proposed to raise it (section 2a)
 - what changed since the last log — resolved as well as new
 - what needs the operator, and why the Executor cannot do it
 
