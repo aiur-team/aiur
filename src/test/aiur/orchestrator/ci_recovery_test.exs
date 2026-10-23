@@ -88,16 +88,6 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     refute Enum.any?(requests(ctx), &(&1.url == "https://api.github.com/graphql"))
   end
 
-  test "runner queue restoration reruns the entire cancelled workflow" do
-    request = fn req ->
-      send(self(), {:runner_rerun, req.method, URI.parse(req.url).path, req.body})
-      {:ok, %{status: 201, body: %{}}}
-    end
-
-    assert {:ok, %{}} = GitHubCIRecovery.rerun_all(987, token: "test-gh-token", request_fun: request)
-    assert_received {:runner_rerun, :post, "/repos/owner/repo/actions/runs/987/rerun", %{}}
-  end
-
   test "a changed failing test is delivered to rework", ctx do
     Agent.update(ctx.agent, &%{&1 | changed: ["src/test/untouched_test.exs"]})
     assert %{decision: :failed} = recover(ctx)

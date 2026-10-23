@@ -34,7 +34,7 @@ Rework handbacks also read classified PR conversation comments once to catch tru
 
 A rerun not observed within ten minutes raises attention. Journaled attention holds avoid repeated recovery reads; normal CI polling continues. No saving is claimed.
 
-Runner-pressure reconciliation reads queued `ci` PR workflow runs (paginated, up to ten pages) and the current approval/queue state of open PRs on the landing-watch poll. It cancels only exact-head queued runs for unapproved PRs, then revalidates before full-workflow reruns when the queue drains. Caller: `landing_watch_runner_queue`; Actions write is required for cancellation and rerun. No saving is claimed.
+Runner-pressure reconciliation pages queued `ci` PR runs and reads open-PR approval/queue state each landing-watch poll. It defers exact-head unapproved runs, then revalidates before full-workflow reruns after drain. Caller: `landing_watch_runner_queue`; Actions write required. No saving is claimed.
 
 A rework handback with no commit since the blocking review reads the PR body's GraphQL `lastEditedAt` once, attributed to `rework_body_edit`, so a body-only fix can pass the [rework guard](/concepts/ticket-lifecycle).
 
