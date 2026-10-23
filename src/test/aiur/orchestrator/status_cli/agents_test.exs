@@ -71,23 +71,32 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
         %{identifier: "repo##{number}", issue_id: "#{number}", work_state: :idle, state: "todo", queue_depth: 0}
       end
 
+      attention_idle = [
+        idle.(503) |> Map.put(:work_state, :paused),
+        idle.(504) |> Map.put(:waiting_reason, :waiting_for_human),
+        idle.(505) |> Map.put(:queue_depth, 1),
+        idle.(506) |> Map.put(:claim_released?, true),
+        idle.(507) |> Map.put(:waiting_reason, :waiting_for_dependency)
+      ]
+
       running = [
         running_entry("issue-1", "repo#1", :working) |> Map.put(:issue_id, "1"),
         running_entry("issue-2", "repo#2", :working) |> Map.put(:issue_id, "2")
       ]
 
-      snapshot = %{running: running, retrying: [], idle: Enum.map(3..502, idle)}
+      snapshot = %{running: running, retrying: [], idle: Enum.map(3..502, idle) ++ attention_idle}
       freshness = %{status: :current, age_ms: 0, observed_at: DateTime.to_iso8601(DateTime.utc_now())}
       view = {:ok, snapshot, freshness}
 
       default_output = capture_io(fn -> AgentControlCLI.agents(fleet_view: view) end)
-      assert length(Regex.scan(~r/^#\d+\s/m, default_output)) == 2
+      assert length(Regex.scan(~r/^#\d+\s/m, default_output)) == 7
       refute default_output =~ "#3"
+      assert Enum.all?(503..507, &(default_output =~ "##{&1}"))
       assert default_output =~ "(500 idle tickets hidden; use --all to show)"
 
       all_output = capture_io(fn -> AgentControlCLI.agents(all: true, fleet_view: view) end)
-      assert length(Regex.scan(~r/^#\d+\s/m, all_output)) == 502
-      assert all_output =~ "#502"
+      assert length(Regex.scan(~r/^#\d+\s/m, all_output)) == 507
+      assert all_output =~ "#507"
       refute all_output =~ "idle tickets hidden"
     end
 
