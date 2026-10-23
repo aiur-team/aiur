@@ -55,6 +55,7 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
     empty = install_source(catalog: catalog_snapshot([], 2, :healthy))
     assert {:ok, _view, empty_html} = live_settled("/build-orders")
     assert empty_html =~ ~s(data-build-order-catalog-state="empty")
+    assert_catalog_heading(empty_html)
     assert empty_html =~ "No Build Orders for this repository"
     assert Process.alive?(empty)
   end
@@ -76,8 +77,14 @@ defmodule AiurWeb.BuildOrderLive.RefreshTest do
     html = render(view)
 
     assert html =~ ~s(data-build-order-catalog-state="late")
+    assert_catalog_heading(html)
     assert html =~ "Build Order catalog is taking longer than expected"
     assert html =~ "No Build Order list has arrived after 6 seconds"
+  end
+
+  defp assert_catalog_heading(html) do
+    assert [heading] = Floki.find(Floki.parse_fragment!(html), "h2#build-order-catalog-heading")
+    assert Floki.text(heading) == "Build Order catalog"
   end
 
   # Guards the invariant that a late timeout never outlives a catalog, including future regressions.

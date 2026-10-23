@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect } from '@playwright/test'
 import { scrollGanttComposition } from './build-home-gantt-parity.mjs'
-import { primeBoardPaint, alignEtaMask } from './build-home-band-canvas.mjs'
+import { primeBoardPaint } from './build-home-band-canvas.mjs'
 
 export async function loadGanttRegionHistory(pair, dataset) {
   const snapshot = JSON.parse(await readFile(new URL(`../../test/fixtures/build_home/${dataset}.json`, import.meta.url), 'utf8'))
@@ -13,8 +13,6 @@ export async function loadGanttRegionHistory(pair, dataset) {
       sections: { ...ctx.snap.sections, hist: snapshot.sections.hist }, history: { ...snapshot.history, from: 0, more: false } })
     ctx.snapping = true
   }, snapshot)
-  // Receiving the larger window recreates the band header and its existing ETA mask.
-  await alignEtaMask(pair)
   const targets = await pair.design.evaluate(() => __ganttComposition.targets())
   for (const name of ['full', 'two', 'three', 'labelled', 'empty', 'tick', 'line']) expect(targets[name], `fixture missing ${name} Gantt region`).toBeTruthy()
   return targets

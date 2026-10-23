@@ -24,7 +24,7 @@ def entries(path=LIST):
         if not line or line.startswith("#"):
             continue
         fields = line.split("\t")
-        if len(fields) != 3 or not fields[0].startswith(("Aiur.", "AiurWeb.")) or not fields[1] or not re.fullmatch(r"#?[1-9][0-9]*", fields[2]):
+        if len(fields) != 4 or not fields[0].startswith(("Aiur.", "AiurWeb.")) or not fields[1] or not re.fullmatch(r"#?[1-9][0-9]*", fields[2]) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", fields[3]):
             raise ValueError(f"invalid quarantine entry at {path}:{number}")
         result.append(tuple(fields))
     return result
@@ -62,7 +62,7 @@ def selectors(tests_root=TESTS, listed=None):
     tests = list(scan(tests_root))
     problems = []
     selected = set()
-    for module, name, _ticket in listed:
+    for module, name, _ticket, _expires in listed:
         if name == "*":
             found = [(path, line) for test_module, _, path, line in tests if test_module == module]
             if not found:

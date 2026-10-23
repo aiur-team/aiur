@@ -1,5 +1,5 @@
 Code.require_file("../support/browser_harness/fixture_endpoint_start.ex", __DIR__)
-for file <- ~w(earlier_control fixture_source fixture_conversation_source ticket_docs index_parts index_seed), do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+for file <- ~w(earlier_control fixture_source fixture_conversation_source control_fixture ticket_docs index_parts index_seed), do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
 Code.require_file("../support/build_home/usage_fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
 Code.require_file("../support/test_cleanup.ex", __DIR__)
@@ -62,6 +62,9 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/command-answer-control/answerable", Aiur.BrowserHarness.CommandAnswerFixture, :configure)
     get("/command-answer-state", Aiur.BrowserHarness.CommandAnswerFixture, :status)
     get("/command-answer-join-state", Aiur.BrowserHarness.CommandAnswerFixture, :join_status)
+    get("/build-command-control/answer/:option", Aiur.BrowserHarness.BuildCommandFixture, :answer)
+    get("/build-command-control/state", Aiur.BrowserHarness.BuildCommandFixture, :state)
+    get("/build-command-control/:scenario", Aiur.BrowserHarness.BuildCommandFixture, :configure)
     get("/build-queue-control/:state", Aiur.BrowserHarness.BuildQueueFixture, :configure)
     get("/experiments-control/:scenario", Aiur.BrowserHarness.ExperimentsFixture, :configure)
   end
@@ -156,7 +159,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   alias Aiur.BrowserHarness.FixtureEndpointStart
   alias Aiur.Experiments
   alias Aiur.IssueLog
-  alias Aiur.TestSupport.BuildHome.{FixtureSource, TicketDocs}
+  alias Aiur.TestSupport.BuildHome.{ControlFixture, FixtureSource, TicketDocs}
 
   # Standalone HTTP fixtures have no test caller; keep global fixture stubs outside shared test support.
   defp configure_ticket_docs(:ok) do
@@ -246,12 +249,24 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   The next projection buckets the agent as `:paused`, exactly as the real
   orchestrator snapshot would.
   """
+  def build_capabilities(identifier) do
+    {:ok, %{unit_control: :confirmed, status: build_control_status(identifier), pending_control: nil}}
+  end
+
+  defp build_control_status(identifier) do
+    case ControlFixture.unit_row(to_string(identifier), []) do
+      {:ok, row} -> row.runtime.work_state
+      _ -> if(streamdeck_paused?(identifier), do: :paused, else: :working)
+    end
+  end
+
   def streamdeck_pause(identifier), do: {:ok, set_streamdeck_paused(identifier, true)}
 
   def streamdeck_resume(identifier), do: {:ok, set_streamdeck_paused(identifier, false)}
 
   @doc "Drops every recorded operator pause so a spec starts from the seeded fleet."
   def reset_streamdeck_pauses do
+    ControlFixture.reset()
     :persistent_term.put({__MODULE__, :streamdeck_paused}, MapSet.new())
     Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
     :ok
@@ -428,6 +443,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         streamdeck_fixture_fleet: true,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
+        agent_chat_capabilities_fun: &__MODULE__.build_capabilities/1,
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,
         agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1
       )

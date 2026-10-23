@@ -138,6 +138,16 @@ defmodule Aiur.Tracker do
     adapter().fetch_issue_states_by_ids(issue_ids) |> TestTicketScope.filter_result()
   end
 
+  @doc "Returns whether labels contain a state owned by another tracker lane."
+  @spec foreign_state_label?([String.t()]) :: boolean()
+  def foreign_state_label?(labels) do
+    tracker_adapter = adapter()
+
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, :foreign_state_label?, 1),
+      do: tracker_adapter.foreign_state_label?(labels),
+      else: false
+  end
+
   @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::
           {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
   def fetch_issue_states_by_ids_conditional(issue_ids, cache) do

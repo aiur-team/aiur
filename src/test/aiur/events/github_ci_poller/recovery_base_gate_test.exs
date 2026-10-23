@@ -162,6 +162,68 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
     refute_received {:rerun, _}
   end
 
+  test "a live approved landing with PR-caused failures disables landing and routes named failures", ctx do
+    parent = self()
+    result = Map.merge(ctx.result, %{review_decision: "APPROVED", failures: [%{name: "browser spec", url: @run_url}]})
+    observation = %{"state" => "OPEN", "headRefOid" => "head", "autoMergeRequest" => %{"enabledAt" => "now"}, "mergeQueueEntry" => nil}
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: [base("success")],
+        ci_recovery_observation: {:ok, observation},
+        withdraw_landing: fn number ->
+          send(parent, {:withdrawn, number})
+          {:ok, [:auto_merge_disabled]}
+        end
+      )
+
+    assert %{decision: :failed, approved_landing_withdrawn?: true, failures: [%{name: "browser spec", pr_caused?: true}]} =
+             Recovery.recover(ctx.issue, result, opts)
+
+    assert_received {:withdrawn, 42}
+  end
+
+  test "a live approved landing with inherited failures stays held", ctx do
+    parent = self()
+    result = Map.merge(ctx.result, %{review_decision: "APPROVED"})
+    observation = %{"state" => "OPEN", "headRefOid" => "head", "mergeQueueEntry" => %{"id" => "queue"}, "autoMergeRequest" => nil}
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: [base("failure")],
+        ci_recovery_observation: {:ok, observation},
+        withdraw_landing: fn _number -> flunk("inherited CI must remain held") end
+      )
+
+    assert %{decision: :pending, recovery: "approved_landing_pr"} = Recovery.recover(ctx.issue, result, opts)
+    refute_received {:attention, _}
+
+    opts =
+      Keyword.merge(opts,
+        main_watch_history: [base("success")],
+        withdraw_landing: fn 42 ->
+          send(parent, :withdrawn)
+          {:ok, [:auto_merge_disabled]}
+        end
+      )
+
+    assert %{decision: :failed, recovery: nil, approved_landing_withdrawn?: true} = Recovery.recover(ctx.issue, result, opts)
+    assert_received :withdrawn
+  end
+
+  test "a live check that the approved PR is no longer landing may route a PR-caused failure", ctx do
+    result = Map.merge(ctx.result, %{review_decision: "APPROVED", auto_merge_request: %{"enabledAt" => "stale"}})
+    observation = %{"state" => "OPEN", "headRefOid" => "head", "autoMergeRequest" => nil, "mergeQueueEntry" => nil}
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: [base("success")],
+        ci_recovery_observation: {:ok, observation}
+      )
+
+    assert %{decision: :failed, approved_landing_live_not_landing?: true} = Recovery.recover(ctx.issue, result, opts)
+  end
+
   test "a PR already in the merge queue is not retried", ctx do
     result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
     observation = %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "reviewDecision" => nil, "mergeQueueEntry" => %{"id" => "MQE_1"}, "autoMergeRequest" => nil}
