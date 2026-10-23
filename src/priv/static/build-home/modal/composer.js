@@ -4,6 +4,7 @@ import { MI } from '../icons.js';
 import { modelInfo } from '../agents.js';
 import { modelLabel } from '../now-state.js';
 import { onModalClose } from './frame.js';
+import { mountMic } from './mic.js';
 
 // Port of the design's composer (J:1407–1408, J:1485–1500) without its mock reply,
 // optimistic row or optimistic resume: a row appears only after Aiur accepts the
@@ -15,11 +16,12 @@ const STATUS = {
   queued: ['Queued · waiting for the agent', ''], delivered: null, unconfirmed: ['Queued · delivery unconfirmed', ''],
   failed: ['Not delivered (failed)', 'bad'], superseded: ['Not delivered (superseded)', 'bad'],
 };
-let drafts = new Map(), st = null, offs = [], localOps = [], appending = false;
+let drafts = new Map(), st = null, offs = [], localOps = [], appending = false, mic = null;
 const fresh = t => ({ id: t.id, pending: false, last: null, sent: '', line: null, ended: false });
 function unbind() { offs.forEach(off => off()); offs = []; }
-onReset(() => { unbind(); drafts = new Map(); st = null; localOps = []; });
-onModalClose(() => { unbind(); st = null; localOps = []; });
+function destroyMic() { mic?.destroy(); mic = null; }
+onReset(() => { unbind(); destroyMic(); drafts = new Map(); st = null; localOps = []; });
+onModalClose(() => { unbind(); destroyMic(); st = null; localOps = []; });
 
 export function placeholder(t) {
   if (t.agent?.state === 'paused') return PAUSED;
@@ -41,7 +43,7 @@ function refresh() {
 }
 function grow(ta) { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; }
 export function renderComposer(t, msg) {
-  unbind(); $('#cv-in')?.remove(); $('#cv-in-st')?.remove(); $('#cv-in-off')?.remove();
+  unbind(); destroyMic(); $('#cv-in')?.remove(); $('#cv-in-st')?.remove(); $('#cv-in-off')?.remove();
   const slot = $('#cv-footer');
   if (!slot || t.sec === 'hist' || ctx.snap?.writable !== true || !msg.composer) return;
   if (st?.id !== t.id) st = fresh(t);
@@ -51,9 +53,9 @@ export function renderComposer(t, msg) {
   const hint = placeholder(t);
   slot.insertAdjacentHTML('afterend', '<form class="cv-in" id="cv-in" data-voice-composer><textarea rows="1" placeholder="' + esc(hint) +
     '" aria-label="' + esc(hint.replace(/…$/, '')) + '" enterkeyhint="send" data-voice-input></textarea>' +
-    '<button class="cv-mic" type="button" id="cv-mic" title="Dictate" aria-label="Dictate" aria-disabled="true">' + MI.mic + '</button>' +
-    '<button class="cv-send" type="submit" aria-label="Send">' + MI.send + '</button></form>' +
-    '<p class="cv-in-st" id="cv-in-st" role="status" aria-live="polite" hidden></p>');
+    '<button class="cv-mic" type="button" id="cv-mic" title="Checking whether dictation is available…" aria-label="Dictate (unavailable)" aria-disabled="true" disabled data-voice-mic>' + MI.mic + '</button>' +
+    '<button class="cv-send" type="submit" aria-label="Send" data-voice-send>' + MI.send + '</button></form>' +
+    '<p class="cv-in-st" id="cv-in-st" role="status" aria-live="polite" hidden data-voice-status></p>');
   const form = $('#cv-in'), ta = $('textarea', form);
   ta.value = drafts.get(t.id) || ''; if (ta.value) grow(ta);
   if (st.line) setLine(...st.line);
@@ -66,6 +68,7 @@ export function renderComposer(t, msg) {
   offs.push(ctx.life.on(form, 'submit', ev => { ev.preventDefault(); submit(); }));
   offs.push(ctx.life.every(1000, refresh));
   refresh();
+  mic = mountMic(form.closest('.cv-main'), ctx);
 }
 const timeout = ms => new Promise(resolve => setTimeout(() => resolve(null), ms));
 async function submit() {

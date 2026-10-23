@@ -135,7 +135,6 @@ defmodule AiurWeb.BuildLive do
   def handle_event("conversation-page", params, socket), do: socket |> Conversation.page(params) |> command_card(params)
   def handle_event("conversation-close", params, socket), do: socket |> Conversation.close(params) |> command_card(params)
   def handle_event("send", params, socket), do: Composer.send(socket, params)
-
   def handle_event("answer-decision", %{"decision_id" => id, "answer" => %{"choice" => "option:" <> _} = form}, socket) when is_binary(id) do
     if writable?(socket) do
       socket = DecisionCommands.record_answer(socket, id, form, &CommandCard.reload/1)
@@ -149,6 +148,7 @@ defmodule AiurWeb.BuildLive do
   def handle_event("answer-decision", _params, socket),
     do: {:reply, %{status: "error", message: "The submitted answer was incomplete. Try again."}, socket}
 
+  def handle_event("voice-availability", _params, socket), do: {:reply, Composer.voice_availability(), socket}
   def handle_event("load-earlier", params, socket), do: Protocol.earlier(socket, params, source_opts(socket))
   def handle_event("usage-watch-start", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :start)}
   def handle_event("usage-watch-stop", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :stop)}
