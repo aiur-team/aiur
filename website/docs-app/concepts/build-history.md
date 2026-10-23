@@ -108,7 +108,9 @@ unknown ticket reads “Ticket not found”.
 Remote workers show only their retained live window; stale or unavailable live
 state is labeled separately from the transcript.
 
-The modal is read-only: its pause button is disabled and it has no composer.
+On a writable dashboard, a Not queued ticket's modal offers **Add to queue**.
+Otherwise the modal is read-only: its pause button is disabled and it has no
+composer.
 Pause, resume and message an agent with [`aiur pause`, `aiur resume` and `aiur
 message`](/reference/cli#inspect-and-operate-a-running-daemon).
 

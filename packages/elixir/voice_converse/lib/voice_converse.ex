@@ -26,8 +26,15 @@ defmodule VoiceConverse do
   def availability(%Config{} = config) do
     case Config.validate(config) do
       {:ok, %Config{provider: nil}} -> {:unavailable, :no_provider}
-      {:ok, _} -> :ok
+      {:ok, config} -> session_availability(config)
       {:error, %{field: field}} -> {:unavailable, {:invalid_config, field}}
+    end
+  end
+
+  defp session_availability(config) do
+    case Config.check_session_start(config) do
+      :ok -> :ok
+      {:error, %{field: field}} -> {:unavailable, {:not_configured, field}}
     end
   end
 end

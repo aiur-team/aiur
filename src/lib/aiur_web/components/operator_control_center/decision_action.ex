@@ -18,7 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     status = decision.decision_status
     blocking? = Map.get(decision, :blocking, false)
 
-    answerable? = status in [:open, :deferred, :dismissed] or expired_blocker?(decision)
+    answerable? = answerable?(decision)
 
     # Dismiss closes a Command outright: the operator waves it off and, when the
     # agent is live, the agent is told to proceed under its own judgement. Any
@@ -197,6 +197,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   defp recommended?(%{recommendation: nil}, _option), do: false
   defp recommended?(decision, option), do: decision.recommendation.option_id == option.id
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
+
+  @doc "True when a Command still takes an answer: the rule behind the answer form."
+  @spec answerable?(map()) :: boolean()
+  def answerable?(%{decision_status: status} = decision),
+    do: status in [:open, :deferred, :dismissed] or expired_blocker?(decision)
 
   defp expired_blocker?(%{decision_status: :expired, blocking: true, answer: nil}), do: true
   defp expired_blocker?(_decision), do: false

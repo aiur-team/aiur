@@ -129,9 +129,10 @@ forward, so measuring the gate never perturbs a real build acquisition.
 | Unit | `/units` | Pause or resume one agent, or send it a message. |
 | Fleet capacity | `/units` | Adjust capacity. |
 | Ticket | `/units` Tickets panel | Apply routing labels. |
+| Ticket | Build ticket modal | Add a not-queued ticket to the build queue. |
 | Command | Commands | Answer or revise. |
 
-The Build page ticket modal is read-only. The CLI covers fleet, Unit and capacity controls plus initial Command answers; Command revision and the ticket-routing preview remain GUI-only today.
+Apart from Add to queue, the Build ticket modal is read-only. The CLI covers fleet, Unit and capacity controls plus initial Command answers; Command revision and the ticket-routing preview remain GUI-only today.
 
 Disable mutations for an observation-only surface:
 
@@ -139,6 +140,8 @@ Disable mutations for an observation-only surface:
 observability:
   dashboard_writable: false
 ```
+
+The home ticket modal hides Add to queue when `dashboard_writable` is `false`.
 
 In read-only mode, the `/units` Tickets panel shows the Add an agent action as unavailable before any routing choices are requested. Run `aiur --todo <ticket-id>` from the repository to queue a ticket through the CLI.
 

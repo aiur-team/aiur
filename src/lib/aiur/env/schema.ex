@@ -164,6 +164,7 @@ defmodule Aiur.Env.Schema do
     # --- Dashboard ---
     {"AIUR_DASHBOARD_USERNAME", type: :string, group: :dashboard, purpose: "Dashboard Basic Auth user; both credentials together.", fetch: "see guide/gui"},
     {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/gui"},
+    {"AIUR_SECRET_KEY_BASE", type: :secret, group: :dashboard, purpose: "Optional persistent dashboard signing key; otherwise Aiur stores one per instance.", fetch: "openssl rand -base64 48"},
 
     # --- Supervisor Decision API ---
     {"AIUR_SUPERVISOR_TOKEN",

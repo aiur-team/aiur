@@ -108,6 +108,8 @@ observability:
 executor_takeover_first_alert_hours: 8
 executor_takeover_continuous_alert_hours: 1
 server:
+  # public_url: https://aiur.example.com
+  # allowed_hosts: [aiur.example.com, localhost, 127.0.0.1]
   tailscale_funnel: false
 polling:
   idle_widen_factor: 5.0

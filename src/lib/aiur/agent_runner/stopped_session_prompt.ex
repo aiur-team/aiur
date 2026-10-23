@@ -1,19 +1,28 @@
 defmodule Aiur.AgentRunner.StoppedSessionPrompt do
-  @moduledoc false
+  @moduledoc """
+  Builds bounded first-turn context for a kept workspace with uncommitted work.
+
+  The added prompt budget is the fixed section text, up to 200 `git status
+  --short` lines plus one `… N more` overflow line, and up to 2,000 characters
+  of the last agent message (plus its fixed `Ticket <identifier>: ` prefix).
+  """
 
   @tail_bytes 1_048_576
+  @max_status_lines 200
   @max_message_chars 2_000
 
-  @spec render(Path.t() | nil, String.t() | nil) :: String.t()
-  def render(workspace, identifier) when is_binary(workspace) and is_binary(identifier) do
+  @spec render(Path.t() | nil, String.t() | nil, term()) :: String.t()
+  def render(workspace, identifier, state) when is_binary(workspace) and is_binary(identifier) do
     with true <- File.dir?(workspace),
          {status, 0} <- git_status(workspace),
          true <- String.trim(status) != "" do
+      status = cap_status(status)
+
       """
 
       ## Resuming from a stopped session
 
-      The previous session stopped before it could finish. Its workspace was kept; continue from this work rather than restarting the ticket. Reconcile the current workspace and workpad, then continue the remaining work.
+      #{session_summary(state)}
 
       `git status --short` in the kept workspace:
       ```text
@@ -28,7 +37,27 @@ defmodule Aiur.AgentRunner.StoppedSessionPrompt do
     end
   end
 
-  def render(_workspace, _identifier), do: ""
+  def render(_workspace, _identifier, _state), do: ""
+
+  defp cap_status(status) do
+    lines = String.split(String.trim_trailing(status), "\n")
+    kept = Enum.take(lines, @max_status_lines)
+    omitted = length(lines) - length(kept)
+    suffix = if omitted > 0, do: ["… #{omitted} more"], else: []
+    Enum.join(kept ++ suffix, "\n")
+  end
+
+  defp session_summary(state) when is_binary(state) do
+    if String.downcase(state) in ["rework", "agent:rework"] do
+      "The previous run completed normally and left uncommitted changes. Its workspace was kept; continue from this work rather than restarting the ticket. Reconcile the current workspace and workpad, then continue the remaining work."
+    else
+      "The previous session stopped before it could finish. Its workspace was kept; continue from this work rather than restarting the ticket. Reconcile the current workspace and workpad, then continue the remaining work."
+    end
+  end
+
+  defp session_summary(_state) do
+    "The previous session stopped before it could finish. Its workspace was kept; continue from this work rather than restarting the ticket. Reconcile the current workspace and workpad, then continue the remaining work."
+  end
 
   defp git_status(workspace) do
     System.cmd("git", ["-C", workspace, "status", "--short"], stderr_to_stdout: true)

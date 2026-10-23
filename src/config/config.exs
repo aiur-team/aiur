@@ -117,7 +117,7 @@ config :aiur, AiurWeb.Endpoint,
   pubsub_server: Aiur.PubSub,
   live_view: [signing_salt: "aiur-live-view"],
   secret_key_base: String.duplicate("s", 64),
-  check_origin: false,
+  check_origin: ["http://localhost", "http://127.0.0.1", "http://[::1]"],
   server: false
 
 # Composition: orchestration implements the Commands delivery port, so the
@@ -136,6 +136,12 @@ if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
 end
 
 if config_env() == :test do
+  config :aiur, :dashboard_secret_root, Path.join(System.tmp_dir!(), "aiur-dashboard-secret-tests-#{System.unique_integer([:positive])}")
+
+  config :aiur, AiurWeb.Endpoint,
+    url: [host: "www.example.com"],
+    allowed_hosts: ["localhost", "127.0.0.1", "[::1]", "www.example.com"]
+
   # System.tmp_dir!() may be a directory inside an agent checkout. Bound Git's
   # upward discovery there so non-repository test fixtures stay non-repositories.
   # Git still discovers repositories initialized below TMPDIR normally.

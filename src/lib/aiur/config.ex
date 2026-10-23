@@ -169,6 +169,12 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc "The `voice.conversation` settings, with a relative `roles_dir` resolved against the config file."
+  @spec voice_conversation() :: Schema.VoiceConversation.t()
+  def voice_conversation do
+    Schema.VoiceConversation.resolve_roles_dir(settings!().voice.conversation, Workflow.workflow_file_path())
+  end
+
   defdelegate tracker_kind(), to: Aiur.Config.TrackerSettings
   defdelegate base_branch(source \\ settings(), context \\ []), to: Aiur.Config.TrackerSettings
   defdelegate active_states(), to: Aiur.Config.TrackerSettings
