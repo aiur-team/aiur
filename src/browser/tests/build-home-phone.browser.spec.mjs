@@ -122,7 +122,7 @@ test('phone guard: modal at ≤ 720 px', async ({ browser }) => {
       return {
         width: modal.getBoundingClientRect().width,
         mapWidth: document.querySelector('.cv-map').getBoundingClientRect().width,
-        agentNameHidden: [...document.querySelectorAll('.bm-agent > span')].every(hidden),
+        agentNameHidden: [...document.querySelectorAll('.bm-agent > span:not(.sr-only)')].every(hidden),
         metaHidden: [...document.querySelectorAll('.bm-tt .bm-meta span:not(.bm-st)')].every(hidden),
       }
     })
@@ -192,10 +192,16 @@ test('phone guard: a tap leaves no chain hover', async ({ browser }) => {
       vp.scrollIntoView({ block: 'start' })
       vp.scrollTop += card.getBoundingClientRect().top - vp.getBoundingClientRect().top - 60
     }))
-    // The 200 ms guard can start the design's 420 ms snap glide, which restarts the guard.
-    // Wait through that second freeze before finding a touchable card.
+    // Let the browser deliver the scroll before advancing its 200 ms guard and potential
+    // 420 ms snap glide; set scrollTop otherwise races the fake clock in repeated runs.
+    await page.waitForTimeout(0)
     await page.clock.runFor(704)
-    const point = await tappablePoint(page, '#bd-sec-hist .bd-layer > .bd-card')
+    let point
+    await expect.poll(async () => {
+      point = await tappablePoint(page, '#bd-sec-hist .bd-layer > .bd-card')
+      await page.clock.runFor(16)
+      return point != null
+    }).toBe(true)
     expect(point, 'a tappable history card').not.toBeNull()
     await page.touchscreen.tap(point.x, point.y)
     await expect.poll(async () => { await page.clock.runFor(16); return page.locator('#tk-backdrop').evaluate(el => el.classList.contains('show')) }).toBe(true)

@@ -32,7 +32,7 @@ test('webkit phone guard: tap opens the modal at phone width', async () => {
     await expect(page.locator('#tk-backdrop')).toHaveClass(/\bshow\b/)
     const modal = await page.evaluate(() => ({
       width: document.querySelector('#tk-modal').getBoundingClientRect().width,
-      agentNameHidden: [...document.querySelectorAll('.bm-agent > span')].every(el => getComputedStyle(el).display === 'none'),
+      agentNameHidden: [...document.querySelectorAll('.bm-agent > span:not(.sr-only)')].every(el => getComputedStyle(el).display === 'none'),
     }))
     expect(modal.width).toBeCloseTo(390 - 2 * 19.2, 0)
     expect(modal.agentNameHidden).toBe(true)
