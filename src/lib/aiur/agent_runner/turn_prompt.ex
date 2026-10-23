@@ -1,3 +1,4 @@
+# Cohesion: this module composes first-turn and continuation prompts from shared guidance helpers.
 defmodule Aiur.AgentRunner.TurnPrompt do
   @moduledoc false
 
@@ -57,7 +58,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
 
   defp stopped_session_guidance(issue, opts, workspace) do
     if (Keyword.get(opts, :prior_work, false) or rework_state?(issue.state)) and not Keyword.get(opts, :resumed, false) do
-      StoppedSessionPrompt.render(workspace, issue.identifier)
+      StoppedSessionPrompt.render(workspace, issue.identifier, issue.state)
     else
       ""
     end

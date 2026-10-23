@@ -45,7 +45,8 @@
     ],
     "env": [
       "AIUR_DASHBOARD_PASSWORD",
-      "AIUR_DASHBOARD_USERNAME"
+      "AIUR_DASHBOARD_USERNAME",
+      "AIUR_SECRET_KEY_BASE"
     ],
     "state": [],
     "capabilities": []
@@ -68,7 +69,8 @@
   ],
   "env": [
     "AIUR_DASHBOARD_PASSWORD",
-    "AIUR_DASHBOARD_USERNAME"
+    "AIUR_DASHBOARD_USERNAME",
+    "AIUR_SECRET_KEY_BASE"
   ],
   "capabilities": []
 }

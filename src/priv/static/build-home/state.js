@@ -57,5 +57,5 @@ export const fx = {
   initModal() {}, closeModal() {}, syncTicket() {}, modalSync() {}, renderDocBody() {}, renderConversation() {},
   drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
   lockTree() {}, fitTree() {}, openTree() {},
-  appendEntries() {}, appendItem() {}, claimLocalOp: () => null, scheduleMap() {}, wireLive() {}, onConversation() {}, reconnectConversation() {},
+  appendEntries() {}, appendItem() {}, claimLocalOp: () => null, renderComposer() {}, composerState() {}, sendStatus() {}, scheduleMap() {}, wireLive() {}, onConversation() {}, reconnectConversation() {},
 };

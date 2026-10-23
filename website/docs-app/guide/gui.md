@@ -198,6 +198,7 @@ forward, so measuring the gate never perturbs a real build acquisition.
 | Command | Answer or revise. |
 | Fleet | Adjust capacity. |
 | Ticket | Apply routing labels. |
+| Ticket (home modal) | Add a not-queued ticket to the build queue. |
 
 The CLI covers Unit and Fleet controls plus initial Command answers. Command revision and ticket-routing preview remain GUI-only today.
 
@@ -207,6 +208,8 @@ Disable mutations for an observation-only surface:
 observability:
   dashboard_writable: false
 ```
+
+The home ticket modal hides Add to queue when `dashboard_writable` is `false`.
 
 In read-only mode, Tickets shows the Add an agent action as unavailable before any routing choices are requested. Run `aiur --todo <ticket-id>` from the repository to queue a ticket through the CLI.
 
