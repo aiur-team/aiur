@@ -34,6 +34,7 @@ jobs:
           - { name: design matrix, run: npm run parity:matrix }
           - { name: composition, run: npm run test:parity }
           - { name: ticket modal, run: npm run test:build-modal-parity }
+          - { name: ticket agent controls, run: npm run test:browser-suite -- build-home-agent-control-parity }
           - { name: ticket document, run: npm run test:build-home-modal-doc-parity }
           - { name: ticket conversation, run: npm run test:build-home-conversation }
           - { name: ticket conversation events, run: npm run test:build-home-conversation-events-parity }

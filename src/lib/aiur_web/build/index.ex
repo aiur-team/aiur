@@ -113,6 +113,22 @@ defmodule AiurWeb.Build.Index do
     {:reply, reply, state}
   end
 
+  def handle_call({:unit_row, id}, _from, state) do
+    rows =
+      case state.parts[:now] do
+        %{source: %{state: "ok"}, unit_rows: rows} when is_map(rows) -> rows
+        _ -> %{}
+      end
+
+    reply =
+      case Map.fetch(rows, id) do
+        {:ok, row} -> {:ok, row}
+        :error -> {:error, :not_found}
+      end
+
+    {:reply, reply, state}
+  end
+
   @impl true
   def handle_info({tag, _payload}, state) when is_map_key(@signals, tag), do: {:noreply, dirty(state, @signals[tag])}
   def handle_info(:fleet_changed, state), do: {:noreply, dirty(state, [:capacity])}
