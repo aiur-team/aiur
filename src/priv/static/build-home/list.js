@@ -3,6 +3,7 @@ import { S, ctx, fx } from './state.js';
 import { esc } from './dom.js';
 import { nowMs } from './clock.js';
 import { fmtD, fmtH } from './util.js';
+import { estLabel } from './estimate.js';
 import { I } from './icons.js';
 import { LOGOS } from './logos.js';
 import { agentState, progress, modelLabel } from './now-state.js';
@@ -19,7 +20,12 @@ export function stClass(t) {
 }
 export function stText(t) {
   if (t.sec === 'hist') return Object.hasOwn(HIST, t.status) ? HIST[t.status][1] : 'State unknown';
-  if (t.sec === 'now') return agentState(t.agent?.state).label;
+  if (t.sec === 'now') {
+    const stateLabel = agentState(t.agent?.state).label;
+    return t.agent?.state === 'usage_limited' && Number.isFinite(t.agent?.resume_at)
+      ? stateLabel + ' (resumes at ' + new Date(t.agent.resume_at).toISOString().slice(11, 16) + ' UTC)'
+      : stateLabel;
+  }
   if (t.sec === 'plan') return t.cue?.held ? 'Held' : t.cue?.failed || t.cue?.blockedChain ? 'Blocked' : t.cue?.wait ? 'Waiting on #' + t.cue.wait : 'Queued';
   return 'Not queued';
 }
@@ -34,8 +40,7 @@ function progCell(t) {
   if (t.sec === 'hist') return muted((Number.isFinite(t.end) ? fmtD(t.end) : '—') + ' · ' +
     (Number.isFinite(t.start) && Number.isFinite(t.end) && t.end >= t.start ? fmtH((t.end - t.start) / 36e5) : '—'));
   if (t.sec === 'plan') {
-    const hours = Number.isFinite(t.override?.hours) ? t.override.hours : t.est;
-    return muted('Q' + number(t.qpos) + ' · W' + (Number.isFinite(t.wave) ? t.wave : '?') + ' · ' + (Number.isFinite(hours) ? '≈' + hours + 'h' : '—'));
+    return muted('Q' + number(t.qpos) + ' · W' + (Number.isFinite(t.wave) ? t.wave : '?') + ' · ' + estLabel(t));
   }
   return muted(number(t.pts) + ' pts');
 }
@@ -81,7 +86,7 @@ export function listHTML(D, state, history, P, now) {
     const key = ticket.agent?.state === 'active' ? 'running'
       : ticket.agent?.state === 'retrying' ? 'retrying'
         : ['error', 'retries', 'command'].includes(ticket.agent?.state) ? 'stuck'
-          : ['paused', 'parked'].includes(ticket.agent?.state) ? 'paused' : 'unknown';
+          : ['paused', 'parked', 'usage_limited', 'ci_wait'].includes(ticket.agent?.state) ? 'paused' : 'unknown';
     nowCounts[key]++;
   }
   const nowSummary = Object.entries(nowCounts).filter(([key, count]) => key === 'running' || count > 0)

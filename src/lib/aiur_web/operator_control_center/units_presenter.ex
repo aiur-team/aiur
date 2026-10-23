@@ -239,6 +239,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
          internal_row when not is_nil(internal_row) <- Map.get(internal_by_identity, Sources.key(identity)) do
       public_row
       |> Map.put(:telemetry_attempt_id, Map.get(internal_row, :telemetry_attempt_id))
+      |> Map.put(:usage_limit_reset_at, Map.get(internal_row, :usage_limit_reset_at))
       |> Map.put(:context_usage, public_context_usage(Map.get(internal_row, :context_usage)))
       |> Map.put(:turn_count, Map.get(internal_row, :turn_count))
       |> Map.put(:turn_count_observed?, Map.get(internal_row, :turn_count_observed?) == true)

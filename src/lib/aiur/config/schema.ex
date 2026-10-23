@@ -43,6 +43,7 @@ defmodule Aiur.Config.Schema do
 
   # Embedded struct defaults must rebuild when their nested schemas change.
   require Agent
+  require Instance
   require Tracker
   require BuildQueue
   require Experiments

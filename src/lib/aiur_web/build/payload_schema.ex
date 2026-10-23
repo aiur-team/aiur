@@ -24,12 +24,17 @@ defmodule AiurWeb.Build.PayloadSchema do
       "pct" => nullable({:range, 0, 100}),
       "agent" =>
         nullable(
-          object(%{
-            "model" => nullable(:model),
-            "name" => nullable({:short_string, 64}),
-            "state" => nullable(enum(~w(active error retrying retries command paused parked))),
-            "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
-          })
+          object(
+            %{
+              "model" => nullable(:model),
+              "name" => nullable({:short_string, 64}),
+              "state" => nullable(enum(~w(active error retrying retries command paused parked usage_limited ci_wait))),
+              "pause" => nullable(enum(~w(usage_limit_exhausted ci_wait))),
+              "resume_at" => nullable(:integer),
+              "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
+            },
+            ~w(pause resume_at)
+          )
         ),
       "est" => nullable(:number),
       "override" => nullable(object(%{"hours" => :number, "reason" => :string, "by" => nullable(:string), "at" => nullable(:integer)})),
@@ -51,6 +56,7 @@ defmodule AiurWeb.Build.PayloadSchema do
   @spec blocks() :: map()
   def blocks do
     %{
+      "capacity" => object(%{"max" => nullable(:positive), "observed_at" => nullable(:integer), "stale" => nullable(:boolean)}),
       "writable" => :boolean,
       "repo" => nullable(object(%{"url" => :string})),
       "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted))},
@@ -158,7 +164,7 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
 
   defp sources do
-    standard = Map.new(~w(history features queue agents index), &{&1, object(source())})
+    standard = Map.new(~w(history features queue agents index estimates), &{&1, object(source())})
     Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean)))
   end
 

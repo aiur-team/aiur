@@ -18,6 +18,10 @@ On `/build`, epic columns follow matching DAG tickets visible after filters and 
 
 Counts show server totals; `—` means the count is unavailable. Narrow flow layouts replace headers with “Colour = epic”.
 
+Planned and running estimates use complexity defaults of 1, 2, 4, 7 and 11 hours. A recorded override takes precedence and shows its reason. Unknown estimates display `—`.
+
+The Live band ETA sums planned hours and divides by the observed runtime agent cap; `≥` marks running work, a partial queue or missing estimates. A stale cap is labelled. Use [`aiur ticket estimate`](../reference/cli.md#decisions-executor-events-and-findings) to inspect or correct an estimate.
+
 Click a ticket on `/build` (or press Enter/Space on a focused card, Enter on a list row), or follow `/build?ticket=<number>`, to open its header with state, epic, feature, points and repository links. Deep links also find indexed tickets outside the loaded history window.
 
 Missing tickets show “Ticket not found”; failed reads show “Ticket unavailable”. Escape, the close button or the backdrop closes the modal and clears the ticket from the URL.

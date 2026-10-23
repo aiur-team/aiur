@@ -8,6 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   alias Aiur.{Commands, ExecutorEvents, Issue}
   alias AiurWeb.EndpointConfig
+  alias AiurWeb.OperatorControlCenter.DecisionProvider
   alias Phoenix.LiveView.Socket
 
   @type reload_fun :: (Socket.t() -> Socket.t())
@@ -77,6 +78,45 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
         put_error(reload_fun.(socket), decision_id, "This Command detail is no longer available.")
     end
   end
+
+  @doc """
+  The open Command a ticket's agent waits on: blocking first, then oldest.
+
+  An empty page means "no Command" only when it is complete; a partial or
+  unreadable page is `{:unavailable, reason}`, never `:none`.
+  """
+  @spec ticket_command(String.t()) :: {:open, map()} | :none | {:unavailable, atom()}
+  def ticket_command(identifier) when is_binary(identifier) and identifier != "" do
+    params = %{"ticket" => identifier, "lifecycle" => "open", "limit" => 100}
+
+    case DecisionProvider.list(params, decision_store: decision_store()) do
+      {:ok, %{decisions: [_ | _] = rows}} -> {:open, pick(rows)}
+      {:ok, %{partial_results?: true} = page} -> {:unavailable, page.partial_reason || :partial}
+      {:ok, %{pagination: %{next_cursor: cursor}}} when is_binary(cursor) -> {:unavailable, :page_truncated}
+      {:ok, _complete_empty_page} -> :none
+      {:error, _reason} -> {:unavailable, :invalid_query}
+    end
+  catch
+    :exit, _reason -> {:unavailable, :store_unavailable}
+  end
+
+  @doc "One Command's presented row, open or settled."
+  @spec command_detail(String.t()) :: {:ok, map()} | {:unavailable, atom()}
+  def command_detail(decision_id) when is_binary(decision_id) do
+    case DecisionProvider.detail(decision_id, decision_store: decision_store()) do
+      {:ok, %{decision: row}} -> {:ok, row}
+      {:error, :not_found} -> {:unavailable, :not_found}
+      {:error, {:indeterminate, _}} -> {:unavailable, :indeterminate}
+      {:error, _reason} -> {:unavailable, :store_unavailable}
+    end
+  catch
+    :exit, _reason -> {:unavailable, :store_unavailable}
+  end
+
+  defp pick(rows), do: Enum.min_by(rows, &{if(&1.blocking, do: 0, else: 1), created_key(&1.created_at), &1.decision_id})
+
+  defp created_key(%DateTime{} = at), do: {0, DateTime.to_unix(at, :microsecond)}
+  defp created_key(_unknown), do: {1, 0}
 
   @doc false
   @spec actor() :: %{kind: :operator, id: String.t()}
