@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { estimatePatch } from '../scripts/build-home-now-patch.mjs'
 
 export const DESIGN_ORIGIN = 'http://design.parity.invalid'
 export const DESIGN_ROOT = fileURLToPath(new URL('../../test/fixtures/build_home/design-source/', import.meta.url)).replace(/\/$/, '')
@@ -89,6 +90,7 @@ export async function routeDesign(page) {
       if (canonicalLogos.has(url.pathname)) return route.fulfill({ path: fileURLToPath(canonicalLogos.get(url.pathname)) })
       const file = resolveDesignPath(url.pathname)
       if (!file) return route.fulfill({ status: 404, body: 'path outside design root' })
+      if (url.pathname === '/assets/build.js') return route.fulfill({ contentType: 'text/javascript', body: estimatePatch(await readFile(file, 'utf8')) })
       try { return await route.fulfill({ path: file }) } catch (error) { errors.push(`design request unavailable: ${url.href}: ${error.message}`) }
     } else errors.push(`network request refused: ${url.href}`)
     return route.abort()

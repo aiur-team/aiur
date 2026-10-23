@@ -1,10 +1,7 @@
-import { alignBoard, alignEtaMask, primeBoardPaint } from './build-home-band-canvas.mjs'
+import { alignBoard, primeBoardPaint } from './build-home-band-canvas.mjs'
 
 export async function prepareTreeMotion(pair) {
   await alignBoard(pair)
-  await alignEtaMask(pair)
-  pair.allowlist = pair.allowlist.map(e => e.id === 'now-band-eta-pending'
-    ? { ...e, kind: 'pixel-mask', selector: '.bd-now-eta' } : e)
 }
 
 export async function prepareTreeFrame(pair, region) {
