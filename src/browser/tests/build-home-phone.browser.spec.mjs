@@ -192,7 +192,9 @@ test('phone guard: a tap leaves no chain hover', async ({ browser }) => {
       vp.scrollIntoView({ block: 'start' })
       vp.scrollTop += card.getBoundingClientRect().top - vp.getBoundingClientRect().top - 60
     }))
-    await page.clock.runFor(250)
+    // The 200 ms guard can start the design's 420 ms snap glide, which restarts the guard.
+    // Wait through that second freeze before finding a touchable card.
+    await page.clock.runFor(704)
     const point = await tappablePoint(page, '#bd-sec-hist .bd-layer > .bd-card')
     expect(point, 'a tappable history card').not.toBeNull()
     await page.touchscreen.tap(point.x, point.y)
