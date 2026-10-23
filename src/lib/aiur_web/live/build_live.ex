@@ -133,6 +133,7 @@ defmodule AiurWeb.BuildLive do
   def handle_event("conversation-page", params, socket), do: Conversation.page(socket, params)
   def handle_event("conversation-close", params, socket), do: Conversation.close(socket, params)
   def handle_event("send", params, socket), do: Composer.send(socket, params)
+  def handle_event("voice-availability", _params, socket), do: {:reply, Composer.voice_availability(), socket}
   def handle_event("load-earlier", params, socket), do: Protocol.earlier(socket, params, source_opts(socket))
   def handle_event("usage-watch-start", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :start)}
   def handle_event("usage-watch-stop", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :stop)}

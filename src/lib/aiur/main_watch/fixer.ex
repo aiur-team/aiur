@@ -13,7 +13,7 @@ defmodule Aiur.MainWatch.Fixer do
     with {:ok, issues} <- call(opts, :fixer_open, [watch.fixer_label, opts], &FixerGitHub.open/2),
          issues = Enum.filter(issues, &(not is_nil(MainFixer.marker(&1["body"])))),
          :ok <- act(observation, observations, issues, watch, opts) do
-      FixerWatchdog.check(issues, opts)
+      FixerWatchdog.check(own(issues), opts)
     else
       {:error, reason} = error ->
         topic = if shared_budget_hold?(reason), do: "system.main.fixer.held", else: "system.main.fixer.failed"
@@ -32,7 +32,7 @@ defmodule Aiur.MainWatch.Fixer do
   defp act(observation, observations, issues, watch, opts) do
     case classification(observation) do
       :green ->
-        recover(issues, observation.sha, opts)
+        recover(own(issues), observation.sha, opts)
 
       :red ->
         flake? = observation.digest.flake_only and observation.digest.tests != :unknown and not observation.digest.truncated
@@ -73,9 +73,12 @@ defmodule Aiur.MainWatch.Fixer do
         once("create:#{signature}:#{observation.sha}", opts, fn -> create(observation, body, watch, opts) end)
 
       issue ->
-        comment_run(issue, observation, body, opts)
+        # A foreign fixer still matches, so this instance neither comments on it nor files a duplicate.
+        if Aiur.Instance.skip?(issue, issue["labels"], :main_watch_fixer), do: :ok, else: comment_run(issue, observation, body, opts)
     end
   end
+
+  defp own(issues), do: Enum.reject(issues, &Aiur.Instance.skip?(&1, &1["labels"], :main_watch_fixer))
 
   defp comment_run(issue, observation, body, opts) do
     id = to_string(issue["number"])

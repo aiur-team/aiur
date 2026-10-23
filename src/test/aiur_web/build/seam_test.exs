@@ -36,6 +36,7 @@ defmodule AiurWeb.Build.SeamTest do
     "AiurWeb.ProviderMeterWindows"
   ]
   # MP-E8-C11-T06 sends through the drawer's shared operator-message helper (AgentChat underneath).
+  # MP-E8-C11-T09 reads only the provider-neutral voice availability seam.
   @shell ~w(AgentLogModal UnitsRow UnitsControlPolicy UnitsPresentation DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry OperatorSend)
 
   test "web side references only the seam (future regression guard)" do
@@ -113,7 +114,7 @@ defmodule AiurWeb.Build.SeamTest do
   end
 
   defp allowed?(module) do
-    module in @allowed or module in @usage_facades or module == "AiurWeb.Build" or String.starts_with?(module, "AiurWeb.Build.") or
+    module in @allowed or module in @usage_facades or module == "Aiur.Voice" or module == "AiurWeb.Build" or String.starts_with?(module, "AiurWeb.Build.") or
       String.starts_with?(module, "Aiur.BuildOrder.") or
       Enum.any?(@shell, fn name ->
         base = "AiurWeb.OperatorControlCenter." <> name

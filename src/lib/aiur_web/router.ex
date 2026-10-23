@@ -85,6 +85,10 @@ defmodule AiurWeb.Router do
   Api.machine_writes()
   Streamdeck.session()
   Capabilities.reads()
+  # Per-ticket usage read (#5692).
+  alias AiurWeb.Routes.Usage
+  require Usage
+  Usage.reads()
   UsageProgressRoutes.reads()
 
   # Account and rate-limit snapshot (#5697).

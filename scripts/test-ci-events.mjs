@@ -165,7 +165,7 @@ assert.deepEqual([...new Set(shardCommands)].sort(), [...new Set(coreCommands)].
 const browserJob = jobs.get('browser');
 assert.ok(browserJob.includes('./.github/actions/browser-smoke'), 'browser uses the shared browser action');
 assert.ok(browserJob.includes('actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'), 'browser checks out before the local action');
-assert.ok(browserJob.includes(`timeout-minutes: ${budgetMs / 60_000 + 2}`), 'browser has 2-minute headroom beyond the shard runner budget');
+assert.ok(browserJob.includes('timeout-minutes: 45'), 'browser covers setup, the 33-minute shard runner target and post-suite steps (check-browser-smoke-shards.mjs)');
 assert.ok(browserJob.includes(`shard: [${Object.keys(shards).join(', ')}]`), 'browser matrix selects every shard in the shard map');
 const browserAction = readFileSync(new URL('../.github/actions/browser-smoke/action.yml', import.meta.url), 'utf8');
 assert.ok(browserAction.includes('using: composite'), 'shared browser setup is an allowed local composite action');
