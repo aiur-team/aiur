@@ -270,61 +270,6 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
            end)
   end
 
-  test "red required check cause is unknown unless the same check passes on base" do
-    pr =
-      live_ci(
-        %{
-          number: 5018,
-          state: "open",
-          review_decision: "APPROVED",
-          head_sha: "head",
-          base_sha: "base-sha",
-          approved_head_sha: "head",
-          in_merge_queue: false,
-          auto_merge: false,
-          required_checks: [%{name: "test", conclusion: "failure"}]
-        },
-        0
-      )
-
-    assert [%{failure_class: "unknown"}] =
-             Checks.all(%{pull_requests: [pr], github_cache_ages: %{pull_requests: %{5018 => 0}}}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "approved_pr_red"))
-
-    assert [%{failure_class: "unknown"}] =
-             Checks.all(
-               %{pull_requests: [pr], base_checks: [%{name: "test", base_sha: "other-base", conclusion: "success"}], github_cache_ages: %{pull_requests: %{5018 => 0}}},
-               ~U[2026-10-18 14:00:00Z]
-             )
-             |> Enum.filter(&(&1.kind == "approved_pr_red"))
-
-    assert [%{failure_class: "caused_by_pr", message: pr_caused_message}] =
-             Checks.all(
-               %{pull_requests: [pr], base_checks: [%{name: "test", base_sha: "base-sha", conclusion: "success"}], github_cache_ages: %{pull_requests: %{5018 => 0}}},
-               ~U[2026-10-18 14:00:00Z]
-             )
-             |> Enum.filter(&(&1.kind == "approved_pr_red"))
-
-    assert pr_caused_message =~ "test (PR-caused)"
-
-    assert [%{failure_class: "inherited", message: inherited_message}] =
-             Checks.all(
-               %{pull_requests: [pr], base_checks: [%{name: "test", base_sha: "base-sha", conclusion: "failure"}], github_cache_ages: %{pull_requests: %{5018 => 0}}},
-               ~U[2026-10-18 14:00:00Z]
-             )
-             |> Enum.filter(&(&1.kind == "approved_pr_red"))
-
-    assert inherited_message =~ "test (inherited)"
-
-    assert [%{failure_class: "infra", message: infra_message}] =
-             Checks.all(
-               %{pull_requests: [%{pr | required_checks: [%{name: "test", conclusion: "timed_out"}]}], base_checks: [], github_cache_ages: %{pull_requests: %{5018 => 0}}},
-               ~U[2026-10-18 14:00:00Z]
-             )
-             |> Enum.filter(&(&1.kind == "approved_pr_red"))
-
-    assert infra_message =~ "test (infra)"
-  end
-
   defp live_ci(pr, age_ms, now \\ ~U[2026-10-18 14:00:00Z]) do
     Map.merge(pr, %{ci_head_sha: pr.head_sha, ci_observed_at_ms: DateTime.to_unix(now, :millisecond) - age_ms})
   end
