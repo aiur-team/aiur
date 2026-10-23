@@ -66,10 +66,11 @@ defmodule AiurEnginePrePrInterruptionTest do
     repo = Path.join(fixture, "repo")
     git!(repo, ["switch", "-c", "feature"])
     grandchild = Path.join(fixture, "grandchild.pid")
+    reaped = Path.join(fixture, "grandchild.reaped")
 
     File.write!(
       Path.join(fixture, "bin/mise"),
-      "#!/usr/bin/env bash\nsleep 30 &\necho $! > \"#{grandchild}\"\nkill -HUP \"$(cat \"#{fixture}/pre-pr.pid\")\"\nwait\n"
+      "#!/usr/bin/env bash\nsleep 30 &\nchild=$!\necho $child > \"#{grandchild}\"\ntrap 'wait \"$child\" 2>/dev/null || true; touch \"#{reaped}\"; exit 0' TERM\nkill -HUP \"$(cat \"#{fixture}/pre-pr.pid\")\"\nwait \"$child\"\n"
     )
 
     File.chmod!(Path.join(fixture, "bin/mise"), 0o755)
@@ -81,14 +82,14 @@ defmodule AiurEnginePrePrInterruptionTest do
     assert durable =~ "Result: INTERRUPTED"
     assert durable =~ "INTERRUPTED gate mix format --check-formatted received HUP"
 
-    # A just-killed process answers kill -0 until it is reaped; give it a moment.
+    # The fake gate reaps its killed child before exiting; verify no process remains.
+    assert File.exists?(reaped), "the fake gate did not reap its child before exiting"
     pid = String.trim(File.read!(grandchild))
 
     alive =
       Enum.reduce_while(1..20, true, fn _, _ ->
         case System.cmd("kill", ["-0", pid], stderr_to_stdout: true) do
           {_, 0} ->
-            Process.sleep(100)
             {:cont, true}
 
           _ ->
