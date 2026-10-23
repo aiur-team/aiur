@@ -156,7 +156,7 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
       new = decision("new", "4000", minutes_ago(5))
 
       assert DecisionEscalation.status_line([new, old], @now, fn "3141" -> 38 end) ==
-               "DECISIONS open 2 oldest 6h12m (#3141, gates 38) ATTENTION (answer with `aiur commands`)"
+               "DECISIONS open 2 ids=[#{Enum.min([new.decision_id, old.decision_id])},#{Enum.max([new.decision_id, old.decision_id])}] oldest 6h12m (#3141, gates 38) ATTENTION (answer with `aiur commands`)"
     end
 
     test "counts expired blocking unanswered Decisions that remain actionable" do
@@ -172,7 +172,7 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
       expired_nonblocking = %{decision("quiet-expired", "4002", minutes_ago(100), blocking: false) | decision_status: :expired}
 
       assert DecisionEscalation.status_line([answered_expired, open, expired, expired_nonblocking], @now, fn _ -> 0 end) ==
-               "DECISIONS open 2 (1 expired) oldest 6h12m (#3141, gates 0) ATTENTION (answer with `aiur commands`)"
+               "DECISIONS open 2 (1 expired) ids=[#{Enum.min([expired.decision_id, open.decision_id])},#{Enum.max([expired.decision_id, open.decision_id])}] oldest 6h12m (#3141, gates 0) ATTENTION (answer with `aiur commands`)"
     end
 
     test "counts deferred and non-blocking open Decisions like `aiur commands --filter open` (#5109)" do
@@ -181,7 +181,7 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
       moot = %{decision("moot", "4005", minutes_ago(2000)) | decision_status: :moot}
 
       assert DecisionEscalation.status_line([question, moot, deferred], @now, fn _ -> 0 end) ==
-               "DECISIONS open 2 oldest 30m (#3323, gates 0) ATTENTION (answer with `aiur commands`)"
+               "DECISIONS open 2 ids=[#{Enum.min([deferred.decision_id, question.decision_id])},#{Enum.max([deferred.decision_id, question.decision_id])}] oldest 30m (#3323, gates 0) ATTENTION (answer with `aiur commands`)"
     end
 
     test "counts the same open set as `aiur commands --filter open` and the dashboard (#5109)" do
@@ -216,6 +216,20 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
       assert RetainedIndex.canonical_counts(index).open == status_count
       assert cards.(:open) == status_count
       assert cards.(:blocking) == status_count
+
+      assert status_line_ids =
+               decisions
+               |> DecisionEscalation.status_line(@now, fn _ -> 0 end)
+               |> then(&Regex.run(~r/ids=\[([^]]*)\]/, &1, capture: :all_but_first))
+
+      expected_ids =
+        decisions
+        |> Enum.filter(&Aiur.Commands.open?/1)
+        |> Enum.map(& &1.decision_id)
+        |> Enum.sort()
+        |> Enum.join(",")
+
+      assert status_line_ids == [expected_ids]
     end
 
     test "the dashboard does not take a delivery-alert Decision as the selected open Command (#5109)" do
@@ -231,9 +245,9 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
       nonblocking = %{decision("nb", "3142", minutes_ago(300), blocking: false) | decision_status: :expired}
 
       assert DecisionEscalation.status_line([young, answered, nonblocking], @now, fn _ -> 0 end) ==
-               "DECISIONS open 1 oldest 14m (#4000, gates 0)"
+               "DECISIONS open 1 ids=[#{young.decision_id}] oldest 14m (#4000, gates 0)"
 
-      assert DecisionEscalation.status_line([answered], @now) == "DECISIONS open 0"
+      assert DecisionEscalation.status_line([answered], @now) == "DECISIONS open 0 ids=[]"
     end
   end
 
