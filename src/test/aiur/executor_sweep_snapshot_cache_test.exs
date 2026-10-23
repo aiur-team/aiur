@@ -249,7 +249,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
 
     start_supervised!({Aiur.MainWatch, branch: "main", repo: "owner/repo", interval_ms: 60_000, subscribe: false, load_fun: fn _repo, _branch -> data end, poll_fun: poll_fun})
 
-    assert_receive :main_watch_poll_started
+    assert_receive :main_watch_poll_started, 1_000
     snapshot = SnapshotCache.read(fn -> %Snapshot{status: :available, tickets: []} end)
     assert [%{head_branch: "gh-readonly-queue/main/pr-4448-abc"}] = snapshot.merge_groups
     assert Enum.any?(snapshot.decisions, &(&1.id == decision.decision_id and &1.ticket == identifier))

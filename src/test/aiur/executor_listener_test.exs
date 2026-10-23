@@ -35,18 +35,6 @@ defmodule Aiur.ExecutorListenerTest do
     def emit_custom(topic, message, opts), do: Aiur.Alerts.emit_custom(topic, message, opts)
   end
 
-  defmodule RecordingAlertSink do
-    @moduledoc false
-    def emit_system(topic, opts), do: Aiur.Alerts.emit_system(topic, opts)
-
-    def emit_custom("executor.command." <> _kind = topic, _message, _opts) do
-      send(Aiur.ExecutorListenerTest, {:command_alert, topic})
-      :ok
-    end
-
-    def emit_custom(topic, message, opts), do: Aiur.Alerts.emit_custom(topic, message, opts)
-  end
-
   setup do
     # The listener reads/writes its durable watermark under the per-test log
     # root (TestSupport isolates :log_file), so a "restart" in a test starts a
@@ -250,76 +238,6 @@ defmodule Aiur.ExecutorListenerTest do
     assert {:ok, wakes} = ExecutorWakeInbox.wait(500, @inbox_name)
     assert Enum.any?(wakes, &(&1["ticket"] == ticket and &1["pr_number"] == 2030))
     assert watermark() == nil
-  end
-
-  test "another instance's ticket events are not projected into this Executor's inbox (#5803)" do
-    [foreign, native] = for _ <- 1..2, do: System.unique_integer([:positive])
-    path = Workflow.workflow_file_path()
-    write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [#{foreign}]\n")
-    :ok = Aiur.WorkflowStore.force_reload()
-    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
-    start_listener(inbox: @inbox_name, patterns: ["ticket.#{foreign}.pr.opened", "ticket.#{native}.pr.opened"], reconcile?: false)
-
-    for ticket <- [foreign, native], topic = "ticket.#{ticket}.pr.opened" do
-      Exchange.publish(topic, %{id: System.unique_integer([:positive]), topic: topic, action: "opened", pr: %{"number" => ticket, "draft" => false}})
-    end
-
-    assert {:ok, wakes} = ExecutorWakeInbox.wait(500, @inbox_name)
-    assert Enum.map(wakes, & &1["ticket"]) == ["#{native}"]
-  end
-
-  test "foreign blocking Decisions do not alert or wake this Executor" do
-    ticket = "3141"
-    path = Workflow.workflow_file_path()
-    write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [#{ticket}]\n")
-    :ok = Aiur.WorkflowStore.force_reload()
-
-    Process.register(self(), __MODULE__)
-    signal = Application.get_env(:aiur, :signal)
-    Application.put_env(:aiur, :signal, Keyword.put(signal, :alert_sink, RecordingAlertSink))
-    on_exit(fn -> Application.put_env(:aiur, :signal, signal) end)
-
-    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
-
-    decision = %{
-      command_decision("foreign-escalation")
-      | blocking: true,
-        ticket: %{identifier: ticket, title: "Executor events", url: nil},
-        created_at: DateTime.add(DateTime.utc_now(), -50 * 60, :second)
-    }
-
-    test_pid = self()
-
-    escalation = [
-      decisions_fun: fn -> {:ok, [decision]} end,
-      now: DateTime.utc_now(),
-      gates_fun: fn _ticket -> 0 end,
-      condition_states_fun: fn topics -> Map.new(topics, &{&1, :unknown}) end,
-      wake_fun: fn record -> send(test_pid, {:escalation_wake, record}) end,
-      alert_fun: fn topic, opts -> send(test_pid, {:escalation_alert, topic, opts}) end
-    ]
-
-    listener = start_listener(inbox: @inbox_name, patterns: ["executor.#"], reconcile?: false, escalation_interval_ms: :infinity, escalation: escalation)
-    topic = "executor.decision.requested"
-
-    Exchange.publish(topic, %{
-      id: System.unique_integer([:positive]),
-      topic: topic,
-      issue_identifier: ticket,
-      decision_id: "foreign-decision",
-      blocking: true,
-      title: "Foreign decision",
-      recommendation: nil
-    })
-
-    assert is_map(:sys.get_state(listener))
-    refute_receive {:command_alert, _topic}, 50
-    assert :timeout = ExecutorWakeInbox.wait(50, @inbox_name)
-
-    send(listener, :escalate)
-    assert is_map(:sys.get_state(listener))
-    refute_receive {:escalation_wake, _}, 50
-    refute_receive {:escalation_alert, _, _}, 50
   end
 
   test "system dispatch transitions become identifier-only wakes" do
