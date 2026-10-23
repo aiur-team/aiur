@@ -7,6 +7,9 @@ defmodule Aiur.Alerts.ClosedTicket do
   alias Aiur.{AlertFeed, AlertLedger}
 
   @ledger_opts [:ledger_path, :ledger_paths, :log_roots]
+  # These alerts describe failed ticket-state writes. The ticket may be closed
+  # in GitHub while its labels still need an Executor to repair them.
+  @state_write_failure ~r/(?:state|terminal|latch).*failed|write_failed/
 
   @doc "Appends a quiet `.resolved` record for each open `ticket.<id>.*` attention of `tickets`."
   @spec resolve([String.t()], keyword()) :: :ok
@@ -25,10 +28,16 @@ defmodule Aiur.Alerts.ClosedTicket do
     |> Enum.each(fn topic ->
       with "ticket." <> rest <- topic,
            [ticket, _] <- String.split(rest, ".", parts: 2),
-           true <- MapSet.member?(tickets, ticket) do
+           true <- MapSet.member?(tickets, ticket),
+           false <- state_write_failure?(topic) do
         AlertLedger.append(resolution(topic, ticket, now), ledger_opts)
       end
     end)
+  end
+
+  defp state_write_failure?(topic) do
+    String.contains?(topic, ".agent.attention.") and
+      Regex.match?(@state_write_failure, topic)
   end
 
   defp resolution(topic, ticket, now) do
