@@ -129,10 +129,10 @@ forward, so measuring the gate never perturbs a real build acquisition.
 | Unit | `/units` | Pause or resume one agent, or send it a message. |
 | Fleet capacity | `/units` | Adjust capacity. |
 | Ticket | `/units` Tickets panel | Apply routing labels. |
-| Ticket | Build ticket modal | Add a not-queued ticket to the build queue. |
+| Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
 | Command | Commands | Answer or revise. |
 
-Apart from Add to queue, the Build ticket modal is read-only. The CLI covers fleet, Unit and capacity controls plus initial Command answers; Command revision and the ticket-routing preview remain GUI-only today.
+Build ticket modal mutations require writable dashboard access. The CLI covers fleet, Unit and capacity controls plus initial Command answers; Command revision and the ticket-routing preview remain GUI-only today.
 
 Disable mutations for an observation-only surface:
 

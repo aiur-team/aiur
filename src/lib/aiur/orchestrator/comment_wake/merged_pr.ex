@@ -404,6 +404,9 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
       {target, :ok} when target in ["rework", "ci-wait", "human-review", "needs-triage"] ->
         current
 
+      {"done", :skipped} ->
+        current
+
       {_, {:error, reason}} ->
         Logger.warning("PR merge transition deferred: issue_identifier=#{identifier} reason=#{MergeTransition.reason_name(reason)}")
 

@@ -85,7 +85,8 @@ defmodule AiurWeb.Build.PayloadSchema do
   def message("diff"), do: Map.merge(envelope(), %{"upsert" => list(:row), "remove" => list(:id), "set" => object(blocks(), Map.keys(blocks()))})
   def message("earlier"), do: Map.merge(Map.delete(envelope(), "now"), %{"rows" => list(:row), "history" => object(history())})
 
-  def message("ticket"), do: Map.put(Map.delete(envelope(), "now"), "row", :row)
+  def message("ticket"), do: Map.merge(Map.put(Map.delete(envelope(), "now"), "row", :row), control_fields())
+  def message("control"), do: Map.merge(%{"v" => {:literal, 1}, "kind" => {:literal, "control"}, "id" => :id}, control_fields())
 
   def message("error"),
     do: %{
@@ -109,6 +110,22 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
 
   def usage(_state), do: nil
+
+  defp control_fields do
+    %{
+      "control" =>
+        nullable(
+          object(%{
+            "action" => nullable(enum(~w(pause resume))),
+            "state" => enum(~w(enabled pending disabled)),
+            "title" => :string,
+            "status" => nullable(object(%{"label" => :string, "tone" => enum(~w(pending applied warning error)), "retry" => :boolean}))
+          })
+        ),
+      "chat" => nullable(:string),
+      "by_you_at" => nullable(:integer)
+    }
+  end
 
   defp feature_stats do
     %{

@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.Ticket do
   @moduledoc "Bounded, read-only modal reads over the complete ticket index."
   import Phoenix.Component, only: [assign: 3]
-  alias AiurWeb.Build.{DataSource, Payload, Read, URLState}
+  alias AiurWeb.Build.{Controls, DataSource, Payload, Read, URLState}
 
   @spec open(Phoenix.LiveView.Socket.t(), map()) :: {:reply, map(), Phoenix.LiveView.Socket.t()}
   def open(socket, %{"id" => raw} = params) when is_binary(raw) do
@@ -31,5 +31,8 @@ defmodule AiurWeb.Build.Ticket do
     if Payload.validate(message) == :ok, do: message, else: Payload.error(:unavailable)
   end
 
-  defp envelope(socket, row), do: Payload.ticket(row, socket.assigns.build_epoch, socket.assigns.build_generation)
+  defp envelope(socket, row) do
+    control = Controls.read_body(socket, socket.assigns.open_ticket)
+    Payload.ticket(row, socket.assigns.build_epoch, socket.assigns.build_generation) |> Map.merge(Map.take(control, ~w(control chat by_you_at)))
+  end
 end

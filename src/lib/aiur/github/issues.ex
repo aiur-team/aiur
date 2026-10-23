@@ -14,6 +14,7 @@ defmodule Aiur.GitHub.Issues do
     Labels,
     OpenIssueListing,
     ResourceStore,
+    StateLabels,
     StatePolicy,
     Transport
   }
@@ -445,15 +446,11 @@ defmodule Aiur.GitHub.Issues do
 
     healable =
       rest
-      |> Enum.filter(&(degenerate_state_labels?(&1) or &1.state in ~w(ci-wait human-review error)))
+      |> StateLabels.filter_candidate_repair_labels(prefix, active_states)
       |> TestTicketScope.filter_issues()
 
     authorized ++ healable
   end
-
-  defp degenerate_state_labels?(%Issue{state_labels: []}), do: true
-  defp degenerate_state_labels?(%Issue{state_labels: [_, _ | _]}), do: true
-  defp degenerate_state_labels?(_issue), do: false
 
   @spec fetch_issues_for_each_label(
           [String.t()],

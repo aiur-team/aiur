@@ -1,11 +1,9 @@
 defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
   # Log capture is global; preserve the original module's serial execution.
-  use ExUnit.Case, async: false
-
-  import ExUnit.CaptureLog
+  use Aiur.TestSupport
 
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{CommentWake, State}
+  alias Aiur.Orchestrator.{CommentWake, MergeStateWriter, State}
 
   defp base_state do
     %State{
@@ -36,6 +34,40 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
   end
 
   describe "mark_pr_merged_issue_done/2" do
+    test "skips terminal writes when the fetched issue belongs to another GitHub label prefix" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent"
+      )
+
+      issue = %Issue{id: "3163", identifier: "3163", state: nil, labels: ["nuc:done"]}
+
+      result =
+        MergeStateWriter.write_if_current("3163", "done", fetch_issue_states_fun: fn ["3163"] -> {:ok, [issue]} end)
+
+      assert result == :skipped
+    end
+
+    test "does not complete or alert when the merged-PR writer skips a foreign lane" do
+      state = base_state()
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, "3163",
+          pr_body: "Closes #3163",
+          update_issue_state_fun: fn "3163", "done" ->
+            send(parent, :foreign_lane_writer_skipped)
+            :skipped
+          end,
+          emit_alert_fun: fn _, _ -> flunk("a skipped foreign lane must not raise a transition alert") end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
+        )
+
+      assert_received :foreign_lane_writer_skipped
+      assert result == state
+    end
+
     test "returns state unchanged when no matching running entry exists" do
       state = base_state()
 

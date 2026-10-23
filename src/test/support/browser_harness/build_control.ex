@@ -3,7 +3,7 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
   use Phoenix.Controller, formats: []
   import Plug.Conn
   plug(:fetch_query_params)
-  alias Aiur.TestSupport.BuildHome.{EarlierControl, FixtureSource, UsageFixtures}
+  alias Aiur.TestSupport.BuildHome.{ControlFixture, EarlierControl, FixtureSource, UsageFixtures}
 
   def configure(conn, %{"action" => "stream", "key" => key}) do
     conn |> put_session("build_stream", key) |> send_resp(200, "build fixture stream: #{key}")
@@ -44,6 +44,10 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
     conn = fetch_query_params(conn)
     EarlierControl.configure(Map.merge(params, conn.query_params))
     send_resp(conn, 200, "earlier configured")
+  end
+
+  def configure(conn, %{"action" => "lifecycle"} = params) do
+    ControlFixture.lifecycle(conn, Map.merge(params, conn.query_params))
   end
 
   def configure(conn, _params), do: send_resp(conn, 404, "unknown build fixture control action")
