@@ -24,8 +24,9 @@ defmodule Aiur.OrchestratorStatusCliSectionBoundTest do
 
   defp hung_supervision do
     stub_supervision(fn ->
-      Process.sleep(5_000)
-      {:ok, %{expected: 2, healthy: 2, missing: []}}
+      receive do
+        :never -> {:ok, %{expected: 2, healthy: 2, missing: []}}
+      end
     end)
   end
 
