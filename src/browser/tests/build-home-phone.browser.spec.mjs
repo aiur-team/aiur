@@ -17,6 +17,16 @@ function expectFlowLayout(g) {
   expect(g.histLefts.length).toBeLessThanOrEqual(Math.max(2, Math.floor((g.vpW - 46 - 14) / 140)))
 }
 
+// The centre of the first card the finger would actually hit, or null while the board scrolls.
+const tappablePoint = (page, selector) => page.evaluate(selector => {
+  if (document.querySelector('#bd-content').classList.contains('scrolling')) return null
+  for (const card of document.querySelectorAll(selector)) {
+    const r = card.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + Math.min(r.height / 2, 20)
+    if (y > 0 && y < innerHeight && document.elementFromPoint(x, y)?.closest('.bd-card') === card) return { x, y }
+  }
+  return null
+}, selector)
+
 async function shoot(page, name) {
   await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: 'disabled', caret: 'hide', scale: 'device' })
 }
@@ -167,11 +177,26 @@ test('phone guard: tap opens the modal', async ({ browser }) => {
 
 // Product only (C9-T11 §7): the design listens to mouseover and keeps the chain after a tap.
 test('phone guard: a tap leaves no chain hover', async ({ browser }) => {
-  const { page, close } = await openPhoneProduct(browser, phoneCell('p390'), { query: '?trees=1' })
+  // The fake clock keeps the live snap from gliding the board back to the band.
+  const { page, close } = await openPhoneProduct(browser, phoneCell('p390'), { query: '?trees=1', motion: true })
   try {
-    // Band cards never start a chain (trees.js onHover); a history card does on a mouse.
-    await page.locator('#bd-sec-hist .bd-layer > .bd-card').first().tap()
-    await expect(page.locator('#tk-backdrop')).toHaveClass(/\bshow\b/)
+    // Band cards never start a chain (trees.js onHover); a history card does on a mouse. The
+    // sticky band covers a whole phone board, so collapse it first; its button is clipped at
+    // this width (S-45.8), hence the programmatic click.
+    await page.locator('[data-min]').evaluate(button => button.click())
+    await expect(page.locator('#bd-now')).toHaveClass(/\bmin\b/)
+    await page.locator('#bd-vp').evaluate(vp => new Promise(resolve => {
+      const cards = document.querySelectorAll('#bd-sec-hist .bd-layer > .bd-card'), card = cards[Math.floor(cards.length / 2)]
+      vp.addEventListener('scroll', resolve, { once: true })
+      // Board at the top of the window, card just under the sticky lanes.
+      vp.scrollIntoView({ block: 'start' })
+      vp.scrollTop += card.getBoundingClientRect().top - vp.getBoundingClientRect().top - 60
+    }))
+    await page.clock.runFor(250)
+    const point = await tappablePoint(page, '#bd-sec-hist .bd-layer > .bd-card')
+    expect(point, 'a tappable history card').not.toBeNull()
+    await page.touchscreen.tap(point.x, point.y)
+    await expect.poll(async () => { await page.clock.runFor(16); return page.locator('#tk-backdrop').evaluate(el => el.classList.contains('show')) }).toBe(true)
     expect(await page.evaluate(() => ({
       marked: document.querySelectorAll('.hl, .hdim').length,
       hovering: document.querySelector('#bd-content').classList.contains('hovering'),
