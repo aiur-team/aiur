@@ -302,6 +302,21 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert message =~ "oldest ticket #1800"
   end
 
+  test "counts merging and cancelled as real state labels, not missing ones" do
+    # `agent:merging` and `agent:cancelled` are lifecycle states the tracker
+    # writes (#5796). A ticket carrying one of them has exactly one state label;
+    # reporting it as invalid inflates P9 and sends the Executor relabelling a
+    # healthy ticket.
+    tickets = [
+      %{number: 1, labels: ["agent:merging"]},
+      %{number: 2, labels: ["agent:cancelled"]},
+      %{number: 3, labels: ["agent:merging", "agent:ci-wait"]}
+    ]
+
+    assert [%{ticket: 3, ticket_count: 1, state_labels: ["merging", "ci-wait"]}] =
+             Checks.all(%{tickets: tickets}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "invalid_state_labels"))
+  end
+
   test "summarizes a stale triage backlog in one finding with its count and oldest ticket" do
     snapshot = %{
       open_tickets: %Aiur.OpenTicketSource.Snapshot{

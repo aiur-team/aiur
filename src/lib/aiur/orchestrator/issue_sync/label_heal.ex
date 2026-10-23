@@ -229,11 +229,12 @@ defmodule Aiur.Orchestrator.IssueSync.LabelHeal do
   end
 
   defp emit_contradictory_state_label_alert(%State{} = state, tickets) do
-    identifiers = tickets |> Map.values() |> Enum.map(& &1.identifier) |> Enum.sort()
+    # Each ticket carries its label pair so the line says which state to drop.
+    entries = tickets |> Map.values() |> Enum.sort_by(& &1.identifier) |> Enum.map(&"#{&1.identifier} (#{Enum.join(&1.labels, "+")})")
 
     message =
-      "#{length(identifiers)} ticket#{if length(identifiers) == 1, do: "", else: "s"} undispatchable due to contradictory labels: " <>
-        Enum.join(identifiers, ", ")
+      "#{length(entries)} ticket#{if length(entries) == 1, do: "", else: "s"} undispatchable due to contradictory labels: " <>
+        Enum.join(entries, ", ")
 
     case Alerts.emit_system("system.fleet.contradictory_state_labels",
            message: message,

@@ -99,6 +99,8 @@ defmodule Aiur.Extensions.HttpServerTest do
     for asset_path <- [
           "/conversation-drawer-hook.js",
           "/conversation-voice-controller.js",
+          "/voice-capture.js",
+          "/voice-transport.js",
           "/provider-assets/codex-color.svg",
           "/build-home/loader.js",
           "/build-home/logos/kimi-logo.png",
