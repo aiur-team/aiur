@@ -1,38 +1,9 @@
-defmodule VoiceConverse.Providers.ElevenLabsAgents do
-  def descriptor do
-    %{
-      id: :elevenlabs_agents,
-      family: :hosted_agent,
-      label: "ElevenLabs Agents",
-      modes: [:voice, :text],
-      needs: [:elevenlabs],
-      privacy: %{audio_stored_by_provider: true, deletable?: true},
-      price_hint: "provider-priced"
-    }
-  end
-end
-
-defmodule VoiceConverse.Providers.OpenAILive do
-  def descriptor do
-    %{
-      id: :wrong_id,
-      family: :hosted_agent,
-      label: "OpenAI Live",
-      modes: [:voice],
-      needs: [:elevenlabs],
-      privacy: %{audio_stored_by_provider: true, deletable?: false},
-      price_hint: "provider-priced"
-    }
-  end
-end
-
 defmodule VoiceConverse.ProvidersTest do
   use ExUnit.Case, async: false
 
-  alias VoiceConverse.{Config, Providers}
-  alias VoiceConverse.Testing.{FakeBriefingSource, StaticCredentials}
-
-  @cascade %{stt: [:browser_stt], llm: "anthropic:claude", tts: [:elevenlabs_tts]}
+  alias VoiceConverse.Providers
+  alias VoiceConverse.Testing.StaticCredentials
+  import VoiceConverse.Testing.ProviderTestSupport, only: [config: 2]
 
   setup do
     StaticCredentials.put(%{}, observer: self())
@@ -52,35 +23,6 @@ defmodule VoiceConverse.ProvidersTest do
 
     assert {:error, :no_usable_option, [{:openai_live, {:missing_credential, :openai}}]} =
              Providers.resolve(config)
-  end
-
-  test "skips a ready provider refused by the privacy policy" do
-    config =
-      config(
-        %{openai: "openai-secret", elevenlabs: "elevenlabs-secret"},
-        preference: [:openai_live, :elevenlabs_agents],
-        privacy: %{provider_allowlist: [:elevenlabs_agents]}
-      )
-
-    assert {:ok, %{id: :elevenlabs_agents},
-            skipped: [{:openai_live, {:policy_refused, %{reason: :provider_not_allowed}}}]} =
-             Providers.resolve(config)
-  end
-
-  test "refuse policy reports no usable option when every ready provider is refused" do
-    config =
-      config(
-        %{openai: "openai-secret", elevenlabs: "elevenlabs-secret"},
-        preference: [:openai_live, :elevenlabs_agents],
-        on_missing_credential: :refuse,
-        privacy: %{provider_allowlist: []}
-      )
-
-    assert {:error, :no_usable_option,
-            [
-              {:openai_live, {:policy_refused, %{reason: :provider_not_allowed}}},
-              {:elevenlabs_agents, {:policy_refused, %{reason: :provider_not_allowed}}}
-            ]} = Providers.resolve(config)
   end
 
   test "text mode excludes speech-only providers" do
@@ -186,33 +128,5 @@ defmodule VoiceConverse.ProvidersTest do
     config = config(%{anthropic: "anthropic-secret"}, preference: [:text_only], on_missing_credential: :text_only)
 
     assert {:ok, %{id: :text_only}, skipped: []} = Providers.resolve(config)
-  end
-
-  defp config(secrets, overrides) do
-    StaticCredentials.put(secrets, observer: self())
-
-    provider_overrides = Keyword.drop(overrides, [:privacy])
-
-    providers =
-      Map.merge(
-        %{
-          preference: [:elevenlabs_agents, :openai_live, :gemini_live, :cascade],
-          mode: :voice,
-          cascade: @cascade,
-          on_missing_credential: :next
-        },
-        Map.new(provider_overrides)
-      )
-
-    {:ok, config} =
-      Config.new(
-        transcript: :none,
-        credentials: StaticCredentials,
-        briefing_source: FakeBriefingSource,
-        providers: providers,
-        privacy: Keyword.get(overrides, :privacy, %{})
-      )
-
-    config
   end
 end

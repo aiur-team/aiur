@@ -80,12 +80,22 @@ defmodule VoiceConverse.Providers do
          skipped
        ) do
     case option_by_id(:text_only, config) do
-      %{status: :ready} = option -> {:ok, option, skipped: Enum.reject(skipped, &(elem(&1, 0) == :text_only))}
-      %{reason: reason} -> {:error, :no_usable_option, skipped ++ [{:text_only, reason}]}
+      %{status: :ready} = option ->
+        resolve_text_only_fallback(option, config, skipped)
+
+      %{reason: reason} ->
+        {:error, :no_usable_option, skipped ++ [{:text_only, reason}]}
     end
   end
 
   defp fallback_to_text_only(_config, skipped), do: {:error, :no_usable_option, skipped}
+
+  defp resolve_text_only_fallback(option, config, skipped) do
+    case ProviderPolicy.check(config.privacy, option) do
+      :ok -> {:ok, option, skipped: Enum.reject(skipped, &(elem(&1, 0) == :text_only))}
+      {:error, reason} -> {:error, :no_usable_option, skipped ++ [{:text_only, {:policy_refused, reason}}]}
+    end
+  end
 
   defp option_by_id(id, config) do
     case Registry.entry(id) do
