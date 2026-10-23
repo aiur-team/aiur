@@ -103,6 +103,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
                  review_decision: nil,
                  recovery: nil,
                  failures: [%{name: "lint", result: "failure", excerpt: "failed"}],
+                 check_runs: [],
                  tracker_state: "ci-wait"
                }
              }
@@ -423,6 +424,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
                  review_decision: "APPROVED",
                  recovery: nil,
                  failures: [],
+                 check_runs: [],
                  tracker_state: "human-review"
                }
              }
