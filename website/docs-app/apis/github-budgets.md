@@ -32,8 +32,8 @@ Sustained timeouts raise one `system.github.budget_broker_degraded` attention wi
 
 | Budget | Unit | Where to read it |
 | --- | --- | --- |
-| Core | REST requests | The Units meter, `aiur units`, or `aiur github-cost --budget core`. |
-| GraphQL | Query points | The Units meter, `aiur units`, or `aiur github-cost`. |
+| Core | REST requests | The Build page usage strip, the Units meter, `aiur units`, or `aiur github-cost --budget core`. |
+| GraphQL | Query points | The Build page usage strip, the Units meter, `aiur units`, or `aiur github-cost`. |
 | Anonymous core | REST requests made without a token | A `core:anonymous` row, present only once an anonymous read has been observed. |
 | Secondary limit | Temporary abuse-control backoff | A separate Units row while the backoff is active. |
 | Issue dependencies / sub-issues | Route-specific REST windows | Separate `core:issue_dependencies` and `core:sub_issues` observations in the quota snapshot; excluded from primary Core and dispatch. |

@@ -14,6 +14,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
 
   use Phoenix.Component
 
+  import AiurWeb.Components.VoiceInput, only: [voice_input: 1]
+
   alias Aiur.OpaqueIdentifier
   alias AiurWeb.OperatorControlCenter.AgentUsageSnapshot
 
@@ -29,6 +31,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   attr(:usage_snapshot, :map, default: nil)
   attr(:usage_error, :atom, default: nil)
   attr(:context_occupancy, :map, default: nil)
+  attr(:voice_capabilities, :map, default: %{})
 
   @spec conversation_drawer(map()) :: Phoenix.LiveView.Rendered.t()
   def conversation_drawer(%{view: nil} = assigns), do: ~H""
@@ -190,55 +193,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
               enterkeyhint="send"
               data-voice-input
             >{@drafts[@composer_key] || ""}</textarea>
-            <div class="agent-voice-tools">
-              <div class="agent-voice-controls">
-                <button
-                  class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn agent-voice-button"
-                  type="button"
-                  aria-label="Dictate message"
-                  aria-pressed="false"
-                  title="Dictate into the message box"
-                  data-voice-mic
-                  data-conversation-focus="dictation"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z" />
-                    <path d="M5.5 10.5a6.5 6.5 0 0 0 13 0M12 17v4M8.5 21h7" />
-                  </svg>
-                </button>
-                <button
-                  class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn agent-voice-button"
-                  type="button"
-                  aria-label="Start interactive voice chat"
-                  aria-pressed="false"
-                  title="Talk to this agent and hear its reply"
-                  data-voice-conversation
-                  data-conversation-focus="conversation"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <circle cx="8" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" />
-                    <path d="M2.5 19c.5-3.3 2.4-5 5.5-5s5 1.7 5.5 5M13.5 15c1-.8 2.1-1.2 3.5-1.2 2.6 0 4.1 1.4 4.5 4.2M12 6.5l2-1.2M13.5 9.5l2 .8" />
-                  </svg>
-                </button>
-                <label class="agent-voice-device-label">
-                  <span>Browser microphone</span>
-                  <select data-voice-device aria-label="Browser microphone">
-                    <option value="">Default microphone</option>
-                  </select>
-                </label>
-              </div>
-              <canvas
-                class="agent-voice-waveform"
-                width="360"
-                height="52"
-                aria-label="Microphone waveform"
-                role="img"
-                data-voice-waveform
-              ></canvas>
-              <p class="agent-voice-status" role="status" aria-live="polite" data-voice-status>
-                Press the microphone to dictate. Review the text, then press Send.
-              </p>
-            </div>
+            <.voice_input id={"#{@id}-voice"} capabilities={@voice_capabilities} />
             <div class="agent-chat-actions">
               <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="button" phx-click="pause-agent">Pause</button>
               <button class="aiur-button aiur-button--dashboard btn" type="submit" data-voice-send>Send</button>

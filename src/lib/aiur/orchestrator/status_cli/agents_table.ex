@@ -34,6 +34,24 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
     end)
   end
 
+  @doc false
+  @spec print_idle_count(non_neg_integer()) :: :ok
+  def print_idle_count(0), do: :ok
+  def print_idle_count(count), do: IO.puts("(#{count} idle tickets hidden; use --all to show)")
+
+  @doc false
+  @spec visible_idle_rows([map()], boolean()) :: [map()]
+  def visible_idle_rows(idle, true), do: idle
+  def visible_idle_rows(idle, false), do: Enum.filter(idle, &idle_attention_row?/1)
+
+  @doc false
+  @spec idle_attention_row?(map()) :: boolean()
+  def idle_attention_row?(agent) do
+    Map.get(agent, :work_state) in [:paused, "paused"] or
+      Map.get(agent, :waiting_reason) not in [nil, :active, :awaiting_dispatch] or
+      Map.get(agent, :queue_depth, 0) > 0 or Map.get(agent, :claim_released?, false) == true
+  end
+
   # The STATE and ACTIVITY columns read the human wait from the row's derived
   # `waiting_reason` — the same fact `aiur status` prints as
   # `waiting=waiting_for_human` — never from the raw work state alone. A live

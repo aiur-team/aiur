@@ -4,14 +4,32 @@ defmodule Aiur.MergePolicyCLI do
   @spec print() :: :ok
   def print do
     policy = Aiur.MergePolicy.current()
-    watch = if policy.main_watch.enabled, do: "on(#{policy.main_watch.on_red})", else: "off"
-    labels = if policy.ci == "wait" and policy.full_ci_labels == ["main-fix"], do: "", else: " full_ci=[#{Enum.join(policy.full_ci_labels, ",")}]"
-    state = Aiur.MainWatch.state()
-    landing = Aiur.LandingWatch.state()
-    main = if policy.main_watch.enabled or state.watcher != :not_running, do: " " <> main_state(state), else: ""
-    watch_error = if is_binary(state[:last_error]), do: " watcher_error=#{state.last_error}", else: ""
-    IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher}#{watch_error} landing_watcher=#{landing.watcher}#{main}")
+    role = Aiur.Config.booted_instance_role()
+    state = if role == "primary", do: Aiur.MainWatch.state(), else: %{watcher: :not_running}
+    landing = if role == "primary", do: Aiur.LandingWatch.state(), else: %{watcher: :not_running}
+    IO.puts(status_line(policy, role, state, landing))
   end
+
+  defp status_line(policy, role, state, landing) do
+    "MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels(policy)} role=#{role} repo_global_off=#{disabled(role)} main_watch=#{watch(policy, role)} watcher=#{state.watcher}#{watch_error(state)} landing_watcher=#{landing.watcher}#{main(policy, state)}"
+  end
+
+  defp labels(%{ci: "wait", full_ci_labels: ["main-fix"]}), do: ""
+  defp labels(policy), do: " full_ci=[#{Enum.join(policy.full_ci_labels, ",")}]"
+
+  defp disabled("secondary"), do: "[landing_watch,quarantine_lifter,merge_queue_watchdog,main_watch]"
+  defp disabled(_role), do: "none"
+
+  defp watch(_policy, "secondary"), do: "off(secondary)"
+  defp watch(%{main_watch: %{enabled: true, on_red: on_red}}, _role), do: "on(#{on_red})"
+  defp watch(_policy, _role), do: "off"
+
+  defp watch_error(%{last_error: error}) when is_binary(error), do: " watcher_error=#{error}"
+  defp watch_error(_state), do: ""
+
+  defp main(%{main_watch: %{enabled: true}}, state), do: " " <> main_state(state)
+  defp main(_policy, %{watcher: watcher} = state) when watcher != :not_running, do: " " <> main_state(state)
+  defp main(_policy, _state), do: ""
 
   @spec main_state(map(), integer()) :: String.t()
   def main_state(state, now_ms \\ System.system_time(:millisecond))
