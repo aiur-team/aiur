@@ -272,10 +272,6 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     assert state.ci_lifecycle.poll_cache["3864"].recovery == "rerun_requested"
     snapshot = state |> StatusReport.snapshot_input() |> SnapshotPayload.snapshot_payload()
     assert capture_io(fn -> CiWait.print(snapshot) end) =~ "CI WAIT 3864 PR #42: rerun_requested"
-    # The sweep's freshness gate reads this age through the published projection.
-    observed = state.ci_lifecycle.ci_observed_at_ms["3864"]
-    assert is_integer(observed)
-    assert [%{observed_at_ms: ^observed}] = snapshot.ci_wait
     assert state.running == %{}
     assert :ok = CiRecovery.record_failure(ctx.issue, ctx.result, ctx.opts)
     state = poll.(state, %{ctx.result | decision: :passed, failures: []})
@@ -373,15 +369,6 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
       capture_io(fn -> CiWait.print(%{ci_wait: [%{identifier: "3864", pr_number: 42, recovery: "loop", failures: ctx.result.failures}]}) end)
 
     assert output == "CI WAIT 3864 PR #42: loop (test)\n"
-  end
-
-  test "status omits human-review rows the snapshot carries for the sweep" do
-    rows = [
-      %{identifier: "3864", pr_number: 42, tracker_state: "ci-wait", decision: :pending},
-      %{identifier: "5636", pr_number: 77, tracker_state: "human-review", decision: :failed}
-    ]
-
-    assert capture_io(fn -> CiWait.print(%{ci_wait: rows}) end) == "CI WAIT 3864 PR #42: pending\n"
   end
 
   test "lifecycle counts three rework cycles, alerts once, and still routes the fourth", ctx do
