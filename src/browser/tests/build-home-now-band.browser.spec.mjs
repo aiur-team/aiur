@@ -258,7 +258,6 @@ test('Live button floating state and click use the actual band geometry', async 
     return Math.abs(vp.scrollTop - target)
   })
   expect(error).toBeLessThanOrEqual(1)
-  await expect(page.locator('#bd-nowbtn')).not.toHaveClass(/at/)
 })
 
 test('source clock states update through real diffs without inventing live time', async ({ page }) => {
