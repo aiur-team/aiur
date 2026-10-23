@@ -127,23 +127,15 @@ Freshness thresholds follow this cadence. You do not set them separately.
   | `planning` | Build Order catalog, pack status, ad-hoc listings | The most expensive reads and the least urgent. Recommended value `0` (on-demand): the catalog's only consumers are web pages and it is demand-gated, so it needs no timer. |
   | `firehose` | repo events | Already self-regulating via GitHub's `X-Poll-Interval`; the class exists so status can show its configured cadence, not to change its loop. The firehose loop is **not gated** on a class cadence — it rides the dispatch tick — so no value is recommended: leave it unset to inherit `interval_seconds`. An entry would be a dead knob. |
 
-- The dashboard, the Units catalog and Build Order ticket history all judge
-  staleness against the effective interval of the class they mean: orchestrator
-  snapshot readers derive from `dispatch`, while Build Order catalog and ticket
-  history derive from `planning`.
-- Build Order's remaining `graph_catalog_refresh_ms` — the failure-backoff base
-  for the catalog scope, the window after which the catalog snapshot is shown
-  as ageing, and the floor the labelled-read cadence rides on — is derived from
-  the effective `planning` interval, so an idle fleet widens the Build Order
-  backoff exactly as it widens the tracker poll.
-- The catalog itself is event-sourced (#2313): the page renders the store
-  projection, there is no recurring sweep, and the only GitHub reads are the
-  rare reconciliation (daemon boot and degraded webhook delivery). It is not
-  demand-gated by who is looking — the reconciliation is the daemon-owned
-  writer that re-converges the store — and it needs no timer. A selected root's
-  staleness window and failure backoff are therefore re-based on delivery
-  latency (`webhooks.silence_threshold_seconds`), the gap after which
-  degradation triggers the reconciliation, rather than on a poll cadence.
+- The dashboard and Build Order ticket history judge staleness against class
+  intervals: orchestrator snapshots use `dispatch`; Build Order uses `planning`.
+- Build Order's `graph_catalog_refresh_ms` (failure-backoff base, snapshot-age
+  window and labelled-read cadence floor) derives from `planning`, so idle fleets
+  widen its backoff as they widen the tracker poll.
+- The event-sourced catalog (#2313) renders its store projection without a
+  recurring sweep; GitHub reads only reconcile at boot or after degraded webhook
+  delivery. That daemon-owned writer needs no timer. Root staleness and backoff
+  derive from `webhooks.silence_threshold_seconds`, not a poll cadence.
 - So a change to an interval needs no matching threshold edit.
 - `aiur status` prints the effective value and the live interval per class, for
   example:
