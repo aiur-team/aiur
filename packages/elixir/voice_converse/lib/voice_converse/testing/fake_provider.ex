@@ -8,6 +8,13 @@ defmodule VoiceConverse.Testing.FakeProvider do
     * `script: [event]` — events delivered to the owner right after `open/1`, in order
     * `open_error: %Events.Error{}` — `open/1` fails with it
     * `preflight_error: %Events.Error{}` — `preflight/1` fails with it
+    * `render: %{audio:, format:, alignment:}` — what `render_speech/1` returns (default: silence
+      with one 250 ms segment per word of the text)
+    * `render_error: %Events.Error{}` — `render_speech/1` fails with it
+    * `render_delay: ms` — `render_speech/1` sleeps this long first (for deadline tests)
+
+  `render_speech/1` fetches its credential like a real adapter: without one it returns a
+  `:provider_auth` error before rendering anything.
 
   `emit/2` delivers one more event. All deliveries leave the ref's process, so the owner sees
   them in emit order. Only `VoiceConverse.Events` structs are accepted.
@@ -73,6 +80,27 @@ defmodule VoiceConverse.Testing.FakeProvider do
   @impl true
   def close(ref), do: record(ref, :close)
 
+  @impl true
+  def render_speech(%{credentials: {credentials, provider_id}} = spec) do
+    if delay = fake_opt(spec, :render_delay), do: Process.sleep(delay)
+
+    with {:ok, _secret} <- fetch_secret(credentials, provider_id) do
+      case {fake_opt(spec, :render_error), fake_opt(spec, :render)} do
+        {%Events.Error{} = error, _} ->
+          {:error, error}
+
+        {error, _} when not is_nil(error) ->
+          raise ArgumentError, "render_error must be an Events.Error: #{inspect(error)}"
+
+        {nil, nil} ->
+          {:ok, silence(spec)}
+
+        {nil, result} ->
+          {:ok, result}
+      end
+    end
+  end
+
   @doc "Sends `{:voice_conversation, ref, event}` to the owner. Raises `ArgumentError` for a non-event."
   @spec emit(pid(), Events.t()) :: :ok
   def emit(ref, event) do
@@ -88,4 +116,25 @@ defmodule VoiceConverse.Testing.FakeProvider do
   defp record(ref, call), do: Agent.update(ref, &%{&1 | calls: [call | &1.calls]})
 
   defp fake_opt(spec, key), do: spec |> Map.get(:fake, []) |> Keyword.get(key)
+
+  @word_ms 250
+
+  defp fetch_secret(credentials, provider_id) do
+    case credentials.fetch(provider_id, :render) do
+      {:ok, secret} -> {:ok, secret}
+      {:error, :missing} -> {:error, Events.Error.new(:provider_auth, "no credential for #{provider_id}")}
+    end
+  end
+
+  defp silence(%{text: text, format: format}) do
+    words = String.split(text)
+
+    alignment =
+      words
+      |> Enum.with_index()
+      |> Enum.map(fn {w, i} -> %{text: w, start_ms: i * @word_ms, end_ms: (i + 1) * @word_ms} end)
+
+    samples = div(length(words) * @word_ms * VoiceConverse.Narration.sample_rate(format), 1000)
+    %{audio: :binary.copy(<<0, 0>>, samples), format: format, alignment: alignment}
+  end
 end
