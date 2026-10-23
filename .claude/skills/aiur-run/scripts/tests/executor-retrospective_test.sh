@@ -7,7 +7,18 @@ state_root="$(mktemp -d)"
 export AIUR_EXECUTOR_RETRO_FILE="$state_root/test-retros.md"
 export AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=0
 export AIUR_EXECUTOR_RETROSPECTIVE_CLI_CHECK=0
-trap 'rm -rf "$state_root"' EXIT
+first_pid=""
+second_pid=""
+cleanup() {
+  : > "$state_root/release-first-lock"
+  for pid in "$first_pid" "$second_pid"; do
+    [ -n "$pid" ] || continue
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  rm -rf "$state_root"
+}
+trap cleanup EXIT
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -213,9 +224,10 @@ kill -0 "$second_pid" 2>/dev/null || fail "second recorder exited while first he
 wait "$first_pid"
 wait "$second_pid"
 
-recorded="$(jq -s '[.[] | select(.type == "hourly_retrospective")] | length' "$state_root/first.out" "$state_root/second.out")"
-skipped="$(jq -s '[.[] | select(.recorded == false and .reason == "not_due")] | length' "$state_root/first.out" "$state_root/second.out")"
-[ "$recorded" -eq 1 ] && [ "$skipped" -eq 1 ] || fail "concurrent record was not serialized"
+jq -e '.type == "hourly_retrospective"' "$state_root/first.out" >/dev/null ||
+  fail "first recorder did not record while holding the lock"
+jq -e '.recorded == false and .reason == "not_due"' "$state_root/second.out" >/dev/null ||
+  fail "second recorder did not skip while first held the lock"
 
 # Dashboard evidence is stored beside the run retrospective and its short
 # verdict is appended to the narrative. A fake browser command keeps this
