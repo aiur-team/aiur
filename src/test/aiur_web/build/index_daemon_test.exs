@@ -4,7 +4,7 @@ defmodule AiurWeb.Build.IndexDaemonTest do
   import Aiur.TestSupport.BuildHome.IndexParts
   alias AiurWeb.Build.Index
 
-  test "daemon ticks bypass the ticket coalescer and only push changes selected by Freshness" do
+  test "daemon readings push selected freshness changes and schedule pack refreshes" do
     topic = "build-home:daemon-test:#{System.unique_integer([:positive])}"
     Phoenix.PubSub.subscribe(Aiur.PubSub, topic)
     parent = self()
@@ -17,7 +17,10 @@ defmodule AiurWeb.Build.IndexDaemonTest do
          broadcast: fn changes -> Phoenix.PubSub.broadcast(Aiur.PubSub, topic, {:build_changes, changes}) end,
          subscribe: fn -> :ok end,
          read: fn _, _, _ -> parts() end,
-         timer: fn _, _, _ -> flunk("daemon must not schedule a ticket flush") end,
+         timer: fn pid, message, ms ->
+           send(parent, {:pack_refresh, pid, message, ms})
+           make_ref()
+         end,
          daemon_read: fn _ -> Agent.get(block, & &1) end,
          daemon_timer: fn pid, message, ms ->
            send(parent, {:tick_scheduled, pid, message, ms})
@@ -35,6 +38,7 @@ defmodule AiurWeb.Build.IndexDaemonTest do
     receive_barrier({:tick_scheduled, ^pid, :daemon_tick, 10_000})
     :sys.get_state(pid)
     refute_received {:build_changes, _}
+    assert_received {:pack_refresh, ^pid, :flush, 250}
     Agent.update(block, &%{&1 | state: "stale", heartbeat_at: 3})
     send(pid, :daemon_tick)
     receive_barrier({:tick_scheduled, ^pid, :daemon_tick, 10_000})

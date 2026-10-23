@@ -1,5 +1,8 @@
 Code.require_file("../support/browser_harness/fixture_endpoint_start.ex", __DIR__)
-for file <- ~w(earlier_control fixture_source fixture_conversation_source control_fixture ticket_docs index_parts index_seed), do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+
+for file <- ~w(earlier_control unfiled_fixture fixture_source fixture_conversation_source control_fixture ticket_docs index_parts index_seed),
+    do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+
 Code.require_file("../support/build_home/usage_fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
 Code.require_file("../support/test_cleanup.ex", __DIR__)

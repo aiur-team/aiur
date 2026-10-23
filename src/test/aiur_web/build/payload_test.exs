@@ -123,8 +123,8 @@ defmodule AiurWeb.Build.PayloadTest do
       end)
 
     IO.puts("build payload census mean_row_bytes=#{Float.round(bytes / rows, 2)} rows=#{rows}")
-    # Realistic PR chips raise the frozen census from 492.33 to 512.98 bytes per row.
-    assert bytes / rows <= 525
+    # Required nullable src/was fields add 22 bytes: frozen census 512.98 -> 534.98 bytes per row.
+    assert bytes / rows <= 547
 
     for name <- ~w(live dense) do
       {:ok, data} = FixtureSource.snapshot(dataset: name)

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { openParityPair, expectDesignParity, waitParityReady } from '../support/design-parity.mjs'
 
-// unknowns.json: live.json plus schema-valid rows 9001–9012 and pack:alpha.
+// unknowns.json: live.json plus schema-valid rows 9001–9012 and pack:unknowns/alpha.
 // Reproduce from repo root (frozen now retained; only schema-valid values):
 // jq -c '
 // def add($s;$n;$x): . as $d | .sections[$s] += [($d.sections[$s][0] + {id:($n|tostring),num:$n,ord:($d.sections[$s]|length)} + $x)];
@@ -11,7 +11,7 @@ import { openParityPair, expectDesignParity, waitParityReady } from '../support/
 // add("plan";9005;{est:null,pts:2,override:null}) | add("now";9006;{agent:{model:null,name:null,state:"active",effort:null}}) |
 // add("now";9007;{agent:{model:"muse",name:null,state:"active",effort:null}}) | add("now";9008;{agent:{model:"claude",name:null,state:null,effort:null}}) |
 // add("now";9009;{agent:null}) | add("hist";9010;{status:"not_planned",end:.now}) | add("hist";9011;{status:"closed",end:.now}) |
-// add("plan";9012;{}) | .sections.plan[-1].cue.failed={by:7,blocks:[]} | add("plan";9013;{id:"pack:alpha",num:null,qpos:null}) |
+// add("plan";9012;{}) | .sections.plan[-1].cue.failed={by:7,blocks:[]} | add("plan";9013;{id:"pack:unknowns/alpha",num:null,qpos:null}) |
 // .history.total=(.sections.hist|length)' src/test/fixtures/build_home/live.json > src/test/fixtures/build_home/unknowns.json
 // Non-Gantt density belongs to layout.js: span 1 is full. Element parity below
 // covers line/mini/bar independently of the unfinished columns and Now band.
@@ -162,14 +162,14 @@ test('unknown points, estimates, queue numbers and unfiled identity stay explici
   await draw(page, '9005'); await expect(probe(page).locator('.bd-status')).toContainText('— · 2 pts')
   await expect(probe(page).locator('[data-unknown="est"]')).toHaveAttribute('title', 'Estimate unknown')
   await page.evaluate(() => inject('9005', { qpos: null, override: { hours: '3', reason: 'bad' } }))
-  await draw(page, '9005'); await expect(probe(page).locator('[data-unknown="qpos"]')).toHaveText('—')
+  await draw(page, '9005'); await expect(probe(page).locator('.bd-status > span').first()).toContainText('Q?')
   await expect(probe(page).locator('[data-unknown="est"]')).toHaveCount(1)
   await page.evaluate(() => inject('9005', { override: { hours: 3, reason: 'approved' } }))
   await draw(page, '9005'); await expect(probe(page).locator('.bd-status')).toContainText('≈3h · 2 pts')
-  await draw(page, 'pack:alpha'); await expect(probe(page).locator('.bd-id')).toHaveText('—')
+  await draw(page, 'pack:unknowns/alpha'); await expect(probe(page).locator('.bd-id')).toHaveText('—')
   await expect(probe(page).locator('.bd-id [title="Not filed yet"]')).toHaveCount(1)
   await expect(probe(page).locator('.bd-id [data-unknown]')).toHaveCount(0)
-  await expect(probe(page).locator('.bd-status')).toContainText('Planned · not filed')
+  await expect(probe(page).locator('.bd-status')).toContainText('Not filed')
 })
 
 test('history distinguishes outcomes and guards unknown dates and state', async ({ page }) => {
@@ -269,12 +269,18 @@ test('client guards malicious numbers, missing epic and feature keys', async ({ 
   })
   let card = await draw(page, '9001'); await draw(page, '9001')
   await expect(card).toHaveClass(/unsorted/); await expect(card.locator('.bd-id')).toHaveText('#—')
+  await expect(card.locator('.bd-id [data-unknown="num"]')).toHaveAttribute('title', 'Ticket number unknown')
   await expect(card.locator('.bd-cx.unk')).toHaveText('—'); await unknownProgress(card)
   expect(warnings.filter(s => s.includes('ghost-epic')).length).toBe(1)
   expect(await card.evaluate(el => el.style.getPropertyValue('--ec'))).toBe('var(--muted)')
   for (const cx of [0, 2.5]) { await page.evaluate(cx => inject('9001', { cx, epic: 'bugs' }), cx); card = await draw(page, '9001'); await expect(card.locator('.bd-cx.unk')).toHaveText('—') }
   expect(await card.evaluate(el => el.style.getPropertyValue('--h'))).toBe('')
   expect(await card.innerHTML()).not.toContain('background:red'); await expect(card.locator('.bd-id b')).toHaveCount(0)
+  await page.evaluate(() => inject('9012', { qpos: '1<b>' }))
+  card = await draw(page, '9012')
+  await expect(card.locator('.bd-status > span').first()).toContainText('Q—')
+  await expect(card.locator('[data-unknown="qpos"]')).toHaveAttribute('title', 'Queue position unknown')
+  await expect(card.locator('.bd-status b')).toHaveCount(0)
   await page.evaluate(() => inject('9012', { cue: { failed: { by: '1<b>', blocks: ['2<img>'] }, promoted: 'bad', wait: '3<i>' } }))
   await draw(page, '9012')
   await expect(probe(page).locator('.bd-alert')).toHaveText('Prereq #— failed · blocks #—')

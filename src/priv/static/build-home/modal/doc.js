@@ -1,3 +1,4 @@
+import { isUnfiled, refText, queueText, srcLine } from '../unfiled.js';
 import { estLabel } from '../estimate.js';
 import { ctx, fx, onReset } from '../state.js';
 import { $, esc } from '../dom.js';
@@ -51,7 +52,7 @@ function dependencies(ids, D) {
     const e = t && D.epics?.[t.epic || 'unsorted'];
     return '<button type="button" class="bm-dep" data-goto="' + esc(id) + '">' +
       (Number.isFinite(e?.hue) ? '<span style="--h:' + e.hue + '"></span>' : '') +
-      '#' + esc(t?.num ?? id) + '<em>' + esc(t?.title ?? 'not loaded') + '</em></button>';
+      esc(t ? refText(t) : /^[0-9]+$/.test(id) ? '#' + id : '—') + '<em>' + esc(t?.title ?? 'not loaded') + '</em></button>';
   }).join('');
 }
 function addHTML(t, D) {
@@ -78,10 +79,10 @@ export function renderDoc(body, t, D, doc, opts = {}) {
   const focused = body.contains(active) ? active.closest('[data-goto], [data-a], .bm-body a') : null;
   const focus = focused ? { goto: focused.dataset.goto, action: focused.dataset.a, href: focused.getAttribute('href') } : null;
   const created = doc?.created ?? t.created;
-  const source = I.github + '#' + esc(t.num ?? t.id) + (created == null ? '' : ' · opened ' + esc(fmtDate(created)) + (doc?.author ? ' by @' + esc(doc.author) : ''));
+  const source = isUnfiled(t) ? I.docs + esc(srcLine(t)) : I.github + esc(refText(t)) + (created == null ? '' : ' · opened ' + esc(fmtDate(created)) + (doc?.author ? ' by @' + esc(doc.author) : ''));
   const fact = (name, value) => '<div><small>' + name + '</small><b>' + esc(value) + '</b></div>';
-  body.innerHTML = '<div class="bm-doc"><article class="bm-art"><div class="bm-src">' + source + '</div><div class="bm-body">' + bodyHTML(doc) + '</div></article><aside class="bm-side"><div class="bm-facts">' +
-    fact('Queue', t.sec === 'plan' && t.qpos != null ? 'Q' + t.qpos : '—') + (t.sec === 'plan' ? fact('Wave', t.wave == null ? '—' : 'W' + t.wave) : '') +
+  body.innerHTML = '<div class="bm-doc"><article class="bm-art"><div class="bm-src">' + source + '</div><div class="bm-body">' + (isUnfiled(t) ? '' : bodyHTML(doc)) + '</div></article><aside class="bm-side"><div class="bm-facts">' +
+    fact('Queue', t.sec === 'plan' && !isUnfiled(t) ? queueText(t) : '—') + (t.sec === 'plan' ? fact('Wave', t.wave == null ? '—' : 'W' + t.wave) : '') +
     fact('Estimate', estLabel(t)) + fact('Complexity', t.cx == null ? '—' : t.cx + '/5') + '</div>' +
     ((t.deps || []).length ? '<div class="bm-dg"><small>Depends on</small>' + dependencies(t.deps, D) + '</div>' : '') +
     ((D.children?.[t.id] || []).length ? '<div class="bm-dg"><small>Unblocks</small>' + dependencies(D.children[t.id], D) + '</div>' : '') + addHTML(t, D) + '</aside></div>';

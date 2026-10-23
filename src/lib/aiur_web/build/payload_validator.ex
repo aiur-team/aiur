@@ -32,7 +32,12 @@ defmodule AiurWeb.Build.PayloadValidator do
   defp check(value, :nonnegative, _path) when is_integer(value) and value >= 0, do: []
   defp check(value, :number, _path) when is_number(value), do: []
   defp check(value, :boolean, _path) when is_boolean(value), do: []
-  defp check(value, :id, path) when is_binary(value), do: if(Regex.match?(~r/^(?:[1-9][0-9]*|pack:[a-z0-9][a-z0-9-]{0,63})$/, value), do: [], else: error(path, :id))
+
+  defp check(value, :id, path) when is_binary(value),
+    do: if(Regex.match?(~r"\A(?:[1-9][0-9]*|pack:(?!\.{1,2}/)[A-Za-z0-9._-]{1,64}/(?!\.{1,2}\z)[A-Za-z0-9._-]{1,64})\z", value), do: [], else: error(path, :id))
+
+  defp check(value, :pack_id, path) when is_binary(value), do: if(Regex.match?(~r"\Apack:(?!\.{1,2}/)[A-Za-z0-9._-]{1,64}/(?!\.{1,2}\z)[A-Za-z0-9._-]{1,64}\z", value), do: [], else: error(path, :id))
+  defp check(value, :display_path, path) when is_binary(value), do: if(Path.type(value) == :relative and not String.starts_with?(value, "~"), do: [], else: error(path, :path))
   defp check(value, :model, path) when is_binary(value), do: if(Regex.match?(~r/^[a-z0-9][a-z0-9._-]{0,31}$/, value), do: [], else: error(path, :model))
   defp check(value, :usage, path) when is_map(value), do: check(value, {:object, Schema.usage(value["state"]), []}, path)
 
@@ -68,7 +73,11 @@ defmodule AiurWeb.Build.PayloadValidator do
   end
 
   defp identity_rules(errors, row, path) do
+    pack? = is_binary(row["id"]) and String.starts_with?(row["id"], "pack:")
+
     errors
+    |> rule(pack? != is_map(row["src"]), join(path, "src"), :identity)
+    |> rule(pack? and (row["sec"] != "plan" or row["qpos"] != nil or row["was"] != nil), join(path, "id"), :identity)
     |> rule(is_binary(row["id"]) and String.starts_with?(row["id"], "pack:") and row["num"] != nil, join(path, "num"), :identity)
     |> rule(is_binary(row["id"]) and not String.starts_with?(row["id"], "pack:") and row["id"] != to_string(row["num"]), join(path, "num"), :identity)
   end

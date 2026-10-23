@@ -52,6 +52,7 @@ jobs:
           - { name: usage, run: npm run test:build-home-usage }
           - { name: now band, run: npm run test:build-home-band-parity }
           - { name: list and live button, run: npm run test:browser-suite -- build-home-list-parity build-home-live-button-parity }
+          - { name: unfiled, run: npm run test:build-home-unfiled-parity }
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

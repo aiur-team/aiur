@@ -1,3 +1,4 @@
+import { queueText as planQueueText } from './unfiled.js';
 import { colKey } from './layout.js';
 import { agentState, progress } from './now-state.js';
 import { fmtD } from './util.js';
@@ -105,7 +106,7 @@ export function treeLayout(D, id, aw, ah) {
   return { ids, rows, depth, levels: rows.filter(r => r.length).length, pos, natW, natH, sc, per, edges };
 }
 
-export function treeStatus(t, queueText = row => row.qpos == null ? 'Q?' : 'Q' + row.qpos) {
+export function treeStatus(t, queueText = planQueueText) {
   if (t.sec === 'hist') {
     if (t.status === 'failed') return 'Failed';
     if (t.status === 'not_planned') return 'Not planned';

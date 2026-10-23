@@ -221,3 +221,12 @@ positions; across lists it adjusts set ranks, which requires
 Priority preserves real prerequisites, holds, and running agents. When a blocker
 prevents immediate pickup, the Executor reports that constraint and the next
 eligible work instead of claiming the new collection will start immediately.
+
+Unfiled planning-pack items follow filed planned tickets in pack wave order. They
+show a source document instead of a GitHub number and cannot be added to the queue.
+Their copied links continue to open the real ticket after the pack records its number.
+
+When packs cannot be read, **Planning packs unavailable** names the affected packs
+and shows when they were checked; readable packs and queued tickets remain visible.
+Pack writes refresh on the next index flush, including its ten-second daemon tick.
+Between issue creation and rewriting the pack, both rows may briefly appear.

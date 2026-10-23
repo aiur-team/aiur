@@ -1,9 +1,10 @@
+import { isUnfiled } from './unfiled.js';
 import { bandLayout } from './band-layout.js';
 import { sectionState, emptyMark } from './states.js';
 import { nowMs } from './clock.js';
 import { LH, SEC } from './state.js';
 import { esc } from './dom.js';
-import { WD, fmtD, fmtRange, dayKey } from './util.js';
+import { WD, fmtD, fmtT, fmtRange, dayKey } from './util.js';
 import { I } from './icons.js';
 
 export const colKey = t => t.epic || "unsorted";
@@ -119,7 +120,7 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
       const ents = entries(list);
       if (compact && !ents.some((e) => e.t)) { ps.marks.push({ kind: "gap", y, h: 26, label: (w === null ? "W?" : "W" + w) + " · " + gapLabel(ents[0].gap) }); y += 26 + gap; return; }
       y += gap * 0.6;
-      ps.labels.push({ y, day: (w === null ? "W?" : "W" + w), t: list.length + (w === null ? " · wave unknown" : w === 1 ? " · ready" : ""), tk: true, line: w === null || w > 1, wave: true });
+      ps.labels.push({ y, day: (w === null ? "W?" : "W" + w), t: list.length + (w === null ? " · wave unknown" : w === 1 && list.some(t => !isUnfiled(t)) ? " · ready" : ""), tk: true, line: w === null || w > 1, wave: true });
       if (S.view === "gantt") {
         const result = ext.gantt.plan(ents, { ...gctx(y), cum, unknown });
         ps.items.push(...result.items); ps.labels.push(result.label);
@@ -129,6 +130,16 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
       } else y = rows(ents, y, ps.items, ps.marks, ps.labels, "plan", false);
     });
     ps.h = y + gap;
+  }
+  if (PLANL.some(isUnfiled) && ['disabled', 'unavailable', 'incomplete'].includes(pst.src.state)) {
+    ps.marks.push({ ...emptyMark('plan', { ...pst, show: pst.src.state }, mctx), y: ps.h });
+    ps.h += 104;
+  }
+  const packs = sources?.packs;
+  if (packs?.state === 'unavailable') {
+    ps.marks.push({ kind: 'empty', y: ps.h, h: 96, label: 'Planning packs unavailable',
+      sub: (packs.reason || 'unknown cause') + ' · checked ' + (Number.isFinite(packs.observed_at) ? fmtT(packs.observed_at) : 'unknown') });
+    ps.h += 104;
   }
   out.secs.plan = ps;
   /* not queued */

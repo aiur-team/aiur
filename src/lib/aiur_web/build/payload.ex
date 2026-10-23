@@ -6,20 +6,21 @@ defmodule AiurWeb.Build.Payload do
 
   Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
   features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
-  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
+  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/packs/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
   Rows: id, num, title, type, epic, feature, also, cx, pts, sec, ord, start, start_src, end,
-  created, status, pct, agent, est, override, added, deps, children, dep_states, deps_missing, wave, qpos, cue, pr.
-  Id is a decimal ticket identifier or pack:<key>. Hist requires integer end;
+  created, status, pct, agent, est, override, added, deps, children, dep_states, deps_missing, wave, qpos, cue, pr, src, was.
+  Id is a decimal ticket identifier or pack:<key>/<item>. Hist requires integer end;
   plan requires cue, others require cue=nil. Percentages are 0..100, cx is 1..5,
   wave is positive or nil. Agent model is a safe slug or nil; name is a string up to 64 characters or nil.
   Titles, labels and reasons remain unescaped; the client escapes on rendering.
 
   | Row field | Type |
   | --- | --- |
-  | id / num | positive decimal identifier / positive integer; pack:<key> / nil |
+  | id / num | positive decimal identifier / positive integer; pack:<key>/<item> / nil |
+  | src / was | pack source (kind, relative path, nonnegative wave or nil) / previous pack id or nil |
   | title | raw UTF-8 string |
   | type | bug, feature, chore, docs |
   | epic / feature / also | epic key or nil / feature key or nil / feature keys |

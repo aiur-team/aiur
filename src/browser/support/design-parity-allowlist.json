@@ -400,6 +400,57 @@
     }
   },
   {
+    "id": "unfiled-board-identity",
+    "kind": "pixel-mask",
+    "spec": "build-home-unfiled-parity.browser.spec.mjs",
+    "selector": "body > [data-unfiled-mask=\"bd-card\"]:is([data-row-id=\"AIUR-645\"], [data-row-id=\"pack:build-plan/BP-645\"], [data-row-id=\"AIUR-646\"], [data-row-id=\"pack:build-plan/BP-646\"], [data-row-id=\"AIUR-647\"], [data-row-id=\"pack:build-plan/BP-647\"], [data-row-id=\"AIUR-648\"], [data-row-id=\"pack:build-plan/BP-648\"], [data-row-id=\"AIUR-649\"], [data-row-id=\"pack:build-plan/BP-649\"], [data-row-id=\"AIUR-650\"], [data-row-id=\"pack:build-plan/BP-650\"], [data-row-id=\"AIUR-651\"], [data-row-id=\"pack:build-plan/BP-651\"], [data-row-id=\"AIUR-652\"], [data-row-id=\"pack:build-plan/BP-652\"], [data-row-id=\"AIUR-653\"], [data-row-id=\"pack:build-plan/BP-653\"], [data-row-id=\"AIUR-654\"], [data-row-id=\"pack:build-plan/BP-654\"], [data-row-id=\"AIUR-655\"], [data-row-id=\"pack:build-plan/BP-655\"], [data-row-id=\"AIUR-656\"], [data-row-id=\"pack:build-plan/BP-656\"], [data-row-id=\"AIUR-657\"], [data-row-id=\"pack:build-plan/BP-657\"], [data-row-id=\"AIUR-658\"], [data-row-id=\"pack:build-plan/BP-658\"], [data-row-id=\"AIUR-659\"], [data-row-id=\"pack:build-plan/BP-659\"], [data-row-id=\"AIUR-660\"], [data-row-id=\"pack:build-plan/BP-660\"]):is([data-slot=\"0\"], [data-slot=\"1\"])",
+    "cells": {
+      "dataset": "live"
+    },
+    "reason": "S-27: fixed transparent body markers mask paired measured identity bounds for these 16 rows; they survive renderer replacement and never change row layout. Markers reset display, margin, padding and border; bounds round outward only to the native 1/64 CSS-pixel grid, while horizontal fringes round inward. Current owned bounds are checked before capture. The reference ink mask extends at most one device pixel left, strictly after the adjacent unmasked icon.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C7-T02.md#decisions-made-without-the-owner"
+    },
+    "productWhen": "body > [data-unfiled-mask=\"bd-card\"]:is([data-row-id=\"pack:build-plan/BP-645\"], [data-row-id=\"pack:build-plan/BP-646\"], [data-row-id=\"pack:build-plan/BP-647\"], [data-row-id=\"pack:build-plan/BP-648\"], [data-row-id=\"pack:build-plan/BP-649\"], [data-row-id=\"pack:build-plan/BP-650\"], [data-row-id=\"pack:build-plan/BP-651\"], [data-row-id=\"pack:build-plan/BP-652\"], [data-row-id=\"pack:build-plan/BP-653\"], [data-row-id=\"pack:build-plan/BP-654\"], [data-row-id=\"pack:build-plan/BP-655\"], [data-row-id=\"pack:build-plan/BP-656\"], [data-row-id=\"pack:build-plan/BP-657\"], [data-row-id=\"pack:build-plan/BP-658\"], [data-row-id=\"pack:build-plan/BP-659\"], [data-row-id=\"pack:build-plan/BP-660\"]):is([data-slot=\"0\"], [data-slot=\"1\"])"
+  },
+  {
+    "id": "unfiled-list-identity",
+    "kind": "pixel-mask",
+    "spec": "build-home-unfiled-parity.browser.spec.mjs",
+    "selector": "body > [data-unfiled-mask=\"lr\"]:is([data-row-id=\"AIUR-645\"], [data-row-id=\"pack:build-plan/BP-645\"], [data-row-id=\"AIUR-646\"], [data-row-id=\"pack:build-plan/BP-646\"], [data-row-id=\"AIUR-647\"], [data-row-id=\"pack:build-plan/BP-647\"], [data-row-id=\"AIUR-648\"], [data-row-id=\"pack:build-plan/BP-648\"], [data-row-id=\"AIUR-649\"], [data-row-id=\"pack:build-plan/BP-649\"], [data-row-id=\"AIUR-650\"], [data-row-id=\"pack:build-plan/BP-650\"], [data-row-id=\"AIUR-651\"], [data-row-id=\"pack:build-plan/BP-651\"], [data-row-id=\"AIUR-652\"], [data-row-id=\"pack:build-plan/BP-652\"], [data-row-id=\"AIUR-653\"], [data-row-id=\"pack:build-plan/BP-653\"], [data-row-id=\"AIUR-654\"], [data-row-id=\"pack:build-plan/BP-654\"], [data-row-id=\"AIUR-655\"], [data-row-id=\"pack:build-plan/BP-655\"], [data-row-id=\"AIUR-656\"], [data-row-id=\"pack:build-plan/BP-656\"], [data-row-id=\"AIUR-657\"], [data-row-id=\"pack:build-plan/BP-657\"], [data-row-id=\"AIUR-658\"], [data-row-id=\"pack:build-plan/BP-658\"], [data-row-id=\"AIUR-659\"], [data-row-id=\"pack:build-plan/BP-659\"], [data-row-id=\"AIUR-660\"], [data-row-id=\"pack:build-plan/BP-660\"]):is([data-slot=\"0\"], [data-slot=\"1\"], [data-slot=\"2\"])",
+    "cells": {
+      "dataset": "live"
+    },
+    "reason": "S-27: fixed transparent body markers mask paired measured identity bounds for these 16 rows; they survive renderer replacement and never change row layout. Markers reset display, margin, padding and border; bounds round outward only to the native 1/64 CSS-pixel grid, while horizontal fringes round inward. Current owned bounds are checked before capture. Only GitHub references, queue facts and status copy differ; all adjacent content remains unmasked.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C7-T02.md#decisions-made-without-the-owner"
+    },
+    "productWhen": "body > [data-unfiled-mask=\"lr\"]:is([data-row-id=\"pack:build-plan/BP-645\"], [data-row-id=\"pack:build-plan/BP-646\"], [data-row-id=\"pack:build-plan/BP-647\"], [data-row-id=\"pack:build-plan/BP-648\"], [data-row-id=\"pack:build-plan/BP-649\"], [data-row-id=\"pack:build-plan/BP-650\"], [data-row-id=\"pack:build-plan/BP-651\"], [data-row-id=\"pack:build-plan/BP-652\"], [data-row-id=\"pack:build-plan/BP-653\"], [data-row-id=\"pack:build-plan/BP-654\"], [data-row-id=\"pack:build-plan/BP-655\"], [data-row-id=\"pack:build-plan/BP-656\"], [data-row-id=\"pack:build-plan/BP-657\"], [data-row-id=\"pack:build-plan/BP-658\"], [data-row-id=\"pack:build-plan/BP-659\"], [data-row-id=\"pack:build-plan/BP-660\"]):is([data-slot=\"0\"], [data-slot=\"1\"], [data-slot=\"2\"])"
+  },
+  {
+    "id": "unfiled-tree-identity",
+    "kind": "pixel-mask",
+    "spec": "build-home-unfiled-parity.browser.spec.mjs",
+    "selector": "body > [data-unfiled-mask=\"bd-tn\"]:is([data-row-id=\"AIUR-645\"], [data-row-id=\"pack:build-plan/BP-645\"], [data-row-id=\"AIUR-646\"], [data-row-id=\"pack:build-plan/BP-646\"], [data-row-id=\"AIUR-647\"], [data-row-id=\"pack:build-plan/BP-647\"], [data-row-id=\"AIUR-648\"], [data-row-id=\"pack:build-plan/BP-648\"], [data-row-id=\"AIUR-649\"], [data-row-id=\"pack:build-plan/BP-649\"], [data-row-id=\"AIUR-650\"], [data-row-id=\"pack:build-plan/BP-650\"], [data-row-id=\"AIUR-651\"], [data-row-id=\"pack:build-plan/BP-651\"], [data-row-id=\"AIUR-652\"], [data-row-id=\"pack:build-plan/BP-652\"], [data-row-id=\"AIUR-653\"], [data-row-id=\"pack:build-plan/BP-653\"], [data-row-id=\"AIUR-654\"], [data-row-id=\"pack:build-plan/BP-654\"], [data-row-id=\"AIUR-655\"], [data-row-id=\"pack:build-plan/BP-655\"], [data-row-id=\"AIUR-656\"], [data-row-id=\"pack:build-plan/BP-656\"], [data-row-id=\"AIUR-657\"], [data-row-id=\"pack:build-plan/BP-657\"], [data-row-id=\"AIUR-658\"], [data-row-id=\"pack:build-plan/BP-658\"], [data-row-id=\"AIUR-659\"], [data-row-id=\"pack:build-plan/BP-659\"], [data-row-id=\"AIUR-660\"], [data-row-id=\"pack:build-plan/BP-660\"]):is([data-slot=\"0\"], [data-slot=\"1\"])",
+    "cells": {
+      "dataset": "live"
+    },
+    "reason": "S-27: fixed transparent body markers mask paired measured identity bounds for these 16 rows; they survive renderer replacement and never change row layout. Markers reset display, margin, padding and border; bounds round outward only to the native 1/64 CSS-pixel grid, while horizontal fringes round inward. Current owned bounds are checked before capture. The reference ink mask extends at most one device pixel on each horizontal edge, strictly between the preceding dot and following unmasked title.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C7-T02.md#decisions-made-without-the-owner"
+    },
+    "productWhen": "body > [data-unfiled-mask=\"bd-tn\"]:is([data-row-id=\"pack:build-plan/BP-645\"], [data-row-id=\"pack:build-plan/BP-646\"], [data-row-id=\"pack:build-plan/BP-647\"], [data-row-id=\"pack:build-plan/BP-648\"], [data-row-id=\"pack:build-plan/BP-649\"], [data-row-id=\"pack:build-plan/BP-650\"], [data-row-id=\"pack:build-plan/BP-651\"], [data-row-id=\"pack:build-plan/BP-652\"], [data-row-id=\"pack:build-plan/BP-653\"], [data-row-id=\"pack:build-plan/BP-654\"], [data-row-id=\"pack:build-plan/BP-655\"], [data-row-id=\"pack:build-plan/BP-656\"], [data-row-id=\"pack:build-plan/BP-657\"], [data-row-id=\"pack:build-plan/BP-658\"], [data-row-id=\"pack:build-plan/BP-659\"], [data-row-id=\"pack:build-plan/BP-660\"]):is([data-slot=\"0\"], [data-slot=\"1\"])"
+  },
+  {
     "id": "board-inset-well",
     "kind": "design-style",
     "selector": "html",
@@ -411,5 +462,25 @@
       "date": null,
       "ref": "https://github.com/aiur-team/aiur/issues/5614"
     }
+  },
+  {
+    "id": "unfiled-tree-underlay-thumb", "kind": "design-style",
+    "spec": "build-home-unfiled-parity.browser.spec.mjs", "cells": {"dataset": "live"},
+    "selector": "body:has(.bd-tree) .bd-sb > i",
+    "productWhen": ".bd-tree .bd-tn[data-id^=\"pack:\"]",
+    "css": "body:has(.bd-tree) .bd-sb > i { visibility: hidden !important; }",
+    "reason": "S-27: suppress only the custom underlay scrollbar thumb paint on both pages while the unfiled tree is open. Full history intake changes thumb geometry beneath the transparent blurred tree; track, layout, background and all tree pixels remain compared. This matches native-thumb capture suppression.",
+    "approval": {"status": "pending-sign-off", "by": null, "date": null, "ref": "https://github.com/aiur-team/aiur/pull/5898 review finding 2"}
+  },
+  {
+    "id": "unfiled-tree-reference-width",
+    "kind": "property",
+    "spec": "build-home-unfiled-parity.browser.spec.mjs",
+    "selector": "[data-id=\"AIUR-645\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-645\"] .bd-tn1 b, [data-id=\"AIUR-646\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-646\"] .bd-tn1 b, [data-id=\"AIUR-647\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-647\"] .bd-tn1 b, [data-id=\"AIUR-648\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-648\"] .bd-tn1 b, [data-id=\"AIUR-649\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-649\"] .bd-tn1 b, [data-id=\"AIUR-650\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-650\"] .bd-tn1 b, [data-id=\"AIUR-651\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-651\"] .bd-tn1 b, [data-id=\"AIUR-652\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-652\"] .bd-tn1 b, [data-id=\"AIUR-653\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-653\"] .bd-tn1 b, [data-id=\"AIUR-654\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-654\"] .bd-tn1 b, [data-id=\"AIUR-655\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-655\"] .bd-tn1 b, [data-id=\"AIUR-656\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-656\"] .bd-tn1 b, [data-id=\"AIUR-657\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-657\"] .bd-tn1 b, [data-id=\"AIUR-658\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-658\"] .bd-tn1 b, [data-id=\"AIUR-659\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-659\"] .bd-tn1 b, [data-id=\"AIUR-660\"] .bd-tn1 b, [data-id=\"pack:build-plan/BP-660\"] .bd-tn1 b",
+    "property": "design reference width and owned identity paint exclusion",
+    "cells": {"dataset": "live"},
+    "productWhen": ".bd-tn[data-id^=\"pack:\"]",
+    "reason": "S-27: persistent test-owned style rules set only the design reference width to the measured product width. Set visibility hidden on both owned identifier slots to exclude accepted identity paint, including antialiasing outside the glyph box, while preserving their boxes. Product width and layout stay unchanged; every following title pixel remains unmasked.",
+    "approval": {"status": "pending-sign-off", "by": null, "date": null, "ref": "DESIGN-E8 S-27; https://github.com/aiur-team/aiur/pull/5898 review finding 2"}
   }
 ]

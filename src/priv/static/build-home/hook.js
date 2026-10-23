@@ -67,7 +67,7 @@ export function receive(msg) {
       fx.tickCardAges();
       if (msg.kind === 'snapshot') {
         if (first) firstPaint();
-        else { repaint(); fx.modalSync({ upsert: ctx.D.all }); }
+        else { repaint(); fx.modalSync({ upsert: ctx.D.all, snapshot: true }); }
       }
       else { fx.dataChanged(msg); fx.modalSync(msg); fx.drawEdgesSoon(30); }
       writeOwnData();

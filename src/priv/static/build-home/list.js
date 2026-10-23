@@ -1,3 +1,5 @@
+import { fmtT } from './util.js';
+import { isUnfiled, refText, refTitle, queueText } from './unfiled.js';
 // Port of design build.js:1152–1181, with explicit unknowns and delegated input.
 import { S, ctx, fx } from './state.js';
 import { esc } from './dom.js';
@@ -15,10 +17,12 @@ const HIST = { failed: ['failed', 'Failed'], done: ['merged', 'Merged'], not_pla
 export function stClass(t) {
   if (t.sec === 'hist') return Object.hasOwn(HIST, t.status) ? HIST[t.status][0] : 'unknown';
   if (t.sec === 'now') return agentState(t.agent?.state).cls ?? 'unknown';
+  if (isUnfiled(t)) return 'open';
   if (t.sec === 'plan') return t.cue?.held ? 'held' : t.cue?.failed || t.cue?.blockedChain ? 'blocked' : 'queued';
   return 'open';
 }
 export function stText(t) {
+  if (isUnfiled(t)) return 'Not filed';
   if (t.sec === 'hist') return Object.hasOwn(HIST, t.status) ? HIST[t.status][1] : 'State unknown';
   if (t.sec === 'now') {
     const stateLabel = agentState(t.agent?.state).label;
@@ -40,7 +44,7 @@ function progCell(t) {
   if (t.sec === 'hist') return muted((Number.isFinite(t.end) ? fmtD(t.end) : '—') + ' · ' +
     (Number.isFinite(t.start) && Number.isFinite(t.end) && t.end >= t.start ? fmtH((t.end - t.start) / 36e5) : '—'));
   if (t.sec === 'plan') {
-    return muted('Q' + number(t.qpos) + ' · W' + (Number.isFinite(t.wave) ? t.wave : '?') + ' · ' + estLabel(t));
+    return muted(queueText(t) + ' · W' + (Number.isFinite(t.wave) ? t.wave : '?') + ' · ' + estLabel(t));
   }
   return muted(number(t.pts) + ' pts');
 }
@@ -57,8 +61,8 @@ function rowHTML(t, D, state) {
   const ups = t.deps.length, dn = (D.children[t.id] || []).length, deps = ups + ' dependencies · unblocks ' + dn;
   const cell = (cls, html, attrs = '') => '<span class="' + cls + '" role="cell"' + attrs + '>' + html + '</span>';
   return '<div class="lr ' + esc(t.sec) + (dim ? ' dim' : '') + '" role="row" tabindex="0" data-id="' + esc(t.id) + '"' + hue('--h', e.hue) +
-    ' aria-label="' + esc('#' + t.num + ' ' + t.title + ', ' + stText(t)) + '">' +
-    cell('c-id', '<span class="lr-ep' + (e.unsorted ? ' un' : '') + '" aria-hidden="true">' + (Object.hasOwn(I, e.icon) ? I[e.icon] : '') + '</span>#' + esc(t.num)) +
+    ' aria-label="' + esc(refText(t) + ' ' + t.title + ', ' + stText(t)) + '">' +
+    cell('c-id', '<span class="lr-ep' + (e.unsorted ? ' un' : '') + '" aria-hidden="true">' + (Object.hasOwn(I, e.icon) ? I[e.icon] : '') + '</span><span title="' + esc(refTitle(t)) + '">' + esc(refText(t)) + '</span>') +
     cell('c-tt', esc(t.title) + (f ? '<i class="lr-f"' + hue('--ft', f.hue) + ' title="' + esc(f.label) + '" role="img" aria-label="' + esc('Feature: ' + f.label) + '"></i>' : '')) +
     cell('c-ep', esc(e.label)) + cell('c-st', '<span class="lst st-' + stClass(t) + '"><u aria-hidden="true"></u>' + esc(stText(t)) + '</span>') +
     cell('c-ag', agentCell(t)) + cell('c-pg', progCell(t)) + cell('c-dp', (ups ? '↑' + ups : '') + (dn ? ' ↓' + dn : ''), ' title="' + esc(deps) + '" aria-label="' + esc(deps) + '"') + '</div>';
@@ -69,11 +73,14 @@ function secHead(sec, label, sub, rows, extra, D, state, history, P, now) {
   const index = open?.state === 'unsupported' ? { ...open, state: 'unavailable' } : open;
   const payload = sec === 'nq' ? { ...P, sources: { ...P.sources, index } } : P;
   const st = sectionState(payload, D, history, sec, rows), note = headNote(sec, st, now);
-  if (!rows.length && !extra && st.src.state === 'ok') return '';
+  const packs = sec === 'plan' && P.sources?.packs?.state === 'unavailable' ? P.sources.packs : null;
+  if (!rows.length && !extra && st.src.state === 'ok' && !packs) return '';
   if (!rows.length && ['unavailable', 'incomplete', 'disabled'].includes(st.src.state)) {
     sub = note + ' · ' + reasonText(st.src.reason) + (st.src.state === 'disabled' ? '' : ' · ' + ageText(st.src, now));
   } else if (note) sub += ' · ' + note;
   if (sec === 'hist' && history.state === 'error') sub += ' · earlier days could not load';
+  if (packs) sub += ' · Planning packs unavailable · ' + (packs.reason || 'unknown cause') +
+    ' · checked ' + (Number.isFinite(packs.observed_at) ? fmtT(packs.observed_at) : 'unknown');
   return '<div class="lh" role="row" data-sec="' + sec + '"' + (st.src.state !== 'ok' ? ' data-st="' + esc(st.src.state) + '"' : '') +
     '><b role="cell">' + label + '</b><em role="cell">' + esc(sub) + '</em></div>' + rows.map(t => rowHTML(t, D, state)).join('') + extra;
 }

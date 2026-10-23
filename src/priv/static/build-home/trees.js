@@ -1,3 +1,4 @@
+import { refText, queueText } from './unfiled.js';
 import { S, ctx, fx, onReset, SPANS, LH } from './state.js';
 import { chainOf, chainGaps, fitFrom, treeLayout, treeStatus, NW, NH } from './chains.js';
 import { edgeClass } from './edges.js';
@@ -12,7 +13,6 @@ let fitToken = 0, hoverGen = 0, openRoot = null, returnFocus = null;
 onReset(() => { fitToken++; hoverGen++; openRoot = null; returnFocus = null; ctx.fitHistory = null; });
 const tab = () => ctx.content?.querySelector(':scope > .bd-lt');
 const cardOf = id => [...ctx.R.values()].find(el => el.dataset.id === id) || ctx.L?.band.items.find(it => it.t.id === id)?.el;
-const refText = t => fx.refText ? fx.refText(t) : t.num == null ? '—' : '#' + t.num;
 function clearLater(ms) {
   const gen = ++hoverGen;
   ctx.life.later('tree-hover', ms, () => { if (gen === hoverGen && !ctx.lockId) setHover(null); });
@@ -165,7 +165,7 @@ export function openTree(id, { keep = false } = {}) {
   const nodes = ids.map(x => {
     const t = ctx.D.byId[x], p = pos[x], ag = t.sec === 'now' ? agentState(t.agent?.state) : null;
     const hue = (ctx.D.epics[colKey(t)] || ctx.D.epics.unsorted)?.hue;
-    return '<button type="button" class="bd-tn ' + esc(t.sec) + (ag?.cls ? ' ag-' + ag.cls : '') + (t.status === 'failed' ? ' failed' : '') + (x === id ? ' sel' : '') + '" data-id="' + esc(x) + '" style="left:' + p.x + 'px;top:' + p.y + 'px;width:' + NW + 'px;height:' + NH + 'px;--h:' + (Number.isFinite(hue) ? hue : 0) + '"><span class="bd-tn1"><i></i><b>' + esc(refText(t)) + '</b><span>' + esc(t.title) + '</span></span><em>' + esc(treeStatus(t, fx.queueText)) + '</em></button>';
+    return '<button type="button" class="bd-tn ' + esc(t.sec) + (ag?.cls ? ' ag-' + ag.cls : '') + (t.status === 'failed' ? ' failed' : '') + (x === id ? ' sel' : '') + '" data-id="' + esc(x) + '" style="left:' + p.x + 'px;top:' + p.y + 'px;width:' + NW + 'px;height:' + NH + 'px;--h:' + (Number.isFinite(hue) ? hue : 0) + '"><span class="bd-tn1"><i></i><b>' + esc(refText(t)) + '</b><span>' + esc(t.title) + '</span></span><em>' + esc(treeStatus(t, queueText)) + '</em></button>';
   }).join('');
   const gaps = chainGaps(ctx.D, new Set(ids)), count = gaps.unloaded + (gaps.missing ?? 0);
   let label = refText(ctx.D.byId[id]) + ' · ' + ids.length + ' tickets · ' + levels + ' levels';

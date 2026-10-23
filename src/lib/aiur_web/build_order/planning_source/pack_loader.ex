@@ -15,14 +15,21 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
   @doc false
   @spec load_packs(keyword()) :: [map()]
   def load_packs(options \\ []) do
-    include_drafts? = Keyword.get(options, :include_drafts?, false)
+    load_pack_results(options).packs
+  end
 
-    pack_paths()
-    |> Enum.map(&load_pack(&1, include_drafts?))
-    |> Enum.flat_map(fn
-      {:ok, pack} -> [pack]
-      {:error, _reason} -> []
-    end)
+  @doc false
+  @spec load_pack_results(keyword()) :: map()
+  def load_pack_results(options \\ []) do
+    paths = pack_paths()
+    results = Enum.map(paths, fn entry -> {entry, load_pack(entry, Keyword.get(options, :include_drafts?, false))} end)
+    failed = for {{source, path}, {:error, _reason}} <- results, do: %{source: source, path: path}
+    packs = for {_entry, {:ok, pack}} <- results, do: pack
+    %{configured: length(paths), failed: failed, packs: prepare_packs(packs)}
+  end
+
+  defp prepare_packs(packs) do
+    packs
     |> filter_for_tracked_repository()
     |> reconcile_duplicate_packs()
     |> Enum.sort(&pack_before?/2)
@@ -137,7 +144,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
       error -> pack_error(absolute, error)
     end
   rescue
-    error -> pack_error(absolute_path(path), {:exception, error.__struct__, Exception.message(error)})
+    error -> pack_error(inspect(path), {:exception, error.__struct__, Exception.message(error)})
   end
 
   defp pack_object(json) when is_map(json), do: :ok

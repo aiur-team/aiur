@@ -40,6 +40,11 @@
         "reason": null,
         "truncated": false
       },
+      "packs": {
+        "state": "disabled",
+        "observed_at": null,
+        "reason": null
+      },
       "estimates": {
         "state": "ok",
         "observed_at": 1791408000000,

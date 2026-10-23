@@ -45,7 +45,9 @@
       "wave": null,
       "qpos": null,
       "cue": null,
-      "pr": null
+      "pr": null,
+      "src": null,
+      "was": null
     }
   ],
   "remove": [],

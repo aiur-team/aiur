@@ -105,6 +105,10 @@ defmodule AiurWeb.Build.URLState do
 
   defp span(_value), do: 1
 
+  defp ticket("pack:" <> _ = value) do
+    valid_string(value, ~r/\Apack:(?!\.{1,2}\/)[A-Za-z0-9._-]{1,64}\/(?!\.{1,2}\z)[A-Za-z0-9._-]{1,64}\z/)
+  end
+
   defp ticket(value) do
     with value when is_binary(value) <- valid_string(value, ~r/\A[0-9]{1,10}\z/),
          n when n > 0 <- String.to_integer(value) do

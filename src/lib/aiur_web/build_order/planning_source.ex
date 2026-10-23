@@ -31,9 +31,13 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   alias AiurWeb.BuildOrder.DataSource
 
   import AiurWeb.BuildOrder.PlanningSource.MembershipHealth
-  import AiurWeb.BuildOrder.PlanningSource.PackLoader
+  import AiurWeb.BuildOrder.PlanningSource.PackLoader, except: [load_pack_results: 0, load_pack_results: 1]
 
   alias AiurWeb.BuildOrder.PlanningSource.LivePackProgress
+
+  @doc "Loads catalog packs and reports every unreadable source without changing the selected data source."
+  @spec load_pack_results() :: %{configured: non_neg_integer(), packs: [map()], failed: [map()]}
+  defdelegate load_pack_results(), to: AiurWeb.BuildOrder.PlanningSource.PackLoader
 
   @epoch 1
   @active_membership_lifecycles [:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced]

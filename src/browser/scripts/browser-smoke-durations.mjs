@@ -12,6 +12,14 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  // Governed local full commands (2026-10-23), including startup and build-gate waits:
+  // unfiled 10 functional cases: 57.170s; row parity: 4 cells per width. Round up.
+  'test:build-home-unfiled': 58,
+  // Final b02b8d2ad parity matrix: 12 modal cells, plus 4 row cells per width.
+  'test:build-home-unfiled-parity:modal': 471,
+  'test:build-home-unfiled-parity:1440': 389,
+  'test:build-home-unfiled-parity:1024': 453,
+  'test:build-home-unfiled-parity:390': 585,
   // #3166 local run (2026-10-21): six control cases 36.6s; four parity cells 133.1s.
   // Include startup margin; refresh these provisional bounds from the first CI shard log.
   'test:browser-suite -- build-home-agent-control': 50,

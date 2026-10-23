@@ -97,6 +97,8 @@ defmodule Aiur.BuildOrder.Index.Rows do
 
     base = %{
       id: to_string(producer.num),
+      src: nil,
+      was: nil,
       num: producer.num,
       title: if(is_binary(row.title), do: row.title, else: ""),
       type: type(row.labels),

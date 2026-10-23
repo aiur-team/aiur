@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.Index do
   @moduledoc "Shared build-home join and changes; all input reads are local projections."
-  alias Aiur.BuildOrder.{EpicOverrides, Features, History, NotQueued}
-  alias Aiur.BuildOrder.Index.{Catalogue, Pages, Parts, Rows, Sources}
+  alias Aiur.BuildOrder.{EpicOverrides, Features, History, NotQueued, PackStatus}
+  alias Aiur.BuildOrder.Index.{Catalogue, PackRows, Pages, Parts, Rows, Sources}
   @topic "build-home:index"
   @blocks ~w(epics features order counts sources history_meta repo capacity)a
 
@@ -12,6 +12,9 @@ defmodule Aiur.BuildOrder.Index do
       now = Keyword.get(opts, :now, System.system_time(:millisecond))
       {all, undated} = Rows.build(parts, general)
       catalogue = Catalogue.build(parts, general, all, now)
+      packs = PackRows.read(parts[:packs], all, catalogue.epics)
+      parts = Map.put(parts, :packs, packs)
+      all = PackRows.merge(all, packs)
       sources = Sources.build(parts, now)
       complete? = sources.history.state not in ["unavailable", "incomplete"]
       counts = if complete?, do: counts(all, catalogue.order)
@@ -92,6 +95,7 @@ defmodule Aiur.BuildOrder.Index do
   def subscribe_sources do
     subscribers = [
       &History.subscribe/0,
+      &PackStatus.subscribe/0,
       &Features.subscribe/0,
       &Aiur.BuildOrder.Estimates.subscribe/0,
       &Aiur.AgentPubSub.subscribe_poll_state/0,

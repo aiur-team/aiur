@@ -2,13 +2,13 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   @moduledoc "Frozen v1 build datasets, bounded to active history days in the socket zone."
   @behaviour AiurWeb.Build.DataSource
 
-  alias Aiur.TestSupport.BuildHome.{ControlFixture, EarlierControl}
+  alias Aiur.TestSupport.BuildHome.{ControlFixture, EarlierControl, UnfiledFixture}
   alias AiurWeb.Build.Read
 
   @files ~w(live dense newrepo noqueue offline odd-edges unknowns hostile chains list-edges now0 now24)
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
-  def datasets, do: @files ++ ~w(degraded unavailable hold)
+  def datasets, do: @files ++ ~w(degraded unavailable hold unfiled unfiled_unavailable)
 
   def configure_usage(:ok) do
     config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
@@ -19,7 +19,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   def read(:locked, _opts), do: Read.locked_usage()
 
   def read({:ok, _context}, _opts) do
-    result = if dataset([]) in (@files ++ ["degraded"]), do: full([]), else: {:error, :fixture_unavailable}
+    result = if dataset([]) in (@files ++ ~w(degraded unfiled unfiled_unavailable)), do: full([]), else: {:error, :fixture_unavailable}
 
     case result do
       {:ok, data} -> data["usage"]
@@ -94,6 +94,13 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
 
   defp dataset(opts), do: Keyword.get(opts, :dataset, Application.get_env(:aiur, :build_fixture_dataset, "live"))
   defp load("unavailable", _dir), do: {:error, :fixture_unavailable}
+
+  defp load(dataset, dir) when dataset in ~w(unfiled unfiled_unavailable) do
+    with {:ok, data} <- load("live", dir) do
+      data = UnfiledFixture.convert(data)
+      {:ok, if(dataset == "unfiled_unavailable", do: UnfiledFixture.unavailable(data), else: data)}
+    end
+  end
 
   defp load("degraded", dir) do
     with {:ok, data} <- load("live", dir) do
