@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorSweep.Checks do
   @moduledoc "Builds prioritized Executor sweep findings from observed daemon and GitHub snapshot data."
 
-  alias Aiur.ExecutorSweep.{ApprovedPrs, CacheFreshness, FailureCause, StaleCiWait, StateLabels, TriageBacklog}
+  alias Aiur.ExecutorSweep.{ApprovedPrs, CacheFreshness, StaleCiWait, StateLabels, TriageBacklog}
   alias Aiur.Instance.SweepFilter
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
