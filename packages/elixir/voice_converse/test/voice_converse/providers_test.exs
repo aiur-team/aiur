@@ -54,6 +54,35 @@ defmodule VoiceConverse.ProvidersTest do
              Providers.resolve(config)
   end
 
+  test "skips a ready provider refused by the privacy policy" do
+    config =
+      config(
+        %{openai: "openai-secret", elevenlabs: "elevenlabs-secret"},
+        preference: [:openai_live, :elevenlabs_agents],
+        privacy: %{provider_allowlist: [:elevenlabs_agents]}
+      )
+
+    assert {:ok, %{id: :elevenlabs_agents},
+            skipped: [{:openai_live, {:policy_refused, %{reason: :provider_not_allowed}}}]} =
+             Providers.resolve(config)
+  end
+
+  test "refuse policy reports no usable option when every ready provider is refused" do
+    config =
+      config(
+        %{openai: "openai-secret", elevenlabs: "elevenlabs-secret"},
+        preference: [:openai_live, :elevenlabs_agents],
+        on_missing_credential: :refuse,
+        privacy: %{provider_allowlist: []}
+      )
+
+    assert {:error, :no_usable_option,
+            [
+              {:openai_live, {:policy_refused, %{reason: :provider_not_allowed}}},
+              {:elevenlabs_agents, {:policy_refused, %{reason: :provider_not_allowed}}}
+            ]} = Providers.resolve(config)
+  end
+
   test "text mode excludes speech-only providers" do
     config = config(%{elevenlabs: "elevenlabs-secret"}, preference: [:openai_live, :elevenlabs_agents], mode: :text)
 
@@ -162,6 +191,8 @@ defmodule VoiceConverse.ProvidersTest do
   defp config(secrets, overrides) do
     StaticCredentials.put(secrets, observer: self())
 
+    provider_overrides = Keyword.drop(overrides, [:privacy])
+
     providers =
       Map.merge(
         %{
@@ -170,7 +201,7 @@ defmodule VoiceConverse.ProvidersTest do
           cascade: @cascade,
           on_missing_credential: :next
         },
-        Map.new(overrides)
+        Map.new(provider_overrides)
       )
 
     {:ok, config} =
@@ -178,7 +209,8 @@ defmodule VoiceConverse.ProvidersTest do
         transcript: :none,
         credentials: StaticCredentials,
         briefing_source: FakeBriefingSource,
-        providers: providers
+        providers: providers,
+        privacy: Keyword.get(overrides, :privacy, %{})
       )
 
     config

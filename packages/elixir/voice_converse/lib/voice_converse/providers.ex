@@ -7,6 +7,7 @@ defmodule VoiceConverse.Providers do
   """
 
   alias VoiceConverse.Config
+  alias VoiceConverse.ProviderPolicy
   alias VoiceConverse.Providers.Registry
 
   @spec default_preference() :: [atom()]
@@ -46,6 +47,23 @@ defmodule VoiceConverse.Providers do
       config.providers.mode not in modes ->
         resolve_preference(ids, config, [{id, {:mode_unsupported, config.providers.mode}} | skipped])
 
+      true ->
+        resolve_permitted_option(id, ids, option, config, skipped)
+    end
+  end
+
+  defp resolve_permitted_option(id, ids, option, config, skipped) do
+    case ProviderPolicy.check(config.privacy, option) do
+      {:error, reason} ->
+        resolve_preference(ids, config, [{id, {:policy_refused, reason}} | skipped])
+
+      :ok ->
+        resolve_ready_option(id, ids, option, config, skipped)
+    end
+  end
+
+  defp resolve_ready_option(id, ids, option, config, skipped) do
+    cond do
       option.status == :ready ->
         {{:ok, option}, skipped}
 

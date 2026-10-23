@@ -1,5 +1,11 @@
 defmodule VoiceConverse.Testing.StaticCredentials do
-  @moduledoc "Test credentials backed by `:persistent_term`; call `put/1` with `%{provider => secret}` in test setup."
+  @moduledoc """
+  Test credentials backed by `:persistent_term`; call `put/1` with `%{provider => secret}` in test setup.
+
+  `fetch/2` returns `{:ok, :present}` only for `:probe`; every credential-use purpose returns the
+  stored secret binary. This makes it safe to use as the presence-only registry port while keeping
+  connection, render, and deletion callers compatible with the credentials contract.
+  """
   @behaviour VoiceConverse.Ports.Credentials
 
   @key {__MODULE__, :secrets}
