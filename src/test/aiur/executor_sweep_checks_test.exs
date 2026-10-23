@@ -160,63 +160,6 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [] = Checks.all(snapshot, now)
   end
 
-  test "names conflicting PRs that strand ci-wait and human-review tickets" do
-    snapshot = %{
-      tickets: [%{number: 5267, labels: ["agent:ci-wait"]}, %{number: 5268, labels: ["agent:human-review"]}],
-      pull_requests: [
-        %{
-          number: 5172,
-          issue_number: 5267,
-          state: "open",
-          mergeable: "CONFLICTING",
-          review_decision: "APPROVED",
-          head_sha: "head",
-          approved_head_sha: "head",
-          in_merge_queue: false,
-          auto_merge: false,
-          required_checks: []
-        },
-        %{number: 5173, issue_number: 5268, state: "open", mergeable: "CONFLICTING"}
-      ]
-    }
-
-    snapshot = Map.put(snapshot, :github_cache_ages, %{pull_requests: %{5172 => 0, 5173 => 0}})
-
-    findings = Checks.all(snapshot, ~U[2026-10-19 12:00:00Z])
-
-    assert [%{kind: "conflicting_waiting_pr", ticket: 5267, pull_request: 5172, message: message, action: action}, %{kind: "conflicting_waiting_pr", ticket: 5268, pull_request: 5173}] = findings
-
-    assert message =~ "CONFLICTING"
-    assert action =~ "Merge main"
-    refute Enum.any?(findings, &(&1.kind == "approved_pr_not_landing"))
-  end
-
-  test "stale cached conflict is unverified and names the cached field" do
-    snapshot = %{
-      tickets: [%{number: 5267, labels: ["agent:ci-wait"]}],
-      pull_requests: [%{number: 5172, issue_number: 5267, state: "open", mergeable: "CONFLICTING"}],
-      github_cache_ages: %{pull_requests: %{5172 => 900_000}}
-    }
-
-    assert [finding] = Checks.all(snapshot, ~U[2026-10-19 12:00:00Z]) |> Enum.filter(&(&1.kind == "conflicting_waiting_pr"))
-    assert finding.cache_age_ms == 900_000
-    assert finding.message =~ "cached mergeable=CONFLICTING"
-    assert finding.message =~ "unverified (cache age 15m)"
-    assert finding.action =~ "Verify the PR"
-  end
-
-  test "conflict without a recorded cache age is unverified with unknown age" do
-    snapshot = %{
-      tickets: [%{number: 5267, labels: ["agent:ci-wait"]}],
-      pull_requests: [%{number: 5172, issue_number: 5267, state: "open", mergeable: "CONFLICTING"}]
-    }
-
-    assert [finding] = Checks.all(snapshot, ~U[2026-10-19 12:00:00Z]) |> Enum.filter(&(&1.kind == "conflicting_waiting_pr"))
-    assert finding.cache_age_ms == nil
-    assert finding.message =~ "unverified (cache age unknown)"
-    assert finding.action =~ "Verify the PR mergeability in GitHub"
-  end
-
   test "finds ci-wait tickets older than two hours when required checks are terminal" do
     now = ~U[2026-10-21 18:00:00Z]
 

@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorSweep.Checks do
   @moduledoc "Builds prioritized Executor sweep findings from observed daemon and GitHub snapshot data."
 
-  alias Aiur.ExecutorSweep.{ApprovedPrs, CacheFreshness, StaleCiWait, StateLabels, TriageBacklog}
+  alias Aiur.ExecutorSweep.{ApprovedPrs, CacheFreshness, ConflictingWaitingPrs, StaleCiWait, StateLabels, TriageBacklog}
   alias Aiur.Instance.SweepFilter
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
@@ -18,7 +18,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       {"unreviewed_prs", [:pull_requests, :tickets], fn -> unreviewed_prs(snapshot, now, unreviewed_minutes) end},
       {"old_decisions", [:decisions], fn -> old_decisions(snapshot, now) end},
       {"approved_prs", [:pull_requests], fn -> ApprovedPrs.findings(snapshot, now, github_freshness_ms) end},
-      {"conflicting_waiting_prs", [:pull_requests, :tickets], fn -> conflicting_waiting_prs(snapshot, github_freshness_ms) end},
+      {"conflicting_waiting_prs", [:pull_requests, :tickets], fn -> ConflictingWaitingPrs.findings(snapshot, github_freshness_ms) end},
       {"stale_ci_wait_prs", [:pull_requests, :tickets], fn -> stale_ci_wait_prs(snapshot, now) end},
       {"landing_rerun_backlog", [:landing_rerun_backlog], fn -> landing_rerun_backlog(snapshot, now) end},
       {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
@@ -93,56 +93,7 @@ defmodule Aiur.ExecutorSweep.Checks do
     end)
   end
 
-  defp conflicting_waiting_prs(snapshot, max_age_ms) do
-    base_branch = Aiur.Config.base_branch()
-
-    waiting =
-      snapshot
-      |> Map.get(:tickets, [])
-      |> Enum.filter(fn ticket ->
-        labels = value(ticket, :labels, [])
-        "agent:ci-wait" in labels or "agent:human-review" in labels
-      end)
-      |> MapSet.new(&value(&1, :number, nil))
-
-    snapshot
-    |> Map.get(:pull_requests, [])
-    |> Enum.flat_map(&conflicting_waiting_pr_finding(&1, waiting, base_branch, max_age_ms, snapshot))
-  end
-
-  defp conflicting_waiting_pr_finding(pr, waiting, base_branch, max_age_ms, snapshot) do
-    issue_number = value(pr, :issue_number, nil)
-
-    with true <- issue_number in waiting,
-         "open" <- value(pr, :state, ""),
-         "CONFLICTING" <- value(pr, :mergeable, nil) do
-      age = cache_age(snapshot, :pull_requests, value(pr, :number, nil))
-      fresh? = fresh_github_age?(age, max_age_ms)
-      verification = if fresh?, do: "verified", else: "unverified"
-
-      [
-        finding(
-          "conflicting_waiting_pr",
-          2,
-          0,
-          if(fresh?, do: "Merge #{base_branch} into the PR branch and resolve the conflicts.", else: "Verify the PR mergeability in GitHub before taking action."),
-          "Ticket ##{issue_number} is waiting while PR ##{value(pr, :number, "?")} has cached mergeable=CONFLICTING with #{base_branch}; #{verification} (cache age #{cache_age(age)}).",
-          pull_request: value(pr, :number, nil),
-          ticket: issue_number,
-          cache_age_ms: age
-        )
-      ]
-    else
-      _not_a_conflicting_waiting_pr -> []
-    end
-  end
-
   defp stale_ci_wait_prs(snapshot, now), do: StaleCiWait.findings(snapshot, now)
-
-  defp cache_age(snapshot, type, subject), do: get_in(snapshot, [:github_cache_ages, type, subject])
-  defp fresh_github_age?(age, max_age_ms), do: is_integer(age) and age <= max_age_ms
-  defp cache_age(ms) when is_integer(ms), do: duration(ms)
-  defp cache_age(_), do: "unknown"
 
   # Approved heads whose automatic rerun waits behind the shared 4-per-15-minute cap, or that need a fresh merge ref.
   defp landing_rerun_backlog(snapshot, now) do
