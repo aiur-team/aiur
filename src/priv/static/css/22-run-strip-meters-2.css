@@ -123,6 +123,10 @@
 
 .rs-ln.is-stale .rs-tg { color: var(--faint); }
 
+/* A reading past its freshness keeps its tone but reads as dimmed (#5747). */
+.rs-ln.is-stale .rs-pc,
+.rs-ln.is-stale .rs-meter { opacity: 0.55; }
+
 .rs-pc { text-align: right; color: var(--fg); }
 
 .rs-pc.is-caution,

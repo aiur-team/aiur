@@ -446,10 +446,10 @@ defmodule Aiur.AgentEnvironment do
 
   def base_env(_), do: []
 
-  # Mirrors `polling.usage_interval_seconds`, the same setting that paces
-  # `Aiur.ProviderMeterRefresh`. Falls back to the scheduler's own default when
-  # config is unavailable, so a mis-set config cannot make the adapter hammer
-  # the endpoint.
+  # The per-agent adapter keeps the operator's usage interval. The daemon's
+  # direct probe may use a shorter cache cadence to honor the stale-reading
+  # cutoff, but multiplying that cadence across agent processes would hammer
+  # the endpoint. Falls back to the configured default when config is absent.
   @default_usage_interval_seconds 300
 
   defp usage_ttl_ms do
