@@ -60,7 +60,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   defp local_snapshot do
     decisions =
       Enum.map(list_decisions(), fn decision ->
-        %{id: decision.decision_id, blocking: decision.blocking, status: Atom.to_string(decision.decision_status), created_at: decision.created_at}
+        %{id: decision.decision_id, ticket: decision.ticket.identifier, blocking: decision.blocking, status: Atom.to_string(decision.decision_status), created_at: decision.created_at}
       end)
 
     queue = Aiur.BuildQueue.show()
@@ -84,7 +84,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       queue_order_declared?: declared_order?,
       merge_groups:
         Enum.map(value(main_watch, :merge_groups, []), fn run ->
-          %{id: value(run, :id, nil), name: "run #{value(run, :id, "?")}", state: value(run, :status, "unknown"), started_at: value(run, :started_at, nil)}
+          %{id: value(run, :id, nil), name: "run #{value(run, :id, "?")}", head_branch: value(run, :head_branch, nil), state: value(run, :status, "unknown"), started_at: value(run, :started_at, nil)}
         end),
       # Main's per-commit check results; a PR red is caused_by_pr only if its base passed (#5119).
       base_checks:

@@ -41,7 +41,14 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
 
     %{
       ci_wait:
-        state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Enum.filter(fn {_target, ci} -> ci[:tracker_state] == "ci-wait" end) |> Enum.map(fn {target, ci} -> Map.put(ci, :identifier, target) end),
+        state.ci_lifecycle
+        |> Map.get(:poll_cache, %{})
+        |> Enum.filter(fn {_target, ci} -> ci[:tracker_state] in ["ci-wait", "human-review"] end)
+        |> Enum.map(fn {target, ci} ->
+          ci
+          |> Map.put(:identifier, target)
+          |> Map.put(:observed_at_ms, get_in(state.ci_lifecycle, [:ci_observed_at_ms, target]))
+        end),
       rework_attempts:
         Enum.map(state.rework_attempts, fn {{issue_id, head_sha}, count} ->
           %{issue_id: issue_id, head_sha: head_sha, count: count}
