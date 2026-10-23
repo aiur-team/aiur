@@ -24,12 +24,17 @@ defmodule AiurWeb.Build.PayloadSchema do
       "pct" => nullable({:range, 0, 100}),
       "agent" =>
         nullable(
-          object(%{
-            "model" => nullable(:model),
-            "name" => nullable({:short_string, 64}),
-            "state" => nullable(enum(~w(active error retrying retries command paused parked))),
-            "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
-          })
+          object(
+            %{
+              "model" => nullable(:model),
+              "name" => nullable({:short_string, 64}),
+              "state" => nullable(enum(~w(active error retrying retries command paused parked usage_limited ci_wait))),
+              "pause" => nullable(enum(~w(usage_limit_exhausted ci_wait))),
+              "resume_at" => nullable(:integer),
+              "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
+            },
+            ~w(pause resume_at)
+          )
         ),
       "est" => nullable(:number),
       "override" => nullable(object(%{"hours" => :number, "reason" => :string, "by" => nullable(:string), "at" => nullable(:integer)})),
