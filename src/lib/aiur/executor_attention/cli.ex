@@ -3,6 +3,7 @@ defmodule Aiur.ExecutorAttention.CLI do
   alias Aiur.ControlCLI.Reasons
   alias Aiur.Executor.{Claims, Roster}
   alias Aiur.ExecutorAttention.DecisionEscalation
+  alias Aiur.ExecutorAttention.DeferredWait
   alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorListener, ExecutorWakeInbox}
   alias Aiur.ExecutorSweep.TriageBacklog
 
@@ -72,15 +73,17 @@ defmodule Aiur.ExecutorAttention.CLI do
   def executor_wait(opts \\ []) do
     timeout_ms = Keyword.get(opts, :timeout_ms, 300_000)
     json? = Keyword.get(opts, :json, false)
+    defer_ack? = Keyword.get(opts, :defer_ack, false)
+    ack_through = Keyword.get(opts, :ack_through)
     consumer_id = Claims.resolve_consumer_id(opts)
 
     case executor_wait_role(consumer_id, opts) do
-      {:ok, role, holder} -> executor_wait_as(consumer_id, role, holder, timeout_ms, json?)
+      {:ok, role, holder} -> executor_wait_as(consumer_id, role, holder, timeout_ms, json?, defer_ack?, ack_through)
       {:error, reason} -> executor_wait_failure(:claim, executor_wait_detail(reason), reason, :unknown, json?)
     end
   end
 
-  defp executor_wait_as(consumer_id, role, holder, timeout_ms, json?) do
+  defp executor_wait_as(consumer_id, role, holder, timeout_ms, json?, defer_ack?, ack_through) do
     announce_executor_peers(consumer_id, holder)
 
     # A quiet wait can outlast a lease, and an owner that silently expired
@@ -92,8 +95,15 @@ defmodule Aiur.ExecutorAttention.CLI do
       # Backstop (#4567): an aged open blocking Decision wakes this wait even
       # when no event reached the inbox for it.
       :ok = ExecutorListener.backstop()
-      result = ExecutorWakeInbox.wait(timeout_ms)
-      executor_wait_result(result, consumer_id, renewed_wait_role(role, renewer), json?, timeout_ms)
+
+      case DeferredWait.acknowledge_through(consumer_id, role, ack_through) do
+        :ok ->
+          result = ExecutorWakeInbox.wait(timeout_ms, consumer_id, defer_ack?)
+          executor_wait_result(result, consumer_id, renewed_wait_role(role, renewer), json?, timeout_ms, defer_ack?)
+
+        {:error, reason} ->
+          executor_wait_failure(:acknowledge, executor_wait_detail(reason), reason, role, json?)
+      end
     after
       stop_lease_renewer(renewer)
     end
@@ -162,10 +172,10 @@ defmodule Aiur.ExecutorAttention.CLI do
   # loss. Losing a wake is the worse failure, so the ordering stays; what changes
   # is that a refused acknowledgement is now a diagnosed nonzero exit naming the
   # stage and the ids, instead of an exit 0 that read as a successful consume.
-  defp executor_wait_result({:ok, records}, consumer_id, role, json?, _timeout_ms) do
-    print_executor_wakes(records, json?, role)
+  defp executor_wait_result({:ok, records}, consumer_id, role, json?, _timeout_ms, defer_ack?) do
+    DeferredWait.print_wakes(records, json?, role, defer_ack?)
 
-    case acknowledge_executor_wakes(records, consumer_id, role) do
+    case if(defer_ack?, do: :ok, else: acknowledge_executor_wakes(records, consumer_id, role)) do
       :ok ->
         exit_marker(0)
 
@@ -184,12 +194,14 @@ defmodule Aiur.ExecutorAttention.CLI do
   # A quiet wait consumed nothing and lost nothing. Reporting that as a failure
   # gave the caller an exit code with no diagnostic behind it, which is how a
   # perfectly healthy idle wait came to look like a broken daemon (#2600).
-  defp executor_wait_result(:timeout, _consumer_id, role, json?, timeout_ms) do
+  defp executor_wait_result(:timeout, _consumer_id, role, json?, timeout_ms, _defer_ack?) do
     print_executor_quiet(role, json?, timeout_ms)
     exit_marker(0)
   end
 
-  defp executor_wait_result({:error, reason}, _consumer_id, role, json?, _timeout_ms) do
+  defp executor_wait_result(:superseded, _consumer_id, role, json?, _timeout_ms, true), do: DeferredWait.superseded(role, json?)
+
+  defp executor_wait_result({:error, reason}, _consumer_id, role, json?, _timeout_ms, _defer_ack?) do
     executor_wait_failure(:wait, executor_wait_detail(reason), reason, role, json?)
   end
 
@@ -288,6 +300,11 @@ defmodule Aiur.ExecutorAttention.CLI do
 
   defp executor_fast_forward_result({:error, {:beyond_latest_wake, latest}}) do
     control_error("aiur: cannot fast-forward beyond latest durable wake #{latest}")
+    exit_marker(1)
+  end
+
+  defp executor_fast_forward_result({:error, :journal_reset}) do
+    control_error("aiur: journal_reset; the requested wake id is newer than the durable journal")
     exit_marker(1)
   end
 
@@ -433,18 +450,6 @@ defmodule Aiur.ExecutorAttention.CLI do
     end
   catch
     :exit, _reason -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
-  end
-
-  defp print_executor_wakes(records, true, role),
-    do: IO.puts(Jason.encode!(%{"status" => "woken", "role" => role, "records" => records}))
-
-  defp print_executor_wakes(records, false, role) do
-    Enum.each(records, fn record ->
-      ticket = if record["ticket"], do: " ticket=#{record["ticket"]}", else: ""
-      observation = if record["observation"] == "initial_sync", do: " observation=initial_sync", else: ""
-      decision = if record["decision_id"], do: " decision=#{record["decision_id"]} gates=#{record["gates"]} escalation=#{record["escalation"]}", else: ""
-      IO.puts("WAKE #{record["topic"]}#{ticket} count=#{record["count"]} role=#{role}#{observation}#{decision}")
-    end)
   end
 
   defp executor_subscription_result(:ok, action, topic) do

@@ -35,6 +35,8 @@
     "test:time-brush": "node scripts/run-browser-tests.mjs tests/time-brush.browser.spec.mjs",
     "test:performance": "node scripts/run-browser-tests.mjs tests/build-order-performance.browser.spec.mjs",
     "test:responsive": "node scripts/run-browser-tests.mjs tests/build-order-responsive.browser.spec.mjs",
+    "test:home-phone": "npm run test:browser-suite -- build-home-phone",
+    "test:home-phone:webkit": "node scripts/run-browser-tests.mjs tests/build-home-phone-webkit.browser.spec.mjs",
     "test:ticket-context": "node scripts/run-browser-tests.mjs tests/ticket-context.browser.spec.mjs",
     "test:units": "node scripts/run-browser-tests.mjs tests/units.browser.spec.mjs tests/units-voice.browser.spec.mjs tests/units-tickets.browser.spec.mjs",
     "test:provider-meters": "node scripts/run-browser-tests.mjs tests/provider_meters.browser.spec.mjs",
