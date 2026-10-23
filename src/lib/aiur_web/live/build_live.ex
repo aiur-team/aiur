@@ -135,6 +135,7 @@ defmodule AiurWeb.BuildLive do
   def handle_event("conversation-page", params, socket), do: socket |> Conversation.page(params) |> command_card(params)
   def handle_event("conversation-close", params, socket), do: socket |> Conversation.close(params) |> command_card(params)
   def handle_event("send", params, socket), do: Composer.send(socket, params)
+
   def handle_event("answer-decision", %{"decision_id" => id, "answer" => %{"choice" => "option:" <> _} = form}, socket) when is_binary(id) do
     if writable?(socket) do
       socket = DecisionCommands.record_answer(socket, id, form, &CommandCard.reload/1)
