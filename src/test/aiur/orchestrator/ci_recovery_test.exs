@@ -6,7 +6,6 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
   alias Aiur.CI.FailureDigest
   alias Aiur.ControlCLI.CiWait
   alias Aiur.Events.GithubCIPoller.Recovery, as: CiRecovery
-  alias Aiur.GitHub.CIRecovery, as: GitHubCIRecovery
   alias Aiur.GitHub.CIRecoveryStore, as: CiRecoveryStore
   alias Aiur.GitHub.ResourceStore
   alias Aiur.{Issue, JsonStore}
