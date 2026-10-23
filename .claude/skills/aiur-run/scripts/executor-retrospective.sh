@@ -296,6 +296,12 @@ acquire_lock() {
       lock_owner_marker="$owner_marker"
       rm -f -- "$claim_marker"
       lock_claim_marker=""
+      if [ -n "${AIUR_EXECUTOR_RETROSPECTIVE_TEST_LOCK_HELD_FILE:-}" ]; then
+        : > "$AIUR_EXECUTOR_RETROSPECTIVE_TEST_LOCK_HELD_FILE"
+        while [ ! -e "${AIUR_EXECUTOR_RETROSPECTIVE_TEST_RELEASE_FILE:?}" ]; do
+          sleep 0.01
+        done
+      fi
       return
     fi
     rm -f -- "$claim_marker"

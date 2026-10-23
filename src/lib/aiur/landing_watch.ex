@@ -362,7 +362,7 @@ defmodule Aiur.LandingWatch do
   defp land_unless_ticket_active(observation, opts) do
     case TicketLookup.fetch(observation, opts) do
       {:ok, issue, _state, _paused?, true} -> HeldApproval.attention(observation, issue, opts)
-      {:ok, _issue, state, _paused?, _held?} when state in ["rework", "in-progress", "todo"] -> :ok
+      {:ok, _issue, state, _paused?, _held?} when state in ["rework", "in-progress", "todo", "foreign"] -> :ok
       {:ok, _issue, _state, _paused?, _held?} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, :pull_request_not_linked_to_ticket_branch} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, _} = error -> error

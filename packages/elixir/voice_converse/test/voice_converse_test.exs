@@ -26,7 +26,7 @@ defmodule VoiceConverseTest do
   test "availability is unavailable without a provider" do
     {:ok, config} = Config.new(@valid)
     assert {:unavailable, :no_provider} = VoiceConverse.availability(config)
-    assert :ok = VoiceConverse.availability(%{config | provider: {Nope, []}})
+    assert :ok = VoiceConverse.availability(%{config | provider: {Nope, []}, llm: "m", cloud_disclosure_accepted: true})
   end
 
   test "a port that exits is unavailable, not empty" do

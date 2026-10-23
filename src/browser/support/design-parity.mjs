@@ -218,6 +218,12 @@ export async function expectDesignParity(pair, { name, region, fullPage = false,
 
 export async function compareParityPixels(pair, { name, region, fullPage = false, preserveAnimations = false, clipToViewport = false, viewportClip = false }) {
   const { designMask, productMask } = await applyAllowlist(pair, pair.cell)
+  // #5614: the imported design predates the live-top toggle (band-scroll.js syncNowBtn); apply the same rule to both
+  // sides, so the JS-less transplant and the design page match the product. Drop this when the design is re-imported.
+  for (const page of [pair.design, pair.product]) await page.evaluate(() => {
+    const vp = document.querySelector('#bd-vp'), band = document.querySelector('#bd-now')
+    if (vp && band) vp.classList.toggle('live-top', Math.abs(band.getBoundingClientRect().top - (vp.getBoundingClientRect().top + 46)) < 6)
+  })
   // A region capture must not mask unrelated chrome that overlaps its raster origin.
   if (region) {
     for (const [page, masks] of [[pair.design, designMask], [pair.product, productMask]]) {

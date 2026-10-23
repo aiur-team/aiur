@@ -76,6 +76,25 @@ The Analytics pane shows an **Optimistic starts** tile when member telemetry rec
 
 Missing head-start evidence is shown as unknown. A parked optimistic member stays `optimistic_parked` in the lifecycle chart until it resumes.
 
+### Usage and cost
+
+A root's usage pane renders the authenticated Usage and cost summary.
+
+Its **Tokens by model** card is followed by **Cost by provider route**.
+
+| Route case | How it reads |
+| --- | --- |
+| Routed call | Names both hops, such as `OpenRouter -> DeepSeek`. |
+| Direct provider | Appears without an arrow. |
+| Unreported upstream | Reads `OpenRouter -> upstream unknown`. |
+| Unavailable estimate | Reads **Unknown**, never zero. |
+| `mix aiur.cost_report --json` | Keeps `provider` and `upstream_provider` as separate fields. |
+| `mix aiur.pricing_window` | Shows which peak/off-peak pricing window is currently in force, the next boundary, and how `avoid_peak_pricing` routing treats it. |
+
+Provider-reported and API-equivalent estimates stay separate. Peak/off-peak
+windowed providers (DeepSeek) price a call at the rate actually in force; when
+the window cannot be determined, the conservative peak rate is reported.
+
 ## The repository state node
 
 Aiur separates the repository's tracked code from daemon-owned state under `~/.aiur/repo/<owner>/<repo>/`.

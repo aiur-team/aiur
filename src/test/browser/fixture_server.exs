@@ -1,5 +1,5 @@
 Code.require_file("../support/browser_harness/fixture_endpoint_start.ex", __DIR__)
-for file <- ~w(earlier_control fixture_source fixture_conversation_source index_parts index_seed), do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+for file <- ~w(earlier_control fixture_source fixture_conversation_source ticket_docs index_parts index_seed), do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
 Code.require_file("../support/build_home/usage_fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
 Code.require_file("../support/test_cleanup.ex", __DIR__)
@@ -156,7 +156,22 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   alias Aiur.BrowserHarness.FixtureEndpointStart
   alias Aiur.Experiments
   alias Aiur.IssueLog
-  alias Aiur.TestSupport.BuildHome.FixtureSource
+  alias Aiur.TestSupport.BuildHome.{FixtureSource, TicketDocs}
+
+  # Standalone HTTP fixtures have no test caller; keep global fixture stubs outside shared test support.
+  defp configure_ticket_docs(:ok) do
+    config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+
+    Application.put_env(
+      :aiur,
+      AiurWeb.Endpoint,
+      Keyword.merge(config,
+        ticket_detail_request_fun: &TicketDocs.request/1,
+        ticket_detail_subscribe_fun: &TicketDocs.ignore/1,
+        ticket_detail_unsubscribe_fun: &TicketDocs.ignore/1
+      )
+    )
+  end
 
   def run do
     {:ok, _} = Application.ensure_all_started(:bandit)
@@ -170,7 +185,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
     endpoint_overrides = AiurWeb.EndpointConfig.overrides_table()
     if :ets.whereis(endpoint_overrides) == :undefined, do: :ets.new(endpoint_overrides, [:named_table, :public, :set])
-    configure_forwarded_dashboard() |> FixtureSource.configure_usage()
+    configure_forwarded_dashboard() |> FixtureSource.configure_usage() |> configure_ticket_docs()
     ExperimentsFixture.prepare("empty")
 
     {:ok, _} =

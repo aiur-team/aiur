@@ -79,7 +79,9 @@ test('all six item branches render; hostile text stays text and unknown times/mo
 test('state cues, retained-history handoff and unknown dates render explicitly', async ({ page }) => {
   await scenario(page, 'not_retained')
   await expect(page.locator('.cv')).toHaveCount(0)
-  await expect(page.locator('.bm-cue')).toHaveText('Conversation not retained')
+  await expect(page.locator('.bm-doc')).toBeVisible()
+  await expect(page.locator('.bm-art > .bm-cue')).toHaveText('Conversation not retained')
+  await expect(page.locator('.bm-body h4').first()).toHaveText('Scope')
   await proof(page, 'conversation-not-retained')
   await page.evaluate(async () => {
     const { registerBody } = await import('/build-home/modal/frame.js')

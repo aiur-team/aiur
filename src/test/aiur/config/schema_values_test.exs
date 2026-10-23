@@ -57,6 +57,17 @@ defmodule Aiur.Config.SchemaValuesTest do
       assert tightened.polling.interval_seconds == 15
     end
 
+    test "instance role defaults to primary and accepts secondary only" do
+      assert {:ok, default} = Schema.parse(%{})
+      assert default.instance.role == "primary"
+
+      assert {:ok, secondary} = Schema.parse(%{"instance" => %{"role" => "secondary"}})
+      assert secondary.instance.role == "secondary"
+
+      assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"instance" => %{"role" => "other"}})
+      assert message =~ "instance.role"
+    end
+
     test "idle_widen_factor defaults to 5 and can only widen polling" do
       {:ok, unset} = Schema.parse(%{})
       assert unset.polling.idle_widen_factor == 5.0
