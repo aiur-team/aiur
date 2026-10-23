@@ -11,6 +11,8 @@ defmodule AiurWeb.BuildQueue.Copy do
     disabled: "Build queue is disabled.",
     unsupported_tracker: "This tracker does not support build queues.",
     store_unavailable: "Queue store unavailable; promotion paused.",
+    read_timeout: "Queue read timed out; retrying.",
+    carried: "Queue read timed out; showing the last good read from",
     writes_paused: "Queue writes paused by the GitHub budget. Held data remains visible.",
     stale: "Queue data is stale. Readiness is shown from held evidence.",
     unknown: "Queue readiness unknown. Wait for current evidence; do not promote by hand.",

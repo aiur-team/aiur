@@ -225,17 +225,31 @@ defmodule Aiur.BuildGate.ContainmentTest do
              run_bash(
                "mix test",
                Map.merge(context, %{
-                 holder_start_delay_seconds: 5,
+                 holder_start_delay_seconds: 12,
                  started_path: ""
                })
              )
 
     elapsed_ms = System.monotonic_time(:millisecond) - started_at
-    assert elapsed_ms < 3_500
+    assert elapsed_ms < 11_500
     assert output =~ "aiur_build_gate gate_error reason=lease_holder_start_failed"
     refute File.exists?(context.log_path)
     refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
     assert Path.wildcard(Path.join(context.gate_dir, ".holder-*-v2.*")) == []
+  end
+
+  # A loaded host can stall holder startup for seconds; the old 2s handshake
+  # failed those builds with gate_error status 125 (#5743).
+  @tag @linux_only
+  test "a holder startup stalled for seconds still runs the command", context do
+    assert {output, 0} =
+             run_bash(
+               "mix test",
+               Map.merge(context, %{holder_start_delay_seconds: 3, started_path: ""})
+             )
+
+    refute output =~ "gate_error"
+    assert File.read!(context.log_path) == "test\n"
   end
 
   @tag @linux_only

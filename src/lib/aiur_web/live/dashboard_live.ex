@@ -5,7 +5,6 @@ defmodule AiurWeb.DashboardLive do
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias Aiur.Agent.UsageSnapshotService
-  alias Aiur.AgentChat
 
   alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
   alias Aiur.BuildOrder.TicketDetailCoordinator
@@ -18,7 +17,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
   alias AiurWeb.BuildOrder.TicketContextPresenter
-  alias AiurWeb.DashboardLive.{Controls, GitHubQuotaSnapshot, Summaries, UnitsPanel}
+  alias AiurWeb.DashboardLive.{Controls, GitHubQuotaSnapshot, Summaries, UnitsPanel, Voice}
   alias AiurWeb.EndpointConfig
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
@@ -37,6 +36,7 @@ defmodule AiurWeb.DashboardLive do
     DecisionPath,
     History,
     NavState,
+    OperatorSend,
     Overview,
     PayloadLoader,
     ProviderMeterSource,
@@ -92,7 +92,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:now, DateTime.utc_now())
       |> assign(:time_zone, browser_time_zone(socket))
       |> assign(:github_quota, github_quota_snapshot())
-      |> assign(:elevenlabs_quota, elevenlabs_quota_snapshot())
+      |> Voice.assign_voice()
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:pending_message_ids, %{})
@@ -163,7 +163,7 @@ defmodule AiurWeb.DashboardLive do
 
     {:noreply,
      socket
-     |> assign(:decision_filter, filter)
+     |> assign(%{units_base_path: if(conversation_route?, do: "/units", else: URI.parse(uri).path), decision_filter: filter})
      |> assign(:table_sort, UnitsPanel.normalize_table_sort(params["sort"]))
      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
      |> assign(:conversation_from_route?, conversation_route?)
@@ -216,7 +216,7 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info(:elevenlabs_quota_tick, socket) do
     schedule_elevenlabs_quota_tick()
-    {:noreply, assign(socket, :elevenlabs_quota, elevenlabs_quota_snapshot())}
+    {:noreply, Voice.assign_voice(socket)}
   end
 
   @impl true
@@ -614,13 +614,7 @@ defmodule AiurWeb.DashboardLive do
       when is_map(modal) do
     handle_writable_event(socket, fn ->
       if Map.get(modal, :writable_target?) == true do
-        {:noreply,
-         send_operator_message(
-           socket,
-           agent_log_target(modal),
-           agent_log_key(modal),
-           String.trim(message)
-         )}
+        {:noreply, send_operator_message(socket, modal, String.trim(message))}
       else
         {:noreply, put_chat_error(socket, agent_log_key(modal), :ambiguous_identifier)}
       end
@@ -761,6 +755,7 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:provider_meters_announcement, nil)
       |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
       |> Map.put_new(:elevenlabs_quota, %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
+      |> Map.put_new(:voice_capabilities, %{})
       |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
       |> Map.put_new(:current_run_outcomes_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
@@ -771,7 +766,7 @@ defmodule AiurWeb.DashboardLive do
       routes={RouteRegistry.routes(@payload.analytics)}
       tracker_kind={tracker_kind()}
       agent_kind={agent_kind()}
-      nav_counts={UnitsPanel.nav_counts(@units_view, @retained_counts)}
+      nav_counts={AiurWeb.OperatorControlCenter.AwaitingCommands.nav_counts(@retained_counts || %{})}
       nav_collapsed={@nav_collapsed}
       globally_paused={Controls.global_pause_state(@payload)}
       writable={@writable}
@@ -899,6 +894,7 @@ defmodule AiurWeb.DashboardLive do
         usage_snapshot={@conversation_usage_snapshot}
         usage_error={@conversation_usage_error}
         context_occupancy={Map.get(@conversation_row || %{}, :context_usage)}
+        voice_capabilities={@voice_capabilities}
         close_event="close-conversation"
         fallback_focus_id="route-title"
         origin_id={@conversation_origin_id}
@@ -2193,8 +2189,6 @@ defmodule AiurWeb.DashboardLive do
 
   defp github_quota_snapshot, do: GitHubQuotaSnapshot.read()
 
-  defp elevenlabs_quota_snapshot, do: Aiur.Voice.quota_snapshot()
-
   defp clear_chat_state(socket, identifier) do
     socket
     |> assign(:drafts, Map.delete(socket.assigns.drafts, identifier))
@@ -2206,51 +2200,30 @@ defmodule AiurWeb.DashboardLive do
     assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, AgentLogModal.format_error(reason)))
   end
 
-  defp send_operator_message(socket, _target, _key, ""), do: socket
+  defp send_operator_message(socket, _modal, ""), do: socket
 
-  # Each Send press is one user action with its own message id (#2717). When
-  # the daemon does not answer in time, the outcome is unknown: the id and the
-  # draft are kept, so pressing Send again with the same text retries this
-  # send and cannot queue a copy. Success clears both. A changed draft is a
-  # new message and gets a new id.
-  defp send_operator_message(socket, target, key, text) do
-    message_id = message_id_for_send(socket, key, text)
+  # OperatorSend owns the #2717 rule; the drawer keeps the draft only when the
+  # outcome is unknown, so a retry with the same text reuses the message id.
+  defp send_operator_message(socket, modal, text) do
+    key = agent_log_key(modal)
 
-    case send_agent_message(target, text, message_id) do
-      {:ok, _request_id} ->
-        clear_chat_state(socket, key)
+    case OperatorSend.send(modal, text, socket.assigns.pending_message_ids) do
+      {:ok, _request_id, _message_id, pending} ->
+        socket |> assign(:pending_message_ids, pending) |> clear_chat_state(key)
 
-      {:error, {:outcome_unknown, _info} = reason} ->
+      {:error, {:outcome_unknown, _info} = reason, _message_id, pending} ->
         socket
-        |> assign(:pending_message_ids, Map.put(socket.assigns.pending_message_ids, key, {message_id, text}))
+        |> assign(:pending_message_ids, pending)
         |> assign(:drafts, Map.put(socket.assigns.drafts, key, text))
         |> put_chat_error(key, reason)
 
-      {:error, reason} ->
+      {:error, reason, _message_id, pending} ->
         socket
-        |> assign(:pending_message_ids, Map.delete(socket.assigns.pending_message_ids, key))
+        |> assign(:pending_message_ids, pending)
         |> put_chat_error(key, reason)
     end
   end
 
-  defp message_id_for_send(socket, key, text) do
-    case Map.get(socket.assigns.pending_message_ids, key) do
-      {message_id, ^text} -> message_id
-      _new_action -> "dashboard-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
-    end
-  end
-
-  defp send_agent_message(target, text, message_id) do
-    case EndpointConfig.get(:agent_chat_send_fun) do
-      fun when is_function(fun, 3) -> fun.(target, text, message_id: message_id)
-      fun when is_function(fun, 2) -> fun.(target, text)
-      _fun -> AgentChat.send(target, text, message_id: message_id)
-    end
-  end
-
-  defp agent_log_target(%{tracker_identity: %TrackerIdentity{} = identity}), do: identity
-  defp agent_log_target(%{issue_identifier: identifier}), do: to_string(identifier)
-
-  defp agent_log_key(%{target_key: key}) when is_binary(key), do: key
-  defp agent_log_key(%{issue_identifier: identifier}), do: to_string(identifier)
+  defp agent_log_target(modal), do: OperatorSend.target(modal)
+  defp agent_log_key(modal), do: OperatorSend.key(modal)
 end

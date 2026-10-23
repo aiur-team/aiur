@@ -80,7 +80,10 @@ succeeded.
 The AGENTS.md revert check for new tests applies in every local-test mode,
 including `none`.
 
-`aiur status` shows `main=unknown` or a color with the completed-run SHA and age, such as `main=green sha=abc123 age=180s`. Red includes its full UTC start date and any fixer ticket. Failed polls show `main=unavailable last_known=green sha=abc123 age=180s`; missing metadata stays `unknown`.
+`aiur status` shows `main=unknown` or a color with the completed-run SHA and age.
+Example: `main=green sha=abc123 age=180s`. Red includes its full UTC start date and any fixer ticket. Failed polls show `main=unavailable last_known=green sha=abc123 age=180s`; missing metadata stays `unknown`.
+
+A successful merge-queue run on the landed SHA counts as that SHA's result when its push run was cancelled; merge-queue failures never count.
 
 New failure signatures emit `system.main.ci.failed`; known-flake-only failures emit `system.main.ci.flaked`. A later green SHA emits `system.main.ci.failed.resolved`. State and failure history survive daemon restarts.
 
@@ -96,7 +99,7 @@ A PR whose failure needs a fresh merge ref (stale merge ref, newer CI change, su
 
 A refresh waiting on the cap appears as `approved_pr_refresh_pending`. A head that spent its budget or is backing off is not reclassified.
 
-An armed auto-merge does not hold a failed approved PR, because auto-merge never enqueues a red head; the watcher reruns or refreshes it. A PR-caused failure there is still held, not sent to rework.
+An armed auto-merge does not hold a failed approved PR, because auto-merge never enqueues a red head; the watcher reruns or refreshes it. When every failed check there is PR-caused, Aiur disables the auto-merge and routes the ticket to rework with the failed jobs named; inherited and unknown failures stay held.
 
 A failed required check beside cancelled runs counts as failed; cancelled runs alone stay a person cancel.
 

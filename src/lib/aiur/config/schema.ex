@@ -23,6 +23,7 @@ defmodule Aiur.Config.Schema do
     Executor,
     Experiments,
     Hooks,
+    Instance,
     MergePolicy,
     Monitoring,
     Observability,
@@ -34,6 +35,7 @@ defmodule Aiur.Config.Schema do
     Server,
     Tracker,
     Upgrade,
+    Voice,
     Webhooks,
     Worker,
     Workspace
@@ -44,6 +46,7 @@ defmodule Aiur.Config.Schema do
   require Tracker
   require BuildQueue
   require Experiments
+  require Voice
   require Workspace
 
   @primary_key false
@@ -78,6 +81,7 @@ defmodule Aiur.Config.Schema do
     field(:executor_takeover_continuous_alert_hours, :integer, default: 1)
 
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:instance, Instance, on_replace: :update, defaults_to_struct: true)
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
     embeds_one(:workspace, Workspace, on_replace: :update, defaults_to_struct: true)
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
@@ -101,6 +105,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:build_order, BuildOrder, on_replace: :update, defaults_to_struct: true)
     embeds_one(:webhooks, Webhooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:elevenlabs, ElevenLabs, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:voice, Voice, on_replace: :update, defaults_to_struct: true)
     embeds_one(:upgrade, Upgrade, on_replace: :update, defaults_to_struct: true)
     # Keep the Executor sweep settings in the same parsed settings snapshot.
     embeds_one(:executor, Executor, on_replace: :update, defaults_to_struct: true)
@@ -215,6 +220,7 @@ defmodule Aiur.Config.Schema do
     |> validate_raw_non_negative_integer(attrs, "executor_takeover_first_alert_hours")
     |> validate_raw_non_negative_integer(attrs, "executor_takeover_continuous_alert_hours")
     |> cast_embed(:tracker, with: &Tracker.changeset/2)
+    |> cast_embed(:instance, with: &Instance.changeset/2)
     |> cast_embed(:executor, with: &Executor.changeset/2)
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
@@ -238,6 +244,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:build_order, with: &BuildOrder.changeset/2)
     |> cast_embed(:webhooks, with: &Webhooks.changeset/2)
     |> cast_embed(:elevenlabs, with: &ElevenLabs.changeset/2)
+    |> cast_embed(:voice, with: &Voice.changeset/2)
     |> cast_embed(:upgrade, with: &Upgrade.changeset/2)
   end
 

@@ -1,25 +1,5 @@
-contaminating_env_vars = [
-  "TMUX",
-  "TMUX_PANE",
-  "ERL_AFLAGS",
-  "AIUR_DASHBOARD_USERNAME",
-  "AIUR_DASHBOARD_PASSWORD",
-  "AIUR_DEV_TEST_TICKET_IDS",
-  "AIUR_DEV_TEST_STATE_DIR",
-  "AIUR_DEBUG",
-  "AIUR_SUPERVISOR_TOKEN",
-  "AIUR_NODE",
-  "AIUR_ERLANG_COOKIE",
-  "AIUR_TMUX_CONF",
-  "AIUR_TMUX_SESSION",
-  "AIUR_TMUX_SOCKET",
-  "AIUR_AGENT_TMUX_SOCKET",
-  "AIUR_LOGS_ROOT"
-]
-
-for var <- contaminating_env_vars do
-  System.delete_env(var)
-end
+Code.require_file("support/test_environment.ex", __DIR__)
+Aiur.TestEnvironment.clear_inherited!()
 
 run_orchestrator_guard_probes = System.get_env("AIUR_RUN_ORCHESTRATOR_GUARD_PROBES") == "1"
 
@@ -91,6 +71,13 @@ ExUnit.start(
 )
 
 Code.require_file("support/test_tmp.exs", __DIR__)
+
+dashboard_secret_root = Application.fetch_env!(:aiur, :dashboard_secret_root)
+
+Aiur.TestTmp.after_final_round(fn _result ->
+  Application.delete_env(:aiur, :dashboard_secret_root)
+  Aiur.TestCleanup.rm_rf!(dashboard_secret_root)
+end)
 
 test_run_root =
   Aiur.TestTmp.start!(Path.join(System.tmp_dir!(), "aiur-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"))
@@ -167,6 +154,7 @@ Code.put_compiler_option(:no_warn_undefined, [])
 
 Aiur.TestSupport.EndpointStubs.init!()
 Aiur.TestSupport.LifecycleLeakGuard.start!()
+Aiur.TestSupport.LifecycleLeakGuard.install_late_log_handler!()
 
 # Keep plain ExUnit.Case modules and between-case application timers from
 # publishing Orchestrator poll state or alerts into the suite-wide ledger.

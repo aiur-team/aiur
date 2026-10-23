@@ -35,8 +35,9 @@ aiur_build_gate_run_linux() (
   local command_pid_file="" command_ready_file="" command_status_file="" command_status_ack_file=""
   local holder_ready_file="" holder_started_file=""
   local command_pgid command_pid_namespace holder_pid parent_pid python_binary retained status
-  local deadline handshake_deadline holder_handshake_seconds=2 holder_ack_seconds=5 slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
-  local available_memory_mb memory_deferred=0 memory_unavailable_logged=0
+  # The handshake spans several python3 launches; 2s failed builds on loaded hosts (#5743).
+  local deadline handshake_deadline holder_handshake_seconds=10 holder_ack_seconds=5 slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
+  local available_memory_mb memory_deferred=0 memory_unavailable_logged=0 command_summary
 
   # Keep descriptor allocation local to this subshell and independent of an
   # invoking agent shell's shopt state. The opened slot descriptor is handed
@@ -127,8 +128,11 @@ aiur_build_gate_run_linux() (
   queue_token=${queue_candidate##*/}
   queue_token=${queue_token#.queue-v2.}
 
-  if ! printf 'version=2\ntoken=%s\npid=%s\npgid=%s\nphase=%s\ncommand=%s\nstarted_at=%s\n' \
-    "$queue_token" "$owner_pid" "$owner_pgid" "$phase" "$*" "$(aiur_build_gate_started_at)" >&"$queue_fd"; then
+  command_summary=$(aiur_build_gate_command_summary "$phase" "$@") || return 125
+
+  if ! printf 'version=2\ntoken=%s\npid=%s\npgid=%s\nphase=%s\ncommand=%s\ncommand_hash=%s\nstarted_at=%s\n' \
+    "$queue_token" "$owner_pid" "$owner_pgid" "$phase" "$command_summary" "${command_summary##*sha256=}" \
+    "$(aiur_build_gate_started_at)" >&"$queue_fd"; then
     exec {queue_fd}>&-
     rm -f "$queue_candidate" 2>/dev/null || true
     aiur_build_gate_fail "queue_record_failed" "$queue_candidate"
@@ -228,7 +232,7 @@ aiur_build_gate_run_linux() (
         token="$queue_token.$slot.$RANDOM"
 
         if ! aiur_build_gate_publish_owner_v2 \
-          "$gate_dir" "$slot_owner" "$token" "$phase" "$owner_pid" "$owner_pgid" "$*" 0 0; then
+          "$gate_dir" "$slot_owner" "$token" "$phase" "$owner_pid" "$owner_pgid" 0 0 "" "$phase" "$@"; then
           exec {slot_fd}>&-
           rm -f "$queue_file" 2>/dev/null || true
           exec {queue_fd}>&-
@@ -302,8 +306,8 @@ aiur_build_gate_run_linux() (
         fi
 
         if ! aiur_build_gate_publish_owner_v2 \
-          "$gate_dir" "$slot_owner" "$token" "$phase" "$owner_pid" "$owner_pgid" "$*" \
-          "$holder_pid" 0; then
+          "$gate_dir" "$slot_owner" "$token" "$phase" "$owner_pid" "$owner_pgid" \
+          "$holder_pid" 0 "" "$phase" "$@"; then
           aiur_build_gate_stop_holder "$holder_pid"
           rm -f "$command_pid_file" "$command_ready_file" "$command_status_file" "$command_status_ack_file" \
             "$holder_ready_file" "$holder_started_file" 2>/dev/null || true
@@ -339,8 +343,8 @@ aiur_build_gate_run_linux() (
         command_pid_namespace=$(readlink "/proc/$command_pgid/ns/pid" 2>/dev/null) || command_pid_namespace=
 
         if ! aiur_build_gate_publish_owner_v2 \
-          "$gate_dir" "$slot_owner" "$token" "$phase" "$owner_pid" "$owner_pgid" "$*" \
-          "$holder_pid" "$command_pgid" "$command_pid_namespace"; then
+          "$gate_dir" "$slot_owner" "$token" "$phase" "$owner_pid" "$owner_pgid" \
+          "$holder_pid" "$command_pgid" "$command_pid_namespace" "$phase" "$@"; then
           aiur_build_gate_stop_holder "$holder_pid"
           rm -f "$command_pid_file" "$command_ready_file" "$command_status_file" "$command_status_ack_file" \
             "$holder_ready_file" "$holder_started_file" 2>/dev/null || true

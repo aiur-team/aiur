@@ -109,8 +109,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
 
       assert next.ci_lifecycle.draft_stall_alerts == MapSet.new()
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
-               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(state.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
 
       assert MapSet.member?(next.claimed, identifier)
     end
@@ -256,7 +256,77 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       assert event.message == "CI passed for the current PR head"
     end
 
+    test "passing CI for an already-ready unreviewed ci-wait head hands it to human review" do
+      isolate_ready_ledger()
+      identifier = unique_identifier("ci-ready-unreviewed")
+      topic = "ticket.#{identifier}.pr.ready_for_review"
+      pr_number = System.unique_integer([:positive])
+      head_sha = "ready-#{identifier}"
+      recorder = start_recorder(topic)
+      issue = issue(identifier, "ci-wait")
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :passed,
+          head_sha: head_sha,
+          pr_number: pr_number,
+          draft?: false,
+          review_decision: "REVIEW_REQUIRED",
+          reviewed_head?: false
+        })
+
+      sync_recorder(recorder)
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "human-review", [expected_state: "ci-wait"]}}
+      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review"}}}
+      assert next.running[identifier].issue.state == "human-review"
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
+    end
+
+    test "CI review handoff wakes a PR previously classified as never draft" do
+      assert_ci_review_wake_for_ledger(:never_draft)
+    end
+
+    test "CI review handoff wakes a PR already announced at the same head" do
+      assert_ci_review_wake_for_ledger({:announced, "same-head"})
+    end
+
+    defp assert_ci_review_wake_for_ledger(entry) do
+      isolate_ready_ledger()
+      identifier = unique_identifier("ci-ready-ledger-wake")
+      topic = "ticket.#{identifier}.pr.ready_for_review"
+      pr_number = System.unique_integer([:positive])
+      head_sha = if entry == :never_draft, do: "never-draft-head", else: "same-head"
+      recorder = start_recorder(topic)
+      issue = issue(identifier, "ci-wait")
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      state = %{state | pr_ready_ledger: %{{identifier, pr_number} => entry}}
+
+      _next =
+        poll_ci(state, issue, %{
+          decision: :passed,
+          head_sha: head_sha,
+          pr_number: pr_number,
+          draft?: false,
+          review_decision: "REVIEW_REQUIRED",
+          reviewed_head?: false
+        })
+
+      sync_recorder(recorder)
+      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review"}}}
+    end
+
     test "a draft PR becoming ready publishes ready_for_review once for its current head" do
+      isolate_ready_ledger()
       identifier = unique_identifier("ready-for-review")
       topic = "ticket.#{identifier}.pr.ready_for_review"
       recorder = start_recorder(topic)
@@ -410,5 +480,16 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       sync_recorder(recorder)
       refute_received {:recorded, _position, {:event, %{topic: ^alert_topic}}}
     end
+  end
+
+  defp isolate_ready_ledger do
+    path = Aiur.TestSupport.tmp_root!("ci_lifecycle_ready_ledger") <> ".json"
+    previous = Application.get_env(:aiur, :pr_ready_ledger_path)
+    Application.put_env(:aiur, :pr_ready_ledger_path, path)
+
+    on_exit(fn ->
+      if is_nil(previous), do: Application.delete_env(:aiur, :pr_ready_ledger_path), else: Application.put_env(:aiur, :pr_ready_ledger_path, previous)
+      Aiur.TestCleanup.rm_rf!(path)
+    end)
   end
 end

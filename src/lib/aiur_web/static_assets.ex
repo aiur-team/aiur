@@ -30,7 +30,9 @@ defmodule AiurWeb.StaticAssets do
     streamdeck-emulator-knob.js
     ticket-context-dialog-hook.js
     time-brush-hook.js
+    voice-capture.js
     voice-capture-worklet.js
+    voice-transport.js
   )
   @long_lived_static_paths ~w(aiur-logo.png)
   # Served immutably at /aiur-style/fonts; the rest of /aiur-style revalidates.

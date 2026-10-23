@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
   alias Aiur.DecisionStore
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator.StatusReport
+  alias Aiur.Orchestrator.StatusReport.RowFacts
   alias Aiur.TicketActivity
   alias Aiur.TicketActivity.Projection
   alias Aiur.TrackerIdentity
@@ -261,7 +262,7 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
 
   test "orchestrator snapshot includes idle rows and explicit waiting reasons" do
     orchestrator_name = Module.concat(__MODULE__, :FleetStateOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
@@ -314,7 +315,7 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     identifier = "MT-ATTENTION-#{System.unique_integer([:positive])}"
     issue_id = "issue-attention-#{System.unique_integer([:positive])}"
     orchestrator_name = Module.concat(__MODULE__, :NonblockingFleetStateOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       SubscriptionStore.stop(identifier)
@@ -347,5 +348,23 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     after
       :ok = :sys.resume(store_pid)
     end
+  end
+
+  test "decision count degrades when its store call times out" do
+    store_name = Module.concat(__MODULE__, :UnresponsiveDecisionStore)
+    parent = self()
+
+    start_supervised!(
+      {Task,
+       fn ->
+         Process.register(self(), store_name)
+         send(parent, :decision_store_ready)
+         receive do: (:stop -> :ok)
+       end}
+    )
+
+    assert_receive :decision_store_ready, 1_000
+
+    assert {0, :unavailable} = RowFacts.open_decision_count("MT-TEST", store_name)
   end
 end

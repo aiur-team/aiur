@@ -48,8 +48,8 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|@marker ~r/<!-- aiur:main-watch signature=([a-f0-9]{64}) sha=([a-f0-9]{40}) -->/|
     ],
     "aiur/merge_policy_cli.ex" => [
-      ~S|labels = if policy.ci == "wait" and policy.full_ci_labels == ["main-fix"], do: "", else: " full_ci=[#{Enum.join(policy.full_ci_labels, ",")}]"|,
-      ~S|IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher}#{watch_error} landing_watcher=#{landing.watcher}#{main}")|,
+      ~S|"MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels(policy)} role=#{role} repo_global_off=#{disabled(role)} main_watch=#{watch(policy, role)} watcher=#{state.watcher}#{watch_error(state)} landing_watcher=#{landing.watcher}#{main(policy, state)}"|,
+      ~S|defp labels(%{ci: "wait", full_ci_labels: ["main-fix"]}), do: ""|,
       ~S|"main=unavailable last_known=" <> String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "")|,
       ~S|"main=red" <> observation(state, now_ms) <> since <> fixer|,
       ~S|def main_state(%{status: :green} = state, now_ms), do: "main=green" <> observation(state, now_ms)|,

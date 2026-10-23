@@ -16,9 +16,11 @@ defmodule Aiur.LandingWatch.MergeFailureOptions do
   defp add_changed_paths(opts, prs) do
     paths_fun = Keyword.get(opts, :changed_paths_fun, &Client.fetch_pull_request_changed_paths/2)
     paths_by_pr = Enum.reduce(prs, %{}, &fetch_pr_paths(&1, &2, paths_fun, opts))
+    unavailable = for {pr, :unavailable} <- paths_by_pr, do: pr
 
     opts
     |> Keyword.put(:changed_paths_by_pr, paths_by_pr)
+    |> Keyword.put(:changed_paths_unavailable_prs, unavailable)
     |> Keyword.put(:changed_paths_fun, changed_paths_fun(paths_by_pr))
   end
 
