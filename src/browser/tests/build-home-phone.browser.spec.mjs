@@ -253,6 +253,27 @@ test('phone guard: rotation keeps the scroll fraction', async ({ browser }) => {
     const flows = []
     for (const page of [pair.design, pair.product]) {
       const fraction = () => page.locator('#bd-vp').evaluate(vp => vp.scrollTop / vp.scrollHeight)
+      const settledFlow = async () => {
+        // setViewportSize returns before the browser delivers the resize event. Let that event
+        // queue the 140 ms relayout, then prove two post-relayout frames agree before reading it.
+        await page.waitForTimeout(0)
+        await page.clock.runFor(1_000)
+        let previous
+        await expect.poll(async () => {
+          const state = await page.evaluate(() => {
+            const content = document.querySelector('#bd-content')
+            return {
+              flow: content.classList.contains('flow'),
+              moving: content.classList.contains('scrolling') || content.classList.contains('snapping'),
+            }
+          })
+          const settled = !state.moving && state.flow === previous?.flow && !previous?.moving
+          previous = state
+          await page.clock.runFor(16)
+          return settled
+        }, { timeout: 5_000 }).toBe(true)
+        return previous.flow
+      }
       await page.locator('#bd-vp').evaluate(vp => new Promise(resolve => {
         vp.addEventListener('scroll', resolve, { once: true })
         vp.scrollTop = vp.scrollHeight * 0.3
@@ -261,9 +282,8 @@ test('phone guard: rotation keeps the scroll fraction', async ({ browser }) => {
       const before = await fraction(), seen = []
       for (const viewport of [{ width: 844, height: 390 }, PHONE_CELLS.p390]) {
         await page.setViewportSize(viewport)
-        await page.clock.runFor(300)
+        seen.push(await settledFlow())
         expect(Math.abs(await fraction() - before), `${viewport.width} px`).toBeLessThanOrEqual(0.01)
-        seen.push(await page.locator('#bd-content').evaluate(el => el.classList.contains('flow')))
       }
       flows.push(seen)
     }
