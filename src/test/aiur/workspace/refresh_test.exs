@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.RefreshTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentGitHubGuard, AppServer.Adapter}
+  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AppServer.Adapter}
   alias Aiur.TestSupport.IsolatedBuildGateEnv
   alias Aiur.Workflow
   alias Aiur.Workspace.{Context, Hooks, Ownership, Refresh}
@@ -150,7 +150,7 @@ defmodule Aiur.Workspace.RefreshTest do
 
     probe_bin = Path.join(test_root, "probe-bin")
     File.mkdir_p!(probe_bin)
-    File.write!(Path.join(probe_bin, "mise"), "#!/bin/sh\nprintf 'real-mise-ran\\n'\n")
+    File.write!(Path.join(probe_bin, "mise"), "#!/bin/sh\nprintf 'build-bin=%s\\n' \"$AIUR_BUILD_GATE_BIN\"\nprintf 'real-mise-ran\\n'\n")
     File.chmod!(Path.join(probe_bin, "mise"), 0o755)
 
     child = Path.join(workspace, "first-agent-build")
@@ -160,7 +160,9 @@ defmodule Aiur.Workspace.RefreshTest do
     assert IsolatedBuildGateEnv.isolated?(gate_env, test_root)
 
     port_gate_env =
-      Enum.map(gate_env, fn
+      gate_env
+      |> Enum.reject(fn {name, _value} -> name == "AIUR_BUILD_GATE_BIN" end)
+      |> Enum.map(fn
         {name, nil} -> {name, false}
         entry -> entry
       end)
@@ -174,6 +176,8 @@ defmodule Aiur.Workspace.RefreshTest do
              )
 
     assert_receive {^port, {:data, {:eol, "aiur_build_gate acquired" <> _details}}}, 5_000
+    assert_receive {^port, {:data, {:eol, "build-bin=" <> build_bin}}}, 5_000
+    assert build_bin == AgentBuildGuard.bin_dir(workspace)
     assert_receive {^port, {:data, {:eol, "real-mise-ran"}}}, 5_000
     assert_receive {^port, {:data, {:eol, "aiur_build_gate released" <> _details}}}, 5_000
     assert_receive {^port, {:exit_status, 0}}, 5_000
