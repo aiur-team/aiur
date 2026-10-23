@@ -3,7 +3,6 @@ defmodule Aiur.InstanceTest do
 
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.Instance.Ignore
-  alias Aiur.ExecutorSweep.Checks
   alias Aiur.Instance
   alias Aiur.Instance.SweepFilter
 
@@ -100,7 +99,7 @@ defmodule Aiur.InstanceTest do
       merge_groups: [group.(4447), group.(4448)]
     }
 
-    findings = Checks.all(snapshot, now)
+    findings = Aiur.ExecutorSweep.findings(snapshot: snapshot, now: now)
     assert Enum.map(SweepFilter.own(snapshot).decisions, & &1.ticket) == [4429]
     assert for(%{kind: "unreviewed_pr", ticket_state: "human-review", pull_request: n} <- findings, do: n) == [4447]
     assert for(%{kind: "stale_merge_group", merge_group: name} <- findings, do: name) == ["run 4447"]
