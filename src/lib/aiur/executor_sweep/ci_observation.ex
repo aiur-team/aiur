@@ -12,6 +12,7 @@ defmodule Aiur.ExecutorSweep.CiObservation do
 
         Map.merge(pr, %{
           ci_head_sha: value(ci, :head_sha, nil),
+          ci_observed_at_ms: value(ci, :observed_at_ms, nil),
           ci_decision: value(ci, :decision, nil),
           required_checks: required,
           failure_class: to_string(value(ci, :failure_class, "unknown"))
@@ -33,6 +34,7 @@ defmodule Aiur.ExecutorSweep.CiObservation do
       id: value(check, :id, value(check, :run_id, nil)),
       name: value(check, :name, value(check, :context, "required check")),
       conclusion: value(check, :result, value(check, :conclusion, nil)),
+      excerpt: value(check, :excerpt, nil),
       started_at: value(check, :started_at, nil),
       completed_at: value(check, :completed_at, nil)
     }

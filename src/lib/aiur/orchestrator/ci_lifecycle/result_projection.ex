@@ -28,11 +28,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
       target ->
         poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
         projection = result |> ci_result_projection(Map.get(poll_cache, target)) |> Map.put(:tracker_state, Transition.effective_ci_state(issue))
+        observed = Map.get(state.ci_lifecycle, :ci_observed_at_ms, %{}) |> Map.put(target, System.system_time(:millisecond))
 
         if Map.get(poll_cache, target) == projection do
-          state
+          %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_observed_at_ms, observed)}
         else
-          ci_lifecycle = Map.put(state.ci_lifecycle, :poll_cache, Map.put(poll_cache, target, projection))
+          ci_lifecycle = state.ci_lifecycle |> Map.put(:ci_observed_at_ms, observed) |> Map.put(:poll_cache, Map.put(poll_cache, target, projection))
           %{state | ci_lifecycle: ci_lifecycle}
         end
     end

@@ -22,6 +22,7 @@ defmodule Aiur.ExecutorSweep.LatestChecksTest do
     ci = %{
       pr_number: 5733,
       head_sha: "head-sha",
+      observed_at_ms: DateTime.to_unix(now, :millisecond),
       decision: :passed,
       check_runs: [
         %{"id" => 701, "name" => "pr body", "conclusion" => "failure", "started_at" => older},
