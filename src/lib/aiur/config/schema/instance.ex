@@ -18,6 +18,12 @@ defmodule Aiur.Config.Schema.Instance.Ignore do
     field(:label_prefixes, {:array, :string}, default: [])
   end
 
+  @type t :: %__MODULE__{
+          tickets: [integer()],
+          labels: [String.t()],
+          label_prefixes: [String.t()]
+        }
+
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs), do: cast(schema, attrs, [:tickets, :labels, :label_prefixes], empty_values: [nil])
 end
