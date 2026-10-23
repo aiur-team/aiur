@@ -145,6 +145,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   def format_error(:unavailable), do: "Orchestrator unavailable."
   def format_error(:ambiguous_identifier), do: "Agent actions require a unique typed target."
   def format_error(:globally_paused), do: "New starts are paused; per-ticket resume is unavailable until new starts resume. You can still pause a running agent for containment."
+  def format_error(:max_concurrent_agents_reached), do: "No free agent slot, so the agent stays paused. Try again when a slot frees."
   def format_error(reason), do: inspect(reason)
 
   defp refresh_from_path(%{path: path} = modal) when is_binary(path) do

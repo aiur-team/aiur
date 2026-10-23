@@ -3,7 +3,7 @@ defmodule AiurWeb.Build.Conversation do
   import Phoenix.Component, only: [assign: 2]
   import Phoenix.LiveView, only: [push_event: 3]
   require Logger
-  alias AiurWeb.Build.{ConversationPayload, ConversationSource, DataSource, Payload, Read, URLState}
+  alias AiurWeb.Build.{Composer, ConversationPayload, ConversationSource, DataSource, Payload, Read, URLState}
   alias AiurWeb.OperatorControlCenter.AgentLogModal
 
   @spec init(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -112,7 +112,7 @@ defmodule AiurWeb.Build.Conversation do
 
   defp open(socket, ref) do
     with {:ok, view} <- call(socket, :tail, [ref, nil]),
-         message = ConversationPayload.view(ref.id, view),
+         message = composed(ConversationPayload.view(ref.id, view), ref),
          :ok <- Payload.validate(message),
          :ok <- call(socket, :subscribe, [ref]) do
       socket = socket |> pin(ref, view) |> schedule()
@@ -143,7 +143,7 @@ defmodule AiurWeb.Build.Conversation do
 
   defp reset(socket, ref) do
     case call(socket, :tail, [ref, nil]) do
-      {:ok, view} -> validated_reply(pin(socket, ref, view), ConversationPayload.view(ref.id, view, true))
+      {:ok, view} -> validated_reply(pin(socket, ref, view), composed(ConversationPayload.view(ref.id, view, true), ref))
       _ -> reply_error(socket, :unavailable)
     end
   end
@@ -167,6 +167,7 @@ defmodule AiurWeb.Build.Conversation do
   end
 
   defp composer(_ref), do: nil
+  defp composed(message, ref), do: Map.put(message, "composer", Composer.state(composer(ref)))
   defp composer_entry(entry), do: Map.put_new(entry, :issue_identifier, entry[:identifier])
 
   defp prepare(socket, ref) do
@@ -223,7 +224,7 @@ defmodule AiurWeb.Build.Conversation do
 
       {:error, :reset} ->
         case call(socket, :tail, [ref, nil]) do
-          {:ok, view} -> push(pin(socket, ref, view), ConversationPayload.view(ref.id, view, true))
+          {:ok, view} -> push(pin(socket, ref, view), composed(ConversationPayload.view(ref.id, view, true), ref))
           _ -> push_unavailable(socket)
         end
 

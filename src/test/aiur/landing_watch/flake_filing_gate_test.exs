@@ -91,6 +91,9 @@ defmodule Aiur.LandingWatch.FlakeFilingGateTest do
       journal_path: journal,
       request_fun: request,
       main_history_fun: fn -> [] end,
+      recent_main_failure_paths_fun: fn _, _ -> {:ok, []} end,
+      job_log_fun: fn _, _ -> {:ok, ""} end,
+      quarantine_list_fun: fn -> {:ok, ""} end,
       changed_paths_fun: fn _pr, _opts -> {:ok, []} end,
       jobs_fun: fn _run, _opts -> {:ok, [%{"check_run_id" => 1, "name" => "test", "conclusion" => "failure"}]} end,
       annotations_fun: fn _id, _opts ->
