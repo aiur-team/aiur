@@ -1,5 +1,5 @@
 defmodule Aiur.LandingWatch.MergeGroupQuarantine do
-  @moduledoc "Quarantines flaky tests from merge-group and base-branch evidence."
+  @moduledoc "Quarantines first unrelated base failures and repeated untouched merge-group failures; journal retries with bounded backoff, then files a fix ticket and auto-merging quarantine PR and requeues dropped approved PRs. OrchestratorGuard failures only file a ticket."
 
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.LandingWatch.{FlakeFilingGate, FlakeRecorder, Journal, MergeGroupRequeue, QuarantineAnnotations, QuarantineEvidence, QuarantinePR, QuarantineRetry}
@@ -250,7 +250,10 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
     with {:ok, :new} <- Journal.claim_flake(claim, opts),
          {:ok, paths} <- if(rows == [], do: {:ok, []}, else: commit_paths(entry.sha, opts)),
          :ok <- record_main_guards(entry, opts),
-         :ok <- rows |> Enum.map(&Map.put(&1, "touched", QuarantineEvidence.touched?(&1["path"], paths))) |> first_error(&Journal.record_failure_observation(&1, opts)) do
+         :ok <-
+           rows
+           |> Enum.map(&(&1 |> Map.put("touched", QuarantineEvidence.touched?(&1["path"], paths)) |> Map.put("checked_paths", paths)))
+           |> first_error(&Journal.record_failure_observation(&1, opts)) do
       :ok
     else
       {:ok, :already_claimed} -> :ok
@@ -327,29 +330,25 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
 
   defp candidates(rows, history, now) do
     recent = Enum.filter(rows, &recent?(&1["at_ms"], now))
-    recent = Enum.reject(recent, &(&1["red_on_main"] == true or &1["touched"] == true))
-    main = recent |> Enum.filter(&(&1["source"] == "base" and &1["touched"] != true and QuarantineEvidence.passed_on_rerun?(history, &1))) |> Enum.map(& &1["identity"])
+    recent = Enum.reject(recent, &(&1["touched"] == true or (&1["source"] != "base" and &1["red_on_main"] == true)))
+    main = recent |> Enum.filter(&(&1["source"] == "base" and &1["touched"] != true)) |> Enum.map(& &1["identity"])
 
     repeated =
-      case Detector.repeated(Enum.map(recent, &observation/1), now, fn _pr -> {:ok, []} end) do
+      case Detector.repeated(Enum.map(recent, &QuarantineEvidence.observation/1), now, fn _pr -> {:ok, []} end) do
         {:ok, found} -> Enum.map(found, & &1.identity)
         _ -> []
       end
 
     red = QuarantineEvidence.red_on_main(history)
-    qualifying = Enum.reject(main ++ repeated, &(&1 in red))
+    qualifying = main ++ Enum.reject(repeated, &(&1 in red))
 
     recent
     |> Enum.filter(&(&1["identity"] in qualifying and &1["touched"] != true))
     |> Enum.group_by(& &1["identity"])
     |> Enum.map(fn {identity, matching} ->
       matching = Enum.sort_by(matching, & &1["at_ms"], :desc)
-      %{identity: identity, rows: matching, observations: Enum.map(matching, &observation/1)}
+      %{identity: identity, rows: matching, observations: Enum.map(matching, &QuarantineEvidence.observation/1)}
     end)
-  end
-
-  defp observation(row) do
-    %{identity: row["identity"], pr: row["pr"], run_url: row["run_url"], at_ms: row["at_ms"], path: row["path"], group_prs: row["group_prs"]}
   end
 
   defp quarantine_with_retry(candidate, ticket, done, rows, observations, base, opts) do
