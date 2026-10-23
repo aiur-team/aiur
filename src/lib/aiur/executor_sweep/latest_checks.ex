@@ -11,6 +11,22 @@ defmodule Aiur.ExecutorSweep.LatestChecks do
     |> Enum.map(&elem(&1, 2))
   end
 
+  @spec red_required([map()]) :: [map()]
+  def red_required(checks) do
+    checks
+    |> per_name()
+    |> Enum.filter(&(value(&1, :conclusion, nil) in ["failure", "cancelled", "timed_out", "startup_failure"]))
+  end
+
+  @spec problem([map()], String.t(), boolean()) :: String.t()
+  def problem(failures, cause, true) do
+    run_ids = failures |> Enum.map(&value(&1, :id, value(&1, :run_id, nil))) |> Enum.reject(&is_nil/1)
+    suffix = if run_ids == [], do: "", else: "; check run(s): #{Enum.map_join(run_ids, ", ", &"##{&1}")}"
+    "has a red required check (#{cause})#{suffix}"
+  end
+
+  def problem(_failures, _cause, false), do: "is not queued or auto-merging"
+
   defp keep_latest({check, index}, latest) do
     name = value(check, :name, "required check")
     candidate = {recency(check), index, check}
