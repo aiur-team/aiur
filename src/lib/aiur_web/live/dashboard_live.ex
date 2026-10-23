@@ -17,7 +17,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
   alias AiurWeb.BuildOrder.TicketContextPresenter
-  alias AiurWeb.DashboardLive.{Controls, GitHubQuotaSnapshot, Summaries, UnitsPanel}
+  alias AiurWeb.DashboardLive.{Controls, GitHubQuotaSnapshot, Summaries, UnitsPanel, Voice}
   alias AiurWeb.EndpointConfig
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
@@ -92,7 +92,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:now, DateTime.utc_now())
       |> assign(:time_zone, browser_time_zone(socket))
       |> assign(:github_quota, github_quota_snapshot())
-      |> assign(:elevenlabs_quota, elevenlabs_quota_snapshot())
+      |> Voice.assign_voice()
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:pending_message_ids, %{})
@@ -216,7 +216,7 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info(:elevenlabs_quota_tick, socket) do
     schedule_elevenlabs_quota_tick()
-    {:noreply, assign(socket, :elevenlabs_quota, elevenlabs_quota_snapshot())}
+    {:noreply, Voice.assign_voice(socket)}
   end
 
   @impl true
@@ -755,6 +755,7 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:provider_meters_announcement, nil)
       |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
       |> Map.put_new(:elevenlabs_quota, %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
+      |> Map.put_new(:voice_capabilities, %{})
       |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
       |> Map.put_new(:current_run_outcomes_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
@@ -893,6 +894,7 @@ defmodule AiurWeb.DashboardLive do
         usage_snapshot={@conversation_usage_snapshot}
         usage_error={@conversation_usage_error}
         context_occupancy={Map.get(@conversation_row || %{}, :context_usage)}
+        voice_capabilities={@voice_capabilities}
         close_event="close-conversation"
         fallback_focus_id="route-title"
         origin_id={@conversation_origin_id}
@@ -2186,8 +2188,6 @@ defmodule AiurWeb.DashboardLive do
   defp schedule_elevenlabs_quota_tick, do: Process.send_after(self(), :elevenlabs_quota_tick, @elevenlabs_quota_tick_ms)
 
   defp github_quota_snapshot, do: GitHubQuotaSnapshot.read()
-
-  defp elevenlabs_quota_snapshot, do: Aiur.Voice.quota_snapshot()
 
   defp clear_chat_state(socket, identifier) do
     socket

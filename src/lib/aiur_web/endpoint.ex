@@ -10,12 +10,17 @@ defmodule AiurWeb.Endpoint do
   @session_options [
     store: :cookie,
     key: "_aiur_key",
-    signing_salt: "aiur-session"
+    signing_salt: "aiur-session",
+    encryption_salt: "aiur-session-encryption",
+    same_site: "Lax",
+    max_age: 31_536_000
   ]
 
   require LiveView
   require Streamdeck
   require Voice
+
+  @before_compile AiurWeb.EndpointCallGuard
 
   LiveView.mount(@session_options)
   Streamdeck.mount(@session_options)
@@ -75,7 +80,7 @@ defmodule AiurWeb.Endpoint do
 
   plug(Plug.MethodOverride)
   plug(Plug.Head)
-  plug(Plug.Session, @session_options)
+  plug(AiurWeb.Session, @session_options)
   plug(AiurWeb.Router)
 
   @doc false

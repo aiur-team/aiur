@@ -7,12 +7,54 @@ defmodule Aiur.TestSupport.AiurdevCase do
   @script Path.expand("../../../scripts/aiurdev", __DIR__)
   def script, do: @script
 
+  # Shell fixtures in this module model ordinary machines where the temporary
+  # directory is outside the agent workspace. The live workspace may set
+  # TMPDIR beneath `aiur-workspaces`, which intentionally activates shim safety
+  # behavior and changes those fixture semantics.
+  def isolated_tmp_root do
+    key = {__MODULE__, :isolated_tmp_root}
+
+    case Process.get(key) || caller_tmp_root(key) do
+      nil ->
+        root = Path.join("/tmp", "aiur-test-tmp-#{System.pid()}-#{System.unique_integer([:positive])}")
+        File.mkdir_p!(root)
+        Process.put(key, root)
+        on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+        root
+
+      root ->
+        Process.put(key, root)
+        root
+    end
+  end
+
+  defp caller_tmp_root(key) do
+    Process.get(:"$callers", [])
+    |> Enum.find_value(&tmp_root_for_process(&1, key))
+  end
+
+  defp tmp_root_for_process(pid, key) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dictionary} -> dictionary_tmp_root(dictionary, key)
+      nil -> nil
+    end
+  end
+
+  defp dictionary_tmp_root(dictionary, key) do
+    case List.keyfind(dictionary, key, 0) do
+      {^key, root} -> root
+      nil -> nil
+    end
+  end
+
   # The shim sources scripts/lib/aiurdev-*.sh next to itself, so copies need them.
   def copy_shim_libs!(dir), do: File.cp_r!(Path.join(Path.dirname(@script), "lib"), Path.join(dir, "lib"))
 
   # A fake repo root whose engine just echoes how the shim invoked it, so we can
   # assert on AIUR_RELEASE_DIR + forwarded args without building a real release.
-  def fake_repo(root \\ Aiur.TestSupport.tmp_root!("aiurdev-shim")) do
+  def fake_repo(root \\ nil) do
+    root = root || Path.join(isolated_tmp_root(), "aiurdev-shim-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(isolated_tmp_root())
     libexec = Path.join([root, "packaging", "npm", "aiur-cli", "libexec"])
     File.mkdir_p!(libexec)
     # `--test` resets the sandbox from $repo_root/src; the dir must exist to cd into.
@@ -94,11 +136,11 @@ defmodule Aiur.TestSupport.AiurdevCase do
   def fake_agent_repo(issue) do
     root =
       Path.join([
-        System.tmp_dir!(),
+        isolated_tmp_root(),
         "aiur-workspaces",
         "repo",
         to_string(issue),
-        Aiur.TestSupport.tmp_root!("aiurdev-shim")
+        "aiurdev-shim-#{System.unique_integer([:positive])}"
       ])
 
     fake_repo(root)
@@ -274,7 +316,7 @@ defmodule Aiur.TestSupport.AiurdevCase do
 
   # Throwaway HOME keeps log-clearing tests away from real run evidence.
   def sandbox_home do
-    home = Aiur.TestSupport.tmp_root!("aiurdev-home")
+    home = Path.join(isolated_tmp_root(), "aiurdev-home-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join([home, ".aiur", "logs", "old-session"]))
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
     home
@@ -289,11 +331,23 @@ defmodule Aiur.TestSupport.AiurdevCase do
       {"AIUR_OPENCODE_BRIDGE_PORT", nil}
     ]
 
-    System.cmd("bash", [Keyword.get(opts, :script, @script) | args],
-      env: base_env ++ env,
-      cd: Keyword.get(opts, :cd, System.tmp_dir!()),
+    cwd = Keyword.get(opts, :cd, isolated_cwd())
+    File.mkdir_p!(cwd)
+
+    script = Keyword.get(opts, :script, @script)
+
+    System.cmd("bash", ["-c", "cd -P -- \"$1\" && shift && exec bash \"$@\"", "aiurdev-test", cwd, script | args],
+      env: base_env ++ env ++ [{"PWD", cwd}],
       stderr_to_stdout: true
     )
+  end
+
+  # Agent workspaces commonly live under /.../aiur-workspaces/..., which the
+  # dev shim intentionally recognizes as an agent workspace even when its
+  # marker is cleared. Keep tests for ordinary temporary directories outside
+  # that host path; tests for workspace detection pass their own explicit cwd.
+  defp isolated_cwd do
+    isolated_tmp_root()
   end
 
   # A fake root that also looks like a CHECKOUT from the outside — the three

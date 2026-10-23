@@ -93,7 +93,10 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       assert prompt =~ "I found the broker race; fixing the retry path."
 
       rework_issue = %{issue | state: "rework"}
-      assert TurnPrompt.build_turn_prompt(rework_issue, [workspace: workspace], 1, nil) =~ "## Resuming from a stopped session"
+      rework_prompt = TurnPrompt.build_turn_prompt(rework_issue, [workspace: workspace], 1, nil)
+      assert rework_prompt =~ "## Resuming from a stopped session"
+      assert rework_prompt =~ "previous run completed normally and left uncommitted changes"
+      refute rework_prompt =~ "stopped before it could finish"
     end
 
     test "dirty workspace includes an incomplete Codex message accumulated from deltas" do

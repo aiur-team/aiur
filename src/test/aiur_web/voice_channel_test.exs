@@ -104,7 +104,7 @@ defmodule AiurWeb.VoiceChannelTest do
 
     {socket, _client} = voice_socket()
 
-    assert {:error, %{reason: reason}} = subscribe_and_join(socket, "voice:dictation")
+    assert {:error, %{reason: reason, reason_code: "unconfigured"}} = subscribe_and_join(socket, "voice:dictation")
     assert reason =~ "not configured"
   end
 
@@ -113,7 +113,7 @@ defmodule AiurWeb.VoiceChannelTest do
     Application.put_env(:aiur, :voice_provider, nil)
     {socket, _client} = voice_socket()
 
-    assert {:error, %{reason: "Voice input isn't installed in this Aiur. Typed messages work as usual."}} =
+    assert {:error, %{reason: "Voice input isn't installed in this Aiur. Typed messages work as usual.", reason_code: "not_installed"}} =
              AiurWeb.VoiceChannel.join("voice:dictation", %{}, socket)
 
     Application.put_env(:aiur, :voice_provider, FakeVoiceProvider)
@@ -132,7 +132,7 @@ defmodule AiurWeb.VoiceChannelTest do
 
     :ok = Generation.invalidate()
 
-    assert {:error, %{reason: reason}} = subscribe_and_join(trusted, "voice:dictation")
+    assert {:error, %{reason: reason, reason_code: "auth_changed"}} = subscribe_and_join(trusted, "voice:dictation")
     assert reason =~ "authentication changed"
   end
 
@@ -173,7 +173,7 @@ defmodule AiurWeb.VoiceChannelTest do
     assert_push("audio_done", %{})
 
     push(joined, "speak", %{"text" => "charge twice"})
-    assert_push("audio_error", %{"reason" => "A voice reply was already requested for this turn."})
+    assert_push("audio_error", %{"reason" => "A voice reply was already requested for this turn.", "reason_code" => "invalid_payload"})
     refute_receive {:fake_tts_request, "charge twice"}, 100
   end
 
@@ -188,7 +188,7 @@ defmodule AiurWeb.VoiceChannelTest do
 
     push(joined, "speak", %{"text" => "Agent reply"})
 
-    assert_push("audio_error", %{"reason" => "Voice playback could not start."})
+    assert_push("audio_error", %{"reason" => "Voice playback could not start.", "reason_code" => "provider_error"})
     refute_push("audio", _payload, 100)
   end
 
@@ -221,7 +221,7 @@ defmodule AiurWeb.VoiceChannelTest do
 
     {_index, third} = List.last(joined)
     push(third, "speak", %{"text" => "reply 3"})
-    assert_push("audio_error", %{"reason" => "Too many dashboard voice replies are active. Try again shortly."})
+    assert_push("audio_error", %{"reason" => "Too many dashboard voice replies are active. Try again shortly.", "reason_code" => "capacity"})
     refute_receive {:blocking_tts_started, "reply 3"}, 100
   end
 
@@ -233,7 +233,7 @@ defmodule AiurWeb.VoiceChannelTest do
     assert {:ok, _reply, _first} = subscribe_and_join(first_socket, "voice:dictation")
     assert {:ok, _reply, _second} = subscribe_and_join(second_socket, "voice:dictation")
 
-    assert {:error, %{reason: reason}} = subscribe_and_join(third_socket, "voice:dictation")
+    assert {:error, %{reason: reason, reason_code: "capacity"}} = subscribe_and_join(third_socket, "voice:dictation")
     assert reason =~ "Too many dashboard dictation sessions"
   end
 
@@ -269,8 +269,8 @@ defmodule AiurWeb.VoiceChannelTest do
     push(joined, "audio", %{"data" => :binary.copy("A", 400_000)})
     assert_receive {:fake_stt_push, ^fake, encoded}, 2_000
     assert Base.decode64!(encoded) == tiny
-    assert_push("error", %{"reason" => "Audio chunk is too large."})
-    assert_push("error", %{"reason" => "Audio chunk is too large."})
+    assert_push("error", %{"reason" => "Audio chunk is too large.", "reason_code" => "chunk_too_large"})
+    assert_push("error", %{"reason" => "Audio chunk is too large.", "reason_code" => "chunk_too_large"})
     refute_receive {:fake_stt_push, ^fake, _pcm}, 250
     assert Enum.map(FakeSTT.pushes(fake), &Base.decode64!/1) == [tiny]
   end
@@ -286,8 +286,8 @@ defmodule AiurWeb.VoiceChannelTest do
     push(joined, "audio", %{"data" => 42})
     assert_receive {:fake_stt_push, ^fake, encoded}, 2_000
     assert Base.decode64!(encoded) == tiny
-    assert_push("error", %{"reason" => "Audio chunk encoding is invalid."})
-    assert_push("error", %{"reason" => "Audio chunk encoding is invalid."})
+    assert_push("error", %{"reason" => "Audio chunk encoding is invalid.", "reason_code" => "invalid_payload"})
+    assert_push("error", %{"reason" => "Audio chunk encoding is invalid.", "reason_code" => "invalid_payload"})
     refute_receive {:fake_stt_push, ^fake, _pcm}, 250
     assert Enum.map(FakeSTT.pushes(fake), &Base.decode64!/1) == [tiny]
   end
@@ -308,7 +308,7 @@ defmodule AiurWeb.VoiceChannelTest do
     assert Base.decode64!(encoded) == first
 
     push(joined, "audio", %{"data" => Base.encode64(<<4, 5, 6>>)})
-    assert_push("error", %{"reason" => "Dictation reached the five-minute limit. Review the text and start again."})
+    assert_push("error", %{"reason" => "Dictation reached the five-minute limit. Review the text and start again.", "reason_code" => "session_limit"})
     assert_receive {:DOWN, ^monitor, :process, _pid, :normal}, 2_000
   end
 
@@ -331,9 +331,9 @@ defmodule AiurWeb.VoiceChannelTest do
     assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:dictation")
 
     fake = joined.assigns.stt.pid
-    :ok = FakeSTT.error(fake, "ElevenLabs rejected the API key")
+    :ok = FakeSTT.error(fake, "ElevenLabs rejected the API key", :provider_auth)
     await_channel(joined)
-    assert_push("error", %{"reason" => "ElevenLabs rejected the API key"})
+    assert_push("error", %{"reason" => "ElevenLabs rejected the API key", "reason_code" => "provider_auth"})
   end
 
   test "stops the stt session when the channel leaves" do

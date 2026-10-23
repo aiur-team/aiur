@@ -68,7 +68,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
       usage_error: Keyword.get(opts, :usage_error, :no_usage_data),
       close_event: Keyword.get(opts, :close_event, "close-conversation"),
       fallback_focus_id: "units-title",
-      origin_id: Keyword.get(opts, :origin_id, "units-conversation-token")
+      origin_id: Keyword.get(opts, :origin_id, "units-conversation-token"),
+      voice_capabilities: Keyword.get(opts, :voice_capabilities, %{})
     })
   end
 
@@ -214,6 +215,25 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     assert html =~ ~s(aria-label="Start interactive voice chat")
     assert html =~ "Talk to this agent and hear its reply"
     refute html =~ "Interactive voice chat is not available yet"
+  end
+
+  # The client reads these attributes to tell "voice is not configured" from
+  # "voice failed" before the microphone is pressed; no visible copy changes.
+  test "the voice input carries the published voice.stt state and reason" do
+    composer = %{target_key: "1110", writable_target?: true, messages: []}
+    view = Presenter.present(row(), snapshot())
+
+    unconfigured = %{"voice.stt" => %{state: :unavailable, reason: :not_configured}, "voice.tts" => %{state: :unavailable, reason: :not_configured}}
+    html = render(view, composer: composer, writable: true, voice_capabilities: unconfigured)
+    assert html =~ ~s(data-voice-stt-state="unavailable")
+    assert html =~ ~s(data-voice-stt-reason="not_configured")
+
+    html = render(view, composer: composer, writable: true, voice_capabilities: %{"voice.stt" => %{state: :available}})
+    assert html =~ ~s(data-voice-stt-state="available")
+    refute html =~ "data-voice-stt-reason"
+
+    html = render(view, composer: composer, writable: true)
+    refute html =~ "data-voice-stt-state"
   end
 
   # Captured verbatim from the drawer before the voice controls moved into
