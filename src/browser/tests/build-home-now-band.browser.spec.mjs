@@ -251,12 +251,14 @@ test('Live button floating state and click use the actual band geometry', async 
   await open(page); await settle(page)
   await page.evaluate(() => { m.ctx.vp.scrollTop = m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - 146; m.fx.update() })
   await expect(page.locator('#bd-nowbtn')).toHaveClass(/at/)
-  await page.locator('#bd-nowbtn').evaluate(el => el.click()); await settle(page)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.locator('#bd-nowbtn').evaluate(el => el.click())
   const error = await page.evaluate(() => {
     const vp = m.ctx.vp, target = Math.max(0, Math.min(m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - 46, vp.scrollHeight - vp.clientHeight))
     return Math.abs(vp.scrollTop - target)
   })
   expect(error).toBeLessThanOrEqual(1)
+  await page.clock.runFor(20)
   await expect(page.locator('#bd-nowbtn')).not.toHaveClass(/at/)
 })
 
