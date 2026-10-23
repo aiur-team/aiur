@@ -53,9 +53,9 @@ unavailable; it does not make a separate usage request.
 
 The daemon polls Claude usage every `polling.usage_interval_seconds` while
 agents run or a dashboard is in focus, in any `account_selection` mode. A
-shorter `agent.headroom_reading_max_age_seconds` clamps that cadence so an
-active account is probed before its reading becomes stale. Older readings show
-as `stale`.
+shorter `agent.headroom_reading_max_age_seconds` clamps that cadence down to
+the provider's 120-second polling floor. A max age below 120 seconds can become
+stale between probes. Older readings show as `stale`.
 
 When polls fail, Claude rows show `last_error`. After an earlier good reading
 the row is `stale` with that reading's age. Three failures in a row log one

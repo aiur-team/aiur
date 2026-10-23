@@ -302,13 +302,14 @@ defmodule Aiur.ProviderMeterRefreshTest do
       refute_received {:observed, :all}
     end
 
-    test "the configured cadence never exceeds the reading max age" do
+    test "the configured cadence honors the reading max age without exceeding the provider limit" do
       settings = fn usage_interval, max_age ->
         {:ok, %{polling: %{usage_interval_seconds: usage_interval}, agent: %{headroom_reading_max_age_seconds: max_age}}}
       end
 
       assert UsageCadence.poll_interval_ms(settings.(300, 1_800)) == 300_000
       assert UsageCadence.poll_interval_ms(settings.(3_600, 1_800)) == 1_800_000
+      assert UsageCadence.poll_interval_ms(settings.(300, 60)) == 120_000
     end
   end
 
