@@ -16,11 +16,28 @@ window_count() {
   jq --arg cutoff "$cutoff" '[.[] | select(.mergedAt >= $cutoff)] | length' <<<"$prs"
 }
 
+issue_number() {
+  jq -r '
+    (.closingIssuesReferences | if type == "array" then .[0].number
+      elif type == "object" then .nodes[0].number else null end)
+    // ((.body // "") | try (capture("(?i)(closes|fixes|resolves) #(?<n>[0-9]+)").n | tonumber) catch null)
+    // ((.headRefName // "") | try (capture("^aiur/(?<n>[0-9]+)").n | tonumber) catch null)
+    // empty
+  ' <<<"$1"
+}
+
 if [[ ${1:-} == --self-test ]]; then
   cutoff=2026-10-22T00:00:00Z
   fixture=$(jq -cn --arg cutoff "$cutoff" '[range(0;30) | {mergedAt:(if . < 20 then "2026-10-22T01:00:00Z" else "2026-10-21T23:59:59Z" end)}]')
   inspected=$(window_count "$fixture" "$cutoff")
-  if [[ $inspected == 20 ]] && [[ $(classify 'build-lane:home') == feature ]] && [[ $(classify 'flake') == test_ci ]] && [[ $(classify 'docs') == other ]]; then
+  array_pr='{"closingIssuesReferences":[{"number":5866}],"body":"","headRefName":""}'
+  nodes_pr='{"closingIssuesReferences":{"nodes":[{"number":5867}]},"body":"","headRefName":""}'
+  body_pr='{"closingIssuesReferences":[],"body":"Closes #5868","headRefName":""}'
+  branch_pr='{"closingIssuesReferences":[],"body":"","headRefName":"aiur/5869-example"}'
+  if [[ $inspected == 20 ]] && [[ $(issue_number "$array_pr") == 5866 ]] && \
+    [[ $(issue_number "$nodes_pr") == 5867 ]] && [[ $(issue_number "$body_pr") == 5868 ]] && \
+    [[ $(issue_number "$branch_pr") == 5869 ]] && [[ $(classify 'build-lane:home') == feature ]] && \
+    [[ $(classify 'flake') == test_ci ]] && [[ $(classify 'docs') == other ]]; then
     printf 'feature-share self-test: ok (30 merges, %s inspected)\n' "$inspected"
     exit 0
   fi
@@ -46,7 +63,7 @@ done
 inspected=$(window_count "$prs" "$cutoff")
 feature=0 test_ci=0 other=0
 while IFS= read -r pr; do
-  issue=$(jq -r '(.closingIssuesReferences.nodes[0].number // (.body | capture("(?i)(closes|fixes|resolves) #(?<n>[0-9]+)").n | tonumber) // (.headRefName | capture("^aiur/(?<n>[0-9]+)").n | tonumber) // empty)' <<<"$pr" 2>/dev/null || true)
+  issue=$(issue_number "$pr")
   title=$(jq -r '.title // ""' <<<"$pr")
   labels=''
   if [[ -n $issue ]]; then
