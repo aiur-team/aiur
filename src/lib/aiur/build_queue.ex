@@ -1,9 +1,9 @@
 defmodule Aiur.BuildQueue do
   @moduledoc "Supervised build queue reconciliation, paced label writes and local ordered-list commands."
 
-  alias Aiur.BuildQueue.{Attention, ReadModel, Server}
+  alias Aiur.BuildQueue.{Attention, LastRead, ReadModel, Server}
 
-  @type status :: :running | :disabled | :unsupported_tracker | :store_unavailable | :writes_paused
+  @type status :: :running | :disabled | :unsupported_tracker | :store_unavailable | :writes_paused | :read_timeout
 
   @spec child(boolean()) :: module() | nil
   def child(false), do: nil
@@ -14,13 +14,23 @@ defmodule Aiur.BuildQueue do
     if Process.whereis(Server), do: GenServer.call(Server, :status), else: absent_status()
   end
 
-  @doc "Returns the version 1 public read model from held projections; no upstream requests or label writes."
+  @doc """
+  Returns the version 1 public read model from held projections; no upstream requests or label writes.
+
+  A timed-out call returns the last model the server served, stale-marked, or `:read_timeout` when it never served one.
+  """
   @spec show(GenServer.server()) :: map()
   def show(server \\ Server) do
     GenServer.call(server, :read_model, 1_000)
   catch
-    :exit, {:noproc, _} -> ReadModel.unavailable(absent_status())
-    :exit, {:timeout, _} -> ReadModel.unavailable(:store_unavailable)
+    :exit, {:noproc, _} ->
+      ReadModel.unavailable(absent_status())
+
+    :exit, {:timeout, _} ->
+      case LastRead.carry(server, System.system_time(:millisecond)) do
+        {:ok, model} -> model
+        :none -> ReadModel.unavailable(:read_timeout)
+      end
   end
 
   @spec reconcile_now() :: :ok | {:error, status()}

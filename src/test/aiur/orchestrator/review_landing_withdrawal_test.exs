@@ -65,6 +65,17 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawalTest do
     refute_received {:comment, _identifier, _body}
   end
 
+  test "a CHANGES_REQUESTED review on another instance's ticket does not touch the queue (#5803)" do
+    path = Workflow.workflow_file_path()
+    write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [42]\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+
+    ReviewLandingWithdrawal.changes_requested(%State{}, "42", review_event("CHANGES_REQUESTED"), opts())
+
+    refute_received {:graphql, _operation, _variables}
+    refute_received {:comment, _identifier, _body}
+  end
+
   defp review_event(state), do: %{author_trusted?: true, comment: %{"state" => state, "user" => %{"login" => "reviewer"}}}
 
   defp opts(pr_overrides \\ %{}) do

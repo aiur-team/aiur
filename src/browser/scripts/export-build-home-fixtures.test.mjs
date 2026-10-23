@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { buildAll, loadBuildJs, encode, decode, API_ROWS } from './export-build-home-fixtures.mjs';
+import { exportTicketDocs } from './build-home-ticket-docs.mjs';
 
 const out = fileURLToPath(new URL('../../test/fixtures/build_home/', import.meta.url));
 const designDir = join(out, 'design-source');
@@ -14,6 +15,29 @@ const script = fileURLToPath(new URL('./export-build-home-fixtures.mjs', import.
 const files = buildAll();
 const fixture = k => decode(files[`${k}.json`]);
 const source = readFileSync(join(designDir, 'assets/build.js'), 'utf8');
+
+test('doc fixtures cover each design ticket and preserve seeded literal body and author', () => {
+  for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'now0', 'now24']) {
+    const docs = decode(files[`docs-${dataset}.json`]);
+    const rows = Object.values(fixture(dataset).sections).flat();
+    assert.deepEqual(Object.keys(docs).sort(), rows.map(row => row.id).sort());
+    assert.ok(rows.every(row => ['maya', 'devon', 'priya', 'sam'].includes(docs[row.id].author)));
+  }
+  assert.deepEqual(decode(files['docs-live.json'])['351'], {
+    body_md: 'Implement cache GitHub API responses. Operators lose context when the daemon restarts mid-run, and this is one of the last gaps.\n\n#### Scope\n\n- Touch only the infra module and its tests\n- Feature-flag anything user-visible\n- Reuse the existing retry and cursor helpers\n\n#### Done when\n\n- No new lint or type errors\n- p95 latency unchanged on the 10k-event fixture\n- Docs updated where behaviour changed',
+    author: 'sam',
+  });
+});
+
+test('doc exporter refuses Markdown that changes the design literal text', () => {
+  for (const text of ['`code`', '*emphasis*', '[link]', '# heading', '> quote', '- list', '1. list']) {
+    for (const field of ['sum', 'scope', 'done']) {
+      const row = { id: 'AIUR-1', sum: 'summary', scope: ['scope'], done: ['done'], author: 'sam' };
+      row[field] = field === 'sum' ? text : [text];
+      assert.throws(() => exportTicketDocs([row]), /Markdown-active fixture text/);
+    }
+  }
+});
 function temp(t) {
   const dir = mkdtempSync(join(tmpdir(), 'build-home-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));

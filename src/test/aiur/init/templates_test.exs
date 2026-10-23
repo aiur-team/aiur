@@ -6,7 +6,7 @@ defmodule Aiur.Init.TemplatesTest do
   test "embedded templates return non-empty content" do
     assert Templates.config_example() =~ "tracker:"
     assert Templates.config_example() =~ "host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST)"
-    assert Templates.config_example() =~ "set host explicitly for remote access"
+    assert Templates.config_example() =~ "0.0.0.0 exposes the LAN"
     assert Templates.config_example() =~ "GITHUB_TOKEN is the default daemon credential"
     assert Templates.config_example() =~ "github_app.account names the daemon's distinct App bot login"
     refute Templates.config_example() =~ "the App private key are set (preferred"

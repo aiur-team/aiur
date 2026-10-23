@@ -69,6 +69,8 @@ defmodule AiurWeb.Router do
   alias AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
 
   require AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
+  alias AiurWeb.Api.UsageProgressRoutes
+  require UsageProgressRoutes
 
   # The receiver must precede every dashboard scope.
   GithubWebhook.receiver()
@@ -83,6 +85,11 @@ defmodule AiurWeb.Router do
   Api.machine_writes()
   Streamdeck.session()
   Capabilities.reads()
+  # Per-ticket usage read (#5692).
+  alias AiurWeb.Routes.Usage
+  require Usage
+  Usage.reads()
+  UsageProgressRoutes.reads()
 
   # Account and rate-limit snapshot (#5697).
   scope "/" do

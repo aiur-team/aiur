@@ -13,6 +13,9 @@ defmodule Aiur.BrowserHarness.IndexLiveFixture do
     @impl true
     def ticket(id, opts), do: selected().ticket(id, opts)
 
+    @impl true
+    def ticket_doc_identity(id, opts), do: selected().ticket_doc_identity(id, opts)
+
     alias Aiur.TestSupport.BuildHome.FixtureSource
     alias AiurWeb.Build.IndexSource
     @impl true
