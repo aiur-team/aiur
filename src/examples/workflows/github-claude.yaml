@@ -52,6 +52,9 @@ tracker:
     agent_core_limit_per_hour: 250
     agent_graphql_limit_per_hour: 600
     agent_search_limit_per_hour: 600
+instance:
+  role: primary                       # primary | secondary; one primary per repository
+
 # Merge policy defaults; currently validated and shown in status/capabilities.
 # Merge enforcement, worker instructions and main watching ship separately.
 # merge_policy:
@@ -108,6 +111,8 @@ observability:
 executor_takeover_first_alert_hours: 8
 executor_takeover_continuous_alert_hours: 1
 server:
+  # public_url: https://aiur.example.com
+  # allowed_hosts: [aiur.example.com, localhost, 127.0.0.1]
   tailscale_funnel: false
 polling:
   idle_widen_factor: 5.0

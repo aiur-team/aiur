@@ -180,3 +180,7 @@ The path scope and webhook signature are independent locks:
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.
+
+The dashboard Host allowlist exempts only `POST /api/v1/github/webhook`; the receiver verifies GitHub's HMAC signature before accepting a delivery. Other paths remain restricted to `server.public_url`, loopback, and additional `server.allowed_hosts`.
+
+The Cloudflare tunnel may preserve `Host: hooks.aiur.dev` without adding its public hostname to the dashboard allowlist.

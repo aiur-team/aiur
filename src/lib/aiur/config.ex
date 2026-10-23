@@ -169,7 +169,19 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc "The `voice.conversation` settings, with a relative `roles_dir` resolved against the config file."
+  @spec voice_conversation() :: Schema.VoiceConversation.t()
+  def voice_conversation do
+    Schema.VoiceConversation.resolve_roles_dir(settings!().voice.conversation, Workflow.workflow_file_path())
+  end
+
   defdelegate tracker_kind(), to: Aiur.Config.TrackerSettings
+  @spec instance_role() :: String.t()
+  def instance_role, do: settings!().instance.role
+
+  # The role the repository-global services were gated on at boot; a hot reload does not re-gate them.
+  @spec booted_instance_role() :: String.t()
+  def booted_instance_role, do: Application.get_env(:aiur, :booted_instance_role) || instance_role()
   defdelegate base_branch(source \\ settings(), context \\ []), to: Aiur.Config.TrackerSettings
   defdelegate active_states(), to: Aiur.Config.TrackerSettings
   defdelegate terminal_states(), to: Aiur.Config.TrackerSettings

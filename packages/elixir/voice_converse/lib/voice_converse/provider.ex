@@ -77,5 +77,35 @@ defmodule VoiceConverse.Provider do
   @callback truncate(ref(), turn_id :: term(), played_until_ms :: non_neg_integer()) :: :ok
   @callback close(ref()) :: :ok
 
-  @optional_callbacks preflight: 1, announce: 3, truncate: 3
+  @typedoc """
+  A batch render request (`VoiceConverse.Narration`). `credentials` follows the session rule: the
+  adapter calls `credentials_module.fetch(provider_id, :render)` during the call and keeps the
+  secret nowhere.
+  """
+  @type render_spec :: %{
+          required(:text) => String.t(),
+          required(:credentials) => {module(), provider_id :: atom()},
+          required(:format) => Events.AgentAudio.format(),
+          optional(:voice_id) => String.t(),
+          optional(atom()) => term()
+        }
+
+  @typedoc "One aligned span of the rendered text, in milliseconds from the start of the audio."
+  @type alignment_segment :: %{text: String.t(), start_ms: non_neg_integer(), end_ms: non_neg_integer()}
+
+  @typedoc "Raw 16-bit little-endian mono PCM at `format`'s rate, plus its text alignment."
+  @type render_result :: %{
+          audio: binary(),
+          format: Events.AgentAudio.format(),
+          alignment: [alignment_segment()]
+        }
+
+  @doc """
+  Renders text to audio without a session. Optional: a provider without it cannot narrate, and
+  `VoiceConverse.Narration` reports `{:error, :unsupported}`. A missing credential is an
+  `Events.Error` with code `:provider_auth`.
+  """
+  @callback render_speech(render_spec()) :: {:ok, render_result()} | {:error, Events.Error.t()}
+
+  @optional_callbacks preflight: 1, announce: 3, truncate: 3, render_speech: 1
 end

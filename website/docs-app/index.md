@@ -79,6 +79,7 @@ The registry reads `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, and `OPENROUTER_API_K
 | Configure a workflow | [Configuration](/reference/configuration) |
 | Run and control Aiur | [CLI](/reference/cli) |
 | Understand the driver | [Executor](/concepts/executor) |
+| Read the build | [Continuous build history](/concepts/build-history) |
 | Read fleet work | [Units](/concepts/units) |
 | Resolve agent issues | [Commands](/concepts/commands) |
 | Follow large features | [Build Orders](/concepts/build-orders) |

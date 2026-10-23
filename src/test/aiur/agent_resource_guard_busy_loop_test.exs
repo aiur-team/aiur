@@ -250,7 +250,13 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
 
     port = Port.open({:spawn_executable, System.find_executable("sh")}, [:binary, :exit_status, args: [script, workspace]])
     {:os_pid, root} = Port.info(port, :os_pid)
-    assert_receive {^port, {:data, "started " <> started}}, 5_000
+    # Wait on the script's own output, never a clock: a loaded CI runner took over 5s to start it (#5790).
+    # The ExUnit test timeout still bounds a script that never answers.
+    started =
+      receive do
+        {^port, {:data, "started " <> started}} -> started
+      end
+
     sleeps = started |> String.split() |> Enum.map(&String.to_integer/1)
     on_exit(fn -> System.cmd("kill", ["-KILL" | Enum.map([root | sleeps], &Integer.to_string/1)], stderr_to_stdout: true) end)
 
@@ -284,11 +290,15 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
 
     # End the command: the remaining child reparents out of the agent's tree.
     Port.command(port, "\n")
-    assert_receive {^port, {:data, "command-ended\n"}}, 5_000
-    assert {[%{root_pid: nil, killed: [orphan], workspace: ^canonical_workspace}], _tracked} = enforce_until_result(opts, tracked)
+
+    receive do
+      {^port, {:data, "command-ended\n"}} -> :ok
+    end
+
+    # The orphan reap is the guard's own SIGKILL; a delivered signal proves the kill without timing the exit.
+    kill = fn pid -> assert {_, 0} = System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true) end
+    assert {[%{root_pid: nil, killed: [orphan], workspace: ^canonical_workspace}], _tracked} = enforce_until_result(Keyword.put(opts, :kill_fun, kill), tracked)
     assert Enum.sort([trimmed, orphan]) == Enum.sort(sleeps)
-    # Dead or an unreaped zombie; either way it is no longer running.
-    assert Enum.any?(1..50, fn _ -> not match?(%{state: state} when state != "Z", BusyLoop.sample(orphan)) or Process.sleep(100) != :ok end)
   end
 
   defp enforce_until_result(opts, tracked, attempts \\ 100) do

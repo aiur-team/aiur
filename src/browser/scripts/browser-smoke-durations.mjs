@@ -6,6 +6,10 @@
 // run 39100789804 spent 80-120s per shard outside its suites.
 export const preflightSeconds = 120
 export const recordedSeconds = {
+  // CI run 39616972873 (2026-10-21), jobs 119280971812/119280971969:
+  // document functional 43.8s and parity 150.5s suite wall time, rounded up.
+  'test:build-home-modal-doc': 44,
+  'test:build-home-modal-doc-parity': 151,
   // Governed local run (2026-10-21): all 13 nav cells passed in 151.44s;
   // conservative measured 200s wrapper wall bound includes gate wait/startup.
   'test:cutover-nav-parity': 200,
@@ -17,6 +21,7 @@ export const recordedSeconds = {
   'test:build-home-chains': 133,
   // Job 118131038704 (shard 7/9): 126.4s.
   'test:build-home-chains-parity': 127,
+  'test:browser-suite -- build-home-composer': 23.3,
   // Job 118131038510 (shard 2/9): 28.7s.
   'test:browser-suite -- build-home-chains-states': 29,
   // CI run 39590874795 (2026-10-21), full suite wall times including fixture startup:

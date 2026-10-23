@@ -5,7 +5,9 @@ defmodule Aiur.ExecutorSweep.StateLabels do
   dispatches them, so their missing state label is expected.
   """
 
-  @state_labels ~w(todo in-progress ci-wait human-review rework error done)
+  # Mirrors `Aiur.GitHub.Labels` state suffixes: a state missing here is
+  # miscounted as an absent label (#5796).
+  @state_labels ~w(todo in-progress ci-wait human-review rework merging error done cancelled canceled)
 
   @doc "Takes tickets with agent-prefix-stripped `labels`; returns zero or one finding."
   @spec findings([map()]) :: [map()]
