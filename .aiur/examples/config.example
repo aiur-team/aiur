@@ -33,6 +33,9 @@ tracker:
 # For a second daemon on the same GitHub repository, set instance.role: secondary.
 instance:
   role: primary                       # primary | secondary; one primary per repository
+  # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
+  #   label_prefixes: [nuc]           # its tracker.github.label_prefix
+  #   tickets: []                     # ids handed over mid-flight
 # Merge enforcement, worker instructions and main watching ship separately.
 # merge_policy:
 #   ci: wait                       # wait
