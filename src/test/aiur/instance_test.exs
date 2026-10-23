@@ -41,6 +41,50 @@ defmodule Aiur.InstanceTest do
     assert Instance.foreign?("owner/repo#4122", nil, %Ignore{label_prefixes: ["nuc"]})
   end
 
+  test "prefix rules treat a closed ticket with unavailable labels as foreign" do
+    previous = Application.get_env(:aiur, :instance_ticket_labels_fun)
+    Application.put_env(:aiur, :instance_ticket_labels_fun, fn _number -> nil end)
+    on_exit(fn -> restore_label_lookup(previous) end)
+
+    assert Instance.foreign?("owner/repo#4123", nil, %Ignore{label_prefixes: ["nuc"]})
+  end
+
+  test "prefix rules fail closed when the open-ticket label snapshot is missing" do
+    previous = Application.fetch_env(:aiur, :instance_ticket_labels_fun)
+    Application.delete_env(:aiur, :instance_ticket_labels_fun)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, lookup} -> Application.put_env(:aiur, :instance_ticket_labels_fun, lookup)
+        :error -> Application.delete_env(:aiur, :instance_ticket_labels_fun)
+      end
+    end)
+
+    assert Instance.foreign?("owner/repo#4124", nil, %Ignore{label_prefixes: ["nuc"]})
+  end
+
+  test "unreadable config suppresses ticket-scoped ownership work" do
+    previous = Application.fetch_env(:aiur, :backend_catalog)
+    Application.put_env(:aiur, :backend_catalog, nil)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, catalog} -> Application.put_env(:aiur, :backend_catalog, catalog)
+        :error -> Application.delete_env(:aiur, :backend_catalog)
+      end
+    end)
+
+    refute match?({:ok, _rules}, Instance.rules_result())
+    assert Instance.foreign?(4125)
+    assert Instance.foreign_pr?([4125])
+
+    snapshot = %{tickets: [%{number: 4125}], pull_requests: [%{number: 9}], merge_groups: [%{head_branch: "gh-readonly-queue/main/pr-9-abc"}]}
+    filtered = Aiur.Instance.SweepFilter.own(snapshot)
+    assert filtered.tickets == []
+    assert filtered.pull_requests == []
+    assert filtered.merge_groups == []
+  end
+
   test "the Executor sweep drops another instance's unreviewed PR and merge group" do
     write_workflow_file!(Aiur.Workflow.workflow_file_path())
     ignore!("    tickets: [4430]\n")
@@ -77,6 +121,10 @@ defmodule Aiur.InstanceTest do
     write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n" <> rules)
     :ok = Aiur.WorkflowStore.force_reload()
   end
+
+  defp restore_label_lookup({:ok, lookup}), do: Application.put_env(:aiur, :instance_ticket_labels_fun, lookup)
+  defp restore_label_lookup(lookup) when is_function(lookup, 1), do: Application.put_env(:aiur, :instance_ticket_labels_fun, lookup)
+  defp restore_label_lookup(nil), do: Application.delete_env(:aiur, :instance_ticket_labels_fun)
 
   test "rules hot-reload from the live config and ignored events are counted" do
     path = Aiur.Workflow.workflow_file_path()

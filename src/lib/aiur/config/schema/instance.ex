@@ -10,11 +10,11 @@ defmodule Aiur.Config.Schema.Instance.Ignore do
     field(:tickets, {:array, :integer}, default: [])
 
     # @config-reference config-configuration-00 instance.ignore.labels
-    # @config-detail instance.ignore.labels | array of strings | `[]` | Exact labels marking tickets another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
+    # @config-detail instance.ignore.labels | array of strings | `[]` | Exact labels marking tickets another instance owns. If label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
     field(:labels, {:array, :string}, default: [])
 
     # @config-reference config-configuration-00 instance.ignore.label_prefixes
-    # @config-detail instance.ignore.label_prefixes | array of strings | `[]` | Label prefixes marking tickets another instance owns. A prefix such as `nuc` matches `nuc:*` state labels. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
+    # @config-detail instance.ignore.label_prefixes | array of strings | `[]` | Label prefixes marking tickets another instance owns. A prefix such as `nuc` matches `nuc:*` state labels. If label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
     field(:label_prefixes, {:array, :string}, default: [])
   end
 

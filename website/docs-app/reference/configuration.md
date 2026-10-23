@@ -22,8 +22,8 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 | `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
 | `instance.ignore.tickets` | array of integers | `[]` | Ticket numbers another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
-| `instance.ignore.labels` | array of strings | `[]` | Exact labels marking tickets another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
-| `instance.ignore.label_prefixes` | array of strings | `[]` | Label prefixes marking tickets another instance owns. A prefix such as `nuc` matches `nuc:*` state labels. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
+| `instance.ignore.labels` | array of strings | `[]` | Exact labels marking tickets another instance owns. When label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
+| `instance.ignore.label_prefixes` | array of strings | `[]` | Label prefixes marking tickets another instance owns. A prefix such as `nuc` matches `nuc:*` state labels. When label data is unavailable, ticket-scoped observers skip conservatively. Dispatch is unaffected. Hot-reloadable. |
 | `instance.role` | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |
@@ -128,8 +128,9 @@ Freshness thresholds follow this cadence. You do not set them separately.
   | `firehose` | repo events | Already self-regulating via GitHub's `X-Poll-Interval`; the class exists so status can show its configured cadence, not to change its loop. The firehose loop is **not gated** on a class cadence — it rides the dispatch tick — so no value is recommended: leave it unset to inherit `interval_seconds`. An entry would be a dead knob. |
 
 - The dashboard, the Units catalog and Build Order ticket history all judge
-  staleness against the effective interval of the class they mean: the orchestrator snapshot readers derive from `dispatch`, Build Order catalog and
-  ticket history from `planning`.
+  staleness against the effective interval of the class they mean: orchestrator
+  snapshot readers derive from `dispatch`, while Build Order catalog and ticket
+  history derive from `planning`.
 - Build Order's remaining `graph_catalog_refresh_ms` — the failure-backoff base
   for the catalog scope, the window after which the catalog snapshot is shown
   as ageing, and the floor the labelled-read cadence rides on — is derived from

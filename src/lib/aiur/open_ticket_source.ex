@@ -81,12 +81,18 @@ defmodule Aiur.OpenTicketSource do
     :exit, _reason -> {:error, :unavailable}
   end
 
-  @doc "Labels of open ticket `number` from the current snapshot; `[]` when unlisted or unavailable."
-  @spec ticket_labels(integer()) :: [String.t()]
-  def ticket_labels(number) do
-    case snapshot_for_index(__MODULE__, 200) do
-      %Snapshot{tickets: tickets} -> Enum.find_value(tickets, [], &(&1.identifier == Integer.to_string(number) && &1.labels))
-      _ -> []
+  @doc "Labels of open ticket `number`; `nil` when the ticket or current snapshot is unavailable."
+  @spec ticket_labels(integer(), GenServer.server()) :: [String.t()] | nil
+  def ticket_labels(number, server \\ __MODULE__) do
+    case snapshot_for_index(server, 200) do
+      %Snapshot{tickets: tickets} ->
+        case Enum.find(tickets, &(&1.identifier == Integer.to_string(number))) do
+          nil -> nil
+          ticket -> ticket.labels
+        end
+
+      _ ->
+        nil
     end
   end
 

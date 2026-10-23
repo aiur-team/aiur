@@ -10,7 +10,7 @@ defmodule Aiur.MainWatch.FixerForeignTest do
   @signature String.duplicate("b", 64)
 
   setup do
-    write_workflow_file!(Workflow.workflow_file_path())
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
     store = start_supervised!({Agent, fn -> %{issues: [], comments: [], receipts: %{}} end})
 
     opts = [

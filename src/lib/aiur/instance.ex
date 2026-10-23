@@ -20,10 +20,16 @@ defmodule Aiur.Instance do
   @doc """
   True when `ticket` is owned by another instance. `labels` may be omitted when
   the caller does not have them; label rules then fall back to the open-ticket
-  snapshot.
+  snapshot. If config or the label snapshot is unavailable, filtering fails
+  closed while ownership rules are active.
   """
   @spec foreign?(term(), [String.t() | map()] | nil) :: boolean()
-  def foreign?(ticket, labels \\ nil), do: foreign?(ticket, labels, rules())
+  def foreign?(ticket, labels \\ nil) do
+    case rules_result() do
+      {:ok, rules} -> foreign?(ticket, labels, rules)
+      {:error, _reason} -> true
+    end
+  end
 
   @doc false
   @spec foreign?(term(), [String.t() | map()] | nil, Ignore.t()) :: boolean()
@@ -31,18 +37,30 @@ defmodule Aiur.Instance do
     number = number(ticket)
 
     cond do
-      empty?(rules) -> false
-      number != nil and number in rules.tickets -> true
-      rules.labels == [] and rules.label_prefixes == [] -> false
-      true -> labels |> labels_for(number) |> Enum.any?(&label_matches?(&1, rules))
+      empty?(rules) ->
+        false
+
+      number != nil and number in rules.tickets ->
+        true
+
+      rules.labels == [] and rules.label_prefixes == [] ->
+        false
+
+      true ->
+        case labels_for(labels, number) do
+          labels when is_list(labels) -> Enum.any?(labels, &label_matches?(&1, rules))
+          :unknown -> true
+        end
     end
   end
 
   @doc "True when any issue a PR closes is foreign (`closing` is a list of issue numbers or refs)."
   @spec foreign_pr?([term()] | nil) :: boolean()
   def foreign_pr?(closing) when is_list(closing) do
-    rules = rules()
-    not empty?(rules) and Enum.any?(closing, &foreign?(&1, nil, rules))
+    case rules_result() do
+      {:ok, rules} -> not empty?(rules) and Enum.any?(closing, &foreign?(&1, nil, rules))
+      {:error, _reason} -> closing != []
+    end
   end
 
   def foreign_pr?(_closing), do: false
@@ -67,15 +85,25 @@ defmodule Aiur.Instance do
   @spec ignored_count() :: non_neg_integer()
   def ignored_count, do: :counters.get(counter(), 1)
 
-  @doc "The active ignore rules (empty lists when the config is unreadable)."
+  @doc "The active ignore rules, or empty lists for a status projection when config is unreadable."
   @spec rules() :: Ignore.t()
   def rules do
+    case rules_result() do
+      {:ok, rules} -> rules
+      {:error, _reason} -> %Ignore{}
+    end
+  end
+
+  @doc false
+  @spec rules_result() :: {:ok, Ignore.t()} | {:error, term()}
+  def rules_result do
     case Aiur.Config.settings() do
-      {:ok, %{instance: %{ignore: %Ignore{} = ignore}}} -> ignore
-      _ -> %Ignore{}
+      {:ok, %{instance: %{ignore: %Ignore{} = ignore}}} -> {:ok, ignore}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :instance_rules_unavailable}
     end
   rescue
-    _ -> %Ignore{}
+    error -> {:error, error}
   end
 
   @doc "Status projection: active rules plus the since-boot ignored count."
@@ -113,15 +141,23 @@ defmodule Aiur.Instance do
   defp label_name(label), do: to_string(label)
 
   defp labels_for(labels, _number) when is_list(labels), do: labels
-  defp labels_for(_labels, nil), do: []
+  defp labels_for(_labels, nil), do: :unknown
 
-  # ponytail: labels come from the open-ticket snapshot (registered at boot, since config sits below github) when a
-  # caller has only an id; a closed or unlisted ticket matches by id only.
+  # Labels come from the open-ticket snapshot (registered at boot, since config
+  # sits below github); missing tickets and unavailable snapshots are unknown.
   defp labels_for(_labels, number) do
     case Application.get_env(:aiur, :instance_ticket_labels_fun) do
-      lookup when is_function(lookup, 1) -> lookup.(number)
-      _ -> []
+      lookup when is_function(lookup, 1) ->
+        case lookup.(number) do
+          labels when is_list(labels) -> labels
+          _ -> :unknown
+        end
+
+      _ ->
+        :unknown
     end
+  rescue
+    _ -> :unknown
   end
 
   @doc false
