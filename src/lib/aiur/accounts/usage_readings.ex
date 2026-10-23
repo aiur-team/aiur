@@ -74,10 +74,11 @@ defmodule Aiur.Accounts.UsageReadings do
 
   @spec record(String.t(), String.t(), term(), DateTime.t(), :fresh | :cached) :: :ok
   def record(harness, name, result, observed_at, freshness) do
-    previous = Map.get(snapshot(), {harness, name}, %{})
+    readings = snapshot()
+    previous = Map.get(readings, {harness, name}, %{})
     entry = entry(result, observed_at, freshness, previous)
 
-    :persistent_term.put(@key, Map.put(snapshot(), {harness, name}, entry))
+    :persistent_term.put(@key, Map.put(readings, {harness, name}, entry))
     :ok
   end
 

@@ -35,6 +35,7 @@ defmodule Aiur.ProviderMeterRefresh do
   use GenServer
 
   alias Aiur.Config
+  alias Aiur.Config.UsageCadence
   alias Aiur.ProviderMeterProbe
 
   # Matches polling.usage_interval_seconds's measured 300s default: the
@@ -247,13 +248,7 @@ defmodule Aiur.ProviderMeterRefresh do
   end
 
   defp configured_interval_ms do
-    case Config.settings() do
-      {:ok, %{polling: %{usage_interval_seconds: seconds}}} when is_integer(seconds) and seconds > 0 ->
-        seconds * 1_000
-
-      _unset_or_unavailable ->
-        @default_interval_ms
-    end
+    UsageCadence.poll_interval_ms()
   rescue
     _error -> @default_interval_ms
   catch
