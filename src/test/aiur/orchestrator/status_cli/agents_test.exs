@@ -71,7 +71,11 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
         %{identifier: "repo##{number}", issue_id: "#{number}", work_state: :idle, state: "todo", queue_depth: 0}
       end
 
-      running = [running_entry("issue-1", "repo#1", :working), running_entry("issue-2", "repo#2", :working)]
+      running = [
+        running_entry("issue-1", "repo#1", :working) |> Map.put(:issue_id, "1"),
+        running_entry("issue-2", "repo#2", :working) |> Map.put(:issue_id, "2")
+      ]
+
       snapshot = %{running: running, retrying: [], idle: Enum.map(3..502, idle)}
       freshness = %{status: :current, age_ms: 0, observed_at: DateTime.to_iso8601(DateTime.utc_now())}
       view = {:ok, snapshot, freshness}
