@@ -24,6 +24,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TelemetryCohort
+  alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
   alias Aiur.Signal
@@ -211,6 +212,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
         state
 
       worker_host ->
+        claim_ticket_for_worker(state, issue, attempt, recipient, worker_host, opts)
+    end
+  end
+
+  defp claim_ticket_for_worker(state, issue, attempt, recipient, worker_host, opts) do
+    case DispatchPolicy.normalize_issue_state(issue.state) do
+      "rework" ->
         ReworkDispatchClaim.dispatch(
           state,
           issue,
@@ -219,6 +227,29 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
           &Candidates.emit_dispatch_attempt_decline(&1, issue, &2, true),
           &dispatch_input/2
         )
+
+      "todo" ->
+        write_dispatch_state_then_spawn(state, issue, attempt, recipient, worker_host, opts)
+
+      _ ->
+        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, opts)
+    end
+  end
+
+  defp write_dispatch_state_then_spawn(state, issue, attempt, recipient, worker_host, opts) do
+    issue_key = to_string(issue.id || issue.identifier)
+
+    case TicketTransition.write_state(issue_key, "in-progress",
+           writer: :dispatcher,
+           expected_state: issue.state,
+           identifier: issue.identifier
+         ) do
+      :ok ->
+        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, opts)
+
+      {:error, reason} ->
+        Logger.warning("Unable to mark dispatched ticket in-progress: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, opts)
     end
   end
 
