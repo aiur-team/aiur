@@ -67,6 +67,8 @@ Selecting an agent opens its live conversation without leaving Units.
 
 Dictation never sends a message automatically, and the browser never receives the API key.
 
+The Build ticket modal uses the same press-to-start, press-to-stop dictation control. It remains disabled while availability is checked and, when voice is unavailable, its tooltip explains why; recording is visibly marked and failures appear in the composer status line.
+
 Configure `elevenlabs.voice_id` and grant the key **Text to Speech** permission before using spoken conversation; voice cloning and barge-in are not part of this mode.
 
 | Browser requirement | Result |

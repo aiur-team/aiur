@@ -10,6 +10,7 @@ defmodule AiurWeb.Build.Composer do
   """
   import Phoenix.Component, only: [assign: 2, assign: 3]
   import Phoenix.LiveView, only: [push_event: 3, start_async: 3]
+  alias Aiur.Voice
   alias AiurWeb.Build.{Payload, URLState}
   alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.{AgentLogModal, OperatorSend}
@@ -18,9 +19,24 @@ defmodule AiurWeb.Build.Composer do
   @status_timeout_ms 1_000
   @tags ~w(no_running_agent empty_message message_too_long max_concurrent_agents_reached globally_paused unavailable timeout ambiguous_identifier)a
   @unmapped_copy "Send failed. Check the log before you send again."
+  @voice_not_installed "Voice input isn't installed in this Aiur. Typed messages work as usual."
+  @voice_unconfigured "ElevenLabs speech-to-text is not configured. Dictation is unavailable; ask the Executor to run `aiur init` and add an ElevenLabs API key."
 
   @spec init(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def init(socket), do: assign(socket, send_pending: %{}, send_tracking: %{}, send_queued: MapSet.new())
+
+  @spec voice_availability() :: %{optional(:reason) => String.t(), state: String.t()}
+  def voice_availability do
+    if EndpointConfig.get(:dashboard_writable) == true do
+      case Voice.availability() do
+        %{available: true} -> %{state: "available"}
+        %{reason: :unconfigured} -> %{state: "unconfigured", reason: @voice_unconfigured}
+        %{reason: :not_installed} -> %{state: "unconfigured", reason: @voice_not_installed}
+      end
+    else
+      %{state: "read_only", reason: "Read-only dashboard — dictation is off."}
+    end
+  end
 
   @spec send(Phoenix.LiveView.Socket.t(), map()) :: {:reply, map(), Phoenix.LiveView.Socket.t()}
   def send(socket, %{"id" => id, "text" => text}) when is_binary(id) and is_binary(text) do

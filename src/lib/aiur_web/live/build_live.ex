@@ -102,7 +102,7 @@ defmodule AiurWeb.BuildLive do
   def handle_info(:build_snapshot_timeout, %{assigns: %{build_state: :loading}} = socket),
     do: {:noreply, socket |> cancel_async(:build_snapshot) |> unavailable("timeout")}
 
-  def handle_info({:build_changes, changes}, socket), do: {:noreply, Protocol.changes(socket, changes, source_opts(socket))}
+  def handle_info({:build_changes, changes} = message, socket), do: {:noreply, socket |> Protocol.changes(changes, source_opts(socket)) |> Conversation.info(message)}
 
   def handle_info(:fleet_changed, socket), do: {:noreply, socket |> DashboardShell.refresh_pause() |> Conversation.info(:fleet_changed)}
   def handle_info({AiurWeb.FinancialData, :updated, _} = message, socket), do: {:noreply, UsageUpdates.queue(socket, message)}
@@ -115,6 +115,7 @@ defmodule AiurWeb.BuildLive do
   def handle_info({:build_conversation_poll, _token} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:live_conversation_changed, _snapshot} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:live_conversation_restarted, _epoch, _now} = message, socket), do: {:noreply, Conversation.info(socket, message)}
+  def handle_info({tag, _} = message, socket) when tag in [:conversation_events_refresh, :ticket_history_updated], do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:ticket_detail_updated, _state} = message, socket), do: {:noreply, TicketDoc.update(socket, message)}
   def handle_info({:ticket_detail_coordinator_reset, _epoch} = message, socket), do: {:noreply, TicketDoc.update(socket, message)}
   def handle_info(message, socket), do: DashboardShell.handle_info(message, socket)
@@ -132,6 +133,7 @@ defmodule AiurWeb.BuildLive do
   def handle_event("conversation-page", params, socket), do: Conversation.page(socket, params)
   def handle_event("conversation-close", params, socket), do: Conversation.close(socket, params)
   def handle_event("send", params, socket), do: Composer.send(socket, params)
+  def handle_event("voice-availability", _params, socket), do: {:reply, Composer.voice_availability(), socket}
   def handle_event("load-earlier", params, socket), do: Protocol.earlier(socket, params, source_opts(socket))
   def handle_event("usage-watch-start", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :start)}
   def handle_event("usage-watch-stop", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :stop)}

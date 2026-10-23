@@ -10,6 +10,17 @@ defmodule Aiur.PerClassCadenceTest do
   alias Aiur.Webhooks.ModeRegistry
 
   setup do
+    write_github_workflow!(
+      tracker_repo: "aiur-team/per-class-cadence-test",
+      poll_interval_seconds: 120,
+      polling_intervals: %{"dispatch" => 120, "review" => 300, "planning" => 0}
+    )
+
+    # The default registry is application-global; use a repo owned by this
+    # module and reset it so a preceding test's proven webhook cannot widen the
+    # dispatch tick this module is asserting.
+    if repo = GitHubConfig.repo(), do: ModeRegistry.configure(repo, false)
+
     PollCadence.forget_effective_interval_ms()
     on_exit(&PollCadence.forget_effective_interval_ms/0)
     :ok
@@ -17,7 +28,7 @@ defmodule Aiur.PerClassCadenceTest do
 
   describe "polling.intervals config resolution" do
     test "Config.poll_intervals/0 parses the per-class map" do
-      write_workflow_file!(Workflow.workflow_file_path(),
+      write_github_workflow!(
         poll_interval_seconds: 120,
         polling_intervals: %{"dispatch" => 120, "planning" => 600, "review" => 300}
       )
@@ -28,7 +39,7 @@ defmodule Aiur.PerClassCadenceTest do
     # Acceptance: an unlisted class falls back to `polling.interval_seconds`, so
     # existing configs are unchanged in behaviour.
     test "an unlisted class falls back to interval_seconds" do
-      write_workflow_file!(Workflow.workflow_file_path(),
+      write_github_workflow!(
         poll_interval_seconds: 120,
         polling_intervals: %{"planning" => 600}
       )
@@ -46,7 +57,7 @@ defmodule Aiur.PerClassCadenceTest do
     # the scheduler's base is seeded from it, so `dispatch: 60` actually cuts the
     # tracker cadence instead of being a dead key.
     test "intervals.dispatch binds the dispatch tick" do
-      write_workflow_file!(Workflow.workflow_file_path(),
+      write_github_workflow!(
         poll_interval_seconds: 120,
         polling_intervals: %{"dispatch" => 60}
       )
@@ -64,7 +75,7 @@ defmodule Aiur.PerClassCadenceTest do
         running: %{}
       }
 
-      assert TrackerHealth.next_poll_delay_ms(state) == 60_000
+      assert TrackerHealth.next_poll_delay_ms(state, transport: :polling) == 60_000
     end
   end
 
@@ -75,7 +86,7 @@ defmodule Aiur.PerClassCadenceTest do
   # status, and honoured by the Build Order catalog.
   describe "on-demand classes (interval 0 = no timer)" do
     test "Config.poll_intervals/0 keeps 0 as the on-demand value" do
-      write_workflow_file!(Workflow.workflow_file_path(),
+      write_github_workflow!(
         poll_interval_seconds: 120,
         polling_intervals: %{"planning" => 0, "firehose" => 0}
       )
@@ -84,7 +95,7 @@ defmodule Aiur.PerClassCadenceTest do
     end
 
     test "an explicitly-zero class resolves a 0 base, not the fallback" do
-      write_workflow_file!(Workflow.workflow_file_path(),
+      write_github_workflow!(
         poll_interval_seconds: 120,
         polling_intervals: %{"planning" => 0}
       )
@@ -141,7 +152,7 @@ defmodule Aiur.PerClassCadenceTest do
     # With planning on-demand, the Build Order catalog must resolve a 0 cadence
     # (no timer) while the orchestrator snapshot keeps the dispatch cadence.
     test "the catalog resolves on-demand planning to no timer" do
-      write_workflow_file!(Workflow.workflow_file_path(),
+      write_github_workflow!(
         poll_interval_seconds: 120,
         polling_intervals: %{"planning" => 0}
       )
@@ -267,7 +278,7 @@ defmodule Aiur.PerClassCadenceTest do
   # own).
   describe "TrackerHealth.publish_poll_cadence/2 production path" do
     setup do
-      write_workflow_file!(Workflow.workflow_file_path(),
+      write_github_workflow!(
         poll_interval_seconds: 120,
         polling_intervals: %{"dispatch" => 120, "review" => 300, "planning" => 0}
       )
@@ -341,7 +352,7 @@ defmodule Aiur.PerClassCadenceTest do
     # the daemon actually polls while GitHub throttles us — a behaviour change on
     # a default config.
     test "class cadences compose the GitHub floor like the dispatch schedule" do
-      write_workflow_file!(Workflow.workflow_file_path(),
+      write_github_workflow!(
         poll_interval_seconds: 120,
         polling_intervals: %{"planning" => 600}
       )
@@ -404,7 +415,7 @@ defmodule Aiur.PerClassCadenceTest do
       # workflow templates): dispatch at the tracker cadence, review at 300s,
       # planning on-demand. CI is deliberately not listed, so it inherits
       # `interval_seconds` — CI stays demand-scoped at the dispatch tick.
-      write_workflow_file!(Workflow.workflow_file_path(),
+      write_github_workflow!(
         poll_interval_seconds: 120,
         polling_intervals: %{"dispatch" => 120, "review" => 300, "planning" => 0}
       )
@@ -435,5 +446,12 @@ defmodule Aiur.PerClassCadenceTest do
       assert after_spend == 138
       assert after_spend < before * 0.25
     end
+  end
+
+  defp write_github_workflow!(overrides) do
+    write_workflow_file!(
+      Workflow.workflow_file_path(),
+      Keyword.merge([tracker_kind: "github", tracker_repo: "aiur-team/per-class-cadence-test"], overrides)
+    )
   end
 end
