@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert
   alias Aiur.Orchestrator.CiLifecycle.FailureComment
   alias Aiur.Orchestrator.CiLifecycle.Poll
+  alias Aiur.Orchestrator.CiLifecycle.PrLessReview
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
   alias Aiur.Orchestrator.CiLifecycle.ReviewHandoff
   alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
@@ -40,6 +41,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
       HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and ci_head_approved?(state, issue, result) ->
         Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
+      # No open PR means no CI run could ever resolve ci-wait (#5816).
+      HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and PrLessReview.no_pull_request?(result) ->
+        Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
+
       true ->
         Transition.transition_ci_ticket(state, issue, @ci_wait_state)
     end
@@ -63,7 +68,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
   defp apply_ci_poll_result(state, issue, %{decision: :failed} = result) do
     cond do
-      approved_landing_pr?(issue, result) ->
+      approved_landing_pr?(issue, result) and not Map.get(result, :approved_landing_withdrawn?, false) and not Map.get(result, :approved_landing_live_not_landing?, false) ->
         Logger.info("CI failure did not reopen approved landing PR: #{State.issue_context(issue)}")
         state
 
@@ -131,7 +136,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
          %{decision: :failed, review_decision: "APPROVED", auto_merge_request: auto_merge_request, merge_queue_entry: merge_queue_entry} = result
        )
        when is_map(auto_merge_request) or is_map(merge_queue_entry) do
-    Map.get(result, :pending_reason) != :merge_queue_dropped
+    Map.get(result, :pending_reason) != :merge_queue_dropped and
+      not Map.get(result, :approved_landing_withdrawn?, false) and
+      not Map.get(result, :approved_landing_live_not_landing?, false)
   end
 
   defp approved_landing_pr?(_issue, _result), do: false
@@ -183,6 +190,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   @spec recover_ci_poll_result(State.t(), term(), term(), term()) :: term()
   def recover_ci_poll_result(state, issue, result, opts) do
     result = Map.put(result, :ci_recovery_opts, opts)
+    state = PrLessReview.reconcile(state, issue, result, opts)
 
     # Unapproved conflicts only: changes-requested belongs to HeadVerdictRouter (#4822),
     # while confirmed mergeability conflicts route independently of review status.
@@ -209,7 +217,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
           state
         end
 
-      approved_landing_pr?(issue, result) ->
+      approved_landing_pr?(issue, result) and not ci_recovery_required?(state, issue, result) ->
         Logger.info("CI failure did not reopen approved landing PR: #{State.issue_context(issue)}")
         state
 

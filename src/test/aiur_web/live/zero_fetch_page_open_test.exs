@@ -60,7 +60,6 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   alias AiurWeb.ControlCenterCache
 
   @endpoint AiurWeb.Endpoint
-
   # The dashboard routes that must never fetch when opened, paired with a marker
   # only that route renders. `/` and `/build-orders` (+ `/build-orders/:root_number`)
   # used to be the two deliberate exceptions — a first demander buying a
@@ -69,7 +68,8 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   # for `/` is proven separately below, since the route test runs the env's
   # Linear tracker where `OpenTicketSource` is `:unsupported`.
   @zero_fetch_pages [
-    {"/", "usage-watch"},
+    {"/", "build-root"},
+    {"/units", "usage-watch"},
     {"/commands", "control-panel"},
     {"/analytics", "analytics-page"},
     {"/streamdeck", "streamdeck-page"},
@@ -81,6 +81,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   @repository {"owner", "repo"}
 
   setup context do
+    Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "linear")
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
 
     ZeroFetchPageOpenWatchers.suspend(fn pid ->
@@ -107,11 +108,10 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       # This test sends a poll-cycle message while the page is held open. Make
       # the real GitHub comment-poll path eligible only after the Orchestrator
       # has been frozen, so the message deterministically proves the fence.
-      :ok = Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github")
+      Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
     end
 
-    # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
-    # and asserts it reaches the transport. That URL is now cacheable
+    # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read and asserts it reaches the transport. That URL is now cacheable
     # (`:issue`, #2352), and the read cache is a shared application child, so a
     # deposit made by an earlier test would make the control's "must always
     # send" request a cache hit and the zero below unproven. Start clean so the
@@ -238,22 +238,22 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     @tag :inherited_tracker_task
     test "opening the dashboard under a github tracker reaches GitHub zero times", %{counter: counter, inherited_task: inherited_task} do
       workflow_path = Aiur.Workflow.workflow_file_path()
-      :ok = Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github")
+      Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github", tracker_repo: "owner/repo")
 
       # Release the prior test's read and observe its completion before counting.
       ref = Process.monitor(inherited_task)
       send(inherited_task, :continue)
       receive_barrier({:DOWN, ^ref, :process, ^inherited_task, _reason})
 
-      assert {:ok, view, html} = live(build_conn(), "/")
-      assert html =~ "dashboard-shell", "/ did not render the dashboard shell"
-      assert html =~ "usage-watch", "/ rendered a shell but not its own content"
+      assert {:ok, view, html} = live(build_conn(), "/units")
+      assert html =~ "dashboard-shell", "/units did not render the dashboard shell"
+      assert html =~ "usage-watch", "/units rendered a shell but not its own content"
       assert render(view) =~ "usage-watch"
 
       requests = Agent.get(counter, & &1)
 
       assert requests == [],
-             "opening / under a github tracker made #{length(requests)} GitHub requests: #{inspect(requests)}"
+             "opening /units under a github tracker made #{length(requests)} GitHub requests: #{inspect(requests)}"
 
       assert_egress_open!(counter)
     end
@@ -279,7 +279,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
     @tag :comment_poll_leak_probe
     test "holding a page open past its refresh ticks reaches GitHub zero times", %{counter: counter} do
-      assert {:ok, view, html} = live(build_conn(), "/")
+      assert {:ok, view, html} = live(build_conn(), "/units")
       assert html =~ "dashboard-shell"
 
       # Exercise the real Orchestrator poll-cycle entry point while the page is

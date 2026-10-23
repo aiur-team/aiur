@@ -23,6 +23,7 @@ defmodule AiurWeb.BuildQueue.Panel do
         <p :if={not inactive?(@state)} style={muted() <> "; margin-top: 0.25rem"}>{Copy.text(:intro)}</p>
       </header>
       <p :if={@state != :running} style={flat()} role="status">{Copy.text(@state)}</p>
+      <p :if={carried_age(@view)} style={flat()} role="status" data-queue-carried>{Copy.text(:carried)} {Copy.age(carried_age(@view))}</p>
       <%= if @view && not inactive?(@state) do %>
         <p :for={{name, source} <- Enum.sort(@view.model.sources)} style={muted()} data-queue-source={name} data-freshness={source.freshness}>
           <strong>{Copy.source_name(name)}</strong> · {Copy.text(:observed)}: {Copy.timestamp(source.observed_at)} ·
@@ -89,6 +90,9 @@ defmodule AiurWeb.BuildQueue.Panel do
     </section>
     """
   end
+
+  defp carried_age(%{model: %{snapshot: %{carried_age_ms: age}}}), do: age
+  defp carried_age(_view), do: nil
 
   defp dimmed?(%{kind: :build_order, root: root}, sources),
     do: not current?(sources["tracker_observation"]) or not current?(sources["build_order:#{root}"])

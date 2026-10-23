@@ -90,6 +90,20 @@ defmodule Aiur.Application.ChildrenTest do
       end
     end
 
+    test "secondary instance omits repository global services and retains ticket workers" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "secondary", github_tracker?: true, main_watch_enabled?: true))
+
+      for child <- [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch], do: refute(child in mods)
+      assert Aiur.Orchestrator in mods
+      assert Aiur.PRLifecycle.HealthScanner in mods
+    end
+
+    test "primary instance starts repository global services when GitHub is configured" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true))
+
+      for child <- [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch], do: assert(child in mods)
+    end
+
     test "interactive run starts the full UI stack" do
       mods = modules(AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true))
 

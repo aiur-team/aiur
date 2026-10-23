@@ -838,7 +838,7 @@ Alerts persist across daemon restarts and tokens (full-history scan, #1231), so
 the `ACTIONABLE` list keeps naming long-merged tickets. Check timestamps before
 acting and trust the top state table over the alert list.
 
-Run `aiur executor-sweep` on every observation and handle its findings first. It checks decisions, approved PR/CI, merge queue, capacity/order, ticket hygiene, blockers, handbacks, and watcher/dispatcher health. Unreviewed human-review PRs rank first using `executor.sweep.unreviewed_pr_minutes`; the daemon repeats every five minutes and wakes on new findings. Continue below for actions it cannot perform:
+Run `aiur executor-sweep` on every observation and handle its findings first. It checks decisions, approved PR/CI, merge queue, capacity/order, ticket hygiene, blockers, handbacks, and watcher/dispatcher health. Ready PRs unreviewed at their head rank first using `executor.sweep.unreviewed_pr_minutes`, whatever the ticket state (the finding names it, so a ready PR on an `agent:in-progress` ticket reads as a missed handoff); the daemon repeats every five minutes and wakes on new findings. Continue below for actions it cannot perform:
 
 - act on the `ACTIONABLE` section before routine scheduling;
 - continuously push toward the maximum **useful** concurrency across workers,
@@ -1213,6 +1213,17 @@ rework claim, not the relabels; #4646.) Verify the ticket left
 `review_rework_refused` alert names (often: re-review the current head). With no
 alert, run `aiur executor-sweep` (#4620) and grep the daemon log for `Rework
 dispatch claim failed` or `writer=comment_wake` before you touch a label.
+
+Before relabeling on a wake, read the issue's current labels and skip the
+relabel if the ticket has already moved on. A
+`ticket.*.agent.handoff.human_review` wake says the agent handed off, not that
+the ticket is still there: when CI is pending the daemon moves it to
+`agent:ci-wait` within minutes. Swapping `agent:human-review` for
+`agent:rework` from that stale wake leaves `agent:rework` + `agent:ci-wait`,
+and dispatch authorization refuses the pair (#5796). When you do relabel, make
+two sequential calls: add the new state label first, then remove the old one.
+`gh issue edit --add-label X --remove-label Y` runs both mutations concurrently
+and is not atomic, so do not combine them.
 
 ### Merge mechanics
 

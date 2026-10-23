@@ -109,8 +109,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
 
       assert next.ci_lifecycle.draft_stall_alerts == MapSet.new()
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
-               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(state.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
 
       assert MapSet.member?(next.claimed, identifier)
     end

@@ -31,6 +31,7 @@ defmodule AiurWeb.BuildQueuePanelTest do
         unsupported_tracker: "This tracker does not support build queues.",
         store_unavailable: "Queue store unavailable; promotion paused.",
         writes_paused: "Queue writes paused by the GitHub budget.",
+        read_timeout: "Queue read timed out; retrying.",
         unknown: "Queue readiness unknown."
       ] do
     test "renders #{status} independently" do
@@ -49,6 +50,18 @@ defmodule AiurWeb.BuildQueuePanelTest do
       refute html =~ "Freshness"
       refute html =~ ":observation"
     end
+  end
+
+  test "a carried read renders the previous queues with the read's age, never unavailable (#5818)" do
+    stale = %{state: :ok, observed_at: @now, age_ms: 95_000, freshness: :stale, reasons: [:read_timeout]}
+    fixture = view(:running) |> put_in([:model, :sources, "tracker_observation"], stale) |> put_in([:model, :snapshot], %{carried_age_ms: 42_000})
+    html = render_component(&Panel.panel/1, view: fixture, now: @now)
+    assert html =~ "Queue read timed out; showing the last good read from 42s ago"
+    assert html =~ ~s(data-queue-id="q-abcd")
+    assert html =~ ~s(data-queue-state="stale")
+    assert html =~ "95s ago"
+    assert html =~ "Read timeout"
+    refute html =~ "unavailable"
   end
 
   test "source names and reasons render as words, not Elixir terms" do

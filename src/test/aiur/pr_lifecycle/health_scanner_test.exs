@@ -63,6 +63,17 @@ defmodule Aiur.PRLifecycle.HealthScannerTest do
       assert [^old] = stale
     end
 
+    test "skips a PR whose branch names another instance's ticket (#5803)" do
+      path = Workflow.workflow_file_path()
+      write_workflow_file!(path)
+      write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [4121]\n")
+      :ok = Aiur.WorkflowStore.force_reload()
+      native = pr(2152, %{"created_at" => "2026-08-18T00:00:00Z", "head" => %{"ref" => "aiur/2152-native"}, "user" => %{"login" => "its-everdred"}})
+      foreign = pr(2153, %{"created_at" => "2026-08-18T00:00:00Z", "head" => %{"ref" => "aiur/4121-foreign"}, "user" => %{"login" => "its-everdred"}})
+
+      assert {[^native], [^native]} = HealthScanner.evaluate([native, foreign], @stale_hours, @now, ["its-everdred"])
+    end
+
     test "flags a PR exactly at the threshold" do
       boundary = pr(2150, %{"created_at" => "2026-08-21T22:00:00Z"})
 

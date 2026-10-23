@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Outcome
   alias Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert
+  alias Aiur.Orchestrator.CiLifecycle.PrLessReview
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.DraftAlertLifecycle
@@ -445,6 +446,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     passed_heads = state.ci_lifecycle |> Map.get(:passed_heads, %{}) |> prune_ci_map(targets, Map.get(baseline, :passed_heads, %{}))
     test_failure_heads = prune_ci_map(state.ci_lifecycle.test_failure_heads, targets, baseline.test_failure_heads)
     existing_poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
+    existing_ci_observed = Map.get(state.ci_lifecycle, :ci_observed_at_ms, %{})
+    ci_observed = prune_ci_map(existing_ci_observed, targets, Map.get(baseline, :ci_observed_at_ms, %{}))
 
     poll_cache =
       existing_poll_cache
@@ -460,12 +463,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
       |> ParkedReadyAlert.ensure_parked_ready_alerts_seeded(opts)
       |> ParkedReadyAlert.resolve_departed_parked_ready_alerts(targets, opts)
 
-    state = DraftAlertLifecycle.resolve_departed(state, targets, opts)
+    state = state |> DraftAlertLifecycle.resolve_departed(targets, opts) |> PrLessReview.resolve_departed(targets, opts)
 
     if approved_heads == state.ci_lifecycle.approved_heads and
          passed_heads == Map.get(state.ci_lifecycle, :passed_heads, %{}) and
          test_failure_heads == state.ci_lifecycle.test_failure_heads and
-         poll_cache == existing_poll_cache do
+         poll_cache == existing_poll_cache and ci_observed == existing_ci_observed do
       state
     else
       ci_lifecycle =
@@ -473,6 +476,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
         |> Map.put(:approved_heads, approved_heads)
         |> Map.put(:passed_heads, passed_heads)
         |> Map.put(:test_failure_heads, test_failure_heads)
+        |> Map.put(:ci_observed_at_ms, ci_observed)
         |> Map.put(:poll_cache, poll_cache)
 
       CiLifecycle.persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})

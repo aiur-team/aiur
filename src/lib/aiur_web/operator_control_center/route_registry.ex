@@ -3,15 +3,15 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   @routes [
     %{
-      id: :units,
-      label: "Units",
-      icon: "◫",
+      id: :build,
+      label: "Build",
+      icon: "",
       description: "",
       path: "/",
       type: :live,
-      owner: :dashboard,
+      owner: :build,
       availability: :available,
-      active_actions: [:index]
+      active_actions: [:build]
     },
     %{
       id: :commands,
@@ -23,17 +23,6 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       owner: :dashboard,
       availability: :available,
       active_actions: [:decisions, :decision]
-    },
-    %{
-      id: :build_order,
-      label: "Build Order",
-      icon: "◌",
-      description: "",
-      path: "/build-orders",
-      type: :live,
-      owner: :build_order,
-      availability: :available,
-      active_actions: [:build_orders, :build_order]
     },
     %{
       id: :analytics,
@@ -71,6 +60,31 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
     }
   ]
 
+  @hidden_routes [
+    %{
+      id: :units,
+      label: "Units",
+      icon: "◫",
+      description: "",
+      path: "/units",
+      type: :live,
+      owner: :dashboard,
+      availability: :available,
+      active_actions: [:index]
+    },
+    %{
+      id: :build_order,
+      label: "Build Order",
+      icon: "◌",
+      description: "",
+      path: "/build-orders",
+      type: :live,
+      owner: :build_order,
+      availability: :available,
+      active_actions: [:build_orders, :build_order]
+    }
+  ]
+
   @spec routes(map()) :: [map()]
   def routes(analytics) when is_map(analytics) do
     Enum.filter(@routes, &resolve_runtime_availability(&1, analytics))
@@ -86,7 +100,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   @spec current_route(atom() | nil) :: map()
   def current_route(action) do
-    Enum.find(@routes, &active?(&1, action)) || hd(@routes)
+    Enum.find(@routes ++ @hidden_routes, &active?(&1, action)) || hd(@routes)
   end
 
   @spec active?(map(), atom() | nil) :: boolean()
