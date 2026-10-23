@@ -204,7 +204,7 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
         %{decision("resolved", "5007", minutes_ago(30)) | decision_status: :resolved},
         %{decision("dismissed", "5008", minutes_ago(30)) | decision_status: :dismissed},
         %{decision("decided", "5009", minutes_ago(30)) | decision_status: :decided},
-        %{decision("superseded", "5010", minutes_ago(20)) | revision_sequence: 1},
+        %{decision("superseded", "5010", minutes_ago(20)) | revision_sequence: 1, decision_id: "superseded-four"},
         delivery_alert("5011")
       ]
 
@@ -229,7 +229,7 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
                |> DecisionEscalation.status_line(@now, fn _ -> 0 end)
                |> then(&Regex.run(~r/ids=\[([^]]*)\]/, &1, capture: :all_but_first))
 
-      assert status_line_ids == ["deferred-two,expired-three,open-one"]
+      assert status_line_ids == ["deferred-two,expired-three,open-one,superseded-four"]
     end
 
     test "the dashboard does not take a delivery-alert Decision as the selected open Command (#5109)" do
