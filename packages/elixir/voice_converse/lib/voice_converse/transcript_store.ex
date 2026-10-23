@@ -22,6 +22,12 @@ defmodule VoiceConverse.TranscriptStore do
   or `api_key` at any depth. Redacting text fields is the caller's job (plan §17.3: the session
   applies `Config.redactor` before the store).
 
+  Sessions start their transcript with `start/4`, which honours `Config.transcript`. With
+  `transcript: :none` it returns the `:none` store: nothing is created under any root (a `:none`
+  config has no root), `append/2` validates each record exactly as in file mode and then drops it,
+  `close/1` is a no-op, and `mode/1` reports `:none` for the session state. `open/4` and
+  `reopen/3` are the file-mode internals behind `start/4`; session code must not call them directly.
+
   The raw fd belongs to the process that called `open/4` or `reopen/3`; only that process may
   `append/2`.
   """
@@ -36,12 +42,30 @@ defmodule VoiceConverse.TranscriptStore do
   @enforce_keys [:conversation_id, :path, :fd, :datasync]
   defstruct @enforce_keys
 
+  @type session_store :: t() | :none
   @type t :: %__MODULE__{conversation_id: String.t(), path: Path.t(), fd: term(), datasync: (term() -> term())}
   @type record :: map()
 
   @doc """
-  Creates the conversation file under `root` and appends `session_started`. Fails with `:exists`
-  if the conversation already has a transcript.
+  Starts the transcript for a session as `config.transcript` says: `open/4` under
+  `config.transcript_root` for `:file`, or the `:none` store, which writes nothing anywhere.
+  """
+  @spec start(VoiceConverse.Config.t(), String.t(), map(), keyword()) :: {:ok, session_store()} | {:error, term()}
+  def start(config, conversation_id, session_started, opts \\ [])
+
+  def start(%VoiceConverse.Config{transcript: :none}, _conversation_id, _session_started, _opts), do: {:ok, :none}
+
+  def start(%VoiceConverse.Config{transcript: :file, transcript_root: root}, conversation_id, session_started, opts),
+    do: open(root, conversation_id, session_started, opts)
+
+  @doc "The transcript mode of a session store: `:file` or `:none`."
+  @spec mode(session_store()) :: :file | :none
+  def mode(:none), do: :none
+  def mode(%__MODULE__{}), do: :file
+
+  @doc """
+  File-mode internal of `start/4`. Creates the conversation file under `root` and appends
+  `session_started`. Fails with `:exists` if the conversation already has a transcript.
 
   Options (for tests): `:datasync` (`fd -> :ok | {:error, _}`, default `:file.datasync/1`) and
   `:sync_fs` (`-> :ok | {:error, _}`, the creation barrier, default `sync(1)`).
@@ -71,8 +95,9 @@ defmodule VoiceConverse.TranscriptStore do
   end
 
   @doc """
-  Opens an existing transcript for appending. If the file does not end in a newline (a torn
-  final line), writes and syncs `"\n"` first. Takes the `:datasync` option of `open/4`.
+  File-mode internal (boot reconciliation). Opens an existing transcript for appending. If the
+  file does not end in a newline (a torn final line), writes and syncs `"\n"` first. Takes the
+  `:datasync` option of `open/4`.
   """
   @spec reopen(Path.t(), String.t(), keyword()) :: {:ok, t()} | {:error, term()}
   def reopen(root, conversation_id, opts \\ []) do
@@ -95,12 +120,17 @@ defmodule VoiceConverse.TranscriptStore do
   end
 
   @doc "Appends one record and returns only after it is synced to disk. Nothing is written on a refusal."
-  @spec append(t(), record()) :: :ok | {:error, term()}
+  @spec append(session_store(), record()) :: :ok | {:error, term()}
+  def append(:none, record) when is_map(record) do
+    with {:ok, _line} <- encode(record), do: :ok
+  end
+
   def append(%__MODULE__{} = store, record) when is_map(record) do
     with {:ok, line} <- encode(record), do: write_line(store, line)
   end
 
-  @spec close(t()) :: :ok | {:error, term()}
+  @spec close(session_store()) :: :ok | {:error, term()}
+  def close(:none), do: :ok
   def close(%__MODULE__{fd: fd}), do: :file.close(fd)
 
   @doc """

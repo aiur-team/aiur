@@ -28,7 +28,23 @@ defmodule Aiur.AccountsCLI do
     render_accounts(json, harness, snapshot_fun, true, ledger_fun)
   end
 
+  @doc """
+  The rows `aiur accounts --json` prints, read inside the daemon from its polled
+  usage observations. A missing observation keeps its reason in `freshness`.
+  """
+  @spec rows(String.t() | nil, ([String.t()] -> map())) :: [map()]
+  @spec rows(String.t() | nil, ([String.t()] -> map()), (String.t() -> map() | nil)) :: [map()]
+  def rows(harness, snapshot_fun, ledger_fun \\ &ledger_reading/1) when is_function(snapshot_fun, 1) and is_function(ledger_fun, 1) do
+    build_rows(harness, snapshot_fun, true, ledger_fun)
+  end
+
   defp render_accounts(json, harness, snapshot_fun, daemon_available?, ledger_fun \\ &ledger_reading/1) do
+    rows = build_rows(harness, snapshot_fun, daemon_available?, ledger_fun)
+    if json, do: IO.puts(Jason.encode!(rows)), else: Enum.each(rows, &print_row/1)
+    :ok
+  end
+
+  defp build_rows(harness, snapshot_fun, daemon_available?, ledger_fun) do
     accounts = Accounts.list(harness)
     claude_names = accounts |> Enum.filter(&(&1.harness == "claude")) |> Enum.map(& &1.name)
 
@@ -41,14 +57,10 @@ defmodule Aiur.AccountsCLI do
 
     per_harness = Enum.frequencies_by(accounts, & &1.harness)
 
-    rows =
-      Enum.map(accounts, fn account ->
-        ledger? = daemon_available? and Aiur.CodingAgent.family_for(account.harness) != "claude" and Map.get(per_harness, account.harness) == 1
-        account |> account_row(snapshots, daemon_available?) |> with_ledger(ledger? && ledger_fun.(account.harness))
-      end)
-
-    if json, do: IO.puts(Jason.encode!(rows)), else: Enum.each(rows, &print_row/1)
-    :ok
+    Enum.map(accounts, fn account ->
+      ledger? = daemon_available? and Aiur.CodingAgent.family_for(account.harness) != "claude" and Map.get(per_harness, account.harness) == 1
+      account |> account_row(snapshots, daemon_available?) |> with_ledger(ledger? && ledger_fun.(account.harness))
+    end)
   end
 
   @spec login(String.t(), String.t() | nil) :: :ok | {:error, term()}
