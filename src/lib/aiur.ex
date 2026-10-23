@@ -76,6 +76,7 @@ defmodule Aiur.Application do
 
       instance_role = Aiur.Config.instance_role()
       Application.put_env(:aiur, :booted_instance_role, instance_role)
+      Application.put_env(:aiur, :instance_ticket_labels_fun, &Aiur.OpenTicketSource.ticket_labels/1)
 
       children =
         child_specs(

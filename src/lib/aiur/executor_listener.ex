@@ -72,7 +72,7 @@ defmodule Aiur.ExecutorListener do
       health: current_health,
       inbox: Keyword.get(opts, :inbox, ExecutorWakeInbox),
       escalation_interval_ms: Keyword.get(opts, :escalation_interval_ms, @escalation_interval_ms),
-      escalation_opts: Keyword.get(opts, :escalation, []),
+      escalation_opts: escalation_opts(Keyword.get(opts, :escalation, []), Keyword.get(opts, :inbox, ExecutorWakeInbox)),
       escalations: %{}
     }
 
@@ -215,16 +215,30 @@ defmodule Aiur.ExecutorListener do
   end
 
   defp deliver(event, inbox) do
-    if executor_topic?(event) do
-      scrubbed = ExecutorEvents.scrub_untrusted_output(event)
-      if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
-      wake_blocking_decision(event, inbox)
-    else
-      case ExecutorWakeProjection.project(event) do
-        {:ok, record} -> ExecutorWakeInbox.enqueue(record, inbox)
-        :ignore -> :ok
-      end
+    cond do
+      executor_topic?(event) and Aiur.Instance.skip?(value(event, :issue_identifier), nil, :executor_event) ->
+        :ok
+
+      executor_topic?(event) ->
+        deliver_executor_event(event, inbox)
+
+      true ->
+        case ExecutorWakeProjection.project(event) do
+          {:ok, record} -> enqueue_wake(record, inbox)
+          :ignore -> :ok
+        end
     end
+  end
+
+  defp deliver_executor_event(event, inbox) do
+    scrubbed = ExecutorEvents.scrub_untrusted_output(event)
+    if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
+    wake_blocking_decision(event, inbox)
+  end
+
+  # Another instance's ticket wakes that instance's Executor, not this one (#5803).
+  defp enqueue_wake(record, inbox) do
+    if Aiur.Instance.skip?(record["ticket"], nil, :executor_wake), do: :ok, else: ExecutorWakeInbox.enqueue(record, inbox)
   end
 
   # A structured Decision reaches the Executor only as `executor.decision.requested`,
@@ -239,10 +253,23 @@ defmodule Aiur.ExecutorListener do
       record =
         DecisionEscalation.wake_record(issue, value(event, :decision_id), value(event, :title), value(event, :recommendation), event_id: event_id(event))
 
-      ExecutorWakeInbox.enqueue(record, inbox)
+      enqueue_wake(record, inbox)
     else
       :ok
     end
+  end
+
+  defp escalation_opts(opts, inbox) do
+    wake_fun = Keyword.get(opts, :wake_fun, &enqueue_wake(&1, inbox))
+    alert_fun = Keyword.get(opts, :alert_fun, &Signal.alert/2)
+
+    opts
+    |> Keyword.put(:wake_fun, fn record ->
+      if Aiur.Instance.skip?(record["ticket"], nil, :executor_decision_wake), do: :ok, else: wake_fun.(record)
+    end)
+    |> Keyword.put(:alert_fun, fn topic, alert_opts ->
+      if Aiur.Instance.skip?(Keyword.get(alert_opts, :issue), nil, :executor_decision_alert), do: :ok, else: alert_fun.(topic, alert_opts)
+    end)
   end
 
   defp emit_command_alert(event) do
