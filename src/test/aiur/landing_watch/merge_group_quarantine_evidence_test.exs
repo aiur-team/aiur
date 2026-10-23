@@ -3,7 +3,9 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
   use ExUnit.Case, async: true
 
   alias Aiur.CI.FailureDigest
-  alias Aiur.LandingWatch.MergeGroupQuarantine
+  import ExUnit.CaptureLog
+
+  alias Aiur.LandingWatch.{Journal, MergeGroupFailureProcessor, MergeGroupQuarantine}
 
   @reaper "Aiur.Claude.Repl.ReaperTest :: stop_session/1 reports cleanup unknown while the process group remains alive"
   @reaper_path "src/test/aiur/claude/repl/reaper_test.exs"
@@ -11,7 +13,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
 
   setup do
     journal = Path.join(System.tmp_dir!(), "quarantine-evidence-#{System.unique_integer([:positive])}.json")
-    on_exit(fn -> File.rm(journal) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(journal) end)
     %{journal: journal}
   end
 
@@ -84,6 +86,105 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
 
     assert :ok = MergeGroupQuarantine.process_completed(runs, [], "main", opts)
     refute_received {:quarantine_pr, _, _}
+  end
+
+  test "a failing test touched by the only group PR is not filed or quarantined", %{journal: journal} do
+    opts =
+      journal
+      |> opts(self())
+      |> Keyword.merge(
+        changed_paths_fun: fn _, _ -> {:ok, [@reaper_path]} end,
+        job_log_fun: fn _, _ -> {:ok, "  1) test stop_session/1 reports cleanup unknown (Aiur.Claude.Repl.ReaperTest)\n     #{@reaper_path}:212"} end
+      )
+
+    runs = [group_run(39_141_000_001, "pr-71-a", 3), group_run(39_142_000_001, "pr-71-b", 2)]
+    assert :ok = MergeGroupQuarantine.process_completed(runs, [], "main", opts)
+    refute_received {:flake_ticket, _, _}
+    refute_received {:quarantine_pr, _, _}
+  end
+
+  test "a multi-module failure absent on main with one changed lib area routes only that PR", %{journal: journal} do
+    parent = self()
+    blame_test = "src/test/aiur/landing_watch/merge_group_blame_test.exs"
+    journal_test = "src/test/aiur/landing_watch/merge_group_journal_test.exs"
+
+    log =
+      "  1) test changed behavior (Aiur.LandingWatch.MergeGroupBlameTest)\n     #{blame_test}:12\n\n  2) test records group evidence (Aiur.LandingWatch.MergeGroupJournalTest)\n     #{journal_test}:24"
+
+    runs = [group_run(39_143_000_001, "pr-5598-fix-pr-5600-other", 3), group_run(39_144_000_001, "pr-5598-fix-pr-5600-other", 2)]
+
+    changed_paths = fn
+      5598, _ -> {:ok, ["src/lib/aiur/landing_watch/merge_group_run_fetcher.ex"]}
+      5600, _ -> {:ok, ["src/lib/aiur/unrelated.ex"]}
+    end
+
+    opts =
+      journal
+      |> opts(parent)
+      |> Keyword.merge(
+        job_log_fun: fn _, _ -> {:ok, log} end,
+        annotations_fun: fn _, _ ->
+          {:ok,
+           [
+             %{"title" => "aiur-test-failure", "path" => blame_test, "message" => "new-failure :: Aiur.LandingWatch.MergeGroupBlameTest :: changed behavior"},
+             %{"title" => "aiur-test-failure", "path" => journal_test, "message" => "new-failure :: Aiur.LandingWatch.MergeGroupJournalTest :: records group evidence"}
+           ]}
+        end,
+        changed_paths_fun: changed_paths
+      )
+
+    assert :ok = MergeGroupQuarantine.process_completed(runs, [], "main", opts)
+    refute_received {:flake_ticket, _, _}
+    refute_received {:quarantine_pr, _, _}
+
+    prs =
+      for number <- [5598, 5600],
+          do: %{
+            number: number,
+            base: "main",
+            head: "head-#{number}",
+            node_id: "PR_#{number}",
+            draft?: false,
+            review_decision: "APPROVED",
+            merge_queue_entry: nil,
+            auto_merge_request: nil,
+            rest: %{"head" => %{"ref" => "aiur/#{number}-fix"}}
+          }
+
+    failure_opts = [
+      base_branch: "main",
+      token: "test-gh-token",
+      journal_path: journal,
+      recent_main_failure_paths_fun: fn _, _ -> {:ok, []} end,
+      known_failure_patterns: [],
+      jobs_fun: fn run_id, _ -> {:ok, [%{"id" => run_id, "check_run_id" => run_id, "name" => "test", "conclusion" => "failure"}]} end,
+      job_log_fun: fn _, _ -> {:ok, log} end,
+      changed_paths_fun: changed_paths,
+      rework_fun: fn observation, _, _ ->
+        send(parent, {:rework, observation.number})
+        :ok
+      end,
+      approved_fun: fn _, _ -> {:ok, true} end,
+      revalidate_fun: fn _, _, _ -> :ok end,
+      attribution_fun: fn _ -> {:ok, :clean} end,
+      comment_fun: fn _, _, _ -> :ok end,
+      enqueue_fun: fn node, _, _ ->
+        send(parent, {:enqueue, node})
+        {:ok, "entry-#{node}"}
+      end,
+      request_fun: fn %{method: :get, url: url} ->
+        cond do
+          url =~ "/commits?" -> {:ok, %{status: 200, body: [%{"sha" => "fixsha"}]}}
+          url =~ "/compare/" -> {:ok, %{status: 200, body: %{"status" => "behind"}}}
+          true -> {:ok, %{status: 200, body: %{}}}
+        end
+      end
+    ]
+
+    assert :ok = MergeGroupFailureProcessor.process_completed(runs, prs, "main", failure_opts)
+    assert_received {:rework, 5598}
+    assert_received {:enqueue, "PR_5600"}
+    refute_received {:rework, 5600}
   end
 
   test "a failed read while scanning a red main commit backs off instead of repeating every poll", %{journal: journal} do
@@ -227,6 +328,28 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
     refute_received {:quarantine_pr, _, _}
   end
 
+  test "a group flake already in the quarantine list records a skip and files nothing", %{journal: journal} do
+    [module, name] = String.split(@reaper, " :: ", parts: 2)
+    opts = journal |> opts(self()) |> Keyword.put(:quarantine_list_fun, fn -> {:ok, "# header\n#{module}\t#{name}\t#5620\n"} end)
+    runs = [group_run(39_136_853_814, "pr-4995-aaa", 30), group_run(39_139_000_001, "pr-5108-bbb", 10)]
+
+    assert :ok = MergeGroupQuarantine.process_completed(runs, [], "main", opts)
+    refute_received {:flake_ticket, _, _}
+    refute_received {:quarantine_pr, _, _}
+    assert {:ok, %{"flakes" => flakes}} = Journal.state(journal_path: journal)
+    assert Map.has_key?(flakes, "quarantine-skip :: #{@reaper} :: https://github.com/test-org/test-repo/actions/runs/39139000001")
+  end
+
+  test "an unreadable blame log is logged and leaves the group flake on the filing path", %{journal: journal} do
+    opts = journal |> opts(self()) |> Keyword.put(:job_log_fun, fn _, _ -> {:error, :log_unavailable} end)
+    runs = [group_run(39_136_853_814, "pr-4995-aaa", 30), group_run(39_139_000_001, "pr-5108-bbb", 10)]
+
+    log = capture_log(fn -> assert :ok = MergeGroupQuarantine.process_completed(runs, [], "main", opts) end)
+    assert log =~ "merge-group blame unavailable"
+    assert_received {:flake_ticket, @reaper, _}
+    assert_received {:quarantine_pr, 5200, %{identity: @reaper}}
+  end
+
   defp red_entry(minutes_ago) do
     test = %{identity: @reaper, path: @reaper_path, classification: :new_failure}
 
@@ -249,6 +372,9 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
       token: "test-gh-token",
       journal_path: journal,
       main_history_fun: fn -> [] end,
+      quarantine_list_fun: fn -> {:ok, ""} end,
+      recent_main_failure_paths_fun: fn _, _ -> {:ok, []} end,
+      job_log_fun: fn _, _ -> {:ok, ""} end,
       request_fun: fn %{method: :get, url: url} ->
         cond do
           url =~ "/commits?" -> {:ok, %{status: 200, body: [%{"sha" => "fixsha"}]}}
@@ -262,7 +388,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
       annotations_fun: fn _id, _opts -> {:ok, [%{"title" => "aiur-test-failure", "annotation_level" => "failure", "path" => @reaper_path, "message" => "new-failure :: " <> @reaper}]} end,
       flake_recorder: fn failure, run, [], recorder_opts ->
         send(parent, {:flake_ticket, "#{failure.module} :: #{failure.name}", run["id"]})
-        recorder_opts[:issue_recorded_fun].(5200)
+        if is_function(recorder_opts[:issue_recorded_fun], 1), do: recorder_opts[:issue_recorded_fun].(5200), else: :ok
       end,
       quarantine_pr_fun: fn candidate, ticket, _opts ->
         send(parent, {:quarantine_pr, ticket, candidate})

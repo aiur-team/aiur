@@ -1,8 +1,18 @@
 defmodule Aiur.LandingWatch.MainRecoveryRerunTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
   alias Aiur.LandingWatch
   alias Aiur.LandingWatch.Journal
+
+  setup do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "agent"
+    )
+
+    :ok
+  end
 
   @started "2026-10-14T10:00:00Z"
   @started_ms 1_791_972_000_000

@@ -243,6 +243,8 @@
   background: color-mix(in srgb, var(--surface-2) 92%, transparent);
   backdrop-filter: blur(5px);
   border-bottom: 1px solid var(--line);
+  transition: box-shadow .25s;
+  box-shadow: 0 6px 14px -8px rgba(0, 0, 0, .55);
 }
 
 /* C:170 */ .bd-lane {

@@ -339,6 +339,11 @@ fi
 apply_agent_ir_xdg_env
 if [ "${#passthrough[@]}" -gt 0 ]; then
   if pure_control_command "${passthrough[0]}"; then
+    # pre-pr owns its signal report; keep the engine in the foreground process
+    # so an interactive interrupt reaches its trap instead of ending this shim.
+    if [ "${passthrough[0]}" = "pre-pr" ]; then
+      exec "$engine" "${passthrough[@]}"
+    fi
     control_retry_signal="$(mktemp "${TMPDIR:-/tmp}/aiurdev-control-retry.XXXXXX")"
     rm -f "$control_retry_signal"
     export AIUR_CONTROL_RELEASE_RETRYABLE=1

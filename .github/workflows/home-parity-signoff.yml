@@ -34,7 +34,9 @@ jobs:
           - { name: design matrix, run: npm run parity:matrix }
           - { name: composition, run: npm run test:parity }
           - { name: ticket modal, run: npm run test:build-modal-parity }
+          - { name: ticket document, run: npm run test:build-home-modal-doc-parity }
           - { name: ticket conversation, run: npm run test:build-home-conversation }
+          - { name: ticket conversation events, run: npm run test:build-home-conversation-events-parity }
           - { name: shell, run: npm run test:shell-parity }
           - { name: cutover navigation, run: npm run test:cutover-nav-parity }
           - { name: home css, run: npm run test:home-css }
