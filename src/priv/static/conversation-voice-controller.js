@@ -62,7 +62,7 @@
 
     disable(reason) {
       this.unavailableReason = reason;
-      this.setStatus(reason);
+      this.setStatus(reason, true);
       this.syncElements();
     }
 
@@ -74,6 +74,8 @@
         );
         this.mic.setAttribute("aria-pressed", this.recording ? "true" : "false");
         this.mic.setAttribute("aria-label", this.recording ? "Stop dictation" : "Dictate message");
+        this.mic.classList.toggle("rec", this.recording && this.captureMode === "dictation");
+        if (this.unavailableReason) this.mic.title = this.unavailableReason;
       }
       if (this.conversation) {
         this.conversation.disabled = Boolean(
@@ -97,7 +99,11 @@
         this.input.setAttribute("aria-readonly", composerLocked ? "true" : "false");
       }
       if (this.send) this.send.disabled = composerLocked;
-      if (this.status && this.statusMessage) this.status.textContent = this.statusMessage;
+      if (this.status && this.statusMessage) {
+        this.status.textContent = this.statusMessage;
+        this.status.hidden = false;
+        this.status.classList.toggle("bad", this.statusFailed === true);
+      }
       this.drawWaveform();
     }
 
@@ -388,11 +394,11 @@
 
     explainFailure(error) {
       if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
-        this.setStatus("Microphone permission was denied for this origin. Allow it in site settings, then try again.");
+        this.setStatus("Microphone permission was denied for this origin. Allow it in site settings, then try again.", true);
       } else if (error?.name === "NotFoundError") {
-        this.setStatus("No microphone is available. Connect one or choose a different browser microphone.");
+        this.setStatus("No microphone is available. Connect one or choose a different browser microphone.", true);
       } else {
-        this.setStatus(error?.message || "Microphone dictation could not start.");
+        this.setStatus(error?.message || "Microphone dictation could not start.", true);
       }
     }
 
@@ -401,7 +407,7 @@
       this.clearFinishTimer();
       this.finishing = false;
       this.resetConversationState();
-      this.setStatus(message);
+      this.setStatus(message, true);
       this.disposeCapture();
       this.closeChannel();
       this.syncElements();
@@ -441,9 +447,14 @@
       }
     }
 
-    setStatus(message) {
+    setStatus(message, failed = false) {
       this.statusMessage = message;
-      if (this.status) this.status.textContent = message;
+      this.statusFailed = failed;
+      if (this.status) {
+        this.status.textContent = message;
+        this.status.hidden = !message;
+        this.status.classList.toggle("bad", failed);
+      }
     }
 
     disposeCapture() {

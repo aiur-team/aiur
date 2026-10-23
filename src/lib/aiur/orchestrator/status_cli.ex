@@ -105,7 +105,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
     header = Sections.start(header_sections())
     footer = Sections.start(footer_sections(opts))
     header_outcomes = Sections.await(header, deadline_ms, bound_ms)
-
+    IO.puts(Aiur.Instance.status_line())
     tracker_states = StatusTable.tracker_state_sets()
     # Count printed rows so hidden releases cannot inflate the headline (#1475).
     visible_statuses = Enum.filter(statuses, &StatusTable.visible_status_row?(&1, tracker_states))
