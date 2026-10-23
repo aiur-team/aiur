@@ -5,6 +5,7 @@ defmodule Aiur.AgentEnvironment do
 
   alias Aiur.{AgentBuildGuard, AgentScratch, BuildGate, Config, Shell}
   alias Aiur.AgentEnvironment.Contributor
+  alias Aiur.AgentEnvironment.GitHubPath
   alias Aiur.Config.Paths
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -281,27 +282,21 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_REAL_GIT", if(real_git, do: String.to_charlist(real_git), else: false)},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
-        # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
-        # a file that does not exist and left the real config untrusted (#440).
+        # `elixir/`). Mirrors `base_env/1` (#432); a sub-path assumption left the
+        # actual config untrusted (#440).
         {~c"MISE_TRUSTED_CONFIG_PATHS", String.to_charlist(workspace)},
         # The tracker integration branch is authoritative for agent-created
         # pull requests. Keep it in the actual child process environment so PR
         # creation never falls back to the repository's different default.
         {~c"AIUR_BASE_BRANCH", String.to_charlist(base_branch)},
-        # Marker so any nested invocation of `scripts/aiurdev` from inside
-        # an agent's workspace can detect it is running under an agent
-        # and refuse destructive commands (`--test`, `--test3`, `stop`).
-        # Without this, agents that try "manual CLI verification" by
-        # running `./scripts/aiurdev --test` reset the Executor’s sandbox
-        # tickets and kill the parent BEAM mid-run.
+        # Marker so nested `scripts/aiurdev` calls can refuse destructive
+        # commands (`--test`, `--test3`, `stop`) before touching the parent run.
         {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)},
-        # `aiur-claude` reads provider quota from `/api/oauth/usage`, which
-        # rate-limits: asking per session and per in-turn event earns a 429, and
-        # a 429 means no reading at all. Hand it the operator's configured usage
-        # cadence so the adapter caches for exactly as long as the daemon waits
-        # between observations, instead of the two picking separate rhythms.
+        # `aiur-claude` uses provider quota from a rate-limited endpoint. Match
+        # its cache TTL to the configured polling cadence to avoid repeated 429s.
         {~c"AIUR_CLAUDE_USAGE_TTL_MS", String.to_charlist(usage_ttl_ms())}
       ] ++
+        GitHubPath.port_env(workspace) ++
         scratch_env(workspace) ++
         __MODULE__.GitIdentity.port_env(opts) ++
         Enum.map(mix_scheduler_env(), fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end) ++
@@ -399,6 +394,7 @@ defmodule Aiur.AgentEnvironment do
       "AIUR_REAL_GIT=#{if real_git, do: Aiur.Shell.escape(real_git), else: ""}\nexport AIUR_REAL_GIT\n" <>
       Contributor.shell_exports(workspace, opts) <>
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
+      GitHubPath.shell_export(workspace) <>
       __MODULE__.GitIdentity.export_prefix(opts) <>
       "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
       "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>

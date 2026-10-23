@@ -63,16 +63,18 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
     app_session = Handoff.before_turn(app_session, turn_context)
 
-    case if(Handoff.active_resume?(), do: :ok, else: Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host)) do
+    case Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host) do
       :ok -> run_supported_turn(turn_context, app_session)
       {:error, _reason} = error -> refuse_unsupported_turn(turn_context, error)
     end
   end
 
-  # The turn never started, so any delivered queue item goes back to pending
-  # through the confirmed restore boundary instead of being failed.
-  defp refuse_unsupported_turn(%{orchestrator: orchestrator, issue: issue, opts: opts}, error),
-    do: confirm_restore_for_replacement(orchestrator, issue, opts, error)
+  # A support refusal ends this runner turn. For an adopted active turn,
+  # Handoff.adopt/4 stops the adopted session in its after block; restore the
+  # delivered item so a replacement can retry after workspace support is fixed.
+  defp refuse_unsupported_turn(%{orchestrator: orchestrator, issue: issue, opts: opts}, error) do
+    confirm_restore_for_replacement(orchestrator, issue, opts, error)
+  end
 
   defp run_supported_turn(turn_context, app_session) do
     %{

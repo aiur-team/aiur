@@ -91,10 +91,12 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     assert html =~ ~s(role="log")
   end
 
-  test "states the reader is not participating and mirrors identity, not participation" do
+  test "explains sending is unavailable while preserving conversation identity" do
     html = render(Presenter.present(row(), snapshot()))
 
-    assert html =~ "not participating"
+    assert html =~ "You can read this conversation here. Sending is not available."
+    refute html =~ "Read-only mirror"
+    assert html =~ "Read-only dashboard — use the TUI to message or pause this agent."
     assert html =~ "its-everdred/aiur #1110"
     assert html =~ "Responsive Units interface"
   end
@@ -317,6 +319,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
 
     refute html =~ ~s(<textarea)
     refute html =~ ~s(phx-submit="send-operator-message")
+    assert html =~ "You can read this conversation here. Sending is not available."
+    refute html =~ "Read-only mirror"
     assert html =~ "not a unique writable target"
   end
 
