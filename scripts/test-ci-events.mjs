@@ -153,7 +153,7 @@ assert.ok(jobs.get('lint').includes('mix compile --warnings-as-errors'));
 assert.ok(jobs.get('workflow-security').includes('node scripts/test-ci-events.mjs'));
 const packageJson = JSON.parse(readFileSync(new URL('../src/browser/package.json', import.meta.url), 'utf8'));
 const coreCommands = [...packageJson.scripts['test:core'].matchAll(/npm run (test:[\w:-]+)/g)].map(([, name]) => name);
-const { shards } = await import('../src/browser/scripts/run-browser-smoke-shard.mjs');
+const { shards, budgetMs } = await import('../src/browser/scripts/run-browser-smoke-shard.mjs');
 const browserSuites = await import('../src/browser/scripts/browser-suites.mjs');
 const shardCommands = Object.values(browserSuites.shardCommands(shards)).flat().filter((name) => name.startsWith('test:'));
 assert.ok(coreCommands.includes(browserSuites.SUITE_SCRIPT), 'test:core runs discovered home suites');

@@ -5,7 +5,7 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
   alias Aiur.AgentEnvironment.Contributor
   alias Aiur.GitHub.{AgentEnvironmentContributor, Budget}
 
-  @credentials ~w(GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN
+  @credentials ~w(AIUR_SECRET_KEY_BASE GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN
                   GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_PRIVATE_KEY_PATH
                   GITHUB_APP_NEW_SECRET AIUR_GITHUB_BUDGET_KEY)
   @fixture Path.expand("../../fixtures/agent_environment_contributor.json", __DIR__)

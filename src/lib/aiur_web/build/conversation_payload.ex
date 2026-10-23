@@ -18,9 +18,28 @@ defmodule AiurWeb.Build.ConversationPayload do
       "before" => {:nullable, :string},
       "more" => :boolean,
       "note" => {:nullable, {:enum, ~w(legacy_log remote_window live_window)}},
-      "evicted" => :nonnegative
+      "evicted" => :nonnegative,
+      "composer" => {:nullable, {:enum, ~w(ready ambiguous)}}
     })
   end
+
+  def message("send") do
+    Map.merge(base("send"), %{
+      "ok" => :boolean,
+      "request_id" => {:nullable, :integer},
+      "entry_id" => {:nullable, {:short_string, 256}},
+      "text" => {:nullable, @text},
+      "at" => {:nullable, :integer},
+      "reason" =>
+        {:nullable,
+         {:enum, ~w(outcome_unknown not_queued no_running_agent empty_message message_too_long max_concurrent_agents_reached globally_paused unavailable timeout ambiguous_identifier error)}},
+      "unknown" => :boolean,
+      "message" => {:nullable, :string}
+    })
+  end
+
+  def message("send-status"),
+    do: Map.merge(base("send-status"), %{"request_id" => :integer, "status" => {:enum, ~w(queued delivered failed superseded unconfirmed)}})
 
   def message("conversation-earlier"),
     do: Map.merge(base("conversation-earlier"), %{"entries" => {:list, :conversation_entry}, "before" => {:nullable, :string}, "more" => :boolean})
@@ -69,7 +88,8 @@ defmodule AiurWeb.Build.ConversationPayload do
       before: view[:before],
       more: view.more?,
       note: view[:note],
-      evicted: view[:evicted] || 0
+      evicted: view[:evicted] || 0,
+      composer: nil
     }
     |> Payload.scrub()
   end

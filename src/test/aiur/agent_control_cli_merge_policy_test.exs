@@ -14,7 +14,7 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
   end
 
   test "status renders the default merge policy" do
-    assert status_output() =~ "MERGE POLICY ci=wait local_tests=partial main_watch=off watcher=not_running landing_watcher=unavailable\n"
+    assert status_output() =~ "MERGE POLICY ci=wait local_tests=partial role=primary repo_global_off=none main_watch=off watcher=not_running landing_watcher=unavailable\n"
   end
 
   test "status renders the configured CI policy and main watcher mode" do
@@ -35,7 +35,7 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
     )
 
     :ok = Aiur.WorkflowStore.force_reload()
-    assert status_output() =~ "MERGE POLICY ci=wait local_tests=partial main_watch=on(dispatch_fixer) watcher=not_running landing_watcher=unavailable main=unknown\n"
+    assert status_output() =~ "MERGE POLICY ci=wait local_tests=partial role=primary repo_global_off=none main_watch=on(dispatch_fixer) watcher=not_running landing_watcher=unavailable main=unknown\n"
   end
 
   test "status shows a watcher still running after its config is disabled" do
@@ -91,6 +91,15 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
     ]
 
     start_supervised!({Aiur.MainWatch, Keyword.merge(opts, overrides)})
+  end
+
+  test "status reports the role the daemon booted with, not a hot-reloaded one" do
+    previous = Application.get_env(:aiur, :booted_instance_role)
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, :booted_instance_role, previous), else: Application.delete_env(:aiur, :booted_instance_role) end)
+    assert Aiur.Config.instance_role() == "primary"
+    Application.put_env(:aiur, :booted_instance_role, "secondary")
+
+    assert status_output() =~ "role=secondary repo_global_off=[landing_watch,quarantine_lifter,merge_queue_watchdog,main_watch]"
   end
 
   defp status_output do

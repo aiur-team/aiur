@@ -354,7 +354,7 @@ defmodule ScriptsAiurdevCheckoutTest do
             {"TMUX", nil}
           ],
           script: link,
-          cd: System.tmp_dir!()
+          cd: Path.join(isolated_tmp_root(), "no-checkout")
         )
 
       assert out =~ "ENGINE_ARGS: --bg"
@@ -390,13 +390,11 @@ defmodule ScriptsAiurdevCheckoutTest do
       mise = fake_mise()
       # A repo-shaped directory missing src/mix.exs is not an aiur checkout, and
       # refusing there would block a legitimate run for nothing.
-      partial = Aiur.TestSupport.tmp_root!("aiurdev-partial")
+      partial = Path.join(isolated_tmp_root(), "aiurdev-partial")
       File.mkdir_p!(Path.join([partial, "packaging", "npm", "aiur-cli", "libexec"]))
       File.mkdir_p!(Path.join(partial, "scripts"))
       File.write!(Path.join([partial, "scripts", "aiurdev"]), "")
       File.write!(Path.join([partial, "packaging", "npm", "aiur-cli", "libexec", "aiur-engine.sh"]), "")
-      on_exit(fn -> Aiur.TestCleanup.rm_rf!(partial) end)
-
       seed_ready_release(checkout_a)
 
       {out, 0} =

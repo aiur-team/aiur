@@ -1,0 +1,32 @@
+/* Markdown elements absent from the design's fixture bodies. */
+.bm-body p:not(.bm-cue) {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--fg);
+  text-wrap: pretty;
+}
+.bm-body :is(h1, h2, h3, h5, h6) {
+  margin: 1.3rem 0 .4rem;
+  font: 700 .64rem "JetBrains Mono", monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.bm-body ol {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  font-size: .9rem;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.bm-body pre { overflow-x: auto; margin: 0 0 1rem; font: .72rem "JetBrains Mono", monospace; }
+.bm-body code { font: .72rem "JetBrains Mono", monospace; }
+.bm-body blockquote { margin: 0 0 1rem; padding-left: .8rem; border-left: 2px solid var(--line-strong); color: var(--muted); }
+.bm-body a { color: var(--accent); }
+/* Keep the design's stretched button when the accessible reason wraps it. */
+.bm-qadd { display: flex; }
+.bm-qadd .btn { width: 100%; }
