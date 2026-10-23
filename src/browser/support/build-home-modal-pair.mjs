@@ -10,7 +10,7 @@ export async function openModalPair(browser, cell, options) {
     const context = await browser.newContext(opts)
     return { close: () => context.close(), newPage: async () => {
       const page = await context.newPage()
-      for (const name of ['modal/frame.js', 'modal/header.js', 'modal/focus.js', 'modal/doc.js', 'modal/conversation.js', 'modal/conversation-items.js', 'modal/conversation-footer.js', 'hook.js', 'home.css', 'home/19-modal-doc.css']) await page.route('**/build-home/' + name, async route => route.fulfill({
+      for (const name of ['modal/frame.js', 'modal/header.js', 'modal/focus.js', 'modal/doc.js', 'modal/conversation.js', 'modal/conversation-items.js', 'modal/conversation-events.js', 'modal/conversation-footer.js', 'hook.js', 'home.css', 'home/19-modal-doc.css']) await page.route('**/build-home/' + name, async route => route.fulfill({
         body: await readFile(root + '/' + name, 'utf8'), contentType: name.endsWith('.css') ? 'text/css' : 'text/javascript',
       }))
       return page

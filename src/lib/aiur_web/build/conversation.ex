@@ -3,7 +3,7 @@ defmodule AiurWeb.Build.Conversation do
   import Phoenix.Component, only: [assign: 2]
   import Phoenix.LiveView, only: [push_event: 3]
   require Logger
-  alias AiurWeb.Build.{Composer, ConversationPayload, ConversationSource, DataSource, Payload, Read, URLState}
+  alias AiurWeb.Build.{Composer, ConversationEventFeed, ConversationPayload, ConversationSource, DataSource, Payload, Read, URLState}
   alias AiurWeb.OperatorControlCenter.AgentLogModal
 
   @spec init(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -19,6 +19,7 @@ defmodule AiurWeb.Build.Conversation do
       conversation_drain: false,
       conversation_stat: nil
     )
+    |> ConversationEventFeed.init()
   end
 
   @spec page(Phoenix.LiveView.Socket.t(), map()) :: {:reply, map(), Phoenix.LiveView.Socket.t()}
@@ -65,6 +66,7 @@ defmodule AiurWeb.Build.Conversation do
       conversation_drain: false,
       conversation_stat: nil
     )
+    |> ConversationEventFeed.clear()
   end
 
   @spec info(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
@@ -88,6 +90,7 @@ defmodule AiurWeb.Build.Conversation do
   end
 
   def info(socket, {:live_conversation_restarted, _epoch, _now}), do: update(socket, true)
+  def info(socket, {tag, _} = message) when tag in [:conversation_events_refresh, :ticket_history_updated, :build_changes], do: ConversationEventFeed.info(socket, message)
   def info(socket, _message), do: socket
 
   defp first(socket, id) do
@@ -112,10 +115,11 @@ defmodule AiurWeb.Build.Conversation do
 
   defp open(socket, ref) do
     with {:ok, view} <- call(socket, :tail, [ref, nil]),
+         {view, socket} = ConversationEventFeed.place(socket, ref, view, :first),
          message = composed(ConversationPayload.view(ref.id, view), ref),
          :ok <- Payload.validate(message),
          :ok <- call(socket, :subscribe, [ref]) do
-      socket = socket |> pin(ref, view) |> schedule()
+      socket = socket |> pin(ref, view) |> ConversationEventFeed.subscribe() |> schedule()
       {:reply, message, socket}
     else
       _ -> reply_error(socket, :unavailable)
@@ -127,6 +131,7 @@ defmodule AiurWeb.Build.Conversation do
 
     case call(socket, :page, [ref, before]) do
       {:ok, view} ->
+        {view, socket} = ConversationEventFeed.place(socket, ref, view, :older)
         message = Payload.scrub(%{v: 1, kind: "conversation-earlier", id: ref.id, entries: view.entries, before: view[:before], more: view.more?})
         validated_reply(socket, message)
 
@@ -143,8 +148,12 @@ defmodule AiurWeb.Build.Conversation do
 
   defp reset(socket, ref) do
     case call(socket, :tail, [ref, nil]) do
-      {:ok, view} -> validated_reply(pin(socket, ref, view), composed(ConversationPayload.view(ref.id, view, true), ref))
-      _ -> reply_error(socket, :unavailable)
+      {:ok, view} ->
+        {view, socket} = ConversationEventFeed.place(socket, ref, view, :first)
+        validated_reply(pin(socket, ref, view), composed(ConversationPayload.view(ref.id, view, true), ref))
+
+      _ ->
+        reply_error(socket, :unavailable)
     end
   end
 
@@ -218,14 +227,18 @@ defmodule AiurWeb.Build.Conversation do
       {:ok, view} ->
         old = socket.assigns.conversation_view
         gap = (view[:evicted] || 0) > (old[:evicted] || 0)
-        socket = if view.entries == [], do: socket, else: push(socket, %{v: 1, kind: "conversation-append", id: ref.id, entries: view.entries, gap: gap})
+        socket = if view.entries == [], do: socket, else: socket |> push(%{v: 1, kind: "conversation-append", id: ref.id, entries: view.entries, gap: gap}) |> ConversationEventFeed.schedule()
         socket = push(socket, %{v: 1, kind: "conversation-state", id: ref.id, state: view.state, live: view.live?, observed_at: ConversationPayload.millis(view[:observed_at])})
         socket |> pin(ref, view) |> assign(conversation_drain: view.more?)
 
       {:error, :reset} ->
         case call(socket, :tail, [ref, nil]) do
-          {:ok, view} -> push(pin(socket, ref, view), composed(ConversationPayload.view(ref.id, view, true), ref))
-          _ -> push_unavailable(socket)
+          {:ok, view} ->
+            {view, socket} = ConversationEventFeed.place(socket, ref, view, :first)
+            push(pin(socket, ref, view), composed(ConversationPayload.view(ref.id, view, true), ref))
+
+          _ ->
+            push_unavailable(socket)
         end
 
       _ ->

@@ -485,7 +485,7 @@ Mutations print each ticket's outcome; partial success exits 1 and names refusal
 
 Clear persists unmark intents before paced writes; crashes resume on restart. A budget hold reports `writes_paused`; rerun after it lifts. Wait for successful clear before downgrading; `agent:todo` remains dispatchable. The build queue uses the `agent:queued` membership marker; `aiur units --condition queued` still means tickets carrying `agent:todo`.
 
-`queue show` exit codes: 0 for `running` or `writes_paused`; 1 for `disabled`, `unsupported_tracker`, `store_unavailable`, or a refused selection; 64 for invalid launcher arguments; 124 for an RPC timeout. Refusal statuses still print their read model.
+`queue show` exits 0 for `running` or `writes_paused`; 1 for `disabled`, `unsupported_tracker`, `store_unavailable`, `read_timeout` or a refused selection; 64 for invalid arguments; 124 for RPC timeout. On timeout, it returns the last read with stale sources, or `read_timeout` if none exists. Refusals still print their read model.
 
 ## `pr merge`
 

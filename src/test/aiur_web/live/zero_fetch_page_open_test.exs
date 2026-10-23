@@ -81,6 +81,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   @repository {"owner", "repo"}
 
   setup context do
+    Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "linear")
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
 
     ZeroFetchPageOpenWatchers.suspend(fn pid ->
@@ -107,11 +108,10 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       # This test sends a poll-cycle message while the page is held open. Make
       # the real GitHub comment-poll path eligible only after the Orchestrator
       # has been frozen, so the message deterministically proves the fence.
-      :ok = Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github")
+      Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
     end
 
-    # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
-    # and asserts it reaches the transport. That URL is now cacheable
+    # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read and asserts it reaches the transport. That URL is now cacheable
     # (`:issue`, #2352), and the read cache is a shared application child, so a
     # deposit made by an earlier test would make the control's "must always
     # send" request a cache hit and the zero below unproven. Start clean so the
@@ -238,7 +238,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     @tag :inherited_tracker_task
     test "opening the dashboard under a github tracker reaches GitHub zero times", %{counter: counter, inherited_task: inherited_task} do
       workflow_path = Aiur.Workflow.workflow_file_path()
-      :ok = Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github")
+      Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github", tracker_repo: "owner/repo")
 
       # Release the prior test's read and observe its completion before counting.
       ref = Process.monitor(inherited_task)
