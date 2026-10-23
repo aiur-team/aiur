@@ -14,6 +14,7 @@ defmodule Aiur.Workspace.GitMetadataTest do
     repo = init_repo!(Path.join(tmp, "repo"))
     lock = Path.join([repo, ".git", "index.lock"])
     File.write!(lock, "stale\n")
+    set_stale_mtime!(lock)
 
     assert :ok = GitMetadata.ensure_git_metadata_writable(repo)
     refute File.exists?(lock)
@@ -87,6 +88,7 @@ defmodule Aiur.Workspace.GitMetadataTest do
     lock = Path.join([repo, ".git", "refs", "remotes", "origin", "aiur", "123-add-new-test-cases.lock"])
     File.mkdir_p!(Path.dirname(lock))
     File.write!(lock, "stale\n")
+    set_stale_mtime!(lock)
 
     assert :ok = GitMetadata.ensure_git_metadata_writable(repo)
     refute File.exists?(lock)
@@ -106,6 +108,7 @@ defmodule Aiur.Workspace.GitMetadataTest do
     lock = Path.join([repo, ".git", "refs", "remotes", "origin", "feature", "login.lock"])
     File.mkdir_p!(Path.dirname(lock))
     File.write!(lock, "stale\n")
+    set_stale_mtime!(lock)
 
     assert :ok = GitMetadata.ensure_git_metadata_writable(repo)
     refute File.exists?(lock)
@@ -138,5 +141,10 @@ defmodule Aiur.Workspace.GitMetadataTest do
   defp git!(args) do
     {out, 0} = System.cmd("git", args, stderr_to_stdout: true)
     out
+  end
+
+  defp set_stale_mtime!(path) do
+    timestamp = DateTime.to_unix(DateTime.add(DateTime.utc_now(), -180, :second))
+    {_, 0} = System.cmd("touch", ["-d", "@#{timestamp}", path])
   end
 end

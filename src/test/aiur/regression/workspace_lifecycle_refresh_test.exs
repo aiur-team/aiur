@@ -27,7 +27,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleRefreshTest do
         result = Workspace.run_before_run_hook(workspace, issue)
         :ok = File.close(lock_io)
 
-        assert {:error, {:git_index_lock_held, ^lock, age, 11, pid}} = result
+        assert {:error, {:git_metadata_lock_held, ^lock, age, 11, pid}} = result
 
         assert age >= 120
         assert pid == String.to_integer(System.pid())
