@@ -38,6 +38,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
          identity: identity,
          title: title,
          description: description,
+         author_login: author_login(raw_issue["user"]),
          lifecycle: lifecycle,
          url: url,
          destinations: destinations,
@@ -123,6 +124,12 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
   end
 
   defp title(_value), do: {:error, %Failure{kind: :validation}}
+
+  defp author_login(%{"login" => login}) when is_binary(login),
+    do: if(Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\[bot\])?\z/, login), do: login)
+
+  defp author_login(_user), do: nil
+
   defp description(nil, _max_bytes), do: {:ok, nil}
   defp description("", _max_bytes), do: {:ok, nil}
 

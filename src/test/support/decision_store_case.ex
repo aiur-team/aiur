@@ -90,7 +90,7 @@ defmodule Aiur.DecisionStoreCase do
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
-    %{dir: dir}
+    %{dir: dir, original_decision_state_dir: original_override}
   end
 
   def start_store!(dir, opts \\ []) do

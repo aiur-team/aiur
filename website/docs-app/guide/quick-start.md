@@ -101,3 +101,18 @@ Continue with the [GUI](/guide/gui) guide.
 | `aiur --todo <ids…> [--only]` | Queue selected tickets; `--only` dequeues other pending tickets. |
 
 See [CLI and control commands](/reference/cli) for the complete operational surface.
+
+## Running two daemons against one repository
+
+Use one primary and distinct `tracker.github.label_prefix` values. Set
+`instance.role: secondary` on other daemons: they keep dispatching and handling
+ticket CI, while repository-wide watchers run only on primary. The role is read at daemon start, so restart after changing it. `aiur status`
+shows each role and disabled service.
+
+Dispatch is split by prefix, but per-ticket watchers (landing, merge close-out,
+pr_health, the Executor sweep and wake inbox) see every ticket. On each daemon,
+list the other instance's tickets under `instance.ignore`.
+
+`label_prefixes: [nuc]` is the durable rule; `tickets: [4121]` covers a ticket
+handed over mid-flight. Edits apply without a restart, and `aiur status` prints
+the active rules and the count of events ignored since boot.

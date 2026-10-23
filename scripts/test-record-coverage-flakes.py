@@ -17,7 +17,8 @@ class CoverageFlakesTest(unittest.TestCase):
             root = Path(directory)
             log = root / "test.log"
             env = dict(os.environ, GITHUB_RUN_ID="123", GITHUB_SHA="abc",
-                       MIX_TEST_PARTITION="4", GITHUB_RUN_ATTEMPT="1")
+                       MIX_TEST_PARTITION="4", GITHUB_RUN_ATTEMPT="1",
+                       AIUR_LIFECYCLE_LEAK_REPORT=str(root / "lifecycle-leaks.txt"))
 
             def run(attempt, outcome, output):
                 env["GITHUB_RUN_ATTEMPT"] = str(attempt)
@@ -31,6 +32,7 @@ class CoverageFlakesTest(unittest.TestCase):
             log.write_text("Running ExUnit with seed: 42, max_cases: 4\n"
                            "  1) test deferred checkpoint (Aiur.CoreTest)\n"
                            "1 test, 1 failure\nRandomized with seed 42\n")
+            (root / "lifecycle-leaks.txt").write_text("Leaked test: tool executor\n")
             self.assertEqual(run(1, "failure", root / "previous/attempt-1"), [])
             log.write_text("Running ExUnit with seed: 99, max_cases: 4\n1 test, 0 failures\n")
             expected = [{"kind": "same_run_sha_rerun",
@@ -40,6 +42,8 @@ class CoverageFlakesTest(unittest.TestCase):
             self.assertEqual(run(2, "success", root / "passed"), expected)
             self.assertIn("1 failure → rerun-pass", (root / "summary.md").read_text())
             self.assertIn("Coverage flake ledger (shard 4)\n", (root / "summary.md").read_text())
+            self.assertIn("Leaked test: tool executor", (root / "summary.md").read_text())
+            self.assertEqual((root / "passed/lifecycle-leaks.txt").read_text(), "Leaked test: tool executor\n")
             for key, other in (("GITHUB_SHA", "other"), ("GITHUB_RUN_ID", "456"),
                                ("MIX_TEST_PARTITION", "2")):
                 original = env[key]
@@ -95,6 +99,8 @@ class CoverageFlakesTest(unittest.TestCase):
         self.assertIn("id: partition-tests", shard)
         self.assertIn("PARTITION_OUTCOME: ${{ steps.partition-tests.outcome }}", shard)
         self.assertIn("RETRY_OUTCOME: ${{ steps.retry-known-flakes.outcome }}", shard)
+        self.assertIn('run: AIUR_LIFECYCLE_LEAK_GUARD_MODE=report AIUR_LIFECYCLE_LEAK_REPORT="$RUNNER_TEMP/lifecycle-leaks-${{ matrix.partition }}.txt" bash ../scripts/run-coverage-partition.sh', shard)
+        self.assertIn('AIUR_LIFECYCLE_LEAK_REPORT="$RUNNER_TEMP/lifecycle-leaks-${{ matrix.partition }}.txt" python3 scripts/record-coverage-flakes.py', shard)
         self.assertIn("pattern: shard-flake-evidence-${{ matrix.partition }}-*", shard)
         self.assertIn("name: shard-flake-evidence-${{ matrix.partition }}-${{ github.run_attempt }}", shard)
         for name in ("Download previous shard attempts", "Record coverage flake ledger", "Upload coverage flake evidence"):

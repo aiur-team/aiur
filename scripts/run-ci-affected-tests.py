@@ -11,6 +11,7 @@ import tempfile
 import time
 
 SELECTED_TEST_TIMEOUT_SECONDS = 600
+MAX_CHANGED_TEST_MODULES = 8
 TIME_BOMB_CHECK = os.environ.get('AIUR_TIME_BOMB_CHECK', str(Path(__file__).with_name('check-test-time-bombs.py')))
 TIME_BOMB_TIMEOUT_SECONDS = float(os.environ.get('AIUR_TIME_BOMB_TIMEOUT_SECONDS',
                                                  str(SELECTED_TEST_TIMEOUT_SECONDS)))
@@ -87,12 +88,41 @@ def merge_group_changed_paths(base):
     ).splitlines()
 
 
+def changed_test_modules(base):
+    """Return added or modified ExUnit modules introduced by this PR."""
+    changed = subprocess.check_output(
+        ['git', 'diff', '--name-only', '--diff-filter=ACMRT', f'{base}...HEAD', '--', 'test'],
+        text=True,
+    ).splitlines()
+    return sorted({
+        path.removeprefix('src/')
+        for path in changed
+        if path.startswith('src/test/') and path.endswith('_test.exs')
+    })
+
+
+def run_changed_test_modules(base):
+    modules = changed_test_modules(base)
+    for path in modules[:MAX_CHANGED_TEST_MODULES]:
+        run_timed(f'changed test module {path}',
+                  ['mix', 'test', '--max-cases', '4', path],
+                  timeout=SELECTED_TEST_TIMEOUT_SECONDS)
+    skipped = modules[MAX_CHANGED_TEST_MODULES:]
+    if skipped:
+        print('::notice::changed-module isolation ran the first '
+              f'{MAX_CHANGED_TEST_MODULES} of {len(modules)} modules; '
+              'the grouped affected-tests run still covers skipped modules: '
+              + ', '.join(skipped), flush=True)
+
+
 def main():
     if os.environ.get('GITHUB_EVENT_NAME') == 'merge_group':
         paths = merge_group_changed_paths(sys.argv[1])
         os.environ['AIUR_CI_CHANGED_PATHS_B64'] = base64.b64encode(
             json.dumps(paths).encode('utf-8')
         ).decode('ascii')
+    run_changed_test_modules(sys.argv[1])
+
     selection_started = time.monotonic()
     selection = subprocess.check_output(['mix', 'aiur.affected_tests', sys.argv[1]], text=True)
     print(f'::notice::affected-tests selection duration: {time.monotonic() - selection_started:.1f}s',

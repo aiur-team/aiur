@@ -14,7 +14,7 @@ const packageJson = { scripts: {
   'test:manual-only': 'x tests/manual-only.browser.spec.mjs',
 } }
 const runner = `export const shards = {\n  1: ['test:fixture-alpha'],\n  2: ['test:fixture-beta'],\n};\n`
-const timing = (alpha, extra = '') => `export const budgetMs = 100_000\nexport const preflightSeconds = 10\nexport const recordedSeconds = { 'test:fixture-alpha': ${alpha}, 'test:fixture-beta': 20${extra} }\n`
+const timing = (alpha, extra = '') => `export const budgetMs = 100_000\nexport const preflightSeconds = 10\nexport const setupSeconds = 10\nexport const tailSeconds = 10\nexport const recordedSeconds = { 'test:fixture-alpha': ${alpha}, 'test:fixture-beta': 20${extra} }\n`
 const newSuite = ", 'test:browser-suite -- build-home-fixture-new': 5"
 const scratch = mkdtempSync(join(tmpdir(), 'browser-smoke-shards-'))
 try {
@@ -26,6 +26,10 @@ try {
   writeFileSync(runnerPath, runner + timing(20))
   mkdirSync(join(scratch, 'tests'))
   mkdirSync(join(ciRoot, 'actions', 'fixture'), { recursive: true })
+  mkdirSync(join(ciRoot, 'workflows'))
+  const workflow = minutes => writeFileSync(join(ciRoot, 'workflows', 'ci.yml'),
+    `jobs:\n  browser:\n    name: browser smoke\n\n    timeout-minutes: ${minutes}\n  later:\n    timeout-minutes: 9\n`)
+  workflow(2)
   // A spec an explicit script runs keeps that script; an unclaimed one is discovered.
   writeFileSync(join(scratch, 'tests', 'build-home-claimed.browser.spec.mjs'), '')
   writeFileSync(join(scratch, 'tests', 'ci-only.browser.spec.mjs'), '')
@@ -95,6 +99,14 @@ try {
   writeFileSync(runnerPath, runner + timing(60, newSuite))
   const atLimit = run()
   assert.equal(atLimit.status, 0, atLimit.stderr)
+  assert.match(atLimit.stdout, /browser job timeout 120s for setup 10s \+ suite budget 100s \+ tail 10s = 120s/)
+
+  // The browser job deadline must cover setup, the whole suite budget and the post-suite tail.
+  workflow(1)
+  const shortDeadline = run()
+  assert.equal(shortDeadline.status, 1, shortDeadline.stdout)
+  assert.match(shortDeadline.stderr, /browser job timeout 60s for setup 10s \+ suite budget 100s \+ tail 10s = 120s: too short/)
+  workflow(2)
 
   // An unreferenced browser spec must fail.
   writeFileSync(join(scratch, 'tests', 'orphan.browser.spec.mjs'), '')
@@ -122,4 +134,4 @@ try {
   rmSync(scratch, { recursive: true, force: true })
 }
 
-console.log('test-check-browser-smoke-shards: core coverage, CI script discovery, reasoned exclusions, missing/unreachable specs, and shard budget guards pass')
+console.log('test-check-browser-smoke-shards: core coverage, CI script discovery, reasoned exclusions, missing/unreachable specs, shard budget and job deadline guards pass')

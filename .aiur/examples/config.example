@@ -30,6 +30,12 @@ tracker:
   # CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
 
 # Merge policy defaults; currently validated and shown in status/capabilities.
+# For a second daemon on the same GitHub repository, set instance.role: secondary.
+instance:
+  role: primary                       # primary | secondary; one primary per repository
+  # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
+  #   label_prefixes: [nuc]           # its tracker.github.label_prefix
+  #   tickets: []                     # ids handed over mid-flight
 # Merge enforcement, worker instructions and main watching ship separately.
 # merge_policy:
 #   ci: wait                       # wait
@@ -194,6 +200,19 @@ alerts:
 #   sweep:
 #     unreviewed_pr_minutes: 10
 {{ELEVENLABS_SECTION}}
+# === Voice conversation (optional; read only when a voice session starts) ===
+# llm and cloud_disclosure_accepted have no default: a session refuses to start until both are set.
+# voice:
+#   conversation:
+#     llm: <model id>                  # required; the model the assistant reasons with
+#     cloud_disclosure_accepted: true  # required; true = accept that audio and text go to the cloud voice provider
+#     agent_id: <agent id>             # ElevenLabs Agents agent; an account-visible id, not a secret
+#     roles_dir: voice/roles           # role pre-context files; a relative path resolves next to this config
+#     max_session_seconds: 1800        # 60..3600
+#     idle_timeout_seconds: 120        # 15..900
+#     daily_minutes_cap: 60            # proposed default; crashed sessions always count; 0 disables, null removes the cap
+#     context_token_budget: 4000       # 1000..32000
+
 # === Repo-wide PR comment watching (opt-in; OFF by default) ===
 # Let aiur act on comments across the whole repo, not just its own aiur/<id> PRs.
 # Requires github.bot_account (reply identity) and CODEOWNERS / github.trusted_accounts (who may direct the agent).
@@ -265,7 +284,8 @@ alerts:
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
 # observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, capture_tags: {}, capture_label_prefixes: ["experiment:", "cohort:", "feature:"], capture_github_facts: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
 # decisions: { supervisor_allowed_kinds: [], supervisor_allow_non_reversible: false }
-# server: { port: 4000 }                # host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST); set host explicitly for remote access
+# server: { port: 4000 }                # host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST); 0.0.0.0 exposes the LAN
+# server: { public_url: https://aiur.example.com, allowed_hosts: [aiur.example.com, localhost, 127.0.0.1] }
 # Tailscale Funnel is not detected automatically; opt in only if this Aiur
 # dashboard owns Funnel HTTPS 443 and should alert on a stale target.
 # server: { tailscale_funnel: true }     # reconcile an operator-enabled Funnel on HTTPS 443 to this dashboard's current bound port
