@@ -3,21 +3,6 @@ Code.require_file("../../support/build_gate_case.ex", __DIR__)
 defmodule Aiur.BuildGate.AdmissionTest do
   use Aiur.TestSupport.BuildGateCase
 
-  defp wait_for_queue_entry!(gate_dir, attempts \\ 500)
-  defp wait_for_queue_entry!(_gate_dir, 0), do: flunk("timed out waiting for a queued build command")
-
-  defp wait_for_queue_entry!(gate_dir, attempts) do
-    if Path.wildcard(Path.join(gate_dir, "queue/lease-v2-*")) == [] do
-      Process.sleep(20)
-      wait_for_queue_entry!(gate_dir, attempts - 1)
-    end
-  end
-
-  defp release_at!(path, at_ms) do
-    Process.sleep(max(0, at_ms - System.monotonic_time(:millisecond)))
-    File.write!(path, "")
-  end
-
   test "does not inject a shell hook when operators opt out", context do
     assert BuildGate.shell_env(slots: 0, stagger_seconds: 0, min_free_memory_mb: nil) == []
 

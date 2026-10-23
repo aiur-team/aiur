@@ -263,6 +263,33 @@ defmodule Aiur.TestSupport.BuildGateHelpers do
     end
   end
 
+  def wait_for_queue_entry!(gate_dir, attempts \\ 500)
+
+  def wait_for_queue_entry!(_gate_dir, 0),
+    do: flunk("timed out waiting for a queued build command")
+
+  def wait_for_queue_entry!(gate_dir, attempts) do
+    if Path.wildcard(Path.join(gate_dir, "queue/lease-v2-*")) == [] do
+      script = ~S"""
+      for ((attempt = 0; attempt < $2; attempt++)); do
+        compgen -G "$1/queue/lease-v2-*" >/dev/null && exit 0
+        sleep 0.02
+      done
+      exit 1
+      """
+
+      case System.cmd("bash", ["-c", script, "wait-for-queue", gate_dir, Integer.to_string(attempts)]) do
+        {_output, 0} -> :ok
+        _ -> flunk("timed out waiting for a queued build command")
+      end
+    end
+  end
+
+  def release_at!(path, at_ms) do
+    Process.sleep(max(0, at_ms - System.monotonic_time(:millisecond)))
+    File.write!(path, "")
+  end
+
   def wait_for_status!(gate_dir, capacity, fun, attempts \\ 300)
 
   def wait_for_status!(_gate_dir, _capacity, _fun, 0), do: flunk("timed out waiting for gate status")

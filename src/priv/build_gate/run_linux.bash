@@ -36,9 +36,9 @@ aiur_build_gate_run_linux() (
   local holder_ready_file="" holder_started_file=""
   local command_pgid command_pid_namespace holder_pid parent_pid python_binary retained status
   # A per-stage ceiling remains configurable for stuck peers; readiness files do the syncing.
-  local deadline holder_handshake_seconds=${AIUR_BUILD_GATE_HANDSHAKE_SECONDS:-60} holder_ack_seconds=5 slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
+  local deadline holder_handshake_seconds=${AIUR_BUILD_GATE_HANDSHAKE_SECONDS:-10} holder_ack_seconds=5 slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
   local available_memory_mb memory_deferred=0 memory_unavailable_logged=0 command_summary
-  [[ $holder_handshake_seconds =~ ^[1-9][0-9]*$ ]] || holder_handshake_seconds=60
+  [[ $holder_handshake_seconds =~ ^[1-9][0-9]*$ ]] || holder_handshake_seconds=10
 
   # Keep descriptor allocation local to this subshell and independent of an
   # invoking agent shell's shopt state. The opened slot descriptor is handed

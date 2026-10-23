@@ -286,9 +286,8 @@ defmodule Aiur.BuildGate.ContainmentTest do
         )
       end)
 
-    Process.sleep(3_000)
     refute File.exists?(context.started_path)
-    File.write!(start_gate, "")
+    release_at!(start_gate, System.monotonic_time(:millisecond) + 3_000)
 
     assert {output, 0} = Task.await(run, 10_000)
 
