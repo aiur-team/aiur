@@ -4,7 +4,6 @@ defmodule Aiur.Instance.SweepFilter do
   require Logger
 
   alias Aiur.Instance
-  alias Aiur.LandingWatch.MergeQueueFailureEvidence
 
   @spec own(map()) :: map()
   def own(snapshot) when is_map(snapshot) do
@@ -55,10 +54,21 @@ defmodule Aiur.Instance.SweepFilter do
   end
 
   defp foreign_group?(group, foreign_prs, base_branch) do
-    group
-    |> value(:head_branch)
-    |> MergeQueueFailureEvidence.run_pr_numbers(base_branch)
-    |> Enum.any?(&MapSet.member?(foreign_prs, &1))
+    case value(group, :head_branch) do
+      branch when is_binary(branch) ->
+        prefix = "gh-readonly-queue/#{base_branch}/"
+
+        if String.starts_with?(branch, prefix) do
+          Regex.scan(~r/pr-(\d+)-/, branch, capture: :all_but_first)
+          |> List.flatten()
+          |> Enum.any?(fn number -> MapSet.member?(foreign_prs, String.to_integer(number)) end)
+        else
+          false
+        end
+
+      _ ->
+        false
+    end
   end
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
