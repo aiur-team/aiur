@@ -109,52 +109,6 @@ defmodule Aiur.LandingWatch.Journal do
     end
   end
 
-  @doc "Persists a queued PR run before cancellation so it can be restored after pressure drains."
-  @spec defer_runner_run(map(), keyword()) :: :ok | {:error, term()}
-  def defer_runner_run(%{"id" => id, "pr" => pr, "head" => head} = row, opts)
-      when is_integer(id) and id > 0 and is_integer(pr) and pr > 0 and is_binary(head) and head != "" do
-    update(opts, fn state ->
-      deferred = Map.get(state, "deferred_runner_runs", %{})
-      {:ok, Map.put(state, "deferred_runner_runs", Map.put(deferred, Integer.to_string(id), row))}
-    end)
-  end
-
-  def defer_runner_run(_, _), do: {:error, :invalid_deferred_runner_run}
-
-  @doc "Returns queued PR workflow runs awaiting exact-head restoration, oldest first."
-  @spec deferred_runner_runs(keyword()) :: {:ok, [map()]} | {:error, term()}
-  def deferred_runner_runs(opts \\ []) do
-    with {:ok, state} <- state(opts) do
-      {:ok, state |> Map.get("deferred_runner_runs", %{}) |> Map.values() |> Enum.sort_by(& &1["deferred_at_ms"])}
-    end
-  end
-
-  @doc "Removes a deferred workflow run after restoration or when its PR/head is no longer eligible."
-  @spec clear_deferred_runner_run(integer(), keyword()) :: :ok | {:error, term()}
-  def clear_deferred_runner_run(id, opts) when is_integer(id) and id > 0 do
-    update(opts, fn state ->
-      deferred = Map.get(state, "deferred_runner_runs", %{})
-      {:ok, Map.put(state, "deferred_runner_runs", Map.delete(deferred, Integer.to_string(id)))}
-    end)
-  end
-
-  def clear_deferred_runner_run(_, _), do: {:error, :invalid_deferred_runner_run_id}
-
-  @doc "Marks a deferred run before issuing its restore request, for crash-safe retry."
-  @spec mark_runner_restore_pending(integer(), integer(), keyword()) :: :ok | {:error, term()}
-  def mark_runner_restore_pending(id, now, opts) when is_integer(id) and id > 0 and is_integer(now) do
-    update(opts, fn state ->
-      deferred = Map.get(state, "deferred_runner_runs", %{})
-
-      case Map.get(deferred, Integer.to_string(id)) do
-        %{} = row -> {:ok, Map.put(state, "deferred_runner_runs", Map.put(deferred, Integer.to_string(id), Map.put(row, "restore_pending_at_ms", now)))}
-        _ -> {:error, :deferred_runner_run_missing}
-      end
-    end)
-  end
-
-  def mark_runner_restore_pending(_, _, _), do: {:error, :invalid_deferred_runner_id}
-
   @doc "Remembers a merged PR that changed CI files, so older failed PR runs can be rerun."
   @spec record_ci_merge(map(), keyword()) :: :ok | {:error, term()}
   def record_ci_merge(%{"pr" => pr} = row, opts \\ []) do
