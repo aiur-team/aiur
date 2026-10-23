@@ -56,3 +56,7 @@ span.ax-cnt:hover { color: var(--muted); background: none; }
 .cv-in-st.bad { color: var(--block-ink); }
 .cv-in-st[hidden] { display: none; }
 .cv-send:disabled { opacity: .5; cursor: default; }
+
+/* MP-E8-C11-T08 command card state line: not in the design, S-42 default pending the owner's sign-off */
+.cv-cmd .st { margin: .5rem 0 0; font: .72rem "JetBrains Mono", monospace; color: var(--muted); }
+.cv-cmd .st.bad { color: var(--block-ink); }

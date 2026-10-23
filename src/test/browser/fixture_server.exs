@@ -62,6 +62,9 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/command-answer-control/answerable", Aiur.BrowserHarness.CommandAnswerFixture, :configure)
     get("/command-answer-state", Aiur.BrowserHarness.CommandAnswerFixture, :status)
     get("/command-answer-join-state", Aiur.BrowserHarness.CommandAnswerFixture, :join_status)
+    get("/build-command-control/answer/:option", Aiur.BrowserHarness.BuildCommandFixture, :answer)
+    get("/build-command-control/state", Aiur.BrowserHarness.BuildCommandFixture, :state)
+    get("/build-command-control/:scenario", Aiur.BrowserHarness.BuildCommandFixture, :configure)
     get("/build-queue-control/:state", Aiur.BrowserHarness.BuildQueueFixture, :configure)
     get("/experiments-control/:scenario", Aiur.BrowserHarness.ExperimentsFixture, :configure)
   end

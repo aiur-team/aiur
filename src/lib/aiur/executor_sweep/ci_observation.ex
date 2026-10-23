@@ -9,10 +9,15 @@ defmodule Aiur.ExecutorSweep.CiObservation do
 
       ci ->
         failures = value(ci, :failures, [])
-        required = Enum.map(failures, &%{name: value(&1, :name, "required check"), conclusion: value(&1, :result, value(&1, :conclusion, nil))})
+
+        required =
+          Enum.map(failures, fn failure ->
+            %{name: value(failure, :name, "required check"), conclusion: value(failure, :result, value(failure, :conclusion, nil)), excerpt: value(failure, :excerpt, nil)}
+          end)
 
         Map.merge(pr, %{
           ci_head_sha: value(ci, :head_sha, nil),
+          ci_observed_at_ms: value(ci, :observed_at_ms, nil),
           ci_decision: value(ci, :decision, nil),
           required_checks: required,
           failure_class: to_string(value(ci, :failure_class, "unknown"))
