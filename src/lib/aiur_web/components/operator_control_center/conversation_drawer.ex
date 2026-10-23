@@ -31,6 +31,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   attr(:usage_snapshot, :map, default: nil)
   attr(:usage_error, :atom, default: nil)
   attr(:context_occupancy, :map, default: nil)
+  attr(:voice_capabilities, :map, default: %{})
 
   @spec conversation_drawer(map()) :: Phoenix.LiveView.Rendered.t()
   def conversation_drawer(%{view: nil} = assigns), do: ~H""
@@ -192,7 +193,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
               enterkeyhint="send"
               data-voice-input
             >{@drafts[@composer_key] || ""}</textarea>
-            <.voice_input id={"#{@id}-voice"} />
+            <.voice_input id={"#{@id}-voice"} capabilities={@voice_capabilities} />
             <div class="agent-chat-actions">
               <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="button" phx-click="pause-agent">Pause</button>
               <button class="aiur-button aiur-button--dashboard btn" type="submit" data-voice-send>Send</button>

@@ -4,14 +4,45 @@ Code.require_file("executor_control_center_docs_provider.exs", __DIR__)
 Code.require_file("executor_control_center_docs_data.exs", __DIR__)
 Code.require_file("executor_control_center_docs_fleet.exs", __DIR__)
 
+# The Build home page renders the frozen `live` dataset the design-parity harness
+# uses, so its capture reads no history store, tracker or provider meter.
+for file <- ~w(earlier_control fixture_source fixture_conversation_source),
+    do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+
+defmodule Aiur.Docs.ControlCenterFixture.BuildSource do
+  @moduledoc """
+  The frozen `live` design dataset, with agent states limited to ones the daemon
+  emits. The design's "retries" card has no server path, so the docs show it as
+  an error instead of documenting a state operators never see.
+  """
+  @behaviour AiurWeb.Build.DataSource
+  alias Aiur.TestSupport.BuildHome.FixtureSource
+
+  @impl true
+  def subscribe(opts), do: FixtureSource.subscribe(opts)
+
+  @impl true
+  def snapshot(opts), do: with({:ok, data} <- FixtureSource.snapshot(opts), do: {:ok, update_in(data, ["sections", "now"], &Enum.map(&1, fn row -> emitted(row) end))})
+
+  @impl true
+  def earlier(before, zone, opts), do: FixtureSource.earlier(before, zone, opts)
+
+  @impl true
+  def ticket(id, opts), do: with({:ok, row} <- FixtureSource.ticket(id, opts), do: {:ok, emitted(row)})
+
+  defp emitted(%{"agent" => %{"state" => "retries"}} = row), do: put_in(row, ["agent", "state"], "error")
+  defp emitted(row), do: row
+end
+
 defmodule Aiur.Docs.ControlCenterFixture do
   alias Aiur.Docs.ControlCenterFixture.MeterSource
   import Aiur.Docs.ControlCenterFixture.Data
   import Aiur.Docs.ControlCenterFixture.Fleet
-  alias Aiur.Docs.ControlCenterFixture.{Data, Fleet}
+  alias Aiur.Docs.ControlCenterFixture.{BuildSource, Data, Fleet}
   alias Aiur.Docs.ControlCenterFixture.Provider
   alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.TestSupport.BuildHome.{FixtureConversationSource, FixtureSource}
   alias AiurWeb.FinancialDataAccess.Generation
 
   @port String.to_integer(System.get_env("AIUR_DOCS_PORT", "4099"))
@@ -85,6 +116,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
     )
 
     configure_endpoint()
+    configure_build_home()
     {:ok, _} = AiurWeb.Endpoint.start_link()
 
     IO.puts("Operator Control Center docs fixture ready at http://127.0.0.1:#{@port}")
@@ -156,6 +188,13 @@ defmodule Aiur.Docs.ControlCenterFixture do
       |> Keyword.delete(:streamdeck_logs_fun)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
+  end
+
+  defp configure_build_home do
+    Application.put_env(:aiur, :build_data_source, BuildSource)
+    Application.put_env(:aiur, :build_fixture_dataset, "live")
+    Application.put_env(:aiur, :build_conversation_source, FixtureConversationSource)
+    FixtureSource.configure_usage(:ok)
   end
 
   # --- GitHub quota ----------------------------------------------------------

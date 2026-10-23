@@ -53,7 +53,13 @@ defmodule AiurWeb.Build.SeamTest do
     # history subscription) to the same wave-0b adapter, which C14-T01 replaces.
     events = Path.join(@root, "lib/aiur_web/build/conversation_source/wave0b_events.ex")
     event_facades = ~w(Aiur.AgentEventFeed Aiur.Commands Aiur.RecentMergeStore Aiur.SecretRedactor Aiur.PubSub Aiur.Tracker)
-    assert offenders(files -- [freshness, conversation, events], &allowed?/1) == []
+    # C11-T02 confines issue identity lookup to the open-ticket snapshot facade;
+    # only the document presenter subscribes to detail updates and renders Markdown.
+    document = Path.join(@root, "lib/aiur_web/build/ticket_doc.ex")
+    identity = Path.join(@root, "lib/aiur_web/build/ticket_doc_identity.ex")
+    assert offenders(files -- [freshness, conversation, events, document, identity], &allowed?/1) == []
+    assert offenders([document], &(allowed?(&1) or &1 in ~w(Aiur.PubSub AiurWeb.Markdown))) == []
+    assert offenders([identity], &(allowed?(&1) or &1 == "Aiur.OpenTicketSource")) == []
     assert offenders([conversation], &(allowed?(&1) or &1 in adapter_facades)) == []
     assert offenders([events], &(allowed?(&1) or &1 in event_facades)) == []
     assert offenders([freshness], &(allowed?(&1) or &1 in ~w(Aiur.Orchestrator Aiur.PollCadence))) == []

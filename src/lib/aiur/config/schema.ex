@@ -23,6 +23,7 @@ defmodule Aiur.Config.Schema do
     Executor,
     Experiments,
     Hooks,
+    Instance,
     MergePolicy,
     Monitoring,
     Observability,
@@ -80,6 +81,7 @@ defmodule Aiur.Config.Schema do
     field(:executor_takeover_continuous_alert_hours, :integer, default: 1)
 
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:instance, Instance, on_replace: :update, defaults_to_struct: true)
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
     embeds_one(:workspace, Workspace, on_replace: :update, defaults_to_struct: true)
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
@@ -218,6 +220,7 @@ defmodule Aiur.Config.Schema do
     |> validate_raw_non_negative_integer(attrs, "executor_takeover_first_alert_hours")
     |> validate_raw_non_negative_integer(attrs, "executor_takeover_continuous_alert_hours")
     |> cast_embed(:tracker, with: &Tracker.changeset/2)
+    |> cast_embed(:instance, with: &Instance.changeset/2)
     |> cast_embed(:executor, with: &Executor.changeset/2)
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)

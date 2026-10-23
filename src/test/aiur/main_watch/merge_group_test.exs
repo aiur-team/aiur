@@ -7,8 +7,30 @@ defmodule Aiur.MainWatch.MergeGroupTest do
     :ok
   end
 
-  test "merge-group run on landed main SHA is not a main health observation" do
-    assert {:ok, %{observations: [], runs: [], merge_groups: []}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(%{}, false, true), actions_write: false)
+  test "merge-group success on the landed SHA is main's verdict when no push run completed" do
+    assert {:ok, %{observations: [observation], runs: [run], merge_groups: []}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(%{}, false, true), actions_write: false)
+    assert {observation.sha, run.id, run.event} == {"landed", 42, "merge_group"}
+    assert observation.checks == [%{name: "ci gate", conclusion: "success"}]
+    refute observation.failed_workflow
+  end
+
+  test "future guard: merge-group failure on the landed SHA is not a main health observation" do
+    for conclusion <- ["failure", "cancelled"] do
+      assert {:ok, %{observations: [], runs: []}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(%{"conclusion" => conclusion}, false, true), actions_write: false)
+    end
+  end
+
+  test "a failed push run newer than the queue success decides main" do
+    failed = Map.merge(push_run(), %{"conclusion" => "failure", "updated_at" => "2026-10-12T16:00:00Z"})
+
+    request = fn
+      %{url: url} = call ->
+        if String.contains?(url, "event=push"), do: ok(%{"workflow_runs" => [failed]}), else: request_response(call, %{}, false, true)
+    end
+
+    assert {:ok, %{observations: [observation], runs: runs}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request, actions_write: false)
+    assert Enum.map(runs, & &1.id) == [43, 42]
+    assert observation.failed_workflow
   end
 
   test "cancelled newest push falls back to the newest completed push run" do
@@ -38,7 +60,12 @@ defmodule Aiur.MainWatch.MergeGroupTest do
         ok(%{"workflow_runs" => [Map.merge(queue_run(), override)]})
 
       String.contains?(url, "/check-runs?") ->
-        ok(%{"check_runs" => [%{"id" => 1, "name" => "ci gate", "status" => "completed", "conclusion" => "success", "check_suite" => %{"id" => 8}, "app" => %{"slug" => "github-actions"}}]})
+        ok(%{
+          "check_runs" => [
+            %{"id" => 1, "name" => "ci gate", "status" => "completed", "conclusion" => "success", "check_suite" => %{"id" => 8}, "app" => %{"slug" => "github-actions"}},
+            %{"id" => 2, "name" => "ci gate", "status" => "completed", "conclusion" => "success", "check_suite" => %{"id" => 7}, "app" => %{"slug" => "github-actions"}}
+          ]
+        })
 
       String.ends_with?(url, "/status") ->
         ok(%{"statuses" => []})
