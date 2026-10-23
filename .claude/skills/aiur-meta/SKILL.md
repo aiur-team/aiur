@@ -237,11 +237,12 @@ bash .claude/skills/aiur-meta/scripts/feature-share.sh 1
 ```
 
 The script pages through merged pull requests until it reaches the window start.
-Its `inspected` count makes an incomplete census visible. Record both shares,
-their trend against the previous log, and one concrete change that would raise
-the share. Look at quarantine-first handling, flake tickets ahead of features,
-innocent merge-queue ejections, capacity, and body-only rework. Act within the
-current mandate; if no change is possible, name what blocks it.
+Its `inspected` and `unclassified` counts make incomplete coverage visible.
+Record both shares, their trend against the previous log, and one concrete
+change that would raise the share. Look at quarantine-first handling, flake
+tickets ahead of features, innocent merge-queue ejections, capacity, and
+body-only rework. Act within the current mandate; if no change is possible,
+name what blocks it.
 
 **When the bottleneck is review, the remedy is parallel review, not fewer
 agents.** A queue that is growing with nothing approved is the Executor's own
