@@ -17,9 +17,18 @@ defmodule AiurWeb.BuildLiveComposerTest do
     def unsubscribe(_ref, _opts), do: :ok
   end
 
+  defmodule ConfiguredVoice do
+    def configured?, do: true
+  end
+
+  defmodule UnconfiguredVoice do
+    def configured?, do: false
+  end
+
   setup do
     previous = Application.get_env(:aiur, :build_conversation_source)
     previous_delays = Application.get_env(:aiur, :build_send_status_delays_ms)
+    previous_voice_provider = Application.fetch_env(:aiur, :voice_provider)
     control = start_supervised!({Agent, fn -> %{} end})
     Application.put_env(:aiur, :build_conversation_source, {Source, [control: control]})
     Application.put_env(:aiur, :build_send_status_delays_ms, [0, 0, 0])
@@ -28,6 +37,11 @@ defmodule AiurWeb.BuildLiveComposerTest do
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :build_conversation_source, previous), else: Application.delete_env(:aiur, :build_conversation_source)
       if previous_delays, do: Application.put_env(:aiur, :build_send_status_delays_ms, previous_delays), else: Application.delete_env(:aiur, :build_send_status_delays_ms)
+
+      case previous_voice_provider do
+        {:ok, provider} -> Application.put_env(:aiur, :voice_provider, provider)
+        :error -> Application.delete_env(:aiur, :voice_provider)
+      end
     end)
 
     %{control: control}
@@ -70,6 +84,30 @@ defmodule AiurWeb.BuildLiveComposerTest do
     {_view, _id, conversation} = open()
     assert conversation["composer"] == "ready"
     assert Payload.validate(conversation) == :ok
+  end
+
+  test "voice availability is explicit for available, unavailable and read-only composers" do
+    {view, _id, _conversation} = open()
+
+    Application.put_env(:aiur, :voice_provider, ConfiguredVoice)
+    render_hook(view, "voice-availability", %{})
+    assert_reply(view, %{state: "available"})
+
+    Application.put_env(:aiur, :voice_provider, UnconfiguredVoice)
+    render_hook(view, "voice-availability", %{})
+
+    assert_reply(view, %{
+      state: "unconfigured",
+      reason: "ElevenLabs speech-to-text is not configured. Dictation is unavailable; ask the Executor to run `aiur init` and add an ElevenLabs API key."
+    })
+
+    Application.put_env(:aiur, :voice_provider, AiurWeb.BuildLiveComposerMissingVoice)
+    render_hook(view, "voice-availability", %{})
+    assert_reply(view, %{state: "unconfigured", reason: "Voice input isn't installed in this Aiur. Typed messages work as usual."})
+
+    EndpointStubs.put(dashboard_writable: false)
+    render_hook(view, "voice-availability", %{})
+    assert_reply(view, %{state: "read_only", reason: "Read-only dashboard — dictation is off."})
   end
 
   test "an accepted send reaches the delivery API with the open ticket's id and trimmed text" do

@@ -3,6 +3,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
 
   alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
   alias Aiur.GitHub.ResourceStore
+  alias Aiur.MainWatch.Persistence
   alias Aiur.OpenTicketSource.Snapshot
   alias Aiur.TestSupport.Isolation
 
@@ -226,5 +227,33 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
 
     Application.put_env(:aiur, :booted_instance_role, "secondary")
     assert watcher_names.() == []
+  end
+
+  test "local sweep snapshot preserves merge-group refs and Decision ticket identifiers" do
+    :ok = Aiur.TestSupport.ensure_id_generator_running()
+    identifier = "owner/repo##{System.unique_integer([:positive])}"
+    assert {:ok, %{decision: decision}} = Aiur.DecisionStore.request(%{"question" => "Keep this decision scoped?", "blocking" => true}, ticket: %{identifier: identifier})
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    path = Aiur.Workflow.workflow_file_path()
+    write_workflow_file_atomic!(path, File.read!(path) <> "\nmerge_policy:\n  main_watch:\n    enabled: true\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+
+    run = %{id: 44, head_branch: "gh-readonly-queue/main/pr-4448-abc", status: "in_progress", started_at: System.system_time(:millisecond)}
+    data = Map.put(Persistence.empty(), :merge_groups, [run])
+    owner = self()
+
+    poll_fun = fn _branch, _workflows, _opts ->
+      send(owner, :main_watch_poll_started)
+      {:error, :offline}
+    end
+
+    start_supervised!({Aiur.MainWatch, branch: "main", repo: "owner/repo", interval_ms: 60_000, subscribe: false, load_fun: fn _repo, _branch -> data end, poll_fun: poll_fun})
+
+    assert_receive :main_watch_poll_started, 1_000
+    snapshot = SnapshotCache.read(fn -> %Snapshot{status: :available, tickets: []} end)
+    assert [%{head_branch: "gh-readonly-queue/main/pr-4448-abc"}] = snapshot.merge_groups
+    assert Enum.any?(snapshot.decisions, &(&1.id == decision.decision_id and &1.ticket == identifier))
+    stop_supervised!(Aiur.MainWatch)
   end
 end
