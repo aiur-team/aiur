@@ -114,7 +114,7 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
       refute_received {:queue_item_failed, ^identifier, _reason}
     end
 
-    test "an adopted active handoff failure does not restore already-started work", ctx do
+    test "an adopted active handoff refusal restores work after stopping the session", ctx do
       put_active_handoff_resume()
 
       assert {:error, {:agent_support_repair_failed, _workspace, missing, _reason}} =
@@ -122,9 +122,9 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
 
       assert ".aiur-runtime/gh" in missing
       refute_received {:provider_called, _turn, _missing}
-      assert_receive {:queue_item_failed, identifier, {:agent_support_repair_failed, _, _, _}}, 1000
+      assert_receive {:queue_item_restored, identifier}, 1000
       assert identifier == ctx.issue.identifier
-      refute_received {:queue_item_restored, ^identifier}
+      refute_received {:queue_item_failed, ^identifier, _reason}
     end
   end
 
