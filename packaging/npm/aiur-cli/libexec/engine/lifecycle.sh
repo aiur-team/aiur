@@ -277,19 +277,7 @@ cmd_stop() {
   warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
 }
 
-# Stop, refresh the release, start again — `aiur restart`.
-#
-# The refresh deliberately runs BETWEEN the stop and the start. A dev rebuild
-# rewrites the release directory in place, and a BEAM booted from that directory
-# is exactly what the control-retry path (EX_TEMPFAIL) exists to survive; doing
-# it while the daemon is down means the new daemon boots from a release nothing
-# else is holding half-written.
-#
-# The engine itself never knows how to build: the installed CLI runs a pinned
-# platform release with no source tree beside it, so its restart is a plain
-# bounce. The dev shim supplies its build-if-stale step through
-# AIUR_RESTART_BUILD_CMD, a shell command line run via `bash -c` so the wrapper
-# (not this parser) owns quoting.
+# Restart lifecycle helpers live in restart_rollback.sh; this file owns stop/build/start ordering.
 aiur_restart_daemon_state="untouched"
 
 # Everything between the stop and a confirmed start runs with this armed, so the
@@ -414,6 +402,15 @@ cmd_restart() {
   done
 
   [ "$keep_agents" -eq 0 ] || prepare_restart_handoff
+  aiur_restart_handoff_id="${AIUR_RESTART_HANDOFF_ID:-}"
+  export AIUR_RESTART_HANDOFF_ID
+
+  local previous_sha="unknown" snapshot_dir=""
+  if [ -n "${AIUR_RESTART_BUILD_CMD:-}" ] && [ "$skip_build" -eq 0 ]; then
+    restart_release_snapshot "${AIUR_RELEASE_DIR:-}" || die "restart aborted before stop: could not preserve the previous release"
+    previous_sha="$RESTART_PREVIOUS_SHA"
+    snapshot_dir="$RESTART_SNAPSHOT_DIR"
+  fi
 
   # Restarting something that is already down is a start, not an error: the
   # operator asked for a running daemon on current code, and that is what they
@@ -492,9 +489,8 @@ cmd_restart() {
   # into the attachable session (`aiur --bg --interactive`), and a purely
   # foreground restart remains `aiur stop && aiur run`.
   aiur_restart_start_attempted=1
-  dispatch_run --bg "${run_args[@]+"${run_args[@]}"}"
-
-  aiur_restart_daemon_state="running"
-  trap - EXIT INT TERM
-  [ "$keep_agents" -eq 0 ] || report_restart_handoff
+  local new_capture="${AIUR_LOGS_ROOT:-}/log/boot.out.log" start_status=0
+  aiur_restart_handoff_id="${AIUR_RESTART_HANDOFF_ID:-}"
+  dispatch_run --bg "${run_args[@]+"${run_args[@]}"}" || start_status=$?
+  restart_after_start_attempt "$start_status" "$new_capture" "$previous_sha" "$snapshot_dir" "$keep_agents"
 }
