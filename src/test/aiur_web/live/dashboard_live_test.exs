@@ -34,7 +34,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.TestSupport.{EndpointStubs, LiveViewAsync, RefreshTrace}
   alias Aiur.Usage.Headless.Codex.ThreadUsage
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, EndpointConfig, ObservabilityPubSub, Presenter}
-  alias AiurWeb.OperatorControlCenter.{AgentRoutingPreview, FleetFilters, Overview, PayloadLoader, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{AgentRoutingPreview, Overview, PayloadLoader, UnitsPresenter}
 
   @endpoint AiurWeb.Endpoint
 
@@ -560,7 +560,6 @@ defmodule AiurWeb.DashboardLiveTest do
       writable: Keyword.get(opts, :writable, false),
       live_action: Keyword.get(opts, :live_action, :index),
       decision_filter: :all,
-      fleet_filters: FleetFilters.default(),
       selected_decision_id: selected_decision_id,
       selected_decision: selected_decision,
       selected_decision_status: Keyword.get(opts, :selected_decision_status, if(selected_decision, do: :available, else: :not_found)),
@@ -2592,7 +2591,6 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, view, _html} = live(build_conn(), "/commands")
 
     assert render_hook(view, "filter-decisions", %{}) =~ "Commands inbox"
-    assert render_hook(view, "toggle-fleet-filter", %{}) =~ "Commands inbox"
     assert render_hook(view, "show-agent-log", %{}) =~ "Commands inbox"
     assert Process.alive?(view.pid)
   end
@@ -4483,7 +4481,9 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_receive {:conversation_resolved, ^handle}, 1000
     assert_receive {:conversation_subscribed, ^handle}, 1000
     assert html =~ ~s(id="units-conversation-drawer")
-    assert html =~ "not participating"
+    assert html =~ "You can read this conversation here. Sending is not available."
+    assert html =~ "Read-only dashboard — use the TUI to message or pause this agent."
+    refute html =~ "Read-only mirror"
     assert html =~ "its-everdred/aiur #1110"
     assert html =~ "Reviewing the drawer"
     assert html =~ "1200 / 4000 tokens (30%) · warning"
