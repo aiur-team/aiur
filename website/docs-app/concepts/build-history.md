@@ -109,8 +109,15 @@ Remote workers show only their retained live window; stale or unavailable live
 state is labeled separately from the transcript.
 
 On a writable dashboard, a Not queued ticket's modal offers **Add to queue**.
-Otherwise the modal is read-only: its pause button is disabled and it has no
-composer.
+In a running ticket's modal, use **Pause agent** or **Resume agent** with writable
+access. The button waits for the agent's confirmation; a change from the TUI or
+another tab takes precedence.
+
+Pending, unavailable and failed requests explain
+why through the button's accessible label. **Open in Conversations** stays hidden
+until a full conversation page is available; legacy `/chat/...` links return to
+the ticket modal.
+
 Pause, resume and message an agent with [`aiur pause`, `aiur resume` and `aiur
 message`](/reference/cli#inspect-and-operate-a-running-daemon).
 

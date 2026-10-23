@@ -1,5 +1,5 @@
 defmodule Aiur.ExecutorSweep.ChecksTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
   alias Aiur.ExecutorSweep.Checks
   alias Aiur.ExecutorSweep.SnapshotCache
@@ -275,6 +275,18 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{ticket: 1800, ticket_count: 2, message: message}] = Checks.all(%{tickets: tickets}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "invalid_state_labels"))
     assert message =~ "2 open ticket(s)"
     assert message =~ "oldest ticket #1800"
+  end
+
+  test "does not flag tickets owned by another instance label prefix" do
+    tickets = [
+      %{number: 2200, labels: ["nuc:todo"], created_at: "2026-01-01T00:00:00Z"},
+      %{number: 2201, labels: ["agent:todo"], created_at: "2026-01-02T00:00:00Z"},
+      %{number: 2202, labels: [], created_at: "2026-01-03T00:00:00Z"}
+    ]
+
+    assert [%{ticket: 2202, ticket_count: 1, state_labels: []}] =
+             Checks.all(%{tickets: tickets}, ~U[2026-10-18 14:00:00Z], label_prefix: "agent")
+             |> Enum.filter(&(&1.kind == "invalid_state_labels"))
   end
 
   test "counts merging and cancelled as real state labels, not missing ones" do

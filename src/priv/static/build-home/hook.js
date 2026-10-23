@@ -19,7 +19,7 @@ import './trees.js';
 import './band.js';
 import './states.js';
 import './list.js';
-import './modal/frame.js';
+import { controlMessage } from './modal/frame.js';
 import './modal/conversation.js';
 import { applyDoc, applyQueueAdd, reconnectDoc } from './modal/doc.js';
 import './modal/composer.js';
@@ -108,6 +108,7 @@ export function createBuildHomeHook() {
       fx.wireTrees();
       fx.renderTools(); fx.initModal();
       writeOwnData();
+      this.handleEvent('build-ticket-control', controlMessage);
       this.handleEvent('build-conversation', msg => fx.receiveConversation(msg));
       this.handleEvent('build-ticket-doc', applyDoc); this.handleEvent('build-queue-add', applyQueueAdd);
       this.handleEvent('send-status', msg => fx.sendStatus(msg));
