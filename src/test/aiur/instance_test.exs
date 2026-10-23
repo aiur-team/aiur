@@ -28,22 +28,37 @@ defmodule Aiur.InstanceTest do
     refute Instance.foreign?(7, [], %Ignore{})
   end
 
+  test "label rules resolve through the open-ticket label snapshot when callers only have an identifier" do
+    previous = Application.get_env(:aiur, :instance_ticket_labels_fun)
+
+    Application.put_env(:aiur, :instance_ticket_labels_fun, fn
+      4122 -> ["nuc:in-progress"]
+      _ -> []
+    end)
+
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, :instance_ticket_labels_fun, previous), else: Application.delete_env(:aiur, :instance_ticket_labels_fun) end)
+
+    assert Instance.foreign?("owner/repo#4122", nil, %Ignore{label_prefixes: ["nuc"]})
+  end
+
   test "the Executor sweep drops another instance's unreviewed PR and merge group" do
     write_workflow_file!(Aiur.Workflow.workflow_file_path())
     ignore!("    tickets: [4430]\n")
     now = ~U[2026-10-15 18:20:00Z]
     pr = fn number, ticket -> %{number: number, issue_number: ticket, state: "open", draft: false, head_sha: "h", reviewed_head_sha: nil, ready_at: ~U[2026-10-14 19:08:00Z]} end
-    group = fn number -> %{name: "gh-readonly-queue/main/pr-#{number}-abc", state: "queued", started_at: ~U[2026-10-15 17:00:00Z]} end
+    group = fn number -> %{name: "run #{number}", head_branch: "gh-readonly-queue/main/pr-#{number}-abc", state: "queued", started_at: ~U[2026-10-15 17:00:00Z]} end
 
     snapshot = %{
       tickets: [%{number: 4429, labels: ["agent:human-review"]}, %{number: 4430, labels: ["agent:human-review"]}],
+      decisions: [%{ticket: 4430, blocking: true}, %{ticket: 4429, blocking: true}],
       pull_requests: [pr.(4447, 4429), pr.(4448, 4430)],
       merge_groups: [group.(4447), group.(4448)]
     }
 
     findings = Checks.all(snapshot, now)
-    assert for(%{kind: "unreviewed_human_review_pr", pull_request: n} <- findings, do: n) == [4447]
-    assert for(%{kind: "stale_merge_group", merge_group: name} <- findings, do: name) == ["gh-readonly-queue/main/pr-4447-abc"]
+    assert Enum.map(Aiur.Instance.SweepFilter.own(snapshot).decisions, & &1.ticket) == [4429]
+    assert for(%{kind: "unreviewed_pr", ticket_state: "human-review", pull_request: n} <- findings, do: n) == [4447]
+    assert for(%{kind: "stale_merge_group", merge_group: name} <- findings, do: name) == ["run 4447"]
   end
 
   test "aiur status names the active rules and the ignored count" do

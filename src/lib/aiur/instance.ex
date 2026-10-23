@@ -55,7 +55,7 @@ defmodule Aiur.Instance do
   @spec ignored(term(), atom() | String.t()) :: true
   def ignored(ticket, consumer) do
     :counters.add(counter(), 1, 1)
-    Logger.info("instance.ignored consumer=#{consumer} ticket=#{inspect(number(ticket) || ticket)}")
+    Logger.info("instance.ignored consumer=#{consumer} ticket=#{inspect(ticket)}")
     true
   end
 

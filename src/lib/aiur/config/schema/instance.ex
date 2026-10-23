@@ -5,11 +5,16 @@ defmodule Aiur.Config.Schema.Instance.Ignore do
 
   @primary_key false
   embedded_schema do
-    # @config-reference config-configuration-00 instance.ignore.tickets, instance.ignore.labels, instance.ignore.label_prefixes
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail instance.ignore.tickets, instance.ignore.labels, instance.ignore.label_prefixes | list of integers / strings | `[]` | Tickets another instance owns: listed numbers, tickets carrying a listed label, or tickets with a `<prefix>:*` label for a listed prefix (that instance's `tracker.github.label_prefix`). This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
+    # @config-reference config-configuration-00 instance.ignore.tickets
+    # @config-detail instance.ignore.tickets | array of integers | `[]` | Ticket numbers another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
     field(:tickets, {:array, :integer}, default: [])
+
+    # @config-reference config-configuration-00 instance.ignore.labels
+    # @config-detail instance.ignore.labels | array of strings | `[]` | Exact labels marking tickets another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
     field(:labels, {:array, :string}, default: [])
+
+    # @config-reference config-configuration-00 instance.ignore.label_prefixes
+    # @config-detail instance.ignore.label_prefixes | array of strings | `[]` | Label prefixes marking tickets another instance owns. A prefix such as `nuc` matches `nuc:*` state labels. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
     field(:label_prefixes, {:array, :string}, default: [])
   end
 
