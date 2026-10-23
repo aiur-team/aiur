@@ -2,6 +2,7 @@ import { S, ctx, fx } from './state.js';
 import { nowMs, stampMs } from './clock.js';
 import { $, esc } from './dom.js';
 import { I } from './icons.js';
+import { etaLabel } from './estimate.js';
 import { fmtT } from './util.js';
 import { writeURL } from './url.js';
 import './band-scroll.js';
@@ -25,11 +26,6 @@ export function bandClock({ now, stamp, daemon, agents, socketDown }) {
   if (daemon?.state !== 'live') return { text: '—', title: 'Daemon state unknown' };
   if (agents?.state === 'stale') return cached(agents.observed_at, 'Last agent observation');
   return { text: fmtT(now), title: 'Live time' };
-}
-export function bandEta(D) {
-  // C7-T03 replaces the placeholder with capacity-aware etaLabel; never use the demo's /4.
-  const known = ['ok', 'stale'].includes(D.sources?.queue?.state);
-  return { text: (known ? D.plan.length + D.now.length : '—') + ' to go · ETA —', title: 'ETA not available yet' };
 }
 export function bandEmptyText(D, now = nowMs()) {
   const source = D.sources?.agents;
@@ -70,7 +66,7 @@ export function syncAst() {
   });
 }
 function header(counts, available) {
-  const { nr, nt, ns, ni, nu } = counts, eta = bandEta(ctx.D);
+  const { nr, nt, ns, ni, nu } = counts, eta = etaLabel(ctx.D);
   const buttons = available ? groups.filter(g => counts[g[1]]) : [];
   const freshness = bandAgentsFreshness(ctx.D, nowMs());
   return '<b><i></i>Live</b><time></time><span class="bd-now-st">' +

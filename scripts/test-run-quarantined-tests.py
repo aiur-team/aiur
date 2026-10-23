@@ -60,7 +60,7 @@ class QuarantinedTestSelectionTest(unittest.TestCase):
             tests.mkdir()
             (tests / "fixture_test.exs").write_text(FIXTURE)
             quarantine = Path(root) / "quarantine.txt"
-            quarantine.write_text("".join(f"{module}\t{name}\t#1\n" for module, name in listed))
+            quarantine.write_text("".join(f"{module}\t{name}\t#1\t2026-12-31\n" for module, name in listed))
             return RUNNER.selectors(tests, RUNNER.entries(quarantine))
 
     def test_describe_entry_uses_the_full_exunit_name(self):
