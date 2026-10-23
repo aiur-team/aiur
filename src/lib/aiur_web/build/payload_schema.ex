@@ -56,6 +56,7 @@ defmodule AiurWeb.Build.PayloadSchema do
   @spec blocks() :: map()
   def blocks do
     %{
+      "capacity" => object(%{"max" => nullable(:positive), "observed_at" => nullable(:integer), "stale" => nullable(:boolean)}),
       "writable" => :boolean,
       "repo" => nullable(object(%{"url" => :string})),
       "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted))},
@@ -163,7 +164,7 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
 
   defp sources do
-    standard = Map.new(~w(history features queue agents index), &{&1, object(source())})
+    standard = Map.new(~w(history features queue agents index estimates), &{&1, object(source())})
     Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean)))
   end
 

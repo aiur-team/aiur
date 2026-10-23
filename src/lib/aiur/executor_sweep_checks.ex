@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorSweep.Checks do
   @moduledoc "Builds prioritized Executor sweep findings from observed daemon and GitHub snapshot data."
 
-  alias Aiur.ExecutorSweep.{ApprovedPrs, CacheFreshness, StaleCiWait, StateLabels, TriageBacklog}
+  alias Aiur.ExecutorSweep.{ApprovedPrs, CacheFreshness, ConflictingWaitingPrs, StaleCiWait, StateLabels, TriageBacklog}
   alias Aiur.Instance.SweepFilter
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
@@ -18,7 +18,7 @@ defmodule Aiur.ExecutorSweep.Checks do
       {"unreviewed_prs", [:pull_requests, :tickets], fn -> unreviewed_prs(snapshot, now, unreviewed_minutes) end},
       {"old_decisions", [:decisions], fn -> old_decisions(snapshot, now) end},
       {"approved_prs", [:pull_requests], fn -> ApprovedPrs.findings(snapshot, now, github_freshness_ms) end},
-      {"conflicting_waiting_prs", [:pull_requests, :tickets], fn -> conflicting_waiting_prs(snapshot) end},
+      {"conflicting_waiting_prs", [:pull_requests, :tickets], fn -> ConflictingWaitingPrs.findings(snapshot, github_freshness_ms) end},
       {"stale_ci_wait_prs", [:pull_requests, :tickets], fn -> stale_ci_wait_prs(snapshot, now) end},
       {"landing_rerun_backlog", [:landing_rerun_backlog], fn -> landing_rerun_backlog(snapshot, now) end},
       {"unmergeable_queue_entries", [:merge_queue], fn -> unmergeable_queue_entries(snapshot) end},
@@ -85,41 +85,6 @@ defmodule Aiur.ExecutorSweep.Checks do
         [
           finding("unanswered_blocking_decision", 2, age, "Answer or resolve the blocking decision.", "Blocking decision #{value(decision, :id, "?")} has been open #{duration(age)}.",
             decision: value(decision, :id, nil)
-          )
-        ]
-      else
-        []
-      end
-    end)
-  end
-
-  defp conflicting_waiting_prs(snapshot) do
-    base_branch = Aiur.Config.base_branch()
-
-    waiting =
-      snapshot
-      |> Map.get(:tickets, [])
-      |> Enum.filter(fn ticket ->
-        labels = value(ticket, :labels, [])
-        "agent:ci-wait" in labels or "agent:human-review" in labels
-      end)
-      |> MapSet.new(&value(&1, :number, nil))
-
-    snapshot
-    |> Map.get(:pull_requests, [])
-    |> Enum.flat_map(fn pr ->
-      issue_number = value(pr, :issue_number, nil)
-
-      if issue_number in waiting and value(pr, :state, "") == "open" and value(pr, :mergeable, nil) == "CONFLICTING" do
-        [
-          finding(
-            "conflicting_waiting_pr",
-            2,
-            0,
-            "Merge #{base_branch} into the PR branch and resolve the conflicts.",
-            "Ticket ##{issue_number} is waiting while PR ##{value(pr, :number, "?")} is conflicting with #{base_branch}.",
-            pull_request: value(pr, :number, nil),
-            ticket: issue_number
           )
         ]
       else

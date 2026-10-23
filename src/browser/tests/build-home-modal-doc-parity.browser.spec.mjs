@@ -33,12 +33,11 @@ for (const viewport of PARITY_VIEWPORTS.filter(v => v.viewport.width !== 1024)) 
         await pair.design.evaluate(id => window.AiurBuild.open('AIUR-' + id), t.id)
         await pair.product.evaluate(async t => (await import('/build-home/modal/frame.js')).openModal(t), t)
         await expect(pair.product.locator('.bm-body h4').first()).toHaveText('Scope')
-        // C7-T03 owns estimate values; this ticket explicitly renders unknown. Apply that
-        // same written rule to reference facts, including a queue position if unknown.
+        // Remove the mock complexity fallback when the payload has no estimate.
         await pair.design.locator('.bm-facts > div').evaluateAll((facts, row) => {
           for (const fact of facts) {
             const label = fact.querySelector('small').textContent
-            if (label === 'Estimate' || (label === 'Queue' && row.sec === 'plan' && row.qpos == null)) fact.querySelector('b').textContent = '—'
+            if ((label === 'Estimate' && row.est == null && !row.override) || (label === 'Queue' && row.sec === 'plan' && row.qpos == null)) fact.querySelector('b').textContent = '—'
           }
         }, t)
         for (const side of ['design', 'product']) {
