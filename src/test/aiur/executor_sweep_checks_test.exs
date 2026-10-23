@@ -270,7 +270,7 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
            end)
   end
 
-  defp live_ci(pr, age_ms, now \\ ~U[2026-10-18 14:00:00Z]) do
+  defp live_ci(pr, age_ms, now) do
     Map.merge(pr, %{ci_head_sha: pr.head_sha, ci_observed_at_ms: DateTime.to_unix(now, :millisecond) - age_ms})
   end
 
