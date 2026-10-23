@@ -218,21 +218,55 @@ defmodule Aiur.BuildGate.ContainmentTest do
   end
 
   @tag @linux_only
-  test "a slow holder startup fails closed within a bounded handshake", context do
+  test "a stuck holder startup fails closed at the handshake ceiling", context do
     started_at = System.monotonic_time(:millisecond)
 
+    # The release file is never written, so the holder never reaches `started`.
     assert {output, 125} =
              run_bash(
                "mix test",
                Map.merge(context, %{
-                 holder_start_delay_seconds: 12,
+                 holder_start_gate: Path.join(context.gate_dir, "holder-start.release"),
+                 handshake_seconds: 1,
                  started_path: ""
                })
              )
 
-    elapsed_ms = System.monotonic_time(:millisecond) - started_at
-    assert elapsed_ms < 11_500
+    assert System.monotonic_time(:millisecond) - started_at < 10_000
     assert output =~ "aiur_build_gate gate_error reason=lease_holder_start_failed"
+    refute File.exists?(context.log_path)
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+    assert Path.wildcard(Path.join(context.gate_dir, ".holder-*-v2.*")) == []
+  end
+
+  @tag @linux_only
+  test "a holder whose live parent never writes ready fails closed at the ceiling", context do
+    mv_path = System.find_executable("mv") || flunk("mv is required")
+    write_controlled_mv!(Path.join(context.bin_dir, "mv"), mv_path)
+    release_path = Path.join(context.gate_dir, "owner-publication.release")
+    # A failed assertion must not leave the parent parked in the mv wrapper.
+    on_exit(fn -> File.write(release_path, "") end)
+
+    # The parent stays alive inside the owner publication just before `ready`.
+    run =
+      Task.async(fn ->
+        run_bash(
+          "mix test",
+          Map.merge(context, %{
+            handshake_seconds: 1,
+            hold_owner_publication: release_path,
+            hold_owner_publication_count: 2,
+            started_path: ""
+          })
+        )
+      end)
+
+    wait_for_file!(release_path <> ".waiting", 500)
+    holder_pid = wait_for_holder_pid!(context.gate_dir)
+    assert_process_gone!(holder_pid)
+    File.write!(release_path, "")
+
+    assert {_output, 125} = Task.await(run, 10_000)
     refute File.exists?(context.log_path)
     refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
     assert Path.wildcard(Path.join(context.gate_dir, ".holder-*-v2.*")) == []
@@ -242,11 +276,20 @@ defmodule Aiur.BuildGate.ContainmentTest do
   # failed those builds with gate_error status 125 (#5743).
   @tag @linux_only
   test "a holder startup stalled for seconds still runs the command", context do
-    assert {output, 0} =
-             run_bash(
-               "mix test",
-               Map.merge(context, %{holder_start_delay_seconds: 3, started_path: ""})
-             )
+    start_gate = Path.join(context.gate_dir, "holder-start.release")
+
+    run =
+      Task.async(fn ->
+        run_bash(
+          "mix test",
+          Map.merge(context, %{holder_start_gate: start_gate, started_path: context.started_path})
+        )
+      end)
+
+    refute File.exists?(context.started_path)
+    release_at!(start_gate, System.monotonic_time(:millisecond) + 3_000)
+
+    assert {output, 0} = Task.await(run, 10_000)
 
     refute output =~ "gate_error"
     assert File.read!(context.log_path) == "test\n"
