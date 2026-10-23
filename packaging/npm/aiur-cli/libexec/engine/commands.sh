@@ -225,8 +225,10 @@ cmd_message() {
 cmd_agents() {
   if [ "$#" -eq 1 ] && [ "$1" = --json ]; then
     run_control_rpc "Aiur.Handoff.CLI.agents()"
+  elif [ "$#" -eq 1 ] && [ "$1" = --all ]; then
+    run_control_rpc "Aiur.AgentControlCLI.agents(all: true)"
   else
-    [ "$#" -eq 0 ] || die "agents accepts only --json"
+    [ "$#" -eq 0 ] || die "agents accepts only --all or --json"
     run_control_rpc "Aiur.AgentControlCLI.agents()"
   fi
 }

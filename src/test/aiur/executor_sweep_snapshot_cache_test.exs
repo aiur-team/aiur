@@ -211,4 +211,20 @@ defmodule Aiur.ExecutorSweep.SnapshotCacheTest do
     assert SnapshotCache.landing_rerun_backlog(%{watcher: :running, rerun_backlog: {:error, :eacces}}) == nil
     assert SnapshotCache.landing_rerun_backlog(%{watcher: :unavailable}) == []
   end
+
+  test "a secondary instance reports no landing or default-branch watcher service row" do
+    previous = Application.get_env(:aiur, :booted_instance_role)
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, :booted_instance_role, previous), else: Application.delete_env(:aiur, :booted_instance_role) end)
+    path = Aiur.Workflow.workflow_file_path()
+    write_workflow_file_atomic!(path, File.read!(path) <> "\nmerge_policy:\n  main_watch:\n    enabled: true\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+    watcher_names = fn -> SnapshotCache.read(fn -> nil end).services |> Enum.map(& &1.name) end
+
+    Application.put_env(:aiur, :booted_instance_role, "primary")
+    assert "landing watcher" in watcher_names.()
+    assert "default-branch watcher" in watcher_names.()
+
+    Application.put_env(:aiur, :booted_instance_role, "secondary")
+    assert watcher_names.() == []
+  end
 end

@@ -144,9 +144,14 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     :exit, _ -> {%{}, %{name: "dispatcher", status: "stalled"}}
   end
 
+  # A secondary instance never starts the repository-global watchers, so their absence is not an outage.
   defp watcher_services do
-    ([watcher_service("landing watcher", safe_state(&Aiur.LandingWatch.state/0))] ++
-       if(Aiur.MainWatch.enabled?(), do: [watcher_service("default-branch watcher", safe_state(&Aiur.MainWatch.state/0))], else: []))
+    if Aiur.Config.booted_instance_role() == "primary" do
+      [watcher_service("landing watcher", safe_state(&Aiur.LandingWatch.state/0))] ++
+        if(Aiur.MainWatch.enabled?(), do: [watcher_service("default-branch watcher", safe_state(&Aiur.MainWatch.state/0))], else: [])
+    else
+      []
+    end
     |> Enum.reject(&is_nil/1)
   rescue
     _ -> []
