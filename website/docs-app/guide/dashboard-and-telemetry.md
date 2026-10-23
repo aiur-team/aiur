@@ -108,6 +108,29 @@ decisions:
 
 See the [OCC-7 supervisor Decision API contract](https://github.com/aiur-team/aiur/blob/main/docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md) for routes, payloads, retry semantics, and audit guarantees.
 
+### Ticket progress API
+
+`GET /api/v1/<issue_identifier>/progress[?limit=N]` returns one ticket's current
+phase, latest progress reading and its progress events.
+
+| Field | Meaning |
+| --- | --- |
+| `phase` | `{status: "known", value, observed_at}`, where `value` is `brainstorm`, `plan`, `work` or `review`, or `null` once the last phase ended. `{status: "unknown"}` when no phase was ever observed. |
+| `progress` | `{status: "known", percent, source, freshness, occurred_at, observed_at}`. `source` is `checkin` or `phase`; `freshness` is `fresh` or `stale` (a stale reading keeps its real percent). `{status: "unknown"}` when nothing was reported. |
+| `events` | The ticket's own progress, check-in and phase start/end events, oldest first; the newest `limit` (1–50, default 20) taken from the latest 2,000 event-log markers. Each has `id`, `type` (`progress`, `checkin`, `phase_progress`, `phase`), `topic`, `label`, `summary`, `at`, and `phase`/`transition` for phase events. Events consumed from other tickets are excluded. |
+| `repository` | `owner/repo` of the answering ticket, or `null` when unknown. |
+| `sources` | `activity` is `available`, or `unavailable` when the live projection could not be read (progress may then come from the retained reading). |
+
+The endpoint is read-only, uses the same dashboard Basic auth as
+`/api/v1/state`, and sends `Cache-Control: no-store`. The response carries
+`contract: "aiur.ticket_progress"` and `contract_version: 1`. A missing or
+unreadable event log reads as an empty `events` list.
+
+An unknown or inactive ticket answers `200` with `unknown` fields and an empty
+`events` list; it is never reported as idle or 0%. A malformed identifier or
+`limit` returns `422` (`invalid_identifier`, `invalid_limit`); other methods
+return `405`.
+
 ## Run telemetry
 
 Aiur records daemon-owned run telemetry by default. The daemon continuously records resource samples for itself, locally attributable ticket process trees, and the Executor process when it can be identified.

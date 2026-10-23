@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, HeldApproval, Journal, LocalRead, MergeGroups, MergeQueueWatchdog, Observer, PrRerun}
+  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.LandingWatch.TicketLookup
   alias Aiur.Orchestrator.TicketTransition
@@ -149,10 +149,7 @@ defmodule Aiur.LandingWatch do
   end
 
   defp process_and_reconcile(observations, opts) do
-    opts = poll_required_checks(observations, opts)
-    result = process_all(observations, opts)
-    reconcile = Keyword.get(opts, :queue_reconcile_fun, &MergeGroups.cancel_stale/2).(observations, opts)
-    MergeQueueWatchdog.after_reconcile(result, reconcile, observations, opts)
+    LandingReconciliation.process(observations, opts, &process_all/2)
   end
 
   defp process_all(observations, opts) do
@@ -369,15 +366,6 @@ defmodule Aiur.LandingWatch do
       {:ok, _issue, _state, _paused?, _held?} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, :pull_request_not_linked_to_ticket_branch} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, _} = error -> error
-    end
-  end
-
-  defp poll_required_checks(observations, opts) do
-    if Enum.any?(observations, fn observation -> Classifier.approved_at_head?(Map.get(observation, :raw, %{})) end) do
-      required_checks = Keyword.get(opts, :required_checks_fun, &CiReadiness.fetch_required_checks/1)
-      Keyword.put(opts, :required_checks_snapshot, LocalRead.run(required_checks, [opts], opts))
-    else
-      opts
     end
   end
 

@@ -35,6 +35,7 @@ defmodule Aiur.Config.Schema do
     Server,
     Tracker,
     Upgrade,
+    Voice,
     Webhooks,
     Worker,
     Workspace
@@ -45,6 +46,7 @@ defmodule Aiur.Config.Schema do
   require Tracker
   require BuildQueue
   require Experiments
+  require Voice
   require Workspace
 
   @primary_key false
@@ -103,6 +105,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:build_order, BuildOrder, on_replace: :update, defaults_to_struct: true)
     embeds_one(:webhooks, Webhooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:elevenlabs, ElevenLabs, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:voice, Voice, on_replace: :update, defaults_to_struct: true)
     embeds_one(:upgrade, Upgrade, on_replace: :update, defaults_to_struct: true)
     # Keep the Executor sweep settings in the same parsed settings snapshot.
     embeds_one(:executor, Executor, on_replace: :update, defaults_to_struct: true)
@@ -241,6 +244,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:build_order, with: &BuildOrder.changeset/2)
     |> cast_embed(:webhooks, with: &Webhooks.changeset/2)
     |> cast_embed(:elevenlabs, with: &ElevenLabs.changeset/2)
+    |> cast_embed(:voice, with: &Voice.changeset/2)
     |> cast_embed(:upgrade, with: &Upgrade.changeset/2)
   end
 

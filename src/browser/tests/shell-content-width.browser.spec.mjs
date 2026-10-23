@@ -3,7 +3,7 @@ import { assertControlsRemainReachable, assertNoDocumentOverflow, openFixture } 
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
 const routes = [
-  { path: '/', title: 'Units' },
+  { path: '/route-shell', title: 'Build' },
   { path: '/commands', title: 'Commands' },
   { path: '/commands/decision-123', title: 'Commands' },
   { path: '/build-orders', title: 'Build Order' },
