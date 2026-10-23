@@ -2,9 +2,13 @@
 
 Only the aggregate `ci gate` check is required; it fails when any job the event selects did not succeed.
 
+The approval check reads `reviewDecision` when the run starts; approval does not trigger another run, while the merge queue runs the full suite; add `ci:full` to run it on the PR first.
+
 | Event | Jobs |
 |-------|------|
-| Pull request | `changes`, workflow security, `lint`, affected tests (or the full set with `ci:full`), and the soak jobs when the PR changes tests |
+| Pull request, not approved | `changes`, workflow security, pre-handoff, `lint`, affected tests, and the soak jobs when the PR changes tests. No Dialyzer or browser smoke. |
+| Pull request, approved | The above, plus Dialyzer for `src/lib` changes and browser smoke for web changes; `merge_policy.full_ci_paths` or an unsafe test selection runs the full set |
+| Pull request with `ci:full` or a `merge_policy.full_ci_labels` label | The full set, approved or not |
 | Merge group | The full suite once: coverage, tests, Dialyzer, browser smoke, release smoke, analytics, Stream Deck. No soak. |
 
 ## Soak

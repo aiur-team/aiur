@@ -53,7 +53,7 @@ test('card open, header identity, notices, focus trap and all close paths', asyn
     await page.locator('#bm-title').focus(); await page.keyboard.press('Shift+Tab')
     await expect(page.locator('#tk-modal a[href]:visible, #tk-modal button:not([disabled]):visible').last()).toBeFocused()
     await page.keyboard.press('Tab')
-    await expect(page.locator('#tk-head a').first()).toBeFocused()
+    await expect(page.locator('#tk-head [data-a="pause"]')).toBeFocused()
     if (close === 'button') await page.locator('#bd-tk-close').click()
     if (close === 'escape') {
       expect(await page.evaluate(() => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }); document.dispatchEvent(e); return e.defaultPrevented })).toBe(true)

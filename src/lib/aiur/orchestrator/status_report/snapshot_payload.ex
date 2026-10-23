@@ -41,7 +41,14 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
 
     %{
       ci_wait:
-        state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Enum.filter(fn {_target, ci} -> ci[:tracker_state] == "ci-wait" end) |> Enum.map(fn {target, ci} -> Map.put(ci, :identifier, target) end),
+        state.ci_lifecycle
+        |> Map.get(:poll_cache, %{})
+        |> Enum.filter(fn {_target, ci} -> ci[:tracker_state] in ["ci-wait", "human-review"] end)
+        |> Enum.map(fn {target, ci} ->
+          ci
+          |> Map.put(:identifier, target)
+          |> Map.put(:observed_at_ms, get_in(state.ci_lifecycle, [:ci_observed_at_ms, target]))
+        end),
       rework_attempts:
         Enum.map(state.rework_attempts, fn {{issue_id, head_sha}, count} ->
           %{issue_id: issue_id, head_sha: head_sha, count: count}
@@ -163,6 +170,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       agent_total_tokens: Map.get(metadata, :agent_total_tokens, 0),
       context_usage: Map.get(metadata, :context_usage),
       telemetry_attempt_id: Map.get(metadata, :telemetry_attempt_id),
+      usage_limit_reset_at: Map.get(metadata, :usage_limit_reset_at),
       turn_count: Map.get(metadata, :turn_count, 0),
       turn_count_observed?: Map.has_key?(metadata, :turn_count),
       started_at: started_at,

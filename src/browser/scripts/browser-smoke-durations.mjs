@@ -12,6 +12,14 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  // #3166 local run (2026-10-21): six control cases 36.6s; four parity cells 133.1s.
+  // Include startup margin; refresh these provisional bounds from the first CI shard log.
+  'test:browser-suite -- build-home-agent-control': 50,
+  'test:browser-suite -- build-home-agent-control-parity': 160,
+  // #3159 local acceptance (2026-10-21): 10 helper cases in 0.49s; 2 browser cases in 8.5s.
+  // Rounded up; refresh from the first CI suite-duration log.
+  'test:build-home-estimate': 1,
+  'test:build-home-estimate-browser': 9,
   // CI run 39616972873 (2026-10-21), jobs 119280971812/119280971969:
   // document functional 43.8s and parity 150.5s suite wall time, rounded up.
   'test:build-home-modal-doc': 44,
@@ -33,7 +41,7 @@ export const recordedSeconds = {
   // CI run 39590874795 (2026-10-21), full suite wall times including fixture startup:
   // shards 5/8/7 measured modal 30.9s, parity 122.8s, motion 25.6s; round each up.
   'test:build-modal': 31,
-  'test:build-modal-parity': 123,
+  'test:build-modal-parity': 300, // #3166 local repaired header matrix:267.3s, plus startup margin.
   'test:build-modal-motion': 26,
   // Same run, shard 7/job 119192841077: all 14 conversation cases passed; 163.6s wall time.
   'test:build-home-conversation': 165,
@@ -45,6 +53,8 @@ export const recordedSeconds = {
   // CI run39148293958 (d9ee8e071), job117736821220: actual suite wall seconds.
   'test:build-home-now-band': 44.7,
   'test:browser-suite -- build-home-live-button-parity': 52.7,
+  // #3168 local idle run (no CI shard log yet; pre-handoff blocks shards): 7 cases, 99s wall incl. fixture boot.
+  'test:browser-suite -- build-home-command': 99,
   // CI run 39758422723, shard 5/8: duration read from its suite log.
   'test:browser-suite -- build-home-live-top': 10,
   // Conservative CI-measured full-selection bounds from review5564161995 (#5124).

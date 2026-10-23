@@ -25,6 +25,8 @@ defmodule Aiur.ProviderMeterProbe do
   displaying with its true age, and the outcome names why.
   """
 
+  require Logger
+
   alias Aiur.Accounts
   alias Aiur.Accounts.Shims.Claude, as: ClaudeAccounts
   alias Aiur.Claude.UsageApi
@@ -41,6 +43,7 @@ defmodule Aiur.ProviderMeterProbe do
   @probe_identifier "usage-probe"
   @backend :app_server
   @batch_timeout_ms 35_000
+  @failure_warning_threshold 3
 
   @type target :: :all | atom()
   @type outcome :: %{provider: atom(), observed?: boolean(), reason: atom() | nil}
@@ -232,6 +235,7 @@ defmodule Aiur.ProviderMeterProbe do
 
         {usage_result, account_observed_at, freshness} = result
         Accounts.UsageReadings.record("claude", name, usage_result, account_observed_at, freshness)
+        warn_if_failing(name)
         {name, usage_result}
       end)
 
@@ -254,6 +258,19 @@ defmodule Aiur.ProviderMeterProbe do
       nil ->
         {_name, {:error, reason}} = List.first(results)
         outcome(provider, false, reason)
+    end
+  end
+
+  # One refused probe is routine against a rate-limited endpoint; a streak
+  # means the reading has stopped moving, which nothing else would announce.
+  # Warned once per streak; `aiur accounts` keeps showing the error after.
+  defp warn_if_failing(name) do
+    case Accounts.UsageReadings.snapshot("claude", [name]) do
+      %{^name => %{consecutive_failures: failures, reason: reason} = entry} when failures == @failure_warning_threshold ->
+        Logger.warning("claude usage probe failing account=#{name} failures=#{failures} reason=#{inspect(reason)} last_observed_at=#{inspect(entry[:last_observed_at])}")
+
+      _ok ->
+        :ok
     end
   end
 

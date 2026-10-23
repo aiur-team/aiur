@@ -68,7 +68,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
   defp apply_ci_poll_result(state, issue, %{decision: :failed} = result) do
     cond do
-      approved_landing_pr?(issue, result) ->
+      approved_landing_pr?(issue, result) and not Map.get(result, :approved_landing_withdrawn?, false) and not Map.get(result, :approved_landing_live_not_landing?, false) ->
         Logger.info("CI failure did not reopen approved landing PR: #{State.issue_context(issue)}")
         state
 
@@ -136,7 +136,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
          %{decision: :failed, review_decision: "APPROVED", auto_merge_request: auto_merge_request, merge_queue_entry: merge_queue_entry} = result
        )
        when is_map(auto_merge_request) or is_map(merge_queue_entry) do
-    Map.get(result, :pending_reason) != :merge_queue_dropped
+    Map.get(result, :pending_reason) != :merge_queue_dropped and
+      not Map.get(result, :approved_landing_withdrawn?, false) and
+      not Map.get(result, :approved_landing_live_not_landing?, false)
   end
 
   defp approved_landing_pr?(_issue, _result), do: false
@@ -215,7 +217,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
           state
         end
 
-      approved_landing_pr?(issue, result) ->
+      approved_landing_pr?(issue, result) and not ci_recovery_required?(state, issue, result) ->
         Logger.info("CI failure did not reopen approved landing PR: #{State.issue_context(issue)}")
         state
 

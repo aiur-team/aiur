@@ -9,13 +9,13 @@ export const QUARANTINE_LIST = path.join(browserRoot, 'quarantine.txt')
 export const PROBE_SPECS = ['src/browser/tests/failure-evidence.spec.mjs', 'src/browser/tests/timeout-evidence.spec.mjs']
 
 // Same shape as src/test/quarantine.txt, keyed like the reporter's annotation
-// (`new-failure :: BrowserSpec :: <spec>`): `BrowserSpec`, spec path, tracking ticket; tabs delimit fields.
+// (`new-failure :: BrowserSpec :: <spec>`): `BrowserSpec`, spec path, tracking ticket, optional expiry; tabs delimit fields.
 export function parseQuarantine(text) {
   return text.split('\n').flatMap((raw, index) => {
     const line = raw.replace(/\r$/, '')
     if (line.trim() === '' || line.trim().startsWith('#')) return []
-    const [module, spec, ticket, ...rest] = line.split('\t')
-    if (rest.length || module !== 'BrowserSpec' || !/^src\/browser\/tests\/[\w./-]+\.spec\.mjs$/.test(spec ?? '') || spec.includes('..') || PROBE_SPECS.includes(spec) || !/^#?[1-9]\d*$/.test(ticket ?? '')) {
+    const [module, spec, ticket, expires, ...rest] = line.split('\t')
+    if (rest.length || module !== 'BrowserSpec' || !/^src\/browser\/tests\/[\w./-]+\.spec\.mjs$/.test(spec ?? '') || spec.includes('..') || PROBE_SPECS.includes(spec) || !/^#?[1-9]\d*$/.test(ticket ?? '') || (expires !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(expires))) {
       throw new Error(`invalid browser quarantine entry on line ${index + 1}`)
     }
     return [{ spec, ticket }]
