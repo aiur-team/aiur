@@ -16,4 +16,3 @@ R-down	AiurWeb.OperatorControlCenter.NavState	baseline 22b2fa407c5d4218d25d63b1a
 R-down	AiurWeb.OperatorControlCenter.RouteRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	AiurWeb.OperatorControlCenter.UsageSummaryPresenter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	AiurWeb.Presenter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-private	Aiur.BuildOrder.TicketDetail	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur/build_order/graph_projection_configuration.ex:22 (Aiur.BuildOrder.GraphProjection.Configuration); facade tightening preserves current callers

@@ -272,6 +272,30 @@ defmodule Aiur.BuildGate.ContainmentTest do
     assert Path.wildcard(Path.join(context.gate_dir, ".holder-*-v2.*")) == []
   end
 
+  # A loaded host can stall holder startup for seconds; the old 2s handshake
+  # failed those builds with gate_error status 125 (#5743).
+  @tag @linux_only
+  test "a holder startup stalled for seconds still runs the command", context do
+    start_gate = Path.join(context.gate_dir, "holder-start.release")
+
+    run =
+      Task.async(fn ->
+        run_bash(
+          "mix test",
+          Map.merge(context, %{holder_start_gate: start_gate, started_path: context.started_path})
+        )
+      end)
+
+    Process.sleep(3_000)
+    refute File.exists?(context.started_path)
+    File.write!(start_gate, "")
+
+    assert {output, 0} = Task.await(run, 10_000)
+
+    refute output =~ "gate_error"
+    assert File.read!(context.log_path) == "test\n"
+  end
+
   @tag @linux_only
   test "Mix cannot unlink or replace host-owned slot locks", context do
     lock_path = Path.join(context.lock_dir, "slot-1.lock")

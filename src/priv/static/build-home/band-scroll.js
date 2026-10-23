@@ -76,9 +76,11 @@ export function jumpNow(instant) {
   if (instant) fx.update();
 }
 export function syncNowBtn() {
+  if (!ctx.bandEl) return;
   const nb = ctx.root.querySelector('#bd-nowbtn');
-  if (!nb || !ctx.bandEl) return;
   const r = ctx.bandEl.getBoundingClientRect(), v = ctx.vp.getBoundingClientRect();
-  nb.classList.toggle('at', r.top > v.top + LH + 30 && r.bottom < v.bottom - 30);
+  // #5614: the order header drops its shadow only while Live is docked under it.
+  ctx.vp.classList.toggle('live-top', Math.abs(r.top - (v.top + LH)) < 6);
+  nb?.classList.toggle('at', r.top > v.top + LH + 30 && r.bottom < v.bottom - 30);
 }
 Object.assign(fx, { liveGuard, snapLive, markScrolling, scrollVP, jumpNow, syncNowBtn });

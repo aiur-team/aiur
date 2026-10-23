@@ -8,7 +8,10 @@ defmodule AiurWeb.Build.ConversationSource do
   @callback page(ref(), String.t(), keyword()) :: {:ok, view()} | {:error, term()}
   @callback subscribe(ref(), keyword()) :: :ok | {:error, term()}
   @callback unsubscribe(ref(), keyword()) :: :ok | {:error, term()}
-  @optional_callbacks prepare: 2
+  @callback events(ref(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback events_subscribe(term(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  @callback events_unsubscribe(String.t(), keyword()) :: :ok
+  @optional_callbacks prepare: 2, events: 2, events_subscribe: 2, events_unsubscribe: 2
 
   @spec source() :: module() | {module(), keyword()}
   def source, do: Application.get_env(:aiur, :build_conversation_source, AiurWeb.Build.ConversationSource.Wave0b)
@@ -19,6 +22,14 @@ defmodule AiurWeb.Build.ConversationSource do
 
   defp safe_apply(module, :prepare, [ref, opts]) do
     if Code.ensure_loaded?(module) and function_exported?(module, :prepare, 2), do: module.prepare(ref, opts), else: {:ok, ref}
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp safe_apply(module, :events, [ref, opts]) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :events, 2), do: module.events(ref, opts), else: {:error, :unsupported}
   rescue
     _ -> {:error, :unavailable}
   catch

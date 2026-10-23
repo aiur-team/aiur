@@ -85,6 +85,15 @@ defmodule Aiur.Orchestrator.IssueSync.ContradictoryLabelsTest do
                &(&1["topic"] == "system.fleet.contradictory_state_labels" and
                    &1["message"] =~ "2 tickets undispatchable due to contradictory labels")
              )
+
+      # The line names each ticket's label pair, so the Executor can see which
+      # state to drop without re-reading every ticket (#5796).
+      assert [alert | _] =
+               AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true)
+               |> Enum.filter(&(&1["topic"] == "system.fleet.contradictory_state_labels"))
+
+      assert alert["message"] =~ "#{dual_a.identifier} (ci-wait+rework)"
+      assert alert["message"] =~ "#{dual_b.identifier} (ci-wait+human-review)"
     end
 
     test "resolves the fleet alert once every ticket carries a single state label" do

@@ -3,5 +3,10 @@
     "spec": "tests/design-parity-matrix.browser.spec.mjs",
     "reason": "Manual home parity sign-off only; home-parity-signoff.yml is workflow_dispatch-only and does not gate merges.",
     "ticket": 5124
+  },
+  {
+    "spec": "tests/build-home-conversation-events-parity.browser.spec.mjs",
+    "reason": "Manual home parity sign-off only (per-kind event row cells, about 10 minutes serial); the ticket conversation .cv-main parity in test:build-home-conversation gates merges.",
+    "ticket": 3163
   }
 ]
