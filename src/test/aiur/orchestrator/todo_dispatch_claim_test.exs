@@ -4,6 +4,19 @@ defmodule Aiur.Orchestrator.TodoDispatchClaimTest do
   alias Aiur.{Issue, Tracker, Workflow}
   alias Aiur.Orchestrator.{Dispatcher, State}
 
+  defmodule SlowTracker do
+    def update_issue_state(identifier, target, opts) do
+      send(
+        Application.fetch_env!(:aiur, :todo_dispatch_tracker_owner),
+        {:state_write_started, self(), identifier, target, opts}
+      )
+
+      receive do
+        :finish_state_write -> :ok
+      end
+    end
+  end
+
   setup do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",
@@ -92,7 +105,33 @@ defmodule Aiur.Orchestrator.TodoDispatchClaimTest do
              Tracker.fetch_issue_states_by_ids([candidate.id])
   end
 
-  defp dispatch_state, do: %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}
+  test "slow tracker state write does not delay dispatch or worker start" do
+    candidate = issue("todo-slow-write")
+    parent = self()
+    Application.put_env(:aiur, :todo_dispatch_tracker_owner, self())
+    on_exit(fn -> Application.delete_env(:aiur, :todo_dispatch_tracker_owner) end)
+
+    state =
+      Dispatcher.do_dispatch_issue(dispatch_state(snapshot_key: self()), candidate, nil, nil,
+        todo_dispatch_tracker: SlowTracker,
+        runner: fn dispatched, _recipient, _opts ->
+          send(parent, {:slow_todo_runner_started, dispatched})
+        end
+      )
+
+    assert_receive {:state_write_started, tracker_pid, "todo-slow-write", "in-progress", opts},
+                   1_000
+
+    assert Keyword.fetch!(opts, :expected_state) == "todo"
+    assert_receive {:slow_todo_runner_started, ^candidate}, 1_000
+    assert Map.has_key?(state.running, candidate.id)
+
+    send(tracker_pid, :finish_state_write)
+  end
+
+  defp dispatch_state(opts \\ []) do
+    struct!(State, [max_concurrent_agents: 4, effective_concurrent_agents: 4] ++ opts)
+  end
 
   defp issue(id) do
     %Issue{
