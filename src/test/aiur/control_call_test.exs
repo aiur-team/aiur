@@ -1,7 +1,36 @@
-defmodule Aiur.ControlCallTest do
-  use ExUnit.Case, async: true
+defmodule Aiur.ControlCallTestProbe do
+  @moduledoc false
 
   alias Aiur.ControlCall
+
+  def actor, do: IO.puts(ControlCall.actor())
+  def read_wait, do: wait_for_test_release()
+  def write_wait, do: wait_for_test_release()
+
+  def explode do
+    IO.puts("before failure")
+    raise "control call probe failure"
+  end
+
+  defp wait_for_test_release do
+    parent = Process.whereis(:control_call_test_parent)
+    send(parent, {:control_call_probe_started, self()})
+
+    receive do
+      :finish -> send(parent, {:control_call_probe_finished, self()})
+    end
+  end
+end
+
+defmodule Aiur.ControlCallTest do
+  use ExUnit.Case, async: false
+
+  alias Aiur.ControlCall
+
+  setup do
+    Process.register(self(), :control_call_test_parent)
+    :ok
+  end
 
   test "parses an allowlisted literal call and refuses a foreign module" do
     assert {:ok, %{module: Aiur.AgentControlCLI, function: :agents, args: [[all: true]], scope: :read}} =
@@ -12,15 +41,19 @@ defmodule Aiur.ControlCallTest do
   end
 
   test "rejects executable and non-single-call syntax" do
-    for expression <- [
-          "Aiur.AgentControlCLI.status() |> System.cmd(\"id\", [])",
-          "~s|Aiur.AgentControlCLI.status()|",
-          "&System.cmd/2",
-          "apply(System, :cmd, [\"id\", []])",
-          "Aiur.AgentControlCLI.status(); System.cmd(\"id\", [])",
-          "Aiur.AgentControlCLI.status(nested: fn -> :ok end)"
+    for {expression, reason} <- [
+          {"System.cmd(\"id\", [])", :not_allowlisted},
+          {":os.cmd(\"id\")", :not_allowlisted},
+          {"Aiur.AgentControlCLI.status() |> System.cmd(\"id\", [])", :not_allowlisted},
+          {"~s|Aiur.AgentControlCLI.status()|", :not_allowlisted},
+          {"&System.cmd/2", :not_allowlisted},
+          {"apply(System, :cmd, [\"id\", []])", :not_allowlisted},
+          {"Aiur.AgentControlCLI.status(); System.cmd(\"id\", [])", :not_allowlisted},
+          {"Aiur.AgentControlCLI.status(nested: fn -> :ok end)", :option_not_allowed},
+          {"Aiur.AgentControlCLI.message(\"1\", File.read!(\"/etc/passwd\"))", :non_literal_argument},
+          {"Aiur.AgentControlCLI.message(\"1\", [[[[[[[\"deep\"]]]]]]])", :non_literal_argument}
         ] do
-      assert {:error, _reason} = ControlCall.parse(expression), expression
+      assert {:error, ^reason} = ControlCall.parse(expression), expression
     end
   end
 
@@ -28,6 +61,8 @@ defmodule Aiur.ControlCallTest do
     assert {:error, :option_not_allowed} = ControlCall.parse("Aiur.HarnessSessionCLI.rpc(path: \"/etc/passwd\")")
     assert {:error, :option_not_allowed} = ControlCall.parse("Aiur.AgentControlCLI.queue(server: :foo)")
     assert {:error, :option_not_allowed} = ControlCall.parse("Aiur.AgentControlCLI.analytics(telemetry_file: \"/x\")")
+    assert {:error, {:unknown_on_build, "SomeModule"}} = ControlCall.parse("Aiur.AgentControlCLI.build_orders(source: SomeModule)")
+    assert {:error, :option_not_allowed} = ControlCall.parse("Aiur.AgentControlCLI.build_orders(source: \"unknown\")")
     assert {:error, {:unknown_on_build, "function_from_the_future"}} = ControlCall.parse("Aiur.AgentControlCLI.function_from_the_future()")
     assert {:error, {:unknown_on_build, "future_key_qq"}} = ControlCall.parse("Aiur.AgentControlCLI.executor_wait(future_key_qq: 1)")
     assert {:error, {:unknown_on_build, "list"}} = ControlCall.parse("Aiur.AgentControlCLI.list()")
@@ -42,7 +77,26 @@ defmodule Aiur.ControlCallTest do
     assert {:ok, %{scope: :read}} = ControlCall.parse("Aiur.AgentControlCLI.status()")
     assert {:ok, %{scope: :read}} = ControlCall.parse("Aiur.AgentControlCLI.watch(mode: :full)")
     assert {:ok, %{scope: :write}} = ControlCall.parse("Aiur.AgentControlCLI.watch()")
+    assert {:ok, %{scope: :read}} = ControlCall.parse("Aiur.AgentControlCLI.queue([])")
+    assert {:ok, %{scope: :read}} = ControlCall.parse("Aiur.AgentControlCLI.queue([verb: :show])")
+    assert {:error, :denied_remote} = ControlCall.parse("Aiur.AgentControlCLI.queue([verb: :add, ids: [\"123\"]])")
+    assert {:error, :denied_remote} = ControlCall.parse("Aiur.AgentControlCLI.queue([verb: :set])")
     assert {:error, :scope_exceeds_max} = ControlCall.parse("Aiur.AgentControlCLI.set_max_agents(2)", max_scope: :read)
+  end
+
+  test "enforces option and positional value constraints" do
+    for expression <- [
+          "Aiur.AgentControlCLI.set_max_agents(0)",
+          "Aiur.AgentControlCLI.executor_wait(as: \"bad id\")",
+          "Aiur.AgentControlCLI.executor_claim(as: \"a b\")",
+          "Aiur.AgentControlCLI.message(:ok, \"text\")",
+          "Aiur.AgentControlCLI.units(scope: \"invalid\")",
+          "Aiur.AgentControlCLI.analytics(range: :show)",
+          "Aiur.AgentControlCLI.github_cost(budget: \"other\")",
+          "Aiur.AgentControlCLI.ticket_estimate(hours: \"1000\")"
+        ] do
+      assert {:error, :non_literal_argument} = ControlCall.parse(expression), expression
+    end
   end
 
   test "remote calls cannot provide identity overrides or executor session env" do
@@ -61,35 +115,37 @@ defmodule Aiur.ControlCallTest do
   end
 
   test "run captures task failures without taking down its caller" do
-    assert {:ok, parsed} = ControlCall.parse("Aiur.AgentControlCLI.executor_subscriptions()")
-    parent = self()
-
-    caller =
-      Task.async(fn ->
-        Process.flag(:trap_exit, true)
-        send(parent, {:alive_before, self()})
-        result = ControlCall.run(parsed, 1_000, "token:t")
-        send(parent, {:result, result})
-
-        receive do
-          :stop -> :ok
-        end
-      end)
-
-    assert {:alive_before, caller_pid} = receive_message()
-    assert {:result, {:ok, output}} = receive_message()
-    assert String.ends_with?(output, "__AIUR_CONTROL_EXIT__:0\n")
-    assert Process.alive?(caller_pid)
-    send(caller.pid, :stop)
-    assert Task.await(caller) == :ok
+    assert {:ok, parsed} = ControlCall.parse("Aiur.ControlCallTestProbe.explode()")
+    caller = self()
+    assert {:ok, output} = ControlCall.run(parsed, 1_000, "token:t")
+    assert output =~ "before failure"
+    assert output =~ "__AIUR_CONTROL_ERROR__:control call probe failure"
+    assert String.ends_with?(output, "__AIUR_CONTROL_EXIT__:1\n")
+    assert Process.alive?(caller)
   end
 
-  test "run applies distinct read and write timeout policies" do
-    assert {:ok, read_call} = ControlCall.parse("Aiur.AgentControlCLI.executor_subscriptions()")
-    assert {:ok, write_call} = ControlCall.parse("Aiur.AgentControlCLI.set_max_agents(2)")
+  test "run stores actor in the task context" do
+    assert {:ok, parsed} = ControlCall.parse("Aiur.ControlCallTestProbe.actor()")
+    assert {:ok, output} = ControlCall.run(parsed, 1_000, "token:t")
+    assert output =~ "token:t\n"
+  end
 
-    assert {:error, :timeout} = ControlCall.run(read_call, 0, "token:t")
-    assert {:error, :timeout} = ControlCall.run(write_call, 0, "token:t")
+  test "run kills a timed out read task" do
+    assert {:ok, read_call} = ControlCall.parse("Aiur.ControlCallTestProbe.read_wait()")
+    assert {:error, :timeout} = ControlCall.run(read_call, 500, "token:t")
+    assert {:control_call_probe_started, pid} = receive_message()
+    refute Process.alive?(pid)
+  end
+
+  test "run leaves a timed out write task running until completion" do
+    assert {:ok, write_call} = ControlCall.parse("Aiur.ControlCallTestProbe.write_wait()")
+    assert {:error, :timeout} = ControlCall.run(write_call, 500, "token:t")
+    assert {:control_call_probe_started, pid} = receive_message()
+    assert Process.alive?(pid)
+    monitor = Process.monitor(pid)
+    send(pid, :finish)
+    assert {:control_call_probe_finished, ^pid} = receive_message()
+    assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
   end
 
   defp receive_message do

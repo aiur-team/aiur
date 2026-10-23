@@ -1,90 +1,180 @@
 defmodule Aiur.ControlCall.EngineCensusTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+
+  import Aiur.TestSupport.EngineCase
 
   alias Aiur.ControlCall
   alias Aiur.ControlCall.Allowlist
+  Code.require_file("../../support/executor_session_rpc_assertions.ex", __DIR__)
 
-  @runtime_built [
-    {"$expression: local/global control commands", :write},
-    {"$expression: workspace ownership operations", :write},
-    {"$expression: generated report command", :read_or_write},
-    {"executor_wait optional identity/session arguments", :write},
-    {"executor ownership keyword arguments", :write},
-    {"Aiur.PrMerge.Record.publish/1 (piped expression)", :deny},
-    {"AIUR_HANDOFF_PREPARE_EXPRESSION", :deny}
+  @wrapper_cases [
+    {"status", "cmd_status", :read, []},
+    {"status handoff", "cmd_status --handoff --json", :read, []},
+    {"executor session", "cmd_executor_session --json", :read, []},
+    {"usage", "cmd_usage", :read, []},
+    {"agents", "cmd_agents", :read, []},
+    {"agents all", "cmd_agents --all", :read, []},
+    {"agents json", "cmd_agents --json", :read, []},
+    {"pause global", "cmd_pause_resume pause", :write, []},
+    {"resume all", "cmd_pause_resume resume --all", :write, []},
+    {"resume tickets", "cmd_pause_resume resume 123 456", :write, []},
+    {"ownership take", "cmd_executor_ownership take 123", :write, []},
+    {"ownership release", "cmd_executor_ownership release 123", :write, []},
+    {"reset budget", "cmd_reset_budget 123 456", :write, []},
+    {"todo", "run_todo --todo 123 456", :write, []},
+    {"workspace recover", "cmd_workspace_recover ENG-123 7", :write, []},
+    {"message", "cmd_message 123 hello from operator", :write, []},
+    {"message with idempotency key", "cmd_message 123 --message-id msg-1 hello", :write, []},
+    {"set max agents", "cmd_set max-agents 5", :write, []},
+    {"feature show", "cmd_feature show demo --json", :read, []},
+    {"feature edit", "cmd_feature edit demo --label Demo --add-epic lane=Lane", :write, []},
+    {"epic list", "cmd_epic list --json", :read, []},
+    {"epic set", "cmd_epic set lane 123 --as operator", :write, []},
+    {"queue show", "cmd_queue show --json", :read, []},
+    {"queue order display", "cmd_queue order", :read, []},
+    {"units", "cmd_units --scope all --condition active --format records --json", :read, []},
+    {"build orders", "cmd_build_orders 123 --json", :read, []},
+    {"analytics", "cmd_analytics --range full --since 2026-01-01 --build-order 123 --json", :read, []},
+    {"GitHub cost", "cmd_github_cost --budget all --format records --json", :read, []},
+    {"GitHub usage", "cmd_github_usage --json", :read, []},
+    {"capabilities", "cmd_capabilities --json", :read, []},
+    {"commands", "cmd_commands --filter all --blocking --ticket 123 --search x --cursor next --limit 1 --json", :read, []},
+    {"alerts", "cmd_alerts --needs-attention --limit 1", :read, []},
+    {"executor sweep read", "cmd_executor_sweep --json", :read, []},
+    {"executor sweep apply", "cmd_executor_sweep --apply", :write, []},
+    {"watch full", "cmd_watch --full", :read, []},
+    {"watch changes", "cmd_watch --changes", :write, []},
+    {"ticket estimate", "cmd_ticket estimate 123 0.5 --reason test --by operator --json", :write, []},
+    {"ticket usage", "cmd_ticket_usage 123 --json", :read, []},
+    {"experiments list", "cmd_experiments list", :read, []},
+    {"experiments stats", "cmd_experiments stats 123", :read, []},
+    {"experiments freeze", "cmd_experiments freeze", :write, []},
+    {"executor answer", "cmd_executor_answer decision --expected-version 1 --option yes --rationale approved --idempotency-key key", :write, []},
+    {"executor escalate", "cmd_executor_escalate decision --expected-version 1 --reason help", :write, []},
+    {"executor reclassify", "cmd_executor_reclassify decision --expected-version 1 --rationale update", :write, []},
+    {"executor moot", "cmd_executor_moot decision --expected-version 1 --reason-class obsolete", :write, []},
+    {"executor wait with session env", "cmd_executor_wait --timeout 2 --as worker", :write, Aiur.TestSupport.ExecutorSessionRPCAssertions.env()},
+    {"executor roster", "cmd_executor_roster --json", :read, []},
+    {"executor fast forward", "cmd_executor_fast_forward 44 --as worker", :write, []},
+    {"executor claim", "cmd_executor_claim --as worker", :write, []},
+    {"executor release", "cmd_executor_release --as worker", :write, []},
+    {"executor revoke", "cmd_executor_revoke worker", :write, []},
+    {"executor emit", "cmd_executor_emit ticket.5965.agent.test --payload '{}'", :write, []},
+    {"executor subscribe", "cmd_executor_subscription executor-subscribe ticket.5965.agent.#", :write, []},
+    {"executor unsubscribe", "cmd_executor_subscription executor-unsubscribe ticket.5965.agent.#", :write, []},
+    {"executor subscriptions", "cmd_executor_subscriptions", :read, []},
+    {"listen validation", "cmd_listen --ticket 123", :read, []},
+    {"pause all", "cmd_pause_resume pause --all", :write, []}
+  ]
+
+  @guarded_queue_commands [
+    {"add", "add 123"},
+    {"set", "set team --start-on default"},
+    {"remove", "remove 123"},
+    {"reorder", "reorder 123 --to 0"},
+    {"hold", "hold 123"},
+    {"release", "release 123"},
+    {"recover", "recover"},
+    {"clear", "clear --remove-markers --yes"},
+    {"order with target", "order team --to 0"}
   ]
 
   test "every public AgentControlCLI function has an explicit classification" do
-    classified =
-      MapSet.new(
-        Allowlist.entries()
-        |> Enum.flat_map(fn
-          {{[:Aiur, :AgentControlCLI], fun, arity}, _} -> [{fun, arity}]
-          _ -> []
-        end)
-      )
-
-    assert Enum.all?(Allowlist.facade_functions(), &MapSet.member?(classified, &1))
+    entries = Allowlist.entries()
+    missing = Enum.reject(Aiur.AgentControlCLI.__info__(:functions), &Map.has_key?(entries, {[:Aiur, :AgentControlCLI], elem(&1, 0), elem(&1, 1)}))
+    assert missing == [], "unclassified public AgentControlCLI functions: #{inspect(missing)}"
   end
 
-  test "static engine RPC templates are explicitly enumerated and parse through existing_atoms_only" do
-    root = Path.expand("../../../..", __DIR__)
-    files = Path.wildcard(Path.join(root, "packaging/npm/aiur-cli/libexec/**/*.sh"))
-    source = Enum.map_join(files, "\n", &File.read!/1)
-    templates = Regex.scan(~r/run_control_rpc\s+"((?:\\\\.|[^"\\\\])*)"/s, source, capture: :all_but_first) |> List.flatten()
+  test "real engine wrappers emit allowlisted expressions with their expected scope" do
+    for {name, command, expected_scope, env} <- @wrapper_cases do
+      expression = capture_rpc(command, env)
 
-    assert templates != []
+      result = ControlCall.parse(expression)
 
-    static_templates = Enum.reject(templates, &runtime_template?/1)
+      assert {:ok, %{scope: ^expected_scope}} = result,
+             "#{name} emitted #{expression}, parsed as #{inspect(result)}"
+    end
+  end
 
-    for template <- static_templates do
-      expression = template |> String.replace(~r/\\"/, "\"") |> substitute_shell_values()
+  test "real guarded queue verbs are classified as local-only" do
+    source = File.read!(Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-queue.sh", __DIR__))
+    assert source =~ "queue_workspace_guard"
 
-      case ControlCall.parse(expression) do
-        {:ok, %{scope: scope}} when scope in [:read, :write] -> :ok
-        {:error, :denied_remote} -> :ok
-        result -> flunk("unclassified static RPC template #{template}: #{inspect(result)}")
+    for {verb, arguments} <- @guarded_queue_commands do
+      expression = capture_rpc("cmd_queue #{arguments}")
+      result = ControlCall.parse(expression)
+      assert result == {:error, :denied_remote}, "queue #{verb}: #{expression} parsed as #{inspect(result)}"
+    end
+  end
+
+  test "TTY-gated operator answers remain local-only" do
+    source = File.read!(Path.expand("../../../../packaging/npm/aiur-cli/libexec/engine/executor_commands.sh", __DIR__))
+    assert source =~ "cmd_operator_answer()"
+    assert source =~ "[ ! -t 0 ] || [ ! -t 1 ]"
+
+    assert {:error, :denied_remote} =
+             ControlCall.parse(~s|Aiur.AgentControlCLI.operator_answer_preview(decision_id: "d", operator: true, option_id: "o", expected_version: 1, confirmation: "d")|)
+
+    assert {:error, :denied_remote} =
+             ControlCall.parse(~s|Aiur.AgentControlCLI.operator_answer(decision_id: "d", operator: true, option_id: "o", expected_version: 1, confirmation: "d")|)
+  end
+
+  test "agent-only alert acknowledgements remain local-only" do
+    source = File.read!(Path.expand("../../../../packaging/npm/aiur-cli/libexec/engine/report_commands.sh", __DIR__))
+    assert source =~ "alerts ack is operator-only"
+
+    assert {:error, :denied_remote} =
+             ControlCall.parse(~s|Aiur.AgentControlCLI.alerts(argv: ["ack", "ticket.1.agent.attention.duplicate-dispatch", "--executor-id", "operator"])|)
+  end
+
+  test "runtime-built and non-call expressions have explicit outcomes" do
+    for {expression, expected_scope} <- [
+          {"Aiur.AgentControlCLI.executor_wait(timeout_ms: 300000, json: false, as: \"worker\", env: [{\"CLAUDE_CODE_SESSION_ID\", \"s-1\"}, {\"PWD\", \"/repo\"}])", :write},
+          {"Aiur.AgentControlCLI.executor_fast_forward(44, [as: \"worker\"])", :write},
+          {"Aiur.AgentControlCLI.executor_claim([as: \"worker\"])", :write},
+          {"Aiur.AgentControlCLI.executor_release([as: \"worker\"])", :write},
+          {"Aiur.AgentControlCLI.executor_revoke(\"worker\")", :write},
+          {"Aiur.AgentControlCLI.executor_emit(Base.decode64!(\"dGlja2V0LjU5NjUuYWdlbnQudGVzdA==\"), Base.decode64!(\"e30=\"))", :write},
+          {"Aiur.AgentControlCLI.executor_subscribe(Base.decode64!(\"dGlja2V0LjU5NjUuYWdlbnQuIw==\"))", :write},
+          {"Aiur.AgentControlCLI.executor_unsubscribe(Base.decode64!(\"dGlja2V0LjU5NjUuIw==\"))", :write},
+          {"Aiur.AgentControlCLI.analytics([range: :run])", :read},
+          {"Aiur.AgentControlCLI.accounts(true, Base.decode64!(\"Y29kZXg=\"))", :read},
+          {"Aiur.AgentControlCLI.message(\"123\", Base.decode64!(\"aGVsbG8=\"), \"msg-1\")", :write},
+          {"Aiur.AgentControlCLI.todo([\"123\"], [only: true, budget_ms: 1000, emit_exit_marker: true])", :write},
+          {"Aiur.AgentControlCLI.pause(:all)", :write},
+          {"Aiur.AgentControlCLI.take([\"123\"], \"operator\")", :write},
+          {"Aiur.AgentControlCLI.recover_workspace(Base.decode64!(\"RU5HLTEyMw==\"), 7)", :write},
+          {"Aiur.AgentControlCLI.set_max_agents(2)", :write},
+          {"Aiur.AgentControlCLI.usage(:codex)", :deny},
+          {"Aiur.AgentControlCLI.executor_listen(topic: \"executor.#\")", :deny},
+          {"Aiur.AgentControlCLI.prepare_handoff([])", :deny},
+          {"Aiur.Handoff.CLI.prepare()", :deny},
+          {"Aiur.PrMerge.Record.publish(\"{}\")", :deny}
+        ] do
+      case {ControlCall.parse(expression), expected_scope} do
+        {{:ok, %{scope: scope}}, scope} when scope in [:read, :write] -> :ok
+        {{:error, :denied_remote}, :deny} -> :ok
+        {result, scope} -> flunk("runtime census expected #{scope} for #{expression}, got #{inspect(result)}")
       end
     end
-
-    assert Enum.all?(@runtime_built, fn {_description, classification} -> classification in [:read, :write, :read_or_write, :deny] end)
   end
 
-  defp runtime_template?(template),
-    do: String.contains?(template, ["$expression", "${command}", "$(elixir_list_literal", "$(executor_as_argument", "$(executor_as_keyword", "AIUR_HANDOFF_PREPARE_EXPRESSION"])
+  defp capture_rpc(command, env \\ []) do
+    script = """
+    cd /
+    run_control_rpc() { printf '%s\\n' "$1"; }
+    run_control_stream() { return 0; }
+    #{command}
+    """
 
-  defp substitute_shell_values(template) do
-    template
-    |> String.replace("$opts", sample_options(template))
-    |> String.replace("$preview_args", sample_options("operator_answer"))
-    |> String.replace("$expression", "Aiur.AgentControlCLI.status()")
-    |> String.replace("${args%, }", "argv: [\"show\"]")
-    |> String.replace("$json_arg", "true")
-    |> String.replace("$json", "true")
-    |> String.replace("$only_arg", "false")
-    |> String.replace("$budget_ms", "1000")
-    |> String.replace("$wake_id", "1")
-    |> String.replace("$n", "2")
-    |> String.replace("$ticket", "\"123\"")
-    |> String.replace("$owner", "\"operator\"")
-    |> String.replace("$issue", "\"123\"")
-    |> String.replace("$message_id", "\"id\"")
-    |> String.replace("$encoded", "\"c2FtcGxl\"")
-    |> String.replace("${command}", "pause")
-    |> String.replace(~r/\$\(\(timeout \* 1000\)\)/, "300000")
-    |> String.replace(~r/\$\([^)]*\)/, "\"sample\"")
-    |> String.replace(~r/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/, "\"sample\"")
-  end
+    {output, 0} =
+      run_sourced_engine(script, [
+        {"USER", "operator"},
+        {"AIUR_AGENT_WORKSPACE", nil},
+        {"AIUR_PROJECT_ROOT", nil},
+        {"AIUR_REPO_ROOT", nil} | env
+      ])
 
-  defp sample_options(template) do
-    cond do
-      String.contains?(template, "operator_answer") -> ~s|decision_id: "d", operator: true, option_id: "o", expected_version: 1, confirmation: "d"|
-      String.contains?(template, "executor_answer") -> ~s|decision_id: "d", option_id: "o", expected_version: 1, confirmation: "d"|
-      String.contains?(template, "executor_escalate") -> ~s|decision_id: "d", expected_version: 1|
-      String.contains?(template, "executor_reclassify") -> ~s|decision_id: "d", expected_version: 1, authority: "product"|
-      String.contains?(template, "executor_moot") -> ~s|decision_id: "d", expected_version: 1, reason: "done"|
-      String.contains?(template, "ticket_estimate") -> "id: 1"
-      true -> "json: true"
-    end
+    output |> String.split("\n", trim: true) |> Enum.find(&String.starts_with?(&1, "Aiur."))
   end
 end

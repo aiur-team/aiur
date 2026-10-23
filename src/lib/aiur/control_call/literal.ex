@@ -41,6 +41,17 @@ defmodule Aiur.ControlCall.Literal do
   defp literal(value, depth) when depth <= @max_depth and (is_boolean(value) or is_nil(value) or is_atom(value)), do: {:ok, value}
   defp literal({:__aliases__, _, _}, _depth), do: {:error, :non_literal_argument}
 
+  # Feature commands emit only this fixed record shape for epic metadata.
+  defp literal({:%{}, _, pairs}, depth) when depth < @max_depth and is_list(pairs) do
+    with {:ok, entries} <- convert_map_pairs(pairs, depth + 1),
+         map <- Map.new(entries),
+         true <- valid_epic(map) do
+      {:ok, map}
+    else
+      _ -> {:error, :non_literal_argument}
+    end
+  end
+
   defp literal({{:., _, [{:__aliases__, _, [:Base]}, :decode64!]}, _, [arg]}, depth) when depth < @max_depth do
     with {:ok, encoded} <- literal(arg, depth + 1), true <- is_binary(encoded) do
       case Base.decode64(encoded) do
@@ -65,6 +76,23 @@ defmodule Aiur.ControlCall.Literal do
   end
 
   defp literal(_value, _depth), do: {:error, :non_literal_argument}
+
+  defp convert_map_pairs(pairs, depth) do
+    Enum.reduce_while(pairs, {:ok, []}, fn
+      {key, value}, {:ok, acc} when is_atom(key) ->
+        case literal(value, depth) do
+          {:ok, converted} -> {:cont, {:ok, [{key, converted} | acc]}}
+          error -> {:halt, error}
+        end
+
+      _pair, _acc ->
+        {:halt, {:error, :non_literal_argument}}
+    end)
+    |> case do
+      {:ok, entries} -> {:ok, Enum.reverse(entries)}
+      error -> error
+    end
+  end
 
   @spec validate_arguments(map(), list()) :: :ok | {:error, atom()}
   def validate_arguments(%{positional: positional, options: options}, args) do
@@ -113,13 +141,49 @@ defmodule Aiur.ControlCall.Literal do
   defp valid?(value, {:regex, regex}), do: is_binary(value) and Regex.match?(regex, value)
   defp valid?(value, :boolean), do: is_boolean(value)
   defp valid?(value, :string), do: is_binary(value)
+  defp valid?(value, :non_empty_string), do: is_binary(value) and value != ""
   defp valid?(value, :positive), do: is_integer(value) and value > 0
+  defp valid?(value, {:range, low, high}), do: is_integer(value) and value >= low and value <= high
   defp valid?(value, :non_negative), do: is_integer(value) and value >= 0
   defp valid?(value, :integer), do: is_integer(value)
   defp valid?(value, :literal_list), do: is_list(value)
   defp valid?(value, :string_list), do: is_list(value) and Enum.all?(value, &is_binary/1)
   defp valid?(value, :keyword), do: is_list(value) and Keyword.keyword?(value)
-  defp valid?(value, :env), do: is_list(value) and Enum.all?(value, &match?({key, val} when is_binary(key) and is_binary(val), &1))
+  defp valid?(value, :feature_ids), do: is_list(value) and length(value) in 1..200 and Enum.all?(value, &(is_integer(&1) and &1 in 1..2_147_483_647))
+  defp valid?(value, :ticket_id_strings), do: is_list(value) and length(value) in 1..200 and Enum.all?(value, &ticket_id_string?/1)
+  defp valid?(value, :executor_env), do: is_list(value) and Enum.all?(value, &valid_executor_env_entry?/1)
+  defp valid?(value, :epic_list), do: is_list(value) and value != [] and Enum.all?(value, &valid_epic/1)
+  defp valid?(value, :quarter_hour), do: valid_quarter_hour?(value)
+  defp valid?(value, :estimate_reason), do: is_binary(value) and String.length(value) in 1..500 and not String.match?(value, ~r/[\x00-\x1F\x7F]/)
+  defp valid?(value, :estimate_actor), do: is_binary(value) and byte_size(value) in 1..64 and Regex.match?(~r/^[A-Za-z0-9._:@-]+$/, value)
   defp valid?(value, {:enum, choices}), do: value in choices
+  defp valid?(value, {:one_of, constraints}), do: Enum.any?(constraints, &valid?(value, &1))
   defp valid?(_value, _constraint), do: false
+
+  defp valid_epic(%{key: key, label: label} = epic),
+    do: map_size(epic) == 2 and is_binary(key) and key != "" and is_binary(label) and label != ""
+
+  defp valid_epic(_epic), do: false
+
+  defp valid_quarter_hour?(value) when is_binary(value) do
+    if Regex.match?(~r/^[0-9]{1,3}(\.(0|00|25|5|50|75))?$/, value) do
+      case Float.parse(value) do
+        {hours, ""} -> hours > 0 and hours <= 999 and abs(hours * 4 - round(hours * 4)) < 1.0e-9
+        _ -> false
+      end
+    else
+      false
+    end
+  end
+
+  defp valid_quarter_hour?(_value), do: false
+
+  defp ticket_id_string?(value) when is_binary(value), do: Regex.match?(~r/^[1-9][0-9]*$/, value)
+
+  defp ticket_id_string?(_value), do: false
+
+  defp valid_executor_env_entry?({key, value}) when is_binary(key) and is_binary(value),
+    do: key in ["CLAUDE_CODE_SESSION_ID", "CLAUDE_CONFIG_DIR", "CLAUDE_PID", "CLAUDE_CODE_CHILD_SESSION", "CODEX_THREAD_ID", "PWD"]
+
+  defp valid_executor_env_entry?(_entry), do: false
 end
