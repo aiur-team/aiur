@@ -104,7 +104,7 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
       assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
     end
 
-    test "real root restart leaves a private dispatch worker alive", _context do
+    test "real root restart leaves a private dispatch worker alive", %{original_decision_state_dir: original_decision_state_dir} do
       parent = self()
       coordinator = unique_coordinator_name("RootRestart")
       task_supervisor = start_supervised!({Task.Supervisor, name: unique_coordinator_name("RootRestartTasks")})
@@ -156,11 +156,21 @@ defmodule Aiur.DecisionStore.AnswerDispatchSupervisorRestartTest do
           "worker=#{inspect(worker)} worker_links=#{inspect(worker_links)}"
       )
 
+      # The kill reboots the global DecisionStore under rest_for_one; it must
+      # come back on the suite's state dir, not this test's soon-deleted one.
+      case original_decision_state_dir do
+        nil -> Application.delete_env(:aiur, :decision_state_dir)
+        value -> Application.put_env(:aiur, :decision_state_dir, value)
+      end
+
       :ok = :sys.trace(root, true)
       Process.exit(earlier_sibling_pid, :kill)
 
       assert_receive {:DOWN, ^shared_task_supervisor_ref, :process, ^shared_task_supervisor, task_supervisor_exit}, 1_000
-      restarted_shared_task_supervisor = wait_for_named_process(Aiur.TaskSupervisor, shared_task_supervisor)
+      # The root replies only after restarting every later sibling, so this
+      # outlasts a slow restart and the next test never meets a half-built tree.
+      _children = Supervisor.which_children(root)
+      restarted_shared_task_supervisor = Process.whereis(Aiur.TaskSupervisor)
       :ok = :sys.trace(root, false)
       assert task_supervisor_exit == :shutdown
       assert restarted_shared_task_supervisor != shared_task_supervisor

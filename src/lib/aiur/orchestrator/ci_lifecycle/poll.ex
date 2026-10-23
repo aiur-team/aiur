@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Outcome
   alias Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert
+  alias Aiur.Orchestrator.CiLifecycle.PrLessReview
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.DraftAlertLifecycle
@@ -460,7 +461,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
       |> ParkedReadyAlert.ensure_parked_ready_alerts_seeded(opts)
       |> ParkedReadyAlert.resolve_departed_parked_ready_alerts(targets, opts)
 
-    state = DraftAlertLifecycle.resolve_departed(state, targets, opts)
+    state = state |> DraftAlertLifecycle.resolve_departed(targets, opts) |> PrLessReview.resolve_departed(targets, opts)
 
     if approved_heads == state.ci_lifecycle.approved_heads and
          passed_heads == Map.get(state.ci_lifecycle, :passed_heads, %{}) and

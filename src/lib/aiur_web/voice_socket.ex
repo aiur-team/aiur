@@ -14,6 +14,7 @@ defmodule AiurWeb.VoiceSocket do
 
   alias AiurWeb.FinancialDataAccess
 
+  channel("voice:dictate", AiurWeb.VoiceChannel)
   channel("voice:dictation", AiurWeb.VoiceChannel)
   channel("voice:conversation", AiurWeb.VoiceChannel)
 

@@ -10,7 +10,7 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 - **All-or-nothing credential groups.** A partially configured group (one dashboard credential without the other, or some but not all GitHub App credentials) fails at startup naming the missing members; a fully absent group is a supported setup.
 - **Type validation.** Values that fail their declared type (for example `AIUR_OPENCODE_BRIDGE_PORT=banana`) abort the boot naming the variable and what was expected, instead of failing at first use hours later.
 - **Secrets never leak.** Secrets render as an empty placeholder in `.env.example` and are excluded from error text and startup warnings. No real value from any `.env` file reaches the generated example, logs, or error output.
-- **Dashboard credentials** (`AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`) are values an operator chooses and types into a browser; see [GUI](/guide/gui) for choosing and setting them. Without them the dashboard refuses all requests (fails closed); the CLI and TUI are unaffected.
+- **Dashboard credentials/key.** Set `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD` to use the dashboard ([GUI](/guide/gui)); without them requests are refused. `AIUR_SECRET_KEY_BASE` (at least 64 bytes, e.g. `openssl rand -base64 48`) overrides the cookie key; otherwise Aiur persists a mode-0600 key per instance under `~/.aiur/instances/`.
 
 The generated `.env.example` groups variables under `## Required`, `## Optional - ...` (one section per integration), `## Runtime - launcher-managed`, and `## Development and debugging` headers, with a one-line purpose above each key and a terse right-hand "how to fetch" note aligned to a common column.
 
@@ -21,13 +21,13 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 | `executor_takeover_continuous_alert_hours` | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
 | `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
+| `instance.role` | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |
 | `pre_warmed_sessions` | integer | 3 | Number of opencode sessions booted early; 0 disables pre-warm. |
 | `prompt_file` | string | nil | Per-repository Liquid prompt template. |
-
 ## executor takeover alerts
-| `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait in `agent:human-review` without a review on its current head before the Executor sweep reports it. Must be positive. |
+| `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait without a review on its current head before the Executor sweep reports it, whatever its ticket state; the finding names that state. Must be positive. |
 ## executor
 
 Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
@@ -328,7 +328,7 @@ This optional section configures voice features; `aiur init` records declines as
 
 The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` reference in the config file rather than pasting the value there. Aiur never logs the key, and the daemon scrubs every `*_API_KEY` variable, `ELEVENLABS_API_KEY` included, from agent process environments, local and SSH-launched alike, so no coding agent inherits it.
 
-Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/concepts/units#api-meters) for what each figure does and does not measure.
+Configuring the key also adds an ElevenLabs meter beside the GitHub API meter on the Build page [usage strip](/concepts/build-history#usage-strip) and the Units [API meters](/concepts/units#api-meters). It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely.
 
 ## compaction
 
@@ -409,11 +409,13 @@ These policy keys never grant transport access by themselves. The supervisor API
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-18 -->
 | --- | --- | --- | --- |
-| `server.host` | string | `127.0.0.1` | HTTP bind address. Set it explicitly to serve the dashboard beyond the machine; there is no automatic Tailscale detection. |
+| `server.allowed_hosts` | array | derived | Additional accepted Host names; the public URL host and loopback addresses are always accepted. |
+| `server.host` | string | `127.0.0.1` | HTTP bind address. `0.0.0.0` exposes the dashboard to the LAN; there is no automatic Tailscale detection. |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
+| `server.public_url` | string | nil | Public URL for generated links and Host/origin allowlists; loopback listeners also accept tailnet hosts. |
 | `server.tailscale_funnel` | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
 
-When `server.host` is absent, the dashboard binds `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST` override). A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
+Unset `server.host` binds `127.0.0.1` (or `AIUR_DEFAULT_DASHBOARD_HOST`); explicit config/`--host` override. `0.0.0.0` exposes LAN. Loopback permits `*.ts.net` Hosts and HTTPS origins while loopback-bound. For Tailscale, build and restart, set `server.public_url` (e.g. `https://<host>.ts.net:4001`), then restart again. `server.allowed_hosts` adds hosts.
 
 Set `server.tailscale_funnel: true` only when this node already has a Funnel route the operator intends to keep. At startup and every 30 seconds, Aiur reads the dashboard's bound host and port and updates the route with `tailscale funnel --bg` when needed.
 
@@ -421,13 +423,9 @@ Before changing a different target, Aiur probes that target's `/build-orders/1`.
 
 Only a connection-refused probe counts as stale and permits an update. Timeouts, TLS failures, and other probe errors leave the route unchanged and raise `system.build_order_funnel.health_check_error` with cause `unknown`. Wildcard binds (`0.0.0.0` and `::`) map to loopback for the Funnel target.
 
-Enable this on only one Aiur daemon per node. A second daemon with this key enabled can repoint the route while the owning dashboard restarts and its old target refuses connections.
+Enable this on only one Aiur daemon per node. A second can repoint the route while the owner restarts. When enabled, the reconciler suppresses `observability.build_order_funnel_health_check` and reports its own failures after each attempt.
 
-When `server.tailscale_funnel` is enabled, the reconciler suppresses the separate `observability.build_order_funnel_health_check` startup check and reports its own failures after each reconciliation attempt.
-
-A non-root account needs Tailscale operator access before Aiur can manage the route. Grant it once with `sudo tailscale set --operator=$USER`; then run Aiur as that account.
-
-Aiur does not enable Funnel or create a route. The dashboard's existing authentication remains in place, and the route supports HTTP and WebSocket traffic.
+A non-root account needs Tailscale operator access before Aiur can manage the route. Grant it with `sudo tailscale set --operator=$USER`; then run Aiur as that account. Aiur does not enable Funnel or create a route. Dashboard authentication remains in place, and the route supports HTTP and WebSocket traffic.
 
 The target probe is a bounded liveness check, not proof of daemon identity or route ownership. A live stale service requires operator intervention. Aiur does not restart, stop, or otherwise manage the Tailscale daemon.
 

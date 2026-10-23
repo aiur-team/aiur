@@ -4,7 +4,7 @@ A Unit is one agent run working one ticket while it is active, paused, or waitin
 
 ## What the Units page shows
 
-The Units page is dashboard `/` and CLI `aiur units`.
+The Units page is the hidden dashboard rollback route `/units`, retained for one release, and CLI `aiur units`. The dashboard home `/` is now Build.
 
 <img src="/images/dashboard/units-dark.png" alt="Desktop Units fleet table with synthetic active, blocked, retrying, and review tickets">
 
@@ -21,6 +21,20 @@ The page re-reads the fleet on every daemon change and at least every 15 seconds
 
 The Summary progress bar uses the daemon's weighted current-run aggregate across Units with current inputs. When that aggregate cannot be computed, the bar keeps its shape but renders as flat grey rather than as zero or a hatched track.
 
+## Turns, context, and token usage
+
+Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. Context is separate from cumulative token usage.
+
+A running unit whose backend has not reported a count or context reads **not reported**, and the tooltip names the backend. A unit with no running attempt, such as one in CI wait, reads **no attempt**.
+
+Open a Units row's conversation to see its **Cumulative Token Usage** panel. For a running Codex agent, it uses the current attempt; otherwise it shows ticket scope.
+
+The panel shows input, output, cached input, derived uncached input, cached proportion, scope, and observation age. Current context occupancy remains separate.
+
+Unsupported, missing, ambiguous, or incomplete measurements remain `—`. A missing observation timestamp is labeled unknown. The panel uses Codex thread snapshots without adding the overlapping per-turn stream.
+
+The fleet table's **Context** column shows each agent's observed context occupancy when its provider reports it. If the provider reports used tokens without a window size, the table says **unknown capacity**; an absent observation shows **—**.
+
 ## API meters
 
 The Units strip shows non-model APIs beside model-provider meters.
@@ -30,7 +44,7 @@ The Units strip shows non-model APIs beside model-provider meters.
 | GitHub Core | REST request budget percentage used | [GitHub API budgets](/apis/github-budgets#api-budgets) |
 | GitHub GraphQL | Query-point budget percentage used | [GitHub API budgets](/apis/github-budgets#api-budgets) |
 | GitHub secondary limit | Active abuse-control backoff | [GitHub API budgets](/apis/github-budgets#api-budgets) |
-| ElevenLabs credit quota | Account credit pool as percentage used; appears only when a key is configured | [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures) |
+| ElevenLabs credit quota | Account credit pool as percentage used; appears only when a key is configured | [ElevenLabs metering](/apis/elevenlabs#what-the-usage-meter-measures) |
 
 Every meter bar runs the full width of its pane, and every progress bar on the dashboard shares the same height. Model rows show the provider logo and usage bars only — the per-provider token count, spend figure, and the ElevenLabs next-invoice amount are not rendered on the strip.
 
@@ -75,21 +89,6 @@ their reported value (the visual bar stops at 100%).
 
 Token usage and context capacity are separate from these allowance windows;
 missing capacity or pricing is not treated as zero.
-
-The authenticated Usage and cost summary follows **Tokens by model** with **Cost by provider route**.
-
-| Route case | How it reads |
-| --- | --- |
-| Routed call | Names both hops, such as `OpenRouter -> DeepSeek`. |
-| Direct provider | Appears without an arrow. |
-| Unreported upstream | Reads `OpenRouter -> upstream unknown`. |
-| Unavailable estimate | Reads **Unknown**, never zero. |
-| `mix aiur.cost_report --json` | Keeps `provider` and `upstream_provider` as separate fields. |
-| `mix aiur.pricing_window` | Shows which peak/off-peak pricing window is currently in force, the next boundary, and how `avoid_peak_pricing` routing treats it. |
-
-Provider-reported and API-equivalent estimates stay separate. Peak/off-peak
-windowed providers (DeepSeek) price a call at the rate actually in force; when
-the window cannot be determined, the conservative peak rate is reported.
 
 ## Tickets
 

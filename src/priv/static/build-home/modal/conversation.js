@@ -20,7 +20,8 @@ function rows() { return Array.from($('#cv-log')?.children || []).filter(el => e
 function trim(from) {
   const items = rows();
   while (items.length > MAX_DOM) (from === 'top' ? items.shift() : items.pop()).remove();
-  if (from === 'top' && items.length) { open.before = items[0].dataset.cursor; open.more = true; }
+  const first = items.find(el => el.dataset.cursor);
+  if (from === 'top' && first) { open.before = first.dataset.cursor; open.more = true; }
 }
 function find(id) { return rows().find(el => el.dataset.eid === id); }
 export function appendEntries(entries) {
@@ -58,6 +59,7 @@ function state(msg) {
   if (msg.state === 'known_empty' && !rows().length && !log.querySelector('[data-empty]')) {
     const row = document.createElement('div'); row.className = 'cv-end'; row.dataset.empty = ''; row.textContent = 'No messages yet'; log.append(row);
   } else if (msg.state !== 'known_empty') log.querySelector('[data-empty]')?.remove();
+  fx.composerState(open.msg);
 }
 export function renderConversation(msg, t = open?.ticket, model = open?.model) {
   if (!open || !t) return;
@@ -75,6 +77,7 @@ export function renderConversation(msg, t = open?.ticket, model = open?.model) {
   const fragment = document.createDocumentFragment();
   for (const entry of msg.entries) { const el = itemEl(entry, model); if (el) fragment.append(el); }
   $('#cv-log').append(fragment); renderNote(msg); if (rows().length > MAX_DOM) trim('top'); state(msg);
+  fx.renderComposer(t, msg);
   const ref = open;
   ref.renderOff = ref.life.on($('#cv-log'), 'scroll', () => {
     if (current(ref) && $('#cv-log').scrollTop <= 120 && ref.more && !ref.pending && !ref.failed) older();

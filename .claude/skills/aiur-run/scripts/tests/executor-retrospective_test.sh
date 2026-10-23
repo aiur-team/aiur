@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script="$(cd "$(dirname "$0")/.." && pwd)/executor-retrospective.sh"
+script="${AIUR_EXECUTOR_RETROSPECTIVE_SCRIPT:-$(cd "$(dirname "$0")/.." && pwd)/executor-retrospective.sh}"
 visual_test="$(cd "$(dirname "$0")/../../../aiur-meta/scripts/tests" && pwd)/capture-dashboard_test.mjs"
 state_root="$(mktemp -d)"
 export AIUR_EXECUTOR_RETRO_FILE="$state_root/test-retros.md"
 export AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=0
 export AIUR_EXECUTOR_RETROSPECTIVE_CLI_CHECK=0
-trap 'rm -rf "$state_root"' EXIT
+first_pid=""
+second_pid=""
+cleanup() {
+  : > "$state_root/release-first-lock"
+  for pid in "$first_pid" "$second_pid"; do
+    [ -n "$pid" ] || continue
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  rm -rf "$state_root"
+}
+trap cleanup EXIT
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -193,16 +204,30 @@ jq -e '.prev_interval_seconds == 30 and .next_interval_seconds == 60' \
   <<< "$(run_wait corrupt-wait 30 900 2 plan-wait quiet recovered-from-corruption)" >/dev/null ||
   fail "corrupted last_wait_interval_seconds did not fall back to the floor"
 
-run concurrent 60 record first unchanged > "$state_root/first.out" 2> "$state_root/first.err" &
+lock_held_file="$state_root/first-lock-held"
+release_lock_file="$state_root/release-first-lock"
+AIUR_EXECUTOR_RETROSPECTIVE_TEST_LOCK_HELD_FILE="$lock_held_file" \
+  AIUR_EXECUTOR_RETROSPECTIVE_TEST_RELEASE_FILE="$release_lock_file" \
+  run concurrent 60 record first unchanged > "$state_root/first.out" 2> "$state_root/first.err" &
 first_pid=$!
+for _ in $(seq 1 200); do
+  [ -e "$lock_held_file" ] && break
+  kill -0 "$first_pid" 2>/dev/null || fail "first recorder exited before holding the lock"
+  sleep 0.01
+done
+[ -e "$lock_held_file" ] || fail "first recorder did not reach the lock barrier"
 run concurrent 60 record second unchanged > "$state_root/second.out" 2> "$state_root/second.err" &
 second_pid=$!
+sleep 0.1
+kill -0 "$second_pid" 2>/dev/null || fail "second recorder exited while first held the lock"
+: > "$release_lock_file"
 wait "$first_pid"
 wait "$second_pid"
 
-recorded="$(jq -s '[.[] | select(.type == "hourly_retrospective")] | length' "$state_root/first.out" "$state_root/second.out")"
-skipped="$(jq -s '[.[] | select(.recorded == false and .reason == "not_due")] | length' "$state_root/first.out" "$state_root/second.out")"
-[ "$recorded" -eq 1 ] && [ "$skipped" -eq 1 ] || fail "concurrent record was not serialized"
+jq -e '.type == "hourly_retrospective"' "$state_root/first.out" >/dev/null ||
+  fail "first recorder did not record while holding the lock"
+jq -e '.recorded == false and .reason == "not_due"' "$state_root/second.out" >/dev/null ||
+  fail "second recorder did not skip while first held the lock"
 
 # Dashboard evidence is stored beside the run retrospective and its short
 # verdict is appended to the narrative. A fake browser command keeps this
@@ -335,7 +360,8 @@ grep -q 'Overall:.*attention' "$state_root/empty-capture-retrospective.md" ||
 # that ran.
 password_missing_retro="$state_root/password-missing-retrospective.md"
 set +e
-AIUR_EXECUTOR_STATE_DIR="$state_root" \
+env -u AIUR_DASHBOARD_PASSWORD \
+  AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=password-missing \
   AIUR_EXECUTOR_RETRO_FILE="$password_missing_retro" \
   AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
@@ -548,7 +574,8 @@ EOF
 
 daemon_env_retro="$state_root/daemon-env-retrospective.md"
 set +e
-PATH="$tmux_shim_dir:$PATH" \
+env -u AIUR_DASHBOARD_USERNAME -u AIUR_DASHBOARD_PASSWORD \
+  PATH="$tmux_shim_dir:$PATH" \
   FAKE_TMUX_URLS="aiur-d=http://127.0.0.1:4024" \
   FAKE_TMUX_PANE_PID=$'999999\n'"$fake_daemon_pid" \
   AIUR_EXECUTOR_STATE_DIR="$state_root" \
@@ -829,7 +856,11 @@ kill -0 "$live_window_waiter_pid" 2>/dev/null || fail "contender stole a publish
 [ -d "$live_window_dir" ] || fail "contender removed a publishing owner's lock directory"
 [ -e "$live_claim" ] || fail "contender removed a live owner claim"
 rm "$live_claim"
-rmdir "$live_window_dir"
+for _ in $(seq 1 200); do
+  [ ! -d "$live_window_dir" ] && break
+  sleep 0.01
+done
+[ ! -d "$live_window_dir" ] || fail "contender did not reclaim the released publication lock"
 wait "$live_window_waiter_pid"
 
 run live-lock 60 due >/dev/null
@@ -847,7 +878,11 @@ kill -0 "$live_waiter_pid" 2>/dev/null || fail "contender stole a live retrospec
 [ -e "$live_owner_marker" ] || fail "contender removed a live owner marker"
 
 rm "$live_owner_marker"
-rmdir "$live_lock_dir"
+for _ in $(seq 1 200); do
+  [ ! -d "$live_lock_dir" ] && break
+  sleep 0.01
+done
+[ ! -d "$live_lock_dir" ] || fail "contender did not reclaim the released live lock"
 wait "$live_waiter_pid"
 jq -e '.outcome == "action" and .reason == "waited for live lock"' \
   "$state_root/live-lock.out" >/dev/null || fail "contender did not proceed after live lock release"
