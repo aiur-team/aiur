@@ -11,6 +11,9 @@
     "src/lib/aiur_web/build_order/ticket_context_presenter/*.ex"
   ],
   "facades": [
+    "Aiur.BuildOrder.TicketDetail",
+    "Aiur.BuildOrder.TicketDetail.Failure",
+    "Aiur.BuildOrder.TicketDetail.Snapshot",
     "Aiur.BuildOrder.TicketDetail.State",
     "Aiur.BuildOrder.TicketDetailCoordinator",
     "Aiur.BuildOrder.TicketHistory.Snapshot",

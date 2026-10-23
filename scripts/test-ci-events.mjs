@@ -153,7 +153,7 @@ assert.ok(jobs.get('lint').includes('mix compile --warnings-as-errors'));
 assert.ok(jobs.get('workflow-security').includes('node scripts/test-ci-events.mjs'));
 const packageJson = JSON.parse(readFileSync(new URL('../src/browser/package.json', import.meta.url), 'utf8'));
 const coreCommands = [...packageJson.scripts['test:core'].matchAll(/npm run (test:[\w:-]+)/g)].map(([, name]) => name);
-const { shards } = await import('../src/browser/scripts/run-browser-smoke-shard.mjs');
+const { shards, budgetMs } = await import('../src/browser/scripts/run-browser-smoke-shard.mjs');
 const browserSuites = await import('../src/browser/scripts/browser-suites.mjs');
 const shardCommands = Object.values(browserSuites.shardCommands(shards)).flat().filter((name) => name.startsWith('test:'));
 assert.ok(coreCommands.includes(browserSuites.SUITE_SCRIPT), 'test:core runs discovered home suites');
@@ -165,7 +165,7 @@ assert.deepEqual([...new Set(shardCommands)].sort(), [...new Set(coreCommands)].
 const browserJob = jobs.get('browser');
 assert.ok(browserJob.includes('./.github/actions/browser-smoke'), 'browser uses the shared browser action');
 assert.ok(browserJob.includes('actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'), 'browser checks out before the local action');
-assert.ok(browserJob.includes('timeout-minutes: 35'), 'browser has 2-minute headroom beyond the 33-minute shard runner target');
+assert.ok(browserJob.includes(`timeout-minutes: ${budgetMs / 60_000 + 2}`), 'browser has 2-minute headroom beyond the shard runner budget');
 assert.ok(browserJob.includes(`shard: [${Object.keys(shards).join(', ')}]`), 'browser matrix selects every shard in the shard map');
 const browserAction = readFileSync(new URL('../.github/actions/browser-smoke/action.yml', import.meta.url), 'utf8');
 assert.ok(browserAction.includes('using: composite'), 'shared browser setup is an allowed local composite action');
