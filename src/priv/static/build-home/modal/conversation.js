@@ -83,7 +83,7 @@ export function renderConversation(msg, t = open?.ticket, model = open?.model) {
     if (current(ref) && $('#cv-log').scrollTop <= 120 && ref.more && !ref.pending && !ref.failed) older();
   }, { passive: true });
   ref.life.frame('conversation-bottom', () => { if (current(ref) && $('#cv-log')) $('#cv-log').scrollTop = $('#cv-log').scrollHeight; });
-  fx.wireLive(t, model);
+  fx.wireLive(t, model); fx.placeCommand();
 }
 async function request(ref, before) {
   const serial = ++ref.serial;
