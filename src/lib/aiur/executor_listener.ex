@@ -215,20 +215,25 @@ defmodule Aiur.ExecutorListener do
   end
 
   defp deliver(event, inbox) do
-    if executor_topic?(event) do
-      if Aiur.Instance.skip?(value(event, :issue_identifier), nil, :executor_event) do
+    cond do
+      executor_topic?(event) and Aiur.Instance.skip?(value(event, :issue_identifier), nil, :executor_event) ->
         :ok
-      else
-        scrubbed = ExecutorEvents.scrub_untrusted_output(event)
-        if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
-        wake_blocking_decision(event, inbox)
-      end
-    else
-      case ExecutorWakeProjection.project(event) do
-        {:ok, record} -> enqueue_wake(record, inbox)
-        :ignore -> :ok
-      end
+
+      executor_topic?(event) ->
+        deliver_executor_event(event, inbox)
+
+      true ->
+        case ExecutorWakeProjection.project(event) do
+          {:ok, record} -> enqueue_wake(record, inbox)
+          :ignore -> :ok
+        end
     end
+  end
+
+  defp deliver_executor_event(event, inbox) do
+    scrubbed = ExecutorEvents.scrub_untrusted_output(event)
+    if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
+    wake_blocking_decision(event, inbox)
   end
 
   # Another instance's ticket wakes that instance's Executor, not this one (#5803).

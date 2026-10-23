@@ -56,19 +56,20 @@ defmodule Aiur.Instance.SweepFilter do
   defp foreign_group?(group, foreign_prs, base_branch) do
     case value(group, :head_branch) do
       branch when is_binary(branch) ->
-        prefix = "gh-readonly-queue/#{base_branch}/"
-
-        if String.starts_with?(branch, prefix) do
-          Regex.scan(~r/pr-(\d+)-/, branch, capture: :all_but_first)
-          |> List.flatten()
-          |> Enum.any?(fn number -> MapSet.member?(foreign_prs, String.to_integer(number)) end)
-        else
-          false
-        end
+        merge_group_contains_foreign_pr?(branch, foreign_prs, base_branch)
 
       _ ->
         false
     end
+  end
+
+  defp merge_group_contains_foreign_pr?(branch, foreign_prs, base_branch) do
+    prefix = "gh-readonly-queue/#{base_branch}/"
+
+    String.starts_with?(branch, prefix) and
+      Regex.scan(~r/pr-(\d+)-/, branch, capture: :all_but_first)
+      |> List.flatten()
+      |> Enum.any?(fn number -> MapSet.member?(foreign_prs, String.to_integer(number)) end)
   end
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
