@@ -272,7 +272,7 @@ test('unknown header values, real links, PR absence, pack safety and hostile tex
   await expect(page.locator('[data-unknown="pts"]')).toHaveText('? pts')
   await expect(page.locator('.bm-agent .ax-mono')).toHaveText('A')
   await page.setViewportSize({ width: 390, height: 844 })
-  await expect(page.locator('.bm-agent .ax-mono')).toBeVisible()
+  await expect(page.locator('.bm-agent .ax-mono')).toBeHidden()
   await page.setViewportSize({ width: 1440, height: 1000 })
   await expect(page.locator('.bm-agent')).not.toHaveAttribute('title', /null/)
   const hostile = { ...base, title: '<img src=x onerror="window.__xss=1">', epic: 'missing', feature: '<script>bad</script>', pr: { num: 233, state: 'merged' } }
