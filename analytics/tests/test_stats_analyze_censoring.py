@@ -50,7 +50,7 @@ class CensoredAnalysisTest(unittest.TestCase):
         survival = analyze(bias_snapshot(), SPEC)['metrics']['d']['survival']
         self.assertEqual(survival['groups']['after']['n_censored'], 10)
         self.assertEqual(survival['groups']['after']['n'], 40)
-        self.assertEqual(survival['follow_up_horizon_s'], 69.0)
+        self.assertEqual(survival['follow_up_horizon'], 69.0)
         self.assertIsNotNone(survival['groups']['before']['median'])
 
     def test_truncation_sets_flag_only_when_rows_change(self):
@@ -72,7 +72,7 @@ class CensoredAnalysisTest(unittest.TestCase):
         self.assertIn('median_not_reached', metric['flags'])
         self.assertEqual(metric['status'], 'inconclusive')
         self.assertIn('median not yet reached (', metric['summary_text'])
-        self.assertIn('% still open)', metric['summary_text'])
+        self.assertIn('39% still open)', metric['summary_text'])
 
     def test_censored_row_without_elapsed_time_falls_back_and_says_so(self):
         snapshot = bias_snapshot()
@@ -82,6 +82,18 @@ class CensoredAnalysisTest(unittest.TestCase):
         self.assertIn('censoring_ignored', metric['flags'])
         self.assertNotIn('survival', metric)
         self.assertIn('mann_whitney_u', metric['tests'])
+
+    def test_unknown_follow_up_with_strata_uses_explicit_completed_only_fallback(self):
+        snapshot = bias_snapshot()
+        snapshot['metrics']['d']['rows'][-1]['value'] = None
+        metric = analyze(snapshot, {**SPEC, 'strata': ['label']})['metrics']['d']
+        fallback = analyze(snapshot, SPEC)['metrics']['d']
+        self.assertIn('stratification_unavailable', metric['flags'])
+        self.assertIn('censoring_unknown', metric['flags'])
+        self.assertIn('censoring_ignored', metric['flags'])
+        self.assertNotIn('stratified', metric)
+        self.assertEqual(metric['tests'], fallback['tests'])
+        self.assertEqual(metric['p_raw'], fallback['p_raw'])
 
     def test_uncensored_body_is_byte_identical_to_pre_censoring_engine(self):
         for name in ('shift', 'inconclusive'):

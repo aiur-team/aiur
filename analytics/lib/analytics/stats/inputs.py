@@ -168,10 +168,11 @@ def normalize(snapshot, spec, annotations):
                     raise ValueError("exposure must be positive")
                 n = positive_integer(data.get("n"), "rate independent-unit n", 0)
                 metric["rates"][group] = {"events": events, "exposure": exposure, "n": n}
-        if strata_fields and kind == "rate":
+        if strata_fields and (kind == "rate" or censoring_unknown):
             metric["stratification_unavailable"] = True
-            warnings.append(f"{metric_id}: aggregate rate evidence cannot be stratified")
-        if strata_fields and kind != "rate":
+            reason = "aggregate rate evidence" if kind == "rate" else "unknown censoring evidence"
+            warnings.append(f"{metric_id}: {reason} cannot be stratified")
+        if strata_fields and kind != "rate" and not censoring_unknown:
             metric["strata_rows"] = partition(rows, strata_fields, excluded, groups)
             metric["strata_fields"] = strata_fields
         metrics.append(metric)

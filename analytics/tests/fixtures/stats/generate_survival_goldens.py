@@ -77,4 +77,4 @@ for name, (ca, cb, ties) in {"none": (0, 0, False), "light": (.1, .1, False),
 strata = {f"s{i}": (fixture(14, .25), fixture(12, .3)) for i in range(3)}
 result["stratified_logrank"] = {"strata": {k: {"a": a, "b": b} for k, (a, b) in strata.items()},
                                 **logrank(list(strata.values()))}
-Path(__file__).with_name("survival-goldens.json").write_text(json.dumps(result, indent=1) + "\n")
+Path(__file__).with_name("survival-goldens.json").write_text(json.dumps(result, separators=(",", ":")) + "\n")

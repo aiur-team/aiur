@@ -1,6 +1,6 @@
 """Kaplan-Meier medians, log-rank tests and censored two-group inference.
 
-Rows are dicts with "value" (seconds of follow-up) and optional "censored".
+Rows are dicts with "value" (follow-up in the metric's unit) and optional "censored".
 Intervals follow Brookmeyer-Crowley on the log-log Greenwood variance, as lifelines.
 """
 
@@ -121,5 +121,5 @@ def censored_inference(groups_rows, names, seed, resamples):
         effect["estimate"] = medians[1] - medians[0]
         if unreached <= MAX_UNREACHED:
             effect["lo"], effect["hi"] = (quantile(draws, p) for p in (.025, .975))
-    survival = {"follow_up_horizon_s": horizon, "groups": summary}
+    survival = {"follow_up_horizon": horizon, "groups": summary}
     return {"logrank": test}, {"median_difference": effect}, survival, flags, test["p_value"]
