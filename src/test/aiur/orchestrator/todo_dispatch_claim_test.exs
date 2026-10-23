@@ -17,6 +17,25 @@ defmodule Aiur.Orchestrator.TodoDispatchClaimTest do
     end
   end
 
+  defmodule ReplyTracker do
+    def update_issue_state(identifier, target, opts) do
+      owner = Application.fetch_env!(:aiur, :todo_dispatch_tracker_owner)
+      send(owner, {:todo_state_write_attempt, self(), identifier, target, opts})
+
+      receive do
+        {:todo_state_write_result, result} -> result
+      end
+    end
+  end
+
+  defmodule RecordingTracker do
+    def update_issue_state(identifier, target, opts) do
+      owner = Application.fetch_env!(:aiur, :todo_dispatch_tracker_owner)
+      send(owner, {:todo_state_write_attempt, self(), identifier, target, opts})
+      :ok
+    end
+  end
+
   setup do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",
@@ -125,8 +144,72 @@ defmodule Aiur.Orchestrator.TodoDispatchClaimTest do
     assert Keyword.fetch!(opts, :expected_state) == "todo"
     assert_receive {:slow_todo_runner_started, ^candidate}, 1_000
     assert Map.has_key?(state.running, candidate.id)
+    assert state.tracker_tasks == %{}
 
     send(tracker_pid, :finish_state_write)
+
+    assert_receive {:ticket_transition, [:aiur, :ticket_transition], %{},
+                    %{
+                      issue_id: "todo-slow-write",
+                      to: "in-progress",
+                      writer: :dispatcher,
+                      outcome: :ok
+                    }},
+                   1_000
+  end
+
+  test "a transient tracker failure retries the todo claim without blocking the worker" do
+    candidate = issue("todo-retry-write")
+    parent = self()
+    Application.put_env(:aiur, :todo_dispatch_tracker_owner, self())
+    on_exit(fn -> Application.delete_env(:aiur, :todo_dispatch_tracker_owner) end)
+
+    state =
+      Dispatcher.do_dispatch_issue(dispatch_state(snapshot_key: self()), candidate, nil, nil,
+        todo_dispatch_tracker: ReplyTracker,
+        runner: fn dispatched, _recipient, _opts ->
+          send(parent, {:retry_todo_runner_started, dispatched})
+        end
+      )
+
+    assert_receive {:todo_state_write_attempt, first_pid, "todo-retry-write", "in-progress", opts},
+                   1_000
+
+    assert Keyword.fetch!(opts, :expected_state) == "todo"
+    send(first_pid, {:todo_state_write_result, {:error, {:github, :http, %{status: 500}}}})
+
+    assert_receive {:ticket_transition, [:aiur, :ticket_transition], %{}, %{issue_id: "todo-retry-write", outcome: {:error, {:github, :http, %{status: 500}}}}},
+                   1_000
+
+    assert_receive {:todo_state_write_attempt, second_pid, "todo-retry-write", "in-progress", retry_opts},
+                   1_000
+
+    assert Keyword.fetch!(retry_opts, :expected_state) == "todo"
+    send(second_pid, {:todo_state_write_result, :ok})
+
+    assert_receive {:ticket_transition, [:aiur, :ticket_transition], %{}, %{issue_id: "todo-retry-write", outcome: :ok}},
+                   1_000
+
+    assert_receive {:retry_todo_runner_started, ^candidate}, 1_000
+    assert Map.has_key?(state.running, candidate.id)
+  end
+
+  test "a failed worker launch does not claim the todo ticket" do
+    candidate = issue("todo-failed-launch")
+    Application.put_env(:aiur, :todo_dispatch_tracker_owner, self())
+    on_exit(fn -> Application.delete_env(:aiur, :todo_dispatch_tracker_owner) end)
+
+    state =
+      Dispatcher.do_dispatch_issue(dispatch_state(), candidate, nil, nil,
+        todo_dispatch_tracker: RecordingTracker,
+        start_runner_task_fun: fn _issue, _runner, _recipient, _context, _opts ->
+          {:error, :start_rejected}
+        end
+      )
+
+    assert Map.get(state.retry_attempts, candidate.id).attempt == 1
+    refute Map.has_key?(state.running, candidate.id)
+    refute_received {:todo_state_write_attempt, _, "todo-failed-launch", _, _}
   end
 
   defp dispatch_state(opts \\ []) do
