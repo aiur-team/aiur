@@ -5,9 +5,10 @@ defmodule AiurWeb.BuildLive do
 
   require Logger
 
-  alias AiurWeb.Build.{Composer, Conversation, DataSource, Protocol, QueueAdd, Read, Ticket, TicketDoc, URLState, UsageUpdates}
+  alias AiurWeb.Build.{CommandCard, Composer, Conversation, DataSource, Protocol, QueueAdd, Read, Ticket, TicketDoc, URLState, UsageUpdates}
   alias AiurWeb.BuildOrder.Runtime
-  alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, RouteRegistry}
+  alias AiurWeb.EndpointConfig
+  alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, DecisionCommands, NavState, RouteRegistry}
   alias AiurWeb.Presenter
 
   @snapshot_timeout_ms 15_000
@@ -24,6 +25,7 @@ defmodule AiurWeb.BuildLive do
       |> TicketDoc.init(connected)
       |> QueueAdd.init()
       |> Composer.init()
+      |> CommandCard.init()
       |> DashboardShell.mount()
       |> UsageUpdates.init(connected)
       |> AwaitingCommands.mount(connected)
@@ -109,8 +111,8 @@ defmodule AiurWeb.BuildLive do
   def handle_info(:build_usage_flush, socket), do: {:noreply, UsageUpdates.flush(socket)}
   def handle_info(tick, socket) when tick in [:build_usage_github_tick, :build_usage_elevenlabs_tick], do: {:noreply, UsageUpdates.tick(socket, tick)}
 
-  def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, AwaitingCommands.refresh(socket)}
-  def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
+  def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, socket |> AwaitingCommands.refresh() |> CommandCard.refresh()}
+  def handle_info(:awaiting_commands_tick, socket), do: {:noreply, socket |> AwaitingCommands.tick() |> CommandCard.refresh()}
   def handle_info({:send_status_poll, id, request_id, n}, socket), do: {:noreply, Composer.poll(socket, id, request_id, n)}
   def handle_info({:build_conversation_poll, _token} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:live_conversation_changed, _snapshot} = message, socket), do: {:noreply, Conversation.info(socket, message)}
@@ -126,13 +128,27 @@ defmodule AiurWeb.BuildLive do
   @impl true
   def handle_event("build-resync", _params, socket), do: Protocol.resync(socket, source_opts(socket))
   def handle_event("open-ticket", params, socket), do: Ticket.open(socket, params)
-  def handle_event("close-ticket", _params, socket), do: {:noreply, socket |> Conversation.clear() |> TicketDoc.close() |> assign(:open_ticket, nil)}
+  def handle_event("close-ticket", _params, socket), do: {:noreply, socket |> Conversation.clear() |> CommandCard.clear() |> TicketDoc.close() |> assign(:open_ticket, nil)}
   def handle_event("ticket-doc", params, socket), do: TicketDoc.open(socket, params)
   def handle_event("ticket-doc-close", _params, socket), do: {:noreply, TicketDoc.close(socket)}
   def handle_event("queue-add", params, socket), do: QueueAdd.open(socket, params)
-  def handle_event("conversation-page", params, socket), do: Conversation.page(socket, params)
-  def handle_event("conversation-close", params, socket), do: Conversation.close(socket, params)
+  def handle_event("conversation-page", params, socket), do: socket |> Conversation.page(params) |> command_card(params)
+  def handle_event("conversation-close", params, socket), do: socket |> Conversation.close(params) |> command_card(params)
   def handle_event("send", params, socket), do: Composer.send(socket, params)
+
+  def handle_event("answer-decision", %{"decision_id" => id, "answer" => %{"choice" => "option:" <> _} = form}, socket) when is_binary(id) do
+    if writable?(socket) do
+      socket = DecisionCommands.record_answer(socket, id, form, &CommandCard.reload/1)
+      {reply, socket} = CommandCard.reply(socket, id)
+      {:reply, reply, socket}
+    else
+      {:reply, %{status: "error", message: "This dashboard is read-only."}, assign(socket, :writable, false)}
+    end
+  end
+
+  def handle_event("answer-decision", _params, socket),
+    do: {:reply, %{status: "error", message: "The submitted answer was incomplete. Try again."}, socket}
+
   def handle_event("voice-availability", _params, socket), do: {:reply, Composer.voice_availability(), socket}
   def handle_event("load-earlier", params, socket), do: Protocol.earlier(socket, params, source_opts(socket))
   def handle_event("usage-watch-start", _params, socket), do: {:noreply, UsageUpdates.watch(socket, :start)}
@@ -155,6 +171,18 @@ defmodule AiurWeb.BuildLive do
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   defp source_opts(socket), do: Read.source_opts(socket)
+
+  # Every answer re-checks the endpoint gate, not just the mount-time assign (EC-12).
+  defp writable?(socket), do: socket.assigns.writable == true and EndpointConfig.get(:dashboard_writable) == true
+
+  # The card follows the pinned conversation: loaded on its first view, cleared when it closes.
+  defp command_card({:reply, reply, socket}, params) do
+    cond do
+      params["before"] == nil and (reply["kind"] || reply[:kind]) == "conversation" -> {:reply, reply, CommandCard.load(socket)}
+      socket.assigns.conversation_ref == nil -> {:reply, reply, CommandCard.clear(socket)}
+      true -> {:reply, reply, socket}
+    end
+  end
 
   defp unavailable(socket, tag) do
     Logger.warning("build home snapshot unavailable reason=#{tag}")

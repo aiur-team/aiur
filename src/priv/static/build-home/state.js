@@ -58,4 +58,5 @@ export const fx = {
   drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
   lockTree() {}, fitTree() {}, openTree() {},
   appendEntries() {}, appendItem() {}, claimLocalOp: () => null, renderComposer() {}, composerState() {}, sendStatus() {}, scheduleMap() {}, wireLive() {}, onConversation() {}, reconnectConversation() {},
+  renderCommand() {}, placeCommand() {},
 };

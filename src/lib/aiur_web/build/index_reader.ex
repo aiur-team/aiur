@@ -81,11 +81,15 @@ defmodule AiurWeb.Build.IndexReader do
   defp now_row(summary, running, bucket) do
     identity = Map.get(summary, :tracker_identity)
     waiting = Map.get(summary, :waiting_reason)
-    summary = Map.merge(summary, Map.take(running, [:started_at, :agent_family, :backend, :resolved_model, :effort, :progress_percent, :progress_freshness]))
+    summary = Map.merge(summary, Map.take(running, [:started_at, :agent_family, :backend, :resolved_model, :effort, :progress_percent, :progress_freshness, :usage_limit_reset_at]))
 
     %{
       identity: identity,
-      runtime: %{bucket: bucket, work_state: Map.get(summary, :work_state, :working)},
+      runtime: %{
+        bucket: bucket,
+        work_state: Map.get(summary, :work_state, :working),
+        usage_limit_reset_at: Map.get(summary, :usage_limit_reset_at) || get_in(summary, [:runtime, :usage_limit_reset_at])
+      },
       reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason)},
       timestamps: %{started_at: Map.get(summary, :started_at)},
       effort: Map.get(summary, :effort),

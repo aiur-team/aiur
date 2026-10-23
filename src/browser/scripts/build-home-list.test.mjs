@@ -20,6 +20,14 @@ test('U2 unknown state does not become Running', () => {
     const t = row('now', { agent }); assert.equal(stClass(t), 'unknown'); assert.equal(stText(t), 'State unknown');
   }
 });
+test('usage limits and CI wait keep their causes; unknown states never become Parked', () => {
+  const usage = row('now', { agent: { state: 'usage_limited', resume_at: 1791408000000 } });
+  assert.equal(stText(usage), 'Paused · usage limit (resumes at 21:20 UTC)');
+  assert.notEqual(stText(usage), 'Parked');
+  assert.equal(stText(row('now', { agent: { state: 'usage_limited', resume_at: null } })), 'Paused · usage limit');
+  assert.equal(stText(row('now', { agent: { state: 'ci_wait' } })), 'Waiting for CI');
+  assert.equal(stText(row('now', { agent: { state: null } })), 'State unknown');
+});
 test('U3 closures preserve their reason', () => {
   for (const [status, cls, label] of [['not_planned', 'np', 'Not planned'], ['closed', 'closed', 'Closed'], ['running', 'unknown', 'State unknown']]) {
     const t = row('hist', { status }); assert.equal(stClass(t), cls); assert.equal(stText(t), label);
