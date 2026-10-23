@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Sections do
   # rendered from its last good output, labelled with that output's age.
 
   alias Aiur.Orchestrator.SnapshotCache
-  alias AiurWeb.OperatorControlCenter.UnitsPresentation
+  alias Aiur.Protocol.ObservationAge
 
   @type outcome :: {:ok, term()} | {:stale, term()} | :unavailable
 
@@ -41,7 +41,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Sections do
       %{output: output, value: value, at_ms: at_ms} ->
         age_seconds = div(System.monotonic_time(:millisecond) - at_ms, 1_000)
 
-        IO.puts("STALE #{label(name)} — showing the last good output, #{UnitsPresentation.age_label(age_seconds)} old (no reply within #{bound_ms}ms)")
+        IO.puts("STALE #{label(name)} — showing the last good output, #{ObservationAge.short_label(age_seconds)} old (no reply within #{bound_ms}ms)")
 
         IO.write(output)
         {:stale, value}
