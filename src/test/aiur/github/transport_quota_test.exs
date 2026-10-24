@@ -360,6 +360,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     File.mkdir_p!(budget_dir)
     assert Budget.database_path() == db_path
     assert %{cooldown_until_ms: 0} = Budget.snapshot("measured-p99-token")
+
     lock =
       Port.open({:spawn_executable, System.find_executable("python3")}, [
         :binary,
@@ -367,17 +368,20 @@ defmodule Aiur.GitHub.TransportQuotaTest do
         :use_stdio,
         args: ["-c", lock_script, db_path]
       ])
+
     on_exit(fn -> if Port.info(lock), do: Port.close(lock) end)
 
     assert_receive {^lock, {:data, "locked\n"}}, 1_000
     refute_receive {^lock, {:data, "released\n"}}, 100
 
     Req.Test.stub(__MODULE__, fn conn -> Req.Test.json(conn, []) end)
+
     request = %{
       method: :get,
       url: "https://api.github.com/repos/owner/repo/issues/5566",
       token: "measured-p99-token"
     }
+
     test_pid = self()
     telemetry_id = {__MODULE__, make_ref()}
 
@@ -419,13 +423,13 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     assert_receive {:sqlite_wait, %{sqlite_lock_wait_ms: lock_wait_ms}, %{command_type: :acquire}}
                    when lock_wait_ms >= 3_500,
                    7_000
+
     Port.command(lock, "\n")
     assert_receive {^lock, {:data, "released\n"}}, 1_000
 
     assert {:ok, %{status: 200}} = Task.await(pending_request, 2_000)
-    assert_receive {:budget_command,
-                    %{duration_ms: duration_ms, sqlite_lock_wait_ms: lock_wait_ms},
-                    %{outcome: :completed, command_type: :acquire}},
+
+    assert_receive {:budget_command, %{duration_ms: duration_ms, sqlite_lock_wait_ms: lock_wait_ms}, %{outcome: :completed, command_type: :acquire}},
                    1_000
 
     assert duration_ms >= 3_500
