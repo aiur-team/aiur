@@ -3,13 +3,18 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
 
   @tag timeout: 120_000
   test "a real supervised app restart adopts the relay turn without redispatch" do
+    runtime_root = Aiur.TestSupport.tmp_root!("handoff-restart")
+
     script = ~S"""
     config = Config.Reader.read!("config/config.exs", env: :test, target: :host)
     Application.put_all_env(config)
+    Application.put_env(:aiur, :runtime_state_dir, System.fetch_env!("AIUR_HANDOFF_RUNTIME_ROOT"))
     Application.put_env(:aiur, :no_dashboard, true)
+    phase = fn label -> IO.write(:stderr, "phase:#{label}\n") end
     boot = fn label ->
+      phase.("#{label}-starting")
       case Application.ensure_all_started(:aiur) do
-        {:ok, _} -> IO.puts(label)
+        {:ok, _} -> phase.("#{label}-ready")
         error ->
           IO.puts(File.read!(Application.fetch_env!(:aiur, :log_file)))
           raise "#{label}: #{inspect(error)}"
@@ -49,7 +54,8 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
       send(owner, {:ready, self(), metadata})
       Aiur.AppServer.TurnLoop.receive_loop(session, state)
     end)
-    metadata = receive do {:ready, ^old_runner, value} -> value after 15_000 -> raise "runner not ready" end
+    metadata = receive do {:ready, ^old_runner, value} -> value after 15_000 -> raise "phase:runner-start timed out" end
+    phase.("runner-ready")
     :sys.replace_state(Aiur.Orchestrator, fn state ->
       entry = %{pid: old_runner, ref: Process.monitor(old_runner), issue: issue, identifier: issue.identifier,
         started_at: DateTime.utc_now(), session_id: "restart-thread-turn-1", backend: "codex",
@@ -59,8 +65,11 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     before = :sys.get_state(Aiur.Orchestrator)
     {:ok, original_lifetime} = Aiur.DispatchBudgetStore.lifetime(issue.id)
     Application.put_env(:aiur, :memory_tracker_recipient, self())
+    phase.("handoff-prepare")
     {:ok, _handoff} = Aiur.Handoff.prepare()
+    phase.("handoff-prepared")
     :ok = Application.stop(:aiur)
+    phase.("first-app-stopped")
     true = Aiur.ProcessTree.process_alive?(metadata.provider_pid)
     # Trace the production dispatch telemetry emitter before any second-boot
     # process exists; VM tracing survives the Exchange and its bindings dying.
@@ -68,6 +77,7 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     1 = :erlang.trace_pattern({Aiur.Orchestrator.TelemetryCohort, :record_dispatch, 3}, true, [:local])
     :erlang.trace(:new, true, [:call, {:tracer, self()}])
     boot.("second-boot")
+    phase.("second-boot-adoption-check")
     after_boot = :sys.get_state(Aiur.Orchestrator)
     adopted = Map.fetch!(after_boot.running, "3844")
     true = is_binary(adopted.adopted_from)
@@ -81,12 +91,13 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
       0 -> :ok
     end
     ref = Process.monitor(adopted.pid)
+    phase.("provider-released")
     File.write!(fifo, "complete")
     receive do
       {:DOWN, ^ref, :process, _, :normal} -> :ok
       {:DOWN, ^ref, :process, _, reason} -> raise "adopted runner failed: #{inspect(reason)}"
     after
-      15_000 -> raise "adopted turn did not finish"
+      15_000 -> raise "phase:adopted-turn-finish timed out"
     end
     {:ok, %{thread_id: "restart-thread"}} = Aiur.SessionHandle.load("3844", "codex")
     true = String.contains?(File.read!(Path.join(workspace, "logs/agent.ndjson")), "turn_completed")
@@ -107,12 +118,62 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     :erlang.trace(:new, false, [:call])
     :erlang.trace_pattern({Aiur.Orchestrator.TelemetryCohort, :record_dispatch, 3}, false, [:local])
     :ok = Application.stop(:aiur)
+    phase.("complete")
     IO.puts("supervised-handoff-restart-ok")
     """
 
     paths = Path.wildcard(Path.join([Mix.Project.build_path(), "lib", "*", "ebin"]))
-    {output, status} = System.cmd(System.find_executable("elixir"), Enum.flat_map(paths, &["-pa", &1]) ++ ["-e", script], env: [{"ERL_FLAGS", "+S 2:2 +SDio 1 +SDcpu 1"}], stderr_to_stdout: true)
-    assert status == 0, output
-    assert output =~ "supervised-handoff-restart-ok"
+    args = Enum.flat_map(paths, &["-pa", &1]) ++ ["-e", script]
+
+    port =
+      Port.open({:spawn_executable, String.to_charlist(System.find_executable("setsid"))}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: [System.find_executable("elixir") | args],
+        env: [
+          {~c"ERL_FLAGS", ~c"+S 2:2 +SDio 1 +SDcpu 1"},
+          {~c"AIUR_HANDOFF_RUNTIME_ROOT", String.to_charlist(runtime_root)}
+        ]
+      ])
+
+    {:os_pid, pid} = Port.info(port, :os_pid)
+
+    try do
+      case collect_output(port, "", 105_000) do
+        {:timeout, captured} ->
+          System.cmd("kill", ["-KILL", "-#{pid}"], stderr_to_stdout: true)
+          close_port(port)
+          flunk("nested VM timed out; last output:\n#{captured}")
+
+        {captured, status} ->
+          assert status == 0, captured
+          assert captured =~ "supervised-handoff-restart-ok"
+      end
+    after
+      System.cmd("kill", ["-KILL", "-#{pid}"], stderr_to_stdout: true)
+      close_port(port)
+
+      Aiur.TestCleanup.rm_rf!(runtime_root)
+    end
+  end
+
+  defp collect_output(port, output, timeout) do
+    receive do
+      {^port, {:data, chunk}} ->
+        next = output <> chunk
+        collect_output(port, next, timeout)
+
+      {^port, {:exit_status, status}} ->
+        {output, status}
+    after
+      timeout -> {:timeout, output}
+    end
+  end
+
+  defp close_port(port) do
+    Port.close(port)
+  rescue
+    ArgumentError -> :ok
   end
 end
