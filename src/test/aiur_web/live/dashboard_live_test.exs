@@ -891,6 +891,7 @@ defmodule AiurWeb.DashboardLiveTest do
     }
 
     unavailable_units = render_payload(fleet_payload)
+
     available_payload =
       Map.put(fleet_payload, :analytics, %{
         available?: true,
