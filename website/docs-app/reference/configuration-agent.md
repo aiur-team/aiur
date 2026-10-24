@@ -4,7 +4,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 
 ## agent
 
-The repeated-command guard observes completed shell commands from Codex, Claude, and OpenAI-compatible workers. With the default threshold of `5`, five consecutive read-only commands with identical command text and output enqueue one steering message for delivery at the next safe checkpoint; if the same result repeats again, the turn stops. A new read result, a different command, a non-read command such as `sleep`, or a compound shell command resets the streak. For example, repeatedly tailing a build log while that build is still running resets the streak whenever the output changes; five identical snapshots trigger steering, and a sixth identical snapshot stops the turn.
+The repeated-command guard observes completed shell commands from Codex, Claude, and OpenAI-compatible workers. Five identical read-only results enqueue one steer; a sixth stops the turn. Changed output, another command, `sleep`, or a compound command resets the streak. Tailing a changing build log does not trigger it.
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-00 -->
 | --- | --- | --- | --- |
