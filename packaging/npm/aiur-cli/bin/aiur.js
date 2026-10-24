@@ -32,6 +32,26 @@ function fail(message) {
   process.exit(1);
 }
 
+function usageError(message) {
+  process.stderr.write(`aiur: ${message}\n`);
+  process.exit(64);
+}
+
+function remoteTarget(argv) {
+  const args = [...argv];
+  let instance;
+  if (args[0] === "--instance") {
+    if (!args[1]) usageError("--instance requires a name");
+    instance = args[1];
+    args.splice(0, 2);
+  } else if (args[0]?.startsWith("--instance=")) {
+    instance = args[0].slice("--instance=".length);
+    if (!instance) usageError("--instance requires a name");
+    args.shift();
+  }
+  return { args, instance };
+}
+
 function resolveReleaseDir() {
   // A pre-set AIUR_RELEASE_DIR (the dev shim, or local `npm pack` install
   // verification) wins over platform-package resolution.
@@ -237,10 +257,10 @@ function requiresInteractiveTools(argv) {
 
 function main() {
   const releaseDir = resolveReleaseDir();
-  const args = process.argv.slice(2);
-  const containerMode = args.includes("--container");
+  const target = remoteTarget(process.argv.slice(2));
+  const containerMode = target.args.includes("--container");
 
-  if (!containerMode && requiresInteractiveTools(args)) {
+  if (!containerMode && requiresInteractiveTools(target.args)) {
     ensureTmux();
     ensureOpencode();
   }
@@ -249,12 +269,18 @@ function main() {
   const launcher = path.join(pkgRoot, "libexec", "aiur-engine.sh");
   const env = {
     ...process.env,
+    AIUR_JS_RUNTIME: process.execPath,
     AIUR_RELEASE_DIR: releaseDir,
     AIUR_TMUX_CONF: path.join(pkgRoot, "share", "aiur.tmux.conf"),
   };
 
+  delete env.AIUR_REMOTE_INSTANCE;
+  const engineArgs = target.instance
+    ? ["--instance", target.instance, ...target.args]
+    : target.args;
+
   if (containerMode) {
-    const child = spawn(launcher, args, { stdio: "inherit", env });
+    const child = spawn(launcher, engineArgs, { stdio: "inherit", env });
     let forwardedSignal = false;
     const signalHandlers = new Map();
     for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
@@ -277,7 +303,7 @@ function main() {
     return;
   }
 
-  const result = spawnSync(launcher, args, {
+  const result = spawnSync(launcher, engineArgs, {
     stdio: "inherit",
     env,
   });

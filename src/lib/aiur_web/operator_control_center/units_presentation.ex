@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
 
   alias Aiur.CodingAgent
   alias Aiur.CodingAgent.Models
+  alias Aiur.GitHub.{Config, Labels}
   alias AiurWeb.OperatorControlCenter.UnitsControlPolicy
 
   @spec present(map(), DateTime.t() | nil) :: %{unit: map(), latest: map(), command: map()}
@@ -37,6 +38,36 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   end
 
   def latest(_row, now), do: latest(%{}, now)
+
+  @doc "Returns the persisted workflow label for a Units row."
+  @spec workflow_state_label(map()) :: String.t() | nil
+  def workflow_state_label(row) when is_map(row) do
+    prefix = Config.label_prefix()
+
+    case Enum.filter(Labels.present_runtime_labels(Map.get(row, :labels), prefix), &(&1 in Labels.state_labels(prefix))) do
+      [label | _] ->
+        label
+
+      [] ->
+        case Map.get(row, :tracker_state) do
+          state when is_binary(state) and state != "" -> "#{prefix}:#{state}"
+          _state -> nil
+        end
+    end
+  end
+
+  def workflow_state_label(_row), do: nil
+
+  @doc "Returns the exact tracker label for a known runtime reason, if present."
+  @spec reason_label(map()) :: String.t() | nil
+  def reason_label(row) when is_map(row) do
+    case Labels.runtime_reason_labels(Map.get(row, :labels), [get_in(row, [:reasons, :pause]), get_in(row, [:reasons, :waiting])], Config.label_prefix()) do
+      [] -> nil
+      labels -> Enum.join(labels, ",")
+    end
+  end
+
+  def reason_label(_row), do: nil
 
   @doc """
   Renders an age in seconds as a short operator label.
