@@ -222,6 +222,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_TELEMETRY_CALLER_CWD", type: :path, validate: false, example: false, group: :runtime, purpose: "Working directory captured by the telemetry CLI wrapper."},
     {"AIUR_RELEASE_DIR", type: :path, validate: false, example: false, group: :runtime, purpose: "Release directory the launcher resolved; detects a dev launcher run."},
     {"AIUR_REAL_GIT", type: :path, validate: false, example: false, group: :runtime, purpose: "Real git binary behind the agent git shim; idle dependent restacks run it directly."},
+    {"ERL_EPMD_PORT", type: :integer, validate: false, example: false, group: :runtime, purpose: "Erlang EPMD listener port used to verify the local distribution listener; defaults to 4369."},
 
     # --- Development and debugging ---
     {"AIUR_DEBUG", type: :boolean, group: :dev, default: false, purpose: "Enable debug logging (1 / true / yes)."},

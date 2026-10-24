@@ -2,6 +2,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows do
   @moduledoc false
 
   import AiurWeb.OperatorControlCenter.RunSummaryStrip.Meters, only: [currency_amount: 2, format_used_percent: 1, reset_text: 2]
+  alias AiurWeb.RemainingMeter
 
   # GitHub's two primary budgets, in the order they render. They are separate
   # budgets billed in different units on windows that reset at different times,
@@ -25,9 +26,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows do
   def elevenlabs_configured?(%{state: state}) when state in [:unknown, :observed, :failed], do: true
   def elevenlabs_configured?(_quota), do: false
 
-  @spec elevenlabs_meter_percent(map() | nil) :: number()
-  def elevenlabs_meter_percent(%{used_percent: percent}) when is_number(percent), do: percent
-  def elevenlabs_meter_percent(_window), do: 0
+  @spec elevenlabs_meter_percent(map() | nil) :: number() | nil
+  def elevenlabs_meter_percent(%{remaining_percent: percent}) when is_number(percent), do: RemainingMeter.clamp(percent)
+  def elevenlabs_meter_percent(%{used_percent: percent}) when is_number(percent), do: RemainingMeter.percent(percent) |> round()
+  def elevenlabs_meter_percent(_window), do: nil
 
   @spec elevenlabs_explanation() :: String.t()
   def elevenlabs_explanation do
@@ -35,7 +37,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows do
   end
 
   # The label already says Credits, so the compact line carries only the
-  # remaining count, consumed share, and day-scale reset.
+  # remaining count, remaining share, and day-scale reset.
   @spec elevenlabs_meta(map(), DateTime.t()) :: String.t()
   def elevenlabs_meta(%{state: :observed, window: %{} = window}, now) do
     [
@@ -65,7 +67,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows do
   def elevenlabs_compact_meta(_quota, _now), do: "Awaiting response"
 
   defp compact_percent_text(nil), do: nil
-  defp compact_percent_text(text), do: String.replace_suffix(text, " used", "")
+  defp compact_percent_text(text), do: text
 
   defp elevenlabs_compact_reset_text(reset_at, now) do
     reset_at
@@ -73,7 +75,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows do
     |> String.replace_prefix("resets ", "")
   end
 
-  defp elevenlabs_percent_text(%{used_percent: percent}) when is_number(percent), do: "#{format_used_percent(percent)}% used"
+  defp elevenlabs_percent_text(%{remaining_percent: percent}) when is_number(percent), do: "#{format_used_percent(RemainingMeter.clamp(percent))}% left"
+  defp elevenlabs_percent_text(%{used_percent: percent}) when is_number(percent), do: "#{format_used_percent(RemainingMeter.percent(percent))}% left"
   defp elevenlabs_percent_text(_window), do: nil
 
   @spec elevenlabs_invoice_due(map() | nil) :: String.t() | nil
@@ -130,13 +133,17 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows do
 
   @spec github_window_meta(map(), DateTime.t()) :: String.t()
   def github_window_meta(window, now) do
-    "#{window.remaining}/#{window.limit} left · #{reset_text(window.reset_at, now)}#{stale_age_text(window, now)}"
+    "#{window.remaining}/#{window.limit} left · #{github_percent_text(window)} · #{reset_text(Map.get(window, :reset_at), now)}#{stale_age_text(window, now)}"
   end
 
   @spec github_window_compact_meta(map(), DateTime.t()) :: String.t()
   def github_window_compact_meta(window, now) do
-    "#{window.remaining}/#{window.limit} · #{compact_reset_text(window.reset_at, now)}#{stale_age_text(window, now)}"
+    "#{window.remaining}/#{window.limit} · #{github_percent_text(window)} · #{compact_reset_text(Map.get(window, :reset_at), now)}#{stale_age_text(window, now)}"
   end
+
+  defp github_percent_text(%{remaining_percent: percent}) when is_number(percent), do: "#{format_used_percent(RemainingMeter.clamp(percent))}% left"
+  defp github_percent_text(%{used_percent: percent}) when is_number(percent), do: "#{format_used_percent(RemainingMeter.percent(percent))}% left"
+  defp github_percent_text(_window), do: "remaining unknown"
 
   defp stale_age_text(%{snapshot_stale?: true, observed_at: %DateTime{} = observed_at}, now) do
     age_minutes = max(DateTime.diff(now, observed_at, :minute), 0)

@@ -63,7 +63,7 @@ for (const width of [1440, 390]) {
       await expect(claude.locator('.rs-x')).toHaveText('×2')
       await expect(claude.locator('.rs-ln[data-account="default"] .rs-tg')).toHaveText('default')
       await expect(claude.locator('.rs-ln[data-account="everdred"] .rs-tg')).toHaveText('everdred')
-      await expect(claude.locator('.rs-ln[data-account="everdred"] .rs-pc')).toHaveText('12%')
+      await expect(claude.locator('.rs-ln[data-account="everdred"] .rs-pc')).toHaveText('12% left')
       await expect(claude.locator('.rs-ln .rs-tg')).toHaveText(['default', 'everdred', 'session'])
       await expect(claude.locator('.rs-ln .rs-rs svg')).toHaveCount(3)
 
@@ -83,7 +83,7 @@ for (const width of [1440, 390]) {
       }
 
       const deepseek = panel.locator('.rs-model[data-provider="deepseek"]')
-      await expect(deepseek.locator('.rs-pc')).toHaveText('2%')
+      await expect(deepseek.locator('.rs-pc')).toHaveText('98% left')
       await expect(deepseek.locator('.rs-usd')).toHaveText('$10.40')
 
       // No cell overlaps another, and no cell's text spills out of its box.
