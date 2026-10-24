@@ -123,7 +123,7 @@ export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null
 export function analyticsAxisIssues(charts) {
   const issues = []
   for (const chart of charts) {
-    const yValues = (chart.yLabels || []).map((label) => Number(label.replaceAll(',', '').replace(/%$/, ''))).filter(Number.isFinite)
+    const yValues = (chart.yLabels || []).map((label) => Number(label.replaceAll(',', '').match(/^-?[\d.]+/)?.[0])).filter(Number.isFinite)
     if (yValues.length > 1 && yValues.some((value, index) => index > 0 && value < yValues[index - 1])) {
       issues.push({ kind: 'axis-non-monotonic', detail: `${chart.label} y-axis labels are not monotonic: ${yValues.join(', ')}` })
     }

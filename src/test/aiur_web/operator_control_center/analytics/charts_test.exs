@@ -122,6 +122,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert Enum.any?(x_labels, &String.contains?(&1, "s"))
 
     svg = Charts.cpu_stack(m, MapSet.new())
+
     y_labels =
       Regex.scan(~r/<text[^>]*text-anchor="end"[^>]*>([^<]+)<\/text>/, svg, capture: :all_but_first)
       |> List.flatten()
