@@ -222,9 +222,8 @@ test('Gantt hides history time labels at 150 px width', async ({ page }) => {
       const card = cards.makeCard({ t: ticket, sec: 'hist', h: width })
       card.style.width = `${width}px`; document.body.append(card)
       const time = card.querySelector('.bd-time')
-      const badge = card.querySelector('.bd-badges span')
       return { hasTime: !!time, display: time ? getComputedStyle(time).display : null,
-        width: card.getBoundingClientRect().width, badgeFont: badge && parseFloat(getComputedStyle(badge).fontSize) }
+        width: card.getBoundingClientRect().width }
     }
     return [250, 150].map(inspect)
   })

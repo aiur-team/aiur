@@ -127,7 +127,7 @@ test('degraded offline board has no horizontal overflow at 390 px', async ({ bro
   try {
     const viewport = page.locator('#bd-vp')
     await expect(viewport).toBeVisible()
-    await expect.poll(() => viewport.evaluate(el => el.scrollWidth - el.clientWidth), 'degraded board viewport overflow').toBe(0)
+    await expect.poll(() => viewport.evaluate(el => el.scrollWidth === el.clientWidth), 'degraded board viewport should fit its 390 px viewport').toBe(true)
   } finally { await close() }
 })
 
