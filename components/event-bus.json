@@ -33,9 +33,25 @@
     "src/lib/aiur/ticket_observation.ex"
   ],
   "facades": [
-    "*"
+    "Aiur.AgentEvents",
+    "Aiur.AgentPubSub",
+    "Aiur.Events",
+    "Aiur.Events.AgentSubscriptionPolicy",
+    "Aiur.Events.Delivery",
+    "Aiur.Events.DurableConsumer",
+    "Aiur.Events.HistoryStore",
+    "Aiur.Events.IdGenerator",
+    "Aiur.Events.Journal",
+    "Aiur.Events.JournaledPublish",
+    "Aiur.Events.SourcePolicy",
+    "Aiur.Events.SubscriptionStore",
+    "Aiur.Events.Topic",
+    "Aiur.Events.Trace",
+    "Aiur.Events.TrustClassifier",
+    "Aiur.Events.UniversalSubscriptions",
+    "Aiur.TicketObservation"
   ],
-  "facade_pending": "MP-R2-C4-T03: Aiur.Events is the public API; retain legacy access until caller migrations finish",
+  "facade_pending": null,
   "requires": [
     "config",
     "kernel"
@@ -46,7 +62,10 @@
       "events"
     ],
     "env": [],
-    "state": [],
+    "state": [
+      "file: <runtime_state_dir>/event-id.json",
+      "file: <runtime_state_dir>/subscriptions/*.json"
+    ],
     "capabilities": []
   },
   "prior": [
