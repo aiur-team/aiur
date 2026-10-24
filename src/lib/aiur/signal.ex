@@ -23,6 +23,17 @@ defmodule Aiur.Signal do
     with {:ok, sink} <- alert_sink(topic), do: sink.emit_custom(topic, message, opts)
   end
 
+  @spec active_attention_alerts() :: [map()]
+  def active_attention_alerts do
+    case Application.get_env(:aiur, :signal, [])[:alert_sink] do
+      sink when is_atom(sink) ->
+        if Code.ensure_loaded?(sink) and function_exported?(sink, :active_attention_alerts, 0), do: sink.active_attention_alerts(), else: []
+
+      _unavailable ->
+        []
+    end
+  end
+
   @spec lifecycle(
           String.t(),
           String.t() | nil,

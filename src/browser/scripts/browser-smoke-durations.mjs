@@ -38,6 +38,10 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-composer': 23.3,
   // Job 118131038510 (shard 2/9): 28.7s.
   'test:browser-suite -- build-home-chains-states': 29,
+  // Local estimate (loaded host ran 234s; CI hosts run the home suites about 2x faster); replace from its first shard log.
+  'test:browser-suite -- build-home-performance': 150,
+  // Local governed run: 11 cases in 139s including fixture startup; rounded up.
+  'test:build-home-performance': 150,
   // CI run 39590874795 (2026-10-21), full suite wall times including fixture startup:
   // shards 5/8/7 measured modal 30.9s, parity 122.8s, motion 25.6s; round each up.
   'test:build-modal': 31,
@@ -45,6 +49,8 @@ export const recordedSeconds = {
   'test:build-modal-motion': 26,
   // Same run, shard 7/job 119192841077: all 14 conversation cases passed; 163.6s wall time.
   'test:build-home-conversation': 165,
+  // Local complete run for the new Fit endpoint check took 17s; reserve 25s for fixture variance.
+  'test:browser-suite -- build-home-chains-fit-endpoints': 25,
   // node --test, 7 cases in 0.4s locally (#3163); rounded up.
   'test:build-home-conversation-events-unit': 1,
   // Governed core commands (2026-10-18): 31 cases in 518s; 32 cases on 2ed995a67 in 445s.
@@ -119,6 +125,8 @@ export const recordedSeconds = {
   'test:build-home-cards:4': 298,
   'test:build-home-states-parity': 200,
   'test:build-home-list-unit': 1,
+  // Local browser-suite run on f1631fd43 took 6.3s; rounded up conservatively.
+  'test:browser-suite -- build-home-grain-animation-capture': 7,
   // Usage: CI job 117605146944 reported 268.0s; round up conservatively.
   'test:build-home-usage': 269,
   // Run 39091360816, job 117578322274: agents took 21.8s (rounded up).
@@ -126,6 +134,15 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-list': 26,
   'test:browser-suite -- build-home-list-parity': 57,
   'test:browser-suite -- build-home-mobile-fit': 12,
+  // MP-E8-C12-T04 local governed run (2026-10-22): 16 cases, 327s wall incl. fixture startup.
+  // Refresh from the first CI shard log.
+  'test:browser-suite -- build-home-phone': 330,
   'test:browser-suite -- build-home-states': 9,
   'test:browser-suite -- build-home-states-e2e': 15,
+  // Local functional harness timing (2026-10-18): 130.4s.
+  'test:build-home-filters': 131,
+  // Seven-case local JSON report (2026-10-23, b33f2f685): 417.6s, excluding build-gate wait; round up.
+  'test:build-home-filters-parity': 418,
+  // Scoped desktop/reduced/mobile filter motion: local harness 49.3s (2026-10-18).
+  'test:build-home-filters-motion': 50,
 }

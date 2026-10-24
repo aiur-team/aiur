@@ -96,8 +96,9 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   eleven wasted turns went unnoticed on khala #198, and #2797 is open on
   exactly the `Logger.info`-only pattern. The alert is ticket-scoped and
   needs-attention, so it lands in the alert ledger and the central
-  `alerts.ndjson` and shows on the Executor's alert feed. A run that reached
-  no-op bound keeps its current state except verified rework with no push.
+  `alerts.ndjson` and shows on the Executor's alert feed. A run that reaches
+  the no-op bound without another handoff moves to `human-review` with a reason
+  comment; verified rework with no push still uses its existing failure state.
   """
   @spec emit_noop_turn_bound_alert(Issue.t(), Path.t() | nil, String.t() | nil, map()) :: :ok
   def emit_noop_turn_bound_alert(%Issue{} = issue, workspace, worker_host, details) do

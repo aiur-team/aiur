@@ -30,7 +30,7 @@ defmodule AiurWeb.Build.Payload do
   | status | done, failed, not_planned, closed, running, queued, open |
   | pct / est | 0..100 or nil / number of hours or nil |
   | agent | nil or nullable model, name, state and effort |
-  | agent.state | active, error, retrying, retries, command, paused, parked, usage_limited, ci_wait, or nil |
+  | agent.state | active, error, retrying, retries, command, paused, parked, merge-queued, ci-red, body-fix, paused-usage-limit, paused-decision, paused-agent, blocked, handed-off, or nil |
   | agent.pause | usage_limit_exhausted, ci_wait, or nil |
   | agent.resume_at | usage limit reset milliseconds or nil |
   | agent.effort | none, minimal, low, medium, high, xhigh, max, or nil |
@@ -61,7 +61,8 @@ defmodule AiurWeb.Build.Payload do
   Authorized usage requires observed_at (ms or nil), apis and providers. Each
   usage row requires name, nullable logo/mono/tag strings, nullable numeric hue,
   nullable string accounts, nullable session/weekly windows, nullable credits,
-  and boolean none. Windows require nullable 0..100 acc values, nullable reset_at
+  and boolean none. Windows require nullable 0..100 `acc` values representing
+  percent remaining, nullable `reset_at`
   milliseconds and nullable string win. Optional row fields carry lines (tagged
   windows with tip pairs and nullable hold_until), icon, stale, observed_at,
   snapshot_observed_at and note. Credits require nullable pct, string left and

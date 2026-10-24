@@ -79,6 +79,7 @@ test('read-only is reachable, dimmed and never sends a control request', async (
 test('expiry permits retry, same-row diffs preserve control and error feedback', async ({ page }) => {
   const row = await open(page)
   await pause(page).click()
+  await expect(pause(page)).toHaveAttribute('aria-busy', 'true')
   await lifecycle(page, row.id, 'pause', 'expired')
   await expect(pause(page)).toHaveClass(/bad/)
   await expect(pause(page)).toHaveCSS('color', await tokenColor(page, '--block-ink'))
@@ -90,6 +91,7 @@ test('expiry permits retry, same-row diffs preserve control and error feedback',
   await expect(pause(page)).toHaveAttribute('title', 'Pause timed out — retry')
   await expect(pause(page)).not.toHaveAttribute('disabled')
   await pause(page).click()
+  await expect(pause(page)).toHaveAttribute('aria-busy', 'true')
   await lifecycle(page, row.id, 'pause', 'rejected', 'stale_generation')
   await expect(pause(page)).toHaveClass(/warn/)
   await expect(pause(page)).toHaveCSS('color', await tokenColor(page, '--attn-ink'))

@@ -254,6 +254,22 @@ defmodule Aiur.LandingWatch.Journal do
     end
   end
 
+  @doc "Holds a PR head after a PR-caused merge-group failure."
+  @spec hold_merge_group_head(pos_integer(), String.t(), keyword()) :: :ok | {:error, term()}
+  def hold_merge_group_head(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+    update(opts, fn state ->
+      holds = Map.get(state, "merge_group_head_holds", %{})
+      {:ok, Map.put(state, "merge_group_head_holds", Map.put(holds, key(pr, head), true))}
+    end)
+  end
+
+  @spec merge_group_head_held?(pos_integer(), String.t(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def merge_group_head_held?(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+    with {:ok, state} <- state(opts) do
+      {:ok, get_in(state, ["merge_group_head_holds", key(pr, head)]) == true}
+    end
+  end
+
   @spec failure_observations(keyword()) :: {:ok, [map()]} | {:error, term()}
   def failure_observations(opts \\ []) do
     with {:ok, state} <- state(opts), do: {:ok, Map.get(state, "failure_observations", [])}
@@ -289,29 +305,40 @@ defmodule Aiur.LandingWatch.Journal do
     if Enum.all?(keys, &is_binary/1) do
       retained = MapSet.new(keys)
 
-      update(opts, fn state ->
-        {:ok,
-         Map.filter(state, fn {entry_key, _} ->
-           entry_key in [
-             "flakes",
-             "flake_tickets",
-             "failure_observations",
-             "quarantine_retries",
-             "merge_group_runs",
-             "merge_group_run_failures",
-             "quarantine_merge_group_runs",
-             "merge_group_requeues",
-             "ci_merges"
-           ] or
-             MapSet.member?(retained, entry_key)
-         end)}
-      end)
+      update(opts, &retain_current_head_entries(&1, retained))
     else
       :ok
     end
   end
 
   def retain_current_heads(_, _), do: {:error, :invalid_landing_watch_observations}
+
+  defp retain_current_head_entries(state, retained) do
+    holds = Map.get(state, "merge_group_head_holds", %{})
+
+    state =
+      Map.filter(state, fn {entry_key, _} ->
+        entry_key in [
+          "flakes",
+          "flake_tickets",
+          "failure_observations",
+          "quarantine_retries",
+          "merge_group_runs",
+          "merge_group_run_failures",
+          "quarantine_merge_group_runs",
+          "merge_group_requeues",
+          "ci_merges"
+        ] or
+          MapSet.member?(retained, entry_key)
+      end)
+
+    {:ok, retain_head_holds(state, holds, retained)}
+  end
+
+  defp retain_head_holds(state, holds, retained) do
+    holds = Map.filter(holds, fn {entry_key, _} -> MapSet.member?(retained, entry_key) end)
+    if map_size(holds) == 0, do: state, else: Map.put(state, "merge_group_head_holds", holds)
+  end
 
   @doc false
   @spec update(keyword(), (map() -> term())) :: term()

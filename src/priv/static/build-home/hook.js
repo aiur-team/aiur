@@ -5,6 +5,7 @@ import { decide } from './protocol.js';
 import { acceptSnapshot, applyDiff } from './store.js';
 import { H } from './history.js';
 import { fromServer, flushURL } from './url.js';
+import { markFirstBoard } from './perf.js';
 import './clock.js';
 import './render.js';
 import './columns.js';
@@ -24,6 +25,7 @@ import './modal/conversation.js';
 import { applyDoc, applyQueueAdd, reconnectDoc } from './modal/doc.js';
 import './modal/composer.js';
 import './modal/command.js';
+import './filters.js';
 
 export function writeOwnData() {
   if (ctx.bdTrees != null) ctx.root.dataset.bdTrees = ctx.bdTrees;
@@ -39,7 +41,7 @@ function showServerState(ds) {
 }
 function firstPaint() {
   ctx.inited = true; S.loading = false;
-  renderChrome(); fx.viewport(); fx.relayout(); fx.jumpNow(true); S.ready = true;
+  renderChrome(); fx.viewport(); fx.relayout(); markFirstBoard(); fx.jumpNow(true); S.ready = true;
   ctx.life.frame('ticket', () => fx.openFromURL());
 }
 function repaint() { renderChrome(); fx.relayout(); fx.update(); }
@@ -106,7 +108,7 @@ export function createBuildHomeHook() {
       this.buildActive = shell();
       if (!this.buildActive) return;
       fx.wireTrees();
-      fx.renderTools(); fx.initModal();
+      fx.renderTools(); fx.renderFilters(); fx.initModal();
       writeOwnData();
       this.handleEvent('build-ticket-control', controlMessage);
       this.handleEvent('build-conversation', msg => fx.receiveConversation(msg));

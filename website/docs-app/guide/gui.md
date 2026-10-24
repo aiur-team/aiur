@@ -33,7 +33,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
 | **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail, reachable by URL without a navigation item. | `aiur build-orders` |
 | **Build queue** | `/build-orders` includes the read-only queue panel on the catalog page: item states, waiting prerequisites, start-order ranks, progress, source freshness and observation age, and open or recently resolved attentions. Manage queues with the CLI. | `aiur queue show` |
-| **Analytics** | `/analytics` is latest-run telemetry with durable restart fallback and an optional Build Order scope. The page opens with a loading message while telemetry is analyzed in the background; concurrent cold loads share one retained-summary scan. A source line labels the data as the live boot or a retained prior run and shows how long ago it was observed. A notice identifies periods with analytics capture disabled. | `aiur analytics` |
+| **Analytics** | `/analytics` shows latest-run telemetry, with restart fallback and optional Build Order scope. It loads while background analysis runs; concurrent cold loads share one retained-summary scan. The source line identifies live or retained data and its age. A notice marks periods without analytics capture. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
 | Route change | Behavior |
@@ -57,7 +57,7 @@ The theme starts dark until you toggle it. Both choices stay in this browser; an
 
 Drag the navigation edge to switch between icons and labels, or focus the edge and use the arrow keys. The choice stays in this browser. On phones, navigation stays visible in a fixed bottom bar. A red dot on Commands means an answer is waiting; unavailable counts keep their notice instead of showing zero.
 
-The **Models** pane shows a named weekly line for each [Claude account](/guide/claude-accounts). Each line shows the percentage used, a bar, and the reset time next to a recycle icon. Freshness, observation age and the last probe error are in the line's tooltip. A stale line is dimmed. A missing reading shows `unknown`, not zero.
+The **Models** pane shows a named weekly line for each [Claude account](/guide/claude-accounts), with a remaining-percentage bar and reset time. Full means 100% left; empty means unusable until reset. Warning colours appear near empty. The tooltip shows freshness, age and last probe error; stale lines are dimmed. Missing readings show `unknown`, not zero.
 
 The pane shows only providers with a real account: a routed backend, a keyed API, or a provider with an observation. Unconfigured placeholders are not shown.
 
@@ -69,6 +69,40 @@ A degraded CODEOWNERS trust banner shows the lookup cause and elapsed age (`age 
 
 The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs. Paginated and progressively revealed tables sort the displayed rows, then reapply that order when more rows appear.
 
+The Build home page at `/` reads the repository timeline from local stores.
+It requires dashboard authentication and loads history by active day in the browser’s time zone.
+Live changes are coalesced; snapshots distinguish unavailable sources from empty sections.
+
+List (`?view=list`) shows Live, Planned, Not queued and newest-first History as table rows.
+Ticket rows support keyboard focus. Use **Load earlier day** to fetch more history.
+Unknown values stay explicit, and degraded section headings show their source state and read age.
+
+The Now band shows active agents between history and the plan. It settles at
+the nearest viewport edge; **Live** returns to it. Minimize keeps state counts
+visible (`live=min`), and a state preset expands it. The clock shows cached
+observation time when stale and `—` when unknown.
+
+Agents in failure back-off carry `agent:retrying` and are counted separately
+from running agents. Labels such as `agent:ci-red` and
+`agent:paused-usage-limit` appear on cards and in agent-state filters. Tickets
+with spent retry latches have no live agent and are left out of Now.
+
+The toolbar selects Timeline, Gantt or List and retains the view in the URL.
+
+In Gantt, history card height represents elapsed run time; idle gaps over three hours fold into hatched bands.
+Hatched, dashed planned cards show estimates. A “start unknown” card has minimum height and ends at its recorded end time; unknown estimates stay marked as unknown.
+
+Use Left/Right arrows or Home/End to move between view tabs, then Enter or Space
+to select. The status line shows the daemon state, including unknown before
+the first snapshot, and the legend for the selected view.
+
+Its links retain view, span, feature focus, filters and ticket selection in
+`view`, `span`, `feature`, `fmode`, `epic`, `model`, `tstate`, `astate`,
+`live`, `trees` and `ticket`. Invalid values are removed.
+
+Legacy Units
+parameters (`v`, `scope`, `conditions`) on the home page become agent-state
+or ticket-state presets. The hook bridge replaces the current history entry.
 ## The pages
 
 Each page renders a durable concept whose detail lives in Concepts.
@@ -149,7 +183,7 @@ Writable requests must also have the expected same-origin `Origin` or `Referer` 
 
 ## Authentication and network exposure
 
-Browser access uses HTTP Basic Authentication configured through environment variables:
+Browser access supports Google sign-in and passkeys. Basic Auth remains available for machine clients and, by default, as a browser fallback:
 
 ```bash
 export AIUR_DASHBOARD_USERNAME=example-executor
@@ -158,6 +192,27 @@ aiur
 ```
 
 Aiur refuses to start a dashboard bound beyond loopback without both credentials. A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set.
+
+To enable Google sign-in, configure an HTTPS `server.public_url`, set the operator email allowlist, and add both OAuth client values to `~/.aiur/.env`:
+
+```yaml
+server:
+  public_url: https://<host>.ts.net:4001
+dashboard_auth:
+  google:
+    allowed_emails: [operator@gmail.com]
+  passkeys: true
+  session_max_age_days: 30
+  browser_basic_auth: true
+```
+
+In Google Cloud, create an OAuth consent screen in External / Testing mode, add the operator as a test user, and request `openid email`. Create a Web application OAuth client with redirect URI `https://<host>.ts.net:4001/auth/google/callback`.
+
+Put `AIUR_GOOGLE_CLIENT_ID` and `AIUR_GOOGLE_CLIENT_SECRET` in `~/.aiur/.env`, then restart Aiur. Sign in with the allowlisted, verified account and register a passkey while that Google sign-in is fresh; enroll each device (iCloud Keychain can sync Apple devices).
+
+Google and passkey sessions also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` to be configured. Those credentials remain the authentication path for machine clients.
+
+After confirming Google and passkey sign-in, set `dashboard_auth.browser_basic_auth: false` and restart Aiur; this setting is read at startup. The API and Stream Deck token endpoint continue to use Basic Auth.
 
 Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 
@@ -173,7 +228,7 @@ Retained Analytics charts use at most 180 evenly spaced resource observations pe
 
 Full log combines newest runs that fit its bounded projection with current telemetry. Latest-run fallback and Full log decode at most 45 MiB per cold load. The source line reports included runs and omissions, and names skipped newer runs in Latest-run. Analytics is unavailable if none fit; without materialized history, raw files over 1 MiB are unavailable.
 
-The Build page usage strip shows API budgets and provider windows or credits. Hover or focus a usage line for account details, observation age, GitHub snapshot age, and budget holds.
+The Build page usage strip shows API budgets and provider windows or credits. Bars and labels show what remains: full is 100% left, empty is unusable until reset, with warning colours near empty. Hover or focus a usage line for account details, observation age, GitHub snapshot age, and budget holds.
 
 Build cards keep agent pause causes distinct: provider usage limits read `Paused · usage limit` with a reset time when the runtime reports one, CI handoffs read `Waiting for CI`, and `Parked` identifies other non-reserving pauses.
 
