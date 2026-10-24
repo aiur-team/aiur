@@ -16,6 +16,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.CiLifecycle.WaitRewake
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.LifecycleFence
   alias Aiur.Orchestrator.Reconciler
@@ -47,7 +48,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
       true ->
-        Transition.transition_ci_ticket(state, issue, @ci_wait_state, & &1, ci_wait_reason_modifiers(result))
+        pending_ci_wait(state, issue, result)
     end
   end
 
@@ -488,5 +489,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
         state
     end
+  end
+
+  # Pending CI never overrides rework or in-progress (#6108); "" (no state) keeps the contradictory-label repair (#2366).
+  defp pending_ci_wait(state, issue, result) do
+    if DispatchPolicy.normalize_issue_state(Transition.effective_ci_state(issue)) in ["", @human_review_state, "merging"],
+      do: Transition.transition_ci_ticket(state, issue, @ci_wait_state, & &1, ci_wait_reason_modifiers(result)),
+      else: state
   end
 end
