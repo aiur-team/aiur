@@ -129,12 +129,7 @@ defmodule Aiur.ControlCallTest do
 
   test "run kills a timed out read task" do
     parent_name = unique_parent_name()
-    parent = self()
     Process.register(self(), parent_name)
-
-    on_exit(fn ->
-      if Process.whereis(parent_name) == parent, do: Process.unregister(parent_name)
-    end)
 
     assert {:ok, read_call} = ControlCall.parse("Aiur.ControlCallTestProbe.read_wait(#{inspect(parent_name)})")
     assert {:error, :timeout} = ControlCall.run(read_call, 500, "token:t")
@@ -144,12 +139,7 @@ defmodule Aiur.ControlCallTest do
 
   test "run leaves a timed out write task running until completion" do
     parent_name = unique_parent_name()
-    parent = self()
     Process.register(self(), parent_name)
-
-    on_exit(fn ->
-      if Process.whereis(parent_name) == parent, do: Process.unregister(parent_name)
-    end)
 
     assert {:ok, write_call} = ControlCall.parse("Aiur.ControlCallTestProbe.write_wait(#{inspect(parent_name)})")
     assert {:error, :timeout} = ControlCall.run(write_call, 500, "token:t")
