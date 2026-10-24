@@ -51,6 +51,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate resume_global(), to: Aiur.Orchestrator.ControlCLI
   defdelegate set_max_agents(n), to: Aiur.Orchestrator.ControlCLI
   defdelegate message(issue, text, message_id \\ nil), to: Aiur.Orchestrator.ControlCLI.Message
+  @spec message_status(pos_integer()) :: :ok
+  defdelegate message_status(request_id), to: Aiur.Orchestrator.ControlCLI.Message, as: :status
   defdelegate pause(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate resume(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run

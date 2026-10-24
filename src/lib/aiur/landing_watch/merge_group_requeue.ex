@@ -1,7 +1,7 @@
 defmodule Aiur.LandingWatch.MergeGroupRequeue do
   @moduledoc "Safely requeues approved PRs after non-PR merge-group failures."
   alias Aiur.GitHub.{Client, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, Observer}
+  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, Observer, TicketLookup}
   alias Aiur.PrMerge.Queue
 
   @spec requeue_group_prs([pos_integer()], [map()], map(), String.t(), keyword()) :: :ok | {:error, term()}
@@ -124,7 +124,15 @@ defmodule Aiur.LandingWatch.MergeGroupRequeue do
 
   defp eligible_approved_pr?(pr, number, head, opts) do
     pr.draft? == false and pr.review_decision == "APPROVED" and is_binary(head) and
-      is_binary(pr.node_id) and approved?(number, opts) and attributed_cleanly?(pr, opts)
+      is_binary(pr.node_id) and ticket_can_land?(pr, opts) and approved?(number, opts) and attributed_cleanly?(pr, opts)
+  end
+
+  defp ticket_can_land?(pr, opts) do
+    case TicketLookup.fetch(pr, opts) do
+      {:ok, _issue, state, paused?, held?} when state in ["human-review", "ci-wait", "merging"] -> not paused? and not held?
+      {:error, :pull_request_not_linked_to_ticket_branch} -> true
+      _ -> false
+    end
   end
 
   defp approved?(number, opts), do: Keyword.get(opts, :approved_fun, fn _, _ -> {:ok, true} end).(number, opts) == {:ok, true}

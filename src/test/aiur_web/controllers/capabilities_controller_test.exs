@@ -3,6 +3,7 @@ defmodule AiurWeb.CapabilitiesControllerTest do
   import Plug.Conn
   import Plug.Test
   alias AiurWeb.Router
+  @session_options Plug.Session.init(store: :cookie, key: "_aiur_test_key", signing_salt: "aiur-test-session")
 
   defmodule OrchestrationProvider do
     @behaviour Aiur.Capabilities.Provider
@@ -45,7 +46,7 @@ defmodule AiurWeb.CapabilitiesControllerTest do
   # Future regression guard: unconfigured auth already fails closed on the old issue route.
   test "unconfigured auth fails closed with the same boundary as state" do
     for path <- ["/api/v1/capabilities", "/api/v1/state"] do
-      response = conn(:get, path) |> put_private(:aiur_dashboard_credentials, nil) |> Router.call(Router.init([]))
+      response = session_conn(:get, path) |> put_private(:aiur_dashboard_credentials, nil) |> Router.call(Router.init([]))
       assert response.status in [401, 503]
       assert response.halted
     end
@@ -79,9 +80,17 @@ defmodule AiurWeb.CapabilitiesControllerTest do
   end
 
   defp request(method, authorization \\ Plug.BasicAuth.encode_basic_auth("operator", "secret")) do
-    connection = conn(method, "/api/v1/capabilities") |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
+    connection = session_conn(method, "/api/v1/capabilities") |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
     connection = if authorization, do: put_req_header(connection, "authorization", authorization), else: connection
     Router.call(connection, Router.init([]))
+  end
+
+  defp session_conn(method, path) do
+    method
+    |> conn(path)
+    |> Map.put(:secret_key_base, String.duplicate("s", 64))
+    |> AiurWeb.Session.call(@session_options)
+    |> fetch_session()
   end
 
   defp secret_value?(value) when is_map(value), do: Enum.any?(Map.values(value), &secret_value?/1)

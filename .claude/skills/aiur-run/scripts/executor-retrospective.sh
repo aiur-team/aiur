@@ -6,7 +6,15 @@ set -euo pipefail
 # hour, and atomically advances an independent retrospective timer.
 
 mode="${1:-due}"
-run_id="${AIUR_EXECUTOR_RUN_ID:-}"
+default_run_id="default"
+if [ -n "${AIUR_TMUX_SOCKET:-}" ] && [ -n "${AIUR_TMUX_SESSION:-}" ] && command -v tmux >/dev/null 2>&1; then
+  session_id="$(tmux -L "$AIUR_TMUX_SOCKET" display-message -p -t "$AIUR_TMUX_SESSION" '#{session_id}' 2>/dev/null || true)"
+  if [[ "$session_id" =~ ^\$([0-9]+)$ ]]; then
+    socket_key="${AIUR_TMUX_SOCKET//[^A-Za-z0-9._-]/_}"
+    default_run_id="tmux-${socket_key}-${BASH_REMATCH[1]}"
+  fi
+fi
+run_id="${AIUR_EXECUTOR_RUN_ID:-$default_run_id}"
 interval_seconds="${AIUR_EXECUTOR_RETROSPECTIVE_SECONDS:-3600}"
 
 # Adaptive quiet-audit wait bounds. Event-driven wakes stay immediate; these
@@ -16,10 +24,9 @@ wait_ceiling_seconds="${AIUR_EXECUTOR_WAIT_CEILING_SECONDS:-900}"
 wait_backoff="${AIUR_EXECUTOR_WAIT_BACKOFF:-2}"
 
 if [[ ! "$run_id" =~ ^[A-Za-z0-9._-]+$ ]] || [ "$run_id" = "." ] || [ "$run_id" = ".." ]; then
-  printf 'AIUR_EXECUTOR_RUN_ID is required, must match [A-Za-z0-9._-]+, and cannot be . or ..\n' >&2
-  # Precondition exit codes are distinct so a wrapper can tell which
-  # precondition failed: 67 = URL undiscoverable, 68 = run ID missing,
-  # 69 = dashboard password missing.
+  printf 'AIUR_EXECUTOR_RUN_ID must match [A-Za-z0-9._-]+, and cannot be . or ..\n' >&2
+  # Precondition exit codes are distinct: 67 = URL undiscoverable,
+  # 68 = invalid run ID, 69 = dashboard password missing.
   exit 68
 fi
 if [[ ! "$interval_seconds" =~ ^[1-9][0-9]*$ ]]; then
@@ -659,13 +666,12 @@ beam_descendant() {
 # AIUR_DASHBOARD_URL has no daemon socket attached, and probing the ambient
 # server for credentials would risk reading a stranger's pane.
 daemon_env_var() {
-  local var="$1" socket="$2" tmux_bin session pane_pid beam_pid value pane_pids
+  local var="$1" socket="$2" tmux_bin pane_pid beam_pid value pane_pids
   [ -n "$socket" ] || return 1
   tmux_bin="$(command -v tmux || true)"
   [ -n "$tmux_bin" ] || return 1
 
-  session="${AIUR_TMUX_SESSION:-${socket}-default}"
-  pane_pids="$("$tmux_bin" -L "$socket" list-panes -t "$session" -F '#{pane_pid}' 2>/dev/null || true)"
+  pane_pids="$("$tmux_bin" -L "$socket" list-panes -a -F '#{pane_pid}' 2>/dev/null || true)"
   [ -n "$pane_pids" ] || return 1
 
   # Try every pane, not just the first: the daemon pane is the session's first
@@ -819,8 +825,8 @@ visual_check() {
 
     if [ -z "$dashboard_password" ]; then
       # Precondition: the dashboard refuses every request without a password.
-      # Exit 69 names this precondition distinctly from a missing URL (67) or a
-      # missing run ID (68).
+      # Exit 69 names this precondition distinctly from a missing URL (67) or
+      # an invalid run ID (68).
       capture_status=69
       printf 'AIUR_DASHBOARD_PASSWORD is required: set AIUR_DASHBOARD_USERNAME and AIUR_DASHBOARD_PASSWORD, or run where the daemon environment has them.\n' >&2
       write_did_not_run \
