@@ -84,6 +84,20 @@ test('List shows selection is keyboard accessible, persisted, and scoped to List
   await expect(page).not.toHaveURL(/list=/)
   await expect(page.locator('.bd-list')).toHaveCount(1)
 })
+test('List shows label stays beside options on a narrow viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const label = page.locator('.bd-list-label')
+  const options = page.locator('.bd-list-shows')
+  await expect(label).toBeVisible()
+  await expect(options).toBeVisible()
+  const layout = await page.evaluate(() => {
+    const labelRect = document.querySelector('.bd-list-label').getBoundingClientRect()
+    const optionsRect = document.querySelector('.bd-list-shows').getBoundingClientRect()
+    return { labelBottom: labelRect.bottom, optionsTop: optionsRect.top, viewportWidth: innerWidth, pageWidth: document.documentElement.scrollWidth }
+  })
+  expect(layout.labelBottom).toBeGreaterThan(layout.optionsTop)
+  expect(layout.pageWidth).toBeLessThanOrEqual(layout.viewportWidth)
+})
 test('B2 delegated Enter opens once across renders and remounts', async ({ page }) => {
   for (let mount = 0; mount < 2; mount++) {
     if (mount) {
