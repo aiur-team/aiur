@@ -40,7 +40,7 @@ parse_issue_targets() {
 cmd_status() {
   [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
   if [ "$#" -eq 0 ]; then
-    run_control_rpc "case Aiur.Application.StartupChecks.validate_hosted_secrets() do :ok -> Aiur.AgentControlCLI.status(); {:error, messages} -> IO.puts(Enum.join(messages, \"\\n\")); Aiur.AgentControlCLI.status() end"
+    run_control_rpc "Aiur.AgentControlCLI.status()"
   else
     local handoff=0 json=false arg
     for arg in "$@"; do

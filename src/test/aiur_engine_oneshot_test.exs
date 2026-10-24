@@ -47,8 +47,7 @@ defmodule AiurEngineOneshotTest do
         []
       )
 
-    assert out =~ "RPC:case Aiur.Application.StartupChecks.validate_hosted_secrets()"
-    assert out =~ "IO.puts(Enum.join(messages"
+    assert out =~ "RPC:Aiur.AgentControlCLI.status()"
     refute out =~ "IO.puts(:stderr"
   end
 

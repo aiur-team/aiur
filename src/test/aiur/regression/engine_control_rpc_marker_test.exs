@@ -4,27 +4,6 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
   import Aiur.TestSupport.EngineCase
 
   describe "control RPC exit-marker protocol (FI-CLI-029)" do
-    test "stdout diagnostics from the daemon are visible to the status caller" do
-      rel = fake_release()
-      state = tmp_state()
-
-      File.write!(Path.join([rel, "bin", "aiur"]), "#!/usr/bin/env bash\nprintf '%s\\n' 'missing required secrets: GITHUB_APP_INSTALLATION_ID, AIUR_DASHBOARD_PASSWORD' '__AIUR_CONTROL_EXIT__:0'\n")
-      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
-
-      on_exit(fn ->
-        Aiur.TestCleanup.rm_rf!(rel)
-        Aiur.TestCleanup.rm_rf!(state)
-      end)
-
-      {out, 0} =
-        run_sourced_engine(
-          ~s|run_control_rpc "IO.puts(\\\"missing required secrets\\\")"|,
-          [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}]
-        )
-
-      assert out =~ "missing required secrets: GITHUB_APP_INSTALLATION_ID, AIUR_DASHBOARD_PASSWORD"
-    end
-
     test "a zero marker yields exit 0 and :ok/blank noise lines are filtered" do
       rel = fake_release()
       state = tmp_state()
