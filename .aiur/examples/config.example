@@ -6,6 +6,8 @@ tracker:
   base_branch: {{BASE_BRANCH}}           # required integration branch; `aiur init` offers the repository default read from GitHub
   # propagate_blocker_pushes: true  # default: true for optimistic queue triggers, false otherwise
   # restack_after_blocker_merge: true  # idle dependent fast-forward restacks after squash merge
+  # Runtime reason labels (agent:ci-red, agent:retrying, etc.) are modifiers,
+  # not workflow states; keep them out of active_states.
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, closed, cancelled, canceled]
   # terminal_fence_grace_seconds: 30   # how long a terminal tracker observation stays fenced for undelivered authoritative input before teardown; raise for longer provider turn-delivery latency

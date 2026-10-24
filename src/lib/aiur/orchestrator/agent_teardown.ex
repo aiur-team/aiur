@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
   alias Aiur.AgentPubSub
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{CiLifecycle, DockerCleanup, LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, TrackedSet, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{CiLifecycle, DockerCleanup, LifecycleFenceExpiry, RetryEngine, State, TicketTransition, TokenAccounting, TrackedSet, TrackerTasks, WorkspaceCleanup}
   alias Aiur.ProcessTree
   alias Aiur.Tmux.Socket
 
@@ -46,6 +46,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
   def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
     state = CiLifecycle.cancel_ci_wait_rewake(state, issue_id)
+    state = clear_transient_reason_labels(state, issue_id)
 
     case Map.get(state.running, issue_id) do
       nil ->
@@ -113,6 +114,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   # `:deactivated` is not).
   @spec deactivate_running_issue(State.t(), term()) :: State.t()
   def deactivate_running_issue(%State{} = state, issue_id) do
+    state = clear_transient_reason_labels(state, issue_id)
+
     case Map.get(state.running, issue_id) do
       nil ->
         state
@@ -176,6 +179,35 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # the synthetic 100 bar sample U4 seeds.
         TrackedSet.refresh(new_state)
     end
+  end
+
+  @doc false
+  @spec clear_transient_reason_labels(State.t(), String.t()) :: State.t()
+  def clear_transient_reason_labels(state, issue_id) do
+    running_entry = Map.get(state.running, issue_id, %{})
+    issue = Map.get(running_entry, :issue, %{})
+    identifier = Map.get(issue, :identifier) || to_string(issue_id)
+
+    TrackerTasks.chain(
+      state,
+      {:runtime_reason_labels, identifier},
+      fn ->
+        TicketTransition.clear_transient_reason_modifiers(identifier,
+          writer: :agent_teardown,
+          current_labels: Map.get(issue, :labels, [])
+        )
+      end,
+      fn current, result ->
+        case result do
+          :ok ->
+            current
+
+          {:error, reason} ->
+            Logger.warning("runtime reason label cleanup failed: issue=#{identifier} reason=#{inspect(reason)}")
+            current
+        end
+      end
+    )
   end
 
   @doc false

@@ -72,6 +72,7 @@ R-optional	Aiur.GitHub.Connectivity	baseline 22b2fa407c5d4218d25d63b1aa17472aeca
 R-optional	Aiur.GitHub.Errors	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.HoldPressure	#4067 dispatch declines consult the GitHub hold counter
 R-optional	Aiur.GitHub.Issues	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.Labels	#5838 TicketTransition uses the canonical runtime reason-label vocabulary for validation and rendering
 R-optional	Aiur.GitHub.LandingWithdrawal	#5584 Orchestrator invokes auto-merge withdrawal only for GitHub synchronize and review events.
 R-optional	Aiur.GitHub.LocalHold	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.MergeQueue	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
