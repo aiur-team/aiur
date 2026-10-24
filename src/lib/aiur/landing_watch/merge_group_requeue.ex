@@ -130,6 +130,7 @@ defmodule Aiur.LandingWatch.MergeGroupRequeue do
   defp ticket_can_land?(pr, opts) do
     case TicketLookup.fetch(pr, opts) do
       {:ok, _issue, state, paused?, held?} when state in ["human-review", "ci-wait", "merging"] -> not paused? and not held?
+      {:error, :pull_request_not_linked_to_ticket_branch} -> true
       _ -> false
     end
   end

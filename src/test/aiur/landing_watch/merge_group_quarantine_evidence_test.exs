@@ -113,7 +113,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
     refute_received {:quarantine_pr, _, _}
   end
 
-  test "a multi-module failure absent on main with one changed lib area routes only that PR", %{journal: journal} do
+  test "a multi-module failure routes only the changed PR when innocent ticket lookup succeeds", %{journal: journal} do
     parent = self()
     blame_test = "src/test/aiur/landing_watch/merge_group_blame_test.exs"
     journal_test = "src/test/aiur/landing_watch/merge_group_journal_test.exs"
@@ -177,6 +177,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
       approved_fun: fn _, _ -> {:ok, true} end,
       revalidate_fun: fn _, _, _ -> :ok end,
       attribution_fun: fn _ -> {:ok, :clean} end,
+      ticket_state_fun: fn _issue, _ -> {:ok, %{state: "ci-wait", paused?: false, held?: false}} end,
       comment_fun: fn _, _, _ -> :ok end,
       enqueue_fun: fn node, _, _ ->
         send(parent, {:enqueue, node})

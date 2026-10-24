@@ -206,6 +206,40 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRequeueTest do
     new_pr = %{pr | head: "new-head"}
     assert :ok = MergeGroupRequeue.requeue_group_prs([17], [new_pr], %{"id" => 904}, "known non-PR failure", opts)
     assert_received {:enqueue, "new-head"}
+
+    unlinked_pr = put_in(%{new_pr | head: "unlinked-head"}.rest["head"]["ref"], "dependency/pr-42")
+    assert :ok = MergeGroupRequeue.requeue_group_prs([17], [unlinked_pr], %{"id" => 906}, "known non-PR failure", opts)
+    assert_received {:enqueue, "unlinked-head"}
+  end
+
+  test "an approved linked PR is not group-requeued when its ticket state cannot be read" do
+    parent = self()
+
+    pr = %{
+      number: 17,
+      base: "main",
+      head: "head-17",
+      node_id: "PR_17",
+      draft?: false,
+      review_decision: "APPROVED",
+      merge_queue_entry: nil,
+      auto_merge_request: nil,
+      rest: %{"head" => %{"ref" => "aiur/17-work"}}
+    }
+
+    opts = [
+      ticket_state_fun: fn _, _ -> {:error, :ticket_state_unavailable} end,
+      approved_fun: fn _, _ -> {:ok, true} end,
+      attribution_fun: fn _ -> {:ok, :clean} end,
+      revalidate_fun: fn _, _, _ -> :ok end,
+      enqueue_fun: fn _, head, _ ->
+        send(parent, {:enqueue, head})
+        {:ok, "entry"}
+      end
+    ]
+
+    assert :ok = MergeGroupRequeue.requeue_group_prs([17], [pr], %{"id" => 907}, "known non-PR failure", opts)
+    refute_received {:enqueue, _head}
   end
 
   defp group_run(id, conclusion, prs) do

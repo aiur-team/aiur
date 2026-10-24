@@ -306,22 +306,28 @@ defmodule Aiur.LandingWatch.Journal do
       retained = MapSet.new(keys)
 
       update(opts, fn state ->
-        {:ok,
-         Map.filter(state, fn {entry_key, _} ->
-           entry_key in [
-             "flakes",
-             "flake_tickets",
-             "failure_observations",
-             "quarantine_retries",
-             "merge_group_runs",
-             "merge_group_run_failures",
-             "quarantine_merge_group_runs",
-             "merge_group_requeues",
-             "merge_group_head_holds",
-             "ci_merges"
-           ] or
-             MapSet.member?(retained, entry_key)
-         end)}
+        holds = Map.get(state, "merge_group_head_holds", %{})
+
+        state =
+          Map.filter(state, fn {entry_key, _} ->
+            entry_key in [
+              "flakes",
+              "flake_tickets",
+              "failure_observations",
+              "quarantine_retries",
+              "merge_group_runs",
+              "merge_group_run_failures",
+              "quarantine_merge_group_runs",
+              "merge_group_requeues",
+              "ci_merges"
+            ] or
+              MapSet.member?(retained, entry_key)
+          end)
+
+        holds = Map.filter(holds, fn {entry_key, _} -> MapSet.member?(retained, entry_key) end)
+        state = if map_size(holds) == 0, do: Map.delete(state, "merge_group_head_holds"), else: Map.put(state, "merge_group_head_holds", holds)
+
+        {:ok, state}
       end)
     else
       :ok
