@@ -42,7 +42,6 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.max_repeated_identical_commands` | integer | 5 | Consecutive identical read-only command results before Aiur steers the worker; if it repeats again, the turn stops and raises an attention. `0` disables detection. |
 | `agent.max_commands_per_turn` | integer or nil | nil | Optional maximum tool calls in one turn; null disables the cap. A starting proposal is 1,000 calls. |
 | `agent.max_input_tokens_per_turn` | integer or nil | nil | Optional maximum reported input tokens in one turn; null disables the cap. A starting proposal is 20,000,000 tokens. |
-| `agent.max_repeated_identical_commands` | integer | 5 | Consecutive identical read-only command results before Aiur steers the worker; if it repeats again, the turn stops and raises an attention. `0` disables detection. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
 | `agent.max_turns_by_complexity` | map | `%{}` | Per-complexity turn caps. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |

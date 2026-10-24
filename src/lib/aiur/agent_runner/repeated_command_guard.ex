@@ -54,7 +54,7 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
     usage = Map.get(message, :accounting_usage) || Map.get(message, :usage) || Map.get(message, "usage")
     cumulative? = Map.get(message, :usage_source) == :cumulative_only or not is_nil(Map.get(message, :usage_epoch))
     epoch = Map.get(message, :usage_epoch)
-    input_tokens = if is_map(usage), do: Aiur.TokenUsage.canonicalize(usage), else: nil
+    input_tokens = if is_map(usage), do: input_token_count(usage), else: nil
 
     case {Process.get(@key), input_tokens} do
       {%{input_token_cap: cap} = context, %{input_tokens: amount}}
@@ -79,6 +79,26 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   end
 
   defp usage_for_turn(context, amount, _epoch, false), do: {amount, context}
+
+  defp input_token_count(usage) do
+    amount =
+      Enum.find_value([:input_tokens, "input_tokens", :prompt_tokens, "prompt_tokens"], fn key ->
+        usage |> Map.get(key) |> parse_nonnegative_integer()
+      end)
+
+    if is_integer(amount), do: %{input_tokens: amount}
+  end
+
+  defp parse_nonnegative_integer(value) when is_integer(value) and value >= 0, do: value
+
+  defp parse_nonnegative_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} when parsed >= 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_nonnegative_integer(_value), do: nil
 
   @doc "Updates the streak, resetting it whenever the command or output changes."
   @spec observe(state() | nil, term(), term()) :: {state(), :varied | :repeat}
