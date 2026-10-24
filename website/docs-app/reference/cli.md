@@ -2,9 +2,7 @@
 pageClass: cli-reference
 ---
 # CLI
-Without local config, `aiur` and `aiurdev` use `~/.aiur/config`. Global launches announce the config and `origin` target, then ensure workflow/marker and complexity labels, without model labels. `aiur init` provisions `flake` for [CI failure evidence](/apis/ci-failure-evidence). Local config takes precedence.
-
-`aiur` exists so an **agent can run Aiur on your behalf**; humans can type the commands or watch the TUI and dashboard while their Executor agent drives.
+Local `aiur`/`aiurdev` use `~/.aiur/config`; global launches announce config and `origin` and ensure workflow/marker and complexity labels; `aiur init` provisions `flake` for [CI failure evidence](/apis/ci-failure-evidence); `aiur` lets an agent operate the run while humans type commands or watch the TUI/dashboard.
 
 | Design goal | Result |
 | --- | --- |
@@ -120,8 +118,8 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur message 142 --message-id ID "Check review"` | Names this send. A repeat with the same id, ticket and text returns the first copy and queues nothing new. The same id with other text is refused. Use it only to retry a send whose outcome was unknown. | `aiur message 142 --message-id cli-1a2b "Check the latest review"` |
 | `aiur stop` | Gracefully stops the BEAM and its tmux lifetime session, reaping agent process trees and workspace-rooted descendants before a final launcher backstop removes stragglers. A stopped daemon makes `stop` and `--todo` exit nonzero. | `aiur stop` |
 | `aiur restart` | Stops the running session, refreshes the release, and starts it again detached. See [Restart semantics](#restart-semantics). | `aiur restart` |
-| `aiur restart --keep-agents` | Preflights and hands live providers to the new daemon; prints adoption/fallback reasons and gap. Paused agents are skipped and named. A failed preflight resumes captured workers before aborting. Unsupported daemons abort before stop. The handoff query waits up to 100s for the daemon to answer. May combine with `--no-build`; exits 0 with fallbacks if startup succeeds. | `aiurdev restart --keep-agents` |
-| `aiur status --handoff [--json]` | Last handoff id, timestamps, gap and `adopted[]`/`fallback[]` with before/after provider pids and session ids; JSON is `null` before any handoff; alerts record `system.restart.handoff.completed` / `.fallback`. | `aiur status --handoff --json` |
+| `aiur restart --keep-agents` | Hands compatible live providers to the new daemon. Paused agents are skipped; agents that time out or exit during snapshot are listed as ticket fallbacks and resumed by the new daemon. A failed preflight resumes captured workers before aborting; if the prepared daemon stays up without a stop, it releases the handoff after 10m. The preflight query waits up to 10s and prepare is bounded to 100s inside the 120s RPC; restart waits up to 120s for the old node name, retries one failed boot, then reports failures. | `aiurdev restart --keep-agents` |
+| `aiur status --handoff [--json]` | Last handoff id, timestamps, gap and `adopted[]`/`fallback[]` with before/after provider pids and session ids; text output also shows the durable launcher phase/reason from the latest keep-agents restart; JSON is `null` before any handoff; alerts record `system.restart.handoff.completed` / `.fallback`. | `aiur status --handoff --json` |
 | `aiur agents [--all]` | Prints running and retrying agents plus idle tickets that need attention; summarizes the remaining idle count. `--all` includes every idle ticket. | `aiurdev agents --all` |
 | `aiur agents --json` | Current running agents with issue, provider pid, session id and adopted handoff id. The envelope is `aiur.agents` v1; its schema and generated `AgentsStatus` type are in `@aiur/contracts`. | `aiurdev agents --json` |
 | `aiur restart --no-build` | Bounces the daemon on whatever release is already on disk. Use it for a fast restart, or to bounce without taking uncommitted source edits live. It has no effect on the installed `aiur`, which never builds. It cannot rescue a failed development rebuild: that removes the incomplete release, so there is nothing left to start, and `restart` says so instead of suggesting it. | `aiur restart --no-build` |
@@ -162,6 +160,7 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 | Development release | Refreshes between stop and start, then boots current code. |
 | Daemon already stopped | Starts it. |
 | Daemon still answers after stop | Aborts rather than rebuilding underneath it. |
+| Startup boot fails | Cleans up and retries once; exits nonzero if the retry also fails. |
 
 After-stop failures report that the daemon was not restarted; a failed rebuild retains the handoff and providers until the configured relay orphan timeout (default 30 minutes). Without `--keep-agents`, restart reaps agents as `stop` does; with it, agent sockets, relays and the pidfile survive.
 
@@ -451,8 +450,8 @@ Apart from the commands below, `aiurdev` executes the same launcher engine as `a
 | `scripts/aiurdev build --deps` | Rebuilds dependencies as part of the development build. | `scripts/aiurdev build --deps` |
 | `scripts/aiurdev upgrade` | Refuses because the development shim runs source from this checkout; install the npm CLI and use `aiur upgrade` instead. | `scripts/aiurdev upgrade` |
 | `scripts/aiurdev --test` | Resets the first pinned sandbox ticket, then runs the foreground harness scoped to that ticket for startup cleanup and polling. It first stops the keyed live daemon and is blocked from agent workspaces. Test runs reopen closed sandbox tickets, cap at the pinned ticket count, ignore host load and CPU PSI gates, and bind a free dashboard port when the configured one is taken. | `scripts/aiurdev --test --force` |
-| `scripts/aiurdev --test3` | Resets the pinned blocker-chain tickets, then runs scoped to those tickets for startup cleanup and polling. It stops the keyed live daemon, permits the remote scenario, preserves logs unless `--clear` is added, and is blocked from agent workspaces. | `scripts/aiurdev --test3` |
-| `scripts/aiurdev --allow-remote` | Permits the remote test scenario. | `scripts/aiurdev --test3 --allow-remote` |
+| `scripts/aiurdev --test3` | Resets the pinned blocker-chain tickets, then runs scoped to those tickets for startup cleanup and polling. It stops the keyed live daemon, permits the remote scenario only in local mode, preserves logs unless `--clear` is added, and is blocked from agent workspaces. | `scripts/aiurdev --test3` |
+| `scripts/aiurdev --allow-remote` | Permits the remote test scenario in local mode; hosted mode refuses this bypass. | `scripts/aiurdev --test3 --allow-remote` |
 | `scripts/aiurdev --clear` | Requires debug mode; deletes only this instance’s log roots with a recorded, dead owner PID. Live, foreign, and unmarked roots are preserved. | `scripts/aiurdev --debug --clear` |
 | `aiur pre-pr` / `scripts/aiurdev pre-pr` | Merges `origin/main`, then runs cheap gates, guard tests, and selected or matching reader tests. Full suite runs in the merge queue. The result says `Not run: Credo and specs (make lint), dialyzer, full suite`. Also writes the result to `aiur-pre-pr/result.txt` in the checkout's git dir: `INCOMPLETE` while running, `INTERRUPTED` after INT/TERM/HUP. Uses temporary HOME/storage; requires a clean checkout and never pushes. | `aiur pre-pr` |
 
