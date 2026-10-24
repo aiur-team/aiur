@@ -25,6 +25,10 @@ defmodule AiurWeb.Build.URLStateTest do
     assert canonical("") == ""
   end
 
+  test "agent-state filters accept runtime reason labels" do
+    assert URLState.parse(%{"astate" => "ci-red,paused-usage-limit,unknown"}).astate == ["ci-red", "paused-usage-limit"]
+  end
+
   test "span accepts only complete supported integers" do
     assert canonical("span=07") == "span=7"
     for value <- ["7.0", "4", "-1", " 7", "0x7"], do: assert(URLState.parse(%{"span" => value}).span == 1)
