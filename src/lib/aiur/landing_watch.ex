@@ -363,7 +363,7 @@ defmodule Aiur.LandingWatch do
         :ok
 
       true ->
-        land_unless_ticket_active(observation, opts)
+        if Journal.merge_group_head_held?(observation.number, observation.head, opts) == {:ok, true}, do: :ok, else: land_unless_ticket_active(observation, opts)
     end
   end
 
