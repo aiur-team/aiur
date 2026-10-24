@@ -437,7 +437,7 @@ jobs:
         include: [{ shard: 1, verify_fixtures: true, upload_evidence: true },
           { shard: 2, visual_regression: first },
           { shard: 5, visual_regression: second },
-          { shard: 2, upload_evidence: true }, { shard: 5, upload_evidence: true }, { shard: 8, upload_evidence: true }, { shard: 9, upload_evidence: true }]
+          { shard: 2, upload_evidence: true }, { shard: 5, upload_evidence: true }, { shard: 8, upload_evidence: true }]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
