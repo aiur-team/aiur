@@ -12,6 +12,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
   alias Aiur.Orchestrator.Dispatcher.Candidates
+  alias Aiur.Orchestrator.HostedModeCheck
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.State
 
@@ -79,6 +80,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   defp prepare_for_dispatch(state, issue, opts) do
     with false <- Handoff.dispatch_held?(),
          {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
+         :ok <- HostedModeCheck.validate_configured_dispatch(prepared, opts),
          {:ok, selected_issue} <- CodingAgent.select_for_dispatch(prepared) do
       state = %{
         state
