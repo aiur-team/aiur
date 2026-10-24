@@ -18,6 +18,7 @@ prepare_restart_handoff() {
     [ -z "$output" ] || printf '%s\n' "$output" >&2
     die "restart --keep-agents aborted before stop: handoff preflight failed"
   }
+  printf '%s\n' "$output" | sed '/^__AIUR_HANDOFF__:/d; /^__AIUR_CONTROL_EXIT__:/d' >&2
   AIUR_RESTART_HANDOFF_ID="$(printf '%s\n' "$output" | sed -n 's/^__AIUR_HANDOFF__://p')"
   [[ "$AIUR_RESTART_HANDOFF_ID" =~ ^[A-Za-z0-9_-]+$ ]] || die "handoff preflight returned no valid handoff id; nothing stopped"
 }

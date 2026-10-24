@@ -50,7 +50,10 @@ defmodule Aiur.Handoff do
   @spec config_fingerprint() :: String.t()
   def config_fingerprint do
     {:ok, config} = Aiur.Config.settings()
-    values = {config.tracker.kind, config.tracker.github.repo, config.tracker.linear.project_slug, config.workspace.root, config.worker.ssh_hosts}
+
+    values =
+      {config.tracker.kind, config.tracker.github.repo, config.tracker.linear.project_slug, config.workspace.root, config.worker.ssh_hosts}
+
     :crypto.hash(:sha256, :erlang.term_to_binary(values)) |> Base.encode16(case: :lower)
   end
 
@@ -70,19 +73,38 @@ defmodule Aiur.Handoff do
     hold = Keyword.get(opts, :hold, &RunnerHandoff.hold/1)
     Enum.each(entries, fn {_id, entry} -> hold.(entry.pid) end)
 
-    with :ok <- ToolCallLedger.quiesce(Keyword.get(opts, :tool_timeout_ms, 60_000), Keyword.get(opts, :ledger, ToolCallLedger)),
+    with :ok <-
+           ToolCallLedger.quiesce(
+             Keyword.get(opts, :tool_timeout_ms, 60_000),
+             Keyword.get(opts, :ledger, ToolCallLedger)
+           ),
          {:ok, agents} <- snapshots(entries, server, opts),
          record = record(agents, opts),
          :ok <- Record.write(record, opts) do
       survivors = Enum.filter(agents, &is_nil(&1["fallback_reason"]))
-      tickets = survivors |> Enum.flat_map(&[&1["issue_id"], &1["identifier"]]) |> Enum.reject(&is_nil/1) |> Enum.map(&to_string/1) |> MapSet.new()
+
+      tickets =
+        survivors
+        |> Enum.flat_map(&[&1["issue_id"], &1["identifier"]])
+        |> Enum.reject(&is_nil/1)
+        |> Enum.map(&to_string/1)
+        |> MapSet.new()
 
       refs =
         Enum.flat_map(survivors, &transport_refs/1) ++
-          for {ref, :agent, meta} <- ProcessReaper.entries(), MapSet.member?(tickets, to_string(meta[:ticket])), do: ref
+          for {ref, :agent, meta} <- ProcessReaper.entries(),
+              MapSet.member?(tickets, to_string(meta[:ticket])),
+              do: ref
 
       :ok = ProcessReaper.handoff(refs)
-      result = %{path: Record.path(opts), handoff_id: record["handoff_id"], agents: agents, skipped: Enum.map(skipped, fn {_id, entry} -> entry.identifier end)}
+
+      result = %{
+        path: Record.path(opts),
+        handoff_id: record["handoff_id"],
+        agents: agents,
+        skipped: Enum.map(skipped, fn {_id, entry} -> entry.identifier end)
+      }
+
       Protection.store(owner, result, tickets)
       {:ok, result}
     else
@@ -95,11 +117,18 @@ defmodule Aiur.Handoff do
   end
 
   defp transport_refs(%{"transport" => transport}) do
-    pids = for key <- ~w(relay_pid provider_pid os_pid), pid = transport[key], is_integer(pid) and pid > 0, do: {:os_pid, pid}
+    pids =
+      for key <- ~w(relay_pid provider_pid os_pid),
+          pid = transport[key],
+          is_integer(pid) and pid > 0,
+          do: {:os_pid, pid}
 
     case transport do
-      %{"pane_id" => pane, "socket" => socket} when is_binary(pane) and is_binary(socket) -> [{:pane, pane, socket} | pids]
-      _ -> pids
+      %{"pane_id" => pane, "socket" => socket} when is_binary(pane) and is_binary(socket) ->
+        [{:pane, pane, socket} | pids]
+
+      _ ->
+        pids
     end
   end
 
@@ -113,37 +142,78 @@ defmodule Aiur.Handoff do
         {:ok, agent} ->
           state = GenServer.call(server, :prepare_handoff_snapshot, 65_000)
           entry = Map.get(state.running, id, entry)
-
-          metadata = %{
-            "issue_id" => id,
-            "identifier" => entry.issue.identifier,
-            "worker_host" => entry[:worker_host],
-            "issue" => json_value(entry.issue),
-            "running_entry" => RunnerHandoff.encode(Map.drop(entry, [:pid, :ref])),
-            "started_at" => entry[:started_at],
-            "retry_state" => RunnerHandoff.encode(Map.get(state.retry_attempts, id)),
-            "dispatch_attempts" => RunnerHandoff.encode(get_in(state.dispatch_recovery, [:codex_thrash_budget, id]))
-          }
-
-          {:cont, {:ok, [Map.merge(metadata, agent) | agents]}}
+          {:cont, {:ok, [Map.merge(snapshot_metadata(id, entry, state), agent) | agents]}}
 
         {:error, reason} ->
-          {:halt, {:error, {id, reason}}}
+          snapshot_failure(id, entry, reason, agents, server, opts)
       end
     end)
   end
 
+  defp snapshot_failure(id, entry, reason, agents, server, opts) do
+    case snapshot_fallback_reason(reason) do
+      nil ->
+        {:halt, {:error, {id, reason}}}
+
+      fallback_reason ->
+        abort = Keyword.get(opts, :abort, &RunnerHandoff.abort/1)
+        abort.(entry.pid)
+        state = GenServer.call(server, :prepare_handoff_snapshot, 65_000)
+        entry = Map.get(state.running, id, entry)
+
+        fallback =
+          snapshot_metadata(id, entry, state)
+          |> Map.merge(%{
+            "backend" => get_in(entry, [:session_execution, :backend]) || "unknown",
+            "workspace" => entry[:workspace_path],
+            "transport" => %{"kind" => "unsupported"},
+            "fallback_reason" => fallback_reason
+          })
+
+        {:cont, {:ok, [fallback | agents]}}
+    end
+  end
+
+  defp snapshot_metadata(id, entry, state) do
+    %{
+      "issue_id" => id,
+      "identifier" => entry.issue.identifier,
+      "worker_host" => entry[:worker_host],
+      "issue" => json_value(entry.issue),
+      "running_entry" => RunnerHandoff.encode(Map.drop(entry, [:pid, :ref])),
+      "started_at" => entry[:started_at],
+      "retry_state" => RunnerHandoff.encode(Map.get(state.retry_attempts, id)),
+      "dispatch_attempts" => RunnerHandoff.encode(get_in(state.dispatch_recovery, [:codex_thrash_budget, id]))
+    }
+  end
+
+  defp snapshot_fallback_reason(:snapshot_timeout), do: "snapshot_timeout"
+  defp snapshot_fallback_reason({:runner_gone, _reason}), do: "runner_gone"
+  defp snapshot_fallback_reason(_reason), do: nil
+
   defp snapshot_agent(entry, snapshot) do
     case get_in(entry, [:session_execution, :backend]) do
-      backend when backend in [nil, "codex", "claude", "claude-repl"] -> snapshot.(entry.pid)
-      backend -> {:ok, %{"backend" => backend, "workspace" => entry[:workspace_path], "transport" => %{"kind" => "unsupported"}, "fallback_reason" => "relay_protocol"}}
+      backend when backend in [nil, "codex", "claude", "claude-repl"] ->
+        snapshot.(entry.pid)
+
+      backend ->
+        {:ok,
+         %{
+           "backend" => backend,
+           "workspace" => entry[:workspace_path],
+           "transport" => %{"kind" => "unsupported"},
+           "fallback_reason" => "relay_protocol"
+         }}
     end
   end
 
   defp json_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp json_value(%MapSet{} = value), do: Enum.map(value, &json_value/1)
   defp json_value(%_{} = value), do: value |> Map.from_struct() |> json_value()
-  defp json_value(value) when is_map(value), do: Map.new(value, fn {key, item} -> {to_string(key), json_value(item)} end)
+
+  defp json_value(value) when is_map(value),
+    do: Map.new(value, fn {key, item} -> {to_string(key), json_value(item)} end)
+
   defp json_value(value) when is_list(value), do: Enum.map(value, &json_value/1)
   defp json_value(value) when is_reference(value) or is_pid(value) or is_function(value), do: nil
   defp json_value(value) when is_tuple(value), do: value |> Tuple.to_list() |> json_value()

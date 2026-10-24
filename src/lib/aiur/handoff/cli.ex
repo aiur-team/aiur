@@ -48,7 +48,14 @@ defmodule Aiur.Handoff.CLI do
     case Aiur.AgentControlCLI.prepare_handoff() do
       {:ok, result} ->
         IO.puts("__AIUR_HANDOFF__:#{result.handoff_id}")
-        if result.skipped != [], do: IO.puts("Handoff skipped paused agents: #{Enum.join(result.skipped, ", ")}")
+
+        if result.skipped != [],
+          do: IO.puts("Handoff skipped paused agents: #{Enum.join(result.skipped, ", ")}")
+
+        for agent <- result.agents, reason = agent["fallback_reason"], not is_nil(reason) do
+          IO.puts("Handoff ticket fallback: #{agent["identifier"]} (#{reason})")
+        end
+
         exit_marker(0)
 
       {:error, reason} ->
@@ -80,8 +87,30 @@ defmodule Aiur.Handoff.CLI do
   def agents(opts \\ []) do
     guarded("agents --json", fn ->
       snapshot = Keyword.get_lazy(opts, :snapshot, &Aiur.Orchestrator.snapshot/0)
-      rows = Enum.map(snapshot.running, &Map.take(&1, [:identifier, :issue_id, :session_id, :provider_pid, :codex_app_server_pid, :adopted_from]))
-      rows = Enum.map(rows, &Map.put(&1, :provider_pid, Report.provider_pid(&1[:provider_pid] || &1[:codex_app_server_pid])))
+
+      rows =
+        Enum.map(
+          snapshot.running,
+          &Map.take(&1, [
+            :identifier,
+            :issue_id,
+            :session_id,
+            :provider_pid,
+            :codex_app_server_pid,
+            :adopted_from
+          ])
+        )
+
+      rows =
+        Enum.map(
+          rows,
+          &Map.put(
+            &1,
+            :provider_pid,
+            Report.provider_pid(&1[:provider_pid] || &1[:codex_app_server_pid])
+          )
+        )
+
       IO.puts(Jason.encode!(%{running: rows}))
       exit_marker(0)
     end)
@@ -98,8 +127,12 @@ defmodule Aiur.Handoff.CLI do
 
       true ->
         IO.puts("HANDOFF #{report.handoff_id} at=#{report.completed_at || "unknown"} adopted=#{length(report.adopted)} fallback=#{length(report.fallback)} gap=#{report.gap_ms || "unknown"}ms")
-        for agent <- report.adopted, do: IO.puts("#{agent["identifier"]} adopted pid=#{agent["provider_pid_after"]} session=#{agent["session_id_after"]}")
-        for agent <- report.fallback, do: IO.puts("#{agent["identifier"]} fallback #{agent["reason"]}")
+
+        for agent <- report.adopted,
+            do: IO.puts("#{agent["identifier"]} adopted pid=#{agent["provider_pid_after"]} session=#{agent["session_id_after"]}")
+
+        for agent <- report.fallback,
+            do: IO.puts("#{agent["identifier"]} fallback #{agent["reason"]}")
     end
 
     :ok

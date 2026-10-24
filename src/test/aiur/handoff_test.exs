@@ -5,6 +5,7 @@ defmodule Aiur.HandoffTest do
   alias Aiur.AgentRunner.Handoff, as: RunnerHandoff
   alias Aiur.AppServer.{Adapter, ToolCallLedger, TurnLoop}
   alias Aiur.Handoff
+  alias Aiur.Handoff.Compatibility
   alias Aiur.ProcessReaper
 
   defmodule Owner do
@@ -40,7 +41,10 @@ defmodule Aiur.HandoffTest do
     assert_receive {:tool_running, tool_pid}, 1000
 
     state = %{
-      running: %{"1" => %{pid: self(), issue: %Aiur.Issue{id: "1", identifier: "1"}}, "2" => %{pid: self(), issue: %Aiur.Issue{id: "2", identifier: "2"}}},
+      running: %{
+        "1" => %{pid: self(), issue: %Aiur.Issue{id: "1", identifier: "1"}},
+        "2" => %{pid: self(), issue: %Aiur.Issue{id: "2", identifier: "2"}}
+      },
       retry_attempts: %{},
       dispatch_recovery: %{}
     }
@@ -61,7 +65,12 @@ defmodule Aiur.HandoffTest do
       hold: fn _ -> send(test_pid, :held) end,
       snapshot: fn _ ->
         send(test_pid, :snapshotted)
-        {:ok, %{"transport" => %{"acked_offset" => 17}, "pending_requests" => [%{"id" => 8, "method" => "turn/start"}]}}
+
+        {:ok,
+         %{
+           "transport" => %{"acked_offset" => 17},
+           "pending_requests" => [%{"id" => 8, "method" => "turn/start"}]
+         }}
       end
     ]
 
@@ -86,7 +95,12 @@ defmodule Aiur.HandoffTest do
     identifier = "handoff-queue"
 
     :sys.replace_state(server, fn state ->
-      {store, _item} = Aiur.AgentQueueStore.enqueue(state.queue_store, Aiur.AgentQueue.operator_message(identifier, "continue"))
+      {store, _item} =
+        Aiur.AgentQueueStore.enqueue(
+          state.queue_store,
+          Aiur.AgentQueue.operator_message(identifier, "continue")
+        )
+
       %{state | queue_store: store}
     end)
 
@@ -99,9 +113,25 @@ defmodule Aiur.HandoffTest do
 
   test "an unsupported native backend falls back without preventing a compatible snapshot" do
     {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
-    native = %{pid: self(), issue: %Aiur.Issue{id: "native", identifier: "native"}, session_execution: %{backend: "muse"}}
-    compatible = %{pid: self(), issue: %Aiur.Issue{id: "local", identifier: "local"}, session_execution: %{backend: "codex"}}
-    state = %{running: %{"native" => native, "local" => compatible}, retry_attempts: %{}, dispatch_recovery: %{}}
+
+    native = %{
+      pid: self(),
+      issue: %Aiur.Issue{id: "native", identifier: "native"},
+      session_execution: %{backend: "muse"}
+    }
+
+    compatible = %{
+      pid: self(),
+      issue: %Aiur.Issue{id: "local", identifier: "local"},
+      session_execution: %{backend: "codex"}
+    }
+
+    state = %{
+      running: %{"native" => native, "local" => compatible},
+      retry_attempts: %{},
+      dispatch_recovery: %{}
+    }
+
     {:ok, owner} = start_supervised({Owner, state})
     dir = Path.join(System.tmp_dir!(), "handoff-native-#{System.unique_integer([:positive])}")
     parent = self()
@@ -126,7 +156,10 @@ defmodule Aiur.HandoffTest do
 
     assert_receive :snapshot, 1000
     refute_receive :snapshot, 20
-    assert Enum.find(agents, &(&1["identifier"] == "native"))["fallback_reason"] == "relay_protocol"
+
+    assert Enum.find(agents, &(&1["identifier"] == "native"))["fallback_reason"] ==
+             "relay_protocol"
+
     assert Handoff.protected?("local")
     refute Handoff.protected?("native")
   end
@@ -152,6 +185,78 @@ defmodule Aiur.HandoffTest do
     refute GenServer.call(owner, :held?)
   end
 
+  test "snapshot timeout and a gone runner fall back by ticket without blocking other snapshots" do
+    {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
+
+    pids = for _ <- 1..3, do: spawn(fn -> Process.sleep(:infinity) end)
+
+    running =
+      Map.new(Enum.zip(["1", "2", "3"], pids), fn {id, pid} ->
+        {id,
+         %{
+           pid: pid,
+           issue: %Aiur.Issue{id: id, identifier: "ISSUE-#{id}"},
+           session_execution: %{backend: "codex"}
+         }}
+      end)
+
+    state = %{running: running, retry_attempts: %{}, dispatch_recovery: %{}}
+    {:ok, owner} = start_supervised({Owner, state})
+    dir = Path.join(System.tmp_dir!(), "handoff-partial-#{System.unique_integer([:positive])}")
+    parent = self()
+    [timeout_pid, gone_pid, healthy_pid] = pids
+
+    on_exit(fn ->
+      Enum.each(pids, &Process.exit(&1, :kill))
+      Aiur.TestCleanup.rm_rf!(dir)
+      Handoff.reset()
+    end)
+
+    assert {:ok, %{agents: agents}} =
+             Handoff.prepare(
+               orchestrator: owner,
+               ledger: ledger,
+               dir: dir,
+               config_fingerprint: "config",
+               hold: fn _ -> :ok end,
+               abort: fn pid -> send(parent, {:aborted, pid}) end,
+               snapshot: fn pid ->
+                 send(parent, {:snapshot, pid})
+
+                 case pid do
+                   ^timeout_pid -> {:error, :snapshot_timeout}
+                   ^gone_pid -> {:error, {:runner_gone, :turn_failed}}
+                   ^healthy_pid -> {:ok, %{"transport" => %{"kind" => "relay"}}}
+                 end
+               end
+             )
+
+    assert Enum.map(Enum.filter(agents, & &1["fallback_reason"]), & &1["fallback_reason"])
+           |> Enum.sort() ==
+             ["runner_gone", "snapshot_timeout"]
+
+    assert [healthy] = Enum.filter(agents, &is_nil(&1["fallback_reason"]))
+    assert Handoff.protected?(healthy["identifier"])
+    assert {:ok, record} = Handoff.Record.read(dir: dir)
+
+    for agent <- Enum.filter(agents, & &1["fallback_reason"]) do
+      reason =
+        if agent["fallback_reason"] == "snapshot_timeout",
+          do: :snapshot_timeout,
+          else: :runner_gone
+
+      assert {:error, ^reason} =
+               Compatibility.check(agent, record, config_fingerprint: "config")
+    end
+
+    assert_receive {:aborted, pid1}, 1_000
+    assert_receive {:aborted, pid2}, 1_000
+    assert MapSet.new([pid1, pid2]) == MapSet.new(Enum.take(pids, 2))
+    assert_receive {:snapshot, ^timeout_pid}, 1_000
+    assert_receive {:snapshot, ^gone_pid}, 1_000
+    assert_receive {:snapshot, ^healthy_pid}, 1_000
+  end
+
   test "expired tool execution becomes an uncertain tombstone and cannot run again" do
     {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
     test_pid = self()
@@ -175,7 +280,15 @@ defmodule Aiur.HandoffTest do
     assert_receive {:running, worker}, 1000
     monitor = Process.monitor(worker)
     assert :ok = ToolCallLedger.quiesce(0, ledger)
-    assert {:error, :outcome_uncertain} = ToolCallLedger.execute_cancellable(:slow, "same", fn -> flunk("executed twice") end, ledger)
+
+    assert {:error, :outcome_uncertain} =
+             ToolCallLedger.execute_cancellable(
+               :slow,
+               "same",
+               fn -> flunk("executed twice") end,
+               ledger
+             )
+
     assert {:error, :outcome_uncertain} = Task.await(tool)
     assert_receive {:DOWN, ^monitor, :process, ^worker, :killed}, 1000
   end
@@ -188,7 +301,13 @@ defmodule Aiur.HandoffTest do
         apply(ToolCallLedger, mode, [mode, "failure", fn -> raise "tool failed" end, ledger])
       end
 
-      assert {:error, :outcome_uncertain} = apply(ToolCallLedger, mode, [mode, "failure", fn -> flunk("replayed failed tool") end, ledger])
+      assert {:error, :outcome_uncertain} =
+               apply(ToolCallLedger, mode, [
+                 mode,
+                 "failure",
+                 fn -> flunk("replayed failed tool") end,
+                 ledger
+               ])
     end)
   end
 
@@ -231,8 +350,17 @@ defmodule Aiur.HandoffTest do
 
   test "paused agents are skipped without entering the snapshot barrier" do
     {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
-    paused = %{pid: self(), issue: %Aiur.Issue{id: "paused", identifier: "paused"}, identifier: "paused", control: %{status: :paused}}
-    {:ok, owner} = start_supervised({Owner, %{running: %{"paused" => paused}, retry_attempts: %{}, dispatch_recovery: %{}}})
+
+    paused = %{
+      pid: self(),
+      issue: %Aiur.Issue{id: "paused", identifier: "paused"},
+      identifier: "paused",
+      control: %{status: :paused}
+    }
+
+    {:ok, owner} =
+      start_supervised({Owner, %{running: %{"paused" => paused}, retry_attempts: %{}, dispatch_recovery: %{}}})
+
     dir = Path.join(System.tmp_dir!(), "handoff-paused-#{System.unique_integer([:positive])}")
 
     on_exit(fn ->
@@ -254,7 +382,9 @@ defmodule Aiur.HandoffTest do
   end
 
   @tag :tmp_dir
-  test "a prepare that fails after the snapshot leaves live runners finishing their turn", %{tmp_dir: workspace} do
+  test "a prepare that fails after the snapshot leaves live runners finishing their turn", %{
+    tmp_dir: workspace
+  } do
     {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
     gate = Path.join(workspace, "go")
     script = Path.join(workspace, "provider.py")
@@ -273,20 +403,52 @@ defmodule Aiur.HandoffTest do
       spawn(fn ->
         {:ok, port} = Adapter.start_port(workspace, "python3 #{script}")
         session = %{backend: "codex", port: port, thread_id: "thread-1", workspace: workspace}
-        session = RunnerHandoff.before_turn(session, %{issue: issue, workspace: workspace, opts: [], turn_number: 1, max_turns: 1})
+
+        session =
+          RunnerHandoff.before_turn(session, %{
+            issue: issue,
+            workspace: workspace,
+            opts: [],
+            turn_number: 1,
+            max_turns: 1
+          })
+
         send(parent, :ready)
-        result = TurnLoop.receive_loop(session, Map.merge(base_state(), %{timeout_ms: 5_000, pending_line: ""}))
+
+        result =
+          TurnLoop.receive_loop(
+            session,
+            Map.merge(base_state(), %{timeout_ms: 5_000, pending_line: ""})
+          )
+
         send(parent, {:finished, result, session.thread_id})
       end)
 
     assert_receive :ready, 5_000
-    {:ok, owner} = start_supervised({Owner, %{running: %{"1" => %{pid: runner, issue: issue, identifier: "ISSUE-1"}}, retry_attempts: %{}, dispatch_recovery: %{}}})
+
+    {:ok, owner} =
+      start_supervised(
+        {Owner,
+         %{
+           running: %{"1" => %{pid: runner, issue: issue, identifier: "ISSUE-1"}},
+           retry_attempts: %{},
+           dispatch_recovery: %{}
+         }}
+      )
+
     # A regular file as the record directory makes the write fail after the snapshot.
     blocked = Path.join(workspace, "not-a-dir")
     File.write!(blocked, "")
     on_exit(&Handoff.reset/0)
 
-    assert {:error, %File.Error{reason: :enotdir}} = Handoff.prepare(orchestrator: owner, ledger: ledger, dir: blocked, config_fingerprint: "config")
+    assert {:error, %File.Error{reason: :enotdir}} =
+             Handoff.prepare(
+               orchestrator: owner,
+               ledger: ledger,
+               dir: blocked,
+               config_fingerprint: "config"
+             )
+
     refute GenServer.call(owner, :held?)
     File.touch!(gate)
     # The first decode in a fresh VM loads every app module, so allow for it.

@@ -140,6 +140,30 @@ defmodule AiurEngineRestartTest do
     assert out =~ "STOPPED and was NOT restarted"
   end
 
+  test "restart names ticket fallbacks reported during handoff preflight" do
+    {out, 0} =
+      run_sourced_engine(
+        """
+        run_control_rpc() {
+          case "$1" in
+            *prepare*)
+              printf '%s\\n' '__AIUR_HANDOFF__:handoff-1' 'Handoff ticket fallback: ISSUE-42 (snapshot_timeout)'
+              ;;
+            *report*) echo 'HANDOFF handoff-1 adopted=0 fallback=1 gap=100ms'; echo 'ISSUE-42 fallback snapshot_timeout' ;;
+          esac
+        }
+        cmd_stop() { :; }
+        dispatch_run() { echo "RUN:$*"; }
+        cmd_restart --keep-agents --no-build
+        """,
+        []
+      )
+
+    assert out =~ "Handoff ticket fallback: ISSUE-42 (snapshot_timeout)"
+    assert out =~ "ISSUE-42 fallback snapshot_timeout"
+    refute out =~ "__AIUR_HANDOFF__:"
+  end
+
   test "restart refuses a legacy config before stopping or rebuilding" do
     root = Aiur.TestSupport.tmp_root!("aiur-restart-legacy-config")
     File.mkdir_p!(root)

@@ -2,9 +2,7 @@
 pageClass: cli-reference
 ---
 # CLI
-Without local config, `aiur` and `aiurdev` use `~/.aiur/config`. Global launches announce the config and `origin` target, then ensure workflow/marker and complexity labels, without model labels. `aiur init` provisions `flake` for [CI failure evidence](/apis/ci-failure-evidence). Local config takes precedence.
-
-`aiur` exists so an **agent can run Aiur on your behalf**; humans can type the commands or watch the TUI and dashboard while their Executor agent drives.
+Without local config, `aiur` and `aiurdev` use `~/.aiur/config`. Global launches announce the config and `origin` target, then ensure workflow/marker and complexity labels, without model labels. `aiur init` provisions `flake` for [CI failure evidence](/apis/ci-failure-evidence). Local config takes precedence. `aiur` exists so an **agent can run Aiur on your behalf**; humans can type the commands or watch the TUI and dashboard while their Executor agent drives.
 
 | Design goal | Result |
 | --- | --- |
@@ -120,7 +118,7 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur message 142 --message-id ID "Check review"` | Names this send. A repeat with the same id, ticket and text returns the first copy and queues nothing new. The same id with other text is refused. Use it only to retry a send whose outcome was unknown. | `aiur message 142 --message-id cli-1a2b "Check the latest review"` |
 | `aiur stop` | Gracefully stops the BEAM and its tmux lifetime session, reaping agent process trees and workspace-rooted descendants before a final launcher backstop removes stragglers. A stopped daemon makes `stop` and `--todo` exit nonzero. | `aiur stop` |
 | `aiur restart` | Stops the running session, refreshes the release, and starts it again detached. See [Restart semantics](#restart-semantics). | `aiur restart` |
-| `aiur restart --keep-agents` | Preflights and hands live providers to the new daemon; prints adoption/fallback reasons and gap. Paused agents are skipped and named. A failed preflight resumes captured workers before aborting. Unsupported daemons abort before stop. The handoff query waits up to 100s for the daemon to answer. May combine with `--no-build`; waits up to 120s for the prior node name to be released, retries one failed boot, exits 0 with fallbacks if startup succeeds, and exits nonzero after the final boot failure. | `aiurdev restart --keep-agents` |
+| `aiur restart --keep-agents` | Hands compatible live providers to the new daemon. Paused agents are skipped; agents that time out or exit during snapshot are listed as ticket fallbacks and resumed by the new daemon. A failed preflight resumes captured workers before aborting. The query waits up to 100s; restart waits up to 120s for the old node name, retries one failed boot, then reports failures. | `aiurdev restart --keep-agents` |
 | `aiur status --handoff [--json]` | Last handoff id, timestamps, gap and `adopted[]`/`fallback[]` with before/after provider pids and session ids; JSON is `null` before any handoff; alerts record `system.restart.handoff.completed` / `.fallback`. | `aiur status --handoff --json` |
 | `aiur agents [--all]` | Prints running and retrying agents plus idle tickets that need attention; summarizes the remaining idle count. `--all` includes every idle ticket. | `aiurdev agents --all` |
 | `aiur agents --json` | Current running agents with issue, provider pid, session id and adopted handoff id. | `aiurdev agents --json` |
