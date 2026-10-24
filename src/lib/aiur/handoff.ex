@@ -8,6 +8,9 @@ defmodule Aiur.Handoff do
   alias Aiur.ProcessReaper
   alias Aiur.RunTelemetry.RunContext
 
+  @prepare_timeout_ms 100_000
+  @finalize_reserve_ms 5_000
+
   @spec prepare(keyword()) :: {:ok, map()} | {:error, term()}
   def prepare(opts \\ []) do
     server = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
@@ -66,52 +69,90 @@ defmodule Aiur.Handoff do
 
   defp do_prepare(owner, server, opts) do
     opts = Keyword.put_new_lazy(opts, :config_fingerprint, &config_fingerprint/0)
-    state = GenServer.call(server, :prepare_handoff_snapshot, 65_000)
+    deadline = System.monotonic_time(:millisecond) + Keyword.get(opts, :prepare_timeout_ms, @prepare_timeout_ms)
+
+    case call_with_deadline(server, :prepare_handoff_snapshot, deadline, @finalize_reserve_ms) do
+      {:ok, state} ->
+        prepare_entries(owner, server, opts, deadline, state)
+
+      {:error, reason} ->
+        cancel_dispatch(server)
+        {:error, reason}
+    end
+  end
+
+  defp prepare_entries(owner, server, opts, deadline, state) do
     all_entries = Enum.filter(state.running, fn {_id, entry} -> is_pid(entry[:pid]) end)
     skipped = Enum.filter(all_entries, fn {_id, entry} -> State.paused_running_entry?(entry) end)
     entries = Enum.reject(all_entries, fn {_id, entry} -> State.paused_running_entry?(entry) end)
     hold = Keyword.get(opts, :hold, &RunnerHandoff.hold/1)
-    Enum.each(entries, fn {_id, entry} -> hold.(entry.pid) end)
 
-    with :ok <-
-           ToolCallLedger.quiesce(
-             Keyword.get(opts, :tool_timeout_ms, 60_000),
-             Keyword.get(opts, :ledger, ToolCallLedger)
-           ),
-         {:ok, agents} <- snapshots(entries, server, opts),
-         record = record(agents, opts),
-         :ok <- Record.write(record, opts) do
-      survivors = Enum.filter(agents, &is_nil(&1["fallback_reason"]))
+    outcome =
+      try do
+        Enum.each(entries, fn {_id, entry} -> hold.(entry.pid) end)
 
-      tickets =
-        survivors
-        |> Enum.flat_map(&[&1["issue_id"], &1["identifier"]])
-        |> Enum.reject(&is_nil/1)
-        |> Enum.map(&to_string/1)
-        |> MapSet.new()
+        with {:ok, quiesce_timeout} <- remaining_timeout(deadline, @finalize_reserve_ms),
+             :ok <-
+               ToolCallLedger.quiesce(
+                 min(Keyword.get(opts, :tool_timeout_ms, 60_000), quiesce_timeout),
+                 Keyword.get(opts, :ledger, ToolCallLedger)
+               ),
+             {:ok, snapshots} <- snapshots(entries, opts, deadline),
+             {:ok, refreshed} <- call_with_deadline(server, :prepare_handoff_snapshot, deadline),
+             {:ok, agents} <- materialize_snapshots(snapshots, refreshed, deadline),
+             record = record(agents, opts),
+             :ok <- Record.write(record, opts) do
+          survivors = Enum.filter(agents, &is_nil(&1["fallback_reason"]))
 
-      refs =
-        Enum.flat_map(survivors, &transport_refs/1) ++
-          for {ref, :agent, meta} <- ProcessReaper.entries(),
-              MapSet.member?(tickets, to_string(meta[:ticket])),
-              do: ref
+          tickets =
+            survivors
+            |> Enum.flat_map(&[&1["issue_id"], &1["identifier"]])
+            |> Enum.reject(&is_nil/1)
+            |> Enum.map(&to_string/1)
+            |> MapSet.new()
 
-      :ok = ProcessReaper.handoff(refs)
+          refs =
+            Enum.flat_map(survivors, &transport_refs/1) ++
+              for {ref, :agent, meta} <- ProcessReaper.entries(),
+                  MapSet.member?(tickets, to_string(meta[:ticket])),
+                  do: ref
 
-      result = %{
-        path: Record.path(opts),
-        handoff_id: record["handoff_id"],
-        agents: agents,
-        skipped: Enum.map(skipped, fn {_id, entry} -> entry.identifier end)
-      }
+          :ok = ProcessReaper.handoff(refs)
 
-      Protection.store(owner, result, tickets)
-      {:ok, result}
-    else
-      {:error, _} = error ->
+          result = %{
+            path: Record.path(opts),
+            handoff_id: record["handoff_id"],
+            agents: agents,
+            skipped: Enum.map(skipped, fn {_id, entry} -> entry.identifier end)
+          }
+
+          Protection.store(owner, result, tickets)
+          {:ok, result}
+        end
+      rescue
+        error -> {:error, {:prepare_exception, error}}
+      catch
+        kind, reason -> {:error, {kind, reason}}
+      end
+
+    case outcome do
+      {:ok, _result} = success ->
+        success
+
+      {:error, _reason} = error ->
         abort = Keyword.get(opts, :abort, &RunnerHandoff.abort/1)
-        Enum.each(all_entries, fn {_id, entry} -> abort.(entry.pid) end)
-        GenServer.call(server, :cancel_handoff)
+
+        Enum.each(all_entries, fn {_id, entry} ->
+          try do
+            abort.(entry.pid)
+          rescue
+            _ -> :ok
+          catch
+            _, _ -> :ok
+          end
+        end)
+
+        cancel_dispatch(server)
         error
     end
   end
@@ -134,10 +175,10 @@ defmodule Aiur.Handoff do
 
   defp transport_refs(_), do: []
 
-  defp snapshots(entries, server, opts) do
+  defp snapshots(entries, opts, prepare_deadline) do
     snapshot = Keyword.get(opts, :snapshot, &RunnerHandoff.snapshot/1)
     timeout = Keyword.get(opts, :snapshot_timeout_ms, 65_000)
-    deadline = System.monotonic_time(:millisecond) + timeout
+    deadline = min(System.monotonic_time(:millisecond) + timeout, prepare_deadline - @finalize_reserve_ms)
 
     pending =
       entries
@@ -176,40 +217,72 @@ defmodule Aiur.Handoff do
         {id, entry, result}
       end)
 
-    Enum.reduce_while(results, {:ok, []}, fn {id, entry, result}, {:ok, agents} ->
+    Enum.reduce_while(results, {:ok, []}, fn {id, entry, result}, {:ok, snapshots} ->
       case result do
         {:ok, agent} ->
-          state = GenServer.call(server, :prepare_handoff_snapshot, max(deadline - System.monotonic_time(:millisecond), 1))
-          entry = Map.get(state.running, id, entry)
-          {:cont, {:ok, [Map.merge(snapshot_metadata(id, entry, state), agent) | agents]}}
+          {:cont, {:ok, [{id, entry, {:ok, agent}} | snapshots]}}
 
         {:error, reason} ->
-          snapshot_failure(id, entry, reason, agents, server, opts, deadline)
+          case snapshot_fallback_reason(reason) do
+            nil ->
+              {:halt, {:error, {id, reason}}}
+
+            fallback ->
+              abort = Keyword.get(opts, :abort, &RunnerHandoff.abort/1)
+              abort.(entry.pid)
+              {:cont, {:ok, [{id, entry, {:fallback, fallback}} | snapshots]}}
+          end
       end
     end)
   end
 
-  defp snapshot_failure(id, entry, reason, agents, server, opts, deadline) do
-    case snapshot_fallback_reason(reason) do
-      nil ->
-        {:halt, {:error, {id, reason}}}
-
-      fallback_reason ->
-        abort = Keyword.get(opts, :abort, &RunnerHandoff.abort/1)
-        abort.(entry.pid)
-        state = GenServer.call(server, :prepare_handoff_snapshot, max(deadline - System.monotonic_time(:millisecond), 1))
+  defp materialize_snapshots(snapshots, state, deadline) do
+    agents =
+      Enum.map(snapshots, fn {id, entry, result} ->
         entry = Map.get(state.running, id, entry)
+        metadata = snapshot_metadata(id, entry, state)
 
-        fallback =
-          snapshot_metadata(id, entry, state)
-          |> Map.merge(%{
-            "backend" => get_in(entry, [:session_execution, :backend]) || "unknown",
-            "workspace" => entry[:workspace_path],
-            "transport" => %{"kind" => "unsupported"},
-            "fallback_reason" => fallback_reason
-          })
+        case result do
+          {:ok, agent} ->
+            Map.merge(metadata, agent)
 
-        {:cont, {:ok, [fallback | agents]}}
+          {:fallback, reason} ->
+            Map.merge(metadata, %{
+              "backend" => get_in(entry, [:session_execution, :backend]) || "unknown",
+              "workspace" => entry[:workspace_path],
+              "transport" => %{"kind" => "unsupported"},
+              "fallback_reason" => reason
+            })
+        end
+      end)
+
+    if System.monotonic_time(:millisecond) < deadline,
+      do: {:ok, agents},
+      else: {:error, :handoff_deadline}
+  end
+
+  defp remaining_timeout(deadline, reserve_ms) do
+    case deadline - System.monotonic_time(:millisecond) - reserve_ms do
+      timeout when timeout > 0 -> {:ok, timeout}
+      _ -> {:error, :handoff_deadline}
+    end
+  end
+
+  defp call_with_deadline(server, message, deadline, reserve_ms \\ 0) do
+    with {:ok, timeout} <- remaining_timeout(deadline, reserve_ms) do
+      try do
+        {:ok, GenServer.call(server, message, timeout)}
+      catch
+        :exit, reason -> {:error, {:orchestrator_call_failed, reason}}
+      end
+    end
+  end
+
+  defp cancel_dispatch(server) do
+    try do
+      GenServer.call(server, :cancel_handoff, 5_000)
+    catch
+      :exit, _reason -> :ok
     end
   end
 

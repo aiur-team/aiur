@@ -5,7 +5,8 @@ defmodule Aiur.Handoff.CLI do
 
   # Keep this below the 120s shell RPC envelope in engine/handoff.sh so the
   # daemon can report the blocked control RPC before the launcher times out.
-  @preflight_snapshot_timeout_ms 100_000
+  # Leave the prepare's 100s budget inside the shell's 120s RPC envelope.
+  @preflight_snapshot_timeout_ms 10_000
 
   @spec print_latest(keyword()) :: :ok
   def print_latest(opts \\ []) do

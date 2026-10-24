@@ -228,6 +228,17 @@ cmd_stop() {
   else
     : >"$(aiur_stop_sentinel_path)" 2>/dev/null || true
   fi
+  if [ "${aiur_restart_keep_agents:-0}" -eq 1 ]; then
+    aiur_restart_phase="stop_observed"
+    aiur_restart_reason="stop_command_observed_daemon_state"
+    local crash_marker evidence_file
+    crash_marker="$(aiur_crash_marker_path)"
+    evidence_file="$(aiur_restart_crash_evidence_path)"
+    if [ -s "$crash_marker" ]; then
+      cp "$crash_marker" "$evidence_file" 2>/dev/null && chmod 600 "$evidence_file" 2>/dev/null || true
+    fi
+    aiur_write_restart_diagnostic
+  fi
   rm -f "$(aiur_crash_marker_path)" 2>/dev/null || true
 
   if [ -n "$tmux_bin" ]; then
@@ -283,11 +294,40 @@ cmd_stop() {
 # in place. The dev shim supplies the build-if-stale step; installed aiur has no
 # source tree and performs a plain bounce.
 aiur_restart_daemon_state="untouched"
+aiur_restart_phase="idle"
+aiur_restart_reason=""
+aiur_restart_keep_agents=0
+
+aiur_write_restart_diagnostic() {
+  [ "$aiur_restart_keep_agents" -eq 1 ] || return 0
+  local path tmp
+  path="$(aiur_restart_diagnostic_path)" || return 0
+  mkdir -p "$(dirname "$path")" 2>/dev/null || return 0
+  tmp="$(mktemp "${path}.XXXXXX" 2>/dev/null)" || return 0
+  {
+    printf 'timestamp=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)"
+    printf 'handoff_id=%s\n' "${AIUR_RESTART_HANDOFF_ID:-unknown}"
+    printf 'phase=%s\n' "$aiur_restart_phase"
+    printf 'reason=%s\n' "${aiur_restart_reason:-none}"
+    printf 'daemon_state=%s\n' "$aiur_restart_daemon_state"
+    printf 'startup_attempted=%s\n' "${aiur_restart_start_attempted:-0}"
+    local crash_marker
+    crash_marker="$(aiur_crash_marker_path)"
+    if [ -s "$crash_marker" ]; then
+      printf 'unexpected_exit_evidence_begin\n'
+      sed 's/^/  /' "$crash_marker"
+      printf 'unexpected_exit_evidence_end\n'
+    fi
+  } >"$tmp" || { rm -f "$tmp"; return 0; }
+  chmod 600 "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$path" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
+}
 
 # Keep the failure trap armed through confirmed start so a failed rebuild,
 # missing tmux, boot failure or interruption cannot sound harmless.
 aiur_restart_report_state() {
   [ "$aiur_restart_daemon_state" = "stopped" ] || return 0
+  aiur_write_restart_diagnostic
 
   # release_dir is resolved by the stop; fall back to the caller's declared dir
   # for the paths that fail before that.
@@ -402,7 +442,17 @@ cmd_restart() {
     esac
   done
 
-  [ "$keep_agents" -eq 0 ] || prepare_restart_handoff
+  aiur_restart_keep_agents="$keep_agents"
+  if [ "$keep_agents" -eq 1 ]; then
+    aiur_restart_phase="preflight"
+    aiur_restart_reason="preflight_started"
+    rm -f "$(aiur_restart_crash_evidence_path)" 2>/dev/null || true
+    aiur_write_restart_diagnostic
+    prepare_restart_handoff
+    aiur_restart_phase="preflight_complete"
+    aiur_restart_reason="handoff_prepared"
+    aiur_write_restart_diagnostic
+  fi
 
   # Restarting something that is already down is a start, not an error: the
   # operator asked for a running daemon on current code, and that is what they
@@ -428,13 +478,22 @@ cmd_restart() {
   fi
 
   aiur_restart_daemon_state="stopped"
+  aiur_restart_phase="daemon_stopped"
+  aiur_restart_reason="stop_completed"
+  aiur_write_restart_diagnostic
   trap aiur_restart_report_state EXIT INT TERM
 
   # TERM can end the BEAM process just before epmd releases its node name.
   # Wait here before an in-place release rebuild or a new distribution boot.
   if [ -n "${release_bin:-}" ] && ! wait_for_node_name_release "${AIUR_RELEASE_NODE}"; then
+    aiur_restart_phase="node_name_wait_failed"
+    aiur_restart_reason="old_node_name_not_released"
     die "restart aborted: node name ${AIUR_RELEASE_NODE} is still registered; nothing was rebuilt or restarted"
   fi
+
+  aiur_restart_phase="rebuild"
+  aiur_restart_reason="rebuild_started"
+  aiur_write_restart_diagnostic
 
   if [ -n "${AIUR_RESTART_BUILD_CMD:-}" ] && [ "$skip_build" -eq 0 ]; then
     local build_status=0 receipt
@@ -444,6 +503,8 @@ cmd_restart() {
       # Exit with the builder's own status rather than a flat 1, so a caller can
       # still tell a failed rebuild from any other abort.
       rm -f "$receipt"
+      aiur_restart_phase="rebuild_failed"
+      aiur_restart_reason="rebuild_failed_exit_${build_status}"
       echo "❌ restart aborted before start: the rebuild failed" >&2
       aiur_restart_report_state
       trap - EXIT INT TERM
@@ -462,6 +523,8 @@ cmd_restart() {
       verify_restart_build "$receipt" || verify_status=$?
       rm -f "$receipt"
       if [ "$verify_status" -ne 0 ]; then
+        aiur_restart_phase="rebuild_verification_failed"
+        aiur_restart_reason="rebuild_verification_failed_exit_${verify_status}"
         echo "❌ restart aborted before start: the rebuild could not be verified" >&2
         # Naming the builder makes an inherited AIUR_RESTART_BUILD_CMD — a dev
         # shim leaking into another shell — diagnosable from this output alone,
@@ -485,9 +548,14 @@ cmd_restart() {
   # Always detached; --interactive opts into an attachable session, while a
   # foreground restart remains `aiur stop && aiur run`.
   aiur_restart_start_attempted=1
+  aiur_restart_phase="startup"
+  aiur_restart_reason="startup_started"
+  aiur_write_restart_diagnostic
   local start_status=0
   aiur_restart_start_with_retry || start_status=$?
   if [ "$start_status" -ne 0 ]; then
+    aiur_restart_phase="startup_failed"
+    aiur_restart_reason="startup_failed_exit_${start_status}"
     report_restart_handoff_failure
     trap - EXIT INT TERM
     aiur_restart_report_state
@@ -495,6 +563,9 @@ cmd_restart() {
   fi
 
   aiur_restart_daemon_state="running"
+  aiur_restart_phase="complete"
+  aiur_restart_reason="restart_succeeded"
+  aiur_write_restart_diagnostic
   trap - EXIT INT TERM
   [ "$keep_agents" -eq 0 ] || report_restart_handoff
 }

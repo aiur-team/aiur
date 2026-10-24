@@ -16,11 +16,19 @@ prepare_restart_handoff() {
   local output
   output="$(AIUR_CONTROL_RPC_TIMEOUT_SECONDS=120 run_control_rpc "$AIUR_HANDOFF_PREPARE_EXPRESSION")" || {
     [ -z "$output" ] || printf '%s\n' "$output" >&2
+    aiur_restart_phase="preflight_failed"
+    aiur_restart_reason="handoff_preflight_rpc_failed"
+    aiur_write_restart_diagnostic
     die "restart --keep-agents aborted before stop: handoff preflight failed"
   }
   printf '%s\n' "$output" | sed '/^__AIUR_HANDOFF__:/d; /^__AIUR_CONTROL_EXIT__:/d' >&2
   AIUR_RESTART_HANDOFF_ID="$(printf '%s\n' "$output" | sed -n 's/^__AIUR_HANDOFF__://p')"
-  [[ "$AIUR_RESTART_HANDOFF_ID" =~ ^[A-Za-z0-9_-]+$ ]] || die "handoff preflight returned no valid handoff id; nothing stopped"
+  if ! [[ "$AIUR_RESTART_HANDOFF_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    aiur_restart_phase="preflight_failed"
+    aiur_restart_reason="handoff_preflight_missing_id"
+    aiur_write_restart_diagnostic
+    die "handoff preflight returned no valid handoff id; nothing stopped"
+  fi
 }
 
 report_restart_handoff() {
