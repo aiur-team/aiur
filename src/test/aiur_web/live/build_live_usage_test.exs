@@ -17,6 +17,10 @@ defmodule AiurWeb.BuildLiveUsageTest do
 
   defmodule RevokingSource do
     @behaviour AiurWeb.Build.DataSource
+    alias Aiur.TestSupport.BuildHome.FixtureSource
+    @impl true
+    def ticket(id, opts), do: FixtureSource.ticket(id, opts)
+
     @impl true
     def subscribe(opts) do
       :ok = Usage.subscribe(opts[:financial])

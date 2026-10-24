@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.IndexReader do
   @moduledoc false
   alias Aiur.BuildOrder.Index
-  alias AiurWeb.Build.{NowRows, PlannedRows}
+  alias AiurWeb.Build.{Freshness, NowRows, PlannedRows}
   alias AiurWeb.OperatorControlCenter.PayloadLoader
 
   @spec read(MapSet.t() | :all, map(), keyword()) :: map()
@@ -15,11 +15,10 @@ defmodule AiurWeb.Build.IndexReader do
         _ -> nil
       end
 
+    todo_ids = open_todo_ids(parts[:open], parts[:settings])
+
     now =
-      read_part(:now, dirty, parts, fn ->
-        loader = Keyword.get(opts, :payload_loader, PayloadLoader)
-        NowRows.build(loader.load(:cached).units, repository: repo)
-      end)
+      read_part(:now, dirty, parts, fn -> read_now(repo, todo_ids, opts) end)
 
     parts = Map.put(parts, :now, now)
     active = MapSet.new(producer_rows(now), & &1.num)
@@ -38,6 +37,106 @@ defmodule AiurWeb.Build.IndexReader do
     if dirty == :all or MapSet.member?(dirty, key), do: Index.safe_read(key, fun), else: previous[key]
   end
 
+  defp read_now(repo, todo_ids, opts) do
+    units_fun = Keyword.get(opts, :units_fun, fn -> PayloadLoader.load(:cached).units end)
+    catalog = units_fun.()
+    units_now = NowRows.build(catalog, repository: repo, todo_ids: todo_ids) |> Map.put(:unit_rows, unit_rows(catalog, repo))
+
+    result =
+      if map_size(units_now.rows) > 0 do
+        units_now
+      else
+        snapshot_fun = Keyword.get(opts, :running_rows_fun, &Freshness.read_running_rows/1)
+
+        case snapshot_fun.(opts) do
+          {:ok, %{statuses: statuses, running: running}} when is_list(statuses) and is_list(running) ->
+            rows = fleet_rows(statuses, running)
+            NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
+
+          {:error, :timeout} ->
+            {:error, :running_snapshot_timeout}
+
+          {:error, _unavailable} ->
+            {:error, :running_snapshot_unavailable}
+        end
+      end
+
+    if is_map(result), do: Map.put(result, :unit_rows, units_now.unit_rows), else: result
+  end
+
+  defp open_todo_ids(%{status: :available, tickets: tickets}, settings) when is_list(tickets) do
+    prefix =
+      case settings do
+        {:ok, settings} -> settings.tracker.github.label_prefix
+        _ -> "agent"
+      end
+
+    label = prefix <> ":todo"
+
+    tickets
+    |> Enum.filter(&(is_list(Map.get(&1, :labels)) and label in Map.get(&1, :labels)))
+    |> MapSet.new(&Map.get(&1, :identifier))
+  end
+
+  defp open_todo_ids(_open, _settings), do: MapSet.new()
+
+  defp unit_rows(%{status: status, snapshot: %{rows: rows}}, {owner, repo}) when status in [:ready, :empty] do
+    rows
+    |> Enum.filter(fn row ->
+      case row[:identity] do
+        %{owner: ^owner, repository: ^repo} -> true
+        _ -> false
+      end
+    end)
+    |> Map.new(&{&1.identity.identifier, &1})
+  end
+
+  defp unit_rows(_catalog, _repo), do: %{}
+
+  defp fleet_rows(statuses, running) do
+    running_by_identifier = Map.new(running, &{Map.get(&1, :identifier), &1})
+
+    Enum.map(statuses, fn status ->
+      identifier = Map.get(status, :identifier)
+      running = Map.get(running_by_identifier, identifier)
+      now_row(status, running)
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
   defp producer_rows(%{rows: rows}) when is_map(rows), do: Map.values(rows)
   defp producer_rows(_), do: []
+
+  defp now_row(%{identifier: _identifier, state: :running} = summary, running) when is_map(running), do: now_row(summary, running, :running)
+
+  defp now_row(%{identifier: _identifier, state: :paused, work_state: :retrying} = summary, running) when is_map(running), do: now_row(summary, running, :retrying)
+
+  defp now_row(%{identifier: _identifier, state: :paused, session_id: session} = summary, running) when is_binary(session) and is_map(running),
+    do: now_row(summary, running, :running)
+
+  defp now_row(_summary, _running), do: nil
+
+  defp now_row(summary, running, bucket) do
+    identity = Map.get(summary, :tracker_identity)
+    waiting = Map.get(summary, :waiting_reason)
+    summary = Map.merge(summary, Map.take(running, [:started_at, :agent_family, :backend, :resolved_model, :effort, :progress_percent, :progress_freshness, :usage_limit_reset_at]))
+
+    %{
+      identity: identity,
+      labels: Map.get(summary, :labels, []),
+      runtime: %{
+        bucket: bucket,
+        work_state: Map.get(summary, :work_state, :working),
+        usage_limit_reset_at: Map.get(summary, :usage_limit_reset_at) || get_in(summary, [:runtime, :usage_limit_reset_at])
+      },
+      reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason)},
+      timestamps: %{started_at: Map.get(summary, :started_at)},
+      effort: Map.get(summary, :effort),
+      open_command_count: Map.get(summary, :open_decision_count, 0),
+      agent_family: Map.get(summary, :agent_family),
+      backend: Map.get(summary, :backend),
+      progress_percent: Map.get(summary, :progress_percent),
+      progress_freshness: Map.get(summary, :progress_freshness)
+    }
+  end
 end

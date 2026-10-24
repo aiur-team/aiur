@@ -80,6 +80,8 @@ defmodule Aiur.PRLifecycle.ReworkRequeueTickTest do
           assert number == 2346
           {:ok, [review(%{})]}
         end),
+      pull_request_approval_fetcher: Keyword.get(opts, :pull_request_approval_fetcher, fn _ -> {:ok, {@head_sha, nil}} end),
+      approval_carry_classifier: Keyword.get(opts, :approval_carry_classifier),
       diff_fetcher:
         Keyword.get(opts, :diff_fetcher, fn
           {@base_sha, @review_commit} -> {:ok, default_diff_files()}
@@ -91,8 +93,6 @@ defmodule Aiur.PRLifecycle.ReworkRequeueTickTest do
       last_seen: Keyword.get(opts, :last_seen, %{}),
       merge_only_alerted: Keyword.get(opts, :merge_only_alerted, MapSet.new()),
       requeue_failed_alerted: Keyword.get(opts, :requeue_failed_alerted, MapSet.new()),
-      error_tickets_fetcher: fn -> {:ok, []} end,
-      error_rework_routed: MapSet.new(),
       local_hold_opts: Keyword.get(opts, :local_hold_opts, []),
       start_paused?: true
     }
@@ -137,6 +137,64 @@ defmodule Aiur.PRLifecycle.ReworkRequeueTickTest do
       assert_receive {:reviews_fetch, 2346}, 1000
       refute_received {:reviews_fetch, 2337}
       assert_receive {:state_write, "2337", "human-review"}, 1000
+    end
+
+    test "an addressed rework PR with an approval carried to its head moves to ci-wait" do
+      state =
+        base_state(
+          tickets_fetcher: fn -> {:ok, [issue(%{})]} end,
+          pull_request_approval_fetcher: fn 2346 -> {:ok, {@head_sha, @head_sha}} end,
+          state_writer: fn id, state_name ->
+            send(self(), {:state_write, id, state_name})
+            :ok
+          end
+        )
+
+      result = ReworkRequeue.tick(state)
+
+      assert_receive {:state_write, "2337", "ci-wait"}, 1000
+      assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :addressed}}} = result
+    end
+
+    test "a current blocking body review leaves the addressed ticket in rework and caches the head" do
+      test_pid = self()
+
+      state =
+        base_state(
+          tickets_fetcher: fn -> {:ok, [issue(%{})]} end,
+          reviews_fetcher: fn 2346 ->
+            send(test_pid, {:reviews_read, 2346})
+
+            {:ok,
+             [
+               review(%{"submitted_at" => "2026-08-22T20:00:00Z", authoritative: true}),
+               review(%{
+                 "state" => "COMMENTED",
+                 "commit_id" => @head_sha,
+                 "body" => "Blocking: please address this before merge.",
+                 "user" => %{"login" => "second-reviewer"},
+                 "submitted_at" => "2026-08-22T21:00:00Z",
+                 authoritative: true
+               })
+             ]}
+          end,
+          pull_request_approval_fetcher: fn 2346 -> {:ok, {@head_sha, @head_sha}} end,
+          state_writer: fn id, state_name ->
+            send(self(), {:state_write, id, state_name})
+            :ok
+          end
+        )
+
+      result = ReworkRequeue.tick(state)
+
+      refute_receive {:state_write, "2337", _state_name}, 100
+      assert_receive {:reviews_read, 2346}, 100
+      assert_receive {:reviews_read, 2346}, 100
+      assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :not_addressed}}} = result
+
+      ReworkRequeue.tick(result)
+
+      refute_receive {:reviews_read, 2346}, 100
     end
 
     test "a re-queue refused by the state writer alerts and is not throttled" do

@@ -4,9 +4,11 @@ defmodule Aiur.Orchestrator.ParkReservationTest do
   alias Aiur.Orchestrator.{Parking, PauseResume, Reconciler, Slots, State}
 
   setup do
+    test_pid = self()
     :ok = write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
     Application.put_env(:aiur, :memory_tracker_issues, [])
     Application.put_env(:aiur, :memory_tracker_recipient, self())
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
     :ok
   end
 

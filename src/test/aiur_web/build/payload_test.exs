@@ -5,13 +5,28 @@ defmodule AiurWeb.Build.PayloadTest do
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   test "fixtures reach the full strict schema (future fixture guard)" do
-    for name <- ~w(live dense newrepo noqueue offline unknowns) do
+    for name <- FixtureSource.datasets() -- ~w(unavailable hold) do
       {:ok, data} = FixtureSource.full(dataset: name)
       assert Payload.validate(Payload.snapshot(data, "epoch", 0)) == :ok
     end
 
     hostile = @dir |> Path.join("hostile.json") |> File.read!() |> Jason.decode!()
     assert Payload.validate(hostile["snapshot"]) == :ok
+  end
+
+  test "read failures retain their cause in valid error envelopes" do
+    for reason <- [:timeout, :index_not_running, :read_failed, :epic_config_unavailable, :settings_loading, :invalid_data] do
+      assert Payload.validate(Payload.error(reason)) == :ok
+    end
+  end
+
+  test "runtime reason states remain valid in the Now wire payload" do
+    data = fixture()
+    row = get_in(data, ["sections", "now", Access.at(0)])
+    data = put_in(data, ["sections", "now", Access.at(0), "agent", "state"], "paused-usage-limit")
+
+    assert is_map(row)
+    assert Payload.validate(Payload.snapshot(data, "epoch", 1)) == :ok
   end
 
   for {name, path, value, expected} <- [
@@ -117,8 +132,8 @@ defmodule AiurWeb.Build.PayloadTest do
       end)
 
     IO.puts("build payload census mean_row_bytes=#{Float.round(bytes / rows, 2)} rows=#{rows}")
-    # Historic children, states and missing counts raise the measured census from 431.69 to 492.33 bytes.
-    assert bytes / rows <= 500
+    # Realistic PR chips raise the frozen census from 492.33 to 512.98 bytes per row.
+    assert bytes / rows <= 525
 
     for name <- ~w(live dense) do
       {:ok, data} = FixtureSource.snapshot(dataset: name)

@@ -6,7 +6,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.Orchestrator.{SnapshotCache, SnapshotStore}
   alias Aiur.{RunTelemetry, TrackerIdentity}
-  alias Aiur.TestSupport.{AwaitingCommands, LiveViewAsync}
+  alias Aiur.TestSupport.{AwaitingCommands, EndpointStubs, LiveViewAsync}
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
   import Aiur.TestSupport.UsageAggregate, only: [envelope: 0, record: 3]
@@ -72,7 +72,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
       )
       |> Keyword.merge(awaiting_commands_config(context))
 
-    Application.put_env(:aiur, Endpoint, endpoint_config)
+    Application.put_env(:aiur, Endpoint, EndpointStubs.scope(endpoint_config))
     Aiur.TestSupport.start_owned_endpoint!()
 
     on_exit(fn ->
@@ -260,7 +260,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ "Peak concurrency"
-    assert html =~ ~r/\d+ at run end \/ unknown cap</
+    assert html =~ ~r/\d+ at run end \/ unknown cap/
     assert html =~ "Wasted capacity"
     assert html =~ "Provider spend"
     assert html =~ "Per-unit CPU"
@@ -273,6 +273,38 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "<svg"
     assert html =~ "Source:"
     refute html =~ "No run telemetry to analyze yet"
+  end
+
+  test "renders exact source-gated values in the keyboard-reachable pressure table" do
+    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture!(RunTelemetry.boot_id()))
+
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
+
+    assert html =~ ~s(<table id="analytics-pressure-table">)
+    assert html =~ "13"
+    assert html =~ "16 / 16 / 12"
+    assert html =~ ">2<"
+    assert html =~ "2 / 8"
+    assert html =~ "189s"
+    assert html =~ "2026-07-11T00:00:40.000Z"
+    assert html =~ "2026-07-11T00:00:55.000Z"
+    assert html =~ ">current<"
+    assert html =~ ">measured<"
+  end
+
+  test "renders unavailable pressure evidence as em-dash, never a confident zero" do
+    boot_id = RunTelemetry.boot_id()
+    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture_with_gap!(boot_id))
+
+    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
+
+    {:ok, document} = Floki.parse_document(html)
+    [gap_row] = Enum.filter(Floki.find(document, "#analytics-pressure-table tbody tr"), &(Floki.find(&1, "td") |> Enum.at(4) |> Floki.text() == "degraded"))
+    gap_wait = gap_row |> Floki.find("td") |> List.last() |> Floki.text()
+    assert gap_wait == "—"
+    refute gap_wait == "0s"
+    assert html =~ "13"
+    assert html =~ "189s"
   end
 
   @tag analytics_capacity: %{effective: 3, max: 8, configured: 16, occupied: 3, available: 0, active: 3, reserved_paused: 0, queued_demand?: true}
@@ -384,7 +416,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ ~s(data-source-kind="live")
     assert html =~ "live boot"
     # A live boot is the only source that may speak in the present tense.
-    assert html =~ ~r/an-kpi-sub">occupancy unavailable \/.*cap/
+    assert html =~ ~r/an-kpi-sub">no fleet-capacity or agent samples in this window; occupancy unavailable \/.*cap/
     assert html =~ ~r/an-kpi-sub">this run</
   end
 
@@ -451,12 +483,12 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert render_click(view, "range", %{"range" => "full"}) =~ "Run analytics"
     LiveViewAsync.render_when_complete(view)
     assert render_click(view, "sort", %{"by" => "mem"}) =~ "Cost per ticket"
-    assert render_click(view, "select_none", %{}) =~ "Units"
-    assert render_click(view, "select_all", %{}) =~ "Units"
+    assert render_click(view, "select_none", %{}) =~ "Run analytics"
+    assert render_click(view, "select_all", %{}) =~ "Run analytics"
     assert render_click(view, "toggle_unit", %{"key" => "ticket:404"}) =~ "Run analytics"
   end
 
-  test "a time-domain hook event zooms every time chart and reset restores the full range" do
+  test "a time-domain hook event zooms every measured time chart and reset restores the full range" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
     {:ok, view, html} = loaded_live(build_conn(), "/analytics")
@@ -470,14 +502,14 @@ defmodule AiurWeb.AnalyticsLiveTest do
       render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_065_000})
 
     assert zoomed =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="1783728061000"/, zoomed)) == 6
-    assert length(Regex.scan(~r/data-time-end="1783728065000"/, zoomed)) == 6
+    assert length(Regex.scan(~r/data-time-start="1783728061000"/, zoomed)) == 5
+    assert length(Regex.scan(~r/data-time-end="1783728065000"/, zoomed)) == 5
     assert zoomed =~ "phx-click=\"reset-time-domain\""
 
     patched = render_click(view, "sort", %{"by" => "mem"})
     assert patched =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="1783728061000"/, patched)) == 6
-    assert length(Regex.scan(~r/data-time-end="1783728065000"/, patched)) == 6
+    assert length(Regex.scan(~r/data-time-start="1783728061000"/, patched)) == 5
+    assert length(Regex.scan(~r/data-time-end="1783728065000"/, patched)) == 5
 
     nav_patched = render_click(view, "toggle-nav", %{})
     assert nav_patched =~ ~s(class="an-zoombar")
@@ -488,8 +520,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
     reset = render_click(view, "reset-time-domain", %{})
 
     refute reset =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="#{full_start}"/, reset)) == 6
-    assert length(Regex.scan(~r/data-time-end="#{full_end}"/, reset)) == 6
+    assert length(Regex.scan(~r/data-time-start="#{full_start}"/, reset)) == 5
+    assert length(Regex.scan(~r/data-time-end="#{full_end}"/, reset)) == 5
   end
 
   test "a degenerate domain event leaves the full chart range intact" do
@@ -559,7 +591,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ "latest run"
-    assert html =~ "Add a Build Order selection to scope this page to its members"
+    assert html =~ "This is a 1-ticket window: only one ticket has telemetry in the latest run."
   end
 
   test "charts only the current session, not every session in the durable stream" do

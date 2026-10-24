@@ -59,7 +59,6 @@ defmodule AiurWeb.AnalyticsOvercapTest do
     assert html =~ "partial: 2 of 17 occupied slots not seen as active"
   end
 
-  @tag analytics_capacity: %{effective: 16, max: 20, configured: 16, occupied: 15, available: 1, queued_demand?: true}
   test "renders exact source-gated values and retained-run wording in the pressure table" do
     Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture!(RunTelemetry.boot_id(), {15, 20, 16}))
     {:ok, view, _html} = live(build_conn(), "/analytics")

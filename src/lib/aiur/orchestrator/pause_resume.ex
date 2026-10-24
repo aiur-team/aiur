@@ -21,14 +21,6 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.State
   alias Aiur.TrackerIdentity
 
-  # Attribution marker for agents held by the global pause switch, distinct
-  # from every per-agent pause reason. Unpause resumes only these entries, so
-  # an operator's individual pause is never overridden. See `Aiur.Orchestrator.GlobalPause`.
-  @global_pause_reason :global_pause
-
-  @spec global_pause_reason() :: :global_pause
-  def global_pause_reason, do: @global_pause_reason
-
   # Pause reasons that mean the worker itself is waiting for input (#2730).
   @input_pause_reasons [:agent_pause_request, :input_required]
 
@@ -145,28 +137,6 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec request_control_call(State.t(), String.t(), :pause | :resume, pos_integer()) ::
           {:reply, {:ok, pos_integer()} | {:error, term()}, State.t()}
   defdelegate request_control_call(state, issue_identifier, action, request_id), to: ControlCalls
-
-  @doc """
-  Request a pause on every running agent that the global switch should hold.
-
-  Skips agents that are already individually paused, deactivated, completed, or
-  carry an in-flight pause request — so a per-agent pause is never overridden.
-  Held agents are tagged with `#{inspect(@global_pause_reason)}` so `resume_running_from_global/1`
-  can resume exactly this set.
-  """
-  @spec pause_running_for_global(State.t()) :: State.t()
-  defdelegate pause_running_for_global(state), to: ControlCalls
-
-  @doc """
-  Resume only the agents the global switch is holding.
-
-  An agent is globally held when it is paused with reason `#{inspect(@global_pause_reason)}`
-  or carries an in-flight global-pause request. Individually paused agents are
-  left untouched, preserving the operator's per-agent pause.
-  """
-  @spec resume_running_from_global(State.t()) :: State.t()
-  @spec resume_running_from_global(State.t(), keyword()) :: State.t()
-  defdelegate resume_running_from_global(state, opts \\ []), to: ControlCalls
 
   @doc false
   @spec control_lifecycle_call(State.t(), String.t()) :: {:reply, {:ok, map()} | {:error, term()}, State.t()}

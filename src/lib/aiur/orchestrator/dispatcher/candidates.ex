@@ -3,13 +3,15 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   Candidate fetch, per-issue dispatch validation and the blocked-by dependency gate.
   """
 
+  # Cohesion: This module owns the candidate-to-dispatch validation path because it has both
+  # the current candidate snapshot and dispatch state; cache fallback must use that same issue
+  # and dependency gate rather than creating a second, inconsistent dispatch decision.
+
   require Logger
 
   alias Aiur.Alerts
   alias Aiur.Commands
   alias Aiur.Config
-  alias Aiur.GitHub.LocalHold
-  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Issue
   alias Aiur.Orchestrator.AdoptedBoot
   alias Aiur.Orchestrator.Dispatcher.Launch
@@ -95,13 +97,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   @doc false
   @spec default_candidate_fetch(map()) :: {:ok, [Issue.t()], map()} | {:error, term()}
-  def default_candidate_fetch(cache) do
-    if Config.tracker_kind() == "github" do
-      GitHubTracker.fetch_candidate_issues_conditional(cache)
-    else
-      with {:ok, issues} <- Tracker.fetch_candidate_issues(), do: {:ok, issues, cache}
-    end
-  end
+  def default_candidate_fetch(cache), do: Tracker.fetch_candidate_issues_conditional(cache)
 
   @doc false
   @spec candidate_list_cache(State.t()) :: map()
@@ -194,16 +190,58 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
     case Launch.revalidate_issue_for_dispatch(issue, fetcher, DispatchPolicy.terminal_state_set(), opts) do
-      {:ok, refreshed} -> {:validated, refreshed, HoldDecline.observe(LocalHold.run(fn -> hydrator.(refreshed) end, LocalHold.caller_opts(opts)))}
-      other -> other
+      {:ok, refreshed} ->
+        {:validated, refreshed, HoldDecline.observe(Tracker.with_transient_retry(fn -> hydrator.(refreshed) end, opts))}
+
+      {:error, reason} = error ->
+        if broker_timeout?(reason), do: validate_from_cached_dependencies(issue, error), else: error
+
+      other ->
+        other
     end
   end
 
+  # The candidate list was just confirmed by the tracker poll. If the local
+  # budget broker times out on the redundant per-issue refresh, a fresh
+  # cache-only dependency read is still enough to keep a known-ready candidate
+  # moving. Missing or stale cache remains fail-closed; do not turn an
+  # arbitrary tracker error into permission to dispatch.
+  defp validate_from_cached_dependencies(issue, timeout_error) do
+    case Tracker.cached_blocked_by(%{issue | blocked_by: []}) do
+      {:ok, %Issue{} = cached} ->
+        if DispatchPolicy.candidate_issue?(cached, DispatchPolicy.active_state_set(), DispatchPolicy.terminal_state_set()) do
+          Logger.info("Using fresh cached dependency evidence after GitHub budget broker timeout: #{State.issue_context(issue)}")
+          {:validated, cached, HoldDecline.observe({:ok, cached})}
+        else
+          {:skip, cached}
+        end
+
+      {:error, _cache_miss_or_stale} ->
+        timeout_error
+    end
+  end
+
+  defp broker_timeout?(:github_budget_broker_timeout), do: true
+  defp broker_timeout?({:github, kind, %{reason: :github_budget_broker_timeout}}) when kind in [:timeout, :local_hold], do: true
+  defp broker_timeout?(_reason), do: false
+
   defp apply_current_dispatch_validation(current, expected, issue, attempt, host, opts, result) do
-    cond do
-      dispatch_input(current, issue.id) != expected -> current
-      current.globally_paused -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
-      true -> apply_dispatch_validation(current, issue, attempt, host, opts, result)
+    next =
+      cond do
+        dispatch_input(current, issue.id) != expected -> current
+        current.globally_paused -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
+        true -> apply_dispatch_validation(current, issue, attempt, host, opts, result)
+      end
+
+    clear_finished_priority_reservation(next, issue.id)
+  end
+
+  defp clear_finished_priority_reservation(state, issue_id) do
+    if Map.has_key?(state.priority_dispatch_reservations, issue_id) and
+         (Map.has_key?(state.running, issue_id) or not TrackerTasks.issue_pending?(state, issue_id)) do
+      %{state | priority_dispatch_reservations: Map.delete(state.priority_dispatch_reservations, issue_id)}
+    else
+      state
     end
   end
 
@@ -364,13 +402,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   # so hydration is a passthrough.
   @doc false
   @spec default_blocked_by_hydrator(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
-  def default_blocked_by_hydrator(%Issue{} = issue) do
-    if github_tracker_kind?() do
-      GitHubTracker.hydrate_blocked_by(issue)
-    else
-      {:ok, issue}
-    end
-  end
+  def default_blocked_by_hydrator(%Issue{} = issue), do: Tracker.hydrate_blocked_by(issue)
 
   # `Config.settings/0`, not `Config.tracker_kind/0` (which raises when no
   # workflow file is present): this hydrator is also invoked from the

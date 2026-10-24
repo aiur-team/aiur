@@ -31,6 +31,12 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
 
     state = %State{}
     event = %{topic: "ticket.#{identifier}.branch.push", sha: pushed_sha}
+
+    reason_label_writer = fn id, action ->
+      send(self(), {:body_fix_label, id, action})
+      :ok
+    end
+
     condition = :atomics.new(1, [])
     condition_state = fn _ -> if :atomics.get(condition, 1) == 1, do: :firing, else: :unknown end
 
@@ -43,19 +49,113 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     EventTopics.route(state, event,
       pull_request_fetcher: pr_fetch,
       alert_emitter: emitter,
-      condition_state: condition_state
+      condition_state: condition_state,
+      reason_label_writer: reason_label_writer
     )
 
     assert :atomics.get(emitted, 1) == 1
+    assert_received {:body_fix_label, ^identifier, :add}
     :atomics.put(condition, 1, 1)
 
     EventTopics.route(state, event,
       pull_request_fetcher: pr_fetch,
       alert_emitter: emitter,
-      condition_state: condition_state
+      condition_state: condition_state,
+      reason_label_writer: reason_label_writer
     )
 
     assert :atomics.get(emitted, 1) == 1
+    assert_received {:body_fix_label, ^identifier, :add}
+  end
+
+  test "retry progress resolves an outstanding stalled alert once" do
+    identifier = "stall-progress-#{System.unique_integer([:positive])}"
+    topic = "ticket.#{identifier}.agent.stalled.resolved"
+    stalled_topic = "ticket.#{identifier}.agent.stalled"
+    test_pid = self()
+
+    emitter = fn topic, opts ->
+      send(test_pid, {:resolved, topic, opts})
+      :ok
+    end
+
+    state = %State{running: %{"issue-1" => %{identifier: identifier, stalled_alert_outstanding: true}}}
+
+    next =
+      EventTopics.route(state, %{topic: "ticket.#{identifier}.agent.progress", issue: "issue"},
+        alert_emitter: emitter,
+        stalled_alert_state: fn ^stalled_topic -> :firing end
+      )
+
+    assert_received {:resolved, ^topic, opts}
+    assert opts[:needs_attention] == false
+    refute next.running["issue-1"].stalled_alert_outstanding
+
+    EventTopics.route(next, %{topic: "ticket.#{identifier}.agent.progress.checkin"},
+      alert_emitter: emitter,
+      stalled_alert_state: fn _ -> :firing end
+    )
+
+    refute_received {:resolved, _, _}
+  end
+
+  test "progress without an outstanding stalled alert emits no resolution" do
+    identifier = "healthy-progress-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    emitter = fn topic, _opts ->
+      send(test_pid, {:resolved, topic})
+      :ok
+    end
+
+    next =
+      EventTopics.route(%State{}, %{topic: "ticket.#{identifier}.agent.progress.phase"}, alert_emitter: emitter)
+
+    assert next.running == %{}
+    refute_received {:resolved, _}
+  end
+
+  test "progress retires its retry marker when pause resume already resolved the alert" do
+    identifier = "paused-stall-#{System.unique_integer([:positive])}"
+    topic = "ticket.#{identifier}.agent.stalled.resolved"
+    test_pid = self()
+
+    emitter = fn event_topic, _opts ->
+      send(test_pid, {:resolved, event_topic})
+      :ok
+    end
+
+    state = %State{running: %{"issue-1" => %{identifier: identifier, stalled_alert_outstanding: true}}}
+
+    next =
+      EventTopics.route(state, %{topic: "ticket.#{identifier}.agent.progress"},
+        alert_emitter: emitter,
+        stalled_alert_state: fn _ -> :resolved end
+      )
+
+    refute_received {:resolved, ^topic}
+    refute next.running["issue-1"].stalled_alert_outstanding
+  end
+
+  test "progress leaves the marker set when alert state is unknown" do
+    identifier = "unknown-stall-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    emitter = fn topic, _opts ->
+      send(test_pid, {:resolved, topic})
+      :ok
+    end
+
+    state = %State{running: %{"issue-1" => %{identifier: identifier, stalled_alert_outstanding: true}}}
+
+    next =
+      EventTopics.route(state, %{topic: "ticket.#{identifier}.agent.progress"},
+        alert_emitter: emitter,
+        stalled_alert_state: fn _ -> :unknown end
+      )
+
+    refute_received {:resolved, _}
+    assert next.running["issue-1"].stalled_alert_outstanding
   end
 
   test "a branch push does not alert when the PR body already names its head" do
@@ -76,15 +176,26 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     state = %State{}
     event = %{topic: "ticket.#{identifier}.branch.push", sha: pushed_sha}
 
-    PushRouting.check_pr_body_head(state, identifier, event,
-      pull_request_fetcher: pr_fetch,
-      alert_emitter: emitter
-    )
+    reason_label_writer = fn id, action ->
+      send(self(), {:reason_label, id, action})
+      :ok
+    end
 
     PushRouting.check_pr_body_head(state, identifier, event,
       pull_request_fetcher: pr_fetch,
-      alert_emitter: emitter
+      alert_emitter: emitter,
+      reason_label_writer: reason_label_writer
     )
+
+    assert_received {:reason_label, ^identifier, :remove}
+
+    PushRouting.check_pr_body_head(state, identifier, event,
+      pull_request_fetcher: pr_fetch,
+      alert_emitter: emitter,
+      reason_label_writer: reason_label_writer
+    )
+
+    assert_received {:reason_label, ^identifier, :remove}
   end
 
   test "an older queued branch push still alerts when the live PR body is stale" do
@@ -116,7 +227,8 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     EventTopics.route(%State{}, event,
       pull_request_fetcher: pr_fetch,
       alert_emitter: emitter,
-      condition_state: condition_state
+      condition_state: condition_state,
+      reason_label_writer: fn _id, _action -> :ok end
     )
 
     assert :atomics.get(emitted, 1) == 1
@@ -125,7 +237,8 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     EventTopics.route(%State{}, event,
       pull_request_fetcher: pr_fetch,
       alert_emitter: emitter,
-      condition_state: condition_state
+      condition_state: condition_state,
+      reason_label_writer: fn _id, _action -> :ok end
     )
 
     assert :atomics.get(emitted, 1) == 1
@@ -134,13 +247,54 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
   test "an answered Command wakes the idle dispatch poll for a stopped in-progress claim" do
     identifier = "answered-hold-#{System.unique_integer([:positive])}"
     topic = "ticket.#{identifier}.agent.decision.answered"
+    test_pid = self()
+    state_dir = Aiur.TestSupport.tmp_root!("aiur-event-topics-decisions")
+
+    File.mkdir_p!(state_dir)
+
+    # This test covers the dispatch gate wakeup, so accept delivery locally
+    # and keep the fixture out of the retry ladder entirely.
+    dispatcher = fn _decision, _opts ->
+      send(test_pid, :decision_dispatched)
+      {:ok, %{status: :accepted, item: %{id: System.unique_integer([:positive])}}}
+    end
+
+    dispatch_scheduler =
+      fn owner, message, delay ->
+        case message do
+          {:dispatch_action, _, _} when delay > 0 ->
+            send(test_pid, {:delivery_retry_scheduled, message, delay})
+            make_ref()
+
+          _other ->
+            Process.send_after(owner, message, delay)
+        end
+      end
+
+    {:ok, store} =
+      DecisionStore.start_link(
+        name: nil,
+        state_dir: state_dir,
+        dispatcher: dispatcher,
+        dispatch_scheduler: dispatch_scheduler
+      )
+
+    on_exit(fn ->
+      if Process.alive?(store), do: GenServer.stop(store)
+
+      Aiur.TestCleanup.rm_rf!(state_dir)
+    end)
 
     decisions =
       for question <- ["Choose the implementation", "Confirm the acceptance"] do
         assert {:ok, %{decision: decision}} =
-                 DecisionStore.request(%{"question" => question, "blocking" => true},
-                   ticket: %{identifier: identifier},
-                   source: %{agent_id: "event-test", session_id: "s", event_id: nil}
+                 DecisionStore.request(
+                   %{"question" => question, "blocking" => true},
+                   [
+                     ticket: %{identifier: identifier},
+                     source: %{agent_id: "event-test", session_id: "s", event_id: nil}
+                   ],
+                   store
                  )
 
         decision
@@ -157,13 +311,14 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
                    "custom_response" => "Proceed",
                    "idempotency_key" => decision.decision_id
                  },
-                 actor: %{kind: :operator, id: "event-test"}
+                 [actor: %{kind: :operator, id: "event-test"}],
+                 store
                )
 
       assert status in [:accepted, :duplicate]
+      assert_receive :decision_dispatched, 1_000
     end
 
-    on_exit(fn -> Enum.each(decisions, answer) end)
     answer.(first)
     assert "ticket.*.agent.decision.answered" in Lifecycle.orchestrator_topics()
 
@@ -181,7 +336,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     }
 
     try do
-      woken = EventTopics.route(state, %{topic: topic})
+      woken = EventTopics.route(state, %{topic: topic}, decision_store: store)
 
       assert woken.next_poll_due_at_ms <= System.monotonic_time(:millisecond) + 1_000
       assert woken.tick_token != state.tick_token
@@ -189,12 +344,22 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       # Another open Command still holds the ticket.
       assert MapSet.member?(woken.blocked_ticket_ids, identifier)
       answer.(second)
-      released = EventTopics.route(woken, %{topic: topic})
+      released = EventTopics.route(woken, %{topic: topic}, decision_store: store)
       # Control calls must see the fresh local gate before the tracker poll runs.
       refute MapSet.member?(released.blocked_ticket_ids, identifier)
     after
       Process.cancel_timer(timer_ref)
     end
+
+    refute_received :decision_dispatched
+    refute_received {:delivery_retry_scheduled, _, _}
+
+    assert Enum.count(DecisionStore.list(store), fn decision ->
+             decision.ticket.identifier == identifier and decision.decision_status == :decided
+           end) == 2
+
+    refute Enum.any?(DecisionStore.list(), &(&1.ticket.identifier == identifier))
+    GenServer.stop(store)
   end
 
   describe "classify_event_topic/1" do
@@ -236,6 +401,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
         topic: "ticket.176.pr.merged",
         pr: %{
           "body" => "Refs #176 (merge does not close the ticket)",
+          "html_url" => "https://github.com/aiur-team/aiur/pull/176",
           "merged_by" => %{"login" => "its-everdred"},
           "head" => %{"sha" => "4ab677b8b"}
         }
@@ -244,6 +410,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.pr_merged_opts(event) == [
                merged_by_login: "its-everdred",
                pr_body: "Refs #176 (merge does not close the ticket)",
+               pr_url: "https://github.com/aiur-team/aiur/pull/176",
                head_sha: "4ab677b8b"
              ]
     end
@@ -252,12 +419,14 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged"}) == [
                merged_by_login: nil,
                pr_body: nil,
+               pr_url: nil,
                head_sha: nil
              ]
 
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged", pr: nil}) == [
                merged_by_login: nil,
                pr_body: nil,
+               pr_url: nil,
                head_sha: nil
              ]
     end

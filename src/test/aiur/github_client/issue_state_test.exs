@@ -5,6 +5,9 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
 
   alias Aiur.GitHub.Client
 
+  @tested_head String.duplicate("a", 40)
+  @base_sha String.duplicate("b", 40)
+
   setup do
     setup_client()
   end
@@ -71,7 +74,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok, %{status: 200, body: [pr(@tested_head)]}}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -115,11 +118,8 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
 
       request_fun = fn req ->
         cond do
-          req.method == :get and req.url =~ "/compare/main...tested-head" ->
-            {:ok, %{status: 200, body: %{"status" => "ahead"}}}
-
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "sha" => "tested-head"}}]}}
+            {:ok, %{status: 200, body: [pr(@tested_head)]}}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -173,7 +173,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok, %{status: 200, body: [pr(@tested_head)]}}
 
           req.method == :post and req.url == "https://api.github.com/graphql" ->
             review_threads_page_response([
@@ -213,7 +213,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
                      100
     end
 
-    test "closed issues remove stale active labels and report no state label written" do
+    test "closed issues preserve done while removing stale active labels" do
       test_pid = self()
 
       request_fun = fn req ->
@@ -240,9 +240,8 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
         end
       end
 
-      # Active target on a closed issue: the stale active labels are stripped,
-      # but no active state label was written, so the transition reports that
-      # honestly instead of a false `:ok` (#2420).
+      # Active target on a closed issue: the existing done state is preserved,
+      # stale active labels are stripped, and no active state is claimed (#2420).
       assert {:error, {:no_state_label_written, _issue}} =
                Client.update_issue_state("42", "rework", request_fun: request_fun)
 
@@ -342,13 +341,21 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
                Client.update_issue_state("42", "rework", request_fun: request_fun)
 
       assert_receive {:github_request, %{method: :get}}, 1000
+      assert_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:done"]}}}, 1000
       assert_receive {:github_request, %{method: :delete}}, 1000
-      refute_receive {:github_request, %{method: :post}}, 100
       refute_receive {:github_request, %{method: :patch}}, 100
     end
   end
 
   defp open_issue_response(labels) do
     {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}}}
+  end
+
+  defp pr(head) do
+    %{"number" => 77, "body" => local_tests_body(head), "head" => %{"ref" => "aiur/42", "sha" => head}}
+  end
+
+  defp local_tests_body(head) do
+    "## Local tests\n\nPolicy: partial\nTested head: #{head}\nBase: main @ #{@base_sha}\nSelection: focused gate coverage\n- `mix test` -> passed\n"
   end
 end

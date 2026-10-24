@@ -10,6 +10,10 @@ defmodule AiurWeb.BuildLiveTest do
 
   defmodule Spy do
     @behaviour AiurWeb.Build.DataSource
+    alias Aiur.TestSupport.BuildHome.FixtureSource
+    @impl true
+    def ticket(id, opts), do: FixtureSource.ticket(id, opts)
+
     @impl true
     def subscribe(opts) do
       send(opts[:test_pid], :subscribe)
@@ -90,7 +94,15 @@ defmodule AiurWeb.BuildLiveTest do
   end
 
   test "source errors render unavailable with a cause-neutral tag" do
-    for {error, tag} <- [{:boom, "unknown"}, {:not_wired, "not_wired"}, {:timeout, "timeout"}] do
+    for {error, tag} <- [
+          {:boom, "unknown"},
+          {:not_wired, "not_wired"},
+          {:timeout, "timeout"},
+          {:epic_config_unavailable, "epic_config_unavailable"},
+          {:settings_loading, "settings_loading"},
+          {:index_not_running, "index_not_running"},
+          {:read_failed, "read_failed"}
+        ] do
       source(result: {:error, error})
       {:ok, view, _} = live(build_conn(), "/build")
       LiveViewAsync.render_when_complete(view)

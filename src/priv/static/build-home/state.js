@@ -41,8 +41,8 @@ function defaultUnavailable(reason) {
   const loading = ctx.root?.querySelector('.bd-loading');
   if (!loading) return;
   const words = { not_wired: 'no data source', timeout: 'timed out', crashed: 'source crashed',
-    version: 'page out of date, reload', invalid: 'invalid data', unavailable: 'source unavailable' };
-  loading.textContent = 'Build timeline unavailable · ' + (Object.hasOwn(words, reason) ? words[reason] : 'unknown cause');
+    version: 'page out of date, reload', invalid: 'invalid data' };
+  loading.textContent = 'Build timeline unavailable · ' + (Object.hasOwn(words, reason) ? words[reason] : `unknown cause (${String(reason).slice(0, 80)})`);
 }
 export const fx = {
   viewport() {}, relayout() {}, update() {}, jumpNow() {}, liveGuard() {}, markScrolling() {},
@@ -53,7 +53,11 @@ export const fx = {
   renderLoading() {}, renderUnavailable: defaultUnavailable, dataChanged: defaultDataChanged,
   drawEdgesSoon() {}, tickCardAges() {}, openFromURL() {}, flushLive() {}, renderHeads() {},
   makeCard: it => { const el = document.createElement('div'); el.className = 'bd-card'; el.dataset.id = it.t.id; el.tabIndex = -1; el._it = it; return el; },
+  activeFeature: () => S.feature && ctx.D && Object.hasOwn(ctx.D.features, S.feature) ? ctx.D.features[S.feature] : null,
   visibleCols: () => [], applyCols() {}, scheduleCols() {},
+  initModal() {}, closeModal() {}, syncTicket() {}, modalSync() {}, renderDocBody() {}, renderConversation() {},
   drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
-  lockTree() {}, fitTree() {}, openTree() {}, filtersChanged() {},
+  lockTree() {}, fitTree() {}, openTree() {},
+  appendEntries() {}, appendItem() {}, claimLocalOp: () => null, renderComposer() {}, composerState() {}, sendStatus() {}, scheduleMap() {}, wireLive() {}, onConversation() {}, reconnectConversation() {},
+  renderCommand() {}, placeCommand() {},
 };

@@ -14,7 +14,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.RunTelemetry.{Dataset, SummaryMerge, Timeline}
-  alias AiurWeb.OperatorControlCenter.Analytics.{LatestRun, LiveConcurrency, Optimistic, ProjectedSeries, TicketRow, WastedCapacity}
+  alias AiurWeb.OperatorControlCenter.Analytics.{ConcurrencyCoverage, LatestRun, LiveConcurrency, Optimistic, ProjectedSeries, TicketRow, WastedCapacity}
 
   @default_buckets 180
   @max_series_actors 8
@@ -23,7 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   @type model :: %{
           available?: boolean(),
-          retained_runs: %{included: non_neg_integer(), total: non_neg_integer()} | nil,
+          retained_runs: map() | nil,
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
           source_boot_id: String.t() | nil,
           source_observed_at: String.t() | nil,
@@ -64,9 +64,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       (a Build Order's member count) rather than inferring it from telemetry.
 
   Unavailable reasons distinguish an idle fleet from a persistence failure:
-  `:no_telemetry` means nothing analyzable was recorded, while
-  `:retained_unreadable` means retained run summaries exist but could not be
-  decoded, and `:error` is an unexpected analysis failure.
+  `:no_telemetry` means nothing analyzable was recorded, `:retained_scan_limited`
+  means no retained summary fit the cold scan budget, `:retained_unreadable` means
+  retained summaries could not be decoded, and `:error` is an unexpected failure.
   """
   @spec load(keyword()) :: {:ok, model()} | {:unavailable, atom()}
   def load(opts \\ []) do
@@ -82,7 +82,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           LatestRun.load(file, current_boot_id(), analyzable?, opts)
 
         :cross ->
-          cross_session(file)
+          cross_session(file, opts)
 
         _other ->
           Dataset.build(file, [])
@@ -95,14 +95,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       {:error, {:no_telemetry_files, _paths}} ->
         {:unavailable, :no_telemetry}
 
-      {:error, :retained_unreadable} ->
-        {:unavailable, :retained_unreadable}
+      {:error, reason} when reason in [:retained_unreadable, :retained_scan_limited] ->
+        {:unavailable, reason}
     end
   rescue
     _error -> {:unavailable, :error}
   end
 
-  defp cross_session(file), do: SummaryMerge.load(file, current_boot_id())
+  defp cross_session(file, opts), do: SummaryMerge.load(file, current_boot_id(), opts)
 
   # A readable stream that contains nothing for this scope is "no telemetry", not
   # a zero-cost build: rendering empty charts and zeroed KPIs would claim a build
@@ -217,7 +217,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       |> Map.get(:samples, [])
       |> bucket_pressure(timeline, axis0, bw, buckets)
 
-    series = build_series(bucketed, pressure_buckets, display, display_keys, axis0, bw, buckets)
+    series = build_series(bucketed, pressure_buckets, display, display_keys, axis0, bw, buckets) |> ConcurrencyCoverage.mark_unknown(bucketed, opts)
 
     kpis =
       compute_kpis(
@@ -455,7 +455,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
         acc
         |> put_max(:fleet_agents_occupied, field(sample, :fleet_agents_occupied))
         |> put_latest_metrics(ts,
-          fleet_agents_latest_occupied: field(sample, :fleet_agents_occupied),
           fleet_agents_configured: field(sample, :fleet_agents_configured),
           fleet_agents_max: field(sample, :fleet_agents_max),
           fleet_agents_effective: field(sample, :fleet_agents_effective),
@@ -562,7 +561,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
         :fleet_agents_configured,
         :fleet_agents_max,
         :fleet_agents_effective,
-        :fleet_agents_latest_occupied,
         :fleet_load,
         :fleet_load_threshold,
         :fleet_schedulers,
@@ -585,7 +583,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       latest_configured_capacity: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_agents_configured),
       latest_max_capacity: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_agents_max),
       latest_effective_capacity: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_agents_effective),
-      latest_occupied: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_agents_latest_occupied),
       latest_admission_signal: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_admission_signal),
       latest_load: latest_value(series, :fleet_load),
       latest_load_threshold: latest_value(series, :fleet_load_threshold),
@@ -658,8 +655,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp compute_kpis(series, tickets, ctx, opts) do
     ceiling = ctx.cores * 100
     concs = Enum.map(series, & &1.conc)
-    peak_conc = Enum.max([0 | concs])
-    conc_now = List.last(concs) || 0
+    peak_conc = Enum.max([0 | Enum.filter(concs, &is_integer/1)])
+    conc_now = if concs == [], do: 0, else: List.last(concs)
     mean_cpu = mean(Enum.sum(Enum.map(series, & &1.total_cpu)), length(series))
     mem_now = (List.last(series) || %{}) |> Map.get(:total_mem, 0)
     bucket_hours = ctx.bw / 1000 / 3600

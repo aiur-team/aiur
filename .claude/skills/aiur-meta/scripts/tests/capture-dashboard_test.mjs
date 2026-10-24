@@ -5,7 +5,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, capturePageBounded, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
+import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, analyticsAxisIssues, capturePageBounded, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
+import './capture-dashboard-build_test.mjs'
 
 const captureScript = fileURLToPath(new URL('../capture-dashboard.mjs', import.meta.url))
 
@@ -229,6 +230,40 @@ test('keeps a healthy dashboard healthy across repeated settled observations', (
   }
 })
 
+test('flags non-monotonic and repeated analytics axis labels', () => {
+  const issues = analyticsAxisIssues([
+    { label: 'Per-unit CPU', yLabels: ['0%', '1600%', '1867%', '533%'], xLabels: ['0m', '0m', '1m'] },
+    { label: 'Memory', yLabels: ['0 GB', '20 GB', '10 GB'], xLabels: ['0s', '5s', '10s'] },
+    { label: 'Small count', yLabels: ['0', '0', '1', '1'], xLabels: ['0s', '5s', '10s'] }
+  ])
+
+  assert.deepEqual(issues, [
+    { kind: 'axis-non-monotonic', detail: 'Per-unit CPU y-axis labels are not monotonic: 0, 1600, 1867, 533' },
+    { kind: 'axis-repeated-label', detail: 'Per-unit CPU x-axis repeats 0m' },
+    { kind: 'axis-non-monotonic', detail: 'Memory y-axis labels are not monotonic: 0, 20, 10' },
+    { kind: 'axis-repeated-label', detail: 'Small count y-axis repeats 0, 1' }
+  ])
+  assert.equal(analyzeDashboardSnapshot('analytics', { ...healthySnapshot, analyticsCharts: [{ label: 'CPU', yLabels: ['0', '2', '1'], xLabels: [] }] }).verdict, 'attention')
+  assert.equal(analyzeDashboardSnapshot('analytics', { ...healthySnapshot, analyticsCharts: [{ label: 'count', yLabels: ['0', '0', '1'], xLabels: [] }] }).verdict, 'attention')
+})
+
+test('extracts analytics axis labels from rendered chart SVGs', async () => {
+  const snapshot = await inspectPage(fakePage({
+    primarySelectors: ['#analytics-page .an-kpis'],
+    analyticsCharts: [{
+      label: 'Fleet CPU',
+      yLabels: ['0%', '25%', '50%'],
+      xLabels: ['0s', '15s', '30s']
+    }]
+  }), 'analytics')
+
+  assert.deepEqual(snapshot.analyticsCharts, [{
+    label: 'Fleet CPU',
+    yLabels: ['0%', '25%', '50%'],
+    xLabels: ['0s', '15s', '30s']
+  }])
+})
+
 test('reports visible staleness, empty tables, and configured-cap contradictions', () => {
   const stale = structuredClone(healthySnapshot)
   stale.staleBanners = ['Units may be stale. current-run membership is healthy']
@@ -292,6 +327,13 @@ test('extracts the peak card value separately from current concurrency and its c
   ])
   const result = analyzeDashboardSnapshot('analytics', { ...healthySnapshot, capacityReadings: readings }, 14)
   assert.deepEqual(result.issues.filter((issue) => issue.kind === 'capacity-overrun').map((issue) => issue.detail), ['peak concurrency is 33 above its cap 32'])
+})
+
+test('does not read capacity numbers from unrelated page text', () => {
+  const ticketTitle = "Ticket #4159: '17 now / 16 cap'"
+  const readings = extractCapacityReadings([], ticketTitle)
+
+  assert.deepEqual(readings, [])
 })
 
 test('a precondition verdict says did not run, never attention', () => {
@@ -411,7 +453,7 @@ test('a direct invocation with a URL but no password exits 69 and writes did-not
   }
 })
 
-function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [] } = {}) {
+function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [], analyticsCharts = [], buildRoot = null, serialize = false } = {}) {
   const nodes = elements.map(({ innerText, selectors }) => ({
     innerText,
     selectors,
@@ -438,7 +480,11 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
       ? { querySelector: (childSelector) => childSelector === '.recent-subtitle' ? { innerText: summary.label } : null }
       : null
   }))
-
+  const analyticsChartNodes = analyticsCharts.map((chart) => ({
+    getAttribute: (name) => name === 'aria-label' ? chart.label : null,
+    querySelectorAll: (selector) => (selector === 'text[text-anchor="end"]' ? chart.yLabels : chart.xLabels)
+      .map((textContent) => ({ textContent, innerText: textContent, textContent }))
+  }))
   return {
     evaluate: async (callback, pageName) => {
       const priorDocument = globalThis.document
@@ -447,6 +493,7 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
         title: 'Aiur',
         body: { innerText: nodes.map((element) => element.innerText).join('\n') },
         querySelectorAll: (selector) => {
+          if (selector === '#analytics-page .an-chart svg') return analyticsChartNodes
           if (selector === '.filter-row[aria-label]') return filterGroupNodes
           if (selector === '.history-count') return countSummaryNodes
           const requested = selector.split(',').map((value) => value.trim())
@@ -454,13 +501,16 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
         },
         querySelector: (selector) => {
           if (selector === '[data-phx-main], [data-phx-session]') return {}
+          if (selector === '#build-root') return buildRoot
           return primarySelectors.includes(selector) ? {} : null
         }
       }
       globalThis.window = { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) }
 
       try {
-        return callback(pageName)
+        return serialize
+          ? new Function('pageName', `return (${callback.toString()})(pageName)`)(pageName)
+          : callback(pageName)
       } finally {
         globalThis.document = priorDocument
         globalThis.window = priorWindow
@@ -468,3 +518,23 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
     }
   }
 }
+
+test('inspectPage evaluates as serialized browser code and flags a blank Build timeline', async () => {
+  const root = {
+    querySelector: (selector) => selector === '.bd-loading' ? { innerText: 'Build timeline unavailable · source unavailable' } : null,
+    querySelectorAll: () => []
+  }
+  const snapshot = await inspectPage(fakePage({ buildRoot: root, primarySelectors: ['#build-root'], serialize: true }), 'build')
+
+  assert.equal(snapshot.buildUnavailable, 'Build timeline unavailable · source unavailable')
+  assert.equal(snapshot.buildHydrated, true)
+  const blankSnapshot = await inspectPage(fakePage({
+    buildRoot: { querySelector: () => null, querySelectorAll: () => [] },
+    primarySelectors: ['#build-root'],
+    serialize: true
+  }), 'build')
+  assert.equal(blankSnapshot.buildHydrated, false)
+  blankSnapshot.capacityReadings = []
+  const blankAssessment = analyzeDashboardSnapshot('build', blankSnapshot)
+  assert.ok(blankAssessment.issues.some(({ kind }) => kind === 'build-not-hydrated'))
+})

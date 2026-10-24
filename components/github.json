@@ -7,6 +7,7 @@
     "src/lib/aiur/allowed_contributors.ex",
     "src/lib/aiur/allowed_contributors/**",
     "src/lib/aiur/ci/failure_digest.ex",
+    "src/lib/aiur/ci/transient_network_failure.ex",
     "src/lib/aiur/ci_approval_store.ex",
     "src/lib/aiur/codeowners.ex",
     "src/lib/aiur/codeowners/**",
@@ -18,27 +19,19 @@
     "src/lib/aiur/open_ticket_source/**",
     "src/lib/aiur/pr_merge/queue.ex",
     "src/lib/aiur/webhooks/delivery_mode.ex",
-    "src/lib/aiur/webhooks/mode_table.ex",
-    "src/priv/github_budget.py"
+    "src/lib/aiur/webhooks/mode_table.ex"
   ],
   "facades": [
     "Aiur.AllowedContributors",
     "Aiur.AllowedContributors.Candidate",
     "Aiur.CI.FailureDigest",
+    "Aiur.CI.TransientNetworkFailure",
     "Aiur.CIApprovalStore",
     "Aiur.Codeowners",
     "Aiur.Codeowners.Edit",
-    "Aiur.GitHub.AgentCacheBridge",
     "Aiur.GitHub.AgentMarker",
-    "Aiur.GitHub.AppCredentials",
-    "Aiur.GitHub.AppToken",
-    "Aiur.GitHub.AppTokenRefresher",
-    "Aiur.GitHub.AuthPreflight",
     "Aiur.GitHub.BlockerProgress",
     "Aiur.GitHub.BotIdentity",
-    "Aiur.GitHub.BrokerTimeout",
-    "Aiur.GitHub.Budget",
-    "Aiur.GitHub.BudgetBroker",
     "Aiur.GitHub.CIPollBatch",
     "Aiur.GitHub.CIRecovery",
     "Aiur.GitHub.CIRecoveryStore",
@@ -47,22 +40,15 @@
     "Aiur.GitHub.CodeOwners",
     "Aiur.GitHub.CommentPollBatch",
     "Aiur.GitHub.Config",
-    "Aiur.GitHub.Connectivity",
-    "Aiur.GitHub.Credential",
-    "Aiur.GitHub.CredentialHeadroom",
-    "Aiur.GitHub.CycleFetchCache",
-    "Aiur.GitHub.Errors",
     "Aiur.GitHub.FailureEvidence",
-    "Aiur.GitHub.GraphQLCost",
     "Aiur.GitHub.HoldPressure",
-    "Aiur.GitHub.HostCommand",
     "Aiur.GitHub.HumanReviewGate",
     "Aiur.GitHub.IssueDependencies",
     "Aiur.GitHub.IssueRelationships",
     "Aiur.GitHub.IssueState",
     "Aiur.GitHub.Issues",
     "Aiur.GitHub.Labels",
-    "Aiur.GitHub.LocalHold",
+    "Aiur.GitHub.LandingWithdrawal",
     "Aiur.GitHub.MainFixer",
     "Aiur.GitHub.MergeQueue",
     "Aiur.GitHub.OpenIssueListing",
@@ -70,19 +56,13 @@
     "Aiur.GitHub.PollSnapshots",
     "Aiur.GitHub.PullRequests",
     "Aiur.GitHub.PullRequests.CommitCiStatus",
-    "Aiur.GitHub.Quota",
-    "Aiur.GitHub.ReadCache",
-    "Aiur.GitHub.RequestOrigin",
-    "Aiur.GitHub.ResourceEvents",
-    "Aiur.GitHub.ResourceStore",
-    "Aiur.GitHub.ResourceStore.Memory",
     "Aiur.GitHub.ReviewThreads",
     "Aiur.GitHub.StatePolicy",
     "Aiur.GitHub.TicketPullRequest",
     "Aiur.GitHub.Tracker",
-    "Aiur.GitHub.Transport",
     "Aiur.GitHub.TrustSnapshot",
     "Aiur.GitHub.ViewStateSweep",
+    "Aiur.GitHub.WorkspacePreflight",
     "Aiur.GitHubCostCLI",
     "Aiur.GitHubUsageCLI",
     "Aiur.GlobalConfigStartup",
@@ -95,27 +75,21 @@
   "requires": [
     "agent-sandbox",
     "config",
+    "github-access",
     "kernel",
     "signal",
-    "tracker"
+    "tracker",
+    "workspace"
   ],
   "optional": [
     "event-bus",
     "github-listeners"
   ],
   "owns": {
-    "config": [],
-    "env": [
-      "AIUR_GITHUB_BUDGET_CONSUMER",
-      "AIUR_GITHUB_BUDGET_DIR",
-      "AIUR_GITHUB_BUDGET_IDENTITY_KEY",
-      "GH_TOKEN",
-      "GITHUB_APP_ID",
-      "GITHUB_APP_INSTALLATION_ID",
-      "GITHUB_APP_PRIVATE_KEY",
-      "GITHUB_APP_PRIVATE_KEY_PATH",
-      "GITHUB_TOKEN"
+    "config": [
+      "events.codeowners_refresh_seconds"
     ],
+    "env": [],
     "state": [],
     "capabilities": []
   },
@@ -126,7 +100,7 @@
     "GHR"
   ],
   "dependency_kind": "optional",
-  "summary": "Reads issues, tracks pull requests and manages GitHub API budgets for a run.",
+  "summary": "Reads issues, tracks pull requests and applies GitHub tracker policy.",
   "status": "optional",
   "install": {
     "type": "included"
@@ -135,17 +109,7 @@
     "apis/github.md"
   ],
   "config": [],
-  "env": [
-    "AIUR_GITHUB_BUDGET_CONSUMER",
-    "AIUR_GITHUB_BUDGET_DIR",
-    "AIUR_GITHUB_BUDGET_IDENTITY_KEY",
-    "GH_TOKEN",
-    "GITHUB_APP_ID",
-    "GITHUB_APP_INSTALLATION_ID",
-    "GITHUB_APP_PRIVATE_KEY",
-    "GITHUB_APP_PRIVATE_KEY_PATH",
-    "GITHUB_TOKEN"
-  ],
+  "env": [],
   "capabilities": [],
   "facade_pending": null
 }

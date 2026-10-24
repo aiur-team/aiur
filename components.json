@@ -56,6 +56,7 @@
     "components/experiment-stats.json",
     "components/experiments-page.json",
     "components/experiments.json",
+    "components/github-access.json",
     "components/github-listeners.json",
     "components/github.json",
     "components/harness-adapters.json",

@@ -36,6 +36,12 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   genuine application call through the same seam and asserts the counter fires,
   so the zeros above it mean something. If that control ever fails, treat every
   other assertion in this file as unproven rather than passing.
+
+  To exclude unrelated egress, the test suspends MainWatch, LandingWatch,
+  HealthScanner, HeadVerdictRouter, and ReworkRequeue after draining in-flight
+  work. They wake from timers or `pr.merged`, `branch.push`, and
+  `main.ci.failed.resolved` events; `aiur_web` cannot call or message them, so
+  suspension cannot hide a page-opened request.
   """
 
   use Aiur.TestSupport
@@ -45,14 +51,15 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
   alias Aiur.BuildOrder.TicketDetail
   alias Aiur.GitHub.{Issues, ReadCache, ResourceStore}
-  alias Aiur.Orchestrator.CommentPolling
+  alias Aiur.GitHub.Listeners.Comments.{Cursor, Driver}
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
   alias Aiur.RunTelemetry.FactsCapture
   alias Aiur.TestSupport.EndpointStubs
+  alias Aiur.TestSupport.ZeroFetchPageOpenWatchers
   alias Aiur.TrackerIdentity
   alias AiurWeb.ControlCenterCache
 
   @endpoint AiurWeb.Endpoint
-
   # The dashboard routes that must never fetch when opened, paired with a marker
   # only that route renders. `/` and `/build-orders` (+ `/build-orders/:root_number`)
   # used to be the two deliberate exceptions — a first demander buying a
@@ -61,7 +68,8 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   # for `/` is proven separately below, since the route test runs the env's
   # Linear tracker where `OpenTicketSource` is `:unsupported`.
   @zero_fetch_pages [
-    {"/", "usage-watch"},
+    {"/", "build-root"},
+    {"/units", "usage-watch"},
     {"/commands", "control-panel"},
     {"/analytics", "analytics-page"},
     {"/streamdeck", "streamdeck-page"},
@@ -69,37 +77,41 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     {"/build-orders/2073", "build-order-page"}
   ]
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @repository {"owner", "repo"}
 
   setup context do
+    Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "linear")
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
 
+    ZeroFetchPageOpenWatchers.suspend(fn pid ->
+      on_exit(fn -> ZeroFetchPageOpenWatchers.resume(pid) end)
+    end)
+
     # Clear prior comment work and finish startup cleanup before counting.
+    on_exit(fn -> assert :ok = Aiur.TestSupport.ensure_orchestrator_running() end)
     :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
     {:ok, orchestrator} = Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator)
 
     # The GitHub comment poll's pull-request discovery uses CommentPollBatch and
-    # POSTs /graphql. It is an Orchestrator poll, but its owned async task is not
-    # in tracker_tasks, so waiting on that map alone can leave it racing this
-    # transport counter. Freeze the source poll cycle and drain its outstanding
+    # POSTs /graphql. Its listener-owned async task is not in tracker_tasks,
+    # so waiting on that map alone can leave it racing this transport counter. Freeze the source poll cycle and drain its outstanding
     # comment batch before installing the counter below. The delayed startup
     # cycle is fenced by poll_frozen too.
     _frozen_state = Aiur.TestSupport.freeze_live_orchestrator()
 
     Aiur.TestSupport.await_orchestrator_state(orchestrator, fn state ->
-      map_size(state.tracker_tasks) == 0 and is_nil(state.github_comment_poll)
+      map_size(state.tracker_tasks) == 0 and is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
     end)
 
     if context[:comment_poll_leak_probe] do
       # This test sends a poll-cycle message while the page is held open. Make
       # the real GitHub comment-poll path eligible only after the Orchestrator
       # has been frozen, so the message deterministically proves the fence.
-      :ok = Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github")
+      Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
     end
 
-    # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
-    # and asserts it reaches the transport. That URL is now cacheable
+    # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read and asserts it reaches the transport. That URL is now cacheable
     # (`:issue`, #2352), and the read cache is a shared application child, so a
     # deposit made by an earlier test would make the control's "must always
     # send" request a cache hit and the zero below unproven. Start clean so the
@@ -226,22 +238,22 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     @tag :inherited_tracker_task
     test "opening the dashboard under a github tracker reaches GitHub zero times", %{counter: counter, inherited_task: inherited_task} do
       workflow_path = Aiur.Workflow.workflow_file_path()
-      :ok = Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github")
+      Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github", tracker_repo: "owner/repo")
 
       # Release the prior test's read and observe its completion before counting.
       ref = Process.monitor(inherited_task)
       send(inherited_task, :continue)
       receive_barrier({:DOWN, ^ref, :process, ^inherited_task, _reason})
 
-      assert {:ok, view, html} = live(build_conn(), "/")
-      assert html =~ "dashboard-shell", "/ did not render the dashboard shell"
-      assert html =~ "usage-watch", "/ rendered a shell but not its own content"
+      assert {:ok, view, html} = live(build_conn(), "/units")
+      assert html =~ "dashboard-shell", "/units did not render the dashboard shell"
+      assert html =~ "usage-watch", "/units rendered a shell but not its own content"
       assert render(view) =~ "usage-watch"
 
       requests = Agent.get(counter, & &1)
 
       assert requests == [],
-             "opening / under a github tracker made #{length(requests)} GitHub requests: #{inspect(requests)}"
+             "opening /units under a github tracker made #{length(requests)} GitHub requests: #{inspect(requests)}"
 
       assert_egress_open!(counter)
     end
@@ -267,21 +279,21 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
     @tag :comment_poll_leak_probe
     test "holding a page open past its refresh ticks reaches GitHub zero times", %{counter: counter} do
-      assert {:ok, view, html} = live(build_conn(), "/")
+      assert {:ok, view, html} = live(build_conn(), "/units")
       assert html =~ "dashboard-shell"
 
       # Exercise the real Orchestrator poll-cycle entry point while the page is
       # open. Seed one reconcile target so an unfrozen cycle reaches the
       # CommentPollBatch GraphQL lookup; when the source is fenced, this message
       # is discarded before any GitHub request can start.
-      :sys.replace_state(Aiur.Orchestrator, fn state ->
-        %{state | github_comment_reconcile_targets: MapSet.new(["4584"])}
-      end)
+      state = :sys.get_state(Aiur.Orchestrator)
+      CommentPolling.request_reconcile(state, %{kind: :review_thread, ticket: "4584"})
+      :sys.get_state(Aiur.GitHub.Listeners.Comments)
 
       send(Aiur.Orchestrator, :run_poll_cycle)
 
       Aiur.TestSupport.await_orchestrator_state(Aiur.Orchestrator, fn state ->
-        map_size(state.tracker_tasks) == 0 and is_nil(state.github_comment_poll)
+        map_size(state.tracker_tasks) == 0 and is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
       end)
 
       # The page's own periodic ticks — a 1s clock, a 15s GitHub-quota snapshot
@@ -315,14 +327,16 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
         )
 
       _poll_result =
-        CommentPolling.poll_github_comments(probe_state,
+        Driver.poll_github_comments(
+          %Cursor{},
+          CommentPolling.input(probe_state),
           review_issue_fetcher: fn _states -> {:ok, []} end
         )
 
       observed = Agent.get(counter, & &1)
 
       assert {"POST", "/graphql"} in observed,
-             "CommentPolling did not expose its expected GraphQL request to the test counter: #{inspect(observed)}"
+             "The comment poll did not expose its expected GraphQL request to the test counter: #{inspect(observed)}"
 
       assert_egress_open!(counter)
     end
@@ -365,6 +379,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
     test "an issue already held costs no request at all", %{counter: counter} do
       {owner, repo} = @repository
+
       ResourceStore.put_resource(ResourceStore.key(:issue, owner, repo, "2073"), held_issue(2073), source: :webhook, version: "2026-08-17T10:00:00Z")
 
       assert {:ok, detail} =
@@ -432,11 +447,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     fetcher = fn ["33189"] ->
       send(test_pid, {:inherited_tracker_task, self()})
       receive_barrier(:continue)
+
       Issues.fetch_issue_raw_conditional(33_189, repository: {"aiur-team", "aiur"}, token: "test-token")
+
       {:ok, []}
     end
 
     send(Aiur.Orchestrator, {:event, %{topic: "ticket.33189.issue.commented", issue_state_fetcher: fetcher}})
+
     receive_barrier({:inherited_tracker_task, pid})
     pid
   end

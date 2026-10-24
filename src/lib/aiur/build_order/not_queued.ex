@@ -32,6 +32,7 @@ defmodule Aiur.BuildOrder.NotQueued do
   end
 
   defp open_state(:available), do: {:ok, []}
+  defp open_state(:loading), do: {:unavailable, [:open_tickets_loading]}
   defp open_state(:stale), do: {:stale, [:open_tickets_stale]}
   defp open_state(:unavailable), do: {:unavailable, [:open_tickets_unavailable]}
   defp open_state(:unsupported), do: {:unsupported, [:tracker_unsupported]}

@@ -34,6 +34,7 @@ defmodule Aiur.PRLifecycle.HealthScanner do
 
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.LocalHold
   alias Aiur.{Signal, Tracker}
 
   @default_interval_ms 30 * 60 * 1_000
@@ -58,6 +59,7 @@ defmodule Aiur.PRLifecycle.HealthScanner do
       stale_hours: Keyword.get(opts, :stale_hours, @default_stale_hours),
       open_prs_fetcher: Keyword.get(opts, :open_prs_fetcher, &default_open_prs/0),
       reviews_fetcher: Keyword.get(opts, :reviews_fetcher, &default_reviews/1),
+      local_hold_opts: LocalHold.caller_opts(opts),
       human_mergers_fun: Keyword.get(opts, :human_mergers_fun, &GitHubConfig.human_mergers/0),
       comment_fun: Keyword.get(opts, :comment_fun, &Tracker.create_comment/2),
       alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2),
@@ -149,10 +151,18 @@ defmodule Aiur.PRLifecycle.HealthScanner do
   def evaluate(prs, stale_hours, now, human_mergers) when is_list(prs) and is_list(human_mergers) do
     # A PR without a usable number can never be keyed, alerted or reviewed, so
     # reject it before any decision rule runs (#2346 review).
-    prs = Enum.reject(prs, &(pr_number(&1) == nil))
+    prs = Enum.reject(prs, &(pr_number(&1) == nil or foreign_pr?(&1)))
     unmergeable = Enum.filter(prs, &unmergeable_author?(&1, human_mergers))
     stale_unreviewed = Enum.filter(prs, &stale_unreviewed_candidate?(&1, stale_hours, now))
     {unmergeable, stale_unreviewed}
+  end
+
+  # Another instance owns the ticket this PR's branch names (#5803).
+  defp foreign_pr?(pr) do
+    case Aiur.TicketBranch.ticket_id(get_in(pr, ["head", "ref"])) do
+      nil -> false
+      ticket -> Aiur.Instance.skip?(ticket, nil, :pr_health)
+    end
   end
 
   # Unmergeable-author flagging (cause 1): alert once, comment once.
@@ -232,7 +242,7 @@ defmodule Aiur.PRLifecycle.HealthScanner do
   defp flag_stale_if_unreviewed(_pr, state, _now), do: state
 
   defp confirm_unreviewed(pr, number, key, state, now) do
-    case state.reviews_fetcher.(number) do
+    case LocalHold.run(fn -> state.reviews_fetcher.(number) end, Map.get(state, :local_hold_opts, [])) do
       {:ok, reviews} when is_list(reviews) ->
         maybe_alert_stale(state, pr, key, reviews, now)
 

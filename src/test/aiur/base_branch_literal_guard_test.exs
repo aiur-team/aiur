@@ -28,9 +28,12 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|defp attention?(topic, _payload), do: topic in ["system.main.ci.failed", "system.main.ci.canary", "system.main.ci.unavailable", "system.main.ci.flake_rerun"]|
     ],
     "aiur/main_watch/state.ex" => [
-      ~S|events = if state.status == :red, do: [{"system.main.ci.failed.resolved", payload}], else: []|,
+      ~S|events = if state.status == :red, do: [{"system.main.ci.failed.resolved", recovery}], else: []|,
       ~S|topic = if flaked, do: "system.main.ci.flaked", else: "system.main.ci.failed"|
     ],
+    # This recovery protocol's event topic and PR comment are fixed identifiers.
+    "aiur/landing_watch.ex" => [~S|"system.main.ci.failed.resolved"|],
+    "aiur/landing_watch/pr_rerun.ex" => [~S|"main CI recovered"|],
     # Fixer topics and evidence markers are protocol identifiers, independent of the base branch.
     "aiur/main_watch/fixer.ex" => [
       ~S|"system.main.fixer.failed"|,
@@ -45,10 +48,11 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|@marker ~r/<!-- aiur:main-watch signature=([a-f0-9]{64}) sha=([a-f0-9]{40}) -->/|
     ],
     "aiur/merge_policy_cli.ex" => [
-      ~S|labels = if policy.ci == "wait" and policy.full_ci_labels == ["main-fix"], do: "", else: " full_ci=[#{Enum.join(policy.full_ci_labels, ",")}]"|,
-      ~S|IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher}#{watch_error} landing_watcher=#{landing.watcher}#{main}")|,
+      ~S|"MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels(policy)} role=#{role} repo_global_off=#{disabled(role)} main_watch=#{watch(policy, role)} watcher=#{state.watcher}#{watch_error(state)} landing_watcher=#{landing.watcher}#{main(policy, state)}"|,
+      ~S|defp labels(%{ci: "wait", full_ci_labels: ["main-fix"]}), do: ""|,
       ~S|"main=unavailable last_known=" <> String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "")|,
       ~S|"main=red" <> observation(state, now_ms) <> since <> fixer|,
+      ~S|def main_state(%{status: :green} = state, now_ms), do: "main=green" <> event_source(state) <> observation(state, now_ms)|,
       ~S|def main_state(%{status: :green} = state, now_ms), do: "main=green" <> observation(state, now_ms)|,
       ~S|def main_state(_state, _now_ms), do: "main=unknown"|
     ]

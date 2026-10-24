@@ -5,13 +5,20 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   blocker declaration immediately subscribed for prompt resume behavior.
   """
 
-  alias Aiur.AgentRunner.{DecisionAttention, EpicSetter, FeatureWriter, ToolCoordination, ToolEvents}
+  alias Aiur.AgentRunner.{
+    DecisionAttention,
+    EpicSetter,
+    FeatureWriter,
+    ToolCoordination,
+    ToolEvents
+  }
+
   alias Aiur.AgentRunner.ToolExecutor.TicketStateSetter
 
   alias Aiur.{Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
   alias Aiur.AgentTools.Dispatch
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
 
@@ -35,7 +42,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   @spec invocation_id() :: term()
   def invocation_id, do: Process.get(@invocation_key)
 
-  @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() -> map())
+  @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() ->
+                                                                                   map())
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
     attempt_id = Keyword.get(opts, :attempt_id)
 
@@ -55,8 +63,18 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       unsubscribe_blocker: Keyword.get(opts, :blocker_unsubscriber, &Orchestrator.unsubscribe_for_declared_blocker/2),
       # `aiur_set_ticket_state` (#2805) re-reads the issue and makes the target the sole `agent:*` state label —
       # Agents need not guess the label to remove.
-      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &TicketTransition.write_state(&1, &2, writer: :agent_tool)),
-      ci_wait_pr_fetcher: Keyword.get(opts, :ci_wait_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)
+      set_ticket_state:
+        Keyword.get(
+          opts,
+          :ticket_state_writer,
+          &TicketTransition.write_state(&1, &2, writer: :agent_tool)
+        ),
+      ci_wait_pr_fetcher:
+        Keyword.get(
+          opts,
+          :ci_wait_pr_fetcher,
+          &Aiur.CodeHost.fetch_open_pull_request_for_branch/1
+        )
     }
 
     event_handlers = %{
@@ -71,10 +89,19 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       app_session: app_session,
       attempt_id: attempt_id,
       event_handlers: event_handlers,
+      dependency_declarer: coordination.declare_dependency,
+      dependency_subscriber: coordination.subscribe_blocker,
       enqueue: coordination.enqueue,
       run: coordination.run,
       issue: issue,
-      publish: Keyword.get(opts, :event_bus_publisher, &Publisher.publish/3),
+      ticket_state_writer:
+        Keyword.get(opts, :dependency_state_writer, fn issue_id, state_name ->
+          TicketTransition.write_state(issue_id, state_name,
+            writer: :agent_tool,
+            identifier: ToolCoordination.issue_identifier(issue)
+          )
+        end),
+      publish: Keyword.get(opts, :event_bus_publisher, &Events.publish/3),
       publication_recorder:
         Keyword.get(opts, :event_publication_recorder, fn record ->
           EventPublicationLog.write(workspace, record)
@@ -120,7 +147,9 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         unblocker: fn blocker_number ->
           ToolCoordination.unblock_for_issue(issue, blocker_number, coordination)
         end,
-        feature_writer: fn args -> FeatureWriter.write(issue, args, Keyword.get(opts, :feature_opts, [])) end,
+        feature_writer: fn args ->
+          FeatureWriter.write(issue, args, Keyword.get(opts, :feature_opts, []))
+        end,
         epic_setter: fn args -> EpicSetter.set(issue, args, Keyword.get(opts, :epic_opts, [])) end,
         ticket_state_setter: fn state_name, review_findings ->
           TicketStateSetter.write(

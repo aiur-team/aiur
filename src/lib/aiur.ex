@@ -24,6 +24,7 @@ defmodule Aiur.Application do
   alias Aiur.Application.StartupChecks
   alias Aiur.GitHub.Config
   alias Aiur.Identity.Machine
+  alias Aiur.Instance
 
   @impl true
   def start(_type, _args) do
@@ -74,8 +75,14 @@ defmodule Aiur.Application do
       # path wins rather than booting a half-built interactive tree.
       interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
 
+      instance_role = Aiur.Config.instance_role()
+      _ = Instance.Identity.configure()
+      Application.put_env(:aiur, :booted_instance_role, instance_role)
+      Application.put_env(:aiur, :instance_ticket_labels_fun, &Aiur.OpenTicketSource.ticket_labels/1)
+
       children =
         child_specs(
+          instance_role: instance_role,
           interactive_cli?: interactive_cli?,
           headless?: headless?,
           dashboard?: not no_dashboard?,
@@ -232,7 +239,7 @@ defmodule Aiur.Application do
         Logger.info("Distribution active as #{inspect(distribution_module.node_name())}")
 
       {:error, reason} ->
-        Logger.debug("Distribution not active: #{inspect(reason)}; pane subcommand will not connect")
+        raise "unsafe distributed daemon startup: #{inspect(reason)}"
     end
 
     :ok

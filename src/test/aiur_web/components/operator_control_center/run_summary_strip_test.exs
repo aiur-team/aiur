@@ -35,7 +35,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
     # Token glyphs and the spend figure were removed (operator directive); the
     # model rows now show only the provider + usage bars.
-    assert html =~ ~s(<span class="rs-pc">40%</span>)
+    assert html =~ ~s(<span class="rs-pc">60% left</span>)
     refute html =~ "rs-token-ic"
     refute html =~ "rs-spend"
     refute html =~ "Tokens"
@@ -81,9 +81,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "APIS"
     assert html =~ "1 API"
     assert html =~ ~s(<img class="rs-logo rs-github-mark" src="/images/github-mark.svg")
-    assert html =~ "3750/5000 left · resets in 30m"
-    assert html =~ "500/5000 left · resets in 45m"
-    assert html =~ ~s(class="is-warning" style="width:90.0%")
+    assert html =~ "3750/5000 left · 75% left · resets in 30m"
+    assert html =~ "500/5000 left · 10% left · resets in 45m"
+    assert html =~ ~s(class="is-critical" style="width:10.0%")
     # The two GitHub budgets explain their units on hover.
     assert html =~ ~s(title="REST request budget")
     assert html =~ ~s(title="GraphQL point budget")
@@ -93,6 +93,20 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     refute html =~ "Top consumer"
     refute html =~ "ticket:1670"
     refute html =~ "Attributed"
+  end
+
+  test "renders the primary GitHub windows and omits separately keyed credentials" do
+    github_quota = %{
+      state: :observed,
+      windows: %{"core" => %{resource: "core", remaining: 4159, limit: 5000, used_percent: 16.8, reset_at: DateTime.add(@now, 30, :minute)}},
+      credential_windows: %{"operator-fingerprint" => %{"core" => %{resource: "core", remaining: 4900, limit: 5000, used_percent: 2.0, reset_at: DateTime.add(@now, 30, :minute)}}},
+      backoffs: []
+    }
+
+    html = render_component(&RunSummaryStrip.run_summary_strip/1, %{run: run_view(), usage: usage_view(), meters: meters_view(), github_quota: github_quota, now: @now})
+
+    assert html =~ "4159/5000 left"
+    refute html =~ "4900/5000 left"
   end
 
   # The attribution/coverage context is removed: no ticket identity or
@@ -155,6 +169,38 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
     refute html =~ "Top consumer"
     refute html =~ "Attributed"
+  end
+
+  test "GitHub API meters show remaining width and keep an unknown window unfilled" do
+    Enum.each([{0, 5000, 100}, {50, 2500, 50}, {100, 0, 0}], fn {used, remaining, left} ->
+      github_quota = %{
+        state: :observed,
+        windows: %{
+          "core" => %{resource: "core", remaining: remaining, limit: 5000, used_percent: used},
+          "graphql" => %{resource: "graphql", remaining: 2500, limit: 5000, used_percent: 50}
+        },
+        attribution: []
+      }
+
+      html = render_component(&RunSummaryStrip.run_summary_strip/1, %{run: run_view(), usage: usage_view(), meters: meters_view(), github_quota: github_quota, now: @now})
+      assert html =~ ~s(style="width:#{left}%")
+      assert html =~ "#{left}% left"
+    end)
+
+    unknown = %{
+      state: :observed,
+      windows: %{
+        "core" => %{resource: "core", remaining: nil, limit: 5000, used_percent: nil},
+        "graphql" => %{resource: "graphql", remaining: 2500, limit: 5000, used_percent: 50}
+      },
+      attribution: []
+    }
+
+    html = render_component(&RunSummaryStrip.run_summary_strip/1, %{run: run_view(), usage: usage_view(), meters: meters_view(), github_quota: unknown, now: @now})
+    assert html =~ "remaining unknown"
+    unknown_meter = html |> Floki.parse_fragment!() |> Floki.find(".rs-meter.is-unknown")
+    assert length(unknown_meter) == 1
+    assert Floki.find(unknown_meter, "i") == []
   end
 
   test "names an active secondary-limit backoff, which the primary meters cannot show" do

@@ -38,6 +38,9 @@ else:
     sys.exit(int(os.environ['TEST_STATUS']))
 ''')
             mix.chmod(0o755)
+            git = root / 'git'
+            git.write_text('#!/usr/bin/env python3\nimport os\nprint(os.environ.get("GIT_DIFF_PATHS", ""))\n')
+            git.chmod(0o755)
             time_bombs = root / 'time_bombs.py'
             time_bombs.write_text('import json, os, sys\n'
                                   'open(os.environ["RECHECKS"], "a").write(json.dumps(sys.argv[1:]) + "\\n")\n')
@@ -48,8 +51,10 @@ else:
                                     env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
                                              SELECTION=selection, CALLS=str(calls), TEST_STATUS=str(status),
                                              TEST_DELAY=str(test_delay),
+                                             GIT_DIFF_PATHS=os.environ.get('GIT_DIFF_PATHS', ''),
                                              AIUR_TIME_BOMB_CHECK=str(time_bombs), RECHECKS=str(rechecks),
-                                             GITHUB_STEP_SUMMARY=str(summary)))
+                                             GITHUB_STEP_SUMMARY=str(summary),
+                                             GITHUB_EVENT_NAME=''))
             self.last_stderr = result.stderr
             self.last_stdout = result.stdout
             self.last_summary = summary.read_text() if summary.exists() else ''
@@ -121,6 +126,36 @@ else:
         self.assertEqual(status, 0)
         self.assertEqual(self.last_rechecks, [['test/a_test.exs']])
 
+    def test_changed_test_modules_run_individually_before_the_affected_selection(self):
+        with patch.dict(os.environ, {'GIT_DIFF_PATHS': 'src/test/one_test.exs\nsrc/test/two_test.exs\nsrc/test/support/helper.exs'}):
+            status, calls, _output = self.run_selection(
+                'cd src && mise exec -- mix test --max-cases 4 test/one_test.exs test/dependency_test.exs'
+            )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, [
+            ['test', '--max-cases', '4', 'test/one_test.exs'],
+            ['test', '--max-cases', '4', 'test/two_test.exs'],
+            ['test', '--max-cases', '4', 'test/one_test.exs', 'test/dependency_test.exs'],
+        ])
+
+    def test_changed_test_modules_are_capped_and_skipped_paths_are_reported(self):
+        paths = '\n'.join(f'src/test/module_{index:02}_test.exs' for index in range(11))
+        with patch.dict(os.environ, {'GIT_DIFF_PATHS': paths}):
+            status, calls, output = self.run_selection(
+                'cd src && mise exec -- mix test --max-cases 4 test/module_00_test.exs'
+            )
+
+        self.assertEqual(status, 0)
+        individual = [call for call in calls[:-1]]
+        self.assertEqual(len(individual), RUNNER.MAX_CHANGED_TEST_MODULES)
+        self.assertEqual(individual[0][-1], 'test/module_00_test.exs')
+        self.assertEqual(individual[-1][-1], 'test/module_07_test.exs')
+        self.assertEqual(calls[-1], ['test', '--max-cases', '4', 'test/module_00_test.exs'])
+        self.assertIn('first 8 of 11 modules', output)
+        self.assertIn('test/module_08_test.exs', output)
+        self.assertIn('test/module_10_test.exs', output)
+
     def test_failing_selection_skips_the_date_rerun(self):
         self.run_selection('cd src && mise exec -- mix test --max-cases 4 test/a_test.exs', 1)
         self.assertEqual(self.last_rechecks, [])
@@ -128,6 +163,25 @@ else:
     def test_no_tests_does_not_run_test_suite(self):
         self.assertEqual(self.run_selection('# no affected test files detected for the documentation-only change'),
                          (0, [], '# no affected test files detected for the documentation-only change\n\n'))
+
+    def test_merge_group_full_selection_limits_guard_to_changed_test_files(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as scratch:
+            root = Path(scratch)
+            mix = root / 'mix'
+            mix.write_text('#!/usr/bin/env python3\nprint("cd src && mise exec -- make ci")\n')
+            mix.chmod(0o755)
+            git = root / 'git'
+            git.write_text('#!/usr/bin/env python3\nprint("src/test/changed_test.exs\\nsrc/test/support/helper.exs")\n')
+            git.chmod(0o755)
+            marker = root / 'time-bomb-ran'
+            guard = root / 'guard.py'
+            guard.write_text(f'import pathlib, sys\npathlib.Path({str(marker)!r}).write_text(" ".join(sys.argv[1:]))\n')
+            result = subprocess.run([sys.executable, str(SCRIPT), 'base-sha'], capture_output=True,
+                                    env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                                             GITHUB_EVENT_NAME='merge_group',
+                                             AIUR_TIME_BOMB_CHECK=str(guard)))
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(marker.read_text(), 'test/changed_test.exs')
 
     def test_failure_is_not_reported_as_success(self):
         self.assertNotEqual(self.run_selection('cd src && mise exec -- mix test --max-cases 4 test/a_test.exs', 1)[0], 0)

@@ -17,6 +17,11 @@ defmodule Aiur.ProviderMeterRefresh do
     ranks accounts by these readings at every claim, so the policy keeps
     polling with no surface open (#4127). With no agents running it polls
     Claude only.
+  - **A running fleet is a watcher of Claude.** Agents spend the Claude
+    allowance whether or not a surface is open, and no agent event carries a
+    consumed fraction, so under any selection mode the Claude reading is
+    polled while agents run (#5747). Codex is left to the ledger its own
+    sessions write.
   - **One baseline shortly after boot**, so the first surface to open shows real
     values rather than "not observed".
   - **Codex only while agents run.** Observing Codex means opening an app-server
@@ -30,6 +35,7 @@ defmodule Aiur.ProviderMeterRefresh do
   use GenServer
 
   alias Aiur.Config
+  alias Aiur.Config.UsageCadence
   alias Aiur.ProviderMeterProbe
 
   # Matches polling.usage_interval_seconds's measured 300s default: the
@@ -122,6 +128,7 @@ defmodule Aiur.ProviderMeterRefresh do
       cond do
         watched?(state) -> observe(state, refresh_target(state))
         state.headroom?.() -> observe(state, headroom_target(state))
+        state.agents_running?.() -> observe(state, :claude)
         true -> state
       end
 
@@ -241,13 +248,7 @@ defmodule Aiur.ProviderMeterRefresh do
   end
 
   defp configured_interval_ms do
-    case Config.settings() do
-      {:ok, %{polling: %{usage_interval_seconds: seconds}}} when is_integer(seconds) and seconds > 0 ->
-        seconds * 1_000
-
-      _unset_or_unavailable ->
-        @default_interval_ms
-    end
+    UsageCadence.poll_interval_ms()
   rescue
     _error -> @default_interval_ms
   catch

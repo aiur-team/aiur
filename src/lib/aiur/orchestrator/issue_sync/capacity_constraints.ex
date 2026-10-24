@@ -23,7 +23,7 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
       %Issue{} = issue ->
         DispatchPolicy.normalize_issue_state(issue.state) == "todo" and
           not Issue.paused?(issue) and
-          not Issue.parked?(issue) and
+          not Issue.held?(issue) and
           DispatchPolicy.issue_routable_to_worker?(issue) and
           !DispatchPolicy.issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set())
 
@@ -85,7 +85,12 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
   # unknown, not known-blocking — so a ticket held there stays ready work and
   # still alerts.
   defp dependency_declined?(%State{} = state, issue),
-    do: Map.get(state.dispatch_declines, issue.id) in [:dependency, :optimistic_share, :queue_set_order]
+    do:
+      Map.get(state.dispatch_declines, issue.id) in [
+        :dependency,
+        :optimistic_share,
+        :queue_set_order
+      ]
 
   @doc false
   @spec capacity_constraint_entries(State.t(), [Issue.t()]) :: [map()]
@@ -109,8 +114,11 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
 
   defp dispatch_capacity_constraint_entry(%{kind: kind} = constraint) do
     case render_capacity_constraint(constraint) do
-      detail when is_binary(detail) -> [%{identity: dispatch_constraint_identity(kind), detail: detail}]
-      nil -> []
+      detail when is_binary(detail) ->
+        [%{identity: dispatch_constraint_identity(kind), detail: detail}]
+
+      nil ->
+        []
     end
   end
 
@@ -126,7 +134,8 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
   defp dispatch_constraint_identity(:run_queue), do: "run-queue"
   defp dispatch_constraint_identity(kind), do: "dispatch:#{kind}"
 
-  defp render_capacity_constraint(%{kind: :build, detail: detail}), do: "prewarm build (#{detail})"
+  defp render_capacity_constraint(%{kind: :build, detail: detail}),
+    do: "prewarm build (#{detail})"
 
   defp render_capacity_constraint(%{kind: :cpu_pressure, detail: detail}),
     do: "CPU PSI gate (#{detail})"
@@ -160,7 +169,12 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
     with {:ok, limit} <- Map.fetch(configured_limits, issue_state),
          used <- DispatchPolicy.running_issue_count_for_state(state.running, issue_state),
          true <- used >= limit do
-      [%{identity: "per-state:#{issue_state}", detail: "per-state limit (#{issue_state}=#{used}/#{limit})"}]
+      [
+        %{
+          identity: "per-state:#{issue_state}",
+          detail: "per-state limit (#{issue_state}=#{used}/#{limit})"
+        }
+      ]
     else
       _ -> []
     end
@@ -174,13 +188,23 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
   end
 
   defp budget_capacity_constraint_entry(issue_id, %{tripped: :lifetime} = entry) do
-    [%{identity: "budget:lifetime:#{issue_id}", detail: "budget latch (lifetime=#{Map.get(entry, :lifetime, 0)})"}]
+    [
+      %{
+        identity: "budget:lifetime:#{issue_id}",
+        detail: "budget latch (lifetime=#{Map.get(entry, :lifetime, 0)})"
+      }
+    ]
   end
 
   defp budget_capacity_constraint_entry(issue_id, %{tripped: :window} = entry) do
     case budget_window_remaining_ms(entry, System.monotonic_time(:millisecond)) do
       remaining_ms when remaining_ms > 0 ->
-        [%{identity: "budget:window:#{issue_id}", detail: "budget circuit (window, clears #{format_remaining_duration(remaining_ms)})"}]
+        [
+          %{
+            identity: "budget:window:#{issue_id}",
+            detail: "budget circuit (window, clears #{format_remaining_duration(remaining_ms)})"
+          }
+        ]
 
       _ ->
         []

@@ -151,9 +151,9 @@ export interface StreamDeckCommandAnswer {
 
 /**
  * One Command in the focused agent's history, in the daemon's allowlisted
- * shape. `status` is the durable lifecycle (`open`, `deferred`, `decided`,
- * `acknowledged`, ...); only `open`/`deferred` are answerable, and `answer`
- * lets a completed Command be read back as what was asked and what was decided.
+ * shape. `status` is the durable lifecycle (`open`, `deferred`, `expired`,
+ * `decided`, `acknowledged`, ...). An expired unanswered blocker remains
+ * answerable; `answer` lets a completed Command be read back.
  */
 export interface StreamDeckCommand {
   readonly decision_id: string;
@@ -164,6 +164,7 @@ export interface StreamDeckCommand {
   readonly context?: { readonly short?: string | null; readonly long?: string | null } | null;
   readonly options: readonly StreamDeckCommandOption[];
   readonly status: string;
+  readonly blocking?: boolean;
   readonly answer?: StreamDeckCommandAnswer | null;
   readonly created_at?: string;
 }

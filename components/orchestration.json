@@ -8,6 +8,7 @@
     "src/lib/aiur/agent_queue.ex",
     "src/lib/aiur/agent_queue_item.ex",
     "src/lib/aiur/agent_queue_store.ex",
+    "src/lib/aiur/agent_queue_store/**",
     "src/lib/aiur/current_run_membership.ex",
     "src/lib/aiur/current_run_membership/**",
     "src/lib/aiur/dispatch_budget_store.ex",
@@ -20,12 +21,14 @@
     "src/lib/aiur/landing_watch/**",
     "src/lib/aiur/orchestrator.ex",
     "src/lib/aiur/orchestrator/**",
+    "src/lib/aiur/orchestrator/comment_polling_state.ex",
     "src/lib/aiur/pr_ready_ledger_store.ex",
     "src/lib/aiur/recent_merge.ex",
     "src/lib/aiur/recent_merge/**",
     "src/lib/aiur/recent_merge_store.ex",
     "src/lib/aiur/test_quarantine.ex",
-    "src/lib/aiur/test_quarantine/**"
+    "src/lib/aiur/test_quarantine/**",
+    "src/lib/aiur/ticket_markers.ex"
   ],
   "facades": [
     "*"
@@ -36,6 +39,7 @@
     "commands",
     "config",
     "event-bus",
+    "github",
     "harness-adapters",
     "identity",
     "kernel",
@@ -46,6 +50,8 @@
   ],
   "optional": [
     "build-queue",
+    "executor-attention",
+    "github",
     "github-listeners"
   ],
   "owns": {
@@ -55,7 +61,9 @@
       "pr_watch",
       "worker"
     ],
-    "env": [],
+    "env": [
+      "AIUR_LEASE_DATABASE_URL"
+    ],
     "state": [
       "current_run_membership_state_dir"
     ],
@@ -86,6 +94,11 @@
     "pr_watch",
     "worker"
   ],
-  "env": [],
-  "capabilities": []
+  "env": [
+    "AIUR_LEASE_DATABASE_URL"
+  ],
+  "capabilities": [],
+  "forbid": [
+    "Aiur.GitHub.Listeners.*"
+  ]
 }

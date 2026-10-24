@@ -92,7 +92,15 @@ defmodule Aiur.GitHub.EndpointPolicyTest do
     end
   end
 
-  defp request(path), do: %{method: :get, url: "https://api.github.com#{path}", token: "test-token"}
+  defp request(path) do
+    %{
+      method: :get,
+      url: "https://api.github.com#{path}",
+      token: "test-token",
+      credential_id: "primary",
+      credential_key: Budget.token_key("test-token")
+    }
+  end
 
   defp quota_response(resource, limit, remaining, reset) do
     {:ok,

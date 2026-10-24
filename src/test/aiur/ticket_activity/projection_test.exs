@@ -394,8 +394,8 @@ defmodule Aiur.TicketActivity.ProjectionTest do
 
     assert %{progress: %{occurred_at: nil, event_id: nil}} = snapshot
     assert %{latest_evidence: %{occurred_at: nil, event_id: nil}} = snapshot
-    refute inspect(snapshot) =~ "secret token"
-    refute inspect(snapshot) =~ "/private/workspace"
+    Aiur.TestSupport.refute_leak(snapshot, "secret token")
+    Aiur.TestSupport.refute_leak(snapshot, "/private/workspace")
   end
 
   defp apply!(state, observation) do

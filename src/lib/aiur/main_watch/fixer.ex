@@ -2,6 +2,7 @@ defmodule Aiur.MainWatch.Fixer do
   @moduledoc "Files and reconciles fixer tickets from the base-CI background task."
   alias Aiur.GitHub.{Config, MainFixer, ResourceStore, StatePolicy}
   alias Aiur.MainWatch.{FixerGitHub, FixerWatchdog, State}
+  require Logger
 
   @spec reconcile([map()], map(), keyword()) :: :ok | {:error, term()}
   def reconcile(observations, watch, opts \\ [])
@@ -12,7 +13,7 @@ defmodule Aiur.MainWatch.Fixer do
     with {:ok, issues} <- call(opts, :fixer_open, [watch.fixer_label, opts], &FixerGitHub.open/2),
          issues = Enum.filter(issues, &(not is_nil(MainFixer.marker(&1["body"])))),
          :ok <- act(observation, observations, issues, watch, opts) do
-      FixerWatchdog.check(issues, opts)
+      FixerWatchdog.check(own(issues), opts)
     else
       {:error, reason} = error ->
         topic = if shared_budget_hold?(reason), do: "system.main.fixer.held", else: "system.main.fixer.failed"
@@ -31,7 +32,7 @@ defmodule Aiur.MainWatch.Fixer do
   defp act(observation, observations, issues, watch, opts) do
     case classification(observation) do
       :green ->
-        recover(issues, observation.sha, opts)
+        recover(own(issues), observation.sha, opts)
 
       :red ->
         flake? = observation.digest.flake_only and observation.digest.tests != :unknown and not observation.digest.truncated
@@ -43,7 +44,7 @@ defmodule Aiur.MainWatch.Fixer do
   end
 
   defp confirmed?(observation, observations, opts) do
-    rerun? = Enum.any?(Map.get(observation, :run_fingerprint, []), fn {_name, _id, attempt, _suite, _status, conclusion, _at} -> attempt > 1 and conclusion not in ~w(success neutral skipped) end)
+    rerun? = Enum.any?(Map.get(observation, :run_fingerprint, []), &failed_rerun?/1)
     history = Keyword.get(opts, :history, []) ++ Enum.drop(observations, -1)
     previous = List.last(Enum.reject(history, &(&1.sha == observation.sha)))
 
@@ -52,7 +53,15 @@ defmodule Aiur.MainWatch.Fixer do
          Enum.any?(observation.checks, fn check ->
            check.conclusion not in ~w(success neutral skipped) and Enum.any?(previous.checks, &(&1.name == check.name and &1.conclusion not in ~w(success neutral skipped)))
          end))
+  rescue
+    error ->
+      Logger.error("default-branch fixer confirmation failed; treating red as unconfirmed: " <> Exception.format(:error, error, __STACKTRACE__))
+      false
   end
+
+  # github.ex emits {name, id, attempt, suite, status, conclusion, started, completed}; persisted history may hold the older 7-element shape.
+  defp failed_rerun?(run) when is_tuple(run) and tuple_size(run) >= 6, do: elem(run, 2) > 1 and elem(run, 5) not in ~w(success neutral skipped)
+  defp failed_rerun?(_run), do: false
 
   defp file(observation, issues, watch, opts) do
     signature = signature(observation)
@@ -64,9 +73,12 @@ defmodule Aiur.MainWatch.Fixer do
         once("create:#{signature}:#{observation.sha}", opts, fn -> create(observation, body, watch, opts) end)
 
       issue ->
-        comment_run(issue, observation, body, opts)
+        # A foreign fixer still matches, so this instance neither comments on it nor files a duplicate.
+        if Aiur.Instance.skip?(issue, issue["labels"], :main_watch_fixer), do: :ok, else: comment_run(issue, observation, body, opts)
     end
   end
+
+  defp own(issues), do: Enum.reject(issues, &Aiur.Instance.skip?(&1, &1["labels"], :main_watch_fixer))
 
   defp comment_run(issue, observation, body, opts) do
     id = to_string(issue["number"])

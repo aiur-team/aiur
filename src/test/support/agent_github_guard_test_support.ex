@@ -38,6 +38,18 @@ defmodule Aiur.AgentGitHubGuardTestSupport do
     )
   end
 
+  def run_guard_with_stdin(context, args, input, extra_env \\ []) do
+    {output, status} =
+      System.cmd(
+        "python3",
+        ["-c", "import subprocess,sys; raise SystemExit(subprocess.run(sys.argv[2:], input=sys.argv[1].encode()).returncode)", input, context.wrapper | args],
+        env: guard_env(context) ++ Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end),
+        stderr_to_stdout: true
+      )
+
+    {output, status}
+  end
+
   def run_agent_guard(context, args, env) do
     System.cmd(context.wrapper, args, env: env, stderr_to_stdout: true)
   end

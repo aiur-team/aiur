@@ -38,7 +38,9 @@ parse_issue_targets() {
   [ "${#parsed_targets[@]}" -gt 0 ]
 }
 cmd_status() {
-  [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
+  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ]; then
+    [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
+  fi
   if [ "$#" -eq 0 ]; then
     run_control_rpc "Aiur.AgentControlCLI.status()"
   else
@@ -82,22 +84,26 @@ cmd_accounts() {
     esac
   done
 
-  resolve_release || return $?
-  prepare_distribution || die "distribution setup failed; cannot contact aiur"
-  resolve_control_identity_from_records
-  if [ "$(probe_node_liveness)" = "down" ]; then
+  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ]; then
+    resolve_release || return $?
+    prepare_distribution || die "distribution setup failed; cannot contact aiur"
+    resolve_control_identity_from_records
+  fi
+
+  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ] && [ "$(probe_node_liveness)" = "down" ]; then
     # The local one-shot CLI renders the identity and marks usage unavailable.
     # It never makes a provider request.
     run_local_cli accounts "$@"
-  else
-    if [ -n "$harness" ]; then
-      encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
-      expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
-    else
-      expression="Aiur.AgentControlCLI.accounts($json_arg)"
-    fi
-    run_control_rpc "$expression"
+    return
   fi
+
+  if [ -n "$harness" ]; then
+    encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
+    expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
+  else
+    expression="Aiur.AgentControlCLI.accounts($json_arg)"
+  fi
+  run_control_rpc "$expression"
 }
 
 cmd_pause_resume() {
@@ -105,7 +111,6 @@ cmd_pause_resume() {
   shift
 
   [ "$command" != park ] || { [ "$#" -gt 0 ] && parse_issue_targets "$@" && [ "$parsed_all" -eq 0 ]; } || { echo "aiur: park expects explicit issue IDs (e.g. aiur park 44 45)" >&2; exit 64; }
-
   # Bare `aiur pause` / `aiur resume` (no IDs, no --all) flips the single
   # global pause switch: a daemon-wide halt distinct from per-agent pause.
   if [ "$#" -eq 0 ]; then
@@ -126,6 +131,19 @@ cmd_pause_resume() {
   fi
 
   run_control_rpc "$expression"
+}
+
+cmd_executor_ownership() {
+  local command="$1"
+  shift
+  local owner="${AIUR_EXECUTOR_OWNER:-${USER:-executor}}"
+  owner="$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/^-*//; s/-*$//' | cut -c1-30)"
+  [ -n "$owner" ] || owner=executor
+  if ! parse_issue_targets "$@" || [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: $command expects explicit issue IDs (e.g. aiur $command 44 45)" >&2
+    exit 64
+  fi
+  run_control_rpc "Aiur.AgentControlCLI.${command}($(elixir_list_literal "${parsed_targets[@]}"), \"$owner\")"
 }
 
 # `aiur reset-budget <id>...` — clear the lifetime dispatch latch for one or
@@ -166,6 +184,16 @@ cmd_message() {
   local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\" or aiur message 44 --message-id ID \"ship it\")"
   local message_id="" message_id_given=0
 
+  if [ "${1:-}" = "--status" ]; then
+    shift
+    if [ "$#" -ne 1 ] || [[ ! "$1" =~ ^[1-9][0-9]*$ ]]; then
+      echo "aiur: message --status expects a positive request id" >&2
+      exit 64
+    fi
+    run_control_rpc "Aiur.AgentControlCLI.message_status($1)"
+    return
+  fi
+
   local issue="${1:-}"
   if [ -z "$issue" ] || [[ ! "$issue" =~ ^[0-9]+$ ]]; then
     echo "$usage" >&2
@@ -201,6 +229,9 @@ cmd_message() {
 
   local encoded
   encoded="$(printf '%s' "$text" | base64 | tr -d '\n')"
+  # The daemon may use one 30 s queue write plus one 30 s keyed lookup to
+  # reconcile a boundary timeout. Leave headroom for the CLI's own reply.
+  export AIUR_CONTROL_RPC_TIMEOUT_SECONDS=70
   if [ -n "$message_id" ]; then
     run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"), \"$message_id\")"
   else
@@ -213,8 +244,10 @@ cmd_message() {
 cmd_agents() {
   if [ "$#" -eq 1 ] && [ "$1" = --json ]; then
     run_control_rpc "Aiur.Handoff.CLI.agents()"
+  elif [ "$#" -eq 1 ] && [ "$1" = --all ]; then
+    run_control_rpc "Aiur.AgentControlCLI.agents(all: true)"
   else
-    [ "$#" -eq 0 ] || die "agents accepts only --json"
+    [ "$#" -eq 0 ] || die "agents accepts only --all or --json"
     run_control_rpc "Aiur.AgentControlCLI.agents()"
   fi
 }
