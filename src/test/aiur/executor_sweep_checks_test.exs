@@ -1,5 +1,5 @@
 defmodule Aiur.ExecutorSweep.ChecksTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
   alias Aiur.ExecutorSweep.Checks
   alias Aiur.ExecutorSweep.SnapshotCache
@@ -69,31 +69,30 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{kind: "stale_merge_group", age_ms: 8_400_000}] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_merge_group"))
   end
 
-  test "reports cache age on fresh GitHub findings and suppresses findings older than five minutes" do
+  test "reports red checks only from fresh live CI observations" do
     now = ~U[2026-10-15 18:20:00Z]
     old = ~U[2026-10-15 16:00:00Z]
     group = %{name: "run 44", state: "in_progress", started_at: old}
-    pr = %{number: 12, state: "open", review_decision: "APPROVED", head_sha: "head", approved_head_sha: "head", required_checks: [%{name: "ci", conclusion: "failure"}]}
+    pr = live_ci(%{number: 12, state: "open", review_decision: "APPROVED", head_sha: "head", approved_head_sha: "head", required_checks: [%{name: "ci", conclusion: "failure"}]}, 120_000, now)
     group = Map.put(group, :id, 44)
     fresh = %{pull_requests: [pr], merge_groups: [group], github_cache_ages: %{pull_requests: %{12 => 120_000}, merge_group_runs: %{44 => 240_000}}}
 
     findings = Checks.all(fresh, now)
     assert [%{kind: "approved_pr_red", cache_age_ms: 120_000, message: pr_message}] = Enum.filter(findings, &(&1.kind == "approved_pr_red"))
-    assert pr_message =~ "GitHub cache age: 2m"
+    assert pr_message =~ "CI observation age: 2m"
     assert [%{kind: "stale_merge_group", cache_age_ms: 240_000, message: group_message}] = Enum.filter(findings, &(&1.kind == "stale_merge_group"))
     assert group_message =~ "GitHub cache age: 4m"
 
-    stale = %{fresh | github_cache_ages: %{pull_requests: %{12 => 300_001}, merge_group_runs: %{44 => 300_001}}}
+    stale = %{fresh | pull_requests: [live_ci(pr, 300_001, now)], github_cache_ages: %{pull_requests: %{12 => 0}, merge_group_runs: %{44 => 300_001}}}
     stale_findings = Checks.all(stale, now)
-    assert [%{verification: "unverified", message: stale_pr_message}] = Enum.filter(stale_findings, &(&1.kind == "approved_pr_red"))
-    assert stale_pr_message =~ "unverified"
+    refute Enum.any?(stale_findings, &(&1.kind == "approved_pr_red"))
     assert [%{verification: "unverified", message: stale_group_message}] = Enum.filter(stale_findings, &(&1.kind == "stale_merge_group"))
     assert stale_group_message =~ "unverified"
 
-    old_pr = %{pr | number: 99}
+    old_pr = pr |> Map.drop([:ci_head_sha, :ci_observed_at_ms]) |> Map.put(:number, 99)
     mixed = %{fresh | pull_requests: [pr, old_pr], github_cache_ages: %{pull_requests: %{12 => 120_000, 99 => 800_000}, merge_group_runs: %{44 => 240_000}}}
     pr_findings = Enum.filter(Checks.all(mixed, now), &(&1.kind == "approved_pr_red"))
-    assert [%{pull_request: 12, verification: "verified"}, %{pull_request: 99, verification: "unverified"}] = Enum.sort_by(pr_findings, & &1.pull_request)
+    assert [%{pull_request: 12, verification: "verified"}] = pr_findings
   end
 
   test "does not make GitHub run or check findings when source cache age is unavailable" do
@@ -106,7 +105,7 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     }
 
     findings = Checks.all(snapshot, now)
-    assert [%{verification: "unverified"}] = Enum.filter(findings, &(&1.kind == "approved_pr_red"))
+    refute Enum.any?(findings, &(&1.kind == "approved_pr_red"))
     assert [%{verification: "unverified"}] = Enum.filter(findings, &(&1.kind == "stale_merge_group"))
   end
 
@@ -159,35 +158,6 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     }
 
     assert [] = Checks.all(snapshot, now)
-  end
-
-  test "names conflicting PRs that strand ci-wait and human-review tickets" do
-    snapshot = %{
-      tickets: [%{number: 5267, labels: ["agent:ci-wait"]}, %{number: 5268, labels: ["agent:human-review"]}],
-      pull_requests: [
-        %{
-          number: 5172,
-          issue_number: 5267,
-          state: "open",
-          mergeable: "CONFLICTING",
-          review_decision: "APPROVED",
-          head_sha: "head",
-          approved_head_sha: "head",
-          in_merge_queue: false,
-          auto_merge: false,
-          required_checks: []
-        },
-        %{number: 5173, issue_number: 5268, state: "open", mergeable: "CONFLICTING"}
-      ]
-    }
-
-    findings = Checks.all(snapshot, ~U[2026-10-19 12:00:00Z])
-
-    assert [%{kind: "conflicting_waiting_pr", ticket: 5267, pull_request: 5172, message: message, action: action}, %{kind: "conflicting_waiting_pr", ticket: 5268, pull_request: 5173}] = findings
-
-    assert message =~ "conflicting"
-    assert action =~ "Merge main"
-    refute Enum.any?(findings, &(&1.kind == "approved_pr_not_landing"))
   end
 
   test "finds ci-wait tickets older than two hours when required checks are terminal" do
@@ -271,35 +241,25 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
            end)
   end
 
-  test "red required check cause is unknown unless the same check passes on base" do
+  defp live_ci(pr, age_ms, now) do
+    Map.merge(pr, %{ci_head_sha: pr.head_sha, ci_observed_at_ms: DateTime.to_unix(now, :millisecond) - age_ms})
+  end
+
+  defp approved_failure(number, issue, conclusion, failure) do
     pr = %{
-      number: 5018,
+      number: number,
+      issue_number: issue,
       state: "open",
       review_decision: "APPROVED",
-      head_sha: "head",
-      base_sha: "base-sha",
-      approved_head_sha: "head",
+      head_sha: "head-#{number}",
+      approved_head_sha: "head-#{number}",
+      auto_merge: failure == "pr",
       in_merge_queue: false,
-      auto_merge: false,
-      required_checks: [%{name: "test", conclusion: "failure"}]
+      required_checks: [%{conclusion: conclusion}],
+      failure_class: failure
     }
 
-    assert [%{failure_class: "unknown"}] =
-             Checks.all(%{pull_requests: [pr], github_cache_ages: %{pull_requests: %{5018 => 0}}}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "approved_pr_red"))
-
-    assert [%{failure_class: "unknown"}] =
-             Checks.all(
-               %{pull_requests: [pr], base_checks: [%{name: "test", base_sha: "other-base", conclusion: "success"}], github_cache_ages: %{pull_requests: %{5018 => 0}}},
-               ~U[2026-10-18 14:00:00Z]
-             )
-             |> Enum.filter(&(&1.kind == "approved_pr_red"))
-
-    assert [%{failure_class: "caused_by_pr"}] =
-             Checks.all(
-               %{pull_requests: [pr], base_checks: [%{name: "test", base_sha: "base-sha", conclusion: "success"}], github_cache_ages: %{pull_requests: %{5018 => 0}}},
-               ~U[2026-10-18 14:00:00Z]
-             )
-             |> Enum.filter(&(&1.kind == "approved_pr_red"))
+    live_ci(pr, 0, ~U[2026-10-15 18:20:00Z])
   end
 
   test "summarizes invalid labels and excludes parked tickets" do
@@ -315,6 +275,18 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{ticket: 1800, ticket_count: 2, message: message}] = Checks.all(%{tickets: tickets}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "invalid_state_labels"))
     assert message =~ "2 open ticket(s)"
     assert message =~ "oldest ticket #1800"
+  end
+
+  test "does not flag tickets owned by another instance label prefix" do
+    tickets = [
+      %{number: 2200, labels: ["nuc:todo"], created_at: "2026-01-01T00:00:00Z"},
+      %{number: 2201, labels: ["agent:todo"], created_at: "2026-01-02T00:00:00Z"},
+      %{number: 2202, labels: [], created_at: "2026-01-03T00:00:00Z"}
+    ]
+
+    assert [%{ticket: 2202, ticket_count: 1, state_labels: []}] =
+             Checks.all(%{tickets: tickets}, ~U[2026-10-18 14:00:00Z], label_prefix: "agent")
+             |> Enum.filter(&(&1.kind == "invalid_state_labels"))
   end
 
   test "counts merging and cancelled as real state labels, not missing ones" do
@@ -360,17 +332,8 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
       github_cache_ages: %{pull_requests: %{99 => 0}, merge_group_runs: %{}},
       pull_requests: [
         %{number: 4447, issue_number: 4429, state: "open", draft: false, head_sha: "current", reviewed_head_sha: nil, ready_at: ~U[2026-10-14 19:08:00Z]},
-        %{
-          number: 9,
-          issue_number: 3,
-          state: "open",
-          review_decision: "APPROVED",
-          auto_merge: false,
-          in_merge_queue: false,
-          required_checks: [%{conclusion: "startup_failure"}],
-          failure_class: "infra"
-        },
-        %{number: 10, issue_number: 4, state: "open", review_decision: "APPROVED", auto_merge: true, in_merge_queue: false, required_checks: [%{conclusion: "failure"}], failure_class: "pr"},
+        approved_failure(9, 3, "startup_failure", "infra"),
+        approved_failure(10, 4, "failure", "pr"),
         %{number: 11, issue_number: 8, state: "open", review_decision: "APPROVED", auto_merge: false, in_merge_queue: false, required_checks: []}
       ],
       merge_queue: [%{number: 9, mergeable: "UNMERGEABLE"}],

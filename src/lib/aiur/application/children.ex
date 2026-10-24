@@ -284,7 +284,7 @@ defmodule Aiur.Application.Children do
         Aiur.Experiments.window_children(recording?) ++
         quarantine_lifter_children(primary_instance?, github_tracker?) ++
         dashboard_cache_children(dashboard?) ++
-        List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
+        BuildOrders.child_specs(:estimates, opts) ++ List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
     )
   end
 
