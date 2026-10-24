@@ -6,7 +6,8 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { assertSyntheticContent, assertSyntheticMeters } from "./dashboard-capture-safety.mjs";
+import { readFile } from "node:fs/promises";
+import { assertSyntheticContent, assertSyntheticMeters, assertSyntheticUsage, expectedUsage } from "./dashboard-capture-safety.mjs";
 
 const websiteRoot = process.cwd();
 const repositoryRoot = path.resolve(websiteRoot, "..");
@@ -21,20 +22,36 @@ const baseURL = `http://127.0.0.1:${port}`;
 // docs fixture only — see `assertSyntheticPage` for the guard that refuses to
 // write a file when anything operator-shaped appears on the page.
 const surfaces = [
-  // `clipHeight` keeps each image to the part of the surface worth documenting;
+  // Build renders the frozen `live` home-page dataset; its board and usage strip
+  // are drawn by the client hook after the server-rendered shell is visible.
+  {
+    name: "build",
+    path: "/",
+    selector: "#ax-frame",
+    readySelector: "#bd-usage .ax-r2",
+    clipHeight: 1300,
+    // Two titles from the design's mock dataset; the shell prints no repository
+    // name, so the generic "example" marker cannot apply here.
+    markers: ["Flaky websocket reconnect", "Rate-limit backoff ceiling"],
+    modelMeters: false,
+    usageMeters: true,
+  },
+  // `#ax-frame` is the shell including the navigation rail (`.dashboard-shell` is
+  // only the content column). `clipHeight` keeps each image to the part of the
+  // surface worth documenting;
   // Units is the tall one because the page's point is the fleet table and the
   // Tickets backlog panel below it.
-  { name: "units", path: "/", selector: ".dashboard-shell", clipHeight: 1700, marker: "example/ex-142", modelMeters: true },
-  { name: "commands", path: "/commands", selector: ".dashboard-shell", clipHeight: 1250, marker: "dec-example-blocking", modelMeters: false },
+  { name: "units", path: "/units", selector: "#ax-frame", clipHeight: 1700, marker: "example/ex-142", modelMeters: true },
+  { name: "commands", path: "/commands", selector: "#ax-frame", clipHeight: 1250, marker: "dec-example-blocking", modelMeters: false },
   {
     name: "build-orders",
     path: "/build-orders/4200",
-    selector: ".dashboard-shell",
+    selector: "#ax-frame",
     clipHeight: 1400,
     marker: "Example App launch",
     modelMeters: false,
   },
-  { name: "streamdeck", path: "/streamdeck", selector: ".dashboard-shell", clipHeight: 900, marker: "EX-142", modelMeters: false },
+  { name: "streamdeck", path: "/streamdeck", selector: "#ax-frame", clipHeight: 900, marker: "EX-142", modelMeters: false },
 ];
 
 // The fixture guards the financial-data capability behind HTTP Basic auth, and
@@ -84,6 +101,9 @@ try {
       for (const surface of selectedSurfaces) {
         await page.goto(`${baseURL}${surface.path}`, { waitUntil: "networkidle" });
         await page.locator(surface.selector).waitFor({ state: "visible" });
+        if (surface.readySelector) {
+          await page.locator(surface.readySelector).first().waitFor({ state: "visible", timeout: 30_000 });
+        }
         const html = await assertSyntheticPage(page, surface);
         await assertMetersAreSynthetic(page, surface);
 
@@ -198,7 +218,7 @@ async function waitUntilReady(fixture) {
 async function assertSyntheticPage(page, surface) {
   const html = await page.content();
   const visibleText = await page.locator("body").innerText();
-  assertSyntheticContent({ url: page.url(), html, visibleText, marker: surface.marker });
+  assertSyntheticContent({ url: page.url(), html, visibleText, marker: surface.marker, markers: surface.markers });
 
   return html;
 }
@@ -206,6 +226,18 @@ async function assertSyntheticPage(page, surface) {
 async function assertMetersAreSynthetic(page, surface) {
   const modelRows = await page.locator(".rs-model").evaluateAll((rows) => rows.map((row) => row.outerHTML));
   assertSyntheticMeters({ url: page.url(), modelRows, required: surface.modelMeters });
+  if (!surface.usageMeters) return;
+
+  // The Build usage strip must show exactly the dataset's readings, read from the
+  // same fixture file the fixture serves, never a live provider or GitHub meter.
+  const dataset = JSON.parse(await readFile(path.join(repositoryRoot, "src/test/fixtures/build_home/live.json"), "utf8"));
+  const rows = await page.locator("#bd-usage .ax-r2").evaluateAll((elements) =>
+    elements.map((row) => ({
+      name: row.querySelector(".ax-who b")?.textContent ?? "",
+      widths: [...row.querySelectorAll(".ax-seg i")].map((bar) => bar.style.width),
+    })),
+  );
+  assertSyntheticUsage({ url: page.url(), rows, expected: expectedUsage(dataset.usage) });
 }
 
 async function allocatePort() {

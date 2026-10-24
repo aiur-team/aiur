@@ -12,7 +12,9 @@ defmodule AiurWeb.Build.NowRows do
   | Error work state or UnitsPolicy stuck | error |
   | Retry backoff | retrying |
   | Positive integer command count or waiting for human | command |
-  | Paused with a non-reserving reason or GitHub budget hold | parked |
+  | Provider usage limit pause | usage_limited |
+  | CI wait | ci_wait |
+  | Other paused non-reserving reason or GitHub budget hold | parked |
   | UnitsPolicy paused | paused |
   | Live and starting, allocated or working | active |
   | Anything else | nil |
@@ -35,7 +37,7 @@ defmodule AiurWeb.Build.NowRows do
           start: integer() | nil,
           start_src: String.t(),
           pct: 0..100 | nil,
-          agent: %{model: String.t() | nil, name: String.t() | nil, state: String.t() | nil, effort: String.t() | nil}
+          agent: %{model: String.t() | nil, name: String.t() | nil, state: String.t() | nil, pause: String.t() | nil, resume_at: integer() | nil, effort: String.t() | nil}
         }
   @type source_block :: %{state: String.t(), observed_at: integer() | nil, reason: String.t() | nil}
 
@@ -43,11 +45,11 @@ defmodule AiurWeb.Build.NowRows do
   def build(catalog, opts \\ []) do
     case repository(Keyword.get(opts, :repository)) do
       nil -> unavailable("repository_unknown")
-      repo -> project(catalog, repo)
+      repo -> project(catalog, repo, Keyword.get(opts, :todo_ids, MapSet.new()))
     end
   end
 
-  defp project(%{status: status, snapshot: %{rows: rows} = snapshot} = catalog, repo) when status in [:ready, :empty, :stale] and is_list(rows) do
+  defp project(%{status: status, snapshot: %{rows: rows} = snapshot} = catalog, repo, todo_ids) when status in [:ready, :empty, :stale] and is_list(rows) do
     source = %{
       state: if(status == :stale, do: "stale", else: "ok"),
       observed_at: timestamp(get_in(snapshot, [:freshness, :status]) |> observed_at()),
@@ -59,10 +61,10 @@ defmodule AiurWeb.Build.NowRows do
         end
     }
 
-    %{rows: rows |> Enum.filter(&band?(&1, repo)) |> Map.new(&{&1.identity.identifier, facts(&1)}), source: source}
+    %{rows: rows |> Enum.map(&mark_todo_starting(&1, todo_ids)) |> Enum.filter(&band?(&1, repo)) |> Map.new(&{&1.identity.identifier, facts(&1)}), source: source}
   end
 
-  defp project(_catalog, _repo), do: unavailable("fleet_unavailable")
+  defp project(_catalog, _repo, _todo_ids), do: unavailable("fleet_unavailable")
   defp unavailable(reason), do: %{rows: %{}, source: %{state: "unavailable", observed_at: nil, reason: reason}}
   defp observed_at(%{observed_at: time}), do: time
   defp observed_at(_freshness), do: nil
@@ -78,6 +80,7 @@ defmodule AiurWeb.Build.NowRows do
     TrackerIdentity.joinable?(identity) and repository({identity.owner, identity.repository}) == repo and
       not UnitsPolicy.condition?(:finished, row) and row[:replacement_boundary?] != true and
       (UnitsPolicy.in_scope?(row, :live) or get_in(row, [:runtime, :bucket]) == :retrying) and
+      not todo_starting?(row) and
       get_in(row, [:reasons, :waiting]) != :latched_lifetime
   end
 
@@ -103,6 +106,8 @@ defmodule AiurWeb.Build.NowRows do
         model: model(family),
         name: UnitsPresentation.agent_label(family),
         state: agent_state(row),
+        pause: pause_state(row),
+        resume_at: resume_at(row),
         effort: effort(row[:effort])
       }
     }
@@ -116,6 +121,7 @@ defmodule AiurWeb.Build.NowRows do
     waiting = get_in(row, [:reasons, :waiting])
 
     cond do
+      is_binary(runtime_reason_state(row)) -> runtime_reason_state(row)
       error?(row) -> if(retrying?(row), do: "retrying", else: "error")
       command?(row[:open_command_count], waiting) -> "command"
       true -> nil
@@ -128,26 +134,67 @@ defmodule AiurWeb.Build.NowRows do
     work_state = get_in(row, [:runtime, :work_state])
 
     cond do
-      parked?(paused?, pause) -> "parked"
-      paused? -> "paused"
+      todo_starting?(row) -> "queued"
+      is_binary(runtime_reason_state(row)) -> runtime_reason_state(row)
+      pause_state(paused?, pause) -> pause_state(paused?, pause)
       UnitsPolicy.in_scope?(row, :live) and work_state in [:starting, :allocated, :working] -> "active"
       true -> nil
+    end
+  end
+
+  defp todo_starting?(row), do: get_in(row, [:runtime, :todo_starting?]) == true
+
+  defp mark_todo_starting(row, todo_ids) do
+    identity = Map.get(row, :identity)
+    todo_starting? = get_in(row, [:runtime, :work_state]) == :starting and is_map(identity) and MapSet.member?(todo_ids, Map.get(identity, :identifier))
+    update_in(row, [:runtime], &Map.put(&1, :todo_starting?, todo_starting?))
+  end
+
+  defp pause_state(row) do
+    case get_in(row, [:reasons, :pause]) do
+      :usage_limit_exhausted -> "usage_limit_exhausted"
+      :ci_wait -> "ci_wait"
+      _reason -> nil
+    end
+  end
+
+  defp pause_state(false, _pause), do: nil
+  defp pause_state(true, :usage_limit_exhausted), do: "usage_limited"
+  defp pause_state(true, :ci_wait), do: "ci_wait"
+
+  defp pause_state(true, pause) do
+    if State.non_reserving_pause_reason?(pause) or pause == :github_budget_hold, do: "parked", else: "paused"
+  end
+
+  defp resume_at(row) do
+    if get_in(row, [:reasons, :pause]) == :usage_limit_exhausted do
+      timestamp(get_in(row, [:runtime, :usage_limit_reset_at]))
     end
   end
 
   defp retrying?(row), do: get_in(row, [:runtime, :bucket]) == :retrying
   defp error?(row), do: retrying?(row) or get_in(row, [:runtime, :work_state]) == :error or UnitsPolicy.condition?(:stuck, row)
 
+  defp runtime_reason_state(row) do
+    # The first reason label's suffix, whatever the configured prefix.
+    with label when is_binary(label) <- UnitsPresentation.reason_label(row),
+         [first | _] <- String.split(label, ","),
+         [_prefix, suffix] <- String.split(first, ":", parts: 2),
+         do: suffix,
+         else: (_ -> nil)
+  end
+
   defp status(row) do
-    case agent_state(row) do
-      "error" -> "failed"
-      "retrying" -> "queued"
-      _state -> "running"
+    state_labels = agent_state(row) |> to_string() |> String.split(",")
+
+    cond do
+      retrying?(row) or "agent:retrying" in state_labels -> "queued"
+      error?(row) or "agent:error" in state_labels -> "failed"
+      true -> "running"
     end
   end
 
   defp command?(count, waiting), do: (is_integer(count) and count > 0) or waiting == :waiting_for_human
-  defp parked?(paused?, pause), do: paused? and (State.non_reserving_pause_reason?(pause) or pause == :github_budget_hold)
 
   defp model(family) when is_atom(family) and not is_nil(family) do
     key = Atom.to_string(family)

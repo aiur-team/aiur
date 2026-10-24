@@ -1,6 +1,9 @@
 import { ctx } from './state.js';
 import { intake } from './protocol.js';
 import { setNow } from './clock.js';
+import { timed } from './perf.js';
+export const applyDiff = timed('applyDiff', applyDiffImpl);
+export const mergeEarlier = timed('mergeEarlier', mergeEarlierImpl);
 
 function commit(snap, clock = true) {
   const D = { ...intake(snap), sources: snap.sources, capacity: snap.capacity, repo: snap.repo };
@@ -14,7 +17,7 @@ export function acceptSnapshot(msg) {
   try { return commit(structuredClone(msg)); }
   catch { return { error: 'invalid' }; }
 }
-export function applyDiff(msg) {
+function applyDiffImpl(msg) {
   if (!Number.isFinite(msg.now)) return { error: 'invalid' };
   try {
     const copy = structuredClone(ctx.snap);
@@ -28,7 +31,7 @@ export function applyDiff(msg) {
     return commit(copy);
   } catch { return { error: 'invalid' }; }
 }
-export function mergeEarlier(msg) {
+function mergeEarlierImpl(msg) {
   if (msg.epoch !== ctx.proto.epoch) return { error: 'epoch' };
   try {
     const copy = structuredClone(ctx.snap), ids = new Set(ctx.D.all.map(row => row.id));

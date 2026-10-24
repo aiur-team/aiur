@@ -42,6 +42,13 @@ export async function inspectPage(page, name) {
       value: card.querySelector('.an-kpi-val')?.innerText.trim() || '',
       sub: card.querySelector('.an-kpi-sub')?.innerText.trim() || ''
     }))
+    const analyticsCharts = pageName === 'analytics'
+      ? Array.from(document.querySelectorAll('#analytics-page .an-chart svg')).map((svg) => ({
+        label: svg.getAttribute('aria-label') || 'unnamed chart',
+        yLabels: Array.from(svg.querySelectorAll('text[text-anchor="end"]')).map((node) => node.textContent.trim()),
+        xLabels: Array.from(svg.querySelectorAll('text[text-anchor="middle"]')).map((node) => node.textContent.trim()).filter((value) => /^(?:\d+s|\d+m(?: \d+s)?|\d+h(?: \d+m)?)$/.test(value))
+      }))
+      : []
     const emptyStates = Array.from(document.querySelectorAll('.bo-state-card, .an-empty, .units-state.empty-state:not(.filtered-empty)'))
       .filter(visible)
       .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
@@ -55,11 +62,14 @@ export async function inspectPage(page, name) {
       commands: '.decision-inbox',
       'build-orders': '.bo-catalog-table, .bo-selected-summary',
       build: '#build-root',
+      'build-home': '#build-root',
       analytics: '#analytics-page .an-kpis'
     }[pageName]
     const metricCells = tables.flatMap((table) => table.rows.flatMap((row, rowIndex) => row.map((value, index) => ({ value, header: table.headers[index], rowIndex }))))
     const hasNAInMetric = metricCells.some((cell) => cell.value.trim() === 'N/A' && /progress|ticket|epic|wave|member|active|complete|capacity|concurrency|cpu|cost|count|total/i.test(cell.header || ''))
-    const buildRoot = pageName === 'build' ? document.querySelector('#build-root') : null
+    const buildRoot = pageName === 'build' || pageName === 'build-home'
+      ? document.querySelector('#build-root')
+      : null
     const buildSkeletonSelector = '.bd-skel, .bd-skel-lanes'
     const buildBandSelector = '.bd-now-empty'
     const buildUnavailable = buildRoot?.querySelector('.bd-loading')?.innerText.replace(/\s+/g, ' ').trim() || ''
@@ -87,6 +97,7 @@ export async function inspectPage(page, name) {
       emptyStates,
       errorStates,
       kpis,
+      analyticsCharts,
       hasNAInMetric,
       buildUnavailable,
       buildSkeleton,

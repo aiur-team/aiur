@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, HeldApproval, Journal, LocalRead, MergeGroups, MergeQueueWatchdog, Observer, PrRerun}
+  alias Aiur.LandingWatch.{Classifier, ConflictRouting, DisjointFailureCache, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun, QueueAdmission, RunnerQueue}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.LandingWatch.TicketLookup
   alias Aiur.Orchestrator.TicketTransition
@@ -135,6 +135,7 @@ defmodule Aiur.LandingWatch do
     if Enum.all?(observations, &is_map/1) do
       case Keyword.get(opts, :journal_prune_fun, &Journal.retain_current_heads/2).(observations, opts) do
         :ok ->
+          _ = report_runner_queue(observations, opts)
           process_and_reconcile(observations, opts)
 
         {:error, _} = error ->
@@ -148,18 +149,20 @@ defmodule Aiur.LandingWatch do
     end
   end
 
+  defp report_runner_queue(observations, opts) do
+    case Keyword.get(opts, :runner_queue_fun, &RunnerQueue.report/2).(observations, opts) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("landing watcher runner queue reconciliation unavailable: #{inspect(reason)}")
+      _ -> Logger.warning("landing watcher runner queue reconciliation returned an invalid result")
+    end
+  end
+
   defp process_and_reconcile(observations, opts) do
-    opts = poll_required_checks(observations, opts)
-    result = process_all(observations, opts)
-    reconcile = Keyword.get(opts, :queue_reconcile_fun, &MergeGroups.cancel_stale/2).(observations, opts)
-    MergeQueueWatchdog.after_reconcile(result, reconcile, observations, opts)
+    LandingReconciliation.process(observations, opts, &process_all/2)
   end
 
   defp process_all(observations, opts) do
-    Enum.reduce(observations, :ok, fn observation, first_error ->
-      result = process_observation(observation, opts)
-      if first_error == :ok, do: result, else: first_error
-    end)
+    DisjointFailureCache.run(observations, opts, &process_observation/2)
   end
 
   defp process_observation(observation, opts) do
@@ -357,7 +360,7 @@ defmodule Aiur.LandingWatch do
         :ok
 
       true ->
-        land_unless_ticket_active(observation, opts)
+        if Journal.merge_group_head_held?(observation.number, observation.head, opts) == {:ok, true}, do: :ok, else: land_unless_ticket_active(observation, opts)
     end
   end
 
@@ -365,35 +368,15 @@ defmodule Aiur.LandingWatch do
   defp land_unless_ticket_active(observation, opts) do
     case TicketLookup.fetch(observation, opts) do
       {:ok, issue, _state, _paused?, true} -> HeldApproval.attention(observation, issue, opts)
-      {:ok, _issue, state, _paused?, _held?} when state in ["rework", "in-progress", "todo"] -> :ok
+      {:ok, _issue, state, _paused?, _held?} when state in ["rework", "in-progress", "todo", "foreign"] -> :ok
       {:ok, _issue, _state, _paused?, _held?} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, :pull_request_not_linked_to_ticket_branch} -> revalidate_attribution_and_enqueue(observation, opts)
       {:error, _} = error -> error
     end
   end
 
-  defp poll_required_checks(observations, opts) do
-    if Enum.any?(observations, fn observation -> Classifier.approved_at_head?(Map.get(observation, :raw, %{})) end) do
-      required_checks = Keyword.get(opts, :required_checks_fun, &CiReadiness.fetch_required_checks/1)
-      Keyword.put(opts, :required_checks_snapshot, LocalRead.run(required_checks, [opts], opts))
-    else
-      opts
-    end
-  end
-
-  defp revalidate_attribution_and_enqueue(observation, opts) do
-    revalidate = Keyword.get(opts, :revalidate_fun, &Observer.revalidate_approved_head/3)
-    attribution = Keyword.get(opts, :attribution_fun, &default_attribution(&1, opts))
-
-    with :ok <- LocalRead.run(revalidate, [observation.number, observation.head, opts], opts) do
-      case LocalRead.run(attribution, [observation], opts) do
-        {:ok, :clean} -> maybe_enqueue(observation, opts)
-        {:ok, {:ai_attribution, detail}} -> route_rework(observation, [%{name: "AI commit attribution", excerpt: detail}], opts)
-        {:error, reason} -> {:error, reason}
-        _ -> {:error, :invalid_attribution_result}
-      end
-    end
-  end
+  defp revalidate_attribution_and_enqueue(observation, opts),
+    do: QueueAdmission.run(observation, opts, &maybe_enqueue/2, &route_rework/3)
 
   defp maybe_enqueue(%{merge_queue_entry: entry}, _opts) when is_map(entry), do: :ok
   defp maybe_enqueue(%{auto_merge_request: request}, _opts) when is_map(request), do: :ok
@@ -490,8 +473,6 @@ defmodule Aiur.LandingWatch do
     emitter.("system.pr.landing.rework", central: true, needs_attention: false, message: message, reason: message)
     Keyword.get(opts, :after_rework, fn _issue, _paused? -> :ok end).(issue, Keyword.get(opts, :conflict_ticket_paused?, false))
   end
-
-  defp default_attribution(observation, opts), do: Attribution.pull_request_clean?(observation.number, opts)
 
   defp failure_text(%{name: name, excerpt: excerpt}) when is_binary(excerpt) and excerpt != "", do: "#{name}: #{excerpt}"
   defp failure_text(%{name: name}), do: to_string(name)

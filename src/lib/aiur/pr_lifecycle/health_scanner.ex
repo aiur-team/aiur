@@ -151,10 +151,18 @@ defmodule Aiur.PRLifecycle.HealthScanner do
   def evaluate(prs, stale_hours, now, human_mergers) when is_list(prs) and is_list(human_mergers) do
     # A PR without a usable number can never be keyed, alerted or reviewed, so
     # reject it before any decision rule runs (#2346 review).
-    prs = Enum.reject(prs, &(pr_number(&1) == nil))
+    prs = Enum.reject(prs, &(pr_number(&1) == nil or foreign_pr?(&1)))
     unmergeable = Enum.filter(prs, &unmergeable_author?(&1, human_mergers))
     stale_unreviewed = Enum.filter(prs, &stale_unreviewed_candidate?(&1, stale_hours, now))
     {unmergeable, stale_unreviewed}
+  end
+
+  # Another instance owns the ticket this PR's branch names (#5803).
+  defp foreign_pr?(pr) do
+    case Aiur.TicketBranch.ticket_id(get_in(pr, ["head", "ref"])) do
+      nil -> false
+      ticket -> Aiur.Instance.skip?(ticket, nil, :pr_health)
+    end
   end
 
   # Unmergeable-author flagging (cause 1): alert once, comment once.

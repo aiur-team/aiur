@@ -200,6 +200,26 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
     refute_received {:watchdog_alert, _, _, _}
   end
 
+  test "a stalled worker on a ci-wait ticket is not retried" do
+    now = DateTime.utc_now()
+    entry = %{running_entry(now) | issue: %Issue{id: "issue-1", identifier: "repo#1", state: "ci-wait"}}
+    state = %State{running: %{"issue-1" => entry}}
+
+    next_state = RuntimeWatchdog.restart_stalled_issue(state, "issue-1", entry, now, 1_000)
+
+    assert Map.has_key?(next_state.running, "issue-1")
+    assert next_state.retry_attempts == %{}
+  end
+
+  test "stall retry records the outstanding alert by ticket identifier" do
+    now = DateTime.utc_now()
+    entry = Map.put(running_entry(now), :last_codex_timestamp, DateTime.add(now, -2, :second))
+    next = RuntimeWatchdog.restart_stalled_issue(%State{running: %{"issue-1" => entry}}, "issue-1", entry, now, 1_000)
+
+    assert next.retry_attempts["issue-1"].stalled_alert_outstanding
+    cancel_retry(next, "issue-1")
+  end
+
   defp running_entry(now) do
     %{
       pid: nil,

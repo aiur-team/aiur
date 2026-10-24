@@ -17,7 +17,7 @@ defmodule Aiur.MainWatch.GitHub do
          {:ok, commit_window, commit_etag} <- commits(owner, repo, branch, token, opts),
          {commits, dates} = commit_window,
          {:ok, {runs, merge_groups}} <- runs(owner, repo, branch, commits, dates, workflows, token, opts),
-         {:ok, observations} <- observations(commits, runs, workflows, opts) do
+         {:ok, observations} <- observations(commits, runs, merge_groups, workflows, opts) do
       {:ok,
        %{
          observations: observations,
@@ -197,11 +197,12 @@ defmodule Aiur.MainWatch.GitHub do
 
     with {:ok, push_runs} <- runs_page(url, token, dates, opts),
          {:ok, queue_runs} <- runs_page(queue_url, token, dates, opts) do
-      # Merge-group checks remain attached to landed SHAs but are not main health evidence.
-      runs = Enum.filter(push_runs, &(&1["event"] == "push" and &1["head_branch"] == branch and (workflows == [] or &1["name"] in workflows)))
+      # A queue success ran the full matrix on the exact SHA that landed, so it stands in for a superseded push run (#5758).
+      # Queue failures stay out: a failed group's SHA can still land through a later passing group (#4663).
+      landed = Enum.filter(queue_runs, &(queue_run?(&1, branch, workflows) and &1["head_sha"] in commits and &1["status"] == "completed" and &1["conclusion"] == "success"))
       # Active queue runs are reported for the sweep only; they never count as main coverage.
-      merge_groups = Enum.filter(queue_runs, &(&1["event"] == "merge_group" and queue_run?(&1, branch, workflows) and &1["status"] in @active_statuses))
-      {:ok, {runs |> Enum.filter(&watched?(&1, commits, branch, workflows)) |> sort_normalized(), sort_normalized(merge_groups)}}
+      merge_groups = Enum.filter(queue_runs, &(queue_run?(&1, branch, workflows) and &1["status"] in @active_statuses))
+      {:ok, {sort_normalized(Enum.filter(push_runs, &watched?(&1, commits, branch, workflows)) ++ landed), sort_normalized(merge_groups)}}
     end
   end
 
@@ -258,16 +259,17 @@ defmodule Aiur.MainWatch.GitHub do
       url: run["html_url"]
     }
 
-  defp observations(commits, runs, workflows, opts) do
+  defp observations(commits, runs, merge_groups, workflows, opts) do
     commits
     |> Enum.reverse()
-    |> Enum.reduce_while({:ok, []}, &append_observation(&1, &2, runs, workflows, opts))
+    |> Enum.reduce_while({:ok, []}, &append_observation(&1, &2, runs, merge_groups, workflows, opts))
   end
 
-  defp append_observation(sha, {:ok, acc}, runs, workflows, opts) do
-    latest = newest_completed_workflow_runs(runs, sha, workflows)
+  defp append_observation(sha, {:ok, acc}, runs, merge_groups, workflows, opts) do
+    push_latest = newest_completed_workflow_runs(runs, sha, workflows)
+    latest = if push_latest == [], do: newest_completed_workflow_runs(merge_groups, sha, workflows), else: push_latest
 
-    if latest != [] and (failed_workflow?(latest) or configured_workflows_complete?(runs, sha, workflows)) do
+    if latest != [] and (failed_workflow?(latest) or configured_workflows_complete?(runs ++ merge_groups, sha, workflows)) do
       case cached_observation(sha, latest, opts) do
         {:ok, observation} -> {:cont, {:ok, acc ++ [observation]}}
         error -> {:halt, error}
@@ -279,7 +281,7 @@ defmodule Aiur.MainWatch.GitHub do
 
   defp newest_completed_workflow_runs(runs, sha, workflows) do
     runs
-    |> Enum.filter(&(&1.sha == sha and &1.event == "push" and &1.status == "completed" and &1.conclusion not in [nil, "cancelled"] and (workflows == [] or &1.name in workflows)))
+    |> Enum.filter(&(&1.sha == sha and &1.status == "completed" and &1.conclusion not in [nil, "cancelled"] and (workflows == [] or &1.name in workflows)))
     |> Enum.sort_by(&{&1.completed_at || 0, &1.id}, :desc)
     |> Enum.uniq_by(& &1.name)
   end
@@ -296,7 +298,7 @@ defmodule Aiur.MainWatch.GitHub do
   defp cached_observation(sha, runs, opts) do
     fingerprint = Enum.map(runs, &{&1.name, &1.id, &1.attempt, &1.suite_id, &1.status, &1.conclusion, &1.started_at, &1.completed_at}) |> Enum.sort()
     cached = Enum.find(Keyword.get(opts, :history, []), &(&1.sha == sha and Map.get(&1, :run_fingerprint) == fingerprint))
-    fields = [:sha, :started_at, :completed_at, :checks, :digest, :failed_workflow, :run_urls, :suspect_merges, :run_fingerprint]
+    fields = [:sha, :event, :started_at, :completed_at, :checks, :digest, :failed_workflow, :run_urls, :suspect_merges, :run_fingerprint]
 
     # Entries cached before non-blocking checks were excluded must be rebuilt.
     if is_map(cached) and Enum.all?(fields, &Map.has_key?(cached, &1)) and not Enum.any?(cached.checks, &Evaluation.non_blocking_name?(&1.name)) do
@@ -318,6 +320,7 @@ defmodule Aiur.MainWatch.GitHub do
       {:ok,
        %{
          sha: sha,
+         event: runs |> Enum.map(& &1.event) |> Enum.uniq() |> List.first(),
          started_at:
            runs
            |> Enum.filter(&(&1.conclusion in ["failure", "timed_out", "startup_failure"]))

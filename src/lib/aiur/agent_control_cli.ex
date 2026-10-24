@@ -1,6 +1,5 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
-
   defdelegate prepare_handoff(opts \\ []), to: Aiur.Handoff, as: :prepare
   defdelegate status(opts \\ []), to: Aiur.Orchestrator.StatusCLI
   defdelegate main_watch_state(), to: Aiur.MainWatch, as: :state
@@ -20,6 +19,7 @@ defmodule Aiur.AgentControlCLI do
   defdelegate feature(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate epic(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate build_orders(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  defdelegate ticket_estimate(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate queue(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate analytics(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate github_cost(opts \\ []), to: Aiur.ControlCLI.EntryPoints
@@ -51,6 +51,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate resume_global(), to: Aiur.Orchestrator.ControlCLI
   defdelegate set_max_agents(n), to: Aiur.Orchestrator.ControlCLI
   defdelegate message(issue, text, message_id \\ nil), to: Aiur.Orchestrator.ControlCLI.Message
+  @spec message_status(pos_integer()) :: :ok
+  defdelegate message_status(request_id), to: Aiur.Orchestrator.ControlCLI.Message, as: :status
   defdelegate pause(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate resume(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run

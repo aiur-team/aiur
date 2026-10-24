@@ -18,7 +18,9 @@
     "executor-attention"
   ],
   "owns": {
-    "config": [],
+    "config": [
+      "voice"
+    ],
     "env": [],
     "state": [],
     "capabilities": []
@@ -31,7 +33,9 @@
     "type": "included"
   },
   "docs": [],
-  "config": [],
+  "config": [
+    "voice"
+  ],
   "env": [],
   "capabilities": [],
   "added_by": "MP-E6"

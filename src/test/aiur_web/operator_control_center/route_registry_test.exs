@@ -17,21 +17,22 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     analytics = %{available?: true, path: "/analytics", message: "Open analytics."}
 
     assert Enum.map(RouteRegistry.routes(analytics), & &1.id) == [
-             :units,
+             :build,
              :commands,
-             :build_order,
              :analytics,
              :streamdeck
            ]
 
-    assert {:ok, units} = RouteRegistry.route(:units, analytics)
+    units = RouteRegistry.current_route(:index)
+    assert RouteRegistry.route(:units, analytics) == :error
+    assert RouteRegistry.route(:build_order, analytics) == :error
 
     assert units == %{
              id: :units,
              label: "Units",
              icon: "◫",
              description: "",
-             path: "/",
+             path: "/units",
              type: :live,
              owner: :dashboard,
              availability: :available,
@@ -65,14 +66,14 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     assert {:ok, %{path: "/commands"}} = RouteRegistry.route(:commands, %{})
     assert %{id: :commands} = RouteRegistry.current_route(:decisions)
     assert %{id: :commands} = RouteRegistry.current_route(:decision)
-    assert %{id: :units} = RouteRegistry.current_route(:unknown)
+    assert %{id: :build, path: "/", owner: :build} = RouteRegistry.current_route(:unknown)
   end
 
   test "uses patches only within one LiveView owner" do
     analytics = %{available?: true}
-    {:ok, units} = RouteRegistry.route(:units, analytics)
+    units = RouteRegistry.current_route(:index)
     {:ok, commands} = RouteRegistry.route(:commands, analytics)
-    {:ok, build_order} = RouteRegistry.route(:build_order, analytics)
+    build_order = RouteRegistry.current_route(:build_orders)
     {:ok, analytics_route} = RouteRegistry.route(:analytics, analytics)
 
     assert RouteRegistry.navigation_mode(units, commands) == :patch
@@ -84,7 +85,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
 
   test "Experiments capability inserts a separate owner after Analytics" do
     runtime = %{experiments_available?: true}
-    assert Enum.map(RouteRegistry.routes(runtime), & &1.id) == [:units, :commands, :build_order, :analytics, :experiments, :streamdeck]
+    assert Enum.map(RouteRegistry.routes(runtime), & &1.id) == [:build, :commands, :analytics, :experiments, :streamdeck]
     assert RouteRegistry.route(:experiments, %{}) == :error
     assert RouteRegistry.route(:experiments, %{experiments_available?: false}) == :error
     assert {:ok, route} = RouteRegistry.route(:experiments, runtime)
@@ -109,7 +110,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
   end
 
   test "registers the Build Order catalog and selected actions as one live owner" do
-    assert {:ok, build_order} = RouteRegistry.route(:build_order, %{})
+    build_order = RouteRegistry.current_route(:build_orders)
     assert build_order.path == "/build-orders"
     assert build_order.availability == :available
     assert build_order.owner == :build_order

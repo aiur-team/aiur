@@ -473,7 +473,6 @@ Use the bounded wait as the discovery path:
 
 ```bash
 RETRO="<loaded-aiur-run-skill>/scripts/executor-retrospective.sh"
-export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
 wait_seconds="${AIUR_EXECUTOR_WAIT_FLOOR_SECONDS:-30}"
 
 if wake_json="$("$AIUR_CMD" executor-wait --timeout "$wait_seconds" --json)"; then
@@ -707,7 +706,6 @@ durable summary:
 
 ```bash
 RETRO="<loaded-aiur-run-skill>/scripts/executor-retrospective.sh"
-export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
 "$RETRO" arm
 "$RETRO" observe action "reviewed-green-pr"
 "$RETRO" observe no-action "ci-still-pending"
@@ -724,14 +722,26 @@ The read-only CLI probe runs alongside it with one control-RPC timeout per
 command, so a normal record may spend up to roughly 30 seconds on terminal
 evidence before the browser capture completes.
 
-The visual check's preconditions fail with distinct, non-zero codes so a
-wrapper can tell which one stopped it: 68 when `AIUR_EXECUTOR_RUN_ID` is
-missing, 67 when the dashboard URL cannot be discovered, 69 when
-`AIUR_DASHBOARD_PASSWORD` is missing. Each failure prints a one-line stderr
-naming the variable to set and writes a "did not run" verdict — a skipped
-check must never exit 0 or read as a healthy capture. `record` forwards that
-precondition line to its own stderr, so a log that redirects stdout+stderr
-still shows why the check did not run.
+The retrospective helper defaults `AIUR_EXECUTOR_RUN_ID` to the live tmux
+session identity (socket plus tmux session ID), which remains stable across
+Executor handoffs and changes when the session is recreated. Outside an Aiur
+tmux session it uses `default`. Set `AIUR_EXECUTOR_RUN_ID` explicitly to use a
+separate retrospective identity. Preconditions fail with distinct,
+non-zero codes so a wrapper can tell which one stopped it: 67 when the
+dashboard URL cannot be discovered, 68 when an explicit run ID is invalid,
+and 69 when `AIUR_DASHBOARD_PASSWORD` is missing. Each failure prints a
+one-line stderr naming the precondition and writes a "did not run" verdict —
+a skipped check must never exit 0 or read as a healthy capture. `record`
+forwards that precondition line to its own stderr, so a log that redirects
+stdout+stderr still shows why the check did not run.
+
+When run outside the daemon's tmux session, the helper searches the live
+`aiur-*` tmux sockets for the dashboard URL Aiur published. A socket matching
+`AIUR_EXECUTOR_RUN_ID` wins; otherwise discovery proceeds only when the live
+dashboard URL is unambiguous. If dashboard credentials are absent from the
+caller environment, it reads them from that daemon's process environment. The
+check prints the URL and credential source labels to stderr without printing
+credential values.
 
 Take the recorded assessment's count language from the atomic
 `summary.count_sentence` that `record` embeds (or the one `summarize` prints in
@@ -838,7 +848,7 @@ Alerts persist across daemon restarts and tokens (full-history scan, #1231), so
 the `ACTIONABLE` list keeps naming long-merged tickets. Check timestamps before
 acting and trust the top state table over the alert list.
 
-Run `aiur executor-sweep` on every observation and handle its findings first. It checks decisions, approved PR/CI, merge queue, capacity/order, ticket hygiene, blockers, handbacks, and watcher/dispatcher health. Unreviewed human-review PRs rank first using `executor.sweep.unreviewed_pr_minutes`; the daemon repeats every five minutes and wakes on new findings. Continue below for actions it cannot perform:
+Run `aiur executor-sweep` on every observation and handle its findings first. It checks decisions, approved PR/CI, merge queue, capacity/order, ticket hygiene, blockers, handbacks, and watcher/dispatcher health. Ready PRs unreviewed at their head rank first using `executor.sweep.unreviewed_pr_minutes`, whatever the ticket state (the finding names it, so a ready PR on an `agent:in-progress` ticket reads as a missed handoff); the daemon repeats every five minutes and wakes on new findings. Continue below for actions it cannot perform:
 
 - act on the `ACTIONABLE` section before routine scheduling;
 - continuously push toward the maximum **useful** concurrency across workers,
@@ -1213,6 +1223,17 @@ rework claim, not the relabels; #4646.) Verify the ticket left
 `review_rework_refused` alert names (often: re-review the current head). With no
 alert, run `aiur executor-sweep` (#4620) and grep the daemon log for `Rework
 dispatch claim failed` or `writer=comment_wake` before you touch a label.
+
+Before relabeling on a wake, read the issue's current labels and skip the
+relabel if the ticket has already moved on. A
+`ticket.*.agent.handoff.human_review` wake says the agent handed off, not that
+the ticket is still there: when CI is pending the daemon moves it to
+`agent:ci-wait` within minutes. Swapping `agent:human-review` for
+`agent:rework` from that stale wake leaves `agent:rework` + `agent:ci-wait`,
+and dispatch authorization refuses the pair (#5796). When you do relabel, make
+two sequential calls: add the new state label first, then remove the old one.
+`gh issue edit --add-label X --remove-label Y` runs both mutations concurrently
+and is not atomic, so do not combine them.
 
 ### Merge mechanics
 

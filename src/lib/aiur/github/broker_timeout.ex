@@ -48,7 +48,7 @@ defmodule Aiur.GitHub.BrokerTimeout do
   # dwell itself is config; this is only the granularity at which it is checked.
   @check_interval_ms 30_000
 
-  defstruct events: [], since_ms: nil, alert_active: false, check_interval_ms: @check_interval_ms, emit_fun: &Signal.alert/2
+  defstruct events: [], since_ms: nil, alert_active: false, alert_cause: nil, checkpoint_stale: false, check_interval_ms: @check_interval_ms, emit_fun: &Signal.alert/2
 
   @type state :: %__MODULE__{}
 
@@ -67,6 +67,28 @@ defmodule Aiur.GitHub.BrokerTimeout do
   """
   @spec record() :: :ok
   def record, do: record(System.monotonic_time(:millisecond))
+
+  @doc false
+  @spec record_checkpoint_degraded(keyword()) :: :ok
+  def record_checkpoint_degraded(opts \\ []) do
+    GenServer.cast(Keyword.get(opts, :name, __MODULE__), {:checkpoint_stale, true})
+    :ok
+  rescue
+    ArgumentError -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  @doc false
+  @spec record_checkpoint_recovered(keyword()) :: :ok
+  def record_checkpoint_recovered(opts \\ []) do
+    GenServer.cast(Keyword.get(opts, :name, __MODULE__), {:checkpoint_stale, false})
+    :ok
+  rescue
+    ArgumentError -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
 
   @doc false
   @spec record(integer(), keyword()) :: :ok
@@ -149,6 +171,10 @@ defmodule Aiur.GitHub.BrokerTimeout do
     {:noreply, record_event(state, now_ms)}
   end
 
+  def handle_cast({:checkpoint_stale, stale?}, state) do
+    {:noreply, %{state | checkpoint_stale: stale?}}
+  end
+
   @impl true
   def handle_call({:check, now_ms}, _from, state) do
     {:reply, :ok, evaluate(state, now_ms)}
@@ -160,7 +186,7 @@ defmodule Aiur.GitHub.BrokerTimeout do
   end
 
   def handle_call(:reset, _from, state) do
-    {:reply, :ok, %{state | events: [], since_ms: nil, alert_active: false}}
+    {:reply, :ok, %{state | events: [], since_ms: nil, alert_active: false, alert_cause: nil}}
   end
 
   @impl true
@@ -205,9 +231,10 @@ defmodule Aiur.GitHub.BrokerTimeout do
   defp evaluate_degraded(state, now_ms) do
     since_ms = state.since_ms || now_ms
 
-    if not state.alert_active and now_ms - since_ms >= dwell_ms() do
+    if not state.alert_active and (state.checkpoint_stale or now_ms - since_ms >= dwell_ms()) do
       safe_emit(fn -> emit_degraded(state, since_ms, now_ms) end)
-      %{state | since_ms: since_ms, alert_active: true}
+      cause = if state.checkpoint_stale, do: :checkpoint, else: :timeouts
+      %{state | since_ms: since_ms, alert_active: true, alert_cause: cause}
     else
       %{state | since_ms: since_ms}
     end
@@ -217,31 +244,43 @@ defmodule Aiur.GitHub.BrokerTimeout do
   # so a later episode re-arms it.
   defp evaluate_recovered(state) do
     if state.alert_active, do: safe_emit(fn -> emit_resolved(state) end)
-    %{state | since_ms: nil, alert_active: false}
+    %{state | since_ms: nil, alert_active: false, alert_cause: nil}
   end
 
   # `state.events` is already pruned to the window by `prune_events/2`.
-  defp degraded?(state), do: length(state.events) >= threshold()
+  defp degraded?(state), do: state.checkpoint_stale or length(state.events) >= threshold()
 
   defp emit_degraded(state, since_ms, now_ms) do
     elapsed_s = div(now_ms - since_ms, 1_000)
 
     state.emit_fun.(@degraded_topic,
-      message: "GitHub budget broker has been unavailable for #{elapsed_s}s (#{length(state.events)} timeouts in the window)",
-      reason: "Budget broker timeout rate sustained above threshold for #{elapsed_s}s",
+      message: degraded_message(state, elapsed_s),
+      reason: degraded_reason(state, elapsed_s),
       severity: "warning",
       needs_attention: true
     )
   end
 
+  defp degraded_message(%{checkpoint_stale: true}, elapsed_s), do: "GitHub budget broker checkpoint is stale (last success over ten minutes ago; detected #{elapsed_s}s ago)"
+  defp degraded_message(state, elapsed_s), do: "GitHub budget broker has been unavailable for #{elapsed_s}s (#{length(state.events)} timeouts in the window)"
+
+  defp degraded_reason(%{checkpoint_stale: true}, elapsed_s), do: "Budget broker checkpoint age exceeded ten minutes; stale for #{elapsed_s}s"
+  defp degraded_reason(_state, elapsed_s), do: "Budget broker timeout rate sustained above threshold for #{elapsed_s}s"
+
   defp emit_resolved(state) do
     state.emit_fun.(@resolution_topic,
-      message: "GitHub budget broker timeout rate recovered; retries back below threshold",
-      reason: "Budget broker retry rate dropped back below threshold",
+      message: resolution_message(state.alert_cause),
+      reason: resolution_reason(state.alert_cause),
       severity: "info",
       needs_attention: false
     )
   end
+
+  defp resolution_message(:checkpoint), do: "GitHub budget broker checkpoint recovered; checkpoint age is back below ten minutes"
+  defp resolution_message(_cause), do: "GitHub budget broker timeout rate recovered; retries back below threshold"
+
+  defp resolution_reason(:checkpoint), do: "Budget broker checkpoint age returned below ten minutes"
+  defp resolution_reason(_cause), do: "Budget broker retry rate dropped back below threshold"
 
   defp prune_events(%__MODULE__{events: events} = state, now_ms) do
     %{state | events: prune_older(events, now_ms)}

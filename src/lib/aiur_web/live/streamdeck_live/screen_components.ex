@@ -10,6 +10,7 @@ defmodule AiurWeb.StreamdeckLive.ScreenComponents do
   import AiurWeb.StreamdeckLive.CommandKeys, only: [commands_panel: 1]
 
   alias AiurWeb.StreamdeckStrip
+  import AiurWeb.OperatorControlCenter.MeterStyles, only: [remaining_class: 1]
 
   attr(:sd_mode, :atom, required: true)
   attr(:screen, :list, required: true)
@@ -150,10 +151,10 @@ defmodule AiurWeb.StreamdeckLive.ScreenComponents do
               >
                 <span class="sd-mini-top">
                   <span class="sd-mini-lbl">{meter.label}</span>
-                  <span :if={meter.observed?} class="sd-mini-r">{meter.percent}%<span :if={meter.metadata}> · {meter.metadata}</span></span>
+                  <span :if={meter.observed?} class="sd-mini-r">{meter.percent}% left<span :if={meter.metadata}> · {meter.metadata}</span></span>
                   <span :if={!meter.observed?} class="sd-mini-r"></span>
                 </span>
-                <span class="sd-mini-bar" role="img" aria-label={meter_aria_label(meter)}><i :if={meter.observed?} style={"width: #{meter.percent}%"}></i></span>
+                <span class="sd-mini-bar" role="img" aria-label={meter_aria_label(meter)}><i :if={meter.observed?} class={meter_tone(meter.percent)} style={"width: #{meter.percent}%"}></i></span>
               </div>
 
               <div :if={segment.kind == :pager} class="sd-pager" role="group" aria-label={if segment.focus_label, do: "Controlled agent", else: "Agent pages"}>
@@ -171,10 +172,12 @@ defmodule AiurWeb.StreamdeckLive.ScreenComponents do
   end
 
   defp meter_aria_label(%{label: label, observed?: true, percent: percent, metadata: metadata}) do
-    Enum.reject([label, "#{percent}%", metadata], &is_nil/1) |> Enum.join(" · ")
+    Enum.reject([label, "#{percent}% left", metadata], &is_nil/1) |> Enum.join(" · ")
   end
 
   defp meter_aria_label(%{label: label}), do: "#{label} unavailable"
+
+  defp meter_tone(percent), do: remaining_class(percent)
 
   defp progress_text(percent) when is_number(percent), do: "#{percent}%"
   defp progress_text(_percent), do: "—"

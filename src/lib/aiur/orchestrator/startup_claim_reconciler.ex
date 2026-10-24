@@ -103,8 +103,15 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     {%{state | startup_claim_reconciliation_complete?: not unsettled?}, Enum.reject(issues, &is_nil/1)}
   end
 
+  # Another instance's claim is not an orphan of this daemon (#5803).
   defp reconcile_issue(%State{} = state, %Issue{identifier: identifier} = issue, live_identifiers, opts)
        when is_binary(identifier) do
+    if Aiur.Instance.skip?(identifier, issue.labels, :orphan_claim), do: {:ok, state, issue}, else: reconcile_owned(state, issue, live_identifiers, opts)
+  end
+
+  defp reconcile_issue(state, issue, _live_identifiers, _opts), do: {:ok, state, issue}
+
+  defp reconcile_owned(state, %Issue{identifier: identifier} = issue, live_identifiers, opts) do
     cond do
       approved_armed_orphan?(state, issue, identifier, live_identifiers, opts) ->
         release_orphaned_claim(state, issue, Keyword.put(opts, :forced_target, "ci-wait"))
@@ -133,8 +140,6 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
         release_orphaned_claim(state, issue, opts)
     end
   end
-
-  defp reconcile_issue(state, issue, _live_identifiers, _opts), do: {:ok, state, issue}
 
   defp recoverable_claim?(state, issue, identifier) do
     DispatchPolicy.state_slug(issue.state) == "in-progress" and

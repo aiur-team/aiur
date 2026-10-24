@@ -22,13 +22,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       github_window_compact_meta: 2
     ]
 
-  import AiurWeb.OperatorControlCenter.MeterStyles, only: [meter_class: 1, meter_class: 3]
+  import AiurWeb.OperatorControlCenter.MeterStyles, only: [meter_class: 1, remaining_class: 1]
 
   alias Aiur.CodingAgent
   alias AiurWeb.Build.UsageFacts
   alias AiurWeb.OperatorControlCenter.ModelProviders
   alias AiurWeb.OperatorControlCenter.ModelsPanel
   alias AiurWeb.OperatorControlCenter.Money
+  alias AiurWeb.RemainingMeter
 
   # The provider card that leads the strip. The run summary moved out of the
   # strip into the compact above-filters section, so the first provider card
@@ -86,15 +87,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
             <div class="rs-limits">
               <div :if={@windows == []} class="rs-limit">
                 <span class="rs-limit-label">Quota</span>
-                <div class="rs-meter"><i style="width:0%"></i></div>
+                <div class="rs-meter is-unknown"></div>
                 <span class="rs-limit-meta rs-limit-meta-wide">Awaiting GitHub response</span>
                 <span class="rs-limit-meta rs-limit-meta-compact">Awaiting response</span>
               </div>
-              <div :for={window <- @windows} class="rs-limit">
-                <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
-                <div class="rs-meter">
-                  <i class={meter_class(window.used_percent, 80, 90)} style={"width:#{window.used_percent}%"}></i>
-                </div>
+          <div :for={window <- @windows} class="rs-limit">
+            <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
+            <div class={["rs-meter", is_nil(github_percent(window)) && "is-unknown"]}>
+              <i :if={is_number(github_percent(window))} class={remaining_class(github_percent(window))} style={"width:#{github_percent(window)}%"}></i>
+            </div>
                 <span class="rs-limit-meta rs-limit-meta-wide">{github_window_meta(window, @now)}</span>
                 <span class="rs-limit-meta rs-limit-meta-compact">{github_window_compact_meta(window, @now)}</span>
               </div>
@@ -126,7 +127,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       assigns
       |> assign(:window, window)
       |> assign(:invoice_due, elevenlabs_invoice_due(window))
-      |> assign(:meter_percent, elevenlabs_meter_percent(window))
+      |> assign(:meter_percent, api_percent(window))
 
     ~H"""
     <div class="rs-api rs-elevenlabs rs-provider-row">
@@ -137,12 +138,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div class="rs-limits">
           <div class="rs-limit">
             <span class="rs-limit-label" title={elevenlabs_explanation()}>Credits</span>
-            <div class="rs-meter">
-              <i
-                class={meter_class(@meter_percent, 80, 90)}
-                style={"width:#{@meter_percent}%"}
-              >
-              </i>
+            <div class={["rs-meter", is_nil(@meter_percent) && "is-unknown"]}>
+              <i :if={is_number(@meter_percent)} class={remaining_class(@meter_percent)} style={"width:#{meter_width(@meter_percent)}%"}></i>
             </div>
             <span class={["rs-limit-meta", "rs-limit-meta-wide", @quota.state == :observed && "is-compact"]}>{elevenlabs_meta(@quota, @now)}</span>
             <span class="rs-limit-meta rs-limit-meta-compact">{elevenlabs_compact_meta(@quota, @now)}</span>
@@ -151,6 +148,20 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       </div>
     </div>
     """
+  end
+
+  defp api_percent(window), do: elevenlabs_meter_percent(window)
+
+  defp github_percent(window) do
+    case Map.get(window, :remaining_percent) do
+      percent when is_number(percent) -> RemainingMeter.clamp(percent)
+      _ -> RemainingMeter.percent(Map.get(window, :used_percent))
+    end
+  end
+
+  defp meter_width(percent) do
+    percent = Float.round(percent / 1, 1)
+    if percent == trunc(percent), do: Integer.to_string(trunc(percent)), else: :erlang.float_to_binary(percent, decimals: 1)
   end
 
   # The compact run summary, rendered above the Units table filters. The

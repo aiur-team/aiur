@@ -28,6 +28,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
       end)
 
     opts = if has_observed_pr?, do: prepare_failure_evidence(opts, base), else: opts
+    store_watchdog_evidence(runs, observations, opts)
 
     # One failing run must not hold back later runs; report the first error after trying all.
     Enum.reduce(failures, :ok, fn run, first_error ->
@@ -40,12 +41,20 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     case MergeGroupFailureEvidence.recent_main_paths(base, opts) do
       {:ok, paths} ->
         opts
+        |> Keyword.put(:merge_group_failure_evidence_prepared, true)
         |> Keyword.put(:recent_main_failure_paths, paths)
         |> Keyword.put(:known_failure_patterns, MergeGroupFailureEvidence.known_patterns(opts))
 
       {:error, reason} ->
         Logger.warning("merge-group blame evidence unavailable; using legacy routing reason=#{inspect(reason)}")
         Keyword.put(opts, :blame_evidence_error, reason)
+    end
+  end
+
+  defp store_watchdog_evidence(runs, observations, opts) do
+    case Keyword.get(opts, :merge_group_evidence_fun) do
+      fun when is_function(fun, 3) -> fun.(runs, observations, opts)
+      _ -> :ok
     end
   end
 
@@ -145,8 +154,28 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   defp route_blame_result(culprits, prs, observations, failure, run, opts) do
     innocent = prs -- culprits
 
-    with :ok <- MergeGroupRequeue.requeue_group_prs(innocent, observations, run, "group contained a PR-caused failure", opts),
+    with :ok <- hold_failed_heads(culprits, observations, opts),
+         :ok <- MergeGroupRequeue.requeue_group_prs(innocent, observations, run, "group contained a PR-caused failure", opts),
          do: route_failed_prs(culprits, observations, failure, run, opts)
+  end
+
+  defp hold_failed_heads(numbers, observations, opts) do
+    Enum.reduce_while(numbers, :ok, &hold_failed_head(&1, &2, observations, opts))
+  end
+
+  defp hold_failed_head(_number, {:error, _} = error, _observations, _opts), do: {:halt, error}
+
+  defp hold_failed_head(number, :ok, observations, opts) do
+    case Enum.find(observations, &(&1.number == number)) do
+      %{head: head} when is_binary(head) ->
+        case Journal.hold_merge_group_head(number, head, opts) do
+          :ok -> {:cont, :ok}
+          {:error, _} = error -> {:halt, error}
+        end
+
+      _ ->
+        {:cont, :ok}
+    end
   end
 
   defp route_unresolved(:known_non_pr, _failure, run, observations, prs, opts) do
@@ -176,7 +205,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     :ok
   end
 
-  defp classifier_options(run, prs, jobs, opts) do
+  @doc false
+  @spec classifier_options(map(), [integer()], [map()], keyword()) :: keyword()
+  def classifier_options(run, prs, jobs, opts) do
     MergeFailureOptions.build(run, prs, jobs, opts, &MergeGroupFailureEvidence.job_log/2)
   end
 
@@ -231,12 +262,41 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   end
 
   defp path_blame(path, log, prs, opts) do
-    case touched_prs(path, prs, opts) do
+    touched = touched_prs(path, prs, opts)
+
+    cond do
+      length(touched) == 1 -> {:culprits, touched}
+      touched == [] -> path_blame_without_test_change(path, log, prs, opts)
+      true -> :unknown
+    end
+  end
+
+  defp path_blame_without_test_change(path, log, prs, opts) do
+    case changed_code_prs(path, log, prs, opts) do
       [number] -> {:culprits, [number]}
       [] -> if known_failure?(path, log, opts), do: :none, else: :unknown
       _ -> :unknown
     end
   end
+
+  defp changed_code_prs(path, log, prs, opts) do
+    candidates =
+      Enum.filter(prs, fn number ->
+        case get_in(opts, [:changed_paths_by_pr, number]) do
+          paths when is_list(paths) -> Enum.any?(paths, &same_test_area_lib_path?(path, &1))
+          _ -> false
+        end
+      end)
+
+    if known_failure?(path, log, opts), do: [], else: candidates
+  end
+
+  defp same_test_area_lib_path?("src/test/" <> rest, "src/lib/" <> _ = changed_path) do
+    area = rest |> Path.dirname() |> then(&Path.join("src/lib", &1))
+    String.starts_with?(changed_path, area <> "/")
+  end
+
+  defp same_test_area_lib_path?(_test_path, _changed_path), do: false
 
   defp touched_prs(path, prs, opts) do
     Enum.filter(prs, fn pr ->
