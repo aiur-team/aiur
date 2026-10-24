@@ -39,7 +39,7 @@ Run counts depend on how many test files the pull request changes.
 
 ## Home band, mobile and Gantt parity
 
-PR browser smoke stays at **eight shards**, including PRs selecting full CI.
+PR browser smoke stays at **nine shards**, including PRs selecting full CI.
 The routine pixel selection uses **390px**, datasets **live/offline**, both
 **dark/light** themes and **gruvbox/aiur** palettes: eight band pixel cases and
 eight unmasked composed mobile card/header cases.

@@ -5,6 +5,26 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentationTest do
   alias Aiur.CodingAgent.Models
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
 
+  test "renders the canonical runtime reason label verbatim on Units rows" do
+    assert UnitsPresentation.reason_label(%{reasons: %{pause: :usage_limit_exhausted}}) == "agent:paused-usage-limit"
+    assert UnitsPresentation.reason_label(%{reasons: %{pause: :ci_wait, waiting: :waiting_for_dependency}}) == "agent:blocked"
+    assert UnitsPresentation.reason_label(%{reasons: %{waiting: :waiting_for_human}}) == "agent:paused-decision"
+    assert UnitsPresentation.reason_label(%{reasons: %{pause: :agent_pause_request}}) == "agent:paused-agent"
+    assert UnitsPresentation.reason_label(%{reasons: %{}}) == nil
+  end
+
+  test "renders persisted reason labels verbatim in canonical vocabulary order" do
+    assert UnitsPresentation.reason_label(%{labels: ["Agent:ci-red", "agent:merge-queued"]}) ==
+             "agent:merge-queued,agent:ci-red"
+  end
+
+  test "renders the persisted workflow state label verbatim on Units rows" do
+    assert UnitsPresentation.workflow_state_label(%{
+             tracker_state: "ci-wait",
+             labels: ["agent:ci-wait", "agent:ci-red"]
+           }) == "agent:ci-wait"
+  end
+
   describe "model_version/1" do
     test "the model the running agent reported wins over the one its route asked for" do
       # The route names a tag; only the running session can say which concrete

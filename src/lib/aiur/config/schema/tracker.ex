@@ -66,7 +66,7 @@ defmodule Aiur.Config.Schema.Github do
     field(:allowed_contributors, :map)
     # @config-reference config-configuration-01 tracker.github.human_mergers
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail tracker.github.human_mergers | array | `[]` | Explicit human-only post-merge attribution allowlist; also the identity allowlist for the planned `aiur pr merge` command. Never inherits CODEOWNERS, bot accounts, trusted accounts or dispatch users. |
+    # @config-detail tracker.github.human_mergers | array | `[]` | Explicit human-only allowlist for post-merge attribution, current-head CHANGES_REQUESTED review routing and the planned `aiur pr merge` command. Reviews from these logins can route tickets to rework independently of `trusted_accounts`. Never inherits CODEOWNERS, bot accounts or dispatch users. |
     field(:human_mergers, {:array, :string}, default: [])
     # @config-reference config-configuration-01 tracker.github.planning_root_limit
     # @config-detail tracker.github.planning_root_limit | integer | 100 | Maximum Build Order planning roots fetched in one cycle. |
