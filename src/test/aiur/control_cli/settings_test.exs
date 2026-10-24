@@ -71,6 +71,30 @@ defmodule Aiur.ControlCLI.SettingsTest do
     assert stderr =~ "agent.routing"
   end
 
+  test "agent-workspace callers cannot persist or remove overrides" do
+    stderr =
+      capture_io(:stderr, fn ->
+        assert capture_io(fn ->
+                 Aiur.AgentControlCLI.set_setting("agent.max_concurrent_builds", "2", caller_agent_workspace: "/workspaces/5969")
+               end) =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~ "runtime setting changes are blocked inside agent workspaces"
+    assert {:ok, []} = Overrides.list()
+
+    capture_io(fn -> Aiur.AgentControlCLI.set_setting("agent.max_concurrent_builds", "2") end)
+
+    unset_stderr =
+      capture_io(:stderr, fn ->
+        assert capture_io(fn ->
+                 Aiur.AgentControlCLI.unset_setting("agent.max_concurrent_builds", caller_agent_workspace: "/workspaces/5969")
+               end) =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert unset_stderr =~ "runtime setting changes are blocked inside agent workspaces"
+    assert {:ok, [%{key: "agent.max_concurrent_builds", value: 2}]} = Overrides.list()
+  end
+
   test "missing instance identity returns a named application failure" do
     System.delete_env("AIUR_INSTANCE_KEY")
 

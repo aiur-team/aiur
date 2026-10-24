@@ -51,8 +51,10 @@ defmodule Aiur.AgentControlCLI do
   defdelegate resume_global(), to: Aiur.Orchestrator.ControlCLI
   defdelegate set_max_agents(n), to: Aiur.Orchestrator.ControlCLI
   defdelegate set_setting(key, json_value), to: Aiur.ControlCLI.Settings, as: :set
+  defdelegate set_setting(key, json_value, opts), to: Aiur.ControlCLI.Settings, as: :set
   defdelegate list_settings(opts \\ []), to: Aiur.ControlCLI.Settings, as: :list
   defdelegate unset_setting(key), to: Aiur.ControlCLI.Settings, as: :unset
+  defdelegate unset_setting(key, opts), to: Aiur.ControlCLI.Settings, as: :unset
   defdelegate message(issue, text, message_id \\ nil), to: Aiur.Orchestrator.ControlCLI.Message
   defdelegate pause(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate resume(targets), to: Aiur.Orchestrator.ControlCLI

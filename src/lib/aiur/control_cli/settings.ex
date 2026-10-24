@@ -8,7 +8,17 @@ defmodule Aiur.ControlCLI.Settings do
 
   @spec set(String.t(), String.t()) :: :ok
   def set(key, json_value) when is_binary(key) and is_binary(json_value) do
-    guarded("set #{key}", fn -> set_result(key, json_value) end)
+    set(key, json_value, [])
+  end
+
+  @spec set(String.t(), String.t(), keyword()) :: :ok
+  def set(key, json_value, opts) when is_binary(key) and is_binary(json_value) and is_list(opts) do
+    guarded("set #{key}", fn ->
+      case allow_mutation(opts) do
+        :ok -> set_result(key, json_value)
+        {:error, reason} -> report_error(key, reason)
+      end
+    end)
   end
 
   @spec list(keyword()) :: :ok
@@ -18,7 +28,17 @@ defmodule Aiur.ControlCLI.Settings do
 
   @spec unset(String.t()) :: :ok
   def unset(key) when is_binary(key) do
-    guarded("set --unset #{key}", fn -> unset_result(key) end)
+    unset(key, [])
+  end
+
+  @spec unset(String.t(), keyword()) :: :ok
+  def unset(key, opts) when is_binary(key) and is_list(opts) do
+    guarded("set --unset #{key}", fn ->
+      case allow_mutation(opts) do
+        :ok -> unset_result(key)
+        {:error, reason} -> report_error(key, reason)
+      end
+    end)
   end
 
   defp set_result(key, json_value) do
@@ -75,6 +95,18 @@ defmodule Aiur.ControlCLI.Settings do
       {:ok, value} -> {:ok, value}
       {:error, error} -> {:error, {:invalid_json, Exception.message(error)}}
     end
+  end
+
+  defp allow_mutation(opts) do
+    case Keyword.get(opts, :caller_agent_workspace, "") do
+      "" -> :ok
+      _workspace -> {:error, :agent_workspace}
+    end
+  end
+
+  defp report_error(_key, :agent_workspace) do
+    control_error("aiur: runtime setting changes are blocked inside agent workspaces")
+    exit_marker(1)
   end
 
   defp report_error(key, {:unknown_setting, version}) do

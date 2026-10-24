@@ -83,6 +83,21 @@ defmodule Aiur.WorkflowStore.ReloadRejectionTest do
     assert settings.agent.routing == %{3 => "claude:sonnet"}
   end
 
+  test "a schema validation raise rejects the reload and keeps the last good config" do
+    ensure_workflow_store_running()
+    path = Workflow.workflow_file_path()
+
+    write_workflow_file!(path, agent_routing: %{3 => "claude:sonnet"})
+    assert Config.settings!().agent.routing == %{3 => "claude:sonnet"}
+
+    File.write!(path, "tracker:\n  kind: memory\npolling:\n  interval_ms: 1000\n")
+
+    assert {:error, {:invalid_workflow_config, message}} = WorkflowStore.force_reload()
+    assert message =~ "polling.interval_ms is no longer supported"
+    assert Config.settings!().agent.routing == %{3 => "claude:sonnet"}
+    assert Process.alive?(Process.whereis(WorkflowStore))
+  end
+
   test "boot validates the merged workflow before publishing it" do
     ensure_workflow_store_running()
     path = Workflow.workflow_file_path()

@@ -1,7 +1,7 @@
 # Configuration reference
 Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels. Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below. Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
-Runtime overrides set with `aiur set` are stored per instance without changing this YAML. The running build accepts only `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, and `instance.ignore.tickets`; all apply live.
+Runtime overrides set with `aiur set` are operator-owned, stored per instance without changing this YAML, and refused from agent workspaces. The running build accepts only `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, and `instance.ignore.tickets`; all apply live.
 
 Precedence is session `set max-agents` (for its agent cap), runtime overrides, YAML, then schema defaults. Use `aiur set --list` to inspect provenance and `aiur set --unset <key>` to restore the YAML value.
 

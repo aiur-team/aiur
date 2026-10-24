@@ -313,7 +313,11 @@ test("set max-agents rejects invalid values before rpc", () => {
 
 test("set runtime settings safely forwards values, list modes, and unset", () => {
   const { launcher, releaseDir } = setupControlRpc();
-  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
+  const env = {
+    AIUR_FAKE_RPC_MODE: "ok",
+    AIUR_FAKE_EPMD_REGISTERED: "1",
+    AIUR_AGENT_WORKSPACE: "",
+  };
 
   expect(
     runControl(launcher, releaseDir, env, [
@@ -334,12 +338,12 @@ test("set runtime settings safely forwards values, list modes, and unset", () =>
 
   const capture = readFileSync(captureFile, "utf8");
   expect(capture).toContain(
-    'Aiur.AgentControlCLI.set_setting(Base.decode64!("YWdlbnQucm91dGluZw=="), Base.decode64!("eyIzIjoib3BlbnJvdXRlcjptb2RlbCB3aXRoIHNwYWNlcyJ9"))',
+    'Aiur.AgentControlCLI.set_setting(Base.decode64!("YWdlbnQucm91dGluZw=="), Base.decode64!("eyIzIjoib3BlbnJvdXRlcjptb2RlbCB3aXRoIHNwYWNlcyJ9"), caller_agent_workspace: Base.decode64!(""))',
   );
   expect(capture).toContain("Aiur.AgentControlCLI.list_settings()");
   expect(capture).toContain("Aiur.AgentControlCLI.list_settings(json: true)");
   expect(capture).toContain(
-    'Aiur.AgentControlCLI.unset_setting(Base.decode64!("YWdlbnQubWF4X2NvbmN1cnJlbnRfYnVpbGRz"))',
+    'Aiur.AgentControlCLI.unset_setting(Base.decode64!("YWdlbnQubWF4X2NvbmN1cnJlbnRfYnVpbGRz"), caller_agent_workspace: Base.decode64!(""))',
   );
 });
 
