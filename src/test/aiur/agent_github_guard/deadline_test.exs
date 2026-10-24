@@ -125,14 +125,7 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
           fn {name, value} -> {Atom.to_string(name), value} end
         )
 
-    port =
-      Port.open({:spawn_executable, System.find_executable("setsid")}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: Enum.map(["--wait", context.wrapper, "api", "rate_limit"], &String.to_charlist/1),
-        env: Enum.map(env, fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end)
-      ])
+    port = open_caller_group_port(context, env)
 
     on_exit(fn ->
       Enum.each([broker_pid_file, child_pid_file], fn path ->
@@ -145,7 +138,7 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
       if Port.info(port), do: Port.close(port)
     end)
 
-    wait_until(fn -> File.exists?(child_pid_file) and File.exists?(supervisor_pgid_file) end)
+    wait_for_port_files(port, [child_pid_file, supervisor_pgid_file])
     child_pid = child_pid_file |> File.read!() |> String.to_integer()
     pgid = supervisor_pgid_file |> File.read!() |> String.trim()
     assert File.read!(broker_pgid_file) == pgid
@@ -153,7 +146,7 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     child_start_time = process_start_time!(child_pid)
 
     assert {"", 0} = System.cmd("kill", ["-KILL", "-#{pgid}"])
-    assert_receive {^port, {:exit_status, _status}}, 2_000
+    assert_receive_port_exit(port, pgid, 2_000)
     wait_until(fn -> process_gone?(child_pid, child_start_time) end)
     assert process_gone?(child_pid, child_start_time)
   end
@@ -264,14 +257,7 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
           fn {name, value} -> {Atom.to_string(name), value} end
         )
 
-    port =
-      Port.open({:spawn_executable, System.find_executable("setsid")}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: Enum.map(["--wait", context.wrapper, "api", "rate_limit"], &String.to_charlist/1),
-        env: Enum.map(env, fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end)
-      ])
+    port = open_caller_group_port(context, env)
 
     on_exit(fn ->
       Enum.each([supervisor_pid_file, broker_pid_file, child_pid_file], fn path ->
@@ -284,7 +270,7 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
       if Port.info(port), do: Port.close(port)
     end)
 
-    wait_until(fn -> File.exists?(ready_file) end)
+    wait_for_port_files(port, [ready_file])
     broker_pid = broker_pid_file |> File.read!() |> String.to_integer()
     child_pid = child_pid_file |> File.read!() |> String.to_integer()
     child_start = File.read!(child_start_file) |> String.trim()
@@ -292,7 +278,7 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     pgid = pgid_file |> File.read!() |> String.trim()
 
     assert {"", 0} = System.cmd("kill", ["-TERM", "-#{pgid}"])
-    assert_receive {^port, {:exit_status, 143}}, 3_000
+    assert_receive_port_exit(port, pgid, 3_000)
     wait_until(fn -> process_gone?(String.to_integer(supervisor_pid)) end)
     wait_until(fn -> process_gone?(broker_pid) end)
     wait_until(fn -> process_gone?(child_pid, child_start) end)
@@ -427,6 +413,70 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
       {:ok, "Z", _start_time} -> true
       {:ok, _state, start_time} -> start_time != original_start_time
       :gone -> true
+    end
+  end
+
+  defp open_caller_group_port(context, env) do
+    launcher = Path.join(context.workspace, "caller-group-launcher.py")
+    python = System.find_executable("python3") || flunk("python3 is required")
+
+    # A setsid --wait wrapper may fork when the spawned port is a group leader,
+    # leaving its waiter outside the group that the test signals.
+    File.write!(launcher, """
+    import os, sys
+    parent = os.getppid()
+    if os.getsid(0) == os.getsid(parent):
+        if os.getpgrp() == os.getpid():
+            os.setpgid(0, os.getpgid(parent))
+        os.setsid()
+    os.execv(sys.argv[1], sys.argv[1:])
+    """)
+
+    Port.open({:spawn_executable, python}, [
+      :binary,
+      :exit_status,
+      :stderr_to_stdout,
+      args: Enum.map([launcher, context.wrapper, "api", "rate_limit"], &String.to_charlist/1),
+      env: Enum.map(env, fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end)
+    ])
+  end
+
+  defp assert_receive_port_exit(port, pgid, timeout) do
+    receive do
+      {^port, {:exit_status, _status}} -> :ok
+    after
+      timeout ->
+        {processes, _status} =
+          System.cmd("ps", ["-eo", "pid,ppid,pgid,sid,stat,args"], stderr_to_stdout: true)
+
+        survivors =
+          processes
+          |> String.split("\n")
+          |> Enum.filter(&String.contains?(&1, " #{pgid} "))
+          |> Enum.join("\n")
+
+        flunk(
+          "port #{inspect(Port.info(port, :os_pid))} did not exit after signaling process group #{pgid}; " <>
+            "processes still in that group:\n#{survivors}\nall processes:\n#{processes}"
+        )
+    end
+  end
+
+  defp wait_for_port_files(port, paths, attempts \\ 500) do
+    cond do
+      Enum.all?(paths, &File.exists?/1) ->
+        :ok
+
+      attempts == 0 ->
+        flunk("caller group launcher did not create #{inspect(paths)}")
+
+      true ->
+        receive do
+          {^port, {:data, output}} -> flunk("caller group launcher failed: #{output}")
+          {^port, {:exit_status, status}} -> flunk("caller group launcher exited before setup: #{status}")
+        after
+          10 -> wait_for_port_files(port, paths, attempts - 1)
+        end
     end
   end
 
