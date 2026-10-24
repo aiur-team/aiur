@@ -5,6 +5,7 @@ import { decide } from './protocol.js';
 import { acceptSnapshot, applyDiff } from './store.js';
 import { H } from './history.js';
 import { fromServer, flushURL } from './url.js';
+import { markFirstBoard } from './perf.js';
 import './clock.js';
 import './render.js';
 import './columns.js';
@@ -39,7 +40,7 @@ function showServerState(ds) {
 }
 function firstPaint() {
   ctx.inited = true; S.loading = false;
-  renderChrome(); fx.viewport(); fx.relayout(); fx.jumpNow(true); S.ready = true;
+  renderChrome(); fx.viewport(); fx.relayout(); markFirstBoard(); fx.jumpNow(true); S.ready = true;
   ctx.life.frame('ticket', () => fx.openFromURL());
 }
 function repaint() { renderChrome(); fx.relayout(); fx.update(); }
