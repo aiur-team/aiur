@@ -26,17 +26,22 @@ defmodule Aiur.GitHub.Budget.Shared do
     end
   end
 
-  @spec hold_status(map(), String.t()) :: term()
-  def hold_status(request, token_key) do
-    status = LeaseStore.budget_coordination_status()
+  @spec hold_status(map(), String.t(), keyword()) :: term()
+  def hold_status(request, token_key, opts \\ []) do
+    status_fun = Keyword.get(opts, :coordination_status_fun, &LeaseStore.budget_coordination_status/0)
+    hold_fun = Keyword.get(opts, :github_budget_hold_fun, &LeaseStore.github_budget_hold/2)
+    status = status_fun.()
 
     if status.available? do
       credential_key = Map.get(request, :credential_key) || token_key
 
-      case LeaseStore.github_budget_hold(credential_key, Budget.request_resource(request)) do
+      case hold_fun.(credential_key, Budget.request_resource(request)) do
         {:ok, nil} -> :clear
         {:ok, until_at} when is_struct(until_at, DateTime) -> {:held, until_at}
-        {:error, reason} -> {:error, reason}
+        # LeaseStore marks the connection unavailable and schedules a reconnect
+        # before returning this error. Continue to the local broker, whose
+        # acquire args now divide the ceiling by the last known live count.
+        {:error, _reason} -> :clear
         _other -> :clear
       end
     else

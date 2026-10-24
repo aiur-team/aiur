@@ -270,7 +270,6 @@ defmodule Aiur.GitHub.Budget do
     case Shared.hold_status(request, key) do
       :clear -> do_local_acquire(request, key, python, opts, deadline_at)
       {:held, reset_at} -> {:hold, %{reason: :shared_budget, resource: request_resource(request), reset_at: reset_at}}
-      {:error, _reason} -> {:error, :github_budget_broker_unavailable}
     end
   end
 
