@@ -1,3 +1,6 @@
+# Cohesion: shared suite state, test lifecycle events, and leak reporting all
+# belong here because the formatter and ExUnit callbacks must agree on the
+# same test identity and recovery ledger.
 defmodule Aiur.TestSupport.OrchestratorGuard do
   @moduledoc """
   Names the test that leaves the shared `Aiur.Orchestrator` down (#4909).
@@ -18,6 +21,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
   alias Aiur.GitHub.CodeOwners
   alias Aiur.TestSupport.OrchestratorChild
+  alias Aiur.TestSupport.SupervisorExit
 
   alias Aiur.TestSupport.RuntimeChildren
 
@@ -39,6 +43,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     :persistent_term.put(@app_env_key, capture_app_env())
     :persistent_term.put(@codeowners_key, :unset)
     :persistent_term.put(@last_finished_key, nil)
+    SupervisorExit.start_monitoring()
     {:ok, nil}
   end
 
@@ -55,7 +60,19 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   def handle_cast(_event, last), do: {:noreply, last}
 
   @impl true
+  def handle_info(message, last), do: SupervisorExit.handle_info(message, last)
+
+  @impl true
+  def handle_call({:monitor_supervisor, name, notify_pid}, _from, last) do
+    SupervisorExit.start_monitoring(name, notify_pid)
+    {:reply, :ok, last}
+  end
+
   def handle_call(:last_finished, _from, last), do: {:reply, last, last}
+
+  @doc false
+  def monitor_supervisor(name, notify_pid \\ nil),
+    do: GenServer.call(__MODULE__, {:monitor_supervisor, name, notify_pid})
 
   @doc "Fails the suite when a plain ExUnit case leaked the orchestrator. Runs after the formatters stop."
   @spec verify_suite!() :: :ok
@@ -108,8 +125,13 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
   defp suite_runtime_child_errors do
     case :persistent_term.get(@runtime_child_leaks_key, []) do
-      [] -> []
-      leaks -> ["plain ExUnit tests left shared runtime children down: #{Enum.join(leaks, ", ")}"]
+      [] ->
+        []
+
+      leaks ->
+        exit_reason = SupervisorExit.exit_reason()
+        reason_note = if is_nil(exit_reason), do: "", else: " (Aiur.Supervisor exit reason: #{inspect(exit_reason)})"
+        ["plain ExUnit tests left shared runtime children down: #{Enum.join(leaks, ", ")}#{reason_note}"]
     end
   end
 
