@@ -10,7 +10,6 @@ Without local config, `aiur` and `aiurdev` use `~/.aiur/config`. Global launches
 | --- | --- |
 | Executor access | An agent can operate a run from a terminal without asking a human to type commands. |
 | Surface parity | The CLI targets feature parity with the [GUI](/guide/gui) and [TUI](/guide/tui). |
-
 Global launches require Issues write access; conflicting repos fail. Omit `tracker.github.repo` for portable settings; exported credentials override `.env`. Run the command from the repository that owns the run. An instance is keyed to that project, so control commands without `--instance` address that repository's daemon.
 
 ## What the CLI does
@@ -64,7 +63,6 @@ Launch mode determines which interfaces remain available:
 | `--bg` | Runs headlessly but keeps the dashboard unless paired with `--no-dashboard`. |
 | Host precedence | `--host` wins over `server.host`, which wins over `AIUR_DEFAULT_DASHBOARD_HOST` or the `127.0.0.1` default. |
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
-
 When an unknown subcommand is routed through a release built from a checkout, Aiur also compares the dispatcher and checkout package versions. If the dispatcher is older, the error tells you to update `aiur-cli` instead of presenting the command as simply unavailable.
 
 ## Inspect and operate a running daemon
@@ -432,7 +430,8 @@ Answering a Command also dismisses every other unanswered Command — open or de
 
 Dismissing a Command closes it and moves it to history. If the Command's agent is still live, it is told to use its judgement and proceed; an agent that is gone is not notified.
 
-## Operational facts
+## Operational facts that change an incident response
+
 | Fact | Response |
 | --- | --- |
 | **Erlang distribution is loopback-only.** | Remote control uses HTTPS; do not expose the distribution port. Startup verifies the EPMD and distribution listeners. |

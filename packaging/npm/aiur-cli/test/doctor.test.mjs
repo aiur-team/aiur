@@ -63,6 +63,21 @@ test("doctor says the EPMD listener was not found instead of claiming it is safe
   expect(result.stdout).toContain("inet_dist_use_interface=127.0.0.1 (engine config)");
 });
 
+test("doctor recognizes IPv6 loopback and rejects an IPv6 wildcard listener", () => {
+  const tcp6 = `${procHeader}0: 00000000000000000000000001000000:1111 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 1\n`;
+  const loopback = runDoctor(procHeader, tcp6);
+
+  expect(loopback.status).toBe(0);
+  expect(loopback.stdout).toContain("distribution: epmd listeners [0000:0000:0000:0000:0000:0000:0000:0001]:4369");
+  expect(loopback.stdout).not.toContain("not loopback");
+
+  const wildcardTcp6 = `${procHeader}0: 00000000000000000000000000000000:1111 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 2\n`;
+  const wildcard = runDoctor(procHeader, wildcardTcp6);
+
+  expect(wildcard.status).toBe(0);
+  expect(wildcard.stdout).toContain("distribution: epmd listeners not loopback");
+});
+
 test("doctor falls back to lsof output when procfs is unavailable", () => {
   const warning = "lsof: WARNING: cannot read process details";
   const listener = "epmd 123 root 3u IPv6 123 0t0 TCP [::1]:4369 (LISTEN)";
