@@ -156,7 +156,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   defp rework_approval_target(target, issue, pr, opts) do
     case current_head_approval(pr, opts) do
       {:ok, %{"submitted_at" => submitted_at}} ->
-        if timestamp_after?(issue.updated_at, submitted_at), do: {:ok, "rework"}, else: {:ok, target}
+        if approval_after_rework?(submitted_at, issue.updated_at), do: {:ok, target}, else: {:ok, "rework"}
 
       {:ok, nil} ->
         {:ok, "rework"}
@@ -196,14 +196,14 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
     end
   end
 
-  defp timestamp_after?(%DateTime{} = left, right) when is_binary(right) do
-    case DateTime.from_iso8601(right) do
-      {:ok, right_at, _} -> DateTime.compare(left, right_at) == :gt
+  defp approval_after_rework?(approval_at, %DateTime{} = rework_at) when is_binary(approval_at) do
+    case DateTime.from_iso8601(approval_at) do
+      {:ok, approval_time, _} -> DateTime.compare(approval_time, rework_at) == :gt
       _ -> false
     end
   end
 
-  defp timestamp_after?(_, _), do: false
+  defp approval_after_rework?(_, _), do: false
 
   defp guarded_update(identifier, target, expected, writer),
     do: TicketTransition.write_state(identifier, target, writer: writer, expected_state: expected)
