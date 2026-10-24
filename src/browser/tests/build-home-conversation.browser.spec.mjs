@@ -61,6 +61,7 @@ test('mounted body requests the real exported conversation and closes its subscr
 })
 
 test('conversation opens scrolled to its newest message', async ({ page }) => {
+  // Deliberately exceed the viewport so scrollTop=0 cannot also be the bottom.
   const entries = Array.from({ length: 48 }, (_, index) => ({
     ...states.kinds.entries[index % states.kinds.entries.length],
     id: `tail:${index}`,

@@ -25,5 +25,6 @@ test('reduced-motion preference disables a running card glow animation', async (
   }
   const normal = await inspect('no-preference'), reduced = await inspect('reduce')
   expect(normal).toEqual({ reduce: false, name: 'bdRot', duration: '9s', running: true })
+  // Reduced motion uses a near-zero CSS duration; the contract is no running animation.
   expect(reduced).toMatchObject({ reduce: true, name: 'none', running: false })
 })
