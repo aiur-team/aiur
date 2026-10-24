@@ -2,14 +2,7 @@ defmodule AiurWeb.EndpointSocketsTest do
   use ExUnit.Case, async: true
 
   test "socket mounts preserve the pre-registration contract (future regression guard)" do
-    session_options = [
-      store: :cookie,
-      key: "_aiur_key",
-      signing_salt: "aiur-session",
-      encryption_salt: "aiur-session-encryption",
-      same_site: "Lax",
-      max_age: 31_536_000
-    ]
+    session_options = {Aiur.Config.SessionOptions, :runtime_options, []}
 
     # Phoenix 1.8.9's private __sockets__/0 returns accumulated mounts in reverse declaration order.
     assert AiurWeb.Endpoint.__sockets__() == [

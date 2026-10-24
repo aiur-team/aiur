@@ -10,7 +10,7 @@ A broker admission waits up to five seconds (1.5 seconds on the Orchestrator pro
 
 Agent `gh` guards wait on broker contention up to the 120-second call deadline; timeout reports `GitHub budget broker busy`. Active quota holds return their reason immediately. Guard child processes stay in the caller's process group so caller timeouts can stop them too.
 
-Broker commands have a 1.5-second round-trip deadline; admission may wait up to 1.5 seconds in the Orchestrator and 5 seconds for other clients. These bounds keep an overloaded ledger from holding callers indefinitely; timeout handling preserves fresh cached dependency decisions.
+Daemon broker commands share the admission deadline: up to 1.5 seconds in the Orchestrator and 5 seconds for other clients. There is no shorter per-command cap, so SQLite contention can use the time already allowed for admission without extending that window. Timeout handling preserves fresh cached dependency decisions.
 
 Main-watch polling, and the base-branch fixer it drives, may hold one lease above the in-flight caps. Cooldowns, hourly ceilings and pacing still apply to it.
 
@@ -28,7 +28,12 @@ reply delivery.
 The resident broker disables WAL auto-checkpointing on request connections. A
 background thread runs passive checkpoints outside the serialized request loop.
 One-minute measurements report latency by command type, Python queue wait,
-SQLite lock wait, execution, commit, and latest checkpoint duration and frames.
+SQLite lock wait, execution, commit, latest checkpoint duration and frames,
+WAL size and age of the last successful checkpoint.
+
+If the checkpoint worker dies or the WAL grows beyond 10,000 frames while the
+checkpoint queue is idle, the request path falls back to a `RESTART` checkpoint.
+A checkpoint age over ten minutes feeds the existing broker-degraded alert.
 
 Sustained timeouts raise one `system.github.budget_broker_degraded` attention with duration; its `.resolved` clears it on recovery.
 

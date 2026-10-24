@@ -81,6 +81,9 @@ defmodule Aiur.AgentRunner.TurnLoopNoopWaitTest do
   end
 
   test "a park with no wake times out and the no-op bound still ends the run", ctx do
+    # The cap posts a human-review reason comment; keep that write off the network.
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
+    Aiur.WorkflowStore.force_reload()
     task = start_loop(ctx, park_timeout_ms: 50)
 
     # No wake is ever sent: only the timer resumes the worker, and the
