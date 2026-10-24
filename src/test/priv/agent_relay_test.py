@@ -283,6 +283,7 @@ class RelayTest(unittest.TestCase):
                 timestamp = (datetime.now(timezone.utc) - timedelta(days=2)).timestamp()
                 os.utime(directory, (timestamp, timestamp))
         (root / "symlink").symlink_to(root / "old-manifestless", target_is_directory=True)
+        sys.path.insert(0, str(SCRIPT.parent))
         module_spec = importlib.util.spec_from_file_location("agent_relay", SCRIPT)
         relay = importlib.util.module_from_spec(module_spec)
         module_spec.loader.exec_module(relay)
