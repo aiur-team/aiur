@@ -19,6 +19,17 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
     |> Enum.uniq()
   end
 
+  @spec test_identities(binary()) :: [String.t()]
+  def test_identities(log) when is_binary(log) do
+    Regex.scan(
+      ~r/^\s*\d+\)\s+(test .+\([^)]+\))\r?\n\s+((?:src\/)?test\/[\w.\/-]+_test\.exs):\d+(?::\d+)?/m,
+      log,
+      capture: :all_but_first
+    )
+    |> Enum.map(fn [name, path] -> "#{name} :: #{normalize_test_path(path)}" end)
+    |> Enum.uniq()
+  end
+
   @spec normalize_test_path(String.t()) :: String.t()
   def normalize_test_path("test/" <> _ = path), do: "src/" <> path
   def normalize_test_path(path), do: path
