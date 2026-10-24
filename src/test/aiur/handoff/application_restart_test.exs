@@ -6,16 +6,41 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     shell = System.find_executable("sh")
     script = "sleep 300 & child=$!; group=$(ps -o pgid= -p $$ | tr -d ' '); printf '%s %s %s\\n' $$ $group $child; wait"
 
-    {:timeout, output, pid} = run_monitored_command(shell, ["-c", script], [], 250)
-    [shell_pid, group_id, child_pid] = output |> String.trim() |> String.split() |> Enum.map(&String.to_integer/1)
+    provider_port =
+      Port.open({:spawn_executable, String.to_charlist(shell)}, [
+        :binary,
+        :exit_status,
+        args: [~c"-c", ~c"sleep 300 & child=$!; printf '%s\\n' $child; wait"]
+      ])
+
+    {:os_pid, provider_pid} = Port.info(provider_port, :os_pid)
+    runtime_root = Aiur.TestSupport.tmp_root!("handoff-timeout-provider")
+    File.write!(Path.join(runtime_root, "provider-process-group"), to_string(provider_pid))
+
+    provider_child_pid =
+      receive do
+        {^provider_port, {:data, child}} -> child |> String.trim() |> String.to_integer()
+      after
+        5_000 -> flunk("provider fixture did not start")
+      end
 
     try do
+      {:timeout, output, pid} =
+        run_monitored_command(shell, ["-c", script], [], 250, fn -> kill_recorded_provider_group(runtime_root) end)
+
+      [shell_pid, group_id, child_pid] = output |> String.trim() |> String.split() |> Enum.map(&String.to_integer/1)
+
       assert shell_pid == pid
       assert group_id == pid
       refute process_running?(shell_pid)
       refute process_running?(child_pid)
+      refute process_running?(provider_pid)
+      refute process_running?(provider_child_pid)
     after
-      Enum.each([shell_pid, child_pid], &System.cmd("kill", ["-KILL", to_string(&1)], stderr_to_stdout: true))
+      kill_process_group(provider_pid)
+      Enum.each([provider_pid, provider_child_pid], &System.cmd("kill", ["-KILL", to_string(&1)], stderr_to_stdout: true))
+      close_port(provider_port)
+      Aiur.TestCleanup.rm_rf!(runtime_root)
     end
   end
 
@@ -55,6 +80,7 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
       {:ok, _lease} = Aiur.Workspace.Ownership.activate(lease)
       {:ok, port} = Aiur.AppServer.Adapter.start_port(workspace, "python3 " <> provider <> " " <> fifo)
       metadata = Aiur.AppServer.Transport.metadata(port)
+      File.write!(Path.join(root, "provider-process-group"), to_string(metadata.pgid))
       :ok = Aiur.Workspace.Ownership.track_provider(lease, %{root_pid: metadata.provider_pid, process_group_id: metadata.pgid})
       session = %{backend: "codex", port: port, thread_id: "restart-thread", workspace: workspace,
         metadata: %{}, auto_approve_requests: false, worker_host: nil}
@@ -151,7 +177,8 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
                {"ERL_FLAGS", "+S 2:2 +SDio 1 +SDcpu 1"},
                {"AIUR_HANDOFF_RUNTIME_ROOT", runtime_root}
              ],
-             105_000
+             105_000,
+             fn -> kill_recorded_provider_group(runtime_root) end
            ) do
         {:timeout, captured, _pid} ->
           flunk("nested VM timed out; last output:\n#{captured}")
@@ -165,7 +192,7 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     end
   end
 
-  defp run_monitored_command(executable, args, env, timeout) do
+  defp run_monitored_command(executable, args, env, timeout, on_timeout) do
     port =
       Port.open({:spawn_executable, String.to_charlist(executable)}, [
         :binary,
@@ -209,6 +236,13 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
   end
 
   defp kill_process_group(pid), do: System.cmd("kill", ["-KILL", "-#{pid}"], stderr_to_stdout: true)
+
+  defp kill_recorded_provider_group(runtime_root) do
+    case File.read(Path.join(runtime_root, "provider-process-group")) do
+      {:ok, group} -> kill_process_group(String.to_integer(String.trim(group)))
+      {:error, :enoent} -> :ok
+    end
+  end
 
   defp process_running?(pid) do
     case System.cmd("ps", ["-o", "stat=", "-p", to_string(pid)], stderr_to_stdout: true) do
