@@ -390,8 +390,16 @@ defmodule Aiur.AgentRunner.Handoff do
   @doc false
   @spec decode(String.t()) :: term()
   def decode(term) do
-    load_snapshot_atoms()
-    term |> Base.decode64!() |> :erlang.binary_to_term([:safe])
+    binary = Base.decode64!(term)
+
+    try do
+      :erlang.binary_to_term(binary, [:safe])
+    rescue
+      # [:safe] refuses atoms not yet created; load modules only then, since loading them all can outlast the abort budget.
+      ArgumentError ->
+        load_snapshot_atoms()
+        :erlang.binary_to_term(binary, [:safe])
+    end
   end
 
   # Early boot has not loaded provider modules whose private state atoms the snapshot carries.

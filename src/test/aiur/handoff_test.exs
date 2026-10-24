@@ -391,6 +391,8 @@ defmodule Aiur.HandoffTest do
   test "a prepare that fails after the snapshot leaves live runners finishing their turn", %{
     tmp_dir: workspace
   } do
+    # Loading every :aiur module on the abort path can outlast the 5 s abort budget on a loaded host.
+    :persistent_term.erase({RunnerHandoff, :snapshot_atoms_loaded})
     {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
     gate = Path.join(workspace, "go")
     script = Path.join(workspace, "provider.py")
@@ -407,7 +409,7 @@ defmodule Aiur.HandoffTest do
 
     {runner, runner_monitor} =
       spawn_monitor(fn ->
-        {:ok, port} = Adapter.start_port(workspace, "python3 #{script}", fn _port -> :ok end, relay: false)
+        {:ok, port} = Adapter.start_port(workspace, "python3 #{script}")
         session = %{backend: "codex", port: port, thread_id: "thread-1", workspace: workspace}
 
         session =
@@ -420,7 +422,7 @@ defmodule Aiur.HandoffTest do
           })
 
         send(parent, :ready)
-        send(parent, {:turn_loop_started, self(), port})
+        send(parent, {:turn_loop_started, self()})
 
         result =
           TurnLoop.receive_loop(
@@ -432,8 +434,7 @@ defmodule Aiur.HandoffTest do
       end)
 
     assert_receive :ready, 5_000
-    assert_receive {:turn_loop_started, ^runner, port}, 5_000
-    assert is_port(port)
+    assert_receive {:turn_loop_started, ^runner}, 5_000
     :erlang.trace(runner, true, [:receive, :send, {:tracer, self()}])
 
     {:ok, owner} =
@@ -464,6 +465,7 @@ defmodule Aiur.HandoffTest do
     assert_receive {:trace, ^runner, :send, {:handoff_aborted, ^abort_ref}, ^abort_waiter}, 1_000
 
     refute GenServer.call(owner, :held?)
+    refute :persistent_term.get({RunnerHandoff, :snapshot_atoms_loaded}, false)
     File.touch!(gate)
 
     result =
@@ -472,7 +474,7 @@ defmodule Aiur.HandoffTest do
         {:DOWN, ^runner_monitor, :process, ^runner, reason} -> {:runner_crashed, reason}
       after
         30_000 ->
-          {:runner_timeout, %{runner: Process.info(runner, [:current_function, :status, :message_queue_len]), port: Port.info(port)}}
+          {:runner_timeout, Process.info(runner, [:current_function, :status, :message_queue_len])}
       end
 
     Process.demonitor(runner_monitor, [:flush])
