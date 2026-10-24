@@ -3,10 +3,12 @@ import { readFile } from 'node:fs/promises'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
 test.beforeEach(async ({ page }) => {
+  page.featureErrors = []; page.on('pageerror', error => page.featureErrors.push(error.message))
   const root = test.info().project.metadata.featuresRoot
   if (root) await page.route('**/build-home/home.css*', async route => route.fulfill({ contentType: 'text/css', body: await readFile(root + '/src/priv/static/build-home/home.css', 'utf8') }))
   if (root) await page.route('**/build-home/*.js', async route => route.fulfill({ contentType: 'text/javascript', body: await readFile(root + '/src/priv/static/build-home/' + new URL(route.request().url()).pathname.split('/').at(-1), 'utf8') }))
 })
+test.afterEach(async ({ page }) => { expect(page.featureErrors).toEqual([]) })
 async function open(page, query = '?feature=pag', dataset = 'live') {
   await page.goto('/build-fixture/' + dataset + query)
   await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
@@ -79,19 +81,25 @@ test('first-paint feature focus loads oldest history, back/forward restores focu
   await page.goBack()
   await expect(page.locator('.bd-fh-name')).toContainText('Khala')
 })
-test('clearing during an in-flight page prevents another feature page', async ({ page }) => {
+for (const action of ['clear', 'switch', 'destroy']) test(`${action} during an in-flight page stops the prior feature span`, async ({ page }) => {
   await open(page, '')
   await page.evaluate(async () => {
     const { ctx, fx } = m; window.calls = 0; const push = ctx.push;
-    ctx.push = (e, p) => e === 'load-earlier' ? (calls++, new Promise(resolve => { window.finish = () => push(e, p).then(resolve) })) : push(e, p)
+    ctx.push = (e, p) => { if (e !== 'load-earlier') return push(e, p); calls++; const reply = push(e, p); if (calls > 1) return reply; return new Promise(resolve => { window.finish = () => reply.then(resolve) }) }
     fx.setFeature('khala')
   })
   await expect(page.locator('.bd-fh-name')).toContainText('Khala')
   await expect.poll(() => page.evaluate(() => calls)).toBe(1)
-  await page.locator('#bd-fx').click()
+  if (action === 'clear') await page.locator('#bd-fx').click()
+  else if (action === 'switch') await page.evaluate(() => m.fx.setFeature('pag'))
+  else await page.evaluate(() => h.createBuildHomeHook().destroyed.call({ buildLife: m.ctx.life }))
   await page.evaluate(async () => { await finish() })
-  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
-  expect(await page.evaluate(() => calls)).toBe(1)
+  if (action !== 'destroy') await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
+  else expect(await page.evaluate(() => m.ctx.life.disposed)).toBe(true)
+  if (action === 'switch') {
+    await expect.poll(() => page.evaluate(() => m.S.histFrom <= m.ctx.D.features.pag.oldest)).toBe(true)
+    expect(await page.evaluate(() => m.S.histFrom > m.ctx.D.features.khala.oldest)).toBe(true)
+  } else expect(await page.evaluate(() => calls)).toBe(1)
 })
 test('late feature activation and live dependencies rebuild compact ghosts', async ({ page }) => {
   await open(page, '?feature=late&fmode=compact')

@@ -134,8 +134,8 @@ export const recordedSeconds = {
   'test:build-home-filters-parity': 418,
   // Scoped desktop/reduced/mobile filter motion: local harness 49.3s (2026-10-18).
   'test:build-home-filters-motion': 50,
-  // Local 2026-10-23 harness: feature cases 60s + units 4s; four header parity cells 156s.
-  // Includes failed assertions before fixture alignment; retain these conservative measured bounds.
-  'test:build-home-features': 64,
-  'test:browser-suite -- build-home-features-parity': 156,
+  // Local 2026-10-23 feature run: 12 cases 78s + units 4s.
+  // Header matrix: 24 passing cases total 797.1s across a restart; round up.
+  'test:build-home-features': 82,
+  'test:browser-suite -- build-home-features-parity': 800,
 }
