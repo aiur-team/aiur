@@ -9,7 +9,7 @@ export const onReset = fn => resets.push(fn);
 export function resetState(urlState = {}) {
   for (const key of Object.keys(S)) delete S[key];
   Object.assign(S, {
-    view: 'graph', span: 1, feature: null, fmode: 'focus',
+    view: 'graph', list: 'tickets', span: 1, feature: null, fmode: 'focus',
     f: { type: [], model: [], feature: [], epic: [], tstate: [], astate: [] },
     pop: null, loading: true, ready: false, flow: false, K: 2,
     density: 'card', trees: false, liveMin: false, ticket: null,

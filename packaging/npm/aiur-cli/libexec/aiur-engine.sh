@@ -61,7 +61,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session remote remote_all control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr history ticket ticket_usage"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session remote remote_all node_name control commands executor_commands report_commands test-private-state lifecycle restart handoff upgrade pre_pr history ticket ticket_usage"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"

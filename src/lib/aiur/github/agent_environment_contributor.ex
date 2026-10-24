@@ -84,6 +84,9 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   end
 
   @impl true
+  def hosted_credential_boundary, do: :agent
+
+  @impl true
   def repo_slug do
     case GitHubConfig.repo() do
       repo when is_binary(repo) and repo != "" -> repo
