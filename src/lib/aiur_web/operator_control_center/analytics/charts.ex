@@ -83,7 +83,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     totals =
       Enum.map(series, fn s -> s.exec_cpu + s.other_cpu + Enum.sum(Enum.map(units, &Map.get(s.per, &1.key, 0.0))) end)
 
-    vmax = Enum.max([ceiling | totals]) |> max(1) |> ChartAxis.nice_axis_max(@y_tick_count)
+    {vmax, y_ticks} = Enum.max([ceiling | totals]) |> max(1) |> then(&ChartAxis.nice_axis(&1, @y_tick_count))
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
 
@@ -99,7 +99,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         text(@w - mr, ceiling_y - 5, "machine ceiling #{round(ceiling)}%", anchor: "end", fill: "var(--blocking)")
 
     inner =
-      y_grid(vmax, yf, ml, @w - mr, fn v -> "#{round(v)}%" end) <>
+      y_grid(y_ticks, yf, ml, @w - mr, fn v -> "#{round(v)}%" end) <>
         stacked_areas(series, layers, xf, yf) <>
         ceiling_mark <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
@@ -115,7 +115,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     h = 220
     {ml, mr, mt, mb} = {30, 14, 16, 26}
     {pw, ph} = {@w - ml - mr, h - mt - mb}
-    vmax = max(cap || 0, peak) |> max(1) |> ChartAxis.nice_axis_max(@y_tick_count)
+    vmax = max(cap || 0, peak) |> max(1)
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
 
@@ -165,8 +165,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       |> Enum.filter(&is_number/1)
 
     wait_values = series |> Enum.map(&Map.get(&1, :build_queue_oldest_wait_seconds)) |> Enum.filter(&is_number/1)
-    count_max = Enum.max([1 | count_values]) |> ChartAxis.nice_axis_max(@y_tick_count)
-    wait_max = Enum.max([1 | wait_values]) |> ChartAxis.nice_axis_max(@y_tick_count)
+    {count_max, count_ticks} = Enum.max([1 | count_values]) |> then(&ChartAxis.nice_axis(&1, @y_tick_count, 1))
+    {wait_max, _wait_ticks} = Enum.max([1 | wait_values]) |> then(&ChartAxis.nice_axis(&1, @y_tick_count, 1))
     count_y = fn value -> count_bottom - value / count_max * (count_bottom - top) end
     wait_y = fn value -> wait_bottom - value / wait_max * (wait_bottom - wait_top) end
 
@@ -186,7 +186,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       end)
 
     inner =
-      y_grid(count_max, count_y, ml, @w - mr, &to_string(round(&1))) <>
+      y_grid(count_ticks, count_y, ml, @w - mr, &to_string(round(&1))) <>
         lines <>
         strip <>
         text(ml, 188, "source state", fill: "var(--muted)") <>
@@ -221,7 +221,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     {ml, mr, mt, mb} = {46, 14, 16, 26}
     pw = @w - ml - mr
     ph = h - mt - mb
-    vmax = max(host, Enum.max([1 | Enum.map(series, & &1.total_mem)])) |> ChartAxis.nice_axis_max(@y_tick_count)
+    {vmax, y_ticks} = max(host, Enum.max([1 | Enum.map(series, & &1.total_mem)])) |> then(&ChartAxis.nice_axis(&1, @y_tick_count))
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
     pts = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(s.total_mem)} end)
@@ -232,7 +232,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         ~s|<path d="#{line(pts)}" fill="none" stroke="var(--good)" stroke-width="1.8"/>| <>
         ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{host_y}" y2="#{host_y}" stroke="var(--blocking)" stroke-width="1" opacity="0.8"/>| <>
         text(@w - mr, host_y + 12, "host #{fmt_bytes(host)}", anchor: "end", fill: "var(--blocking)") <>
-        y_grid(vmax, yf, ml, @w - mr, &fmt_bytes/1) <>
+        y_grid(y_ticks, yf, ml, @w - mr, &fmt_bytes/1) <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
 
@@ -385,7 +385,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     ph = h - mt - mb
     n = length(entries)
     total = entries |> Enum.map(& &1.total) |> Enum.sum()
-    maxv = max(total, 1)
+    {maxv, y_ticks} = max(total, 1) |> then(&ChartAxis.nice_axis(&1, @y_tick_count))
 
     {steps, _} =
       Enum.map_reduce(entries, 0, fn entry, acc ->
@@ -412,7 +412,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       end)
 
     inner =
-      y_grid(maxv, yf, ml, @w - mr, &to_string(round(&1))) <>
+      y_grid(y_ticks, yf, ml, @w - mr, &to_string(round(&1))) <>
         segments <>
         ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{r2(mt + ph)}" y2="#{r2(mt + ph)}" stroke="var(--line)"/>|
 
@@ -539,14 +539,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     base <> labels
   end
 
-  defp y_grid(vmax, yf, x0, x1, fmt) do
-    for i <- 0..@y_tick_count, into: "" do
-      v = vmax * i / @y_tick_count
+  defp y_grid(ticks, yf, x0, x1, fmt) do
+    Enum.map_join(ticks, "", fn v ->
       y = r2(yf.(v))
 
       ~s|<line x1="#{x0}" x2="#{x1}" y1="#{y}" y2="#{y}" stroke="var(--hairline)"/>| <>
         text(x0 - 6, y + 3, fmt.(v), anchor: "end", fill: "var(--muted)")
-    end
+    end)
   end
 
   defp svg(w, h, inner, label) do

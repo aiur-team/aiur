@@ -127,10 +127,11 @@ export function analyticsAxisIssues(charts) {
     if (yValues.length > 1 && yValues.some((value, index) => index > 0 && value < yValues[index - 1])) {
       issues.push({ kind: 'axis-non-monotonic', detail: `${chart.label} y-axis labels are not monotonic: ${yValues.join(', ')}` })
     }
-    const xLabels = chart.xLabels || []
-    const duplicates = [...new Set(xLabels.filter((label, index) => xLabels.indexOf(label) !== index))]
-    if (duplicates.length > 0) {
-      issues.push({ kind: 'axis-repeated-label', detail: `${chart.label} x-axis repeats ${duplicates.join(', ')}` })
+    for (const [axis, labels] of [['x', chart.xLabels || []], ['y', chart.yLabels || []]]) {
+      const duplicates = [...new Set(labels.filter((label, index) => labels.indexOf(label) !== index))]
+      if (duplicates.length > 0) {
+        issues.push({ kind: 'axis-repeated-label', detail: `${chart.label} ${axis}-axis repeats ${duplicates.join(', ')}` })
+      }
     }
   }
   return issues

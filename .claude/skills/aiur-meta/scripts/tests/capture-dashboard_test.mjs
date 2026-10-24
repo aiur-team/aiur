@@ -233,15 +233,18 @@ test('keeps a healthy dashboard healthy across repeated settled observations', (
 test('flags non-monotonic and repeated analytics axis labels', () => {
   const issues = analyticsAxisIssues([
     { label: 'Per-unit CPU', yLabels: ['0%', '1600%', '1867%', '533%'], xLabels: ['0m', '0m', '1m'] },
-    { label: 'Memory', yLabels: ['0 GB', '20 GB', '10 GB'], xLabels: ['0s', '5s', '10s'] }
+    { label: 'Memory', yLabels: ['0 GB', '20 GB', '10 GB'], xLabels: ['0s', '5s', '10s'] },
+    { label: 'Small count', yLabels: ['0', '0', '1', '1'], xLabels: ['0s', '5s', '10s'] }
   ])
 
   assert.deepEqual(issues, [
     { kind: 'axis-non-monotonic', detail: 'Per-unit CPU y-axis labels are not monotonic: 0, 1600, 1867, 533' },
     { kind: 'axis-repeated-label', detail: 'Per-unit CPU x-axis repeats 0m' },
-    { kind: 'axis-non-monotonic', detail: 'Memory y-axis labels are not monotonic: 0, 20, 10' }
+    { kind: 'axis-non-monotonic', detail: 'Memory y-axis labels are not monotonic: 0, 20, 10' },
+    { kind: 'axis-repeated-label', detail: 'Small count y-axis repeats 0, 1' }
   ])
   assert.equal(analyzeDashboardSnapshot('analytics', { ...healthySnapshot, analyticsCharts: [{ label: 'CPU', yLabels: ['0', '2', '1'], xLabels: [] }] }).verdict, 'attention')
+  assert.equal(analyzeDashboardSnapshot('analytics', { ...healthySnapshot, analyticsCharts: [{ label: 'count', yLabels: ['0', '0', '1'], xLabels: [] }] }).verdict, 'attention')
 })
 
 test('extracts analytics axis labels from rendered chart SVGs', async () => {

@@ -136,6 +136,28 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert y_labels == Enum.sort(y_labels)
   end
 
+  test "fleet pressure y-axis uses integer multiples of a nice step" do
+    for {maximum, expected} <- [{6, ["0", "2", "4", "6"]}, {3, ["0", "1", "2", "3"]}] do
+      svg =
+        Charts.fleet_pressure(%{
+          model()
+          | series: [
+              %{
+                t_ms: @t0,
+                fleet_agents_occupied: maximum,
+                fleet_agents_effective: maximum,
+                build_gate_capacity: maximum,
+                build_gate_active: maximum,
+                build_gate_queued: maximum
+              }
+            ]
+        })
+
+      y_labels = Regex.scan(~r/<text[^>]*text-anchor="end"[^>]*>([^<]+)<\/text>/, svg, capture: :all_but_first) |> List.flatten()
+      assert y_labels == expected
+    end
+  end
+
   test "fleet pressure breaks the SVG path at a gap instead of drawing through it" do
     # A gap (degraded/unavailable sample with no numeric evidence) must split
     # the line into two segments. Drawing through the gap at y=0 would render

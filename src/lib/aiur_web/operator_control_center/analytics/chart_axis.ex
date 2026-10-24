@@ -1,11 +1,19 @@
 defmodule AiurWeb.OperatorControlCenter.Analytics.ChartAxis do
   @moduledoc false
 
-  @spec nice_axis_max(number(), pos_integer()) :: number()
-  def nice_axis_max(maximum, tick_count) do
-    magnitude = :math.pow(10, :math.floor(:math.log10(maximum / tick_count)))
-    step = Enum.find([1, 2, 5, 10], &(maximum / tick_count / magnitude <= &1)) * magnitude
-    :math.ceil(maximum / step) * step
+  @spec nice_axis(number(), pos_integer()) :: {number(), [number()]}
+  def nice_axis(maximum, tick_count), do: nice_axis(maximum, tick_count, 0)
+
+  @spec nice_axis(number(), pos_integer(), number()) :: {number(), [number()]}
+  def nice_axis(maximum, tick_count, minimum_step) do
+    raw_step = maximum / tick_count
+    magnitude = :math.pow(10, :math.floor(:math.log10(raw_step)))
+    step = Enum.find([1, 2, 5, 10], &(raw_step <= &1 * magnitude)) * magnitude
+    step = max(step, minimum_step)
+    axis_max = :math.ceil(maximum / step) * step
+    intervals = round(axis_max / step)
+
+    {axis_max, Enum.map(0..intervals, &(&1 * step))}
   end
 
   @spec elapsed(number(), :seconds | :minutes) :: String.t()
