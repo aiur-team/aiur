@@ -6,7 +6,6 @@ Runtime overrides set with `aiur set` are operator-owned and stored per instance
 The running build accepts only `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, and `instance.ignore.tickets`; all apply live.
 
 Precedence is session `set max-agents` (for its agent cap), runtime overrides, YAML, then schema defaults. Use `aiur set --list` to inspect provenance and `aiur set --unset <key>` to restore the YAML value.
-
 ## Environment variables
 
 Environment variables are declared once in the env schema (`Aiur.Env.Schema`), which validates them at startup and generates the checked-in `.env.example` (run `mix aiur.env.example` from `src/` to regenerate; a CI check fails when the example drifts from the schema).
@@ -441,7 +440,6 @@ The durable repository Executor state also records every daemon start and stop i
 | `dashboard_auth.google.allowed_emails` | array | `[]` | Exact email allowlist for Google OpenID Connect; an empty list disables Google sign-in. |
 | `dashboard_auth.passkeys` | boolean | false | Enables passkey login and enrollment after a fresh Google sign-in. |
 | `dashboard_auth.session_max_age_days` | integer | 30 | Maximum dashboard browser session age in days. |
-
 ## opencode
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-19 -->
 | --- | --- | --- | --- |
@@ -451,7 +449,6 @@ The durable repository Executor state also records every daemon start and stop i
 | `opencode.model_prefix` | string | `aiur` | Prefix for registered synthetic models. |
 | `opencode.prewarm_disabled` | boolean | false | Disables opencode session pre-warming. |
 | `opencode.serve_args` | array | `[]` | Extra `opencode serve` arguments. |
-
 ## experiments
 The daemon owns [experiment](../concepts/experiments) writes through control RPC.
 
@@ -481,7 +478,6 @@ The daemon owns [experiment](../concepts/experiments) writes through control RPC
 | `experiments.max_snapshot_observations` | integer | 50000 | Maximum observations in a snapshot; positive, reserved for snapshot capture. |
 | `experiments.pack_dirs` | string list | [".aiur/experiments/packs"] | Consumer metric pack directories, relative to the base checkout; reserved for metric packs. |
 | `experiments.script_timeout_ms` | integer | 60000 | Script metric timeout in milliseconds; positive, reserved for metric packs. |
-
 ## build_queue
 Build queue configuration for GitHub workflows (Linear is unsupported); the daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce.
 
@@ -499,8 +495,6 @@ Build queue configuration for GitHub workflows (Linear is unsupported); the daem
 | `build_queue.set_order` | string | `none` | `none` preserves ordinary candidate ordering. Opt into `ranked` to prefer queue sets by persisted rank (creation order by default); ready members follow list position, while optimistic members retain deepest-first ordering within each set. Ready work always precedes optimistic work. With a cap or reserve configured, earlier unknown or stale readiness blocks ranked spill because it may have ready work. Held sets remain stopped. Main CI fixer tickets dispatch ahead of ranked sets. |
 | `build_queue.spill_reserve_slots` | integer | 0 | Slots kept free for the earliest unfinished, unheld set before admitting later-set work; minimum 0. Reserve applies even while that set waits on review. Set-policy waits appear as `queue_set_order` in status and queue show. |
 | `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. Also governs native dependency dispatch. Override with `queue add --start-on` or `queue set NAME --start-on`; `default` follows config. Missing or stale evidence never releases dependents. Optimistic stages combine lifecycle labels with retained per-PR progress. `pr_approved` adds one conditional review read per watched blocker. Linear dependency dispatch supports only `issue_closed` and `pr_merged`. See [Start trigger](/concepts/build-orders#start-trigger). |
-
 ## Further sections
-
 - [`agent`, host-pressure admission, `agent.claude`, `agent.codex`, model discovery](/reference/configuration-agent)
 - [`build_order` and resolution notes](/reference/configuration-build-order)
