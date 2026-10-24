@@ -177,6 +177,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
       known_failure_patterns: [],
       changed_paths_fun: fn _, _ -> {:ok, []} end,
       changed_paths_by_pr: %{17 => []},
+      ticket_state_fun: fn _, _ -> {:ok, %{state: "human-review", paused?: false, held?: false}} end,
       jobs_fun: fn _, _ -> {:ok, [%{"id" => run_id + 1, "name" => "parity", "conclusion" => "failure"}]} end,
       job_log_fun: fn _, _ -> {:ok, log} end,
       repo_fun: fn -> {:ok, {"owner", "repo"}} end,

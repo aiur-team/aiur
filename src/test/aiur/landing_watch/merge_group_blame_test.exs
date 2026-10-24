@@ -75,6 +75,8 @@ defmodule Aiur.LandingWatch.MergeGroupBlameTest do
     refute_received {:rework, 19}
     assert {:ok, rows} = Journal.failure_observations(journal_path: path)
     assert Enum.any?(rows, &(&1["identity"] == "merge-group-blame:908" and &1["decision"] == "pr_caused"))
+    assert {:ok, true} = Journal.merge_group_head_held?(18, "head-18", journal_path: path)
+    assert {:ok, false} = Journal.merge_group_head_held?(18, "next-head-18", journal_path: path)
     Aiur.TestCleanup.rm_rf!(path)
   end
 
@@ -147,6 +149,7 @@ defmodule Aiur.LandingWatch.MergeGroupBlameTest do
       end,
       revalidate_fun: fn _, _, _ -> :ok end,
       approved_fun: fn _, _ -> {:ok, true} end,
+      ticket_state_fun: fn _issue, _ -> {:ok, "ci-wait"} end,
       attribution_fun: fn _ -> {:ok, :clean} end,
       comment_fun: fn _, _, _ -> :ok end,
       rework_fun: fn observation, _, _ ->
