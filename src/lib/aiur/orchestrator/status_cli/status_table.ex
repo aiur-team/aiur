@@ -2,8 +2,10 @@ defmodule Aiur.Orchestrator.StatusCLI.StatusTable do
   @moduledoc false
   alias Aiur.Config
   alias Aiur.ControlCLI.DispatchAccount
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.Orchestrator.StatusReason
+  alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.WaitingReason
   import Aiur.Orchestrator.ControlCLI.Output, only: [display_identifier: 1]
 
@@ -37,6 +39,7 @@ defmodule Aiur.Orchestrator.StatusCLI.StatusTable do
         waiting_reason_detail(status),
         dispatch_decline_detail(status),
         pause_reason_detail(status),
+        executor_owner_detail(status),
         blocked_by_detail(status),
         last_failure_detail(status)
       ]
@@ -50,8 +53,17 @@ defmodule Aiur.Orchestrator.StatusCLI.StatusTable do
   defp status_reason_detail(%{reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
   defp status_reason_detail(_status), do: nil
 
-  defp status_state_label(%{work_state: work_state}) when work_state in [:starting, :retrying], do: to_string(work_state)
-  defp status_state_label(status), do: to_string(status.state)
+  defp status_state_label(status) do
+    prefix = GitHubConfig.label_prefix()
+    labels = TicketTransition.runtime_labels(Map.get(status, :labels), [Map.get(status, :pause_reason), Map.get(status, :waiting_reason)], prefix)
+
+    cond do
+      labels != [] -> Enum.join(labels, ",")
+      Map.get(status, :work_state) == :starting -> "#{prefix}:in-progress"
+      Map.get(status, :work_state) == :retrying -> "#{prefix}:retrying"
+      true -> to_string(status.state)
+    end
+  end
 
   defp last_failure_detail(%{last_failure_at: %DateTime{} = at}), do: "last_failure_at=#{DateTime.to_iso8601(at)}"
   defp last_failure_detail(_status), do: nil
@@ -73,6 +85,11 @@ defmodule Aiur.Orchestrator.StatusCLI.StatusTable do
     do: "pause_reason=#{reason}"
 
   defp pause_reason_detail(_status), do: nil
+
+  defp executor_owner_detail(%{executor_owner: owner}) when is_binary(owner) and owner != "",
+    do: "executor_owned_by=#{owner}"
+
+  defp executor_owner_detail(_status), do: nil
 
   defp blocked_by_detail(%{waiting_reason: :waiting_for_dependency, blocked_by: blockers})
        when is_list(blockers) do

@@ -1,7 +1,8 @@
 defmodule Aiur.ExecutorBindings do
   @moduledoc false
 
-  alias Aiur.{Events.Topic, ExecutorEvents}
+  alias Aiur.Events
+  alias Aiur.ExecutorEvents
 
   @defaults [
     {"executor.#", "commands:auto"},
@@ -60,7 +61,7 @@ defmodule Aiur.ExecutorBindings do
   @spec attention_topic?(String.t()) :: boolean()
   def attention_topic?(topic) do
     Enum.any?(@defaults, fn {pattern, class} ->
-      class == "attention:auto" and String.starts_with?(pattern, "ticket.") and Topic.matches?(pattern, topic)
+      class == "attention:auto" and String.starts_with?(pattern, "ticket.") and Events.matches?(pattern, topic)
     end)
   end
 

@@ -270,6 +270,15 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "non-closing merge triage marker" do
+    test "defaults to needs-triage and accepts a non-empty override" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.non_closing_merge_marker == "needs-triage"
+      assert {:ok, configured} = Schema.parse(%{"agent" => %{"non_closing_merge_marker" => "review-later"}})
+      assert configured.agent.non_closing_merge_marker == "review-later"
+    end
+  end
+
   describe "agent CI recovery limits" do
     test "defaults on with bounded per-poll and hourly reruns, accepts false" do
       assert {:ok, defaults} = Schema.parse(%{})

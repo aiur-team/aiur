@@ -32,6 +32,7 @@ defmodule Aiur.Orchestrator.State do
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
+          priority_dispatch_reservations: %{optional(String.t()) => pos_integer()},
           load_envelope_state: map(),
           capacity_hold:
             %{
@@ -70,10 +71,12 @@ defmodule Aiur.Orchestrator.State do
           status_observed_at: DateTime.t() | nil,
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
+            optional(:broker_fast_retry_pending?) => boolean(),
             approved_heads: map(),
             passed_heads: map(),
             test_failure_heads: map(),
             base_repair_invalidations: map(),
+            ci_observed_at_ms: map(),
             poll_cache: map(),
             rewakes: map(),
             parked_ready_alerts: MapSet.t() | nil
@@ -140,21 +143,6 @@ defmodule Aiur.Orchestrator.State do
           agent_rate_limits: map() | nil,
           codex_totals: map() | nil,
           codex_rate_limits: map() | nil,
-          events_etag: String.t() | nil,
-          events_last_id: String.t() | nil,
-          firehose_partial_streak: non_neg_integer(),
-          firehose_truncation_alert_active: boolean(),
-          firehose_truncation_alert_resolution_emitted: boolean(),
-          github_comments_since: String.t() | map() | nil,
-          github_comment_etags: map(),
-          github_comment_issue_updated_at: map(),
-          github_comment_issue_list_cache: map(),
-          github_comment_poll: map() | nil,
-          github_comment_reconcile_targets: MapSet.t(String.t()),
-          github_comment_reconcile_timer: map() | nil,
-          # Monotonic time the asynchronous comment poll last started, used to throttle
-          # it to the `:review` class cadence (#2309). `nil` until the first start.
-          last_comment_poll_started_at_ms: integer() | nil,
           # Monotonic time the CI poll last ran, used to throttle it to the
           # `:ci` class cadence (#2309). `nil` until the first run.
           last_ci_poll_started_at_ms: integer() | nil,
@@ -163,7 +151,6 @@ defmodule Aiur.Orchestrator.State do
           # `PrReadyLedgerStore` on first use (`nil` until then). See
           # `ReadyForReviewTransitions` (#2707).
           pr_ready_ledger: Aiur.PrReadyLedgerStore.ledger() | nil,
-          github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
           github_poll_delays: map(),
           globally_paused: boolean(),
@@ -178,11 +165,13 @@ defmodule Aiur.Orchestrator.State do
           ci_readiness_unavailable_alerted: boolean() | nil,
           ci_readiness_check_pid: pid() | nil,
           ci_readiness_check_token: reference() | nil,
+          ci_readiness_check_provider: module() | nil,
           ci_readiness_retry_at_ms: integer() | nil,
-          ci_readiness_scope: {String.t(), String.t(), String.t()} | nil,
-          ci_readiness_result: Aiur.GitHub.CiReadiness.result() | nil,
+          ci_readiness_scope: term(),
+          ci_readiness_result: Aiur.CodeHost.CiReadiness.result() | nil,
           global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
           merged_ticket_reconciliations: MapSet.t(),
+          merged_ticket_issue_cache: map(),
           merged_ticket_reconciliation_failures: MapSet.t(),
           # `{issue_id, head_sha}` -> count of times that head SHA has been
           # routed into `agent:rework`, and the `{issue_id, head_sha}`
@@ -229,6 +218,7 @@ defmodule Aiur.Orchestrator.State do
     :ci_readiness_unavailable_alerted,
     :ci_readiness_check_pid,
     :ci_readiness_check_token,
+    :ci_readiness_check_provider,
     :ci_readiness_retry_at_ms,
     :ci_readiness_scope,
     :ci_readiness_result,
@@ -249,9 +239,11 @@ defmodule Aiur.Orchestrator.State do
       passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
+      ci_observed_at_ms: %{},
       poll_cache: %{},
       rewakes: %{},
-      parked_ready_alerts: nil
+      parked_ready_alerts: nil,
+      broker_fast_retry_pending?: false
     },
     todo_over_capacity_alert_active: false,
     prewarm_blocked_alert_active: false,
@@ -302,27 +294,9 @@ defmodule Aiur.Orchestrator.State do
     agent_rate_limits: nil,
     codex_totals: nil,
     codex_rate_limits: nil,
-    events_etag: nil,
-    events_last_id: nil,
-    firehose_partial_streak: 0,
-    firehose_truncation_alert_active: false,
-    firehose_truncation_alert_resolution_emitted: false,
-    github_comments_since: nil,
-    github_comment_etags: %{},
-    github_comment_issue_updated_at: %{},
-    # Separate conditional comment cache prevents late completion replacing newer synchronous fetches.
-    github_comment_issue_list_cache: %{},
-    # The pid and monitor let lifecycle shutdown reap the asynchronous comment poll.
-    github_comment_poll: nil,
-    # Review-thread webhook hints arriving during a poll stay queued for its follow-up.
-    github_comment_reconcile_targets: MapSet.new(),
-    # One delayed reconcile wake; its token fences stale timers after GitHub backoff.
-    github_comment_reconcile_timer: nil,
-    last_comment_poll_started_at_ms: nil,
     last_ci_poll_started_at_ms: nil,
     pr_review_seen_at: %{},
     pr_ready_ledger: nil,
-    github_command_scan_since: nil,
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
@@ -330,6 +304,7 @@ defmodule Aiur.Orchestrator.State do
     global_pause: %{paused_at: nil, source: nil},
     # Reconciled merge receipts prevent retained records from closing a reopened ticket.
     merged_ticket_reconciliations: MapSet.new(),
+    merged_ticket_issue_cache: %{},
     # `{{issue_identifier, recent_merge_id}, reason}` signatures already alerted on, so a
     # permanently failing transition raises its attention once instead of once per poll.
     merged_ticket_reconciliation_failures: MapSet.new(),
@@ -348,7 +323,8 @@ defmodule Aiur.Orchestrator.State do
     orphaned_agent_reap_count: 0,
     control_lifecycle: %ControlLifecycle{},
     prewarm_hold_ticks: 0,
-    prewarm_hold_since_ms: nil
+    prewarm_hold_since_ms: nil,
+    priority_dispatch_reservations: %{}
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}

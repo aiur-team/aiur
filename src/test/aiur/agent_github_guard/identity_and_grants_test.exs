@@ -38,11 +38,11 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
     assert %{"admissions" => [%{"endpoint_family" => "issues"}]} = Jason.decode!(snapshot)
   end
 
-  test "auth token remains local when a configured budget cannot start", context do
+  test "auth token is refused when python3 cannot enforce the call deadline", context do
     budget_root = Path.join(context.state_path, "host-budget")
     path = isolated_command_path(context, ~w(shasum))
 
-    assert {"ok\n", 0} =
+    assert {output, 127} =
              run_guard(context, ["auth", "token"],
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
                AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
@@ -50,14 +50,15 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                PATH: path
              )
 
-    assert File.read!(context.calls) == "auth token\n"
+    assert output =~ "python3 is required to enforce the governed gh call deadline"
+    refute File.exists?(context.calls)
   end
 
-  test "an explicitly disabled budget permits network calls without python3", context do
+  test "an explicitly disabled budget still requires python3 for the call deadline", context do
     budget_root = Path.join(context.state_path, "host-budget")
     path = isolated_command_path(context, ~w(shasum))
 
-    assert {"ok\n", 0} =
+    assert {output, 127} =
              run_guard(context, ["api", "repos/owner/repo/issues/1670"],
                AIUR_GITHUB_BUDGET_ENABLED: "0",
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
@@ -66,7 +67,8 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                PATH: path
              )
 
-    assert File.read!(context.calls) == "api repos/owner/repo/issues/1670\n"
+    assert output =~ "python3 is required to enforce the governed gh call deadline"
+    refute File.exists?(context.calls)
   end
 
   test "a malformed broker wait response refuses the real gh command", context do

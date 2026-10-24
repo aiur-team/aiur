@@ -89,7 +89,7 @@ is one copy to keep true.
 
 ### Dashboard pages
 
-Capture all four at a desktop viewport, full page, with console errors collected.
+Capture all five at a desktop viewport, full page, with console errors collected.
 Stream Deck is excluded: it is a control surface, not a report, and has its own
 coverage.
 
@@ -98,7 +98,12 @@ coverage.
 | Units | `/` | every active agent, live state |
 | Commands | `/commands` | real commands awaiting response |
 | Build Order | `/build-orders` | progress that tracks reality |
+| Build | `/build` | an available timeline and ticket cards for queued members |
 | Analytics | `/analytics` | current data, not a frozen window |
+
+The `/build` capture reports an unavailable timeline banner, skeleton cards
+that remain after the LiveView settle, and a visible non-empty planned queue
+with no rendered ticket cards.
 
 Playwright is already vendored at `src/browser/`. Two details that cost time if
 rediscovered each run:
@@ -173,6 +178,15 @@ and have no place in a routine health check.
 
 ### The host
 
+Inspect Aiur-owned Docker containers for work whose ticket has no live agent.
+A container is stale once it is older than 2 hours. List them with
+`docker ps -a --filter label=aiur.workspace`; the label holds the issue
+workspace path, whose last segment is the ticket. Compare that ticket with the
+live agent identifiers from `aiur agents`, and report stale containers with no
+matching agent as findings. Capture ID, workspace label, creation time, running state and
+image from Docker's system of record; the issue workspace can be deleted by
+the time the host is audited, so do not infer ownership from mount paths.
+
 ```
 nproc; cat /proc/loadavg; free -g
 ```
@@ -210,6 +224,25 @@ When a feature looks starved, inspect the focus feature's GitHub `blocked_by`
 critical path and its open blocking decisions before changing queue ranks or
 holds. A downstream ticket waiting on a real prerequisite is not a queue-rank
 problem.
+
+### 2a. Measure feature work, and find one way to raise it
+
+The run exists to ship features. A busy fleet can still deliver none when its
+merges are test, flake and CI fixes. Measure the feature-work share for the last
+24 hours and the last hour on each pass:
+
+```bash
+bash .claude/skills/aiur-meta/scripts/feature-share.sh 24
+bash .claude/skills/aiur-meta/scripts/feature-share.sh 1
+```
+
+The script pages through merged pull requests until it reaches the window start.
+Its `inspected` and `unclassified` counts make incomplete coverage visible.
+Record both shares, their trend against the previous log, and one concrete
+change that would raise the share. Look at quarantine-first handling, flake
+tickets ahead of features, innocent merge-queue ejections, capacity, and
+body-only rework. Act within the current mandate; if no change is possible,
+name what blocks it.
 
 **When the bottleneck is review, the remedy is parallel review, not fewer
 agents.** A queue that is growing with nothing approved is the Executor's own
@@ -314,6 +347,8 @@ Write to `~/.aiur/repo/<owner>/<repo>/meta/<UTC timestamp>-<slug>.md`:
 
 - verdict per surface
 - the named bottleneck and what would shrink it
+- the feature-work share (24 h and last hour) with its trend, and the one change
+  made or proposed to raise it (section 2a)
 - what changed since the last log — resolved as well as new
 - what needs the operator, and why the Executor cannot do it
 

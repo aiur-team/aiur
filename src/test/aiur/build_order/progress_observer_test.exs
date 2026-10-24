@@ -8,11 +8,23 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
 
   defmodule Projection do
     use GenServer
-    def init(snapshot), do: {:ok, snapshot}
-    def handle_call(:catalog, _from, snapshot), do: {:reply, snapshot, snapshot}
-    def handle_call({:replace, snapshot}, _from, _old), do: {:reply, :ok, snapshot}
-    def handle_call(:catalog_topic, _from, %{repository: :unknown} = snapshot), do: {:reply, {:error, %Aiur.BuildOrder.GraphProjection.Failure{kind: :configuration}}, snapshot}
-    def handle_call(:catalog_topic, _from, snapshot), do: {:reply, {:ok, GraphProjection.catalog_topic(snapshot.repository)}, snapshot}
+    def init(snapshot), do: {:ok, %{snapshot: snapshot, catalog_topic_gate: nil}}
+    def handle_call(:catalog, _from, state), do: {:reply, state.snapshot, state}
+    def handle_call({:replace, snapshot}, _from, state), do: {:reply, :ok, %{state | snapshot: snapshot}}
+    def handle_call(:gate_catalog_topic, {test_pid, _tag}, state), do: {:reply, :ok, %{state | catalog_topic_gate: test_pid}}
+
+    def handle_call(:catalog_topic, _from, %{snapshot: %{repository: :unknown}} = state),
+      do: {:reply, {:error, %Aiur.BuildOrder.GraphProjection.Failure{kind: :configuration}}, state}
+
+    def handle_call(:catalog_topic, _from, state) do
+      if state.catalog_topic_gate do
+        send(state.catalog_topic_gate, {:catalog_topic_requested, self()})
+
+        receive do: (:allow_catalog_topic -> :ok)
+      end
+
+      {:reply, {:ok, GraphProjection.catalog_topic(state.snapshot.repository)}, %{state | catalog_topic_gate: nil}}
+    end
   end
 
   setup do
@@ -102,25 +114,37 @@ defmodule Aiur.BuildOrder.ProgressObserverTest do
     {:ok, store} = BuildProgress.start_link(name: nil, state_file: context.path)
     {:ok, projection} = GenServer.start_link(Projection, %{snapshot | repository: :unknown})
     {:ok, observer} = ProgressObserver.start_link(name: nil, projection: projection, progress: store)
+    on_exit(fn -> Enum.each([observer, projection, store], &Aiur.TestSupport.safe_stop/1) end)
     assert BuildProgress.facts(:all, store) == []
-    :ok = GenServer.call(projection, {:replace, snapshot})
-    send(observer, {:graph_projection_reset, 2})
+
+    # Pause the projection's catalog lookup after the reset has removed the
+    # old subscription. The event below lands in the real lost-notification
+    # window; observe/1 must read the already-updated projection afterward.
+    :ok = GenServer.call(projection, :gate_catalog_topic)
+    updated_snapshot = percent(snapshot, 75)
+    :ok = GenServer.call(projection, {:replace, updated_snapshot})
+    Phoenix.PubSub.broadcast!(Aiur.PubSub, GraphProjection.reset_topic(), {:graph_projection_reset, 2})
+    assert_receive {:catalog_topic_requested, ^projection}, 1_000
+    catalog_topic = GraphProjection.catalog_topic(snapshot.repository)
+    refute Enum.any?(Registry.lookup(Aiur.PubSub, catalog_topic), &(elem(&1, 0) == observer))
+    Phoenix.PubSub.broadcast!(Aiur.PubSub, catalog_topic, {:graph_projection_generation, updated_snapshot})
+    send(projection, :allow_catalog_topic)
     :sys.get_state(observer)
-    assert [%{percent: 50}] = BuildProgress.facts(context.scope, store)
-    snapshot = percent(snapshot, 75)
-    Phoenix.PubSub.broadcast!(Aiur.PubSub, GraphProjection.catalog_topic(snapshot.repository), {:graph_projection_generation, snapshot})
-    scope = context.scope
-    receive_barrier({:build_progress_changed, %{scope: ^scope, percent: 75}})
     assert [%{percent: 75}] = BuildProgress.facts(context.scope, store)
+
+    next_snapshot = percent(updated_snapshot, 80)
+    :ok = GenServer.call(projection, {:replace, next_snapshot})
+    Phoenix.PubSub.broadcast!(Aiur.PubSub, catalog_topic, {:graph_projection_generation, next_snapshot})
+    scope = context.scope
+    assert_receive {:build_progress_changed, %{scope: ^scope, percent: 80}}, 1_000
+    assert [%{percent: 80}] = BuildProgress.facts(context.scope, store)
 
     for generation <- 3..4, do: send(observer, {:graph_projection_reset, generation})
     :sys.get_state(observer)
 
-    for topic <- [GraphProjection.reset_topic(), GraphProjection.catalog_topic(snapshot.repository)] do
+    for topic <- [GraphProjection.reset_topic(), catalog_topic] do
       assert Enum.count(Registry.lookup(Aiur.PubSub, topic), &(elem(&1, 0) == observer)) == 1
     end
-
-    on_exit(fn -> Enum.each([observer, projection, store], &Aiur.TestSupport.safe_stop/1) end)
   end
 
   test "invalid observer facts are rejected without changing the store", context do

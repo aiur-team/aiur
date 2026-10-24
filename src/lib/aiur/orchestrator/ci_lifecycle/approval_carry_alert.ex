@@ -27,6 +27,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert do
     carries = Map.get(state.ci_lifecycle, :approval_carries, %{})
 
     cond do
+      Aiur.Instance.skip?(issue.identifier, issue.labels, :approval_carry_alert) ->
+        state
+
       Map.get(carries, target) == pair ->
         state
 

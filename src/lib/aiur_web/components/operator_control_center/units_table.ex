@@ -98,8 +98,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <span :if={present?(row.build_lane)} class={["u-lane", lane_class(row.build_lane)]}>
                   <span class="u-lane-dot" aria-hidden="true"></span>{String.upcase(row.build_lane)}
                 </span>
-                <span :if={!present?(row.build_lane) && present?(row.tracker_state)} class="u-lane is-state">
-                  <span class="u-lane-dot" aria-hidden="true"></span>{row.tracker_state |> to_string() |> String.replace("-", " ") |> String.upcase()}
+                <span :if={state_label = UnitsPresentation.workflow_state_label(row)} class="u-lane is-state" title={state_label}>
+                  <span class="u-lane-dot" aria-hidden="true"></span>{state_label}
+                </span>
+                <span :if={reason_label = UnitsPresentation.reason_label(row)} class="u-lane is-state" title={reason_label}>
+                  <span class="u-lane-dot" aria-hidden="true"></span>{reason_label}
                 </span>
               </td>
 
@@ -158,7 +161,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
       <div :if={@view[:zero_result?]} class="units-state empty-state filtered-empty">
         <p>No units match this valid scope and condition selection.</p>
-        <button type="button" class="btn ghost units-reset" phx-click="reset-units-filters">Reset Units filters</button>
+        <button type="button" class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost units-reset" phx-click="reset-units-filters">Reset Units filters</button>
       </div>
 
       <div :if={no_units?(@status, @rows, @view)} class="units-state empty-state">{empty_sentence(@status, @message)}</div>

@@ -14,6 +14,24 @@ defmodule Aiur.LandingWatch.Journal do
     end
   end
 
+  @doc "Persists who last wrote a ticket's pause override so conflict routing can preserve operator holds."
+  @spec record_pause_writer(String.t(), atom() | String.t() | nil, keyword()) :: :ok | {:error, term()}
+  def record_pause_writer(issue, writer, opts \\ []) when is_binary(issue) and issue != "" do
+    update(opts, fn state ->
+      writers = Map.get(state, "pause_writers", %{})
+      writers = if is_nil(writer), do: Map.delete(writers, issue), else: Map.put(writers, issue, to_string(writer))
+      {:ok, Map.put(state, "pause_writers", writers)}
+    end)
+  end
+
+  @doc "Returns the recorded writer for a ticket's current pause override, if known."
+  @spec pause_writer(String.t(), keyword()) :: {:ok, String.t() | nil} | {:error, term()}
+  def pause_writer(issue, opts \\ []) when is_binary(issue) do
+    with {:ok, state} <- state(opts) do
+      {:ok, get_in(state, ["pause_writers", issue])}
+    end
+  end
+
   @spec reserve_rerun(pos_integer(), String.t(), integer(), keyword()) :: :ok | {:error, term()}
   def reserve_rerun(pr, head, now, opts \\ [])
 
@@ -29,6 +47,25 @@ defmodule Aiur.LandingWatch.Journal do
            {:ok, state, :ok} <- MergeGroupJournal.take_requeue_slot(state, now),
            do: {:ok, state}
     end)
+  end
+
+  @doc "Reserves a per-head attempt and as many shared slots as available for individual workflow reruns."
+  @spec reserve_automatic_reruns(pos_integer(), String.t(), integer(), pos_integer(), keyword()) ::
+          {:ok, pos_integer()} | {:error, term()}
+  def reserve_automatic_reruns(pr, head, now, requested, opts \\ [])
+      when is_integer(pr) and is_binary(head) and is_integer(requested) and requested > 0 do
+    update(opts, fn state ->
+      case reserve_rerun_entry(state, key(pr, head), now) do
+        {:ok, reserved_state} -> MergeGroupJournal.take_requeue_slots(reserved_state, now, requested)
+        {:error, _} = error -> error
+      end
+    end)
+  end
+
+  @doc "Reserves only shared workflow-rerun slots for the remaining runs of an already-budgeted head."
+  @spec reserve_automatic_rerun_slots(integer(), pos_integer(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
+  def reserve_automatic_rerun_slots(now, requested, opts \\ []) when is_integer(requested) and requested > 0 do
+    update(opts, &MergeGroupJournal.take_requeue_slots(&1, now, requested))
   end
 
   @doc "Why the per-head budget would refuse a rerun of this journal entry now, or nil."
@@ -151,6 +188,15 @@ defmodule Aiur.LandingWatch.Journal do
     update(opts, fn state -> {:ok, Map.put(state, "flakes", Map.delete(Map.get(state, "flakes", %{}), identity))} end)
   end
 
+  @doc "Remembers the fix ticket filed for a flaky test identity, so a quarantine retry needs no new issue search."
+  @spec put_flake_ticket(String.t(), pos_integer(), keyword()) :: :ok | {:error, term()}
+  def put_flake_ticket(identity, ticket, opts \\ []) when is_binary(identity) and is_integer(ticket) do
+    update(opts, fn state ->
+      tickets = state |> Map.get("flake_tickets", %{}) |> Map.put(identity, ticket)
+      {:ok, Map.put(state, "flake_tickets", tickets)}
+    end)
+  end
+
   @spec record_failure_observation(map(), keyword()) :: :ok | {:error, term()}
   def record_failure_observation(row, opts \\ []) when is_map(row) do
     update(opts, fn state ->
@@ -162,6 +208,66 @@ defmodule Aiur.LandingWatch.Journal do
       retained = [row | unique] |> Enum.sort_by(& &1["at_ms"], :desc) |> Enum.take(2_000)
       {:ok, Map.put(state, "failure_observations", retained)}
     end)
+  end
+
+  @spec record_failure_metric_evidence(map(), keyword()) :: :ok | {:error, term()}
+  def record_failure_metric_evidence(row, opts \\ []) when is_map(row) do
+    update(opts, fn state ->
+      observations = Map.get(state, "failure_metric_evidence", [])
+      identity = row["identity"]
+      pr = row["pr"]
+      run_url = row["run_url"]
+      job = row["job"]
+      unique = Enum.reject(observations, &(&1["identity"] == identity and &1["pr"] == pr and &1["run_url"] == run_url and &1["job"] == job))
+      retained = [row | unique] |> Enum.sort_by(& &1["at_ms"], :desc) |> Enum.take(2_000)
+      {:ok, Map.put(state, "failure_metric_evidence", retained)}
+    end)
+  end
+
+  @spec forget_failure_observation(map(), keyword()) :: :ok | {:error, term()}
+  def forget_failure_observation(row, opts \\ []) when is_map(row) do
+    update(opts, fn state ->
+      observations = Map.get(state, "failure_observations", [])
+      identity = row["identity"]
+      pr = row["pr"]
+      run_url = row["run_url"]
+      retained = Enum.reject(observations, &(&1["identity"] == identity and &1["pr"] == pr and &1["run_url"] == run_url))
+      {:ok, Map.put(state, "failure_observations", retained)}
+    end)
+  end
+
+  @doc "Counts innocent merge-group failures for one PR head and returns its new attempt number."
+  @spec record_merge_group_blame_attempt(pos_integer(), String.t(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
+  def record_merge_group_blame_attempt(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+    update(opts, fn state ->
+      attempts = Map.get(state, "merge_group_blame_attempts", %{})
+      identity = key(pr, head)
+      count = Map.get(attempts, identity, 0) + 1
+      {:ok, Map.put(state, "merge_group_blame_attempts", Map.put(attempts, identity, count)), count}
+    end)
+  end
+
+  @spec merge_group_blame_attempts(pos_integer(), String.t(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def merge_group_blame_attempts(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+    with {:ok, state} <- state(opts) do
+      {:ok, get_in(state, ["merge_group_blame_attempts", key(pr, head)]) || 0}
+    end
+  end
+
+  @doc "Holds a PR head after a PR-caused merge-group failure."
+  @spec hold_merge_group_head(pos_integer(), String.t(), keyword()) :: :ok | {:error, term()}
+  def hold_merge_group_head(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+    update(opts, fn state ->
+      holds = Map.get(state, "merge_group_head_holds", %{})
+      {:ok, Map.put(state, "merge_group_head_holds", Map.put(holds, key(pr, head), true))}
+    end)
+  end
+
+  @spec merge_group_head_held?(pos_integer(), String.t(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def merge_group_head_held?(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+    with {:ok, state} <- state(opts) do
+      {:ok, get_in(state, ["merge_group_head_holds", key(pr, head)]) == true}
+    end
   end
 
   @spec failure_observations(keyword()) :: {:ok, [map()]} | {:error, term()}
@@ -199,18 +305,40 @@ defmodule Aiur.LandingWatch.Journal do
     if Enum.all?(keys, &is_binary/1) do
       retained = MapSet.new(keys)
 
-      update(opts, fn state ->
-        {:ok,
-         Map.filter(state, fn {entry_key, _} ->
-           entry_key in ["flakes", "merge_group_runs", "merge_group_run_failures", "quarantine_merge_group_runs", "merge_group_requeues", "ci_merges"] or MapSet.member?(retained, entry_key)
-         end)}
-      end)
+      update(opts, &retain_current_head_entries(&1, retained))
     else
       :ok
     end
   end
 
   def retain_current_heads(_, _), do: {:error, :invalid_landing_watch_observations}
+
+  defp retain_current_head_entries(state, retained) do
+    holds = Map.get(state, "merge_group_head_holds", %{})
+
+    state =
+      Map.filter(state, fn {entry_key, _} ->
+        entry_key in [
+          "flakes",
+          "flake_tickets",
+          "failure_observations",
+          "quarantine_retries",
+          "merge_group_runs",
+          "merge_group_run_failures",
+          "quarantine_merge_group_runs",
+          "merge_group_requeues",
+          "ci_merges"
+        ] or
+          MapSet.member?(retained, entry_key)
+      end)
+
+    {:ok, retain_head_holds(state, holds, retained)}
+  end
+
+  defp retain_head_holds(state, holds, retained) do
+    holds = Map.filter(holds, fn {entry_key, _} -> MapSet.member?(retained, entry_key) end)
+    if map_size(holds) == 0, do: state, else: Map.put(state, "merge_group_head_holds", holds)
+  end
 
   @doc false
   @spec update(keyword(), (map() -> term())) :: term()

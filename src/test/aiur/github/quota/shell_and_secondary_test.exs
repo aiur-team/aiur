@@ -4,12 +4,13 @@ defmodule Aiur.GitHub.Quota.ShellAndSecondaryTest do
   import Aiur.GitHub.QuotaTestSupport
 
   alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.Quota.ShellObservations
   alias Aiur.Workspace.Layout
 
   @now ~U[2026-08-09 21:00:00Z]
   @reset ~U[2026-08-09 22:00:00Z]
 
-  test "hydrates all primary resources from the rate-limit endpoint body" do
+  test "hydrates the core window from the rate-limit endpoint body" do
     quota = start_quota()
 
     body = %{
@@ -23,9 +24,9 @@ defmodule Aiur.GitHub.Quota.ShellAndSecondaryTest do
     Quota.observe(quota, request(:get, "/rate_limit"), {:ok, %{status: 200, headers: [], body: body}})
 
     snapshot = Quota.snapshot(quota)
-    assert Map.keys(snapshot.windows) |> Enum.sort() == ["core", "graphql"]
+    assert Map.keys(snapshot.windows) == ["core"]
     assert snapshot.windows["core"].remaining == 4200
-    assert snapshot.windows["graphql"].remaining == 3900
+    refute Map.has_key?(snapshot.windows, "graphql")
     assert snapshot.attribution == []
   end
 
@@ -162,6 +163,24 @@ defmodule Aiur.GitHub.Quota.ShellAndSecondaryTest do
     quota = start_quota()
 
     assert [%{consumer: "ticket:1790"}] = Quota.snapshot(quota).attribution
+  end
+
+  # #4791: reading every workspace's log on the Quota call took 2-5 s; a log
+  # untouched since the window opened cannot hold an in-window row, so it is not read.
+  test "skips agent-shell logs not modified since the attribution window opened" do
+    root = Aiur.TestSupport.tmp_root!("quota-shell-mtime")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+
+    for {ticket, mtime} <- [{"1", DateTime.add(@now, -7200, :second)}, {"2", @now}] do
+      path = Path.join([root, ticket, "agent-requests.tsv"])
+      File.mkdir_p!(Path.dirname(path))
+      # Both rows sit inside the window, so only the mtime filter can drop ticket 1.
+      File.write!(path, "#{DateTime.to_unix(@now) - 60}\tticket:#{ticket}\tread\tcore\n")
+      File.touch!(path, DateTime.to_unix(mtime))
+    end
+
+    state = %{shell_log_path: Path.join([root, "*", "agent-requests.tsv"]), shell_observations: [], shell_refreshed_at: nil}
+    assert [%{consumer: "ticket:2"}] = ShellObservations.refresh_shell_observations(state, @now).shell_observations
   end
 
   # The agent `gh` guard writes `broker-reconcile-stale` exactly once per stale

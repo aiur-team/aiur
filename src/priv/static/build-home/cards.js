@@ -4,10 +4,11 @@ import { esc } from './dom.js';
 import { nowMs } from './clock.js';
 import { fmtD, fmtT, fmtH, dayKey } from './util.js';
 import { I } from './icons.js';
-import { LOGOS } from './logos.js';
-import { agentState, progress, modelLabel } from './now-state.js';
+import { progress } from './now-state.js';
+import { rowState, agentClasses, glowHTML, logoHTML, lineLogoHTML, srHTML } from './agents.js';
 import { colKey, match } from './match.js';
 import { place } from './render.js';
+import { estHours, estLabel } from './estimate.js';
 
 const CX = ['❶', '❷', '❸', '❹', '❺'], CXH = [145, 110, 80, 50, 25];
 export const finite = (x, lo = 0, hi = Number.MAX_SAFE_INTEGER) => Number.isFinite(x) && x >= lo && x <= hi ? x : null;
@@ -30,25 +31,17 @@ function tickAges() {
     if (row && cue) cue.innerHTML = promo(row.cue?.promoted);
   }
 }
+export function alignActiveGlow(el) {
+  const glow = el.querySelector('.bd-glow');
+  if (!glow || !el.classList.contains('ag-active')) return;
+  for (const animation of glow.getAnimations()) {
+    if (animation.animationName === 'bdRot') animation.startTime = 0;
+  }
+}
 function epic(key) {
   if (Object.hasOwn(ctx.D.epics, key)) return ctx.D.epics[key];
   if (!warned.has(key)) { console.warn('Unknown epic:', key); warned.add(key); }
   return { key: 'unsorted', unsorted: true };
-}
-function modelOf(agent) {
-  if (!agent) return null;
-  const key = agent.model, logo = Object.hasOwn(LOGOS, key) ? LOGOS[key] : null;
-  const name = modelLabel(agent) || (typeof key === 'string' && key ? key : 'Model unknown');
-  return { logo, name, tip: name, mono: name === 'Model unknown' ? '?' : name[0].toUpperCase() };
-}
-function fullLogo(m, ag) {
-  if (!m) return '';
-  return '<span class="bd-ag' + (m.logo?.fill ? ' fill' : '') + '" title="' + esc(m.tip + (ag ? ' · ' + ag.label : '')) + '">' +
-    (m.logo ? '<img src="' + esc(m.logo.src) + '" alt="' + esc(m.name) + '">' : '<span class="ax-mono">' + esc(m.mono) + '</span>') + '</span>';
-}
-function lineLogo(m) {
-  if (!m) return '';
-  return m.logo ? '<img class="bd-lg" src="' + esc(m.logo.src) + '" alt="">' : '<span class="bd-lg ax-mono" aria-hidden="true">' + esc(m.mono) + '</span>';
 }
 export function cardDetail(it) {
   const L = ctx.L;
@@ -78,20 +71,21 @@ function planContent(t, points) {
   const body = c.failed ? '<div class="bd-alert">' + I.warn + '<span>Prereq #' + number(c.failed.by, 'failed.by', 'Prerequisite unknown') + ' failed' +
     (blocks.length ? ' · blocks ' + blocks.map(n => '#' + number(n, 'failed.blocks', 'Blocked ticket unknown')).join(' ') : '') + '</span></div>' :
     cues.length ? '<div class="bd-cues">' + cues.join('') + '</div>' : '';
-  const est = finite(t.override?.hours) ?? finite(t.est);
+
   const label = t.id.startsWith('pack:') && t.num === null ? 'Planned · not filed' : 'Q' + number(t.qpos, 'qpos', 'Queue position unknown') +
     (c.held ? ' · held' : c.failed ? ' · prereq failed' : c.wait ? ' · waiting' : ' · queued');
-  return { body, status: '<div class="bd-status"><span>' + label + '</span><span>≈' + (est === null ? unk('est', 'Estimate unknown') : est + 'h') + ' · ' + points + ' pts</span></div>' };
+  return { body, status: '<div class="bd-status"><span>' + label + '</span><span>' + (estHours(t) === null ? unk('est', 'Estimate unknown') : estLabel(t)) + ' · ' + points + ' pts</span></div>' };
 }
 function historyContent(t, points) {
   const labels = { done: 'Merged', failed: 'Failed · closed', not_planned: 'Not planned', closed: 'Closed' };
   const label = Object.hasOwn(labels, t.status) ? labels[t.status] : 'State unknown';
-  const end = finite(t.end, 0, 8640000000000000), start = finite(t.start, 0, 8640000000000000);
-  const hrs = end !== null && start !== null ? (end - start) / 3600000 : null;
+  const end = finite(t.end, 0, 8640000000000000), recordedStart = finite(t.start, 0, 8640000000000000);
+  const start = end === null || recordedStart === null ? recordedStart : Math.min(recordedStart, end);
+  const hrs = end !== null && start !== null ? Math.max(0, end - start) / 3600000 : null;
   let body = '', value = end === null ? unk('end', 'Close time unknown') : fmtD(end);
   if (S.view === 'gantt') {
     value = hrs === null ? unk('duration', 'Duration unknown') : fmtH(hrs);
-    body = '<div class="bd-time">' + (start === null ? unk('start', 'Start time unknown') : fmtD(start) + ' ' + fmtT(start)) + '<br>→ ' +
+    body = '<div class="bd-time">' + (start === null ? 'Start unknown' : fmtD(start) + ' ' + fmtT(start)) + '<br>→ ' +
       (end === null ? unk('end', 'Close time unknown') : (dayKey(start) === dayKey(end) ? '' : fmtD(end) + ' ') + fmtT(end)) +
       '</div><div class="bd-badges"><span class="h">' + value + '</span><span>' + points + ' pts</span></div>';
     return { body, status: '' };
@@ -99,36 +93,38 @@ function historyContent(t, points) {
   return { body, status: '<div class="bd-status"><span>' + label + '</span><span>' + value + '</span></div>' };
 }
 export function makeCard(it) {
-  const t = it.t, e = epic(colKey(t)), det = cardDetail(it), ag = t.sec === 'now' ? agentState(t.agent?.state) : null;
-  const pg = t.sec === 'now' ? progress(finite(t.pct, 0, 100)) : null, m = modelOf(t.agent);
+  const t = it.t, e = epic(colKey(t)), det = cardDetail(it), ag = rowState(t), cls = agentClasses(t, det);
+  const pg = t.sec === 'now' ? progress(finite(t.pct, 0, 100)) : null;
   const el = document.createElement('div');
+  const startUnknown = it.startUnknown || (S.view === 'gantt' && t.sec === 'hist' && t.start == null);
+  const estUnknown = it.estUnknown || (S.view === 'gantt' && t.sec === 'now' && estHours(t) === null);
   el._it = it; el.dataset.id = t.id; el.tabIndex = -1;
-  el.className = 'bd-card ' + det + ' ' + t.sec + (t.status === 'failed' ? ' failed' : '') + (ag?.cls ? ' ag-' + ag.cls : '') +
-    (it.ghost ? ' ghost' : '') + (e.unsorted ? ' unsorted' : '') + (it.gantt ? ' gplan' : '') +
-    (t.sec === 'plan' && (t.cue?.failed || t.cue?.blockedChain) ? ' blk' : '') + (t.agent && det === 'full' ? ' has-ag' : '') + (t.status === 'not_planned' ? ' np' : '');
+  el.className = 'bd-card ' + det + ' ' + t.sec + (t.status === 'failed' ? ' failed' : '') + (cls.ag ? ' ' + cls.ag : '') +
+    (startUnknown ? ' start-unknown' : '') + (estUnknown ? ' est-unknown' : '') + (it.ghost ? ' ghost' : '') + (e.unsorted ? ' unsorted' : '') + (it.gantt ? ' gplan' : '') +
+    (t.sec === 'plan' && (t.cue?.failed || t.cue?.blockedChain) ? ' blk' : '') + (cls.hasAg ? ' has-ag' : '') + (t.status === 'not_planned' ? ' np' : '');
   const hue = finite(e.hue, 0, 360);
   if (hue !== null) el.style.setProperty('--h', hue);
-  if (e.unsorted) el.style.setProperty('--ec', 'var(--muted)');
+  if (e.unsorted && hue === null) el.style.setProperty('--ec', 'var(--muted)');
   if (pg?.known) { el.style.setProperty('--pct', t.pct + '%'); el.style.setProperty('--ph', Math.round(42 + t.pct * 1.03)); }
   if ((det === 'mini' && it.h > 34) || (det === 'line' && it.h > 3.2 * ctx.L.fs)) el.classList.add('tall');
-  const glow = ag?.cls ? '<span class="bd-glow"></span>' : '';
+  const glow = glowHTML(t), sr = srHTML(t, ctx.snap);
   const unfiled = t.id.startsWith('pack:') && t.num === null;
   const id = unfiled ? '<span title="Not filed yet">—</span>' : '#' + number(t.num, 'num', 'Ticket number unknown');
-  const tip = (unfiled ? '—' : '#' + (finite(t.num) ?? '—')) + ' · ' + t.title + (ag ? ' · ' + ag.label : '');
+  const tip = (unfiled ? '—' : '#' + (finite(t.num) ?? '—')) + ' · ' + t.title + (ag ? ' · ' + ag.label : '') + (startUnknown ? ' · start unknown' : '') + (estUnknown ? ' · estimate unknown' : '');
   const bar = pg?.known ? '<span class="bd-bar"><i style="width:' + finite(t.pct, 0, 100) + '%"></i></span>' : '';
-  if (det === 'bar') el.innerHTML = glow + '<div class="bd-in" title="' + esc(tip) + '"></div>';
-  else if (det === 'line' || det === 'mini') el.innerHTML = glow + '<div class="bd-in" title="' + esc(tip) + '"><span class="bd-dot"></span><span class="bd-id">' + id + '</span>' +
-    (det === 'line' ? '<span class="bd-title">' + esc(t.title) + '</span>' + (t.sec === 'now' ? lineLogo(m) + bar : t.status === 'failed' ? '<span class="bd-lx">' + I.warn + '</span>' : '') : '') + '</div>';
+  if (det === 'bar') el.innerHTML = glow + '<div class="bd-in" title="' + esc(tip) + '">' + sr + '</div>';
+  else if (det === 'line' || det === 'mini') el.innerHTML = glow + '<div class="bd-in" title="' + esc(tip) + '">' + sr + '<span class="bd-dot"></span><span class="bd-id">' + id + '</span>' +
+    (det === 'line' ? '<span class="bd-title">' + esc(t.title) + '</span>' + (t.sec === 'now' ? lineLogoHTML(t) + bar : t.status === 'failed' ? '<span class="bd-lx">' + I.warn + '</span>' : '') : '') + '</div>';
   else {
     const top = '<div class="bd-top"><span class="bd-ic">' + I[t.type === 'bug' ? 'bug' : t.type === 'docs' ? 'docs' : t.type === 'chore' ? 'chore' : e.key === 'design' ? 'pen' : 'feature'] +
       '</span><span class="bd-id">' + id + '</span>' + complexity(t) + '</div>';
     const points = number(t.pts, 'pts', 'Points unknown');
     let body = '', status = '';
     if (t.sec === 'hist') ({ body, status } = historyContent(t, points));
-    else if (t.sec === 'now') status = '<div class="bd-status"><span>' + ag.label + '</span><span>' + (pg.known ? pg.text : unk('pct', 'Progress unknown')) + '</span></div>' + bar;
+    else if (t.sec === 'now') status = '<div class="bd-status"><span>' + (ag.cls ? ag.label : '<span data-unknown="state" title="State unknown">' + ag.label + '</span>') + '</span><span>' + (pg.known ? pg.text : unk('pct', 'Progress unknown')) + '</span></div>' + bar;
     else if (t.sec === 'plan') ({ body, status } = planContent(t, points));
     else status = '<div class="bd-status"><span>Open · not queued</span><span>' + points + ' pts</span></div>';
-    el.innerHTML = glow + '<div class="bd-in">' + top + '<div class="bd-title">' + esc(t.title) + '</div>' + body + status + '</div>' + fullLogo(m, ag);
+    el.innerHTML = glow + '<div class="bd-in"' + (startUnknown || estUnknown ? ' title="' + esc(tip) + '"' : '') + '>' + sr + top + '<div class="bd-title">' + esc(t.title) + '</div>' + body + status + '</div>' + logoHTML(t, det);
   }
   decorate(el); return el;
 }
@@ -146,9 +142,10 @@ export function refreshTicket(id) {
   if (!ctx.L) return;
   for (const it of ctx.L.band.items) if (it.t.id === id && ctx.D.byId[id]) {
     it.t = ctx.D.byId[id];
-    const el = makeCard(it); el.classList.add('noanim'); place(el, it);
-    it.el?.replaceWith(el); it.el = el;
+    const el = makeCard(it);
+    el.classList.add('noanim'); place(el, it);
+    it.el?.replaceWith(el); it.el = el; alignActiveGlow(el);
   }
   fx.drawEdgesSoon(30);
 }
-Object.assign(fx, { makeCard, decorateAll, refreshTicket, tickCardAges: tickAges });
+Object.assign(fx, { makeCard, decorateAll, refreshTicket, tickCardAges: tickAges, alignActiveGlow });

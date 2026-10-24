@@ -102,6 +102,12 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
   end
 
   # Base CI was red for every failing job when the run started and is green for each now.
+  @doc false
+  @spec stale_merge_ref?(map(), keyword()) :: boolean()
+  def stale_merge_ref?(run, opts) do
+    stale_merge_ref?(failing_jobs(run), timestamp_ms(run["started_at"]), opts)
+  end
+
   defp stale_merge_ref?(_jobs, nil, _opts), do: false
 
   defp stale_merge_ref?(jobs, started, opts) do
@@ -157,10 +163,17 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
 
     Enum.reduce_while(jobs, {:ok, []}, fn job, {:ok, reasons} ->
       case MergeFailureClassifier.classify(run, [job], [], classifier_opts) do
-        {:ok, {:infra, _}} -> {:cont, {:ok, ["infrastructure failure" | reasons]}}
-        {:ok, {:known_non_pr, _}} -> {:cont, {:ok, ["known flake" | reasons]}}
-        {:ok, _} -> {:halt, {:ok, nil}}
-        {:error, _} = error -> {:halt, error}
+        {:ok, {:infra, %{job: _job, log: _log, blame_complete: _complete}}} ->
+          {:cont, {:ok, ["infrastructure failure" | reasons]}}
+
+        {:ok, {:known_non_pr, %{job: _job, log: _log, blame_complete: _complete}}} ->
+          {:cont, {:ok, ["known flake" | reasons]}}
+
+        {:ok, _} ->
+          {:halt, {:ok, nil}}
+
+        {:error, _} = error ->
+          {:halt, error}
       end
     end)
     |> case do

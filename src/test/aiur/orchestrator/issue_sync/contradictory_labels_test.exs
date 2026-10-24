@@ -36,6 +36,24 @@ defmodule Aiur.Orchestrator.IssueSync.ContradictoryLabelsTest do
       assert healed_state.last_polled_issues[dual.id].state == "todo"
     end
 
+    test "keeps valid reason modifiers while healing workflow states (regression guard)" do
+      dual = %{
+        issue("dual-reasons", "todo")
+        | state_labels: ["todo", "rework"],
+          labels: ["agent:ci-red", "agent:merge-queued"]
+      }
+
+      {_state, [healed]} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn _identifier, _target -> :ok end
+        )
+
+      assert healed.state_labels == ["todo"]
+      assert healed.labels == ["agent:ci-red", "agent:merge-queued"]
+    end
+
     test "keeps the resolved issue dispatchable even when the heal write fails" do
       dual = %{issue("dual", "todo") | state_labels: ["todo", "rework"]}
 
@@ -85,6 +103,15 @@ defmodule Aiur.Orchestrator.IssueSync.ContradictoryLabelsTest do
                &(&1["topic"] == "system.fleet.contradictory_state_labels" and
                    &1["message"] =~ "2 tickets undispatchable due to contradictory labels")
              )
+
+      # The line names each ticket's label pair, so the Executor can see which
+      # state to drop without re-reading every ticket (#5796).
+      assert [alert | _] =
+               AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true)
+               |> Enum.filter(&(&1["topic"] == "system.fleet.contradictory_state_labels"))
+
+      assert alert["message"] =~ "#{dual_a.identifier} (ci-wait+rework)"
+      assert alert["message"] =~ "#{dual_b.identifier} (ci-wait+human-review)"
     end
 
     test "resolves the fleet alert once every ticket carries a single state label" do

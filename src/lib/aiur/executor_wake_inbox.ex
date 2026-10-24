@@ -21,7 +21,15 @@ defmodule Aiur.ExecutorWakeInbox do
 
   @spec wait(non_neg_integer(), GenServer.server()) :: {:ok, [map()]} | :timeout | {:error, term()}
   def wait(timeout_ms, server \\ __MODULE__) when is_integer(timeout_ms) and timeout_ms >= 0 do
-    GenServer.call(server, {:wait, timeout_ms}, timeout_ms + 5_000)
+    wait(timeout_ms, nil, false, server)
+  end
+
+  @spec wait(non_neg_integer(), String.t() | nil, boolean(), GenServer.server()) ::
+          {:ok, [map()]} | :timeout | :superseded | {:error, term()}
+  def wait(timeout_ms, consumer_id, defer_ack?, server \\ __MODULE__)
+      when is_integer(timeout_ms) and timeout_ms >= 0 and (is_binary(consumer_id) or is_nil(consumer_id)) and
+             is_boolean(defer_ack?) do
+    GenServer.call(server, {:wait, timeout_ms, consumer_id, defer_ack?}, timeout_ms + 5_000)
   end
 
   @doc """
@@ -63,11 +71,11 @@ defmodule Aiur.ExecutorWakeInbox do
   acknowledgement, refuses ids beyond or absent from the durable journal, and
   leaves every newer wake unread.
   """
-  @spec fast_forward_as(String.t(), pos_integer(), GenServer.server()) ::
+  @spec fast_forward_as(String.t(), non_neg_integer(), GenServer.server()) ::
           {:ok, %{from: non_neg_integer(), through: non_neg_integer(), acknowledged_count: non_neg_integer(), pending_count: non_neg_integer()}}
           | {:error, term()}
   def fast_forward_as(consumer_id, wake_id, server \\ __MODULE__)
-      when is_binary(consumer_id) and is_integer(wake_id) and wake_id > 0 do
+      when is_binary(consumer_id) and is_integer(wake_id) and wake_id >= 0 do
     GenServer.call(server, {:fast_forward_as, consumer_id, wake_id}, claim_call_timeout_ms())
   end
 
@@ -140,16 +148,19 @@ defmodule Aiur.ExecutorWakeInbox do
     {:reply, :ok, state}
   end
 
-  def handle_call({:wait, timeout_ms}, from, state) do
+  def handle_call({:wait, timeout_ms, consumer_id, defer_ack?}, from, state) do
     case Storage.unread_records(state) do
       {:ok, [_ | _] = records} ->
         {:reply, {:ok, records}, state}
 
       {:ok, []} ->
+        key = waiter_key(from, consumer_id, defer_ack?)
+        state = supersede_waiter(state, key, defer_ack?)
         {pid, _tag} = from
         monitor = Process.monitor(pid)
-        timer = Process.send_after(self(), {:wait_timeout, from}, timeout_ms)
-        {:noreply, %{state | waiters: Map.put(state.waiters, from, {monitor, timer})}}
+        timer = Process.send_after(self(), {:wait_timeout, key}, timeout_ms)
+        waiter = %{from: from, monitor: monitor, timer: timer}
+        {:noreply, %{state | waiters: Map.put(state.waiters, key, waiter)}}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -208,12 +219,12 @@ defmodule Aiur.ExecutorWakeInbox do
 
   def handle_info({:flush, _stale_token}, state), do: {:noreply, state}
 
-  def handle_info({:wait_timeout, from}, state) do
-    case Map.pop(state.waiters, from) do
+  def handle_info({:wait_timeout, key}, state) do
+    case Map.pop(state.waiters, key) do
       {nil, _waiters} ->
         {:noreply, state}
 
-      {{monitor, _timer}, waiters} ->
+      {%{from: from, monitor: monitor}, waiters} ->
         Process.demonitor(monitor, [:flush])
         {reply, state} = expire_waiter(%{state | waiters: waiters})
         GenServer.reply(from, reply)
@@ -222,8 +233,8 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
-    {dead, live} = Enum.split_with(state.waiters, fn {_from, {ref, _timer}} -> ref == monitor end)
-    Enum.each(dead, fn {_from, {_ref, timer}} -> Process.cancel_timer(timer) end)
+    {dead, live} = Enum.split_with(state.waiters, fn {_key, waiter} -> waiter.monitor == monitor end)
+    Enum.each(dead, fn {_key, waiter} -> Process.cancel_timer(waiter.timer) end)
     {:noreply, %{state | waiters: Map.new(live)}}
   end
 
@@ -294,16 +305,34 @@ defmodule Aiur.ExecutorWakeInbox do
   defp serve_waiters(state) do
     case Storage.unread_records(state) do
       {:ok, [_ | _] = records} ->
-        Enum.each(state.waiters, fn {from, {monitor, timer}} ->
-          Process.demonitor(monitor, [:flush])
-          Process.cancel_timer(timer)
-          GenServer.reply(from, {:ok, records})
+        Enum.each(state.waiters, fn {_key, waiter} ->
+          Process.demonitor(waiter.monitor, [:flush])
+          Process.cancel_timer(waiter.timer)
+          GenServer.reply(waiter.from, {:ok, records})
         end)
 
         %{state | waiters: %{}}
 
       _ ->
         state
+    end
+  end
+
+  defp waiter_key(from, _consumer_id, false), do: {:from, from}
+  defp waiter_key(_from, consumer_id, true), do: {:consumer, consumer_id}
+
+  defp supersede_waiter(state, _key, false), do: state
+
+  defp supersede_waiter(state, key, true) do
+    case Map.pop(state.waiters, key) do
+      {nil, _waiters} ->
+        state
+
+      {%{from: from, monitor: monitor, timer: timer}, waiters} ->
+        Process.demonitor(monitor, [:flush])
+        Process.cancel_timer(timer)
+        GenServer.reply(from, :superseded)
+        %{state | waiters: waiters}
     end
   end
 
@@ -328,14 +357,14 @@ defmodule Aiur.ExecutorWakeInbox do
     latest_wake_id = durable |> Enum.map(& &1["wake_id"]) |> Enum.max(fn -> state.cursor end)
 
     cond do
+      wake_id <= state.cursor ->
+        fast_forward_already_seen(state, consumer_id, wake_id, length(records))
+
       wake_id > latest_wake_id ->
-        {{:error, {:beyond_latest_wake, latest_wake_id}}, state}
+        {{:error, :journal_reset}, state}
 
       not Enum.any?(durable, &(&1["wake_id"] == wake_id)) ->
         {{:error, {:wake_not_found, wake_id}}, state}
-
-      wake_id <= state.cursor ->
-        fast_forward_already_seen(state, consumer_id, wake_id, length(records))
 
       true ->
         fast_forward_existing_prefix(state, consumer_id, records, wake_id)
@@ -345,7 +374,7 @@ defmodule Aiur.ExecutorWakeInbox do
   defp fast_forward_already_seen(state, consumer_id, wake_id, pending_count) do
     case acknowledge_records_as(state, consumer_id, [], state.cursor) do
       {:ok, updated_state} ->
-        result = {:ok, %{from: state.cursor, through: wake_id, acknowledged_count: 0, pending_count: pending_count}}
+        result = {:ok, %{from: state.cursor, through: max(wake_id, state.cursor), acknowledged_count: 0, pending_count: pending_count}}
         {result, updated_state}
 
       {:error, _reason} = error ->

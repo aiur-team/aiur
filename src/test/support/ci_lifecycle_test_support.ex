@@ -34,6 +34,11 @@ defmodule Aiur.CiLifecycleTestSupport do
 
     def hydrate_blocked_by(issue), do: {:ok, issue}
 
+    def create_comment(issue_id, body) do
+      if is_pid(recipient()), do: send(recipient(), {:tracker_comment, issue_id, body})
+      :ok
+    end
+
     def update_issue_state(issue_id, state_name) do
       record_update(issue_id, state_name, [])
     end
@@ -50,6 +55,21 @@ defmodule Aiur.CiLifecycleTestSupport do
           case Process.get(@request_key) do
             nil -> Process.get(@update_result_key, :ok)
             request_fun -> IssueState.remove_label(issue_id, label, token: "test-gh-token", request_fun: request_fun)
+          end
+
+        _other ->
+          {:error, :unscoped_test_call}
+      end
+    end
+
+    def add_label(issue_id, label) when is_binary(issue_id) and is_binary(label) do
+      case recipient() do
+        recipient when is_pid(recipient) ->
+          send(recipient, {:label_added, issue_id, label})
+
+          case Process.get(@request_key) do
+            nil -> Process.get(@update_result_key, :ok)
+            request_fun -> IssueState.add_label(issue_id, label, token: "test-gh-token", request_fun: request_fun)
           end
 
         _other ->
@@ -86,6 +106,8 @@ defmodule Aiur.CiLifecycleTestSupport do
         :finish_ci_transition -> :ok
       end
     end
+
+    def create_comment(_issue_id, _body), do: :ok
   end
 
   def ci_lifecycle_setup(_context) do

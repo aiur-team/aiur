@@ -188,6 +188,29 @@ defmodule Aiur.DecisionQueryTest do
              DecisionQuery.counts(store: store)
   end
 
+  test "open and awaiting totals exclude expired nonblocking history", %{store: store} do
+    now = DateTime.utc_now()
+    open = request!(store, "still-open", now, blocking: true)
+    expired_blocker = request!(store, "expired-blocker", DateTime.add(now, 1, :second), blocking: true)
+    expired_quiet = request!(store, "expired-quiet", DateTime.add(now, 2, :second))
+
+    :sys.replace_state(store, fn state ->
+      current =
+        state.current
+        |> Map.update!(expired_blocker.decision_id, &%{&1 | decision_status: :expired})
+        |> Map.update!(expired_quiet.decision_id, &%{&1 | decision_status: :expired})
+
+      %{state | current: current, retained_index: RetainedSnapshot.build_index(current)}
+    end)
+
+    for lifecycle <- ["open", "awaiting"] do
+      assert {:ok, %{decisions: rows, pagination: %{total: 2}}} =
+               DecisionQuery.list(%{"lifecycle" => lifecycle}, store: store)
+
+      assert MapSet.new(rows, & &1.decision_id) == MapSet.new([open.decision_id, expired_blocker.decision_id])
+    end
+  end
+
   test "filtered continuation pages omit totals unless the full candidate set was scanned", %{store: store} do
     request!(store, "filtered-first", ~U[2026-07-13 08:00:00Z])
     request!(store, "filtered-second", ~U[2026-07-13 08:01:00Z])

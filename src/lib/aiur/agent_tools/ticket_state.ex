@@ -25,11 +25,9 @@ defmodule Aiur.AgentTools.TicketState do
   alias Aiur.AgentTools.Errors
   alias Aiur.AgentTools.Response
 
-  # States an agent may declare for its own ticket. `todo` is the pre-work state
-  # dispatch owns, and `merging`/`cancelled` are Executor dispositions — an agent
-  # claiming either would reverse an operator decision, so they are refused here
-  # rather than silently written.
-  @agent_settable_states ~w(in-progress ci-wait human-review rework error done)
+  # Agents may hand work to a reviewer, but only a merged PR or explicit human
+  # disposition may mark a ticket done. `todo` is also owned by dispatch.
+  @agent_settable_states ~w(in-progress ci-wait human-review rework error)
 
   @description """
   Make `agent:<state>` the ONLY `agent:*` state label on the issue you are
@@ -95,10 +93,13 @@ defmodule Aiur.AgentTools.TicketState do
     with {:ok, state} <- normalize_state(arguments),
          true <- is_function(setter, 2) || {:error, :ticket_state_setter_unavailable},
          {:ok, result} <- setter.(state, review_findings(arguments)) do
+      result = Response.jsonable(result)
+      applied_state = if is_map(result), do: Map.get(result, "state", state), else: state
+
       Response.build(
         true,
         Jason.encode!(
-          %{"ok" => true, "state" => state, "result" => Response.jsonable(result)},
+          %{"ok" => true, "state" => applied_state, "requested_state" => state, "result" => result},
           pretty: true
         )
       )

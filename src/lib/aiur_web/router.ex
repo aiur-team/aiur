@@ -7,10 +7,28 @@ defmodule AiurWeb.Router do
   import Phoenix.LiveView.Router
 
   pipeline :dashboard_auth do
+    plug(:fetch_session)
     plug(:dashboard_basic_auth)
   end
 
+  pipeline :browser_dashboard_auth do
+    plug(:fetch_session)
+    plug(:dashboard_basic_auth, browser?: true)
+  end
+
+  pipeline :auth_session do
+    plug(:fetch_session)
+    plug(:protect_from_forgery)
+    plug(:put_secure_browser_headers)
+  end
+
+  pipeline :auth_post do
+    plug(:fetch_session)
+    plug(:protect_from_forgery)
+  end
+
   pipeline :dashboard_auth_required do
+    plug(:fetch_session)
     plug(:dashboard_basic_auth, required?: true)
   end
 
@@ -31,7 +49,6 @@ defmodule AiurWeb.Router do
   end
 
   pipeline :browser do
-    plug(:fetch_session)
     plug(AiurWeb.FinancialDataAccess, :persist_session)
     plug(:fetch_live_flash)
     plug(:put_root_layout, html: {AiurWeb.Layouts, :root})
@@ -69,9 +86,28 @@ defmodule AiurWeb.Router do
   alias AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
 
   require AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
+  alias AiurWeb.Api.UsageProgressRoutes
+  require UsageProgressRoutes
 
   # The receiver must precede every dashboard scope.
   GithubWebhook.receiver()
+
+  scope "/auth" do
+    pipe_through(:auth_session)
+    get("/login", AiurWeb.DashboardAuthController, :login)
+    get("/google", AiurWeb.DashboardAuthController, :google)
+    get("/google/callback", AiurWeb.DashboardAuthController, :google_callback)
+  end
+
+  scope "/auth" do
+    pipe_through(:auth_post)
+    post("/logout", AiurWeb.DashboardAuthController, :logout)
+    post("/passkeys/authentication/challenge", AiurWeb.DashboardAuthController, :authentication_challenge)
+    post("/passkeys/authentication/finish", AiurWeb.DashboardAuthController, :authentication_finish)
+    post("/passkeys/registration/challenge", AiurWeb.DashboardAuthController, :registration_challenge)
+    post("/passkeys/registration/finish", AiurWeb.DashboardAuthController, :registration_finish)
+  end
+
   # Decision routes and catches must precede generic issue reads.
   Decisions.mutations()
   Decisions.reads()
@@ -83,6 +119,19 @@ defmodule AiurWeb.Router do
   Api.machine_writes()
   Streamdeck.session()
   Capabilities.reads()
+  # Per-ticket usage read (#5692).
+  alias AiurWeb.Routes.Usage
+  require Usage
+  Usage.reads()
+  UsageProgressRoutes.reads()
+
+  # Account and rate-limit snapshot (#5697).
+  scope "/" do
+    pipe_through(:dashboard_auth)
+    get("/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :show)
+    match(:*, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :method_not_allowed)
+  end
+
   # Generic issue reads and the catch-all stay last.
   Api.reads_and_catch_all()
 

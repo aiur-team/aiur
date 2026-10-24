@@ -3,12 +3,15 @@ import { S, ctx, fx } from './state.js';
 import { esc } from './dom.js';
 import { nowMs } from './clock.js';
 import { fmtD, fmtH } from './util.js';
+import { estLabel } from './estimate.js';
 import { I } from './icons.js';
 import { LOGOS } from './logos.js';
 import { agentState, progress, modelLabel } from './now-state.js';
 import { colKey, match } from './match.js';
 import { H, loadEarlier } from './history.js';
 import { sectionState, headNote, reasonText, ageText } from './states.js';
+import { timed } from './perf.js';
+export const renderList = timed('renderList', renderListImpl);
 
 const HIST = { failed: ['failed', 'Failed'], done: ['merged', 'Merged'], not_planned: ['np', 'Not planned'], closed: ['closed', 'Closed'] };
 export function stClass(t) {
@@ -19,7 +22,12 @@ export function stClass(t) {
 }
 export function stText(t) {
   if (t.sec === 'hist') return Object.hasOwn(HIST, t.status) ? HIST[t.status][1] : 'State unknown';
-  if (t.sec === 'now') return agentState(t.agent?.state).label;
+  if (t.sec === 'now') {
+    const stateLabel = agentState(t.agent?.state).label;
+    return t.agent?.pause === 'usage_limit_exhausted' && Number.isFinite(t.agent?.resume_at)
+      ? stateLabel + ' (resumes at ' + new Date(t.agent.resume_at).toISOString().slice(11, 16) + ' UTC)'
+      : stateLabel;
+  }
   if (t.sec === 'plan') return t.cue?.held ? 'Held' : t.cue?.failed || t.cue?.blockedChain ? 'Blocked' : t.cue?.wait ? 'Waiting on #' + t.cue.wait : 'Queued';
   return 'Not queued';
 }
@@ -34,8 +42,7 @@ function progCell(t) {
   if (t.sec === 'hist') return muted((Number.isFinite(t.end) ? fmtD(t.end) : '—') + ' · ' +
     (Number.isFinite(t.start) && Number.isFinite(t.end) && t.end >= t.start ? fmtH((t.end - t.start) / 36e5) : '—'));
   if (t.sec === 'plan') {
-    const hours = Number.isFinite(t.override?.hours) ? t.override.hours : t.est;
-    return muted('Q' + number(t.qpos) + ' · W' + (Number.isFinite(t.wave) ? t.wave : '?') + ' · ' + (Number.isFinite(hours) ? '≈' + hours + 'h' : '—'));
+    return muted('Q' + number(t.qpos) + ' · W' + (Number.isFinite(t.wave) ? t.wave : '?') + ' · ' + estLabel(t));
   }
   return muted(number(t.pts) + ' pts');
 }
@@ -76,13 +83,24 @@ export function listHTML(D, state, history, P, now) {
   const keep = t => match(t, state), rows = Object.fromEntries(['now', 'plan', 'nq'].map(sec => [sec, D[sec].filter(keep)]));
   rows.hist = D.hist.filter(t => t.end >= (state.histFrom || 0) && keep(t)).sort((a, b) => b.end - a.end);
   const labels = { now: '<i class="lh-live" aria-hidden="true"></i>Live', plan: 'Planned', nq: 'Not queued', hist: 'History' };
-  const subs = { now: rows.now.length + ' running', plan: rows.plan.length + ' in build-queue order', nq: rows.nq.length + ' open', hist: rows.hist.length + ' loaded · newest first' };
+  const nowCounts = { running: 0, retrying: 0, stuck: 0, paused: 0, unknown: 0 };
+  for (const ticket of rows.now) {
+    const key = ticket.agent?.state === 'active' ? 'running'
+      : ticket.agent?.state === 'retrying' ? 'retrying'
+        : ['error', 'retries', 'command'].includes(ticket.agent?.state) ? 'stuck'
+          : ['paused', 'parked', 'usage_limited', 'paused-usage-limit', 'paused-decision', 'paused-agent', 'ci_wait', 'merge-queued', 'blocked', 'handed-off'].includes(ticket.agent?.state) ? 'paused'
+            : ['ci-red', 'body-fix'].includes(ticket.agent?.state) ? 'stuck' : 'unknown';
+    nowCounts[key]++;
+  }
+  const nowSummary = Object.entries(nowCounts).filter(([key, count]) => key === 'running' || count > 0)
+    .map(([key, count]) => count + ' ' + (key === 'unknown' ? 'state unknown' : key)).join(' · ');
+  const subs = { now: nowSummary, plan: rows.plan.length + ' in build-queue order', nq: rows.nq.length + ' open', hist: rows.hist.length + ' loaded · newest first' };
   const more = history.more ? '<div role="row"><div role="cell"><button type="button" class="lr-more" id="lr-more"' + (history.state === 'loading' ? ' disabled aria-busy="true"' : '') + '>Load earlier day</button></div></div>' : '';
   return '<div class="bd-list" role="table" aria-label="Build tickets" tabindex="-1"><div class="lr lr-h" role="row">' +
     ['id', 'tt', 'ep', 'st', 'ag', 'pg', 'dp'].map((key, i) => '<span class="c-' + key + '" role="columnheader">' + ['Ticket', 'Title', 'Epic', 'State', 'Agent', 'Progress', 'Deps'][i] + '</span>').join('') + '</div>' +
     ['now', 'plan', 'nq', 'hist'].map(sec => secHead(sec, labels[sec], subs[sec], rows[sec], sec === 'hist' ? more : '', D, state, history, P, now)).join('') + '</div>';
 }
-export function renderList() {
+function renderListImpl() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
   const focused = document.activeElement?.closest?.('.lr[data-id]'), index = previous.indexOf(focused);
   const moreFocused = document.activeElement?.id === 'lr-more' && vp.contains(document.activeElement);
@@ -100,16 +118,16 @@ export function renderList() {
 function bindOnce(vp) {
   if (ctx.listVp === vp) return;
   ctx.listVp = vp;
-  const open = id => { const t = ctx.D.byId[id]; if (t) fx.openModal(t); };
+  const open = row => { const t = ctx.D.byId[row.dataset.id]; if (t) fx.openModal(t, { origin: row }); };
   ctx.life.on(vp, 'click', e => {
     if (S.view !== 'list') return;
     const btn = e.target.closest('#lr-more');
     if (btn) { earlier(btn); return; }
-    const row = e.target.closest('.lr[data-id]'); if (row) open(row.dataset.id);
+    const row = e.target.closest('.lr[data-id]'); if (row) open(row);
   });
   ctx.life.on(vp, 'keydown', e => {
     if (S.view !== 'list' || e.key !== 'Enter' || e.target.matches('button')) return;
-    const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row.dataset.id); }
+    const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row); }
   });
 }
 async function earlier(btn) {

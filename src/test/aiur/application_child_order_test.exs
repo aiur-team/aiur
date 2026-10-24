@@ -124,6 +124,8 @@ defmodule Aiur.ApplicationChildOrderTest do
   # children. Explain the startup dependency here; do not extend the baseline.
   # Feeder subscribes after History starts and before Backfill can publish completion.
   @early_start_exceptions %{
+    # The orchestrator resets listeners before its first dispatch.
+    Aiur.GitHub.Listeners => "Start poll-source owners before Orchestrator resets and polls them",
     Aiur.Opencode.ActiveTurns => "Create the turn table before agent tasks can start or be adopted",
     # Initial orchestrator dispatch must persist attempts before starting runners.
     Aiur.Orchestrator.OptimisticLedger => "Load durable attempts before Orchestrator starts its first dispatch",

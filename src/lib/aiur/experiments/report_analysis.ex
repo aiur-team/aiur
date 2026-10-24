@@ -1,6 +1,6 @@
 defmodule Aiur.Experiments.ReportAnalysis do
   @moduledoc false
-  alias Aiur.Experiments.{AnalysisInput, Catalog, Evidence, Paths, Persistence, Reader, ReportEngine, ReportInput, ReportRecords, StatsRunner, WindowEvents}
+  alias Aiur.Experiments.{AnalysisInput, AnalysisResult, Catalog, Evidence, Paths, Persistence, Reader, ReportEngine, ReportInput, ReportRecords, StatsRunner, WindowEvents}
 
   @spec prepare(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def prepare(id, catalog_context) do
@@ -21,7 +21,7 @@ defmodule Aiur.Experiments.ReportAnalysis do
   defp recompute(input, registration, catalog, catalog_context) do
     spec = ReportEngine.spec(input.input, registration, catalog)
     # One immutable input directory per hash; the runner alone replaces its computed result.
-    dir = Paths.file(input.id, "report/stats/" <> Evidence.hash(%{input: input.input, spec: spec}))
+    dir = stats_directory(input, spec)
 
     with :ok <- Aiur.Journal.ensure_directory(dir),
          :ok <- Persistence.write_json(Path.join(dir, "snapshot.json"), input.input),
@@ -32,6 +32,27 @@ defmodule Aiur.Experiments.ReportAnalysis do
       {:ok, body}
     end
   end
+
+  @doc "Read the cached result for the current frozen inputs; never run the engine."
+  @spec cached(String.t()) :: {:ok, map()} | {:error, term()}
+  def cached(id) do
+    with {:ok, input} <- ReportInput.prepare(id),
+         {:ok, records} <- ReportRecords.read(id),
+         {:ok, registration} <- registration(records),
+         catalog = Catalog.load(),
+         true <- Enum.all?(input.spec["metrics"], &Map.has_key?(catalog.metrics, &1["ref"])),
+         spec = ReportEngine.spec(input.input, registration, catalog),
+         {:ok, %{"body" => body}} <- Reader.json(Path.join(stats_directory(input, spec), "result.json")),
+         :ok <- AnalysisResult.validate(body, input.spec) do
+      {:ok, %{analysis: body, chart_metric_specs: spec["metrics"]}}
+    else
+      false -> {:error, :metric_unavailable}
+      {:ok, _invalid} -> {:error, :unreadable}
+      error -> error
+    end
+  end
+
+  defp stats_directory(input, spec), do: Paths.file(input.id, "report/stats/" <> Evidence.hash(%{input: input.input, spec: spec}))
 
   @spec unchanged(map()) :: :ok | {:error, term()}
   def unchanged(prepared) do

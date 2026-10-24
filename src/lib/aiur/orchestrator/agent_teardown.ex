@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
   alias Aiur.AgentPubSub
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{CiLifecycle, LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, TrackedSet, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{CiLifecycle, DockerCleanup, LifecycleFenceExpiry, RetryEngine, State, TicketTransition, TokenAccounting, TrackedSet, TrackerTasks, WorkspaceCleanup}
   alias Aiur.ProcessTree
   alias Aiur.Tmux.Socket
 
@@ -22,15 +22,22 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec close_active_chat_streams(String.t(), term()) :: :ok
   def close_active_chat_streams(identifier, reason) when is_binary(identifier) do
-    for aiur_turn_id <- ActiveTurns.active_turn_ids(identifier) do
+    active_turn_ids(identifier)
+    |> Enum.each(fn aiur_turn_id ->
       AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
       ActiveTurns.mark_closed(identifier, aiur_turn_id, reason)
-    end
+    end)
 
     :ok
   end
 
   def close_active_chat_streams(_identifier, _reason), do: :ok
+
+  defp active_turn_ids(identifier) do
+    ActiveTurns.active_turn_ids(identifier)
+  rescue
+    ArgumentError -> []
+  end
 
   defp terminate_reason(true), do: :terminal
   defp terminate_reason(false), do: :replaced
@@ -39,6 +46,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
   def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
     state = CiLifecycle.cancel_ci_wait_rewake(state, issue_id)
+    state = clear_transient_reason_labels(state, issue_id)
 
     case Map.get(state.running, issue_id) do
       nil ->
@@ -73,8 +81,11 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # Save and delete the workspace only after the runner is gone, so the
         # agent no longer writes to it while it is saved (#2743). The work runs
         # in a task; see `WorkspaceCleanup.start_terminal_workspace_cleanups/1`.
+        # Terminal artifact cleanup also reaps the ticket's Docker containers.
         if cleanup_workspace do
           WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, worker_host)
+        else
+          DockerCleanup.start_ticket_cleanup(identifier)
         end
 
         state = LifecycleFenceExpiry.recover_terminated_input(state, running_entry)
@@ -103,6 +114,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   # `:deactivated` is not).
   @spec deactivate_running_issue(State.t(), term()) :: State.t()
   def deactivate_running_issue(%State{} = state, issue_id) do
+    state = clear_transient_reason_labels(state, issue_id)
+
     case Map.get(state.running, issue_id) do
       nil ->
         state
@@ -138,6 +151,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
           terminate_task(pid)
         end
 
+        DockerCleanup.start_ticket_cleanup(identifier)
+
         if is_reference(ref) do
           Process.demonitor(ref, [:flush])
         end
@@ -164,6 +179,35 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # the synthetic 100 bar sample U4 seeds.
         TrackedSet.refresh(new_state)
     end
+  end
+
+  @doc false
+  @spec clear_transient_reason_labels(State.t(), String.t()) :: State.t()
+  def clear_transient_reason_labels(state, issue_id) do
+    running_entry = Map.get(state.running, issue_id, %{})
+    issue = Map.get(running_entry, :issue, %{})
+    identifier = Map.get(issue, :identifier) || to_string(issue_id)
+
+    TrackerTasks.chain(
+      state,
+      {:runtime_reason_labels, identifier},
+      fn ->
+        TicketTransition.clear_transient_reason_modifiers(identifier,
+          writer: :agent_teardown,
+          current_labels: Map.get(issue, :labels, [])
+        )
+      end,
+      fn current, result ->
+        case result do
+          :ok ->
+            current
+
+          {:error, reason} ->
+            Logger.warning("runtime reason label cleanup failed: issue=#{identifier} reason=#{inspect(reason)}")
+            current
+        end
+      end
+    )
   end
 
   @doc false

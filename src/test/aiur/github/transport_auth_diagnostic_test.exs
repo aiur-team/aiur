@@ -4,8 +4,9 @@ defmodule Aiur.GitHub.TransportAuthDiagnosticTest do
   import ExUnit.CaptureLog
 
   alias Aiur.GitHub.{AppTokenRefresher, Config, Credential, Transport}
+  alias Aiur.GitHub.Transport.AuthDiagnostic
 
-  @cache_key {Config, :resolved_token}
+  @cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @app_token_key {AppTokenRefresher, :installation_token}
   @transport_test_options_key :github_transport_test_options
   @selector_options_key :github_credential_selector_options
@@ -74,6 +75,20 @@ defmodule Aiur.GitHub.TransportAuthDiagnosticTest do
     assert log =~ "credential_id=primary credential_class=github_token"
     assert log =~ "auth_bytes=#{byte_size(token)}"
     refute log =~ token
+  end
+
+  test "an unresolved token does not imply a non-primary quota identity" do
+    Application.put_env(:aiur, @selector_options_key, credentials: [])
+
+    request = %{
+      method: :get,
+      url: "https://api.github.com/rate_limit",
+      caller: "ci_readiness",
+      token: "readiness-token"
+    }
+
+    assert result = AuthDiagnostic.run(request, & &1)
+    refute Map.has_key?(result, :credential_id)
   end
 
   test "401 class follows the selected credential when the configured source is env" do

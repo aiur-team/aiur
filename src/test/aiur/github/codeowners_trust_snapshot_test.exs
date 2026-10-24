@@ -12,7 +12,7 @@ defmodule Aiur.GitHub.CodeownersTrustSnapshotTest do
     path = Path.join(root, "CODEOWNERS")
     File.write!(path, "* @acme/team @direct # trailing comment\n")
     # The CodeOwners server resolves teams with the configured token.
-    token_key = {Aiur.GitHub.Config, :resolved_token}
+    token_key = {Aiur.GitHub.Access.Token, :resolved_token}
     previous_token = :persistent_term.get(token_key, :unset)
     :persistent_term.put(token_key, "test-gh-token")
     on_exit(fn -> if previous_token == :unset, do: :persistent_term.erase(token_key), else: :persistent_term.put(token_key, previous_token) end)

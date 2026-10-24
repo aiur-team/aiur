@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.Protocol do
   @moduledoc false
   import Phoenix.Component, only: [assign: 2]
-  alias AiurWeb.Build.{DataSource, Payload, Read}
+  alias AiurWeb.Build.{DataSource, NavCount, Payload, Read}
   require Logger
 
   @resync_interval_ms 2_000
@@ -15,6 +15,7 @@ defmodule AiurWeb.Build.Protocol do
       end
 
     assign(socket,
+      build_nav_count: NavCount.unknown(),
       build_epoch: Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false),
       build_generation: 0,
       build_resynced: false,
@@ -30,6 +31,7 @@ defmodule AiurWeb.Build.Protocol do
   @spec store(Phoenix.LiveView.Socket.t(), map(), keyword() | nil) :: Phoenix.LiveView.Socket.t()
   def store(socket, data, opts \\ nil) do
     data = data |> Payload.scrub() |> access(opts || Read.source_opts(socket))
+    socket = NavCount.put(socket, NavCount.from_snapshot(data))
     assign(socket, build_snapshot: data, build_history: data["history"], build_index_generation: data["index_generation"], build_usage_last: data["usage"])
   end
 
@@ -94,18 +96,18 @@ defmodule AiurWeb.Build.Protocol do
         {:reply, message, socket |> store(data, opts) |> assign(build_resynced: true)}
 
       :error ->
-        {:reply, Payload.error(:unavailable), socket}
+        {:reply, Payload.error(:invalid_data), socket}
     end
   end
 
-  defp snapshot_reply(_error, socket, _opts), do: {:reply, Payload.error(:unavailable), socket}
+  defp snapshot_reply({:error, reason}, socket, _opts), do: {:reply, Payload.error(error_reason(reason)), socket}
 
   defp page_reply({:ok, page}, socket) do
     message = Payload.earlier(page, socket.assigns.build_epoch, socket.assigns.build_generation)
-    if validate(message) == :ok, do: {:reply, message, assign(socket, build_history: message["history"])}, else: {:reply, Payload.error(:unavailable), socket}
+    if validate(message) == :ok, do: {:reply, message, assign(socket, build_history: message["history"])}, else: {:reply, Payload.error(:invalid_data), socket}
   end
 
-  defp page_reply(_error, socket), do: {:reply, Payload.error(:unavailable), socket}
+  defp page_reply({:error, reason}, socket), do: {:reply, Payload.error(error_reason(reason)), socket}
 
   defp push_change(socket, changes, opts) do
     changes = if opts[:financial] == :locked, do: update_in(changes["set"], &Map.delete(&1, "usage")), else: changes
@@ -114,6 +116,7 @@ defmodule AiurWeb.Build.Protocol do
 
     if validate(message) == :ok do
       socket
+      |> NavCount.put(NavCount.apply(socket.assigns.build_nav_count, changes))
       |> assign(
         build_generation: generation,
         build_history: Map.get(message["set"], "history", socket.assigns.build_history),
@@ -129,7 +132,7 @@ defmodule AiurWeb.Build.Protocol do
   defp restart(socket) do
     generation = socket.assigns.build_generation + 2
     message = Payload.diff(%{now: System.system_time(:millisecond), upsert: [], remove: [], set: %{}}, socket.assigns.build_epoch, generation, socket.assigns.build_history)
-    socket |> assign(build_generation: generation, build_index_generation: nil) |> Phoenix.LiveView.push_event("build-diff", message)
+    socket |> NavCount.put(NavCount.unknown()) |> assign(build_generation: generation, build_index_generation: nil) |> Phoenix.LiveView.push_event("build-diff", message)
   end
 
   defp access(data, opts) do
@@ -161,4 +164,11 @@ defmodule AiurWeb.Build.Protocol do
   defp stale?(_changes, _current), do: false
   defp clock, do: AiurWeb.EndpointConfig.get(:build_resync_clock, &System.monotonic_time/1).(:millisecond)
   defp writable?, do: AiurWeb.EndpointConfig.get(:dashboard_writable) == true
+
+  defp error_reason(reason) when reason in [:invalid_params, :read_only, :not_found, :throttled], do: reason
+  defp error_reason(:timeout), do: :timeout
+  defp error_reason(:index_not_running), do: :index_not_running
+  defp error_reason(:epic_config_unavailable), do: :epic_config_unavailable
+  defp error_reason(:settings_loading), do: :settings_loading
+  defp error_reason(_reason), do: :read_failed
 end

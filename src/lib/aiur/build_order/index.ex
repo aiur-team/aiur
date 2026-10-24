@@ -3,7 +3,7 @@ defmodule Aiur.BuildOrder.Index do
   alias Aiur.BuildOrder.{EpicOverrides, Features, History, NotQueued}
   alias Aiur.BuildOrder.Index.{Catalogue, Pages, Parts, Rows, Sources}
   @topic "build-home:index"
-  @blocks ~w(epics features order counts sources history_meta repo)a
+  @blocks ~w(epics features order counts sources history_meta repo capacity)a
 
   @spec assemble(map(), keyword()) :: {:ok, map()} | {:error, atom()}
   def assemble(parts, opts \\ []) do
@@ -26,6 +26,7 @@ defmodule Aiur.BuildOrder.Index do
          sources: sources,
          history_meta: %{total: if(available?, do: length(hist)), undated: if(available?, do: undated)},
          repo: repository(parts),
+         capacity: Aiur.BuildOrder.Index.Estimates.capacity(parts[:capacity]),
          now: now
        })}
     end
@@ -68,15 +69,33 @@ defmodule Aiur.BuildOrder.Index do
       end
 
     history = %{rows: Map.merge(Rows.open_history(parts), Rows.history(parts))}
-    nq = safe_read(:not_queued, fn -> NotQueued.build(parts[:open], parts[:queue], active: active, label_prefix: prefix) end)
+
+    nq =
+      case parts[:open] do
+        %Aiur.OpenTicketSource.Snapshot{} = open ->
+          safe_read(:not_queued, fn -> NotQueued.build(open, parts[:queue], active: active, label_prefix: prefix) end)
+
+        {:error, reason} ->
+          %{state: :unavailable, reasons: [open_failure_reason(reason)], observed_at: nil, truncated?: false, skipped: 0, rows: []}
+
+        _ ->
+          %{state: :unavailable, reasons: [:open_tickets_unavailable], observed_at: nil, truncated?: false, skipped: 0, rows: []}
+      end
+
     %{history_snapshot: {:ok, history}, todo_label: prefix <> ":todo", not_queued: nq}
   end
+
+  defp open_failure_reason(:timeout), do: :open_tickets_timeout
+  defp open_failure_reason(_reason), do: :open_tickets_read_failed
 
   @spec subscribe_sources() :: :ok | {:error, term()}
   def subscribe_sources do
     subscribers = [
       &History.subscribe/0,
       &Features.subscribe/0,
+      &Aiur.BuildOrder.Estimates.subscribe/0,
+      &Aiur.AgentPubSub.subscribe_poll_state/0,
+      &Aiur.AgentPubSub.subscribe_fleet_invalidation/0,
       &EpicOverrides.subscribe/0,
       &Aiur.BuildProgress.subscribe/0,
       &Aiur.OpenTicketSource.subscribe/0,

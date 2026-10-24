@@ -5,6 +5,18 @@ defmodule Aiur.Tracker do
 
   alias Aiur.{Config, TestTicketScope}
 
+  @spec with_poll_cycle((-> term())) :: term()
+  def with_poll_cycle(fun) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :with_poll_cycle, 1), do: tracker.with_poll_cycle(fun), else: fun.()
+  end
+
+  @spec format_preflight_error(term()) :: String.t()
+  def format_preflight_error(reason) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :format_preflight_error, 1), do: tracker.format_preflight_error(reason), else: inspect(reason)
+  end
+
   @type open_issue_label_map :: %{String.t() => %{labels: [String.t()], updated_at: DateTime.t() | nil}}
   @type open_issue_labels_result :: {:ok, open_issue_label_map(), integer()} | :none | {:error, :unsupported}
   @type ticket_pull_request_result ::
@@ -126,6 +138,16 @@ defmodule Aiur.Tracker do
     adapter().fetch_issue_states_by_ids(issue_ids) |> TestTicketScope.filter_result()
   end
 
+  @doc "Returns whether labels contain a state owned by another tracker lane."
+  @spec foreign_state_label?([String.t()]) :: boolean()
+  def foreign_state_label?(labels) do
+    tracker_adapter = adapter()
+
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, :foreign_state_label?, 1),
+      do: tracker_adapter.foreign_state_label?(labels),
+      else: false
+  end
+
   @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::
           {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
   def fetch_issue_states_by_ids_conditional(issue_ids, cache) do
@@ -150,6 +172,20 @@ defmodule Aiur.Tracker do
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) do
     adapter().create_comment(issue_id, body)
+  end
+
+  @doc "Creates an issue with its initial labels in the same write."
+  @spec create_issue(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def create_issue(attrs, opts \\ []) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :create_issue, 2), do: tracker.create_issue(attrs, opts), else: {:error, :unsupported}
+  end
+
+  @doc "Reconciles an uncertain issue creation against an exact body marker."
+  @spec find_issue(String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def find_issue(marker, opts \\ []) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :find_issue, 2), do: tracker.find_issue(marker, opts), else: {:error, :unsupported}
   end
 
   @doc "Reopens a closed issue; trackers that never auto-close an issue have nothing to undo."

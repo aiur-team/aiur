@@ -61,6 +61,62 @@ cmd_executor_answer() {
   run_control_rpc "Aiur.AgentControlCLI.executor_answer([$opts])"
 }
 
+# Explicit operator answer path for human-required Commands. The daemon reads
+# the current version and records an operator-attributed answer.
+cmd_operator_answer() {
+  local decision_id="${1:-}" option_id="" custom_response="" operator=0 confirmation="" expected_version="" arg preview_args="" preview_output preview_block
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: answer expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --option) [ "$#" -gt 1 ] || { echo "aiur: answer --option requires a value" >&2; exit 64; }; shift; option_id="$1" ;;
+      --option=*) option_id="${arg#--option=}" ;;
+      --custom-response) [ "$#" -gt 1 ] || { echo "aiur: answer --custom-response requires a value" >&2; exit 64; }; shift; custom_response="$1" ;;
+      --custom-response=*) custom_response="${arg#--custom-response=}" ;;
+      --operator) operator=1 ;;
+      -*) echo "aiur: answer received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: answer expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [ "$operator" -eq 1 ] || { echo "aiur: answer requires --operator" >&2; exit 64; }
+  if env | grep -E '^(AIUR_AGENT_|CODEX_THREAD_ID=|CLAUDECODE=|OPENCODE_SESSION_ID=)' >/dev/null; then
+    echo "aiur: answer is for a human operator; agents and Executors must not run it" >&2
+    exit 64
+  fi
+  if [ ! -t 0 ] || [ ! -t 1 ]; then
+    echo "aiur: answer requires an interactive terminal for human confirmation" >&2
+    exit 64
+  fi
+  if { [ -n "$option_id" ] && [ -n "$custom_response" ]; } || { [ -z "$option_id" ] && [ -z "$custom_response" ]; }; then
+    echo "aiur: answer requires exactly one of --option or --custom-response" >&2
+    exit 64
+  fi
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), operator: true"
+  if [ -n "$option_id" ]; then
+    opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
+  else
+    opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
+  fi
+  preview_args="$opts"
+  preview_output="$(run_control_rpc "Aiur.AgentControlCLI.operator_answer_preview([$preview_args])")"
+  preview_block="$(printf '%s\n' "$preview_output" | awk '/__AIUR_OPERATOR_ANSWER_PREVIEW__/ {show=1; next} show && /^__AIUR_CONTROL_EXIT__:/ {exit} show {print}')"
+  [ -n "$preview_block" ] || { echo "aiur: could not load the Command for confirmation" >&2; exit 1; }
+  expected_version="$(printf '%s\n' "$preview_output" | sed -n 's/^__AIUR_EXPECTED_VERSION__:\([0-9][0-9]*\)$/\1/p' | tail -n 1)"
+  [ -n "$expected_version" ] || { echo "aiur: Command preview did not include a version" >&2; exit 1; }
+  preview_block="$(printf '%s\n' "$preview_block" | sed '/^__AIUR_EXPECTED_VERSION__:/d')"
+  printf '%s\n' "$preview_block"
+  printf 'To confirm, type the decision ID exactly (%s): ' "$decision_id" >&2
+  IFS= read -r confirmation || { echo "aiur: answer cancelled" >&2; exit 64; }
+  [ "$confirmation" = "$decision_id" ] || { echo "aiur: answer confirmation did not match the decision ID" >&2; exit 64; }
+  opts="$opts, expected_version: $expected_version, confirmation: Base.decode64!(\"$(encode_control_value "$confirmation")\")"
+  run_control_rpc "Aiur.AgentControlCLI.operator_answer([$opts])"
+}
+
 cmd_executor_escalate() {
   local decision_id="${1:-}" expected_version="" reason="" executor_id="aiur-cli" arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
@@ -160,24 +216,30 @@ cmd_executor_moot() {
 }
 
 cmd_executor_wait() {
-  local timeout=300 json=0 as="" arg
+  local timeout=300 json=0 defer_ack=0 ack_through="" as="" arg
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --timeout) shift; timeout="${1:-}" ;;
       --timeout=*) timeout="${arg#--timeout=}" ;;
       --json) json=1 ;;
+      --defer-ack) defer_ack=1 ;;
+      --ack-through) shift; ack_through="${1:-}" ;;
+      --ack-through=*) ack_through="${arg#--ack-through=}" ;;
       --as) shift; as="${1:-}" ;;
       --as=*) as="${arg#--as=}" ;;
-      *) executor_session_flag "$@" || { echo "aiur: executor-wait accepts --timeout <seconds>, --as <id>, --session-id <uuid>, --harness claude|codex and --json" >&2; exit 64; }; shift "$EXECUTOR_SESSION_EXTRA" ;;
+      *) executor_session_flag "$@" || { echo "aiur: executor-wait accepts --timeout <seconds>, --ack-through <id>, --defer-ack, --as <id>, --session-id <uuid>, --harness claude|codex and --json" >&2; exit 64; }; shift "$EXECUTOR_SESSION_EXTRA" ;;
     esac
     shift
   done
   [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-wait --timeout expects a positive integer" >&2; exit 64; }
   executor_validate_consumer_id "$as" "executor-wait"
+  if [ -n "$ack_through" ]; then [[ "$ack_through" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "aiur: executor-wait --ack-through expects a non-negative integer" >&2; exit 64; }; fi
   local json_arg=false; [ "$json" -eq 1 ] && json_arg=true
+  local defer_arg=""; [ "$defer_ack" -eq 1 ] && defer_arg=", defer_ack: true"
+  local ack_arg=""; [ -n "$ack_through" ] && ack_arg=", ack_through: $ack_through"
   AIUR_CONTROL_COMMAND="executor-wait"
-  AIUR_CONTROL_RPC_TIMEOUT_SECONDS=$((timeout + 10)) run_control_rpc "Aiur.AgentControlCLI.executor_wait(timeout_ms: $((timeout * 1000)), json: $json_arg$(executor_as_argument "$as")$(executor_session_argument))"
+  AIUR_CONTROL_RPC_TIMEOUT_SECONDS=$((timeout + 10)) run_control_rpc "Aiur.AgentControlCLI.executor_wait(timeout_ms: $((timeout * 1000)), json: $json_arg$defer_arg$ack_arg$(executor_as_argument "$as")$(executor_session_argument))"
 }
 
 # The consumer id is an explicit identity, never inferred from the environment.

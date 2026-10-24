@@ -53,6 +53,19 @@ defmodule Aiur.OrchestratorStatusCliStatusTest do
     refute output =~ "WAKES CURSOR 0 PENDING 0"
   end
 
+  test "a stalled status snapshot names the active global pause and its start" do
+    paused_at = ~U[2026-10-11 00:51:59.477172Z]
+    snapshot = %{statuses: [], global_pause: %{globally_paused: true, paused_at: paused_at, source: "CLI"}}
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, %{status: :stale, reason: :snapshot_stalled, age_seconds: 2_521}})
+      end)
+
+    assert output =~ "global pause active since 2026-10-11T00:51:59.477172Z"
+    refute output =~ "the orchestrator has stopped publishing"
+  end
+
   test "status renders dispatch poll age and honest missing observations" do
     for {polling, expected} <- [
           {%{last_dispatch_poll_age_ms: 481_000, effective_interval_ms: 240_000}, "481s ago (stale)"},

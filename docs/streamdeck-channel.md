@@ -176,7 +176,10 @@ without ending the channel.
 `available` is `false` with the reason
 `"Aiur has no ElevenLabs API key - transcription is off"` when no key is
 configured, so the device can explain a disabled microphone key without a round
-trip. The entry reports the *presence* of a credential only; neither the key nor
+trip. Without a voice provider installed, the reason is
+`"Voice isn't installed in this Aiur"`, and `voice_start` replies with the
+`not_installed` reason code even if a key is set. Typed messages still work.
+The entry reports the *presence* of a credential only; neither the key nor
 any part of it ever appears in a projection.
 
 ### Why base64 in JSON on this channel, and not a binary frame

@@ -18,7 +18,7 @@ defmodule AiurWeb.CodeownersTrustDashboardTest do
     previous = Process.whereis(CodeOwners)
     if previous, do: Process.unregister(CodeOwners)
     # The CodeOwners server resolves teams with the configured token.
-    token_key = {Aiur.GitHub.Config, :resolved_token}
+    token_key = {Aiur.GitHub.Access.Token, :resolved_token}
     previous_token = :persistent_term.get(token_key, :unset)
     :persistent_term.put(token_key, "test-gh-token")
     on_exit(fn -> if previous_token == :unset, do: :persistent_term.erase(token_key), else: :persistent_term.put(token_key, previous_token) end)
@@ -36,7 +36,7 @@ defmodule AiurWeb.CodeownersTrustDashboardTest do
     start_endpoint()
 
     conn = build_conn() |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
-    {:ok, view, _html} = live(conn, "/")
+    {:ok, view, _html} = live(conn, "/units")
     banner = element(view, "#codeowners-trust-degraded")
     html = render(banner)
     assert html =~ "Team lookup failed for @acme/team"

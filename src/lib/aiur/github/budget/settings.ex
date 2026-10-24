@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.Budget.Settings do
   @moduledoc false
 
-  alias Aiur.Config
+  alias Aiur.GitHub.Access.Settings, as: AccessSettings
   alias Aiur.GitHub.Budget
 
   @default_max_inflight 4
@@ -91,17 +91,18 @@ defmodule Aiur.GitHub.Budget.Settings do
         settings
 
       _ ->
-        case Config.settings() do
-          {:ok, %{tracker: %{github: settings}}} -> Map.from_struct(settings)
-          _unavailable -> %{}
-        end
+        AccessSettings.current().budget
     end
   rescue
     _unavailable -> %{}
   end
 
   @spec deadline(keyword()) :: integer()
-  def deadline(opts), do: System.monotonic_time(:millisecond) + positive(Keyword.get(opts, :timeout_ms, @default_timeout_ms), @default_timeout_ms)
+  def deadline(opts) do
+    Keyword.get_lazy(opts, :deadline_at, fn ->
+      System.monotonic_time(:millisecond) + positive(Keyword.get(opts, :timeout_ms, @default_timeout_ms), @default_timeout_ms)
+    end)
+  end
 
   @spec command_deadline(keyword()) :: integer()
   def command_deadline(opts) do

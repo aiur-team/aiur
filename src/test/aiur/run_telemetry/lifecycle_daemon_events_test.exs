@@ -17,7 +17,7 @@ defmodule Aiur.RunTelemetry.LifecycleDaemonEventsTest do
     assert {:ok, attributes, "2026-07-11T13:00:00Z"} = Lifecycle.external_anchor(event)
     assert %{event: "ci_result", boundary: "point", ticket: "42", outcome: "failed", pr_number: 77} = attributes
     assert attributes.head_sha == "0123456789ab"
-    refute inspect(attributes) =~ "secret"
+    Aiur.TestSupport.refute_leak(attributes, "secret")
   end
 
   test "ci.passed gives outcome passed" do

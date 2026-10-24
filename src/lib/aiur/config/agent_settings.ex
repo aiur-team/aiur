@@ -1,6 +1,7 @@
 defmodule Aiur.Config.AgentSettings do
   @moduledoc false
 
+  alias Aiur.Config.BackendCatalog
   alias Aiur.Config.RoutingValue
   alias Aiur.Config.Schema
 
@@ -58,11 +59,13 @@ defmodule Aiur.Config.AgentSettings do
   end
 
   @doc "Default backend: the backend of the first `agent.priority` route when present, else the deprecated `agent.kind` field."
-  @spec agent_kind() :: String.t()
+  @spec agent_kind() :: String.t() | BackendCatalog.unavailable()
   def agent_kind do
-    case agent_priority_backends() do
-      [primary | _] -> primary
-      [] -> Aiur.Config.settings!().agent.kind || Aiur.CodingAgent.default_backend()
+    with {:ok, _catalog} <- BackendCatalog.impl() do
+      case agent_priority_backends() do
+        [primary | _] -> primary
+        [] -> Aiur.Config.settings!().agent.kind || BackendCatalog.default_backend()
+      end
     end
   end
 
@@ -114,11 +117,13 @@ defmodule Aiur.Config.AgentSettings do
   target after the primary; otherwise it reads the deprecated
   `agent.rate_limit_fallback` field (`""` disables).
   """
-  @spec rate_limit_fallback_backend() :: String.t() | nil
+  @spec rate_limit_fallback_backend() :: String.t() | nil | BackendCatalog.unavailable()
   def rate_limit_fallback_backend do
-    case agent_priority_backends() do
-      [_primary | rest] -> Enum.find(rest, &(&1 in Aiur.CodingAgent.rate_limit_fallback_targets()))
-      [] -> legacy_rate_limit_fallback()
+    with {:ok, _catalog} <- BackendCatalog.impl() do
+      case agent_priority_backends() do
+        [_primary | rest] -> Enum.find(rest, &(&1 in BackendCatalog.rate_limit_fallback_targets()))
+        [] -> legacy_rate_limit_fallback()
+      end
     end
   end
 
@@ -303,6 +308,12 @@ defmodule Aiur.Config.AgentSettings do
   @spec ci_wait_rewake_minutes() :: pos_integer()
   def ci_wait_rewake_minutes do
     Aiur.Config.settings!().agent.ci_wait_rewake_minutes
+  end
+
+  @doc "Minutes before a green, unreviewed ready PR is re-raised to the Executor."
+  @spec unreviewed_pr_age_limit_minutes() :: pos_integer()
+  def unreviewed_pr_age_limit_minutes do
+    Aiur.Config.settings!().agent.unreviewed_pr_age_limit_minutes
   end
 
   @doc "Whether automatic CI recovery reruns are enabled."

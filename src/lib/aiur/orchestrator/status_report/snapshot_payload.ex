@@ -41,7 +41,14 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
 
     %{
       ci_wait:
-        state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Enum.filter(fn {_target, ci} -> ci[:tracker_state] == "ci-wait" end) |> Enum.map(fn {target, ci} -> Map.put(ci, :identifier, target) end),
+        state.ci_lifecycle
+        |> Map.get(:poll_cache, %{})
+        |> Enum.filter(fn {_target, ci} -> ci[:tracker_state] in ["ci-wait", "human-review"] end)
+        |> Enum.map(fn {target, ci} ->
+          ci
+          |> Map.put(:identifier, target)
+          |> Map.put(:observed_at_ms, get_in(state.ci_lifecycle, [:ci_observed_at_ms, target]))
+        end),
       rework_attempts:
         Enum.map(state.rework_attempts, fn {{issue_id, head_sha}, count} ->
           %{issue_id: issue_id, head_sha: head_sha, count: count}
@@ -163,6 +170,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       agent_total_tokens: Map.get(metadata, :agent_total_tokens, 0),
       context_usage: Map.get(metadata, :context_usage),
       telemetry_attempt_id: Map.get(metadata, :telemetry_attempt_id),
+      usage_limit_reset_at: Map.get(metadata, :usage_limit_reset_at),
       turn_count: Map.get(metadata, :turn_count, 0),
       turn_count_observed?: Map.has_key?(metadata, :turn_count),
       started_at: started_at,
@@ -172,6 +180,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       work_state: work_state,
       pause_reason: pause_reason,
       tracker_paused: Issue.paused?(metadata.issue),
+      executor_owner: Issue.executor_owner(metadata.issue),
       queue_depth: capabilities.queue_depth,
       pending_operator_messages: OM.pending_operator_messages_for_issue(state, metadata.identifier),
       control: capabilities,
@@ -285,6 +294,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       title: issue.title,
       url: issue.url,
       tracker_paused: Issue.paused?(issue),
+      executor_owner: Issue.executor_owner(issue),
       queue_depth: OM.queue_depth_for_issue(state, identifier),
       # #1453 supplies the idle-reason evidence; #1457 renders it.
       dispatch_latch: idle_evidence.dispatch_latch,

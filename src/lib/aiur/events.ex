@@ -19,8 +19,17 @@ defmodule Aiur.Events do
   @spec subscribe(String.t()) :: :ok
   defdelegate subscribe(pattern), to: Exchange
 
+  @spec subscribe(String.t(), GenServer.server()) :: :ok
+  defdelegate subscribe(pattern, server), to: Exchange
+
   @spec unsubscribe(String.t()) :: :ok
   defdelegate unsubscribe(pattern), to: Exchange
+
+  @spec unsubscribe(String.t(), GenServer.server()) :: :ok
+  defdelegate unsubscribe(pattern, server), to: Exchange
+
+  @spec specificity_score(String.t()) :: integer()
+  defdelegate specificity_score(pattern), to: Topic
 
   @spec bindings_for(pid()) :: [String.t()]
   defdelegate bindings_for(pid), to: Exchange
@@ -39,4 +48,22 @@ defmodule Aiur.Events do
 
   @spec set_tracked_fn((String.t() | integer() | nil -> boolean())) :: :ok
   defdelegate set_tracked_fn(fun), to: Publisher
+
+  @doc false
+  @spec publisher_available?() :: boolean()
+  def publisher_available?, do: Process.whereis(Publisher) != nil
+
+  @doc false
+  @spec exchange_server() :: GenServer.server()
+  def exchange_server, do: Exchange
+
+  @doc false
+  @spec any_subscriber_matches?(String.t()) :: boolean()
+  def any_subscriber_matches?(topic) do
+    Aiur.Events.SubscriptionStoreRegistry
+    |> Registry.select([{{:"$1", :"$2", :_}, [], [:"$2"]}])
+    |> Enum.any?(fn pid -> Enum.any?(bindings_for(pid), &matches?(&1, topic)) end)
+  rescue
+    ArgumentError -> false
+  end
 end

@@ -3,29 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   use Phoenix.Component
 
-  alias Aiur.Protocol.ObservationAge
-  alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters}
-
-  @fleet_stats [
-    {:running, "Active", "good"},
-    {:blocked, "Blocked", "block"},
-    {:paused, "Paused", "attn"},
-    {:stuck, "Stuck", "attn"},
-    {:finished, "Finished", "good"},
-    {:all, "Total", "faint"}
-  ]
-
-  attr(:writable, :boolean, required: true)
-
-  @spec readonly_banner(map()) :: Phoenix.LiveView.Rendered.t()
-  def readonly_banner(assigns) do
-    ~H"""
-    <div :if={!@writable} class="readonly-banner" role="status">
-      <span aria-hidden="true">◉</span>
-      <span><b>Read-only dashboard.</b> Command, message, and pause controls are hidden.</span>
-    </div>
-    """
-  end
+  alias AiurWeb.OperatorControlCenter.DecisionPath
 
   attr(:decisions, :list, default: [])
   attr(:retained_counts, :map, required: true)
@@ -92,38 +70,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     """
   end
 
-  attr(:fleet, :map, required: true)
-  attr(:filters, :any, required: true)
-
-  @spec fleet_overview(map()) :: Phoenix.LiveView.Rendered.t()
-  def fleet_overview(assigns) do
-    assigns =
-      assigns
-      |> assign(:counts, FleetFilters.counts(assigns.fleet))
-      |> assign(:stats, @fleet_stats)
-      |> assign(:all_active, MapSet.equal?(assigns.filters, MapSet.new(FleetFilters.all())))
-
-    ~H"""
-    <p class="muted">Fleet snapshot {ObservationAge.label(@fleet[:snapshot_freshness])}</p>
-    <p :for={{group, observation} <- @fleet[:observations] || %{}} class="muted">{group}: {ObservationAge.label(observation)}</p>
-    <section class="overview-strip" aria-label="Fleet filters">
-      <button
-        :for={{key, label, tone} <- @stats}
-        type="button"
-        class={["stat", active?(@filters, key, @all_active) && "is-active"]}
-        data-tone={tone}
-        phx-click="toggle-fleet-filter"
-        phx-value-filter={key}
-        aria-pressed={to_string(active?(@filters, key, @all_active))}
-      >
-        <span class="stat-dot"></span>
-        <strong class="stat-value num">{@counts[key]}</strong>
-        <span class="stat-label">{label}</span>
-      </button>
-    </section>
-    """
-  end
-
   attr(:error, :map, required: true)
 
   @spec error(map()) :: Phoenix.LiveView.Rendered.t()
@@ -171,7 +117,4 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   defp banner_title(_blocking, 1), do: "1 unit awaiting commands"
   defp banner_title(_blocking, open), do: "#{open} units awaiting commands"
-
-  defp active?(_filters, :all, all_active), do: all_active
-  defp active?(filters, key, _all_active), do: MapSet.member?(filters, key)
 end

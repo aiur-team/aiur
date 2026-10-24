@@ -2,6 +2,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3]
+  import Phoenix.LiveView, only: [connected?: 1]
 
   alias Aiur.{Commands, CurrentRunMembership, OpenTicketSource, TicketActivity}
   alias Aiur.Orchestrator.SnapshotStore
@@ -14,11 +15,15 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   @provider_budget_margin_ms 1_000
   @reload_min_interval_ms 400
   @max_reload_events 32
+  # The connected join reuses the payload the static render just cached; a
+  # blocking reload there kept the page unjoined for seconds (#5163).
+  @join_max_age_ms 15_000
+  @startup_observation_timeout_ms 600_000
 
-  @spec load(:cached | :fresh | {:event, MapSet.t()}) :: map()
+  @spec load(:cached | :fresh | :join | {:event, MapSet.t()}) :: map()
   def load(mode \\ :cached)
 
-  def load(mode) when mode in [:cached, :fresh] do
+  def load(mode) when mode in [:cached, :fresh, :join] do
     do_load(mode)
   end
 
@@ -65,7 +70,13 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     |> assign(:payload_loaded_at_ms, now_ms())
     |> assign(:payload_reload_scheduled?, false)
     |> assign(:payload_reload_mode, :cached)
+    |> schedule_startup_deadline()
   end
+
+  @doc "Marks the mount payload loaded; a connected join refreshes it right after joining."
+  @spec mark_joined(Phoenix.LiveView.Socket.t(), boolean()) :: Phoenix.LiveView.Socket.t()
+  def mark_joined(socket, false), do: mark_loaded(socket)
+  def mark_joined(socket, true), do: socket |> mark_loaded() |> schedule()
 
   @spec schedule(Phoenix.LiveView.Socket.t(), :cached | {:event, term()}) :: Phoenix.LiveView.Socket.t()
   def schedule(socket, mode \\ :cached)
@@ -104,7 +115,12 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   end
 
   defp fetch_cached(server, mode, providers) do
-    max_age_ms = if mode == :fresh, do: 0, else: @reload_min_interval_ms
+    max_age_ms =
+      case mode do
+        :fresh -> 0
+        :join -> @join_max_age_ms
+        :cached -> @reload_min_interval_ms
+      end
 
     ControlCenterCache.fetch(
       server,
@@ -114,26 +130,62 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     )
   end
 
-  defp cache_payload(%{error: {:cache_unavailable, reason}}) do
-    ControlCenterPresenter.unavailable_payload()
-    |> Map.put(:stale, true)
-    |> Map.put(:cache_error, reason)
-    |> Map.put(:retained_counts, unavailable_retained_counts())
+  defp cache_payload(payload) do
+    payload =
+      case payload do
+        %{error: {:cache_unavailable, reason}} ->
+          ControlCenterPresenter.unavailable_payload()
+          |> Map.put(:stale, true)
+          |> Map.put(:cache_error, reason)
+          |> Map.put(:retained_counts, unavailable_retained_counts())
+          |> Map.merge(Map.take(payload, [:fleet_startup_pending?, :fleet_startup_timed_out?]))
+
+        %{stale: true, stale_age_ms: age_ms, units: %{} = units} when is_integer(age_ms) ->
+          units =
+            units
+            |> Map.put(:status, :stale)
+            |> Map.put(:message, "Dashboard refresh failed; showing the last loaded units.")
+            |> Map.put(:retained_age_seconds, div(max(age_ms, 0), 1_000))
+
+          Map.put(payload, :units, units)
+
+        _payload ->
+          payload
+      end
+
+    if Map.get(payload, :fleet_startup_pending?) == true do
+      payload |> UnitsPresenter.starting_catalog() |> Map.delete(:fleet_startup_pending?)
+    else
+      if Map.get(payload, :fleet_startup_timed_out?) == true do
+        payload |> mark_fleet_unavailable() |> Map.delete(:fleet_startup_timed_out?)
+      else
+        Map.delete(payload, :fleet_startup_timed_out?)
+      end
+    end
   end
 
-  # A failed load re-serves the previous payload. Its Units catalog must say so
-  # rather than pass old rows and runtimes off as the live fleet (#3937).
-  defp cache_payload(%{stale: true, stale_age_ms: age_ms, units: %{} = units} = payload) when is_integer(age_ms) do
-    units =
-      units
-      |> Map.put(:status, :stale)
-      |> Map.put(:message, "Dashboard refresh failed; showing the last loaded units.")
-      |> Map.put(:retained_age_seconds, div(max(age_ms, 0), 1_000))
-
-    Map.put(payload, :units, units)
+  defp mark_fleet_unavailable(payload) do
+    Map.update(payload, :units, unavailable_units(), fn
+      %{} = units -> Map.merge(units, %{status: :unavailable, message: Map.get(units, :message) || "Fleet data is unavailable."})
+      _missing -> unavailable_units()
+    end)
   end
 
-  defp cache_payload(payload), do: payload
+  defp unavailable_units do
+    %{status: :unavailable, message: "Fleet data is unavailable.", truncated?: false, snapshot: %{rows: [], truncated?: false}}
+  end
+
+  defp schedule_startup_deadline(socket) do
+    if timer = Map.get(socket.assigns, :units_startup_timer), do: Process.cancel_timer(timer)
+
+    if connected?(socket) and get_in(socket.assigns, [:payload, :units, :status]) == :loading do
+      remaining_ms = max(@startup_observation_timeout_ms - Aiur.Boot.elapsed_ms(), 0)
+      timer = Process.send_after(self(), :reload_payload, remaining_ms)
+      socket |> assign(:payload_reload_mode, :fresh) |> assign(:units_startup_timer, timer)
+    else
+      assign(socket, :units_startup_timer, nil)
+    end
+  end
 
   defp initial_reload_mode({:event, event_key}), do: {:event, MapSet.new([event_key])}
 
@@ -174,8 +226,9 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     |> put_units_status_snapshot(orchestrator: orchestrator, timeout: snapshot_timeout_ms)
     |> Map.put(:retained_counts, retained_counts)
     |> update_in([:provider_health], &Map.put(&1, :retained_counts, retained_counts.health.status))
-    |> then(&Map.put(&1, :units, UnitsPresenter.load(&1, units_options(bound, funs))))
+    |> then(fn payload -> Map.put(payload, :units, UnitsPresenter.load(payload, units_options(bound, funs))) end)
     |> Map.put(:tickets, TicketsPresenter.load(tickets_options(bound, funs)))
+    |> Map.delete(:units_status_snapshot)
   end
 
   # Every provider read gets a deadline inside the cache's load timeout, so a slow
@@ -202,6 +255,9 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     case SnapshotStore.read(orchestrator, timeout) do
       {status, snapshot, freshness} when status in [:current, :stale] ->
         Map.put(payload, :units_status_snapshot, Map.put(snapshot, :snapshot_freshness, freshness))
+
+      :snapshot_unpublished ->
+        Map.put(payload, :daemon_starting?, true)
 
       _unavailable_or_unpublished ->
         payload

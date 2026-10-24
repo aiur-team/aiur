@@ -17,6 +17,8 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   alias Aiur.AgentRunner.CodexUpdateRelay
   alias Aiur.AgentRunner.LiveObserver
+  alias Aiur.AgentRunner.RepeatedCommandGuard
+  alias Aiur.AgentRunner.TurnProgress
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Signal
@@ -48,6 +50,9 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
+
+      maybe_steer_repeated_command(message, lifecycle_opts)
+
       transcript_event = transcript_event_from(message, backend, turn_id)
       observe_lifecycle(issue, backend, message, lifecycle_opts)
       observe_rate_limits(backend, message, lifecycle_opts)
@@ -57,6 +62,13 @@ defmodule Aiur.AgentRunner.MessageHandler do
       LiveObserver.maybe_observe_live_conversation(issue, transcript_event, lifecycle_opts)
       maybe_broadcast_turn_event(issue, message, turn_id)
       send_codex_update(recipient, issue, message)
+    end
+  end
+
+  defp maybe_steer_repeated_command(message, lifecycle_opts) do
+    case {RepeatedCommandGuard.observe_message(message), Keyword.get(lifecycle_opts, :repeated_command_steerer)} do
+      {{:steer, body}, sender} when is_function(sender, 1) -> sender.(body)
+      _ -> :ok
     end
   end
 
@@ -234,7 +246,8 @@ defmodule Aiur.AgentRunner.MessageHandler do
       {:worker_runtime_info, issue_id,
        %{
          worker_host: worker_host,
-         workspace_path: workspace
+         workspace_path: workspace,
+         duration_cap_progress_baseline: workspace_fingerprint(workspace, worker_host)
        }}
     )
 
@@ -242,6 +255,13 @@ defmodule Aiur.AgentRunner.MessageHandler do
   end
 
   def send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
+
+  defp workspace_fingerprint(workspace, worker_host) do
+    case TurnProgress.workspace_digest(workspace, worker_host) do
+      {:ok, digest} -> digest
+      {:error, _reason} -> nil
+    end
+  end
 
   @doc false
   # Signals the orchestrator that this dispatch attempt has survived

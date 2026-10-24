@@ -1,9 +1,11 @@
 defmodule Aiur.AgentRunner.TurnCompletion do
+  # Cohesion: final state, retry, no-op and handoff decisions share one turn
+  # context and return through the same runner completion contract.
   @moduledoc false
 
   require Logger
   alias Aiur.AgentCompaction.Handoff
-  alias Aiur.AgentRunner.{NoopWait, ReworkHandoff, TurnAlerts, TurnLoop, TurnProgress}
+  alias Aiur.AgentRunner.{NoopWait, ReworkHandoff, ReworkHandoffGuard, TurnAlerts, TurnLoop, TurnProgress}
   alias Aiur.{Config, Issue}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
@@ -46,8 +48,8 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     end
   end
 
-  # #2806: fold turn progress into the no-op counter and stop without mutating
-  # the ticket once an unproductive run reaches its cap. Productive turns reset it.
+  # #2806: fold turn progress into the no-op counter and hand off once an
+  # unproductive run reaches its cap. Productive turns reset the counter.
   defp continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler) do
     %{
       workspace: workspace,
@@ -120,8 +122,7 @@ defmodule Aiur.AgentRunner.TurnCompletion do
 
     case noop_failure_state(issue) do
       nil ->
-        emit_noop_bound_alert(issue, workspace, worker_host, progress, witness, cap, turn_number)
-        TurnLoop.return_completed(turn_context, issue)
+        handoff_noop_without_state(turn_context, issue, workspace, worker_host, progress, witness, cap, turn_number)
 
       state_name ->
         case TicketTransition.write_state(issue.identifier, state_name, writer: :turn_loop) do
@@ -133,6 +134,26 @@ defmodule Aiur.AgentRunner.TurnCompletion do
           {:error, reason} ->
             {:error, {:noop_bound_state_write_failed, reason}}
         end
+    end
+  end
+
+  defp handoff_noop_without_state(turn_context, issue, workspace, worker_host, progress, witness, cap, turn_number) do
+    reason = "Agent reached the no-op turn limit without making progress."
+
+    case TicketTransition.write_comment(issue.identifier, reason, writer: :turn_loop) do
+      :ok ->
+        case TicketTransition.write_state(issue.identifier, "human-review", writer: :turn_loop) do
+          :ok ->
+            review_issue = %{issue | state: "human-review"}
+            emit_noop_bound_alert(review_issue, workspace, worker_host, progress, witness, cap, turn_number)
+            TurnLoop.return_completed(turn_context, review_issue)
+
+          {:error, write_reason} ->
+            {:error, {:noop_bound_state_write_failed, write_reason}}
+        end
+
+      {:error, comment_reason} ->
+        {:error, {:noop_bound_comment_write_failed, comment_reason}}
     end
   end
 
@@ -159,17 +180,27 @@ defmodule Aiur.AgentRunner.TurnCompletion do
 
     case stopped_agent_handoff(refreshed_issue, workspace, worker_host, opts) do
       {:handoff, state} ->
-        case TicketTransition.write_state(refreshed_issue.identifier, state, writer: :turn_loop) do
+        handoff_after_evidence_check(turn_context, refreshed_issue, state, workspace, worker_host, opts)
+
+      :none ->
+        :none
+    end
+  end
+
+  defp handoff_after_evidence_check(turn_context, issue, state, workspace, worker_host, opts) do
+    case ReworkHandoffGuard.evidence_blockers(issue, state, workspace, opts) do
+      :allow ->
+        case TicketTransition.write_state(issue.identifier, state, writer: :turn_loop) do
           :ok ->
-            TurnAlerts.emit_rework_handoff_alert(refreshed_issue, workspace, worker_host, state)
-            {:handoff, TurnLoop.return_completed(turn_context, %{refreshed_issue | state: state})}
+            TurnAlerts.emit_rework_handoff_alert(issue, workspace, worker_host, state)
+            {:handoff, TurnLoop.return_completed(turn_context, %{issue | state: state})}
 
           {:error, reason} ->
             {:error, {:rework_handoff_state_write_failed, reason}}
         end
 
-      :none ->
-        :none
+      {:refused, reason, message} ->
+        {:error, {:rework_handoff_evidence_refused, reason, message}}
     end
   end
 

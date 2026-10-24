@@ -1,10 +1,12 @@
-import { columnSequence } from './build-home-columns-motion.mjs'
+import { hoverTreeCard, treeTab, treeHoverClear } from './build-home-tree-motion.mjs'
+import { columnSequence, alignColumnPolls } from './build-home-columns-motion.mjs'
 import { spanState } from './build-home-span-state.mjs'
 import { historySequence } from './build-home-history-motion.mjs'
 import { scrollbar } from './build-home-scrollbar-motion.mjs'
+import { alignCardIconToDevicePixel, restoreCardIconAlignment } from './build-home-motion-pixel-align.mjs'
 // Shared records and ownership stay together; feature sequences live beside them.
 // Motion records use the same allowlist as screenshot parity. Design bytes stay untouched.
-import { captureStable } from './design-parity.mjs'
+import { captureStaticGrain } from './build-home-grain-capture.mjs'
 export const motionPathMatches = (pattern, path) => new RegExp(`^${pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(path.replace(/^reduce\.live-toggle\.animation\.tkin(?=\.)/, 'modal.reduce.animation.tkin'))
 const geometry = /(?:scrollTop|top|left|width|height)$/
 
@@ -138,7 +140,7 @@ export const OWNER = {
   'columns': { owners: ['MP-E8-C9-T04'], anchor: '.bd-content .bd-lane' },
   'view.span': { owners: ['MP-E8-C9-T10'], anchor: '.bd-zoom [data-z]' },
   'view.switch.graph': { owners: ['MP-E8-C10-T01'], pending: true },
-  'view.switch.gantt': { owners: ['MP-E8-C9-T09'], pending: true },
+  'view.switch.gantt': { owners: ['MP-E8-C9-T09'] },
   'view.switch.list': { owners: ['MP-E8-C9-T12'] },
   'filter': { owners: ['MP-E8-C10-T02'], anchor: '.bd-fg' },
   'feature': { owners: ['MP-E8-C10-T03'], pending: true, anchor: '.bd-fg[data-g="feature"]' },
@@ -203,7 +205,7 @@ async function scrollTo(page, value) {
 }
 
 async function snap(page, ctx, kind) {
-  if (kind === 'list-view') await click(page, '[data-v="list"]')
+  if (kind === 'list-view') await click(page, '[data-v="list"]', true)
   const geometry = await page.evaluate(() => {
     const vp = document.querySelector('#bd-vp'), band = document.querySelector('#bd-now')
     if (!vp || (!band && !document.querySelector('.bd-list'))) throw new Error('unreachable snap viewport')
@@ -220,8 +222,9 @@ async function snap(page, ctx, kind) {
   const start = await page.locator('#bd-vp').evaluate(el => el.scrollTop)
   const delta = kind === 'pinned' ? -1 : kind === 'guard-up' ? -100 : kind === 'guard-down' ? 100 : kind.includes('bottom') ? 20 : -20
   await scrollTo(page, start + delta)
+  const pixelAlignment = kind === 'tall-band' ? await alignCardIconToDevicePixel(page) : null
   const frame = [{ scrollTop: await page.locator('#bd-vp').evaluate(el => el.scrollTop) }]
-  await ctx.onFrame?.(0, '#bd-vp')
+  try { await ctx.onFrame?.(0, '#bd-vp') } finally { if (pixelAlignment) await restoreCardIconAlignment(page, pixelAlignment) }
   for (let i = 0; i < 40; i++) {
     await page.clock.runFor(16)
     frame.push({ scrollTop: await page.locator('#bd-vp').evaluate(el => el.scrollTop) })
@@ -235,20 +238,40 @@ async function scrollCurve(page, ctx) {
   await page.clock.runFor(16)
   await page.clock.runFor(704)
   // A tall band disables liveGuard so it cannot restart the curve midway through.
-  await page.locator('#bd-vp').evaluate(el => {
+  await page.locator('#bd-vp').evaluate(async el => {
     el.style.height = el.style.maxHeight = `${document.querySelector('#bd-now').offsetHeight + 40}px`
+    // Resolve the artificial viewport's layout before sampling its curve.
+    // A later mobile resize callback must see the same settled geometry.
+    if (window.AiurBuild) window.AiurBuild.render()
+    else (await import('/build-home/state.js')).fx.relayout()
   })
   await scrollTo(page, 270)
   await page.clock.runFor(704)
+  await alignColumnPolls(page)
   const input = await page.evaluate(() => ({ from: document.querySelector('#bd-vp').scrollTop,
     to: document.querySelector('#bd-sec-hist').offsetTop + document.querySelector('#bd-sec-hist').offsetHeight - 46, at: performance.now() }))
-  await click(page, '#bd-nowbtn')
+  await click(page, '#bd-nowbtn', ctx.reduce)
   await ctx.onFrame?.(0, '#bd-vp')
   const frame = []
   for (let index = 0; index < 27; index++) {
+    // Native scroll events must reach the app before the next virtual frame.
+    const before = await page.evaluate(() => {
+      const vp = document.querySelector('#bd-vp')
+      window.motionScrollPaint = new Promise(resolve => {
+        const done = () => { vp.removeEventListener('scroll', done); resolve() }
+        window.motionScrollCancel = done
+        vp.addEventListener('scroll', done, { once: true })
+      })
+      return vp.scrollTop
+    })
     await page.evaluate(() => requestAnimationFrame(now => { window.motionFrameStamp = now }))
     await page.clock.runFor(16)
-    frame.push(await page.evaluate(at => ({ scrollTop: document.querySelector('#bd-vp').scrollTop, elapsed: window.motionFrameStamp - at }), input.at))
+    frame.push(await page.evaluate(async ({ at, before }) => {
+      const vp = document.querySelector('#bd-vp')
+      if (vp.scrollTop === before) window.motionScrollCancel()
+      await window.motionScrollPaint
+      return { scrollTop: vp.scrollTop, elapsed: window.motionFrameStamp - at }
+    }, { at: input.at, before }))
     if (index === 12 || index === 26) await ctx.onFrame?.(index === 12 ? .5 : 1, '#bd-vp')
   }
   return { samples: [await state(page, ctx)], frame, input: { from: input.from, to: input.to } }
@@ -329,11 +352,8 @@ async function modal(page, ctx, close = false, fromUrl = false) {
 }
 
 async function tree(page, ctx) {
-  await page.clock.runFor(704)
-  const cards = page.locator('.bd-card:not(.now)')
-  if (!await cards.count()) throw new Error('unreachable tree card')
-  await cards.first().evaluate(el => el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-  await click(page, '[data-lt="lock"]')
+  await hoverTreeCard(page)
+  await page.locator('[data-lt="lock"]').click({ force: true })
   if (!await page.locator('.bd-lt.show.locked').count()) throw new Error('unreachable locked tree control')
   const animation = await cssMotion(page, '#bd-tree', ctx, '[data-lt="tree"]')
   if (await page.locator('#bd-tree').evaluate(el => el.hidden)) throw new Error('unreachable open tree overlay')
@@ -431,12 +451,12 @@ async function grain(page, ctx) {
     await ctx.onFrame?.(0, selector)
     // Isolate the actual pseudo-element; live contents are measured separately.
     const target = page.locator(selector).first(), opts = { animations: 'allow', style: `* { visibility: hidden !important } ${selector}::after { visibility: visible !important }` }
-    const before = await captureStable(target, opts, page)
+    const before = await captureStaticGrain(page, target, opts)
     await page.clock.runFor(512)
     await ctx.onFrame?.(.5, selector)
     await page.clock.runFor(496)
     await ctx.onFrame?.(1, selector)
-    const after = await captureStable(target, opts, page)
+    const after = await captureStaticGrain(page, target, opts)
     if (!before.equals(after)) throw new Error(`grain changes over time: ${selector}`)
   }
   return { samples, ...values }
@@ -466,6 +486,7 @@ export const SEQUENCES = {
   'modal.url': (page, ctx) => modal(page, ctx, false, true), 'modal.open': modal, 'modal.close': (page, ctx) => modal(page, ctx, true), 'modal.reduce': modal,
   'minimap.drag': (page, ctx) => minimap(page, ctx, false), 'minimap.jump': (page, ctx) => minimap(page, ctx, true),
   'tree.overlay': tree, 'tree.reduce': tree,
+  'tree.tab': (page, ctx) => treeTab(page, ctx, { cssMotion }), 'tree.hover-clear': treeHoverClear,
   'loading.spin': (page, ctx) => inventory(page, { ...ctx, selector: '.bd-loading' }),
   'grain.static': grain, 'inventory': inventory,
   'reduce.live-toggle': async (page, ctx) => {

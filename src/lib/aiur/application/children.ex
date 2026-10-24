@@ -33,6 +33,10 @@ defmodule Aiur.Application.Children do
     telemetry? = Keyword.get(opts, :telemetry?, true)
     executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
     ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
+    build_index? = dashboard? and Keyword.get(opts, :build_index?, Application.get_env(:aiur, :build_index?, true))
+    primary_instance? = Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0) == "primary"
+    github_tracker? = Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end)
+    main_watch_enabled? = Keyword.get_lazy(opts, :main_watch_enabled?, &Aiur.MainWatch.enabled?/0)
 
     # Always true for a real run. The unit-test singleton turns it off so the
     # shared app process does not hold a VM-wide inbox and listener that every
@@ -218,14 +222,15 @@ defmodule Aiur.Application.Children do
       # the projection can seed from it at boot and cast retains into it.
       Aiur.ProgressRetention,
       Aiur.TicketActivity,
-      # Claude telemetry must be available before the Orchestrator starts owned workers.
-      Aiur.Claude.Telemetry,
+      # Harness children (today: Claude launch telemetry) must start before the Orchestrator.
+      Aiur.CodingAgent.child_specs(),
       BuildOrders.child_specs(:history, opts),
       Aiur.TicketContext.child_specs(:late, opts),
       BuildOrders.child_specs(:late, opts),
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
       # View-state cadence reconciles the pack-status writer; starts after its timerless sources so its first tick never races boot fill.
       BuildOrders.child_specs(:view_state_sweep, opts),
+      Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
       Aiur.DecisionExpiry,
@@ -264,7 +269,7 @@ defmodule Aiur.Application.Children do
       # into the dashboard, the Principal, or the opencode supervisors.
       if(recording?, do: [Aiur.AllowedContributors, BuildOrders.child_specs(:recording, opts)]),
       BuildOrders.child_specs(:final, opts),
-      if(Aiur.MainWatch.enabled?(), do: Aiur.MainWatch)
+      if(primary_instance? and main_watch_enabled?, do: Aiur.MainWatch)
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
@@ -274,20 +279,31 @@ defmodule Aiur.Application.Children do
         Aiur.Experiments.children(recording?) ++
         Auto.child_specs(recording?: recording?, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]) ++
         BuildOrders.child_specs(:label_projection, opts) ++
-        landing_watch_children() ++
+        landing_watch_children(primary_instance?, github_tracker?) ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        quarantine_lifter_children() ++ List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
+        quarantine_lifter_children(primary_instance?, github_tracker?) ++
+        dashboard_cache_children(dashboard?) ++
+        dashboard_final_children(dashboard?, build_index?, opts)
     )
   end
 
-  defp landing_watch_children do
-    if AiurConfig.tracker_kind() == "github", do: [Aiur.LandingWatch], else: []
+  defp dashboard_final_children(dashboard?, build_index?, opts) do
+    List.wrap(if(dashboard?, do: AiurWeb.DashboardAuth.ChallengeStore)) ++
+      BuildOrders.child_specs(:estimates, opts) ++ List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
   end
 
-  defp quarantine_lifter_children do
-    if AiurConfig.tracker_kind() == "github", do: [Aiur.LandingWatch.QuarantineLifter], else: []
+  defp dashboard_cache_children(dashboard?) do
+    List.wrap(if(dashboard?, do: [Aiur.RunTelemetry.RetainedCache, {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}]))
   end
+
+  defp landing_watch_children(true, true), do: [Aiur.LandingWatch]
+
+  defp landing_watch_children(_primary_instance?, _github_tracker?), do: []
+
+  defp quarantine_lifter_children(true, true), do: [Aiur.LandingWatch.QuarantineLifter]
+
+  defp quarantine_lifter_children(_primary_instance?, _github_tracker?), do: []
 
   defp executor_sweep_children do
     if AiurConfig.tracker_kind() == "github", do: [Aiur.ExecutorSweep], else: []
