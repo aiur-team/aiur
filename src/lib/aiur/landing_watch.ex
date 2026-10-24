@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun}
+  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun, RunnerQueue}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.LandingWatch.TicketLookup
   alias Aiur.Orchestrator.TicketTransition
@@ -135,6 +135,7 @@ defmodule Aiur.LandingWatch do
     if Enum.all?(observations, &is_map/1) do
       case Keyword.get(opts, :journal_prune_fun, &Journal.retain_current_heads/2).(observations, opts) do
         :ok ->
+          _ = report_runner_queue(observations, opts)
           process_and_reconcile(observations, opts)
 
         {:error, _} = error ->
@@ -145,6 +146,14 @@ defmodule Aiur.LandingWatch do
       end
     else
       {:error, :invalid_observations}
+    end
+  end
+
+  defp report_runner_queue(observations, opts) do
+    case Keyword.get(opts, :runner_queue_fun, &RunnerQueue.report/2).(observations, opts) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("landing watcher runner queue reconciliation unavailable: #{inspect(reason)}")
+      _ -> Logger.warning("landing watcher runner queue reconciliation returned an invalid result")
     end
   end
 
