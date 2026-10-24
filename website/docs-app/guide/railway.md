@@ -44,11 +44,11 @@ instance:
 ```
 
 Configure API keys for every routed backend, such as `ANTHROPIC_API_KEY` for
-Claude or `OPENAI_API_KEY` for Codex. Do not set `CLAUDE_CODE_OAUTH_TOKEN` or
-mount a Codex subscription login. Startup rejects the Claude subscription
-variable and reports the variable needed when a configured backend has no
-usable API key. Consumer requests must use API-key profiles; see #5700 for the
-per-job profile controls.
+Claude or `OPENAI_API_KEY` for Codex. Do not set
+`CLAUDE_CODE_OAUTH_TOKEN` or mount a Codex subscription login. Startup rejects
+the Claude subscription variable and reports the variable needed when a
+configured backend has no usable API key. Consumer requests must use API-key
+profiles; see #5700 for the per-job profile controls.
 
 ## Provider rejects a credential
 
