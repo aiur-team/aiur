@@ -15,6 +15,7 @@
     "src/lib/aiur/landing_watch/merge_queue_watchdog.ex",
     "src/lib/aiur/landing_watch/merge_queue_watchdog_recovery.ex",
     "src/lib/aiur/landing_watch/observer.ex",
+    "src/lib/aiur/landing_watch/runner_queue.ex",
     "src/lib/aiur/landing_watch/quarantine_lifter.ex",
     "src/lib/aiur/landing_watch/quarantine_pr.ex",
     "src/lib/aiur/landing_watch/workflow_timeouts.ex",
