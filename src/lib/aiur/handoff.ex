@@ -1,5 +1,6 @@
 defmodule Aiur.Handoff do
   @moduledoc "Quiesces a daemon and durably hands its live provider sessions to its successor."
+  require Logger
 
   alias Aiur.AgentRunner.Handoff, as: RunnerHandoff
   alias Aiur.AppServer.ToolCallLedger
@@ -10,6 +11,7 @@ defmodule Aiur.Handoff do
 
   @prepare_timeout_ms 100_000
   @finalize_reserve_ms 5_000
+  @prepared_expiry_ms 600_000
 
   @spec prepare(keyword()) :: {:ok, map()} | {:error, term()}
   def prepare(opts \\ []) do
@@ -126,7 +128,14 @@ defmodule Aiur.Handoff do
             skipped: Enum.map(skipped, fn {_id, entry} -> entry.identifier end)
           }
 
-          Protection.store(owner, result, tickets)
+          Protection.store(
+            owner,
+            result,
+            tickets,
+            Enum.map(entries, fn {_id, entry} -> entry.pid end),
+            Keyword.get(opts, :prepared_expiry_ms, @prepared_expiry_ms)
+          )
+
           {:ok, result}
         end
       rescue
@@ -140,17 +149,21 @@ defmodule Aiur.Handoff do
         success
 
       {:error, _reason} = error ->
-        abort = Keyword.get(opts, :abort, &RunnerHandoff.abort/1)
+        if Keyword.has_key?(opts, :abort) do
+          abort = Keyword.fetch!(opts, :abort)
 
-        Enum.each(all_entries, fn {_id, entry} ->
-          try do
-            abort.(entry.pid)
-          rescue
-            _ -> :ok
-          catch
-            _, _ -> :ok
-          end
-        end)
+          Enum.each(all_entries, fn {_id, entry} ->
+            try do
+              abort.(entry.pid)
+            rescue
+              _ -> :ok
+            catch
+              _, _ -> :ok
+            end
+          end)
+        else
+          RunnerHandoff.abort_all(Enum.map(all_entries, fn {_id, entry} -> entry.pid end))
+        end
 
         cancel_dispatch(server)
         error
@@ -281,6 +294,22 @@ defmodule Aiur.Handoff do
     GenServer.call(server, :cancel_handoff, 5_000)
   catch
     :exit, _reason -> :ok
+  end
+
+  @doc false
+  @spec expire_prepared(map(), String.t(), reference()) :: {:noreply, map()}
+  def expire_prepared(state, handoff_id, token) do
+    case Protection.take_expired(self(), handoff_id, token) do
+      {:ok, prepared} ->
+        Enum.each(prepared.runner_pids, &RunnerHandoff.abort/1)
+        :ok = ProcessReaper.handoff([])
+        Process.delete({__MODULE__, :dispatch_hold})
+        Logger.warning("Prepared handoff expired without daemon stop handoff=#{handoff_id}; released runner and dispatch holds")
+        {:noreply, state}
+
+      :stale ->
+        {:noreply, state}
+    end
   end
 
   defp snapshot_metadata(id, entry, state) do

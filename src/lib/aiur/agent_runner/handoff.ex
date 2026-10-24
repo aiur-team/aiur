@@ -23,6 +23,33 @@ defmodule Aiur.AgentRunner.Handoff do
   end
 
   @doc false
+  @spec abort_all([pid()], timeout()) :: :ok
+  def abort_all(pids, timeout \\ 5_000) do
+    pending =
+      Enum.map(pids, fn pid ->
+        ref = make_ref()
+        monitor = Process.monitor(pid)
+        send(pid, {:handoff_abort, self(), ref})
+        {pid, ref, monitor}
+      end)
+
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    Enum.each(pending, fn {pid, ref, monitor} ->
+      remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+      receive do
+        {:handoff_aborted, ^ref} -> Process.demonitor(monitor, [:flush])
+        {:DOWN, ^monitor, :process, ^pid, _reason} -> :ok
+      after
+        remaining -> Process.demonitor(monitor, [:flush])
+      end
+    end)
+
+    :ok
+  end
+
+  @doc false
   @spec callback(function(), map()) :: function()
   def callback(fun, metadata) do
     Process.put({:handoff_callback, fun}, metadata)
@@ -54,8 +81,15 @@ defmodule Aiur.AgentRunner.Handoff do
     Process.put(:handoff_turn_context, context)
 
     receive do
-      :handoff_hold -> Process.put(:handoff_hold, true)
-      :handoff_abort -> Process.delete(:handoff_hold)
+      :handoff_hold ->
+        Process.put(:handoff_hold, true)
+
+      :handoff_abort ->
+        Process.delete(:handoff_hold)
+
+      {:handoff_abort, from, ref} ->
+        Process.delete(:handoff_hold)
+        send(from, {:handoff_aborted, ref})
     after
       0 -> :ok
     end
@@ -67,6 +101,11 @@ defmodule Aiur.AgentRunner.Handoff do
 
         :handoff_abort ->
           Process.delete(:handoff_hold)
+          session
+
+        {:handoff_abort, from, ref} ->
+          Process.delete(:handoff_hold)
+          send(from, {:handoff_aborted, ref})
           session
       end
     else
@@ -129,33 +168,46 @@ defmodule Aiur.AgentRunner.Handoff do
   defp park(record, original_session) do
     receive do
       :handoff_abort ->
-        resumed =
-          cond do
-            record["fallback_reason"] ->
-              original_session
+        resume_parked(record, original_session, nil)
 
-            # The pane was never released, so only the drained hooks need to come back.
-            record["transport"]["kind"] == "repl" ->
-              Enum.each(decode(record["queued_frames"]), &send(self(), {:claude_hook, original_session.identifier, &1}))
-              original_session
-
-            true ->
-              generation = record["transport"]["generation"] || 0
-
-              case attach(record, generation + 1) do
-                {:ok, session} -> session
-                _ -> exit(:handoff_abort_restore_failed)
-              end
-          end
-
-        Process.put(:handoff_detached, false)
-        Process.delete(:handoff_hold)
-        resumed
+      {:handoff_abort, from, ref} ->
+        resume_parked(record, original_session, {from, ref})
 
       {:handoff_snapshot, from, ref} ->
         send(from, {ref, {:ok, record}})
         park(record, original_session)
     end
+  end
+
+  defp resume_parked(record, original_session, acknowledgment) do
+    resumed =
+      cond do
+        record["fallback_reason"] ->
+          original_session
+
+        # The pane was never released, so only the drained hooks need to come back.
+        record["transport"]["kind"] == "repl" ->
+          Enum.each(decode(record["queued_frames"]), &send(self(), {:claude_hook, original_session.identifier, &1}))
+          original_session
+
+        true ->
+          generation = record["transport"]["generation"] || 0
+
+          case attach(record, generation + 1) do
+            {:ok, session} -> session
+            _ -> exit(:handoff_abort_restore_failed)
+          end
+      end
+
+    Process.put(:handoff_detached, false)
+    Process.delete(:handoff_hold)
+
+    case acknowledgment do
+      {from, ref} -> send(from, {:handoff_aborted, ref})
+      nil -> :ok
+    end
+
+    resumed
   end
 
   defp detach(%{port: port}) when is_pid(port) do

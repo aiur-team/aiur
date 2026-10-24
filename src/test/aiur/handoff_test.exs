@@ -391,6 +391,13 @@ defmodule Aiur.HandoffTest do
   test "a prepare that fails after the snapshot leaves live runners finishing their turn", %{
     tmp_dir: workspace
   } do
+    # Keep lazy module loading out of the live-turn window. In a fresh VM the
+    # first provider event can otherwise wait on the code server for unrelated
+    # application modules and make this runner-liveness assertion flaky.
+    for module <- Application.spec(:aiur, :modules) do
+      Code.ensure_loaded!(module)
+    end
+
     {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
     gate = Path.join(workspace, "go")
     script = Path.join(workspace, "provider.py")
